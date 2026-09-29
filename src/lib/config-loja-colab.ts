@@ -90,8 +90,11 @@ export function serializarColuna(k: ColunaPagina | string, v: unknown): unknown 
     return vazio ? null : v;
   }
   if (k === "keywords") {
+    // Revisão T3/T4 (I2): o banco faz `btrim` (T1 review M3) — o cliente espelha: grava APARADO, e
+    // "Moda " e "Moda" são o MESMO valor (sem conflito/"atualizado" falso depois do próprio save).
     if (typeof v !== "string") return null;
-    return v.trim() === "" ? null : v;
+    const t = v.trim();
+    return t === "" ? null : t;
   }
   return v;
 }
@@ -138,7 +141,9 @@ export function montarMudancas({ cfg, baseUi, baseRaw, kanbanBaseCfg }: MontarMu
 
   for (const k of COLUNAS_PAGINA) {
     if (KANBAN_COLS_SET.has(k)) continue; // kanban vai pelo diff abaixo, não por `igual`
-    if (!igual(cfg[k], baseUi[k])) {
+    // Revisão T3/T4 (I2): "tocada" = muda o que o BANCO grava (serializado) — só espaço nas pontas, ou
+    // "" vs null, não é mudança (nem vai no payload).
+    if (!igual(serializarColuna(k, cfg[k]), serializarColuna(k, baseUi[k]))) {
       mudancas[k] = serializarColuna(k, cfg[k]);
       base[k] = baseRaw[k] ?? null;
     }

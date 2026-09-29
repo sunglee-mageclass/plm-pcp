@@ -79,4 +79,12 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
     expect(dlg).toMatch(/disabled=\{saveMut\.isPending \|\| !hydrated \|\| conflitos\.length > 0\}/);
     expect(dlg).toContain("<ColabPresenceOverlay presentes={presentesNaJanela} scopeRef={corpoRef} />");
   });
+
+  it("revisão T3/T4: M2 (conflito pendente barra no handler), I1 (loja do save), M1 (colunas em voo)", () => {
+    expect(pagina).toContain("if (conflitosRef.current.length > 0) throw new Error(");
+    expect(pagina).toContain("onMutate: () => ({ tenantId: data?.tenantId ?? null })");
+    expect(pagina).toContain("ctx?.tenantId !== cfgBaseTenantRef.current");
+    expect(pagina).toContain("emVooRef.current = new Set(Object.keys(mudancas))");
+    expect(pagina).not.toContain("salvandoRef");
+  });
 });

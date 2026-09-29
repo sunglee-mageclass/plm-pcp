@@ -22,6 +22,8 @@ export function criarFakeSupabase() {
   // dado — simula falha de rede (queryFn que hoje engole o erro passa a dar throw).
   const falhas: Record<string, number> = {};
   const canais: { nome: string; ouvintes: { tabela: string; cb: (p: unknown) => void }[] }[] = [];
+  // Revisão T3/T4 (M4): P0409 sem DETAIL (o cliente tem de tratar TODAS as colunas enviadas como conflito).
+  const opcoes = { p0409SemDetalhe: false };
 
   const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -96,7 +98,9 @@ export function criarFakeSupabase() {
     }
     if (!criada) {
       const conf = chaves.filter((k) => canon(row![k]) !== canon(base[k]) && canon(row![k]) !== canon(norm[k]));
-      if (conf.length) return { data: null, error: { code: "P0409", message: "conflito_versao: config_loja", details: conf.join(",") } };
+      if (conf.length) {
+        return { data: null, error: { code: "P0409", message: "conflito_versao: config_loja", details: opcoes.p0409SemDetalhe ? "" : conf.join(",") } };
+      }
     }
     if (!row) { row = { tenant_id: a._tenant_id }; tabela.push(row); }
     const valores: Record<string, unknown> = {};
@@ -131,7 +135,13 @@ export function criarFakeSupabase() {
     from: (t: string) => builder(t),
     rpc: (nome: string, args?: unknown) => {
       chamadas.push({ tabela: `rpc:${nome}`, op: "rpc", filtros: [], payload: args });
-      if (nome === "salvar_config_loja") return Promise.resolve().then(() => salvarConfigLoja(args as Record<string, any>));
+      if (nome === "salvar_config_loja") {
+        // Revisão T3/T4: a RPC pode ser SEGURADA (`segurar("rpc:salvar_config_loja")`) — simula a resposta
+        // lenta (eco do Realtime/troca de loja no meio do voo). A decisão (compare-and-set) roda ao SOLTAR.
+        const g = gates["rpc:salvar_config_loja"];
+        const run = () => salvarConfigLoja(args as Record<string, any>);
+        return g ? g.promessa.then(run) : Promise.resolve().then(run);
+      }
       return Promise.resolve({ data: null, error: null });
     },
     channel: (nome: string) => {
@@ -167,10 +177,13 @@ export function criarFakeSupabase() {
       for (const k of Object.keys(gates)) delete gates[k];
       for (const k of Object.keys(falhas)) delete falhas[k];
       canais.length = 0;
+      opcoes.p0409SemDetalhe = false;
     },
     chamadas,
     /** Segura TODAS as próximas leituras da tabela até `soltar()`. */
     segurar(tabela: string) { const g = novoGate(); gates[tabela] = g; return () => { gates[tabela] = null; g.soltar(); }; },
+    /** Revisão T3/T4 (M4): o próximo P0409 `conflito_versao: config_loja` sai com DETAIL vazio. */
+    p0409SemDetalhe(v = true) { opcoes.p0409SemDetalhe = v; },
     /** Faz as próximas `n` leituras (select) da tabela devolverem `{data:null,error}` em vez do dado. */
     falhar(tabela: string, n = 1) { falhas[tabela] = n; },
     /** Emite um evento `postgres_changes` (o que o Realtime faz quando OUTRA escrita chega na tabela). */

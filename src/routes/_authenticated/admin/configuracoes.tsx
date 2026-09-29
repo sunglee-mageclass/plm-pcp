@@ -365,11 +365,12 @@ function ConfiguracoesLojaPage() {
   // troca o canal (a presença da loja anterior some junto).
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
-  // Save EM VOO (liga no início do mutationFn, desliga no onSuccess/onError): o eco do PRÓPRIO save
-  // pode chegar antes da resposta e o servidor NORMALIZA valores (keywords só espaços → NULL,
-  // ref_config vazio → NULL) — comparar isso com a tela daria conflito falso. Enquanto em voo, o
-  // efeito de re-hidratação NÃO registra conflito novo (a RPC é quem garante, por compare-and-set).
-  const salvandoRef = useRef(false);
+  // Colunas EM VOO (as que o save em andamento mandou; vazio = nenhum save em voo). O eco do PRÓPRIO
+  // save pode chegar antes da resposta, já normalizado pelo servidor — comparar isso com a tela daria
+  // conflito falso. Revisão T3/T4 (M1): SÓ essas colunas deixam de registrar conflito/"atualizado" e de
+  // re-basear a base crua no eco; as demais seguem o merge normal (mudança alheia nelas continua visível).
+  // Quem garante as colunas em voo é a RPC (compare-and-set) — P0409 vira conflito no onError.
+  const emVooRef = useRef<Set<string>>(new Set());
   // Salvar configurações afeta dados de toda a loja (modo OC/Rolo, grade, kanban,
   // acabamento, baixa) — confirma antes de gravar.
   const [confirmSalvar, setConfirmSalvar] = useState(false);
@@ -476,7 +477,11 @@ function ConfiguracoesLojaPage() {
     // adotado na tela até o próximo save bem-sucedido zerar a flag. Sem perda de dado (o
     // `conflitoKanban` barrava um save nesse intervalo), mas a tela ficava "presa" mostrando um
     // kanban desatualizado da loja nova.
-    if (!mesmaLoja) kanbanProtegidoRef.current = false;
+    if (!mesmaLoja) {
+      kanbanProtegidoRef.current = false;
+      // Revisão T3/T4 (I1): um save da loja anterior ainda em voo não pode "proteger" colunas da loja nova.
+      emVooRef.current = new Set();
+    }
     const r2 = mesmaLoja
       ? resolverEcoKanban(kanbanProtegidoRef.current, pickKanban(cfgRef.current), pickKanban(next), kanbanBaseRef.current)
       : { cfgKanban: pickKanban(next), kanbanBase: { cfg: pickKanban(next), servidor: pickKanban(next) } };
@@ -498,29 +503,30 @@ function ConfiguracoesLojaPage() {
     // lista (que trava o Salvar, P-122 A). Só as colunas da PÁGINA contam (campos_editaveis/
     // tamanhos_grade/etapas_acabamento têm outros editores). Kanban usa a MESMA régua de "tocada"
     // de `rebasearKanban` (base = `kanbanBase.cfg`, não `cfgBaseRef`): tocada E o servidor mudou
-    // desde a base E não convergiu. Save em voo (`salvandoRef`/`kanbanProtegidoRef`): não registra
-    // conflito novo — o eco pode ser o do PRÓPRIO save, já normalizado pelo servidor.
+    // desde a base E não convergiu. Colunas EM VOO (`emVooRef`, M1): não registram conflito nem contam
+    // como "atualizadas" — o eco pode ser o do PRÓPRIO save, já normalizado pelo servidor.
     let pendentes: Conflito[] = mesmaLoja ? conflitosRef.current : [];
-    const emVoo = salvandoRef.current || kanbanProtegidoRef.current;
+    const emVoo = emVooRef.current;
     // T4: quantas colunas da página chegaram de OUTRA pessoa neste eco (banner "N campos atualizados").
     let nAtualizados = 0;
     let novosConflitos: Conflito[] = [];
-    if (merge && !emVoo) {
+    if (merge) {
       const draftAntes = cfgRef.current as Record<string, unknown>;
       const baseAntes = base as Record<string, unknown>;
       const fresh = next as Record<string, unknown>;
       // Só diferença REAL conta — o servidor normaliza (keywords só espaços → NULL, ref_config vazio → NULL);
       // comparar pela serialização do payload evita "conflito"/"atualizado" falso depois do próprio save.
       novosConflitos = merge.conflitos.filter(
-        (c) => COLUNAS_GERAIS_PAGINA.has(c.path) && !mesmoValorSalvo(c.path, draftAntes[c.path], fresh[c.path]),
+        (c) => COLUNAS_GERAIS_PAGINA.has(c.path) && !emVoo.has(c.path) && !mesmoValorSalvo(c.path, draftAntes[c.path], fresh[c.path]),
       );
       nAtualizados = merge.atualizados.filter(
-        (k) => COLUNAS_GERAIS_PAGINA.has(k) && !mesmoValorSalvo(k, baseAntes[k], fresh[k]),
+        (k) => COLUNAS_GERAIS_PAGINA.has(k) && !emVoo.has(k) && !mesmoValorSalvo(k, baseAntes[k], fresh[k]),
       ).length;
       const local = pickKanban(cfgRef.current);
       const fresco = pickKanban(next);
       const kb = kanbanBaseRef.current.cfg;
       for (const c of KANBAN_COLS) {
+        if (emVoo.has(c) || kanbanProtegidoRef.current) continue; // kanban do save em voo: a RPC decide
         const l = jsonCanonico(local[c]), f = jsonCanonico(fresco[c]), b = jsonCanonico(kb[c] ?? null);
         if (l !== f && l !== b && f !== b) novosConflitos.push({ path: c, meu: local[c], dele: fresco[c] });
         else if (l === b && f !== b) nAtualizados++; // não mexi e o servidor mudou → adotado
@@ -533,11 +539,11 @@ function ConfiguracoesLojaPage() {
       .filter((c) => !igual((tela as Record<string, unknown>)[c.path], (next as Record<string, unknown>)[c.path]))
       .map((c) => ({ path: c.path, meu: (tela as Record<string, unknown>)[c.path], dele: (next as Record<string, unknown>)[c.path] }));
     // Base CRUA da RPC: 1ª carga ou loja nova = o cru inteiro desta loja (zera, não re-baseia);
-    // re-hidratação na mesma loja = `rebasearBaseRaw` (coluna em conflito e kanban com save em voo
-    // ficam com a base antiga — senão a RPC gravaria por cima da mudança alheia sem P0409).
+    // re-hidratação na mesma loja = `rebasearBaseRaw` (coluna em conflito, coluna EM VOO e kanban com save
+    // em voo ficam com a base antiga — senão a RPC gravaria por cima da mudança alheia sem P0409).
     const cru = colunasCruas(data.cfg as Record<string, unknown> | null);
     baseRawRef.current = base
-      ? rebasearBaseRaw(baseRawRef.current, cru, new Set(pendentes.map((c) => c.path)), kanbanProtegidoRef.current)
+      ? rebasearBaseRaw(baseRawRef.current, cru, new Set([...pendentes.map((c) => c.path), ...emVoo]), kanbanProtegidoRef.current)
       : cru;
     cfgBaseRef.current = next;
     setCfg(tela);
@@ -561,6 +567,9 @@ function ConfiguracoesLojaPage() {
       // P-57 A: o botão já trava sem `hydrated`; esta guarda cobre um `mutate()` vindo de um diálogo
       // aberto antes da troca de loja/recarga (nada de base vazia indo para a RPC).
       if (!hydrated || !cfgBaseRef.current) throw new Error("Aguarde a Configuração da Loja terminar de carregar.");
+      // Revisão T3/T4 (M2): P-122 A também no handler — com conflito pendente NADA vai (o botão já trava;
+      // isto cobre um `mutate()` disparado por um diálogo aberto antes do conflito chegar).
+      if (conflitosRef.current.length > 0) throw new Error("Resolva os itens em conflito (manter meu ou usar o novo) antes de salvar.");
       // T3 (Config colaborativa): UMA chamada à RPC `salvar_config_loja` com SÓ as colunas que o
       // usuário mudou nesta tela (`montarMudancas`) + a base CRUA de cada uma (`baseRawRef`) — o
       // servidor compara coluna a coluna e recusa com P0409 se outra pessoa gravou uma delas depois
@@ -588,7 +597,7 @@ function ConfiguracoesLojaPage() {
       // Fix hidratação (P-57 A): guarda o que ESTE save está mandando — o onSuccess usa para
       // re-basear `cfgBaseRef` (o eco do PRÓPRIO save não deve ser tratado como edição alheia).
       cfgEnviadoRef.current = cfg;
-      salvandoRef.current = true;
+      emVooRef.current = new Set(Object.keys(mudancas));
       // Fix round 2 (revisão Opus): PROTEGE o kanban da tela enquanto o save está em voo — o eco do
       // Realtime do próprio save pode chegar antes da resposta (com a chave ligada, `trg_kanban_config`
       // recalcula a loja inteira na MESMA transação da RPC, e isso demora). Liga ANTES do `await`.
@@ -608,10 +617,20 @@ function ConfiguracoesLojaPage() {
         kanbanEnviado: diff,
       };
     },
-    onSuccess: (r) => {
-      salvandoRef.current = false;
+    // Revisão T3/T4 (I1): a loja em que ESTE save foi disparado — a resposta pode chegar depois de o super
+    // admin trocar de loja; aí ela não pode mexer em bases/conflitos/selo da loja que está na tela.
+    onMutate: () => ({ tenantId: data?.tenantId ?? null }),
+    onSuccess: (r, _v, ctx) => {
+      emVooRef.current = new Set();
       kanbanProtegidoRef.current = false;
       setPreviaSalvar(null);
+      if (ctx?.tenantId !== cfgBaseTenantRef.current) {
+        if (!r.nada) {
+          toast.success("Configurações salvas (na loja anterior).");
+          qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
+        }
+        return;
+      }
       if (r.nada) {
         toast.info("Nenhuma alteração para salvar.");
         markClean();
@@ -623,14 +642,27 @@ function ConfiguracoesLojaPage() {
       // Fix hidratação (P-57 A): o que este save mandou vira a base do merge — evita "não salvo"
       // falso quando o servidor NORMALIZA um valor (ex.: Keywords só com espaços → NULL,
       // `ref_config` vazio → NULL) e o eco da própria escrita chega como re-hidratação.
-      cfgBaseRef.current = r.enviado;
+      // Revisão T3/T4 (M3): só as colunas GRAVADAS re-baseiam (as outras seguem como estavam — uma
+      // edição feita durante o voo continua "minha", e uma base alheia ainda não ecoada não é escondida).
+      const gravadas = new Set(r.retorno.gravadas ?? Object.keys(r.retorno.valores ?? {}));
+      const enviado = r.enviado as Record<string, unknown>;
+      if (cfgBaseRef.current) {
+        const nb = { ...cfgBaseRef.current } as Record<string, unknown>;
+        for (const k of gravadas) if (k in enviado) nb[k] = enviado[k];
+        cfgBaseRef.current = nb as ConfigState;
+      }
       // T3: a base CRUA das colunas gravadas vira o valor que o SERVIDOR devolveu (pós-gatilhos) — é
       // contra ele que o próximo save compara. Só as gravadas: re-basear as outras daqui esconderia a
       // mudança de outra pessoa que ainda não chegou pelo eco.
       baseRawRef.current = { ...baseRawRef.current, ...r.retorno.valores };
       // O que gravamos vira a nova base do kanban (o refetch abaixo também a refaz pelo efeito quando o
       // dado muda). A RPC é UMA transação: chegar aqui = tudo gravado (não existe mais falha parcial).
-      setKanbanBase((b) => ({ cfg: pickKanban(r.enviado), servidor: { ...b.servidor, ...r.kanbanEnviado } }));
+      setKanbanBase((b) => {
+        const cfgK = { ...b.cfg } as Record<string, unknown>;
+        const envK = pickKanban(r.enviado) as Record<string, unknown>;
+        for (const c of KANBAN_COLS) if (gravadas.has(c)) cfgK[c] = envK[c];
+        return { cfg: cfgK as KanbanColsValor, servidor: { ...b.servidor, ...r.kanbanEnviado } };
+      });
       // Invalida TODA leitura de config para refletir na hora. As leituras usam prefixos
       // divergentes (tenant_config, tenant-config-grade, cad-tenant-config-grade,
       // tenant-status-kanban, ft-tamanhos, confeccao-prioridade…), então casamos por
@@ -638,16 +670,27 @@ function ConfiguracoesLojaPage() {
       // useRealtimeInvalidation), p/ o save local e o eco Realtime baterem 1:1.
       qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
     },
-    onError: (e: any) => {
+    onError: (e: any, _v, ctx) => {
       // A RPC é atômica: qualquer erro = NADA gravado (kanban incluído) — sem proteção a manter.
-      salvandoRef.current = false;
+      const enviadas = [...emVooRef.current];
+      emVooRef.current = new Set();
       kanbanProtegidoRef.current = false;
       const msg = String(e?.message ?? "");
+      // Revisão T3/T4 (I1): erro de um save da loja ANTERIOR — só avisa; nada de conflito/refetch aqui.
+      if (ctx && ctx.tenantId !== cfgBaseTenantRef.current) {
+        setPreviaSalvar(null);
+        setConfirmSalvar(false);
+        toast.error(`A loja mudou durante o salvamento; nada foi gravado na loja anterior. ${mensagemErro(e, "Erro ao salvar")}`);
+        return;
+      }
       if (e?.code === "P0409" && msg.startsWith("conflito_versao: config_loja")) {
         // Outra pessoa gravou uma (ou mais) das colunas que ESTE save mandou, depois que a tela
         // carregou. Nada foi gravado. Marca as colunas como conflito (trava o Salvar até resolver —
         // T4 desenha o banner) e relê o servidor (o efeito preenche o valor "dele").
-        const cols = colunasDoErro(e);
+        // Revisão T3/T4 (M4): DETAIL vazio/ilegível ⇒ trata TODAS as colunas enviadas como em conflito
+        // (melhor pedir uma escolha a mais do que regravar por cima de uma mudança alheia).
+        const doDetalhe = colunasDoErro(e);
+        const cols = doDetalhe.length > 0 ? doDetalhe : enviadas.filter((k) => (COLUNAS_PAGINA as readonly string[]).includes(k));
         const atualServidor = normalizarConfig(data?.cfg as Record<string, unknown> | null) as Record<string, unknown>;
         const tela = cfgRef.current as Record<string, unknown>;
         definirConflitos(juntarConflitos(conflitosRef.current, cols.map((k) => ({ path: k, meu: tela[k], dele: atualServidor[k] }))));
@@ -2189,6 +2232,7 @@ function NomesDasAbasDialog({ tenantId, modules, presentes }: {
     }
     // Trocou de loja com a janela aberta: re-semeia quando a leitura da loja nova assentar.
     if (hydrated && lojaHidratadaRef.current !== tenantId) {
+      lojaHidratadaRef.current = null; // um save da loja anterior em voo reconhece que a janela mudou
       setHydrated(false);
       definirConflitos([]);
       return;
@@ -2241,6 +2285,9 @@ function NomesDasAbasDialog({ tenantId, modules, presentes }: {
         const { data: row, error: errLer } = await supabase
           .from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId).maybeSingle();
         if (errLer) throw errLer;
+        // Revisão T3/T4 (I1, espelhado na janela): trocou de loja durante o voo — não funde a leitura da
+        // loja anterior no rascunho da loja nova.
+        if (lojaHidratadaRef.current !== tenantId) throw Object.assign(new Error("loja_mudou"), { lojaMudou: true });
         const lido = {
           tab_labels: ((row as any)?.tab_labels ?? null) as Record<string, unknown> | null,
           campos_editaveis: ((row as any)?.campos_editaveis ?? null) as Record<string, unknown> | null,
@@ -2253,7 +2300,17 @@ function NomesDasAbasDialog({ tenantId, modules, presentes }: {
         // Nomes diferentes: o rascunho agora tem os dois — segue para a 2ª tentativa com a base nova.
       }
     },
-    onSuccess: (r) => {
+    // Revisão T3/T4 (I1): a loja deste save — se a janela já re-semeou com outra loja, a resposta não fecha
+    // nem "limpa" a janela da loja nova.
+    onMutate: () => ({ tenantId }),
+    onSuccess: (r, _v, ctx) => {
+      if (ctx?.tenantId !== lojaHidratadaRef.current) {
+        if (!r.nada) {
+          toast.success("Nomenclaturas salvas (na loja anterior).");
+          qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && String(q.queryKey[0]).includes("tenant") });
+        }
+        return;
+      }
       markClean();
       if (r.nada) {
         toast.info("Nenhuma alteração para salvar.");
@@ -2269,7 +2326,11 @@ function NomesDasAbasDialog({ tenantId, modules, presentes }: {
       });
       setOpen(false);
     },
-    onError: (e: any) => {
+    onError: (e: any, _v, ctx) => {
+      if (e?.lojaMudou || (ctx && ctx.tenantId !== lojaHidratadaRef.current)) {
+        toast.error("A loja mudou durante o salvamento das nomenclaturas; confira e salve de novo.");
+        return;
+      }
       if (e?.conflitoNomes) {
         toast.error("Outra pessoa mudou o mesmo nome agora há pouco. Escolha em cada item destacado e salve de novo.");
         return;

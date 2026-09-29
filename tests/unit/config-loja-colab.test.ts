@@ -64,14 +64,16 @@ describe("serializarColuna — paridade byte-a-byte com o mutationFn de hoje", (
     const v = { partes: ["ref", "cor_base"], separador: "-" };
     expect(serializarColuna("ref_config", v)).toEqual(v);
   });
-  // keywords: só espaços (inclusive "") → null; texto com conteúdo passa CRU (sem trim).
+  // keywords: só espaços (inclusive "") → null; texto com conteúdo vai APARADO (espelha o btrim do banco —
+  // revisão T3/T4 I2).
   it('keywords: "" ou só espaços → null', () => {
     expect(serializarColuna("keywords", "")).toBeNull();
     expect(serializarColuna("keywords", "   ")).toBeNull();
     expect(serializarColuna("keywords", "\t\n ")).toBeNull();
   });
-  it("keywords: texto com conteúdo passa CRU, sem trim de bordas", () => {
-    expect(serializarColuna("keywords", "  moda feminina  ")).toBe("  moda feminina  ");
+  it("keywords: texto com conteúdo vai APARADO nas bordas (miolo intacto)", () => {
+    expect(serializarColuna("keywords", "  moda feminina  ")).toBe("moda feminina");
+    expect(serializarColuna("keywords", "linha 1\nlinha 2 ")).toBe("linha 1\nlinha 2");
     expect(serializarColuna("keywords", "linho")).toBe("linho");
   });
   it("keywords: valor não-string (defensivo) → null", () => {
@@ -351,3 +353,12 @@ describe("T5 — Nomenclaturas (puro)", () => {
   });
 });
 
+describe("Revisão T3/T4 (I2) — só espaço nas pontas não é mudança", () => {
+  it("montarMudancas: keywords 'Moda ' vs base 'Moda' → nada a salvar; '' vs null idem", () => {
+    const b = { keywords: "Moda" } as any;
+    const kb = pickKanban({});
+    expect(montarMudancas({ cfg: { keywords: "Moda " } as any, baseUi: b, baseRaw: b, kanbanBaseCfg: kb }).mudancas).toEqual({});
+    expect(montarMudancas({ cfg: { explosao_envio_status: "" } as any, baseUi: { explosao_envio_status: null } as any, baseRaw: {}, kanbanBaseCfg: kb }).mudancas).toEqual({});
+    expect(montarMudancas({ cfg: { keywords: " Novo " } as any, baseUi: b, baseRaw: b, kanbanBaseCfg: kb }).mudancas).toEqual({ keywords: "Novo" });
+  });
+});

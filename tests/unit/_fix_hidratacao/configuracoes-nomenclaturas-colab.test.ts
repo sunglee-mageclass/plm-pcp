@@ -152,4 +152,22 @@ describe("Config colaborativa T5 — Nomenclaturas: merge POR NOME, conflito, pr
     expect(inp("nom:campo:colecao")).not.toBeNull();
     await esperar(10);
   });
+
+  it("revisão (I1): troca de loja com o Salvar da janela em voo — a resposta da loja A não fecha nem limpa a janela da B", async () => {
+    FAKE.linhas.tenant_config.push({ ...FAKE.linhas.tenant_config[0], tenant_id: "t2", tab_labels: { producao: "PRODUCAO-DA-B" }, campos_editaveis: {} });
+    const qc = await abrirPagina();
+    await abrirDialogo();
+    await digitar(inp("nom:tab:cadastro"), "MEU CADASTRO NA A");
+    const soltar = FAKE.segurar("rpc:salvar_config_loja");
+    await clicar(salvarDlg());
+    FAKE.linhas.users[0].tenant_id = "t2";
+    await qc.invalidateQueries();
+    await aguardar(() => inp("nom:tab:cadastro")?.value === "", "janela re-semeada com a loja B", 3000);
+    soltar();
+    await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Nomenclaturas salvas (na loja anterior)."), "sucesso da loja A");
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull(); // a janela (agora da B) continua aberta
+    expect(FAKE.linhas.tenant_config[0].tab_labels.cadastro).toBe("MEU CADASTRO NA A");
+    expect(FAKE.linhas.tenant_config[1].tab_labels).toEqual({ producao: "PRODUCAO-DA-B" });
+  });
 });
+
