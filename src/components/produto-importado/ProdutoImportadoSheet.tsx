@@ -885,7 +885,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       const falhas = resultados.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
       const falhasP0409 = falhas.filter((r) => (r.reason as any)?.code === "P0409");
       const outrasFalhas = falhas.filter((r) => (r.reason as any)?.code !== "P0409");
-      if (outrasFalhas.length > 0) throw outrasFalhas[0].reason; // erro "de verdade" — propaga o 1º pro onError
+      // Fix round 2 (R1-M1, re-revisão) — espelha ProdutoAcabadoSheet.tsx: prioriza o 1º erro do lote que
+      // NÃO foi revertido localmente (revertidoLocal) — um erro real de outro produto (P0001/rede/RLS) não
+      // pode perder o toast só porque um produto ANTERIOR na lista já foi travado+revertido+avisado.
+      const realFalha = outrasFalhas.find((r) => !(r.reason as any)?.revertidoLocal) ?? outrasFalhas[0];
+      if (outrasFalhas.length > 0) throw realFalha.reason;
       return { totalConflitos: falhasP0409.length };
     },
     onSuccess: ({ totalConflitos }) => {

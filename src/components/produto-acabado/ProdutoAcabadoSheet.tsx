@@ -799,7 +799,17 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       const falhas = resultados.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
       const falhasP0409 = falhas.filter((r) => (r.reason as any)?.code === "P0409");
       const outrasFalhas = falhas.filter((r) => (r.reason as any)?.code !== "P0409");
-      if (outrasFalhas.length > 0) throw outrasFalhas[0].reason; // erro "de verdade" (validação/rede) — propaga o 1º pro onError
+      // Fix round 2 (R1-M1, re-revisão) — um erro DE VERDADE de outro produto do lote não pode perder o
+      // toast só porque um produto ANTERIOR na lista já foi revertido pelo F3/L-4 (`revertidoLocal=true`).
+      // `outrasFalhas[0]` era sempre o 1º da lista, em ORDEM DE RASCUNHO — se o produto A (travado,
+      // já revertido e avisado) vem antes do produto B (erro real: P0001/rede/RLS) no array, o `onError`
+      // recebia o erro de A, via `revertidoLocal`, e RETORNAVA sem mostrar nada pro erro de B — B ficava
+      // sujo, Salvar habilitado, sem nenhum aviso do porquê. Prioriza o 1º erro que NÃO foi revertido
+      // localmente; só cai no `outrasFalhas[0]` (que pode ser um `revertidoLocal`) se TODOS os erros do
+      // lote já foram revertidos — nesse caso o toast do revert já avisou algo, então não faz falta o
+      // genérico (mesma lógica do L-4, só espalhada por MAIS de um produto agora).
+      const realFalha = outrasFalhas.find((r) => !(r.reason as any)?.revertidoLocal) ?? outrasFalhas[0];
+      if (outrasFalhas.length > 0) throw realFalha.reason;
       return { totalConflitos: falhasP0409.length };
     },
     onSuccess: ({ totalConflitos }) => {

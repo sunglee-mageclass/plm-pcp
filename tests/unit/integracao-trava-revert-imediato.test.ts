@@ -177,3 +177,68 @@ describe("Fix round 1 (L-4) — 1 toast só por refusal em PA/PI (não 2)", () =
     expect(idxReturn).toBeLessThan(idxToastErro); // o return do caminho revertido vem ANTES do toast genérico
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 2 (R1-M1, re-revisão) — num Salvar em LOTE, um erro de VERDADE de outro produto não pode perder
+// o toast só porque um produto ANTERIOR na lista já foi travado+revertido (revertidoLocal=true). Antes desta
+// correção, `outrasFalhas[0].reason` sempre pegava o 1º erro em ORDEM DE RASCUNHO — se o produto A (travado,
+// já revertido e avisado pelo toastTravaAcabado/Importado) vinha ANTES do produto B (erro real: P0001 de
+// validação, rede, RLS) no array de drafts, o `onError` do salvarMut recebia o erro de A, via
+// `e?.revertidoLocal`, retornava sem mostrar nada — e o erro de B (o que precisava de aviso) NUNCA aparecia.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 2 (R1-M1) — batch: erro real de outro produto não perde o toast por causa de um revert anterior", () => {
+  // Réplica EXATA da linha de produção (ProdutoAcabadoSheet.tsx/ProdutoImportadoSheet.tsx): dado um array de
+  // "falhas" (PromiseRejectedResult-like, só o `.reason` importa aqui), escolhe o 1º erro que NÃO foi
+  // revertido localmente; só cai no primeiro item se TODOS os erros já foram revertidos.
+  const selecionarFalhaReal = (outrasFalhas: { reason: unknown }[]) =>
+    outrasFalhas.find((r) => !(r.reason as any)?.revertidoLocal) ?? outrasFalhas[0];
+
+  it("produto 1 travado+revertido (revertidoLocal=true), produto 2 falha com P0001 real: a falha selecionada é a do produto 2, não a do produto 1", () => {
+    const erroRevertido = { code: "42501", message: "integracao_travado: tamanho_tipo", revertidoLocal: true };
+    const erroP0001 = { code: "P0001", message: "A soma das variantes (10) precisa bater com a Qtd total (20)." };
+    const outrasFalhas = [{ reason: erroRevertido }, { reason: erroP0001 }]; // produto 1 ANTES do produto 2, ordem de rascunho
+    const selecionada = selecionarFalhaReal(outrasFalhas);
+    expect(selecionada.reason).toBe(erroP0001); // NÃO o erro revertido do produto 1
+    expect((selecionada.reason as any).code).toBe("P0001");
+  });
+
+  it("ordem invertida (o erro real vem PRIMEIRO): continua escolhendo o erro real — não é sorte de posição", () => {
+    const erroP0001 = { code: "P0001", message: "Informe grupo e categoria do produto." };
+    const erroRevertido = { code: "42501", message: "integracao_travado: tamanho_tipo", revertidoLocal: true };
+    const outrasFalhas = [{ reason: erroP0001 }, { reason: erroRevertido }];
+    const selecionada = selecionarFalhaReal(outrasFalhas);
+    expect(selecionada.reason).toBe(erroP0001);
+  });
+
+  it("TODOS os erros do lote foram revertidos localmente: cai no primeiro (não sobra 'erro real' nenhum, mas o toast do revert já avisou algo)", () => {
+    const erroA = { code: "42501", message: "integracao_travado: tamanho_tipo", revertidoLocal: true };
+    const erroB = { code: "42501", message: "integracao_travado: sku", revertidoLocal: true };
+    const outrasFalhas = [{ reason: erroA }, { reason: erroB }];
+    const selecionada = selecionarFalhaReal(outrasFalhas);
+    expect(selecionada.reason).toBe(erroA); // fallback pro primeiro — nenhum "erro real" sobrou
+  });
+
+  it("1 falha só (caso comum, sem lote): comportamento de sempre preservado — sempre a única disponível", () => {
+    const erroUnico = { code: "P0001", message: "Erro qualquer" };
+    expect(selecionarFalhaReal([{ reason: erroUnico }]).reason).toBe(erroUnico);
+  });
+
+  it("nenhuma falha revertida no lote (nenhuma tem a marca): o 1º erro real da lista, como antes do L-4/revertidoLocal existir", () => {
+    const erro1 = { code: "P0001", message: "Erro 1" };
+    const erro2 = { code: "P0001", message: "Erro 2" };
+    expect(selecionarFalhaReal([{ reason: erro1 }, { reason: erro2 }]).reason).toBe(erro1);
+  });
+
+  it("fonte: ProdutoAcabadoSheet.tsx usa outrasFalhas.find(...) ?? outrasFalhas[0] em vez de outrasFalhas[0] direto", () => {
+    const s = fonte("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
+    expect(s).toContain('const realFalha = outrasFalhas.find((r) => !(r.reason as any)?.revertidoLocal) ?? outrasFalhas[0];');
+    expect(s).toContain("if (outrasFalhas.length > 0) throw realFalha.reason;");
+    expect(s).not.toContain("if (outrasFalhas.length > 0) throw outrasFalhas[0].reason;"); // versão antiga — SUBSTITUÍDA
+  });
+  it("fonte: ProdutoImportadoSheet.tsx — mesmo padrão", () => {
+    const s = fonte("src/components/produto-importado/ProdutoImportadoSheet.tsx");
+    expect(s).toContain('const realFalha = outrasFalhas.find((r) => !(r.reason as any)?.revertidoLocal) ?? outrasFalhas[0];');
+    expect(s).toContain("if (outrasFalhas.length > 0) throw realFalha.reason;");
+    expect(s).not.toContain("if (outrasFalhas.length > 0) throw outrasFalhas[0].reason;");
+  });
+});
