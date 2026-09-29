@@ -11,16 +11,22 @@
 --     kanban_requisitos, kanban_requisitos_excecoes, revenda_kanban_colunas, revenda_kanban_requisitos, tab_labels,
 --     campos_editaveis. NUNCA toca modules/kanban_automatico/sku_config/tamanhos_sku/tamanhos_grade/etapas_acabamento/
 --     confeccao_prioridade (outros escritores). O UPDATE é estático (CASE por coluna, sem SQL dinâmico) e não lista
---     sku_config/tamanhos_sku (não dispara trg_tenant_config_sku) nem kanban_automatico (a chave só muda por
+--     sku_config/tamanhos_sku (o UPDATE não dispara trg_tenant_config_sku) nem kanban_automatico (a chave só muda por
 --     kanban_definir_automatico).
---   • Conflito: a coluna mudou no servidor desde a `_base` do cliente E o valor atual ≠ o que o cliente quer gravar (valor
---     convergido não é conflito) → RAISE P0409 'conflito_versao: config_loja' com DETAIL = colunas separadas por vírgula;
+--   • Trava PRIMEIRO (review T1 M1/M2): SELECT … FOR UPDATE da linha da loja; SÓ se ela não existe faz o INSERT (tenant_id)
+--     (ON CONFLICT DO NOTHING: se outra sessão criou ao mesmo tempo, espera e usa a dela) e relê FOR UPDATE. Assim os
+--     gatilhos BEFORE INSERT (set_tenant_id, trg_kanban_chave_protegida, trg_tenant_config_sku) só rodam quando a linha
+--     nasce de fato — não em todo Salvar. Linha ainda ausente (apagada no meio por reset/exclusão da loja) ou UPDATE que
+--     não achou a linha → P0409 'conflito_versao: config_loja' (DETAIL = colunas pedidas), nada informado como gravado.
+--   • Conflito: a coluna mudou no servidor desde a `_base` do cliente E o valor atual ≠ o valor que SERIA gravado (já
+--     NORMALIZADO como no UPDATE — keywords com btrim/só espaços → null; review T1 M3) — valor convergido não é conflito → RAISE P0409 'conflito_versao: config_loja' com DETAIL = colunas separadas por vírgula;
 --     NADA gravado. Chave do kanban mudou desde a tela (coluna kanban no payload) → P0409 'chave_kanban_mudou: ...'.
 --     Mensagens de P0409 SÓ ASCII (PostgREST devolve 5xx; não-ASCII vira 500 "Something went wrong" e o code some).
 --   • Os gatilhos de sempre seguem valendo na MESMA txn: audit_tenant_config, trg_kanban_chave_protegida e trg_kanban_config
 --     (chave ligada + coluna kanban mudou → snapshot 'config' + recálculo).
 -- Retorno: {gravadas: [colunas], valores: {coluna: valor pós-gatilhos}} — `valores` só das colunas gravadas.
--- ACL (inv. #9): REVOKE de PUBLIC e anon; EXECUTE só p/ authenticated (a própria RPC exige admin da loja ou super admin).
+-- ACL (inv. #9): REVOKE de PUBLIC, anon e service_role (nenhum caminho de servidor usa; review T1 I3); EXECUTE só p/
+-- authenticated (a própria RPC exige admin da loja ou super admin).
 -- Idempotente (CREATE OR REPLACE + REVOKE/GRANT). Inverso: supabase/rollback/20261012100000_config_loja_salvar_colab_down.sql
 -- (reverter o FRONT antes — o front novo só salva por esta RPC).
 SET client_encoding = 'UTF8';
@@ -66,7 +72,9 @@ DECLARE
   v_k text;
   v_v jsonb;
   v_t text;
+  v_mn jsonb;              -- _mudancas NORMALIZADO (o que de fato vai para a coluna)
   v_criada integer := 0;
+  v_n integer := 0;
   v_row jsonb;
   v_new jsonb;
   v_conf text[] := ARRAY[]::text[];
@@ -108,7 +116,7 @@ BEGIN
     v_t := jsonb_typeof(v_v);
     CASE v_k
       WHEN 'timezone' THEN
-        IF v_t <> 'string' OR NOT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = v_v #>> '{}') THEN
+        IF v_t <> 'string' OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name = v_v #>> '{}') THEN
           RAISE EXCEPTION 'Fuso horário inválido: %.', coalesce(v_v #>> '{}', 'vazio') USING ERRCODE = 'P0001';
         END IF;
       WHEN 'modo_baixa_estoque' THEN
@@ -158,10 +166,23 @@ BEGIN
     RETURN jsonb_build_object('gravadas', '[]'::jsonb, 'valores', '{}'::jsonb);
   END IF;
 
-  -- 4. Linha da loja (nasce com os defaults se não existe) + trava SÓ a linha
-  INSERT INTO public.tenant_config (tenant_id) VALUES (v_tenant) ON CONFLICT (tenant_id) DO NOTHING;
-  GET DIAGNOSTICS v_criada = ROW_COUNT;
+  -- Normalização única (usada no compare-and-set E no UPDATE): keywords com btrim; só espaços → null.
+  v_mn := v_m;
+  IF v_mn ? 'keywords' THEN
+    v_mn := jsonb_set(v_mn, '{keywords}',
+                      coalesce(to_jsonb(nullif(btrim(coalesce(v_m ->> 'keywords', '')), '')), 'null'::jsonb));
+  END IF;
+
+  -- 4. Trava a linha da loja PRIMEIRO; só se não existe, cria (defaults) e relê travada
   SELECT to_jsonb(tc) INTO v_row FROM public.tenant_config tc WHERE tc.tenant_id = v_tenant FOR UPDATE;
+  IF v_row IS NULL THEN
+    INSERT INTO public.tenant_config (tenant_id) VALUES (v_tenant) ON CONFLICT (tenant_id) DO NOTHING;
+    GET DIAGNOSTICS v_criada = ROW_COUNT;
+    SELECT to_jsonb(tc) INTO v_row FROM public.tenant_config tc WHERE tc.tenant_id = v_tenant FOR UPDATE;
+    IF v_row IS NULL THEN
+      RAISE EXCEPTION 'conflito_versao: config_loja' USING ERRCODE = 'P0409', DETAIL = array_to_string(v_gravadas, ',');
+    END IF;
+  END IF;
 
   -- 5. Chave do kanban automático: quem mexe no kanban tem de saber em que estado a chave estava
   IF v_m ?| c_kanban THEN
@@ -174,11 +195,11 @@ BEGIN
     END IF;
   END IF;
 
-  -- 6. Compare-and-set por coluna (linha recém-criada não tem o que comparar)
+  -- 6. Compare-and-set por coluna (linha recém-criada não tem o que comparar); convergido = contra o valor NORMALIZADO
   IF v_criada = 0 THEN
     FOREACH v_k IN ARRAY v_gravadas LOOP
       IF coalesce(v_row -> v_k, 'null'::jsonb) IS DISTINCT FROM coalesce(_base -> v_k, 'null'::jsonb)
-         AND (v_row -> v_k) IS DISTINCT FROM (v_m -> v_k) THEN
+         AND coalesce(v_row -> v_k, 'null'::jsonb) IS DISTINCT FROM coalesce(v_mn -> v_k, 'null'::jsonb) THEN
         v_conf := v_conf || v_k;
       END IF;
     END LOOP;
@@ -201,7 +222,7 @@ BEGIN
     pcp_etapas = CASE WHEN v_m ? 'pcp_etapas' THEN nullif(v_m -> 'pcp_etapas', 'null'::jsonb) ELSE pcp_etapas END,
     revenda_campos = CASE WHEN v_m ? 'revenda_campos' THEN v_m -> 'revenda_campos' ELSE revenda_campos END,
     ref_config = CASE WHEN v_m ? 'ref_config' THEN nullif(v_m -> 'ref_config', 'null'::jsonb) ELSE ref_config END,
-    keywords = CASE WHEN v_m ? 'keywords' THEN nullif(btrim(coalesce(v_m ->> 'keywords', '')), '') ELSE keywords END,
+    keywords = CASE WHEN v_m ? 'keywords' THEN v_mn ->> 'keywords' ELSE keywords END,
     status_kanban = CASE WHEN v_m ? 'status_kanban' THEN nullif(v_m -> 'status_kanban', 'null'::jsonb)
                          ELSE status_kanban END,
     kanban_requisitos = CASE WHEN v_m ? 'kanban_requisitos' THEN v_m -> 'kanban_requisitos' ELSE kanban_requisitos END,
@@ -215,6 +236,10 @@ BEGIN
     campos_editaveis = CASE WHEN v_m ? 'campos_editaveis' THEN v_m -> 'campos_editaveis' ELSE campos_editaveis END
   WHERE tenant_id = v_tenant
   RETURNING to_jsonb(tenant_config.*) INTO v_new;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n <> 1 OR v_new IS NULL THEN
+    RAISE EXCEPTION 'conflito_versao: config_loja' USING ERRCODE = 'P0409', DETAIL = array_to_string(v_gravadas, ',');
+  END IF;
 
   -- 8. Retorno: valores pós-gatilhos SÓ das colunas gravadas
   SELECT jsonb_object_agg(k, v_new -> k) INTO v_valores FROM unnest(v_gravadas) AS u(k);
@@ -222,14 +247,15 @@ BEGIN
 END
 $function$;
 
--- 9. ACL (inv. #9): o default ACL dá EXECUTE a PUBLIC e (no Supabase) direto a anon em função nova.
-REVOKE ALL ON FUNCTION public.salvar_config_loja(uuid, jsonb, jsonb, boolean) FROM PUBLIC, anon;
+-- 9. ACL (inv. #9): o default ACL dá EXECUTE a PUBLIC e (no Supabase) direto a anon e service_role em função nova.
+REVOKE ALL ON FUNCTION public.salvar_config_loja(uuid, jsonb, jsonb, boolean) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.salvar_config_loja(uuid, jsonb, jsonb, boolean) TO authenticated;
 
 DO $pos$
 BEGIN
   IF has_function_privilege('anon', 'public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', 'EXECUTE')
      OR has_function_privilege('public', 'public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'config_loja_salvar_colab: ACL errada (inv. 9)' USING ERRCODE = 'P0001';
   END IF;

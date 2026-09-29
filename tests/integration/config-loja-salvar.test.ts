@@ -8,11 +8,11 @@
  * a conexão do teste). NUNCA `\i` (incidente 15/set). A migration é só CREATE FUNCTION + REVOKE/GRANT: ZERO DDL em
  * tenant_config (incidente 23/set) — conferido por teste de fonte E por pg_locks.
  */
-import { describe, it, expect } from "vitest";
-import type { Client } from "pg";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { Client } from "pg";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { hasDb, withTx, um, comoUsuario, semUsuario, ehBancoLocal, TENANT_TESTE } from "./db";
+import { hasDb, withTx, um, comoUsuario, semUsuario, ehBancoLocal, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicarSql, exigeBancoLocal, semTransacao } from "./mig-txn";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -107,6 +107,14 @@ async function md5Funcoes(c: Client): Promise<Record<string, string>> {
   return Object.fromEntries(rows.map((r) => [r.proname, r.m]));
 }
 
+async function locksTenantConfig(c: Client): Promise<string[]> {
+  const { rows } = await c.query(
+    `SELECT mode FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'relation'
+        AND relation = 'public.tenant_config'::regclass`,
+  );
+  return rows.map((r) => r.mode as string);
+}
+
 // ───────────────────────── fonte (sem banco) ─────────────────────────
 describe("config_loja_salvar_colab — fonte da migration e do inverso", () => {
   const mig = ler(MIG);
@@ -138,7 +146,7 @@ describe("config_loja_salvar_colab — fonte da migration e do inverso", () => {
     }
     expect(mig).toMatch(/CREATE OR REPLACE FUNCTION public\.salvar_config_loja\(/);
     expect((semComentarios(mig).match(/CREATE OR REPLACE FUNCTION/g) ?? []).length).toBe(1);
-    expect(mig).toMatch(/REVOKE ALL ON FUNCTION public\.salvar_config_loja\(uuid, jsonb, jsonb, boolean\) FROM PUBLIC, anon;/);
+    expect(mig).toMatch(/REVOKE ALL ON FUNCTION public\.salvar_config_loja\(uuid, jsonb, jsonb, boolean\) FROM PUBLIC, anon, service_role;/);
     expect(mig).toMatch(/GRANT EXECUTE ON FUNCTION public\.salvar_config_loja\(uuid, jsonb, jsonb, boolean\) TO authenticated;/);
     expect(inv).toMatch(/DROP FUNCTION IF EXISTS public\.salvar_config_loja\(uuid, jsonb, jsonb, boolean\);/);
     // o UPDATE nunca lista as colunas de outros escritores
@@ -148,16 +156,38 @@ describe("config_loja_salvar_colab — fonte da migration e do inverso", () => {
       expect(upd, col).not.toMatch(new RegExp(`\\b${col}\\b`));
     }
     expect(mig).not.toMatch(/\bEXECUTE\s+(format|'|\$)/i); // sem SQL dinâmico
+    // trava PRIMEIRO (review M1/M2): o SELECT … FOR UPDATE vem antes do INSERT, que fica dentro do IF v_row IS NULL
+    const corpo = semComentarios(mig);
+    const iSel = corpo.indexOf("FOR UPDATE");
+    const iIf = corpo.indexOf("IF v_row IS NULL THEN");
+    const iIns = corpo.indexOf("INSERT INTO public.tenant_config");
+    expect(iSel).toBeGreaterThan(0);
+    expect(iSel).toBeLessThan(iIf);
+    expect(iIf).toBeLessThan(iIns);
+    expect(corpo).toMatch(/GET DIAGNOSTICS v_n = ROW_COUNT;\s*IF v_n <> 1/);
+    expect(corpo).toMatch(/pg_catalog\.pg_timezone_names/);
   });
 
   it("mensagens de P0409 só ASCII na fonte", () => {
     const p0409 = [...mig.matchAll(/RAISE EXCEPTION '([^']*)'[^;]*ERRCODE = 'P0409'/g)].map((m) => m[1]);
-    expect(p0409).toEqual(["chave_kanban_mudou: a chave do kanban mudou", "conflito_versao: config_loja"]);
+    expect([...new Set(p0409)].sort()).toEqual(["chave_kanban_mudou: a chave do kanban mudou", "conflito_versao: config_loja"]);
     for (const m of p0409) expect(m).toMatch(SO_ASCII);
   });
 });
 
 // ───────────────────────── banco (cópia local) ─────────────────────────
+type Persona = { nome: string; entra: (c: Client) => Promise<void> };
+const PERSONAS: Persona[] = [
+  { nome: "super admin", entra: (c) => comoUsuario(c) },
+  {
+    nome: "admin da loja (tenant_admin, não super)",
+    entra: async (c) => {
+      await comoUsuario(c);
+      await usuarioLoja(c, U_ADMIN, true);
+    },
+  },
+];
+
 describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia local, txn revertida)", () => {
   it("aplicar a migration não pega lock > RowShare em tenant_config; md5 das 7 funções igual; idempotente; inverso derruba", async () => {
     await withTx(async (c) => {
@@ -166,11 +196,8 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
       const antes = await md5Funcoes(c);
       expect(Object.keys(antes).sort()).toEqual([...FUNCOES_INTOCADAS].sort());
       await aplica(c, MIG); // 1ª coisa que toca o banco nesta txn além do catálogo
-      const { rows: locks } = await c.query(
-        `SELECT mode FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'relation'
-            AND relation = 'public.tenant_config'::regclass`,
-      );
-      for (const l of locks) expect(["AccessShareLock", "RowShareLock"]).toContain(l.mode);
+      const locks = await locksTenantConfig(c);
+      for (const m of locks) expect(["AccessShareLock", "RowShareLock"]).toContain(m);
       expect(await md5Funcoes(c)).toEqual(antes);
       const def1 = (await um<{ d: string }>(c, `SELECT pg_get_functiondef($1::regprocedure) AS d`, [SIG])).d;
       await aplica(c, MIG); // idempotente
@@ -183,65 +210,142 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
     });
   });
 
-  it("ACL: anon/PUBLIC sem EXECUTE, authenticated com (inv. #9)", async () => {
+  it("ACL: anon/PUBLIC/service_role sem EXECUTE, authenticated com (inv. #9)", async () => {
     await withTx(async (c) => {
       await prepara(c);
-      const r = await um<{ anon: boolean; pub: boolean; auth: boolean }>(
+      const r = await um<{ anon: boolean; pub: boolean; srv: boolean; auth: boolean }>(
         c,
         `SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon,
                 has_function_privilege('public', $1, 'EXECUTE') AS pub,
+                has_function_privilege('service_role', $1, 'EXECUTE') AS srv,
                 has_function_privilege('authenticated', $1, 'EXECUTE') AS auth`,
         [SIG],
       );
-      expect(r).toEqual({ anon: false, pub: false, auth: true });
+      expect(r).toEqual({ anon: false, pub: false, srv: false, auth: true });
       const d = await um<{ sd: boolean; cfg: string[] }>(c, `SELECT prosecdef AS sd, proconfig AS cfg FROM pg_proc WHERE oid = $1::regprocedure`, [SIG]);
       expect(d.sd).toBe(true);
       expect(d.cfg).toEqual(["search_path=public"]);
     });
   });
 
-  it("só a coluna enviada muda (modules/sku_config/tab_labels/keywords/kanban_automatico idênticos); retorno só das gravadas", async () => {
+  it("locks da RPC em tenant_config durante o Salvar ≤ RowExclusive (nada mais forte), com e sem coluna kanban", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await comoUsuario(c);
-      const antes = await linha(c);
-      const novo = await outroFuso(c, antes.timezone);
-      const { erro, rows } = await salvar(c, { timezone: novo }, baseDe(antes, ["timezone"]));
-      expect(erro).toBeNull();
-      expect(rows[0].r).toEqual({ gravadas: ["timezone"], valores: { timezone: novo } });
-      const depois = await linha(c);
-      expect(depois.timezone).toBe(novo);
-      const { timezone: _a, ...restoAntes } = antes;
-      const { timezone: _d, ...restoDepois } = depois;
-      expect(restoDepois).toEqual(restoAntes);
-      for (const k of ["modules", "sku_config", "tamanhos_sku", "tab_labels", "keywords", "kanban_automatico", "campos_editaveis"]) {
-        expect(depois[k], k).toEqual(antes[k]);
-      }
+      const a = await linha(c);
+      const r1 = await salvar(c, { keywords: "locks", tab_labels: { ...(a.tab_labels ?? {}), teste_locks: "x" } }, baseDe(a, ["keywords", "tab_labels"]));
+      expect(r1.erro).toBeNull();
+      const r2 = await salvar(
+        c,
+        { kanban_requisitos_excecoes: { teste_locks: ["x"] } },
+        baseDe(a, ["kanban_requisitos_excecoes"]),
+        a.kanban_automatico,
+      );
+      expect(r2.erro).toBeNull();
+      const locks = await locksTenantConfig(c);
+      expect(locks).toContain("RowExclusiveLock");
+      for (const m of locks) expect(["AccessShareLock", "RowShareLock", "RowExclusiveLock"]).toContain(m);
     });
   });
 
-  it("base velha → P0409 conflito_versao (DETAIL = só a coluna em conflito, ASCII) e NADA gravado", async () => {
-    await withTx(async (c) => {
-      await prepara(c);
-      await comoUsuario(c);
-      const carregado = await linha(c); // o que a tela carregou
-      const outroModo = carregado.modo_oc_rolo === "rolo" ? "oc" : "rolo";
-      // outra pessoa salvou modo_oc_rolo depois da carga
-      await c.query("UPDATE public.tenant_config SET modo_oc_rolo = $2 WHERE tenant_id = $1", [T, outroModo]);
-      const servidor = await linha(c);
-      const meuModo = outroModo === "rolo" ? "ambos" : "rolo"; // ≠ o que está no servidor
-      const novoFuso = await outroFuso(c, carregado.timezone);
-      const { erro } = await salvar(
-        c,
-        { timezone: novoFuso, modo_oc_rolo: meuModo },
-        baseDe(carregado, ["timezone", "modo_oc_rolo"]),
-      );
-      expect(erro?.code).toBe("P0409");
-      expect(erro?.message).toBe("conflito_versao: config_loja");
-      expect(erro?.detail).toBe("modo_oc_rolo");
-      expect(erro!.message).toMatch(SO_ASCII);
-      expect(erro!.detail!).toMatch(SO_ASCII);
-      expect(await linha(c)).toEqual(servidor); // nem o fuso (sem conflito) foi gravado
+  describe.each(PERSONAS)("caminhos principais como $nome", ({ entra }) => {
+    it("só a coluna enviada muda (modules/sku_config/tab_labels/keywords/kanban_automatico idênticos); retorno só das gravadas", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        await entra(c);
+        const antes = await linha(c);
+        const novo = await outroFuso(c, antes.timezone);
+        const { erro, rows } = await salvar(c, { timezone: novo }, baseDe(antes, ["timezone"]));
+        expect(erro).toBeNull();
+        expect(rows[0].r).toEqual({ gravadas: ["timezone"], valores: { timezone: novo } });
+        const depois = await linha(c);
+        expect(depois.timezone).toBe(novo);
+        const { timezone: _a, ...restoAntes } = antes;
+        const { timezone: _d, ...restoDepois } = depois;
+        expect(restoDepois).toEqual(restoAntes);
+        for (const k of ["modules", "sku_config", "tamanhos_sku", "tab_labels", "keywords", "kanban_automatico", "campos_editaveis"]) {
+          expect(depois[k], k).toEqual(antes[k]);
+        }
+      });
+    });
+
+    it("base velha → P0409 conflito_versao (DETAIL = só a coluna em conflito, ASCII) e NADA gravado", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        await entra(c);
+        const carregado = await linha(c); // o que a tela carregou
+        const outroModo = carregado.modo_oc_rolo === "rolo" ? "oc" : "rolo";
+        // outra pessoa salvou modo_oc_rolo depois da carga
+        await c.query("UPDATE public.tenant_config SET modo_oc_rolo = $2 WHERE tenant_id = $1", [T, outroModo]);
+        const servidor = await linha(c);
+        const meuModo = outroModo === "rolo" ? "ambos" : "rolo"; // ≠ o que está no servidor
+        const novoFuso = await outroFuso(c, carregado.timezone);
+        const { erro } = await salvar(
+          c,
+          { timezone: novoFuso, modo_oc_rolo: meuModo },
+          baseDe(carregado, ["timezone", "modo_oc_rolo"]),
+        );
+        expect(erro?.code).toBe("P0409");
+        expect(erro?.message).toBe("conflito_versao: config_loja");
+        expect(erro?.detail).toBe("modo_oc_rolo");
+        expect(erro!.message).toMatch(SO_ASCII);
+        expect(erro!.detail!).toMatch(SO_ASCII);
+        expect(await linha(c)).toEqual(servidor); // nem o fuso (sem conflito) foi gravado
+      });
+    });
+
+    it("valor convergido (servidor já tem o que eu quero) não é conflito → grava", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        await entra(c);
+        const carregado = await linha(c);
+        const alvo = carregado.modo_oc_rolo === "rolo" ? "oc" : "rolo";
+        await c.query("UPDATE public.tenant_config SET modo_oc_rolo = $2 WHERE tenant_id = $1", [T, alvo]);
+        const novoFuso = await outroFuso(c, carregado.timezone);
+        const { erro, rows } = await salvar(c, { modo_oc_rolo: alvo, timezone: novoFuso }, baseDe(carregado, ["modo_oc_rolo", "timezone"]));
+        expect(erro).toBeNull();
+        expect(rows[0].r.gravadas).toEqual(["modo_oc_rolo", "timezone"]);
+        const d = await linha(c);
+        expect([d.modo_oc_rolo, d.timezone]).toEqual([alvo, novoFuso]);
+      });
+    });
+
+    it("chave fora da lista branca → P0001; base ausente → P0001; payload não-objeto → P0001; nada gravado", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        await entra(c);
+        const antes = await linha(c);
+        for (const k of ["modules", "kanban_automatico", "sku_config", "tamanhos_sku", "tamanhos_grade", "etapas_acabamento", "confeccao_prioridade", "tenant_id", "id"]) {
+          const { erro } = await salvar(c, { [k]: antes[k] }, { [k]: antes[k] }, antes.kanban_automatico);
+          expect(erro?.code, k).toBe("P0001");
+          expect(erro?.message, k).toContain(`"${k}"`);
+        }
+        const semBase = await salvar(c, { timezone: await outroFuso(c, antes.timezone), keywords: "a" }, { timezone: antes.timezone });
+        expect(semBase.erro?.code).toBe("P0001");
+        expect(semBase.erro?.message).toContain('"keywords"');
+        const naoObj = await tenta(c, CHAMA, [T, "[]", "{}", null]);
+        expect(naoObj.erro?.code).toBe("P0001");
+        const baseNula = await tenta(c, CHAMA, [T, JSON.stringify({ keywords: "a" }), null, null]);
+        expect(baseNula.erro?.code).toBe("P0001");
+        expect(await linha(c)).toEqual(antes);
+      });
+    });
+
+    it("loja errada (≠ loja ativa do chamador) → P0001 'A loja ativa mudou…'; nada gravado em nenhuma das duas", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        await entra(c);
+        const outra = (await um<{ t: string }>(c, `SELECT tenant_id AS t FROM public.tenant_config WHERE tenant_id <> $1 ORDER BY tenant_id LIMIT 1`, [T])).t;
+        const antesT = await linha(c);
+        const antesO = await linha(c, outra);
+        const { erro } = await salvar(c, { keywords: "invasao" }, { keywords: antesO.keywords }, null, outra);
+        expect(erro?.code).toBe("P0001");
+        expect(erro?.message).toBe("A loja ativa mudou. Recarregue a página antes de salvar.");
+        const nulo = await salvar(c, { keywords: "x" }, { keywords: antesT.keywords }, null, null as any);
+        expect(nulo.erro?.code).toBe("P0001");
+        expect(await linha(c)).toEqual(antesT);
+        expect(await linha(c, outra)).toEqual(antesO);
+      });
     });
   });
 
@@ -264,57 +368,25 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
     });
   });
 
-  it("valor convergido (servidor já tem o que eu quero) não é conflito → grava", async () => {
+  it("convergido compara com o valor NORMALIZADO (review M3): ' verao ' contra 'verao' salvo por outro não é conflito", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await comoUsuario(c);
       const carregado = await linha(c);
-      const alvo = carregado.modo_oc_rolo === "rolo" ? "oc" : "rolo";
-      await c.query("UPDATE public.tenant_config SET modo_oc_rolo = $2 WHERE tenant_id = $1", [T, alvo]);
-      const novoFuso = await outroFuso(c, carregado.timezone);
-      const { erro, rows } = await salvar(c, { modo_oc_rolo: alvo, timezone: novoFuso }, baseDe(carregado, ["modo_oc_rolo", "timezone"]));
-      expect(erro).toBeNull();
-      expect(rows[0].r.gravadas).toEqual(["modo_oc_rolo", "timezone"]);
-      const d = await linha(c);
-      expect([d.modo_oc_rolo, d.timezone]).toEqual([alvo, novoFuso]);
-    });
-  });
-
-  it("chave fora da lista branca → P0001; base ausente → P0001; payload não-objeto → P0001; nada gravado", async () => {
-    await withTx(async (c) => {
-      await prepara(c);
-      await comoUsuario(c);
-      const antes = await linha(c);
-      for (const k of ["modules", "kanban_automatico", "sku_config", "tamanhos_sku", "tamanhos_grade", "etapas_acabamento", "confeccao_prioridade", "tenant_id", "id"]) {
-        const { erro } = await salvar(c, { [k]: antes[k] }, { [k]: antes[k] }, antes.kanban_automatico);
-        expect(erro?.code, k).toBe("P0001");
-        expect(erro?.message, k).toContain(`"${k}"`);
-      }
-      const semBase = await salvar(c, { timezone: await outroFuso(c, antes.timezone), keywords: "a" }, { timezone: antes.timezone });
-      expect(semBase.erro?.code).toBe("P0001");
-      expect(semBase.erro?.message).toContain('"keywords"');
-      const naoObj = await tenta(c, CHAMA, [T, "[]", "{}", null]);
-      expect(naoObj.erro?.code).toBe("P0001");
-      const baseNula = await tenta(c, CHAMA, [T, JSON.stringify({ keywords: "a" }), null, null]);
-      expect(baseNula.erro?.code).toBe("P0001");
-      expect(await linha(c)).toEqual(antes);
-    });
-  });
-
-  it("loja errada (≠ loja ativa do chamador) → P0001 'A loja ativa mudou…'; nada gravado em nenhuma das duas", async () => {
-    await withTx(async (c) => {
-      await prepara(c);
-      await comoUsuario(c);
-      const outra = (await um<{ t: string }>(c, `SELECT tenant_id AS t FROM public.tenant_config WHERE tenant_id <> $1 ORDER BY tenant_id LIMIT 1`, [T])).t;
-      const antesT = await linha(c);
-      const antesO = await linha(c, outra);
-      const { erro } = await salvar(c, { keywords: "invasao" }, { keywords: antesO.keywords }, null, outra);
-      expect(erro?.code).toBe("P0001");
-      expect(erro?.message).toBe("A loja ativa mudou. Recarregue a página antes de salvar.");
-      const nulo = await salvar(c, { keywords: "x" }, { keywords: antesT.keywords }, null, null as any);
-      expect(nulo.erro?.code).toBe("P0001");
-      expect(await linha(c)).toEqual(antesT);
-      expect(await linha(c, outra)).toEqual(antesO);
+      await c.query("UPDATE public.tenant_config SET keywords = 'verao' WHERE tenant_id = $1", [T]);
+      const ok = await salvar(c, { keywords: "  verao  " }, baseDe(carregado, ["keywords"]));
+      expect(ok.erro).toBeNull();
+      expect(ok.rows[0].r.valores).toEqual({ keywords: "verao" });
+      // só espaços converge com NULL
+      await c.query("UPDATE public.tenant_config SET keywords = NULL WHERE tenant_id = $1", [T]);
+      const vazio = await salvar(c, { keywords: "   " }, { keywords: "outra coisa" });
+      expect(vazio.erro).toBeNull();
+      expect(vazio.rows[0].r.valores).toEqual({ keywords: null });
+      // valor realmente diferente continua conflito
+      await c.query("UPDATE public.tenant_config SET keywords = 'inverno' WHERE tenant_id = $1", [T]);
+      const conf = await salvar(c, { keywords: " verao " }, { keywords: "verao" });
+      expect(conf.erro?.code).toBe("P0409");
+      expect(conf.erro?.detail).toBe("keywords");
     });
   });
 
@@ -338,7 +410,22 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
     });
   });
 
-  it("chave LIGADA + status_kanban mudou → snapshot 'config' + recálculo na MESMA txn (gatilho de sempre)", async () => {
+  it("loja INATIVA (sentinela nil) → 42501 'Loja inativa…' para o admin da loja; nada gravado", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await comoUsuario(c);
+      const antes = await linha(c);
+      await c.query("UPDATE public.tenants SET ativo = false WHERE id = $1", [T]);
+      await usuarioLoja(c, U_ADMIN, true);
+      expect((await um<{ t: string }>(c, "SELECT public.get_user_tenant_id()::text AS t")).t).toBe("00000000-0000-0000-0000-000000000000");
+      const { erro } = await salvar(c, { keywords: "x" }, { keywords: antes.keywords });
+      expect(erro?.code).toBe("42501");
+      expect(erro?.message).toBe("Loja inativa ou sem loja — operação não permitida.");
+      expect(await linha(c)).toEqual(antes);
+    });
+  });
+
+  it("chave LIGADA + requisito mudou → snapshot 'config' + recálculo EFETIVO na MESMA txn (cards movidos + histórico 'config')", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await comoUsuario(c);
@@ -352,13 +439,29 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
       expect(elegiveis).toBeGreaterThan(0);
       const antes = await linha(c);
       expect(antes.kanban_automatico).toBe(true);
-      const nConfigAntes = (await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.kanban_snapshot WHERE tenant_id = $1 AND motivo = 'config'`, [T])).n;
-      const novoStatus = [...(antes.status_kanban as string[]), "Teste Colab Config"];
-      const { erro, rows } = await salvar(c, { status_kanban: novoStatus }, baseDe(antes, ["status_kanban"]), true);
+      const conta = async (sql: string) => (await um<{ n: number }>(c, sql, [T])).n;
+      const nSnap0 = await conta(`SELECT count(*)::int AS n FROM public.kanban_snapshot WHERE tenant_id = $1 AND motivo = 'config'`);
+      const nHist0 = await conta(`SELECT count(*)::int AS n FROM public.modelo_kanban_historico WHERE tenant_id = $1 AND origem = 'config'`);
+      await c.query(`CREATE TEMP TABLE t1_status_antes ON COMMIT DROP AS SELECT id, status_desenvolvimento AS s FROM public.modelos WHERE tenant_id = '${T}'`);
+      // Endurece os requisitos: toda coluna automática (exceto a de entrada) passa a exigir 'grade_cortada_lancada',
+      // que nenhum modelo da Loja Teste satisfaz → cards derivados além da entrada recuam.
+      const req = antes.kanban_requisitos as Record<string, string[]>;
+      const novoReq = Object.fromEntries(
+        Object.entries(req).map(([k, v]) => [k, k === "desenho_tecnico" ? v : [...v, "grade_cortada_lancada"]]),
+      );
+      const { erro, rows } = await salvar(c, { kanban_requisitos: novoReq }, baseDe(antes, ["kanban_requisitos"]), true);
       expect(erro).toBeNull();
-      expect(rows[0].r.valores.status_kanban).toEqual(novoStatus);
-      const nConfigDepois = (await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.kanban_snapshot WHERE tenant_id = $1 AND motivo = 'config'`, [T])).n;
-      expect(nConfigDepois - nConfigAntes).toBe(elegiveis);
+      expect(rows[0].r.valores.kanban_requisitos).toEqual(novoReq);
+      const nSnap1 = await conta(`SELECT count(*)::int AS n FROM public.kanban_snapshot WHERE tenant_id = $1 AND motivo = 'config'`);
+      expect(nSnap1 - nSnap0).toBe(elegiveis);
+      const movidos = (await um<{ n: number }>(
+        c,
+        `SELECT count(*)::int AS n FROM public.modelos m JOIN t1_status_antes a ON a.id = m.id
+          WHERE m.status_desenvolvimento IS DISTINCT FROM a.s`,
+      )).n;
+      expect(movidos, "a mudança de requisito deveria mover cards na Loja Teste da cópia").toBeGreaterThan(0);
+      const nHist1 = await conta(`SELECT count(*)::int AS n FROM public.modelo_kanban_historico WHERE tenant_id = $1 AND origem = 'config'`);
+      expect(nHist1 - nHist0).toBe(movidos);
       expect((await linha(c)).kanban_automatico).toBe(true); // a RPC nunca mexe na chave
     });
   });
@@ -380,7 +483,6 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
       expect(await linha(c)).toEqual(antes);
       const certa = await salvar(c, mud, base, chave);
       expect(certa.erro).toBeNull();
-      // coluna não-kanban: a chave não é exigida
       const kw = await salvar(c, { keywords: "sem chave" }, { keywords: antes.keywords }, null);
       expect(kw.erro).toBeNull();
     });
@@ -447,7 +549,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
     });
   });
 
-  it("loja SEM linha: nasce com os defaults e grava (sem compare-and-set); _mudancas vazio não grava nada", async () => {
+  it("loja SEM linha: nasce com os defaults e grava (sem compare-and-set); _mudancas vazio não cria nada", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await comoUsuario(c);
@@ -473,10 +575,142 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
       const ok = await salvar(c, { tab_labels: tl }, baseDe(a, ["tab_labels"]));
       expect(ok.erro).toBeNull();
       expect((await linha(c)).tab_labels).toEqual(tl);
-      // a mesma base (agora velha) com outro valor → conflito
       const conf = await salvar(c, { tab_labels: { ...tl, teste_colab: "Outro" } }, baseDe(a, ["tab_labels"]));
       expect(conf.erro?.code).toBe("P0409");
       expect(conf.erro?.detail).toBe("tab_labels");
     });
+  });
+});
+
+// ───────────────── concorrência: 2 conexões, COMMIT REAL na cópia (restaurado no fim) ─────────────────
+// A 1ª conexão salva e segura a linha (FOR UPDATE); a 2ª espera; quando a 1ª dá COMMIT, a 2ª relê a versão nova:
+// mesma coluna → P0409; coluna diferente → grava. Precisa da função visível às 2 conexões, então a migration é aplicada DE
+// VERDADE na cópia (só se ainda não existe) e o inverso roda no fim. Os valores de keywords são restaurados e as linhas de
+// audit_log criadas aqui (marcador 'conc-t1-') são apagadas. SÓ na cópia local (exigeBancoLocal).
+describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência real (2 conexões, cópia local)", () => {
+  const MARCA = "conc-t1-";
+  let admin: Client;
+  let criouFuncao = false;
+  let orig: { id: string; keywords: string | null; timezone: string };
+
+  async function conectar(): Promise<Client> {
+    exigeBancoLocal();
+    const c = new Client({ connectionString: dbUrl()!, ssl: false });
+    await c.connect();
+    return c;
+  }
+  async function abre(c: Client): Promise<number> {
+    await c.query("BEGIN");
+    await c.query("SET LOCAL lock_timeout = '15s'");
+    await c.query("SET LOCAL statement_timeout = '30s'");
+    await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_TESTE, role: "authenticated" })]);
+    return (await um<{ p: number }>(c, "SELECT pg_backend_pid() AS p")).p;
+  }
+  async function esperaBloqueada(pid: number): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+      const r = await um<{ n: number }>(admin, "SELECT count(*)::int AS n FROM pg_locks WHERE pid = $1 AND NOT granted", [pid]);
+      if (r.n > 0) return;
+      await new Promise((ok) => setTimeout(ok, 50));
+    }
+    throw new Error("a 2ª conexão não ficou esperando o lock da 1ª");
+  }
+  async function fecha(...cs: Client[]): Promise<void> {
+    for (const c of cs) {
+      try {
+        await c.query("ROLLBACK");
+      } catch {
+        /* ignore */
+      }
+      await c.end();
+    }
+  }
+  const chamar = (c: Client, mud: object, base: object) =>
+    c.query(CHAMA, [T, JSON.stringify(mud), JSON.stringify(base), null]).then(
+      (r) => ({ r: r.rows[0].r, erro: null as any }),
+      (e) => ({ r: null, erro: e }),
+    );
+
+  beforeAll(async () => {
+    admin = await conectar();
+    const u = await um<{ t: string }>(admin, "SELECT tenant_id::text AS t FROM public.users WHERE id = $1", [USER_TESTE]);
+    if (u.t !== T) throw new Error(`USER_TESTE precisa estar na Loja Teste na cópia (está em ${u.t}) — o teste não grava users`);
+    orig = await um(admin, "SELECT id, keywords, timezone FROM public.tenant_config WHERE tenant_id = $1", [T]);
+    if ((orig.keywords ?? "").startsWith(MARCA)) throw new Error("keywords da Loja Teste já têm o marcador de uma rodada anterior interrompida");
+    const existe = (await um<{ r: string | null }>(admin, "SELECT to_regprocedure($1)::text AS r", [SIG])).r;
+    if (!existe) {
+      await admin.query(ler(MIG)); // aplicação REAL (com o BEGIN/COMMIT e as travas do próprio arquivo)
+      criouFuncao = true;
+    }
+  });
+
+  afterAll(async () => {
+    if (!admin) return;
+    try {
+      await admin.query(
+        `UPDATE public.tenant_config SET keywords = $2, timezone = $3
+          WHERE tenant_id = $1 AND (keywords IS DISTINCT FROM $2 OR timezone IS DISTINCT FROM $3)`,
+        [T, orig.keywords, orig.timezone],
+      );
+      await admin.query(
+        `DELETE FROM public.audit_log WHERE tabela = 'tenant_config' AND registro_id = $1 AND dados::text LIKE $2`,
+        [orig.id, `%${MARCA}%`],
+      );
+      if (criouFuncao) await admin.query(ler(INV));
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("mesma coluna: a 2ª espera a 1ª e, depois do COMMIT, recebe P0409 (keywords); nada dela gravado", async () => {
+    const a = await conectar();
+    const b = await conectar();
+    try {
+      await abre(a);
+      const pidB = await abre(b);
+      const atual = await um<{ keywords: string | null }>(admin, "SELECT keywords FROM public.tenant_config WHERE tenant_id = $1", [T]);
+      const base = { keywords: atual.keywords };
+      const ra = await chamar(a, { keywords: `${MARCA}A` }, base);
+      expect(ra.erro).toBeNull();
+      const pb = chamar(b, { keywords: `${MARCA}B` }, base);
+      await esperaBloqueada(pidB);
+      await a.query("COMMIT");
+      const rb = await pb;
+      expect(rb.erro?.code).toBe("P0409");
+      expect(rb.erro?.message).toBe("conflito_versao: config_loja");
+      expect(rb.erro?.detail).toBe("keywords");
+      await b.query("ROLLBACK");
+      const fim = await um<{ keywords: string }>(admin, "SELECT keywords FROM public.tenant_config WHERE tenant_id = $1", [T]);
+      expect(fim.keywords).toBe(`${MARCA}A`);
+    } finally {
+      await fecha(a, b);
+    }
+  });
+
+  it("colunas diferentes: a 2ª espera e depois grava a dela sem apagar a da 1ª", async () => {
+    const a = await conectar();
+    const b = await conectar();
+    try {
+      await abre(a);
+      const pidB = await abre(b);
+      const atual = await um<{ keywords: string | null; timezone: string }>(
+        admin,
+        "SELECT keywords, timezone FROM public.tenant_config WHERE tenant_id = $1",
+        [T],
+      );
+      const ra = await chamar(a, { keywords: `${MARCA}A2` }, { keywords: atual.keywords });
+      expect(ra.erro).toBeNull();
+      const fuso = atual.timezone === "America/Manaus" ? "America/Belem" : "America/Manaus";
+      const pb = chamar(b, { timezone: fuso }, { timezone: atual.timezone });
+      await esperaBloqueada(pidB);
+      await a.query("COMMIT");
+      const rb = await pb;
+      expect(rb.erro).toBeNull();
+      expect(rb.r).toEqual({ gravadas: ["timezone"], valores: { timezone: fuso } });
+      const visto = await um<{ keywords: string; timezone: string }>(b, "SELECT keywords, timezone FROM public.tenant_config WHERE tenant_id = $1", [T]);
+      expect(visto).toEqual({ keywords: `${MARCA}A2`, timezone: fuso }); // a da 1ª ficou
+      await b.query("ROLLBACK"); // a 2ª não precisa gravar de verdade
+    } finally {
+      await fecha(a, b);
+    }
   });
 });
