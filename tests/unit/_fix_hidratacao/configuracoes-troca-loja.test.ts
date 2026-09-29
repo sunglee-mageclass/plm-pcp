@@ -56,7 +56,7 @@ const kw = () => document.querySelector<HTMLTextAreaElement>("#cfg-keywords");
 const rpcsSalvar = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja").map((c) => c.payload as any);
 const escritasDiretas = () => FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && (c.op === "upsert" || c.op === "update"));
 
-async function salvarComoAQa(toastEsperado: { tipo: "success" | "info"; texto: string }) {
+async function salvarComoAQa(toastEsperado: { tipo: "success"; texto: string }) {
   await clicar(botaoPorTexto("Salvar alterações")!);
   await aguardar(() => !!botaoPorTexto("Salvar mesmo assim"), "AlertDialog de confirmação");
   await clicar(botaoPorTexto("Salvar mesmo assim")!);
@@ -93,7 +93,9 @@ describe("[fix hidratação revisão final] C3 — Config: super admin troca de 
     await aguardar(() => kw()?.value === "LOJA B ORIGINAL", "form mostra as keywords da loja t2", 2000);
     // Fix C3 + T3: a tela adotou o cru da B (a edição da A se perde, como antes desta branch — não
     // ideal, mas nunca grava dado da loja errada). Nada mudou na B ⇒ o Salvar nem chama a RPC.
-    await salvarComoAQa({ tipo: "info", texto: "Nenhuma alteração para salvar." });
+    await clicar(botaoPorTexto("Salvar alterações")!);
+    await aguardar(() => toastMock.info.mock.calls.some((c) => c[0] === "Nenhuma alteração para salvar."), "toast de nada mudou");
+    expect(botaoPorTexto("Salvar mesmo assim")).toBeNull(); // T4: nem abre a confirmação
     expect(rpcsSalvar()).toHaveLength(0);
     expect(escritasDiretas()).toHaveLength(0);
     expect(FAKE.linhas.tenant_config.find((r) => r.tenant_id === "t2")!.keywords).toBe("LOJA B ORIGINAL");

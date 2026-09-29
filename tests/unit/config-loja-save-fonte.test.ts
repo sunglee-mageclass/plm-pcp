@@ -59,4 +59,12 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
     expect(pagina).toContain("toast.error(MENSAGEM_CHAVE_KANBAN_MUDOU)");
     expect(pagina).toContain("refetchCfg()");
   });
+
+  it("T4: presença por loja, banner com resolução e checagem de 'nada mudou' antes da confirmação", () => {
+    expect(pagina).toContain("canal: data?.tenantId ? `colab:config-loja:${data.tenantId}` : null");
+    expect(pagina).toContain("<ColabPresenceOverlay presentes={presentesNoBloco} scopeRef={colabScopeRef} />");
+    expect(pagina).toMatch(/<ColabBanner[\s\S]*onResolver=\{resolverConflito\}[\s\S]*rotulo=\{rotuloColuna\}/);
+    const prep = pagina.slice(pagina.indexOf("const prepararSalvar = async"), pagina.indexOf("setConfirmSalvar(true)", pagina.indexOf("const prepararSalvar = async")));
+    expect(prep).toContain('toast.info("Nenhuma alteração para salvar.")');
+  });
 });

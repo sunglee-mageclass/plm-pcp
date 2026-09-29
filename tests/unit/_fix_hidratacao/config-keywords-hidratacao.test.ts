@@ -288,13 +288,14 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     expect(botaoPorTexto("Salvar alterações")!.disabled).toBe(true); // conflito pendente trava
   });
 
-  it("nada mudou: Salvar não chama a RPC — avisa 'Nenhuma alteração para salvar.'", async () => {
+  it("nada mudou: Salvar não chama a RPC nem abre a confirmação — avisa 'Nenhuma alteração para salvar.'", async () => {
     await abrirPagina(true);
     await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação");
     await clicar(botaoPorTexto("Salvar alterações")!);
-    await aguardar(() => !!botaoPorTexto("Salvar mesmo assim"), "AlertDialog de confirmação");
-    await clicar(botaoPorTexto("Salvar mesmo assim")!);
     await aguardar(() => toastMock.info.mock.calls.some((c) => c[0] === "Nenhuma alteração para salvar."), "toast de nada mudou");
+    // T4 (decisão do controlador): a checagem vem ANTES da confirmação — "Salvar mesmo assim" nunca aparece.
+    await esperar(50);
+    expect(botaoPorTexto("Salvar mesmo assim")).toBeNull();
     expect(rpcSalvar()).toBeUndefined();
     expect(upsertsPagina()).toHaveLength(0);
   });

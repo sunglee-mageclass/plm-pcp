@@ -1,5 +1,5 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap, LogIn, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -61,7 +61,10 @@ import type { RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
 import { keywordsDoServidor } from "@/lib/config-keywords";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
-import { COLUNAS_PAGINA, colunasDoErro, montarMudancas, rebasearBaseRaw, rotuloColuna } from "@/lib/config-loja-colab";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { COLUNAS_PAGINA, colunasDoErro, montarMudancas, rebasearBaseRaw, rotuloColuna, serializarColuna } from "@/lib/config-loja-colab";
 import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { KanbanAutomaticoBloco, KanbanSalvarDialog } from "@/components/admin/KanbanAutomaticoDialog";
 import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
@@ -261,6 +264,46 @@ function colunasCruas(row: Record<string, unknown> | null | undefined): Record<s
   return out;
 }
 
+// T4: dois valores de uma coluna "são o mesmo" para o banco se serializam igual no payload da RPC
+// (keywords "  " ≡ "" ≡ NULL; ref_config {partes:[]} ≡ NULL; explosao "" ≡ NULL).
+function mesmoValorSalvo(k: string, a: unknown, b: unknown): boolean {
+  return igual(serializarColuna(k, a), serializarColuna(k, b));
+}
+
+// T4 (P-124 A — anel por BLOCO): coluna → bloco da tela (`data-colab-path` do card) que a edita.
+const BLOCO_DA_COLUNA: Record<string, string> = {
+  timezone: "cfg:timezone",
+  status_kanban: "cfg:status_kanban",
+  kanban_requisitos: "cfg:status_kanban",
+  kanban_requisitos_excecoes: "cfg:status_kanban",
+  explosao_envio_status: "cfg:status_kanban",
+  ref_exibir_status: "cfg:status_kanban",
+  ref_config: "cfg:ref_config",
+  revenda_kanban_colunas: "cfg:revenda_kanban_colunas",
+  revenda_kanban_requisitos: "cfg:revenda_kanban_colunas",
+  revenda_campos: "cfg:revenda_campos",
+  leadtime: "cfg:leadtime",
+  pcp_etapas: "cfg:pcp_etapas",
+  modo_oc_rolo: "cfg:modo_oc_rolo",
+  modo_baixa_estoque: "cfg:modo_baixa_estoque",
+  markup_analise_faixa: "cfg:markup_analise_faixa",
+  keywords: "cfg:keywords",
+};
+
+// T4: foco em controle DENTRO de um bloco (diálogo de Requisitos, marcadores Explosão/REF por linha)
+// → o anel do outro aparece no BLOCO que o contém (o diálogo é portal, fora da página; os marcadores
+// se repetem por linha e reencontrar "o 1º" poria o anel na linha errada).
+const BLOCO_DO_FOCO: Record<string, string> = {
+  "cfg:kanban_requisitos": "cfg:status_kanban",
+  "cfg:explosao_envio_status": "cfg:status_kanban",
+  "cfg:ref_exibir_status": "cfg:status_kanban",
+  "cfg:revenda_kanban_requisitos": "cfg:revenda_kanban_colunas",
+};
+function blocoDoFoco(path: string | null): string | null {
+  if (!path) return null;
+  return BLOCO_DO_FOCO[path] ?? path;
+}
+
 // Junta a lista de conflitos pendentes com os novos (um por coluna; o novo substitui o antigo).
 function juntarConflitos(atuais: Conflito[], novos: Conflito[]): Conflito[] {
   const mapa = new Map(atuais.map((c) => [c.path, c]));
@@ -311,6 +354,12 @@ function ConfiguracoesLojaPage() {
     conflitosRef.current = lista;
     setConflitosPendentes(lista);
   };
+  // T4: resultado do último merge com mudança alheia (banner). null = nada a avisar.
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  // T4: presença (quem mais está na tela e em qual BLOCO — P-124 A). Canal por loja: trocar de loja
+  // troca o canal (a presença da loja anterior some junto).
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
   // Save EM VOO (liga no início do mutationFn, desliga no onSuccess/onError): o eco do PRÓPRIO save
   // pode chegar antes da resposta e o servidor NORMALIZA valores (keywords só espaços → NULL,
   // ref_config vazio → NULL) — comparar isso com a tela daria conflito falso. Enquanto em voo, o
@@ -395,6 +444,7 @@ function ConfiguracoesLojaPage() {
       cfgBaseRef.current = null;
       baseRawRef.current = {};
       definirConflitos([]);
+      setUltimoMerge(null);
       setHydrated(false);
       return;
     }
@@ -447,16 +497,30 @@ function ConfiguracoesLojaPage() {
     // conflito novo — o eco pode ser o do PRÓPRIO save, já normalizado pelo servidor.
     let pendentes: Conflito[] = mesmaLoja ? conflitosRef.current : [];
     const emVoo = salvandoRef.current || kanbanProtegidoRef.current;
+    // T4: quantas colunas da página chegaram de OUTRA pessoa neste eco (banner "N campos atualizados").
+    let nAtualizados = 0;
+    let novosConflitos: Conflito[] = [];
     if (merge && !emVoo) {
-      const novos: Conflito[] = merge.conflitos.filter((c) => COLUNAS_GERAIS_PAGINA.has(c.path));
+      const draftAntes = cfgRef.current as Record<string, unknown>;
+      const baseAntes = base as Record<string, unknown>;
+      const fresh = next as Record<string, unknown>;
+      // Só diferença REAL conta — o servidor normaliza (keywords só espaços → NULL, ref_config vazio → NULL);
+      // comparar pela serialização do payload evita "conflito"/"atualizado" falso depois do próprio save.
+      novosConflitos = merge.conflitos.filter(
+        (c) => COLUNAS_GERAIS_PAGINA.has(c.path) && !mesmoValorSalvo(c.path, draftAntes[c.path], fresh[c.path]),
+      );
+      nAtualizados = merge.atualizados.filter(
+        (k) => COLUNAS_GERAIS_PAGINA.has(k) && !mesmoValorSalvo(k, baseAntes[k], fresh[k]),
+      ).length;
       const local = pickKanban(cfgRef.current);
       const fresco = pickKanban(next);
       const kb = kanbanBaseRef.current.cfg;
       for (const c of KANBAN_COLS) {
         const l = jsonCanonico(local[c]), f = jsonCanonico(fresco[c]), b = jsonCanonico(kb[c] ?? null);
-        if (l !== f && l !== b && f !== b) novos.push({ path: c, meu: local[c], dele: fresco[c] });
+        if (l !== f && l !== b && f !== b) novosConflitos.push({ path: c, meu: local[c], dele: fresco[c] });
+        else if (l === b && f !== b) nAtualizados++; // não mexi e o servidor mudou → adotado
       }
-      pendentes = juntarConflitos(pendentes, novos);
+      pendentes = juntarConflitos(pendentes, novosConflitos);
     }
     // Atualiza "meu"/"dele" dos pendentes (inclusive os vindos de um P0409, que nascem sem "dele") e
     // solta o que CONVERGIU (a tela já tem o mesmo valor do servidor — nada a resolver).
@@ -475,6 +539,11 @@ function ConfiguracoesLojaPage() {
     setKanbanBase(r2.kanbanBase);
     resetCfgBaseline(next); // baseline = servidor ⇒ o selo "não salvo" segue aceso só p/ o que é meu
     definirConflitos(pendentes);
+    // T4: banner "Alguém salvou agora — N campos atualizados · M em conflito". Loja nova/1ª carga
+    // limpa; eco sem mudança alheia mantém o banner que já estava (não pisca).
+    if (!base) setUltimoMerge(null);
+    else if (nAtualizados > 0 || novosConflitos.length > 0) setUltimoMerge({ atualizados: nAtualizados, conflitos: pendentes });
+    else setUltimoMerge((u) => (u ? { ...u, conflitos: pendentes } : u));
     setHydrated(true);
   }, [data?.cfg, data?.tenantId]);
 
@@ -545,6 +614,7 @@ function ConfiguracoesLojaPage() {
       }
       toast.success("Configurações salvas");
       markClean();
+      setUltimoMerge(null);
       // Fix hidratação (P-57 A): o que este save mandou vira a base do merge — evita "não salvo"
       // falso quando o servidor NORMALIZA um valor (ex.: Keywords só com espaços → NULL,
       // `ref_config` vazio → NULL) e o eco da própria escrita chega como re-hidratação.
@@ -603,11 +673,73 @@ function ConfiguracoesLojaPage() {
     },
   });
 
+  // T4 (P-122 A): resolver um conflito pendente. O "novo" é o valor ATUAL do servidor (`data.cfg`,
+  // já relido pelo efeito/refetch). "manter meu": a tela fica como está e a base CRUA dessa coluna
+  // passa a ser o valor do servidor — o próximo Salvar grava o meu POR CIMA, conscientemente (sem
+  // P0409). "usar o novo": a tela e as bases adotam o valor do servidor (a coluna deixa de ir no save).
+  // Nos dois casos o conflito sai da lista (e o Salvar destrava quando não sobrar nenhum).
+  const resolverConflito = (path: string, escolha: "meu" | "dele") => {
+    const cruServidor = colunasCruas(data?.cfg as Record<string, unknown> | null);
+    const normServidor = normalizarConfig(data?.cfg as Record<string, unknown> | null) as Record<string, unknown>;
+    baseRawRef.current = { ...baseRawRef.current, [path]: cruServidor[path] ?? null };
+    if (cfgBaseRef.current) cfgBaseRef.current = { ...cfgBaseRef.current, [path]: normServidor[path] } as ConfigState;
+    if ((KANBAN_COLS as readonly string[]).includes(path)) {
+      const col = path as KanbanCol;
+      const b = kanbanBaseRef.current;
+      const nb = { cfg: { ...b.cfg, [col]: normServidor[col] }, servidor: { ...b.servidor, [col]: normServidor[col] } };
+      kanbanBaseRef.current = nb;
+      setKanbanBase(nb);
+    }
+    if (escolha === "dele") {
+      setCfg((c) => ({ ...c, [path]: normServidor[path] }) as ConfigState);
+    }
+    const restantes = conflitosRef.current.filter((c) => c.path !== path);
+    definirConflitos(restantes);
+    setUltimoMerge((u) => {
+      if (!u) return u;
+      const conflitos = u.conflitos.filter((c) => c.path !== path);
+      return conflitos.length === 0 && u.atualizados === 0 ? null : { ...u, conflitos };
+    });
+  };
+  const blocosEmConflito = new Set(conflitosPendentes.map((c) => BLOCO_DA_COLUNA[c.path]).filter(Boolean));
+  // Anel âmbar no bloco com conflito pendente (mesmo tom do destaque das outras telas colaborativas).
+  const anelConflito = (bloco: string) => (blocosEmConflito.has(bloco) ? "rounded-lg ring-2 ring-amber-500 ring-offset-2" : "");
+
+  // Presença (T4): canal por loja; o foco vai por BLOCO (`closest('[data-colab-path]')`, P-124 A).
+  const { presentes } = useColabPresencaPagina({
+    canal: data?.tenantId ? `colab:config-loja:${data.tenantId}` : null,
+    campoFocado,
+  });
+  // O anel do outro aparece no bloco que CONTÉM o controle focado (diálogo/marcador por linha → bloco).
+  const presentesNoBloco = useMemo(
+    () => presentes.map((p) => ({ ...p, campoFocado: blocoDoFoco(p.campoFocado) })),
+    [presentes],
+  );
+  // Trocar de loja: o foco anunciado era da loja anterior — zera (o canal novo nasce limpo).
+  useEffect(() => {
+    setCampoFocado(null);
+  }, [data?.tenantId]);
+
   // Salvar: com mudança nas colunas de kanban, confere o conflito (RP3) e, com a chave LIGADA no banco, mostra a
   // prévia (`kanban_previa_recalculo` com SÓ o que mudou) antes de confirmar. Sem cards mudando nem REF revelada
   // → o AlertDialog de sempre. A F1 não confere se a prévia foi vista (D19) — a garantia é esta função.
   const prepararSalvar = async () => {
     const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
+    // T4 (decisão do controlador): nada mudou ⇒ avisa JÁ, sem abrir a confirmação "Salvar mesmo
+    // assim" (que não teria o que salvar). O `mutationFn` mantém a mesma checagem como defesa.
+    if (cfgBaseRef.current) {
+      const { mudancas } = montarMudancas({
+        cfg,
+        baseUi: cfgBaseRef.current,
+        baseRaw: baseRawRef.current,
+        kanbanBaseCfg: kanbanBase.cfg,
+      });
+      if (Object.keys(mudancas).length === 0) {
+        toast.info("Nenhuma alteração para salvar.");
+        markClean();
+        return;
+      }
+    }
     // Médio 1 (garantia D19): guarda o diff que embasa a decisão desta chamada — tanto o caminho sem
     // prévia (AlertDialog comum) quanto o com prévia (KanbanSalvarDialog). O `mutationFn` recalcula o
     // diff na hora de salvar e aborta se divergir deste (a tela seguiu editável durante os `await`s
@@ -691,7 +823,19 @@ function ConfiguracoesLojaPage() {
   const kanbanChaveLigada = (data?.cfg as any)?.kanban_automatico === true;
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
+    <div
+      ref={colabScopeRef}
+      className="container mx-auto p-3 sm:p-6 space-y-6 pb-24"
+      // T4 (P-124 A): presença POR BLOCO — o foco anuncia o `data-colab-path` do bloco que contém o
+      // controle (inclui o diálogo de Requisitos, que é portal: o evento sobe pela árvore do React e o
+      // `closest` acha o `data-colab-path` do próprio DialogContent).
+      onFocusCapture={(e) => {
+        const el = (e.target as HTMLElement | null)?.closest?.("[data-colab-path]");
+        setCampoFocado(el?.getAttribute("data-colab-path") ?? null);
+      }}
+      onBlurCapture={() => setCampoFocado(null)}
+    >
+      <ColabPresenceOverlay presentes={presentesNoBloco} scopeRef={colabScopeRef} />
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
         <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
       </Button>
@@ -710,6 +854,16 @@ function ConfiguracoesLojaPage() {
         </div>
       </header>
 
+      {/* T4: quem mais está nesta tela + o que outra pessoa salvou agora + conflitos a resolver
+          ("manter meu" · "usar o novo"; o Salvar fica travado até resolver todos — P-122 A). */}
+      <ColabBanner
+        presentes={presentes}
+        ultimoMerge={ultimoMerge}
+        conflitos={conflitosPendentes}
+        onResolver={resolverConflito}
+        rotulo={rotuloColuna}
+      />
+
       {/* Módulos (badges) à esquerda + Fuso à direita — logo abaixo do header, sem card. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
@@ -726,7 +880,7 @@ function ConfiguracoesLojaPage() {
           </div>
         </div>
         {!isStockOnly && (
-          <div className="shrink-0 sm:text-right">
+          <div data-colab-path="cfg:timezone" className={"shrink-0 sm:text-right " + anelConflito("cfg:timezone")}>
             <Label className="text-xs text-muted-foreground">Fuso horário (GMT)</Label>
             <Select value={cfg.timezone} onValueChange={(v) => setCfg({ ...cfg, timezone: v })}>
               <SelectTrigger className="mt-1.5 w-full sm:w-72"><SelectValue /></SelectTrigger>
@@ -748,6 +902,7 @@ function ConfiguracoesLojaPage() {
       {!isStockOnly && (<>
       {/* Serviços (categorias), Acabamento e Grade de Tamanhos migraram p/ Cadastro > Atributos.
           A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
+      <div data-colab-path="cfg:status_kanban" className={anelConflito("cfg:status_kanban")}>
       <SortableListCard
         title="Status do Kanban"
         description="Colunas do painel de Desenvolvimento. Em cada status, defina os Requisitos (o que um card precisa ter preenchido para ENTRAR nele) e marque, se for o caso, a etapa a partir da qual libera o Envio à Explosão e a etapa a partir da qual o campo REF aparece no card."
@@ -807,6 +962,7 @@ function ConfiguracoesLojaPage() {
                   })
                 }
                 nomeEtapa={nomeDaEtapa}
+                colabPath="cfg:kanban_requisitos"
               />
               <EnvioExplosaoToggle
                 label={label}
@@ -903,12 +1059,18 @@ function ConfiguracoesLojaPage() {
           </div>
         }
       />
+      </div>
 
-      <FormatoRefCard
-        value={cfg.ref_config}
-        onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
-      />
-      <FormatoSkuCard paginaSuja={dirty} />
+      <div data-colab-path="cfg:ref_config" className={anelConflito("cfg:ref_config")}>
+        <FormatoRefCard
+          value={cfg.ref_config}
+          onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
+        />
+      </div>
+      {/* Formato do SKU grava sozinho (sku_config — fora do Salvar da página): só o anel de presença. */}
+      <div data-colab-path="cfg:sku_config">
+        <FormatoSkuCard paginaSuja={dirty} />
+      </div>
 
       {modules.produto_acabado && (
         <FluxoRevendaCard
@@ -921,24 +1083,29 @@ function ConfiguracoesLojaPage() {
           onColunasChange={(revenda_kanban_colunas) => setCfg((c) => ({ ...c, revenda_kanban_colunas }))}
           onRequisitosChange={(revenda_kanban_requisitos) => setCfg((c) => ({ ...c, revenda_kanban_requisitos }))}
           onCamposChange={(revenda_campos) => setCfg((c) => ({ ...c, revenda_campos }))}
+          anelConflito={anelConflito}
         />
       )}
 
-      <LeadtimeConfigCard
-        tenantId={data?.tenantId ?? null}
-        statusKanban={cfg.status_kanban}
-        value={cfg.leadtime}
-        onChange={(leadtime) => setCfg((c) => ({ ...c, leadtime }))}
-      />
+      <div data-colab-path="cfg:leadtime" className={anelConflito("cfg:leadtime")}>
+        <LeadtimeConfigCard
+          tenantId={data?.tenantId ?? null}
+          statusKanban={cfg.status_kanban}
+          value={cfg.leadtime}
+          onChange={(leadtime) => setCfg((c) => ({ ...c, leadtime }))}
+        />
+      </div>
 
       {modules.etapas_pl && (
-        <EtapasPLCard
-          value={cfg.pcp_etapas}
-          onChange={(pcp_etapas) => setCfg((c) => ({ ...c, pcp_etapas }))}
-        />
+        <div data-colab-path="cfg:pcp_etapas" className={anelConflito("cfg:pcp_etapas")}>
+          <EtapasPLCard
+            value={cfg.pcp_etapas}
+            onChange={(pcp_etapas) => setCfg((c) => ({ ...c, pcp_etapas }))}
+          />
+        </div>
       )}
 
-      <Card>
+      <Card data-colab-path="cfg:modo_oc_rolo" className={anelConflito("cfg:modo_oc_rolo")}>
         <CardHeader>
           <CardTitle>OC e Rolo</CardTitle>
           <CardDescription>
@@ -965,7 +1132,7 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-colab-path="cfg:modo_baixa_estoque" className={anelConflito("cfg:modo_baixa_estoque")}>
         <CardHeader>
           <CardTitle>Baixa de Estoque</CardTitle>
           <CardDescription>
@@ -996,7 +1163,7 @@ function ConfiguracoesLojaPage() {
       </Card>
       </>)}
 
-      <Card>
+      <Card data-colab-path="cfg:markup_analise_faixa" className={anelConflito("cfg:markup_analise_faixa")}>
         <CardHeader>
           <CardTitle>Planejamento — análise de markup</CardTitle>
           <CardDescription>
@@ -1019,7 +1186,7 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-colab-path="cfg:nomenclaturas">
         <CardHeader>
           <CardTitle>Nomenclaturas</CardTitle>
           <CardDescription>
@@ -1035,7 +1202,7 @@ function ConfiguracoesLojaPage() {
 
       {/* F3.6 (dono 25/set, R39) — Keywords da loja: texto livre, no Salvar do rodapé (mesma guarda de alterações não
           salvas). Visível p/ quem já abre a Config (admin da loja e super admin). Uso: tela FUTURA do super admin, por loja. */}
-      <Card>
+      <Card data-colab-path="cfg:keywords" className={anelConflito("cfg:keywords")}>
         <CardHeader>
           <CardTitle>Keywords</CardTitle>
           <CardDescription>Palavras-chave da loja, em texto livre. Salvas com o botão "Salvar alterações".</CardDescription>
@@ -1209,6 +1376,7 @@ function EnvioExplosaoToggle({
       }
       aria-pressed={checked}
       aria-label={`Envio à Explosão a partir de "${label}" (${stateTxt})`}
+      data-colab-path="cfg:explosao_envio_status"
       onClick={() => onToggle(!checked)}
     >
       <Send className="h-4 w-4 sm:mr-1" />
@@ -1244,6 +1412,7 @@ function RefExibirToggle({
       }
       aria-pressed={checked}
       aria-label={`Exibir REF a partir de "${label}" (${stateTxt})`}
+      data-colab-path="cfg:ref_exibir_status"
       onClick={() => onToggle(!checked)}
     >
       <Tag className="h-4 w-4 sm:mr-1" />
@@ -1653,6 +1822,7 @@ function FluxoRevendaCard({
   onColunasChange,
   onRequisitosChange,
   onCamposChange,
+  anelConflito,
 }: {
   statusKanban: string[];
   // Keys do fluxo da revenda (board ∩ colunas; [] = todas) — base da etiqueta Entrada/Automática/Manual.
@@ -1666,6 +1836,8 @@ function FluxoRevendaCard({
   onColunasChange: (next: string[]) => void;
   onRequisitosChange: (next: Record<string, string[]>) => void;
   onCamposChange: (next: Record<string, boolean>) => void;
+  // T4 (Config colaborativa): classe do anel âmbar do sub-bloco com conflito pendente ("" se não há).
+  anelConflito?: (bloco: string) => string;
 }) {
   const colunasSet = new Set(colunas);
   // [] = TODAS as colunas permitidas (fallback do plano) — refletido no rótulo do bloco.
@@ -1709,7 +1881,7 @@ function FluxoRevendaCard({
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Bloco 1 — colunas do kanban permitidas p/ revenda + requisitos de cada. */}
-        <div className="space-y-2">
+        <div data-colab-path="cfg:revenda_kanban_colunas" className={"space-y-2 " + (anelConflito?.("cfg:revenda_kanban_colunas") ?? "")}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Colunas do kanban
           </p>
@@ -1735,6 +1907,7 @@ function FluxoRevendaCard({
                       requisitos={requisitos[key] ?? []}
                       onChange={(next) => setRequisitos(key, next)}
                       condsIndisponiveis={REVENDA_COND_NA}
+                      colabPath="cfg:revenda_kanban_requisitos"
                       bloqueadoMotivo={chaveLigada && key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
                     />
                   )}
@@ -1773,7 +1946,7 @@ function FluxoRevendaCard({
         </div>
 
         {/* Bloco 2 — seções e campos do card de Desenvolvimento visíveis p/ revenda. */}
-        <div className="space-y-2 border-t pt-4">
+        <div data-colab-path="cfg:revenda_campos" className={"space-y-2 border-t pt-4 " + (anelConflito?.("cfg:revenda_campos") ?? "")}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Seções e campos do card
           </p>
