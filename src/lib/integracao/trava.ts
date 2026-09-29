@@ -112,9 +112,16 @@ export function ehErroIntegracaoTravado(e: unknown): boolean {
  *  clicar Salvar de novo. `getQueriesData` (não `getQueryData`) porque nenhum destes 3 arquivos tem o `tenantId`
  *  em mão neste ponto (mesmo motivo de `invalidarEstadoSeTravado` invalidar por prefixo, sem tenantId no filtro):
  *  casa qualquer entrada `["integracao-estado", *]` — na prática há só uma (a da loja ativa). Sem entrada
- *  nenhuma no cache (query nunca rodou) devolve `{}` — chamador trata como "sem trava conhecida", igual a antes. */
+ *  nenhuma no cache (query nunca rodou) devolve `{}` — chamador trata como "sem trava conhecida", igual a antes.
+ *  Fix round 1 (L-2, review) — `type: "active"` nos DOIS (`refetchQueries` E `getQueriesData`): sem isto, um
+ *  super admin que trocou de loja na mesma sessão (`gcTime` de 5min mantém a entrada da loja anterior INATIVA
+ *  no cache) tinha essa entrada antiga refeita pela MESMA `queryFn` — que roda sob o tenant ATUAL da sessão —
+ *  "envenenando" a chave da loja A com o mapa de travas da loja B, e `getQueriesData` (sem filtro) podia achar
+ *  essa entrada ANTIGA (ordem de inserção) em vez da ativa. Restrito a queries ATIVAS (só a da loja realmente
+ *  aberta agora), replica o comportamento do `invalidateQueries` anterior (default `refetchType: "active"`),
+ *  que nunca tocava chaves inativas. */
 export async function estadoIntegracaoFresco(qc: QueryClient): Promise<Record<string, EstadoModeloIntegracao>> {
-  await qc.refetchQueries({ queryKey: ["integracao-estado"] });
-  const entradas = qc.getQueriesData<Record<string, EstadoModeloIntegracao>>({ queryKey: ["integracao-estado"] });
+  await qc.refetchQueries({ queryKey: ["integracao-estado"], type: "active" });
+  const entradas = qc.getQueriesData<Record<string, EstadoModeloIntegracao>>({ queryKey: ["integracao-estado"], type: "active" });
   return entradas.find(([, dado]) => !!dado)?.[1] ?? {};
 }
