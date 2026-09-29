@@ -76,32 +76,50 @@ describe("PermissoesModal (usuário) — Dashboard organizado (F5c)", () => {
     return { ...view, callTenantSpy, callSuperSpy };
   }
 
-  it("as 6 chaves de dados aparecem sob a sub-legenda 'Dados por aba', com InfoHover", async () => {
+  // F5c review (I-1): `dashboard_leadtime` é a permissão da PRÓPRIA aba Leadtime (não uma chave
+  // de dado) — a grade precisa mostrar as 5 linhas-aba (Desenvolvimento…Leadtime) COMO ABAS,
+  // seguidas da sub-legenda "Dados por aba" com EXATAMENTE 6 linhas de dado (sem Leadtime nela).
+  it("mostra as 5 linhas-aba (incl. Leadtime) seguidas da sub-legenda 'Dados por aba' com EXATAMENTE 6 linhas de dado, com InfoHover", async () => {
     const view = await montarPermissoesModal({ mode: "tenant" });
     try {
-      expect(document.body.textContent).toContain("Dados por aba");
-      // As 6 chaves de dados, com o rótulo novo "Dados: X" (display only — key intacta).
-      for (const rotulo of ["Dados: Coleção", "Dados: Estoque", "Dados: Produção", "Dados: Financeiro", "Dados: Custos", "Dados: Comercial"]) {
-        expect(document.body.textContent).toContain(rotulo);
-      }
-      // InfoHover: o botão "i" com aria-label específico da sub-legenda existe.
-      const infoBtn = document.body.querySelector('button[aria-label="O que são as permissões de Dados por aba"]');
+      const headerDashboard = Array.from(document.body.querySelectorAll("h3")).find((h) => h.textContent === "Dashboard");
+      expect(headerDashboard, "cabeçalho do módulo Dashboard deveria existir").toBeTruthy();
+      const bloco = headerDashboard!.nextElementSibling as HTMLElement;
+      const texto = bloco.textContent ?? "";
+
+      // As 5 ABAS aparecem com o rótulo LIMPO (sem prefixo "Dados:"), inclusive Leadtime.
+      const ABAS = ["Desenvolvimento", "Produção & Qualidade", "Comercial & Coleção", "Custo & Financeiro", "Leadtime"];
+      for (const aba of ABAS) expect(texto).toContain(aba);
+      // "Leadtime" não pode aparecer como "Dados: Leadtime" — a chave de dado dele foi removida.
+      expect(texto).not.toContain("Dados: Leadtime");
+
+      // Sub-legenda + InfoHover.
+      expect(texto).toContain("Dados por aba");
+      const infoBtn = bloco.querySelector('button[aria-label="O que são as permissões de Dados por aba"]');
       expect(infoBtn, "botão do InfoHover deveria existir").toBeTruthy();
+
+      // EXATAMENTE 6 linhas de dado, cada uma com o rótulo "Dados: X".
+      const DADOS = ["Dados: Coleção", "Dados: Estoque", "Dados: Produção", "Dados: Financeiro", "Dados: Custos", "Dados: Comercial"];
+      for (const rotulo of DADOS) expect(texto).toContain(rotulo);
+      const linhasDeDado = Array.from(bloco.querySelectorAll("label")).filter((l) => (l.textContent ?? "").includes("Dados: "));
+      expect(linhasDeDado.length, "deveriam existir exatamente 6 linhas 'Dados: X'").toBe(6);
+
+      // Ordem no DOM: a sub-legenda vem DEPOIS da última aba (Leadtime), ANTES da 1ª linha de dado.
+      const idxLeadtime = texto.indexOf("Leadtime"); // 1ª ocorrência = a linha-aba (Dados: Leadtime não existe mais)
+      const idxSubLegenda = texto.indexOf("Dados por aba");
+      const idxPrimeiroDado = texto.indexOf("Dados: Coleção");
+      expect(idxLeadtime).toBeGreaterThan(-1);
+      expect(idxSubLegenda).toBeGreaterThan(idxLeadtime);
+      expect(idxPrimeiroDado).toBeGreaterThan(idxSubLegenda);
     } finally {
       view.unmount();
     }
   });
 
-  it("a sub-legenda 'Dados por aba' aparece DEPOIS das 5 abas (Desenvolvimento…Leadtime) no DOM", async () => {
+  it("a linha-aba Leadtime mostra o hint de que também libera os números de leadtime da aba Desenvolvimento", async () => {
     const view = await montarPermissoesModal({ mode: "tenant" });
     try {
-      const texto = document.body.textContent ?? "";
-      // "Custo & Financeiro" é a última das 5 ABAS (rótulo único — não colide com nenhuma das
-      // 6 linhas "Dados: X"); a sub-legenda precisa vir DEPOIS dela no DOM.
-      const idxUltimaAba = texto.indexOf("Custo & Financeiro");
-      const idxSubLegenda = texto.indexOf("Dados por aba");
-      expect(idxUltimaAba).toBeGreaterThan(-1);
-      expect(idxSubLegenda).toBeGreaterThan(idxUltimaAba);
+      expect(document.body.textContent).toContain("também libera os números de leadtime da aba Desenvolvimento");
     } finally {
       view.unmount();
     }
@@ -130,7 +148,10 @@ describe("PermissoesModal (usuário) — Dashboard organizado (F5c)", () => {
     }
   });
 
-  it("'marcar todos' do módulo Dashboard continua marcando TODAS as 12 keys (5 abas + 6 dados... 11 páginas), inclusive as agrupadas", async () => {
+  // F5c review (I-1/M-4): título e contagem corrigidos — o módulo Dashboard tem 11 páginas no
+  // catálogo (5 abas, incl. Leadtime, + 6 chaves de dado), NUNCA 12. "marcar todos" precisa
+  // continuar cobrindo as 11, inclusive a linha-aba Leadtime (que NÃO é mais uma linha de dado).
+  it("'marcar todos' do módulo Dashboard marca as 11 páginas (5 abas incl. Leadtime + 6 dados), inclusive as agrupadas", async () => {
     const view = await montarPermissoesModal({ mode: "super", role: "tenant_admin", existing: [] });
     try {
       // Acha o cabeçalho do módulo Dashboard e o checkbox "Leitor" do topo (marcar todos).
@@ -141,7 +162,12 @@ describe("PermissoesModal (usuário) — Dashboard organizado (F5c)", () => {
       const marcarTodosLeitor = headerRow.querySelector('button[aria-label="Marcar todos como leitor em Dashboard"]') as HTMLButtonElement;
       expect(marcarTodosLeitor).toBeTruthy();
       await act(async () => { marcarTodosLeitor.click(); });
-      // Confere que TODAS as linhas de dados (Dados: Coleção…Leadtime) ficaram marcadas também.
+      // Confere a linha-aba Leadtime (fora do grupo "Dados por aba" agora).
+      const labelLeadtime = Array.from(bloco.querySelectorAll("label")).find((l) => (l.textContent ?? "").trim().startsWith("Leadtime"));
+      expect(labelLeadtime, "linha-aba Leadtime deveria existir").toBeTruthy();
+      const checkboxLeadtime = labelLeadtime!.closest("div.grid")!.querySelector('button[role="checkbox"]') as HTMLButtonElement;
+      expect(checkboxLeadtime.getAttribute("aria-checked"), "Leadtime deveria estar marcada por 'marcar todos'").toBe("true");
+      // Confere que TODAS as 6 linhas de dados ficaram marcadas também.
       for (const rotulo of ["Dados: Coleção", "Dados: Estoque", "Dados: Produção", "Dados: Financeiro", "Dados: Custos", "Dados: Comercial"]) {
         const label = Array.from(bloco.querySelectorAll("label")).find((l) => (l.textContent ?? "").includes(rotulo));
         expect(label, `linha ${rotulo} deveria existir`).toBeTruthy();
@@ -259,14 +285,31 @@ describe("Financeiro por aba (F5c, P-112 A)", () => {
       useNavigate: () => vi.fn(),
       Link: (p: any) => require("react").createElement("a", { href: String(p.to ?? "") }, p.children),
     }));
-    const { createElement } = await import("react");
+    const { createElement, useState: useStateReact } = await import("react");
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
     const mod = await import("@/routes/_authenticated/financeiro");
     const C = (mod.Route as any).options.component;
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const view = await montar(createElement(QueryClientProvider, { client: qc }, createElement(C)));
+    // Wrapper com estado PRÓPRIO — permite forçar um re-render de <C/> (sem remontar: mesma
+    // posição/tipo na árvore, React só re-executa o corpo da função) chamando `bumpRef.current()`
+    // depois do mount, pra simular um recheck de permissão (foco, RPC minhas_permissoes_efetivas)
+    // sem esperar o React Query "adivinhar" que precisa re-renderizar por conta própria.
+    const bumpRef: { current: () => void } = { current: () => {} };
+    function Wrapper() {
+      const [, setTick] = useStateReact(0);
+      bumpRef.current = () => setTick((n: number) => n + 1);
+      return createElement(C);
+    }
+    const view = await montar(createElement(QueryClientProvider, { client: qc }, createElement(Wrapper)));
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
-    return view;
+    return { ...view, qc, bump: () => bumpRef.current() };
+  }
+
+  /** Força um re-render da árvore SEM remontar — usado pra observar `abaAtiva`/`abasPermitidas`
+   * recalcularem contra um `canView` cujo COMPORTAMENTO (não a referência) mudou depois do mount,
+   * simulando um recheck de permissão (foco da janela, refetch de `minhas_permissoes_efetivas`). */
+  async function forcarRerender(bump: () => void) {
+    await act(async () => { bump(); await new Promise((r) => setTimeout(r, 10)); });
   }
 
   const abaAtiva = () => document.body.querySelector('[role="tab"][data-state="active"]')?.textContent?.trim();
@@ -307,6 +350,61 @@ describe("Financeiro por aba (F5c, P-112 A)", () => {
     const view = await montarFinanceiro({ canView: (k) => k === "financeiro_calendario" || k === "financeiro_parcelas", tab: "lista" });
     try {
       expect(abaAtiva()).toBe("OCs");
+    } finally {
+      view.unmount();
+    }
+  });
+
+  // F5c review (I-2), item 1: sem financeiro_servicos, o Calendário NÃO oferece o salto pra
+  // Serviços — clicar num item de serviço não deve setar `tab="servicos"` (que ficaria em
+  // branco, sem TabsTrigger/TabsContent correspondente). A aba ativa continua Calendário.
+  it("I-2: sem financeiro_servicos, clicar um item de serviço no Calendário NÃO pula pra aba Serviços (fica em Calendário)", async () => {
+    const SERVICO_CAL = {
+      parcela_id: "svcal1", servico: "Bordado", numero_parcela: 1, numero_parcelas: 1,
+      valor_parcela: 50, data_vencimento: "2026-10-05", data_pagamento: null, status: "a_pagar",
+      empresa_nome: "Fornecedor Y", representante_nome: null, responsavel: null,
+    };
+    const view = await montarFinanceiro({
+      canView: (k) => k === "financeiro_calendario", // SEM financeiro_servicos
+      servicosRows: [SERVICO_CAL],
+    });
+    try {
+      expect(abasVisiveis()).toEqual(["Calendário"]); // Serviços nem aparece na TabsList
+      // Acha a linha do serviço na agenda mobile (renderiza sempre no DOM, escondida só por CSS
+      // no happy-dom) e clica — antes do fix isso chamava onServico() e setava tab="servicos".
+      await aguardar(() => (document.body.textContent ?? "").includes("Bordado"), "item de serviço no calendário");
+      const linhaServico = Array.from(document.body.querySelectorAll("button")).find((b) => (b.textContent ?? "").includes("Bordado"));
+      expect(linhaServico, "linha do serviço deveria existir no DOM (agenda mobile)").toBeTruthy();
+      await act(async () => { linhaServico!.click(); });
+      // Continua em Calendário — nunca "servicos" (que não tem TabsTrigger/TabsContent aqui).
+      expect(abaAtiva()).toBe("Calendário");
+      expect(document.body.querySelector('[role="tab"][value="servicos"]')).toBeNull();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  // F5c review (I-2), item 2: a aba ATIVA é derivada em TODO render (como dashboard.tsx:70) — se
+  // a permissão da aba corrente for revogada enquanto a página está montada (recheck do useAuth),
+  // cai pra 1ª permitida em vez de deixar o Radix com um value sem Trigger/Content (tela em branco).
+  it("I-2: revogar a permissão da aba ativa em tempo real recalcula abaAtiva para a 1ª permitida (sem tela em branco)", async () => {
+    const permitidas = { atual: ["financeiro_calendario", "financeiro_parcelas"] as string[] };
+    const view = await montarFinanceiro({
+      canView: (k) => permitidas.atual.includes(k),
+      tab: "lista", // abre em OCs (financeiro_parcelas)
+    });
+    try {
+      expect(abaAtiva()).toBe("OCs");
+      // Revoga financeiro_parcelas (só sobra financeiro_calendario) e força um re-render —
+      // simula um recheck de permissão (foco da janela, RPC minhas_permissoes_efetivas) sem
+      // remontar a página (o `tab` em estado ainda guarda "lista").
+      permitidas.atual = ["financeiro_calendario"];
+      await forcarRerender((view as any).bump);
+      await aguardar(() => abasVisiveis().length === 1, "abasVisiveis recalculada após revogar financeiro_parcelas", 3000);
+      // abaAtiva precisa ter caído pra Calendário (única permitida) — NUNCA "OCs" (não existe
+      // mais na TabsList) nem um valor sem Trigger/Content correspondente.
+      expect(abasVisiveis()).toEqual(["Calendário"]);
+      expect(abaAtiva()).toBe("Calendário");
     } finally {
       view.unmount();
     }

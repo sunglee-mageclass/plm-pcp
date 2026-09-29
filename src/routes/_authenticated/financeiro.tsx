@@ -232,7 +232,12 @@ function FinanceiroPage() {
   // `financeiro_resumo` é relatório, não concede escrita.
   const podeEditar = canEdit("financeiro_parcelas") || canEdit("financeiro_calendario");
   const search = Route.useSearch();
-  const abasPermitidas = useMemo(() => FINANCEIRO_TABS.filter((t) => canView(t.key)), [canView]);
+  // F5c review (I-2): SEM useMemo — recomputa em TODO render, igual dashboard.tsx:68 (`DASH_TABS
+  // .filter((t) => canView(...))`, sem memo). Um `useMemo([canView])` dependeria da REFERÊNCIA de
+  // `canView` mudar pra recalcular; isso hoje funciona porque `useAuth` recria `canView` via
+  // `useCallback` quando `permissions` muda, mas é um acoplamento implícito e fácil de quebrar —
+  // o filtro é barato (4 itens), não precisa de memo.
+  const abasPermitidas = FINANCEIRO_TABS.filter((t) => canView(t.key));
   // Aba padrão = a 1ª permitida (ordem fixa acima). `?tab=` só é honrado se essa aba estiver entre
   // as permitidas — senão cai no fallback (mesma regra pedida: "?tab=lista sem financeiro_parcelas
   // cai pro default"). RequirePermission já barrou a página se `abasPermitidas` viesse vazia (o
@@ -242,6 +247,21 @@ function FinanceiroPage() {
     return abasPermitidas[0]?.value ?? "calendario";
   }, [search.tab, abasPermitidas]);
   const [tab, setTab] = useState(tabPadrao);
+  // F5c review (M-3, cheap): re-sincroniza `tab` quando `search.tab` muda com a página JÁ montada
+  // (ex.: link "Contas atrasadas" da Home clicado enquanto /financeiro já está aberto — mesma
+  // rota, TanStack Router não remonta o componente, só atualiza o search; o `useState(tabPadrao)`
+  // é one-shot e não reagiria por si só). Só sincroniza pra uma aba PERMITIDA — `?tab=` sem
+  // permissão continua caindo no fallback via `abaAtiva` abaixo, nunca aqui.
+  useEffect(() => {
+    if (search.tab && abasPermitidas.some((t) => t.value === search.tab)) setTab(search.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.tab]);
+  // F5c review (I-2): deriva a aba ATIVA em TODO render (mesmo padrão de dashboard.tsx:70) — se
+  // `tab` (guardado em estado) não estiver mais entre as permitidas (permissão revogada, recheck do
+  // useAuth no foco, ou o próprio one-shot inicial antes de abasPermitidas assentar), cai na 1ª
+  // permitida em vez de deixar o Radix com um `value` sem TabsTrigger/TabsContent correspondente
+  // (aba em branco, sem nada selecionado na TabsList).
+  const abaAtiva = abasPermitidas.some((t) => t.value === tab) ? tab : tabPadrao;
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
@@ -444,13 +464,13 @@ function FinanceiroPage() {
         </Card>
       )}
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={abaAtiva} onValueChange={setTab}>
         {/* Mobile (<md): abas como pílulas roláveis (SegmentedTabs do dashboard) — substitui
             o Select. Desktop mantém a TabsList (agora ≥md, alinhado à camada mobile). Só as
             abas PERMITIDAS entram nas duas superfícies (F5c, 1 aba = 1 permissão). */}
         <div className="md:hidden mb-4">
           <SegmentedTabs
-            value={tab}
+            value={abaAtiva}
             onChange={setTab}
             tabs={abasPermitidas.map((t) => ({ value: t.value, label: t.label }))}
           />
@@ -464,7 +484,11 @@ function FinanceiroPage() {
         </TabsList>
         {canView("financeiro_calendario") && (
         <TabsContent value="calendario" className="mt-4">
-          <CalendarioView parcelas={parcelasCal} loading={isLoading} onServico={() => setTab("servicos")} />
+          {/* F5c review (I-2): só oferece o salto pra Serviços quando o usuário PODE VER essa
+              aba — senão o clique num item de serviço no calendário levava a um TabsContent
+              inexistente (Radix seta value="servicos" sem TabsTrigger/TabsContent correspondente,
+              tela em branco até o usuário clicar em outra aba pra se recuperar). */}
+          <CalendarioView parcelas={parcelasCal} loading={isLoading} onServico={canView("financeiro_servicos") ? () => setTab("servicos") : undefined} />
         </TabsContent>
         )}
         {canView("financeiro_parcelas") && (

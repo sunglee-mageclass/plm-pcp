@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
-import { PAGES_CATALOG, ALL_PAGE_KEYS, DASHBOARD_DADOS_ABAS, DASHBOARD_DADOS_INFO, type ModuleDef, type PageDef } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, ALL_PAGE_KEYS, DASHBOARD_DADOS_ABAS, DASHBOARD_DADOS_INFO, DASHBOARD_LEADTIME_HINT, type ModuleDef, type PageDef } from "@/lib/permissions-catalog";
 import { savePermissions } from "@/lib/tenant-admin.functions";
 import { savePermissionsAsSuperAdmin } from "@/lib/admin.functions";
 import { salvarPapel } from "@/lib/papeis.functions";
@@ -53,8 +53,10 @@ const ehChaveIntegracao = (key: string) => key === "integracao" || key.startsWit
 // vazia e `abas` é `m.pages` inteira (sem efeito visual).
 function splitDashboardPages(m: ModuleDef): { abas: PageDef[]; dados: PageDef[] } {
   if (m.module !== "dashboard") return { abas: m.pages, dados: [] };
-  const abas = m.pages.filter((p) => !(p.key in DASHBOARD_DADOS_ABAS));
-  const dados = m.pages.filter((p) => p.key in DASHBOARD_DADOS_ABAS);
+  // F5c review (L-3): `Object.hasOwn` em vez de `in` — `in` também acha chaves do prototype
+  // (ex.: "constructor"); inócuo com o conjunto de chaves de hoje, mas mais estrito.
+  const abas = m.pages.filter((p) => !Object.hasOwn(DASHBOARD_DADOS_ABAS, p.key));
+  const dados = m.pages.filter((p) => Object.hasOwn(DASHBOARD_DADOS_ABAS, p.key));
   return { abas, dados };
 }
 
@@ -287,7 +289,14 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
             const renderPagina = (p: (typeof m.pages)[number]) => (
               <Fragment key={p.key}>
                 <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
-                  <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
+                  <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">
+                    {p.label}
+                    {/* F5c review (I-1): hint só na linha-aba Leadtime — a mesma permissão também
+                        libera os números de leadtime dentro da aba Desenvolvimento. */}
+                    {p.key === "dashboard_leadtime" && (
+                      <span className="block text-xs text-muted-foreground">{DASHBOARD_LEADTIME_HINT}</span>
+                    )}
+                  </Label>
                   <div className="flex justify-center">
                     {p.soEdicao ? (
                       <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
@@ -583,7 +592,12 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
               const renderPagina = (p: (typeof m.pages)[number]) => (
                 <Fragment key={p.key}>
                   <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
-                    <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
+                    <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">
+                      {p.label}
+                      {p.key === "dashboard_leadtime" && (
+                        <span className="block text-xs text-muted-foreground">{DASHBOARD_LEADTIME_HINT}</span>
+                      )}
+                    </Label>
                     <div className="flex justify-center">
                       {p.soEdicao ? (
                         <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
