@@ -553,9 +553,16 @@ const slotOrfaoTemDados = (s: PtSlot): boolean =>
   || (s.proporcoes != null && Object.keys(s.proporcoes).length > 0)
   || !!s.custo_terceirizados_previsto || (s.custos_adicionais?.length ?? 0) > 0 || s.custo_simulado != null
   || !!s.markup_editado || !!s.nome || !!s.ref
-  // M-1 (review round 1): mix_id (EditarMixDialog/vaga picker) e usar_estoque (legado, mas
-  // round-trip precisa preservar o valor) também são dado do usuário numa vaga sem tecido/modelo.
-  || !!s.mix_id || !!s.usar_estoque;
+  // M-1 (review round 1): mix_id (EditarMixDialog/vaga picker) é dado do usuário numa vaga sem
+  // tecido/modelo. `usar_estoque` foi REMOVIDO daqui na rodada 2 (M-R1-2, review re-revisão R1):
+  // a flag está INERTE desde 17/ago (ver invariante `estoque_zerado`/CLAUDE.md — não é essa flag,
+  // mas o mesmo padrão de campo aposentado só round-trip) e "Limpar" (`ModelCard.tsx`) PRESERVA
+  // `usar_estoque` ao esvaziar o card — se o predicado a contasse como "dado de verdade", um card
+  // limpo com só esse resíduo legado nunca deixaria de ser preservado como órfão/sobra (ghost
+  // card que o usuário não tem como remover, já que "Limpar" não zera o campo). O valor ainda
+  // sobrevive normalmente quando o slot é preservado por QUALQUER outro motivo (spread em
+  // `mesclarSlot`/`{...l, slots}`) — só não é, por si só, motivo de preservação.
+  || !!s.mix_id;
 
 // Filtra uma linha salva (bucket órfão) só para os slots com dados de verdade — um slot vazio de
 // verdade não precisa "ressuscitar". Slot de modelo VIVO (liveByModelo) NÃO entra aqui — ele já
@@ -589,7 +596,15 @@ function mesclarSlot(slot: PtSlot, saved: PtSlot, liveByModelo: Map<string, PtSl
     ref: saved.ref ?? slot.ref,
     nome: saved.nome ?? slot.nome,
     thumb_path: saved.thumb_path ?? slot.thumb_path,
-    categoria_id: saved.categoria_id ?? slot.categoria_id,
+    // categoria_id (M-R1-1, re-revisão R1): campo que DEFINE o bucket — igual markup_editado/
+    // referencia_paths abaixo, o seed (`slot`) VENCE pra slot de MODELO. Antes do fix, um modelo
+    // que mudou de categoria no Planejamento (categoria_principal_id novo) e caiu num ramo !ss/
+    // !sl (I-3, sub/linha sem par no salvo) exibia e regravava a categoria VELHA do salvo — a
+    // tela mostrava a categoria errada e o próximo Salvar escrevia esse valor stale de volta em
+    // `plan_tecido_slots.categoria_id` (probe F do review). Sem modelo (rascunho puro, efeito só
+    // aparece pelo pareamento posicional na mesma linha/categoria — nunca muda de bucket sozinho)
+    // o salvo continua vencendo, como sempre (dado próprio do plano).
+    categoria_id: slot.modelo_id ? (slot.categoria_id ?? saved.categoria_id) : (saved.categoria_id ?? slot.categoria_id),
     // categoria de TECIDO (lane): manual salvo VENCE; se o slot salvo está sem categoria,
     // usa a AUTO do seed (Tecido 1). Assim planos antigos "sem categoria" auto-preenchem ao
     // reabrir, e uma categorização manual do usuário é preservada.
