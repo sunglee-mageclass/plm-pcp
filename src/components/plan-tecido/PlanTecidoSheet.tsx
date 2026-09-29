@@ -41,7 +41,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { efeitoDaCarga, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
+import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
 import { difVariantes, aplicarDifNoMaterial, indiceMaterialCorrespondente } from "@/lib/plan-tecido/replicar-variantes";
 import { ehOrigemComprada } from "@/lib/origem";
@@ -1004,7 +1004,19 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           if (enviadoCadSet.has(slot.modelo_id)) continue;                 // pós-explosão: card NÃO toca o BOM
           if (ehOrigemComprada(origemMap[slot.modelo_id])) continue;        // comprado (revenda/importado): sem BOM de tecido
           if (!slot.materiais.some((m) => m.artigo_id)) continue;          // sem tecido escolhido: nada a gravar
-          if (soTamanhoMudou(slot, slotDaBase(baseAntesDoSaveRef.current, slot))) continue; // M-3: só o "Tamanho em" mudou — não reescreve o BOM
+          const baseDoSlot = slotDaBase(baseAntesDoSaveRef.current, slot);
+          if (soTamanhoMudou(slot, baseDoSlot)) continue; // M-3: só o "Tamanho em" mudou — não reescreve o BOM
+          // Fix round 1 (L-5, review) — depois do revert automático de F3 (o "Tamanho em" de um card travado
+          // volta ao valor da base), `soTamanhoMudou` devolve `false` (linha 115: `tamanho_tipo` já bate,
+          // sai ANTES de checar o resto) mesmo quando o slot ficou byte-a-byte IGUAL à base — não passa pelo
+          // ramo "só o Tamanho em mudou", passa direto pro `alvos.push` de baixo, reaplicando um BOM que não
+          // mudou NADA (bumpa `modelos.rev` à toa — exatamente o caso que a M-3 original tentou evitar). Esse
+          // slot também nunca deveria ter continuado marcado como "tocado" depois do revert, mas o guard aqui,
+          // no ponto de uso, é mais seguro/local que tentar podar `touchedSlotIdsRef` no meio do retry (o
+          // mesmo Set alimenta outras decisões do save). Guard puramente ADITIVO: só pula quando o slot é
+          // IDÊNTICO à base (nem "Tamanho em" nem tecido/cor/pç mudaram) — nenhum slot com edição real deixa
+          // de ser aplicado.
+          if (baseDoSlot && igual(slot, baseDoSlot)) continue;
           alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: materiaisParaAplicar(slot, distribOn) });
         }
     if (alvos.length === 0) { await esperarTamanho; return; }
