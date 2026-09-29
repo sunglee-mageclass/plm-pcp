@@ -1554,6 +1554,63 @@ describe("F4 — Produto Acabado e Importado", () => {
   });
 });
 
+// Tarefa 5 (.superpowers/sdd/2026-09-29-tamanho-em/plan.md) — "Tamanho em" no Produto Acabado. Este describe é
+// da T5 (ruling #4 do G-plano: T5 é dona deste arquivo; T6/Importado roda DEPOIS, em sequência).
+describe("Tarefa 5 — Produto Acabado: toggle 'Tamanho em' no card", () => {
+  const s = ler("src/components/produto-acabado/ProdutoCard.tsx");
+  it("toggle ao lado de 'Proporção de grade (peso)', escondido em Acessórios (!acessorio)", () => {
+    expect(s).toMatch(/\{!acessorio && \(\s*<TamanhoEmToggle/);
+    expect(s).toMatch(/<Label className="text-sm">Proporção de grade \(peso\)<\/Label>/);
+  });
+  it("value = tipoEfetivo(produto.tamanho_tipo); onChange atualiza o draft", () => {
+    expect(s).toMatch(/const tipoTamanho = tipoEfetivo\(produto\.tamanho_tipo\);/);
+    expect(s).toMatch(/onChange=\{\(v\) => onChange\(\{ \.\.\.produto, tamanho_tipo: v \}\)\}/);
+  });
+  it("desabilitado + selo da Integração quando travaIntegracao.has('tamanho_tipo') — espelha o gate 42501 (invariante #14)", () => {
+    expect(s).toMatch(/disabled=\{travaIntegracao\.has\("tamanho_tipo"\)\}/);
+    expect(s).toMatch(/motivoDesabilitado=\{travaIntegracao\.has\("tamanho_tipo"\) \? TEXTO_SKU_TRAVADO : undefined\}/);
+  });
+  it("grade usa tamanhosVisiveis (filtro de EXIBIÇÃO — nunca reduz o gravado, ruling #3)", () => {
+    expect(s).toMatch(/const tamanhosGrade = tamanhosVisiveis\(tamanhos, tipoTamanho, comValorTamanho\);/);
+    expect(s).toMatch(/tamanhosGrade\.map\(\(\{ chave: t, rotulo, esmaecido \}\)/);
+  });
+  it("aviso âmbar quando modelo_skus>0 e o valor foi trocado NESTA edição (tipo !== base)", () => {
+    expect(s).toMatch(/const tamanhoTrocadoNestaEdicao = produto\.tamanho_tipo !== produto\.tamanho_tipo_base;/);
+    expect(s).toMatch(/const avisarSkuTamanho = produto\.modeloSkusCount > 0 && tamanhoTrocadoNestaEdicao;/);
+    expect(s).toMatch(/SKUs já gerados não mudam — use Regerar no Planejamento\./);
+  });
+  it("'Criar card' salva antes se sujo (mesmo precedente do 'Fazer pedido')", () => {
+    expect(s).toMatch(/if \(dirty\) await onSalvarProduto\(produto\);/);
+    expect(s.indexOf("if (dirty) await onSalvarProduto(produto);")).toBeLessThan(s.indexOf('rpc("criar_card_produto_acabado"'));
+  });
+});
+
+describe("Tarefa 5 — Produto Acabado: SELECT + embed do Sheet", () => {
+  const s = ler("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
+  it("SELECT_PRODUTO traz tamanho_tipo do produto E o embed do modelo (tamanho_tipo, modelo_skus(count))", () => {
+    expect(s).toMatch(/foto_url, tamanho_tipo,/);
+    expect(s).toMatch(/modelo:modelo_id\(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus\(count\)\)/);
+  });
+  it("rowToDraft: card com modelo_id usa o tamanho_tipo DO MODELO; sem card, o do próprio produto (P-119 A)", () => {
+    expect(s).toMatch(/const tamanhoTipo = \(row\.modelo_id \? row\.modelo\?\.tamanho_tipo : row\.tamanho_tipo\) \?\? null;/);
+  });
+  it("ROTULO_CAMPO_PA tem 'Tamanho em' (rótulo do ColabBanner p/ conflito nesse campo)", () => {
+    expect(s).toMatch(/tamanho_tipo: "Tamanho em"/);
+  });
+  it("lote 'Criar cards' salva os selecionados sujos ANTES de materializar (mesmo motivo do card)", () => {
+    const bloco = s.slice(s.indexOf("const criarCardsClick"), s.indexOf('rpc("criar_cards_produto_acabado"'));
+    expect(bloco).toMatch(/for \(const p of sujos\) await salvarUmProduto\(p\);/);
+  });
+});
+
+describe("Tarefa 5 — produto-acabado/shared.ts: campo travável + rótulo", () => {
+  it("CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo e o rótulo 'Tamanho em' no toast de trava", () => {
+    const sh = ler("src/components/produto-acabado/shared.ts");
+    expect(sh).toMatch(/tamanho_tipo: \["tamanho_tipo"\]/);
+    expect(sh).toMatch(/tamanho_tipo: "Tamanho em",/);
+  });
+});
+
 describe("F4 — Plan. Tecido", () => {
   it("card com selo; Limpar slot e preço travados no integrável/integrado", () => {
     const s = ler("src/components/plan-tecido/ModelCard.tsx");

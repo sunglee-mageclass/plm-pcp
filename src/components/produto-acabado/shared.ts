@@ -6,6 +6,7 @@
 import { format } from "date-fns";
 import { splitMaiorResto } from "@/lib/produto-acabado";
 import { brl } from "@/lib/format";
+import type { TamanhoTipo } from "@/lib/tamanho";
 
 export type Opt = { id: string; nome: string };
 export type CatOpt = Opt & { grupo_id: string | null };
@@ -74,6 +75,14 @@ export type ProdutoDraft = {
   // `salvar_produto_acabado`) em `modelos.preco_atacado`/`preco_venda` do espelho.
   markup_atacado: number | null;
   markup_varejo: number | null;
+  // "Tamanho em" (Letra/Número) — Tarefa 5 do plano `.superpowers/sdd/2026-09-29-tamanho-em/plan.md`. Fonte de
+  // verdade = `modelos.tamanho_tipo` QUANDO o produto já tem card (`modelo_id`); SEM card, o valor mora no
+  // PRÓPRIO produto (`produtos_acabados.tamanho_tipo`, P-119 A) até o card nascer com ele. `tamanho_tipo_base`
+  // é o valor LIDO do servidor nesta sessão (nunca editado pela UI) — usado só por `chaveDirty`/o Salvar pra
+  // decidir se a chave mudou desde o load/último save (ver `montarDadosProduto`), NUNCA pelo cálculo de
+  // exibição (que usa `tipoEfetivo`, em @/lib/tamanho-exibicao, sempre no valor CORRENTE do draft).
+  tamanho_tipo: TamanhoTipo | null;
+  tamanho_tipo_base: TamanhoTipo | null;
   // Preço FIXO por canal (set/2026): quando o usuário DIGITA um preço, ele é gravado EXATO aqui e o
   // markup do canal é limpo ("última edição manda"); o recompute usa `coalesce(preco_fixo, base×markup)`.
   // Espelha o Planejamento de Produto — as 2 telas usam o MESMO modelo. Read-only no draft (a escrita
@@ -94,6 +103,10 @@ export type ProdutoDraft = {
   modeloPrecoVenda: number | null;
   modeloPrecoAtacado: number | null;
   modeloLinhaId: string | null;
+  // Nº de SKUs já gerados p/ o card (`modelo_skus`, embed `(count)`) — Tarefa 5: SKU já gerado NÃO muda
+  // sozinho quando "Tamanho em" troca (Regerar é ação explícita no Planejamento); usado só pro aviso âmbar
+  // "SKUs já gerados não mudam..." quando o valor foi trocado NESTA edição. 0 sem card ou sem SKU nenhum.
+  modeloSkusCount: number;
   // Hierarquia de imagem do espelho (foto do modelo → desenho técnico → croqui), MESMA regra
   // do Plan. Tecido (`PlanTecidoSheet.tsx`) — consumida por `ModeloResumoFoto` (`fontes`, ela
   // mesma escolhe a 1ª truthy + trata PDF). Produto sem espelho (`modelo_id` null) = [null,
@@ -137,6 +150,7 @@ export function chaveDirty(p: ProdutoDraft) {
     markup_atacado: p.markup_atacado,
     markup_varejo: p.markup_varejo,
     variantes: p.variantes,
+    tamanho_tipo: p.tamanho_tipo,
   };
 }
 
@@ -193,7 +207,7 @@ export function hojeISO(): string {
  *  card devem ser atualizados de acordo com a OC"; RPC `salvar_produto_acabado` não faz
  *  COALESCE com o valor atual, então OMITIR o campo zeraria em vez de preservar). */
 export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
-  return {
+  const dados: Record<string, unknown> = {
     nome: p.nome,
     ref: p.ref,
     grupo_id: p.grupo_id,
@@ -216,6 +230,13 @@ export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
     foto_url: p.foto_url ?? null,
     redistribuir: "false",
   };
+  // "Tamanho em" (Tarefa 5): `_salvar_produto_acabado_core` só aceita a chave `tamanho_tipo` quando ela ESTÁ
+  // no `_dados` (`_dados ? 'tamanho_tipo'` no servidor) — omitida = não toca. Mandar SEMPRE o valor corrente
+  // reenviaria um valor porventura revertido pela trava (Integração) como se fosse uma edição nova a cada
+  // Salvar disparado por outro campo; mandar só quando DIFERE da base (o valor lido do servidor nesta sessão)
+  // espelha o padrão "última edição manda" das outras telas e evita todo esse ruído.
+  if (p.tamanho_tipo !== p.tamanho_tipo_base) dados.tamanho_tipo = p.tamanho_tipo;
+  return dados;
 }
 
 /** A distribuição ATUAL das variantes ainda é a saída "por peso" (`redistribuirVariantesPorPeso`)
@@ -251,12 +272,17 @@ export function variantesBatemComTotal(p: Pick<ProdutoDraft, "variantes" | "qtd_
 // ── Integração F4 — Fix round 1 (I-1/I-2/M-1/M-3/M-4) — espelha 1:1 o mesmo bloco de
 // `produto-importado/shared.ts` (mesmo par preco_varejo_fixo/markup_varejo, mesma trigger
 // `fn_integracao_trava_espelho`, mesmas colunas nome/ref/foto_url). Ver o comentário completo lá.
-export type CampoTravavel = "nome" | "ref" | "foto_url" | "preco_varejo_fixo" | "markup_varejo";
+export type CampoTravavel = "nome" | "ref" | "foto_url" | "preco_varejo_fixo" | "markup_varejo" | "tamanho_tipo";
+// "tamanho_tipo" (Tarefa 5): a coluna travada AQUI já é a própria chave (`SEMPRE_TRAVADO` em `@/lib/integracao/
+// trava.ts` guarda o literal "tamanho_tipo" no Set, não um `CampoKey` da API — trava SEMPRE, marcado ou não,
+// espelhando "sku"/"variantes"/"excluir"). O rótulo do toast vem de `EXTRA_TRAVA["tamanho_tipo"]` = "Tamanho em"
+// (`@/lib/integracao/campos.ts`) — aqui só precisa do mapeamento coluna→campo(s) do draft.
 export const CAMPOS_TRAVAVEIS_POR_COLUNA: Record<string, readonly CampoTravavel[]> = {
   nome: ["nome"],
   ref: ["ref"],
   fotos_modelo: ["foto_url"],
   preco_venda: ["preco_varejo_fixo", "markup_varejo"],
+  tamanho_tipo: ["tamanho_tipo"],
 };
 export type AvisoTrava = { campo: CampoTravavel | "variantes"; rotulo: string };
 export type ResolucaoTravaProduto = {
@@ -272,6 +298,7 @@ export type ResolucaoTravaProduto = {
 };
 const ROTULO_CAMPO_TRAVADO: Record<CampoTravavel, string> = {
   nome: "Nome", ref: "REF", foto_url: "Foto", preco_varejo_fixo: "Valor varejo", markup_varejo: "Markup Varejo",
+  tamanho_tipo: "Tamanho em",
 };
 /** Conjunto DISTINCT de "cor_id|cor_apelido_id" ordenado — espelha `fn_integracao_trava_variantes`
  *  (m4:253-318) o bastante pra decidir SE o conjunto mudou (mesma função de
