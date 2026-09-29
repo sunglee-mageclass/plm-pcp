@@ -34,7 +34,7 @@ import {
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -810,6 +810,26 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       if ((error as any).code === "P0409") {
         toast.warning(`Alguém salvou "${d.nome}" agora — o card foi recarregado e fundido com suas edições.`);
         await reconciliarProdutoP0409(d);
+      }
+      // Fix round pós-QA (F3) — espelha ProdutoAcabadoSheet.tsx: card travado DEPOIS que o Sheet abriu
+      // (`travaAtual` acima veio vazio/velho) só revertia no 2º Salvar. Busca o estado FRESCO agora
+      // (refetch de verdade) e roda `resolverTravaImportado` de novo com ele, revertendo já no 1º erro.
+      // `isLocal` (produto ainda sem id no servidor) nunca teve `servidorAtual`/trava — `resolverTravaImportado`
+      // já no-opa sem servidor (mesma guarda de sempre), então não precisa de checagem extra aqui.
+      if (ehErroIntegracaoTravado(error)) {
+        const travaFresca = !isLocal && d0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[d0.modelo_id] ?? null) : new Set<string>();
+        const resolucao2 = resolverTravaImportado({ enviado: d0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora });
+        if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
+          const idAlvo = d0.id!;
+          setDrafts((ds) => ds.map((x) => (x.id === idAlvo
+            ? {
+                ...x, ...resolucao2.paraServidor,
+                ...(resolucao2.variantesParaServidor ? { variantes: resolucao2.variantesParaServidor } : {}),
+                ...(resolucao2.qtdTotalParaServidor != null ? { qtd_total: resolucao2.qtdTotalParaServidor } : {}),
+              }
+            : x)) as ProdutoImportadoDraft[]);
+          if (resolucao2.avisos.length > 0) toast.warning(`"${d0.nome}": ${toastTravaImportado(resolucao2.avisos)}`);
+        }
       }
       throw error;
     }

@@ -1978,7 +1978,10 @@ describe("Final-review m1 — invalidarEstadoSeTravado (trava.ts)", () => {
   });
   it("ProdutoAcabadoSheet.tsx importa e chama invalidarEstadoSeTravado(qc, e) dentro do onError do salvarMut", () => {
     const s = ler("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
-    expect(s).toMatch(/import \{ colunasTravadas, invalidarEstadoSeTravado \} from "@\/lib\/integracao\/trava";/);
+    // Fix round pós-QA (F3) — o import ganhou 2 nomes novos (ehErroIntegracaoTravado/estadoIntegracaoFresco,
+    // usados pelo revert imediato dentro de salvarUmProduto) ao lado dos 2 de sempre; a asserção casa os 4,
+    // em vez do regex fixo de 2 nomes de antes.
+    expect(s).toMatch(/import \{ colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado \} from "@\/lib\/integracao\/trava";/);
     const idxSalvarMut = s.indexOf("const salvarMut = useMutation({");
     const idxChamada = s.indexOf("invalidarEstadoSeTravado(qc, e);");
     expect(idxSalvarMut).toBeGreaterThan(-1);
@@ -1986,7 +1989,8 @@ describe("Final-review m1 — invalidarEstadoSeTravado (trava.ts)", () => {
   });
   it("ProdutoImportadoSheet.tsx importa e chama invalidarEstadoSeTravado(qc, e) dentro do onError do salvarMut", () => {
     const s = ler("src/components/produto-importado/ProdutoImportadoSheet.tsx");
-    expect(s).toMatch(/import \{ colunasTravadas, invalidarEstadoSeTravado \} from "@\/lib\/integracao\/trava";/);
+    // Fix round pós-QA (F3) — mesmo motivo do ProdutoAcabadoSheet.tsx acima.
+    expect(s).toMatch(/import \{ colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado \} from "@\/lib\/integracao\/trava";/);
     const idxSalvarMut = s.indexOf("const salvarMut = useMutation({");
     const idxChamada = s.indexOf("invalidarEstadoSeTravado(qc, e);");
     expect(idxSalvarMut).toBeGreaterThan(-1);

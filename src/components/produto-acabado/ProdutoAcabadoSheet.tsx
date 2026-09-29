@@ -34,7 +34,7 @@ import {
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -727,6 +727,27 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       if ((error as any).code === "P0409") {
         toast.warning(`Alguém salvou "${p.nome}" agora — o card foi recarregado e fundido com suas edições.`);
         await reconciliarProdutoP0409(p);
+      }
+      // Fix round pós-QA (F3) — achado do QA: card travado DEPOIS que o Sheet abriu (estado local
+      // `estadosIntegracao` velho, `travaAtual` acima veio vazio) só revertia o rascunho no 2º Salvar — até
+      // lá o toggle ficava desabilitado mostrando o valor RECUSADO e o Salvar continuava habilitado. Agora,
+      // no PRÓPRIO erro: busca o estado FRESCO (`estadoIntegracaoFresco` — refetch de verdade, não só
+      // invalida) e roda a MESMA `resolverTravaAcabado` de novo com ele — reverte já aqui, sem esperar
+      // o 2º clique. `p0` (não `p`) porque `p` já passou pelo revert (vazio) da 1ª tentativa.
+      if (ehErroIntegracaoTravado(error)) {
+        const travaFresca = p0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[p0.modelo_id] ?? null) : new Set<string>();
+        const resolucao2 = resolverTravaAcabado({ enviado: p0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora });
+        if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
+          const idAlvo = p0.id;
+          setDrafts((ds) => (ds ? (ds.map((x) => (x.id === idAlvo
+            ? {
+                ...x, ...resolucao2.paraServidor,
+                ...(resolucao2.variantesParaServidor ? { variantes: resolucao2.variantesParaServidor } : {}),
+                ...(resolucao2.qtdTotalParaServidor != null ? { qtd_total: resolucao2.qtdTotalParaServidor } : {}),
+              }
+            : x)) as ProdutoDraft[]) : ds));
+          if (resolucao2.avisos.length > 0) toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao2.avisos)}`);
+        }
       }
       throw error;
     }
