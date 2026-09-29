@@ -237,6 +237,24 @@ export function variantesBatemComTotal(p: Pick<ProdutoDraft, "variantes" | "qtd_
   return somaPecas(p) === p.qtd_total;
 }
 
+/** P-135 B (fix, set/2026, causa raiz "a"): o Salvar em LOTE mandava TODOS os produtos da
+ *  subcoleção pro servidor a cada clique — inclusive os NÃO editados (o `mutationFn` fazia
+ *  `drafts.map(salvarUmProduto)` sem filtro). Efeito colateral grave: um produto sem edição
+ *  nenhuma era regravado com o `categoria_id`/`nome`/etc. que o DRAFT LOCAL tinha no momento
+ *  (potencialmente desatualizado, se outra pessoa editou o card pela Sheet do Planejamento
+ *  nesse meio tempo), e `_salvar_produto_acabado_core` sincroniza esses campos pro `modelos`
+ *  espelho a cada UPDATE — "regravar sem editar" apagava silenciosamente uma mudança feita por
+ *  outro editor. Corte por `chaveDirty` (mesmo predicado que já alimenta o `dirty` da tela):
+ *  só os produtos cujo snapshot atual difere do `baseline` (o último estado SALVO/carregado
+ *  daquele produto) vão para o Salvar em lote. PURA e testável sem montar o componente. */
+export function produtosParaSalvar<T extends { id?: string | null }>(
+  drafts: readonly T[],
+  baseline: Readonly<Record<string, string>>,
+  chave: (p: T) => unknown,
+): T[] {
+  return drafts.filter((p) => JSON.stringify(chave(p)) !== (p.id ? baseline[p.id] : undefined));
+}
+
 /**
  * Erro de validação CLIENT-SIDE que deve aparecer VERBATIM no toast — mesmo mecanismo que
  * `mensagemErro` (`@/lib/erro-mensagem`) já usa pro `RAISE ... using errcode = 'P0001'` do

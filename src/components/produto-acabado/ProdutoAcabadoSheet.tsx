@@ -28,7 +28,7 @@ import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
-  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado,
+  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
@@ -733,7 +733,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       if (produtosEmConflito.length > 0) {
         throw erroValidacao("Resolva os conflitos indicados nos cards destacados antes de salvar.");
       }
-      const lista = drafts ?? [];
+      // P-135 B (fix, causa raiz "a", QA 29/set): o Salvar em lote mandava TODOS os produtos da
+      // subcoleção pro servidor a cada clique, editados ou não ("Cinto Teste" regravado 7× sem
+      // ninguém mexer nele) — sem filtro de sujo, o `rev`/merge colaborativo não distingue "eu
+      // toquei" de "só recarreguei". Corte por `chaveDirty` vs `baseline` (mesmo predicado que já
+      // acende `dirty`/UnsavedIndicator na tela) — só quem tem edição pendente de verdade entra.
+      const lista = produtosParaSalvar(drafts ?? [], baseline, chaveDirty);
       const invalidas = lista.filter((p) => !variantesBatemComTotal(p));
       if (invalidas.length > 0) {
         throw erroValidacao(
