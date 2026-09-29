@@ -538,6 +538,32 @@ export function normalizarCategoriasAuto(arvore: PtArvore, categoriaAutoDoArtigo
   };
 }
 
+// Slot salvo tem QUALQUER dado do usuário (mais amplo que `savedTemDados`, que só decide se um
+// slot SALVO pode vencer um slot do SEED no pareamento normal — não cobre preço/proporção/custo,
+// que num slot COM bucket vivo vêm do próprio seed, mas num slot ÓRFÃO são a ÚNICA fonte). Um
+// slot com preço/proporção mas sem tecido/modelo (exatamente o card do QA: "Sem subcoleção ›
+// Blusa", preço 200, com proporções) tem que sobreviver — a regra do controlador é "nunca apaga
+// dado que a pessoa não apagou", não "só preserva o que savedTemDados já cobria". Repete as
+// condições de `savedTemDados` (em vez de chamá-la) para não herdar o type guard `s is PtSlot`
+// dela — aqui `s` já é sempre `PtSlot` (não opcional), e o retorno `false` do guard narrowaria
+// o parâmetro pra `never` num early-return (TS2339 nas props abaixo).
+const slotOrfaoTemDados = (s: PtSlot): boolean =>
+  !!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id || !!s.categoria_id
+  || (s.referencia_paths?.length ?? 0) > 0 || !!s.preco_venda
+  || (s.proporcoes != null && Object.keys(s.proporcoes).length > 0)
+  || !!s.custo_terceirizados_previsto || (s.custos_adicionais?.length ?? 0) > 0 || s.custo_simulado != null
+  || !!s.markup_editado || !!s.nome || !!s.ref;
+
+// Filtra uma linha salva (bucket órfão) só para os slots com dados de verdade — um slot vazio de
+// verdade não precisa "ressuscitar". Slot de modelo VIVO (liveByModelo) NÃO entra aqui — ele já
+// tem posição própria via savedByModelo (a colocação viva vence, regra a.1); sem esse filtro, um
+// modelo que se moveu para OUTRO bucket apareceria DUAS vezes (uma na posição viva, outra
+// "preservado" na posição órfã antiga).
+function linhaOrfaComDados(l: PtLinha, liveByModelo: Map<string, PtSlot>): PtLinha | null {
+  const slots = l.slots.filter((s) => slotOrfaoTemDados(s) && !(s.modelo_id && liveByModelo.has(s.modelo_id)));
+  return slots.length > 0 ? { ...l, slots } : null;
+}
+
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
@@ -557,14 +583,36 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
     for (const ln of sub.linhas)
       for (const s of ln.slots)
         if (s.modelo_id) savedByModelo.set(s.modelo_id, s);
+  // Chaves de subcoleção que o SEED cobre (usado abaixo para achar as subcoleções órfãs).
+  const subKeysDoSeed = new Set(seed.subcolecoes.map((s) => s.subcolecao_id ?? "__none__"));
+  // Subcoleções salvas INTEIRAS cujo bucket não existe mais no seed (ex.: subcoleção excluída da
+  // coleção) — mesma regra das linhas órfãs acima, um nível mais alto: preserva com dados de
+  // verdade, senão o Salvar apaga a subcoleção (e tudo dentro dela) em silêncio.
+  const subcolecoesOrfas = salvo.subcolecoes
+    .filter((sub) => !subKeysDoSeed.has(sub.subcolecao_id ?? "__none__"))
+    .map((sub) => ({
+      ...sub,
+      linhas: sub.linhas.map((l) => linhaOrfaComDados(l, liveByModelo)).filter((l): l is PtLinha => l !== null),
+    }))
+    .filter((sub) => sub.linhas.length > 0);
   return {
     ...seed,
     plan_id: salvo.plan_id,
-    subcolecoes: seed.subcolecoes.map((s) => {
+    subcolecoes: [...seed.subcolecoes.map((s) => {
       const ss = salvo.subcolecoes.find((x) => (x.subcolecao_id ?? "__none__") === (s.subcolecao_id ?? "__none__"));
       if (!ss) return s;
+      // Linhas (bucket linha/categoria) salvas cujo bucket NÃO existe mais neste seed (ex.: categoria
+      // saiu do mix, linha saiu da coleção) — preservadas INTACTAS ao final (com dados de verdade),
+      // senão o Salvar (delete+reinsert da árvore inteira) as apaga em silêncio (regra do controlador:
+      // Salvar nunca apaga dado que a pessoa não apagou). Calculado ANTES do .map de linhas (que só
+      // cobre as linhas do seed) — a ordem entre elas não importa (a UI/ordem já as agrupa por bucket).
+      const lnKeysDoSeed = new Set(s.linhas.map(lnKeyOf));
+      const linhasOrfas = ss.linhas
+        .filter((l) => !lnKeysDoSeed.has(lnKeyOf(l)))
+        .map((l) => linhaOrfaComDados(l, liveByModelo))
+        .filter((l): l is PtLinha => l !== null);
       // preserva as categorias (lanes) da subcoleção salva — o seed não as tem
-      return { ...s, id: ss.id, categorias_tecido: ss.categorias_tecido ?? s.categorias_tecido, linhas: s.linhas.map((l) => {
+      return { ...s, id: ss.id, categorias_tecido: ss.categorias_tecido ?? s.categorias_tecido, linhas: [...s.linhas.map((l) => {
         const sl = ss.linhas.find((x) => lnKeyOf(x) === lnKeyOf(l));
         if (!sl) return l;
         // Pareamento em 2 trilhas:
@@ -641,7 +689,7 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
               : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };
-      }) };
-    }),
+      }), ...linhasOrfas] };
+    }), ...subcolecoesOrfas],
   };
 }

@@ -1029,3 +1029,70 @@ describe("plan-tecido/engine — Lote A rodada de correção 2 (N1, N2, N4)", ()
     expect(r[0].variantes.map((v) => v.distribuicao)).toEqual([d, undefined]);
   });
 });
+
+// Bug real (QA 29/set, achado na coleção "Teste 1"): um slot SALVO cujo bucket (subcoleção/linha
+// OU linha/categoria) não existe mais no SEED do plano atual (ex.: categoria saiu do mix, linha/
+// subcoleção removida da coleção) sumia em SILÊNCIO no merge — o Salvar reescreve a árvore inteira
+// (`_salvar_plan_tecido_core`: delete + reinsert de `_arvore->'subcolecoes'`), então um bucket que o
+// merge nunca reproduz na árvore em memória é APAGADO do banco ao clicar Salvar, mesmo sem o usuário
+// ter tocado nele. Regra do controlador: Salvar NUNCA apaga dado que a pessoa não apagou — um slot
+// salvo "órfão de bucket" tem que sobreviver ao merge intacto (mesmo id/rev), não virar alteração.
+describe("mergeArvore — slot órfão de bucket (bug real QA 29/set, 'Sem subcoleção › Blusa')", () => {
+  it("FALHA HOJE: linha (categoria) salva que não existe mais no seed é DESCARTADA pelo merge", () => {
+    // Seed atual: subcoleção "Sem subcoleção" (null) só tem a linha/categoria "Vestido" (o mix do
+    // plano não tem mais "Blusa"). Salvo: a MESMA subcoleção tinha um card em "Blusa" (preço 200,
+    // com proporções) — igual ao card relatado no QA.
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_VESTIDO", ordem: 0, slots: [] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_BLUSA", ordem: 1, slots: [
+        { id: "slot-blusa-1", modelo_id: null, slot_index: 0, preco_venda: 200, proporcoes: { P: 1, M: 2 }, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const linhas = merged.subcolecoes[0].linhas;
+    const linhaBlusa = linhas.find((l) => l.categoria_id === "CAT_BLUSA");
+    // Comportamento correto: a linha/slot salvo sobrevive intacto (mesmo sem bucket no seed atual).
+    expect(linhaBlusa).toBeDefined();
+    expect(linhaBlusa?.slots).toHaveLength(1);
+    expect(linhaBlusa?.slots[0].id).toBe("slot-blusa-1");
+    expect(linhaBlusa?.slots[0].preco_venda).toBe(200);
+    expect(linhaBlusa?.slots[0].proporcoes).toEqual({ P: 1, M: 2 });
+  });
+
+  it("FALHA HOJE: subcoleção salva inteira que não existe mais no seed é DESCARTADA pelo merge", () => {
+    // Seed atual só tem S1 (a coleção não lista mais S2 — ex.: subcoleção excluída/renomeada).
+    const seed = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+    ] };
+    const salvo = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [
+        { id: "slot-s2-1", modelo_id: null, slot_index: 0, preco_venda: 350, custos_adicionais: [], materiais: [] },
+      ] }] },
+    ] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const s2 = merged.subcolecoes.find((s) => s.subcolecao_id === "S2");
+    expect(s2).toBeDefined();
+    expect(s2?.linhas[0]?.slots).toHaveLength(1);
+    expect(s2?.linhas[0]?.slots[0].id).toBe("slot-s2-1");
+  });
+
+  it("linha órfã preservada não ganha modelo_id nem se mistura com outra linha (id/rev intactos)", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_VIVA", ordem: 0, slots: [] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, id: "sub-id-1", linhas: [
+      { linha_id: null, categoria_id: "CAT_ORFA", ordem: 1, id: "linha-id-orfa", slots: [
+        { id: "slot-orfa", modelo_id: null, slot_index: 0, preco_venda: 150, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const linhaViva = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "CAT_VIVA");
+    const linhaOrfa = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "CAT_ORFA");
+    expect(linhaViva?.slots).toHaveLength(0); // não ganhou o slot órfão
+    expect(linhaOrfa?.id).toBe("linha-id-orfa"); // id preservado (save não deve tratar como novo)
+    expect(linhaOrfa?.slots[0].id).toBe("slot-orfa");
+  });
+});
