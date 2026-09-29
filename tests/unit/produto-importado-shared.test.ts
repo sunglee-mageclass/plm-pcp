@@ -22,6 +22,7 @@ import {
 } from "@/components/produto-importado/shared";
 import {
   resolverTravaAcabado, aplicarResolucaoTravaAcabado, toastTravaAcabado, chaveDirty as chaveDirtyPA, markupVarejoParaBlurAtacado,
+  produtosParaSalvar,
   type ProdutoDraft,
 } from "@/components/produto-acabado/shared";
 import { colunasTravadas, lerEstados } from "@/lib/integracao/trava";
@@ -1434,5 +1435,95 @@ describe("BUG-1 — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx nu
     expect(usos).toBe(3);
     // Nenhum select-literal (com embed completo) sobrevive fora da constante.
     expect(src).not.toMatch(/\.select\("\*, modelo_id, variantes:produto_importado_variantes/);
+  });
+});
+
+// P-135 B (fix, set/2026): mesma causa raiz "a" achada em `ProdutoAcabadoSheet.tsx` ("Cinto
+// Teste" regravado 7× sem edição) — verificado que `ProdutoImportadoSheet.tsx` tinha o MESMO
+// padrão (`mutationFn` fazia `drafts.map(salvarUmProduto)` sem filtro de sujo). Corrigido com o
+// MESMO helper `produtosParaSalvar` (produto-acabado/shared.ts), reusado aqui pelo Importado.
+describe("produtosParaSalvar aplicado ao draft do Produto Importado (P-135 B)", () => {
+  it("draft intocado (igual ao baseline) fica de fora do lote", () => {
+    const d = emptyDraft(null, null);
+    const salvo: ProdutoImportadoDraft = { ...d, id: "imp-1", nome: "Vestido China" };
+    const baseline = { "imp-1": JSON.stringify(chaveDirty(salvo)) };
+    expect(produtosParaSalvar([salvo], baseline, chaveDirty)).toEqual([]);
+  });
+
+  it("editar 1 de N produtos importados → só o editado entra no lote", () => {
+    const intocado: ProdutoImportadoDraft = { ...emptyDraft(null, null), id: "imp-a", nome: "A" };
+    const editado: ProdutoImportadoDraft = { ...emptyDraft(null, null), id: "imp-b", nome: "B editado" };
+    const baseline = {
+      "imp-a": JSON.stringify(chaveDirty(intocado)),
+      "imp-b": JSON.stringify(chaveDirty({ ...editado, nome: "B original" })),
+    };
+    const resultado = produtosParaSalvar([intocado, editado], baseline, chaveDirty);
+    expect(resultado.map((d) => d.id)).toEqual(["imp-b"]);
+  });
+
+  it("draft novo/local (id null, ainda não persistido) sempre entra no lote", () => {
+    const novo = emptyDraft(null, null); // id: null
+    expect(produtosParaSalvar([novo], {}, chaveDirty).length).toBe(1);
+  });
+});
+
+// Guarda de regressão no SOURCE — espelha o bloco BUG-1 acima: prova que o `mutationFn` do
+// Salvar em lote filtra por `produtosParaSalvar` (não manda mais TODOS os drafts sem filtro).
+describe("P-135 B — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx filtra por sujo antes de salvar em lote)", () => {
+  const src = readFileSync("src/components/produto-importado/ProdutoImportadoSheet.tsx", "utf8");
+
+  it("mutationFn usa produtosParaSalvar (não drafts.map(salvarUmProduto) direto, sem filtro)", () => {
+    expect(src).toContain("produtosParaSalvar(drafts, baseline, chaveDirty)");
+    expect(src).not.toMatch(/Promise\.allSettled\(drafts\.map\(\(d\) => salvarUmProduto\(d\)\)\)/);
+  });
+});
+
+// Fix round 1 — F4 (achado pré-existente, mesmo branch): produto importado NOVO salvo pela 1a
+// vez mostrava um banner falso "Alguém salvou agora - 1 campo(s) atualizado(s)" e ficava
+// "alteracoes nao salvas" mesmo tendo sido persistido com sucesso. Causa: `salvarUmProduto`
+// (ProdutoImportadoSheet.tsx) so relia `rev` apos o INSERT; `ref` (gerada no servidor pelo
+// trigger `fn_produto_importado_ref`, ver supabase/migrations/20260904120000) ficava `null` em
+// `salvo` (herdado do draft local, que nunca teve REF) enquanto o servidor ja tinha a REF real.
+// Como `ref` esta em `chaveDirty`, o proximo refetch/merge via `mergeDraft` via `fresh.ref`
+// (preenchida) != `base.ref` (null, do baseline gravado com o `salvo` errado) e sinalizava
+// "atualizado" sem ninguem ter editado nada.
+describe("F4 — REF gerada no INSERT precisa ser relida (produto novo nao pode ficar phantom-dirty)", () => {
+  it("chaveDirty distingue ref:null de ref preenchida — prova o mecanismo exato do bug", () => {
+    const semRef = { ...emptyDraft(null, null), id: "novo-1" };
+    const comRefDoServidor = { ...semRef, ref: "VIM0000001" };
+    expect(JSON.stringify(chaveDirty(semRef))).not.toBe(JSON.stringify(chaveDirty(comRefDoServidor)));
+  });
+
+  it("mergeDraft sem touched ainda assim reporta o campo ref como ATUALIZADO quando base.ref diverge do fresh.ref", () => {
+    // Reproduz o efeito do bug: se o baseline (base) foi gravado com ref:null (o erro), e o
+    // fresh do servidor tem a ref real, o merge marca esse campo como "atualizado" mesmo sem
+    // touched nenhum — é exatamente o banner falso "1 campo(s) atualizado(s)".
+    const base = { ...emptyDraft(null, null), id: "p1", ref: null };
+    const draftLocal = base; // nada editado localmente
+    const fresh = { ...base, ref: "VIM0000001" }; // servidor tem a REF real
+    const m = mergeDraft({ base: base as any, draft: draftLocal as any, fresh: fresh as any, touched: new Set() });
+    expect((m.valor as any).ref).toBe("VIM0000001");
+    expect(m.atualizados).toContain("ref");
+  });
+
+  it("relendo ref junto com rev (o fix), o baseline gravado bate com o fresh — sem falso 'atualizado'", () => {
+    const salvoComFix = { ...emptyDraft(null, null), id: "p1", ref: "VIM0000001" }; // fix: ref vem do SELECT pós-insert
+    const fresh = { ...salvoComFix }; // servidor tem exatamente isso
+    const m = mergeDraft({ base: salvoComFix as any, draft: salvoComFix as any, fresh: fresh as any, touched: new Set() });
+    expect(m.atualizados).toEqual([]);
+    expect(m.conflitos).toEqual([]);
+  });
+});
+
+describe("F4 — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx relê ref junto com rev pós-save)", () => {
+  const src = readFileSync("src/components/produto-importado/ProdutoImportadoSheet.tsx", "utf8");
+
+  it("o SELECT pós-save busca rev E ref (não só rev)", () => {
+    expect(src).toMatch(/\.select\("rev, ref"\)/);
+    expect(src).not.toMatch(/\.select\("rev"\)\.eq\("id", novoId\)/);
+  });
+
+  it("`salvo` usa o ref lido do servidor (refNovo), não o ref do draft local (d.ref)", () => {
+    expect(src).toContain("const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d.tamanho_tipo };");
   });
 });

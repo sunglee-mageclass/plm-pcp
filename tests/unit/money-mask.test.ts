@@ -180,3 +180,38 @@ describe("caretAfterFormat (preservação do cursor)", () => {
     expect(caretAfterFormat("1.234", 0)).toBe(0);
   });
 });
+
+// Fix round 2 (review Opus — blur do preço fixo do Produto Acabado não salvava o valor
+// digitado): documenta o MECANISMO exato do bug e prova o comportamento certo do fix, sem
+// depender de montar `<MoneyInput>`/`<ProdutoCard>` (testes de componente ficam nos arquivos
+// de shared/produto-acabado). `valueToMasked` (com `fixed=true`, o `fixedDecimals` que os
+// campos de preço usam) reproduz exatamente o texto que fica no DOM em repouso/blur — era ESSE
+// texto que o `onBlur` de `ProdutoCard.tsx` (antes do fix) reparseava com `Number(e.target.
+// value)`, em vez de usar o valor canônico que o próprio `onChange` já tinha calculado.
+describe("Fix round 2 — Number() no texto MASCARADO (blur) é NaN; no CANÔNICO (onChange) é correto", () => {
+  it.each([
+    [698, "698,00"],
+    [1234.56, "1.234,56"],
+    [50, "50,00"],
+  ])("valor %j vira o texto mascarado %j em repouso (fixedDecimals)", (valor, masked) => {
+    expect(valueToMasked(valor, 2, true)).toBe(masked);
+  });
+
+  it("Number() no texto MASCARADO com decimal ou milhar é NaN — a causa raiz do bug", () => {
+    expect(Number("698,00")).toBeNaN();
+    expect(Number("1.234,56")).toBeNaN();
+    // Só o caso sem vírgula/ponto (raro com fixedDecimals, que sempre mostra 2 casas) não quebra:
+    expect(Number("50")).toBe(50); // isto é por que markup inteiro "passava por acidente"
+  });
+
+  it("maskLive (o que onChange usa) sempre devolve um canonical que Number() entende — 698,00 / 1.234,56 / vazio", () => {
+    // Simula o usuário digitando cada texto mascarado (como se fosse o valor cru do input) —
+    // `onChange` do MoneyInput roda maskLive sobre o texto digitado e emite `canonical`.
+    expect(Number(maskLive("698,00", 2).canonical)).toBe(698);
+    expect(Number(maskLive("1.234,56", 2).canonical)).toBe(1234.56);
+    // Campo esvaziado -> canonical "" -> Number("") é 0, e o padrão do sistema (`Number(x) > 0 ?
+    // Number(x) : null`) trata isso como "voltar a null" (calculado) — nunca NaN, nunca trava.
+    expect(maskLive("", 2).canonical).toBe("");
+    expect(Number(maskLive("", 2).canonical) > 0 ? Number(maskLive("", 2).canonical) : null).toBeNull();
+  });
+});

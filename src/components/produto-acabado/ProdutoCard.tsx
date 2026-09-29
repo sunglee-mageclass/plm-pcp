@@ -164,6 +164,29 @@ export function ProdutoCard({
   // "modelos") dá o preview imediato; o thumb do card usa esta foto (fallback pra do modelo espelho).
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
+  // Fix round 2 (review Opus — blur do preço fixo não salvava o valor digitado): `onBlur` do
+  // <MoneyInput> recebe o EVENTO NATIVO de blur (`MoneyInput.tsx:69`, `onBlur?.(e)` sem
+  // reconstruir `e.target.value` como o `onChange` faz) — `e.target.value` ali é o TEXTO
+  // MASCARADO pt-BR (vírgula decimal + ponto de milhar, ex. "1.234,56"), nunca o canônico
+  // ("1234.56") que `onChange` emite. `Number("1.234,56")` é `NaN`; com `fixedDecimals` (sempre
+  // mostra 2 casas), praticamente todo blur reduzia `novo` a `null` — o preço digitado nunca era
+  // salvo (às vezes zerava o preço fixo existente, às vezes só não-opava). Fix: `onChange` JÁ
+  // grava o valor certo (canônico, `e.target.value` DELE é `{target:{value:canonical}}`) em
+  // `produto.preco_atacado_fixo`/`preco_varejo_fixo` a cada tecla — `onBlur` usa ESSE valor
+  // (nunca re-parseia o evento de blur), comparando contra o que o campo tinha ao ENTRAR em foco
+  // (`precoAtacadoBaseRef`/`precoVarejoBaseRef`, setados em `onFocus`) para só disparar a RPC
+  // quando o usuário de fato editou. Espelha `RevendaSetores.tsx` (Planejamento, mesmo par de
+  // campos): lá o draft já nasce como STRING canônica; aqui o draft é o NÚMERO já parseado —
+  // duas formas do mesmo princípio ("nunca re-parseie o texto mascarado do DOM").
+  const precoAtacadoBaseRef = useRef<number | null>(produto.preco_atacado_fixo ?? null);
+  const precoVarejoBaseRef = useRef<number | null>(produto.preco_varejo_fixo ?? null);
+  // Mesmo bug/fix nos 2 campos de Markup (`NumberInput`, não `MoneyInput`, mas MESMA classe:
+  // `NumberInput.tsx:62` também repassa `onBlur?.(e)` com o evento NATIVO, sem reconstruir
+  // `e.target.value` como o `onChange` dele faz — em repouso o texto tem vírgula decimal
+  // ("2,50"), que `Number()` não entende. Markup inteiro (ex. "3") passava por acidente
+  // (sem vírgula), mas qualquer markup com decimal (o caso comum — "2,50") quebrava igual.
+  const markupAtacadoBaseRef = useRef<number | null>(produto.markup_atacado ?? null);
+  const markupVarejoBaseRef = useRef<number | null>(produto.markup_varejo ?? null);
   const fotoUrl = useSignedUrl(produto.foto_url, "modelos");
   const anexarFoto = async (file: File | undefined) => {
     if (!file) return;
@@ -984,9 +1007,14 @@ export function ProdutoCard({
                             placeholder="2,50"
                             className="pr-6"
                             value={markupAtacadoExib ?? 0}
+                            onFocus={() => { markupAtacadoBaseRef.current = produto.markup_atacado ?? null; }}
                             onChange={(e) => onChange({ ...produto, markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_atacado_fixo: null })}
-                            onBlur={(e) => {
-                              const mk = Number(e.target.value) > 0 ? Number(e.target.value) : null;
+                            onBlur={() => {
+                              // Fix round 2: usa o valor que `onChange` já colocou no draft (correto),
+                              // nunca reparseia o evento nativo de blur (mesma classe de bug do preço
+                              // fixo — ver comentário em `markupAtacadoBaseRef`).
+                              const mk = produto.markup_atacado ?? null;
+                              if (mk === markupAtacadoBaseRef.current) return;
                               // N-3 (Fix round 2): com o varejo TRAVADO, o blur do ATACADO reenviava
                               // `produto.markup_varejo` (o draft local — pode ter divergido do servidor
                               // desde a marcação, ex.: um blur anterior que falhou) — `_salvar_markups_
@@ -1002,7 +1030,7 @@ export function ProdutoCard({
                                 markupVarejoDraft: produto.markup_varejo,
                                 markupVarejoServidor,
                               });
-                              if (mk !== (markupAtacadoExib ?? null)) salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: markupVarejoParaEnviar });
+                              salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: markupVarejoParaEnviar });
                             }}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
@@ -1019,16 +1047,20 @@ export function ProdutoCard({
                             placeholder="2,50"
                             className="pr-6"
                             value={markupVarejoExib ?? 0}
+                            onFocus={() => { markupVarejoBaseRef.current = produto.markup_varejo ?? null; }}
                             onChange={(e) => onChange({ ...produto, markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_varejo_fixo: null })}
-                            onBlur={(e) => {
+                            onBlur={() => {
                               // N-3 (Fix round 2): com o varejo travado o campo já está `disabled` (não
                               // dá pra digitar), mas um blur ainda poderia disparar se o campo tivesse
                               // ficado focado ANTES do lock chegar (o disabled não força blur sozinho em
                               // todo navegador) — pula a RPC inteira nesse caso, nunca reenvia o markup
                               // varejo travado.
                               if (travaIntegracao.has("preco_venda")) return;
-                              const mk = Number(e.target.value) > 0 ? Number(e.target.value) : null;
-                              if (mk !== (markupVarejoExib ?? null)) salvarMarkupMut.mutate({ markupAtacado: produto.markup_atacado, markupVarejo: mk });
+                              // Fix round 2: mesmo padrão — usa o draft já correto (`onChange`), nunca
+                              // reparseia o evento nativo de blur.
+                              const mk = produto.markup_varejo ?? null;
+                              if (mk === markupVarejoBaseRef.current) return;
+                              salvarMarkupMut.mutate({ markupAtacado: produto.markup_atacado, markupVarejo: mk });
                             }}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
@@ -1046,10 +1078,15 @@ export function ProdutoCard({
                             fixedDecimals
                             value={precoAtacadoLive ?? ""}
                             placeholder="0,00"
+                            onFocus={() => { precoAtacadoBaseRef.current = produto.preco_atacado_fixo ?? null; }}
                             onChange={(e) => onChange({ ...produto, preco_atacado_fixo: Number(e.target.value) > 0 ? Number(e.target.value) : null, markup_atacado: null })}
-                            onBlur={(e) => {
-                              const novo = Number(e.target.value) > 0 ? Number(e.target.value) : null;
-                              if (novo !== (produto.preco_atacado_fixo ?? null)) salvarPrecoFixoMut.mutate({ tocarAtacado: true, precoAtacado: novo, tocarVarejo: false, precoVarejo: null });
+                            onBlur={() => {
+                              // Fix round 2: nunca reparseia `e.target.value` (texto mascarado do DOM,
+                              // ver comentário acima de `precoAtacadoBaseRef`) — usa o valor que
+                              // `onChange` já colocou no draft, comparado contra o valor de ANTES desta
+                              // edição (capturado no focus).
+                              const novo = produto.preco_atacado_fixo ?? null;
+                              if (novo !== precoAtacadoBaseRef.current) salvarPrecoFixoMut.mutate({ tocarAtacado: true, precoAtacado: novo, tocarVarejo: false, precoVarejo: null });
                             }}
                           />
                         </div>
@@ -1060,10 +1097,11 @@ export function ProdutoCard({
                             value={precoVarejoLive ?? ""}
                             placeholder="0,00"
                             disabled={travaIntegracao.has("preco_venda")}
+                            onFocus={() => { precoVarejoBaseRef.current = produto.preco_varejo_fixo ?? null; }}
                             onChange={(e) => onChange({ ...produto, preco_varejo_fixo: Number(e.target.value) > 0 ? Number(e.target.value) : null, markup_varejo: null })}
-                            onBlur={(e) => {
-                              const novo = Number(e.target.value) > 0 ? Number(e.target.value) : null;
-                              if (novo !== (produto.preco_varejo_fixo ?? null)) salvarPrecoFixoMut.mutate({ tocarVarejo: true, precoVarejo: novo, tocarAtacado: false, precoAtacado: null });
+                            onBlur={() => {
+                              const novo = produto.preco_varejo_fixo ?? null;
+                              if (novo !== precoVarejoBaseRef.current) salvarPrecoFixoMut.mutate({ tocarVarejo: true, precoVarejo: novo, tocarAtacado: false, precoAtacado: null });
                             }}
                           />
                         </div>

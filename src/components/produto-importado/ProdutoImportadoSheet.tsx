@@ -19,7 +19,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { erroValidacao } from "@/components/produto-acabado/shared";
+import { erroValidacao, produtosParaSalvar, baselinePatchDoServidor } from "@/components/produto-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
@@ -395,10 +395,21 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       proximosDrafts.push({ ...(m.valor as ProdutoImportadoDraft), rev: fr.rev });
     }
     // Produtos novos no servidor (criado por outra aba) que eu ainda não tenho localmente.
+    const idsNovosDoServidor: string[] = [];
     for (const fr of fresh) {
-      if (fr.id && !drafts.some((d) => d.id === fr.id)) proximosDrafts.push(fr);
+      if (fr.id && !drafts.some((d) => d.id === fr.id)) { proximosDrafts.push(fr); idsNovosDoServidor.push(fr.id); }
     }
     baseServidorRef.current = Object.fromEntries(fresh.filter((d) => d.id).map((d) => [d.id as string, d]));
+
+    // Fix round 1 (review Opus, M1 — mesmo padrão do ProdutoAcabadoSheet.tsx): re-baseline pelo
+    // SERVIDOR para todo id processado + os novos que apareceram agora. Sem isto, um produto sem
+    // edição minha (ex.: `_touched` de uma variante volta a `false` pós-save, achado do review)
+    // ficava "phantom dirty" contra o baseline velho e era reenviado no próximo Salvar.
+    setBaseline((b) => ({
+      ...b,
+      ...baselinePatchDoServidor(idsProcessados, freshById, chaveDirty),
+      ...baselinePatchDoServidor(idsNovosDoServidor, freshById, chaveDirty),
+    }));
 
     // Conflitos: RECONSTRÓI o conjunto p/ os produtos processados — mantém quem ainda conflita,
     // REMOVE quem convergiu (o servidor passou a coincidir com o meu draft SEM eu ter clicado
@@ -745,10 +756,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     if (m.conflitos.length > 0) {
       setConflitosPorProduto((prev) => ({ ...prev, [d.id as string]: m.conflitos }));
     } else {
-      // Sem conflito de verdade — o card já está atualizado com o fresh + minhas edições
-      // preservadas; rebaseline pra não segurar `dirty`/bloquear um novo Salvar por um
-      // conflito fantasma.
-      marcarProdutoLimpo(fundido);
+      // Fix round 1 (review Opus, H1 — mesmo padrão do ProdutoAcabadoSheet.tsx): NÃO
+      // `marcarProdutoLimpo(fundido)`. `fundido` preserva os campos que EU toquei e a RPC
+      // nunca persistiu (deu P0409) — marcar isso como "limpo" fazia o produto desaparecer do
+      // PRÓXIMO Salvar (`produtosParaSalvar`) mesmo com edição pendente de verdade. O baseline
+      // vem do SERVIDOR (`fresh`), nunca do merge.
+      setBaseline((b) => ({ ...b, ...baselinePatchDoServidor([d.id as string], new Map([[d.id as string, fresh]]), chaveDirty) }));
     }
   };
 
@@ -818,12 +831,21 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     // produto, não o rev novo — busca ele pontualmente (1 SELECT leve) e faz um PATCH local
     // IMEDIATO. Mais seguro que esperar o `invalidateQueries`/refetch geral: a janela até o
     // refetch terminar deixaria um 2º Salvar comparar `d.rev` contra um valor velho.
-    const { data: revRow } = await supabase.from("produtos_importados" as any).select("rev").eq("id", novoId).maybeSingle();
-    const revNovo = revRow ? Number((revRow as any).rev) || 0 : d.rev + 1; // fallback otimista
-    // Fix round (L-1): rebaseline de tamanho_tipo_base pro valor recém-salvo — mesma razão do PA
-    // (ProdutoAcabadoSheet.tsx): sem isto, o próximo Salvar reenviaria a mesma troca como se fosse
-    // edição nova (montarPayload manda a chave sempre que tipo!==base).
-    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, tamanho_tipo_base: d.tamanho_tipo };
+    // Fix round 1 (F4, achado pré-existente): busca `ref` JUNTO com `rev` — o trigger
+    // `fn_produto_importado_ref` (BEFORE INSERT) gera a REF no servidor quando o produto nasce
+    // sem uma (caso normal de "Novo produto importado", `emptyDraft().ref === null`); `d.ref`
+    // aqui ainda é o valor local (`null`) que foi ENVIADO, não o que o servidor gravou. Sem
+    // reler, `salvo.ref` ficava `null` enquanto o servidor tinha a REF gerada — `ref` está em
+    // `chaveDirty` (produto-importado/shared.ts:166), então o PRÓXIMO refetch/merge via
+    // `fresh.ref` (preenchida) contra o `base.ref` (null, do baseline gravado aqui) marcava
+    // `touched`/"atualizado" — o banner falso "Alguém salvou agora — 1 campo(s) atualizado(s)"
+    // e o card ficava "alterações não salvas" mesmo recém-criado e persistido com sucesso.
+    const { data: pos } = await supabase.from("produtos_importados" as any).select("rev, ref").eq("id", novoId).maybeSingle();
+    const revNovo = pos ? Number((pos as any).rev) || 0 : d.rev + 1; // fallback otimista
+    const refNovo = pos ? ((pos as any).ref ?? null) : d.ref;
+    // Fix round (L-1, tamanho-em): rebaseline de tamanho_tipo_base pro valor recém-salvo — sem isto, o próximo
+    // Salvar reenviaria a mesma troca como se fosse edição nova (montarPayload manda a chave sempre que tipo!==base).
+    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d.tamanho_tipo };
     baseServidorRef.current = { ...baseServidorRef.current, [novoId]: salvo };
     if (isLocal) {
       const idAntigo = d.id!;
@@ -853,13 +875,17 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       if (produtosEmConflito.length > 0) {
         throw erroValidacao("Resolva os conflitos indicados nos cards destacados antes de salvar.");
       }
-      // Valida TODOS os drafts no cliente ANTES de qualquer save — senão um produto com Σ%≠100
-      // (rejeitado pelo servidor) abortaria o lote no meio.
-      for (const d of drafts) {
+      // P-135 B (fix, mesmo padrão do ProdutoAcabadoSheet.tsx — verificado que tinha o MESMO
+      // defeito): o Salvar em lote mandava TODOS os drafts, editados ou não — sem filtro de
+      // sujo. Corte por `chaveDirty` vs `baseline` (mesmo predicado que já alimenta `dirty`).
+      const lista = produtosParaSalvar(drafts, baseline, chaveDirty);
+      // Valida só os drafts que VÃO ser enviados — um produto intocado (fora do lote) não deve
+      // bloquear o Salvar por uma invalidez que já existia antes desta sessão.
+      for (const d of lista) {
         const erro = validarDraft(d);
         if (erro) throw new Error(`${d.nome || "Produto sem nome"}: ${erro}`);
       }
-      const resultados = await Promise.allSettled(drafts.map((d) => salvarUmProduto(d)));
+      const resultados = await Promise.allSettled(lista.map((d) => salvarUmProduto(d)));
       const falhas = resultados.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
       const falhasP0409 = falhas.filter((r) => (r.reason as any)?.code === "P0409");
       const outrasFalhas = falhas.filter((r) => (r.reason as any)?.code !== "P0409");
