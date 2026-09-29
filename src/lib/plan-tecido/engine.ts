@@ -582,7 +582,7 @@ function linhaOrfaComDados(l: PtLinha, liveByModelo: Map<string, PtSlot>): PtLin
  * sub/linha sem par no `salvo` perdia preço/custos/distribuição e o `id` do slot (usado pelo
  * re-link de `plan_tecido_slot_oc` na RPC de save).
  */
-function mesclarSlot(slot: PtSlot, saved: PtSlot, liveByModelo: Map<string, PtSlot>): PtSlot {
+function mesclarSlot(slot: PtSlot, saved: PtSlot, liveByModelo: Map<string, PtSlot>, moveu: boolean): PtSlot {
   // modelo_id EFETIVO: o do seed (colocação viva); num vazio posicional, o do salvo
   // (modelo excluído — limpo depois pelo Sheet).
   const effModeloId = slot.modelo_id ?? saved.modelo_id;
@@ -596,20 +596,25 @@ function mesclarSlot(slot: PtSlot, saved: PtSlot, liveByModelo: Map<string, PtSl
     ref: saved.ref ?? slot.ref,
     nome: saved.nome ?? slot.nome,
     thumb_path: saved.thumb_path ?? slot.thumb_path,
-    // categoria_id (M-R1-1, re-revisão R1): campo que DEFINE o bucket — igual markup_editado/
-    // referencia_paths abaixo, o seed (`slot`) VENCE pra slot de MODELO. Antes do fix, um modelo
-    // que mudou de categoria no Planejamento (categoria_principal_id novo) e caiu num ramo !ss/
-    // !sl (I-3, sub/linha sem par no salvo) exibia e regravava a categoria VELHA do salvo — a
-    // tela mostrava a categoria errada e o próximo Salvar escrevia esse valor stale de volta em
-    // `plan_tecido_slots.categoria_id` (probe F do review). Sem modelo (rascunho puro, efeito só
-    // aparece pelo pareamento posicional na mesma linha/categoria — nunca muda de bucket sozinho)
-    // o salvo continua vencendo, como sempre (dado próprio do plano).
-    categoria_id: slot.modelo_id ? (slot.categoria_id ?? saved.categoria_id) : (saved.categoria_id ?? slot.categoria_id),
+    // categoria_id (M-R1-1 → correção na re-revisão R2, I-R2-1): campo que DEFINE o bucket, mas
+    // SÓ quando o modelo MOVEU pra um bucket sem par no salvo (`moveu=true`, ramos !ss/!sl OU o
+    // slot salvo achado por modelo_id não está fisicamente em `sl.slots` desta linha). Nesse
+    // caso o seed VENCE — sem isso a categoria VELHA do salvo era exibida e regravada (probe F).
+    // Quando o bucket bate (`moveu=false`, caminho casado de sempre) o SALVO vence, como desde
+    // `820fb0f8` — o select "Categoria" do card (`ModelCard.tsx:368`) é editável e grava só no
+    // plano; fazer o seed vencer AQUI desfazia a escolha do usuário no próximo load/save
+    // (I-R2-1: probe R, card editado de VESTIDO→SAIA voltava pra VESTIDO). Rascunho (sem modelo)
+    // nunca muda de bucket sozinho — o salvo sempre vence, como sempre.
+    categoria_id: (slot.modelo_id && moveu) ? (slot.categoria_id ?? saved.categoria_id) : (saved.categoria_id ?? slot.categoria_id),
     // categoria de TECIDO (lane): manual salvo VENCE; se o slot salvo está sem categoria,
     // usa a AUTO do seed (Tecido 1). Assim planos antigos "sem categoria" auto-preenchem ao
     // reabrir, e uma categorização manual do usuário é preservada.
     categoria_tecido_id: saved.categoria_tecido_id ?? slot.categoria_tecido_id,
-    linha_id: saved.linha_id ?? slot.linha_id,
+    // linha_id (L-R2-1, hardening): mesma regra do categoria_id — só o seed vence se o modelo
+    // MOVEU pra um bucket sem par. Hoje `_plan_tecido_arvore_core` NÃO retorna `linha_id` no
+    // slot (`saved.linha_id` é sempre undefined na prática, então isso não muda nada agora),
+    // mas blinda contra uma regressão futura se a RPC um dia passar a devolver o campo.
+    linha_id: (slot.modelo_id && moveu) ? (slot.linha_id ?? saved.linha_id) : (saved.linha_id ?? slot.linha_id),
     // markup_editado é congelado NO MODELO (modelos.markup_editado, invariante do banco) —
     // o seed (`slot`, sempre o modelo vivo) VENCE sempre, nunca o snapshot salvo do plano
     // (senão editar o markup aplicado no Planejamento não refletiria aqui até o dono limpar
@@ -699,7 +704,9 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
         return { ...s, linhas: s.linhas.map((l) => ({ ...l, slots: l.slots.map((slot) => {
           if (!slot.modelo_id) return slot;
           const saved = savedByModelo.get(slot.modelo_id);
-          return saved ? mesclarSlot(slot, saved, liveByModelo) : slot;
+          // moveu=true: por definição deste ramo, a SUB não existe no salvo — o modelo só pode
+          // estar aqui porque se moveu para um bucket sem par (M-R2, categoria_id/linha_id do seed vence).
+          return saved ? mesclarSlot(slot, saved, liveByModelo, true) : slot;
         }) })) };
       }
       // Linhas (bucket linha/categoria) salvas cujo bucket NÃO existe mais neste seed (ex.: categoria
@@ -717,11 +724,11 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
         const sl = ss.linhas.find((x) => lnKeyOf(x) === lnKeyOf(l));
         if (!sl) {
           // I-3 probe D: a LINHA/categoria não existe no salvo (mesma sub, categoria nova) — mesmo
-          // tratamento do ramo !ss acima, um nível abaixo.
+          // tratamento do ramo !ss acima, um nível abaixo. moveu=true pela mesma razão.
           return { ...l, slots: l.slots.map((slot) => {
             if (!slot.modelo_id) return slot;
             const saved = savedByModelo.get(slot.modelo_id);
-            return saved ? mesclarSlot(slot, saved, liveByModelo) : slot;
+            return saved ? mesclarSlot(slot, saved, liveByModelo, true) : slot;
           }) };
         }
         // Pareamento em 2 trilhas:
@@ -741,7 +748,13 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
           // truthy), `saved.modelo_id` também é truthy, então o predicado já dá true por esse termo
           // sozinho — nenhum caso de modelo regride.
           if (!saved || !slotOrfaoTemDados(saved)) return slot; // não deixa slot salvo vazio apagar o modelo semeado
-          return mesclarSlot(slot, saved, liveByModelo);
+          // M-R2 (I-R2-1): moveu=true SÓ se o `saved` achado por modelo_id (savedByModelo) não é
+          // fisicamente um dos slots DESTA linha (`sl.slots`) — ou seja, o modelo estava salvo em
+          // OUTRO bucket e "aterrissou" aqui pela colocação viva. Bucket casado normal (o salvo já
+          // estava exatamente nesta linha) é moveu=false — categoria/linha do SALVO continuam
+          // vencendo (o select "Categoria" do card, editável, grava só no plano; ver I-R2-1/probe R).
+          const moveu = !!slot.modelo_id && !sl.slots.includes(saved);
+          return mesclarSlot(slot, saved, liveByModelo, moveu);
         });
         // I-2 (review round 1, probe B): o bucket ENCOLHEU (qtd caiu no OTB) — o seed só produz
         // `qtd` vagas, então `restantes[k..]` (excedente salvo, já filtrado de modelo VIVO acima)
