@@ -229,6 +229,51 @@ describe.skipIf(!(hasDb && LOCAL))("PA sync só-mudou — banco (cópia local)",
     });
   });
 
+  it("mudar SÓ a subcategoria2 -> só a sub2 do card muda (categoria/sub1 do Planejamento preservadas); rev +1", async () => {
+    await withTx(async (c) => {
+      const k = await prepara(c);
+      const { pid, mid } = await produtoComCard(c, k);
+      await planejamentoTroca(c, mid, k.catB, k.s1B);
+      const rev0 = (await card(c, mid)).rev;
+      await salvar(c, pid, dadosDe(k, { subcategoria2_id: k.s2B }));
+      const d = await card(c, mid);
+      expect(d).toMatchObject({ nome: "PASYNC Vestido", cat: k.catB, s1: k.s1B, s2: k.s2B });
+      expect(d.rev).toBe(rev0 + 1);
+    });
+  });
+
+  it("valor -> NULL e NULL -> valor (sub2 no produto) chegam ao card; categoria/sub1 do Planejamento preservadas", async () => {
+    await withTx(async (c) => {
+      const k = await prepara(c);
+      const { pid, mid } = await produtoComCard(c, k);
+      await planejamentoTroca(c, mid, k.catB, k.s1B);
+      const rev0 = (await card(c, mid)).rev;
+      await salvar(c, pid, dadosDe(k, { subcategoria2_id: null })); // valor -> NULL
+      let d = await card(c, mid);
+      expect(d).toMatchObject({ nome: "PASYNC Vestido", cat: k.catB, s1: k.s1B, s2: null });
+      expect(d.rev).toBe(rev0 + 1);
+      await salvar(c, pid, dadosDe(k, { subcategoria2_id: k.s2B })); // NULL -> valor
+      d = await card(c, mid);
+      expect(d).toMatchObject({ nome: "PASYNC Vestido", cat: k.catB, s1: k.s1B, s2: k.s2B });
+      expect(d.rev).toBe(rev0 + 2);
+      await salvar(c, pid, dadosDe(k, { subcategoria2_id: k.s2B })); // NULL->valor já assentado: nada muda
+      expect((await card(c, mid)).rev).toBe(rev0 + 2);
+    });
+  });
+
+  it("categoria muda no produto mas o card JÁ tem esse valor -> nenhum UPDATE (rev e linha inteira iguais)", async () => {
+    await withTx(async (c) => {
+      const k = await prepara(c);
+      const { pid, mid } = await produtoComCard(c, k);
+      await planejamentoTroca(c, mid, k.catB, k.s1A); // card já em B; produto ainda em A
+      const linha = async () => (await um<{ j: any }>(c, "SELECT to_jsonb(m.*) AS j FROM public.modelos m WHERE id = $1", [mid])).j;
+      const antes = await linha();
+      await salvar(c, pid, dadosDe(k, { categoria_id: k.catB })); // produto A -> B
+      expect((await um<any>(c, "SELECT categoria_id FROM public.produtos_acabados WHERE id = $1", [pid])).categoria_id).toBe(k.catB);
+      expect(await linha()).toEqual(antes);
+    });
+  });
+
   it("save SEM mudança nenhuma -> nenhum UPDATE em modelos (rev e linha inteira iguais)", async () => {
     await withTx(async (c) => {
       const k = await prepara(c);
