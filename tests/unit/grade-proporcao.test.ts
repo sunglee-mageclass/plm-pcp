@@ -52,6 +52,52 @@ describe("grade-proporcao — fonte única da grade automática", () => {
         expect(somaGrade(distribuiTotal(total, TAM, {}))).toBe(total); // sem proporção também fecha
       }
     });
+
+    // Fix I-1 (revisão T3+T7, `.superpowers/sdd/2026-09-29-tamanho-em/review-t3-t7.md`) — 4º parâmetro OPCIONAL
+    // `visiveis`: restringe a divisão IGUAL (ramo Σprop == 0) a um subconjunto de `tamanhos`. Caso do achado —
+    // grade tipo Ark Store (36…44 soltos em número + PP…GG soltos em letra), "Tamanho em" = Letra, sem
+    // proporção, Grade Total = 10 digitada: sem a fix, a conta dividia pelos 10 tamanhos da loja inteira
+    // (metade ia para as numerações ocultas); com `visiveis` = só o lado Letra, os 10 caem SÓ em PP…GG.
+    describe("visiveis (fix I-1) — restringe SÓ o ramo 'divide igualmente'", () => {
+      const ARK = ["36", "38", "40", "42", "44", "PP", "P", "M", "G", "GG"];
+      const LADO_LETRA = ["PP", "P", "M", "G", "GG"];
+
+      it("Ark Store, sem proporção, Grade Total 10 → só PP…GG recebem (os soltos em número ficam a 0)", () => {
+        const g = distribuiTotal(10, ARK, {}, LADO_LETRA);
+        expect(somaGrade(g)).toBe(10); // Σ ainda bate com o total (ressalva #3: chaves continuam TODAS presentes)
+        for (const t of ["36", "38", "40", "42", "44"]) expect(g[t]).toBe(0);
+        // 10 ÷ 5 (PP,P,M,G,GG) = 2 cada, sem resto.
+        expect(g).toEqual({ "36": 0, "38": 0, "40": 0, "42": 0, "44": 0, PP: 2, P: 2, M: 2, G: 2, GG: 2 });
+      });
+
+      it("sem `visiveis` (omitido): comportamento IDÊNTICO a antes — divide pelos 10 tamanhos da loja inteira", () => {
+        const g = distribuiTotal(10, ARK, {});
+        expect(somaGrade(g)).toBe(10);
+        // 10 ÷ 10 = 1 cada, sem resto — TODOS recebem (é exatamente o bug que a fix corrige quando alguém passa
+        // `visiveis`; sem o parâmetro, a chamada antiga continua se comportando assim).
+        expect(g).toEqual({ "36": 1, "38": 1, "40": 1, "42": 1, "44": 1, PP: 1, P: 1, M: 1, G: 1, GG: 1 });
+      });
+
+      it("`visiveis` vazio (`[]`) cai de volta em `tamanhos` (guarda contra grade filtrada zerar tudo)", () => {
+        const g = distribuiTotal(10, ARK, {}, []);
+        expect(g).toEqual(distribuiTotal(10, ARK, {}));
+      });
+
+      it("`visiveis` NÃO afeta o ramo proporcional (Σprop > 0) — a proporção já decide quem recebe", () => {
+        const props = { "36": 1, "38": 1, "40": 1, "42": 1, "44": 1, PP: 0, P: 0, M: 0, G: 0, GG: 0 };
+        const comFiltro = distribuiTotal(50, ARK, props, LADO_LETRA);
+        const semFiltro = distribuiTotal(50, ARK, props);
+        expect(comFiltro).toEqual(semFiltro); // idêntico: `visiveis` só entra no ramo Σprop == 0
+        expect(somaGrade(comFiltro)).toBe(50);
+      });
+
+      it("resto do arredondamento cai nos PRIMEIROS `visiveis` (não nos primeiros de `tamanhos`)", () => {
+        // 11 ÷ 5 = 2 base, resto 1 → só o 1º de `visiveis` (PP) ganha o +1, nunca um tamanho fora da lista.
+        const g = distribuiTotal(11, ARK, {}, LADO_LETRA);
+        expect(somaGrade(g)).toBe(11);
+        expect(g).toEqual({ "36": 0, "38": 0, "40": 0, "42": 0, "44": 0, PP: 3, P: 2, M: 2, G: 2, GG: 2 });
+      });
+    });
   });
 
   describe("distribuiAncora — célula digitada é âncora, demais por proporção", () => {

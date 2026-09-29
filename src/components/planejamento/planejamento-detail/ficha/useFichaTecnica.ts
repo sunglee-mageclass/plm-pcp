@@ -34,6 +34,7 @@ import {
 } from "./ficha-cad";
 import { seloCadSecao } from "./selos-secoes";
 import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
+import type { TamanhoTipo } from "@/lib/tamanho";
 
 const SEM_LABELS: Record<string, string> = {};
 // F3.4 — identidades ESTÁVEIS p/ o comprado (sem grade da ficha; sem pré-preenchimento de Tecido 1..N).
@@ -155,6 +156,9 @@ export function useFichaTecnica(a: {
   travaDev: MotivoTravaDev;
   /** F3.3 — `modelos.ordem_criacao_enviada` do SERVIDOR (D2: antes dela o Planejamento não cria o CAD). */
   ordemEnviada: boolean;
+  /** P-120 A (plano `2026-09-29-tamanho-em`, fix I-1) — `draft.tamanho_tipo`: repassado ao `useFichaBom` p/ a
+   *  divisão igual da Grade Total (sem proporção) cair só nos tamanhos visíveis. Omitido = sem filtro (hoje). */
+  tamanhoTipo?: TamanhoTipo | null;
 }) {
   const qc = useQueryClient();
   const { canView, canEdit } = useAuth();
@@ -251,6 +255,9 @@ export function useFichaTecnica(a: {
     gradeExterna: a.isComprado,
     aoRecarregarComTocado: (servidor) => aoRecarregarComTocadoRef.current(servidor),
     aoMudarBloco: (tipo, numero, patch) => aoMudarBlocoRef.current(tipo, numero, patch),
+    // Fix I-1 — grade EXTERNA (comprado) não usa isto (`ModeloGradeSection`/Tecido 1 nem entram); interno passa o
+    // "Tamanho em" do rascunho.
+    tamanhoTipo: a.isComprado ? null : a.tamanhoTipo,
   });
   /**
    * R5a (re-check do guardião) — a CARGA (useFichaBom) chegou com o BOM local JÁ tocado: ela não sobrescreve

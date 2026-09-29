@@ -3061,6 +3061,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
                 onToggleGradeAuto={ro(toggleGradeAuto)}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
+                // P-120 A (plano tamanho-em, Tarefa 7, opcional) — direto de `modelo` (não do `Draft` local, que não
+                // tem este campo — não mexe no colab/`draftFromModelo`); Sheet do Dev é SÓ LEITURA (F5a), então não
+                // há rascunho a proteger aqui, só o rótulo/filtro de exibição.
+                tamanhoTipo={(modelo as any)?.tamanho_tipo ?? null}
               />
               </fieldset>
             </AccordionContent>

@@ -17,6 +17,7 @@ import {
   resolverTravaImportado, aplicarResolucaoTrava, toastTravaImportado, acoplarParVarejo, acoplarParAtacado,
   normalizarParVarejoAposResolucao, normalizarParAtacadoAposResolucao,
   markupVarejoExibido, markupAtacadoExibido, parDoCampo, devePodeNormalizarPar, aplicarResolucaoConflito,
+  CAMPOS_TRAVAVEIS_POR_COLUNA,
   type ProdutoImportadoDraft,
 } from "@/components/produto-importado/shared";
 import {
@@ -89,6 +90,84 @@ describe("emptyDraft/chaveDirty — campos do preço fixo (Task 23)", () => {
     expect("preco_atacado_fixo" in k).toBe(true);
     expect("preco_varejo_fixo" in k).toBe(true);
     expect("modeloPrecoVenda" in k).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Tarefa 6 (.superpowers/sdd/2026-09-29-tamanho-em/plan.md) — "Tamanho em" no Produto Importado.
+// Espelha 1:1 os testes de shared.ts do Produto Acabado (Tarefa 5).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("Tarefa 6 — emptyDraft/chaveDirty com tamanho_tipo", () => {
+  it("emptyDraft nasce com tamanho_tipo/tamanho_tipo_base null e modeloSkusCount 0", () => {
+    const d = emptyDraft("c", "s");
+    expect(d.tamanho_tipo).toBeNull();
+    expect(d.tamanho_tipo_base).toBeNull();
+    expect(d.modeloSkusCount).toBe(0);
+  });
+  it("chaveDirty inclui tamanho_tipo (trocar acende o selo 'não salvo')", () => {
+    const a = chaveDirty(base({ tamanho_tipo: "letra" }));
+    const b = chaveDirty(base({ tamanho_tipo: "numero" }));
+    expect(JSON.stringify(a)).not.toBe(JSON.stringify(b));
+  });
+});
+
+describe("Tarefa 6 — montarPayload manda tamanho_tipo SÓ quando difere da base", () => {
+  it("sem mudança (tipo === base): a chave NÃO entra no payload", () => {
+    const { dados } = montarPayload(base({ tamanho_tipo: "letra", tamanho_tipo_base: "letra" }));
+    expect("tamanho_tipo" in dados).toBe(false);
+  });
+  it("trocado nesta edição: a chave entra com o valor CORRENTE", () => {
+    const { dados } = montarPayload(base({ tamanho_tipo: "numero", tamanho_tipo_base: "letra" }));
+    expect(dados.tamanho_tipo).toBe("numero");
+  });
+  it("mandar tamanho_tipo NUNCA muda o bloco [integracao v1] (preco_*_fixo) do mesmo payload", () => {
+    const { dados } = montarPayload(base({
+      tamanho_tipo: "numero", tamanho_tipo_base: "letra",
+      preco_varejo_fixo: 298, preco_atacado_fixo: null, markup_atacado: 2,
+    }));
+    expect(dados.tamanho_tipo).toBe("numero");
+    expect(dados.preco_varejo_fixo).toBe(298);
+    expect(dados.preco_atacado_fixo).toBeNull();
+    expect(dados.markup_atacado).toBe(2);
+  });
+});
+
+describe("Tarefa 6 — CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo (espelha o Produto Acabado)", () => {
+  it("mapeia a própria chave 'tamanho_tipo'", () => {
+    expect(CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo).toEqual(["tamanho_tipo"]);
+  });
+});
+
+describe("Tarefa 6 — resolverTravaImportado reverte tamanho_tipo quando travado", () => {
+  it("travado + tocado + valor diverge do servidor → reverte pro valor do servidor e avisa 'Tamanho em'", () => {
+    const servidor = base({ tamanho_tipo: "letra", tamanho_tipo_base: "letra" });
+    const enviado = base({ tamanho_tipo: "numero", tamanho_tipo_base: "letra" });
+    const r = resolverTravaImportado({ enviado, servidor, travaAtual: new Set(["tamanho_tipo"]), touched: new Set(["tamanho_tipo"]) });
+    expect(r.paraServidor.tamanho_tipo).toBe("letra");
+    expect(r.avisos).toEqual([{ campo: "tamanho_tipo", rotulo: "Tamanho em" }]);
+  });
+  it("travado, mas NÃO tocado: reverte em silêncio (sem aviso)", () => {
+    const servidor = base({ tamanho_tipo: "letra", tamanho_tipo_base: "letra" });
+    const enviado = base({ tamanho_tipo: "letra", tamanho_tipo_base: "letra" });
+    const r = resolverTravaImportado({ enviado, servidor, travaAtual: new Set(["tamanho_tipo"]), touched: new Set() });
+    expect(r.paraServidor.tamanho_tipo).toBe("letra");
+    expect(r.avisos).toEqual([]);
+  });
+  it("NUNCA manda null/vazio: servidor com tamanho_tipo NULL (nunca gravado), travado + tocado — o revert " +
+     "iguala tipo e base a null e montarPayload omite a chave (o servidor recusaria null/vazio com P0001)", () => {
+    const servidor = base({ tamanho_tipo: null, tamanho_tipo_base: null, modelo_id: "m1" });
+    const enviado = base({ tamanho_tipo: "numero", tamanho_tipo_base: null, modelo_id: "m1" });
+    const r = resolverTravaImportado({ enviado, servidor, travaAtual: new Set(["tamanho_tipo"]), touched: new Set(["tamanho_tipo"]) });
+    const revertido = aplicarResolucaoTrava(enviado, r);
+    expect(revertido.tamanho_tipo).toBe(null);
+    const { dados } = montarPayload(revertido);
+    expect("tamanho_tipo" in dados).toBe(false);
+  });
+  it("sem trava: nada revertido", () => {
+    const servidor = base({ tamanho_tipo: "letra" });
+    const enviado = base({ tamanho_tipo: "numero", tamanho_tipo_base: "letra" });
+    const r = resolverTravaImportado({ enviado, servidor, travaAtual: new Set(), touched: new Set(["tamanho_tipo"]) });
+    expect("tamanho_tipo" in r.paraServidor).toBe(false);
   });
 });
 
@@ -555,6 +634,47 @@ describe("RENDER real — ProdutoImportadoCard MONTADO (N-5)", () => {
     const nomeInput = container.querySelector('[data-colab-path="card:p1:nome"]') as HTMLInputElement | null;
     expect(nomeInput).not.toBeNull();
     expect(nomeInput!.disabled).toBe(true);
+    unmount();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Tarefa 6 — RENDER real do toggle "Tamanho em" dentro de ProdutoImportadoCard (seção "2 · Grade
+// & proporção"). Espelha os testes de regex de `integracao-trava-tela.test.ts` (Tarefa 5, PA) mas
+// aqui prova no DOM real — o radiogroup nativo (`data-colab-path="card:p1:tamanho_tipo"`, TamanhoEmToggle).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("RENDER real — ProdutoImportadoCard: toggle 'Tamanho em' (Tarefa 6)", () => {
+  it("sem trava: os 2 rádios (Letra/Número) ficam LIVRES; value reflete draft.tamanho_tipo (fallback Letra sem valor)", () => {
+    mockEstado.current = null;
+    const { container, unmount } = montarCard();
+    abrirSecao(container, "2 · Grade");
+    const grupo = container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]');
+    expect(grupo).not.toBeNull();
+    const radios = [...grupo!.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+    expect(radios).toHaveLength(2);
+    expect(radios.every((r) => !r.disabled)).toBe(true);
+    // draftPI() não seta tamanho_tipo → null → tipoEfetivo cai em "letra" (P-25).
+    expect(radios.find((r) => r.value === "letra")!.checked).toBe(true);
+    unmount();
+  });
+  it("travado (SEMPRE_TRAVADO cobre 'tamanho_tipo' mesmo sem estar nos campos marcados): os 2 rádios ficam desabilitados", () => {
+    mockEstado.current = { estado: "integravel", campos: ["nome"], marcadoEm: null, integradoEm: null };
+    const { container, unmount } = montarCard();
+    abrirSecao(container, "2 · Grade");
+    const grupo = container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]');
+    const radios = [...grupo!.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+    expect(radios.every((r) => r.disabled)).toBe(true);
+    unmount();
+  });
+  it("selecionar 'Número' chama onChange com { tamanho_tipo: 'numero' } (patch parcial, não o objeto inteiro)", () => {
+    mockEstado.current = null;
+    const onChange = vi.fn();
+    const { container, unmount } = montarCard({ onChange });
+    abrirSecao(container, "2 · Grade");
+    const grupo = container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]')!;
+    const numero = grupo.querySelector('input[value="numero"]') as HTMLInputElement;
+    act(() => { numero.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); });
+    expect(onChange).toHaveBeenCalledWith({ tamanho_tipo: "numero" });
     unmount();
   });
 });

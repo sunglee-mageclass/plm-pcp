@@ -1,10 +1,12 @@
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import type { PtSlot } from "@/lib/plan-tecido/types";
+import { proporcaoDoTamanho } from "@/lib/distribuicao-produto";
+import { tamanhosVisiveis, tipoEfetivo } from "@/lib/tamanho-exibicao";
+import { cn } from "@/lib/utils";
 
-// label exibido de um tamanho cadastrado (formato "34|PPP" → "PPP")
-const labelTamanho = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
 const FALLBACK = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 
 export function GradeSection({ slot, onChange, tamanhos, readOnly = false }: { slot: PtSlot; onChange: (s: PtSlot) => void; tamanhos?: string[]; readOnly?: boolean }) {
@@ -16,22 +18,39 @@ export function GradeSection({ slot, onChange, tamanhos, readOnly = false }: { s
 
   // chaves = tamanhos CADASTRADOS na loja (tenant_config.tamanhos_grade)
   const keys = (tamanhos && tamanhos.length > 0 ? tamanhos : FALLBACK);
-  // valor efetivo: o que foi editado no slot manda; senão a proporção do modelo (chave cheia OU label legado)
+  // valor efetivo: o que foi editado no slot manda; senão a proporção do modelo (chave cheia OU a chave legada
+  // só-letra — `proporcaoDoTamanho`, a MESMA leitura do dialog "Distribuir por loja"; corrige o par invertido
+  // "PPP|34", que antes caía no lado número).
   const valorDe = (t: string) => {
     const sp = slot.proporcoes as Record<string, number> | undefined;
     if (sp && t in sp) return Number(sp[t]) || 0;
-    return Number(prop?.[t] ?? prop?.[labelTamanho(t)] ?? 0) || 0;
+    return proporcaoDoTamanho(prop, t);
   };
   const setProp = (t: string, val: number) => {
     const base: Record<string, number> = {};
-    for (const k of keys) base[k] = valorDe(k); // congela os valores atuais sobre as chaves cadastradas
+    // Congela os valores atuais sobre TODAS as chaves cadastradas — inclusive as escondidas pelo "Tamanho em"
+    // (o filtro abaixo é só de EXIBIÇÃO; nunca reduz o que é gravado — G-plano ressalva #3).
+    for (const k of keys) base[k] = valorDe(k);
     onChange({ ...slot, proporcoes: { ...base, [t]: val } });
   };
+  // "Tamanho em" (frente Tamanho em, Tarefa 4): mostra só o lado escolhido (par sempre; solto do outro lado só se já
+  // tiver valor — aí esmaecido, nunca some). O rascunho do slot manda (card: o do modelo; vaga: o da vaga).
+  const tipo = tipoEfetivo(slot.tamanho_tipo);
+  // Fix M-1 (revisão T4, mesma receita do ModeloGradeSection 77d23f4e): `comValor` ACUMULATIVO por slot — um tamanho
+  // esmaecido que já apareceu não some quando a célula passa por 0 no meio da digitação (Backspace); senão a célula
+  // desmontava e o foco se perdia. Troca de slot (outro id) recomeça do zero.
+  const acumRef = useRef<{ slot: string | null; s: Set<string> }>({ slot: slot.id ?? slot.modelo_id ?? null, s: new Set() });
+  const chaveSlotAtual = slot.id ?? slot.modelo_id ?? null;
+  if (acumRef.current.slot !== chaveSlotAtual) acumRef.current = { slot: chaveSlotAtual, s: new Set() };
+  for (const k of keys) if (valorDe(k) > 0) acumRef.current.s.add(k);
+  const comValor = new Set(acumRef.current.s);
+  const visiveis = tamanhosVisiveis(keys, tipo, comValor);
   return (
     <div className="px-2 pb-1">
       <div className="flex flex-wrap gap-1">
-        {keys.map((t) => (
-          <div key={t} className="flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background">
+        {visiveis.map(({ chave: t, rotulo, esmaecido }) => (
+          <div key={t} className={cn("flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background", esmaecido && "opacity-50")}
+            title={esmaecido ? "Tamanho do outro lado do \"Tamanho em\" — aparece porque já tem proporção" : undefined}>
             <NumberInput
               integer
               blankZero
@@ -42,7 +61,7 @@ export function GradeSection({ slot, onChange, tamanhos, readOnly = false }: { s
               data-colab-path={`pt-prop:${slot.id ?? slot.modelo_id ?? "x"}:${t}`}
               onChange={(e) => setProp(t, Number(e.target.value) || 0)}
             />
-            <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{labelTamanho(t)}</span>
+            <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{rotulo}</span>
           </div>
         ))}
       </div>

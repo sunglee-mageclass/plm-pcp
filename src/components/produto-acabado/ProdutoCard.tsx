@@ -30,7 +30,7 @@ import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, textoExcluirTravado, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, textoExcluirTravado, invalidarEstadoSeTravado, TEXTO_SKU_TRAVADO } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
@@ -43,11 +43,8 @@ import {
   variantesBatemComTotal, erroValidacao, markupVarejoParaBlurAtacado,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
-
-// label exibido de um tamanho cadastrado ("34|PPP" → "PPP") — mesmo helper de
-// GradeSection.tsx (Plan. Tecido) / pcp.servicos.$modeloId.tsx; não extraído p/ lib
-// compartilhada (segue o precedente das 2 duplicatas já existentes no código).
-const labelTamanho = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
+import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
+import { tipoEfetivo, tamanhosVisiveis } from "@/lib/tamanho-exibicao";
 
 type OcAvulsa = {
   id: string;
@@ -87,6 +84,7 @@ export function ProdutoCard({
   onLimpo,
   onAbrirPlanejamento,
   markupVarejoServidor,
+  dirty,
 }: {
   produto: ProdutoDraft;
   onChange: (next: ProdutoDraft) => void;
@@ -133,6 +131,12 @@ export function ProdutoCard({
    *  `null`/ausente (outros usos futuros do ProdutoCard) cai no `produto.markup_varejo` como
    *  antes (comportamento intocado). */
   markupVarejoServidor?: number | null;
+  /** Tarefa 5: TRUE quando ESTE produto tem edição não salva (baseline por produto do Sheet) —
+   *  "Criar card em Planejamento" precisa persistir a Compra ANTES de materializar o modelo
+   *  (`_criar_card_produto_acabado_core` lê a linha SALVA, "Tamanho em" inclusive — P-119 A),
+   *  mesmo precedente do "Fazer pedido" (item 4a). Opcional/retrocompatível — ausente = nunca
+   *  salva antes (comportamento de sempre). */
+  dirty?: boolean;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -182,6 +186,20 @@ export function ProdutoCard({
   const empresaNome = empresas.find((e) => e.id === produto.empresa_id)?.nome_fantasia ?? "";
   const pecas = somaPecas(produto);
   const taxonomia = [grupoNome, categoriaNome, !acessorio ? sub1Nome : null, !acessorio ? sub2Nome : null].filter(Boolean).join(" › ");
+
+  // "Tamanho em" (Tarefa 5) — tipo EFETIVO de exibição: `produto.tamanho_tipo` já É o valor certo
+  // (card com modelo → `rowToDraft` leu de `modelos.tamanho_tipo`; sem card → do próprio produto,
+  // P-119 A) — `tipoEfetivo` só cobre o fallback pra Letra (NULL/legado, P-25). `comValor` =
+  // tamanhos SOLTOS do lado oposto que já têm peso lançado na Proporção — nunca somem da grade
+  // (ficam esmaecidos, ver `tamanhosVisiveis`).
+  const tipoTamanho = tipoEfetivo(produto.tamanho_tipo);
+  const comValorTamanho = new Set(tamanhos.filter((t) => (produto.grade_proporcao[t] ?? 0) > 0));
+  const tamanhosGrade = tamanhosVisiveis(tamanhos, tipoTamanho, comValorTamanho);
+  // Aviso âmbar (Tarefa 5): SKU(s) já gerado(s) p/ este card E o valor foi TROCADO nesta edição
+  // (rascunho ≠ o lido do servidor) — "Tamanho em" não regera SKU sozinho (Regerar é ação
+  // explícita no Planejamento).
+  const tamanhoTrocadoNestaEdicao = produto.tamanho_tipo !== produto.tamanho_tipo_base;
+  const avisarSkuTamanho = produto.modeloSkusCount > 0 && tamanhoTrocadoNestaEdicao;
 
   const corNome = (id: string | null) => cores.find((c) => c.id === id)?.nome ?? null;
   const apelidoNome = (id: string | null) => coresApelido.find((c) => c.id === id)?.nome ?? null;
@@ -251,7 +269,17 @@ export function ProdutoCard({
 
   const criarCardMut = useMutation({
     mutationFn: async () => {
+      // Fix round (I-1): mesmo guard síncrono do "Fazer pedido" (item 7, abaixo) — "Criar card"
+      // também pode salvar a Compra por baixo quando sujo (`onSalvarProduto`), a mesma classe de
+      // risco do Salvar em lote. Bloqueia ANTES de qualquer RPC.
+      if (conflitoPendente) {
+        throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de criar o card.");
+      }
       setCriandoCard(true);
+      // Tarefa 5 — mesmo precedente de "Fazer pedido" (item 4a, abaixo): salva a Compra ANTES de
+      // materializar o modelo se o rascunho estiver sujo, senão o card nasceria com dado velho
+      // (inclusive "Tamanho em" — a RPC lê a linha SALVA do produto, P-119 A).
+      if (dirty) await onSalvarProduto(produto);
       const { data, error } = await supabase.rpc("criar_card_produto_acabado" as any, { _produto_id: produto.id });
       if (error) throw error;
       return data as string;
@@ -551,8 +579,8 @@ export function ProdutoCard({
             <PopoverClose asChild>
               <button
                 type="button"
-                disabled={!!produto.modelo_id || criandoCard}
-                title={produto.modelo_id ? "Este produto já tem card" : undefined}
+                disabled={!!produto.modelo_id || criandoCard || conflitoPendente}
+                title={produto.modelo_id ? "Este produto já tem card" : conflitoPendente ? "Há conflitos de edição pendentes nesta coleção" : undefined}
                 onClick={() => criarCardMut.mutate()}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -807,15 +835,32 @@ export function ProdutoCard({
                   </div>
 
                   {!acessorio && (
+                    <TamanhoEmToggle
+                      value={tipoTamanho}
+                      onChange={(v) => onChange({ ...produto, tamanho_tipo: v })}
+                      disabled={travaIntegracao.has("tamanho_tipo")}
+                      motivoDesabilitado={travaIntegracao.has("tamanho_tipo") ? TEXTO_SKU_TRAVADO : undefined}
+                      colabPath={`card:${produto.id}:tamanho_tipo`}
+                    />
+                  )}
+                  {!acessorio && avisarSkuTamanho && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      SKUs já gerados não mudam — use Regerar no Planejamento.
+                    </p>
+                  )}
+                  {!acessorio && (
                     <div className="space-y-1.5">
                       <Label className="text-sm">Proporção de grade (peso)</Label>
                       {/* Densidade espelhada de GradeSection.tsx (Plan. Tecido) — célula 30px,
-                          label 8px ABAIXO do campo, sem tabela larga (item 2 do refino). */}
+                          label 8px ABAIXO do campo, sem tabela larga (item 2 do refino). Tarefa 5:
+                          `tamanhosGrade` filtra pelo lado escolhido em "Tamanho em" (par sempre
+                          entra; solto só do lado certo; com valor no lado errado fica esmaecido,
+                          nunca some — `tamanhosVisiveis`, `@/lib/tamanho-exibicao`). */}
                       <div className="flex flex-wrap gap-1">
-                        {tamanhos.map((t) => {
+                        {tamanhosGrade.map(({ chave: t, rotulo, esmaecido }) => {
                           const peso = produto.grade_proporcao[t] ?? 0;
                           return (
-                            <div key={t} className={`flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background ${peso > 0 ? "border-amber-300 dark:border-amber-500/40" : ""}`}>
+                            <div key={t} className={`flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background ${esmaecido ? "opacity-50" : ""} ${peso > 0 ? "border-amber-300 dark:border-amber-500/40" : ""}`}>
                               <NumberInput
                                 data-colab-path={`card:${produto.id}:grade-prop:${t}`}
                                 integer
@@ -825,7 +870,7 @@ export function ProdutoCard({
                                 value={peso}
                                 onChange={(e) => setPeso(t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
                               />
-                              <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{labelTamanho(t)}</span>
+                              <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{rotulo}</span>
                             </div>
                           );
                         })}

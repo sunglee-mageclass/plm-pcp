@@ -34,7 +34,7 @@ import { MOEDAS, cadeiaMarkup, fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/mo
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, textoExcluirTravado, TEXTO_SKU_TRAVADO } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
@@ -42,10 +42,8 @@ import {
   markupVarejoExibido, markupAtacadoExibido,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
-
-// label exibido de um tamanho cadastrado ("34|PPP" → "PPP") — mesmo helper usado em
-// GradeSection.tsx (Plan. Tecido) / ProdutoCard.tsx (Produto Acabado).
-const labelTamanho = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
+import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
+import { tipoEfetivo, tamanhosVisiveis } from "@/lib/tamanho-exibicao";
 
 const OUTRA_MOEDA = "__outra__";
 const DIRETA = "__direta__";
@@ -244,6 +242,19 @@ export function ProdutoImportadoCard({
     const grade_proporcao = { ...draft.grade_proporcao, [tam]: peso };
     onChange({ grade_proporcao, variantes: recalcVariantesPorPeso({ variantes: draft.variantes, qtd_total: draft.qtd_total }) });
   };
+  // "Tamanho em" (Tarefa 6) — tipo EFETIVO de exibição: `draft.tamanho_tipo` já É o valor certo
+  // (card com modelo → `draftDeRow` leu de `modelos.tamanho_tipo`; sem card → do próprio produto,
+  // P-119 A) — `tipoEfetivo` só cobre o fallback pra Letra (NULL/legado, P-25). `comValor` =
+  // tamanhos SOLTOS do lado oposto que já têm peso lançado na Proporção — nunca somem da grade
+  // (ficam esmaecidos, ver `tamanhosVisiveis`).
+  const tipoTamanho = tipoEfetivo(draft.tamanho_tipo);
+  const comValorTamanho = new Set(tamanhos.filter((t) => (draft.grade_proporcao[t] ?? 0) > 0));
+  const tamanhosGrade = tamanhosVisiveis(tamanhos, tipoTamanho, comValorTamanho);
+  // Aviso âmbar (Tarefa 6): SKU(s) já gerado(s) p/ este card E o valor foi TROCADO nesta edição
+  // (rascunho ≠ o lido do servidor) — "Tamanho em" não regera SKU sozinho (Regerar é ação
+  // explícita no Planejamento).
+  const tamanhoTrocadoNestaEdicao = draft.tamanho_tipo !== draft.tamanho_tipo_base;
+  const avisarSkuTamanho = draft.modeloSkusCount > 0 && tamanhoTrocadoNestaEdicao;
 
   // ── 3 · Variantes — BIDIRECIONAL (qtd_total ↔ Σ variantes; peso → rateio automático nas
   //     não-touched; editar a qtd de 1 variante marca _touched e recalcula qtd_total). ──
@@ -534,26 +545,47 @@ export function ProdutoImportadoCard({
             <AccordionItem value="grade">
               <AccordionTrigger className="text-xs font-semibold">2 · Grade &amp; proporção</AccordionTrigger>
               <AccordionContent>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Proporção de grade</Label>
-                  <div className="flex flex-wrap gap-1">
-                    {tamanhos.map((t) => {
-                      const peso = draft.grade_proporcao[t] ?? 0;
-                      return (
-                        <div key={t} className={`flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background ${peso > 0 ? "border-amber-300 dark:border-amber-500/40" : ""}`}>
-                          <NumberInput
-                            integer
-                            blankZero
-                            placeholder="0"
-                            data-colab-path={cp(`grade-prop:${t}`)}
-                            className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0 max-md:h-9 max-md:text-base"
-                            value={peso}
-                            onChange={(e) => setPeso(t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
-                          />
-                          <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{labelTamanho(t)}</span>
-                        </div>
-                      );
-                    })}
+                <div className="space-y-3">
+                  {/* Fix round (M-1): escondido em Acessórios (grade única "UN", sem lado
+                      Letra/Número — mesmo gate do Produto Acabado, `acessorio` computado acima). */}
+                  {!acessorio && (
+                    <TamanhoEmToggle
+                      value={tipoTamanho}
+                      onChange={(v) => onChange({ tamanho_tipo: v })}
+                      disabled={travaIntegracao.has("tamanho_tipo")}
+                      motivoDesabilitado={travaIntegracao.has("tamanho_tipo") ? TEXTO_SKU_TRAVADO : undefined}
+                      colabPath={cp("tamanho_tipo")}
+                    />
+                  )}
+                  {!acessorio && avisarSkuTamanho && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      SKUs já gerados não mudam — use Regerar no Planejamento.
+                    </p>
+                  )}
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Proporção de grade</Label>
+                    {/* Tarefa 6: `tamanhosGrade` filtra pelo lado escolhido em "Tamanho em" (par
+                        sempre entra; solto só do lado certo; com valor no lado errado fica
+                        esmaecido, nunca some — `tamanhosVisiveis`, `@/lib/tamanho-exibicao`). */}
+                    <div className="flex flex-wrap gap-1">
+                      {tamanhosGrade.map(({ chave: t, rotulo, esmaecido }) => {
+                        const peso = draft.grade_proporcao[t] ?? 0;
+                        return (
+                          <div key={t} className={`flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background ${esmaecido ? "opacity-50" : ""} ${peso > 0 ? "border-amber-300 dark:border-amber-500/40" : ""}`}>
+                            <NumberInput
+                              integer
+                              blankZero
+                              placeholder="0"
+                              data-colab-path={cp(`grade-prop:${t}`)}
+                              className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0 max-md:h-9 max-md:text-base"
+                              value={peso}
+                              onChange={(e) => setPeso(t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
+                            />
+                            <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{rotulo}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </AccordionContent>

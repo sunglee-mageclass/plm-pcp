@@ -50,11 +50,14 @@ type SubRow = { id: string; nome: string; ordem: number };
 // padrão já usado por `produto-acabado/ProdutoAcabadoSheet.tsx` (`SELECT_PRODUTO`, variantes
 // SEM `id`), que por isso NUNCA teve este bug. Usado nos 3 pontos que leem a linha completa
 // (query da lista, resync do Limpar, reconciliação de P0409) — não duplicar a string.
+// Tarefa 6 ("Tamanho em"): `tamanho_tipo` do PRODUTO já vem pelo `"*"` (coluna real de
+// `produtos_importados`) — só o embed do modelo precisa da coluna nova + `modelo_skus(count)`
+// (SKUs já gerados, aviso âmbar do card) — espelha `SELECT_PRODUTO` do Produto Acabado.
 const SELECT_PRODUTO_IMPORTADO =
   "*, modelo_id, " +
   "variantes:produto_importado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd), " +
   "etapas:produto_importado_etapas(ordem, rotulo, base, percentual, data_vencimento, cotacao), " +
-  "modelo:modelo_id(preco_venda)";
+  "modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))";
 
 // Agrupamento das lanes do canvas — MESMO padrão combinável do Produto Acabado
 // (`ProdutoAcabadoSheet.tsx`): "Grupo" e "Categoria" marcáveis juntos → lane por Grupo com
@@ -124,8 +127,12 @@ type ProdutoImportadoRow = {
   markup_varejo: number | null;
   preco_atacado_fixo?: number | string | null;
   preco_varejo_fixo?: number | string | null;
-  /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda)` (SELECT acima). */
-  modelo?: { preco_venda: number | string | null } | null;
+  /** Tarefa 6 — "Tamanho em" do PRÓPRIO produto (coluna real, vem pelo `"*"`); null até tocado ou
+   *  até o card nascer com ele (P-119 A). */
+  tamanho_tipo?: string | null;
+  /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))`
+   *  (SELECT acima; os 2 campos novos são da Tarefa 6). */
+  modelo?: { preco_venda: number | string | null; tamanho_tipo?: string | null; modelo_skus?: { count: number }[] | null } | null;
   variantes: (VarianteImportadoDraft & { ordem: number })[] | null;
   etapas: (EtapaImportadoDraft & { ordem: number })[] | null;
 };
@@ -137,6 +144,11 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
   const base = emptyDraft(r.colecao_id, r.subcolecao);
   const variantes = [...(r.variantes ?? [])].sort((a, b) => a.ordem - b.ordem);
   const etapas = [...(r.etapas ?? [])].sort((a, b) => a.ordem - b.ordem);
+  // "Tamanho em" (Tarefa 6): fonte de verdade = `modelos.tamanho_tipo` QUANDO o produto tem card
+  // (P-119 A) — SEM card, cai no valor do próprio produto (`r.tamanho_tipo`, guardado até o card
+  // nascer com ele). `tamanho_tipo_base` guarda o MESMO valor lido agora (nunca editado pela UI).
+  const tamanhoTipo = ((r.modelo_id ? r.modelo?.tamanho_tipo : r.tamanho_tipo) ?? null) as "letra" | "numero" | null;
+  const skusRow = Array.isArray(r.modelo?.modelo_skus) ? r.modelo.modelo_skus[0] : null;
   return {
     ...base,
     id: r.id,
@@ -175,6 +187,9 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     preco_atacado_fixo: r.preco_atacado_fixo != null ? Number(r.preco_atacado_fixo) : null,
     preco_varejo_fixo: r.preco_varejo_fixo != null ? Number(r.preco_varejo_fixo) : null,
     modeloPrecoVenda: r.modelo?.preco_venda != null ? Number(r.modelo.preco_venda) : null,
+    tamanho_tipo: tamanhoTipo,
+    tamanho_tipo_base: tamanhoTipo,
+    modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
     variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
     etapas: etapas.length > 0 ? etapas : base.etapas,
   };
@@ -198,7 +213,7 @@ const ROTULO_CAMPO_PI: Record<string, string> = {
   peso_kg: "Peso (kg)", transporte_m2: "Transporte (M2)", desconto_pct: "Desconto (%)",
   cotacao_final: "Cotação final", markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo",
   preco_atacado_fixo: "Valor atacado", preco_varejo_fixo: "Valor varejo",
-  variantes: "Variantes", etapas: "Etapas de pagamento",
+  variantes: "Variantes", etapas: "Etapas de pagamento", tamanho_tipo: "Tamanho em",
 };
 
 /**
@@ -642,6 +657,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // "Criar card(s) no Planejamento" (ação em massa) — materializa o espelho `modelos` dos
   // selecionados JÁ PERSISTIDOS que ainda NÃO têm card (modelo_id nulo). Só depois de virar card o
   // produto pode ser replicado (versionamento) e aparece no Planejamento de Produto.
+  // Tarefa 5/6: `_criar_card_produto_importado_core`/`_lote_core` materializam o modelo a partir da
+  // linha SALVA do produto (`tamanho_tipo` inclusive, P-119 A) — um rascunho JÁ PERSISTIDO mas sujo
+  // (ex.: "Tamanho em" trocado sem clicar Salvar) nasceria o card com o valor VELHO. Salva os
+  // selecionados sujos ANTES, mesmo precedente do "Fazer pedido" (ProdutoAcabadoSheet, item 4a).
+  // Rascunhos LOCAIS ("novo-...", nunca persistidos) continuam de fora — seguem pedindo Salvar antes
+  // (comportamento de sempre, `nLocais`).
   async function criarCardsClick() {
     const selecionados = drafts.filter((d) => d.id && selecao.has(d.id));
     const idsSemCard = selecionados.filter((d) => d.id && !d.id.startsWith("novo-") && !d.modelo_id).map((d) => d.id as string);
@@ -650,8 +671,18 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       toast.info(nLocais > 0 ? "Salve os rascunhos antes de criar o card." : "Os selecionados já têm card no Planejamento.");
       return;
     }
+    // Fix round (I-1): guard SÍNCRONO — QUALQUER selecionado com conflito pendente bloqueia o
+    // lote inteiro ANTES de qualquer RPC (mesma classe de risco do Salvar em lote).
+    if (selecionados.some((d) => d.id && (conflitosPorProduto[d.id]?.length ?? 0) > 0)) {
+      toast.error("Há conflitos de edição pendentes nos selecionados — resolva-os antes de criar o(s) card(s).");
+      return;
+    }
     setReplicando(true);
     try {
+      const sujos = selecionados.filter(
+        (d) => d.id && !d.id.startsWith("novo-") && !d.modelo_id && JSON.stringify(chaveDirty(d)) !== baseline[d.id as string],
+      );
+      for (const d of sujos) await salvarUmProduto(d);
       const { data, error } = await supabase.rpc("criar_cards_produto_importado" as any, { _produto_ids: idsSemCard });
       if (error) throw error;
       const res = (data ?? []) as { produto_id: string; modelo_id: string }[];
@@ -789,7 +820,10 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     // refetch terminar deixaria um 2º Salvar comparar `d.rev` contra um valor velho.
     const { data: revRow } = await supabase.from("produtos_importados" as any).select("rev").eq("id", novoId).maybeSingle();
     const revNovo = revRow ? Number((revRow as any).rev) || 0 : d.rev + 1; // fallback otimista
-    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo };
+    // Fix round (L-1): rebaseline de tamanho_tipo_base pro valor recém-salvo — mesma razão do PA
+    // (ProdutoAcabadoSheet.tsx): sem isto, o próximo Salvar reenviaria a mesma troca como se fosse
+    // edição nova (montarPayload manda a chave sempre que tipo!==base).
+    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, tamanho_tipo_base: d.tamanho_tipo };
     baseServidorRef.current = { ...baseServidorRef.current, [novoId]: salvo };
     if (isLocal) {
       const idAntigo = d.id!;

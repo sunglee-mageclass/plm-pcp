@@ -115,7 +115,8 @@ export function normalizarSlotDistribuicao(slot: PtSlot, o: OpcoesDist): PtSlot 
   const tams = o.tamanhos.length ? tamanhosDoTipo(o.tamanhos, tipoDoProduto(slot.tamanho_tipo)) : [];
   const t1Vars: PtVariante[] = slot.materiais[iT1].variantes.map((v) => {
     if (!temDistribuicao(v.distribuicao)) return v;
-    const d = normalizarDistribuicao(v.distribuicao, slot.proporcoes, tams);
+    // `o.tamanhos` = a grade INTEIRA: a correção à mão do lado que o "Tamanho em" escondeu fica guardada (fix M-2 T4).
+    const d = normalizarDistribuicao(v.distribuicao, slot.proporcoes, tams, o.tamanhos);
     if (!temDistribuicao(d)) return { ...v, distribuicao: {} };
     const tot = totaisDaDistribuicao(d);
     return { ...v, distribuicao: d, grades: tot.grades, grade_total: tot.total };

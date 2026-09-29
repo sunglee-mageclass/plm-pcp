@@ -37,10 +37,20 @@ export function somaProporcao(tamanhos: string[], proporcoes: Grade | null | und
  *  - Σprop > 0 e total > 0: round(prop/Σprop * total) por tamanho; a diferença de arredondamento
  *    vai para o tamanho de MAIOR proporção (clamp ≥ 0).
  *  - Σprop == 0 e total > 0: divide IGUALMENTE (floor + resto nos primeiros) — mantém o total
- *    editável mesmo sem proporção (ex.: grade veio do "Aplicar ao modelo" sem proporção).
+ *    editável mesmo sem proporção (ex.: grade veio do "Aplicar ao modelo" sem proporção). Com
+ *    `visiveis` informado, a divisão igual cai SÓ nesses tamanhos (os demais de `tamanhos` zeram) —
+ *    ver `visiveis` abaixo; sem ele, comportamento IDÊNTICO a antes (opcional, default = `tamanhos`).
  *  - total <= 0: zera todas as células.
+ *
+ * `visiveis` (opcional, plano `2026-09-29-tamanho-em`, fix I-1): restringe SÓ o ramo "divide
+ * igualmente" (Σprop == 0) a um subconjunto de `tamanhos` — usado quando a tela filtra a grade por
+ * "Tamanho em" (`tamanhosVisiveis`) e a pessoa digita a Grade Total sem proporção: sem isto, a conta
+ * dividia por TODOS os tamanhos da loja (inclusive os ocultos do lado não escolhido), preenchendo
+ * numerações que a pessoa pediu para não ver. Omitido/vazio ⇒ usa `tamanhos` (semântica de sempre;
+ * OUTROS chamadores — CAD, Plan. Tecido — não passam o parâmetro e ficam byte a byte). O ramo
+ * proporcional (Σprop > 0) NÃO usa `visiveis`: a proporção já é a fonte de verdade de quem recebe.
  */
-export function distribuiTotal(total: number, tamanhos: string[], proporcoes: Grade | null | undefined): Grade {
+export function distribuiTotal(total: number, tamanhos: string[], proporcoes: Grade | null | undefined, visiveis?: string[]): Grade {
   const props = proporcoes ?? {};
   const soma = somaProporcao(tamanhos, props);
   const next: Grade = {};
@@ -55,9 +65,11 @@ export function distribuiTotal(total: number, tamanhos: string[], proporcoes: Gr
       next[maxTam] = Math.max(0, (next[maxTam] || 0) + diff);
     }
   } else if (total > 0 && tamanhos.length > 0) {
-    const base = Math.floor(total / tamanhos.length);
-    const resto = total - base * tamanhos.length;
-    tamanhos.forEach((t, i) => { next[t] = base + (i < resto ? 1 : 0); });
+    const alvo = visiveis && visiveis.length > 0 ? visiveis : tamanhos;
+    tamanhos.forEach((t) => { next[t] = 0; }); // zera TODOS primeiro (cobre os ocultos quando `alvo` é um subconjunto)
+    const base = Math.floor(total / alvo.length);
+    const resto = total - base * alvo.length;
+    alvo.forEach((t, i) => { next[t] = base + (i < resto ? 1 : 0); });
   } else {
     tamanhos.forEach((t) => { next[t] = 0; });
   }

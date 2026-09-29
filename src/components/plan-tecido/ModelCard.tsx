@@ -35,7 +35,9 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { DistribuirPorLojaDialog } from "./DistribuirPorLojaDialog";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
-import { TEXTO_PRECO_TRAVADO, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
+import { TEXTO_PRECO_TRAVADO, TEXTO_SKU_TRAVADO, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
+import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
+import { tipoEfetivo } from "@/lib/tamanho-exibicao";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   // numero = MAX(numero do mesmo tipo) + 1 — NUNCA por CONTAGEM. O material vindo do BOM (partição
@@ -94,6 +96,7 @@ export function ModelCard({
   distribuicaoLigada,
   presentesColab,
   onFocoDistribuicao,
+  avisoSkuTamanho,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -141,6 +144,9 @@ export function ModelCard({
   presentesColab?: PresencaColab[];
   /** Marcador de presença de página do dialog aberto (`dist:{slot}:aberto`) — o PlanTecidoSheet o usa como campoFocado. */
   onFocoDistribuicao?: (path: string | null) => void;
+  /** "Tamanho em" (N-2 da revisão T4, mesmo aviso da T5): o modelo já tem SKU gerado E o valor foi trocado nesta edição
+   *  (rascunho ≠ valor do modelo no servidor) — SKU já gerado não muda sozinho. */
+  avisoSkuTamanho?: boolean;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -173,7 +179,7 @@ export function ModelCard({
       proporcoes: null, categoria_id: null, categoria_tecido_id: null, mix_id: null,
       linha_id: null, markup_editado: null, preco_venda: null,
       custo_simulado: null, custo_terceirizados_previsto: null, custos_adicionais: [],
-      usar_estoque: slot.usar_estoque, materiais: [],
+      usar_estoque: slot.usar_estoque, materiais: [], tamanho_tipo: null,
     });
     setConfirmLimpar(false);
     toast.success("Slot limpo.");
@@ -253,6 +259,10 @@ export function ModelCard({
   // Integração (F4): produto integrável/integrado — selo no card; "Limpar slot" (apaga nome/REF/preço) e o preço travados.
   const estadoIntegracao = useIntegracaoEstado(slot.modelo_id);
   const travaIntegracao = colunasTravadas(estadoIntegracao);
+  // "Tamanho em" (frente Tamanho em, Tarefa 4 — P-118/P-119 A): só no card INTERNO e na vaga sem card (o comprado não
+  // mostra a faixa). Trava SÓ por página só-leitura ou pela Integração (invariante #14: a trava cobre SEMPRE
+  // `tamanho_tipo`); Explosão/Lançado NÃO travam (é dado do produto, não do BOM — R29).
+  const tamanhoTravado = travaIntegracao.has("tamanho_tipo");
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
   const gradeDisabled = !slot.id || !slot.modelo_id || !!lancado || !!travado || aplicandoGrade;
@@ -482,6 +492,22 @@ export function ModelCard({
             {!isComprado && (
               <div className="border-t bg-muted/20 pb-1">
                 <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Distribui as peças (pç) entre os tamanhos. A quantidade é o 'pç' de cada cor, abaixo em Tecidos & Forros.">Proporção por tamanho</div>
+                <div className="px-2 pb-1 pt-1 text-xs">
+                  <TamanhoEmToggle
+                    value={tipoEfetivo(slot.tamanho_tipo)}
+                    onChange={(v) => onChange({ ...slot, tamanho_tipo: v })}
+                    disabled={paginaSoLeitura || tamanhoTravado}
+                    motivoDesabilitado={tamanhoTravado ? (
+                      <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3 shrink-0" aria-hidden />Travado pela Integração</span>
+                    ) : undefined}
+                    tituloDesabilitado={tamanhoTravado ? TEXTO_SKU_TRAVADO : undefined}
+                  />
+                  {avisoSkuTamanho && (
+                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                      SKUs já gerados não mudam — use Regerar no Planejamento.
+                    </p>
+                  )}
+                </div>
                 <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} readOnly={!!travado} />
               </div>
             )}

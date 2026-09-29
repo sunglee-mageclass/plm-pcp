@@ -73,7 +73,7 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   const [inicial] = useState(() => ({
     prop: Object.fromEntries(tamanhos.map((t) => [t, proporcaoDoTamanho(slot.proporcoes, t)])) as Record<string, number>,
     dists: Object.fromEntries(
-      (t1?.variantes ?? []).map((v) => [varKey(v), normalizarDistribuicao(v.distribuicao, slot.proporcoes, tamanhos)]),
+      (t1?.variantes ?? []).map((v) => [varKey(v), normalizarDistribuicao(v.distribuicao, slot.proporcoes, tamanhos, tamanhosGrade)]),
     ) as Record<string, Distribuicao>,
   }));
   const [prop, setProp] = useState(inicial.prop);
@@ -137,13 +137,13 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   }, [slotKey]);
   const presentesAqui = presentes.filter((p) => pathEhDoProduto(p.campoFocado, slotKey));
 
-  const setBase = (k: string, loja: string, v: number) => setDists((d) => ({ ...d, [k]: definirBase(d[k] ?? {}, loja, v, prop, tamanhos) }));
-  const setCel = (k: string, loja: string, t: string, v: number) => setDists((d) => ({ ...d, [k]: definirCelula(d[k] ?? {}, loja, t, v, prop, tamanhos) }));
-  const voltar = (k: string, loja: string, t: string) => setDists((d) => ({ ...d, [k]: voltarAoCalculado(d[k] ?? {}, loja, t, prop, tamanhos) }));
+  const setBase = (k: string, loja: string, v: number) => setDists((d) => ({ ...d, [k]: definirBase(d[k] ?? {}, loja, v, prop, tamanhos, tamanhosGrade) }));
+  const setCel = (k: string, loja: string, t: string, v: number) => setDists((d) => ({ ...d, [k]: definirCelula(d[k] ?? {}, loja, t, v, prop, tamanhos, tamanhosGrade) }));
+  const voltar = (k: string, loja: string, t: string) => setDists((d) => ({ ...d, [k]: voltarAoCalculado(d[k] ?? {}, loja, t, prop, tamanhos, tamanhosGrade) }));
   const setPropT = (t: string, v: number) => {
     const np = definirProporcao(prop, tamanhos, t, v);
     setProp(np);
-    setDists((d) => Object.fromEntries(Object.entries(d).map(([k, x]) => [k, normalizarDistribuicao(x, np, tamanhos)])));
+    setDists((d) => Object.fromEntries(Object.entries(d).map(([k, x]) => [k, normalizarDistribuicao(x, np, tamanhos, tamanhosGrade)])));
   };
   const pedirFechar = () => (dirty && !readOnly ? setConfirmarDescarte(true) : onClose());
 
@@ -196,7 +196,7 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
           Tecido 1: {t1?.artigo_nome ?? "—"} · {n} {n === 1 ? "cor" : "cores"} · tamanhos em {tipo === "numero" ? "Número" : "Letra"}
           {!impressao && (
             <InfoHover ariaLabel="De onde vêm as lojas e os tamanhos">
-              O “Tamanho em” vem do Planejamento de Produto (seção Códigos). Lojas ativas de Cadastro › Lojas; todos os tamanhos da grade da loja.
+              O “Tamanho em” vem do Tamanho em deste card (o mesmo valor do Planejamento de Produto, seção Códigos) — trocar no card muda os tamanhos daqui. Lojas ativas de Cadastro › Lojas; os tamanhos da grade da loja no lado escolhido.
             </InfoHover>
           )}
         </p>

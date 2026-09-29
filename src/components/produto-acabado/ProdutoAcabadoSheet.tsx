@@ -84,6 +84,11 @@ function rowToDraft(row: any): ProdutoDraft {
   const variantes: VarianteDraft[] = ((row.variantes ?? []) as any[])
     .map((v) => ({ ordem: v.ordem, cor_id: v.cor_id, cor_apelido_id: v.cor_apelido_id, peso: Number(v.peso) || 0, qtd: Number(v.qtd) || 0 }))
     .sort((a, b) => a.ordem - b.ordem);
+  // "Tamanho em" (Tarefa 5): fonte de verdade = `modelos.tamanho_tipo` QUANDO o produto tem card
+  // (P-119 A) — SEM card, cai no valor do PRÓPRIO produto (`row.tamanho_tipo`, guardado até o card
+  // nascer com ele). `tamanho_tipo_base` guarda o MESMO valor lido agora (nunca editado pela UI).
+  const tamanhoTipo = (row.modelo_id ? row.modelo?.tamanho_tipo : row.tamanho_tipo) ?? null;
+  const skusRow = Array.isArray(row.modelo?.modelo_skus) ? row.modelo.modelo_skus[0] : null;
   return {
     id: row.id,
     rev: Number(row.rev) || 0,
@@ -113,6 +118,9 @@ function rowToDraft(row: any): ProdutoDraft {
     modelo_id: row.modelo_id,
     mix_id: row.mix_id ?? null,
     variantes,
+    tamanho_tipo: tamanhoTipo,
+    tamanho_tipo_base: tamanhoTipo,
+    modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
     modeloPrecoVenda: row.modelo?.preco_venda != null ? Number(row.modelo.preco_venda) : null,
     modeloPrecoAtacado: row.modelo?.preco_atacado != null ? Number(row.modelo.preco_atacado) : null,
     modeloLinhaId: row.modelo?.linha_id ?? null,
@@ -142,9 +150,9 @@ const SELECT_PRODUTO = `
   id, rev, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
   colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
-  markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url,
+  markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
-  modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url),
+  modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus(count)),
   ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct)
 `;
 
@@ -156,7 +164,7 @@ const ROTULO_CAMPO_PA: Record<string, string> = {
   ref_fornecedor: "Ref. Fornecedor", composicao: "Composição", grade_proporcao: "Proporção da grade",
   qtd_total: "Quantidade total", valor_unitario: "Valor unitário", desconto_pct: "Desconto (%)",
   markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo", variantes: "Variantes",
-  foto_url: "Foto",
+  foto_url: "Foto", tamanho_tipo: "Tamanho em",
 };
 
 /**
@@ -570,6 +578,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     setReplicarPayload({ produtoIds, nIgnorados });
   };
   // Criar card em massa (#2.3, espelha o Importado). Só rascunhos SEM card (modelo_id null).
+  // Tarefa 5: `_criar_card_produto_acabado_core`/`_lote_core` materializam o modelo a partir da
+  // linha SALVA do produto (`tamanho_tipo` inclusive, P-119 A) — um rascunho sujo (ex.: "Tamanho
+  // em" trocado sem clicar Salvar) nasceria o card com o valor VELHO. Salva os sujos ANTES,
+  // mesmo precedente do "Fazer pedido" (ProdutoCard, item 4a).
   const criarCardsClick = async () => {
     const selecionados = (drafts ?? []).filter((d) => selecao.has(d.id));
     const idsSemCard = selecionados.filter((d) => !d.modelo_id).map((d) => d.id);
@@ -577,8 +589,16 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       toast.info("Os selecionados já têm card no Planejamento.");
       return;
     }
+    // Fix round (I-1): guard SÍNCRONO — QUALQUER selecionado com conflito pendente bloqueia o
+    // lote inteiro ANTES de qualquer RPC (mesma classe de risco do Salvar em lote/"Fazer pedido").
+    if (selecionados.some((d) => (conflitosPorProduto[d.id]?.length ?? 0) > 0)) {
+      toast.error("Há conflitos de edição pendentes nos selecionados — resolva-os antes de criar o(s) card(s).");
+      return;
+    }
     setReplicando(true);
     try {
+      const sujos = selecionados.filter((d) => !d.modelo_id && JSON.stringify(chaveDirty(d)) !== baseline[d.id]);
+      for (const p of sujos) await salvarUmProduto(p);
       const { data, error } = await supabase.rpc("criar_cards_produto_acabado" as any, { _produto_ids: idsSemCard });
       if (error) throw error;
       const res = (data ?? []) as { produto_id: string; modelo_id: string }[];
@@ -718,7 +738,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     // valor CERTO, sem depender de quando o refetch em background termina.
     const { data: revRow } = await supabase.from("produtos_acabados" as any).select("rev").eq("id", (novoId as string) ?? p.id).maybeSingle();
     const revNovo = revRow ? Number((revRow as any).rev) || 0 : p.rev + 1; // fallback otimista se o SELECT falhar por algum motivo
-    const salvo: ProdutoDraft = { ...p, rev: revNovo };
+    // Fix round (L-1): rebaseline de tamanho_tipo_base pro valor recém-salvo — sem isto, um 2º
+    // Salvar (disparado por outro campo) comparava contra a base ANTIGA e reenviava a mesma
+    // troca de "Tamanho em" como se fosse edição nova (montarDadosProduto manda a chave sempre
+    // que tipo!==base).
+    const salvo: ProdutoDraft = { ...p, rev: revNovo, tamanho_tipo_base: p.tamanho_tipo };
     baseServidorRef.current = { ...baseServidorRef.current, [p.id]: salvo };
     setDrafts((ds) => (ds ? ds.map((d) => (d.id === p.id ? salvo : d)) : ds));
     marcarProdutoLimpo(salvo); // baseline por produto — ver comentário acima (fix round 1 item 4b)
@@ -863,6 +887,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             colecaoNome={colecao?.nome ?? null}
             linhasMarkup={linhasMarkup}
             onSalvarProduto={salvarUmProduto}
+            // Tarefa 5: dirty POR PRODUTO (baseline já existe pro guard de unsaved) — "Criar card
+            // em Planejamento" salva antes se sujo, mesmo precedente do "Fazer pedido".
+            dirty={JSON.stringify(chaveDirty(p)) !== baseline[p.id]}
             // Item 7: "Fazer pedido" (dentro do card) chama `onSalvarProduto` — bloqueia
             // enquanto ESTE produto (ou qualquer outro — mais simples/seguro que só o dele,
             // já que um save em lote pode disparar logo em seguida) tiver conflito pendente.
@@ -891,6 +918,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 semana: null, empresa_id: null, representante_id: null, ref_fornecedor: "", composicao: "",
                 grade_proporcao: {}, qtd_total: 0, valor_unitario: 0, desconto_pct: 0, insumos_total: 0,
                 markup_atacado: null, markup_varejo: null, variantes: [],
+                // Fix round (L-2): `_limpar_produto_acabado_core` também zera `tamanho_tipo` no banco
+                // (task-1-2-report.md) — espelha aqui os dois lados (tipo + base) senão o draft local
+                // ficaria "sujo" pra um estado já persistido (mesmo motivo do rebaseline acima).
+                tamanho_tipo: null, tamanho_tipo_base: null,
               };
               changeProduto(limpo);
               marcarProdutoLimpo(limpo);

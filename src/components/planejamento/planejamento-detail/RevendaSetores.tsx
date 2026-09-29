@@ -3,6 +3,7 @@
 // mudança de comportamento; F3.4: a grade passa a valer p/ revenda E importado (`useGradeComprado`, decisão F3 #4) e o
 // importado ganha a seção do produto. Componentes de nível de MÓDULO de propósito — declarados dentro do orquestrador,
 // eles remontariam a cada render e o input perderia o foco.
+import { useMemo, useRef } from "react";
 import { ExternalLink, PackagePlus, RotateCcw } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,8 @@ import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejam
 import { InfoHover } from "@/components/shared/InfoHover";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
+import { tamanhosVisiveis } from "@/lib/tamanho-exibicao";
+import type { TamanhoTipo } from "@/lib/tamanho";
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
@@ -278,19 +281,40 @@ export function ProdutoImportadoSecao({ gc, numero, navigate }: {
 /** Seção "Grade" cor×tamanho do card COMPRADO (revenda e importado — F3.4, decisão F3 #4: a fonte ÚNICA da grade do
  *  comprado). Edita o rascunho de `useGradeComprado`; o Salvar grava (revenda: `salvar_grade_revenda`; importado: junto
  *  com o BOM — plano F3.4 §3). `motivoSomenteLeitura`: texto do porquê de não editar (ou null = editável). */
-export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = null, motivoSemProduto = null }: {
+export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = null, motivoSemProduto = null, tamanhoTipo }: {
   gc: GradeComprado; numero?: number; selo?: ReactNode; motivoSomenteLeitura?: string | null;
   /** Fix minors (M1) — motivo do "sem produto vinculado" QUANDO ele realmente impede criar o produto por aqui (ex.:
    *  ficha travada no importado). `null`/omitido = mantém o texto genérico "salve para criar" — cobre o caso comum
    *  (card recém-criado, sem OC ainda) E a troca de Origem pendente (é O PRÓPRIO Salvar do Planejamento que cria o
    *  produto ali, sem depender do Dev — mostrar "editar a grade" seria enganoso, ver `PlanejamentoDetail.tsx`). */
   motivoSemProduto?: string | null;
+  /** P-120 A (plano `2026-09-29-tamanho-em`, Tarefa 7; fix M-3 da revisão) — "Tamanho em" do rascunho
+   *  (`draft.tamanho_tipo`): o cabeçalho da grade mostra o LADO escolhido (`tamanhosVisiveis`) em vez da chave
+   *  cheia ("34|PPP"), e um par `36|PP` + um solto `PP` deixam de repetir "PP" 2× (M-3: antes só trocava o
+   *  RÓTULO, sem filtrar — `tamanhosRevenda` continua sendo a lista completa de `useGradeComprado`; aqui é só
+   *  QUAIS colunas renderizam. A CHAVE que `setCelulaGradeRevenda`/`gradeRevenda` usa nunca muda (ressalva #3:
+   *  filtro de exibição nunca reduz o que é gravado). */
+  tamanhoTipo?: TamanhoTipo | null;
 }) {
   const {
     origem, produto, produtoLoading, produtoError, gradeRevenda, variantesRevenda, tamanhosRevenda,
     setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,
   } = gc;
   const tela = origem === "importado" ? "Produto Importado" : "Produto Acabado";
+  // Fix M-3 — mesma receita do `ModeloGradeSection` (M-1): `comValor` ACUMULATIVO (nunca encolhe durante a
+  // sessão) evita que uma célula esmaecida desmonte no meio da digitação (Backspace até 0). Sem `tamanhoTipo`,
+  // `colunasRevenda` cai de volta em `tamanhosRevenda` cheio (byte a byte o de antes desta fix).
+  const comValorAcumuladoRef = useRef<Set<string>>(new Set());
+  const comValorRevenda = useMemo(() => {
+    const s = comValorAcumuladoRef.current;
+    for (const t of tamanhosRevenda) {
+      for (const v of variantesRevenda) if (Number(gradeRevenda[v.ordem]?.[t]) > 0) { s.add(t); break; }
+    }
+    return new Set(s);
+  }, [tamanhosRevenda, variantesRevenda, gradeRevenda]);
+  const colunasRevenda = tamanhoTipo
+    ? tamanhosVisiveis(tamanhosRevenda, tamanhoTipo, comValorRevenda)
+    : tamanhosRevenda.map((t) => ({ chave: t, rotulo: t, esmaecido: false }));
   return (
             <Secao id="grade_revenda" titulo="Grade" numero={numero} selo={selo} defaultOpen={false}>
               {/* Fix round T7 (M1) — esta seção NÃO tinha o ramo `produtoLoading`/erro (só `ProdutoImportadoSecao`
@@ -333,7 +357,11 @@ export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = nul
                         <thead className="bg-muted/50 text-left">
                           <tr>
                             <th className="px-3 py-2">Variante</th>
-                            {tamanhosRevenda.map((t) => <th key={t} className="px-3 py-2 text-right">{t}</th>)}
+                            {colunasRevenda.map(({ chave: t, rotulo, esmaecido }) => (
+                              <th key={t} className={`px-3 py-2 text-right ${esmaecido ? "opacity-50" : ""}`}>
+                                {rotulo}
+                              </th>
+                            ))}
                             <th className="px-3 py-2 text-right font-semibold">Total</th>
                           </tr>
                         </thead>
@@ -341,8 +369,8 @@ export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = nul
                           {variantesRevenda.map((v) => (
                             <tr key={v.ordem} className="border-t">
                               <td className="px-3 py-2">{varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome })}</td>
-                              {tamanhosRevenda.map((t) => (
-                                <td key={t} className="px-3 py-1.5 text-right">
+                              {colunasRevenda.map(({ chave: t, esmaecido }) => (
+                                <td key={t} className={`px-3 py-1.5 text-right ${esmaecido ? "opacity-50" : ""}`}>
                                   <NumberInput
                                     integer
                                     blankZero
@@ -361,7 +389,9 @@ export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = nul
                         <tfoot>
                           <tr className="border-t bg-muted/30 font-medium">
                             <td className="px-3 py-2">Total</td>
-                            {tamanhosRevenda.map((t) => <td key={t} className="px-3 py-2 text-right tabular-nums">{totalColunaRevenda(t)}</td>)}
+                            {colunasRevenda.map(({ chave: t, esmaecido }) => (
+                              <td key={t} className={`px-3 py-2 text-right tabular-nums ${esmaecido ? "opacity-50" : ""}`}>{totalColunaRevenda(t)}</td>
+                            ))}
                             <td className="px-3 py-2 text-right tabular-nums">{totalGeralRevenda}</td>
                           </tr>
                         </tfoot>

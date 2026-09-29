@@ -460,6 +460,8 @@ function PlanejamentoDetailConteudo({
     travaDev: motivoTravaDev,
     // F3.3 — D2: o CAD só nasce depois da Ordem de Criação. Lê o SERVIDOR (o `enviada` local é declarado mais abaixo).
     ordemEnviada: !!(modeloData as any)?.ordem_criacao_enviada,
+    // Fix I-1 (review T3+T7) — a Grade Total sem proporção reparte só entre os tamanhos visíveis do "Tamanho em".
+    tamanhoTipo: draft.tamanho_tipo,
   });
   // F3.2 (Task 13) — espelho SÍNCRONO de `ficha` p/ o Duplicar: a `mutationFn` faz um `await` (busca da
   // versão máxima) ANTES de ler `ficha.carregado`/`ficha.estado` — mesma classe de risco que o `fichaRef`
@@ -1671,6 +1673,8 @@ function PlanejamentoDetailConteudo({
               estoque={estoqueMap}
               ordemEnviada={enviada}
               proporcoes={draft.proporcoes ?? {}}
+              // P-120 A (plano tamanho-em, Tarefa 7) — a Grade do card INTERNO mostra só o lado escolhido.
+              tamanhoTipo={draft.tamanho_tipo}
             />
           )}
 
@@ -1788,7 +1792,7 @@ function PlanejamentoDetailConteudo({
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {vis.grade_revenda && (
-            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} motivoSemProduto={motivoSemProdutoComprado} />
+            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} motivoSemProduto={motivoSemProdutoComprado} tamanhoTipo={draft.tamanho_tipo} />
           )}
 
           {/* SETOR 5 — Anexos. P-53 A (fix 1, m-2): croqui/desenho/fotos são COMPARTILHADOS (o Dev antigo também
