@@ -107,6 +107,30 @@ export const CASOS_CONFIG: ({ entrada: unknown; esperado: SkuConfig | null } | {
   // F3.6 (dono 25/set, R24): a chave legada tamanho_padrao é IGNORADA — qualquer valor, sem erro; a saída não a tem.
   { entrada: { partes: ["ref"], tamanho_padrao: "grande" }, esperado: { partes: ["ref"], separadores: {} } },
   { entrada: { partes: ["ref"], tamanho_padrao: 5 }, esperado: { partes: ["ref"], separadores: {} } },
+  // P-126 (dono 29/set, 20261013100000): cor no nome da sublinha da Integração — 'cor_base' | 'cor_apelido', no MESMO jsonb.
+  { entrada: { partes: ["ref", "cor_base", "tamanho"], separadores: { "ref|cor_base": "-" }, cor_no_nome: "cor_apelido" },
+    esperado: { partes: ["ref", "cor_base", "tamanho"], separadores: { "ref|cor_base": "-" }, cor_no_nome: "cor_apelido" } },
+  { entrada: { partes: ["ref"], cor_no_nome: "cor_base" }, esperado: { partes: ["ref"], separadores: {}, cor_no_nome: "cor_base" } },
+  // loja SEM formato do SKU que escolheu a cor do nome: partes [] + a chave ⇒ objeto (sem a chave continua null)
+  { entrada: { partes: [], cor_no_nome: "cor_apelido" }, esperado: { partes: [], separadores: {}, cor_no_nome: "cor_apelido" } },
+  { entrada: { cor_no_nome: "cor_base" }, esperado: { partes: [], separadores: {}, cor_no_nome: "cor_base" } },
+  { entrada: { partes: [], separadores: { "ref|tamanho": "-" }, cor_no_nome: "cor_base" },
+    esperado: { partes: [], separadores: {}, cor_no_nome: "cor_base" } },
+  { entrada: { partes: [], separadores: [], cor_no_nome: "cor_base" }, esperado: { partes: [], separadores: {}, cor_no_nome: "cor_base" } },
+  // null = fora da saída
+  { entrada: { partes: ["ref"], cor_no_nome: null }, esperado: { partes: ["ref"], separadores: {} } },
+  { entrada: { partes: [], cor_no_nome: null }, esperado: null },
+  // inválida = P0001 (checada DEPOIS das partes: parte ruim + chave ruim ⇒ o erro da parte)
+  { entrada: { partes: ["ref"], cor_no_nome: "apelido" }, erro: "Cor no nome da sublinha inválida (use cor_base ou cor_apelido)." },
+  { entrada: { partes: ["ref"], cor_no_nome: 5 }, erro: "Cor no nome da sublinha inválida (use cor_base ou cor_apelido)." },
+  { entrada: { partes: [], cor_no_nome: "COR_BASE" }, erro: "Cor no nome da sublinha inválida (use cor_base ou cor_apelido)." },
+  { entrada: { partes: ["ref"], cor_no_nome: ["cor_base"] }, erro: "Cor no nome da sublinha inválida (use cor_base ou cor_apelido)." },
+  { entrada: { partes: ["ref", "cor"], cor_no_nome: "x" }, erro: 'Parte do SKU desconhecida: "cor".' },
+  { entrada: { partes: ["ref", "ref"], cor_no_nome: 5 }, erro: "Parte do SKU repetida: ref." },
+  { entrada: { partes: "ref", cor_no_nome: "x" }, erro: "Formato do SKU inválido: partes." },
+  // …e ANTES dos separadores (que só são lidos com partes)
+  { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "#" }, cor_no_nome: "x" },
+    erro: "Cor no nome da sublinha inválida (use cor_base ou cor_apelido)." },
 ];
 
 export const CASOS_TAMANHOS_SKU: ({ entrada: unknown; esperado: Record<string, string> | null } | { entrada: unknown; erro: string })[] = [

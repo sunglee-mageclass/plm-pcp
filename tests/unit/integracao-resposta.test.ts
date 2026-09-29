@@ -9,7 +9,7 @@ import { CAMINHO_FOTO_EXEMPLO, montarResposta, type RespostaLer } from "@/lib/in
 import {
   CHAVE_FICTICIA, TEXTO_PAGINA_PODE_MUDAR, montarManual, respostaExemplo,
   TEXTO_IDENTIFICACAO, TEXTO_UNIAO_COLUNAS, TEXTO_ENTREGUE_UMA_VEZ, TEXTO_SEM_WEBHOOK, TEXTO_UMA_LOJA_POR_CHAVE,
-  TEXTO_REPROVADO_NAO_ENTREGA, TEXTO_PRECO_DIGITADO, TEXTO_LIMITE_POR_CHAVE,
+  TEXTO_REPROVADO_NAO_ENTREGA, TEXTO_PRECO_DIGITADO, TEXTO_LIMITE_POR_CHAVE, TEXTO_NOME_SUBLINHA,
 } from "@/components/integracao/manual-conteudo";
 
 // n6 (mesma razão de integracao-celula.test.ts/integracao-api-tela.test.ts): silencia o aviso de act() do React
@@ -96,7 +96,7 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
   // (carry.md:42-45 "T16 (Manual)" + progress.md:171) precisam estar no texto de VERDADE que a tela mostra — um
   // teste por item, cada um checando a frase-chave da constante exportada dentro do JSON do manual inteiro. Sem
   // isso, uma edição futura pode apagar a frase em silêncio e nenhum teste percebe.
-  it("I1–I8: cada decisão do dono aparece no texto do Manual (uma vez sumida, o teste falha)", () => {
+  it("I1–I9: cada decisão do dono aparece no texto do Manual (uma vez sumida, o teste falha)", () => {
     const m = montarManual("https://site");
     const tudo = JSON.stringify(m);
     expect(tudo, "I1 produto_id/SKU/nunca por nome/réplicas").toContain(TEXTO_IDENTIFICACAO);
@@ -107,8 +107,14 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
     expect(tudo, "I6 P-99 A: reprovado não entrega enquanto reprovado").toContain(TEXTO_REPROVADO_NAO_ENTREGA);
     expect(tudo, "I7 P-100 A: só o preço digitado conta").toContain(TEXTO_PRECO_DIGITADO);
     expect(tudo, "I8 limite por chave por minuto, teste conta").toContain(TEXTO_LIMITE_POR_CHAVE);
+    expect(tudo, "I9 P-126: nome da sublinha leva a cor").toContain(TEXTO_NOME_SUBLINHA);
   });
-  it("exemplo TESTE: produtos fictícios, 18 colunas, foto pública de exemplo, cursor da 2ª página", () => {
+  it("exemplo NORMAL: o nome da sublinha leva Nome do produto + cor + tamanho (P-126)", () => {
+    const n = respostaExemplo("normal", "https://site");
+    const iVariante = n.colunas.indexOf("Nome");
+    expect(n.linhas[1].valores[iVariante]).toBe("Saia Marola Preto P");
+  });
+  it("exemplo TESTE: produtos fictícios, 18 colunas, foto pública de exemplo, cursor da 2ª página, nome com a cor (P-126)", () => {
     const t = respostaExemplo("teste", "https://site");
     expect(t.modo).toBe("teste");
     expect(t.colunas).toHaveLength(18);
@@ -118,6 +124,8 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
     expect(t.linhas.every((l) => l.integrado_em === null)).toBe(true);
     expect(t.proximo_cursor).toBe("eyJleGVtcGxvIjogMn0=");
     expect(t.pagina).toEqual({ limite: 2, maximo: 50 });
+    const iNome = t.colunas.indexOf("Nome");
+    expect(t.linhas[1].valores[iNome]).toBe("Produto Exemplo 1 Cor Exemplo P");
   });
 });
 

@@ -3,13 +3,25 @@ import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um } from "./db";
 import { aplicarSql } from "./mig-txn";
 import {
-  CAMPOS_PADRAO, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, cor, keywordsLoja, ler, modeloInterno, prepara,
+  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, cor, keywordsLoja, ler, modeloInterno, prepara,
   revenda, semTravas,
 } from "./integracao-helpers";
 
 const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // loja com mais modelos na cópia (medição)
 type Ret = { retrato: { v: number; campos: string[]; linhas: Array<{ tipo: string; ordem: number; valores: Record<string, string | null>; fotos: string[] }> };
   faltas: Array<{ campo: string; texto: string }>; completo: boolean; meta: unknown[]; variantes_chaves: string[] | null };
+/**
+ * LIFO — "Cor no nome das sublinhas" (20261013100000, P-126): com ela VIVA o nome da sublinha ganha a cor (Nome + cor + tamanho).
+ * Detecta pelo TEXTO vivo do retrato_core (no modo INTEGRACAO_MIG_TXN a migration 2 recria o texto de antes DENTRO da txn, mesmo
+ * com a 20261013 na cópia). Devolve a cor que entra no nome da sublinha `s` (ou null = nome + tamanho, como antes).
+ */
+async function corNoNome(c: any, s: { valores: Record<string, string | null> }): Promise<string | null> {
+  if (!(await DEF(c, "_integracao_retrato_core(uuid,text[],jsonb)")).includes("_integracao_nome_sublinha")) return null;
+  const modo = (await um<{ m: string }>(c,
+    `SELECT public._integracao_cor_no_nome((SELECT sku_config FROM public.tenant_config WHERE tenant_id = $1)) AS m`, [T])).m;
+  return modo === "cor_apelido" ? (s.valores.cor_apelido ?? s.valores.cor_base) : s.valores.cor_base;
+}
+const comCor = (nome: string, cor: string | null, resto: string | null): string => [nome, cor, resto].filter(Boolean).join(" ");
 async function retrato(c: any, id: string, campos: readonly string[] = CAMPOS_PADRAO): Promise<Ret> {
   return (await um<{ r: Ret }>(c,
     `SELECT public._integracao_retrato_core($1, $2::text[], (public._custo_unitario_modelos_core(ARRAY[$1::uuid]) -> $1::text)) AS r`,
@@ -37,7 +49,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
         comprimento: "68", largura: "42", altura: "2",
       });
       const [s1, s2] = r.retrato.linhas.slice(1);
-      expect(s1.valores.nome).toBe(`${p.nome} P`);
+      expect(s1.valores.nome).toBe(comCor(p.nome as string, await corNoNome(c, s1), "P")); // LIFO 20261013: com a cor quando viva
       expect(s1.valores.ref_sku).toBe(`${m.ref}-P`);
       expect(s1.valores.tamanho).toBe("P");
       expect(s1.valores.cor_base).toMatch(/^Branco /);
@@ -259,7 +271,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
       const r = await retrato(c, m.id);
       const sub = r.retrato.linhas.find((l) => l.tipo === "variante");
       expect(sub?.valores.tamanho).toBeNull();
-      expect(sub?.valores.nome).toBe((r.retrato.linhas[0].valores.nome as string));
+      expect(sub?.valores.nome).toBe(comCor(r.retrato.linhas[0].valores.nome as string, await corNoNome(c, sub!), null));
       expect(sub?.valores.nome?.endsWith(" ")).toBe(false);
     });
   });
