@@ -734,19 +734,25 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       // no PRÓPRIO erro: busca o estado FRESCO (`estadoIntegracaoFresco` — refetch de verdade, não só
       // invalida) e roda a MESMA `resolverTravaAcabado` de novo com ele — reverte já aqui, sem esperar
       // o 2º clique. `p0` (não `p`) porque `p` já passou pelo revert (vazio) da 1ª tentativa.
+      // Fix round 1 (L-3, review) — o patch vira `aplicarResolucaoTravaAcabado` (a MESMA função pura já usada
+      // linhas acima, no revert pré-save) em vez de reescrever o mesmo spread na mão — elimina a duplicação e
+      // ganha de graça a cobertura dos testes puros já existentes daquele helper.
       if (ehErroIntegracaoTravado(error)) {
         const travaFresca = p0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[p0.modelo_id] ?? null) : new Set<string>();
         const resolucao2 = resolverTravaAcabado({ enviado: p0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora });
         if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
           const idAlvo = p0.id;
-          setDrafts((ds) => (ds ? (ds.map((x) => (x.id === idAlvo
-            ? {
-                ...x, ...resolucao2.paraServidor,
-                ...(resolucao2.variantesParaServidor ? { variantes: resolucao2.variantesParaServidor } : {}),
-                ...(resolucao2.qtdTotalParaServidor != null ? { qtd_total: resolucao2.qtdTotalParaServidor } : {}),
-              }
-            : x)) as ProdutoDraft[]) : ds));
-          if (resolucao2.avisos.length > 0) toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao2.avisos)}`);
+          setDrafts((ds) => (ds ? ds.map((x) => (x.id === idAlvo ? aplicarResolucaoTravaAcabado(x, resolucao2) : x)) as ProdutoDraft[] : ds));
+          // Fix round 1 (L-4, review) — antes disto o onError do salvarMut SEMPRE mostrava um 2º toast
+          // (`mensagemErro`, genérico) por cima deste `toastTravaAcabado` — redundante (os dois textos em PT
+          // corretos, mas duplicados). Marca o erro (`revertidoLocal`) quando o toast ACIMA já avisou algo —
+          // o onError do salvarMut (abaixo, na mutation do lote) pula o `toast.error` nesse caso. Espelha o
+          // Plan. Tecido, que já mostra só 1 toast (retorna cedo depois do revert+retry, antes de chegar no
+          // `toast.error` genérico).
+          if (resolucao2.avisos.length > 0) {
+            toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao2.avisos)}`);
+            (error as any).revertidoLocal = true;
+          }
         }
       }
       throw error;
@@ -817,6 +823,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       // Salvar já vir com a trava certa em vez de repetir o mesmo erro (mirror do onError de
       // `usePlanejamentoSave.ts`).
       invalidarEstadoSeTravado(qc, e);
+      // Fix round 1 (L-4, review) — `revertidoLocal` (marcado dentro de `salvarUmProduto`, acima) significa
+      // que o revert imediato JÁ mostrou o toast certo (`toastTravaAcabado`) pra esse erro — pula o genérico
+      // aqui pra não duplicar (o usuário via os 2, redundantes). Sem a marca (erro que NÃO foi revertido —
+      // ex.: nenhuma coluna travada bateu, ou é um 42501 de outra causa), o toast genérico segue mostrando
+      // como antes.
+      if (e?.revertidoLocal) return;
       toast.error(mensagemErro(e, "Erro ao salvar."));
     },
   });

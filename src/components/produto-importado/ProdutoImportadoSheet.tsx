@@ -816,19 +816,21 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       // (refetch de verdade) e roda `resolverTravaImportado` de novo com ele, revertendo já no 1º erro.
       // `isLocal` (produto ainda sem id no servidor) nunca teve `servidorAtual`/trava — `resolverTravaImportado`
       // já no-opa sem servidor (mesma guarda de sempre), então não precisa de checagem extra aqui.
+      // Fix round 1 (L-3, review) — `aplicarResolucaoTrava` (a mesma função pura do revert pré-save, linhas
+      // acima) em vez do spread duplicado à mão.
       if (ehErroIntegracaoTravado(error)) {
         const travaFresca = !isLocal && d0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[d0.modelo_id] ?? null) : new Set<string>();
         const resolucao2 = resolverTravaImportado({ enviado: d0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora });
         if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
           const idAlvo = d0.id!;
-          setDrafts((ds) => ds.map((x) => (x.id === idAlvo
-            ? {
-                ...x, ...resolucao2.paraServidor,
-                ...(resolucao2.variantesParaServidor ? { variantes: resolucao2.variantesParaServidor } : {}),
-                ...(resolucao2.qtdTotalParaServidor != null ? { qtd_total: resolucao2.qtdTotalParaServidor } : {}),
-              }
-            : x)) as ProdutoImportadoDraft[]);
-          if (resolucao2.avisos.length > 0) toast.warning(`"${d0.nome}": ${toastTravaImportado(resolucao2.avisos)}`);
+          setDrafts((ds) => ds.map((x) => (x.id === idAlvo ? aplicarResolucaoTrava(x, resolucao2) : x)) as ProdutoImportadoDraft[]);
+          // Fix round 1 (L-4, review) — espelha ProdutoAcabadoSheet.tsx: marca o erro quando este toast já
+          // avisou algo, pro onError do salvarMut (abaixo) pular o `toast.error` genérico e evitar 2 toasts
+          // pra 1 refusal (mesmo comportamento do Plan. Tecido, que já mostra só 1).
+          if (resolucao2.avisos.length > 0) {
+            toast.warning(`"${d0.nome}": ${toastTravaImportado(resolucao2.avisos)}`);
+            (error as any).revertidoLocal = true;
+          }
         }
       }
       throw error;
@@ -899,6 +901,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       // 42501 `integracao_travado:*` invalida `["integracao-estado", tenantId]` pra o PRÓXIMO Salvar
       // já vir com a trava certa.
       invalidarEstadoSeTravado(qc, e);
+      // Fix round 1 (L-4, review) — espelha ProdutoAcabadoSheet.tsx: pula o toast genérico quando o revert
+      // imediato (dentro de salvarUmProduto) já avisou com o texto certo — evita 2 toasts pra 1 refusal.
+      if (e?.revertidoLocal) return;
       toast.error(mensagemErro(e, "Falha ao salvar"));
     },
   });
