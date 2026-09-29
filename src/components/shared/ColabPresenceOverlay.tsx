@@ -11,18 +11,36 @@
 // Posicionamento: um portal FIXO no body (position:fixed segue o viewport, então basta reagir a
 // scroll/resize, sem recalcular a cada frame). z alto p/ ficar sobre o input, pointer-events-none
 // p/ nunca bloquear o clique/foco do campo por baixo.
-
+//
+// Fix round pós-QA (achado #8): quando ESTE overlay é o de uma PÁGINA (não de dentro de um
+// Sheet/Dialog próprio) e a mesma página abre um Dialog/Sheet por cima (ex.: "Nomenclaturas" em
+// Config da Loja), o anel de presença de quem está num campo da página de TRÁS aparecia desenhado
+// por cima do backdrop do modal — `z-[60]`/`z-[61]` é maior que o `z-50` que os componentes
+// Dialog/Sheet/AlertDialog usam pro overlay+conteúdo (`src/components/ui/{dialog,sheet,alert-
+// dialog}.tsx`). `abaixoDeModal` (default `false`, preserva TODO uso existente byte a byte — a
+// maioria vive DENTRO do próprio Sheet/Dialog colaborativo e precisa ficar ACIMA do backdrop
+// dele) baixa o anel pra `z-[35]`/`z-41`, abaixo de qualquer Dialog/Sheet/AlertDialog — só a
+// instância da PÁGINA (fora de qualquer modal) passa `true`.
+// Fix round 1 (B2, review-fixqa.md): `z-[35]`, não `z-40` — `z-40` empataria com
+// `PageActionBar`/`MobileActionBar` (`fixed z-40`, também portal no body); em empate de
+// z-index quem pinta por cima é quem monta DEPOIS no DOM, e o anel monta depois da barra
+// — então um campo rolado pra baixo da barra "Salvar" ainda desenharia o anel por cima dela.
+// `z-[35]` fica abaixo das barras (z-40) e dos modais (z-50), acima do header (z-30).
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { PresencaColab } from "@/hooks/useColabRegistro";
 import { corDoUsuario } from "@/lib/colab/presenca-cor";
 import { elementoDoPath } from "@/lib/colab/colab-field-path";
 
-type Marca = { userId: string; nome: string; solid: string; text: string; rect: DOMRect; topClipado: boolean };
+type Marca = { userId: string; nome: string; solid: string; text: string; rect: DOMRect; topClipado: boolean; dentroDeDialog: boolean };
 
-export function ColabPresenceOverlay({ presentes, scopeRef }: {
+export function ColabPresenceOverlay({ presentes, scopeRef, abaixoDeModal = false }: {
   presentes: PresencaColab[];
   scopeRef: RefObject<HTMLElement | null>;
+  /** true = este overlay é da PÁGINA (fica ABAIXO de qualquer Dialog/Sheet/AlertDialog aberto por
+   *  cima, `z-50`). Default false = comportamento de sempre (acima do backdrop do MESMO modal em
+   *  que este overlay vive). */
+  abaixoDeModal?: boolean;
 }) {
   const [marcas, setMarcas] = useState<Marca[]>([]);
   // presentes muda de identidade a cada broadcast; guardamos numa ref p/ o loop de reposição ler o
@@ -62,9 +80,20 @@ export function ColabPresenceOverlay({ presentes, scopeRef }: {
         // por baixo), o rótulo iria pra fora — nesse caso ele será reposicionado no render.
         const topClipado = top > r.top + 0.5;
         const cor = corDoUsuario(p.userId);
+        // Fix round pós-QA (achado #8) + B1 (review-fixqa.md): SALVAGUARDA, não o caso do diálogo de
+        // Requisitos — este `elementoDoPath` só procura DENTRO de `scope` (o `scopeRef` recebido pela
+        // instância), e o `DialogContent` do Requisitos é portal no `<body>` (`DialogPortal`, fora do
+        // scope da página); além disso o foco `cfg:kanban_requisitos` já é convertido pra
+        // `cfg:status_kanban` por `blocoDoFoco` antes de chegar aqui (`configuracoes.tsx`). Na
+        // instância da página (`abaixoDeModal`), `el` nunca é um `role="dialog"` na prática —
+        // `dentroDeDialog` é sempre `false` ali. Esta checagem existe para um cenário DIFERENTE: se um
+        // overlay cujo `scopeRef` mora DENTRO de um Sheet/Dialog (o uso normal, nas outras ~24
+        // instâncias) receber `abaixoDeModal` por engano, o campo resolvido estaria dentro de um
+        // `role="dialog"` e a marca volta pro `z-[60]` de sempre em vez de cair pro `z-[35]`.
+        const dentroDeDialog = !!el.closest('[role="dialog"],[role="alertdialog"]');
         next.push({
           userId: p.userId, nome: p.nome, solid: cor.solid, text: cor.text,
-          rect: new DOMRect(left, top, w, h), topClipado,
+          rect: new DOMRect(left, top, w, h), topClipado, dentroDeDialog,
         });
       }
       // Só re-renderiza se algo mudou de fato (evita loop de layout).
@@ -94,29 +123,44 @@ export function ColabPresenceOverlay({ presentes, scopeRef }: {
 
   return createPortal(
     <>
-      {marcas.map((m) => (
-        <div
-          key={m.userId}
-          className="pointer-events-none fixed z-[60] rounded-md"
-          style={{
-            top: m.rect.top,
-            left: m.rect.left,
-            width: m.rect.width,
-            height: m.rect.height,
-            boxShadow: `0 0 0 2px ${m.solid}`,
-          }}
-        >
-          {/* Rótulo ACIMA do anel normalmente; quando o topo do campo está clipado (campo entra por
-              baixo do rodapé/topo), joga o rótulo p/ DENTRO do anel — senão ele apareceria fora da
-              área visível, por cima do rodapé (bug do "Sung Lee" sobre a barra Salvar). */}
-          <span
-            className={`pointer-events-none absolute right-0 z-[61] rounded px-1.5 py-px text-[10px] font-semibold leading-tight shadow-sm whitespace-nowrap ${m.topClipado ? "top-0.5" : "-top-4"}`}
-            style={{ background: m.solid, color: m.text }}
+      {marcas.map((m) => {
+        // Fix round pós-QA (achado #8) + B1/B2 (review-fixqa.md): `abaixoDeModal` baixa a camada pra
+        // `z-[35]`/`z-41`, abaixo do `z-50` de Dialog/Sheet/AlertDialog abertos por cima (e abaixo dos
+        // `z-40` de PageActionBar/MobileActionBar — B2, evita empate de z-index com a barra "Salvar")
+        // — é o que faz o anel da página não pintar sobre o backdrop de "Nomenclaturas" (ou de
+        // qualquer AlertDialog/KanbanSalvarDialog) nem sobre a barra sticky do rodapé.
+        // `m.dentroDeDialog` é a SALVAGUARDA (não o caso do Requisitos — ver o comentário em
+        // `dentroDeDialog` acima): num overlay cujo scope mora DENTRO de um Sheet/Dialog (o uso
+        // normal, ~24 outras instâncias), um campo resolvido lá dentro fica em `role="dialog"` e não
+        // pode cair pro z-[35], senão o anel desaparece atrás do backdrop DO PRÓPRIO modal onde o
+        // overlay vive.
+        const abaixo = abaixoDeModal && !m.dentroDeDialog;
+        const zAnel = abaixo ? "z-[35]" : "z-[60]";
+        const zRotulo = abaixo ? "z-41" : "z-[61]";
+        return (
+          <div
+            key={m.userId}
+            className={`pointer-events-none fixed ${zAnel} rounded-md`}
+            style={{
+              top: m.rect.top,
+              left: m.rect.left,
+              width: m.rect.width,
+              height: m.rect.height,
+              boxShadow: `0 0 0 2px ${m.solid}`,
+            }}
           >
-            {m.nome}
-          </span>
-        </div>
-      ))}
+            {/* Rótulo ACIMA do anel normalmente; quando o topo do campo está clipado (campo entra por
+                baixo do rodapé/topo), joga o rótulo p/ DENTRO do anel — senão ele apareceria fora da
+                área visível, por cima do rodapé (bug do "Sung Lee" sobre a barra Salvar). */}
+            <span
+              className={`pointer-events-none absolute right-0 ${zRotulo} rounded px-1.5 py-px text-[10px] font-semibold leading-tight shadow-sm whitespace-nowrap ${m.topClipado ? "top-0.5" : "-top-4"}`}
+              style={{ background: m.solid, color: m.text }}
+            >
+              {m.nome}
+            </span>
+          </div>
+        );
+      })}
     </>,
     document.body,
   );
@@ -134,7 +178,8 @@ function mesmasMarcas(a: Marca[], b: Marca[]): boolean {
       x.rect.left !== y.rect.left ||
       x.rect.width !== y.rect.width ||
       x.rect.height !== y.rect.height ||
-      x.topClipado !== y.topClipado
+      x.topClipado !== y.topClipado ||
+      x.dentroDeDialog !== y.dentroDeDialog
     ) return false;
   }
   return true;

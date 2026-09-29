@@ -319,6 +319,20 @@ function juntarConflitos(atuais: Conflito[], novos: Conflito[]): Conflito[] {
 // Resposta da RPC `salvar_config_loja` (T1): só as colunas gravadas, com o valor pós-gatilhos.
 type RetornoSalvarConfig = { gravadas: string[]; valores: Record<string, unknown> };
 
+// Fix round 1 (B5, review-fixqa.md): motivo CURTO pro toast de "loja anterior" (I1/L2) — o texto
+// completo do `mensagemErro` (uma frase própria, com ponto interno) ficava verboso dentro dos
+// parênteses e, fora do caso de rede, podia confundir (ex.: "outra pessoa salvou… confira os
+// destaques" quando não há destaque nenhum na loja que está na tela; ou rotular qualquer erro
+// desconhecido como "falha de rede"). Mapa fechado de 3 casos — não usa `mensagemErro` aqui.
+function motivoCurtoLojaAnterior(e: unknown): string {
+  const err = e as { code?: unknown; message?: unknown } | null | undefined;
+  const code = String(err?.code ?? "");
+  const msg = String(err?.message ?? "").toLowerCase();
+  if (code === "P0409") return "outra pessoa salvou antes";
+  if (msg.includes("failed to fetch") || msg.includes("network") || msg.includes("networkerror")) return "falha de conexão";
+  return "erro ao salvar";
+}
+
 function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
@@ -492,8 +506,13 @@ function ConfiguracoesLojaPage() {
     // servidor novo. 1ª carga (cfgBaseRef ainda null) OU loja diferente não tem "meu" para
     // proteger — adota cru.
     const base = mesmaLoja ? cfgBaseRef.current : null;
+    // Fix round pós-QA (L1): "tocado" tem de usar a MESMA régua do banco (`mesmoValorSalvo`,
+    // que passa por `serializarColuna` — o btrim de keywords, "" ⇄ null de explosao/ref/ref_config)
+    // — não a `igual` crua. Sem isso, digitar "Moda " (espaço no fim) enquanto a base já é "Moda"
+    // marcava keywords como tocado por um motivo cosmético que a RPC nem vê (ela grava aparado); o
+    // mesmo raciocínio vale pro filtro de conflitos "convergiu" logo abaixo.
     const tocados = new Set(
-      base ? (Object.keys(next) as (keyof ConfigState)[]).filter((k) => !igual(cfgRef.current[k], base[k])) : [],
+      base ? (Object.keys(next) as (keyof ConfigState)[]).filter((k) => !mesmoValorSalvo(k, cfgRef.current[k], base[k])) : [],
     );
     const merge = base ? mergeDraft({ base, draft: cfgRef.current, fresh: next, touched: tocados }) : null;
     const valor = merge ? merge.valor : next;
@@ -534,9 +553,11 @@ function ConfiguracoesLojaPage() {
       pendentes = juntarConflitos(pendentes, novosConflitos);
     }
     // Atualiza "meu"/"dele" dos pendentes (inclusive os vindos de um P0409, que nascem sem "dele") e
-    // solta o que CONVERGIU (a tela já tem o mesmo valor do servidor — nada a resolver).
+    // solta o que CONVERGIU (a tela já tem o mesmo valor do servidor — nada a resolver). Fix round
+    // pós-QA (L1): `mesmoValorSalvo` (não `igual` cru) — "Moda " (meu) e "Moda" (dele) convergem
+    // pro banco, senão o conflito de keywords com espaço no fim nunca solta sozinho (banner preso).
     pendentes = pendentes
-      .filter((c) => !igual((tela as Record<string, unknown>)[c.path], (next as Record<string, unknown>)[c.path]))
+      .filter((c) => !mesmoValorSalvo(c.path, (tela as Record<string, unknown>)[c.path], (next as Record<string, unknown>)[c.path]))
       .map((c) => ({ path: c.path, meu: (tela as Record<string, unknown>)[c.path], dele: (next as Record<string, unknown>)[c.path] }));
     // Base CRUA da RPC: 1ª carga ou loja nova = o cru inteiro desta loja (zera, não re-baseia);
     // re-hidratação na mesma loja = `rebasearBaseRaw` (coluna em conflito, coluna EM VOO e kanban com save
@@ -568,8 +589,22 @@ function ConfiguracoesLojaPage() {
       // aberto antes da troca de loja/recarga (nada de base vazia indo para a RPC).
       if (!hydrated || !cfgBaseRef.current) throw new Error("Aguarde a Configuração da Loja terminar de carregar.");
       // Revisão T3/T4 (M2): P-122 A também no handler — com conflito pendente NADA vai (o botão já trava;
-      // isto cobre um `mutate()` disparado por um diálogo aberto antes do conflito chegar).
-      if (conflitosRef.current.length > 0) throw new Error("Resolva os itens em conflito (manter meu ou usar o novo) antes de salvar.");
+      // isto cobre um `mutate()` disparado por um diálogo aberto antes do conflito chegar). Fix round
+      // pós-QA (L3 + achado QA (d)): quando essa recusa chega com a prévia do Kanban aberta (A abriu
+      // "Salvar e mover N cards", B reordenou/salvou nesse meio-tempo e a guarda cai aqui ANTES da
+      // RPC), o dialog tem de FECHAR como as outras recusas de kanban já fazem — `fecharDialogoKanban`
+      // no onError. `kanbanEmConflito` decide qual das duas mensagens mostrar lá. Fix round 1 (B3,
+      // review-fixqa.md): `tinhaPrevia = !!previaSalvar` — há um caminho SEM prévia (chave desligada,
+      // ou a prévia deu `mudam===0 && revelam_ref===0`) que cai no AlertDialog comum em vez do
+      // KanbanSalvarDialog; se um conflito de kanban chegar nesse meio-tempo, a mensagem "…depois da
+      // prévia… abra a prévia de novo" seria falsa (o usuário nunca viu prévia nenhuma).
+      if (conflitosRef.current.length > 0) {
+        const kanbanEmConflito = conflitosRef.current.some((c) => (KANBAN_COLS as readonly string[]).includes(c.path));
+        throw Object.assign(
+          new Error("Resolva os itens em conflito (manter meu ou usar o novo) antes de salvar."),
+          { fecharDialogoKanban: true, conflitoEsperado: true, kanbanEmConflito, tinhaPrevia: !!previaSalvar },
+        );
+      }
       // T3 (Config colaborativa): UMA chamada à RPC `salvar_config_loja` com SÓ as colunas que o
       // usuário mudou nesta tela (`montarMudancas`) + a base CRUA de cada uma (`baseRawRef`) — o
       // servidor compara coluna a coluna e recusa com P0409 se outra pessoa gravou uma delas depois
@@ -677,10 +712,18 @@ function ConfiguracoesLojaPage() {
       kanbanProtegidoRef.current = false;
       const msg = String(e?.message ?? "");
       // Revisão T3/T4 (I1): erro de um save da loja ANTERIOR — só avisa; nada de conflito/refetch aqui.
+      // Fix round pós-QA (L2): a redação anterior ("A loja mudou durante o salvamento…") deixava
+      // ambíguo QUAL loja falhou e QUAL ficou intacta — no caso mais comum (queda de rede no meio do
+      // salvar), o usuário via o erro já na loja B e podia achar que ELA não gravou. Deixa explícito:
+      // foi a loja ANTERIOR que não salvou (nada gravado nela) e a loja atual (nesta tela) não foi
+      // tocada por este save. Fix round 1 (B5, review-fixqa.md): motivo CURTO (`motivoCurtoLojaAnterior`)
+      // em vez da frase inteira do `mensagemErro` — evita rotular todo erro desconhecido como "falha de
+      // rede" e evita mandar "confira os destaques" quando não há destaque nenhum na loja atual.
       if (ctx && ctx.tenantId !== cfgBaseTenantRef.current) {
         setPreviaSalvar(null);
         setConfirmSalvar(false);
-        toast.error(`A loja mudou durante o salvamento; nada foi gravado na loja anterior. ${mensagemErro(e, "Erro ao salvar")}`);
+        const motivo = motivoCurtoLojaAnterior(e);
+        toast.error(`Não foi possível salvar a configuração da loja anterior (${motivo}). Nada foi gravado nesta loja.`);
         return;
       }
       if (e?.code === "P0409" && msg.startsWith("conflito_versao: config_loja")) {
@@ -710,12 +753,42 @@ function ConfiguracoesLojaPage() {
         void refetchCfg();
         return;
       }
+      // Fix round pós-QA (L3 + achado QA (d)): a guarda M2 (conflito pendente já sinalizado ANTES da
+      // RPC — ex.: a prévia "Salvar e mover N cards" ficou aberta enquanto outra aba salvou e reordenou
+      // as colunas) é uma RECUSA ESPERADA, não uma falha de servidor — trata como as outras recusas de
+      // kanban (fecha o diálogo, toast comum, sem stack de erro). Fix round 1 (B3, review-fixqa.md):
+      // a mensagem "…depois da prévia… abra a prévia de novo" só faz sentido quando o usuário REALMENTE
+      // viu uma prévia (`tinhaPrevia`) — o caminho sem prévia (chave desligada, ou `mudam===0 &&
+      // revelam_ref===0`, que cai no AlertDialog comum) usa o texto genérico de "mudou enquanto
+      // confirmava". Fora do kanban, mantém o texto de sempre ("Resolva os itens em conflito…", já
+      // tratado pela guarda do botão/banner).
+      if (e?.conflitoEsperado) {
+        setPreviaSalvar(null);
+        setConfirmSalvar(false);
+        // Não usa `mensagemErro` aqui (loga no console em DEV) — é uma recusa ESPERADA da guarda do
+        // cliente, não um erro de servidor; a mensagem do próprio `Error` já é o texto final em PT.
+        toast.error(
+          e.kanbanEmConflito
+            ? e.tinhaPrevia
+              ? "A configuração do Kanban mudou depois da prévia. Confira os itens em destaque e abra a prévia de novo."
+              : "A configuração do Kanban mudou enquanto você confirmava. Confira os itens em destaque e salve de novo."
+            : String(e.message ?? "Resolva os itens em conflito (manter meu ou usar o novo) antes de salvar."),
+        );
+        return;
+      }
       // Baixo 7: a config mudou depois da prévia (D19) — nada gravado. Fecha o diálogo de Salvar
       // (KanbanSalvarDialog ou o AlertDialog comum) para o usuário não ficar preso a uma
       // prévia/confirmação que já não reflete a tela; o toast explica o motivo e ele clica em Salvar de novo.
+      // Fix round 1 (B4, review-fixqa.md): esta é OUTRA recusa esperada do mesmo fluxo (a config mudou
+      // entre a prévia e o Salvar, sem conflito — `diffMudouDesdeAPrevia`, `MENSAGEM_PREVIA_KANBAN_
+      // MUDOU`) — não pode cair no `mensagemErro` do fallback abaixo (loga no console em DEV pra uma
+      // recusa que não é erro de servidor, o mesmo motivo do L3 na guarda M2). A mensagem do próprio
+      // `Error` já é o texto final em PT.
       if (e?.fecharDialogoKanban) {
         setPreviaSalvar(null);
         setConfirmSalvar(false);
+        toast.error(String(e.message));
+        return;
       }
       toast.error(mensagemErro(e, "Erro ao salvar"));
     },
@@ -883,7 +956,17 @@ function ConfiguracoesLojaPage() {
       }}
       onBlurCapture={() => setCampoFocado(null)}
     >
-      <ColabPresenceOverlay presentes={presentesNoBloco} scopeRef={colabScopeRef} />
+      {/* Fix round pós-QA (achado #8) + B1 (review-fixqa.md): `abaixoDeModal` — este é o overlay da
+          PÁGINA; com o dialog "Nomenclaturas" (ou o AlertDialog de confirmar Salvar/o
+          KanbanSalvarDialog) aberto por cima, o anel de quem está num campo da página de TRÁS não
+          pode desenhar por cima do backdrop desses modais. O foco `cfg:kanban_requisitos` do
+          diálogo de Requisitos é convertido para o bloco da página `cfg:status_kanban` por
+          `blocoDoFoco` (abaixo) — o campo resolvido por ESTE overlay para essa marca é sempre um
+          elemento da PÁGINA (nunca o `DialogContent` do Requisitos, que é portal fora deste
+          `colabScopeRef`), então `dentroDeDialog` nunca é `true` aqui; a checagem por marca em
+          `ColabPresenceOverlay` é uma salvaguarda para outra classe de uso (scope dentro de um
+          Sheet/Dialog), não o caso do Requisitos. */}
+      <ColabPresenceOverlay presentes={presentesNoBloco} scopeRef={colabScopeRef} abaixoDeModal />
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
         <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
       </Button>
