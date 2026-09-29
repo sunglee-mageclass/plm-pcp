@@ -9,6 +9,9 @@
 //     velho e o Salvar apaga a mudança alheia.
 // (b) super admin troca de loja: abre o diálogo na loja A, troca para a B, reabre — o diálogo
 //     mostra as nomenclaturas DA A e o Salvar grava a A NA B.
+// T5 da Config colaborativa (29/set): o diálogo grava pela RPC `salvar_config_loja` (só o mapa que
+// mudou + a base CRUA que ELE leu — compare-and-set) — as asserções leem a chamada da RPC; nenhum
+// upsert direto sobra. Salvar sem mudança não chama nada, por isso cada caso edita um nome antes.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -42,7 +45,7 @@ vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastM
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
-import { montar, esperar, aguardar, clicar, botaoPorTexto } from "./dom-helpers";
+import { montar, esperar, aguardar, clicar, digitar, botaoPorTexto } from "./dom-helpers";
 import { Route } from "@/routes/_authenticated/admin/configuracoes";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
@@ -54,6 +57,9 @@ const linhaServidor = () => ({
 });
 
 const kw = () => document.querySelector<HTMLTextAreaElement>("#cfg-keywords");
+const rpcNom = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja").at(-1)?.payload as any;
+const upserts = () => FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert");
+const dlgInput = () => document.querySelector<HTMLInputElement>('[role="dialog"] input[data-colab-path="nom:tab:cadastro"]')!;
 const dlgInputs = () => Array.from(document.querySelectorAll<HTMLInputElement>('[role="dialog"] input')).map((i) => i.value);
 
 let desmontar: (() => Promise<void>) | null = null;
@@ -93,12 +99,19 @@ describe("[fix hidratação re-revisão final] N7 — diálogo Nomenclaturas hid
     await abrirDlg();
     await aguardar(() => botaoPorTexto("Salvar")?.disabled === false, "Salvar habilitado na reabertura");
     await esperar(200); // a leitura nova já voltou
+    await digitar(dlgInput(), "Cadastros EDITADO");
     await clicar(botaoPorTexto("Salvar")!);
     await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Nomenclaturas salvas"), "salvo");
-    const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1)!.payload as any;
-    // Fix N7: o diálogo, ao reabrir, espera a leitura NOVA (não o cache velho) — a mudança do
-    // outro admin (financeiro) sobrevive no upsert.
-    expect(up.tab_labels.financeiro).toBe("FINANCEIRO-DO-OUTRO-ADMIN");
+    const r = rpcNom();
+    expect(upserts()).toHaveLength(0);
+    // Fix N7 + T5: o diálogo, ao reabrir, espera a leitura NOVA (não o cache velho) — a mudança do outro
+    // admin (financeiro) sobrevive no mapa enviado E está na base (sem P0409, 1 chamada só).
+    expect(r._mudancas.tab_labels.financeiro).toBe("FINANCEIRO-DO-OUTRO-ADMIN");
+    expect(r._mudancas.tab_labels.cadastro).toBe("Cadastros EDITADO");
+    expect(r._base.tab_labels.financeiro).toBe("FINANCEIRO-DO-OUTRO-ADMIN");
+    expect("campos_editaveis" in r._mudancas).toBe(false); // só o mapa que mudou
+    expect(FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja")).toHaveLength(1);
+    expect(FAKE.linhas.tenant_config[0].tab_labels.financeiro).toBe("FINANCEIRO-DO-OUTRO-ADMIN");
   });
 
   it("(b) troca de loja: diálogo aberto na A, depois a tela troca para a B — reabrir NÃO deve mostrar/gravar as nomenclaturas da A na B", async () => {
@@ -114,11 +127,18 @@ describe("[fix hidratação re-revisão final] N7 — diálogo Nomenclaturas hid
     await abrirDlg();
     await aguardar(() => botaoPorTexto("Salvar")?.disabled === false, "Salvar habilitado");
     await esperar(200);
+    // A janela da loja B mostra os nomes DA B (o "Cadastro" da A não aparece).
+    expect(dlgInput().value).toBe("");
+    await digitar(dlgInput(), "CADASTRO DA B");
     await clicar(botaoPorTexto("Salvar")!);
     await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Nomenclaturas salvas"), "salvo");
-    const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1)!.payload as any;
-    // Fix N7: a key inclui o tenantId (cache por loja) e o gate espera `currentOk && !currentFetching`
-    // — o upsert vai para a t2 com as nomenclaturas DA B (nunca "Cadastros da Loja", que é da A).
-    expect(up.tenant_id === "t2" && up.tab_labels.cadastro === "Cadastros da Loja").toBe(false);
+    const r = rpcNom();
+    expect(upserts()).toHaveLength(0);
+    // Fix N7 + T5: key com tenantId + gate `currentOk && !currentFetching` — a RPC vai para a t2 com a base
+    // DA B (nunca "Cadastros da Loja", que é da A), e a linha da A fica intacta.
+    expect(r._tenant_id).toBe("t2");
+    expect(r._base.tab_labels).toEqual({ producao: "PRODUCAO-DA-B" });
+    expect(r._mudancas.tab_labels).toEqual({ producao: "PRODUCAO-DA-B", cadastro: "CADASTRO DA B" });
+    expect(FAKE.linhas.tenant_config[0].tab_labels.cadastro).toBe("Cadastros da Loja");
   });
 });

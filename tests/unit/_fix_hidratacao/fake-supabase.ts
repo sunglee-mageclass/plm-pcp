@@ -22,6 +22,8 @@ export function criarFakeSupabase() {
   // dado — simula falha de rede (queryFn que hoje engole o erro passa a dar throw).
   const falhas: Record<string, number> = {};
   const canais: { nome: string; ouvintes: { tabela: string; cb: (p: unknown) => void }[] }[] = [];
+  // Revisão T3/T4 (M4): P0409 sem DETAIL (o cliente tem de tratar TODAS as colunas enviadas como conflito).
+  const opcoes = { p0409SemDetalhe: false };
 
   const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -53,6 +55,63 @@ export function criarFakeSupabase() {
     return Promise.resolve({ data: null, error: null });
   }
 
+  // Config da Loja colaborativa (T3): espelho em memória da RPC `salvar_config_loja` (T1) — o
+  // compare-and-set POR COLUNA sobre a linha falsa de `tenant_config`. Mesmas regras/textos do banco
+  // (ver .superpowers/sdd/2026-09-29-config-colab/t1-report.md): toda chave de `_mudancas` em `_base`
+  // (senão P0001); conflito = linha ≠ base E linha ≠ mudança NORMALIZADA (convergido não conta); linha recém-criada
+  // pula o compare-and-set; chave do kanban conferida quando alguma das 5 colunas de kanban vai; nada
+  // gravado em qualquer recusa; devolve `{gravadas, valores}` só das colunas gravadas.
+  const KANBAN_CFG = ["status_kanban", "kanban_requisitos", "kanban_requisitos_excecoes", "revenda_kanban_colunas", "revenda_kanban_requisitos"];
+  const canon = (v: unknown): string => {
+    if (v === undefined || v === null) return "null";
+    if (typeof v !== "object") return JSON.stringify(v);
+    if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
+  };
+  function salvarConfigLoja(a: Record<string, any>): { data: any; error: any } {
+    const mud = (a?._mudancas ?? {}) as Record<string, unknown>;
+    const base = (a?._base ?? {}) as Record<string, unknown>;
+    const chaves = Object.keys(mud).sort();
+    if (chaves.length === 0) return { data: { gravadas: [], valores: {} }, error: null };
+    for (const k of chaves) {
+      if (!(k in base)) return { data: null, error: { code: "P0001", message: `Falta o valor carregado do campo "${k}". Recarregue a página e tente de novo.` } };
+    }
+    const tabela = (linhas.tenant_config ??= []);
+    let row = tabela.find((r) => r.tenant_id === a._tenant_id);
+    const criada = !row;
+    const kanban = chaves.some((k) => KANBAN_CFG.includes(k));
+    if (kanban) {
+      if (a._chave_kanban_esperada === undefined || a._chave_kanban_esperada === null) {
+        return { data: null, error: { code: "P0001", message: "Recarregue a página antes de salvar o Kanban (estado da chave do Kanban automático não informado)." } };
+      }
+      if (a._chave_kanban_esperada !== ((row?.kanban_automatico ?? false) === true)) {
+        return { data: null, error: { code: "P0409", message: "chave_kanban_mudou: a chave do kanban mudou" } };
+      }
+    }
+    // Normalização ÚNICA do banco (T1 review M3, ecc95f46): keywords com btrim; só espaços → null. Vale para o
+    // "convergido" do compare-and-set E para o valor gravado.
+    const norm: Record<string, unknown> = { ...mud };
+    if ("keywords" in norm) {
+      const kw = typeof norm.keywords === "string" ? norm.keywords.trim() : "";
+      norm.keywords = kw === "" ? null : kw;
+    }
+    if (!criada) {
+      const conf = chaves.filter((k) => canon(row![k]) !== canon(base[k]) && canon(row![k]) !== canon(norm[k]));
+      if (conf.length) {
+        return { data: null, error: { code: "P0409", message: "conflito_versao: config_loja", details: opcoes.p0409SemDetalhe ? "" : conf.join(",") } };
+      }
+    }
+    if (!row) { row = { tenant_id: a._tenant_id }; tabela.push(row); }
+    const valores: Record<string, unknown> = {};
+    for (const k of chaves) {
+      const v = clone(norm[k] ?? null);
+      row[k] = v;
+      valores[k] = clone(v);
+    }
+    return { data: { gravadas: chaves, valores }, error: null };
+  }
+
   function builder(tabela: string) {
     const c: Chamada = { tabela, op: "select", filtros: [] };
     const b: any = {
@@ -74,7 +133,17 @@ export function criarFakeSupabase() {
 
   const supabase: any = {
     from: (t: string) => builder(t),
-    rpc: (nome: string, args?: unknown) => { chamadas.push({ tabela: `rpc:${nome}`, op: "rpc", filtros: [], payload: args }); return Promise.resolve({ data: null, error: null }); },
+    rpc: (nome: string, args?: unknown) => {
+      chamadas.push({ tabela: `rpc:${nome}`, op: "rpc", filtros: [], payload: args });
+      if (nome === "salvar_config_loja") {
+        // Revisão T3/T4: a RPC pode ser SEGURADA (`segurar("rpc:salvar_config_loja")`) — simula a resposta
+        // lenta (eco do Realtime/troca de loja no meio do voo). A decisão (compare-and-set) roda ao SOLTAR.
+        const g = gates["rpc:salvar_config_loja"];
+        const run = () => salvarConfigLoja(args as Record<string, any>);
+        return g ? g.promessa.then(run) : Promise.resolve().then(run);
+      }
+      return Promise.resolve({ data: null, error: null });
+    },
     channel: (nome: string) => {
       const canal = { nome, ouvintes: [] as { tabela: string; cb: (p: unknown) => void }[] };
       canais.push(canal);
@@ -108,10 +177,13 @@ export function criarFakeSupabase() {
       for (const k of Object.keys(gates)) delete gates[k];
       for (const k of Object.keys(falhas)) delete falhas[k];
       canais.length = 0;
+      opcoes.p0409SemDetalhe = false;
     },
     chamadas,
     /** Segura TODAS as próximas leituras da tabela até `soltar()`. */
     segurar(tabela: string) { const g = novoGate(); gates[tabela] = g; return () => { gates[tabela] = null; g.soltar(); }; },
+    /** Revisão T3/T4 (M4): o próximo P0409 `conflito_versao: config_loja` sai com DETAIL vazio. */
+    p0409SemDetalhe(v = true) { opcoes.p0409SemDetalhe = v; },
     /** Faz as próximas `n` leituras (select) da tabela devolverem `{data:null,error}` em vez do dado. */
     falhar(tabela: string, n = 1) { falhas[tabela] = n; },
     /** Emite um evento `postgres_changes` (o que o Realtime faz quando OUTRA escrita chega na tabela). */

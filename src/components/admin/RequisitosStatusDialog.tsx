@@ -33,6 +33,7 @@ export function RequisitosStatusButton({
   onExcecoesChange,
   nomeEtapa,
   bloqueadoMotivo,
+  colabPath,
 }: {
   label: string;
   requisitos: string[];
@@ -51,6 +52,10 @@ export function RequisitosStatusButton({
   nomeEtapa?: (statusKey: string) => string;
   // Kanban automático (F2): coluna em que requisito NÃO vale (Reprovado é sempre manual) → botão travado + motivo.
   bloqueadoMotivo?: string;
+  // Config da Loja colaborativa (T4): `data-colab-path` do diálogo — o foco lá dentro anuncia este
+  // caminho na presença (o diálogo é portal; a tela que o usa mapeia o caminho p/ o bloco que o contém).
+  // Ausente = comportamento de sempre.
+  colabPath?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmarExcecao, setConfirmarExcecao] = useState<{ key: string; label: string } | null>(null);
@@ -107,7 +112,7 @@ export function RequisitosStatusButton({
           <span className="max-sm:sr-only">Requisitos{requisitos.length ? ` (${requisitos.length})` : ""}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" data-colab-path={colabPath}>
         <DialogHeader>
           <DialogTitle>Requisitos para entrar em “{label}”</DialogTitle>
         </DialogHeader>

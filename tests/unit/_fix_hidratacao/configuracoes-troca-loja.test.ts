@@ -6,6 +6,9 @@
 // trazendo a B) fazia o merge tratar o campo tocado na A como "meu" e sobreviver por cima do
 // `next` da B: o Salvar então upserta a edição da A na loja ERRADA (B). Antes desta branch a tela
 // era sobrescrita pela B (perdia a edição, mas não gravava na loja errada).
+// T3 da Config colaborativa (29/set): o Salvar grava pela RPC `salvar_config_loja` (só colunas
+// mudadas + base crua). Trocar de loja ZERA a base crua (`baseRawRef`) — a base da A nunca vai numa
+// RPC da B. Sem edição na B, o Salvar nem chama a RPC ("Nenhuma alteração para salvar.").
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -50,13 +53,14 @@ const linhaServidor = () => ({
 });
 
 const kw = () => document.querySelector<HTMLTextAreaElement>("#cfg-keywords");
-const upsertTenantConfig = () => FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1);
+const rpcsSalvar = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja").map((c) => c.payload as any);
+const escritasDiretas = () => FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && (c.op === "upsert" || c.op === "update"));
 
-async function salvarComoAQa() {
+async function salvarComoAQa(toastEsperado: { tipo: "success"; texto: string }) {
   await clicar(botaoPorTexto("Salvar alterações")!);
   await aguardar(() => !!botaoPorTexto("Salvar mesmo assim"), "AlertDialog de confirmação");
   await clicar(botaoPorTexto("Salvar mesmo assim")!);
-  await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Configurações salvas"), "toast de sucesso");
+  await aguardar(() => toastMock[toastEsperado.tipo].mock.calls.some((c) => c[0] === toastEsperado.texto), `toast "${toastEsperado.texto}"`);
 }
 
 let desmontar: (() => Promise<void>) | null = null;
@@ -86,17 +90,33 @@ describe("[fix hidratação revisão final] C3 — Config: super admin troca de 
     FAKE.linhas.users[0].tenant_id = "t2";
     await qc.invalidateQueries({ queryKey: ["tenant-config"] });
     await aguardar(() => document.body.textContent?.includes("Manaus / Amazonas (GMT-4)") ?? false, "form já mostra a loja t2", 2000);
-    await salvarComoAQa();
-    const up = upsertTenantConfig()!.payload as any;
-    // Fix C3: nem o tenant_id vira t2 com o conteúdo da A, nem a keywords da A vaza para a B.
-    expect(up.tenant_id === "t2" && up.keywords === "EDITADO NA LOJA A").toBe(false);
-    // Mais especificamente: o upsert vai para a loja t2 (a que está na tela), e a keywords NUNCA é
-    // "EDITADO NA LOJA A" — ou está ausente do payload (a tela já adotou o valor cru da B, que é
-    // igual ao servidor, então `keywordsParaPayload` corretamente não manda nada) ou é o valor
-    // original da B. A edição da A se perde (como acontecia ANTES desta branch — não ideal, mas
-    // não é a REGRESSÃO grave de gravar dado da loja errada).
-    expect(up.tenant_id).toBe("t2");
-    expect(up.keywords).not.toBe("EDITADO NA LOJA A");
-    if (up.keywords !== undefined) expect(up.keywords).toBe("LOJA B ORIGINAL");
+    await aguardar(() => kw()?.value === "LOJA B ORIGINAL", "form mostra as keywords da loja t2", 2000);
+    // Fix C3 + T3: a tela adotou o cru da B (a edição da A se perde, como antes desta branch — não
+    // ideal, mas nunca grava dado da loja errada). Nada mudou na B ⇒ o Salvar nem chama a RPC.
+    await clicar(botaoPorTexto("Salvar alterações")!);
+    await aguardar(() => toastMock.info.mock.calls.some((c) => c[0] === "Nenhuma alteração para salvar."), "toast de nada mudou");
+    expect(botaoPorTexto("Salvar mesmo assim")).toBeNull(); // T4: nem abre a confirmação
+    expect(rpcsSalvar()).toHaveLength(0);
+    expect(escritasDiretas()).toHaveLength(0);
+    expect(FAKE.linhas.tenant_config.find((r) => r.tenant_id === "t2")!.keywords).toBe("LOJA B ORIGINAL");
+    expect(FAKE.linhas.tenant_config.find((r) => r.tenant_id === "t1")!.keywords).toBe(ORIGINAL);
+  });
+
+  it("T3: trocar de loja ZERA a base crua — editar na B manda a base DA B (nunca a da A) e grava só na B", async () => {
+    const qc = await abrirPagina();
+    await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação (loja t1)");
+    await digitar(kw()!, "EDITADO NA LOJA A");
+    FAKE.linhas.users[0].tenant_id = "t2";
+    await qc.invalidateQueries({ queryKey: ["tenant-config"] });
+    await aguardar(() => kw()?.value === "LOJA B ORIGINAL", "form mostra a loja t2", 2000);
+    await digitar(kw()!, "EDITADO NA LOJA B");
+    await salvarComoAQa({ tipo: "success", texto: "Configurações salvas" });
+    const rpcs = rpcsSalvar();
+    expect(rpcs).toHaveLength(1);
+    expect(rpcs[0]._tenant_id).toBe("t2");
+    expect(rpcs[0]._mudancas).toEqual({ keywords: "EDITADO NA LOJA B" });
+    expect(rpcs[0]._base).toEqual({ keywords: "LOJA B ORIGINAL" }); // base crua DA B
+    expect(FAKE.linhas.tenant_config.find((r) => r.tenant_id === "t2")!.keywords).toBe("EDITADO NA LOJA B");
+    expect(FAKE.linhas.tenant_config.find((r) => r.tenant_id === "t1")!.keywords).toBe(ORIGINAL);
   });
 });

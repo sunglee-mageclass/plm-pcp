@@ -5,6 +5,9 @@
 // diálogo só olhava `saveMut.isPending` — nunca esperou a leitura assentar. Clicar Salvar com a
 // leitura ainda em voo, OU depois de uma falha (que nunca hidrata), fazia o upsert gravar
 // `tab_labels`/`campos_editaveis` VAZIOS por cima das nomenclaturas reais da loja.
+// T5 da Config colaborativa (29/set): o diálogo grava pela RPC `salvar_config_loja` (só o mapa que
+// mudou + a base crua) — as travas abaixo conferem que NADA é gravado (nem RPC, nem upsert direto), e o
+// último caso prova o caminho feliz pela RPC.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -38,7 +41,7 @@ vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastM
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
-import { montar, esperar, aguardar, clicar, botaoPorTexto } from "./dom-helpers";
+import { montar, esperar, aguardar, clicar, digitar, botaoPorTexto } from "./dom-helpers";
 import { Route } from "@/routes/_authenticated/admin/configuracoes";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
@@ -81,6 +84,7 @@ describe("[fix hidratação revisão final] F1 — diálogo Nomenclaturas (Confi
     await esperar(80);
     const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1);
     expect(up).toBeUndefined();
+    expect(FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja")).toHaveLength(0);
   });
 
   it("leitura do diálogo FALHA (erro engolido antes; agora lança) — Salvar fica TRAVADO, nunca upserta vazio", async () => {
@@ -94,5 +98,23 @@ describe("[fix hidratação revisão final] F1 — diálogo Nomenclaturas (Confi
     expect(salvarDlg?.disabled).toBe(true);
     const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1);
     expect(up).toBeUndefined();
+    expect(FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja")).toHaveLength(0);
+  });
+
+  it("caminho feliz: Salvar do diálogo chama a RPC só com o mapa que mudou e a base crua (nenhum upsert)", async () => {
+    await abrirPagina();
+    await aguardar(() => kw()?.value === ORIGINAL, "página hidratou");
+    await clicar(botaoPorTexto("Editar nomenclaturas por módulo")!);
+    await aguardar(() => botaoPorTexto("Salvar")?.disabled === false, "diálogo hidratou");
+    const campoRef = document.querySelector<HTMLInputElement>('[role="dialog"] input[data-colab-path="nom:campo:ref"]')!;
+    await digitar(campoRef, "Código Novo");
+    await clicar(botaoPorTexto("Salvar")!);
+    await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Nomenclaturas salvas"), "salvo");
+    const r = FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja").at(-1)!.payload as any;
+    expect(r._mudancas).toEqual({ campos_editaveis: { ref: "Código Novo" } });
+    expect(r._base).toEqual({ campos_editaveis: { ref: "Código" } });
+    expect(FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert")).toHaveLength(0);
+    expect(FAKE.linhas.tenant_config[0].campos_editaveis).toEqual({ ref: "Código Novo" });
+    expect(FAKE.linhas.tenant_config[0].tab_labels).toEqual({ producao: "Fábrica", cadastro: "Cadastros da Loja" });
   });
 });

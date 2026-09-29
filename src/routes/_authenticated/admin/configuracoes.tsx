@@ -1,5 +1,5 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap, LogIn, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -59,16 +59,24 @@ import { REVENDA_COND_NA, requisitosHerdados } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
 import type { RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
-import { keywordsDoServidor, keywordsParaPayload } from "@/lib/config-keywords";
-import { mergeDraft, igual } from "@/lib/colab/merge";
+import { keywordsDoServidor } from "@/lib/config-keywords";
+import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import {
+  COLUNAS_NOMENCLATURAS, COLUNAS_PAGINA, colunasDoErro, limparNomes, mesclarNomes, montarMudancas, rebasearBaseRaw, rotuloColuna,
+  serializarColuna, type ColunaNomenclatura, type ConflitoNome,
+} from "@/lib/config-loja-colab";
+import type { PresencaColab } from "@/hooks/useColabRegistro";
 import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { KanbanAutomaticoBloco, KanbanSalvarDialog } from "@/components/admin/KanbanAutomaticoDialog";
 import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
 import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { modoColuna, motorKanbanDisponivel, MOTIVO_REPROVADO_MANUAL, type PreviaRecalculo } from "@/lib/kanban-auto-ui";
 import {
-  chaveKanbanMudou, conflitoKanban, descreverMudancasKanban, diffKanban, diffMudouDesdeAPrevia, mensagemConflitoKanban,
-  MENSAGEM_CHAVE_KANBAN_MUDOU, MENSAGEM_PREVIA_KANBAN_MUDOU, normalizarKanbanDefaults, pickKanban, resolverEcoKanban, separarPayloadKanban,
+  conflitoKanban, descreverMudancasKanban, diffKanban, diffMudouDesdeAPrevia, jsonCanonico, juntarLista, KANBAN_COLS, mensagemConflitoKanban,
+  MENSAGEM_CHAVE_KANBAN_MUDOU, MENSAGEM_PREVIA_KANBAN_MUDOU, normalizarKanbanDefaults, pickKanban, resolverEcoKanban,
   type KanbanCol, type KanbanColsValor,
 } from "@/lib/kanban-auto-config";
 
@@ -163,6 +171,66 @@ const DEFAULTS = {
 
 type ConfigState = typeof DEFAULTS;
 
+// Linha CRUA de tenant_config → estado da TELA (fallback de DEFAULTS por coluna). Loja SEM linha
+// (`row` null) = DEFAULTS puros. Extraída do efeito de hidratação (T3 da Config colaborativa) p/ o
+// onError do P0409 também conseguir mostrar o valor "do outro" na mesma régua da tela.
+function normalizarConfig(row: Record<string, unknown> | null | undefined): ConfigState {
+  const r = (row ?? {}) as any;
+  return {
+    timezone: r.timezone ?? DEFAULTS.timezone,
+    etapas_acabamento: Array.isArray(r.etapas_acabamento)
+      ? r.etapas_acabamento
+      : DEFAULTS.etapas_acabamento,
+    tamanhos_grade: Array.isArray(r.tamanhos_grade)
+      ? r.tamanhos_grade
+      : DEFAULTS.tamanhos_grade,
+    status_kanban: Array.isArray(r.status_kanban)
+      ? r.status_kanban
+      : DEFAULTS.status_kanban,
+    campos_editaveis:
+      r.campos_editaveis && typeof r.campos_editaveis === "object" && !Array.isArray(r.campos_editaveis)
+        ? (r.campos_editaveis as Record<string, string>)
+        : DEFAULTS.campos_editaveis,
+    modo_baixa_estoque: r.modo_baixa_estoque ?? DEFAULTS.modo_baixa_estoque,
+    modo_oc_rolo: (r as any).modo_oc_rolo ?? DEFAULTS.modo_oc_rolo,
+    kanban_requisitos:
+      (r as any).kanban_requisitos && typeof (r as any).kanban_requisitos === "object" && !Array.isArray((r as any).kanban_requisitos)
+        ? ((r as any).kanban_requisitos as Record<string, string[]>)
+        : DEFAULTS.kanban_requisitos,
+    kanban_requisitos_excecoes:
+      (r as any).kanban_requisitos_excecoes && typeof (r as any).kanban_requisitos_excecoes === "object" && !Array.isArray((r as any).kanban_requisitos_excecoes)
+        ? ((r as any).kanban_requisitos_excecoes as Record<string, string[]>)
+        : DEFAULTS.kanban_requisitos_excecoes,
+    explosao_envio_status: (r as any).explosao_envio_status ?? DEFAULTS.explosao_envio_status,
+    ref_exibir_status: (r as any).ref_exibir_status ?? DEFAULTS.ref_exibir_status,
+    markup_analise_faixa: !!r.markup_analise_faixa,
+    leadtime:
+      (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
+        ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
+        : DEFAULTS.leadtime,
+    pcp_etapas:
+      Array.isArray((r as any).pcp_etapas) && (r as any).pcp_etapas.length
+        ? ((r as any).pcp_etapas as EtapaCfg[])
+        : DEFAULTS.pcp_etapas,
+    revenda_kanban_colunas: Array.isArray((r as any).revenda_kanban_colunas)
+      ? ((r as any).revenda_kanban_colunas as string[])
+      : DEFAULTS.revenda_kanban_colunas,
+    revenda_kanban_requisitos:
+      (r as any).revenda_kanban_requisitos && typeof (r as any).revenda_kanban_requisitos === "object" && !Array.isArray((r as any).revenda_kanban_requisitos)
+        ? ((r as any).revenda_kanban_requisitos as Record<string, string[]>)
+        : DEFAULTS.revenda_kanban_requisitos,
+    revenda_campos:
+      (r as any).revenda_campos && typeof (r as any).revenda_campos === "object" && !Array.isArray((r as any).revenda_campos)
+        ? ((r as any).revenda_campos as Record<string, boolean>)
+        : DEFAULTS.revenda_campos,
+    ref_config:
+      (r as any).ref_config && typeof (r as any).ref_config === "object" && !Array.isArray((r as any).ref_config)
+        ? ((r as any).ref_config as RefConfig)
+        : DEFAULTS.ref_config,
+    keywords: keywordsDoServidor((r as any).keywords),
+  };
+}
+
 const MODULE_LABELS: { key: string; label: string }[] = [
   { key: "cadastro", label: "Cadastro" },
   { key: "criacao", label: "Estilo & Engenharia" },
@@ -186,6 +254,71 @@ async function lerConfigServidor(tenantId: string): Promise<Record<string, unkno
   return (data ?? null) as Record<string, unknown> | null;
 }
 
+// T3 (Config colaborativa): as colunas GERAIS da página (as 16 de `COLUNAS_PAGINA` menos as 5 do
+// kanban, que têm régua própria — `rebasearKanban`/`kanbanBase`).
+const COLUNAS_GERAIS_PAGINA: ReadonlySet<string> = new Set(
+  COLUNAS_PAGINA.filter((k) => !(KANBAN_COLS as readonly string[]).includes(k)),
+);
+
+// O valor CRU (sem fallback de DEFAULTS) das 16 colunas da página — a `_base` da RPC. Loja sem
+// linha = tudo null (a RPC exige a chave na base; `null` = "não havia valor").
+function colunasCruas(row: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of COLUNAS_PAGINA) out[k] = row?.[k] ?? null;
+  return out;
+}
+
+// T4: dois valores de uma coluna "são o mesmo" para o banco se serializam igual no payload da RPC
+// (keywords "  " ≡ "" ≡ NULL; ref_config {partes:[]} ≡ NULL; explosao "" ≡ NULL).
+function mesmoValorSalvo(k: string, a: unknown, b: unknown): boolean {
+  return igual(serializarColuna(k, a), serializarColuna(k, b));
+}
+
+// T4 (P-124 A — anel por BLOCO): coluna → bloco da tela (`data-colab-path` do card) que a edita.
+const BLOCO_DA_COLUNA: Record<string, string> = {
+  timezone: "cfg:timezone",
+  status_kanban: "cfg:status_kanban",
+  kanban_requisitos: "cfg:status_kanban",
+  kanban_requisitos_excecoes: "cfg:status_kanban",
+  explosao_envio_status: "cfg:status_kanban",
+  ref_exibir_status: "cfg:status_kanban",
+  ref_config: "cfg:ref_config",
+  revenda_kanban_colunas: "cfg:revenda_kanban_colunas",
+  revenda_kanban_requisitos: "cfg:revenda_kanban_colunas",
+  revenda_campos: "cfg:revenda_campos",
+  leadtime: "cfg:leadtime",
+  pcp_etapas: "cfg:pcp_etapas",
+  modo_oc_rolo: "cfg:modo_oc_rolo",
+  modo_baixa_estoque: "cfg:modo_baixa_estoque",
+  markup_analise_faixa: "cfg:markup_analise_faixa",
+  keywords: "cfg:keywords",
+};
+
+// T4: foco em controle DENTRO de um bloco (diálogo de Requisitos, marcadores Explosão/REF por linha)
+// → o anel do outro aparece no BLOCO que o contém (o diálogo é portal, fora da página; os marcadores
+// se repetem por linha e reencontrar "o 1º" poria o anel na linha errada).
+const BLOCO_DO_FOCO: Record<string, string> = {
+  "cfg:kanban_requisitos": "cfg:status_kanban",
+  "cfg:explosao_envio_status": "cfg:status_kanban",
+  "cfg:ref_exibir_status": "cfg:status_kanban",
+  "cfg:revenda_kanban_requisitos": "cfg:revenda_kanban_colunas",
+};
+function blocoDoFoco(path: string | null): string | null {
+  if (!path) return null;
+  if (path.startsWith("nom:")) return "cfg:nomenclaturas"; // T5: nome na janela → anel no card Nomenclaturas
+  return BLOCO_DO_FOCO[path] ?? path;
+}
+
+// Junta a lista de conflitos pendentes com os novos (um por coluna; o novo substitui o antigo).
+function juntarConflitos(atuais: Conflito[], novos: Conflito[]): Conflito[] {
+  const mapa = new Map(atuais.map((c) => [c.path, c]));
+  for (const c of novos) mapa.set(c.path, c);
+  return [...mapa.values()];
+}
+
+// Resposta da RPC `salvar_config_loja` (T1): só as colunas gravadas, com o valor pós-gatilhos.
+type RetornoSalvarConfig = { gravadas: string[]; valores: Record<string, unknown> };
+
 function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
@@ -207,9 +340,37 @@ function ConfiguracoesLojaPage() {
   // então upserta a edição da A na loja ERRADA (B). Antes desta branch a tela era sobrescrita pela
   // B (perdia a edição, mas não gravava na loja errada); o merge novo introduziu essa regressão.
   const cfgBaseTenantRef = useRef<string | null>(null);
-  // O que ESTE save mandou (mutationFn) — para o eco do PRÓPRIO upsert não ser tratado como
+  // O que ESTE save mandou (mutationFn) — para o eco do PRÓPRIO save não ser tratado como
   // edição alheia (senão o onSuccess já rebaixaria `cfgBaseRef` para o valor pré-save).
   const cfgEnviadoRef = useRef<ConfigState | null>(null);
+  // Config colaborativa (T3, P-28 A): `hydrated` = a 1ª carga JÁ semeou `cfg`/`cfgBaseRef`/
+  // `baseRawRef` (P-57 A — sem isso o Salvar podia sair entre a query resolver e o efeito semear).
+  const [hydrated, setHydrated] = useState(false);
+  // Valor CRU do servidor (as 16 colunas da página, SEM o fallback de DEFAULTS) — vai como `_base`
+  // da RPC `salvar_config_loja` (compare-and-set por coluna). Loja sem linha = {} (base null por
+  // coluna). Re-baseia a cada eco (`rebasearBaseRaw`), exceto colunas em conflito e o kanban com
+  // save em voo; ZERA (adota o cru da loja nova) ao trocar de loja.
+  const baseRawRef = useRef<Record<string, unknown>>({});
+  // Conflitos pendentes (merge da re-hidratação + P0409 da RPC). T4 desenha o banner/"manter meu ·
+  // usar o novo"; aqui só guardamos e travamos o Salvar enquanto houver algum (P-122 A).
+  const [conflitosPendentes, setConflitosPendentes] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+  const definirConflitos = (lista: Conflito[]) => {
+    conflitosRef.current = lista;
+    setConflitosPendentes(lista);
+  };
+  // T4: resultado do último merge com mudança alheia (banner). null = nada a avisar.
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  // T4: presença (quem mais está na tela e em qual BLOCO — P-124 A). Canal por loja: trocar de loja
+  // troca o canal (a presença da loja anterior some junto).
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  // Colunas EM VOO (as que o save em andamento mandou; vazio = nenhum save em voo). O eco do PRÓPRIO
+  // save pode chegar antes da resposta, já normalizado pelo servidor — comparar isso com a tela daria
+  // conflito falso. Revisão T3/T4 (M1): SÓ essas colunas deixam de registrar conflito/"atualizado" e de
+  // re-basear a base crua no eco; as demais seguem o merge normal (mudança alheia nelas continua visível).
+  // Quem garante as colunas em voo é a RPC (compare-and-set) — P0409 vira conflito no onError.
+  const emVooRef = useRef<Set<string>>(new Set());
   // Salvar configurações afeta dados de toda a loja (modo OC/Rolo, grade, kanban,
   // acabamento, baixa) — confirma antes de gravar.
   const [confirmSalvar, setConfirmSalvar] = useState(false);
@@ -217,8 +378,9 @@ function ConfiguracoesLojaPage() {
   const { dirty, markClean, reset: resetCfgBaseline } = useDirtySnapshot(cfg);
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
 
-  // RP3 (guardião): as 5 colunas de kanban NÃO vão no upsert genérico. `cfg` = como a TELA abriu (base do diff
-  // do que o usuário mexeu); `servidor` = valor CRU lido do banco (p/ detectar outra aba/admin que mudou depois).
+  // RP3 (guardião): as 5 colunas de kanban só vão no save quando o usuário as mudou (diff contra `cfg`). `cfg` =
+  // como a TELA abriu (base do diff do que o usuário mexeu); `servidor` = valor lido do banco (normalizado), usado
+  // pelo aviso antecipado de `prepararSalvar` — a garantia real é o compare-and-set da RPC (T3).
   const [kanbanBase, setKanbanBase] = useState<{ cfg: KanbanColsValor; servidor: KanbanColsValor }>(() => ({
     cfg: pickKanban(DEFAULTS),
     servidor: pickKanban(DEFAULTS), // mesmo espaço normalizado do conflito (re-revisão: loja sem linha)
@@ -228,22 +390,22 @@ function ConfiguracoesLojaPage() {
   const [preparandoSalvar, setPreparandoSalvar] = useState(false);
   // "Salvar e mover N cards" (chave ligada + requisitos/ordem mudados): prévia calculada no clique de Salvar.
   const [previaSalvar, setPreviaSalvar] = useState<{ previa: PreviaRecalculo; mudancas: string } | null>(null);
-  // Fix round 2 (revisão Opus): PROTEGE o kanban local (na tela) enquanto (a) o save com diff de
-  // kanban está EM VOO ou (b) o `update(diff)` falhou depois do `upsert(geral)` ter sucesso (falha
-  // parcial — ver round 1). É um REF, não estado: precisa estar TRUE já no início do `mutationFn`,
-  // ANTES de qualquer await — o eco do Realtime do próprio `upsert(geral)` chega em ~0,4-0,8s (WAL +
-  // debounce 250ms + 2 SELECTs em useRealtimeInvalidation.ts) e o `update(diff)` pode demorar MAIS
-  // que isso (com a chave ligada, `trg_kanban_config` recalcula a loja inteira na mesma txn antes do
-  // erro propagar) — uma flag de estado ligada só no `onError` perderia essa corrida. Lido pelo
+  // Fix round 2 (revisão Opus): PROTEGE o kanban local (na tela) enquanto o save com diff de kanban
+  // está EM VOO. (Desde o T3 da Config colaborativa o save é UMA RPC atômica — a antiga falha parcial
+  // "geral gravou, kanban não" deixou de existir; qualquer erro = nada gravado e a proteção desliga.)
+  // É um REF, não estado: precisa estar TRUE já no início do `mutationFn`, ANTES do await — o eco do
+  // Realtime do próprio save chega em ~0,4-0,8s (WAL + debounce 250ms + 2 SELECTs em
+  // useRealtimeInvalidation.ts) e a RPC pode demorar MAIS que isso (com a chave ligada,
+  // `trg_kanban_config` recalcula a loja inteira na mesma txn) — uma flag de estado perderia a corrida. Lido pelo
   // useEffect do eco FORA das deps (não dispara o efeito de novo sozinho — round 1 tinha essa
   // regressão: a flag nas deps refazia o efeito no sucesso com `data?.cfg` ainda desatualizado e
   // sobrescrevia o `kanbanBase` que o `onSuccess` tinha acabado de setar).
   const kanbanProtegidoRef = useRef(false);
   // Minor 1 (fix round 1, garantia D19): o valor de `kanban_automatico` que `prepararSalvar` leu do
   // servidor ao decidir se mostrava a prévia "Salvar e mover N cards" (ou o AlertDialog de sempre).
-  // O `mutationFn` relê a chave no MESMO `lerConfigServidor` que já usa pro conflito das 5 colunas
-  // e aborta se ela mudou nesse meio-tempo — sem isso, outra aba ligando a chave enquanto o diálogo
-  // de confirmação está aberto faria o Salvar mover cards em cascata sem prévia nenhuma.
+  // Vai para a RPC como `_chave_kanban_esperada` (T3): ela confere na mesma transação que grava e
+  // recusa com P0409 `chave_kanban_mudou:` se mudou nesse meio-tempo — sem isso, outra aba ligando a
+  // chave enquanto o diálogo de confirmação está aberto faria o Salvar mover cards sem prévia nenhuma.
   const chaveEsperadaRef = useRef(false);
   // Médio 1 (revisão final Opus, garantia D19): o diff (canônico) que `prepararSalvar` calculou ao
   // pedir a prévia "Salvar e mover N cards" — a tela segue editável enquanto o `await` da prévia está
@@ -280,61 +442,22 @@ function ConfiguracoesLojaPage() {
   });
 
   useEffect(() => {
-    if (!data?.cfg) return;
-    const r = data.cfg as any;
-    const next: ConfigState = {
-      timezone: r.timezone ?? DEFAULTS.timezone,
-      etapas_acabamento: Array.isArray(r.etapas_acabamento)
-        ? r.etapas_acabamento
-        : DEFAULTS.etapas_acabamento,
-      tamanhos_grade: Array.isArray(r.tamanhos_grade)
-        ? r.tamanhos_grade
-        : DEFAULTS.tamanhos_grade,
-      status_kanban: Array.isArray(r.status_kanban)
-        ? r.status_kanban
-        : DEFAULTS.status_kanban,
-      campos_editaveis:
-        r.campos_editaveis && typeof r.campos_editaveis === "object" && !Array.isArray(r.campos_editaveis)
-          ? (r.campos_editaveis as Record<string, string>)
-          : DEFAULTS.campos_editaveis,
-      modo_baixa_estoque: r.modo_baixa_estoque ?? DEFAULTS.modo_baixa_estoque,
-      modo_oc_rolo: (r as any).modo_oc_rolo ?? DEFAULTS.modo_oc_rolo,
-      kanban_requisitos:
-        (r as any).kanban_requisitos && typeof (r as any).kanban_requisitos === "object" && !Array.isArray((r as any).kanban_requisitos)
-          ? ((r as any).kanban_requisitos as Record<string, string[]>)
-          : DEFAULTS.kanban_requisitos,
-      kanban_requisitos_excecoes:
-        (r as any).kanban_requisitos_excecoes && typeof (r as any).kanban_requisitos_excecoes === "object" && !Array.isArray((r as any).kanban_requisitos_excecoes)
-          ? ((r as any).kanban_requisitos_excecoes as Record<string, string[]>)
-          : DEFAULTS.kanban_requisitos_excecoes,
-      explosao_envio_status: (r as any).explosao_envio_status ?? DEFAULTS.explosao_envio_status,
-      ref_exibir_status: (r as any).ref_exibir_status ?? DEFAULTS.ref_exibir_status,
-      markup_analise_faixa: !!r.markup_analise_faixa,
-      leadtime:
-        (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
-          ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
-          : DEFAULTS.leadtime,
-      pcp_etapas:
-        Array.isArray((r as any).pcp_etapas) && (r as any).pcp_etapas.length
-          ? ((r as any).pcp_etapas as EtapaCfg[])
-          : DEFAULTS.pcp_etapas,
-      revenda_kanban_colunas: Array.isArray((r as any).revenda_kanban_colunas)
-        ? ((r as any).revenda_kanban_colunas as string[])
-        : DEFAULTS.revenda_kanban_colunas,
-      revenda_kanban_requisitos:
-        (r as any).revenda_kanban_requisitos && typeof (r as any).revenda_kanban_requisitos === "object" && !Array.isArray((r as any).revenda_kanban_requisitos)
-          ? ((r as any).revenda_kanban_requisitos as Record<string, string[]>)
-          : DEFAULTS.revenda_kanban_requisitos,
-      revenda_campos:
-        (r as any).revenda_campos && typeof (r as any).revenda_campos === "object" && !Array.isArray((r as any).revenda_campos)
-          ? ((r as any).revenda_campos as Record<string, boolean>)
-          : DEFAULTS.revenda_campos,
-      ref_config:
-        (r as any).ref_config && typeof (r as any).ref_config === "object" && !Array.isArray((r as any).ref_config)
-          ? ((r as any).ref_config as RefConfig)
-          : DEFAULTS.ref_config,
-      keywords: keywordsDoServidor((r as any).keywords),
-    };
+    if (!data) return;
+    // T3: usuário SEM loja — nada a hidratar; o Salvar fica travado (`!data?.tenantId`) e nenhuma
+    // base de outra loja sobrevive para um save futuro.
+    if (!data.tenantId) {
+      cfgBaseTenantRef.current = null;
+      cfgBaseRef.current = null;
+      baseRawRef.current = {};
+      definirConflitos([]);
+      setUltimoMerge(null);
+      setHydrated(false);
+      return;
+    }
+    // T3: loja SEM linha de tenant_config (`data.cfg` null) também hidrata — de DEFAULTS, com base
+    // crua VAZIA (a RPC recebe `null` como base de cada coluna e cria a linha). Antes o efeito saía
+    // cedo e a tela ficava com os DEFAULTS iniciais do useState, sem base nenhuma.
+    const next: ConfigState = normalizarConfig(data.cfg as Record<string, unknown> | null);
     // Fix round 2: enquanto PROTEGIDO (save em voo OU falha parcial pendente — `kanbanProtegidoRef`,
     // lido aqui FORA das deps do efeito), este eco — inclusive o do Realtime disparado pelo PRÓPRIO
     // upsert — NÃO pode trocar o kanban da tela pelo do servidor (apagaria a edição do usuário) NEM
@@ -354,7 +477,11 @@ function ConfiguracoesLojaPage() {
     // adotado na tela até o próximo save bem-sucedido zerar a flag. Sem perda de dado (o
     // `conflitoKanban` barrava um save nesse intervalo), mas a tela ficava "presa" mostrando um
     // kanban desatualizado da loja nova.
-    if (!mesmaLoja) kanbanProtegidoRef.current = false;
+    if (!mesmaLoja) {
+      kanbanProtegidoRef.current = false;
+      // Revisão T3/T4 (I1): um save da loja anterior ainda em voo não pode "proteger" colunas da loja nova.
+      emVooRef.current = new Set();
+    }
     const r2 = mesmaLoja
       ? resolverEcoKanban(kanbanProtegidoRef.current, pickKanban(cfgRef.current), pickKanban(next), kanbanBaseRef.current)
       : { cfgKanban: pickKanban(next), kanbanBase: { cfg: pickKanban(next), servidor: pickKanban(next) } };
@@ -368,126 +495,174 @@ function ConfiguracoesLojaPage() {
     const tocados = new Set(
       base ? (Object.keys(next) as (keyof ConfigState)[]).filter((k) => !igual(cfgRef.current[k], base[k])) : [],
     );
-    const valor = base ? mergeDraft({ base, draft: cfgRef.current, fresh: next, touched: tocados }).valor : next;
+    const merge = base ? mergeDraft({ base, draft: cfgRef.current, fresh: next, touched: tocados }) : null;
+    const valor = merge ? merge.valor : next;
+    const tela = { ...valor, ...r2.cfgKanban } as ConfigState;
+    // T3 (Config colaborativa): o merge GUARDA os conflitos (antes eram descartados — "o meu vence
+    // calado", e o Salvar regravava por cima da mudança alheia). T4 desenha o banner; aqui só a
+    // lista (que trava o Salvar, P-122 A). Só as colunas da PÁGINA contam (campos_editaveis/
+    // tamanhos_grade/etapas_acabamento têm outros editores). Kanban usa a MESMA régua de "tocada"
+    // de `rebasearKanban` (base = `kanbanBase.cfg`, não `cfgBaseRef`): tocada E o servidor mudou
+    // desde a base E não convergiu. Colunas EM VOO (`emVooRef`, M1): não registram conflito nem contam
+    // como "atualizadas" — o eco pode ser o do PRÓPRIO save, já normalizado pelo servidor.
+    let pendentes: Conflito[] = mesmaLoja ? conflitosRef.current : [];
+    const emVoo = emVooRef.current;
+    // T4: quantas colunas da página chegaram de OUTRA pessoa neste eco (banner "N campos atualizados").
+    let nAtualizados = 0;
+    let novosConflitos: Conflito[] = [];
+    if (merge) {
+      const draftAntes = cfgRef.current as Record<string, unknown>;
+      const baseAntes = base as Record<string, unknown>;
+      const fresh = next as Record<string, unknown>;
+      // Só diferença REAL conta — o servidor normaliza (keywords só espaços → NULL, ref_config vazio → NULL);
+      // comparar pela serialização do payload evita "conflito"/"atualizado" falso depois do próprio save.
+      novosConflitos = merge.conflitos.filter(
+        (c) => COLUNAS_GERAIS_PAGINA.has(c.path) && !emVoo.has(c.path) && !mesmoValorSalvo(c.path, draftAntes[c.path], fresh[c.path]),
+      );
+      nAtualizados = merge.atualizados.filter(
+        (k) => COLUNAS_GERAIS_PAGINA.has(k) && !emVoo.has(k) && !mesmoValorSalvo(k, baseAntes[k], fresh[k]),
+      ).length;
+      const local = pickKanban(cfgRef.current);
+      const fresco = pickKanban(next);
+      const kb = kanbanBaseRef.current.cfg;
+      for (const c of KANBAN_COLS) {
+        if (emVoo.has(c) || kanbanProtegidoRef.current) continue; // kanban do save em voo: a RPC decide
+        const l = jsonCanonico(local[c]), f = jsonCanonico(fresco[c]), b = jsonCanonico(kb[c] ?? null);
+        if (l !== f && l !== b && f !== b) novosConflitos.push({ path: c, meu: local[c], dele: fresco[c] });
+        else if (l === b && f !== b) nAtualizados++; // não mexi e o servidor mudou → adotado
+      }
+      pendentes = juntarConflitos(pendentes, novosConflitos);
+    }
+    // Atualiza "meu"/"dele" dos pendentes (inclusive os vindos de um P0409, que nascem sem "dele") e
+    // solta o que CONVERGIU (a tela já tem o mesmo valor do servidor — nada a resolver).
+    pendentes = pendentes
+      .filter((c) => !igual((tela as Record<string, unknown>)[c.path], (next as Record<string, unknown>)[c.path]))
+      .map((c) => ({ path: c.path, meu: (tela as Record<string, unknown>)[c.path], dele: (next as Record<string, unknown>)[c.path] }));
+    // Base CRUA da RPC: 1ª carga ou loja nova = o cru inteiro desta loja (zera, não re-baseia);
+    // re-hidratação na mesma loja = `rebasearBaseRaw` (coluna em conflito, coluna EM VOO e kanban com save
+    // em voo ficam com a base antiga — senão a RPC gravaria por cima da mudança alheia sem P0409).
+    const cru = colunasCruas(data.cfg as Record<string, unknown> | null);
+    baseRawRef.current = base
+      ? rebasearBaseRaw(baseRawRef.current, cru, new Set([...pendentes.map((c) => c.path), ...emVoo]), kanbanProtegidoRef.current)
+      : cru;
     cfgBaseRef.current = next;
-    setCfg({ ...valor, ...r2.cfgKanban } as ConfigState);
+    setCfg(tela);
     setKanbanBase(r2.kanbanBase);
     resetCfgBaseline(next); // baseline = servidor ⇒ o selo "não salvo" segue aceso só p/ o que é meu
-  }, [data?.cfg]);
+    definirConflitos(pendentes);
+    // T4: banner "Alguém salvou agora — N campos atualizados · M em conflito". Loja nova/1ª carga
+    // limpa; eco sem mudança alheia mantém o banner que já estava (não pisca).
+    if (!base) setUltimoMerge(null);
+    else if (nAtualizados > 0 || novosConflitos.length > 0) setUltimoMerge({ atualizados: nAtualizados, conflitos: pendentes });
+    else setUltimoMerge((u) => (u ? { ...u, conflitos: pendentes } : u));
+    setHydrated(true);
+  }, [data?.cfg, data?.tenantId]);
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<
+      | { nada: true }
+      | { nada: false; retorno: RetornoSalvarConfig; enviado: ConfigState; kanbanEnviado: KanbanColsValor }
+    > => {
       if (!data?.tenantId) throw new Error("Loja não identificada para este usuário.");
-      // Fix hidratação (P-57 A): guarda o que ESTE save está mandando — o onSuccess usa para
-      // re-basear `cfgBaseRef` (o eco do PRÓPRIO upsert não deve ser tratado como edição alheia).
-      cfgEnviadoRef.current = cfg;
-      // campos_editaveis (janela Nomenclaturas), tamanhos_grade e etapas_acabamento
-      // (agora em Cadastro > Atributos) NÃO são salvos aqui, p/ não sobrescrever o que
-      // foi editado nesses outros lugares.
-      // F3.6 (R39): `keywords` fica FORA do spread geral — entra só se o usuário a mudou nesta tela (keywordsParaPayload).
-      const { campos_editaveis: _ce, tamanhos_grade: _tg, etapas_acabamento: _ea, keywords: _kw, ...cfgRest } = cfg;
-      // ref_config "vazio" (usuário não marcou nenhuma parte da montagem) → null, mesmo
-      // espírito do "" → null abaixo: sem configuração explícita, a loja usa o comportamento
-      // HISTÓRICO (fallback derivado no banco), sem gravar um objeto vazio/inerte.
-      const refConfigVazio = !cfg.ref_config || !Array.isArray(cfg.ref_config.partes) || cfg.ref_config.partes.length === 0;
-      // "" (Aprovado / ausência) → null, p/ manter o default histórico sem gravar valor.
-      const payload = {
-        tenant_id: data.tenantId, ...cfgRest,
-        explosao_envio_status: cfg.explosao_envio_status || null,
-        ref_exibir_status: cfg.ref_exibir_status || null,
-        ref_config: refConfigVazio ? null : cfg.ref_config,
-        ...keywordsParaPayload(cfg.keywords, (data?.cfg as any)?.keywords),
-      };
-      // RP3: as colunas de kanban SAEM do upsert genérico (uma aba velha regravaria requisitos/ordem de outro
-      // admin e, com a chave ligada, o gatilho recalcularia a loja sem prévia). Vão SÓ as que o usuário mudou,
-      // num UPDATE próprio, depois de conferir que o banco ainda tem o que esta tela carregou.
-      // ORDEM (R3 do G-plano): 1) conflito (nada gravado se houver) → 2) upsert do geral → 3) kanban POR ÚLTIMO.
-      // Se o geral falhar, o kanban não foi gravado: o retry não acusa "Outra pessoa mudou…" contra a própria
-      // gravação e, com a chave ligada, nenhum card se move com a tela mostrando erro. O upsert também garante
-      // a linha de tenant_config antes do UPDATE (sem linha, o UPDATE afetaria 0 linhas calado).
-      const { geral } = separarPayloadKanban(payload);
+      // P-57 A: o botão já trava sem `hydrated`; esta guarda cobre um `mutate()` vindo de um diálogo
+      // aberto antes da troca de loja/recarga (nada de base vazia indo para a RPC).
+      if (!hydrated || !cfgBaseRef.current) throw new Error("Aguarde a Configuração da Loja terminar de carregar.");
+      // Revisão T3/T4 (M2): P-122 A também no handler — com conflito pendente NADA vai (o botão já trava;
+      // isto cobre um `mutate()` disparado por um diálogo aberto antes do conflito chegar).
+      if (conflitosRef.current.length > 0) throw new Error("Resolva os itens em conflito (manter meu ou usar o novo) antes de salvar.");
+      // T3 (Config colaborativa): UMA chamada à RPC `salvar_config_loja` com SÓ as colunas que o
+      // usuário mudou nesta tela (`montarMudancas`) + a base CRUA de cada uma (`baseRawRef`) — o
+      // servidor compara coluna a coluna e recusa com P0409 se outra pessoa gravou uma delas depois
+      // que a tela carregou. Substitui o `upsert` da linha inteira + `update` do kanban em outra
+      // transação (e a antiga falha parcial "geral gravou, kanban não"). campos_editaveis (janela
+      // Nomenclaturas), tamanhos_grade e etapas_acabamento (Cadastro > Atributos) continuam FORA
+      // (não estão em `COLUNAS_PAGINA`). Serialização (""→null, ref_config vazio→null, keywords só
+      // espaços→null) = `serializarColuna`, byte a byte a de antes.
+      const { mudancas, base } = montarMudancas({
+        cfg,
+        baseUi: cfgBaseRef.current,
+        baseRaw: baseRawRef.current,
+        kanbanBaseCfg: kanbanBase.cfg,
+      });
       const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
       const temKanban = Object.keys(diff).length > 0;
-      // Fix round 2 (revisão Opus): liga a PROTEÇÃO aqui, ANTES do 1º `await` — não no `onError`.
-      // O eco do Realtime do `upsert(geral)` abaixo chega em ~0,4-0,8s; com a chave ligada, o
-      // `update(diff)` pode demorar MAIS que isso (trigger recalcula a loja inteira na mesma txn),
-      // então uma flag ligada só depois do erro perderia a corrida e o eco apagaria a edição antes.
-      // Médio 1 (revisão final Opus, garantia D19) + re-revisão: confere ANTES de ligar a proteção e FORA do
+      // Médio 1 (revisão final Opus, garantia D19) + re-revisão: confere ANTES de qualquer gravação e FORA do
       // `if (temKanban)` — um eco do Realtime com a prévia aberta pode zerar o diff (a prévia mostrou N cards e
       // o salvar gravaria 0). Qualquer diferença entre o diff da prévia e o de agora ⇒ falha TOTAL (nada gravado);
       // sem prévia (chave desligada, sem mudança de kanban) os dois são {} e nada aborta.
       if (diffMudouDesdeAPrevia(diffEsperadoRef.current, diff)) {
         throw Object.assign(new Error(MENSAGEM_PREVIA_KANBAN_MUDOU), { fecharDialogoKanban: true });
       }
+      if (Object.keys(mudancas).length === 0) return { nada: true };
+      // Fix hidratação (P-57 A): guarda o que ESTE save está mandando — o onSuccess usa para
+      // re-basear `cfgBaseRef` (o eco do PRÓPRIO save não deve ser tratado como edição alheia).
+      cfgEnviadoRef.current = cfg;
+      emVooRef.current = new Set(Object.keys(mudancas));
+      // Fix round 2 (revisão Opus): PROTEGE o kanban da tela enquanto o save está em voo — o eco do
+      // Realtime do próprio save pode chegar antes da resposta (com a chave ligada, `trg_kanban_config`
+      // recalcula a loja inteira na MESMA transação da RPC, e isso demora). Liga ANTES do `await`.
       if (temKanban) kanbanProtegidoRef.current = true;
-      try {
-        if (temKanban) {
-          const rowAgora = await lerConfigServidor(data.tenantId);
-          // Baixo 4 (revisão final Opus): compara os dois lados NORMALIZADOS (mesmo fallback de
-          // DEFAULTS que a tela aplica ao ler) — `kanbanBase.servidor` já é normalizado (vem de `next`),
-          // então `rowAgora` (leitura CRUA) tem que passar pelo mesmo normalizador aqui, senão uma loja
-          // com `status_kanban` NULL no banco (nunca teve a coluna preenchida) acusaria conflito para
-          // sempre contra o `DEFAULTS.status_kanban` guardado em `kanbanBase.servidor`.
-          const conflito = conflitoKanban(kanbanBase.servidor, normalizarKanbanDefaults(pickKanban(rowAgora), pickKanban(DEFAULTS)));
-          if (conflito.length > 0) {
-            kanbanProtegidoRef.current = false; // falha TOTAL: nada foi gravado, sem proteção a manter
-            throw Object.assign(new Error(mensagemConflitoKanban(conflito)), { fecharDialogoKanban: true });
-          }
-          // Minor 1 (fix round 1, garantia D19): a MESMA leitura confere se a chave `kanban_automatico`
-          // ainda é a que `prepararSalvar` viu ao decidir mostrar a prévia (ou o AlertDialog comum).
-          // Outra aba ligando/desligando a chave entre a prévia e o clique de confirmar significaria
-          // salvar com a premissa errada (cards se movendo em cascata sem prévia, ou vice-versa).
-          if (chaveKanbanMudou(chaveEsperadaRef.current, rowAgora?.kanban_automatico)) {
-            kanbanProtegidoRef.current = false; // falha TOTAL: nada foi gravado, sem proteção a manter
-            throw Object.assign(new Error(MENSAGEM_CHAVE_KANBAN_MUDOU), { fecharDialogoKanban: true });
-          }
-        }
-        const { error } = await supabase
-          .from("tenant_config")
-          .upsert(geral as any, { onConflict: "tenant_id" });
-        if (error) {
-          kanbanProtegidoRef.current = false; // falha TOTAL: geral não gravou, kanban também não
-          throw error;
-        }
-        if (temKanban) {
-          const { data: gravadas, error: errKanban } = await supabase
-            .from("tenant_config")
-            .update(diff as any)
-            .eq("tenant_id", data.tenantId)
-            .select("tenant_id");
-          // Fix round 1 (revisão Opus): o geral JÁ gravou aqui — falha PARCIAL, não total. Marcamos o
-          // erro com `geralOk` para o onError dar a mensagem específica; `kanbanProtegidoRef` CONTINUA
-          // true (não desliga) — é exatamente a falha parcial que a proteção existe para cobrir.
-          if (errKanban) {
-            throw Object.assign(new Error(mensagemErro(errKanban, "Erro ao gravar as colunas do kanban")), { geralOk: true });
-          }
-          if (!gravadas || gravadas.length === 0) {
-            throw Object.assign(
-              new Error("configuração da loja não encontrada. Recarregue a página e tente de novo."),
-              { geralOk: true },
-            );
-          }
-        }
-        return diff;
-      } catch (e) {
-        // Volta a desligar em QUALQUER falha que não seja a parcial marcada acima (ex.: erro
-        // inesperado no meio) — evita ficar protegido para sempre por engano.
-        if (!(e as any)?.geralOk) kanbanProtegidoRef.current = false;
-        throw e;
-      }
+      // A chave do Kanban automático que `prepararSalvar` viu ao decidir prévia × AlertDialog comum
+      // (Minor 1, garantia D19): a RPC confere na MESMA transação que grava e recusa com P0409
+      // `chave_kanban_mudou:` se outra aba ligou/desligou a chave nesse meio-tempo. Obrigatória
+      // quando o payload tem alguma das 5 colunas de kanban (contrato da RPC).
+      const args: Record<string, unknown> = { _tenant_id: data.tenantId, _mudancas: mudancas, _base: base };
+      if (temKanban) args._chave_kanban_esperada = chaveEsperadaRef.current;
+      const { data: retorno, error } = await supabase.rpc("salvar_config_loja" as any, args as any);
+      if (error) throw error;
+      return {
+        nada: false,
+        retorno: (retorno ?? { gravadas: [], valores: {} }) as RetornoSalvarConfig,
+        enviado: cfgEnviadoRef.current,
+        kanbanEnviado: diff,
+      };
     },
-    onSuccess: (diff) => {
+    // Revisão T3/T4 (I1): a loja em que ESTE save foi disparado — a resposta pode chegar depois de o super
+    // admin trocar de loja; aí ela não pode mexer em bases/conflitos/selo da loja que está na tela.
+    onMutate: () => ({ tenantId: data?.tenantId ?? null }),
+    onSuccess: (r, _v, ctx) => {
+      emVooRef.current = new Set();
+      kanbanProtegidoRef.current = false;
+      setPreviaSalvar(null);
+      if (ctx?.tenantId !== cfgBaseTenantRef.current) {
+        if (!r.nada) {
+          toast.success("Configurações salvas (na loja anterior).");
+          qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
+        }
+        return;
+      }
+      if (r.nada) {
+        toast.info("Nenhuma alteração para salvar.");
+        markClean();
+        return;
+      }
       toast.success("Configurações salvas");
       markClean();
+      setUltimoMerge(null);
       // Fix hidratação (P-57 A): o que este save mandou vira a base do merge — evita "não salvo"
       // falso quando o servidor NORMALIZA um valor (ex.: Keywords só com espaços → NULL,
       // `ref_config` vazio → NULL) e o eco da própria escrita chega como re-hidratação.
-      if (cfgEnviadoRef.current) cfgBaseRef.current = cfgEnviadoRef.current;
-      setPreviaSalvar(null);
-      kanbanProtegidoRef.current = false;
-      // O que gravamos vira a nova base (o refetch abaixo também a refaz pelo efeito quando o dado muda). O kanban
-      // é a ÚLTIMA escrita do mutationFn (R3): chegar aqui = geral E kanban gravados.
-      setKanbanBase((b) => ({ cfg: pickKanban(cfg), servidor: { ...b.servidor, ...diff } }));
+      // Revisão T3/T4 (M3): só as colunas GRAVADAS re-baseiam (as outras seguem como estavam — uma
+      // edição feita durante o voo continua "minha", e uma base alheia ainda não ecoada não é escondida).
+      const gravadas = new Set(r.retorno.gravadas ?? Object.keys(r.retorno.valores ?? {}));
+      const enviado = r.enviado as Record<string, unknown>;
+      if (cfgBaseRef.current) {
+        const nb = { ...cfgBaseRef.current } as Record<string, unknown>;
+        for (const k of gravadas) if (k in enviado) nb[k] = enviado[k];
+        cfgBaseRef.current = nb as ConfigState;
+      }
+      // T3: a base CRUA das colunas gravadas vira o valor que o SERVIDOR devolveu (pós-gatilhos) — é
+      // contra ele que o próximo save compara. Só as gravadas: re-basear as outras daqui esconderia a
+      // mudança de outra pessoa que ainda não chegou pelo eco.
+      baseRawRef.current = { ...baseRawRef.current, ...r.retorno.valores };
+      // O que gravamos vira a nova base do kanban (o refetch abaixo também a refaz pelo efeito quando o
+      // dado muda). A RPC é UMA transação: chegar aqui = tudo gravado (não existe mais falha parcial).
+      setKanbanBase((b) => {
+        const cfgK = { ...b.cfg } as Record<string, unknown>;
+        const envK = pickKanban(r.enviado) as Record<string, unknown>;
+        for (const c of KANBAN_COLS) if (gravadas.has(c)) cfgK[c] = envK[c];
+        return { cfg: cfgK as KanbanColsValor, servidor: { ...b.servidor, ...r.kanbanEnviado } };
+      });
       // Invalida TODA leitura de config para refletir na hora. As leituras usam prefixos
       // divergentes (tenant_config, tenant-config-grade, cad-tenant-config-grade,
       // tenant-status-kanban, ft-tamanhos, confeccao-prioridade…), então casamos por
@@ -495,21 +670,49 @@ function ConfiguracoesLojaPage() {
       // useRealtimeInvalidation), p/ o save local e o eco Realtime baterem 1:1.
       qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
     },
-    onError: (e: any) => {
-      // Fix round 1: falha PARCIAL (geral gravou, kanban não) tem mensagem PRÓPRIA — "as demais
-      // configurações foram salvas" evita o usuário achar que nada foi e tentar de novo do zero
-      // (o que reenviaria o mesmo `payload` geral inócuo + o diff do kanban, agora contra um
-      // `kanbanBase.servidor` que ainda bate com o banco real → sem falso conflito). A edição do
-      // kanban fica NA TELA porque `kanbanProtegidoRef` já ligou no início do `mutationFn` (fix
-      // round 2) — aqui só decide a MENSAGEM (o ref já cuidou de proteger o eco).
-      if (e?.geralOk) {
-        toast.error(`As demais configurações foram salvas; as colunas do kanban NÃO foram salvas: ${e.message}`);
+    onError: (e: any, _v, ctx) => {
+      // A RPC é atômica: qualquer erro = NADA gravado (kanban incluído) — sem proteção a manter.
+      const enviadas = [...emVooRef.current];
+      emVooRef.current = new Set();
+      kanbanProtegidoRef.current = false;
+      const msg = String(e?.message ?? "");
+      // Revisão T3/T4 (I1): erro de um save da loja ANTERIOR — só avisa; nada de conflito/refetch aqui.
+      if (ctx && ctx.tenantId !== cfgBaseTenantRef.current) {
+        setPreviaSalvar(null);
+        setConfirmSalvar(false);
+        toast.error(`A loja mudou durante o salvamento; nada foi gravado na loja anterior. ${mensagemErro(e, "Erro ao salvar")}`);
         return;
       }
-      // Baixo 7: conflito, chave mudou ou a config mudou depois da prévia (D19) — nenhum dos 3 gravou
-      // nada. Fecha o diálogo de Salvar (KanbanSalvarDialog ou o AlertDialog comum) para o usuário não
-      // ficar preso a uma prévia/confirmação que já não reflete a tela; o toast explica o motivo e ele
-      // clica em Salvar de novo.
+      if (e?.code === "P0409" && msg.startsWith("conflito_versao: config_loja")) {
+        // Outra pessoa gravou uma (ou mais) das colunas que ESTE save mandou, depois que a tela
+        // carregou. Nada foi gravado. Marca as colunas como conflito (trava o Salvar até resolver —
+        // T4 desenha o banner) e relê o servidor (o efeito preenche o valor "dele").
+        // Revisão T3/T4 (M4): DETAIL vazio/ilegível ⇒ trata TODAS as colunas enviadas como em conflito
+        // (melhor pedir uma escolha a mais do que regravar por cima de uma mudança alheia).
+        const doDetalhe = colunasDoErro(e);
+        const cols = doDetalhe.length > 0 ? doDetalhe : enviadas.filter((k) => (COLUNAS_PAGINA as readonly string[]).includes(k));
+        const atualServidor = normalizarConfig(data?.cfg as Record<string, unknown> | null) as Record<string, unknown>;
+        const tela = cfgRef.current as Record<string, unknown>;
+        definirConflitos(juntarConflitos(conflitosRef.current, cols.map((k) => ({ path: k, meu: tela[k], dele: atualServidor[k] }))));
+        setPreviaSalvar(null);
+        setConfirmSalvar(false);
+        const oQue = cols.length ? juntarLista(cols.map(rotuloColuna)) : "a Configuração da Loja";
+        toast.error(`Outra pessoa salvou ${oQue} agora há pouco. Confira os itens em destaque e salve de novo.`);
+        void refetchCfg();
+        return;
+      }
+      if (e?.code === "P0409" && msg.startsWith("chave_kanban_mudou:")) {
+        // Outra aba ligou/desligou o Kanban automático entre a prévia (ou o AlertDialog) e o
+        // Salvar — a premissa da confirmação mudou. Nada gravado; fecha o diálogo e relê.
+        setPreviaSalvar(null);
+        setConfirmSalvar(false);
+        toast.error(MENSAGEM_CHAVE_KANBAN_MUDOU);
+        void refetchCfg();
+        return;
+      }
+      // Baixo 7: a config mudou depois da prévia (D19) — nada gravado. Fecha o diálogo de Salvar
+      // (KanbanSalvarDialog ou o AlertDialog comum) para o usuário não ficar preso a uma
+      // prévia/confirmação que já não reflete a tela; o toast explica o motivo e ele clica em Salvar de novo.
       if (e?.fecharDialogoKanban) {
         setPreviaSalvar(null);
         setConfirmSalvar(false);
@@ -518,11 +721,73 @@ function ConfiguracoesLojaPage() {
     },
   });
 
+  // T4 (P-122 A): resolver um conflito pendente. O "novo" é o valor ATUAL do servidor (`data.cfg`,
+  // já relido pelo efeito/refetch). "manter meu": a tela fica como está e a base CRUA dessa coluna
+  // passa a ser o valor do servidor — o próximo Salvar grava o meu POR CIMA, conscientemente (sem
+  // P0409). "usar o novo": a tela e as bases adotam o valor do servidor (a coluna deixa de ir no save).
+  // Nos dois casos o conflito sai da lista (e o Salvar destrava quando não sobrar nenhum).
+  const resolverConflito = (path: string, escolha: "meu" | "dele") => {
+    const cruServidor = colunasCruas(data?.cfg as Record<string, unknown> | null);
+    const normServidor = normalizarConfig(data?.cfg as Record<string, unknown> | null) as Record<string, unknown>;
+    baseRawRef.current = { ...baseRawRef.current, [path]: cruServidor[path] ?? null };
+    if (cfgBaseRef.current) cfgBaseRef.current = { ...cfgBaseRef.current, [path]: normServidor[path] } as ConfigState;
+    if ((KANBAN_COLS as readonly string[]).includes(path)) {
+      const col = path as KanbanCol;
+      const b = kanbanBaseRef.current;
+      const nb = { cfg: { ...b.cfg, [col]: normServidor[col] }, servidor: { ...b.servidor, [col]: normServidor[col] } };
+      kanbanBaseRef.current = nb;
+      setKanbanBase(nb);
+    }
+    if (escolha === "dele") {
+      setCfg((c) => ({ ...c, [path]: normServidor[path] }) as ConfigState);
+    }
+    const restantes = conflitosRef.current.filter((c) => c.path !== path);
+    definirConflitos(restantes);
+    setUltimoMerge((u) => {
+      if (!u) return u;
+      const conflitos = u.conflitos.filter((c) => c.path !== path);
+      return conflitos.length === 0 && u.atualizados === 0 ? null : { ...u, conflitos };
+    });
+  };
+  const blocosEmConflito = new Set(conflitosPendentes.map((c) => BLOCO_DA_COLUNA[c.path]).filter(Boolean));
+  // Anel âmbar no bloco com conflito pendente (mesmo tom do destaque das outras telas colaborativas).
+  const anelConflito = (bloco: string) => (blocosEmConflito.has(bloco) ? "rounded-lg ring-2 ring-amber-500 ring-offset-2" : "");
+
+  // Presença (T4): canal por loja; o foco vai por BLOCO (`closest('[data-colab-path]')`, P-124 A).
+  const { presentes } = useColabPresencaPagina({
+    canal: data?.tenantId ? `colab:config-loja:${data.tenantId}` : null,
+    campoFocado,
+  });
+  // O anel do outro aparece no bloco que CONTÉM o controle focado (diálogo/marcador por linha → bloco).
+  const presentesNoBloco = useMemo(
+    () => presentes.map((p) => ({ ...p, campoFocado: blocoDoFoco(p.campoFocado) })),
+    [presentes],
+  );
+  // Trocar de loja: o foco anunciado era da loja anterior — zera (o canal novo nasce limpo).
+  useEffect(() => {
+    setCampoFocado(null);
+  }, [data?.tenantId]);
+
   // Salvar: com mudança nas colunas de kanban, confere o conflito (RP3) e, com a chave LIGADA no banco, mostra a
   // prévia (`kanban_previa_recalculo` com SÓ o que mudou) antes de confirmar. Sem cards mudando nem REF revelada
   // → o AlertDialog de sempre. A F1 não confere se a prévia foi vista (D19) — a garantia é esta função.
   const prepararSalvar = async () => {
     const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
+    // T4 (decisão do controlador): nada mudou ⇒ avisa JÁ, sem abrir a confirmação "Salvar mesmo
+    // assim" (que não teria o que salvar). O `mutationFn` mantém a mesma checagem como defesa.
+    if (cfgBaseRef.current) {
+      const { mudancas } = montarMudancas({
+        cfg,
+        baseUi: cfgBaseRef.current,
+        baseRaw: baseRawRef.current,
+        kanbanBaseCfg: kanbanBase.cfg,
+      });
+      if (Object.keys(mudancas).length === 0) {
+        toast.info("Nenhuma alteração para salvar.");
+        markClean();
+        return;
+      }
+    }
     // Médio 1 (garantia D19): guarda o diff que embasa a decisão desta chamada — tanto o caminho sem
     // prévia (AlertDialog comum) quanto o com prévia (KanbanSalvarDialog). O `mutationFn` recalcula o
     // diff na hora de salvar e aborta se divergir deste (a tela seguiu editável durante os `await`s
@@ -606,7 +871,19 @@ function ConfiguracoesLojaPage() {
   const kanbanChaveLigada = (data?.cfg as any)?.kanban_automatico === true;
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
+    <div
+      ref={colabScopeRef}
+      className="container mx-auto p-3 sm:p-6 space-y-6 pb-24"
+      // T4 (P-124 A): presença POR BLOCO — o foco anuncia o `data-colab-path` do bloco que contém o
+      // controle (inclui o diálogo de Requisitos, que é portal: o evento sobe pela árvore do React e o
+      // `closest` acha o `data-colab-path` do próprio DialogContent).
+      onFocusCapture={(e) => {
+        const el = (e.target as HTMLElement | null)?.closest?.("[data-colab-path]");
+        setCampoFocado(el?.getAttribute("data-colab-path") ?? null);
+      }}
+      onBlurCapture={() => setCampoFocado(null)}
+    >
+      <ColabPresenceOverlay presentes={presentesNoBloco} scopeRef={colabScopeRef} />
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
         <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
       </Button>
@@ -625,6 +902,16 @@ function ConfiguracoesLojaPage() {
         </div>
       </header>
 
+      {/* T4: quem mais está nesta tela + o que outra pessoa salvou agora + conflitos a resolver
+          ("manter meu" · "usar o novo"; o Salvar fica travado até resolver todos — P-122 A). */}
+      <ColabBanner
+        presentes={presentes}
+        ultimoMerge={ultimoMerge}
+        conflitos={conflitosPendentes}
+        onResolver={resolverConflito}
+        rotulo={rotuloColuna}
+      />
+
       {/* Módulos (badges) à esquerda + Fuso à direita — logo abaixo do header, sem card. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
@@ -641,7 +928,7 @@ function ConfiguracoesLojaPage() {
           </div>
         </div>
         {!isStockOnly && (
-          <div className="shrink-0 sm:text-right">
+          <div data-colab-path="cfg:timezone" className={"shrink-0 sm:text-right " + anelConflito("cfg:timezone")}>
             <Label className="text-xs text-muted-foreground">Fuso horário (GMT)</Label>
             <Select value={cfg.timezone} onValueChange={(v) => setCfg({ ...cfg, timezone: v })}>
               <SelectTrigger className="mt-1.5 w-full sm:w-72"><SelectValue /></SelectTrigger>
@@ -663,6 +950,7 @@ function ConfiguracoesLojaPage() {
       {!isStockOnly && (<>
       {/* Serviços (categorias), Acabamento e Grade de Tamanhos migraram p/ Cadastro > Atributos.
           A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
+      <div data-colab-path="cfg:status_kanban" className={anelConflito("cfg:status_kanban")}>
       <SortableListCard
         title="Status do Kanban"
         description="Colunas do painel de Desenvolvimento. Em cada status, defina os Requisitos (o que um card precisa ter preenchido para ENTRAR nele) e marque, se for o caso, a etapa a partir da qual libera o Envio à Explosão e a etapa a partir da qual o campo REF aparece no card."
@@ -722,6 +1010,7 @@ function ConfiguracoesLojaPage() {
                   })
                 }
                 nomeEtapa={nomeDaEtapa}
+                colabPath="cfg:kanban_requisitos"
               />
               <EnvioExplosaoToggle
                 label={label}
@@ -818,12 +1107,18 @@ function ConfiguracoesLojaPage() {
           </div>
         }
       />
+      </div>
 
-      <FormatoRefCard
-        value={cfg.ref_config}
-        onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
-      />
-      <FormatoSkuCard paginaSuja={dirty} />
+      <div data-colab-path="cfg:ref_config" className={anelConflito("cfg:ref_config")}>
+        <FormatoRefCard
+          value={cfg.ref_config}
+          onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
+        />
+      </div>
+      {/* Formato do SKU grava sozinho (sku_config — fora do Salvar da página): só o anel de presença. */}
+      <div data-colab-path="cfg:sku_config">
+        <FormatoSkuCard paginaSuja={dirty} />
+      </div>
 
       {modules.produto_acabado && (
         <FluxoRevendaCard
@@ -836,24 +1131,29 @@ function ConfiguracoesLojaPage() {
           onColunasChange={(revenda_kanban_colunas) => setCfg((c) => ({ ...c, revenda_kanban_colunas }))}
           onRequisitosChange={(revenda_kanban_requisitos) => setCfg((c) => ({ ...c, revenda_kanban_requisitos }))}
           onCamposChange={(revenda_campos) => setCfg((c) => ({ ...c, revenda_campos }))}
+          anelConflito={anelConflito}
         />
       )}
 
-      <LeadtimeConfigCard
-        tenantId={data?.tenantId ?? null}
-        statusKanban={cfg.status_kanban}
-        value={cfg.leadtime}
-        onChange={(leadtime) => setCfg((c) => ({ ...c, leadtime }))}
-      />
+      <div data-colab-path="cfg:leadtime" className={anelConflito("cfg:leadtime")}>
+        <LeadtimeConfigCard
+          tenantId={data?.tenantId ?? null}
+          statusKanban={cfg.status_kanban}
+          value={cfg.leadtime}
+          onChange={(leadtime) => setCfg((c) => ({ ...c, leadtime }))}
+        />
+      </div>
 
       {modules.etapas_pl && (
-        <EtapasPLCard
-          value={cfg.pcp_etapas}
-          onChange={(pcp_etapas) => setCfg((c) => ({ ...c, pcp_etapas }))}
-        />
+        <div data-colab-path="cfg:pcp_etapas" className={anelConflito("cfg:pcp_etapas")}>
+          <EtapasPLCard
+            value={cfg.pcp_etapas}
+            onChange={(pcp_etapas) => setCfg((c) => ({ ...c, pcp_etapas }))}
+          />
+        </div>
       )}
 
-      <Card>
+      <Card data-colab-path="cfg:modo_oc_rolo" className={anelConflito("cfg:modo_oc_rolo")}>
         <CardHeader>
           <CardTitle>OC e Rolo</CardTitle>
           <CardDescription>
@@ -880,7 +1180,7 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-colab-path="cfg:modo_baixa_estoque" className={anelConflito("cfg:modo_baixa_estoque")}>
         <CardHeader>
           <CardTitle>Baixa de Estoque</CardTitle>
           <CardDescription>
@@ -911,7 +1211,7 @@ function ConfiguracoesLojaPage() {
       </Card>
       </>)}
 
-      <Card>
+      <Card data-colab-path="cfg:markup_analise_faixa" className={anelConflito("cfg:markup_analise_faixa")}>
         <CardHeader>
           <CardTitle>Planejamento — análise de markup</CardTitle>
           <CardDescription>
@@ -934,7 +1234,7 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-colab-path="cfg:nomenclaturas">
         <CardHeader>
           <CardTitle>Nomenclaturas</CardTitle>
           <CardDescription>
@@ -944,13 +1244,13 @@ function ConfiguracoesLojaPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} />
+          <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} presentes={presentes} />
         </CardContent>
       </Card>
 
       {/* F3.6 (dono 25/set, R39) — Keywords da loja: texto livre, no Salvar do rodapé (mesma guarda de alterações não
           salvas). Visível p/ quem já abre a Config (admin da loja e super admin). Uso: tela FUTURA do super admin, por loja. */}
-      <Card>
+      <Card data-colab-path="cfg:keywords" className={anelConflito("cfg:keywords")}>
         <CardHeader>
           <CardTitle>Keywords</CardTitle>
           <CardDescription>Palavras-chave da loja, em texto livre. Salvas com o botão "Salvar alterações".</CardDescription>
@@ -1005,7 +1305,18 @@ function ConfiguracoesLojaPage() {
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
           <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
-        <Button className="ml-auto" onClick={prepararSalvar} disabled={save.isPending || isLoading || preparandoSalvar}>
+        {/* P-57 A (fix "salvar rápido") + T3 da Config colaborativa: NÃO remover nenhuma destas travas.
+            `!hydrated` — a query resolveu mas o efeito ainda não semeou `cfg`/`cfgBaseRef`/`baseRawRef`:
+            salvar nesse instante mandaria os DEFAULTS da tela (fuso, kanban, leadtime…) contra uma base
+            vazia, gravando um estado incompleto por cima da linha real da loja. `!data?.tenantId` — a
+            loja ainda não resolveu (ou o usuário está sem loja): não há para onde mandar a RPC.
+            `conflitosPendentes.length > 0` (P-122 A) — outra pessoa salvou um item que eu também mexi:
+            resolver ("manter meu" / "usar o novo", T4) antes de salvar. */}
+        <Button
+          className="ml-auto"
+          onClick={prepararSalvar}
+          disabled={save.isPending || isLoading || preparandoSalvar || !hydrated || !data?.tenantId || conflitosPendentes.length > 0}
+        >
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
@@ -1113,6 +1424,7 @@ function EnvioExplosaoToggle({
       }
       aria-pressed={checked}
       aria-label={`Envio à Explosão a partir de "${label}" (${stateTxt})`}
+      data-colab-path="cfg:explosao_envio_status"
       onClick={() => onToggle(!checked)}
     >
       <Send className="h-4 w-4 sm:mr-1" />
@@ -1148,6 +1460,7 @@ function RefExibirToggle({
       }
       aria-pressed={checked}
       aria-label={`Exibir REF a partir de "${label}" (${stateTxt})`}
+      data-colab-path="cfg:ref_exibir_status"
       onClick={() => onToggle(!checked)}
     >
       <Tag className="h-4 w-4 sm:mr-1" />
@@ -1557,6 +1870,7 @@ function FluxoRevendaCard({
   onColunasChange,
   onRequisitosChange,
   onCamposChange,
+  anelConflito,
 }: {
   statusKanban: string[];
   // Keys do fluxo da revenda (board ∩ colunas; [] = todas) — base da etiqueta Entrada/Automática/Manual.
@@ -1570,6 +1884,8 @@ function FluxoRevendaCard({
   onColunasChange: (next: string[]) => void;
   onRequisitosChange: (next: Record<string, string[]>) => void;
   onCamposChange: (next: Record<string, boolean>) => void;
+  // T4 (Config colaborativa): classe do anel âmbar do sub-bloco com conflito pendente ("" se não há).
+  anelConflito?: (bloco: string) => string;
 }) {
   const colunasSet = new Set(colunas);
   // [] = TODAS as colunas permitidas (fallback do plano) — refletido no rótulo do bloco.
@@ -1613,7 +1929,7 @@ function FluxoRevendaCard({
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Bloco 1 — colunas do kanban permitidas p/ revenda + requisitos de cada. */}
-        <div className="space-y-2">
+        <div data-colab-path="cfg:revenda_kanban_colunas" className={"space-y-2 " + (anelConflito?.("cfg:revenda_kanban_colunas") ?? "")}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Colunas do kanban
           </p>
@@ -1639,6 +1955,7 @@ function FluxoRevendaCard({
                       requisitos={requisitos[key] ?? []}
                       onChange={(next) => setRequisitos(key, next)}
                       condsIndisponiveis={REVENDA_COND_NA}
+                      colabPath="cfg:revenda_kanban_requisitos"
                       bloqueadoMotivo={chaveLigada && key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
                     />
                   )}
@@ -1677,7 +1994,7 @@ function FluxoRevendaCard({
         </div>
 
         {/* Bloco 2 — seções e campos do card de Desenvolvimento visíveis p/ revenda. */}
-        <div className="space-y-2 border-t pt-4">
+        <div data-colab-path="cfg:revenda_campos" className={"space-y-2 border-t pt-4 " + (anelConflito?.("cfg:revenda_campos") ?? "")}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Seções e campos do card
           </p>
@@ -1805,7 +2122,13 @@ function EtapasPLCard({
 
 // Editor das nomenclaturas por módulo: nomes das abas (módulo + páginas) e dos
 // campos. O usuário escolhe UM módulo por vez.
-function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; modules: Record<string, boolean> }) {
+function NomesDasAbasDialog({ tenantId, modules, presentes }: {
+  tenantId: string | null;
+  modules: Record<string, boolean>;
+  // T5: presença da página (mesmo canal `colab:config-loja:<loja>`) — o 2º overlay, dentro do diálogo
+  // (portal), desenha o anel de quem está no MESMO nome (`nom:tab:<key>` / `nom:campo:<key>`).
+  presentes: PresencaColab[];
+}) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [tabs, setTabs] = useState<Record<string, string>>({});
@@ -1813,6 +2136,28 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   const [hydrated, setHydrated] = useState(false);
   const enabledModules = PAGES_CATALOG.filter((m) => modules[m.module] !== false);
   const [selModule, setSelModule] = useState<string>(enabledModules[0]?.module ?? "");
+  // Espelhos p/ o merge (efeito e retentativa do save leem o rascunho JÁ na tela, sem closure velho).
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const camposRef = useRef(campos);
+  camposRef.current = campos;
+  // T5 (Config colaborativa, P-123 A): base CRUA de cada mapa = o que o servidor tinha na última leitura
+  // fundida — vai como `_base` da RPC `salvar_config_loja` (compare-and-set do mapa inteiro). null = loja sem linha.
+  const baseRef = useRef<Record<ColunaNomenclatura, Record<string, unknown> | null>>({ tab_labels: null, campos_editaveis: null });
+  // Conflitos POR NOME (outra pessoa mudou o MESMO nome que eu mexi). Travam o Salvar até "manter meu"/"usar o novo".
+  const [conflitos, setConflitos] = useState<ConflitoNome[]>([]);
+  const conflitosRef = useRef<ConflitoNome[]>([]);
+  const definirConflitos = (l: ConflitoNome[]) => {
+    // O efeito abaixo roda a cada render (deps com array novo): lista vazia → vazia não pode setar estado (loop).
+    if (l.length === 0 && conflitosRef.current.length === 0) return;
+    conflitosRef.current = l;
+    setConflitos(l);
+  };
+  // Loja com a qual a janela hidratou — trocar de loja com a janela aberta RE-SEMEIA (nunca funde A em B).
+  const lojaHidratadaRef = useRef<string | null>(null);
+  const corpoRef = useRef<HTMLDivElement>(null);
+  // A última leitura (objeto do cache) já fundida — o efeito roda a cada render; cada leitura entra UMA vez.
+  const ultimaLeituraRef = useRef<unknown>(null);
 
   const { dirty: nomChanged, markClean, reset: resetNomBaseline } = useDirtySnapshot({ tabs, campos });
   const dirty = open && nomChanged;
@@ -1823,16 +2168,9 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   // clicado com a leitura ainda em voo, já que `hydrated` não travava o botão) fazia o upsert
   // gravar `{"tab_labels":{},"campos_editaveis":{}}` por cima das nomenclaturas reais da loja.
   // Fix hidratação — re-revisão final (achado N7, PERDA/GRAVAÇÃO CRUZADA de dado comprovada,
-  // review-final-2.md; pré-existente, idêntico em a8d2fa41 — não é regressão desta branch): a
-  // key NÃO incluía o `tenantId`, então ao REABRIR o diálogo (2ª+ vez) ele hidratava do CACHE
-  // velho (`current` de uma abertura anterior, possivelmente de OUTRA loja) e ignorava a leitura
-  // nova em voo — `hydrated` já virava `true` com esse dado velho antes do refetch responder.
-  // Provado nos dois cenários: (a) super admin abre na loja A, troca para a loja B, reabre —
-  // o diálogo mostra as nomenclaturas da A e o Salvar grava a A NA B; (b) mesma loja, outro admin
-  // muda as nomenclaturas entre duas aberturas — o Salvar apaga a mudança alheia. Com `tenantId`
-  // na key, cada loja tem sua PRÓPRIA entrada de cache (não há mistura entre A e B); com
-  // `currentOk && !currentFetching` no gate de hidratação, só semeia depois que a leitura NOVA
-  // (não um cache antigo) assentar com sucesso.
+  // review-final-2.md): a key inclui o `tenantId` (cache por loja, sem mistura entre A e B) e o gate
+  // de hidratação espera `currentOk && !currentFetching` (só semeia depois que a leitura NOVA assentar).
+  // T5: devolve os mapas CRUS (null = loja sem linha) — a base da RPC tem de ser o valor do servidor.
   const { data: current, isSuccess: currentOk, isFetching: currentFetching } = useQuery({
     queryKey: ["tenant_config", "nomenclaturas_edit", tenantId],
     enabled: open && !!tenantId,
@@ -1840,42 +2178,146 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       const { data, error } = await supabase.from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId!).maybeSingle();
       if (error) throw error;
       return {
-        tab_labels: ((data as any)?.tab_labels ?? {}) as Record<string, string>,
-        campos_editaveis: ((data as any)?.campos_editaveis ?? {}) as Record<string, string>,
+        tab_labels: ((data as any)?.tab_labels ?? null) as Record<string, unknown> | null,
+        campos_editaveis: ((data as any)?.campos_editaveis ?? null) as Record<string, unknown> | null,
       };
     },
   });
 
-  useEffect(() => {
-    if (open && current && currentOk && !currentFetching && !hydrated) {
-      setTabs(current.tab_labels);
-      setCampos(current.campos_editaveis);
-      resetNomBaseline({ tabs: current.tab_labels, campos: current.campos_editaveis });
-      if (!selModule && enabledModules[0]) setSelModule(enabledModules[0].module);
-      setHydrated(true);
+  // T5: funde uma leitura NOVA do servidor no rascunho, POR NOME (`mesclarNomes`): nome que eu não mexi
+  // adota o do servidor; nome que eu mexi fica meu e, se o outro também o mudou (para outro valor), vira
+  // conflito. A base de cada mapa que mudou passa a ser o servidor (o próximo Salvar grava o merge sem
+  // P0409). Devolve os conflitos NOVOS. Mapa igual à base = nada a fazer (não mexe no que está sendo digitado).
+  const aplicarFresh = (fresh: Record<ColunaNomenclatura, Record<string, unknown> | null>): ConflitoNome[] => {
+    const novos: ConflitoNome[] = [];
+    const cols: [ColunaNomenclatura, string, { current: Record<string, string> }, (v: Record<string, string>) => void][] = [
+      ["tab_labels", "nom:tab:", tabsRef, setTabs],
+      ["campos_editaveis", "nom:campo:", camposRef, setCampos],
+    ];
+    const mudou = (col: ColunaNomenclatura) => jsonCanonico(fresh[col] ?? null) !== jsonCanonico(baseRef.current[col] ?? null);
+    // Nada novo do servidor: NÃO mexe em estado nenhum (o efeito roda a cada render — sem isto, setState em loop).
+    if (!cols.some(([col]) => mudou(col))) return novos;
+    for (const [col, prefixo, ref, set] of cols) {
+      if (!mudou(col)) continue;
+      const r = mesclarNomes(baseRef.current[col], ref.current, fresh[col], prefixo);
+      if (r.atualizados.length) {
+        const f = limparNomes(fresh[col]);
+        const draft = { ...ref.current };
+        for (const k of r.atualizados) { if (f[k] !== undefined) draft[k] = f[k]; else delete draft[k]; }
+        ref.current = draft;
+        set(draft);
+      }
+      novos.push(...r.conflitos);
+      baseRef.current = { ...baseRef.current, [col]: fresh[col] ?? null };
     }
-    if (!open) setHydrated(false);
-  }, [open, current, currentOk, currentFetching, hydrated, enabledModules, selModule]);
+    // Junta com os pendentes (um por nome) e solta o que convergiu (o meu já é igual ao do servidor).
+    const mapa = new Map(conflitosRef.current.map((c) => [c.path, c]));
+    for (const c of novos) mapa.set(c.path, c);
+    const t = limparNomes(tabsRef.current), cp = limparNomes(camposRef.current);
+    const ft = limparNomes(baseRef.current.tab_labels), fc = limparNomes(baseRef.current.campos_editaveis);
+    definirConflitos([...mapa.values()].filter((c) => {
+      const [, tipo, k] = c.path.split(":");
+      return tipo === "tab" ? t[k] !== ft[k] : cp[k] !== fc[k];
+    }));
+    resetNomBaseline({ tabs: (baseRef.current.tab_labels ?? {}) as Record<string, string>, campos: (baseRef.current.campos_editaveis ?? {}) as Record<string, string> });
+    return novos;
+  };
+
+  useEffect(() => {
+    if (!open) {
+      setHydrated(false);
+      definirConflitos([]);
+      lojaHidratadaRef.current = null;
+      return;
+    }
+    // Trocou de loja com a janela aberta: re-semeia quando a leitura da loja nova assentar.
+    if (hydrated && lojaHidratadaRef.current !== tenantId) {
+      lojaHidratadaRef.current = null; // um save da loja anterior em voo reconhece que a janela mudou
+      setHydrated(false);
+      definirConflitos([]);
+      return;
+    }
+    if (!current || !currentOk || currentFetching) return;
+    if (!hydrated) {
+      const t = (current.tab_labels ?? {}) as Record<string, string>;
+      const c = (current.campos_editaveis ?? {}) as Record<string, string>;
+      baseRef.current = { tab_labels: current.tab_labels, campos_editaveis: current.campos_editaveis };
+      tabsRef.current = t;
+      camposRef.current = c;
+      setTabs(t);
+      setCampos(c);
+      resetNomBaseline({ tabs: t, campos: c });
+      if (!selModule && enabledModules[0]) setSelModule(enabledModules[0].module);
+      lojaHidratadaRef.current = tenantId;
+      ultimaLeituraRef.current = current;
+      setHydrated(true);
+      return;
+    }
+    // Re-hidratação com a janela aberta (Realtime/foco/outra aba): funde POR NOME — cada leitura uma vez só.
+    if (current === ultimaLeituraRef.current) return;
+    ultimaLeituraRef.current = current;
+    aplicarFresh(current);
+  }, [open, current, currentOk, currentFetching, hydrated, tenantId, enabledModules, selModule]);
 
   const mod = PAGES_CATALOG.find((m) => m.module === selModule);
   const fieldKeys = MODULE_FIELD_KEYS[selModule] ?? [];
 
   const saveMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ nada: boolean }> => {
       if (!tenantId) throw new Error("Loja não identificada.");
-      const cleanTabs: Record<string, string> = {};
-      Object.entries(tabs).forEach(([k, v]) => { if (v && v.trim()) cleanTabs[k] = v.trim(); });
-      const cleanCampos: Record<string, string> = {};
-      Object.entries(campos).forEach(([k, v]) => { if (v && v.trim()) cleanCampos[k] = v.trim(); });
-      // upsert (não update): loja sem linha de config não perde a gravação em silêncio.
-      const { error } = await supabase
-        .from("tenant_config")
-        .upsert({ tenant_id: tenantId, tab_labels: cleanTabs, campos_editaveis: cleanCampos } as any, { onConflict: "tenant_id" });
-      if (error) throw error;
+      // T5 (Config colaborativa, P-123 A): UMA chamada à RPC `salvar_config_loja` só com o(s) MAPA(S) que
+      // mudou(aram) — cada um inteiro (limpo: em branco = nome padrão) + a base CRUA que a janela leu. Se
+      // outra pessoa gravou o mesmo mapa nesse meio-tempo (P0409), relê e funde POR NOME: nomes diferentes
+      // → junta os dois e tenta de novo UMA vez sozinho; o MESMO nome → lista de conflitos na janela.
+      for (let tentativa = 0; ; tentativa++) {
+        const mudancas: Record<string, unknown> = {};
+        const base: Record<string, unknown> = {};
+        const t = limparNomes(tabsRef.current), c = limparNomes(camposRef.current);
+        if (!igual(t, limparNomes(baseRef.current.tab_labels))) { mudancas.tab_labels = t; base.tab_labels = baseRef.current.tab_labels ?? null; }
+        if (!igual(c, limparNomes(baseRef.current.campos_editaveis))) { mudancas.campos_editaveis = c; base.campos_editaveis = baseRef.current.campos_editaveis ?? null; }
+        if (Object.keys(mudancas).length === 0) return { nada: true };
+        const { error } = await supabase.rpc("salvar_config_loja" as any, { _tenant_id: tenantId, _mudancas: mudancas, _base: base } as any);
+        if (!error) return { nada: false };
+        const conflitoVersao = (error as any).code === "P0409" && String((error as any).message ?? "").startsWith("conflito_versao: config_loja");
+        if (!conflitoVersao || tentativa > 0) throw error;
+        // `colunasDoErro` com a lista da JANELA (as 2 colunas de nomenclatura) — só p/ confirmar que é deste mapa.
+        if (colunasDoErro(error, COLUNAS_NOMENCLATURAS).length === 0) throw error;
+        const { data: row, error: errLer } = await supabase
+          .from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId).maybeSingle();
+        if (errLer) throw errLer;
+        // Revisão T3/T4 (I1, espelhado na janela): trocou de loja durante o voo — não funde a leitura da
+        // loja anterior no rascunho da loja nova.
+        if (lojaHidratadaRef.current !== tenantId) throw Object.assign(new Error("loja_mudou"), { lojaMudou: true });
+        const lido = {
+          tab_labels: ((row as any)?.tab_labels ?? null) as Record<string, unknown> | null,
+          campos_editaveis: ((row as any)?.campos_editaveis ?? null) as Record<string, unknown> | null,
+        };
+        aplicarFresh(lido);
+        // O cache da janela passa a ser ESTA leitura — senão o efeito "fundiria" de novo a leitura velha do cache
+        // (que ficou atrás da base) e ressuscitaria o nome antigo como conflito.
+        qc.setQueryData(["tenant_config", "nomenclaturas_edit", tenantId], lido);
+        if (conflitosRef.current.length > 0) throw Object.assign(new Error("conflito_nomes"), { conflitoNomes: true });
+        // Nomes diferentes: o rascunho agora tem os dois — segue para a 2ª tentativa com a base nova.
+      }
     },
-    onSuccess: () => {
-      toast.success("Nomenclaturas salvas");
+    // Revisão T3/T4 (I1): a loja deste save — se a janela já re-semeou com outra loja, a resposta não fecha
+    // nem "limpa" a janela da loja nova.
+    onMutate: () => ({ tenantId }),
+    onSuccess: (r, _v, ctx) => {
+      if (ctx?.tenantId !== lojaHidratadaRef.current) {
+        if (!r.nada) {
+          toast.success("Nomenclaturas salvas (na loja anterior).");
+          qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && String(q.queryKey[0]).includes("tenant") });
+        }
+        return;
+      }
       markClean();
+      if (r.nada) {
+        toast.info("Nenhuma alteração para salvar.");
+        setOpen(false);
+        return;
+      }
+      toast.success("Nomenclaturas salvas");
       qc.invalidateQueries({
         predicate: (q) => {
           const k = q.queryKey?.[0];
@@ -1884,8 +2326,46 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       });
       setOpen(false);
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: (e: any, _v, ctx) => {
+      if (e?.lojaMudou || (ctx && ctx.tenantId !== lojaHidratadaRef.current)) {
+        toast.error("A loja mudou durante o salvamento das nomenclaturas; confira e salve de novo.");
+        return;
+      }
+      if (e?.conflitoNomes) {
+        toast.error("Outra pessoa mudou o mesmo nome agora há pouco. Escolha em cada item destacado e salve de novo.");
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
+
+  // T5: "manter meu" = o meu fica (a base do mapa já é o servidor — o próximo Salvar grava por cima,
+  // conscientemente); "usar o novo" = o nome volta ao do servidor (sem valor = nome padrão).
+  const resolverNome = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      const [, tipo, k] = path.split(":");
+      const set = tipo === "tab" ? setTabs : setCampos;
+      const ref = tipo === "tab" ? tabsRef : camposRef;
+      const draft = { ...ref.current };
+      if (c.dele !== undefined) draft[k] = c.dele; else delete draft[k];
+      ref.current = draft;
+      set(draft);
+    }
+    definirConflitos(conflitosRef.current.filter((x) => x.path !== path));
+  };
+  const conflitoDe = (path: string) => conflitos.some((c) => c.path === path);
+  const anelNome = (path: string) => (conflitoDe(path) ? "ring-2 ring-amber-500" : "");
+  const rotuloNome = (path: string) => {
+    const [, tipo, k] = path.split(":");
+    if (tipo === "tab") {
+      const nome = PAGES_CATALOG.find((m) => m.module === k)?.label
+        ?? PAGES_CATALOG.flatMap((m) => m.pages).find((pg) => pg.key === k)?.label ?? k;
+      return `${rotuloColuna("tab_labels")} — ${nome}`;
+    }
+    return `${rotuloColuna("campos_editaveis")} — ${FIELD_LABEL_DEFAULTS[k] ?? k}`;
+  };
+  const presentesNaJanela = presentes.filter((p) => p.campoFocado?.startsWith("nom:"));
 
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : requestClose())}>
@@ -1902,6 +2382,10 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
           </div>
         </DialogHeader>
 
+        {/* T5: quem mais está editando nomenclaturas + conflitos POR NOME ("manter meu" · "usar o novo"). */}
+        <ColabBanner presentes={presentesNaJanela} ultimoMerge={null} conflitos={conflitos} onResolver={resolverNome} rotulo={rotuloNome} />
+
+        <div ref={corpoRef} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
           <Label className="text-sm font-semibold">Módulo a editar</Label>
           <Select value={selModule} onValueChange={setSelModule}>
@@ -1919,12 +2403,24 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
               <p className="text-xs font-semibold text-muted-foreground">Nomes das abas (menu)</p>
               <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
                 <Label className="text-sm">{mod.label} <span className="text-muted-foreground">(módulo)</span></Label>
-                <Input placeholder={mod.label} value={tabs[mod.module] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [mod.module]: e.target.value }))} />
+                <Input
+                  placeholder={mod.label}
+                  data-colab-path={`nom:tab:${mod.module}`}
+                  className={anelNome(`nom:tab:${mod.module}`)}
+                  value={tabs[mod.module] ?? ""}
+                  onChange={(e) => setTabs((t) => ({ ...t, [mod.module]: e.target.value }))}
+                />
               </div>
               {mod.pages.map((p) => (
                 <div key={p.key} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2 md:pl-4">
                   <Label className="text-xs text-muted-foreground">{p.label}</Label>
-                  <Input className="h-8 max-md:h-11" placeholder={p.label} value={tabs[p.key] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [p.key]: e.target.value }))} />
+                  <Input
+                    className={"h-8 max-md:h-11 " + anelNome(`nom:tab:${p.key}`)}
+                    placeholder={p.label}
+                    data-colab-path={`nom:tab:${p.key}`}
+                    value={tabs[p.key] ?? ""}
+                    onChange={(e) => setTabs((t) => ({ ...t, [p.key]: e.target.value }))}
+                  />
                 </div>
               ))}
             </div>
@@ -1938,7 +2434,13 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
                 fieldKeys.map((k) => (
                   <div key={k} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
                     <Label className="text-xs text-muted-foreground">{FIELD_LABEL_DEFAULTS[k] ?? k}</Label>
-                    <Input className="h-8 max-md:h-11" placeholder={FIELD_LABEL_DEFAULTS[k] ?? k} value={campos[k] ?? ""} onChange={(e) => setCampos((c) => ({ ...c, [k]: e.target.value }))} />
+                    <Input
+                      className={"h-8 max-md:h-11 " + anelNome(`nom:campo:${k}`)}
+                      placeholder={FIELD_LABEL_DEFAULTS[k] ?? k}
+                      data-colab-path={`nom:campo:${k}`}
+                      value={campos[k] ?? ""}
+                      onChange={(e) => setCampos((c) => ({ ...c, [k]: e.target.value }))}
+                    />
                   </div>
                 ))
               )}
@@ -1947,12 +2449,16 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
         )}
 
         <p className="text-xs text-muted-foreground">Em branco = nome padrão.</p>
+        </div>
+        {/* 2º overlay (o diálogo é portal — o da página não alcança): anel de quem está no MESMO nome. */}
+        <ColabPresenceOverlay presentes={presentesNaJanela} scopeRef={corpoRef} />
         <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:-mx-4 max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
           <Button variant="ghost" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           {/* Fix hidratação — revisão final (F1): + `|| !hydrated` — sem isso, clicar Salvar com a
               leitura do diálogo ainda em voo (ou depois de uma falha, que nunca hidrata) upsertava
               tab_labels/campos_editaveis VAZIOS por cima das nomenclaturas reais da loja. */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !hydrated}>
+          {/* T5: + conflito por nome pendente trava (P-122 A) — resolver no aviso acima antes de salvar. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !hydrated || conflitos.length > 0}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </DialogFooter>
