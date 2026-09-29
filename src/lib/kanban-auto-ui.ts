@@ -228,3 +228,29 @@ export function tituloSelo(s: EtapaSelo): string {
   if (s.modo === "fixado") return `${base} — fixado numa coluna manual: não anda sozinho.`;
   return base;
 }
+
+/** Pseudo-ids das 2 fases fora do board (mesmas do selo — `etapaDoModelo` já as usa via `fase`,
+ *  aqui só nomeamos p/ o filtro, que precisa de um id ESTÁVEL por opção). */
+export const ETAPA_FILTRO_PLANEJAMENTO = "__planejamento";
+export const ETAPA_FILTRO_LANCADO = "__lancado";
+
+/** Id de opção do filtro "Etapa do kanban" a partir do selo (`etapaDoModelo`) — MESMA fonte do
+ *  badge, garante que filtro e selo NUNCA divirjam. `fase==="kanban"` usa a key do board (`s.key`,
+ *  já cai na 1ª coluna quando nula/órfã — nunca null nesse caso); as 2 pseudo-fases usam id fixo. */
+export function etapaFiltroId(s: EtapaSelo): string {
+  if (s.fase === "planejamento") return ETAPA_FILTRO_PLANEJAMENTO;
+  if (s.fase === "lancado") return ETAPA_FILTRO_LANCADO;
+  return s.key ?? ETAPA_FILTRO_PLANEJAMENTO; // s.key só é null aqui se o board estiver vazio (sem coluna alguma)
+}
+
+/** Opções do filtro "Etapa do kanban" (Planejamento de Produto): Planejamento → colunas do board
+ *  NA ORDEM da loja (mesmos rótulos do selo) → Lançado. Não depende das condições/derivação —
+ *  só do board, então serve tanto com a chave ligada quanto desligada. */
+export function etapaKanbanFiltroOpts(cfg: KanbanAutoConfig): { id: string; nome: string }[] {
+  const board = boardDaLoja(cfg);
+  return [
+    { id: ETAPA_FILTRO_PLANEJAMENTO, nome: "Planejamento" },
+    ...board.map((c) => ({ id: c.key, nome: c.label })),
+    { id: ETAPA_FILTRO_LANCADO, nome: "Lançado" },
+  ];
+}
