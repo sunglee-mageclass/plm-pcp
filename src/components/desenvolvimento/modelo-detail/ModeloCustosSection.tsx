@@ -31,12 +31,16 @@ export function ModeloCustosSection({
   onChangeCustos,
   camposCopiados = new Set(),
   onCampoEditado,
+  readOnly = false,
 }: {
   totals: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number; peca: number };
   custosAdicionais: CustoAdicional[];
   onChangeCustos: (v: CustoAdicional[]) => void;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
+  /** F5a QA B-1 (Sheet do Dev só leitura): esconde "Adicionar custo" e a lixeira de cada linha
+   * (o fieldset do pai já bloqueia o clique; isto some com a afordância que parecia clicável). */
+  readOnly?: boolean;
 }) {
   const patch = (i: number, p: Partial<CustoAdicional>) => {
     onChangeCustos(custosAdicionais.map((c, idx) => (idx === i ? { ...c, ...p } : c)));
@@ -76,17 +80,21 @@ export function ModeloCustosSection({
               onChange={(e) => patch(i, { valor: Number(e.target.value) || 0 })}
               data-colab-path={`custo-valor:${c.descricao}`}
             />
-            <Button variant="ghost" size="icon" className="h-9 w-9 max-md:h-11 max-md:w-11 shrink-0 text-muted-foreground" onClick={() => remove(i)} aria-label="Remover custo" title="Remover">
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {!readOnly && (
+              <Button variant="ghost" size="icon" className="h-9 w-9 max-md:h-11 max-md:w-11 shrink-0 text-muted-foreground" onClick={() => remove(i)} aria-label="Remover custo" title="Remover">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         ))}
       </div>
 
       {/* "Adicionar custo": link leve (mockup) em vez de botão outline full-width. */}
-      <button type="button" onClick={add} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-        <Plus className="h-3.5 w-3.5" /> Adicionar custo
-      </button>
+      {!readOnly && (
+        <button type="button" onClick={add} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+          <Plus className="h-3.5 w-3.5" /> Adicionar custo
+        </button>
+      )}
 
       <Separator className="my-2" />
       <LinhaFixa label="Custo de 1 Peça" value={totals.peca} strong />

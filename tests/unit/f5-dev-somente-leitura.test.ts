@@ -43,6 +43,20 @@ vi.mock("@tanstack/react-router", async (orig) => {
 });
 vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastMock), Toaster: () => null }));
 
+// B-2 da revisão QA (29/set): espiona os valores de `campoFocado` que o painel manda pro colab,
+// SEM trocar a implementação (delega 100% pro hook real — o teste de M3 acima depende dele p/
+// `FAKE.emitirRealtime` funcionar). O fake-supabase tem `getChannels()` sempre `[]`, então o
+// broadcast de foco de `useColabRegistro` nunca chega a rodar no teste — espiar o ARGUMENTO que
+// `ModeloDetailPanel` passa é a forma confiável de provar que ele nunca deixa de ser `null`.
+const campoFocadoChamadas = vi.hoisted(() => [] as (string | null | undefined)[]);
+vi.mock("@/hooks/useColabRegistro", async (orig) => {
+  const m: any = await orig();
+  return {
+    ...m,
+    useColabRegistro: (o: any) => { campoFocadoChamadas.push(o.campoFocado); return m.useColabRegistro(o); },
+  };
+});
+
 import { act, createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./_fix_hidratacao/fake-supabase";
@@ -114,6 +128,7 @@ const botoesRodape = () =>
 beforeEach(() => {
   FAKE.reset();
   storageOps.length = 0;
+  campoFocadoChamadas.length = 0;
   FAKE.supabase.storage = {
     from: (bucket: string) => ({
       upload: (...args: unknown[]) => { storageOps.push({ op: "storage.upload", bucket, args }); return Promise.resolve({ data: null, error: null }); },
@@ -175,6 +190,10 @@ describe("F5a — Sheet do Desenvolvimento SÓ LEITURA", () => {
     // Ações de ciclo/gravação: nem aparecem.
     for (const t of ["Salvar", "Enviar", "Importar dados", "Responder", "Resolver", "Reabrir", "Excluir"]) expect(textos).not.toContain(t);
     expect(document.querySelector('button[aria-label="Editar"]')).toBeNull();
+    // B-1 da revisão QA (29/set): afordâncias de "adicionar"/"remover" ficam ESCONDIDAS (não só
+    // desabilitadas) — o link "+ Adicionar custo" parecia clicável mesmo desabilitado.
+    for (const t of ["Adicionar custo", "Adicionar serviço", "Adicionar", "Adicionar Piloto 2", "Adicionar Piloto 3", "Adicionar Forro", "Adicionar Entretela"])
+      expect(textos, `"${t}" não deveria aparecer no só leitura`).not.toContain(t);
     // Todo <button> que sobra está desabilitado, exceto os de NAVEGAÇÃO/LEITURA: abrir/fechar seção do
     // accordion, abas da Prova, fechar o Sheet e o rodapé (Voltar · Imprimir · Ir para P. Produto).
     const permitido = (b: HTMLButtonElement) =>
@@ -250,6 +269,40 @@ describe("F5a — Sheet do Desenvolvimento SÓ LEITURA", () => {
     await act(async () => { FAKE.emitirRealtime("modelos"); });
     await aguardar(() => campoConsumo()?.value === "9,00", "re-seed do CAD após mudança do servidor");
     expect(campoConsumo()!.value).toBe("9,00");
+  });
+
+  // B-2 da revisão QA (29/set, ModeloDetailPanel.tsx ~2811-2815 → useColabRegistro ~1830): em só
+  // leitura não há campo "sendo editado" de verdade, então o Sheet não deveria transmitir
+  // `campoFocado` (broadcast Realtime) quando algo ganha foco — só a PRESENÇA ("quem está na
+  // tela") deve continuar. `useColabRegistro` reemite o broadcast sempre que o ARGUMENTO
+  // `campoFocado` muda (efeito com esse dep no hook real) — então provar que o painel NUNCA passa
+  // um valor não-nulo em só leitura é equivalente a provar que nenhum broadcast de foco real
+  // sai. O `campoFocadoChamadas` (espião no import do hook, delega 100% pro real — não muda o
+  // comportamento nem quebra o teste de M3 acima) grava CADA valor passado, em CADA render.
+  it("nunca passa um campoFocado não-nulo pro colab (nenhum broadcast de foco real); a presença continua", async () => {
+    seed({ enviadoCad: true });
+    await abrir({ somenteLeitura: true });
+    await abrirTodasSecoes();
+    expect(campoFocadoChamadas.length, "o hook precisa ter sido chamado ao menos 1x").toBeGreaterThan(0);
+    expect(campoFocadoChamadas.every((v) => v == null), "campoFocado deveria ser sempre null/undefined no seed inicial").toBe(true);
+
+    // Foca o input do Nome (`data-colab-path="nome"`, ModeloInfoSection.tsx:144) — path GARANTIDO
+    // não-nulo (`pathDoElemento` lê a marcação explícita antes de qualquer heurística), então o
+    // teste não depende de rótulo/name/id inferido. `focus` NÃO faz bubble nativamente — React usa
+    // `focusin`/`focusout` (que fazem bubble) por baixo dos panos p/
+    // `onFocusCapture`/`onBlurCapture`; `focusin` é o evento certo a simular aqui.
+    const campoNome = document.querySelector<HTMLInputElement>('input[data-colab-path="nome"]');
+    expect(campoNome, "precisa do input do Nome montado").not.toBeNull();
+    await act(async () => { campoNome!.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); });
+    await esperar(30);
+    // Foca também uma aba (elemento fora de <input>, ainda dentro do scope do onFocusCapture).
+    const abaResolvidos = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((b) => b.textContent?.includes("Resolvidos"));
+    if (abaResolvidos) { await act(async () => { abaResolvidos.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); }); await esperar(30); }
+
+    expect(campoFocadoChamadas.every((v) => v == null), "após focar campos/abas em só leitura, campoFocado segue sempre null").toBe(true);
+    // Controle: a presença ("quem está na tela") não depende de campoFocado — continua ativa
+    // (o hook real ainda roda; `presentes` é lido do canal/presence, não do broadcast de foco).
+    expect(document.body.textContent).not.toContain("Descartar alterações"); // sheet segue montado normalmente
   });
 });
 

@@ -24,6 +24,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; v
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
   onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas,
+  readOnly = false,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -42,6 +43,10 @@ export function MaoObraEditor({
   // encontrada". Só habilita os botões nas linhas persistidas; as novas pedem Salvar antes.
   // `undefined` = chamador não informou (retrocompat) → considera todas persistidas.
   linhasPersistidas?: Set<string>;
+  /** F5a QA B-1 (Sheet do Dev só leitura): esconde "Adicionar serviço" e a lixeira "Remover"
+   * (o fieldset do pai já bloqueia o clique; isto some com a afordância que parecia clicável).
+   * `false` (padrão) = comportamento de hoje, usado pelo Planejamento — byte a byte igual. */
+  readOnly?: boolean;
 }) {
   const [addSel, setAddSel] = useState<string>("");
   const [repro, setRepro] = useState<{ linhaId: string } | null>(null);
@@ -112,11 +117,11 @@ export function MaoObraEditor({
                 E só onde o servidor DEIXA remover: linha já APROVADA (livre) OU quem tem a permissão
                 de aprovar (o BEFORE DELETE gate barra remover linha pendente/reprovada sem
                 `producao_servico_aprovacao`). */}
-            {podeVerCustos && (podeAprovar || l.aprovado === true) && <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" className={podeAprovar ? "" : "ml-auto"} onClick={() => removerAt(idx)}><Trash2 className="h-4 w-4" /></Button>}
+            {!readOnly && podeVerCustos && (podeAprovar || l.aprovado === true) && <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" className={podeAprovar ? "" : "ml-auto"} onClick={() => removerAt(idx)}><Trash2 className="h-4 w-4" /></Button>}
           </div>
         );
       })}
-      {podeVerCustos && disponiveis.length > 0 && (
+      {!readOnly && podeVerCustos && disponiveis.length > 0 && (
         <div className="flex items-end gap-2">
           <div className="grid flex-1 gap-1">
             <Label className="text-xs">Adicionar serviço</Label>

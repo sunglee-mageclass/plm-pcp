@@ -2809,10 +2809,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
         ref={colabScopeRef}
         className="mt-4 flex-1 min-h-0 overflow-y-auto px-6"
         onFocusCapture={(e) => {
+          // F5a QA B-2: em só leitura não há campo "sendo editado" de verdade — não transmite
+          // `campoFocado` (broadcast Realtime), só a presença ("quem está na tela") continua.
+          if (somenteLeitura) return;
           const scope = colabScopeRef.current;
           setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
         }}
-        onBlurCapture={() => setCampoFocado(null)}
+        onBlurCapture={() => { if (!somenteLeitura) setCampoFocado(null); }}
       >
         {/* Status no fluxo — barra persistente acima do accordion (mockup); porteia o kanban.
             F5a: no só leitura some (a etapa aparece como selo no cabeçalho; mudar etapa = arraste do kanban). */}
@@ -2885,6 +2888,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
                 subcolecoes={subcolecoesOpts}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
+                readOnly={somenteLeitura}
               />
               </fieldset>
             </AccordionContent>
@@ -2940,6 +2944,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
                 onChangeOcLinks={ro(updateBlockOcLinks)}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
+                readOnly={somenteLeitura}
               />
               </fieldset>
             </AccordionContent>
@@ -3091,6 +3096,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
                   onChangeCustos={ro((v) => setDraftTracked({ ...draft, custos_adicionais: v }))}
                   camposCopiados={camposCopiados}
                   onCampoEditado={onCampoEditado}
+                  readOnly={somenteLeitura}
                 />
               )}
               {/* Mão de obra POR SERVIÇO — MESMO editor do Planejamento (bidirecional, mesma
@@ -3109,6 +3115,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
                     onReprovar={ro((linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo }))}
                     pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
                     linhasPersistidas={moLinhasPersistidas}
+                    readOnly={somenteLeitura}
                   />
                 </Card>
               )}

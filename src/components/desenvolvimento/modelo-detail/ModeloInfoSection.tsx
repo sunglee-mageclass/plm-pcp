@@ -45,6 +45,7 @@ export function ModeloInfoSection({
   camposCopiados = new Set(),
   onCampoEditado,
   colab,
+  readOnly = false,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -81,6 +82,10 @@ export function ModeloInfoSection({
   // Colab (spec 2026-08-03; presença nome+cor set/2026): `colab.pc(path)` devolve {nome,solid,text}
   // de quem está no campo (ou null). Conflito é resolvido no ColabBanner (genérico), não aqui.
   colab?: { pc: (path: string) => CorPresenca | null };
+  /** F5a QA B-1 (Sheet do Dev só leitura): esconde "Adicionar Piloto 2/3" — o fieldset do pai já
+   * bloqueia o clique; isto some com a afordância que parecia clicável. `false` (padrão) =
+   * comportamento de hoje. */
+  readOnly?: boolean;
 }) {
   const fl = useFieldLabels();
   const pcOf = (path: string): CorPresenca | null => colab?.pc(path) ?? null;
@@ -317,7 +322,7 @@ export function ModeloInfoSection({
             </div>
           </>
         )}
-        {(!visiblePilotos.has(2) || !visiblePilotos.has(3)) && (
+        {!readOnly && (!visiblePilotos.has(2) || !visiblePilotos.has(3)) && (
           <div className="sm:col-span-2 flex gap-2">
             {!visiblePilotos.has(2) && (
               <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => addPiloto(2)}>

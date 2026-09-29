@@ -42,6 +42,7 @@ export function ModeloTecidosSection({
   onChangeOcLinks,
   camposCopiados = new Set(),
   onCampoEditado,
+  readOnly = false,
 }: {
   modeloId: string;
   blocks: TecidoBlock[];
@@ -54,6 +55,10 @@ export function ModeloTecidosSection({
   onChangeOcLinks: (idx: number, vIdx: number, allocs: OcAlloc[]) => void;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
+  /** F5a QA B-1 (Sheet do Dev só leitura): esconde "Adicionar {Forro/Entretela}", "Remover" do
+   * bloco e "+ adicionar tecido" (substituto) — o fieldset do pai já bloqueia o clique; isto some
+   * com a afordância que parecia clicável. `false` (padrão) = comportamento de hoje. */
+  readOnly?: boolean;
 }) {
   const artigoNomeById = new Map(artigos.map((a) => [a.id, a.nome] as const));
   // Peças por posição de variante (grade_total por variante_numero), p/ a
@@ -194,11 +199,12 @@ export function ModeloTecidosSection({
                     gradePorVarianteTecido1={gradePorVarianteTecido1}
                     camposCopiados={camposCopiados}
                     onCampoEditado={onCampoEditado}
+                    readOnly={readOnly}
                   />
                 );
               })}
             </div>
-            {canAdd && (
+            {!readOnly && canAdd && (
               <Button
                 type="button"
                 variant="ghost"
@@ -236,6 +242,7 @@ function TecidoBlockEditor({
   gradePorVarianteTecido1,
   camposCopiados = new Set(),
   onCampoEditado,
+  readOnly = false,
 }: {
   modeloId: string;
   block: TecidoBlock;
@@ -252,6 +259,7 @@ function TecidoBlockEditor({
   gradePorVarianteTecido1: Map<string, number>;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
+  readOnly?: boolean;
 }) {
   const keyArtigo = `tecido:${block.tipo}:${block.numero}:artigo`;
   const keyConsumo = `tecido:${block.tipo}:${block.numero}:consumo`;
@@ -344,7 +352,7 @@ function TecidoBlockEditor({
 
   return (
     <Card className="p-3 space-y-2 relative">
-      {removable && (
+      {!readOnly && removable && (
         <div className="absolute top-2 right-2">
           <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onRemove}>
             <Trash2 className="h-4 w-4" />
@@ -381,17 +389,19 @@ function TecidoBlockEditor({
             {(block.artigoIdsExtra ?? []).map((id) => (
               <Badge key={id} variant="secondary" className="gap-1">
                 {artigoNomeById.get(id) ?? id}
-                <button
-                  type="button"
-                  aria-label="Remover"
-                  className="ml-0.5 hover:text-destructive"
-                  onClick={() => onChangeBlock({ artigoIdsExtra: (block.artigoIdsExtra ?? []).filter((x) => x !== id) })}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    aria-label="Remover"
+                    className="ml-0.5 hover:text-destructive"
+                    onClick={() => onChangeBlock({ artigoIdsExtra: (block.artigoIdsExtra ?? []).filter((x) => x !== id) })}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
               </Badge>
             ))}
-            {substitutoOptions.length > 0 && (
+            {!readOnly && substitutoOptions.length > 0 && (
               <Select value="" onValueChange={(v) => v && onChangeBlock({ artigoIdsExtra: [...(block.artigoIdsExtra ?? []), v] })}>
                 <SelectTrigger className="h-7 w-auto min-w-[150px] text-xs"><SelectValue placeholder="+ adicionar tecido" /></SelectTrigger>
                 <SelectContent>
