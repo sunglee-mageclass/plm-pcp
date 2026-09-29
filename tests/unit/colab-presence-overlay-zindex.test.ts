@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
-// Fix round pós-QA (achado #8) — <ColabPresenceOverlay abaixoDeModal>: com um Dialog/Sheet/
-// AlertDialog (z-50) aberto por cima da página, o anel de presença de um campo NA PÁGINA (fora de
-// qualquer modal) não pode desenhar por cima do backdrop dele — mas o anel de um campo DENTRO de um
-// modal próprio (ex.: o diálogo de Requisitos, que reusa o MESMO overlay da página) precisa
-// continuar acima do backdrop DELE. Teste isolado, sem montar a tela inteira: só o componente +
-// elementos de DOM crus com `data-colab-path` (a resolução por rótulo já tem cobertura própria em
+// Fix round pós-QA (achado #8) + B1/B2 (review-fixqa.md) — <ColabPresenceOverlay abaixoDeModal>:
+// com um Dialog/Sheet/AlertDialog (z-50) aberto por cima da página, o anel de presença de um campo
+// NA PÁGINA (fora de qualquer modal) não pode desenhar por cima do backdrop dele. `abaixoDeModal`
+// baixa esse anel pra `z-[35]` (abaixo de `z-50` E dos `z-40` de PageActionBar/MobileActionBar —
+// B2). O teste 3 NÃO é o caso do diálogo de Requisitos desta tela (B1: aquele `DialogContent` é
+// portal fora do `colabScopeRef` da página, e `elementoDoPath` só procura dentro do scope — ver o
+// comentário em `ColabPresenceOverlay.tsx`/`configuracoes.tsx`); é uma SALVAGUARDA para outra
+// classe de uso: um overlay cujo PRÓPRIO scope mora dentro de um modal (o padrão normal nas outras
+// ~24 instâncias do componente) não pode cair pra z-[35] se `abaixoDeModal` for passado por engano.
+// Teste isolado, sem montar a tela inteira: só o componente + elementos de DOM crus com
+// `data-colab-path` (a resolução por rótulo já tem cobertura própria em
 // colab-field-path-explicito.test.ts).
 import { describe, it, expect, afterEach } from "vitest";
 import { createElement, type ReactElement, act } from "react";
@@ -57,7 +62,7 @@ describe("ColabPresenceOverlay — abaixoDeModal (achado #8)", () => {
     scope.remove();
   });
 
-  it("abaixoDeModal=true: anel de um campo DA PÁGINA (fora de qualquer dialog) usa z-40 — fica abaixo do z-50 do Dialog/Sheet/AlertDialog", async () => {
+  it("abaixoDeModal=true: anel de um campo DA PÁGINA (fora de qualquer dialog) usa z-[35] — fica abaixo do z-50 do Dialog/Sheet/AlertDialog e do z-40 das barras de ação (B2)", async () => {
     const scope = document.createElement("div");
     document.body.appendChild(scope);
     darRect(scope, { top: 0, left: 0, right: 1000, bottom: 1000, width: 1000, height: 1000 });
@@ -67,26 +72,30 @@ describe("ColabPresenceOverlay — abaixoDeModal (achado #8)", () => {
     darRect(campo, {});
     const scopeRef = { current: scope };
     await montar(createElement(ColabPresenceOverlay, { presentes: [presente("cfg:timezone")], scopeRef, abaixoDeModal: true }));
-    expect(document.body.querySelector(".fixed.z-40")).not.toBeNull();
+    expect(document.body.querySelector(".fixed.z-\\[35\\]")).not.toBeNull();
     expect(document.body.querySelector(".fixed.z-\\[60\\]")).toBeNull();
     scope.remove();
   });
 
-  it("abaixoDeModal=true: anel de um campo DENTRO de um Dialog próprio (role=\"dialog\") continua em z-[60] — não fica escondido atrás do backdrop do próprio modal", async () => {
-    const scope = document.createElement("div");
-    document.body.appendChild(scope);
-    darRect(scope, { top: 0, left: 0, right: 1000, bottom: 1000, width: 1000, height: 1000 });
-    // Simula o DialogContent do diálogo de Requisitos: role="dialog" + data-colab-path próprio,
-    // igual a RequisitosStatusDialog.tsx (`<DialogContent data-colab-path={colabPath}>`).
+  it("salvaguarda: overlay cujo PRÓPRIO scope mora dentro de um modal (role=\"dialog\") ignora abaixoDeModal e mantém z-[60] — não é o caso do diálogo de Requisitos (B1), é para um scope acidentalmente dentro de um modal", async () => {
+    // Simula o padrão NORMAL do componente nas outras ~24 instâncias: um Sheet/Dialog colaborativo
+    // (ex.: DistribuirPorLojaDialog) monta <ColabPresenceOverlay scopeRef={corpoRef}> com o scope
+    // DENTRO do próprio DialogContent — diferente de configuracoes.tsx, cujo scopeRef é a página.
     const dialogContent = document.createElement("div");
     dialogContent.setAttribute("role", "dialog");
-    dialogContent.setAttribute("data-colab-path", "cfg:kanban_requisitos");
-    scope.appendChild(dialogContent);
-    darRect(dialogContent, {});
-    const scopeRef = { current: scope };
-    await montar(createElement(ColabPresenceOverlay, { presentes: [presente("cfg:kanban_requisitos")], scopeRef, abaixoDeModal: true }));
+    document.body.appendChild(dialogContent);
+    darRect(dialogContent, { top: 0, left: 0, right: 1000, bottom: 1000, width: 1000, height: 1000 });
+    const campo = document.createElement("input");
+    campo.setAttribute("data-colab-path", "algum:campo");
+    dialogContent.appendChild(campo);
+    darRect(campo, {});
+    const scopeRef = { current: dialogContent };
+    // `abaixoDeModal: true` por engano nesta instância (deveria ser o default `false`) — a
+    // salvaguarda (`dentroDeDialog`, via `el.closest('[role="dialog"]')`) detecta que o campo
+    // resolvido está dentro de um modal e mantém z-[60] em vez de cair pra z-[35].
+    await montar(createElement(ColabPresenceOverlay, { presentes: [presente("algum:campo")], scopeRef, abaixoDeModal: true }));
     expect(document.body.querySelector(".fixed.z-\\[60\\]")).not.toBeNull();
-    expect(document.body.querySelector(".fixed.z-40")).toBeNull();
-    scope.remove();
+    expect(document.body.querySelector(".fixed.z-\\[35\\]")).toBeNull();
+    dialogContent.remove();
   });
 });

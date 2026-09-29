@@ -176,10 +176,13 @@ describe("Config da Loja colaborativa — fix round da revisão T3+T4", () => {
     await qc.invalidateQueries({ queryKey: ["tenant-config"] });
     await aguardar(() => kw()?.value === "LOJA B", "tela mostra a loja t2", 2000);
     soltar();
-    // Fix round pós-QA (L2): redação nova deixa explícito que foi a loja ANTERIOR que não gravou —
-    // e que a loja atual (nesta tela) não foi tocada.
-    await aguardar(() => toastMock.error.mock.calls.some((c) => String(c[0]).startsWith("Não foi possível salvar a configuração da loja anterior")), "aviso da loja anterior");
-    expect(toastMock.error.mock.calls.at(-1)![0]).toContain("Nada foi gravado nesta loja.");
+    // Fix round pós-QA (L2) + fix round 1 (B5): redação nova deixa explícito que foi a loja ANTERIOR
+    // que não gravou, e o motivo curto de P0409 é "outra pessoa salvou antes" (não a frase inteira de
+    // `mensagemErro`, que mandaria "confira os destaques" — sem sentido na loja B que está na tela).
+    await aguardar(() => toastMock.error.mock.calls.length > 0, "toast de erro");
+    expect(toastMock.error.mock.calls.at(-1)![0]).toBe(
+      "Não foi possível salvar a configuração da loja anterior (outra pessoa salvou antes). Nada foi gravado nesta loja.",
+    );
     await esperar(100);
     expect(texto()).not.toContain("a resolver");
     expect(salvar().disabled).toBe(false);
@@ -199,8 +202,9 @@ describe("Config da Loja colaborativa — fix round da revisão T3+T4", () => {
     soltar();
     await aguardar(() => toastMock.error.mock.calls.length > 0, "toast de erro");
     const ultimo = String(toastMock.error.mock.calls.at(-1)![0]);
+    // Fix round 1 (B5): motivo CURTO ("falha de conexão"), não a frase inteira do `mensagemErro`.
     expect(ultimo).toBe(
-      "Não foi possível salvar a configuração da loja anterior (Falha de conexão. Verifique sua internet e tente novamente). Nada foi gravado nesta loja.",
+      "Não foi possível salvar a configuração da loja anterior (falha de conexão). Nada foi gravado nesta loja.",
     );
     await esperar(100);
     // Loja B (na tela) não foi tocada pelo erro da A: sem conflito, sem "não salvo", Salvar liberado.
@@ -245,18 +249,32 @@ describe("Config da Loja colaborativa — fix round da revisão T3+T4", () => {
   // conflitos pendentes ainda comparavam com `igual` cru (sem trim). Os dois casos abaixo provam
   // que um espaço no fim (que a RPC apara, `btrim`) não gera conflito/banner falso nem trava um
   // conflito que já convergiu.
-  it("L1a: digitar 'X ' com espaço no fim (sem mudar o sentido) não conta como tocado — eco alheio noutro campo não gera conflito nem falso 'atualizado' em keywords", async () => {
+  // Fix round 1 (M1 da review-fixqa.md): o L1a original (reafirmar "ORIGINAL " + mudar SÓ o
+  // timezone) passa com ou sem o fix — `mergeDraft` só gera conflito quando `mudouNoServidor`
+  // também é verdadeiro, e o servidor não tocou keywords em nenhum dos dois casos, então o
+  // resultado ("1 atualizado", sem conflito) é IDÊNTICO no código antigo e no novo. Cenário que
+  // DISTINGUE (da revisão): draft = "ORIGINAL " (espaço no fim, cosmético) e o SERVIDOR muda
+  // keywords para "PRAIA" (valor genuinamente diferente). No código ANTIGO (`igual` cru), "ORIGINAL "
+  // ≠ "ORIGINAL" já marcava keywords como TOCADO — e como o servidor TAMBÉM mudou (para "PRAIA"),
+  // `mergeDraft` dava conflito (touched && mudouNoServidor && !igual(draft,fresh)). Com o fix
+  // (`mesmoValorSalvo`), "ORIGINAL " aparado é igual à base "ORIGINAL" → NÃO tocado → o valor novo do
+  // servidor é adotado sem conflito, e keywords conta como "atualizado". Prova de que o teste
+  // distingue: reverta a linha 501 (o `mesmoValorSalvo` do `tocados`) para `igual` cru localmente e
+  // rode `npx vitest run tests/unit/_fix_hidratacao/configuracoes-colab-revisao.test.ts -t "L1a"` —
+  // dá "1 conflito a resolver" em vez de "1 campo(s) atualizado(s)" (revertido só para provar; NÃO
+  // commitado).
+  it("L1a: draft 'ORIGINAL ' (espaço no fim) + servidor muda keywords para 'PRAIA' — sem conflito, adota PRAIA, 1 atualizado", async () => {
     await abrirPagina();
     // Reafirma o valor atual só com um espaço no fim — cosmético, o servidor grava igual (btrim).
     await digitar(kw()!, `${ORIGINAL} `);
-    FAKE.linhas.tenant_config[0].timezone = "America/Manaus"; // mudança alheia noutro campo
+    // O servidor muda keywords de verdade (não é o meu valor, aparado ou não).
+    FAKE.linhas.tenant_config[0].keywords = "PRAIA";
     await ecoDoOutroAdmin();
-    expect(texto()).toContain("Manaus / Amazonas (GMT-4)");
-    // Só o Fuso mudou de verdade — keywords não deveria contar nem como "tocado" (conflito) nem
-    // como "atualizado" (o servidor não mexeu nele).
-    expect(texto()).toContain("Alguém salvou agora — 1 campo(s) atualizado(s)");
+    // Sem conflito: "ORIGINAL " (meu, aparado) == "ORIGINAL" (base) → não tocado → adota o servidor.
     expect(texto()).not.toContain("a resolver");
     expect(bloco("cfg:keywords")!.className).not.toContain("ring-amber-500");
+    expect(kw()!.value).toBe("PRAIA");
+    expect(texto()).toContain("Alguém salvou agora — 1 campo(s) atualizado(s)");
     expect(salvar().disabled).toBe(false);
   });
 
@@ -317,5 +335,113 @@ describe("Config da Loja colaborativa — fix round da revisão T3+T4", () => {
     // O conflito de kanban segue pendente na página (o toast não resolveu por si; ainda precisa
     // "manter meu"/"usar o novo") — Salvar continua travado.
     expect(salvar().disabled).toBe(true);
+  });
+
+  // Fix round 1 (B7, review-fixqa.md): o L3 original só cobria o ramo de texto ESPECÍFICO de kanban
+  // (`kanbanEmConflito===true`). Este cobre o ramo GENÉRICO: a prévia do Kanban está aberta (então a
+  // guarda M2 pode disparar), mas o conflito que chega é numa coluna GERAL (keywords) — o toast deve
+  // ser o texto de sempre da guarda, não o de "configuração do Kanban mudou".
+  it("L3 (B7): prévia do Kanban aberta + conflito SÓ em coluna geral (keywords) — toast genérico, não o de kanban", async () => {
+    FAKE.linhas.tenant_config[0].kanban_automatico = true;
+    FAKE.linhas.tenant_config[0].kanban_requisitos = { aprovado: ["preco_venda_preenchido"] };
+    FAKE.definirPreviaKanban({
+      chave_proposta: true, total: 3, mudam: 3, fixados: 0, cards: [], cards_fixados: [],
+      revelam_ref: 0, refs_reveladas: [], avisos: [],
+    });
+    await abrirPagina();
+    await digitar(kw()!, `${ORIGINAL}, Sardinha`); // toco keywords também
+    const draftStatus = () => document.querySelector<HTMLInputElement>('input[placeholder="Ex: Em Modelagem"]');
+    await digitar(draftStatus()!, "MINHA COLUNA");
+    await clicar(botaoPorTexto("Adicionar")!);
+    await aguardar(() => texto().includes("MINHA COLUNA"), "coluna nova na lista");
+    await clicar(salvar());
+    await aguardar(() => !!botaoPorTexto("Salvar e mover 3 cards"), "prévia do Kanban aberta");
+    // B grava keywords (coluna GERAL, não kanban) enquanto a prévia de A está aberta.
+    FAKE.linhas.tenant_config[0].keywords = "DO OUTRO ADMIN";
+    await ecoDoOutroAdmin();
+    expect(bloco("cfg:keywords")!.className).toContain("ring-amber-500");
+    expect(bloco("cfg:status_kanban")!.className).not.toContain("ring-amber-500");
+    const rpcsAntes = rpcs().length;
+    await clicar(botaoPorTexto("Salvar e mover 3 cards")!);
+    await aguardar(() => !botaoPorTexto("Salvar e mover 3 cards"), "dialog da prévia fechou");
+    await aguardar(
+      () => toastMock.error.mock.calls.some((c) => c[0] === "Resolva os itens em conflito (manter meu ou usar o novo) antes de salvar."),
+      "toast genérico (não o de kanban)",
+    );
+    expect(toastMock.error.mock.calls.some((c) => String(c[0]).includes("configuração do Kanban mudou"))).toBe(false);
+    expect(rpcs().length).toBe(rpcsAntes);
+    expect(salvar().disabled).toBe(true);
+  });
+
+  // Fix round 1 (B7): a guarda M2 (conflito pendente, com a prévia do Kanban aberta) NÃO pode logar
+  // como `console.error` — é uma recusa ESPERADA, não uma falha de servidor (mesmo raciocínio do L3).
+  it("L3 (B7): a guarda M2 (conflito de kanban com a prévia aberta) NÃO chama console.error", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      FAKE.linhas.tenant_config[0].kanban_automatico = true;
+      FAKE.linhas.tenant_config[0].kanban_requisitos = { aprovado: ["preco_venda_preenchido"] };
+      FAKE.definirPreviaKanban({
+        chave_proposta: true, total: 3, mudam: 3, fixados: 0, cards: [], cards_fixados: [],
+        revelam_ref: 0, refs_reveladas: [], avisos: [],
+      });
+      await abrirPagina();
+      const draftStatus = () => document.querySelector<HTMLInputElement>('input[placeholder="Ex: Em Modelagem"]');
+      await digitar(draftStatus()!, "MINHA COLUNA");
+      await clicar(botaoPorTexto("Adicionar")!);
+      await aguardar(() => texto().includes("MINHA COLUNA"), "coluna nova na lista");
+      await clicar(salvar());
+      await aguardar(() => !!botaoPorTexto("Salvar e mover 3 cards"), "prévia do Kanban aberta");
+      consoleErrorSpy.mockClear(); // só nos interessa o que a RECUSA loga, não o carregamento
+      FAKE.linhas.tenant_config[0].status_kanban = ["Em Modelagem", "COLUNA DO OUTRO", "Aprovado"];
+      await ecoDoOutroAdmin();
+      await clicar(botaoPorTexto("Salvar e mover 3 cards")!);
+      await aguardar(
+        () => toastMock.error.mock.calls.some((c) => String(c[0]).includes("configuração do Kanban mudou")),
+        "toast específico de kanban (guarda M2)",
+      );
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  // Fix round 1 (B4/B7): "a configuração mudou depois da prévia" (D19, `diffMudouDesdeAPrevia`,
+  // `fecharDialogoKanban` SEM `conflitoEsperado`) também NÃO pode logar — B4 aponta que esse ramo
+  // ainda caía no `mensagemErro` genérico (que loga em DEV) mesmo fechando o dialog corretamente.
+  it("L3 (B7/B4): 'a configuração mudou depois da prévia' (sem conflito) NÃO chama console.error", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      FAKE.linhas.tenant_config[0].kanban_automatico = true;
+      FAKE.linhas.tenant_config[0].kanban_requisitos = { aprovado: ["preco_venda_preenchido"] };
+      FAKE.definirPreviaKanban({
+        chave_proposta: true, total: 3, mudam: 3, fixados: 0, cards: [], cards_fixados: [],
+        revelam_ref: 0, refs_reveladas: [], avisos: [],
+      });
+      await abrirPagina();
+      const draftStatus = () => document.querySelector<HTMLInputElement>('input[placeholder="Ex: Em Modelagem"]');
+      await digitar(draftStatus()!, "MINHA COLUNA");
+      await clicar(botaoPorTexto("Adicionar")!);
+      await aguardar(() => texto().includes("MINHA COLUNA"), "coluna nova na lista");
+      await clicar(salvar());
+      await aguardar(() => !!botaoPorTexto("Salvar e mover 3 cards"), "prévia do Kanban aberta");
+      consoleErrorSpy.mockClear(); // só nos interessa o que a RECUSA loga, não o carregamento
+      // A configuração mudou DEPOIS da prévia (D19): a prévia mostrada descrevia
+      // `diff={status_kanban:[...,"MINHA COLUNA"]}` (capturado em `diffEsperadoRef` quando o dialog
+      // abriu); adicionar MAIS uma coluna ao rascunho — sem re-preparar a prévia (o `onConfirmar` do
+      // dialog chama `save.mutate()` direto, não `prepararSalvar`) — muda o diff RECALCULADO no
+      // `mutationFn` na hora de salvar (`{status_kanban:[...,"MINHA COLUNA","OUTRA COLUNA"]}`), sem
+      // que ninguém tenha gravado nada no servidor (não é P0409/conflito — é só a garantia D19).
+      await digitar(draftStatus()!, "OUTRA COLUNA");
+      await clicar(botaoPorTexto("Adicionar")!);
+      await aguardar(() => texto().includes("OUTRA COLUNA"), "2ª coluna nova no rascunho");
+      await clicar(botaoPorTexto("Salvar e mover 3 cards")!);
+      await aguardar(
+        () => toastMock.error.mock.calls.some((c) => String(c[0]).includes("mudou depois da prévia")),
+        "toast de 'previa desatualizada'",
+      );
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });
