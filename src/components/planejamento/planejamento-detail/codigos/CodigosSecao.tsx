@@ -115,8 +115,12 @@ export function CodigosSecao({
           SEM a 3ª coluna — o botão vira um item a mais no grid de 2 colunas e ocupa a linha de baixo sozinho,
           alinhado à esquerda). De `lg` (1024px) em diante, onde o conteúdo útil já é ~669px, as 3 colunas
           cabem juntas de novo (`lg:grid-cols-[minmax(12rem,1fr)_auto_auto]`) — idêntico ao fix anterior nesses
-          2 breakpoints (medido pelo QA: 1024→373px de REF, 1280→529px). Re-medido com scrollWidth===clientWidth
-          do corpo do Sheet em 390/640/768/1024/1280 (ver tests/unit/planejamento-codigos.test.ts — fonte). */}
+          2 breakpoints (REF calculada: 1024→~374px, 1280→~553px).
+          Fix round 2 (Low, re-revisão) — a largura em cada breakpoint (390/640/768/1024/1280) foi CALCULADA
+          pela matemática acima (Sheet 70vw, px-6 no corpo, tracks mínimos de REF/toggle/botão), NÃO medida
+          num navegador de verdade (a versão anterior deste comentário dizia "Re-medido com
+          scrollWidth===clientWidth", o que nunca aconteceu — corrigido aqui). Ver tests/unit/
+          planejamento-codigos.test.ts pras asserções de fonte que confirmam as classes do grid. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(12rem,1fr)_auto] sm:items-end lg:grid-cols-[minmax(12rem,1fr)_auto_auto]">
         {refVisivel ? (
           <div className="grid gap-1">
@@ -170,10 +174,14 @@ export function CodigosSecao({
           // Fix round 1 (M-1) — de `sm` a `md` o botão é o 3º item de um grid de 2 colunas (cai pra linha 2,
           // coluna 1, embaixo da REF) e a coluna 1 é `minmax(12rem,1fr)` (flexível/larga) — sem `justify-self-
           // start` o grid ESTICA o botão pra ocupar a largura toda da coluna (comportamento padrão de item de
-          // grid, `justify-items: stretch`). `w-fit` reforça o mesmo em navegadores que dessem prioridade à
-          // largura do conteúdo do Button por outro caminho. De `lg` em diante o botão volta a ser a 3ª coluna
-          // própria (`auto` — cabe no conteúdo, sem esticar de qualquer forma).
-          <Button type="button" variant="outline" size="sm" className="w-fit justify-self-start max-sm:min-h-11"
+          // grid, `justify-items: stretch`). De `lg` em diante o botão volta a ser a 3ª coluna própria (`auto`
+          // — cabe no conteúdo, sem esticar de qualquer forma).
+          // Fix round 2 (Low, re-revisão) — `w-fit justify-self-start` valia em TODA largura, inclusive abaixo
+          // de `sm` (max-sm, 1 coluna só): ali o grid original (antes do F1/M-1) sempre esticava o botão pra
+          // largura cheia (`justify-items: stretch` default) — ninguém pediu pra mudar esse comportamento no
+          // celular. Restrito a `sm:` (só a partir de 640px, onde o grid de 2/3 colunas de fato precisa do
+          // ajuste) — abaixo disso o botão volta a ser full-width, como sempre foi.
+          <Button type="button" variant="outline" size="sm" className="sm:w-fit sm:justify-self-start max-sm:min-h-11"
             disabled={!regerar.pode}
             title={regerar.motivo}
             onClick={aGravar.pedirRegerar}>

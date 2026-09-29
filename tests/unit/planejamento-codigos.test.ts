@@ -256,8 +256,15 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
     // com o botão OMITIDO das 2 colunas de sm/md — vai para a linha 2). A 1024px o conteúdo é ~669px (medido no
     // QA), onde as 3 colunas (REF+toggle+botão+2 gaps = 487px mínimo) cabem com folga — REF recebe o resto (1fr).
     // Botão precisa de w-fit + justify-self-start pra NÃO esticar na coluna larga (minmax(12rem,1fr)) quando cai
-    // pra linha 2 sozinho, de sm a md.
-    expect(s).toContain('<Button type="button" variant="outline" size="sm" className="w-fit justify-self-start max-sm:min-h-11"');
+    // pra linha 2 sozinho, de sm a md. Fix round 2 (Low, re-revisão) — restrito a `sm:` (não vale abaixo de
+    // 640px): o celular continua com o botão full-width, como sempre foi antes do F1/M-1.
+    expect(s).toContain('<Button type="button" variant="outline" size="sm" className="sm:w-fit sm:justify-self-start max-sm:min-h-11"');
+    expect(s).not.toContain('className="w-fit justify-self-start max-sm:min-h-11"'); // versão sem o gate sm: — SUBSTITUÍDA
+  });
+  it("Fix round 2 (Low, re-revisão) — o comentário do grid NÃO afirma mais que a largura foi medida num navegador (era falso; agora diz que foi CALCULADA)", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
+    expect(s).not.toMatch(/Re-medido com scrollWidth===clientWidth/);
+    expect(s).toMatch(/foi CALCULADA/);
   });
   it("CodigosSecao (SKU em prévia — P-46): REF, 'Tamanho em' (P-25), Regerar SEM AlertDialog e SEM trava de rascunho sujo, aviso de prévia, SKU com data-colab-path", () => {
     const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
