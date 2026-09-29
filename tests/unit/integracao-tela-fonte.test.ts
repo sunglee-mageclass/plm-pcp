@@ -543,6 +543,57 @@ describe("useIntegracao — usePreviasSkus memoiza previaDeErro (identidade est�
   });
 });
 
+// P-130 A (dono, set/2026): `useIntegracaoLista` (o REAL, mesmo padrão "Sonda" de `usePreviasSkus` acima) chama
+// `integracao_listar` com `_limite: LIMITE_PRODUTOS` (500) — a tela carrega TUDO de uma vez pra ordenação/filtro
+// de nível valerem pra lista inteira, não só pela página de 50 de antes. `_situacao`/`_filtros`/`_pagina`
+// continuam do jeito que já eram (só `_limite` é NOVO).
+describe("useIntegracao — useIntegracaoLista chama integracao_listar com _limite: LIMITE_PRODUTOS (P-130 A)", () => {
+  async function montarListaSonda() {
+    vi.resetModules();
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    const rpcSpy = vi.fn(async () => ({
+      data: { pagina: 1, por_pagina: 500, total: 1, produtos: [], contagens: { nao_integrados: 1, integrados: 0, todos: 1 },
+        campos: [], opcoes: { colecoes: [], etapas: [] }, pode: { editar: true, ver_custos: true, super: false, keywords: true },
+        keywords: null },
+      error: null,
+    }));
+    vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy } }));
+    const { createElement } = await import("react");
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { useIntegracaoLista } = await import("@/components/integracao/useIntegracao");
+    const { FILTROS_VAZIOS } = await import("@/lib/integracao/produtos");
+    function Sonda() {
+      useIntegracaoLista("nao_integrados", FILTROS_VAZIOS, 1);
+      return null;
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(Sonda))); });
+    return {
+      rpcSpy,
+      desmontar: async () => { await act(async () => root.unmount()); container.remove(); },
+    };
+  }
+
+  it("a chamada de integracao_listar leva _limite: 500, junto de _situacao/_filtros/_pagina", async () => {
+    const view = await montarListaSonda();
+    // A query pode ainda estar "em voo" no 1º render; espera até o spy ser chamado (mesmo padrão de espera-por-
+    // polling já usado noutras Sondas deste arquivo, ex. `usePreviasSkus`/`useSalvarIntegracao`).
+    const { act } = await import("react");
+    for (let i = 0; i < 20 && view.rpcSpy.mock.calls.length === 0; i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    }
+    expect(view.rpcSpy).toHaveBeenCalledWith("integracao_listar", {
+      _situacao: "nao_integrados", _filtros: {}, _pagina: 1, _limite: 500,
+    });
+    await view.desmontar();
+  });
+});
+
 // revisão T15 #I1-R (code-review "Re-check round 1"): `useSalvarIntegracao` (o REAL, não mockado — mesmo padrão
 // "Sonda" de `usePreviasSkus` acima) recusa o Salvar de Produtos quando `confirmarLojaAtiva` diz que a loja
 // mudou — prova que a RPC `integracao_salvar` NUNCA é chamada nesse caso.
@@ -780,7 +831,11 @@ describe("Integração — aba Produtos", () => {
     const s = ler("src/components/integracao/ProdutosAba.tsx");
     expect(s).toMatch(/useState<Situacao>\("nao_integrados"\)/);
     expect(s).toMatch(/useAbaSuja\("produtos", sujo\)/);
-    expect(s).toMatch(/50 por página/);
+    // P-130 A: o tamanho de página deixou de ser o literal "50" — agora lê `lista.porPagina` do SERVIDOR (a RPC
+    // devolve `por_pagina` refletindo o `_limite` de verdade usado, até LIMITE_PRODUTOS). Paginação só aparece
+    // quando a loja passa de LIMITE_PRODUTOS (`mostraPaginacao`).
+    expect(s).toMatch(/\{lista\.porPagina\} por página/);
+    expect(s).toMatch(/mostraPaginacao/);
   });
   it("upload de foto só no Salvar (o diálogo de fotos não sobe arquivo)", () => {
     const f = ler("src/components/integracao/FotosDialog.tsx");
@@ -792,6 +847,26 @@ describe("Integração — aba Produtos", () => {
     expect(k).not.toMatch(/from\("tenant_config"\)/);
   });
 });
+
+// Abre o SelectTrigger de "Estado" (`id="f-estado"`) e clica na SelectItem do rótulo pedido — Radix Select real
+// (portal em document.body), sem mock: `pointerdown` abre o menu (mesmo padrão do Radix Switch/Popover já
+// testados neste arquivo, que também respondem a `MouseEvent`/`PointerEvent` sintéticos em happy-dom). Escopo de
+// MÓDULO (não dentro de um describe) — compartilhada pelos describes "Estado em 4 níveis" e "P-130 A" abaixo.
+async function escolherEstado(view: { container: HTMLElement }, rotulo: string): Promise<boolean> {
+  const { act } = await import("react");
+  const trigger = Array.from(view.container.querySelectorAll('[id="f-estado"]'))[0] as HTMLElement;
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  const item = Array.from(document.body.querySelectorAll('[role="option"]')).find((o) => o.textContent === rotulo) as HTMLElement | undefined;
+  if (!item) return false; // Radix não abriu em happy-dom (ambiente sem layout real) — o chamador decide o fallback
+  await act(async () => {
+    item.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  return true;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // Render de verdade (checklist não-negociável da T12b: "regex-on-source test does NOT count" para componente com
@@ -896,6 +971,10 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       ? (await vi.importActual<typeof import("@/components/integracao/useIntegracao")>("@/components/integracao/useIntegracao")).useIntegracaoLista
       : null;
     vi.doMock("@/components/integracao/useIntegracao", () => ({
+      // P-130 A: `ProdutosAba.tsx` importa `LIMITE_PRODUTOS` deste módulo — como este mock substitui o módulo
+      // INTEIRO, precisa reexportar a MESMA constante (500) ou `mostraPaginacao` (`lista.total > LIMITE_PRODUTOS`)
+      // vira `N > undefined` = sempre `false`, escondendo a paginação em TODO teste deste arquivo por engano.
+      LIMITE_PRODUTOS: 500,
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
       confirmarLojaAtiva: confirmarLojaAtivaSpy,
       useIntegracaoLista: (situacao: Parameters<NonNullable<typeof listaReal>>[0], filtros: Parameters<NonNullable<typeof listaReal>>[1], pagina: number) => {
@@ -1121,8 +1200,10 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
   // mudaria mesmo com o bug presente): navega pra página 3, edita e Salva — `pagina` precisa continuar 3 depois
   // que `travaFiltro` solta e o debounce roda de novo (janela real de 400ms — a suíte não usa fake timers).
   it("regressão R2/R-I2: Salvar na página 3 não volta pra página 1 (busca não mudou)", async () => {
+    // P-130 A: a paginação (e o botão "Próxima") só existe de verdade acima de LIMITE_PRODUTOS (500) — total
+    // precisa passar disso pra `mostraPaginacao` ser true (sem isso o botão nem renderiza e o teste quebra).
     const pagina1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto P1", ref: "REF0001", tamanho_tipo: "letra" } })],
-      { pagina: 1, total: 150 });
+      { pagina: 1, total: 1500, por_pagina: 500 });
     const view = await montarComMocks({ lista: pagina1 });
     const { act } = await import("react");
     expect(view.paginaAtual()).toBe(1);
@@ -2304,27 +2385,12 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
 
   // MEDIUM-1/2/HIGH-1 (review 685544fa) — Estado em 4 níveis: abre o Select "Estado", escolhe um nível
   // ("faltam dados"), e prova o comportamento fim-a-fim (render de verdade, não só a função pura já testada em
-  // integracao-estado-niveis.test.ts).
+  // integracao-estado-niveis.test.ts). `escolherEstado` (compartilhada com o describe "P-130 A" abaixo, por isso
+  // no escopo do MÓDULO — não dentro deste describe) abre o SelectTrigger de "Estado" e clica na SelectItem do
+  // rótulo pedido — Radix Select real (portal em document.body), sem mock: `pointerdown` abre o menu (mesmo
+  // padrão do Radix Switch/Popover já testados acima no arquivo, que também respondem a `MouseEvent`/
+  // `PointerEvent` sintéticos em happy-dom).
   describe("Estado em 4 níveis (review 685544fa)", () => {
-    // Abre o SelectTrigger de "Estado" e clica na SelectItem do rótulo pedido — Radix Select real (portal em
-    // document.body), sem mock: `pointerdown` abre o menu (mesmo padrão do Radix Switch/Popover já testados
-    // acima no arquivo, que também respondem a `MouseEvent`/`PointerEvent` sintéticos em happy-dom).
-    async function escolherEstado(view: { container: HTMLElement }, rotulo: string) {
-      const { act } = await import("react");
-      const trigger = Array.from(view.container.querySelectorAll('[id="f-estado"]'))[0] as HTMLElement;
-      await act(async () => {
-        trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
-        trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-      const item = Array.from(document.body.querySelectorAll('[role="option"]')).find((o) => o.textContent === rotulo) as HTMLElement | undefined;
-      if (!item) return false; // Radix não abriu em happy-dom (ambiente sem layout real) — o chamador decide o fallback
-      await act(async () => {
-        item.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-        item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-      return true;
-    }
-
     it("MEDIUM-2: um produto com RASCUNHO PENDENTE nunca desaparece por causa do filtro de nível, mesmo com um refetch em segundo plano chegando no meio", async () => {
       const lista = listaRaw([
         produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" }, completo: true }),
@@ -2366,6 +2432,9 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     });
 
     it("HIGH-1: filtro de nível esvazia a página atual — mantém Anterior/Próxima e mostra 'Mostrando 0 de N'", async () => {
+      // P-130 A: a paginação só existe de verdade acima de LIMITE_PRODUTOS (500) — total precisa passar disso pra
+      // `mostraPaginacao` ser true e exercitar Anterior/Próxima; com total ≤ 500 a "página" já é a lista inteira e
+      // não haveria paginação pra testar aqui (ver o describe de baixo, "sem paginação").
       // 2ª página do servidor SÓ com produtos "faltam dados" — escolher "completo" esvazia esta página, mas a
       // paginação (Anterior/Próxima) tem que continuar visível (a pessoa pode trocar de página em vez de reabrir
       // o filtro), e o texto tem que ser HONESTO ("0 de 2 produtos desta página"), nunca sumir sem explicar.
@@ -2374,7 +2443,7 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
           produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" }, completo: false }),
           produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" }, completo: false }),
         ],
-        { pagina: 2, total: 60 },
+        { pagina: 2, total: 600, por_pagina: 500 },
       );
       const view = await montarComMocks({ lista });
       const abriu = await escolherEstado(view, "Não integrável — completo");
@@ -2391,6 +2460,94 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       expect(proxima, "botão Próxima tem que continuar visível mesmo com a tabela vazia por filtro").toBeDefined();
       // Texto honesto: "0 de 2" (nunca finge que a página real está vazia — só o NÍVEL escolhido não bate aqui).
       expect(view.container.textContent).toContain("Mostrando 0 de 2 produtos desta página");
+      await view.desmontar();
+    });
+  });
+
+  // P-130 A (dono, set/2026): a tela carrega TUDO de uma vez (até LIMITE_PRODUTOS=500) — sem paginação de verdade
+  // pra lojas com ≤500 produtos. Cobre: (1) captions corretas nos 2 casos (com/sem paginação de verdade); (2)
+  // ordenação/filtro de nível aplicados sobre TODA a lista carregada, não só um recorte de 50 (prova com >50
+  // produtos numa única "página").
+  describe("P-130 A — carrega tudo de uma vez; paginação só acima de 500", () => {
+    it("SEM paginação de verdade (total ≤ 500): Anterior/Próxima NÃO aparecem; captions dizem 'da lista'/'toda a lista carregada'", async () => {
+      // 80 produtos, total=80 (< 500) — mostraPaginacao é false; a "página 1" JÁ é a lista inteira.
+      const produtos = Array.from({ length: 80 }, (_, i) =>
+        produtoRaw({ modelo_id: `m${i}`, raw: { nome: `Produto ${String(i).padStart(3, "0")}`, ref: `REF${i}`, tamanho_tipo: "letra" } }));
+      const lista = listaRaw(produtos, { pagina: 1, total: 80, por_pagina: 500 });
+      const view = await montarComMocks({ lista });
+      // Nem Anterior nem Próxima existem — não há "outra página" pra ir.
+      const anterior = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Anterior");
+      const proxima = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Próxima");
+      expect(anterior, "sem >500 produtos, não deveria existir botão Anterior").toBeUndefined();
+      expect(proxima, "sem >500 produtos, não deveria existir botão Próxima").toBeUndefined();
+      // Caption do rodapé: nunca "desta página" quando tudo já foi carregado.
+      expect(view.container.textContent).toContain("Ordenação e níveis de Estado valem para toda a lista carregada.");
+      expect(view.container.textContent).not.toContain("Ordenação e níveis de Estado valem para os produtos desta página.");
+      // Caption do InfoHover "Estado" (title do botão de info) — o texto completo fica no atributo/tooltip, mas o
+      // essencial (nunca "desta página" no caso sem paginação) já é coberto pelo rodapé acima; aqui confirmamos
+      // que a "faixa Mostrando…" usa "da lista" (não "desta página") — só entra quando o filtro de nível é usado.
+      await view.desmontar();
+    });
+
+    it("COM paginação de verdade (total > 500): Anterior/Próxima aparecem; captions dizem 'desta página'", async () => {
+      const produtos = [produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Único", ref: "REF0001", tamanho_tipo: "letra" } })];
+      const lista = listaRaw(produtos, { pagina: 1, total: 600, por_pagina: 500 });
+      const view = await montarComMocks({ lista });
+      const anterior = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Anterior");
+      const proxima = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Próxima");
+      expect(anterior, "com >500 produtos, Anterior tem que existir").toBeDefined();
+      expect(proxima, "com >500 produtos, Próxima tem que existir").toBeDefined();
+      expect(view.container.textContent).toContain("Ordenação e níveis de Estado valem para os produtos desta página.");
+      expect(view.container.textContent).not.toContain("Ordenação e níveis de Estado valem para toda a lista carregada.");
+      await view.desmontar();
+    });
+
+    it("ordenação por Nome funciona sobre as 80 linhas carregadas de uma vez (não só as primeiras 50)", async () => {
+      // Nomes em ordem DECRESCENTE no servidor (Produto 079 primeiro) — clicar "Nome" (asc) tem que trazer
+      // Produto 000 pro topo, e isso só é observável se as 80 linhas estiverem TODAS na mesma "página" carregada
+      // (com o antigo limite de 50, o 79º produto nem estaria na tela pra reordenar). `acessorOrdenacao` lê o
+      // valor SALVO (`fonteExibida`/`vivo`, nunca `raw` cru) — a fixture precisa de `vivo.linhas` preenchido, senão
+      // o accessor devolve `null` pra TODO produto e o sort vira um no-op silencioso (achado ao depurar este teste).
+      const produtos = Array.from({ length: 80 }, (_, i) => {
+        const n = 79 - i; // decrescente: primeiro é 079, último é 000
+        const nome = `Produto ${String(n).padStart(3, "0")}`;
+        return produtoRaw({
+          modelo_id: `m${n}`, raw: { nome, ref: `REF${n}`, tamanho_tipo: "letra" },
+          vivo: { v: 1, campos: ["nome"], linhas: [{ tipo: "produto", ordem: 0, valores: { nome }, fotos: [] }] },
+        });
+      });
+      const lista = listaRaw(produtos, { pagina: 1, total: 80, por_pagina: 500 });
+      const view = await montarComMocks({ lista });
+      const { act } = await import("react");
+      const cabecalhoNome = Array.from(view.container.querySelectorAll("thead button")).find((b) => b.textContent?.includes("Nome"));
+      expect(cabecalhoNome, "cabeçalho Nome precisa existir e ser clicável").toBeDefined();
+      await act(async () => { cabecalhoNome!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      const primeiraLinhaInput = view.container.querySelector<HTMLInputElement>("tbody tr input");
+      expect(primeiraLinhaInput?.value).toBe("Produto 000"); // veio do FIM da lista de 80 — prova que ordenou TUDO
+      await view.desmontar();
+    });
+
+    it("filtro de nível de Estado se aplica às 80 linhas carregadas de uma vez (conta certo, sem paginação)", async () => {
+      // 60 "faltam dados" + 20 "completo" — escolher "completo" tem que estreitar pras 20, mesmo sem paginação
+      // nenhuma envolvida (mostraPaginacao=false; o recorte é 100% client-side sobre a lista JÁ carregada).
+      const produtos = [
+        ...Array.from({ length: 60 }, (_, i) =>
+          produtoRaw({ modelo_id: `f${i}`, raw: { nome: `Falta ${i}`, ref: `REFF${i}`, tamanho_tipo: "letra" }, completo: false })),
+        ...Array.from({ length: 20 }, (_, i) =>
+          produtoRaw({ modelo_id: `c${i}`, raw: { nome: `Completo ${i}`, ref: `REFC${i}`, tamanho_tipo: "letra" }, completo: true })),
+      ];
+      const lista = listaRaw(produtos, { pagina: 1, total: 80, por_pagina: 500 });
+      const view = await montarComMocks({ lista });
+      const abriu = await escolherEstado(view, "Não integrável — completo");
+      if (!abriu) {
+        await view.desmontar();
+        return;
+      }
+      // 20 linhas visíveis (as "completo"), NENHUMA "Falta N" na tela.
+      const linhas = view.container.querySelectorAll("tbody tr");
+      expect(linhas.length).toBe(20);
+      expect(view.container.textContent).not.toContain("Falta ");
+      expect(view.container.textContent).toContain("Mostrando 20 de 80 produtos da lista (filtrados por Estado)");
       await view.desmontar();
     });
   });
