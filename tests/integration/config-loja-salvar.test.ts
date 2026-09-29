@@ -1,6 +1,6 @@
 /**
  * Config da Loja colaborativa — T1 (banco): RPC `salvar_config_loja` (compare-and-set POR COLUNA em tenant_config).
- * supabase/migrations/20261012100000_config_loja_salvar_colab.sql + inverso em supabase/rollback/.
+ * supabase/migrations/20261015100000_config_loja_salvar_colab.sql + inverso em supabase/rollback/.
  * Plano: .superpowers/sdd/2026-09-29-config-colab/plan.md (seções "RPC (corpo, em ordem)" e "T1").
  *
  * Tudo em BEGIN…ROLLBACK (withTx) e SÓ na cópia local (exigeBancoLocal): cada teste aplica a migration DENTRO da txn
@@ -16,8 +16,8 @@ import { hasDb, withTx, um, comoUsuario, semUsuario, ehBancoLocal, dbUrl, TENANT
 import { aplicarSql, exigeBancoLocal, semTransacao } from "./mig-txn";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const MIG = "supabase/migrations/20261012100000_config_loja_salvar_colab.sql";
-const INV = "supabase/rollback/20261012100000_config_loja_salvar_colab_down.sql";
+const MIG = "supabase/migrations/20261015100000_config_loja_salvar_colab.sql";
+const INV = "supabase/rollback/20261015100000_config_loja_salvar_colab_down.sql";
 const T = TENANT_TESTE;
 const SIG = "public.salvar_config_loja(uuid,jsonb,jsonb,boolean)";
 const U_COMUM = "c0f1c0f1-0000-4000-8000-0000000000a1"; // usuário SEM papel admin (criado na txn)
@@ -585,7 +585,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
 // ───────────────── concorrência: 2 conexões, COMMIT REAL na cópia (restaurado no fim) ─────────────────
 // A 1ª conexão salva e segura a linha (FOR UPDATE); a 2ª espera; quando a 1ª dá COMMIT, a 2ª relê a versão nova:
 // mesma coluna → P0409; coluna diferente → grava. Precisa da função visível às 2 conexões, então a migration é aplicada DE
-// VERDADE na cópia (só se ainda não existe) e o inverso roda no fim. Os valores de keywords são restaurados e as linhas de
+// VERDADE na cópia (SEMPRE reaplicada — N3) e o inverso roda no fim só se esta rodada a criou. Os valores de keywords são restaurados e as linhas de
 // audit_log criadas aqui (marcador 'conc-t1-') são apagadas. SÓ na cópia local (exigeBancoLocal).
 describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência real (2 conexões, cópia local)", () => {
   const MARCA = "conc-t1-";
@@ -636,11 +636,11 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência
     if (u.t !== T) throw new Error(`USER_TESTE precisa estar na Loja Teste na cópia (está em ${u.t}) — o teste não grava users`);
     orig = await um(admin, "SELECT id, keywords, timezone FROM public.tenant_config WHERE tenant_id = $1", [T]);
     if ((orig.keywords ?? "").startsWith(MARCA)) throw new Error("keywords da Loja Teste já têm o marcador de uma rodada anterior interrompida");
-    const existe = (await um<{ r: string | null }>(admin, "SELECT to_regprocedure($1)::text AS r", [SIG])).r;
-    if (!existe) {
-      await admin.query(ler(MIG)); // aplicação REAL (com o BEGIN/COMMIT e as travas do próprio arquivo)
-      criouFuncao = true;
-    }
+    // N3 (re-review): SEMPRE reaplica a versão DESTE arquivo (uma função velha já na cópia não pode mascarar o teste);
+    // o inverso no fim só roda se esta rodada é que criou a função (se ela já existia, fica — na versão deste arquivo).
+    const existia = (await um<{ r: string | null }>(admin, "SELECT to_regprocedure($1)::text AS r", [SIG])).r;
+    await admin.query(ler(MIG)); // aplicação REAL (com o BEGIN/COMMIT e as travas do próprio arquivo)
+    criouFuncao = !existia;
   });
 
   afterAll(async () => {

@@ -27,8 +27,10 @@
 -- Retorno: {gravadas: [colunas], valores: {coluna: valor pós-gatilhos}} — `valores` só das colunas gravadas.
 -- ACL (inv. #9): REVOKE de PUBLIC, anon e service_role (nenhum caminho de servidor usa; review T1 I3); EXECUTE só p/
 -- authenticated (a própria RPC exige admin da loja ou super admin).
--- Idempotente (CREATE OR REPLACE + REVOKE/GRANT). Inverso: supabase/rollback/20261012100000_config_loja_salvar_colab_down.sql
+-- Idempotente (CREATE OR REPLACE + REVOKE/GRANT). Inverso: supabase/rollback/20261015100000_config_loja_salvar_colab_down.sql
 -- (reverter o FRONT antes — o front novo só salva por esta RPC).
+-- Numeração: 20261015100000 — depois de 20261013100000 (cor no nome, redefine _sku_config_normaliza/_skus_*/integracao_*)
+-- e 20261014100000 (Tamanho em). Nenhuma função em comum com elas; volta em LIFO (esta primeiro).
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
