@@ -1554,6 +1554,65 @@ describe("F4 — Produto Acabado e Importado", () => {
   });
 });
 
+// Fix round 2 (review Opus): os 4 campos de preço/markup do Produto Acabado (ProdutoCard.tsx)
+// tinham `onBlur` reparseando `e.target.value` (o evento NATIVO de blur — texto MASCARADO pt-BR
+// com vírgula decimal/ponto de milhar) com `Number()`, que dá `NaN` pra quase todo valor real
+// ("698,00", "1.234,56"). `MoneyInput`/`NumberInput` só reconstroem o valor canônico no
+// `onChange` (ver money-mask.test.ts, describe "Fix round 2" — mecanismo puro), nunca no
+// `onBlur`, que repassa o evento do DOM sem tocar. Guarda de regressão no SOURCE: nenhum dos 4
+// `onBlur` deste arquivo reparseia `e.target.value`/`e.currentTarget.value` com `Number`/
+// `parseFloat` nunca mais — usam o valor já correto do draft (`produto.*`, escrito pelo
+// `onChange`) comparado contra um ref capturado no `onFocus`.
+describe("Fix round 2 — ProdutoCard.tsx (Produto Acabado): blur de preço/markup não reparseia o DOM", () => {
+  const s = ler("src/components/produto-acabado/ProdutoCard.tsx");
+
+  it("nenhum onBlur deste arquivo parseia e.target.value/e.currentTarget.value com Number()/parseFloat() (a causa raiz do bug)", () => {
+    const blocks: string[] = [];
+    const re = /onBlur=\{\s*\(?\s*e?\s*\)?\s*=>\s*\{/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(s))) {
+      let depth = 0, i = re.lastIndex - 1;
+      const start = i;
+      while (i < s.length) {
+        if (s[i] === "{") depth++;
+        else if (s[i] === "}") { depth--; if (depth === 0) break; }
+        i++;
+      }
+      blocks.push(s.slice(start, i + 1));
+    }
+    expect(blocks.length).toBeGreaterThanOrEqual(4); // markup atacado/varejo + preço atacado/varejo
+    for (const b of blocks) {
+      const parseiaValorDoBlur = /(e\.(target|currentTarget)\.value)/.test(b) && /Number\s*\(|parseFloat\s*\(/.test(b);
+      expect(parseiaValorDoBlur).toBe(false);
+    }
+  });
+
+  it("os 4 campos capturam o valor de referência no onFocus (base para decidir se o onBlur precisa salvar)", () => {
+    expect(s).toMatch(/onFocus=\{\(\) => \{ precoAtacadoBaseRef\.current = produto\.preco_atacado_fixo \?\? null; \}\}/);
+    expect(s).toMatch(/onFocus=\{\(\) => \{ precoVarejoBaseRef\.current = produto\.preco_varejo_fixo \?\? null; \}\}/);
+    expect(s).toMatch(/onFocus=\{\(\) => \{ markupAtacadoBaseRef\.current = produto\.markup_atacado \?\? null; \}\}/);
+    expect(s).toMatch(/onFocus=\{\(\) => \{ markupVarejoBaseRef\.current = produto\.markup_varejo \?\? null; \}\}/);
+  });
+
+  it("o preço atacado usa produto.preco_atacado_fixo (o valor que o onChange já calculou) no onBlur, não Number(e.target.value)", () => {
+    expect(s).toMatch(/const novo = produto\.preco_atacado_fixo \?\? null;\s*\n\s*if \(novo !== precoAtacadoBaseRef\.current\)/);
+  });
+
+  it("o preço varejo usa produto.preco_varejo_fixo no onBlur", () => {
+    expect(s).toMatch(/const novo = produto\.preco_varejo_fixo \?\? null;\s*\n\s*if \(novo !== precoVarejoBaseRef\.current\)/);
+  });
+
+  it("o markup atacado usa produto.markup_atacado no onBlur e preserva a lógica de trava do varejo (N-3)", () => {
+    expect(s).toMatch(/const mk = produto\.markup_atacado \?\? null;\s*\n\s*if \(mk === markupAtacadoBaseRef\.current\) return;/);
+    // N-3 (fix round 2 anterior) continua intacto — a resolução do par travado não foi tocada.
+    expect(s).toMatch(/markupVarejoParaBlurAtacado\(\{/);
+  });
+
+  it("o markup varejo respeita a trava de Integração (early return) e usa produto.markup_varejo no onBlur", () => {
+    expect(s).toMatch(/if \(travaIntegracao\.has\("preco_venda"\)\) return;[\s\S]*?const mk = produto\.markup_varejo \?\? null;/);
+  });
+});
+
 describe("F4 — Plan. Tecido", () => {
   it("card com selo; Limpar slot e preço travados no integrável/integrado", () => {
     const s = ler("src/components/plan-tecido/ModelCard.tsx");
