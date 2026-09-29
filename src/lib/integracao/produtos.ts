@@ -458,6 +458,53 @@ export function acoesEmMassa(sel: ProdutoLista[], c: CtxMassa): AcoesMassa {
     motivoVoltar: mv,
   };
 }
+// ── Ordenação da tabela (Task "ordenar por título") ─────────────────────────────────────────────────────────────────────
+// Ordena pelo valor SALVO/servidor (nunca o rascunho ainda não gravado) — a mesma fonte que `valorCelula` já lê
+// (retrato quando integrável/integrado, vivo senão; nunca `r.valores.*`), então a linha não "pula" enquanto a
+// pessoa digita. Ruling do brief: sortar por esse valor, não pelo texto formatado em tela.
+// Campo que só existe na sublinha (cor_base/cor_apelido/tamanho): ordena os PRODUTOS pelo valor da PRIMEIRA
+// variante (`linhasVariante(p)[0]`) — documentado aqui e no comentário de `acessorOrdenacao`.
+const MOEDA_OU_MEDIDA: ReadonlySet<CampoKey> = new Set([
+  "preco_anterior", "preco_venda", "preco_custo", "peso", "comprimento", "largura", "altura",
+]);
+/** Valor CRU (não formatado) da linha do produto para um campo — número quando dá pra ordenar numericamente
+ *  (dinheiro/peso/medida), texto senão. `null`/ausente vira `null` (o `useSort` já joga nulos pro fim). */
+function valorOrdenavelDaLinha(l: LinhaRetrato | undefined, campo: CampoKey): string | number | null {
+  if (!l) return null;
+  if (campo === "foto") return l.fotos.length > 0 ? l.fotos.length : null;
+  const v = l.valores[campo] ?? null;
+  if (v === null || v.trim() === "") return null;
+  if (MOEDA_OU_MEDIDA.has(campo)) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return v;
+}
+/** Valor ordenável de um campo, na linha do PRODUTO (fonte exibida = salva/servidor, igual `valorCelula`). Campos
+ *  "somente na sublinha" (cor_base/cor_apelido/tamanho) não têm linha de produto no retrato/vivo — caem no `null`
+ *  aqui; `acessorOrdenacao` os resolve pela PRIMEIRA variante em vez desta função. */
+function valorOrdenavelDoProduto(p: ProdutoLista, campo: CampoKey): string | number | null {
+  const f = fonteExibida(p);
+  const l = f?.linhas.find((x) => x.tipo === "produto");
+  return valorOrdenavelDaLinha(l, campo);
+}
+const ROTULO_ESTADO_ORDEM: Record<EstadoIntegracao, number> = { nao_integravel: 0, integravel: 1, integrado: 2 };
+/** Mapa `sortKey → accessor` para `useSort<ProdutoLista>` (`ProdutosTabela.tsx`). Uma entrada por `CampoKey` da
+ *  tabela + `"estado"` (ordena pela ordem natural do funil: não integrável < integrável < integrado). Campos
+ *  soVariante (cor_base/cor_apelido/tamanho) leem a PRIMEIRA sublinha (`linhasVariante(p)[0]`) — documentado no
+ *  requisito ("campo que só existe na variante ordena o produto pelo valor da 1ª variante"). Todos os outros leem
+ *  a linha do PRODUTO da fonte exibida (retrato/vivo = valor SALVO, nunca o rascunho — ver comentário acima).
+ *  `useSort` decide número-vs-texto sozinho a partir do valor devolvido (nunca confiar em texto formatado aqui). */
+export function acessorOrdenacao(campo: CampoDefLike): (p: ProdutoLista) => string | number | null {
+  if (campo.soVariante) {
+    return (p: ProdutoLista) => valorOrdenavelDaLinha(linhasVariante(p)[0], campo.key);
+  }
+  return (p: ProdutoLista) => valorOrdenavelDoProduto(p, campo.key);
+}
+type CampoDefLike = { key: CampoKey; soVariante: boolean };
+export const SORT_KEY_ESTADO = "estado" as const;
+export const acessorEstado = (p: Pick<ProdutoLista, "estado">): number => ROTULO_ESTADO_ORDEM[p.estado];
+
 export const totalPaginas = (l: Pick<ListaIntegracao, "total" | "porPagina">): number =>
   Math.max(1, Math.ceil(l.total / l.porPagina));
 export function faixaPagina(
