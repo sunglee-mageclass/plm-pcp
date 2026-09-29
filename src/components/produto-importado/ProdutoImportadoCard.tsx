@@ -546,13 +546,18 @@ export function ProdutoImportadoCard({
               <AccordionTrigger className="text-xs font-semibold">2 · Grade &amp; proporção</AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-3">
-                  <TamanhoEmToggle
-                    value={tipoTamanho}
-                    onChange={(v) => onChange({ tamanho_tipo: v })}
-                    disabled={travaIntegracao.has("tamanho_tipo")}
-                    motivoDesabilitado={travaIntegracao.has("tamanho_tipo") ? TEXTO_SKU_TRAVADO : undefined}
-                  />
-                  {avisarSkuTamanho && (
+                  {/* Fix round (M-1): escondido em Acessórios (grade única "UN", sem lado
+                      Letra/Número — mesmo gate do Produto Acabado, `acessorio` computado acima). */}
+                  {!acessorio && (
+                    <TamanhoEmToggle
+                      value={tipoTamanho}
+                      onChange={(v) => onChange({ tamanho_tipo: v })}
+                      disabled={travaIntegracao.has("tamanho_tipo")}
+                      motivoDesabilitado={travaIntegracao.has("tamanho_tipo") ? TEXTO_SKU_TRAVADO : undefined}
+                      colabPath={cp("tamanho_tipo")}
+                    />
+                  )}
+                  {!acessorio && avisarSkuTamanho && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
                       SKUs já gerados não mudam — use Regerar no Planejamento.
                     </p>

@@ -671,6 +671,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       toast.info(nLocais > 0 ? "Salve os rascunhos antes de criar o card." : "Os selecionados já têm card no Planejamento.");
       return;
     }
+    // Fix round (I-1): guard SÍNCRONO — QUALQUER selecionado com conflito pendente bloqueia o
+    // lote inteiro ANTES de qualquer RPC (mesma classe de risco do Salvar em lote).
+    if (selecionados.some((d) => d.id && (conflitosPorProduto[d.id]?.length ?? 0) > 0)) {
+      toast.error("Há conflitos de edição pendentes nos selecionados — resolva-os antes de criar o(s) card(s).");
+      return;
+    }
     setReplicando(true);
     try {
       const sujos = selecionados.filter(
@@ -814,7 +820,10 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     // refetch terminar deixaria um 2º Salvar comparar `d.rev` contra um valor velho.
     const { data: revRow } = await supabase.from("produtos_importados" as any).select("rev").eq("id", novoId).maybeSingle();
     const revNovo = revRow ? Number((revRow as any).rev) || 0 : d.rev + 1; // fallback otimista
-    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo };
+    // Fix round (L-1): rebaseline de tamanho_tipo_base pro valor recém-salvo — mesma razão do PA
+    // (ProdutoAcabadoSheet.tsx): sem isto, o próximo Salvar reenviaria a mesma troca como se fosse
+    // edição nova (montarPayload manda a chave sempre que tipo!==base).
+    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, tamanho_tipo_base: d.tamanho_tipo };
     baseServidorRef.current = { ...baseServidorRef.current, [novoId]: salvo };
     if (isLocal) {
       const idAntigo = d.id!;

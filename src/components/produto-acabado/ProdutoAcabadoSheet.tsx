@@ -589,6 +589,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       toast.info("Os selecionados já têm card no Planejamento.");
       return;
     }
+    // Fix round (I-1): guard SÍNCRONO — QUALQUER selecionado com conflito pendente bloqueia o
+    // lote inteiro ANTES de qualquer RPC (mesma classe de risco do Salvar em lote/"Fazer pedido").
+    if (selecionados.some((d) => (conflitosPorProduto[d.id]?.length ?? 0) > 0)) {
+      toast.error("Há conflitos de edição pendentes nos selecionados — resolva-os antes de criar o(s) card(s).");
+      return;
+    }
     setReplicando(true);
     try {
       const sujos = selecionados.filter((d) => !d.modelo_id && JSON.stringify(chaveDirty(d)) !== baseline[d.id]);
@@ -732,7 +738,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     // valor CERTO, sem depender de quando o refetch em background termina.
     const { data: revRow } = await supabase.from("produtos_acabados" as any).select("rev").eq("id", (novoId as string) ?? p.id).maybeSingle();
     const revNovo = revRow ? Number((revRow as any).rev) || 0 : p.rev + 1; // fallback otimista se o SELECT falhar por algum motivo
-    const salvo: ProdutoDraft = { ...p, rev: revNovo };
+    // Fix round (L-1): rebaseline de tamanho_tipo_base pro valor recém-salvo — sem isto, um 2º
+    // Salvar (disparado por outro campo) comparava contra a base ANTIGA e reenviava a mesma
+    // troca de "Tamanho em" como se fosse edição nova (montarDadosProduto manda a chave sempre
+    // que tipo!==base).
+    const salvo: ProdutoDraft = { ...p, rev: revNovo, tamanho_tipo_base: p.tamanho_tipo };
     baseServidorRef.current = { ...baseServidorRef.current, [p.id]: salvo };
     setDrafts((ds) => (ds ? ds.map((d) => (d.id === p.id ? salvo : d)) : ds));
     marcarProdutoLimpo(salvo); // baseline por produto — ver comentário acima (fix round 1 item 4b)
@@ -908,6 +918,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 semana: null, empresa_id: null, representante_id: null, ref_fornecedor: "", composicao: "",
                 grade_proporcao: {}, qtd_total: 0, valor_unitario: 0, desconto_pct: 0, insumos_total: 0,
                 markup_atacado: null, markup_varejo: null, variantes: [],
+                // Fix round (L-2): `_limpar_produto_acabado_core` também zera `tamanho_tipo` no banco
+                // (task-1-2-report.md) — espelha aqui os dois lados (tipo + base) senão o draft local
+                // ficaria "sujo" pra um estado já persistido (mesmo motivo do rebaseline acima).
+                tamanho_tipo: null, tamanho_tipo_base: null,
               };
               changeProduto(limpo);
               marcarProdutoLimpo(limpo);

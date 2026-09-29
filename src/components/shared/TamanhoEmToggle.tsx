@@ -22,7 +22,7 @@ const OPCOES = [{ v: "letra", rotulo: "Letra" }, { v: "numero", rotulo: "Número
  * mesma página (ex. 2 cards abertos) nunca compartilham grupo nativo por engano.
  */
 export function TamanhoEmToggle({
-  value, onChange, disabled, motivoDesabilitado, tituloDesabilitado, className,
+  value, onChange, disabled, motivoDesabilitado, tituloDesabilitado, className, colabPath = "tamanho_tipo",
 }: {
   value: TamanhoTipo;
   onChange: (v: TamanhoTipo) => void;
@@ -36,6 +36,12 @@ export function TamanhoEmToggle({
    *  ter tooltip nativo também). Opcional: sem ele, comportamento IDÊNTICO a antes (string vira title, resto não). */
   tituloDesabilitado?: string;
   className?: string;
+  /** Fix round (L-3) — `data-colab-path` do grupo: default "tamanho_tipo" (comportamento de sempre, mantém a API
+   *  compatível — Plan. Tecido chama sem esta prop). Produto Acabado/Importado passam o path NAMESPACED por card
+   *  (`card:<id>:tamanho_tipo`, mesma convenção dos outros campos do card) — N cards abertos ao mesmo tempo no
+   *  canvas precisam de paths distintos pro overlay de presença achar o campo certo (o path fixo colidiria entre
+   *  cards, igual aconteceria com qualquer outro `data-colab-path` sem namespace). */
+  colabPath?: string;
 }) {
   const id = useId();
   const labelId = `${id}-label`;
@@ -51,7 +57,7 @@ export function TamanhoEmToggle({
       className={cn("grid gap-1", className)}
       role="radiogroup"
       aria-labelledby={labelId}
-      data-colab-path="tamanho_tipo"
+      data-colab-path={colabPath}
       title={tituloGrupo}
     >
       {/* Fix M-4 — o InfoHover (um <button>) sai de DENTRO do <Label> (um <label> sem `htmlFor` ativa o 1º

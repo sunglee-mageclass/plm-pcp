@@ -641,14 +641,14 @@ describe("RENDER real — ProdutoImportadoCard MONTADO (N-5)", () => {
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // Tarefa 6 — RENDER real do toggle "Tamanho em" dentro de ProdutoImportadoCard (seção "2 · Grade
 // & proporção"). Espelha os testes de regex de `integracao-trava-tela.test.ts` (Tarefa 5, PA) mas
-// aqui prova no DOM real — o radiogroup nativo (`data-colab-path="tamanho_tipo"`, TamanhoEmToggle).
+// aqui prova no DOM real — o radiogroup nativo (`data-colab-path="card:p1:tamanho_tipo"`, TamanhoEmToggle).
 // ────────────────────────────────────────────────────────────────────────────────────────────
 describe("RENDER real — ProdutoImportadoCard: toggle 'Tamanho em' (Tarefa 6)", () => {
   it("sem trava: os 2 rádios (Letra/Número) ficam LIVRES; value reflete draft.tamanho_tipo (fallback Letra sem valor)", () => {
     mockEstado.current = null;
     const { container, unmount } = montarCard();
     abrirSecao(container, "2 · Grade");
-    const grupo = container.querySelector('[data-colab-path="tamanho_tipo"]');
+    const grupo = container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]');
     expect(grupo).not.toBeNull();
     const radios = [...grupo!.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
     expect(radios).toHaveLength(2);
@@ -661,7 +661,7 @@ describe("RENDER real — ProdutoImportadoCard: toggle 'Tamanho em' (Tarefa 6)",
     mockEstado.current = { estado: "integravel", campos: ["nome"], marcadoEm: null, integradoEm: null };
     const { container, unmount } = montarCard();
     abrirSecao(container, "2 · Grade");
-    const grupo = container.querySelector('[data-colab-path="tamanho_tipo"]');
+    const grupo = container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]');
     const radios = [...grupo!.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
     expect(radios.every((r) => r.disabled)).toBe(true);
     unmount();
@@ -671,7 +671,7 @@ describe("RENDER real — ProdutoImportadoCard: toggle 'Tamanho em' (Tarefa 6)",
     const onChange = vi.fn();
     const { container, unmount } = montarCard({ onChange });
     abrirSecao(container, "2 · Grade");
-    const grupo = container.querySelector('[data-colab-path="tamanho_tipo"]')!;
+    const grupo = container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]')!;
     const numero = grupo.querySelector('input[value="numero"]') as HTMLInputElement;
     act(() => { numero.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); });
     expect(onChange).toHaveBeenCalledWith({ tamanho_tipo: "numero" });

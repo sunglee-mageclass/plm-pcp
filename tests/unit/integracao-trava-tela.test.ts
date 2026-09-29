@@ -1583,6 +1583,17 @@ describe("Tarefa 5 — Produto Acabado: toggle 'Tamanho em' no card", () => {
     expect(s).toMatch(/if \(dirty\) await onSalvarProduto\(produto\);/);
     expect(s.indexOf("if (dirty) await onSalvarProduto(produto);")).toBeLessThan(s.indexOf('rpc("criar_card_produto_acabado"'));
   });
+  it("Fix round (I-1): 'Criar card' lança erroValidacao ANTES de salvar/criar quando há conflito pendente; menu item desabilitado", () => {
+    expect(s).toMatch(/if \(conflitoPendente\) \{\s*\n\s*throw erroValidacao\("Há conflitos de edição pendentes nesta coleção — resolva-os antes de criar o card\."\);/);
+    const iGuard = s.indexOf('throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de criar o card.");');
+    const iDirtySave = s.indexOf("if (dirty) await onSalvarProduto(produto);");
+    expect(iGuard).toBeGreaterThan(-1);
+    expect(iGuard).toBeLessThan(iDirtySave);
+    expect(s).toMatch(/disabled=\{!!produto\.modelo_id \|\| criandoCard \|\| conflitoPendente\}/);
+  });
+  it("Fix round (L-3): colabPath namespaced por card ('card:<id>:tamanho_tipo')", () => {
+    expect(s).toMatch(/colabPath=\{`card:\$\{produto\.id\}:tamanho_tipo`\}/);
+  });
 });
 
 describe("Tarefa 5 — Produto Acabado: SELECT + embed do Sheet", () => {
@@ -1601,6 +1612,18 @@ describe("Tarefa 5 — Produto Acabado: SELECT + embed do Sheet", () => {
     const bloco = s.slice(s.indexOf("const criarCardsClick"), s.indexOf('rpc("criar_cards_produto_acabado"'));
     expect(bloco).toMatch(/for \(const p of sujos\) await salvarUmProduto\(p\);/);
   });
+  it("Fix round (I-1): lote 'Criar cards' bloqueia ANTES de qualquer RPC se algum selecionado tem conflito pendente", () => {
+    const bloco = s.slice(s.indexOf("const criarCardsClick"), s.indexOf('rpc("criar_cards_produto_acabado"'));
+    expect(bloco).toMatch(/if \(selecionados\.some\(\(d\) => \(conflitosPorProduto\[d\.id\]\?\.length \?\? 0\) > 0\)\) \{/);
+    expect(bloco.indexOf("selecionados.some((d) => (conflitosPorProduto[d.id]")).toBeLessThan(bloco.indexOf("for (const p of sujos)"));
+  });
+  it("Fix round (L-1): salvarUmProduto rebaseline tamanho_tipo_base = tamanho_tipo depois do save", () => {
+    expect(s).toMatch(/const salvo: ProdutoDraft = \{ \.\.\.p, rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo \};/);
+  });
+  it("Fix round (L-2): onLimpo também zera tamanho_tipo/tamanho_tipo_base no draft local", () => {
+    const bloco = s.slice(s.indexOf("onLimpo={() => {"), s.indexOf("changeProduto(limpo);"));
+    expect(bloco).toMatch(/tamanho_tipo: null, tamanho_tipo_base: null,/);
+  });
 });
 
 describe("Tarefa 5 — produto-acabado/shared.ts: campo travável + rótulo", () => {
@@ -1608,6 +1631,112 @@ describe("Tarefa 5 — produto-acabado/shared.ts: campo travável + rótulo", ()
     const sh = ler("src/components/produto-acabado/shared.ts");
     expect(sh).toMatch(/tamanho_tipo: \["tamanho_tipo"\]/);
     expect(sh).toMatch(/tamanho_tipo: "Tamanho em",/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round (L-4) — RENDER real (react-dom/client + happy-dom) de `ProdutoCard.tsx` (Produto Acabado): o toggle
+// "Tamanho em" escondido em Acessórios, a grade filtrada/esmaecida por `tamanhosVisiveis`, e o guard de conflito
+// no "Criar card em Planejamento" (I-1). Mesma técnica de "Task 24 — RENDER real: ModelCard" acima
+// (`vi.resetModules()`+`vi.doMock` local por describe, dynamic import DEPOIS do mock).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round L-4 — RENDER real: ProdutoCard (Produto Acabado) — toggle 'Tamanho em' + guard de conflito", () => {
+  function produtoBase(over: Record<string, unknown> = {}) {
+    return {
+      id: "p1", rev: 1, nome: "Blusa", ref: "REF1", grupo_id: "g1", categoria_id: "c1",
+      subcategoria1_id: null, subcategoria2_id: null, colecao_id: "col1", subcolecao: null, semana: null,
+      empresa_id: null, representante_id: null, ref_fornecedor: "", composicao: "",
+      grade_proporcao: {}, qtd_total: 10, valor_unitario: 0, desconto_pct: 0, insumos_total: 0,
+      markup_atacado: null, markup_varejo: null, preco_atacado_fixo: null, preco_varejo_fixo: null,
+      foto_url: null, modelo_id: null, mix_id: null,
+      tamanho_tipo: "letra", tamanho_tipo_base: "letra", modeloSkusCount: 0,
+      variantes: [{ ordem: 1, cor_id: null, cor_apelido_id: null, peso: 1, qtd: 10 }],
+      modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null,
+      modeloThumbFontes: [null, null, null], oc: null,
+      ...over,
+    };
+  }
+  async function montarProdutoCard(props: Record<string, unknown> = {}, estadoIntegracao: any = null) {
+    vi.resetModules();
+    vi.doMock("@tanstack/react-router", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+      return { ...actual, useNavigate: () => () => {} };
+    });
+    vi.doMock("@/hooks/useAuth", () => ({
+      useAuth: () => ({ canView: () => true, canEdit: () => true, user: { id: "u1" }, session: null, loading: false }),
+    }));
+    vi.doMock("@/hooks/useSignedUrl", () => ({ useSignedUrl: () => null }));
+    vi.doMock("@/hooks/useMaoObraModelo", () => ({
+      useMaoObraModelo: () => ({ linhas: [], catsServico: [], setLinhas: () => {}, aprovar: { mutate: () => {}, isPending: false }, linhasPersistidas: [], dirty: false, total: 0, salvar: { mutate: () => {}, isPending: false } }),
+    }));
+    vi.doMock("@/hooks/useIntegracaoEstado", () => ({ useIntegracaoEstado: () => estadoIntegracao }));
+    const { ProdutoCard } = await import("@/components/produto-acabado/ProdutoCard");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const el = createElement(QueryClientProvider, { client: qc },
+      createElement(ProdutoCard, {
+        produto: produtoBase(),
+        onChange: () => {}, open: true, onToggleOpen: () => {},
+        grupos: [{ id: "g1", nome: "Camisas" }], categorias: [], subcats1: [], subcats2: [],
+        cores: [], coresApelido: [], empresas: [], tamanhos: ["P", "M", "G"], colecaoNome: null,
+        linhasMarkup: {}, onSalvarProduto: async () => {}, onCardCriado: () => {}, onOcVinculada: () => {},
+        onExcluido: () => {}, onLimpo: () => {},
+        ...props,
+      } as any));
+    return montar(el);
+  }
+  it("grupo NÃO Acessório: toggle 'Tamanho em' aparece (radiogroup nativo)", async () => {
+    const { container, unmount } = await montarProdutoCard();
+    expect(container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]')).not.toBeNull();
+    unmount();
+  });
+  it("grupo Acessórios (nome normalizado contém 'acessor'): toggle escondido", async () => {
+    const { container, unmount } = await montarProdutoCard({
+      grupos: [{ id: "g-acc", nome: "Acessórios" }],
+      produto: produtoBase({ grupo_id: "g-acc" }),
+    });
+    expect(container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]')).toBeNull();
+    unmount();
+  });
+  it("travado (SEMPRE_TRAVADO cobre 'tamanho_tipo'): os 2 rádios do toggle ficam desabilitados", async () => {
+    const { container, unmount } = await montarProdutoCard({}, { estado: "integravel", campos: ["nome"], marcadoEm: null, integradoEm: null });
+    const grupo = container.querySelector('[data-colab-path="card:p1:tamanho_tipo"]');
+    expect(grupo).not.toBeNull();
+    const radios = [...grupo!.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+    expect(radios).toHaveLength(2);
+    expect(radios.every((r) => r.disabled)).toBe(true);
+    unmount();
+  });
+  it("grade: tamanho com valor lançado no lado OPOSTO ao escolhido aparece ESMAECIDO (nunca some — ruling #3)", async () => {
+    // tipo="letra" (default do produto), grade "34" (solto, lado número) já tem peso 5 lançado —
+    // tamanhosDoTipo excluiria "34" do lado letra, mas tamanhosVisiveis resgata com esmaecido=true.
+    const produto = produtoBase({ grade_proporcao: { PP: 1, M: 1, G: 1, "34": 5 } });
+    const { container, unmount } = await montarProdutoCard({ produto, tamanhos: ["PP", "M", "G", "34"] });
+    // A célula "34" deve estar presente na grade (não removida) com a classe de esmaecimento.
+    const inputs = [...container.querySelectorAll("input")].filter((i) => i.getAttribute("data-colab-path")?.includes("grade-prop"));
+    const celula34 = inputs.find((i) => i.getAttribute("data-colab-path") === "card:p1:grade-prop:34");
+    expect(celula34).not.toBeUndefined();
+    const wrapperEsmaecido = celula34!.closest("div.opacity-50");
+    expect(wrapperEsmaecido).not.toBeNull();
+    unmount();
+  });
+  it("'Criar card em Planejamento' fica desabilitado com conflitoPendente=true (I-1)", async () => {
+    const { container, unmount } = await montarProdutoCard({ conflitoPendente: true });
+    const maisAcoes = container.querySelector('[aria-label="Mais ações"]') as HTMLElement;
+    expect(maisAcoes).not.toBeNull();
+    act(() => { maisAcoes.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const criarCard = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Criar card em Planejamento")) as HTMLButtonElement;
+    expect(criarCard).toBeTruthy();
+    expect(criarCard.disabled).toBe(true);
+    unmount();
+  });
+  it("'Criar card em Planejamento' fica HABILITADO sem conflitoPendente (produto sem card)", async () => {
+    const { container, unmount } = await montarProdutoCard({ conflitoPendente: false });
+    const maisAcoes = container.querySelector('[aria-label="Mais ações"]') as HTMLElement;
+    act(() => { maisAcoes.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const criarCard = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Criar card em Planejamento")) as HTMLButtonElement;
+    expect(criarCard.disabled).toBe(false);
+    unmount();
   });
 });
 
@@ -1640,6 +1769,16 @@ describe("Tarefa 6 — Produto Importado: toggle 'Tamanho em' no card", () => {
     expect(s).toMatch(/const avisarSkuTamanho = draft\.modeloSkusCount > 0 && tamanhoTrocadoNestaEdicao;/);
     expect(s).toMatch(/SKUs já gerados não mudam — use Regerar no Planejamento\./);
   });
+  it("Fix round (M-1): toggle + aviso âmbar escondidos em Acessórios (!acessorio)", () => {
+    const iSecao = s.indexOf('2 · Grade &amp; proporção');
+    const iToggleGuard = s.indexOf("{!acessorio && (\n                    <TamanhoEmToggle");
+    const iAvisoGuard = s.indexOf("{!acessorio && avisarSkuTamanho && (");
+    expect(iToggleGuard).toBeGreaterThan(iSecao);
+    expect(iAvisoGuard).toBeGreaterThan(iToggleGuard);
+  });
+  it("Fix round (L-3): colabPath namespaced por card (cp('tamanho_tipo'))", () => {
+    expect(s).toMatch(/colabPath=\{cp\("tamanho_tipo"\)\}/);
+  });
 });
 
 describe("Tarefa 6 — Produto Importado: SELECT + embed + lote 'Criar cards' salva antes se sujo", () => {
@@ -1656,6 +1795,14 @@ describe("Tarefa 6 — Produto Importado: SELECT + embed + lote 'Criar cards' sa
   it("lote 'Criar cards' salva os selecionados JÁ PERSISTIDOS e sujos ANTES de materializar", () => {
     const bloco = s.slice(s.indexOf("async function criarCardsClick"), s.indexOf('rpc("criar_cards_produto_importado"'));
     expect(bloco).toMatch(/for \(const d of sujos\) await salvarUmProduto\(d\);/);
+  });
+  it("Fix round (I-1): lote 'Criar cards' bloqueia ANTES de qualquer RPC se algum selecionado tem conflito pendente", () => {
+    const bloco = s.slice(s.indexOf("async function criarCardsClick"), s.indexOf('rpc("criar_cards_produto_importado"'));
+    expect(bloco).toMatch(/if \(selecionados\.some\(\(d\) => d\.id && \(conflitosPorProduto\[d\.id\]\?\.length \?\? 0\) > 0\)\) \{/);
+    expect(bloco.indexOf("selecionados.some((d) => d.id && (conflitosPorProduto[d.id]")).toBeLessThan(bloco.indexOf("for (const d of sujos)"));
+  });
+  it("Fix round (L-1): salvarUmProduto rebaseline tamanho_tipo_base = tamanho_tipo depois do save", () => {
+    expect(s).toMatch(/const salvo: ProdutoImportadoDraft = \{ \.\.\.d, id: novoId, rev: revNovo, tamanho_tipo_base: d\.tamanho_tipo \};/);
   });
 });
 

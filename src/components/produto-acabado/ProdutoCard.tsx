@@ -269,6 +269,12 @@ export function ProdutoCard({
 
   const criarCardMut = useMutation({
     mutationFn: async () => {
+      // Fix round (I-1): mesmo guard síncrono do "Fazer pedido" (item 7, abaixo) — "Criar card"
+      // também pode salvar a Compra por baixo quando sujo (`onSalvarProduto`), a mesma classe de
+      // risco do Salvar em lote. Bloqueia ANTES de qualquer RPC.
+      if (conflitoPendente) {
+        throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de criar o card.");
+      }
       setCriandoCard(true);
       // Tarefa 5 — mesmo precedente de "Fazer pedido" (item 4a, abaixo): salva a Compra ANTES de
       // materializar o modelo se o rascunho estiver sujo, senão o card nasceria com dado velho
@@ -573,8 +579,8 @@ export function ProdutoCard({
             <PopoverClose asChild>
               <button
                 type="button"
-                disabled={!!produto.modelo_id || criandoCard}
-                title={produto.modelo_id ? "Este produto já tem card" : undefined}
+                disabled={!!produto.modelo_id || criandoCard || conflitoPendente}
+                title={produto.modelo_id ? "Este produto já tem card" : conflitoPendente ? "Há conflitos de edição pendentes nesta coleção" : undefined}
                 onClick={() => criarCardMut.mutate()}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -834,6 +840,7 @@ export function ProdutoCard({
                       onChange={(v) => onChange({ ...produto, tamanho_tipo: v })}
                       disabled={travaIntegracao.has("tamanho_tipo")}
                       motivoDesabilitado={travaIntegracao.has("tamanho_tipo") ? TEXTO_SKU_TRAVADO : undefined}
+                      colabPath={`card:${produto.id}:tamanho_tipo`}
                     />
                   )}
                   {!acessorio && avisarSkuTamanho && (
