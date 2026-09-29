@@ -67,4 +67,16 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
     const prep = pagina.slice(pagina.indexOf("const prepararSalvar = async"), pagina.indexOf("setConfirmSalvar(true)", pagina.indexOf("const prepararSalvar = async")));
     expect(prep).toContain('toast.info("Nenhuma alteração para salvar.")');
   });
+
+  it("T5: nenhum upsert/update direto de tenant_config em TODO o arquivo (Nomenclaturas também vai pela RPC)", () => {
+    expect(s).not.toMatch(/\.from\(\s*["']tenant_config["']\s*\)\s*\.(upsert|update)\(/);
+    expect(s).not.toMatch(/\.upsert\(/);
+    const dlg = s.slice(s.indexOf("function NomesDasAbasDialog("));
+    expect(dlg).toContain('supabase.rpc("salvar_config_loja"');
+    expect(dlg).toContain("mesclarNomes(");
+    expect(dlg).toContain("colunasDoErro(error, COLUNAS_NOMENCLATURAS)");
+    expect(dlg).toContain('queryKey: ["tenant_config", "nomenclaturas_edit", tenantId]');
+    expect(dlg).toMatch(/disabled=\{saveMut\.isPending \|\| !hydrated \|\| conflitos\.length > 0\}/);
+    expect(dlg).toContain("<ColabPresenceOverlay presentes={presentesNaJanela} scopeRef={corpoRef} />");
+  });
 });

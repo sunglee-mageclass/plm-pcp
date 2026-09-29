@@ -56,7 +56,7 @@ export function criarFakeSupabase() {
   // Config da Loja colaborativa (T3): espelho em memória da RPC `salvar_config_loja` (T1) — o
   // compare-and-set POR COLUNA sobre a linha falsa de `tenant_config`. Mesmas regras/textos do banco
   // (ver .superpowers/sdd/2026-09-29-config-colab/t1-report.md): toda chave de `_mudancas` em `_base`
-  // (senão P0001); conflito = linha ≠ base E linha ≠ mudança (convergido não conta); linha recém-criada
+  // (senão P0001); conflito = linha ≠ base E linha ≠ mudança NORMALIZADA (convergido não conta); linha recém-criada
   // pula o compare-and-set; chave do kanban conferida quando alguma das 5 colunas de kanban vai; nada
   // gravado em qualquer recusa; devolve `{gravadas, valores}` só das colunas gravadas.
   const KANBAN_CFG = ["status_kanban", "kanban_requisitos", "kanban_requisitos_excecoes", "revenda_kanban_colunas", "revenda_kanban_requisitos"];
@@ -87,15 +87,21 @@ export function criarFakeSupabase() {
         return { data: null, error: { code: "P0409", message: "chave_kanban_mudou: a chave do kanban mudou" } };
       }
     }
+    // Normalização ÚNICA do banco (T1 review M3, ecc95f46): keywords com btrim; só espaços → null. Vale para o
+    // "convergido" do compare-and-set E para o valor gravado.
+    const norm: Record<string, unknown> = { ...mud };
+    if ("keywords" in norm) {
+      const kw = typeof norm.keywords === "string" ? norm.keywords.trim() : "";
+      norm.keywords = kw === "" ? null : kw;
+    }
     if (!criada) {
-      const conf = chaves.filter((k) => canon(row![k]) !== canon(base[k]) && canon(row![k]) !== canon(mud[k]));
+      const conf = chaves.filter((k) => canon(row![k]) !== canon(base[k]) && canon(row![k]) !== canon(norm[k]));
       if (conf.length) return { data: null, error: { code: "P0409", message: "conflito_versao: config_loja", details: conf.join(",") } };
     }
     if (!row) { row = { tenant_id: a._tenant_id }; tabela.push(row); }
     const valores: Record<string, unknown> = {};
     for (const k of chaves) {
-      let v = clone(mud[k] ?? null);
-      if (k === "keywords" && typeof v === "string" && v.trim() === "") v = null;
+      const v = clone(norm[k] ?? null);
       row[k] = v;
       valores[k] = clone(v);
     }

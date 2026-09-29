@@ -218,7 +218,7 @@ export function rotuloColuna(k: string): string {
  * PT/EN já vistas no repo) e devolve só as colunas que SÃO da lista branca da página (ruído/typo
  * no `details` não vaza pro banner). Vazio se não for esse erro ou não houver `details`.
  */
-export function colunasDoErro(e: unknown): string[] {
+export function colunasDoErro(e: unknown, aceitas: readonly string[] = COLUNAS_PAGINA): string[] {
   if (!e || typeof e !== "object") return [];
   const code = (e as Record<string, unknown>).code;
   if (code !== "P0409") return [];
@@ -229,10 +229,60 @@ export function colunasDoErro(e: unknown): string[] {
     (e as Record<string, unknown>).detail ??
     (e as Record<string, unknown>).DETAIL;
   if (typeof raw !== "string" || raw.trim() === "") return [];
+  // T5: a janela "Nomenclaturas" passa a SUA lista (tab_labels/campos_editaveis); default = as 16 da página.
+  const aceitasSet: ReadonlySet<string> = aceitas === COLUNAS_PAGINA ? COLUNAS_PAGINA_SET : new Set(aceitas);
   return raw
     .split(",")
     .map((c) => c.trim())
-    .filter((c) => c !== "" && COLUNAS_PAGINA_SET.has(c));
+    .filter((c) => c !== "" && aceitasSet.has(c));
+}
+
+// ── T5: janela "Nomenclaturas" (tab_labels / campos_editaveis) ─────────────────────────────────────
+/** As 2 colunas da janela Nomenclaturas (RPC `salvar_config_loja`, mesma lista branca). */
+export const COLUNAS_NOMENCLATURAS = ["tab_labels", "campos_editaveis"] as const;
+export type ColunaNomenclatura = (typeof COLUNAS_NOMENCLATURAS)[number];
+
+/** Mapa de nomes como é GRAVADO: só nomes não vazios, sem espaços nas pontas (em branco = nome padrão). */
+export function limparNomes(m: Record<string, unknown> | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(m ?? {})) {
+    if (typeof v === "string" && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
+
+export type ConflitoNome = { path: string; meu: string | undefined; dele: string | undefined };
+
+/**
+ * Merge 3-vias POR NOME de um mapa de nomenclaturas (P-123 A). `base` = o que a janela carregou (ou o último
+ * servidor já fundido), `meu` = o rascunho, `fresh` = o servidor agora. Nome que eu NÃO mexi adota o servidor;
+ * nome que eu mexi fica meu — e vira CONFLITO só se o servidor também o mudou para outro valor (convergido não
+ * conta). Comparação sobre os mapas LIMPOS (`limparNomes`: vazio = nome padrão = ausente).
+ * `prefixo` monta o `path` do conflito (ex.: "nom:tab:" → "nom:tab:producao").
+ */
+export function mesclarNomes(
+  base: Record<string, unknown> | null | undefined,
+  meu: Record<string, unknown> | null | undefined,
+  fresh: Record<string, unknown> | null | undefined,
+  prefixo: string,
+): { valor: Record<string, string>; conflitos: ConflitoNome[]; atualizados: string[] } {
+  const b = limparNomes(base), m = limparNomes(meu), f = limparNomes(fresh);
+  const valor: Record<string, string> = {};
+  const conflitos: ConflitoNome[] = [];
+  const atualizados: string[] = [];
+  for (const k of new Set([...Object.keys(b), ...Object.keys(m), ...Object.keys(f)])) {
+    const tocado = m[k] !== b[k];
+    let v: string | undefined;
+    if (!tocado) {
+      v = f[k];
+      if (f[k] !== b[k]) atualizados.push(k);
+    } else {
+      v = m[k];
+      if (f[k] !== b[k] && f[k] !== m[k]) conflitos.push({ path: `${prefixo}${k}`, meu: m[k], dele: f[k] });
+    }
+    if (v !== undefined) valor[k] = v;
+  }
+  return { valor, conflitos, atualizados };
 }
 
 // Re-exporta `jsonCanonico` (usado por `montarMudancas`/`diffKanban` internamente e útil para

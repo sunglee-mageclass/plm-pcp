@@ -64,7 +64,11 @@ import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
-import { COLUNAS_PAGINA, colunasDoErro, montarMudancas, rebasearBaseRaw, rotuloColuna, serializarColuna } from "@/lib/config-loja-colab";
+import {
+  COLUNAS_NOMENCLATURAS, COLUNAS_PAGINA, colunasDoErro, limparNomes, mesclarNomes, montarMudancas, rebasearBaseRaw, rotuloColuna,
+  serializarColuna, type ColunaNomenclatura, type ConflitoNome,
+} from "@/lib/config-loja-colab";
+import type { PresencaColab } from "@/hooks/useColabRegistro";
 import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { KanbanAutomaticoBloco, KanbanSalvarDialog } from "@/components/admin/KanbanAutomaticoDialog";
 import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
@@ -301,6 +305,7 @@ const BLOCO_DO_FOCO: Record<string, string> = {
 };
 function blocoDoFoco(path: string | null): string | null {
   if (!path) return null;
+  if (path.startsWith("nom:")) return "cfg:nomenclaturas"; // T5: nome na janela → anel no card Nomenclaturas
   return BLOCO_DO_FOCO[path] ?? path;
 }
 
@@ -1196,7 +1201,7 @@ function ConfiguracoesLojaPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} />
+          <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} presentes={presentes} />
         </CardContent>
       </Card>
 
@@ -2074,7 +2079,13 @@ function EtapasPLCard({
 
 // Editor das nomenclaturas por módulo: nomes das abas (módulo + páginas) e dos
 // campos. O usuário escolhe UM módulo por vez.
-function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; modules: Record<string, boolean> }) {
+function NomesDasAbasDialog({ tenantId, modules, presentes }: {
+  tenantId: string | null;
+  modules: Record<string, boolean>;
+  // T5: presença da página (mesmo canal `colab:config-loja:<loja>`) — o 2º overlay, dentro do diálogo
+  // (portal), desenha o anel de quem está no MESMO nome (`nom:tab:<key>` / `nom:campo:<key>`).
+  presentes: PresencaColab[];
+}) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [tabs, setTabs] = useState<Record<string, string>>({});
@@ -2082,6 +2093,28 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   const [hydrated, setHydrated] = useState(false);
   const enabledModules = PAGES_CATALOG.filter((m) => modules[m.module] !== false);
   const [selModule, setSelModule] = useState<string>(enabledModules[0]?.module ?? "");
+  // Espelhos p/ o merge (efeito e retentativa do save leem o rascunho JÁ na tela, sem closure velho).
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const camposRef = useRef(campos);
+  camposRef.current = campos;
+  // T5 (Config colaborativa, P-123 A): base CRUA de cada mapa = o que o servidor tinha na última leitura
+  // fundida — vai como `_base` da RPC `salvar_config_loja` (compare-and-set do mapa inteiro). null = loja sem linha.
+  const baseRef = useRef<Record<ColunaNomenclatura, Record<string, unknown> | null>>({ tab_labels: null, campos_editaveis: null });
+  // Conflitos POR NOME (outra pessoa mudou o MESMO nome que eu mexi). Travam o Salvar até "manter meu"/"usar o novo".
+  const [conflitos, setConflitos] = useState<ConflitoNome[]>([]);
+  const conflitosRef = useRef<ConflitoNome[]>([]);
+  const definirConflitos = (l: ConflitoNome[]) => {
+    // O efeito abaixo roda a cada render (deps com array novo): lista vazia → vazia não pode setar estado (loop).
+    if (l.length === 0 && conflitosRef.current.length === 0) return;
+    conflitosRef.current = l;
+    setConflitos(l);
+  };
+  // Loja com a qual a janela hidratou — trocar de loja com a janela aberta RE-SEMEIA (nunca funde A em B).
+  const lojaHidratadaRef = useRef<string | null>(null);
+  const corpoRef = useRef<HTMLDivElement>(null);
+  // A última leitura (objeto do cache) já fundida — o efeito roda a cada render; cada leitura entra UMA vez.
+  const ultimaLeituraRef = useRef<unknown>(null);
 
   const { dirty: nomChanged, markClean, reset: resetNomBaseline } = useDirtySnapshot({ tabs, campos });
   const dirty = open && nomChanged;
@@ -2092,16 +2125,9 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   // clicado com a leitura ainda em voo, já que `hydrated` não travava o botão) fazia o upsert
   // gravar `{"tab_labels":{},"campos_editaveis":{}}` por cima das nomenclaturas reais da loja.
   // Fix hidratação — re-revisão final (achado N7, PERDA/GRAVAÇÃO CRUZADA de dado comprovada,
-  // review-final-2.md; pré-existente, idêntico em a8d2fa41 — não é regressão desta branch): a
-  // key NÃO incluía o `tenantId`, então ao REABRIR o diálogo (2ª+ vez) ele hidratava do CACHE
-  // velho (`current` de uma abertura anterior, possivelmente de OUTRA loja) e ignorava a leitura
-  // nova em voo — `hydrated` já virava `true` com esse dado velho antes do refetch responder.
-  // Provado nos dois cenários: (a) super admin abre na loja A, troca para a loja B, reabre —
-  // o diálogo mostra as nomenclaturas da A e o Salvar grava a A NA B; (b) mesma loja, outro admin
-  // muda as nomenclaturas entre duas aberturas — o Salvar apaga a mudança alheia. Com `tenantId`
-  // na key, cada loja tem sua PRÓPRIA entrada de cache (não há mistura entre A e B); com
-  // `currentOk && !currentFetching` no gate de hidratação, só semeia depois que a leitura NOVA
-  // (não um cache antigo) assentar com sucesso.
+  // review-final-2.md): a key inclui o `tenantId` (cache por loja, sem mistura entre A e B) e o gate
+  // de hidratação espera `currentOk && !currentFetching` (só semeia depois que a leitura NOVA assentar).
+  // T5: devolve os mapas CRUS (null = loja sem linha) — a base da RPC tem de ser o valor do servidor.
   const { data: current, isSuccess: currentOk, isFetching: currentFetching } = useQuery({
     queryKey: ["tenant_config", "nomenclaturas_edit", tenantId],
     enabled: open && !!tenantId,
@@ -2109,42 +2135,132 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       const { data, error } = await supabase.from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId!).maybeSingle();
       if (error) throw error;
       return {
-        tab_labels: ((data as any)?.tab_labels ?? {}) as Record<string, string>,
-        campos_editaveis: ((data as any)?.campos_editaveis ?? {}) as Record<string, string>,
+        tab_labels: ((data as any)?.tab_labels ?? null) as Record<string, unknown> | null,
+        campos_editaveis: ((data as any)?.campos_editaveis ?? null) as Record<string, unknown> | null,
       };
     },
   });
 
-  useEffect(() => {
-    if (open && current && currentOk && !currentFetching && !hydrated) {
-      setTabs(current.tab_labels);
-      setCampos(current.campos_editaveis);
-      resetNomBaseline({ tabs: current.tab_labels, campos: current.campos_editaveis });
-      if (!selModule && enabledModules[0]) setSelModule(enabledModules[0].module);
-      setHydrated(true);
+  // T5: funde uma leitura NOVA do servidor no rascunho, POR NOME (`mesclarNomes`): nome que eu não mexi
+  // adota o do servidor; nome que eu mexi fica meu e, se o outro também o mudou (para outro valor), vira
+  // conflito. A base de cada mapa que mudou passa a ser o servidor (o próximo Salvar grava o merge sem
+  // P0409). Devolve os conflitos NOVOS. Mapa igual à base = nada a fazer (não mexe no que está sendo digitado).
+  const aplicarFresh = (fresh: Record<ColunaNomenclatura, Record<string, unknown> | null>): ConflitoNome[] => {
+    const novos: ConflitoNome[] = [];
+    const cols: [ColunaNomenclatura, string, { current: Record<string, string> }, (v: Record<string, string>) => void][] = [
+      ["tab_labels", "nom:tab:", tabsRef, setTabs],
+      ["campos_editaveis", "nom:campo:", camposRef, setCampos],
+    ];
+    const mudou = (col: ColunaNomenclatura) => jsonCanonico(fresh[col] ?? null) !== jsonCanonico(baseRef.current[col] ?? null);
+    // Nada novo do servidor: NÃO mexe em estado nenhum (o efeito roda a cada render — sem isto, setState em loop).
+    if (!cols.some(([col]) => mudou(col))) return novos;
+    for (const [col, prefixo, ref, set] of cols) {
+      if (!mudou(col)) continue;
+      const r = mesclarNomes(baseRef.current[col], ref.current, fresh[col], prefixo);
+      if (r.atualizados.length) {
+        const f = limparNomes(fresh[col]);
+        const draft = { ...ref.current };
+        for (const k of r.atualizados) { if (f[k] !== undefined) draft[k] = f[k]; else delete draft[k]; }
+        ref.current = draft;
+        set(draft);
+      }
+      novos.push(...r.conflitos);
+      baseRef.current = { ...baseRef.current, [col]: fresh[col] ?? null };
     }
-    if (!open) setHydrated(false);
-  }, [open, current, currentOk, currentFetching, hydrated, enabledModules, selModule]);
+    // Junta com os pendentes (um por nome) e solta o que convergiu (o meu já é igual ao do servidor).
+    const mapa = new Map(conflitosRef.current.map((c) => [c.path, c]));
+    for (const c of novos) mapa.set(c.path, c);
+    const t = limparNomes(tabsRef.current), cp = limparNomes(camposRef.current);
+    const ft = limparNomes(baseRef.current.tab_labels), fc = limparNomes(baseRef.current.campos_editaveis);
+    definirConflitos([...mapa.values()].filter((c) => {
+      const [, tipo, k] = c.path.split(":");
+      return tipo === "tab" ? t[k] !== ft[k] : cp[k] !== fc[k];
+    }));
+    resetNomBaseline({ tabs: (baseRef.current.tab_labels ?? {}) as Record<string, string>, campos: (baseRef.current.campos_editaveis ?? {}) as Record<string, string> });
+    return novos;
+  };
+
+  useEffect(() => {
+    if (!open) {
+      setHydrated(false);
+      definirConflitos([]);
+      lojaHidratadaRef.current = null;
+      return;
+    }
+    // Trocou de loja com a janela aberta: re-semeia quando a leitura da loja nova assentar.
+    if (hydrated && lojaHidratadaRef.current !== tenantId) {
+      setHydrated(false);
+      definirConflitos([]);
+      return;
+    }
+    if (!current || !currentOk || currentFetching) return;
+    if (!hydrated) {
+      const t = (current.tab_labels ?? {}) as Record<string, string>;
+      const c = (current.campos_editaveis ?? {}) as Record<string, string>;
+      baseRef.current = { tab_labels: current.tab_labels, campos_editaveis: current.campos_editaveis };
+      tabsRef.current = t;
+      camposRef.current = c;
+      setTabs(t);
+      setCampos(c);
+      resetNomBaseline({ tabs: t, campos: c });
+      if (!selModule && enabledModules[0]) setSelModule(enabledModules[0].module);
+      lojaHidratadaRef.current = tenantId;
+      ultimaLeituraRef.current = current;
+      setHydrated(true);
+      return;
+    }
+    // Re-hidratação com a janela aberta (Realtime/foco/outra aba): funde POR NOME — cada leitura uma vez só.
+    if (current === ultimaLeituraRef.current) return;
+    ultimaLeituraRef.current = current;
+    aplicarFresh(current);
+  }, [open, current, currentOk, currentFetching, hydrated, tenantId, enabledModules, selModule]);
 
   const mod = PAGES_CATALOG.find((m) => m.module === selModule);
   const fieldKeys = MODULE_FIELD_KEYS[selModule] ?? [];
 
   const saveMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ nada: boolean }> => {
       if (!tenantId) throw new Error("Loja não identificada.");
-      const cleanTabs: Record<string, string> = {};
-      Object.entries(tabs).forEach(([k, v]) => { if (v && v.trim()) cleanTabs[k] = v.trim(); });
-      const cleanCampos: Record<string, string> = {};
-      Object.entries(campos).forEach(([k, v]) => { if (v && v.trim()) cleanCampos[k] = v.trim(); });
-      // upsert (não update): loja sem linha de config não perde a gravação em silêncio.
-      const { error } = await supabase
-        .from("tenant_config")
-        .upsert({ tenant_id: tenantId, tab_labels: cleanTabs, campos_editaveis: cleanCampos } as any, { onConflict: "tenant_id" });
-      if (error) throw error;
+      // T5 (Config colaborativa, P-123 A): UMA chamada à RPC `salvar_config_loja` só com o(s) MAPA(S) que
+      // mudou(aram) — cada um inteiro (limpo: em branco = nome padrão) + a base CRUA que a janela leu. Se
+      // outra pessoa gravou o mesmo mapa nesse meio-tempo (P0409), relê e funde POR NOME: nomes diferentes
+      // → junta os dois e tenta de novo UMA vez sozinho; o MESMO nome → lista de conflitos na janela.
+      for (let tentativa = 0; ; tentativa++) {
+        const mudancas: Record<string, unknown> = {};
+        const base: Record<string, unknown> = {};
+        const t = limparNomes(tabsRef.current), c = limparNomes(camposRef.current);
+        if (!igual(t, limparNomes(baseRef.current.tab_labels))) { mudancas.tab_labels = t; base.tab_labels = baseRef.current.tab_labels ?? null; }
+        if (!igual(c, limparNomes(baseRef.current.campos_editaveis))) { mudancas.campos_editaveis = c; base.campos_editaveis = baseRef.current.campos_editaveis ?? null; }
+        if (Object.keys(mudancas).length === 0) return { nada: true };
+        const { error } = await supabase.rpc("salvar_config_loja" as any, { _tenant_id: tenantId, _mudancas: mudancas, _base: base } as any);
+        if (!error) return { nada: false };
+        const conflitoVersao = (error as any).code === "P0409" && String((error as any).message ?? "").startsWith("conflito_versao: config_loja");
+        if (!conflitoVersao || tentativa > 0) throw error;
+        // `colunasDoErro` com a lista da JANELA (as 2 colunas de nomenclatura) — só p/ confirmar que é deste mapa.
+        if (colunasDoErro(error, COLUNAS_NOMENCLATURAS).length === 0) throw error;
+        const { data: row, error: errLer } = await supabase
+          .from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId).maybeSingle();
+        if (errLer) throw errLer;
+        const lido = {
+          tab_labels: ((row as any)?.tab_labels ?? null) as Record<string, unknown> | null,
+          campos_editaveis: ((row as any)?.campos_editaveis ?? null) as Record<string, unknown> | null,
+        };
+        aplicarFresh(lido);
+        // O cache da janela passa a ser ESTA leitura — senão o efeito "fundiria" de novo a leitura velha do cache
+        // (que ficou atrás da base) e ressuscitaria o nome antigo como conflito.
+        qc.setQueryData(["tenant_config", "nomenclaturas_edit", tenantId], lido);
+        if (conflitosRef.current.length > 0) throw Object.assign(new Error("conflito_nomes"), { conflitoNomes: true });
+        // Nomes diferentes: o rascunho agora tem os dois — segue para a 2ª tentativa com a base nova.
+      }
     },
-    onSuccess: () => {
-      toast.success("Nomenclaturas salvas");
+    onSuccess: (r) => {
       markClean();
+      if (r.nada) {
+        toast.info("Nenhuma alteração para salvar.");
+        setOpen(false);
+        return;
+      }
+      toast.success("Nomenclaturas salvas");
       qc.invalidateQueries({
         predicate: (q) => {
           const k = q.queryKey?.[0];
@@ -2153,8 +2269,42 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       });
       setOpen(false);
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: (e: any) => {
+      if (e?.conflitoNomes) {
+        toast.error("Outra pessoa mudou o mesmo nome agora há pouco. Escolha em cada item destacado e salve de novo.");
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
+
+  // T5: "manter meu" = o meu fica (a base do mapa já é o servidor — o próximo Salvar grava por cima,
+  // conscientemente); "usar o novo" = o nome volta ao do servidor (sem valor = nome padrão).
+  const resolverNome = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      const [, tipo, k] = path.split(":");
+      const set = tipo === "tab" ? setTabs : setCampos;
+      const ref = tipo === "tab" ? tabsRef : camposRef;
+      const draft = { ...ref.current };
+      if (c.dele !== undefined) draft[k] = c.dele; else delete draft[k];
+      ref.current = draft;
+      set(draft);
+    }
+    definirConflitos(conflitosRef.current.filter((x) => x.path !== path));
+  };
+  const conflitoDe = (path: string) => conflitos.some((c) => c.path === path);
+  const anelNome = (path: string) => (conflitoDe(path) ? "ring-2 ring-amber-500" : "");
+  const rotuloNome = (path: string) => {
+    const [, tipo, k] = path.split(":");
+    if (tipo === "tab") {
+      const nome = PAGES_CATALOG.find((m) => m.module === k)?.label
+        ?? PAGES_CATALOG.flatMap((m) => m.pages).find((pg) => pg.key === k)?.label ?? k;
+      return `${rotuloColuna("tab_labels")} — ${nome}`;
+    }
+    return `${rotuloColuna("campos_editaveis")} — ${FIELD_LABEL_DEFAULTS[k] ?? k}`;
+  };
+  const presentesNaJanela = presentes.filter((p) => p.campoFocado?.startsWith("nom:"));
 
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : requestClose())}>
@@ -2171,6 +2321,10 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
           </div>
         </DialogHeader>
 
+        {/* T5: quem mais está editando nomenclaturas + conflitos POR NOME ("manter meu" · "usar o novo"). */}
+        <ColabBanner presentes={presentesNaJanela} ultimoMerge={null} conflitos={conflitos} onResolver={resolverNome} rotulo={rotuloNome} />
+
+        <div ref={corpoRef} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
           <Label className="text-sm font-semibold">Módulo a editar</Label>
           <Select value={selModule} onValueChange={setSelModule}>
@@ -2188,12 +2342,24 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
               <p className="text-xs font-semibold text-muted-foreground">Nomes das abas (menu)</p>
               <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
                 <Label className="text-sm">{mod.label} <span className="text-muted-foreground">(módulo)</span></Label>
-                <Input placeholder={mod.label} value={tabs[mod.module] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [mod.module]: e.target.value }))} />
+                <Input
+                  placeholder={mod.label}
+                  data-colab-path={`nom:tab:${mod.module}`}
+                  className={anelNome(`nom:tab:${mod.module}`)}
+                  value={tabs[mod.module] ?? ""}
+                  onChange={(e) => setTabs((t) => ({ ...t, [mod.module]: e.target.value }))}
+                />
               </div>
               {mod.pages.map((p) => (
                 <div key={p.key} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2 md:pl-4">
                   <Label className="text-xs text-muted-foreground">{p.label}</Label>
-                  <Input className="h-8 max-md:h-11" placeholder={p.label} value={tabs[p.key] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [p.key]: e.target.value }))} />
+                  <Input
+                    className={"h-8 max-md:h-11 " + anelNome(`nom:tab:${p.key}`)}
+                    placeholder={p.label}
+                    data-colab-path={`nom:tab:${p.key}`}
+                    value={tabs[p.key] ?? ""}
+                    onChange={(e) => setTabs((t) => ({ ...t, [p.key]: e.target.value }))}
+                  />
                 </div>
               ))}
             </div>
@@ -2207,7 +2373,13 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
                 fieldKeys.map((k) => (
                   <div key={k} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
                     <Label className="text-xs text-muted-foreground">{FIELD_LABEL_DEFAULTS[k] ?? k}</Label>
-                    <Input className="h-8 max-md:h-11" placeholder={FIELD_LABEL_DEFAULTS[k] ?? k} value={campos[k] ?? ""} onChange={(e) => setCampos((c) => ({ ...c, [k]: e.target.value }))} />
+                    <Input
+                      className={"h-8 max-md:h-11 " + anelNome(`nom:campo:${k}`)}
+                      placeholder={FIELD_LABEL_DEFAULTS[k] ?? k}
+                      data-colab-path={`nom:campo:${k}`}
+                      value={campos[k] ?? ""}
+                      onChange={(e) => setCampos((c) => ({ ...c, [k]: e.target.value }))}
+                    />
                   </div>
                 ))
               )}
@@ -2216,12 +2388,16 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
         )}
 
         <p className="text-xs text-muted-foreground">Em branco = nome padrão.</p>
+        </div>
+        {/* 2º overlay (o diálogo é portal — o da página não alcança): anel de quem está no MESMO nome. */}
+        <ColabPresenceOverlay presentes={presentesNaJanela} scopeRef={corpoRef} />
         <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:-mx-4 max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
           <Button variant="ghost" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           {/* Fix hidratação — revisão final (F1): + `|| !hydrated` — sem isso, clicar Salvar com a
               leitura do diálogo ainda em voo (ou depois de uma falha, que nunca hidrata) upsertava
               tab_labels/campos_editaveis VAZIOS por cima das nomenclaturas reais da loja. */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !hydrated}>
+          {/* T5: + conflito por nome pendente trava (P-122 A) — resolver no aviso acima antes de salvar. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !hydrated || conflitos.length > 0}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </DialogFooter>

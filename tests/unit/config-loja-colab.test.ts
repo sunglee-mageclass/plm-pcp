@@ -322,3 +322,32 @@ describe("rotuloColuna — rótulos PT das 16 colunas + tab_labels/campos_editav
     expect(rotuloColuna("coluna_inexistente")).toBe("coluna_inexistente");
   });
 });
+
+// T5 — janela Nomenclaturas: parser com lista própria + merge POR NOME.
+import { colunasDoErro as colunasDoErroT5, COLUNAS_NOMENCLATURAS, limparNomes, mesclarNomes } from "@/lib/config-loja-colab";
+describe("T5 — Nomenclaturas (puro)", () => {
+  const erro = (details: string) => ({ code: "P0409", message: "conflito_versao: config_loja", details });
+  it("colunasDoErro: default = colunas da PÁGINA (descarta tab_labels); com a lista da janela, aceita os 2 mapas", () => {
+    expect(colunasDoErroT5(erro("tab_labels,timezone"))).toEqual(["timezone"]);
+    expect(colunasDoErroT5(erro("campos_editaveis,tab_labels,timezone"), COLUNAS_NOMENCLATURAS)).toEqual(["campos_editaveis", "tab_labels"]);
+  });
+  it("limparNomes: em branco/só espaços = nome padrão (sai); apara as pontas", () => {
+    expect(limparNomes({ a: " X ", b: "", c: "   ", d: 5 as any })).toEqual({ a: "X" });
+    expect(limparNomes(null)).toEqual({});
+  });
+  it("mesclarNomes: nome não tocado adota o servidor; tocado fica meu; mesmo nome mudado dos 2 lados = conflito", () => {
+    const base = { a: "A", b: "B", c: "C" };
+    const meu = { a: "A meu", b: "B", c: "C", d: "D meu" };
+    const fresh = { a: "A dele", b: "B dele", e: "E dele" }; // c apagado pelo outro
+    const r = mesclarNomes(base, meu, fresh, "nom:tab:");
+    expect(r.valor).toEqual({ a: "A meu", b: "B dele", d: "D meu", e: "E dele" });
+    expect(r.conflitos).toEqual([{ path: "nom:tab:a", meu: "A meu", dele: "A dele" }]);
+    expect(r.atualizados.sort()).toEqual(["b", "c", "e"]);
+  });
+  it("mesclarNomes: convergido (os dois puseram o mesmo nome) não é conflito; vazio ≡ ausente", () => {
+    const r = mesclarNomes({ a: "A" }, { a: "Novo", z: "" }, { a: "Novo" }, "nom:campo:");
+    expect(r.conflitos).toEqual([]);
+    expect(r.valor).toEqual({ a: "Novo" });
+  });
+});
+
