@@ -14,7 +14,7 @@ export function EstadoCelula({ p, tz, superAdmin, onDesfazer }: {
 }) {
   return (
     <div className="flex items-center gap-1">
-      <StatusBadge tone={tomEstado(p.estado)} className="whitespace-nowrap normal-case tracking-normal">{rotuloEstado(p, tz)}</StatusBadge>
+      <StatusBadge tone={tomEstado(p)} className="whitespace-nowrap normal-case tracking-normal">{rotuloEstado(p, tz)}</StatusBadge>
       {p.estado === "nao_integravel" && !p.completo && <InfoHover ariaLabel="O que falta">{textoFaltas(p.faltas)}</InfoHover>}
       {p.estado === "integrado" && superAdmin && (
         <Popover>

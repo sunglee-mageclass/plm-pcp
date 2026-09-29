@@ -34,11 +34,21 @@ import { CAMPO_BY_KEY, ordenarCampos, type CampoKey, type GateKey } from "@/lib/
 
 export type Situacao = "nao_integrados" | "integrados" | "todos";
 export type EstadoIntegracao = "nao_integravel" | "integravel" | "integrado";
+// Owner (set/2026): "os que não faltam itens, o badge não integrável deve ficar amarelo" — o Estado do SERVIDOR
+// continua com só 3 valores (`EstadoIntegracao`, o que a RPC `integracao_listar`/`_estado` entende); o nível VISUAL
+// (badge + filtro + ordenação) racha "não integrável" em DOIS, pelo `p.completo` já existente (mesma fonte que
+// `motivoIntegrar` usa pra travar o botão Integrar — ver `acessorEstado`/`FiltroSelect` de Estado abaixo):
+// - "nao_integravel_faltam" (VERMELHO): faltam dados — não daria pra marcar Integrável agora.
+// - "nao_integravel_completo" (ÂMBAR): completo, só falta acionar o toggle Integrável.
+// `EstadoNivel` é o tipo do FILTRO na tela (4 opções); `estadoNivelDe`/`nivelParaRpc` fazem a ponte com o `EstadoIntegracao`
+// de 3 valores que o servidor entende — nenhuma mudança de RPC: os 2 níveis novos mandam `estado=nao_integravel`
+// pro servidor (mesma contagem/paginação de hoje) e a tela filtra a PÁGINA já recebida pelo `completo` (client-side).
+export type EstadoNivel = EstadoIntegracao | "nao_integravel_faltam" | "nao_integravel_completo";
 export type Filtros = {
   colecao: string | null;
   etapa: string | null;
   origem: string | null;
-  estado: EstadoIntegracao | null;
+  estado: EstadoNivel | null;
   busca: string;
 };
 export const FILTROS_VAZIOS: Filtros = {
@@ -132,6 +142,22 @@ export const ROTULO_ESTADO: Record<EstadoIntegracao, string> = {
   integravel: "Integrável",
   integrado: "Integrado",
 };
+// Owner (set/2026): rótulos do FILTRO "Estado" — os 2 novos níveis substituem a opção única "Não integrável".
+// Labels escolhidos pra bater com a leitura do dono ("os vermelhos que faltam dados e os amarelos que estão
+// completos mas falta acionar o toggle") — curtos, sem repetir "não integrável" 2x na mesma frase.
+export const ROTULO_ESTADO_NIVEL: Record<EstadoNivel, string> = {
+  nao_integravel: ROTULO_ESTADO.nao_integravel, // legado — mantido só p/ compat de valor salvo/serializado antigo
+  nao_integravel_faltam: "Não integrável — faltam dados",
+  nao_integravel_completo: "Não integrável — completo",
+  integravel: ROTULO_ESTADO.integravel,
+  integrado: ROTULO_ESTADO.integrado,
+};
+/** Opções do filtro "Estado" na ORDEM do funil (faltam dados < completo < integrável < integrado) — a opção
+ *  legada `"nao_integravel"` NÃO aparece na lista (só existe pra um valor salvo antigo continuar funcionando via
+ *  `filtrosParaRpc`/`produtoPassaFiltroEstado`; ninguém escolhe ela de novo no dropdown). */
+export const OPCOES_ESTADO_NIVEL: readonly EstadoNivel[] = [
+  "nao_integravel_faltam", "nao_integravel_completo", "integravel", "integrado",
+];
 export const TEXTO_PRECISA_CUSTO = "Precisa poder ver custos (Preço de custo está marcado)";
 
 const obj = (v: unknown): Record<string, unknown> =>
@@ -287,12 +313,28 @@ export function lerLista(raw: unknown): ListaIntegracao {
       .filter((p) => p.modeloId !== ""),
   };
 }
+/** Ponte `EstadoNivel` (filtro da tela, 4 opções) → `EstadoIntegracao` (o que a RPC entende, 3 opções) — os 2
+ *  níveis novos ("faltam"/"completo") mandam `nao_integravel` pro servidor (compatibilidade: um valor salvo/antigo
+ *  `"nao_integravel"` já cai direto aqui, sem tradução, mostrando OS DOIS níveis — o comportamento de hoje). */
+const nivelParaEstadoServidor = (v: EstadoNivel): EstadoIntegracao =>
+  v === "nao_integravel_faltam" || v === "nao_integravel_completo" ? "nao_integravel" : v;
+/** Filtro CLIENT-SIDE por completude, aplicado à página já recebida do servidor — só os 2 níveis novos restringem,
+ *  e SÓ dentro de `estado==='nao_integravel'` (um produto integrável/integrado também pode ter `completo=true`,
+ *  mas isso não o torna "nao_integravel_completo" — precisa das DUAS condições, não só `completo`). Os demais
+ *  valores (incluindo o `"nao_integravel"` legado/salvo) não filtram nada aqui (mostram os dois níveis, mesma
+ *  lista de hoje). Fonte de `completo` = a MESMA que `motivoIntegrar`/o botão Integrar usam (server, nunca o
+ *  rascunho staging) — amarelo aqui SEMPRE corresponde a "pode integrar agora". */
+export function produtoPassaFiltroEstado(p: Pick<ProdutoLista, "estado" | "completo">, v: EstadoNivel | null): boolean {
+  if (v === "nao_integravel_faltam") return p.estado === "nao_integravel" && !p.completo;
+  if (v === "nao_integravel_completo") return p.estado === "nao_integravel" && p.completo;
+  return true;
+}
 export function filtrosParaRpc(f: Filtros): Record<string, string> {
   const r: Record<string, string> = {};
   if (f.colecao) r.colecao = f.colecao;
   if (f.etapa) r.etapa = f.etapa;
   if (f.origem) r.origem = f.origem;
-  if (f.estado) r.estado = f.estado;
+  if (f.estado) r.estado = nivelParaEstadoServidor(f.estado);
   const b = f.busca.trim();
   if (b) r.busca = b;
   return r;
@@ -369,16 +411,30 @@ export function fmtDataHora(iso: string | null, tz: string, comAno = false): str
   const v = (t: Intl.DateTimeFormatPartTypes) => partes.find((x) => x.type === t)?.value ?? "";
   return `${v("day")}/${v("month")}${comAno ? `/${v("year")}` : ""} ${v("hour")}:${v("minute")}`;
 }
+// Owner (set/2026): "os que não faltam itens, o badge não integrável deve ficar amarelo". `p.completo` é a MESMA
+// fonte que `motivoIntegrar` usa pra travar/liberar o botão Integrar (nunca o rascunho staging — vem pronto do
+// servidor em `integracao_listar`/`_integracao_retrato_core`) — então "amarelo" aqui SEMPRE quer dizer "dá pra
+// integrar agora, só falta acionar o toggle", nunca um falso "quase lá" que ainda bloquearia o Integrar.
 /** Ruling (estado manda, nunca marcado_em/marcado_por): `integradoEm` só vira texto quando `estado==='integrado'` —
  *  os outros dois estados nunca mostram data (mesmo que `marcadoEm`/`integradoEm` tenham um rastro velho de um
- *  voltar/desfazer anterior; esses campos continuam presentes no tipo, só não alimentam a exibição aqui). */
-export function rotuloEstado(p: Pick<ProdutoLista, "estado" | "integradoEm">, tz: string): string {
-  return p.estado === "integrado"
-    ? `Integrado em ${fmtDataHora(p.integradoEm, tz)}`
-    : ROTULO_ESTADO[p.estado];
+ *  voltar/desfazer anterior; esses campos continuam presentes no tipo, só não alimentam a exibição aqui).
+ *  "Não integrável" agora tem 2 textos (faltam dados vs completo) — ver `nivelDoProduto`. */
+export function rotuloEstado(p: Pick<ProdutoLista, "estado" | "integradoEm" | "completo">, tz: string): string {
+  if (p.estado === "integrado") return `Integrado em ${fmtDataHora(p.integradoEm, tz)}`;
+  if (p.estado === "nao_integravel")
+    return p.completo ? "Não integrável — completo" : "Não integrável — faltam dados";
+  return ROTULO_ESTADO[p.estado];
 }
-export const tomEstado = (e: EstadoIntegracao): "danger" | "warning" | "success" =>
-  e === "integrado" ? "success" : e === "integravel" ? "warning" : "danger";
+/** Nível efetivo de um produto (o mesmo split do filtro/ordenação, aplicado ao PRÓPRIO produto) — usado pelo
+ *  badge (`tomEstado`) e por qualquer outro consumidor que precise saber em qual dos 4 "baldes" ele cai. */
+export function nivelDoProduto(p: Pick<ProdutoLista, "estado" | "completo">): EstadoNivel {
+  if (p.estado !== "nao_integravel") return p.estado;
+  return p.completo ? "nao_integravel_completo" : "nao_integravel_faltam";
+}
+export const tomEstado = (p: Pick<ProdutoLista, "estado" | "completo">): "danger" | "warning" | "success" => {
+  const n = nivelDoProduto(p);
+  return n === "integrado" ? "success" : n === "integravel" || n === "nao_integravel_completo" ? "warning" : "danger";
+};
 /** Ruling: `tamanho_tipo`/`variantes` (chaves sem CampoDef/coluna) entram aqui igual a qualquer outra falta — não
  *  há cela pra destacar, e essa função só monta o TEXTO agregado (a tela decide separadamente onde mostrar). */
 export const textoFaltas = (faltas: Falta[]): string =>
@@ -488,9 +544,18 @@ function valorOrdenavelDoProduto(p: ProdutoLista, campo: CampoKey): string | num
   const l = f?.linhas.find((x) => x.tipo === "produto");
   return valorOrdenavelDaLinha(l, campo);
 }
-const ROTULO_ESTADO_ORDEM: Record<EstadoIntegracao, number> = { nao_integravel: 0, integravel: 1, integrado: 2 };
+// Owner (set/2026): com o Estado agora em 4 níveis (faltam dados/completo/integrável/integrado), a ordem do funil
+// segue a MESMA leitura do dono: faltam dados < completo < integrável < integrado (cada nível mais perto de
+// integrado vem DEPOIS — asc mostra primeiro quem precisa de mais atenção).
+const ORDEM_NIVEL_ESTADO: Record<EstadoNivel, number> = {
+  nao_integravel: 0, // legado — nunca aparece de verdade (nivelDoProduto/acessorEstado sempre resolvem o real)
+  nao_integravel_faltam: 0,
+  nao_integravel_completo: 1,
+  integravel: 2,
+  integrado: 3,
+};
 /** Mapa `sortKey → accessor` para `useSort<ProdutoLista>` (`ProdutosTabela.tsx`). Uma entrada por `CampoKey` da
- *  tabela + `"estado"` (ordena pela ordem natural do funil: não integrável < integrável < integrado). Campos
+ *  tabela + `"estado"` (ordena pela ordem do funil de 4 níveis — `nivelDoProduto`/`ORDEM_NIVEL_ESTADO`). Campos
  *  soVariante (cor_base/cor_apelido/tamanho) leem a PRIMEIRA sublinha (`linhasVariante(p)[0]`) — documentado no
  *  requisito ("campo que só existe na variante ordena o produto pelo valor da 1ª variante"). Todos os outros leem
  *  a linha do PRODUTO da fonte exibida (retrato/vivo = valor SALVO, nunca o rascunho — ver comentário acima).
@@ -503,7 +568,8 @@ export function acessorOrdenacao(campo: CampoDefLike): (p: ProdutoLista) => stri
 }
 type CampoDefLike = { key: CampoKey; soVariante: boolean };
 export const SORT_KEY_ESTADO = "estado" as const;
-export const acessorEstado = (p: Pick<ProdutoLista, "estado">): number => ROTULO_ESTADO_ORDEM[p.estado];
+export const acessorEstado = (p: Pick<ProdutoLista, "estado" | "completo">): number =>
+  ORDEM_NIVEL_ESTADO[nivelDoProduto(p)];
 
 export const totalPaginas = (l: Pick<ListaIntegracao, "total" | "porPagina">): number =>
   Math.max(1, Math.ceil(l.total / l.porPagina));

@@ -35,8 +35,9 @@ import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_MAO_DUPLA } from "@/lib/integracao/campos";
 import {
-  FILTROS_VAZIOS, ROTULO_ESTADO, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar, motivoVoltar, totalPaginas,
-  type EstadoIntegracao, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
+  FILTROS_VAZIOS, OPCOES_ESTADO_NIVEL, ROTULO_ESTADO_NIVEL, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar,
+  motivoVoltar, produtoPassaFiltroEstado, totalPaginas,
+  type EstadoNivel, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
 } from "@/lib/integracao/produtos";
 import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
 import { useAbaSuja } from "./guard";
@@ -166,6 +167,19 @@ export function ProdutosAba() {
   useIntegracaoAoVivo(idsPagina);
   const salvar = useSalvarIntegracao();
   const lista = q.data;
+  // Owner (set/2026): os 2 níveis novos de Estado ("faltam dados"/"completo") são um recorte CLIENT-SIDE de "não
+  // integrável" — a RPC `integracao_listar` só entende os 3 valores de sempre (`filtrosParaRpc` já manda
+  // `estado=nao_integravel` pros dois), então paginação/contagem do SERVIDOR (`lista.total`/`totalPaginas`)
+  // continuam sendo as de "não integrável" no total, não as de um nível específico. `produtosExibidos` é a página
+  // recebida filtrada por `produtoPassaFiltroEstado` — TUDO que depende de "o que está na tela" (tabela, seleção
+  // em massa/"selecionar todos", rodapé "Mostrando…") usa ELE, nunca `lista.produtos` cru, senão o cabeçalho
+  // "selecionar todos" ficaria incoerente com as linhas de fato marcáveis. Paginação (Anterior/Próxima) continua
+  // andando sobre a página REAL do servidor — só o que É mostrado/selecionável nela que é filtrado.
+  const filtroEstreitaNivel = filtros.estado === "nao_integravel_faltam" || filtros.estado === "nao_integravel_completo";
+  const produtosExibidos = useMemo(
+    () => (lista ? lista.produtos.filter((p) => produtoPassaFiltroEstado(p, filtros.estado)) : []),
+    [lista, filtros.estado],
+  );
   const sujos = useMemo(() => Object.values(rascunhos).filter(temAlteracao), [rascunhos]);
   // `sujoLinhas` governa o botão Salvar/onSalvar da PÁGINA (só as linhas da tabela); `sujo` (guarda/trava de
   // filtro) também soma o texto pendente do diálogo de Keywords — os dois têm saves INDEPENDENTES (o Keywords
@@ -463,9 +477,12 @@ export function ProdutosAba() {
     ),
     [ctxIntegrar],
   );
+  // Owner (set/2026): `produtosExibidos` (não `lista.produtos`) — com o filtro de nível ativo, um produto fora do
+  // nível escolhido não está sequer renderizado/marcável na tabela; incluí-lo aqui deixaria "selecionados"
+  // conter ids invisíveis (e o cabeçalho "selecionar todos" incoerente com as linhas de fato marcáveis).
   const selecionadosLista = useMemo(
-    () => (lista?.produtos ?? []).filter((p) => selecionados.has(p.modeloId)),
-    [lista, selecionados],
+    () => produtosExibidos.filter((p) => selecionados.has(p.modeloId)),
+    [produtosExibidos, selecionados],
   );
   const massa = useMemo(
     () => acoesEmMassa(selecionadosLista, { ...ctxIntegrar, rascunhos: idsSujos }),
@@ -477,8 +494,8 @@ export function ProdutosAba() {
   // nunca o objeto inteiro (`ProdutosTabela.tsx`). `onTodos`/`onMarcar` em `useCallback` evitam recriar a FUNÇÃO em
   // si a cada render.
   const onTodosSelecao = useCallback(
-    (v: boolean) => setSelecionados(v ? new Set((lista?.produtos ?? []).map((p) => p.modeloId)) : new Set()),
-    [lista],
+    (v: boolean) => setSelecionados(v ? new Set(produtosExibidos.map((p) => p.modeloId)) : new Set()),
+    [produtosExibidos],
   );
   const onMarcarSelecao = useCallback(
     (id: string, v: boolean) => setSelecionados((s) => {
@@ -491,13 +508,13 @@ export function ProdutosAba() {
   );
   const selecao = useMemo(
     () => ({
-      todos: !!lista && lista.produtos.length > 0 && selecionadosLista.length === lista.produtos.length,
+      todos: produtosExibidos.length > 0 && selecionadosLista.length === produtosExibidos.length,
       alguns: selecionadosLista.length > 0,
       onTodos: onTodosSelecao,
       marcado: (id: string) => selecionados.has(id),
       onMarcar: onMarcarSelecao,
     }),
-    [lista, selecionadosLista, selecionados, onTodosSelecao, onMarcarSelecao],
+    [produtosExibidos, selecionadosLista, selecionados, onTodosSelecao, onMarcarSelecao],
   );
   // Fix round 1 T13 (revisão T13 #3, code-review m3): `selecionados` só zerava ao trocar situação/filtros/página —
   // um produto que SAI da página numa relista (a API o integrou, outra pessoa renomeou e a ordenação mudou) ficava
@@ -585,6 +602,13 @@ export function ProdutosAba() {
     if (voltarIds && lista && voltarProdutosAtuais.length === 0) setVoltarIds(null);
   }, [voltarIds, lista, voltarProdutosAtuais]);
 
+  // `listaExibida` = a mesma `lista` do servidor, só com `produtos` estreitado pro nível de Estado escolhido —
+  // usada SÓ na hora de passar pra `ProdutosTabela` (que não sabe nada de filtro de nível; recebe a lista pronta).
+  const listaExibida = useMemo(
+    () => (lista ? { ...lista, produtos: produtosExibidos } : lista),
+    [lista, produtosExibidos],
+  );
+
   const totalPag = lista ? totalPaginas(lista) : 1;
   // m4 (revisão): a página atual passou do total (produtos saíram) — nunca fica sem saída (EmptyState sem
   // paginação); a própria mudança de página já reseta pra última válida.
@@ -661,9 +685,13 @@ export function ProdutosAba() {
         <FiltroSelect id="f-origem" rotulo="Origem" valor={filtros.origem} desabilitado={travaFiltro}
           opcoes={Object.entries(ROTULO_ORIGEM).map(([key, label]) => ({ key, label }))}
           onMudar={(v) => { setFiltros((f) => ({ ...f, origem: v })); setPagina(1); }} />
+        {/* Owner (set/2026): 4 níveis (faltam dados/completo/integrável/integrado) — a opção legada "nao_integravel"
+            (valor salvo antigo, se algum dia vier de fora) NÃO aparece na lista (`OPCOES_ESTADO_NIVEL` já a
+            omite), mas continua funcionando se `filtros.estado` chegar com esse valor: `filtrosParaRpc` traduz pro
+            servidor e `produtoPassaFiltroEstado` não restringe nada — mostra os DOIS níveis, como sempre mostrou. */}
         <FiltroSelect id="f-estado" rotulo="Estado" valor={filtros.estado} desabilitado={travaFiltro} info={TEXTO_ESTADO_DENTRO}
-          opcoes={(Object.keys(ROTULO_ESTADO) as EstadoIntegracao[]).map((key) => ({ key, label: ROTULO_ESTADO[key] }))}
-          onMudar={(v) => { setFiltros((f) => ({ ...f, estado: v as EstadoIntegracao | null })); setPagina(1); }} />
+          opcoes={OPCOES_ESTADO_NIVEL.map((key) => ({ key, label: ROTULO_ESTADO_NIVEL[key] }))}
+          onMudar={(v) => { setFiltros((f) => ({ ...f, estado: v as EstadoNivel | null })); setPagina(1); }} />
         <div className="grid gap-1">
           <Label htmlFor="f-busca">Buscar</Label>
           <Input id="f-busca" value={busca} placeholder="Nome ou REF" disabled={travaFiltro}
@@ -693,13 +721,26 @@ export function ProdutosAba() {
             </div>
           )}
         </>
+      ) : produtosExibidos.length === 0 ? (
+        // Filtro de nível (faltam dados/completo) estreitou a PÁGINA ATUAL a zero — a situação/filtros de base
+        // ainda têm produtos (senão cairia no ramo de cima), só não NESTA página com este nível. Nunca mostra a
+        // tabela vazia sem explicar (o `lista.produtos` real não está vazio).
+        <EmptyState title="Nenhum produto nesta página com este nível de Estado"
+          description="Troque de página ou volte para “Não integrável” pra ver todos." />
       ) : (
         <>
-          <ProdutosTabela lista={lista} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
+          <ProdutosTabela lista={listaExibida!} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
             onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
             integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined} />
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">{faixaPagina(lista)}</span>
+            {/* Owner (set/2026): com o filtro de nível ativo, `lista.total` é o total de "não integrável" (a RPC não
+                distingue faltam/completo) — nunca reusar `faixaPagina(lista)` aqui (diria "de 50" quando só 12
+                passam o filtro nesta página). Texto próprio, honesto sobre o que É a página do servidor. */}
+            <span className="text-muted-foreground">
+              {filtroEstreitaNivel
+                ? `Mostrando ${produtosExibidos.length} de ${lista.produtos.length} produtos desta página (filtrados por Estado)`
+                : faixaPagina(lista)}
+            </span>
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" disabled={travaFiltro || lista.pagina <= 1}
                 onClick={() => setPagina((n) => n - 1)}>Anterior</Button>
