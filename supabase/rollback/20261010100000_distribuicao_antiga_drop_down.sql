@@ -6,14 +6,16 @@
 -- DADOS: NAO voltam aqui. Vem do dump que o kit fez antes da ida (savepoints/pre-dist-parte2/: dados-*.sql aplicado pelo
 -- volta-dist-parte2.sh, ou pg_restore --data-only do .dump).
 -- LIFO: o inverso da Distribuicao nova (20261006100000_down) EXIGE esta tabela -- rode ESTE primeiro, se um dia precisar.
--- Travas: CREATE POLICY (hook supautils.policy_grants) segura AccessExclusive em tabelas de auth/storage ate o COMMIT e
--- as FKs pegam tenants/colecoes -- por isso lock_timeout curto e transacao curta. Idempotente (IF NOT EXISTS / OR REPLACE).
+-- Travas: CREATE/DROP POLICY (hook supautils.policy_grants) segura AccessExclusive em tabelas de auth/storage/realtime
+-- ate o COMMIT -- por isso a DDL de policy vem POR ULTIMO (logo antes da pos-condicao e do COMMIT); as FKs pegam
+-- tenants/colecoes; lock_timeout curto e transacao curta. Idempotente (IF NOT EXISTS / OR REPLACE).
 -- Mensagens de RAISE so ASCII. NUNCA \i dentro de BEGIN...ROLLBACK.
 
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL statement_timeout = '5s';
+SET LOCAL transaction_timeout = '10s';
 
 DO $guarda$
 DECLARE v_n int;
@@ -57,9 +59,6 @@ DROP TRIGGER IF EXISTS set_tenant_id_distribuicao ON public.distribuicao_tabelas
 CREATE TRIGGER set_tenant_id_distribuicao BEFORE INSERT ON public.distribuicao_tabelas FOR EACH ROW EXECUTE FUNCTION public.set_tenant_id();
 
 ALTER TABLE public.distribuicao_tabelas ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS distribuicao_tabelas_tenant ON public.distribuicao_tabelas;
-CREATE POLICY distribuicao_tabelas_tenant ON public.distribuicao_tabelas USING ((tenant_id = public.get_user_tenant_id())) WITH CHECK ((tenant_id = public.get_user_tenant_id()));
 
 GRANT ALL ON TABLE public.distribuicao_tabelas TO anon;
 GRANT ALL ON TABLE public.distribuicao_tabelas TO authenticated;
@@ -360,6 +359,14 @@ REVOKE ALL ON FUNCTION public.direcionamento_resumo_subcolecao(uuid) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION public.direcionamento_resumo_subcolecao(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.direcionamento_resumo_subcolecao(uuid) TO authenticated;
 
+NOTIFY pgrst, 'reload schema';  -- entregue so no COMMIT; vem antes da policy p/ nao alongar a trava
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Policy POR ULTIMO (DDL de policy trava auth/storage/realtime ate o COMMIT -- o menor tempo possivel).
+-- ---------------------------------------------------------------------------------------------------------------
+DROP POLICY IF EXISTS distribuicao_tabelas_tenant ON public.distribuicao_tabelas;
+CREATE POLICY distribuicao_tabelas_tenant ON public.distribuicao_tabelas USING ((tenant_id = public.get_user_tenant_id())) WITH CHECK ((tenant_id = public.get_user_tenant_id()));
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- Pos-condicao: md5 das 4 = copia; tabela com 12 colunas, policy, gatilho, indice e RLS. Divergiu = desfaz TUDO.
 -- ---------------------------------------------------------------------------------------------------------------
@@ -406,7 +413,5 @@ BEGIN
   END IF;
   RAISE NOTICE 'distribuicao_antiga_drop (volta): OK - tabela (vazia se era nova) e 4 RPCs recriadas';
 END $pos$;
-
-NOTIFY pgrst, 'reload schema';
 
 COMMIT;

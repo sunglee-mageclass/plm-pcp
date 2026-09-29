@@ -247,7 +247,7 @@ const PRONTO = hasDb && LOCAL && (MIG_TXN || (await jaAplicada()));
  *  SET LOCAL do arquivo — a txn do teste tem as suas). Sem efeito quando a tabela ainda existe. */
 async function voltaParte2SePreciso(c: Client): Promise<void> {
   if ((await um<{ ok: boolean }>(c, "select to_regclass('public.distribuicao_tabelas') is not null ok")).ok) return;
-  const sql = ler(INV_ANTIGA).replace(/^SET LOCAL (lock_timeout|statement_timeout) = '[^']*';$/gm, "-- [teste] trava do arquivo removida");
+  const sql = ler(INV_ANTIGA).replace(/^SET LOCAL (lock_timeout|statement_timeout|transaction_timeout) = '[^']*';$/gm, "-- [teste] trava do arquivo removida");
   await aplicarSql(c, sql, INV_ANTIGA);
 }
 
