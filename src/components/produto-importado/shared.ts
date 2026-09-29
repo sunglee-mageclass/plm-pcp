@@ -8,6 +8,7 @@
 // `moeda.ts` — a conta em si (custo landed, rateio por peso, cadeia de markup) mora lá.
 import { ratearPorPeso, custoLanded, cadeiaMarkup, type EntradaLanded, type EtapaPagamento, type ResultadoLanded } from "@/lib/moeda";
 import type { Conflito } from "@/lib/colab/merge";
+import type { TamanhoTipo } from "@/lib/tamanho";
 
 export type VarianteImportadoDraft = {
   ordem: number;
@@ -92,6 +93,17 @@ export type ProdutoImportadoDraft = {
    *  travado). `null` = sem espelho ainda (produto não materializado). NUNCA entra em `chaveDirty`
    *  (read-only, embed) nem no payload de `montarPayload`. */
   modeloPrecoVenda: number | null;
+  // "Tamanho em" (Letra/Número) — Tarefa 6 do plano `.superpowers/sdd/2026-09-29-tamanho-em/plan.md`,
+  // mesmo par do Produto Acabado (`ProdutoDraft.tamanho_tipo`/`tamanho_tipo_base`, `shared.ts` de lá):
+  // fonte de verdade = `modelos.tamanho_tipo` QUANDO o produto já tem card (`modelo_id`); SEM card, o
+  // valor mora no PRÓPRIO produto (`produtos_importados.tamanho_tipo`, P-119 A) até o card nascer com
+  // ele. `tamanho_tipo_base` é o valor LIDO do servidor nesta sessão (nunca editado pela UI) — usado só
+  // por `chaveDirty`/o Salvar pra decidir se a chave mudou desde o load/último save (`montarPayload`).
+  tamanho_tipo: TamanhoTipo | null;
+  tamanho_tipo_base: TamanhoTipo | null;
+  // Nº de SKUs já gerados p/ o card (`modelo_skus`, embed `(count)`) — mesmo campo do Produto Acabado
+  // (`ProdutoDraft.modeloSkusCount`); alimenta o aviso âmbar "SKUs já gerados não mudam...".
+  modeloSkusCount: number;
   variantes: VarianteImportadoDraft[];
   etapas: EtapaImportadoDraft[];
 };
@@ -137,6 +149,9 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
     preco_atacado_fixo: null,
     preco_varejo_fixo: null,
     modeloPrecoVenda: null,
+    tamanho_tipo: null,
+    tamanho_tipo_base: null,
+    modeloSkusCount: 0,
     variantes: [{ ordem: 1, cor_id: null, cor_apelido_id: null, peso: 1, qtd: 0, _touched: false }],
     etapas: [
       { ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 30, data_vencimento: null, cotacao: 0 },
@@ -186,6 +201,7 @@ export function chaveDirty(d: ProdutoImportadoDraft) {
     preco_varejo_fixo: d.preco_varejo_fixo,
     variantes: d.variantes,
     etapas: d.etapas,
+    tamanho_tipo: d.tamanho_tipo,
   };
 }
 
@@ -304,7 +320,14 @@ export function montarPayload(draft: ProdutoImportadoDraft): {
     // fixo zera o markup do canal; sem fixo, markup não-nulo limpa o fixo; sem os dois, o fixo fica.
     preco_atacado_fixo: draft.preco_atacado_fixo ?? null,
     preco_varejo_fixo: draft.preco_varejo_fixo ?? null,
-  };
+  } as Record<string, unknown>;
+  // "Tamanho em" (Tarefa 6): `_salvar_produto_importado_core` só aceita a chave `tamanho_tipo` quando
+  // ela ESTÁ no `_dados` (`_dados ? 'tamanho_tipo'` no servidor, letra|numero; null/vazio → P0001) —
+  // omitida = não toca a coluna. Mandar SEMPRE o valor corrente reenviaria um valor porventura
+  // revertido pela trava (Integração) como se fosse edição nova a cada Salvar disparado por outro
+  // campo; mandar só quando DIFERE da base espelha o padrão "última edição manda" das outras telas e
+  // NUNCA toca o bloco `[integracao v1]` (preco_*_fixo, acima) — chave independente, mesmo objeto.
+  if (draft.tamanho_tipo !== draft.tamanho_tipo_base) dados.tamanho_tipo = draft.tamanho_tipo;
   const variantes = draft.variantes.map(({ ordem, cor_id, cor_apelido_id, peso, qtd }) => ({ ordem, cor_id, cor_apelido_id, peso, qtd }));
   const etapas = draft.etapas.map(({ ordem, rotulo, base, percentual, data_vencimento, cotacao }) => ({ ordem, rotulo, base, percentual, data_vencimento, cotacao }));
   return { dados, variantes, etapas };
@@ -351,15 +374,19 @@ export function validarParaPedido(draft: ProdutoImportadoDraft): string | null {
  *  (Fix round 2, N-1) é tratado à parte — `fn_integracao_trava_variantes` é um gatilho DIFERENTE
  *  (na tabela de variantes, não em `produtos_importados`), comparando o conjunto DISTINCT de
  *  (cor_id, cor_apelido_id) — não um `===` de valor escalar como os demais campos. */
-export type CampoTravavel = "nome" | "ref" | "foto_url" | "preco_varejo_fixo" | "markup_varejo";
+export type CampoTravavel = "nome" | "ref" | "foto_url" | "preco_varejo_fixo" | "markup_varejo" | "tamanho_tipo";
 /** Mapa "coluna travada pela Integração" (`travaIntegracao.has(...)`, `src/lib/integracao/trava.ts`,
  *  chaves de `modelos`) → campo(s) do DRAFT deste produto que ela cobre. `preco_venda` cobre os 2
- *  campos do par (M-3: tratados como uma unidade — nunca só um dos dois). */
+ *  campos do par (M-3: tratados como uma unidade — nunca só um dos dois). "tamanho_tipo" (Tarefa 6):
+ *  a coluna travada AQUI já é a própria chave (`SEMPRE_TRAVADO` em `@/lib/integracao/trava.ts` guarda
+ *  o literal "tamanho_tipo" no Set, não um `CampoKey` da API — trava SEMPRE, marcado ou não, espelhando
+ *  "sku"/"variantes"/"excluir") — espelha `CAMPOS_TRAVAVEIS_POR_COLUNA` do Produto Acabado. */
 export const CAMPOS_TRAVAVEIS_POR_COLUNA: Record<string, readonly CampoTravavel[]> = {
   nome: ["nome"],
   ref: ["ref"],
   fotos_modelo: ["foto_url"],
   preco_venda: ["preco_varejo_fixo", "markup_varejo"],
+  tamanho_tipo: ["tamanho_tipo"],
 };
 
 export type AvisoTrava = { campo: CampoTravavel | "variantes"; rotulo: string };
@@ -388,6 +415,7 @@ export type ResolucaoTravaProduto = {
 };
 const ROTULO_CAMPO_TRAVADO: Record<CampoTravavel, string> = {
   nome: "Nome", ref: "REF", foto_url: "Foto", preco_varejo_fixo: "Valor varejo", markup_varejo: "Markup Varejo",
+  tamanho_tipo: "Tamanho em",
 };
 /** Conjunto DISTINCT de "cor_id|cor_apelido_id" ordenado — espelha `_sku_variante_key` +
  *  `ARRAY(SELECT DISTINCT ... ORDER BY 1)` de `fn_integracao_trava_variantes` (m4:253-318) byte a

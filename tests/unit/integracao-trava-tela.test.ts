@@ -1611,6 +1611,62 @@ describe("Tarefa 5 — produto-acabado/shared.ts: campo travável + rótulo", ()
   });
 });
 
+// Tarefa 6 (.superpowers/sdd/2026-09-29-tamanho-em/plan.md) — "Tamanho em" no Produto Importado.
+// T6 roda DEPOIS da T5 (ruling #4 do G-plano) — só describes NOVOS neste arquivo compartilhado.
+describe("Tarefa 6 — Produto Importado: toggle 'Tamanho em' no card", () => {
+  const s = ler("src/components/produto-importado/ProdutoImportadoCard.tsx");
+  it("toggle no TOPO da seção '2 · Grade & proporção'", () => {
+    const iSecao = s.indexOf('2 · Grade &amp; proporção');
+    const iToggle = s.indexOf("<TamanhoEmToggle");
+    const iProporcao = s.indexOf('<Label className="text-sm">Proporção de grade</Label>');
+    expect(iSecao).toBeGreaterThan(-1);
+    expect(iToggle).toBeGreaterThan(iSecao);
+    expect(iToggle).toBeLessThan(iProporcao);
+  });
+  it("value = tipoEfetivo(draft.tamanho_tipo); onChange manda um PATCH parcial (não o objeto inteiro)", () => {
+    expect(s).toMatch(/const tipoTamanho = tipoEfetivo\(draft\.tamanho_tipo\);/);
+    expect(s).toMatch(/onChange=\{\(v\) => onChange\(\{ tamanho_tipo: v \}\)\}/);
+  });
+  it("desabilitado + selo da Integração quando travaIntegracao.has('tamanho_tipo') (invariante #14)", () => {
+    expect(s).toMatch(/disabled=\{travaIntegracao\.has\("tamanho_tipo"\)\}/);
+    expect(s).toMatch(/motivoDesabilitado=\{travaIntegracao\.has\("tamanho_tipo"\) \? TEXTO_SKU_TRAVADO : undefined\}/);
+  });
+  it("grade usa tamanhosVisiveis (filtro de EXIBIÇÃO — nunca reduz o gravado, ruling #3)", () => {
+    expect(s).toMatch(/const tamanhosGrade = tamanhosVisiveis\(tamanhos, tipoTamanho, comValorTamanho\);/);
+    expect(s).toMatch(/tamanhosGrade\.map\(\(\{ chave: t, rotulo, esmaecido \}\)/);
+  });
+  it("aviso âmbar quando modeloSkusCount>0 e o valor foi trocado NESTA edição (tipo !== base)", () => {
+    expect(s).toMatch(/const tamanhoTrocadoNestaEdicao = draft\.tamanho_tipo !== draft\.tamanho_tipo_base;/);
+    expect(s).toMatch(/const avisarSkuTamanho = draft\.modeloSkusCount > 0 && tamanhoTrocadoNestaEdicao;/);
+    expect(s).toMatch(/SKUs já gerados não mudam — use Regerar no Planejamento\./);
+  });
+});
+
+describe("Tarefa 6 — Produto Importado: SELECT + embed + lote 'Criar cards' salva antes se sujo", () => {
+  const s = ler("src/components/produto-importado/ProdutoImportadoSheet.tsx");
+  it("SELECT_PRODUTO_IMPORTADO embed do modelo traz tamanho_tipo + modelo_skus(count) (tamanho_tipo do PRÓPRIO produto já vem pelo '*')", () => {
+    expect(s).toMatch(/"modelo:modelo_id\(preco_venda, tamanho_tipo, modelo_skus\(count\)\)"/);
+  });
+  it("draftDeRow resolve a fonte: card com modelo usa o tamanho_tipo DO MODELO; sem card, o do próprio produto (P-119 A)", () => {
+    expect(s).toMatch(/const tamanhoTipo = \(\(r\.modelo_id \? r\.modelo\?\.tamanho_tipo : r\.tamanho_tipo\) \?\? null\)/);
+  });
+  it("ROTULO_CAMPO_PI tem 'Tamanho em' (rótulo do ColabBanner p/ conflito nesse campo)", () => {
+    expect(s).toMatch(/tamanho_tipo: "Tamanho em"/);
+  });
+  it("lote 'Criar cards' salva os selecionados JÁ PERSISTIDOS e sujos ANTES de materializar", () => {
+    const bloco = s.slice(s.indexOf("async function criarCardsClick"), s.indexOf('rpc("criar_cards_produto_importado"'));
+    expect(bloco).toMatch(/for \(const d of sujos\) await salvarUmProduto\(d\);/);
+  });
+});
+
+describe("Tarefa 6 — produto-importado/shared.ts: campo travável + rótulo", () => {
+  it("CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo e o rótulo 'Tamanho em' no toast de trava", () => {
+    const sh = ler("src/components/produto-importado/shared.ts");
+    expect(sh).toMatch(/tamanho_tipo: \["tamanho_tipo"\]/);
+    expect(sh).toMatch(/tamanho_tipo: "Tamanho em",/);
+  });
+});
+
 describe("F4 — Plan. Tecido", () => {
   it("card com selo; Limpar slot e preço travados no integrável/integrado", () => {
     const s = ler("src/components/plan-tecido/ModelCard.tsx");
