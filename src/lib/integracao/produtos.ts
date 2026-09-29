@@ -322,11 +322,13 @@ const nivelParaEstadoServidor = (v: EstadoNivel): EstadoIntegracao =>
  *  e SÓ dentro de `estado==='nao_integravel'` (um produto integrável/integrado também pode ter `completo=true`,
  *  mas isso não o torna "nao_integravel_completo" — precisa das DUAS condições, não só `completo`). Os demais
  *  valores (incluindo o `"nao_integravel"` legado/salvo) não filtram nada aqui (mostram os dois níveis, mesma
- *  lista de hoje). Fonte de `completo` = a MESMA que `motivoIntegrar`/o botão Integrar usam (server, nunca o
- *  rascunho staging) — amarelo aqui SEMPRE corresponde a "pode integrar agora". */
-export function produtoPassaFiltroEstado(p: Pick<ProdutoLista, "estado" | "completo">, v: EstadoNivel | null): boolean {
-  if (v === "nao_integravel_faltam") return p.estado === "nao_integravel" && !p.completo;
-  if (v === "nao_integravel_completo") return p.estado === "nao_integravel" && p.completo;
+ *  lista de hoje). MEDIUM-1 (review 685544fa): "completo" aqui usa `podeIntegrarAgora` (não só `p.completo`) —
+ *  um produto com módulo desligado ou reprovado NÃO é "pronto pra integrar" mesmo completo, então cai no nível
+ *  vermelho/"faltam dados" (o motivo aparece no InfoHover, nunca some). Amarelo aqui SEMPRE corresponde a "dá
+ *  pra integrar agora, só falta acionar o toggle" — nunca um falso "quase lá" que o servidor recusaria. */
+export function produtoPassaFiltroEstado(p: PodeIntegrarAgoraInput, v: EstadoNivel | null): boolean {
+  if (v === "nao_integravel_faltam") return p.estado === "nao_integravel" && !podeIntegrarAgora(p);
+  if (v === "nao_integravel_completo") return p.estado === "nao_integravel" && podeIntegrarAgora(p);
   return true;
 }
 export function filtrosParaRpc(f: Filtros): Record<string, string> {
@@ -411,27 +413,49 @@ export function fmtDataHora(iso: string | null, tz: string, comAno = false): str
   const v = (t: Intl.DateTimeFormatPartTypes) => partes.find((x) => x.type === t)?.value ?? "";
   return `${v("day")}/${v("month")}${comAno ? `/${v("year")}` : ""} ${v("hour")}:${v("minute")}`;
 }
-// Owner (set/2026): "os que não faltam itens, o badge não integrável deve ficar amarelo". `p.completo` é a MESMA
-// fonte que `motivoIntegrar` usa pra travar/liberar o botão Integrar (nunca o rascunho staging — vem pronto do
-// servidor em `integracao_listar`/`_integracao_retrato_core`) — então "amarelo" aqui SEMPRE quer dizer "dá pra
-// integrar agora, só falta acionar o toggle", nunca um falso "quase lá" que ainda bloquearia o Integrar.
+const TEXTO_MODULO_BLOQUEADO = "O módulo desta origem está desligado na loja.";
+export const TEXTO_REPROVADO = "O produto está reprovado e não pode ser integrado.";
+export type PodeIntegrarAgoraInput = Pick<ProdutoLista, "estado" | "completo" | "moduloBloqueado" | "reprovado">;
+// Owner (set/2026): "os que não faltam itens, o badge não integrável deve ficar amarelo" + fix round de review
+// (MEDIUM-1, 685544fa): amarelo TEM que significar "o servidor aceitaria integrar isto agora", não só "completo".
+// `podeIntegrarAgora` espelha a MESMA ordem de gates do servidor (`integracao_marcar`, migration
+// `20261007120000_integracao_3_estados.sql`): estado≠nao_integravel primeiro (P0409, fora do escopo desta função
+// — quem chama já sabe que é nao_integravel), módulo bloqueado (42501), reprovado (P0001), assinatura (P0409 —
+// N/A aqui, a lista não tem assinatura de retrato pra comparar) e só por ÚLTIMO completo (P0001). NÃO inclui o
+// gate de permissão de custo (`precisaVerCustos && !podeVerCustos`, em `motivoIntegrar`) de propósito — aquele é
+// VIEWER-dependente (o mesmo produto completo/sem módulo/sem reprovação already é "pronto" objetivamente; só um
+// usuário SEM a permissão de ver custos é que não pode ACIONAR o toggle agora — o produto continua amarelo, só o
+// toggle trava com um motivo próprio, igual ao módulo/reprovado NÃO travam o badge por serem parte do produto,
+// não de quem olha).
+export function podeIntegrarAgora(p: PodeIntegrarAgoraInput): boolean {
+  return p.completo && !p.moduloBloqueado && !p.reprovado;
+}
+/** Motivo do nível VERMELHO (faltam dados) quando não é por falta de campo — módulo desligado ou reprovado,
+ *  na MESMA ordem de `podeIntegrarAgora`/servidor. `null` quando o vermelho É por falta de campo mesmo (o
+ *  chamador usa `textoFaltas(p.faltas)` nesse caso — texto mais específico, com a lista). Reusa o texto do
+ *  PRÓPRIO gate do servidor quando disponível (`gates.compartilhado.motivo`), igual `motivoIntegrar`. */
+export function motivoNivelVermelho(p: Pick<ProdutoLista, "moduloBloqueado" | "reprovado" | "gates">): string | null {
+  if (p.moduloBloqueado) return p.gates.compartilhado.motivo ?? TEXTO_MODULO_BLOQUEADO;
+  if (p.reprovado) return TEXTO_REPROVADO;
+  return null;
+}
 /** Ruling (estado manda, nunca marcado_em/marcado_por): `integradoEm` só vira texto quando `estado==='integrado'` —
  *  os outros dois estados nunca mostram data (mesmo que `marcadoEm`/`integradoEm` tenham um rastro velho de um
  *  voltar/desfazer anterior; esses campos continuam presentes no tipo, só não alimentam a exibição aqui).
  *  "Não integrável" agora tem 2 textos (faltam dados vs completo) — ver `nivelDoProduto`. */
-export function rotuloEstado(p: Pick<ProdutoLista, "estado" | "integradoEm" | "completo">, tz: string): string {
+export function rotuloEstado(p: Pick<ProdutoLista, "estado" | "integradoEm"> & PodeIntegrarAgoraInput, tz: string): string {
   if (p.estado === "integrado") return `Integrado em ${fmtDataHora(p.integradoEm, tz)}`;
   if (p.estado === "nao_integravel")
-    return p.completo ? "Não integrável — completo" : "Não integrável — faltam dados";
+    return podeIntegrarAgora(p) ? "Não integrável — completo" : "Não integrável — faltam dados";
   return ROTULO_ESTADO[p.estado];
 }
 /** Nível efetivo de um produto (o mesmo split do filtro/ordenação, aplicado ao PRÓPRIO produto) — usado pelo
  *  badge (`tomEstado`) e por qualquer outro consumidor que precise saber em qual dos 4 "baldes" ele cai. */
-export function nivelDoProduto(p: Pick<ProdutoLista, "estado" | "completo">): EstadoNivel {
+export function nivelDoProduto(p: PodeIntegrarAgoraInput): EstadoNivel {
   if (p.estado !== "nao_integravel") return p.estado;
-  return p.completo ? "nao_integravel_completo" : "nao_integravel_faltam";
+  return podeIntegrarAgora(p) ? "nao_integravel_completo" : "nao_integravel_faltam";
 }
-export const tomEstado = (p: Pick<ProdutoLista, "estado" | "completo">): "danger" | "warning" | "success" => {
+export const tomEstado = (p: PodeIntegrarAgoraInput): "danger" | "warning" | "success" => {
   const n = nivelDoProduto(p);
   return n === "integrado" ? "success" : n === "integravel" || n === "nao_integravel_completo" ? "warning" : "danger";
 };
@@ -440,7 +464,6 @@ export const tomEstado = (p: Pick<ProdutoLista, "estado" | "completo">): "danger
 export const textoFaltas = (faltas: Falta[]): string =>
   faltas.length ? `Faltam: ${faltas.map((f) => f.texto).join(" · ")}` : "";
 
-const TEXTO_MODULO_BLOQUEADO = "O módulo desta origem está desligado na loja.";
 export type CtxIntegrar = {
   podeEditar: boolean;
   precisaVerCustos: boolean;
@@ -452,12 +475,20 @@ export type CtxIntegrar = {
  *  ponto em que `integracao_marcar` (m3) recusa 42501 quando o gate de base é de módulo desligado. Reusa o texto
  *  do PRÓPRIO servidor quando disponível (`gates.compartilhado.motivo` — é o `_base_motivo` de `_integracao_gates`,
  *  o mesmo para todos os gates de um produto bloqueado por módulo); só cai no texto local se, por algum motivo,
- *  o gate não trouxe motivo (gate ilegível, por exemplo). */
+ *  o gate não trouxe motivo (gate ilegível, por exemplo).
+ *  MEDIUM-1 (review 685544fa): `reprovado` entra logo depois de `moduloBloqueado`, MESMA posição do servidor
+ *  (`integracao_marcar` checa módulo bloqueado, depois reprovado, antes de completo) — reusa `motivoNivelVermelho`
+ *  pra não duplicar a checagem/ordem em 2 lugares. `precisaVerCustos`/`temRascunho` são checks SÓ do cliente (não
+ *  existem gate equivalente no servidor pra esses 2 — a RPC nem recebe esse contexto), então ficam DEPOIS, como
+ *  já estavam; a ordem exata entre eles não importa pro servidor, só precisam vir depois de módulo/reprovado e
+ *  antes de completo (senão o botão liberaria achando "completo" um produto que na visão de QUEM CLICA ainda
+ *  tem pendência de permissão/rascunho). */
 export function motivoIntegrar(p: ProdutoLista, c: CtxIntegrar): string | null {
   if (!c.podeEditar) return "Precisa da permissão de editar a Integração.";
   if (p.estado !== "nao_integravel")
     return p.estado === "integrado" ? "Já integrado." : "Já está integrável.";
-  if (p.moduloBloqueado) return p.gates.compartilhado.motivo ?? TEXTO_MODULO_BLOQUEADO;
+  const motivoVermelho = motivoNivelVermelho(p);
+  if (motivoVermelho) return motivoVermelho;
   if (c.temRascunho) return "Salve as alterações antes de integrar.";
   if (c.precisaVerCustos && !c.podeVerCustos) return TEXTO_PRECISA_CUSTO;
   if (!p.completo) return textoFaltas(p.faltas) || "Produto incompleto.";
@@ -568,8 +599,7 @@ export function acessorOrdenacao(campo: CampoDefLike): (p: ProdutoLista) => stri
 }
 type CampoDefLike = { key: CampoKey; soVariante: boolean };
 export const SORT_KEY_ESTADO = "estado" as const;
-export const acessorEstado = (p: Pick<ProdutoLista, "estado" | "completo">): number =>
-  ORDEM_NIVEL_ESTADO[nivelDoProduto(p)];
+export const acessorEstado = (p: PodeIntegrarAgoraInput): number => ORDEM_NIVEL_ESTADO[nivelDoProduto(p)];
 
 export const totalPaginas = (l: Pick<ListaIntegracao, "total" | "porPagina">): number =>
   Math.max(1, Math.ceil(l.total / l.porPagina));

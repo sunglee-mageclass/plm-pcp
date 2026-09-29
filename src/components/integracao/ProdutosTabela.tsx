@@ -168,7 +168,12 @@ export function ProdutosTabela({
     for (const c of campos) acc[c.key] = acessorOrdenacao(c);
     return acc;
   }, [campos]);
-  const sortState = useSort<ProdutoLista>(lista.produtos, { accessors });
+  // LOW (review 685544fa): `useSort` recebe `opts` inteiro na dependência do seu `useMemo` de `sorted` — um
+  // `{ accessors }` literal NOVO a cada render (mesmo com `accessors` já memoizado acima) derrotava esse memo por
+  // identidade, forçando o `.sort()` de novo em TODO render da aba (ex.: digitar em qualquer célula), não só
+  // quando `lista.produtos`/`sortKey`/`sortDir` mudam de verdade.
+  const sortOpts = useMemo(() => ({ accessors }), [accessors]);
+  const sortState = useSort<ProdutoLista>(lista.produtos, sortOpts);
   return (
     <div className="max-w-full overflow-x-auto rounded-md border">
       <table className="w-full min-w-max border-collapse text-sm">

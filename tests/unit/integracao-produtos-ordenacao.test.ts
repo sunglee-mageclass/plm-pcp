@@ -1,10 +1,15 @@
 // Integração — ordenação da tabela de Produtos (owner: "senti falta de ordenar por título; todos deveriam ter
-// uma ordenação"). Cobre: (1) a camada pura em produtos.ts (`acessorOrdenacao`/`acessorEstado`) usada pelos
-// accessors do `useSort` em ProdutosTabela.tsx — número-vs-texto, vazio por último, campo soVariante lido pela
-// 1ª variante; (2) o RENDER de verdade de `ProdutosTabela` (react-dom/client + happy-dom, mesmo padrão de
-// integracao-celula.test.ts) provando que clicar no cabeçalho Título ordena os PRODUTOS mantendo cada sublinha de
-// variante presa embaixo do produto dela, e que uma edição em rascunho (staging, ainda não salva) NÃO reordena a
-// tabela — a ordenação lê o valor SALVO/servidor (`acessorOrdenacao` usa `fonteExibida`/`p.raw`, nunca `r.valores`).
+// uma ordenação" — o pedido citava "título" no sentido coloquial de "o nome do produto"; a coluna Nome, key
+// `"nome"`/rótulo "Nome", é a que o owner queria ordenável, e É a testada abaixo. A tabela TEM uma coluna própria
+// chamada "Título" (key `"titulo"`, rótulo "Título para a página" — `modelos.titulo_pagina`), uma coisa
+// DIFERENTE (o <title> da página no site) — os testes abaixo clicam no cabeçalho "Nome", nunca no "Título";
+// review 685544fa (LOW) apontou a prosa antiga confundindo os dois. Cobre: (1) a camada pura em produtos.ts
+// (`acessorOrdenacao`/`acessorEstado`) usada pelos accessors do `useSort` em ProdutosTabela.tsx — número-vs-texto,
+// vazio por último, campo soVariante lido pela 1ª variante; (2) o RENDER de verdade de `ProdutosTabela`
+// (react-dom/client + happy-dom, mesmo padrão de integracao-celula.test.ts) provando que clicar no cabeçalho Nome
+// ordena os PRODUTOS mantendo cada sublinha de variante presa embaixo do produto dela, e que uma edição em
+// rascunho (staging, ainda não salva) NÃO reordena a tabela — a ordenação lê o valor SALVO/servidor
+// (`acessorOrdenacao` usa `fonteExibida`/`p.raw`, nunca `r.valores`).
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
@@ -34,12 +39,13 @@ const linhaVariante = (varianteKey: string, tamanhoKey: string, valores: Record<
  *  (estado "nao_integravel" por padrão), então `fonteExibida` sempre lê o VIVO, nunca staging. */
 function produtoCru(o: {
   id: string; nome: string; ref?: string | null; precoVenda?: number | null; pesoKg?: number | null;
-  fotos?: string[]; sublinhas?: { varianteKey: string; tamanhoKey: string; corNome?: string | null }[];
+  fotos?: string[]; estado?: "nao_integravel" | "integravel" | "integrado"; completo?: boolean;
+  sublinhas?: { varianteKey: string; tamanhoKey: string; corNome?: string | null; corBase?: string | null }[];
 }) {
   const sub = o.sublinhas ?? [];
   return {
-    modelo_id: o.id, origem: "interno", colecao: null, etapa: null, estado: "nao_integravel",
-    marcado_em: null, integrado_em: null, rev: 1,
+    modelo_id: o.id, origem: "interno", colecao: null, etapa: null, estado: o.estado ?? "nao_integravel",
+    marcado_em: null, integrado_em: o.estado === "integrado" ? "2026-09-01T12:00:00Z" : null, rev: 1,
     raw: {
       nome: o.nome, ref: o.ref ?? null, preco_anterior: null, preco_venda: o.precoVenda ?? null,
       peso_kg: o.pesoKg ?? null, ncm: null, titulo_pagina: null, descricao_produto: null,
@@ -47,13 +53,17 @@ function produtoCru(o: {
     },
     vivo: {
       v: 1,
-      campos: ["nome", "ref_sku", "preco_venda", "peso", "foto"],
+      campos: ["nome", "ref_sku", "preco_venda", "peso", "foto", "cor_base"],
       linhas: [
         linhaProduto({ nome: o.nome, ref_sku: o.ref ?? null, preco_venda: o.precoVenda != null ? String(o.precoVenda) : null, peso: o.pesoKg != null ? String(o.pesoKg) : null }, o.fotos ?? []),
-        ...sub.map((s) => linhaVariante(s.varianteKey, s.tamanhoKey, { nome: `${o.nome} ${s.corNome ?? ""}`.trim() })),
+        // cor_base SÓ existe na linha de VARIANTE (é soVariante — nunca aparece na linha do produto) — o teste
+        // positivo do accessor (LOW, review 685544fa) depende de valores["cor_base"] estar aqui de verdade.
+        ...sub.map((s) => linhaVariante(s.varianteKey, s.tamanhoKey, {
+          nome: `${o.nome} ${s.corNome ?? ""}`.trim(), cor_base: s.corBase ?? null,
+        })),
       ],
     },
-    faltas: [], completo: true,
+    faltas: [], completo: o.completo ?? true,
     sublinhas: sub.map((s, i) => ({
       variante_key: s.varianteKey, tamanho_key: s.tamanhoKey, variante_ordem: i + 1, tamanho_ordem: 1,
       cor_nome: s.corNome ?? null, apelido_nome: null, tamanho: "P", sku_id: null, sku: null, sku_rev: null, manual: false,
@@ -88,20 +98,40 @@ describe("acessorOrdenacao/acessorEstado (produtos.ts) — a camada pura por tr�
     expect(acessorOrdenacao(CAMPO_BY_KEY.get("preco_venda")!)(p)).toBeNull();
     expect(acessorOrdenacao(CAMPO_BY_KEY.get("ref_sku")!)(p)).toBeNull();
   });
-  it("campo soVariante (cor_base) sem sublinha nenhuma = null; com sublinhas, lê a PRIMEIRA (documentado no header/accessor)", () => {
+  it("campo soVariante (cor_base) sem sublinha nenhuma = null", () => {
     const semVariante = lista([produtoCru({ id: "m1", nome: "X" })]).produtos[0];
     expect(acessorOrdenacao(CAMPO_BY_KEY.get("cor_base")!)(semVariante)).toBeNull();
   });
-  it("acessorEstado ordena pelo funil: não integrável < integrável < integrado", () => {
-    expect(acessorEstado({ estado: "nao_integravel" })).toBeLessThan(acessorEstado({ estado: "integravel" }));
-    expect(acessorEstado({ estado: "integravel" })).toBeLessThan(acessorEstado({ estado: "integrado" }));
+  // LOW (review 685544fa): a asserção acima só provava o caso NULO (sem sublinha) — nunca confirmava de verdade
+  // que "lê a PRIMEIRA variante" funciona quando HÁ sublinhas. Positivo: 2 variantes, a 1ª (ordem 1, "Azul") tem
+  // que vencer — a 2ª ("Verde") nunca aparece no valor do accessor pro produto.
+  it("campo soVariante (cor_base) COM sublinhas lê a PRIMEIRA variante (nunca a 2ª)", () => {
+    const p = lista([produtoCru({
+      id: "m1", nome: "X",
+      sublinhas: [
+        { varianteKey: "v1", tamanhoKey: "P", corBase: "Azul" },
+        { varianteKey: "v2", tamanhoKey: "M", corBase: "Verde" },
+      ],
+    })]).produtos[0];
+    expect(acessorOrdenacao(CAMPO_BY_KEY.get("cor_base")!)(p)).toBe("Azul");
+  });
+  // completo/moduloBloqueado/reprovado (MEDIUM-1, review 685544fa) — `acessorEstado` exige os 4 campos agora
+  // (nivelDoProduto/podeIntegrarAgora); os 2 exemplos abaixo passam o objeto COMPLETO, nunca só `{estado}`.
+  it("acessorEstado ordena pelo funil: faltam dados < completo < integrável < integrado", () => {
+    const faltam = { estado: "nao_integravel" as const, completo: false, moduloBloqueado: false, reprovado: false };
+    const completo = { estado: "nao_integravel" as const, completo: true, moduloBloqueado: false, reprovado: false };
+    const integravel = { estado: "integravel" as const, completo: false, moduloBloqueado: false, reprovado: false };
+    const integrado = { estado: "integrado" as const, completo: false, moduloBloqueado: false, reprovado: false };
+    expect(acessorEstado(faltam)).toBeLessThan(acessorEstado(completo));
+    expect(acessorEstado(completo)).toBeLessThan(acessorEstado(integravel));
+    expect(acessorEstado(integravel)).toBeLessThan(acessorEstado(integrado));
   });
   it("SORT_KEY_ESTADO é a chave 'estado' (usada como sortKey do cabeçalho Estado)", () => {
     expect(SORT_KEY_ESTADO).toBe("estado");
   });
 });
 
-describe("ProdutosTabela — clicar no cabeçalho Título ordena PRODUTOS e mantém sublinhas presas (render de verdade)", () => {
+describe("ProdutosTabela — clicar no cabeçalho Nome ordena PRODUTOS e mantém sublinhas presas (render de verdade)", () => {
   function montar(produtosCrus: unknown[]) {
     const l = lista(produtosCrus);
     const rascunhos = new Map<string, Rascunho>();
@@ -136,7 +166,7 @@ describe("ProdutosTabela — clicar no cabeçalho Título ordena PRODUTOS e mant
     };
   }
 
-  it("asc/desc por Título mantém cada sublinha de variante junto do SEU produto", async () => {
+  it("asc/desc por Nome mantém cada sublinha de variante junto do SEU produto", async () => {
     // "Abrir" as sublinhas exige clicar na seta — mas a checagem de agrupamento não depende disso: mesmo com as
     // sublinhas fechadas, o array `sorted` já reordenou os PRODUTOS (as sublinhas de cada `LinhaProduto` seguem o
     // MESMO produto quando abertas). Aqui abrimos as sublinhas de todos antes de ordenar, pra provar que elas
@@ -253,6 +283,44 @@ describe("ProdutosTabela — clicar no cabeçalho Título ordena PRODUTOS e mant
     const depois = textoLinhas();
     expect(depois[0]).toContain("Abacate"); // não pulou pro topo por causa do rascunho
     expect(depois[depois.length - 1]).toContain("Zebra"); // segue no fim (posição do valor SALVO "Zebra")
+    await act(() => { root.unmount(); container.remove(); });
+  });
+});
+
+// LOW (review 685544fa): faltava um teste de RENDER que clicasse no cabeçalho "Estado" de verdade — só a função
+// pura `acessorEstado` tinha cobertura (describe acima). Aqui o clique de verdade no <th> "Estado" ordena as
+// linhas pela mesma ordem do funil (faltam dados < completo < integrável < integrado).
+describe("ProdutosTabela — clicar no cabeçalho Estado ordena pelo funil (render de verdade)", () => {
+  it("asc: faltam dados, completo, integrável, integrado", async () => {
+    const l = lista([
+      produtoCru({ id: "m-integrado", nome: "Delta", estado: "integrado" }),
+      produtoCru({ id: "m-faltam", nome: "Alfa", estado: "nao_integravel", completo: false }),
+      produtoCru({ id: "m-integravel", nome: "Charlie", estado: "integravel" }),
+      produtoCru({ id: "m-completo", nome: "Bravo", estado: "nao_integravel", completo: true }),
+    ]);
+    const rascunhos = new Map<string, Rascunho>();
+    const rascunhoDe = (p: ProdutoLista) => rascunhos.get(p.modeloId) ?? novoRascunho(p);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const arvore = () =>
+      createElement(ProdutosTabela, {
+        lista: l, rascunhoDe, previas: {}, salvando: false,
+        onAtualizar: (p: ProdutoLista, f: (r: Rascunho) => Rascunho) => rascunhos.set(p.modeloId, f(rascunhoDe(p))),
+        onKeywords: () => {}, onFotos: () => {},
+        estadoCelula: () => createElement("span", null, "estado"),
+      });
+    await act(() => { root.render(arvore()); });
+    const th = Array.from(container.querySelectorAll("thead button")).find((b) => b.textContent?.includes("Estado")) as HTMLButtonElement;
+    expect(th, "cabeçalho Estado precisa existir e ser clicável").toBeDefined();
+    await act(() => { th.click(); });
+    const linhas = Array.from(container.querySelectorAll("tbody tr")).map(
+      (tr) => tr.querySelector("button[aria-expanded]")?.getAttribute("aria-label") ?? "",
+    );
+    // Cada linha carrega o NOME no aria-label — a ordem esperada por Estado é Alfa(faltam)/Bravo(completo)/
+    // Charlie(integrável)/Delta(integrado), independente da ordem alfabética do nome.
+    expect(linhas.map((l2) => l2.replace(/^(Abrir|Fechar) sublinhas de /, "")))
+      .toEqual(["Alfa", "Bravo", "Charlie", "Delta"]);
     await act(() => { root.unmount(); container.remove(); });
   });
 });

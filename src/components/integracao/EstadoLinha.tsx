@@ -7,15 +7,23 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { rotuloEstado, textoFaltas, tomEstado, type ProdutoLista } from "@/lib/integracao/produtos";
+import {
+  motivoNivelVermelho, podeIntegrarAgora, rotuloEstado, textoFaltas, tomEstado, type ProdutoLista,
+} from "@/lib/integracao/produtos";
 
 export function EstadoCelula({ p, tz, superAdmin, onDesfazer }: {
   p: ProdutoLista; tz: string; superAdmin: boolean; onDesfazer: () => void;
 }) {
+  // MEDIUM-1 (review 685544fa): o vermelho pode ser por 2 razões — falta campo (`textoFaltas`) OU o produto está
+  // completo mas travado por módulo/reprovado (`motivoNivelVermelho`, MESMA ordem/textos do gate do servidor em
+  // `integracao_marcar`). O "i" mostra a razão CERTA nos dois casos — nunca some só porque `completo` já é true.
+  const motivoVermelho = p.estado === "nao_integravel" && !podeIntegrarAgora(p)
+    ? (motivoNivelVermelho(p) ?? textoFaltas(p.faltas))
+    : null;
   return (
     <div className="flex items-center gap-1">
       <StatusBadge tone={tomEstado(p)} className="whitespace-nowrap normal-case tracking-normal">{rotuloEstado(p, tz)}</StatusBadge>
-      {p.estado === "nao_integravel" && !p.completo && <InfoHover ariaLabel="O que falta">{textoFaltas(p.faltas)}</InfoHover>}
+      {motivoVermelho && <InfoHover ariaLabel="O que falta">{motivoVermelho}</InfoHover>}
       {p.estado === "integrado" && superAdmin && (
         <Popover>
           <PopoverTrigger asChild>

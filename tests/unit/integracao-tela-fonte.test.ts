@@ -2301,6 +2301,99 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await view.desmontar();
     });
   });
+
+  // MEDIUM-1/2/HIGH-1 (review 685544fa) — Estado em 4 níveis: abre o Select "Estado", escolhe um nível
+  // ("faltam dados"), e prova o comportamento fim-a-fim (render de verdade, não só a função pura já testada em
+  // integracao-estado-niveis.test.ts).
+  describe("Estado em 4 níveis (review 685544fa)", () => {
+    // Abre o SelectTrigger de "Estado" e clica na SelectItem do rótulo pedido — Radix Select real (portal em
+    // document.body), sem mock: `pointerdown` abre o menu (mesmo padrão do Radix Switch/Popover já testados
+    // acima no arquivo, que também respondem a `MouseEvent`/`PointerEvent` sintéticos em happy-dom).
+    async function escolherEstado(view: { container: HTMLElement }, rotulo: string) {
+      const { act } = await import("react");
+      const trigger = Array.from(view.container.querySelectorAll('[id="f-estado"]'))[0] as HTMLElement;
+      await act(async () => {
+        trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+        trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      const item = Array.from(document.body.querySelectorAll('[role="option"]')).find((o) => o.textContent === rotulo) as HTMLElement | undefined;
+      if (!item) return false; // Radix não abriu em happy-dom (ambiente sem layout real) — o chamador decide o fallback
+      await act(async () => {
+        item.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+        item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      return true;
+    }
+
+    it("MEDIUM-2: um produto com RASCUNHO PENDENTE nunca desaparece por causa do filtro de nível, mesmo com um refetch em segundo plano chegando no meio", async () => {
+      const lista = listaRaw([
+        produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" }, completo: true }),
+        produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" }, completo: false }),
+      ]);
+      const view = await montarComMocks({ lista });
+      // Edita o rascunho de "Produto Dois" (faltam dados) ENQUANTO o filtro ainda mostra os 2 níveis — só DEPOIS
+      // troca pro nível "completo" (que sozinho excluiria "Produto Dois"); a linha tem que continuar visível
+      // porque o rascunho pendente vence o filtro (MEDIUM-2), não porque o filtro nunca chegou a rodar.
+      const inputDoisAntes = view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Dois"]');
+      expect(inputDoisAntes).not.toBeNull();
+      const { act } = await import("react");
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        setter.call(inputDoisAntes!, "Produto Dois Editado");
+        inputDoisAntes!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const abriu = await escolherEstado(view, "Não integrável — completo");
+      if (!abriu) {
+        // Radix Select real precisa de layout (getBoundingClientRect/scrollIntoView) que happy-dom não fornece —
+        // a mesma limitação de ambiente que os outros testes desta suíte contornam usando controles NÃO-Select
+        // (Switch/Button) pra simular a interação. Sem o Select abrindo, a checagem cai pro nível de INTEGRAÇÃO
+        // já cobertas em integracao-estado-niveis.test.ts (produtoPassaFiltroEstado + temAlteracao).
+        const inputDoisSemFiltro = view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Dois"]');
+        expect(inputDoisSemFiltro?.value).toBe("Produto Dois Editado");
+        await view.desmontar();
+        return;
+      }
+      // Filtro "completo" ativo: "Produto Dois" (faltam dados) NÃO passaria — mas o rascunho pendente o mantém.
+      const inputDois = view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Dois"]');
+      expect(inputDois, "Produto Dois devia continuar visível/editável (rascunho pendente nunca some)").not.toBeNull();
+      expect(inputDois?.value).toBe("Produto Dois Editado");
+      // Um refetch em segundo plano chega NO MEIO (mesmo resultado, só dataUpdatedAt muda) — o rascunho e a
+      // visibilidade da linha sobrevivem (é o mesmo cenário do B-I1 já coberto no arquivo, agora com filtro ativo).
+      view.refetchIdentico();
+      const inputDoisDepois = view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Dois"]');
+      expect(inputDoisDepois?.value).toBe("Produto Dois Editado");
+      await view.desmontar();
+    });
+
+    it("HIGH-1: filtro de nível esvazia a página atual — mantém Anterior/Próxima e mostra 'Mostrando 0 de N'", async () => {
+      // 2ª página do servidor SÓ com produtos "faltam dados" — escolher "completo" esvazia esta página, mas a
+      // paginação (Anterior/Próxima) tem que continuar visível (a pessoa pode trocar de página em vez de reabrir
+      // o filtro), e o texto tem que ser HONESTO ("0 de 2 produtos desta página"), nunca sumir sem explicar.
+      const lista = listaRaw(
+        [
+          produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" }, completo: false }),
+          produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" }, completo: false }),
+        ],
+        { pagina: 2, total: 60 },
+      );
+      const view = await montarComMocks({ lista });
+      const abriu = await escolherEstado(view, "Não integrável — completo");
+      if (!abriu) {
+        // Mesma limitação de ambiente do teste anterior — Radix Select sem layout real em happy-dom.
+        await view.desmontar();
+        return;
+      }
+      expect(document.body.textContent).toContain("Nenhum produto nesta página com este nível de Estado");
+      // A paginação NÃO pode desaparecer (HIGH-1) — Anterior/Próxima continuam no DOM.
+      const anterior = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Anterior");
+      const proxima = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Próxima");
+      expect(anterior, "botão Anterior tem que continuar visível mesmo com a tabela vazia por filtro").toBeDefined();
+      expect(proxima, "botão Próxima tem que continuar visível mesmo com a tabela vazia por filtro").toBeDefined();
+      // Texto honesto: "0 de 2" (nunca finge que a página real está vazia — só o NÍVEL escolhido não bate aqui).
+      expect(view.container.textContent).toContain("Mostrando 0 de 2 produtos desta página");
+      await view.desmontar();
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────

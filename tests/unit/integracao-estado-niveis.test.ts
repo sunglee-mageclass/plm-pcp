@@ -10,7 +10,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ROTULO_ESTADO_NIVEL, OPCOES_ESTADO_NIVEL, acessorEstado, filtrosParaRpc, lerLista, nivelDoProduto,
-  produtoPassaFiltroEstado, rotuloEstado, tomEstado, type EstadoNivel, type ProdutoLista,
+  produtoPassaFiltroEstado, rotuloEstado, tomEstado,
+  type EstadoIntegracao, type EstadoNivel, type ProdutoLista,
 } from "@/lib/integracao/produtos";
 import { EstadoCelula } from "@/components/integracao/EstadoLinha";
 
@@ -65,6 +66,28 @@ describe("Badge — cor e rótulo dos 2 níveis de 'não integrável' (owner set
   it("o rótulo do amarelo NUNCA aparece pra um produto que ainda falta dado (não é um falso 'pronto')", () => {
     const p = produtoDe({ completo: false });
     expect(rotuloEstado(p, "America/Sao_Paulo")).not.toBe("Não integrável — completo");
+  });
+  // MEDIUM-1 (review 685544fa): "amarelo" tem que significar "o servidor aceitaria integrar isto agora" — a
+  // ordem espelha `integracao_marcar` (estado, módulo, reprovado, assinatura, completo). Um produto COMPLETO mas
+  // com módulo desligado OU reprovado NÃO pode ser "pronto pra integrar" — cai no vermelho, com o motivo real.
+  it("completo=true + módulo desligado (moduloBloqueado) cai no VERMELHO, não no âmbar", () => {
+    const p = produtoDe({
+      completo: true, faltas: [],
+      gates: { ...G, modulo_bloqueado: true, compartilhado: gate(false, "Módulo Produto Acabado desligado nesta loja.") },
+    });
+    expect(nivelDoProduto(p)).toBe("nao_integravel_faltam");
+    expect(tomEstado(p)).toBe("danger");
+    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Não integrável — faltam dados");
+  });
+  it("completo=true + reprovado cai no VERMELHO, não no âmbar", () => {
+    const p = produtoDe({ completo: true, faltas: [], reprovado: true });
+    expect(nivelDoProduto(p)).toBe("nao_integravel_faltam");
+    expect(tomEstado(p)).toBe("danger");
+  });
+  it("completo=true, módulo aberto, não-reprovado: âmbar de verdade (o caso normal continua funcionando)", () => {
+    const p = produtoDe({ completo: true, faltas: [], reprovado: false });
+    expect(nivelDoProduto(p)).toBe("nao_integravel_completo");
+    expect(tomEstado(p)).toBe("warning");
   });
 });
 
@@ -133,30 +156,44 @@ describe("Compatibilidade do valor salvo/legado 'nao_integravel' (mapeia pros 2 
   });
 });
 
+// LOW (review 685544fa): os fixtures abaixo passam o objeto COMPLETO (`completo`+`moduloBloqueado`+`reprovado`),
+// nunca só `{estado, completo}` — `acessorEstado`/`nivelDoProduto` agora dependem de `podeIntegrarAgora` (MEDIUM-1),
+// que só devolve `true` com os 3 explicitamente `false`; testar com os 2 novos campos AUSENTES passaria por
+// coincidência (`undefined` é falsy, mesmo efeito de `false`) sem provar a leitura de verdade.
+const nivel = (estado: EstadoIntegracao, completo: boolean, moduloBloqueado = false, reprovado = false) =>
+  ({ estado, completo, moduloBloqueado, reprovado });
 describe("Ordem de sort dos 4 níveis (acessorEstado): faltam dados < completo < integrável < integrado", () => {
   it("a ordem numérica cresce exatamente nessa sequência", () => {
-    const faltam = acessorEstado({ estado: "nao_integravel", completo: false });
-    const completo = acessorEstado({ estado: "nao_integravel", completo: true });
-    const integravel = acessorEstado({ estado: "integravel", completo: false });
-    const integrado = acessorEstado({ estado: "integrado", completo: false });
+    const faltam = acessorEstado(nivel("nao_integravel", false));
+    const completo = acessorEstado(nivel("nao_integravel", true));
+    const integravel = acessorEstado(nivel("integravel", false));
+    const integrado = acessorEstado(nivel("integrado", false));
     expect(faltam).toBeLessThan(completo);
     expect(completo).toBeLessThan(integravel);
     expect(integravel).toBeLessThan(integrado);
   });
   it("ordenar uma lista mista cai na ordem certa (asc)", () => {
-    const rows: Pick<ProdutoLista, "estado" | "completo">[] = [
-      { estado: "integrado", completo: false },
-      { estado: "nao_integravel", completo: false }, // faltam dados
-      { estado: "integravel", completo: false },
-      { estado: "nao_integravel", completo: true }, // completo
+    const rows = [
+      nivel("integrado", false),
+      nivel("nao_integravel", false), // faltam dados
+      nivel("integravel", false),
+      nivel("nao_integravel", true), // completo
     ];
     const ordenado = [...rows].sort((a, b) => acessorEstado(a) - acessorEstado(b));
     expect(ordenado.map((r) => (r.estado === "nao_integravel" ? (r.completo ? "completo" : "faltam") : r.estado)))
       .toEqual(["faltam", "completo", "integravel", "integrado"]);
   });
   it("completo NÃO afeta a ordem de integrável/integrado (só importa pra nao_integravel)", () => {
-    expect(acessorEstado({ estado: "integravel", completo: true })).toBe(acessorEstado({ estado: "integravel", completo: false }));
-    expect(acessorEstado({ estado: "integrado", completo: true })).toBe(acessorEstado({ estado: "integrado", completo: false }));
+    expect(acessorEstado(nivel("integravel", true))).toBe(acessorEstado(nivel("integravel", false)));
+    expect(acessorEstado(nivel("integrado", true))).toBe(acessorEstado(nivel("integrado", false)));
+  });
+  // MEDIUM-1 (review 685544fa): completo=true MAS módulo bloqueado/reprovado ainda cai no nível "faltam dados"
+  // (vermelho) na ordenação — o produto NÃO está pronto pra integrar de verdade, mesmo com todo campo preenchido.
+  it("completo=true + moduloBloqueado ainda ordena como 'faltam dados' (não é 'completo')", () => {
+    expect(acessorEstado(nivel("nao_integravel", true, true, false))).toBe(acessorEstado(nivel("nao_integravel", false)));
+  });
+  it("completo=true + reprovado ainda ordena como 'faltam dados' (não é 'completo')", () => {
+    expect(acessorEstado(nivel("nao_integravel", true, false, true))).toBe(acessorEstado(nivel("nao_integravel", false)));
   });
 });
 
@@ -218,5 +255,29 @@ describe("EstadoCelula — RENDER de verdade: classe de tom (vermelho/âmbar) + 
     await v2.montar();
     expect(badge(v2.container).className).toContain("tone-success-bg");
     await v2.desmontar();
+  });
+
+  // MEDIUM-1 (review 685544fa): o "i" precisa mostrar o motivo CERTO quando o vermelho é por módulo/reprovado
+  // (não faltas) — nunca some só porque `completo` já é `true` (o antigo gate `!p.completo` escondia o "i" nesse
+  // caso, deixando o vermelho sem explicação nenhuma).
+  it("completo + moduloBloqueado: vermelho e o 'i' mostra o motivo do módulo (não a lista de faltas vazia)", async () => {
+    const p = produtoDe({
+      completo: true, faltas: [],
+      gates: { ...G, modulo_bloqueado: true, compartilhado: gate(false, "Módulo Produto Acabado desligado nesta loja.") },
+    });
+    const view = montar(p);
+    await view.montar();
+    expect(badge(view.container).className).toContain("tone-danger-bg");
+    const info = view.container.querySelector('[aria-label="O que falta"]');
+    expect(info, "o 'i' tem que existir mesmo com completo=true").not.toBeNull();
+    await view.desmontar();
+  });
+  it("completo + reprovado: vermelho e o 'i' existe (motivo do reprovado, não a lista de faltas vazia)", async () => {
+    const p = produtoDe({ completo: true, faltas: [], reprovado: true });
+    const view = montar(p);
+    await view.montar();
+    expect(badge(view.container).className).toContain("tone-danger-bg");
+    expect(view.container.querySelector('[aria-label="O que falta"]')).not.toBeNull();
+    await view.desmontar();
   });
 });

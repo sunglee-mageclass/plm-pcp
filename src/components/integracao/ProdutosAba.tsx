@@ -56,8 +56,12 @@ const SITUACOES: { key: Situacao; rotulo: string }[] = [
   { key: "integrados", rotulo: "Integrados" },
   { key: "todos", rotulo: "Todos" },
 ];
+// MEDIUM-3 (ruling do controlador, review 685544fa): explícito que Estado (níveis "faltam dados"/"completo") e a
+// ORDENAÇÃO da tabela valem só pra página do servidor já carregada — cliente-side por ora (ver `TEXTO_ORDENACAO_
+// PAGINA` perto da tabela); server-side é decisão FUTURA do controlador, não implementada aqui.
 const TEXTO_ESTADO_DENTRO =
-  'Estado filtra DENTRO da Situação escolhida acima (ex.: Situação "Não integrados" + Estado "Integrável" mostra só quem já está integrável, ainda não integrado).';
+  'Estado filtra DENTRO da Situação escolhida acima (ex.: Situação "Não integrados" + Estado "Integrável" mostra só quem já está integrável, ainda não integrado). "Faltam dados" e "completo" valem só para os produtos desta página (ver aviso abaixo da tabela).';
+const TEXTO_ORDENACAO_PAGINA = "Ordenação e níveis de Estado valem para os produtos desta página.";
 const TEXTO_TRAVA_FILTRO = "Salve ou descarte as alterações antes de trocar de filtro ou de página.";
 
 function FiltroSelect({ id, rotulo, valor, opcoes, desabilitado, info, onMudar }: {
@@ -176,9 +180,20 @@ export function ProdutosAba() {
   // "selecionar todos" ficaria incoerente com as linhas de fato marcáveis. Paginação (Anterior/Próxima) continua
   // andando sobre a página REAL do servidor — só o que É mostrado/selecionável nela que é filtrado.
   const filtroEstreitaNivel = filtros.estado === "nao_integravel_faltam" || filtros.estado === "nao_integravel_completo";
+  // MEDIUM-2 (review 685544fa): um produto com RASCUNHO PENDENTE nunca desaparece por causa do filtro de nível —
+  // mesmo que a edição em curso (ainda staging, não salva) o levasse pra outro nível quando salvar (ex.: corrigir
+  // o único campo que faltava), ele continua visível/editável até o Salvar de verdade. Sem isso, o filtro de nível
+  // podia esconder uma linha com edição em voo (o refetch em segundo plano do Realtime — `useIntegracaoAoVivo` —
+  // não muda `completo`/`estado` até o Salvar de fato acontecer no servidor, mas um clique acidental no filtro
+  // ANTES do Salvar já a escondia, perdendo o rascunho de vista sem aviso).
   const produtosExibidos = useMemo(
-    () => (lista ? lista.produtos.filter((p) => produtoPassaFiltroEstado(p, filtros.estado)) : []),
-    [lista, filtros.estado],
+    () => (lista
+      ? lista.produtos.filter((p) => {
+          const r = rascunhos[p.modeloId];
+          return produtoPassaFiltroEstado(p, filtros.estado) || (r !== undefined && temAlteracao(r));
+        })
+      : []),
+    [lista, filtros.estado, rascunhos],
   );
   const sujos = useMemo(() => Object.values(rascunhos).filter(temAlteracao), [rascunhos]);
   // `sujoLinhas` governa o botão Salvar/onSalvar da PÁGINA (só as linhas da tabela); `sujo` (guarda/trava de
@@ -721,21 +736,25 @@ export function ProdutosAba() {
             </div>
           )}
         </>
-      ) : produtosExibidos.length === 0 ? (
-        // Filtro de nível (faltam dados/completo) estreitou a PÁGINA ATUAL a zero — a situação/filtros de base
-        // ainda têm produtos (senão cairia no ramo de cima), só não NESTA página com este nível. Nunca mostra a
-        // tabela vazia sem explicar (o `lista.produtos` real não está vazio).
-        <EmptyState title="Nenhum produto nesta página com este nível de Estado"
-          description="Troque de página ou volte para “Não integrável” pra ver todos." />
       ) : (
         <>
-          <ProdutosTabela lista={listaExibida!} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
-            onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
-            integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined} />
+          {produtosExibidos.length === 0 ? (
+            // HIGH-1 (review 685544fa): filtro de nível (faltam dados/completo) estreitou a PÁGINA ATUAL a zero —
+            // a situação/filtros de base ainda têm produtos (senão cairia no ramo de cima), só não NESTA página
+            // com este nível. Mantém a paginação embaixo (a pessoa pode simplesmente trocar de página) — nunca
+            // esconde Anterior/Próxima só porque ESTA página específica não tem nada pro nível escolhido.
+            <EmptyState title="Nenhum produto nesta página com este nível de Estado"
+              description="Troque de página ou escolha Estado “Todos”." />
+          ) : (
+            <ProdutosTabela lista={listaExibida!} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
+              onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
+              integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined} />
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             {/* Owner (set/2026): com o filtro de nível ativo, `lista.total` é o total de "não integrável" (a RPC não
                 distingue faltam/completo) — nunca reusar `faixaPagina(lista)` aqui (diria "de 50" quando só 12
-                passam o filtro nesta página). Texto próprio, honesto sobre o que É a página do servidor. */}
+                passam o filtro nesta página). Texto próprio, honesto sobre o que É a página do servidor — inclui o
+                caso 0 de N (HIGH-1: nunca esconder esta linha, mesmo com a tabela vazia). */}
             <span className="text-muted-foreground">
               {filtroEstreitaNivel
                 ? `Mostrando ${produtosExibidos.length} de ${lista.produtos.length} produtos desta página (filtrados por Estado)`
@@ -752,6 +771,7 @@ export function ProdutosAba() {
           <p className="text-xs text-muted-foreground">
             Colunas exibidas = campos marcados em "Campos da API" (ordem fixa; Estado e Integrável sempre antes delas).
           </p>
+          <p className="text-xs text-muted-foreground">{TEXTO_ORDENACAO_PAGINA}</p>
         </>
       )}
       {pFotos && (
