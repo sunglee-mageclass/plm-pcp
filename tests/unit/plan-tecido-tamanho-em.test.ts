@@ -9,7 +9,9 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
-import { marcarTamanhoTocado, textoTamanhoRevertido } from "@/lib/plan-tecido/tamanho-tocado";
+import { marcarTamanhoTocado, slotDaBase, soTamanhoMudou, textoTamanhoRevertido } from "@/lib/plan-tecido/tamanho-tocado";
+import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
+import { normalizarDistribuicao, recalcularLinha, totaisDaDistribuicao, definirCelula, tamanhosDoTipo } from "@/lib/distribuicao-produto";
 import { mergeArvore, savedTemDados, semearArvore, semearComModelos, type ModeloReal } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 
@@ -66,7 +68,7 @@ describe("marcarTamanhoTocado (payload do Salvar do Plan. Tecido)", () => {
       slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "numero", nome: "Blusa", materiais }),
       slot({ id: "s2", modelo_id: "m2", tamanho_tipo: "numero", nome: "Saia" }),
     ]);
-    const r = marcarTamanhoTocado(draft, base, (mid) => mid === "m1");
+    const r = marcarTamanhoTocado(draft, base, { travado: (mid) => mid === "m1" });
     const p = slotsDe(r.arvore);
     expect(p).toHaveLength(2);
     expect(p[0]).toMatchObject({ id: "s1", modelo_id: "m1", tamanho_tipo: "letra", materiais });
@@ -81,16 +83,50 @@ describe("marcarTamanhoTocado (payload do Salvar do Plan. Tecido)", () => {
   });
 
   it("card travado NÃO tocado: nada a reverter nem avisar (toast só se a pessoa mexeu)", () => {
-    const r = marcarTamanhoTocado(base, base, () => true);
+    const r = marcarTamanhoTocado(base, base, { travado: () => true });
     expect(r.revertidos).toEqual([]);
     expect(r.tocados).toEqual([]);
   });
 
-  it("sem base, card fora da base ou valor nulo no rascunho ⇒ nunca marca (o servidor recusaria null com P0001)", () => {
+  it("sem base, card sem correspondente na base (nem id nem modelo) ou valor nulo ⇒ nunca marca (null daria P0001)", () => {
     const draft = arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "numero" })]);
     expect(marcarTamanhoTocado(draft, null).tocados).toEqual([]);
     expect(marcarTamanhoTocado(arv([slot({ id: "s9", modelo_id: "m9", tamanho_tipo: "numero" })]), base).tocados).toEqual([]);
     expect(marcarTamanhoTocado(arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: null })]), base).tocados).toEqual([]);
+  });
+
+  it("I-1: card recém-criado (a base ainda tem a VAGA com o mesmo id) — a busca por slot.id acha a vaga", () => {
+    // vaga s3 em Número → "Criar cards" (base = a vaga salva, sem modelo_id) → troca p/ Letra → Salvar marca tocado
+    const b = arv([slot({ id: "s3", modelo_id: null, tamanho_tipo: "numero" })]);
+    const trocado = marcarTamanhoTocado(arv([slot({ id: "s3", modelo_id: "mNovo", tamanho_tipo: "letra" })]), b);
+    expect(trocado.tocados).toEqual(["mNovo"]);
+    expect(slotsDe(trocado.arvore)[0]).toMatchObject({ tamanho_tipo: "letra", tamanho_tipo_tocado: true });
+    // sem trocar: o card nasceu com o valor da vaga (o servidor já gravou) ⇒ nada a marcar
+    expect(marcarTamanhoTocado(arv([slot({ id: "s3", modelo_id: "mNovo", tamanho_tipo: "numero" })]), b).tocados).toEqual([]);
+    // o id vence o modelo_id: slot s1 (base Letra) com modelo de outro slot da base (m2) compara com s1
+    const b2 = arv([slot({ id: "s1", modelo_id: null, tamanho_tipo: "letra" }), slot({ id: "s2", modelo_id: "m2", tamanho_tipo: "numero" })]);
+    expect(marcarTamanhoTocado(arv([slot({ id: "s1", modelo_id: "m2", tamanho_tipo: "numero" })]), b2).tocados).toEqual(["m2"]);
+  });
+
+  it("I-2: só slots TOCADOS são marcados — retry do P0409 com rascunho velho não sobrescreve a troca de outra tela", () => {
+    // outra tela trocou m1 p/ Número: a base NOVA (fresca) tem Número; meu rascunho (não toquei m1) ainda tem Letra
+    const fresca = arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "numero" }), slot({ id: "s2", modelo_id: "m2", tamanho_tipo: "letra" })]);
+    const rascunho = arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "letra" }), slot({ id: "s2", modelo_id: "m2", tamanho_tipo: "numero" })]);
+    const r = marcarTamanhoTocado(rascunho, fresca, { touchedIds: new Set(["s2"]) });
+    expect(r.tocados).toEqual(["m2"]);
+    expect(slotsDe(r.arvore)[0].tamanho_tipo_tocado).toBeUndefined();
+    // travado + não tocado: nem reverte nem avisa
+    expect(marcarTamanhoTocado(rascunho, fresca, { touchedIds: new Set(), travado: () => true }).revertidos).toEqual([]);
+  });
+
+  it("M-3: soTamanhoMudou só quando a ÚNICA diferença é o 'Tamanho em' (o auto-aplicar pula o BOM)", () => {
+    const mats = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }];
+    const b = slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "letra", materiais: mats });
+    expect(soTamanhoMudou({ ...b, tamanho_tipo: "numero" }, b)).toBe(true);
+    expect(soTamanhoMudou({ ...b, tamanho_tipo: "numero", materiais: [{ ...mats[0], consumo: 2 }] }, b)).toBe(false);
+    expect(soTamanhoMudou({ ...b }, b)).toBe(false); // nada mudou
+    expect(soTamanhoMudou({ ...b, tamanho_tipo: "numero" }, undefined)).toBe(false); // sem base: aplica como antes
+    expect(slotDaBase(arv([b]), { ...b, modelo_id: "outro" })).toBe(b); // por id primeiro
   });
 
   it("modelo legado com NULL: escolher Letra/Número conta como tocado", () => {
@@ -203,7 +239,22 @@ describe("GradeSection: filtro do 'Tamanho em' só de exibição (ressalva #3)",
 describe("fonte: fiação do Plan. Tecido", () => {
   it("Sheet marca/omite no payload, trata 42501 e manda o 'Tamanho em' no criar card", () => {
     const sheet = ler("src/components/plan-tecido/PlanTecidoSheet.tsx");
-    expect(sheet).toContain('const marca = marcarTamanhoTocado(arvore!, planBaseRef.current, (mid) => colunasTravadas(estadosIntegracao[mid]).has("tamanho_tipo"));');
+    expect(sheet).toContain("const marca = marcarTamanhoTocado(arvoreAtual, planBaseRef.current, {");
+    expect(sheet).toContain('travado: (mid) => colunasTravadas(estadosIntegracao[mid]).has("tamanho_tipo"),');
+    expect(sheet).toContain("touchedIds: touchedSlotIdsRef.current,");
+    // I-2 (receita 2419d0f): o mutationFn lê o espelho síncrono e o retry do P0409 o atualiza ANTES de re-mutar
+    expect(sheet).toContain("const arvoreAtual = arvoreLiveRef.current ?? arvore!;");
+    const retry = sheet.slice(sheet.indexOf("if (result.conflitos.length === 0) {"));
+    expect(retry.indexOf("arvoreLiveRef.current = result.arvore;")).toBeGreaterThan(0);
+    expect(retry.indexOf("arvoreLiveRef.current = result.arvore;")).toBeLessThan(retry.indexOf("salvarMut.mutate(undefined"));
+    // revert + toast (card travado pela Integração enquanto editava)
+    expect(sheet).toMatch(/if \(marca\.revertidos\.length > 0\) \{\n\s+setArvore\(marca\.local\);\n\s+toast\.warning\(textoTamanhoRevertido\(marca\.revertidos\)\);/);
+    // M-3: o auto-aplicar pula o slot que só trocou o "Tamanho em", comparando com a base ANTES do Salvar
+    expect(sheet).toContain("baseAntesDoSaveRef.current = planBaseRef.current;");
+    expect(sheet).toContain("if (soTamanhoMudou(slot, slotDaBase(baseAntesDoSaveRef.current, slot))) continue;");
+    // N-2: nº de SKUs na mesma consulta dos modelos vivos + aviso no card
+    expect(sheet).toContain("modelo_skus(count)");
+    expect(sheet).toContain("avisoSkuTamanho={avisoSkuTamanhoDe(slot)}");
     expect(sheet).toContain("const arvorePayload = normalizarCategoriasAuto(marca.arvore,");
     expect(sheet).toContain("invalidarEstadoSeTravado(qc, e);");
     expect(sheet).toContain("tamanho_tipo: slot.tamanho_tipo ?? null,");
@@ -217,11 +268,112 @@ describe("fonte: fiação do Plan. Tecido", () => {
   it("card: toggle só na faixa do interno/vaga, trava só por página/Integração; Limpar slot zera", () => {
     const card = ler("src/components/plan-tecido/ModelCard.tsx");
     expect(card).toContain("disabled={paginaSoLeitura || tamanhoTravado}");
+    expect(card).toContain("tituloDesabilitado={tamanhoTravado ? TEXTO_SKU_TRAVADO : undefined}");
+    expect(card).toContain("SKUs já gerados não mudam — use Regerar no Planejamento.");
     expect(card).toContain('const tamanhoTravado = travaIntegracao.has("tamanho_tipo");');
     expect(card).toContain("usar_estoque: slot.usar_estoque, materiais: [], tamanho_tipo: null,");
     // dentro do bloco `!isComprado` da "Proporção por tamanho", sem gate de travado (Explosão) nem lancado
     const faixa = card.slice(card.indexOf("Proporção por tamanho</div>"), card.indexOf("<GradeSection"));
     expect(faixa).toContain("<TamanhoEmToggle");
     expect(faixa).not.toMatch(/disabled=\{[^}]*\b(travado|lancado)\b/);
+  });
+});
+
+describe("M-4: merge colaborativo por slot com o 'Tamanho em'", () => {
+  it("outra tela trocou o 'Tamanho em' do card (fresca) e eu não toquei ⇒ adota o novo, SEM conflito", () => {
+    const base = arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "letra" })]);
+    const fresh = arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "numero" })]);
+    const r = mergeArvorePorSlot({ base, draft: base, fresh, touchedIds: new Set() });
+    expect(r.conflitos).toEqual([]);
+    expect(slotsDe(r.arvore)[0].tamanho_tipo).toBe("numero");
+  });
+  it("EU troquei e o servidor não mudou ⇒ mantém o meu, SEM conflito", () => {
+    const base = arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "letra" })]);
+    const draft = arv([slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "numero" })]);
+    const r = mergeArvorePorSlot({ base, draft, fresh: base, touchedIds: new Set(["s1"]) });
+    expect(r.conflitos).toEqual([]);
+    expect(slotsDe(r.arvore)[0].tamanho_tipo).toBe("numero");
+  });
+});
+
+describe("M-1: GradeSection — célula esmaecida não desmonta ao passar por 0", () => {
+  it("apagar o valor do solto do outro lado mantém a célula (acumulativo por slot)", async () => {
+    propModelo.current = null;
+    const { GradeSection } = await import("@/components/plan-tecido/GradeSection");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const grade = ["PP", "P", "36", "38"];
+    let atual = slot({ id: "s", tamanho_tipo: "letra", proporcoes: { PP: 1, P: 1, "36": 3, "38": 0 } });
+    const render = () => act(() => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(GradeSection, { slot: atual, onChange: (n: PtSlot) => { atual = n; }, tamanhos: grade }))); });
+    render();
+    expect(rotulos(container)).toEqual(["PP", "P", "36"]);
+    atual = { ...atual, proporcoes: { ...atual.proporcoes, "36": 0 } }; // Backspace até 0
+    render();
+    expect(rotulos(container)).toEqual(["PP", "P", "36"]); // segue lá (esmaecida) — não desmontou
+    atual = { ...atual, id: "outro", proporcoes: { PP: 1, P: 1, "36": 0, "38": 0 } }; // outro slot: recomeça
+    render();
+    expect(rotulos(container)).toEqual(["PP", "P"]);
+    act(() => { root.unmount(); });
+    container.remove();
+  });
+});
+
+describe("M-2: trocar de lado não destrói a correção à mão do lado oculto (distribuicao-produto)", () => {
+  const grade = ["PP", "P", "M", "36", "38", "40"]; // Ark: soltos dos dois lados
+  const prop = { PP: 1, P: 2, M: 1, "36": 1, "38": 1, "40": 1 };
+  const letra = tamanhosDoTipo(grade, "letra");
+  const numero = tamanhosDoTipo(grade, "numero");
+
+  it("Letra → Número → Letra: a manual de 'P' vai para `ocultas` (fora dos totais) e VOLTA como manual", () => {
+    // pela derivação do card (normalizarSlotDistribuicao passa a grade inteira) — mesmo caminho do toggle
+    // Base 10 em Letra; P corrigido à mão p/ 7 (calculado seria 20)
+    let d = definirCelula({ L1: { base: 10, grades: {}, manuais: [] } }, "L1", "P", 7, prop, letra, grade);
+    expect(d.L1.manuais).toEqual(["P"]);
+    expect(d.L1.grades.P).toBe(7);
+    // → Número: P some da lista, mas fica guardado; totais só com o lado visível
+    d = normalizarDistribuicao(d, prop, numero, grade);
+    expect(d.L1.manuais).toEqual([]);
+    expect(d.L1.ocultas).toEqual({ P: 7 });
+    expect(d.L1.grades).toEqual({ "36": 10, "38": 10, "40": 10 });
+    expect(totaisDaDistribuicao(d).total).toBe(30);
+    // → Letra de novo: P volta à mão com 7
+    d = normalizarDistribuicao(d, prop, letra, grade);
+    expect(d.L1.manuais).toEqual(["P"]);
+    expect(d.L1.grades).toEqual({ PP: 10, P: 7, M: 10 });
+    expect(d.L1.ocultas).toBeUndefined();
+  });
+
+  it("linha só com a correção oculta (Base 0) continua existindo; sem ocultas a linha fica byte a byte igual", () => {
+    const d = normalizarDistribuicao({ L1: { base: 0, grades: { P: 4 }, manuais: ["P"] } }, prop, numero, grade);
+    expect(d.L1).toEqual({ base: 0, grades: {}, manuais: [], ocultas: { P: 4 } });
+    expect(totaisDaDistribuicao(d).total).toBe(0);
+    // lado visível intacto: mesma saída de sempre, sem a chave `ocultas` (com ou sem a grade inteira)
+    for (const g of [undefined, grade])
+      expect(recalcularLinha({ base: 10, grades: { P: 7 }, manuais: ["P"] }, prop, letra, g)).toEqual({ base: 10, grades: { PP: 10, P: 7, M: 10 }, manuais: ["P"] });
+    // tamanho que saiu da GRADE inteira (não só escondido pelo lado) continua descartado
+    expect(recalcularLinha({ base: 1, grades: { XG: 3 }, manuais: ["XG"] }, prop, letra, grade).ocultas).toBeUndefined();
+    // sem a grade: comportamento de antes (manual fora da lista é descartada)
+    expect(recalcularLinha({ base: 1, grades: { P: 3 }, manuais: ["P"] }, prop, numero).ocultas).toBeUndefined();
+  });
+});
+
+describe("M-2 pelo card: trocar o toggle re-deriva o slot sem perder a manual do outro lado", () => {
+  it("normalizarSlotDistribuicao Letra→Número→Letra preserva a correção à mão", async () => {
+    const { normalizarSlotDistribuicao } = await import("@/lib/plan-tecido/atendimento");
+    const grade = ["PP", "P", "36", "38"];
+    const prop = { PP: 1, P: 1, "36": 1, "38": 1 };
+    const v = { variante_tecido_id: "vt", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0,
+      distribuicao: { L1: { base: 5, grades: { PP: 5, P: 2 }, manuais: ["P"] } } };
+    const s0: PtSlot = { id: "s", modelo_id: null, tamanho_tipo: "letra", proporcoes: prop,
+      materiais: [{ artigo_id: "A", tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [v] }] };
+    const o = { ligado: true, tamanhos: grade };
+    const n = normalizarSlotDistribuicao({ ...s0, tamanho_tipo: "numero" }, o);
+    expect(n.materiais[0].variantes[0].grade_total).toBe(10); // 36+38 = 5+5; o P manual não conta
+    const l = normalizarSlotDistribuicao({ ...n, tamanho_tipo: "letra" }, o);
+    expect(l.materiais[0].variantes[0].distribuicao!.L1).toEqual({ base: 5, grades: { PP: 5, P: 2 }, manuais: ["P"] });
+    expect(l.materiais[0].variantes[0].grade_total).toBe(7);
   });
 });

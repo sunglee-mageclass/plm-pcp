@@ -96,6 +96,7 @@ export function ModelCard({
   distribuicaoLigada,
   presentesColab,
   onFocoDistribuicao,
+  avisoSkuTamanho,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -143,6 +144,9 @@ export function ModelCard({
   presentesColab?: PresencaColab[];
   /** Marcador de presença de página do dialog aberto (`dist:{slot}:aberto`) — o PlanTecidoSheet o usa como campoFocado. */
   onFocoDistribuicao?: (path: string | null) => void;
+  /** "Tamanho em" (N-2 da revisão T4, mesmo aviso da T5): o modelo já tem SKU gerado E o valor foi trocado nesta edição
+   *  (rascunho ≠ valor do modelo no servidor) — SKU já gerado não muda sozinho. */
+  avisoSkuTamanho?: boolean;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -488,7 +492,7 @@ export function ModelCard({
             {!isComprado && (
               <div className="border-t bg-muted/20 pb-1">
                 <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Distribui as peças (pç) entre os tamanhos. A quantidade é o 'pç' de cada cor, abaixo em Tecidos & Forros.">Proporção por tamanho</div>
-                <div className="px-2 pb-1 pt-1 text-xs" title={tamanhoTravado ? TEXTO_SKU_TRAVADO : undefined}>
+                <div className="px-2 pb-1 pt-1 text-xs">
                   <TamanhoEmToggle
                     value={tipoEfetivo(slot.tamanho_tipo)}
                     onChange={(v) => onChange({ ...slot, tamanho_tipo: v })}
@@ -496,7 +500,13 @@ export function ModelCard({
                     motivoDesabilitado={tamanhoTravado ? (
                       <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3 shrink-0" aria-hidden />Travado pela Integração</span>
                     ) : undefined}
+                    tituloDesabilitado={tamanhoTravado ? TEXTO_SKU_TRAVADO : undefined}
                   />
+                  {avisoSkuTamanho && (
+                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                      SKUs já gerados não mudam — use Regerar no Planejamento.
+                    </p>
+                  )}
                 </div>
                 <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} readOnly={!!travado} />
               </div>

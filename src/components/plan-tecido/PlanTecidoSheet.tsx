@@ -52,7 +52,7 @@ import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/component
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
 import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, pointerWithin, rectIntersection, type DragEndEvent, type CollisionDetection } from "@dnd-kit/core";
 import { DroppableLane, DroppableLaneHeader, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
-import { marcarTamanhoTocado, textoTamanhoRevertido } from "@/lib/plan-tecido/tamanho-tocado";
+import { marcarTamanhoTocado, slotDaBase, soTamanhoMudou, textoTamanhoRevertido } from "@/lib/plan-tecido/tamanho-tocado";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
 import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
@@ -287,6 +287,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // senão o seed velho repintava o valor antigo por um instante; ver `autoAplicarDirty`).
   const arvoreSalvaRef = useRef<PtArvore | null>(null);
   const tamanhoSalvoRef = useRef<Map<string, "letra" | "numero">>(new Map());
+  // Fix M-3 (revisão T4): a base ANTES do Salvar (o `onSuccess` troca `planBaseRef` pela árvore salva) — o auto-aplicar
+  // compara com ela para pular o slot cuja ÚNICA mudança foi o "Tamanho em".
+  const baseAntesDoSaveRef = useRef<PtArvore | null>(null);
   const [conflitosSlot, setConflitosSlot] = useState<Conflito[]>([]);
   const conflitosSlotRef = useRef<Conflito[]>([]);
   const [ultimoMergeSlot, setUltimoMergeSlot] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
@@ -474,7 +477,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad))",
+          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -731,6 +734,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // filtrar), mas não há tecido a planejar nele. Mesmo padrão de `versaoMap` (map derivado à
   // parte, sem tocar o slot/engine/merge — só apresentação no ModelCard).
   const origemMap = useMemo(() => Object.fromEntries(((modelosDb ?? []) as any[]).map((m) => [m.id as string, (m.origem as string | null) ?? null])) as Record<string, string | null>, [modelosDb]);
+  // "Tamanho em" (N-2 da revisão T4): valor SALVO do modelo + nº de SKUs já gerados (embed `modelo_skus(count)`, na
+  // mesma consulta dos modelos vivos) → aviso âmbar no card quando o rascunho troca o valor de um modelo com SKU.
+  const tamanhoSkuMap = useMemo(() => Object.fromEntries(((modelosDb ?? []) as any[]).map((m) => [m.id as string, {
+    tamanho: (m.tamanho_tipo ?? null) as string | null,
+    skus: Number((Array.isArray(m.modelo_skus) ? m.modelo_skus[0]?.count : m.modelo_skus?.count) ?? 0) || 0,
+  }])) as Record<string, { tamanho: string | null; skus: number }>, [modelosDb]);
+  const avisoSkuTamanhoDe = (slot: PtSlot): boolean => {
+    const info = slot.modelo_id ? tamanhoSkuMap[slot.modelo_id] : undefined;
+    return !!info && info.skus > 0 && (slot.tamanho_tipo ?? null) !== info.tamanho;
+  };
 
   // FASE do modelo no fluxo (item 10) — 1 query BATCH por coleção (RPC plan_tecido_fases), NÃO N por
   // card. A RPC deriva a etapa MAIS avançada verdadeira (mesma ordem do _dashboard_producao_core, régua
@@ -987,6 +1000,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           if (enviadoCadSet.has(slot.modelo_id)) continue;                 // pós-explosão: card NÃO toca o BOM
           if (ehOrigemComprada(origemMap[slot.modelo_id])) continue;        // comprado (revenda/importado): sem BOM de tecido
           if (!slot.materiais.some((m) => m.artigo_id)) continue;          // sem tecido escolhido: nada a gravar
+          if (soTamanhoMudou(slot, slotDaBase(baseAntesDoSaveRef.current, slot))) continue; // M-3: só o "Tamanho em" mudou — não reescreve o BOM
           alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: materiaisParaAplicar(slot, distribOn) });
         }
     if (alvos.length === 0) { await esperarTamanho; return; }
@@ -1051,7 +1065,14 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // "Tamanho em" (frente Tamanho em, Tarefa 4): slot com card cujo valor difere da base leva
       // `tamanho_tipo_tocado: true` (só então o servidor grava no modelo); card travado pela Integração fica no payload
       // SEM a marca e o rascunho volta ao valor do modelo (ruling #1 do G-plano — tirar o slot apagaria a árvore dele).
-      const marca = marcarTamanhoTocado(arvore!, planBaseRef.current, (mid) => colunasTravadas(estadosIntegracao[mid]).has("tamanho_tipo"));
+      // Fix I-2 (revisão T4, receita 2419d0f): o rascunho vem do espelho SÍNCRONO `arvoreLiveRef` (no retry do P0409 a
+      // closure `arvore` ainda é a de ANTES do merge — mandaria o rascunho velho); e só slots que EU toquei são marcados.
+      const arvoreAtual = arvoreLiveRef.current ?? arvore!;
+      baseAntesDoSaveRef.current = planBaseRef.current;
+      const marca = marcarTamanhoTocado(arvoreAtual, planBaseRef.current, {
+        travado: (mid) => colunasTravadas(estadosIntegracao[mid]).has("tamanho_tipo"),
+        touchedIds: touchedSlotIdsRef.current,
+      });
       if (marca.revertidos.length > 0) {
         setArvore(marca.local);
         toast.warning(textoTamanhoRevertido(marca.revertidos));
@@ -1142,6 +1163,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           setConflitosSlot(result.conflitos);
           setUltimoMergeSlot({ atualizados: result.atualizados, conflitos: result.conflitos });
           if (result.conflitos.length === 0) {
+            // Fix I-2 (revisão T4, receita 2419d0f): o retry salva o rascunho MESCLADO — o `mutationFn` lê o espelho
+            // síncrono, que precisa já ter o resultado do merge (o `setArvore` acima só chega no próximo render).
+            arvoreLiveRef.current = result.arvore;
             salvarMut.mutate(undefined, { onSettled: () => { retryRef.current = false; } });
             return;
           }
@@ -1952,6 +1976,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               distribuicaoLigada={distribOn}
               presentesColab={presentes}
               onFocoDistribuicao={setFocoDistribuicao}
+              avisoSkuTamanho={avisoSkuTamanhoDe(slot)}
               paleta={paleta} tamanhos={tamanhos} ocsAplicadas={ocsAplicadas}
               slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}

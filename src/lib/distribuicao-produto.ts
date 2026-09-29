@@ -8,7 +8,11 @@
 // Linha de loja com Base 0 e sem célula à mão NÃO existe (R8: o NumberInput não distingue vazio de 0).
 import { ladoTamanho, parseTamanho, type TamanhoTipo } from "@/lib/tamanho";
 
-export type DistLoja = { base: number; grades: Record<string, number>; manuais: string[] };
+// `ocultas` ("Tamanho em", fix M-2 da revisão T4): células corrigidas À MÃO de tamanhos que o "Tamanho em" atual
+// ESCONDE (loja com tamanhos soltos: trocar Letra→Número tira PP…GG da lista). Guardadas à parte — NÃO entram em
+// `grades` (logo não contam no pç/totais nem no Direcionamento, que só lê `grades`) — e voltam como manuais quando o
+// lado volta. Ausente quando vazia (a linha fica byte a byte igual à de antes para quem não troca de lado).
+export type DistLoja = { base: number; grades: Record<string, number>; manuais: string[]; ocultas?: Record<string, number> };
 export type Distribuicao = Record<string, DistLoja>;
 export type Proporcoes = Record<string, number> | null | undefined;
 export type CelulaVista = { valor: number; calculado: number; manual: boolean };
@@ -63,32 +67,48 @@ function linhaLimpa(l: Partial<DistLoja> | null | undefined): DistLoja {
   const grades: Record<string, number> = {};
   for (const [k, v] of Object.entries(l?.grades ?? {})) grades[k] = inteiro(v);
   const manuais = Array.from(new Set((Array.isArray(l?.manuais) ? l!.manuais : []).filter((k): k is string => typeof k === "string")));
-  return { base: inteiro(l?.base), grades, manuais };
+  const ocultasRaw = l?.ocultas && typeof l.ocultas === "object" && !Array.isArray(l.ocultas) ? l.ocultas : {};
+  const ocultas: Record<string, number> = {};
+  for (const [k, v] of Object.entries(ocultasRaw)) if (!manuais.includes(k)) ocultas[k] = inteiro(v);
+  return Object.keys(ocultas).length ? { base: inteiro(l?.base), grades, manuais, ocultas } : { base: inteiro(l?.base), grades, manuais };
 }
 
-/** Recalcula UMA linha: não-manuais = calculado (> 0 guardado); manuais ficam. Só os tamanhos da lista (R11). */
-export function recalcularLinha(l: Partial<DistLoja> | null | undefined, prop: Proporcoes, tamanhos: string[]): DistLoja {
+/** Recalcula UMA linha: não-manuais = calculado (> 0 guardado); manuais ficam. Só os tamanhos da lista (R11).
+ *  Fix M-2 (revisão T4): com `grade` (a grade INTEIRA da loja), a manual de um tamanho que está na grade mas FORA da
+ *  lista (o "Tamanho em" o escondeu) não é descartada — vai para `ocultas` (fora de `grades`/totais) e volta como
+ *  manual quando o tamanho reaparece. Tamanho fora da grade inteira segue descartado (saiu do cadastro). Sem `grade`:
+ *  EXATAMENTE o comportamento de antes (as `ocultas` recebidas só passam adiante, intocadas). Para os tamanhos da
+ *  lista o resultado é sempre o mesmo de antes. */
+export function recalcularLinha(l: Partial<DistLoja> | null | undefined, prop: Proporcoes, tamanhos: string[], grade?: string[]): DistLoja {
   const x = linhaLimpa(l);
-  const manuais = x.manuais.filter((t) => tamanhos.includes(t));
+  const valorManual = new Map<string, number>();
+  for (const t of x.manuais) valorManual.set(t, x.grades[t] ?? 0);
+  // com a grade inteira, a oculta que voltou para a lista vira manual de novo (depois das manuais já visíveis)
+  if (grade) for (const [t, q] of Object.entries(x.ocultas ?? {})) if (!valorManual.has(t)) valorManual.set(t, q);
+  const manuais = [...valorManual.keys()].filter((t) => tamanhos.includes(t));
   const grades: Record<string, number> = {};
   for (const t of tamanhos) {
-    if (manuais.includes(t)) grades[t] = x.grades[t] ?? 0;
+    if (manuais.includes(t)) grades[t] = valorManual.get(t) ?? 0;
     else {
       const c = celulaCalculada(prop, t, x.base);
       if (c > 0) grades[t] = c;
     }
   }
-  return { base: x.base, grades, manuais };
+  let ocultas: Record<string, number> = {};
+  if (grade) {
+    for (const [t, q] of valorManual) if (!tamanhos.includes(t) && grade.includes(t)) ocultas[t] = q;
+  } else ocultas = { ...(x.ocultas ?? {}) };
+  return Object.keys(ocultas).length ? { base: x.base, grades, manuais, ocultas } : { base: x.base, grades, manuais };
 }
 
-const existe = (l: DistLoja) => l.base > 0 || l.manuais.length > 0;
+const existe = (l: DistLoja) => l.base > 0 || l.manuais.length > 0 || Object.keys(l.ocultas ?? {}).length > 0;
 
 /** Normaliza a distribuição de UMA cor (R6/R8): recalcula as não-manuais e tira a linha vazia. Sem `tamanhos` (grade
  *  ainda não carregou) só limpa os tipos — mantém as células gravadas. Idempotente. */
-export function normalizarDistribuicao(d: Distribuicao | null | undefined, prop: Proporcoes, tamanhos: string[]): Distribuicao {
+export function normalizarDistribuicao(d: Distribuicao | null | undefined, prop: Proporcoes, tamanhos: string[], grade?: string[]): Distribuicao {
   const out: Distribuicao = {};
   for (const [loja, l] of Object.entries(d ?? {})) {
-    const x = tamanhos.length ? recalcularLinha(l, prop, tamanhos) : linhaLimpa(l);
+    const x = tamanhos.length ? recalcularLinha(l, prop, tamanhos, grade) : linhaLimpa(l);
     if (existe(x)) out[loja] = x;
   }
   return out;
@@ -150,13 +170,13 @@ function comLinha(d: Distribuicao, loja: string, l: DistLoja): Distribuicao {
 }
 
 /** Base da loja × cor: recalcula as não-manuais dessa linha (P-23). */
-export function definirBase(d: Distribuicao, loja: string, base: number, prop: Proporcoes, tamanhos: string[]): Distribuicao {
+export function definirBase(d: Distribuicao, loja: string, base: number, prop: Proporcoes, tamanhos: string[], grade?: string[]): Distribuicao {
   const a = linhaLimpa(d[loja]);
-  return comLinha(d, loja, recalcularLinha({ ...a, base: inteiro(base) }, prop, tamanhos));
+  return comLinha(d, loja, recalcularLinha({ ...a, base: inteiro(base) }, prop, tamanhos, grade));
 }
 
 /** Quadradinho digitado: vira "à mão" se ≠ calculado; igual ao calculado = volta a calculado (R9). */
-export function definirCelula(d: Distribuicao, loja: string, t: string, valor: number, prop: Proporcoes, tamanhos: string[]): Distribuicao {
+export function definirCelula(d: Distribuicao, loja: string, t: string, valor: number, prop: Proporcoes, tamanhos: string[], grade?: string[]): Distribuicao {
   const a = linhaLimpa(d[loja]);
   const v = inteiro(valor);
   const manuais = a.manuais.filter((x) => x !== t);
@@ -165,13 +185,13 @@ export function definirCelula(d: Distribuicao, loja: string, t: string, valor: n
     manuais.push(t);
     grades[t] = v;
   }
-  return comLinha(d, loja, recalcularLinha({ base: a.base, grades, manuais }, prop, tamanhos));
+  return comLinha(d, loja, recalcularLinha({ base: a.base, grades, manuais, ...(a.ocultas ? { ocultas: a.ocultas } : {}) }, prop, tamanhos, grade));
 }
 
 /** "↺ voltar ao calculado". */
-export function voltarAoCalculado(d: Distribuicao, loja: string, t: string, prop: Proporcoes, tamanhos: string[]): Distribuicao {
+export function voltarAoCalculado(d: Distribuicao, loja: string, t: string, prop: Proporcoes, tamanhos: string[], grade?: string[]): Distribuicao {
   const a = linhaLimpa(d[loja]);
-  return comLinha(d, loja, recalcularLinha({ ...a, manuais: a.manuais.filter((x) => x !== t) }, prop, tamanhos));
+  return comLinha(d, loja, recalcularLinha({ ...a, manuais: a.manuais.filter((x) => x !== t) }, prop, tamanhos, grade));
 }
 
 /** Proporção digitada na linha "Proporção por tamanho" do dialog: congela os tamanhos exibidos nas chaves cheias

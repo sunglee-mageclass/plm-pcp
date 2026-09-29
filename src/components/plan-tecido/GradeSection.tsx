@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -35,7 +36,14 @@ export function GradeSection({ slot, onChange, tamanhos, readOnly = false }: { s
   // "Tamanho em" (frente Tamanho em, Tarefa 4): mostra só o lado escolhido (par sempre; solto do outro lado só se já
   // tiver valor — aí esmaecido, nunca some). O rascunho do slot manda (card: o do modelo; vaga: o da vaga).
   const tipo = tipoEfetivo(slot.tamanho_tipo);
-  const comValor = new Set(keys.filter((k) => valorDe(k) > 0));
+  // Fix M-1 (revisão T4, mesma receita do ModeloGradeSection 77d23f4e): `comValor` ACUMULATIVO por slot — um tamanho
+  // esmaecido que já apareceu não some quando a célula passa por 0 no meio da digitação (Backspace); senão a célula
+  // desmontava e o foco se perdia. Troca de slot (outro id) recomeça do zero.
+  const acumRef = useRef<{ slot: string | null; s: Set<string> }>({ slot: slot.id ?? slot.modelo_id ?? null, s: new Set() });
+  const chaveSlotAtual = slot.id ?? slot.modelo_id ?? null;
+  if (acumRef.current.slot !== chaveSlotAtual) acumRef.current = { slot: chaveSlotAtual, s: new Set() };
+  for (const k of keys) if (valorDe(k) > 0) acumRef.current.s.add(k);
+  const comValor = new Set(acumRef.current.s);
   const visiveis = tamanhosVisiveis(keys, tipo, comValor);
   return (
     <div className="px-2 pb-1">
