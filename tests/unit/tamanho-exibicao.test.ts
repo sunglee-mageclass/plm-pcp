@@ -139,6 +139,30 @@ describe("TamanhoEmToggle — render", () => {
     unmount();
   });
 
+  it("2 instâncias na mesma página não compartilham o name do grupo de rádio nativo (useId por instância)", () => {
+    const { container, unmount } = montar(
+      createElement("div", null,
+        createElement(TamanhoEmToggle, { value: "letra", onChange: vi.fn() }),
+        createElement(TamanhoEmToggle, { value: "numero", onChange: vi.fn() }),
+      ),
+    );
+    const groups = Array.from(container.querySelectorAll('[role="radiogroup"]'));
+    expect(groups).toHaveLength(2);
+    const nomesPorGrupo = groups.map((g) =>
+      new Set(Array.from(g.querySelectorAll('input[type="radio"]')).map((r) => (r as HTMLInputElement).name)),
+    );
+    // dentro de cada grupo os 2 rádios (Letra/Número) compartilham o MESMO name (é o que os torna mutuamente
+    // exclusivos); entre os 2 grupos o name tem que ser DIFERENTE.
+    expect(nomesPorGrupo[0].size).toBe(1);
+    expect(nomesPorGrupo[1].size).toBe(1);
+    expect([...nomesPorGrupo[0]][0]).not.toBe([...nomesPorGrupo[1]][0]);
+    // e cada valor continua marcado no grupo certo (a independência não é só de nome, é de estado)
+    const radiosOf = (g: Element) => Array.from(g.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
+    expect(radiosOf(groups[0]).find((r) => r.value === "letra")!.checked).toBe(true);
+    expect(radiosOf(groups[1]).find((r) => r.value === "numero")!.checked).toBe(true);
+    unmount();
+  });
+
   it("InfoHover renderiza o botão 'i' (a explicação só aparece no hover/toque — não vai ao textContent estático)", () => {
     const { container, unmount } = montar(
       createElement(TamanhoEmToggle, { value: "letra", onChange: vi.fn() }),
@@ -159,6 +183,21 @@ describe("TamanhoEmToggle — render", () => {
     const group = container.querySelector('[role="radiogroup"]');
     expect(group?.getAttribute("title")).toBe("Integrável em 26/09 — travado");
     expect(container.textContent).toContain("Integrável em 26/09 — travado");
+    unmount();
+  });
+
+  it("motivoDesabilitado aceita ReactNode (ex.: o selo pronto da Integração) e renderiza; sem string, sem title", () => {
+    const { container, unmount } = montar(
+      createElement(TamanhoEmToggle, {
+        value: "letra", onChange: vi.fn(), disabled: true,
+        motivoDesabilitado: createElement("span", { "data-testid": "selo-integracao" }, "Integrado em 26/09 — travado"),
+      }),
+    );
+    const selo = container.querySelector('[data-testid="selo-integracao"]');
+    expect(selo).not.toBeNull();
+    expect(selo?.textContent).toBe("Integrado em 26/09 — travado");
+    const group = container.querySelector('[role="radiogroup"]');
+    expect(group?.getAttribute("title")).toBeNull(); // não é string — não dá pra virar title, e não inventamos um
     unmount();
   });
 
