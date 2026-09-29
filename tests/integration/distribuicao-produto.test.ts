@@ -52,6 +52,10 @@ const TROCAS_DIST: Record<string, [string, string][]> = {
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261006100000_distribuicao_por_produto.sql";
 const INV = "supabase/rollback/20261006100000_distribuicao_por_produto_down.sql";
+// Distribuição antiga — Parte 2 (20261010100000): a tabela `distribuicao_tabelas` + 4 RPCs antigas SAEM do banco. O inverso
+// da aditiva (INV) segue exigindo a tabela (LIFO); os testes do modo txn NÃO dependem mais dela existir: quando ela já
+// saiu, recriam-na DENTRO da txn aplicando o inverso da Parte 2 (a ordem LIFO real: volta a Parte 2, depois a aditiva).
+const INV_ANTIGA = "supabase/rollback/20261010100000_distribuicao_antiga_drop_down.sql";
 // Ordem FIXA = md5-redef-*.txt = guardas do arquivo.
 const REDEF = [
   { arq: "salvar", fn: "public._salvar_plan_tecido_core(uuid,jsonb,integer)", cria: "CREATE OR REPLACE FUNCTION public._salvar_plan_tecido_core(" },
@@ -238,6 +242,14 @@ async function jaAplicada(): Promise<boolean> {
   }
 }
 const PRONTO = hasDb && LOCAL && (MIG_TXN || (await jaAplicada()));
+
+/** LIFO: se a Parte 2 (20261010100000) já tirou a tabela antiga, volta-a DENTRO da txn com o inverso dela (sem as travas
+ *  SET LOCAL do arquivo — a txn do teste tem as suas). Sem efeito quando a tabela ainda existe. */
+async function voltaParte2SePreciso(c: Client): Promise<void> {
+  if ((await um<{ ok: boolean }>(c, "select to_regclass('public.distribuicao_tabelas') is not null ok")).ok) return;
+  const sql = ler(INV_ANTIGA).replace(/^SET LOCAL (lock_timeout|statement_timeout|transaction_timeout) = '[^']*';$/gm, "-- [teste] trava do arquivo removida");
+  await aplicarSql(c, sql, INV_ANTIGA);
+}
 
 async function prepara(c: Client): Promise<void> {
   exigeBancoLocal();
@@ -626,6 +638,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     await withTx(async (c) => {
       await prepara(c);
       await aplica(c, MIG); // 2ª vez
+      await voltaParte2SePreciso(c); // LIFO: o inverso da aditiva exige a tabela antiga
       const semConf = await (async () => { await c.query("SAVEPOINT s"); try { await aplica(c, INV); return ""; } catch (e) { await c.query("ROLLBACK TO SAVEPOINT s"); return String((e as Error).message); } })();
       expect(semConf).toMatch(/confirmo_apagar_distribuicao_por_produto/);
       await c.query("SET LOCAL app.confirmo_apagar_distribuicao_por_produto = 'sim'");
@@ -642,8 +655,10 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     if (!MIG_TXN) return;
     await withTx(async (c) => {
       await prepara(c);
-      // simula a remoção (20261006110000) já ter voltado a tabela antiga PRA FORA — LIFO exige que ela exista
-      await c.query("ALTER TABLE public.distribuicao_tabelas RENAME TO _distribuicao_tabelas_fora_lifo");
+      // tabela antiga FORA (estado depois da Parte 2, 20261010100000) — LIFO exige que ela exista. Se ela ainda existe
+      // neste banco, simula a remoção renomeando-a (e desfaz no fim); se já saiu, o banco já está no estado a testar.
+      const existia = (await um<{ ok: boolean }>(c, "select to_regclass('public.distribuicao_tabelas') is not null ok")).ok;
+      if (existia) await c.query("ALTER TABLE public.distribuicao_tabelas RENAME TO _distribuicao_tabelas_fora_lifo");
       await c.query("SET LOCAL app.confirmo_apagar_distribuicao_por_produto = 'sim'");
       let erro = "";
       try { await aplica(c, INV); } catch (e) { erro = String((e as Error).message); }
@@ -651,7 +666,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       // nada foi desfeito: as 5 ainda estão no texto "depois" (a migration segue aplicada)
       const g = guardas(MIG);
       for (const [i, f] of REDEF.entries()) expect(md5((await def(c, f.fn))!), f.arq).toBe(g[i].depois);
-      await c.query("ALTER TABLE public._distribuicao_tabelas_fora_lifo RENAME TO distribuicao_tabelas");
+      if (existia) await c.query("ALTER TABLE public._distribuicao_tabelas_fora_lifo RENAME TO distribuicao_tabelas");
     });
   });
 
@@ -659,6 +674,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     if (!MIG_TXN) return;
     await withTx(async (c) => {
       await prepara(c);
+      await voltaParte2SePreciso(c); // LIFO: senão a volta recusaria por LIFO antes de chegar à pós-condição
       await c.query("SET LOCAL app.confirmo_apagar_distribuicao_por_produto = 'sim'");
       const inv = ler(INV);
       const real = guardas(INV)[2].antes; // _plan_tecido_snapshot — a volta recria com o texto real; só o $pos$ exige outro

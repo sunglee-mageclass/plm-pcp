@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
+import { voltaNomeCorSePreciso } from "./integracao-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261005110000_sku_previa_regerar.sql";
@@ -208,6 +209,9 @@ async function prepara(c: Client, o: { aplicar?: boolean } = {}): Promise<void> 
   exigeBancoLocal();
   await c.query("SET LOCAL lock_timeout = '3s'");
   await c.query("SET LOCAL statement_timeout = '60s'");
+  // LIFO: a 20261013100000 (cor no nome das sublinhas) redefine _skus_plano/_skus_matriz_ref_tipo por cima desta — no modo txn,
+  // volta-a DENTRO da txn antes de reaplicar/inspecionar esta (sem efeito quando ela não está na cópia).
+  if (MIG_TXN) await voltaNomeCorSePreciso(c);
   if (MIG_TXN && o.aplicar !== false) await aplica(c, MIG);
 }
 /** Roda e ESPERA erro; volta ao savepoint (a txn segue usável). */

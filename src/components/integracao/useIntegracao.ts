@@ -48,6 +48,10 @@ function useValorAtrasado(valor: string, ms: number): string {
   return v;
 }
 
+// P-130 A: teto que a tela pede pra `integracao_listar` — o máximo que a RPC aceita (o servidor recusa acima
+// disso com P0001, ver a migration do banco). Exportado pra `ProdutosAba.tsx` decidir "mostra paginação?"
+// (`lista.total > LIMITE_PRODUTOS`) sem duplicar o número mágico 500 em dois arquivos.
+export const LIMITE_PRODUTOS = 500;
 export const chaveLista = (tenantId: string) => ["integracao-lista", tenantId] as const;
 export const chaveConfig = (tenantId: string) => ["integracao-config", tenantId] as const;
 export const chaveEstado = (tenantId: string) => ["integracao-estado", tenantId] as const;
@@ -181,8 +185,21 @@ export function useIntegracaoLista(situacao: Situacao, filtros: Filtros, pagina:
     // caso mais comum: o usuário troca de aba/janela e volta. Ver task-13-report.md "Fix round 1" para o registro
     // completo desta limitação conhecida.
     refetchOnWindowFocus: true,
+    // P-130 A (set/2026, dono): a tela carrega TUDO de uma vez (até 500) pra que ordenação e o filtro de nível de
+    // Estado (faltam dados/completo) valham pra lista INTEIRA, não só pela página de 50 — `_limite: 500` é o
+    // MÁXIMO aceito pela RPC (uma loja com ≤500 produtos nunca paginaria de verdade: `_pagina` continua com a
+    // MESMA semântica de OFFSET de sempre, só que agora sobre blocos de 500 em vez de 50 — só lojas com MAIS de
+    // 500 produtos na Situação/filtros escolhidos chegam a ter uma 2ª página).
+    // ⚠️ ORDEM DE DEPLOY (nota do controlador): `_limite` é um parâmetro NOVO opcional em `integracao_listar` —
+    // outro agente está adicionando na migration do banco. Uma `integracao_listar(text,jsonb,integer)` ANTIGA (sem
+    // esse 4º parâmetro) REJEITA a chamada com `_limite` (PostgREST erra a função por assinatura — "no function
+    // matches"), então o banco tem que subir ANTES deste front. Depois do deploy do banco, uma versão ANTIGA do
+    // front (sem `_limite`) continua funcionando também (o parâmetro tem default 50 no servidor) — só não carrega
+    // tudo de uma vez até o front novo também subir. Não remover `_limite` sem coordenar com quem tocar a RPC.
     queryFn: async (): Promise<ListaIntegracao> => {
-      const { data, error } = await supabase.rpc("integracao_listar" as any, { _situacao: situacao, _filtros: f, _pagina: pagina });
+      const { data, error } = await supabase.rpc("integracao_listar" as any, {
+        _situacao: situacao, _filtros: f, _pagina: pagina, _limite: LIMITE_PRODUTOS,
+      });
       if (error) throw error;
       return lerLista(data);
     },

@@ -24,6 +24,7 @@ import { Client } from "pg";
 type PgClient = Client;
 import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
+import { voltaNomeCorSePreciso } from "./integracao-helpers";
 import {
   CASOS_CONFIG, CASOS_MONTAR, CASOS_REF, CASOS_RESOLVER, CASOS_SIGLA, CASOS_SKU_MANUAL, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
 } from "../fixtures/sku-casos";
@@ -65,7 +66,13 @@ async function prepara(c: PgClient): Promise<void> {
   exigeBancoLocal();
   await c.query("SET LOCAL lock_timeout = '3s'");
   await c.query("SET LOCAL statement_timeout = '60s'");
-  if (MIG_TXN) { await aplica(c, MIG); await aplica(c, MIG_SHEET); } // F3.6: o SKU sem padrão da loja mora na 20261005100000
+  if (MIG_TXN) {
+    // LIFO: a 20261013100000 (cor no nome das sublinhas) redefine _sku_config_normaliza por cima destas — volta-a DENTRO da txn
+    // antes de reaplicar (sem efeito quando ela não está na cópia).
+    await voltaNomeCorSePreciso(c);
+    await aplica(c, MIG);
+    await aplica(c, MIG_SHEET); // F3.6: o SKU sem padrão da loja mora na 20261005100000
+  }
 }
 
 /** Roda e ESPERA erro; volta ao savepoint (a txn segue usável — o RAISE abortaria o resto do teste). */
@@ -252,7 +259,12 @@ describe.skipIf(!PRONTO)("SKU F3.5a — anti-drift TS × SQL (tests/fixtures/sku
   it("normalizarSkuConfig ≡ _sku_config_normaliza (valor canônico e MESMA mensagem de erro, P0001)", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      // P-126 (20261013100000): os casos com a chave `cor_no_nome` só valem com o normalizador DELA vivo — sem ela (cópia de antes
+      // ou modo txn, que volta ao texto da F3.6) ficam de fora AQUI; a suíte integracao-8-nome-cor roda TODOS com ela aplicada.
+      const comCorNoNome = (await um<{ d: string }>(c, "SELECT pg_get_functiondef('public._sku_config_normaliza(jsonb)'::regprocedure) AS d")).d
+        .includes("cor_no_nome");
       for (const k of CASOS_CONFIG) {
+        if (!comCorNoNome && JSON.stringify(k.entrada).includes('"cor_no_nome"')) continue;
         const q = "SELECT public._sku_config_normaliza($1::jsonb) AS v";
         const p = [JSON.stringify(k.entrada)];
         if ("erro" in k) {

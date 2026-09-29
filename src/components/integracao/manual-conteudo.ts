@@ -50,6 +50,11 @@ export const TEXTO_LIMITE_POR_CHAVE =
 /** m1: modo teste ignora `limite` — é sempre 2 produtos por página, 2 páginas (D22). */
 export const TEXTO_TESTE_IGNORA_LIMITE =
   "No modo teste o limite é ignorado: sempre 2 produtos por página, em 2 páginas (4 produtos de exemplo).";
+/** I9 (P-126, dono 29/set): o nome de cada sublinha (variante × tamanho) leva Nome do produto + cor + tamanho.
+ *  Sem aspas retas no texto de propósito — elas viram `\"` dentro do JSON de exemplo (montarManual embute o
+ *  exemplo inteiro como texto), e o teste do Manual busca esta constante DENTRO do JSON.stringify da seção toda. */
+export const TEXTO_NOME_SUBLINHA =
+  "O nome de cada sublinha (variante × tamanho) é Nome do produto + cor + tamanho (ex.: Saia Marola Preto P). A cor é a Cor base ou o Apelido, conforme a escolha da loja em Config da Loja › Formato do SKU › Cor no nome da sublinha (Integração); variante sem apelido usa a cor base, e sem cor fica só o nome + tamanho.";
 
 const CHAVES = CAMPOS.map((c) => c.key);
 const linhaDe = (tipo: "produto" | "variante", v: Record<string, unknown>) => ({ tipo, valores: CHAVES.map((k) => (k in v ? v[k] : null)) });
@@ -65,9 +70,11 @@ export function respostaExemplo(modo: "normal" | "teste", origem: string): Respo
     : { nome: "Produto Exemplo 1", ref_sku: "EXPL0001", preco_anterior: "109.90", preco_venda: "99.90", peso: "0.300", ncm: "6109.10.00",
         preco_custo: "42.00", titulo: "Produto Exemplo 1 - exemplo", descricao: "Descrição de exemplo do produto 1.", keywords: "exemplo, teste",
         metatag: "Descrição de exemplo do produto 1.", comprimento: "60", largura: "40", altura: "2" };
+  // P-126: o nome da sublinha leva a COR (Nome do produto + cor + tamanho) — normal usa a Cor base "Preto";
+  // teste usa a Cor base "Cor Exemplo" (mesmo texto do exemplo do modo teste, `_integracao_exemplo`).
   const variante = modo === "normal"
-    ? { ...base, nome: "Saia Marola P", ref_sku: "SAMA0019-PRT-P", cor_base: "Preto", cor_apelido: null, tamanho: "P", foto: [] }
-    : { ...base, nome: "Produto Exemplo 1 P", ref_sku: "EXPL0001-COR-P", cor_base: "Cor Exemplo", cor_apelido: "Apelido Exemplo", tamanho: "P", foto: [] };
+    ? { ...base, nome: "Saia Marola Preto P", ref_sku: "SAMA0019-PRT-P", cor_base: "Preto", cor_apelido: null, tamanho: "P", foto: [] }
+    : { ...base, nome: "Produto Exemplo 1 Cor Exemplo P", ref_sku: "EXPL0001-COR-P", cor_base: "Cor Exemplo", cor_apelido: "Apelido Exemplo", tamanho: "P", foto: [] };
   const r: RespostaLer = {
     status: "ok", modo, tenant_id: loja.id, loja, colunas: CAMPOS.map((c) => c.rotulo), chaves_colunas: CHAVES,
     proximo_cursor: modo === "teste" ? "eyJleGVtcGxvIjogMn0=" : null,
@@ -142,6 +149,7 @@ export function montarManual(origem: string): SecaoManual[] {
       { tipo: "p", texto: TEXTO_UNIAO_COLUNAS },
       { tipo: "p", texto: TEXTO_LOJA_NOME_RETRATO },
       { tipo: "p", texto: TEXTO_PRECO_DIGITADO },
+      { tipo: "p", texto: TEXTO_NOME_SUBLINHA },
       { tipo: "exemplo" },
       { tipo: "codigo", titulo: "JSON de exemplo — modo NORMAL (dados reais da loja; só produtos JÁ INTEGRÁVEIS são levados)", codigo: JSON.stringify(respostaExemplo("normal", origem), null, 2) },
       { tipo: "codigo", titulo: "JSON de exemplo — modo TESTE (resumido: 1 produto de exemplo; a chamada de verdade sempre traz 2 por página)", codigo: JSON.stringify(respostaExemplo("teste", origem), null, 2) },
