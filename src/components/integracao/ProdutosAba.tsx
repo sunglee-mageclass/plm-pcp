@@ -1,5 +1,7 @@
 // Integração — aba Produtos (spec §6, mockup 2). Situação (padrão "Não integrados") + coleção/etapa/origem/estado + busca;
-// páginas de 50; células editáveis enquanto "não integrável" (rascunho por produto — só o Salvar grava; rev/P0409 + merge
+// P-130 A (set/2026, dono): carrega TUDO de uma vez (até LIMITE_PRODUTOS=500 — ver useIntegracao.ts) pra ordenação e
+// o filtro de nível de Estado valerem pra lista INTEIRA; paginação de verdade só acima de 500 (`mostraPaginacao`).
+// Células editáveis enquanto "não integrável" (rascunho por produto — só o Salvar grava; rev/P0409 + merge
 // 3-vias com o que chega do servidor). Estados (integrar/voltar/desfazer): Task 13. Celular: sem esta tela (P-87 — Task 18).
 //
 // Adaptações do controlador sobre o brief da Task 12b (ver task-12b-report.md):
@@ -35,12 +37,15 @@ import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_MAO_DUPLA } from "@/lib/integracao/campos";
 import {
-  FILTROS_VAZIOS, ROTULO_ESTADO, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar, motivoVoltar, totalPaginas,
-  type EstadoIntegracao, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
+  FILTROS_VAZIOS, OPCOES_ESTADO_NIVEL, ROTULO_ESTADO_NIVEL, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar,
+  motivoVoltar, produtoPassaFiltroEstado, totalPaginas,
+  type EstadoNivel, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
 } from "@/lib/integracao/produtos";
 import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
 import { useAbaSuja } from "./guard";
-import { chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao } from "./useIntegracao";
+import {
+  LIMITE_PRODUTOS, chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao,
+} from "./useIntegracao";
 import { ProdutosTabela } from "./ProdutosTabela";
 import { FotosDialog } from "./FotosDialog";
 import { KeywordsDialog } from "./KeywordsDialog";
@@ -55,8 +60,21 @@ const SITUACOES: { key: Situacao; rotulo: string }[] = [
   { key: "integrados", rotulo: "Integrados" },
   { key: "todos", rotulo: "Todos" },
 ];
-const TEXTO_ESTADO_DENTRO =
-  'Estado filtra DENTRO da Situação escolhida acima (ex.: Situação "Não integrados" + Estado "Integrável" mostra só quem já está integrável, ainda não integrado).';
+// MEDIUM-3 (ruling do controlador, review 685544fa) + P-130 A (dono): Estado (níveis "faltam dados"/"completo") e
+// a ORDENAÇÃO da tabela são CLIENT-SIDE, sobre o que a RPC devolveu numa chamada — mas agora que a RPC devolve até
+// LIMITE_PRODUTOS (500) de uma vez (em vez de 50), a wording "desta página" só é HONESTA quando a loja de fato
+// passou do teto e a tela está paginando de verdade (`mostraPaginacao`); com tudo carregado, dizer "desta página"
+// sugeriria um recorte que não existe. `TEXTO_ESTADO_DENTRO`/`TEXTO_ORDENACAO_PAGINA` viraram FUNÇÕES de
+// `mostraPaginacao` — texto genérico ("de toda a lista") no caso comum, "desta página" só acima de 500.
+const textoEstadoDentro = (mostraPaginacao: boolean): string =>
+  'Estado filtra DENTRO da Situação escolhida acima (ex.: Situação "Não integrados" + Estado "Integrável" mostra só quem já está integrável, ainda não integrado). ' +
+  (mostraPaginacao
+    ? '"Faltam dados" e "completo" valem só para os produtos desta página (ver aviso abaixo da tabela).'
+    : '"Faltam dados" e "completo" valem para toda a lista carregada.');
+const textoOrdenacaoPagina = (mostraPaginacao: boolean): string =>
+  mostraPaginacao
+    ? "Ordenação e níveis de Estado valem para os produtos desta página."
+    : "Ordenação e níveis de Estado valem para toda a lista carregada.";
 const TEXTO_TRAVA_FILTRO = "Salve ou descarte as alterações antes de trocar de filtro ou de página.";
 
 function FiltroSelect({ id, rotulo, valor, opcoes, desabilitado, info, onMudar }: {
@@ -166,6 +184,39 @@ export function ProdutosAba() {
   useIntegracaoAoVivo(idsPagina);
   const salvar = useSalvarIntegracao();
   const lista = q.data;
+  // P-130 A (dono, set/2026): a tela pede a RPC com `_limite: LIMITE_PRODUTOS` (500, o teto da RPC) — pra uma loja
+  // com ATÉ 500 produtos na Situação/filtros escolhidos, a "página 1" JÁ é a lista INTEIRA (`lista.total <=
+  // LIMITE_PRODUTOS`), então ordenação e o filtro de nível de Estado valem pra TUDO, não só por um recorte de 50.
+  // Só uma loja com MAIS de 500 produtos segue precisando de paginação de verdade (`mostraPaginacao`) — e mesmo aí,
+  // cada "página" agora tem até 500 (não mais 50): `totalPaginas`/`faixaPagina` continuam corretos porque leem
+  // `lista.porPagina` do SERVIDOR (`por_pagina` na resposta de `integracao_listar`), nunca um "50" fixo no front.
+  const mostraPaginacao = !!lista && lista.total > LIMITE_PRODUTOS;
+  // Owner (set/2026): os 2 níveis novos de Estado ("faltam dados"/"completo") são um recorte CLIENT-SIDE de "não
+  // integrável" — a RPC `integracao_listar` só entende os 3 valores de sempre (`filtrosParaRpc` já manda
+  // `estado=nao_integravel` pros dois), então paginação/contagem do SERVIDOR (`lista.total`/`totalPaginas`)
+  // continuam sendo as de "não integrável" no total, não as de um nível específico. `produtosExibidos` é a página
+  // recebida filtrada por `produtoPassaFiltroEstado` — TUDO que depende de "o que está na tela" (tabela, seleção
+  // em massa/"selecionar todos", rodapé "Mostrando…") usa ELE, nunca `lista.produtos` cru, senão o cabeçalho
+  // "selecionar todos" ficaria incoerente com as linhas de fato marcáveis. Paginação (Anterior/Próxima) continua
+  // andando sobre a página REAL do servidor — só o que É mostrado/selecionável nela que é filtrado. Com
+  // `mostraPaginacao=false` (≤500 produtos), "a página" JÁ É a lista inteira — ordenação/nível cobrem tudo de
+  // verdade, não é mais um recorte; os textos abaixo (`filtroEstreitaNivel`) refletem isso.
+  const filtroEstreitaNivel = filtros.estado === "nao_integravel_faltam" || filtros.estado === "nao_integravel_completo";
+  // MEDIUM-2 (review 685544fa): um produto com RASCUNHO PENDENTE nunca desaparece por causa do filtro de nível —
+  // mesmo que a edição em curso (ainda staging, não salva) o levasse pra outro nível quando salvar (ex.: corrigir
+  // o único campo que faltava), ele continua visível/editável até o Salvar de verdade. Sem isso, o filtro de nível
+  // podia esconder uma linha com edição em voo (o refetch em segundo plano do Realtime — `useIntegracaoAoVivo` —
+  // não muda `completo`/`estado` até o Salvar de fato acontecer no servidor, mas um clique acidental no filtro
+  // ANTES do Salvar já a escondia, perdendo o rascunho de vista sem aviso).
+  const produtosExibidos = useMemo(
+    () => (lista
+      ? lista.produtos.filter((p) => {
+          const r = rascunhos[p.modeloId];
+          return produtoPassaFiltroEstado(p, filtros.estado) || (r !== undefined && temAlteracao(r));
+        })
+      : []),
+    [lista, filtros.estado, rascunhos],
+  );
   const sujos = useMemo(() => Object.values(rascunhos).filter(temAlteracao), [rascunhos]);
   // `sujoLinhas` governa o botão Salvar/onSalvar da PÁGINA (só as linhas da tabela); `sujo` (guarda/trava de
   // filtro) também soma o texto pendente do diálogo de Keywords — os dois têm saves INDEPENDENTES (o Keywords
@@ -463,9 +514,12 @@ export function ProdutosAba() {
     ),
     [ctxIntegrar],
   );
+  // Owner (set/2026): `produtosExibidos` (não `lista.produtos`) — com o filtro de nível ativo, um produto fora do
+  // nível escolhido não está sequer renderizado/marcável na tabela; incluí-lo aqui deixaria "selecionados"
+  // conter ids invisíveis (e o cabeçalho "selecionar todos" incoerente com as linhas de fato marcáveis).
   const selecionadosLista = useMemo(
-    () => (lista?.produtos ?? []).filter((p) => selecionados.has(p.modeloId)),
-    [lista, selecionados],
+    () => produtosExibidos.filter((p) => selecionados.has(p.modeloId)),
+    [produtosExibidos, selecionados],
   );
   const massa = useMemo(
     () => acoesEmMassa(selecionadosLista, { ...ctxIntegrar, rascunhos: idsSujos }),
@@ -477,8 +531,8 @@ export function ProdutosAba() {
   // nunca o objeto inteiro (`ProdutosTabela.tsx`). `onTodos`/`onMarcar` em `useCallback` evitam recriar a FUNÇÃO em
   // si a cada render.
   const onTodosSelecao = useCallback(
-    (v: boolean) => setSelecionados(v ? new Set((lista?.produtos ?? []).map((p) => p.modeloId)) : new Set()),
-    [lista],
+    (v: boolean) => setSelecionados(v ? new Set(produtosExibidos.map((p) => p.modeloId)) : new Set()),
+    [produtosExibidos],
   );
   const onMarcarSelecao = useCallback(
     (id: string, v: boolean) => setSelecionados((s) => {
@@ -491,13 +545,13 @@ export function ProdutosAba() {
   );
   const selecao = useMemo(
     () => ({
-      todos: !!lista && lista.produtos.length > 0 && selecionadosLista.length === lista.produtos.length,
+      todos: produtosExibidos.length > 0 && selecionadosLista.length === produtosExibidos.length,
       alguns: selecionadosLista.length > 0,
       onTodos: onTodosSelecao,
       marcado: (id: string) => selecionados.has(id),
       onMarcar: onMarcarSelecao,
     }),
-    [lista, selecionadosLista, selecionados, onTodosSelecao, onMarcarSelecao],
+    [produtosExibidos, selecionadosLista, selecionados, onTodosSelecao, onMarcarSelecao],
   );
   // Fix round 1 T13 (revisão T13 #3, code-review m3): `selecionados` só zerava ao trocar situação/filtros/página —
   // um produto que SAI da página numa relista (a API o integrou, outra pessoa renomeou e a ordenação mudou) ficava
@@ -585,6 +639,13 @@ export function ProdutosAba() {
     if (voltarIds && lista && voltarProdutosAtuais.length === 0) setVoltarIds(null);
   }, [voltarIds, lista, voltarProdutosAtuais]);
 
+  // `listaExibida` = a mesma `lista` do servidor, só com `produtos` estreitado pro nível de Estado escolhido —
+  // usada SÓ na hora de passar pra `ProdutosTabela` (que não sabe nada de filtro de nível; recebe a lista pronta).
+  const listaExibida = useMemo(
+    () => (lista ? { ...lista, produtos: produtosExibidos } : lista),
+    [lista, produtosExibidos],
+  );
+
   const totalPag = lista ? totalPaginas(lista) : 1;
   // m4 (revisão): a página atual passou do total (produtos saíram) — nunca fica sem saída (EmptyState sem
   // paginação); a própria mudança de página já reseta pra última válida.
@@ -661,9 +722,13 @@ export function ProdutosAba() {
         <FiltroSelect id="f-origem" rotulo="Origem" valor={filtros.origem} desabilitado={travaFiltro}
           opcoes={Object.entries(ROTULO_ORIGEM).map(([key, label]) => ({ key, label }))}
           onMudar={(v) => { setFiltros((f) => ({ ...f, origem: v })); setPagina(1); }} />
-        <FiltroSelect id="f-estado" rotulo="Estado" valor={filtros.estado} desabilitado={travaFiltro} info={TEXTO_ESTADO_DENTRO}
-          opcoes={(Object.keys(ROTULO_ESTADO) as EstadoIntegracao[]).map((key) => ({ key, label: ROTULO_ESTADO[key] }))}
-          onMudar={(v) => { setFiltros((f) => ({ ...f, estado: v as EstadoIntegracao | null })); setPagina(1); }} />
+        {/* Owner (set/2026): 4 níveis (faltam dados/completo/integrável/integrado) — a opção legada "nao_integravel"
+            (valor salvo antigo, se algum dia vier de fora) NÃO aparece na lista (`OPCOES_ESTADO_NIVEL` já a
+            omite), mas continua funcionando se `filtros.estado` chegar com esse valor: `filtrosParaRpc` traduz pro
+            servidor e `produtoPassaFiltroEstado` não restringe nada — mostra os DOIS níveis, como sempre mostrou. */}
+        <FiltroSelect id="f-estado" rotulo="Estado" valor={filtros.estado} desabilitado={travaFiltro} info={textoEstadoDentro(mostraPaginacao)}
+          opcoes={OPCOES_ESTADO_NIVEL.map((key) => ({ key, label: ROTULO_ESTADO_NIVEL[key] }))}
+          onMudar={(v) => { setFiltros((f) => ({ ...f, estado: v as EstadoNivel | null })); setPagina(1); }} />
         <div className="grid gap-1">
           <Label htmlFor="f-busca">Buscar</Label>
           <Input id="f-busca" value={busca} placeholder="Nome ou REF" disabled={travaFiltro}
@@ -687,7 +752,9 @@ export function ProdutosAba() {
       ) : lista.produtos.length === 0 ? (
         <>
           <EmptyState title="Nenhum produto" description="Nenhum produto nesta situação e filtros." />
-          {totalPag > 1 && (
+          {/* P-130 A: só existe uma "página 1" pra voltar quando a loja de fato passa de LIMITE_PRODUTOS — com tudo
+              carregado numa chamada só, `totalPag` é sempre 1 (nunca > 1) e este botão nunca apareceria mesmo. */}
+          {mostraPaginacao && totalPag > 1 && (
             <div className="flex items-center justify-center gap-2 text-sm">
               <Button type="button" variant="outline" size="sm" onClick={() => setPagina(1)}>Voltar à página 1</Button>
             </div>
@@ -695,22 +762,48 @@ export function ProdutosAba() {
         </>
       ) : (
         <>
-          <ProdutosTabela lista={lista} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
-            onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
-            integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined} />
+          {produtosExibidos.length === 0 ? (
+            // HIGH-1 (review 685544fa) + P-130 A: filtro de nível (faltam dados/completo) esvaziou a página ATUAL —
+            // a situação/filtros de base ainda têm produtos (senão cairia no ramo de cima), só não neste RECORTE.
+            // Com tudo carregado (`!mostraPaginacao`), não existe "trocar de página" de verdade — o texto vira só
+            // "escolha outro Estado"; só quando `mostraPaginacao` é true a dica de trocar de página faz sentido.
+            <EmptyState title={mostraPaginacao ? "Nenhum produto nesta página com este nível de Estado" : "Nenhum produto com este nível de Estado"}
+              description={mostraPaginacao ? "Troque de página ou escolha Estado “Todos”." : "Escolha Estado “Todos” pra ver os demais."} />
+          ) : (
+            <ProdutosTabela lista={listaExibida!} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
+              onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
+              integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined} />
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">{faixaPagina(lista)}</span>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={travaFiltro || lista.pagina <= 1}
-                onClick={() => setPagina((n) => n - 1)}>Anterior</Button>
-              <span className="text-muted-foreground">Página {lista.pagina} de {totalPaginas(lista)} (50 por página)</span>
-              <Button type="button" variant="outline" size="sm" disabled={travaFiltro || lista.pagina >= totalPaginas(lista)}
-                onClick={() => setPagina((n) => n + 1)}>Próxima</Button>
-            </div>
+            {/* Owner (set/2026) + P-130 A: com o filtro de nível ativo, `lista.total` é o total de "não integrável"
+                (a RPC não distingue faltam/completo) — nunca reusar `faixaPagina(lista)` aqui (diria "de 50"/"de
+                500" quando só 12 passam o filtro). Texto próprio, honesto sobre o que FOI carregado — "desta
+                página" só quando `mostraPaginacao` é de verdade (>500 produtos); senão "da lista" (tudo). Inclui o
+                caso 0 de N (HIGH-1: nunca esconder esta linha, mesmo com a tabela vazia). */}
+            <span className="text-muted-foreground">
+              {filtroEstreitaNivel
+                ? `Mostrando ${produtosExibidos.length} de ${lista.produtos.length} produtos ${mostraPaginacao ? "desta página" : "da lista"} (filtrados por Estado)`
+                : faixaPagina(lista)}
+            </span>
+            {/* P-130 A: Anterior/Próxima/"Página X de Y" só aparecem quando a loja passou de LIMITE_PRODUTOS — com
+                tudo carregado numa chamada só, não há segunda página de verdade (nunca esconder isso quando FALTA
+                mostrar, mas também nunca mostrar controles que não fariam nada quando não há o que paginar). */}
+            {mostraPaginacao && (
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" disabled={travaFiltro || lista.pagina <= 1}
+                  onClick={() => setPagina((n) => n - 1)}>Anterior</Button>
+                <span className="text-muted-foreground">
+                  Página {lista.pagina} de {totalPaginas(lista)} ({lista.porPagina} por página)
+                </span>
+                <Button type="button" variant="outline" size="sm" disabled={travaFiltro || lista.pagina >= totalPaginas(lista)}
+                  onClick={() => setPagina((n) => n + 1)}>Próxima</Button>
+              </div>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
             Colunas exibidas = campos marcados em "Campos da API" (ordem fixa; Estado e Integrável sempre antes delas).
           </p>
+          <p className="text-xs text-muted-foreground">{textoOrdenacaoPagina(mostraPaginacao)}</p>
         </>
       )}
       {pFotos && (

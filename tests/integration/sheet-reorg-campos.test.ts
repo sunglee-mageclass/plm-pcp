@@ -21,6 +21,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
+import { MIG_NOME_COR, voltaNomeCorSePreciso } from "./integracao-helpers";
 import { CASOS_TITULO } from "../fixtures/titulo-pagina-casos";
 import { TITULO_CONECTIVOS, TITULO_MAIUSC, TITULO_MINUSC, tituloPaginaCalculado } from "../../src/lib/titulo-pagina";
 import { draftFromModeloRow } from "../../src/components/planejamento/modelo-shared";
@@ -280,6 +281,9 @@ async function timeouts(c: Client, lock = "3s"): Promise<void> {
   exigeBancoLocal();
   await c.query(`SET LOCAL lock_timeout = '${lock}'`);
   await c.query("SET LOCAL statement_timeout = '60s'");
+  // LIFO: a 20261013100000 (cor no nome das sublinhas) redefine _sku_config_normaliza por cima desta — no modo txn, volta-a
+  // DENTRO da txn antes de reaplicar/inspecionar esta (sem efeito quando ela não está na cópia).
+  if (MIG_TXN) await voltaNomeCorSePreciso(c);
 }
 async function prepara(c: Client): Promise<void> {
   await timeouts(c);
@@ -536,7 +540,10 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       const viva = !MIG_TXN && (await previaViva(c));
       for (const [i, f] of SKU_FNS.entries()) {
         const d = (await def(c, f.fn))!;
-        if (viva && f.arq !== "sku_config_normaliza") {
+        if (!MIG_TXN && f.arq === "sku_config_normaliza" && d.includes("cor_no_nome")) {
+          // LIFO — 20261013100000 (cor no nome das sublinhas) VIVA na cópia: o normalizador é o texto dela
+          expect(d, f.arq).toBe(corpoSku(MIG_NOME_COR, f.cria) + "\n");
+        } else if (viva && f.arq !== "sku_config_normaliza") {
           expect(d, f.arq).toBe(corpoSku(MIG_PREVIA, f.cria) + "\n"); // P4 — redefinida pela prévia
         } else {
           expect(d, f.arq).toBe(corpoSku(MIG, f.cria) + "\n");

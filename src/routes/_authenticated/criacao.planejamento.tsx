@@ -56,7 +56,7 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { EtapaKanbanBadge, EtapaKanbanLegenda } from "@/components/shared/EtapaKanbanBadge";
 import { useKanbanConfig } from "@/hooks/useKanbanConfig";
-import { etapaDoModelo, type EtapaSelo } from "@/lib/kanban-auto-ui";
+import { etapaDoModelo, etapaFiltroId, etapaKanbanFiltroOpts, type EtapaSelo } from "@/lib/kanban-auto-ui";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
 import { TEXTO_PRECO_TRAVADO, colunasTravadas, invalidarEstadoSeTravado, textoExcluirTravado } from "@/lib/integracao/trava";
@@ -157,6 +157,7 @@ function PlanejamentoPage() {
   const [fOrigem, setFOrigem] = useFilterState("planejamento", "Origem", []);
   const [fColecao, setFColecao] = useFilterState("planejamento", "Coleção", []);
   const [fLancamento, setFLancamento] = useFilterState("planejamento", "Lançamento", []); // multi: [] = todos
+  const [fEtapaKanban, setFEtapaKanban] = useFilterState("planejamento", "Etapa do kanban", []); // multi: [] = todas
   const [openId, setOpenId] = useState<string | null>(null);
   // Presença por campo NO CANVAS (ring nos campos inline dos cards — preço/data de lançamento).
   // Canal único por página (barato); o campoFocado codifica `<campo>:<modeloId>` do card focado.
@@ -376,6 +377,9 @@ function PlanejamentoPage() {
   const otbOn = isModuleEnabled("otb");
   // Selo da etapa (F2): board/requisitos/chave da loja — `select("*")`, tolera banco sem a F1 (= chave desligada).
   const { cfg: kanbanCfg, ligado: kanbanLigado } = useKanbanConfig();
+  // Opções do filtro "Etapa do kanban": Planejamento → colunas do board NA ORDEM da loja → Lançado
+  // (mesmos rótulos do selo, `etapaKanbanFiltroOpts` — não depende das condições, só do board).
+  const etapaKanbanOpts = useMemo(() => etapaKanbanFiltroOpts(kanbanCfg), [kanbanCfg]);
   const { data: colecoesList = [] } = useQuery({
     queryKey: ["otb-colecoes-opts"],
     enabled: otbOn,
@@ -632,6 +636,8 @@ function PlanejamentoPage() {
     if (fRep.length && !fRep.includes(isRepeticao(m) ? "rep" : "uni")) return false;
     if (fOrigem.length && !fOrigem.includes(m.origem ?? "interno")) return false;
     if (fLancamento.length && !fLancamento.includes(lancStatusDe(m) ?? "")) return false;
+    // Etapa do kanban: MESMA fonte do selo (`etapaDoModelo`) — filtro e badge nunca divergem.
+    if (fEtapaKanban.length && !fEtapaKanban.includes(etapaFiltroId(etapaDoModelo(m, kanbanCfg)))) return false;
     return true;
   });
 
@@ -1102,6 +1108,7 @@ function PlanejamentoPage() {
             filters={[
               { label: "Status", value: fStatus, onChange: setFStatus, options: STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label })) },
               { label: "Lançamento", value: fLancamento, onChange: setFLancamento, options: [{ id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
+              { label: "Etapa do kanban", value: fEtapaKanban, onChange: setFEtapaKanban, options: etapaKanbanOpts },
               { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: estilistas },
               { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })) },
               { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: meses },

@@ -39,8 +39,12 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useSort, SortTh } from "@/components/shared/sort";
 import { CAMPO_BY_KEY, type CampoDef } from "@/lib/integracao/campos";
-import { ROTULO_ORIGEM, linhasVariante, type ListaIntegracao, type ProdutoLista } from "@/lib/integracao/produtos";
+import {
+  ROTULO_ORIGEM, SORT_KEY_ESTADO, acessorEstado, acessorOrdenacao, linhasVariante,
+  type ListaIntegracao, type ProdutoLista,
+} from "@/lib/integracao/produtos";
 import type { Rascunho } from "@/lib/integracao/rascunho";
 import type { PreviaSkus } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 import { CelulaCampo } from "./CelulaCampo";
@@ -148,6 +152,28 @@ export function ProdutosTabela({
     () => lista.campos.map((k) => CAMPO_BY_KEY.get(k)).filter((c): c is CampoDef => !!c),
     [lista.campos],
   );
+  // Ordenação clicável — TODA coluna, Título incluído (owner: "senti falta de ordenar por título; todos deveriam
+  // ter uma ordenação"). `useSort` (mesmo helper de EstoqueTecidosTab/attribute-tab): número-vs-número numérico,
+  // texto pt-BR (`localeCompare` numeric), vazio sempre por último. Sem `key` inicial — a ordem de hoje (a que o
+  // servidor já devolve) não muda até a pessoa clicar (requisito "default = ordem de hoje").
+  // Ordena os PRODUTOS (não as sublinhas): o accessor de cada coluna lê o valor SALVO da linha do PRODUTO
+  // (`acessorOrdenacao`, produtos.ts) — nunca o rascunho ainda não gravado (ruling do brief: sorta pelo
+  // salvo/servidor, pra não pular linha enquanto a pessoa digita). Uma sublinha de variante SEMPRE fica presa
+  // debaixo do produto dela (o array `sorted` reordena só os produtos; `LinhaProduto` continua renderizando as
+  // sublinhas do MESMO produto em sequência, como já fazia). Campo "soVariante" (cor base/apelido/tamanho) não tem
+  // linha de produto no retrato/vivo — `acessorOrdenacao` resolve esses pela PRIMEIRA variante do produto
+  // (documentado lá): dois produtos empatam nesse campo até que a 1ª variante de cada difira.
+  const accessors = useMemo(() => {
+    const acc: Record<string, (p: ProdutoLista) => unknown> = { [SORT_KEY_ESTADO]: acessorEstado };
+    for (const c of campos) acc[c.key] = acessorOrdenacao(c);
+    return acc;
+  }, [campos]);
+  // LOW (review 685544fa): `useSort` recebe `opts` inteiro na dependência do seu `useMemo` de `sorted` — um
+  // `{ accessors }` literal NOVO a cada render (mesmo com `accessors` já memoizado acima) derrotava esse memo por
+  // identidade, forçando o `.sort()` de novo em TODO render da aba (ex.: digitar em qualquer célula), não só
+  // quando `lista.produtos`/`sortKey`/`sortDir` mudam de verdade.
+  const sortOpts = useMemo(() => ({ accessors }), [accessors]);
+  const sortState = useSort<ProdutoLista>(lista.produtos, sortOpts);
   return (
     <div className="max-w-full overflow-x-auto rounded-md border">
       <table className="w-full min-w-max border-collapse text-sm">
@@ -160,13 +186,16 @@ export function ProdutosTabela({
               </th>
             )}
             <th className="w-10 px-1 py-2"><span className="sr-only">Sublinhas</span></th>
-            <th className="px-2 py-2">Estado</th>
+            <SortTh label="Estado" sortKey={SORT_KEY_ESTADO} sortState={sortState} className="px-2 py-2" />
             {integravelCelula && <th className="px-2 py-2">Integrável</th>}
-            {campos.map((c) => <th key={c.key} className="whitespace-nowrap px-2 py-2 font-medium">{c.rotuloCurto}</th>)}
+            {campos.map((c) => (
+              <SortTh key={c.key} label={c.rotuloCurto} sortKey={c.key} sortState={sortState}
+                className="whitespace-nowrap px-2 py-2 font-medium" />
+            ))}
           </tr>
         </thead>
         <tbody>
-          {lista.produtos.map((p) => (
+          {sortState.sorted.map((p) => (
             <LinhaProduto key={p.modeloId} p={p} r={rascunhoDe(p)} previa={previas[p.modeloId]} salvando={salvando}
               campos={campos} aberto={abertos.has(p.modeloId)} onAlternar={alternar} onAtualizar={onAtualizar}
               onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula} integravelCelula={integravelCelula}

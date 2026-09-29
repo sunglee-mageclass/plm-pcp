@@ -85,11 +85,18 @@ type ThProps = {
   tip?: ReactNode;
 };
 
+/** LOW (review 685544fa): `aria-sort` no `<th>`/`<TableHead>` — estado ATIVO diz "ascending"/"descending" pra
+ *  leitor de tela; os demais (incluindo os nunca clicados) usam "none" (nunca "other", que o SR não anuncia
+ *  melhor que a ausência do atributo). Aditivo: todo consumidor existente de `SortTh`/`SortHead`
+ *  (EstoqueTecidosTab, attribute-tab) ganha isso de graça, sem mudar comportamento visual. */
+const ariaSortDe = (active: boolean, dir: SortDir): "ascending" | "descending" | "none" =>
+  active ? (dir === "asc" ? "ascending" : "descending") : "none";
+
 /** Cabeçalho clicável para tabelas em `<table>` cru (ex.: dashboards). */
 export function SortTh({ label, sortKey, sortState, className, align = "left", tip }: ThProps) {
   const active = sortState.sortKey === sortKey;
   return (
-    <th className={cn("select-none", className)}>
+    <th className={cn("select-none", className)} aria-sort={ariaSortDe(active, sortState.sortDir)}>
       <span className={cn("inline-flex items-center gap-1", align === "right" && "w-full flex-row-reverse", align === "center" && "w-full justify-center")}>
         <button
           type="button"
@@ -110,7 +117,7 @@ export function SortTh({ label, sortKey, sortState, className, align = "left", t
 export function SortHead({ label, sortKey, sortState, className, align = "left", tip }: ThProps) {
   const active = sortState.sortKey === sortKey;
   return (
-    <TableHead className={cn("select-none", className)}>
+    <TableHead className={cn("select-none", className)} aria-sort={ariaSortDe(active, sortState.sortDir)}>
       <span className={cn("inline-flex items-center gap-1", align === "right" && "w-full flex-row-reverse", align === "center" && "w-full justify-center")}>
         <button
           type="button"

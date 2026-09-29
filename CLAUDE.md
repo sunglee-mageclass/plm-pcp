@@ -699,6 +699,33 @@ e verifique** — o repo muda rápido.
     SÓ pelo super admin (`_integracao_pode` — admin da loja/tenant_admin NÃO passa sozinho); papéis NUNCA a carregam
     (`trg_integracao_perm_papel`); escrita nessas linhas de `user_permissions` sem JWT de super admin (service_role, backfill,
     admin da loja) é no-op SILENCIOSO (`trg_integracao_perm_user`) — um backfill precisa de `request.jwt.claims` de super admin.
+    **Release 4 (29/set) — cor no nome das sublinhas + Produtos até 500:** sublinha (variante×tamanho)
+    passa a se chamar **nome do produto + COR (por extenso) + tamanho** (ex.: "Vestido Suelen Preto PPP"),
+    tanto na Integração quanto na API. **P-126**: a loja escolhe em Config da Loja › Formato do SKU —
+    "Cor no nome da sublinha (Integração): Cor base | Apelido" — guardado em
+    `tenant_config.sku_config.cor_no_nome` (`'cor_base'|'cor_apelido'`); sem a chave, o padrão é DERIVADO
+    das `partes` (`cor_apelido` se `partes` contém `cor_apelido`, senão `cor_base`; sem backfill). Apelido
+    sem apelido na variante cai pra cor base; sem cor, fica só nome+tamanho (como hoje). `partes: []`
+    (loja "Sem formato") continua guardando a chave e valendo — ver seção SKU automático. Migration
+    `20261013100000_integracao_nome_sublinha_cor.sql` (helpers novos IMMUTABLE `_integracao_cor_no_nome`/
+    `_integracao_nome_sublinha`; retrato ganha marcador `v=2`, era `v=1`; a migration toma
+    `LOCK TABLE integracao_produtos, integracao_linhas IN EXCLUSIVE MODE` pra fechar a corrida com
+    `integracao_marcar` durante o reprocesso). **P-127 B**: na aplicação, produtos **integráveis**
+    (retrato `v=1`) são REPROCESSADOS — SÓ o nome (a assinatura HMAC é refeita); **integrados** ficam
+    intocados. 1 registro de Log "Editar — Sistema" por produto reprocessado (só quando o nome de
+    alguma sublinha mudou). **P-128 A**: trocar a escolha depois NÃO reprocessa o que já é
+    integrável/integrado (só passa a valer pro que for marcado Integrável a partir de então — pra
+    reaplicar num produto já marcado, é Voltar + marcar de novo). **P-129 A**: no reprocessamento, a cor
+    vem do RETRATO gravado quando o campo Cor base/Apelido estava marcado (coerente com a coluna de cor
+    que a API já entregou); senão vem do cadastro vivo. **P-130 A**: `integracao_listar` ganhou parâmetro
+    opcional `_limite int DEFAULT 50` (máx 500 — acima disso, `RAISE P0001` ASCII); Integração › Produtos
+    passou a carregar até 500 produtos de uma vez (era paginado a 50), com ordenação clicável em TODA
+    coluna da tabela e **Estado em 4 níveis**: vermelho "Não integrável — faltam dados" / âmbar
+    "Não integrável — completo" (= `podeIntegrarAgora`: completo && !moduloBloqueado && !reprovado) /
+    Integrável / Integrado — com filtro por esses 4 níveis; paginação de verdade só entra em cena acima
+    de 500. **Ordem de aplicação (LIFO, como toda migration da Integração): banco ANTES do site** — o
+    inverso desta migration é o PRIMEIRO passo que `.superpowers/integracao/mig/volta-producao.sh` roda
+    (a volta de emergência da Integração desfaz a mais recente primeiro).
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
@@ -813,6 +840,12 @@ liberam por derivação, nem "Mover para…" ajuda (o motor ainda governa o gate
 **Configurar os requisitos da revenda ANTES de ligar a chave numa loja que usa Produto
 Acabado/Importado.**
 
+**Filtro "Etapa do kanban" no Planejamento (release 4/API, `09fa206c`):** multi-select junto
+dos demais filtros (`useFilterState`); opções = colunas do board da loja na ordem + "Lançado";
+usa a MESMA função pura `etapaDoModelo`/`etapaFiltroId` (`src/lib/kanban-auto-ui.ts`) que já
+alimenta o selo `EtapaKanbanBadge` no card — filtro e selo nunca divergem, inclusive
+revenda/importado (fluxo próprio de `etapaDoModelo`).
+
 ## Sheet unificado do Planejamento (F3, set/2026)
 
 O Sheet do Planejamento de Produto (`src/components/planejamento/PlanejamentoDetail.tsx`, seções
@@ -888,7 +921,11 @@ sigla cai para a cor base (`aviso`, não bloqueia). **SKU em prévia:** "Regerar
 devolve uma prévia só-leitura com assinatura; o Salvar do card manda essa assinatura para
 `aplicar_skus_modelo`, que confere se nada mudou (REF/"Tamanho em"/grade/cores) e só então grava,
 senão `RAISE P0409 previa_desatualizada` (mensagem ASCII — ver a regra de "RAISE 5xx só ASCII" na
-seção de Colaboração). Detalhe: `mapeamento-campos-calculos.md` §17.1–§17.2.
+seção de Colaboração). Detalhe: `mapeamento-campos-calculos.md` §17.1–§17.2. ⚠️ **`tenant_config.sku_config`
+tem a chave `cor_no_nome` (`'cor_base'|'cor_apelido'`, release 4/API — ver invariante #14) além das
+partes/separadores de sempre; `partes: []` (loja "Sem formato") continua significando ausência de
+formato — `_skus_plano`/`_skus_matriz_ref_tipo` tratam esse jsonb como **NULL** mesmo com `cor_no_nome`
+guardado dentro dele (senão a loja sem formato não teria onde guardar a escolha da cor no nome).
 
 **Distribuição por produto (set/2026, migration `20261006100000`, deploy 26/set):** dialog
 **"Distribuir por loja"** no card do Plan. Tecido (`DistribuirPorLojaDialog.tsx`) substitui a

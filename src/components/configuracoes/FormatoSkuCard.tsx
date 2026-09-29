@@ -17,12 +17,15 @@ import {
 } from "@/components/ui/alert-dialog";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { InfoHover } from "@/components/shared/InfoHover";
 import {
-  canonico, chaveSeparador, normalizarSkuConfig, normalizarTamanhosSku, resolverSku, textoAviso, textoFalta,
-  SKU_PARTES, SKU_PARTE_LABEL, SKU_SEP_CHARS, SKU_SEP_MAX,
-  type SkuConfig, type SkuCor, type SkuParte,
+  canonico, chaveSeparador, corNoNomeEfetiva, normalizarSkuConfig, normalizarTamanhosSku, resolverSku, textoAviso, textoFalta,
+  COR_NO_NOME, SKU_PARTES, SKU_PARTE_LABEL, SKU_SEP_CHARS, SKU_SEP_MAX,
+  type CorNoNome, type SkuConfig, type SkuCor, type SkuParte,
 } from "@/lib/sku-montar";
-import type { TamanhoTipo } from "@/lib/tamanho";
+import { nomeSublinha } from "@/lib/integracao/nome-sublinha";
+import { chaveLista } from "@/components/integracao/useIntegracao";
+import { ladoTamanho, type TamanhoTipo } from "@/lib/tamanho";
 
 // Card "Formato do SKU" (Config da Loja, logo abaixo do "Formato da REF") — F3.5a, spec SKU §4.3.
 // Grava SÓ `tenant_config.sku_config`, num `update` da coluna, com o SEU botão (não entra no upsert genérico da
@@ -30,13 +33,38 @@ import type { TamanhoTipo } from "@/lib/tamanho";
 // tela abriu, o salvar recusa). O servidor valida/canoniza de novo (gatilho) com as MESMAS regras de
 // `normalizarSkuConfig`. A prévia usa `resolverSku` (espelho byte a byte do SQL) com um exemplo REAL da loja.
 
-type Rascunho = { partes: SkuParte[]; separadores: Record<string, string> };
-const rascunhoDe = (cfg: SkuConfig | null): Rascunho =>
-  cfg ? { partes: [...cfg.partes], separadores: { ...cfg.separadores } } : { partes: [], separadores: {} };
+type Rascunho = { partes: SkuParte[]; separadores: Record<string, string>; corNoNome: CorNoNome };
+const rascunhoDe = (cfg: SkuConfig | null): Rascunho => ({
+  partes: cfg ? [...cfg.partes] : [],
+  separadores: cfg ? { ...cfg.separadores } : {},
+  // P-126 (dono 29/set): semeia da escolha EFETIVA (chave explícita; senão derivada das partes) — nunca dirty falso.
+  corNoNome: corNoNomeEfetiva(cfg),
+});
+/** Forma canônica p/ COMPARAR (dirty / concorrência): a chave `cor_no_nome` SEMPRE explícita como a escolha EFETIVA
+ *  (nunca a crua) — assim um `sku_config` gravado sem a chave (padrão derivado) e o mesmo valor escolhido no rádio
+ *  comparam IGUAIS (sem dirty falso), dos dois lados (base carregada do servidor E rascunho do usuário). */
+const paraComparar = (cfg: SkuConfig | null) => ({
+  partes: cfg?.partes ?? [], separadores: cfg?.separadores ?? {}, cor_no_nome: corNoNomeEfetiva(cfg),
+});
 // F3.6 (dono 25/set, R10): SEM padrão da loja — o "Tamanho em" é escolhido em CADA card; a prévia mostra as 2 formas.
 const TIPOS_PREVIA: { tipo: TamanhoTipo; rotulo: string }[] = [{ tipo: "letra", rotulo: "Letra" }, { tipo: "numero", rotulo: "Número" }];
+// P-126: "Cor no nome da sublinha (Integração)" — rótulo do rádio nativo (padrão do "Tamanho em" da CodigosSecao).
+const COR_NO_NOME_LABEL: Record<CorNoNome, string> = { cor_base: "Cor base", cor_apelido: "Apelido" };
+const TEXTO_COR_NO_NOME_INFO =
+  "Na Integração e na API, cada sublinha se chama Nome do produto + cor + tamanho (ex.: Vestido Suelen Preto PPP). Escolha se entra o nome da Cor base ou do Apelido. Variante sem apelido usa a cor base; sem cor, fica só o tamanho. Vale para o que for marcado como Integrável a partir de agora — os já integráveis/integrados mantêm o nome do retrato.";
 
-type Exemplo = { ref: string | null; cor: SkuCor | null; apelido: SkuCor | null };
+type Exemplo = {
+  ref: string | null;
+  nome: string | null;
+  cor: SkuCor | null;
+  apelido: SkuCor | null;
+  // QA (dono, follow-up): a prévia do NOME (Cor no nome da sublinha) precisa de uma cor QUE TENHA apelido — a
+  // escolha da SKU (1ª cor com sigla) pode não ter nenhum (ex.: Loja Teste "Bege"), e nesse caso trocar Cor
+  // base ↔ Apelido não mudava a prévia nem aparecia a 2ª linha "sem apelido". `corComApelido`/`apelidoDaCor` são
+  // SÓ para essa prévia — a prévia do SKU (`corPrevia`/`exemplos`) continua na cor de sempre, intocada.
+  corComApelido: SkuCor | null;
+  apelidoDaCor: SkuCor | null;
+};
 
 export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
   const qc = useQueryClient();
@@ -66,7 +94,7 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
     enabled: !!tenantId,
     queryFn: async (): Promise<Exemplo> => {
       const [m, cores, apelidos] = await Promise.all([
-        supabase.from("modelos").select("ref").eq("tenant_id", tenantId).not("ref", "is", null).neq("ref", "")
+        supabase.from("modelos").select("ref, nome").eq("tenant_id", tenantId).not("ref", "is", null).neq("ref", "")
           .order("created_at", { ascending: false }).limit(1),
         supabase.from("cores").select("*").order("nome"),
         supabase.from("cores_apelido").select("*").order("nome"),
@@ -79,15 +107,40 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
       const daCor = ((apelidos.data ?? []) as any[]).filter((a) => cor && a.cor_base_id === cor.id);
       const ape = daCor.find((a) => !!a.sigla_sku) ?? daCor[0] ?? null;
       const comoCor = (x: any): SkuCor | null => (x ? { id: x.id, nome: x.nome, sigla: x.sigla_sku ?? null } : null);
-      return { ref: (m.data?.[0] as any)?.ref ?? null, cor: comoCor(cor), apelido: comoCor(ape) };
+      const modelo = (m.data?.[0] as any) ?? null;
+      // QA (dono, follow-up): a prévia do NOME precisa de uma cor QUE TENHA apelido — a cor da prévia do SKU
+      // (`cor` acima) pode não ter nenhum (ex.: Loja Teste "Bege"), o que travava a prévia do nome numa cor sem
+      // apelido pra sempre. Acha, entre TODAS as cores, uma que tenha ≥1 apelido (prefere sigla, como o resto do
+      // arquivo); sem nenhuma, cai na MESMA cor/apelido da prévia do SKU (comportamento de hoje).
+      const apelidosPorCorBase = new Map<string, any[]>();
+      for (const a of (apelidos.data ?? []) as any[]) {
+        const arr = apelidosPorCorBase.get(a.cor_base_id) ?? [];
+        arr.push(a);
+        apelidosPorCorBase.set(a.cor_base_id, arr);
+      }
+      const corComApelidoBruta = lista.find((c) => (apelidosPorCorBase.get(c.id) ?? []).length > 0) ?? null;
+      const apelidoDaCorBruto = corComApelidoBruta
+        ? ((apelidosPorCorBase.get(corComApelidoBruta.id) ?? []).find((a) => !!a.sigla_sku) ??
+            (apelidosPorCorBase.get(corComApelidoBruta.id) ?? [])[0] ?? null)
+        : null;
+      return {
+        ref: modelo?.ref ?? null,
+        nome: modelo?.nome ?? null,
+        cor: comoCor(cor),
+        apelido: comoCor(ape),
+        corComApelido: comoCor(corComApelidoBruta ?? cor),
+        apelidoDaCor: comoCor(apelidoDaCorBruto ?? ape),
+      };
     },
   });
 
   const [rascunho, setRascunho] = useState<Rascunho>(rascunhoDe(null));
   const [base, setBase] = useState<SkuConfig | null>(null);
   const [confirmar, setConfirmar] = useState(false);
-  const norm = normalizarSkuConfig(rascunho);
-  const dirty = isSuccess && canonico(norm.ok ? norm.valor : rascunho) !== canonico(base);
+  // Sempre grava a chave explícita `cor_no_nome` (mesmo p/ loja sem formato — {partes:[],separadores:{},cor_no_nome}).
+  const cru = { partes: rascunho.partes, separadores: rascunho.separadores, cor_no_nome: rascunho.corNoNome };
+  const norm = normalizarSkuConfig(cru);
+  const dirty = isSuccess && canonico(norm.ok ? paraComparar(norm.valor) : cru) !== canonico(paraComparar(base));
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
   // Sem isSuccess ainda (carregando OU erro), os controles ficam travados: evita `dirty` prematuro
   // contra um rascunho vazio (e o falso "Outra pessoa mudou o Formato do SKU..." que isso geraria no save).
@@ -114,15 +167,18 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
     });
   const setSep = (k: string, v: string) =>
     setRascunho((r) => ({ ...r, separadores: { ...r.separadores, [k]: v.replace(/[^-._/]/g, "") } }));
+  const setCorNoNome = (v: CorNoNome) => setRascunho((r) => ({ ...r, corNoNome: v }));
 
   const salvar = useMutation({
     mutationFn: async () => {
-      const n = normalizarSkuConfig(rascunho);
+      // P-126: grava SEMPRE a chave explícita `cor_no_nome` — mesmo p/ loja sem formato (`partes` vazio), pra ela
+      // ter onde guardar a escolha (o normalizador devolve `{partes:[],separadores:{},cor_no_nome}` neste caso).
+      const n = normalizarSkuConfig(cru);
       if (!n.ok) throw new Error(n.erro);
       const { data: agora, error } = await supabase.from("tenant_config").select("*").eq("tenant_id", tenantId).maybeSingle();
       if (error) throw error;
       const noBanco = normalizarSkuConfig((agora as any)?.sku_config ?? null);
-      if (canonico(noBanco.ok ? noBanco.valor : (agora as any)?.sku_config) !== canonico(base)) {
+      if (canonico(paraComparar(noBanco.ok ? noBanco.valor : null)) !== canonico(paraComparar(base))) {
         throw new Error("Outra pessoa mudou o Formato do SKU enquanto você editava. Recarregue a página para ver a versão atual.");
       }
       const { data: gravou, error: e2 } = await supabase
@@ -138,6 +194,8 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
       setRascunho(rascunhoDe(valor));
       setBase(valor);
       qc.setQueryData(chave, (old: any) => (old ? { ...old, cfg: valor } : old));
+      // P-126: a lista da Integração mostra o nome da sublinha com a cor — invalidar pra refletir a escolha nova.
+      void qc.invalidateQueries({ queryKey: chaveLista(tenantId) });
       setConfirmar(false);
       toast.success("Formato do SKU salvo.");
     },
@@ -173,6 +231,20 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
     { rotulo: `${corRotulo}${ex?.apelido ? ` · ${ex.apelido.nome}` : ""} · ${grade0} · Tamanho em ${rotulo}`, r: previa(ex?.apelido ?? null, tipo) },
     ...(ex?.apelido ? [{ rotulo: `${corRotulo} (sem apelido) · ${grade0} · Tamanho em ${rotulo}`, r: previa(null, tipo) }] : []),
   ]);
+
+  // P-126: prévia do NOME DA SUBLINHA (Integração/API) — nome do produto mais recente da loja (ou "Produto Exemplo",
+  // sem nenhum ainda) + a cor de exemplo/real + o tamanho pelo LADO Letra (`ladoTamanho`).
+  // QA (dono, follow-up): usa `corComApelido`/`apelidoDaCor` (uma cor que TENHA apelido, quando existir) — NUNCA
+  // `corPrevia`/`ex?.apelido` aqui, que são a escolha da prévia do SKU (1ª cor com sigla; pode não ter apelido,
+  // como "Bege" na Loja Teste) e travavam a prévia do nome sempre na cor base, sem a 2ª linha "sem apelido".
+  const nomeProdutoPrevia = ex?.nome || "Produto Exemplo";
+  const tamanhoPreviaNome = ladoTamanho(grade0, "letra") ?? grade0;
+  const corPreviaNome = ex?.corComApelido?.nome ?? corPrevia.nome;
+  const apelidoPreviaNome = ex?.apelidoDaCor?.nome ?? null;
+  const nomeSublinhaPrevia = nomeSublinha(nomeProdutoPrevia, corPreviaNome, apelidoPreviaNome, tamanhoPreviaNome, rascunho.corNoNome);
+  const nomeSublinhaPreviaSemApelido = apelidoPreviaNome
+    ? nomeSublinha(nomeProdutoPrevia, corPreviaNome, null, tamanhoPreviaNome, rascunho.corNoNome)
+    : null;
 
   return (
     <Card data-secao="formato-sku">
@@ -269,7 +341,9 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
           </p>
           {!norm.ok ? (
             <p className="text-sm text-destructive">{norm.erro}</p>
-          ) : !norm.valor ? (
+          ) : !norm.valor || norm.valor.partes.length === 0 ? (
+            // P-126: "sem formato" agora inclui `{partes:[],separadores:{},cor_no_nome}` — a loja que só escolheu a
+            // cor do nome (sem marcar nenhuma parte do SKU) continua sem gerar SKU.
             <p className="text-sm text-muted-foreground">Nenhuma parte marcada: a loja não gera SKU.</p>
           ) : (
             <div className="space-y-1.5 rounded-md border bg-muted/30 p-3">
@@ -296,6 +370,37 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        <div className="space-y-2 border-t pt-4" role="radiogroup" aria-labelledby="formato-sku-cor-no-nome" data-secao="cor-no-nome">
+          <div className="flex items-center gap-1">
+            <Label id="formato-sku-cor-no-nome" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Cor no nome da sublinha (Integração)
+            </Label>
+            <InfoHover ariaLabel="Como a cor entra no nome da sublinha">{TEXTO_COR_NO_NOME_INFO}</InfoHover>
+          </div>
+          <div className="flex min-h-9 items-center gap-4 text-sm">
+            {COR_NO_NOME.map((v) => (
+              <label key={v} className="flex cursor-pointer items-center gap-1.5 max-sm:min-h-11">
+                <input
+                  type="radio"
+                  name="formato-sku-cor-no-nome"
+                  value={v}
+                  className="h-4 w-4 accent-primary"
+                  checked={rascunho.corNoNome === v}
+                  disabled={travado}
+                  onChange={() => setCorNoNome(v)}
+                />
+                {COR_NO_NOME_LABEL[v]}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Exemplo: {nomeSublinhaPrevia ?? "—"}
+          </p>
+          {nomeSublinhaPreviaSemApelido && (
+            <p className="text-xs text-muted-foreground">sem apelido: {nomeSublinhaPreviaSemApelido}</p>
           )}
         </div>
 
@@ -328,7 +433,9 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
               <AlertDialogTitle>Salvar o Formato do SKU?</AlertDialogTitle>
               <AlertDialogDescription>
                 Vale para os SKUs gerados a partir de agora, em todos os produtos da loja. Os SKUs já gerados NÃO mudam
-                sozinhos — só pelo botão "Regerar SKUs" no card (e os editados à mão nunca mudam).
+                sozinhos — só pelo botão "Regerar SKUs" no card (e os editados à mão nunca mudam). A cor no nome da
+                sublinha (Integração) vale para o que for marcado como Integrável a partir de agora — os já
+                integráveis/integrados mantêm o nome do retrato.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

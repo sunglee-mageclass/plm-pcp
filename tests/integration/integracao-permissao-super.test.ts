@@ -335,9 +335,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — delta 7: permissão só pelo s
                   has_function_privilege('authenticated', $1, 'EXECUTE') AS u`, [`public.${f}`]);
         expect(r, f).toEqual({ p: false, a: false, u: false });
       }
+      // P-130 A (20261013100000): integracao_listar pode estar com a assinatura NOVA (+ _limite) — confere a que existir (é 1 só)
       const l = await um<{ a: boolean; u: boolean }>(c,
-        `SELECT has_function_privilege('anon', 'public.integracao_listar(text,jsonb,integer)', 'EXECUTE') AS a,
-                has_function_privilege('authenticated', 'public.integracao_listar(text,jsonb,integer)', 'EXECUTE') AS u`);
+        `SELECT has_function_privilege('anon', p.oid, 'EXECUTE') AS a, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS u
+           FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = 'integracao_listar'`);
       expect(l).toEqual({ a: false, u: true });
       // nenhuma função da frente usa mais o atalho de admin
       const n = await um<{ n: string }>(c,
