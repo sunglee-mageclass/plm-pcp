@@ -331,8 +331,12 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     await withTx(async (c) => {
       await prepara(c);
       const g = guardas(MIG);
+      // "Tamanho em" nos cards (20261011100000, LIFO por cima desta): na cópia com ela, _salvar/_snapshot/_arvore estão no
+      // texto DELA (a suíte tamanho-em-cards prova "depois = este texto + só as trocas dela") — aceita esse md5 exato.
+      const TAMANHO_EM: Record<string, string> = { salvar: "062cb94abcebda214b2bfec3c9b8cdee", snapshot: "2c2ba1e79ab311b2c5ba8080cac958e9", arvore: "5111f417c2679a4bb2157ad0df61f55a" };
       for (const [i, f] of REDEF.entries()) {
         const d = (await def(c, f.fn))!;
+        if (TAMANHO_EM[f.arq] && md5(d) === TAMANHO_EM[f.arq]) continue;
         expect(d, f.arq).toBe(corpo(MIG, f.cria) + "\n");
         expect(md5(d), f.arq).toBe(g[i].depois);
       }
