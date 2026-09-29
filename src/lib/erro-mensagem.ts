@@ -80,7 +80,7 @@ function mensagemIntegracao(code: string, msg: string): string | null {
   return null;
 }
 
-// "Tamanho em" nos cards (20261011100000): `tamanho_tipo invalido: use letra ou numero` (P0001, ASCII) vem de
+// "Tamanho em" nos cards (20261014100000): `tamanho_tipo invalido: use letra ou numero` (P0001, ASCII) vem de
 // _salvar_produto_acabado/importado_core, _salvar_plan_tecido_core e _plan_tecido_criar_card_core.
 const PREFIXO_TAMANHO_INVALIDO = "tamanho_tipo invalido:";
 export const TEXTO_TAMANHO_INVALIDO = 'O "Tamanho em" precisa ser Letra ou Número.';
@@ -126,7 +126,7 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   const code = getCode(e);
   const msg = getMessage(e);
 
-  // "Tamanho em" nos cards (20261011100000): recusa em ASCII (padrão das mensagens novas) → texto PT.
+  // "Tamanho em" nos cards (20261014100000): recusa em ASCII (padrão das mensagens novas) → texto PT.
   if (code === "P0001" && msg.startsWith(PREFIXO_TAMANHO_INVALIDO)) return TEXTO_TAMANHO_INVALIDO;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.

@@ -1,7 +1,7 @@
 // "Tamanho em" nos cards do Plan. Tecido — Tarefa 4 do plano `.superpowers/sdd/2026-09-29-tamanho-em/plan.md`.
 // PURO (sem React/Supabase). Monta o PAYLOAD do `salvar_plan_tecido` para o "Tamanho em" dos slots COM card:
 //
-// - O servidor (`_salvar_plan_tecido_core`, migration 20261011100000) só grava `modelos.tamanho_tipo` quando o slot com
+// - O servidor (`_salvar_plan_tecido_core`, migration 20261014100000) só grava `modelos.tamanho_tipo` quando o slot com
 //   card vem com `tamanho_tipo_tocado: true` — assim um Salvar da árvore inteira nunca sobrescreve o valor que outra tela
 //   (Planejamento, Produto Acabado/Importado) mudou depois que esta tela abriu ("última edição manda" só no campo tocado).
 //   A marca vai SÓ no slot com card cujo valor difere da BASE (a última árvore conhecida do servidor, `planBaseRef`).

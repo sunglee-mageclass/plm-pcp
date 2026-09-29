@@ -1,7 +1,7 @@
 /**
  * "Tamanho em" nos cards do Plan. Tecido, Produto Acabado e Importado (D2 do SKU, P-85 A; P-118 A, P-119 A) — Tarefas 1+2
  * do plano .superpowers/sdd/2026-09-29-tamanho-em/plan.md (com os rulings do G-plano). Migration
- * supabase/migrations/20261011100000_tamanho_em_cards.sql e inverso em supabase/rollback/ — GERADOS a partir do texto VIVO
+ * supabase/migrations/20261014100000_tamanho_em_cards.sql e inverso em supabase/rollback/ — GERADOS a partir do texto VIVO
  * da cópia por .superpowers/sdd/2026-09-29-tamanho-em/mig/gerar_sql.py (não editar à mão). Integração em BEGIN…ROLLBACK:
  * NADA é gravado.
  *
@@ -24,8 +24,8 @@ import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } fro
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const MIG = "supabase/migrations/20261011100000_tamanho_em_cards.sql";
-const INV = "supabase/rollback/20261011100000_tamanho_em_cards_down.sql";
+const MIG = "supabase/migrations/20261014100000_tamanho_em_cards.sql";
+const INV = "supabase/rollback/20261014100000_tamanho_em_cards_down.sql";
 const TROCAS_JSON = ".superpowers/sdd/2026-09-29-tamanho-em/mig/trocas.json"; // NÃO versionado (confere se existir)
 const LOCAL = ehBancoLocal();
 const MIG_TXN = process.env.TAMANHO_MIG_TXN === "1";
@@ -191,7 +191,7 @@ async function timeouts(c: Client): Promise<void> {
 async function prepara(c: Client): Promise<void> {
   await timeouts(c);
   if (MIG_TXN) await aplica(c, MIG);
-  expect(await md5Vivo(c, FUNCS[0].sig), "migration 20261011100000 ausente").toBe(FUNCS[0].depois);
+  expect(await md5Vivo(c, FUNCS[0].sig), "migration 20261014100000 ausente").toBe(FUNCS[0].depois);
 }
 /** Estado de ANTES (só no modo txn): se a cópia já tem a migration, volta pelo próprio inverso DENTRO da txn. */
 async function preparaAntes(c: Client): Promise<void> {

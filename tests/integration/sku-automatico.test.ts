@@ -17,10 +17,10 @@
  * Dados de teste: criados na própria txn (cores "SKU-T …", artigos, variantes, modelos, produtos) na Loja Teste.
  * F3.6 (plano 2026-09-25, Task 6 — dono 25/set): o "Tamanho em" NÃO tem mais padrão da loja. Com SKU_MIG_TXN=1 a suíte aplica
  *   TAMBÉM a 20261005100000 depois da F3.5a (as 4 funções do SKU são redefinidas lá); sem a variável, exige as DUAS na cópia.
- * "Tamanho em" nos cards (20261011100000, plano .superpowers/sdd/2026-09-29-tamanho-em/plan.md, Tarefa 2): a F3.5a recria o
+ * "Tamanho em" nos cards (20261014100000, plano .superpowers/sdd/2026-09-29-tamanho-em/plan.md, Tarefa 2): a F3.5a recria o
  *   repasse produto→modelo com o texto ANTIGO ("só se o modelo não tem"), então com SKU_MIG_TXN=1 o `prepara` aplica a
- *   20261011100000 DEPOIS das duas (e, se a cópia já a tiver, antes volta por ela — LIFO: o guarda da 20261005100000 recusa o
- *   _replicar_cards_plan_tecido_core da 20261011100000). Sem a variável, o teste do repasse exige a 20261011100000 na cópia.
+ *   20261014100000 DEPOIS das duas (e, se a cópia já a tiver, antes volta por ela — LIFO: o guarda da 20261005100000 recusa o
+ *   _replicar_cards_plan_tecido_core da 20261014100000). Sem a variável, o teste do repasse exige a 20261014100000 na cópia.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -40,9 +40,9 @@ import {
 const MIG = "supabase/migrations/20261003100000_sku_automatico.sql";
 const INV = "supabase/rollback/20261003100000_sku_automatico_down.sql";
 const MIG_SHEET = "supabase/migrations/20261005100000_modelo_titulo_peso_ncm_preco_anterior.sql";
-const MIG_TAMANHO = "supabase/migrations/20261011100000_tamanho_em_cards.sql";
-const INV_TAMANHO = "supabase/rollback/20261011100000_tamanho_em_cards_down.sql";
-/** md5 do repasse (fn_produto_tamanho_tipo_handover) DEPOIS da 20261011100000 ("o produto manda"). */
+const MIG_TAMANHO = "supabase/migrations/20261014100000_tamanho_em_cards.sql";
+const INV_TAMANHO = "supabase/rollback/20261014100000_tamanho_em_cards_down.sql";
+/** md5 do repasse (fn_produto_tamanho_tipo_handover) DEPOIS da 20261014100000 ("o produto manda"). */
 const MD5_REPASSE_TAMANHO_EM = "2712720482d94963ffda1b807fdf6931";
 const LOCAL = ehBancoLocal();
 const MIG_TXN = process.env.SKU_MIG_TXN === "1";
@@ -81,7 +81,7 @@ async function tamanhoEmNaCopia(): Promise<boolean> {
   }
 }
 const TAMANHO_NA_COPIA = await tamanhoEmNaCopia();
-/** O repasse "o produto manda" (20261011100000) vale: no modo txn o prepara aplica; sem ele, precisa estar na cópia. */
+/** O repasse "o produto manda" (20261014100000) vale: no modo txn o prepara aplica; sem ele, precisa estar na cópia. */
 const TAMANHO_OK = PRONTO && (MIG_TXN || TAMANHO_NA_COPIA);
 
 async function prepara(c: PgClient): Promise<void> {
@@ -418,7 +418,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
     });
   });
 
-  // Tamanho em nos cards (20261011100000, Tarefa 2): o repasse passou a "o produto manda" (IS DISTINCT FROM, não mais "só se o
+  // Tamanho em nos cards (20261014100000, Tarefa 2): o repasse passou a "o produto manda" (IS DISTINCT FROM, não mais "só se o
   // modelo não tem" — o default 'letra' do modelo engolia a escolha). Criação REAL do card (antes era um modelo montado à mão
   // com tamanho_tipo NULL, que escondia o bug). Loja cruzada: trg_pi/pa_modelo_tenant recusa ANTES do repasse (P0001) — o caso
   // antigo esperava o UPDATE passar e o modelo alheio ficar intocado; desde a 20261007130000 (Integração 4) o vínculo cruzado é

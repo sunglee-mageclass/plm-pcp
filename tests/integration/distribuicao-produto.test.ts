@@ -56,11 +56,11 @@ const INV = "supabase/rollback/20261006100000_distribuicao_por_produto_down.sql"
 // da aditiva (INV) segue exigindo a tabela (LIFO); os testes do modo txn NÃO dependem mais dela existir: quando ela já
 // saiu, recriam-na DENTRO da txn aplicando o inverso da Parte 2 (a ordem LIFO real: volta a Parte 2, depois a aditiva).
 const INV_ANTIGA = "supabase/rollback/20261010100000_distribuicao_antiga_drop_down.sql";
-// "Tamanho em" nos cards (20261011100000) redefine _salvar_plan_tecido_core/_plan_tecido_snapshot/_plan_tecido_arvore_core POR
-// CIMA desta — com ela na cópia, a guarda desta migration recusa. LIFO no modo txn: volta a 20261011100000 DENTRO da txn
+// "Tamanho em" nos cards (20261014100000) redefine _salvar_plan_tecido_core/_plan_tecido_snapshot/_plan_tecido_arvore_core POR
+// CIMA desta — com ela na cópia, a guarda desta migration recusa. LIFO no modo txn: volta a 20261014100000 DENTRO da txn
 // (inverso dela, com a confirmação SET LOCAL) antes de reaplicar/inspecionar esta.
-const INV_TAMANHO = "supabase/rollback/20261011100000_tamanho_em_cards_down.sql";
-const MD5_REPASSE_TAMANHO_EM = "2712720482d94963ffda1b807fdf6931"; // fn_produto_tamanho_tipo_handover() depois da 20261011100000
+const INV_TAMANHO = "supabase/rollback/20261014100000_tamanho_em_cards_down.sql";
+const MD5_REPASSE_TAMANHO_EM = "2712720482d94963ffda1b807fdf6931"; // fn_produto_tamanho_tipo_handover() depois da 20261014100000
 // Ordem FIXA = md5-redef-*.txt = guardas do arquivo.
 const REDEF = [
   { arq: "salvar", fn: "public._salvar_plan_tecido_core(uuid,jsonb,integer)", cria: "CREATE OR REPLACE FUNCTION public._salvar_plan_tecido_core(" },
@@ -256,7 +256,7 @@ async function voltaParte2SePreciso(c: Client): Promise<void> {
   await aplicarSql(c, sql, INV_ANTIGA);
 }
 
-/** LIFO (Tamanho em, 20261011100000): se a cópia a tem, volta-a DENTRO da txn pelo inverso dela (confirmação SET LOCAL;
+/** LIFO (Tamanho em, 20261014100000): se a cópia a tem, volta-a DENTRO da txn pelo inverso dela (confirmação SET LOCAL;
  *  as 2 travas SET LOCAL do arquivo saem — a txn do teste tem as suas). Sem efeito quando ela não está aplicada. */
 async function voltaTamanhoEmSePreciso(c: Client): Promise<void> {
   const m = (await um<{ m: string | null }>(c,
@@ -362,7 +362,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     await withTx(async (c) => {
       await prepara(c);
       const g = guardas(MIG);
-      // "Tamanho em" nos cards (20261011100000, LIFO por cima desta): na cópia com ela, _salvar/_snapshot/_arvore estão no
+      // "Tamanho em" nos cards (20261014100000, LIFO por cima desta): na cópia com ela, _salvar/_snapshot/_arvore estão no
       // texto DELA (a suíte tamanho-em-cards prova "depois = este texto + só as trocas dela") — aceita esse md5 exato.
       const TAMANHO_EM: Record<string, string> = { salvar: "81a3606444a2cf68ee376937009b9bad", snapshot: "2c2ba1e79ab311b2c5ba8080cac958e9", arvore: "5111f417c2679a4bb2157ad0df61f55a" };
       for (const [i, f] of REDEF.entries()) {
@@ -570,7 +570,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     await withTx(async (c) => {
       exigeBancoLocal();
       await c.query("SET LOCAL lock_timeout = '3s'");
-      await voltaTamanhoEmSePreciso(c); // LIFO (20261011100000)
+      await voltaTamanhoEmSePreciso(c); // LIFO (20261014100000)
       const t = (await def(c, "public._plan_tecido_snapshot(uuid)"))!;
       await c.query(t.replace("retenção: 20 últimos", "retenção: 21 últimos")); // outra frente mexeu
       await c.query("SAVEPOINT g");
@@ -586,7 +586,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     await withTx(async (c) => {
       exigeBancoLocal();
       await c.query("SET LOCAL lock_timeout = '3s'");
-      await voltaTamanhoEmSePreciso(c); // LIFO (20261011100000)
+      await voltaTamanhoEmSePreciso(c); // LIFO (20261014100000)
       // cria a função NOVA com um texto DIFERENTE do que o gerador produziria — simula outra frente/rodada tendo
       // criado essa RPC antes (o ramo do desvio to_regprocedure — guarda_novas() — que ainda não tinha teste).
       await c.query(`
@@ -642,7 +642,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     await withTx(async (c) => {
       exigeBancoLocal();
       await c.query("SET LOCAL lock_timeout = '3s'");
-      await voltaTamanhoEmSePreciso(c); // LIFO (20261011100000)
+      await voltaTamanhoEmSePreciso(c); // LIFO (20261014100000)
       const antes = await defsRedef(c);
       const mig = ler(MIG);
       const real = guardas(MIG)[2].depois; // _plan_tecido_snapshot — a função é CRIADA com o texto real; só o $pos$ exige outro
@@ -730,7 +730,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       exigeBancoLocal();
       await c.query("SET LOCAL lock_timeout = '3s'");
       await c.query("SET LOCAL statement_timeout = '60s'");
-      await voltaTamanhoEmSePreciso(c); // LIFO (20261011100000)
+      await voltaTamanhoEmSePreciso(c); // LIFO (20261014100000)
       await lojaComModulos(c, true);
       const k = await cena(c);
       const m = await um<{ id: string }>(c, "insert into modelos (tenant_id, nome, origem) values ($1, 'ITEST-DIST SemDist', 'interno') returning id", [TENANT_TESTE]);

@@ -1,120 +1,194 @@
--- "Tamanho em" nos cards do Plan. Tecido, Produto Acabado e Importado (D2 do SKU, P-85 A; P-118 A, P-119 A, P-120 A).
--- Plano: .superpowers/sdd/2026-09-29-tamanho-em/plan.md (Tarefa 1 + rulings do G-plano). GERADA por
--- .superpowers/sdd/2026-09-29-tamanho-em/mig/gerar_sql.py a partir do texto VIVO da cópia — NÃO editar à mão.
--- • fn_produto_tamanho_tipo_handover: o repasse produto -> modelo espelho troca sempre que DIFERE (era "só se o modelo
---   não tinha" e o default 'letra' do modelo engolia a escolha do produto). Modelo integravel/integrado recusa 42501
---   (trg_zz_integracao_trava, invariante #14) => trocar o "Tamanho em" de um produto travado ABORTA o Salvar dele.
--- • _salvar_produto_acabado_core / _salvar_produto_importado_core: aceitam _dados.tamanho_tipo (só com a chave;
---   letra|numero, senão P0001 ASCII); o bloco [integracao v1] do importado fica intocado. _limpar_*: zeram o valor.
--- • _replicar_produtos_acabados_core / _replicar_produtos_importados_core: a réplica leva o "Tamanho em" do card.
--- • plan_tecido_slots.tamanho_tipo (nova, text, CHECK letra|numero NOT VALID): a vaga SEM card guarda a escolha (P-119 A).
---   _salvar_plan_tecido_core grava na vaga sem card; na vaga COM card, só com tamanho_tipo_tocado=true atualiza o
---   modelo (filtro loja + coleção + interno; valor validado P0001); _plan_tecido_arvore_core devolve o do modelo (com
---   card) ou o da vaga; _plan_tecido_criar_card_core cria o modelo com o da vaga salva (senão payload, senão letra) e
---   zera a vaga; _replicar_cards_plan_tecido_core zera a vaga livre reaproveitada; _plan_tecido_snapshot leva a chave.
--- • 12 funções redefinidas (guarda md5 aceita ANTES ou DEPOIS — reaplicar é no-op; outro texto -> P0001), 0 novas,
---   0 gatilhos novos; REVOKE EXECUTE dos TRES (PUBLIC, anon, authenticated) reafirmado nas 12; sem backfill.
--- • Ordem: funções plpgsql -> coluna/CHECK/COMMENT (trava curta em plan_tecido_slots) -> árvore (LANGUAGE sql valida a
---   coluna no CREATE) -> REVOKE -> pós-condição (md5 de depois das 12, ACL, coluna/CHECK) -> NOTIFY -> COMMIT.
--- • Banco ANTES do front (front velho + banco novo = compatível). Inverso:
---   supabase/rollback/20261011100000_tamanho_em_cards_down.sql (LIFO: volta ANTES das voltas da Integração 5, da
---   Distribuição e da F3.5a; o FRONT volta antes do banco).
--- Aplicar fora de transação (psql -f), com o client_encoding abaixo ANTES do BEGIN (os textos têm acento).
+-- INVERSO de 20261014100000_tamanho_em_cards ("Tamanho em" nos cards) — GERADO por
+-- .superpowers/sdd/2026-09-29-tamanho-em/mig/gerar_sql.py (NÃO editar à mão). ⚠️ DESTRUTIVO: o DROP COLUMN apaga o
+-- "Tamanho em" escolhido nas vagas SEM card do Plan. Tecido (plan_tecido_slots.tamanho_tipo). O valor dos cards
+-- (modelos.tamanho_tipo) FICA — é da F3.5a.
+-- ORDEM DA VOLTA:
+--   1. o FRONT volta ANTES do banco (front novo + banco velho perde a escolha e manda chaves que o banco velho ignora);
+--   2. EXPORTAR as vagas com valor antes (o kit faz):
+--        psql -c "COPY (SELECT id, linha_ref_id, tamanho_tipo FROM public.plan_tecido_slots WHERE tamanho_tipo IS NOT NULL) TO STDOUT CSV HEADER" > vagas_tamanho_tipo.csv
+--   3. rodar este arquivo com a confirmação NA MESMA SESSÃO do psql -f (o DROP COLUMN recusa sem ela). Forma provada
+--      na cópia (29/set):
+--        PGOPTIONS='-c app.tamanho_em_drop_ok=sim' psql "<url>" -v ON_ERROR_STOP=1 -f <este arquivo>
+--      alternativa equivalente (mesma sessão): psql "<url>" -v ON_ERROR_STOP=1 -c "SET app.tamanho_em_drop_ok = 'sim'" -f <este arquivo>
+--      (um "SET" num psql separado NÃO vale: a configuração morre com aquela sessão.)
+-- LIFO: este inverso roda ANTES do inverso da cor no nome (20261013100000 — aplicada antes desta; as duas não
+-- redefinem funções em comum, mas a ordem da volta segue a da ida) e das voltas da Integração 5 (20261007140000), da
+-- Distribuição (20261006100000) e da F3.5a (20261003100000). Integração 5 e Distribuição têm guarda md5 e RECUSAM
+-- enquanto esta migration estiver no ar (esperado: o volta-producao.sh da Integração passa a recusar a volta 5).
+-- ⚠️ A volta da F3.5a NÃO tem guarda md5 (faz DROP FUNCTION/DROP COLUMN direto): ali o LIFO é só combinado — nunca rode a volta da F3.5a com esta migration no ar.
+-- Guarda: cada uma das 12 funções precisa estar EXATAMENTE no md5 de DEPOIS (outra frente mexeu => recusa, P0001);
+-- rodar 2x recusa na 2ª (já voltou). Pós-condição: os 12 md5 de ANTES, ACL revogada, coluna fora.
 
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '3s';
+LOCK TABLE public.plan_tecido_slots IN ACCESS EXCLUSIVE MODE;
 
 DO $guarda$
 DECLARE
   v_md5 text;
+  v_n bigint;
 BEGIN
+  IF coalesce(current_setting('app.tamanho_em_drop_ok', true), '') <> 'sim' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): o DROP COLUMN apaga o Tamanho em das vagas sem card - exporte antes e rode com SET app.tamanho_em_drop_ok = ''sim''' USING ERRCODE = 'P0001';
+  END IF;
   IF to_regprocedure('public.fn_produto_tamanho_tipo_handover()') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: fn_produto_tamanho_tipo_handover nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): fn_produto_tamanho_tipo_handover nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public.fn_produto_tamanho_tipo_handover()'::regprocedure));
-  IF v_md5 NOT IN ('16f03fe8cce7f92a8bbe77ad0d2c7e5a', '2712720482d94963ffda1b807fdf6931') THEN
-    RAISE EXCEPTION 'tamanho_em: fn_produto_tamanho_tipo_handover mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '2712720482d94963ffda1b807fdf6931' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): fn_produto_tamanho_tipo_handover nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._replicar_produtos_acabados_core(uuid,uuid,uuid,uuid[])') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _replicar_produtos_acabados_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _replicar_produtos_acabados_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._replicar_produtos_acabados_core(uuid,uuid,uuid,uuid[])'::regprocedure));
-  IF v_md5 NOT IN ('bb39e1ce5681e944160e59b71a28d206', '5aa4cf782687fe1dec96d18ef4d2923d') THEN
-    RAISE EXCEPTION 'tamanho_em: _replicar_produtos_acabados_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '5aa4cf782687fe1dec96d18ef4d2923d' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _replicar_produtos_acabados_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._replicar_produtos_importados_core(uuid,uuid,uuid,uuid[])') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _replicar_produtos_importados_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _replicar_produtos_importados_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._replicar_produtos_importados_core(uuid,uuid,uuid,uuid[])'::regprocedure));
-  IF v_md5 NOT IN ('150dbbca4cba9e4523427552bcd7e5c3', 'dc37b0adf427d1b2f6bca71a8d755ae0') THEN
-    RAISE EXCEPTION 'tamanho_em: _replicar_produtos_importados_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'dc37b0adf427d1b2f6bca71a8d755ae0' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _replicar_produtos_importados_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._salvar_produto_acabado_core(uuid,jsonb,jsonb)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _salvar_produto_acabado_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _salvar_produto_acabado_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._salvar_produto_acabado_core(uuid,jsonb,jsonb)'::regprocedure));
-  IF v_md5 NOT IN ('fd05edfc91464798639d761110607d30', '20f8e442b95f8bb02bc8201b431c21b1') THEN
-    RAISE EXCEPTION 'tamanho_em: _salvar_produto_acabado_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '20f8e442b95f8bb02bc8201b431c21b1' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _salvar_produto_acabado_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _salvar_produto_importado_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _salvar_produto_importado_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)'::regprocedure));
-  IF v_md5 NOT IN ('d29c80190739b780523a3a4d4a175f08', '2f3a81d18248752c56a7bd386c8bfe69') THEN
-    RAISE EXCEPTION 'tamanho_em: _salvar_produto_importado_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '2f3a81d18248752c56a7bd386c8bfe69' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _salvar_produto_importado_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._limpar_produto_acabado_core(uuid)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _limpar_produto_acabado_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _limpar_produto_acabado_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._limpar_produto_acabado_core(uuid)'::regprocedure));
-  IF v_md5 NOT IN ('5e93aa82de5cf6f24faa25ba2d7891af', '123ddc5a717d896bc38193806769ccae') THEN
-    RAISE EXCEPTION 'tamanho_em: _limpar_produto_acabado_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '123ddc5a717d896bc38193806769ccae' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _limpar_produto_acabado_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._limpar_produto_importado_core(uuid)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _limpar_produto_importado_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _limpar_produto_importado_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._limpar_produto_importado_core(uuid)'::regprocedure));
-  IF v_md5 NOT IN ('b1b89e0d2020d0de4c32b1448872ab08', '5fe6e90f2a96881614f45f84f9865bdd') THEN
-    RAISE EXCEPTION 'tamanho_em: _limpar_produto_importado_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '5fe6e90f2a96881614f45f84f9865bdd' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _limpar_produto_importado_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._salvar_plan_tecido_core(uuid,jsonb,integer)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _salvar_plan_tecido_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _salvar_plan_tecido_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._salvar_plan_tecido_core(uuid,jsonb,integer)'::regprocedure));
-  IF v_md5 NOT IN ('58fcaddadee3c7ab8cac44c0597c9368', '81a3606444a2cf68ee376937009b9bad') THEN
-    RAISE EXCEPTION 'tamanho_em: _salvar_plan_tecido_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '81a3606444a2cf68ee376937009b9bad' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _salvar_plan_tecido_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _plan_tecido_criar_card_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _plan_tecido_criar_card_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)'::regprocedure));
-  IF v_md5 NOT IN ('3a398cfecbfd8c434e998fc781a71f0b', 'fceac02c52bd0b29a33856dc9e0f9b11') THEN
-    RAISE EXCEPTION 'tamanho_em: _plan_tecido_criar_card_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'fceac02c52bd0b29a33856dc9e0f9b11' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _plan_tecido_criar_card_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._plan_tecido_snapshot(uuid)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _plan_tecido_snapshot nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _plan_tecido_snapshot nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._plan_tecido_snapshot(uuid)'::regprocedure));
-  IF v_md5 NOT IN ('75d43c800b38b08c77831a645dcb4b3d', '2c2ba1e79ab311b2c5ba8080cac958e9') THEN
-    RAISE EXCEPTION 'tamanho_em: _plan_tecido_snapshot mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '2c2ba1e79ab311b2c5ba8080cac958e9' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _plan_tecido_snapshot nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _replicar_cards_plan_tecido_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _replicar_cards_plan_tecido_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)'::regprocedure));
-  IF v_md5 NOT IN ('cd89885741a32a63cbfa899d31ac0661', 'aaf3f2e4e4bd8eb14b99d53c79a653da') THEN
-    RAISE EXCEPTION 'tamanho_em: _replicar_cards_plan_tecido_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'aaf3f2e4e4bd8eb14b99d53c79a653da' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _replicar_cards_plan_tecido_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._plan_tecido_arvore_core(uuid)') IS NULL THEN
-    RAISE EXCEPTION 'tamanho_em: _plan_tecido_arvore_core nao existe neste banco' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'tamanho_em (volta): _plan_tecido_arvore_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._plan_tecido_arvore_core(uuid)'::regprocedure));
-  IF v_md5 NOT IN ('137774116f4ec7fad102b6754a6decf3', '5111f417c2679a4bb2157ad0df61f55a') THEN
-    RAISE EXCEPTION 'tamanho_em: _plan_tecido_arvore_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '5111f417c2679a4bb2157ad0df61f55a' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): _plan_tecido_arvore_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regclass('public.plan_tecido_slots') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM pg_attribute WHERE attrelid = 'public.plan_tecido_slots'::regclass AND attname = 'tamanho_tipo' AND NOT attisdropped
+  ) THEN
+    EXECUTE 'SELECT count(*) FROM public.plan_tecido_slots WHERE tamanho_tipo IS NOT NULL' INTO v_n;
+    RAISE NOTICE 'tamanho_em (volta): % vaga(s) com Tamanho em escolhido serao apagadas pelo DROP COLUMN', v_n;
   END IF;
 END $guarda$;
+
+-- a árvore volta PRIMEIRO (deixa de ler a coluna que vai sair)
+CREATE OR REPLACE FUNCTION public._plan_tecido_arvore_core(_colecao_id uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select case when p.id is null then null else jsonb_build_object(
+    'plan_id', p.id, 'colecao_id', p.colecao_id,
+    'subcolecoes', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', s.id, 'subcolecao_id', s.subcolecao_id, 'ordem', s.ordem,
+        'categorias_tecido', coalesce((select jsonb_agg(sc.categoria_id order by sc.ordem, sc.created_at)
+          from plan_tecido_subcolecao_categorias sc where sc.subcolecao_id = s.id), '[]'::jsonb),
+        'linhas', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'id', l.id, 'linha_id', l.linha_id, 'categoria_id', l.categoria_id, 'ordem', l.ordem,
+            'slots', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'id', sl.id, 'modelo_id', sl.modelo_id, 'ref', m.ref, 'nome', coalesce(m.nome, sl.nome),
+                'thumb_path', coalesce((m.fotos_modelo)[1], m.desenho_tecnico_url, m.croqui_url),
+                'categoria_id', sl.categoria_id, 'categoria_tecido_id', sl.categoria_tecido_id, 'mix_id', case when sl.modelo_id is not null then m.mix_id else sl.mix_id end,
+                'usar_estoque', sl.usar_estoque,
+                'proporcoes', coalesce(sl.proporcoes, m.proporcoes),
+                'custo_simulado', sl.custo_simulado,
+                'custo_terceirizados_previsto', sl.custo_terceirizados_previsto,
+                'custos_adicionais', sl.custos_adicionais, 'preco_venda', sl.preco_venda,
+                'referencia_paths', to_jsonb(coalesce(sl.referencia_paths,'{}'::text[])),
+                'materiais', coalesce((
+                  select jsonb_agg(jsonb_build_object(
+                    'id', mt.id, 'artigo_id', mt.artigo_id, 'artigo_nome', a.nome,
+                    'unidade_medida', a.unidade_medida, 'rendimento', a.rendimento,
+                    'preco_por_metro', a.preco_por_metro,
+                    'tipo', mt.tipo, 'numero', mt.numero, 'consumo', mt.consumo,
+                    'loss_percent', mt.loss_percent, 'ordem', mt.ordem,
+                    'variantes', coalesce((
+                      select jsonb_agg(jsonb_build_object(
+                        'id', vv.id, 'variante_tecido_id', vv.variante_tecido_id,
+                        'variante_artigo_id', vt.artigo_id,
+                        'cor_id', vv.cor_id, 'cor_apelido_id', vv.cor_apelido_id,
+                        'label', concat_ws(' - ', coalesce(cor.nome, pcor.nome), coalesce(ap.nome, pap.nome)),
+                        'cor_nome', coalesce(cor.nome, pcor.nome),
+                        'ordem', vv.ordem, 'multiplicador', vv.multiplicador,
+                        'grades', vv.grades, 'grade_total', vv.grade_total,
+                        'distribuicao', vv.distribuicao, 'atende', vv.atende) order by vv.ordem)
+                      from plan_tecido_variantes vv
+                      left join variantes_tecido vt on vt.id = vv.variante_tecido_id
+                      left join cores cor on cor.id = vt.cor_id
+                      left join cores_apelido ap on ap.id = vt.cor_apelido_id
+                      left join cores pcor on pcor.id = vv.cor_id
+                      left join cores_apelido pap on pap.id = vv.cor_apelido_id
+                      where vv.material_id = mt.id), '[]'::jsonb)) order by mt.ordem)
+                  from plan_tecido_materiais mt
+                  left join artigos a on a.id = mt.artigo_id
+                  where mt.slot_id = sl.id), '[]'::jsonb)) order by sl.slot_index)
+              from plan_tecido_slots sl
+              left join modelos m on m.id = sl.modelo_id
+              where sl.linha_ref_id = l.id), '[]'::jsonb)) order by l.ordem)
+          from plan_tecido_linhas l where l.sub_id = s.id), '[]'::jsonb)) order by s.ordem)
+      from plan_tecido_subcolecoes s where s.plan_id = p.id), '[]'::jsonb)
+  ) end
+  from (select id, colecao_id from plan_tecido where colecao_id = _colecao_id) p;
+$function$
+;
 
 CREATE OR REPLACE FUNCTION public.fn_produto_tamanho_tipo_handover()
  RETURNS trigger
@@ -128,10 +202,7 @@ BEGIN
        SET tamanho_tipo = NEW.tamanho_tipo
      WHERE m.id = NEW.modelo_id
        AND m.tenant_id = NEW.tenant_id
-       -- [tamanho-em v1] o produto manda (P-85 A): troca o do modelo espelho sempre que DIFERE (antes: só se o modelo
-       -- não tinha, e o default 'letra' do modelo fazia o valor do produto se perder). Modelo integravel/integrado
-       -- recusa com 42501 via trg_zz_integracao_trava (invariante #14) — o Salvar do produto aborta inteiro.
-       AND m.tamanho_tipo IS DISTINCT FROM NEW.tamanho_tipo;
+       AND m.tamanho_tipo IS NULL;
     NEW.tamanho_tipo := NULL;
   END IF;
   RETURN NEW;
@@ -210,11 +281,10 @@ begin
     --     distinguem. mix_id null (família não migra p/ outra subcoleção — ver comentário no INSERT do produto).
     insert into public.modelos (
       tenant_id, nome, origem, categoria_principal_id, subcategoria1_id, subcategoria2_id,
-      colecao_id, subcolecao, semana, ref, linha_id, modelo_base_id, versao, tamanho_tipo
+      colecao_id, subcolecao, semana, ref, linha_id, modelo_base_id, versao
     )
     select _tenant, o.nome, 'revenda', o.categoria_id, o.subcategoria1_id, o.subcategoria2_id,
-           _destino_colecao_id, v_sub_nome, o.semana, pa.ref, null, v_root, v_versao,
-           coalesce(om.tamanho_tipo, 'letra')  -- [tamanho-em v1] a réplica leva o "Tamanho em" do card de origem
+           _destino_colecao_id, v_sub_nome, o.semana, pa.ref, null, v_root, v_versao
     from public.produtos_acabados pa where pa.id = v_novo_produto
     returning id into v_novo_modelo;
 
@@ -312,11 +382,10 @@ begin
     --     importado passa por fora do ref_auto — a REF do produto já foi gerada acima).
     insert into public.modelos (
       tenant_id, nome, origem, categoria_principal_id, subcategoria1_id, subcategoria2_id,
-      colecao_id, subcolecao, semana, ref, linha_id, modelo_base_id, versao, tamanho_tipo
+      colecao_id, subcolecao, semana, ref, linha_id, modelo_base_id, versao
     )
     select _tenant, o.nome, 'importado', o.categoria_id, o.subcategoria1_id, o.subcategoria2_id,
-           _destino_colecao_id, v_sub_nome, o.semana, pi.ref, null, v_root, v_versao,
-           coalesce(om.tamanho_tipo, 'letra')  -- [tamanho-em v1] a réplica leva o "Tamanho em" do card de origem
+           _destino_colecao_id, v_sub_nome, o.semana, pi.ref, null, v_root, v_versao
     from public.produtos_importados pi where pi.id = v_novo_produto
     returning id into v_novo_modelo;
 
@@ -375,7 +444,6 @@ declare
   v_sub1_atual uuid;
   v_sub2_atual uuid;
   v_tem_oc boolean;
-  v_tt text;  -- [tamanho-em v1]
 begin
   if auth.uid() is null then
     raise exception 'Não autenticado';
@@ -433,15 +501,6 @@ begin
     raise exception 'O markup precisa ser maior que zero.' using errcode = 'P0001';
   end if;
 
-  -- [tamanho-em v1] "Tamanho em" (P-85 A): só quando a chave vem no _dados (a tela manda só se mudou). Com card, o
-  -- gatilho do produto (fn_produto_tamanho_tipo_handover) leva o valor ao modelo espelho e limpa o do produto.
-  if _dados ? 'tamanho_tipo' then
-    v_tt := nullif(_dados->>'tamanho_tipo', '');
-    if v_tt is null or v_tt not in ('letra', 'numero') then
-      raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';
-    end if;
-  end if;
-
   select coalesce(jsonb_object_agg(v->>'ordem', coalesce(nullif(v->>'peso', '')::numeric, 0)), '{}'::jsonb)
     into v_pesos
     from jsonb_array_elements(coalesce(_variantes, '[]'::jsonb)) v;
@@ -483,7 +542,7 @@ begin
       tenant_id, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
       colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
       grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
-      markup_atacado, markup_varejo, foto_url, tamanho_tipo
+      markup_atacado, markup_varejo, foto_url
     ) values (
       v_tenant, v_nome, nullif(_dados->>'ref', ''), v_grupo_id, v_categoria_id,
       v_sub1_id, v_sub2_id,
@@ -491,7 +550,7 @@ begin
       nullif(_dados->>'empresa_id', '')::uuid, nullif(_dados->>'representante_id', '')::uuid,
       _dados->>'ref_fornecedor', _dados->>'composicao',
       coalesce(_dados->'grade_proporcao', '{}'::jsonb), v_qtd_total, v_valor_unitario, v_desconto_pct, v_insumos,
-      v_markup_atacado, v_markup_varejo, nullif(_dados->>'foto_url', ''), v_tt  -- [tamanho-em v1]
+      v_markup_atacado, v_markup_varejo, nullif(_dados->>'foto_url', '')
     ) returning id into v_id;
   else
     update public.produtos_acabados set
@@ -521,7 +580,6 @@ begin
       preco_atacado_fixo = case when v_markup_atacado is not null then null else preco_atacado_fixo end,
       preco_varejo_fixo = case when v_markup_varejo is not null then null else preco_varejo_fixo end,
       foto_url = nullif(_dados->>'foto_url', ''),
-      tamanho_tipo = case when _dados ? 'tamanho_tipo' then v_tt else tamanho_tipo end,  -- [tamanho-em v1]
       updated_at = now()
     where id = _id and tenant_id = v_tenant
     returning nome, categoria_id, subcategoria1_id, subcategoria2_id
@@ -571,7 +629,6 @@ declare
   v_soma_frete numeric;
   rec jsonb;
   v_ord int;
-  v_tt text;  -- [tamanho-em v1]
 begin
   if auth.uid() is null then raise exception 'Não autenticado'; end if;
   v_tenant := public.get_user_tenant_id();
@@ -595,15 +652,6 @@ begin
     raise exception 'A soma das etapas de frete (%) precisa fechar 100%%.', round(v_soma_frete,2) using errcode = 'P0001';
   end if;
 
-  -- [tamanho-em v1] "Tamanho em" (P-85 A): só quando a chave vem no _dados (a tela manda só se mudou). Com card, o
-  -- gatilho do produto (fn_produto_tamanho_tipo_handover) leva o valor ao modelo espelho e limpa o do produto.
-  if _dados ? 'tamanho_tipo' then
-    v_tt := nullif(_dados->>'tamanho_tipo', '');
-    if v_tt is null or v_tt not in ('letra', 'numero') then
-      raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';
-    end if;
-  end if;
-
   if _id is null then
     if v_grupo_id is null or v_categoria_id is null then
       raise exception 'Informe grupo e categoria do produto.' using errcode = 'P0001';
@@ -616,7 +664,7 @@ begin
       colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor,
       composicao, grade_proporcao, qtd_total, foto_url, data_pedido, data_prevista, data_entrega,
       moeda_compra, moeda_intermediaria, valor_unitario_m1, cotacao_ref, peso_kg, transporte_m2,
-      desconto_pct, cotacao_final, markup_atacado, markup_varejo, tamanho_tipo
+      desconto_pct, cotacao_final, markup_atacado, markup_varejo
     ) values (
       -- ref: se o usuário digitou uma REF manual, ela é gravada e o trigger fn_produto_importado_ref
       -- NÃO a sobrescreve (ele só gera quando new.ref é vazio). Senão null → trigger gera a automática.
@@ -630,8 +678,7 @@ begin
       coalesce((_dados->>'valor_unitario_m1')::numeric,0), coalesce((_dados->>'cotacao_ref')::numeric,0),
       coalesce((_dados->>'peso_kg')::numeric,0), coalesce((_dados->>'transporte_m2')::numeric,0),
       coalesce((_dados->>'desconto_pct')::numeric,0), coalesce((_dados->>'cotacao_final')::numeric,0),
-      nullif(_dados->>'markup_atacado','')::numeric, nullif(_dados->>'markup_varejo','')::numeric,
-      v_tt  -- [tamanho-em v1]
+      nullif(_dados->>'markup_atacado','')::numeric, nullif(_dados->>'markup_varejo','')::numeric
     ) returning id into v_id;
   else
     update public.produtos_importados set
@@ -664,7 +711,6 @@ begin
       cotacao_final = coalesce((_dados->>'cotacao_final')::numeric, cotacao_final),
       markup_atacado = nullif(_dados->>'markup_atacado','')::numeric,
       markup_varejo = nullif(_dados->>'markup_varejo','')::numeric,
-      tamanho_tipo = case when _dados ? 'tamanho_tipo' then v_tt else tamanho_tipo end,  -- [tamanho-em v1]
       updated_at = now()
     where id = _id and tenant_id = v_tenant
     returning id into v_id;
@@ -775,7 +821,6 @@ begin
     ref_fornecedor = null, composicao = null,
     grade_proporcao = '{}'::jsonb, qtd_total = 0, valor_unitario = 0, desconto_pct = 0,
     insumos_total = 0, markup_atacado = null, markup_varejo = null,
-    tamanho_tipo = null,  -- [tamanho-em v1]
     updated_at = now()
   where id = _produto_id and tenant_id = v_tenant;
 
@@ -824,7 +869,6 @@ begin
     moeda_compra = 'RMB', moeda_intermediaria = 'USD',
     valor_unitario_m1 = 0, cotacao_ref = 0, peso_kg = 0, transporte_m2 = 0,
     desconto_pct = 0, cotacao_final = 0, markup_atacado = null, markup_varejo = null,
-    tamanho_tipo = null,  -- [tamanho-em v1]
     updated_at = now()
   where id = _produto_id and tenant_id = v_tenant;
 
@@ -844,7 +888,6 @@ declare
   v_sub jsonb; v_ln jsonb; v_slot jsonb; v_mat jsonb; v_var jsonb;
   v_sub_id uuid; v_ln_id uuid; v_slot_id uuid; v_mat_id uuid;
   v_slot_oc jsonb;
-  v_tt text;  -- [tamanho-em v1]
 begin
   -- [NOVO] guarda de tenant incondicional (não depende de _rev_base) — fecha o IDOR
   -- de escrita cross-tenant: antes disso, o filtro de tenant só existia dentro do
@@ -902,16 +945,9 @@ begin
         values (v_sub_id, nullif(v_ln->>'linha_id','')::uuid, nullif(v_ln->>'categoria_id','')::uuid, coalesce((v_ln->>'ordem')::int,0))
         returning id into v_ln_id;
       for v_slot in select * from jsonb_array_elements(coalesce(v_ln->'slots','[]'::jsonb)) loop
-        -- [tamanho-em v1] "Tamanho em" (P-119 A): a vaga SEM card guarda a escolha; com card ele mora no modelo.
-        -- Valida SÓ onde o valor é gravado (vaga sem card; o "tocado" valida abaixo): na vaga COM card sem a marca o
-        -- valor é descartado — um legado fora do domínio no modelo (CHECK NOT VALID) não pode travar o Salvar inteiro.
-        v_tt := nullif(v_slot->>'tamanho_tipo', '');
-        if v_tt is not null and v_tt not in ('letra', 'numero') and nullif(v_slot->>'modelo_id','') is null then
-          raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';
-        end if;
         insert into plan_tecido_slots (id, linha_ref_id, modelo_id, slot_index, nome, custo_simulado,
           custo_terceirizados_previsto, custos_adicionais, preco_venda, categoria_id, usar_estoque, proporcoes,
-          categoria_tecido_id, mix_id, referencia_paths, tamanho_tipo)
+          categoria_tecido_id, mix_id, referencia_paths)
           values (coalesce(nullif(v_slot->>'id','')::uuid, gen_random_uuid()),  -- PRESERVA o id do slot
             v_ln_id, nullif(v_slot->>'modelo_id','')::uuid, coalesce((v_slot->>'slot_index')::int,0),
             v_slot->>'nome', v_slot->'custo_simulado',
@@ -923,23 +959,8 @@ begin
             v_slot->'proporcoes',
             nullif(v_slot->>'categoria_tecido_id','')::uuid,
             nullif(v_slot->>'mix_id','')::uuid,
-            coalesce((select array_agg(t.x) from jsonb_array_elements_text(coalesce(v_slot->'referencia_paths','[]'::jsonb)) t(x)), '{}'),
-            case when nullif(v_slot->>'modelo_id','') is null then v_tt end)  -- [tamanho-em v1] com card: NULL
+            coalesce((select array_agg(t.x) from jsonb_array_elements_text(coalesce(v_slot->'referencia_paths','[]'::jsonb)) t(x)), '{}'))
           returning id into v_slot_id;
-        -- [tamanho-em v1] vaga COM card: grava no modelo SÓ quando a tela marca tamanho_tipo_tocado (a pessoa trocou).
-        -- Filtro loja + coleção + interno fecha o IDOR do modelo_id vindo do cliente (fora dele: ignorado) e espelha a
-        -- tela (o toggle só existe no interno). Card integravel/integrado recusa 42501 via trg_zz_integracao_trava.
-        if nullif(v_slot->>'modelo_id','') is not null and coalesce(v_slot->>'tamanho_tipo_tocado', '') = 'true' then
-          if v_tt is null or v_tt not in ('letra', 'numero') then
-            raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';
-          end if;
-          update public.modelos m set tamanho_tipo = v_tt
-           where m.id = (v_slot->>'modelo_id')::uuid
-             and m.tenant_id = (select c.tenant_id from public.colecoes c where c.id = _colecao_id)
-             and m.colecao_id = _colecao_id
-             and coalesce(m.origem, 'interno') = 'interno'
-             and m.tamanho_tipo is distinct from v_tt;
-        end if;
         for v_mat in select * from jsonb_array_elements(coalesce(v_slot->'materiais','[]'::jsonb)) loop
           insert into plan_tecido_materiais (slot_id, artigo_id, tipo, numero, consumo, loss_percent, ordem)
             values (v_slot_id, nullif(v_mat->>'artigo_id','')::uuid, coalesce(v_mat->>'tipo','tecido'),
@@ -1018,7 +1039,6 @@ CREATE OR REPLACE FUNCTION public._plan_tecido_criar_card_core(_tenant uuid, _co
  SET search_path TO 'public'
 AS $function$
 declare v_mid uuid; v_mes uuid; v_ano uuid; v_sub text;
-  v_tt text;  -- [tamanho-em v1]
 begin
   if (select tenant_id from colecoes where id = _colecao_id) is distinct from _tenant then
     raise exception 'Coleção de outra loja.' using errcode = '42501';
@@ -1029,20 +1049,9 @@ begin
     select nome into v_sub from colecao_subcolecoes where id = (_slot->>'subcolecao_id')::uuid and tenant_id = _tenant;
   end if;
 
-  -- [tamanho-em v1] "Tamanho em" do card = o da VAGA SALVA (P-119 A); sem vaga salva com valor, o do payload
-  -- (validado); senão Letra.
-  v_tt := nullif(_slot->>'tamanho_tipo', '');
-  if v_tt is not null and v_tt not in ('letra', 'numero') then
-    raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';
-  end if;
-  if nullif(_slot->>'slot_id','') is not null then
-    v_tt := coalesce((select sl.tamanho_tipo from plan_tecido_slots sl
-                       where sl.id = (_slot->>'slot_id')::uuid and sl.tenant_id = _tenant), v_tt);
-  end if;
-
   insert into modelos (tenant_id, nome, colecao_id, subcolecao, linha_id, categoria_principal_id,
                        mes_id, ano_id, preco_venda, custo_terceirizados_previsto, custo_simulado,
-                       origem, status_planejamento, mix_id, tamanho_tipo)
+                       origem, status_planejamento, mix_id)
   values (_tenant,
           coalesce(nullif(_slot->>'nome',''), nullif(_slot->>'ref',''), 'Novo modelo (Plan. Tecido)'),
           _colecao_id, v_sub,
@@ -1052,8 +1061,7 @@ begin
           coalesce(nullif(_slot->>'custo_terceirizados_previsto','')::numeric, 0),
           coalesce(_slot->'custo_simulado', '{}'::jsonb),
           'interno', 'em_planejamento',
-          nullif(_slot->>'mix_id','')::uuid,   -- herda o mix reservado pela vaga (decisão 9)
-          coalesce(v_tt, 'letra'))  -- [tamanho-em v1]
+          nullif(_slot->>'mix_id','')::uuid)   -- herda o mix reservado pela vaga (decisão 9)
   returning id into v_mid;
 
   perform public._plan_tecido_gravar_bom_core(v_mid, _slot->'materiais');
@@ -1065,7 +1073,7 @@ begin
 
   -- vincula o slot do plano ao modelo criado (persistente; some o botão "Criar card")
   if nullif(_slot->>'slot_id','') is not null then
-    update plan_tecido_slots set modelo_id = v_mid, tamanho_tipo = null  -- [tamanho-em v1] com card, a vaga fica NULL
+    update plan_tecido_slots set modelo_id = v_mid
     where id = (_slot->>'slot_id')::uuid and tenant_id = _tenant;
   end if;
 
@@ -1110,7 +1118,6 @@ begin
               'custos_adicionais', sl.custos_adicionais, 'preco_venda', sl.preco_venda,
               'categoria_id', sl.categoria_id, 'usar_estoque', sl.usar_estoque,
               'proporcoes', sl.proporcoes, 'categoria_tecido_id', sl.categoria_tecido_id,
-              'tamanho_tipo', sl.tamanho_tipo,  -- [tamanho-em v1]
               'materiais', coalesce((
                 select jsonb_agg(jsonb_build_object(
                   'artigo_id', pm.artigo_id, 'tipo', pm.tipo, 'numero', pm.numero,
@@ -1299,8 +1306,7 @@ begin
       limit 1 for update skip locked;
 
     if v_slot is not null then
-      -- [tamanho-em v1] vaga livre reaproveitada: com card ela fica NULL (o valor mora no modelo, copiado da origem).
-      update plan_tecido_slots set modelo_id = v_novo, tamanho_tipo = null where id = v_slot;
+      update plan_tecido_slots set modelo_id = v_novo where id = v_slot;
     else
       select coalesce(max(slot_index), -1) + 1 into v_slot_idx
         from plan_tecido_slots where linha_ref_id = v_ln;
@@ -1340,83 +1346,8 @@ begin
 end $function$
 ;
 
--- [tamanho-em v1] P-119 A: a vaga SEM card guarda o "Tamanho em". Coluna nullable sem default (ADD é só catálogo);
--- CHECK NOT VALID (não varre a tabela; vale p/ toda escrita nova). Trava curta: logo depois vem a árvore e o COMMIT.
-ALTER TABLE public.plan_tecido_slots ADD COLUMN IF NOT EXISTS tamanho_tipo text;
-DO $ck$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'plan_tecido_slots_tamanho_tipo_chk'
-                  AND conrelid = 'public.plan_tecido_slots'::regclass) THEN
-    ALTER TABLE public.plan_tecido_slots
-      ADD CONSTRAINT plan_tecido_slots_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID;
-  END IF;
-END $ck$;
-COMMENT ON COLUMN public.plan_tecido_slots.tamanho_tipo IS '"Tamanho em" da vaga SEM card (letra | numero; P-119 A). Com card o valor mora em modelos.tamanho_tipo e aqui fica NULL (o criar card leva este valor ao modelo e zera).';
-
-CREATE OR REPLACE FUNCTION public._plan_tecido_arvore_core(_colecao_id uuid)
- RETURNS jsonb
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-  select case when p.id is null then null else jsonb_build_object(
-    'plan_id', p.id, 'colecao_id', p.colecao_id,
-    'subcolecoes', coalesce((
-      select jsonb_agg(jsonb_build_object(
-        'id', s.id, 'subcolecao_id', s.subcolecao_id, 'ordem', s.ordem,
-        'categorias_tecido', coalesce((select jsonb_agg(sc.categoria_id order by sc.ordem, sc.created_at)
-          from plan_tecido_subcolecao_categorias sc where sc.subcolecao_id = s.id), '[]'::jsonb),
-        'linhas', coalesce((
-          select jsonb_agg(jsonb_build_object(
-            'id', l.id, 'linha_id', l.linha_id, 'categoria_id', l.categoria_id, 'ordem', l.ordem,
-            'slots', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'id', sl.id, 'modelo_id', sl.modelo_id, 'ref', m.ref, 'nome', coalesce(m.nome, sl.nome),
-                'thumb_path', coalesce((m.fotos_modelo)[1], m.desenho_tecnico_url, m.croqui_url),
-                'categoria_id', sl.categoria_id, 'categoria_tecido_id', sl.categoria_tecido_id, 'mix_id', case when sl.modelo_id is not null then m.mix_id else sl.mix_id end,
-                'tamanho_tipo', case when sl.modelo_id is not null then m.tamanho_tipo else sl.tamanho_tipo end,  -- [tamanho-em v1]
-                'usar_estoque', sl.usar_estoque,
-                'proporcoes', coalesce(sl.proporcoes, m.proporcoes),
-                'custo_simulado', sl.custo_simulado,
-                'custo_terceirizados_previsto', sl.custo_terceirizados_previsto,
-                'custos_adicionais', sl.custos_adicionais, 'preco_venda', sl.preco_venda,
-                'referencia_paths', to_jsonb(coalesce(sl.referencia_paths,'{}'::text[])),
-                'materiais', coalesce((
-                  select jsonb_agg(jsonb_build_object(
-                    'id', mt.id, 'artigo_id', mt.artigo_id, 'artigo_nome', a.nome,
-                    'unidade_medida', a.unidade_medida, 'rendimento', a.rendimento,
-                    'preco_por_metro', a.preco_por_metro,
-                    'tipo', mt.tipo, 'numero', mt.numero, 'consumo', mt.consumo,
-                    'loss_percent', mt.loss_percent, 'ordem', mt.ordem,
-                    'variantes', coalesce((
-                      select jsonb_agg(jsonb_build_object(
-                        'id', vv.id, 'variante_tecido_id', vv.variante_tecido_id,
-                        'variante_artigo_id', vt.artigo_id,
-                        'cor_id', vv.cor_id, 'cor_apelido_id', vv.cor_apelido_id,
-                        'label', concat_ws(' - ', coalesce(cor.nome, pcor.nome), coalesce(ap.nome, pap.nome)),
-                        'cor_nome', coalesce(cor.nome, pcor.nome),
-                        'ordem', vv.ordem, 'multiplicador', vv.multiplicador,
-                        'grades', vv.grades, 'grade_total', vv.grade_total,
-                        'distribuicao', vv.distribuicao, 'atende', vv.atende) order by vv.ordem)
-                      from plan_tecido_variantes vv
-                      left join variantes_tecido vt on vt.id = vv.variante_tecido_id
-                      left join cores cor on cor.id = vt.cor_id
-                      left join cores_apelido ap on ap.id = vt.cor_apelido_id
-                      left join cores pcor on pcor.id = vv.cor_id
-                      left join cores_apelido pap on pap.id = vv.cor_apelido_id
-                      where vv.material_id = mt.id), '[]'::jsonb)) order by mt.ordem)
-                  from plan_tecido_materiais mt
-                  left join artigos a on a.id = mt.artigo_id
-                  where mt.slot_id = sl.id), '[]'::jsonb)) order by sl.slot_index)
-              from plan_tecido_slots sl
-              left join modelos m on m.id = sl.modelo_id
-              where sl.linha_ref_id = l.id), '[]'::jsonb)) order by l.ordem)
-          from plan_tecido_linhas l where l.sub_id = s.id), '[]'::jsonb)) order by s.ordem)
-      from plan_tecido_subcolecoes s where s.plan_id = p.id), '[]'::jsonb)
-  ) end
-  from (select id, colecao_id from plan_tecido where colecao_id = _colecao_id) p;
-$function$
-;
+ALTER TABLE public.plan_tecido_slots DROP CONSTRAINT IF EXISTS plan_tecido_slots_tamanho_tipo_chk;
+ALTER TABLE public.plan_tecido_slots DROP COLUMN IF EXISTS tamanho_tipo;
 
 REVOKE EXECUTE ON FUNCTION public.fn_produto_tamanho_tipo_handover() FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._replicar_produtos_acabados_core(uuid, uuid, uuid, uuid[]) FROM PUBLIC, anon, authenticated;
@@ -1437,71 +1368,63 @@ DECLARE
   r record;
 BEGIN
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public.fn_produto_tamanho_tipo_handover()')));
-  IF v_md5 IS DISTINCT FROM '2712720482d94963ffda1b807fdf6931' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - fn_produto_tamanho_tipo_handover nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '16f03fe8cce7f92a8bbe77ad0d2c7e5a' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - fn_produto_tamanho_tipo_handover nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._replicar_produtos_acabados_core(uuid,uuid,uuid,uuid[])')));
-  IF v_md5 IS DISTINCT FROM '5aa4cf782687fe1dec96d18ef4d2923d' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _replicar_produtos_acabados_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'bb39e1ce5681e944160e59b71a28d206' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _replicar_produtos_acabados_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._replicar_produtos_importados_core(uuid,uuid,uuid,uuid[])')));
-  IF v_md5 IS DISTINCT FROM 'dc37b0adf427d1b2f6bca71a8d755ae0' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _replicar_produtos_importados_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '150dbbca4cba9e4523427552bcd7e5c3' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _replicar_produtos_importados_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._salvar_produto_acabado_core(uuid,jsonb,jsonb)')));
-  IF v_md5 IS DISTINCT FROM '20f8e442b95f8bb02bc8201b431c21b1' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _salvar_produto_acabado_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'fd05edfc91464798639d761110607d30' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _salvar_produto_acabado_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)')));
-  IF v_md5 IS DISTINCT FROM '2f3a81d18248752c56a7bd386c8bfe69' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _salvar_produto_importado_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'd29c80190739b780523a3a4d4a175f08' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _salvar_produto_importado_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._limpar_produto_acabado_core(uuid)')));
-  IF v_md5 IS DISTINCT FROM '123ddc5a717d896bc38193806769ccae' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _limpar_produto_acabado_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '5e93aa82de5cf6f24faa25ba2d7891af' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _limpar_produto_acabado_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._limpar_produto_importado_core(uuid)')));
-  IF v_md5 IS DISTINCT FROM '5fe6e90f2a96881614f45f84f9865bdd' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _limpar_produto_importado_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'b1b89e0d2020d0de4c32b1448872ab08' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _limpar_produto_importado_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._salvar_plan_tecido_core(uuid,jsonb,integer)')));
-  IF v_md5 IS DISTINCT FROM '81a3606444a2cf68ee376937009b9bad' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _salvar_plan_tecido_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '58fcaddadee3c7ab8cac44c0597c9368' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _salvar_plan_tecido_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)')));
-  IF v_md5 IS DISTINCT FROM 'fceac02c52bd0b29a33856dc9e0f9b11' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _plan_tecido_criar_card_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '3a398cfecbfd8c434e998fc781a71f0b' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _plan_tecido_criar_card_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._plan_tecido_snapshot(uuid)')));
-  IF v_md5 IS DISTINCT FROM '2c2ba1e79ab311b2c5ba8080cac958e9' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _plan_tecido_snapshot nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '75d43c800b38b08c77831a645dcb4b3d' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _plan_tecido_snapshot nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)')));
-  IF v_md5 IS DISTINCT FROM 'aaf3f2e4e4bd8eb14b99d53c79a653da' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _replicar_cards_plan_tecido_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM 'cd89885741a32a63cbfa899d31ac0661' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _replicar_cards_plan_tecido_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._plan_tecido_arvore_core(uuid)')));
-  IF v_md5 IS DISTINCT FROM '5111f417c2679a4bb2157ad0df61f55a' THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _plan_tecido_arvore_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  IF v_md5 IS DISTINCT FROM '137774116f4ec7fad102b6754a6decf3' THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - _plan_tecido_arvore_core nao voltou ao texto de antes (md5 %) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
-  -- ACL: os 12 objetos com EXECUTE revogado dos TRES (invariante #9).
   FOR r IN SELECT unnest(ARRAY['public.fn_produto_tamanho_tipo_handover()', 'public._replicar_produtos_acabados_core(uuid,uuid,uuid,uuid[])', 'public._replicar_produtos_importados_core(uuid,uuid,uuid,uuid[])', 'public._salvar_produto_acabado_core(uuid,jsonb,jsonb)', 'public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)', 'public._limpar_produto_acabado_core(uuid)', 'public._limpar_produto_importado_core(uuid)', 'public._salvar_plan_tecido_core(uuid,jsonb,integer)', 'public._plan_tecido_criar_card_core(uuid,uuid,jsonb)', 'public._plan_tecido_snapshot(uuid)', 'public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)', 'public._plan_tecido_arvore_core(uuid)']) AS sig LOOP
     IF has_function_privilege('public', to_regprocedure(r.sig), 'EXECUTE')
        OR has_function_privilege('anon', to_regprocedure(r.sig), 'EXECUTE')
        OR has_function_privilege('authenticated', to_regprocedure(r.sig), 'EXECUTE') THEN
-      RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - % com EXECUTE para PUBLIC/anon/authenticated', r.sig USING ERRCODE = 'P0001';
+      RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - % com EXECUTE para PUBLIC/anon/authenticated', r.sig USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_attribute a
-     WHERE a.attrelid = 'public.plan_tecido_slots'::regclass AND a.attname = 'tamanho_tipo' AND NOT a.attisdropped
-       AND format_type(a.atttypid, a.atttypmod) = 'text' AND NOT a.attnotnull AND NOT a.atthasdef
-  ) OR NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conrelid = 'public.plan_tecido_slots'::regclass
-       AND conname = 'plan_tecido_slots_tamanho_tipo_chk'
-       AND pg_get_constraintdef(oid) = 'CHECK ((tamanho_tipo = ANY (ARRAY[''letra''::text, ''numero''::text]))) NOT VALID'
-  ) THEN
-    RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - coluna/CHECK de plan_tecido_slots.tamanho_tipo incompletos ou com outra definicao - desfazendo tudo' USING ERRCODE = 'P0001';
+  IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.plan_tecido_slots'::regclass AND attname = 'tamanho_tipo' AND NOT attisdropped)
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.plan_tecido_slots'::regclass AND conname = 'plan_tecido_slots_tamanho_tipo_chk') THEN
+    RAISE EXCEPTION 'tamanho_em (volta): pos-condicao falhou - plan_tecido_slots.tamanho_tipo ainda existe - desfazendo tudo' USING ERRCODE = 'P0001';
   END IF;
 END $pos$;
 

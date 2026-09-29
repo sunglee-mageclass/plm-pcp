@@ -402,7 +402,7 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
     await withTx(async (c) => {
       await prepara(c);
       const d = (await def(c))!;
-      // "Tamanho em" nos cards (20261011100000, LIFO por cima desta): na cópia com ela o _replicar está no texto DELA (a vaga
+      // "Tamanho em" nos cards (20261014100000, LIFO por cima desta): na cópia com ela o _replicar está no texto DELA (a vaga
       // livre reaproveitada zera o tamanho_tipo; a suíte tamanho-em-cards prova "depois = este texto + só a troca dela").
       if (md5(d) !== "aaf3f2e4e4bd8eb14b99d53c79a653da") {
         expect(d).toBe(corpoReplicar(MIG) + "\n");
