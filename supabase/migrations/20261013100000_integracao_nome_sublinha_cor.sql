@@ -12,12 +12,15 @@
 --   • _integracao_retrato_core: o nome da sublinha vem de _integracao_nome_sublinha; o retrato passa a v = 2 (marcador de
 --     idempotência — ninguém lê v). _integracao_exemplo (modo teste da API): "Produto Exemplo 1 Cor Exemplo P".
 --   • P-127 B: integráveis com retrato v = 1 são REPROCESSADOS (só o nome das sublinhas + v = 2 + nova assinatura HMAC + rev);
---     integrados ficam intocados (conferido byte a byte). Um "editar" no Log da Integração por produto com nome mudado (quem
---     "Sistema (cor no nome das sublinhas)", detalhe com nomes_antes/assinaturas — é daí que o inverso restaura).
---   • P-129 A: no reprocesso a cor vem do RETRATO quando Cor base/Apelido está marcado; senão do cadastro vivo.
+--     integrados ficam intocados (conferido byte a byte). Um "editar" no Log da Integração por integrável REPROCESSADO (quem
+--     "Sistema (cor no nome das sublinhas)"; detalhe com sublinhas = nº de nomes mudados (0 = só v/assinatura), nomes_antes
+--     (só dos que mudaram), assinatura_antes/depois — é daí que o inverso restaura TODOS).
+--   • P-129 A: no reprocesso a cor vem do RETRATO quando o campo da cor está marcado; o cadastro vivo só é lido quando a cor
+--     que entra no nome NÃO está no retrato (e aí, variante não achada = recusa).
 -- Contagens: +2 funções (IMMUTABLE), 5 redefinidas, 0 gatilhos, 0 tabelas/colunas/policies. ACL (#9): REVOKE das 7 de
--- PUBLIC/anon/authenticated. Trava: LOCK SHARE ROW EXCLUSIVE em integracao_produtos/linhas (leituras seguem; marcar/voltar/
--- confirmar esperam) — não é DDL nem tenant_config. Idempotente (guarda aceita antes OU depois; reaplicar reprocessa 0).
+-- PUBLIC/anon/authenticated. Trava: LOCK EXCLUSIVE em integracao_produtos/linhas (SELECT simples segue; marcar/voltar/
+-- confirmar/trava FOR SHARE esperam — fecha a corrida de um marcar que calculou o retrato v1 antes do COMMIT) — não é DDL nem
+-- tenant_config. Idempotente (guarda aceita antes OU depois; reaplicar reprocessa 0).
 -- Inverso: supabase/rollback/20261013100000_integracao_nome_sublinha_cor_down.sql (LIFO: voltar a Integração exige voltar ESTA antes).
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -875,7 +878,7 @@ REVOKE EXECUTE ON FUNCTION
   public._integracao_exemplo(text[], integer)
   FROM PUBLIC, anon, authenticated;
 
-LOCK TABLE public.integracao_produtos, public.integracao_linhas IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE public.integracao_produtos, public.integracao_linhas IN EXCLUSIVE MODE;
 
 -- P-127 B: integráveis com retrato v = 1 → só o NOME das sublinhas (+ v = 2, assinatura, rev). Integrados e o resto intocados.
 DO $reprocessa$
@@ -907,6 +910,7 @@ DECLARE
   v_upd integer;
   v_n_prod integer := 0;
   v_n_log integer := 0;
+  v_n_com_nome integer := 0;
   v_n_sub integer := 0;
   v_intocados_antes text;
   v_intocados_depois text;
@@ -953,11 +957,17 @@ BEGIN
           RAISE EXCEPTION 'integracao_nome_cor: tamanho da sublinha nao confere com o nome (modelo %, ordem %)', ip.modelo_id, l ->> 'ordem'
             USING ERRCODE = 'P0001';
         END IF;
-        -- P-129 A: a cor do RETRATO quando o campo está marcado; senão o nome VIVO da variante (3 origens, sem filtro de grade)
+        -- P-129 A: a cor do RETRATO quando o campo está marcado; o nome VIVO da variante (3 origens, sem filtro de grade) só é
+        -- lido quando a cor que entra no nome NÃO está no retrato: modo Cor base sem cor_base marcado; modo Apelido sem
+        -- cor_apelido marcado, ou com ele marcado mas VAZIO (variante sem apelido ⇒ a cor base) e cor_base não marcado.
         v_vk := (l ->> 'variante_key')::uuid;
         v_cor_viva := NULL;
         v_ap_viva := NULL;
-        IF NOT ('cor_base' = ANY(v_campos) AND 'cor_apelido' = ANY(v_campos)) AND v_vk IS DISTINCT FROM v_sem_cor THEN
+        IF v_vk IS DISTINCT FROM v_sem_cor
+           AND (CASE WHEN v_modo = 'cor_apelido'
+                     THEN NOT ('cor_apelido' = ANY(v_campos))
+                          OR (nullif(btrim(l -> 'valores' ->> 'cor_apelido'), '') IS NULL AND NOT ('cor_base' = ANY(v_campos)))
+                     ELSE NOT ('cor_base' = ANY(v_campos)) END) THEN
           v_achou := false;
           SELECT c.nome::text, a.nome::text, true INTO v_cor_viva, v_ap_viva, v_achou
             FROM (SELECT vt.cor_id AS vcor, vt.cor_apelido_id AS vapelido, mtv.ordem AS vordem
@@ -1006,6 +1016,8 @@ BEGIN
      WHERE id = ip.id;
     v_n_prod := v_n_prod + 1;
     IF v_mudou > 0 THEN
+      v_n_com_nome := v_n_com_nome + 1;
+      v_n_sub := v_n_sub + v_mudou;
       FOR l IN SELECT e.x FROM jsonb_array_elements(v_linhas) AS e(x) WHERE e.x ->> 'tipo' = 'variante' LOOP
         UPDATE public.integracao_linhas il
            SET nome = l -> 'valores' ->> 'nome'
@@ -1016,13 +1028,14 @@ BEGIN
             USING ERRCODE = 'P0001';
         END IF;
       END LOOP;
-      PERFORM public._integracao_logar(ip.tenant_id, 'editar', ip.modelo_id,
-        jsonb_build_object('reprocesso', 'nome_sublinhas_cor', 'cor_no_nome', v_modo, 'sublinhas', v_mudou, 'exemplo', v_ex,
-                           'nomes_antes', v_nomes_antes, 'assinatura_antes', ip.assinatura, 'assinatura_depois', v_ass),
-        'Sistema (cor no nome das sublinhas)');
-      v_n_log := v_n_log + 1;
-      v_n_sub := v_n_sub + v_mudou;
     END IF;
+    -- TODO integrável reprocessado ganha o registro (também sem nome mudado: sublinhas 0, nomes_antes []) — o inverso o restaura
+    PERFORM public._integracao_logar(ip.tenant_id, 'editar', ip.modelo_id,
+      jsonb_build_object('reprocesso', 'nome_sublinhas_cor', 'cor_no_nome', v_modo, 'sublinhas', v_mudou, 'exemplo', v_ex,
+                         'nomes_antes', CASE WHEN v_mudou > 0 THEN v_nomes_antes ELSE '[]'::jsonb END,
+                         'assinatura_antes', ip.assinatura, 'assinatura_depois', v_ass),
+      'Sistema (cor no nome das sublinhas)');
+    v_n_log := v_n_log + 1;
   END LOOP;
   SELECT md5(coalesce((SELECT string_agg(p::text, '|' ORDER BY p.id) FROM public.integracao_produtos p WHERE p.id <> ALL(v_ids)), '')
           || '#' || coalesce((SELECT string_agg(il::text, '|' ORDER BY il.id) FROM public.integracao_linhas il
@@ -1031,8 +1044,8 @@ BEGIN
   IF v_intocados_depois IS DISTINCT FROM v_intocados_antes THEN
     RAISE EXCEPTION 'integracao_nome_cor: integrados/outros produtos mudaram no reprocesso' USING ERRCODE = 'P0001';
   END IF;
-  RAISE NOTICE 'integracao_nome_cor: % integravel(is) reprocessado(s); % com nome mudado (% sublinhas; % registro(s) no Log)',
-    v_n_prod, v_n_log, v_n_sub, v_n_log;
+  RAISE NOTICE 'integracao_nome_cor: % integravel(is) reprocessado(s) (% registro(s) no Log); % com nome mudado (% sublinhas)',
+    v_n_prod, v_n_log, v_n_com_nome, v_n_sub;
 END
 $reprocessa$;
 

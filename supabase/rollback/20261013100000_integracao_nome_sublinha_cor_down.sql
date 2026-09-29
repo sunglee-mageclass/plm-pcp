@@ -2,11 +2,13 @@
 -- voltam ao texto de ANTES, lido da cópia = produção — nunca editar à mão). Ordem:
 --   1. guarda: md5 das 5 ∈ (depois, antes); as 2 novas ausentes ou = depois; se alguma loja GRAVOU a escolha
 --      tenant_config.sku_config.cor_no_nome, exige SET app.confirmo_voltar_cor_no_nome = 'sim' (a escolha é apagada).
---   2. LOCK (o mesmo da ida) e restauração: cada integrável reprocessado pela ida (registro 'editar' do Log com
---      reprocesso = nome_sublinhas_cor e assinatura_depois = a assinatura atual) volta ao nome de antes (nomes_antes), v = 1,
---      reassinado — a nova assinatura TEM de ser a assinatura_antes do Log (senão RAISE). Marcados depois da ida (v = 2 sem
---      Log que bata) FICAM como estão (NOTICE com a contagem). Integrados nunca mudam.
---   3. tenant_config: tira a chave cor_no_nome (partes [] → NULL, "sem formato" de antes) — só DML nas lojas que a têm.
+--   2. LOCK (o mesmo da ida) e restauração: TODO integrável reprocessado pela ida (registro 'editar' do Log com
+--      reprocesso = nome_sublinhas_cor e assinatura_depois = a assinatura atual — com ou sem nome mudado) volta a v = 1 e ao
+--      nome de antes (nomes_antes; vazio = o nome não tinha mudado), reassinado — a nova assinatura TEM de ser a
+--      assinatura_antes do Log (senão RAISE). Marcados depois da ida (v = 2 sem Log que bata) FICAM como estão (NOTICE com a
+--      contagem). Integrados nunca mudam.
+--   3. tenant_config: trava as linhas (FOR NO KEY UPDATE — um Salvar do Formato do SKU no meio espera), reconfere a
+--      confirmação e tira a chave cor_no_nome (partes [] → NULL, "sem formato" de antes) — só DML nas lojas que a têm.
 --   4. as 5 de antes, DROP das 2 novas, REVOKE (inv. 9), $pos$ (md5 = antes; novas ausentes; ninguém com a chave).
 -- O Log da ida fica (histórico). LIFO: rode este ANTES de voltar a Integração (volta-producao.sh) ou o SKU em prévia.
 SET client_encoding = 'UTF8';
@@ -50,7 +52,7 @@ BEGIN
 END
 $guarda$;
 
-LOCK TABLE public.integracao_produtos, public.integracao_linhas IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE public.integracao_produtos, public.integracao_linhas IN EXCLUSIVE MODE;
 
 DO $restaura$
 DECLARE
@@ -97,7 +99,8 @@ BEGIN
     UPDATE public.integracao_produtos
        SET retrato = v_ret, assinatura = v_ass, rev = rev + 1, atualizado_em = now()
      WHERE id = r.id;
-    FOR l IN SELECT e.x FROM jsonb_array_elements(v_linhas) AS e(x) WHERE e.x ->> 'tipo' = 'variante' LOOP
+    FOR l IN SELECT e.x FROM jsonb_array_elements(v_linhas) AS e(x)
+              WHERE e.x ->> 'tipo' = 'variante' AND jsonb_array_length(coalesce(r.detalhe -> 'nomes_antes', '[]'::jsonb)) > 0 LOOP
       UPDATE public.integracao_linhas il
          SET nome = l -> 'valores' ->> 'nome'
        WHERE il.modelo_id = r.modelo_id AND il.ordem = (l ->> 'ordem')::integer AND il.tipo = 'variante';
@@ -110,10 +113,24 @@ BEGIN
     v_n := v_n + 1;
   END LOOP;
   SELECT count(*) INTO v_ficam FROM public.integracao_produtos p WHERE p.estado = 'integravel' AND p.retrato ->> 'v' = '2';
-  RAISE NOTICE 'integracao_nome_cor_volta: % integravel(is) restaurado(s) ao nome de antes; % marcado(s) depois da ida ficam com o nome com cor',
+  RAISE NOTICE 'integracao_nome_cor_volta: % integravel(is) reprocessado(s) pela ida voltaram a v1 (nome e assinatura de antes); % marcado(s) depois da ida ficam em v2',
     v_n, v_ficam;
 END
 $restaura$;
+
+-- trava as linhas da Config (um Salvar do Formato do SKU no meio espera o COMMIT) e reconfere a confirmação sob a trava
+DO $config$
+DECLARE
+  v_n integer;
+BEGIN
+  PERFORM 1 FROM public.tenant_config ORDER BY tenant_id FOR NO KEY UPDATE;
+  SELECT count(*) INTO v_n FROM public.tenant_config tc WHERE tc.sku_config ? 'cor_no_nome';
+  IF v_n > 0 AND coalesce(current_setting('app.confirmo_voltar_cor_no_nome', true), '') <> 'sim' THEN
+    RAISE EXCEPTION 'integracao_nome_cor_volta: % loja(s) gravaram a escolha Cor base/Apelido do nome da sublinha; o inverso a apaga - confirme com SET app.confirmo_voltar_cor_no_nome = ''sim''', v_n
+      USING ERRCODE = 'P0001';
+  END IF;
+END
+$config$;
 
 UPDATE public.tenant_config
    SET sku_config = CASE WHEN sku_config -> 'partes' = '[]'::jsonb THEN NULL ELSE sku_config - 'cor_no_nome' END

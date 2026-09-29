@@ -173,7 +173,9 @@ describe("integracao 8 — arquivos da migration e do inverso (estático, sem ba
       expect(linhas.filter((l) => l === "COMMIT;").length, rel).toBe(1);
       const b = linhas.indexOf("BEGIN;");
       expect(linhas.slice(b + 1, b + 3), rel).toEqual(["SET LOCAL lock_timeout = '500ms';", "SET LOCAL transaction_timeout = '10s';"]);
-      expect(t, rel).toContain("LOCK TABLE public.integracao_produtos, public.integracao_linhas IN SHARE ROW EXCLUSIVE MODE;");
+      // MEDIUM-2 (G-migration): EXCLUSIVE — um marcar que calculou o retrato v1 antes do COMMIT espera já no FOR UPDATE
+      expect(t, rel).toContain("LOCK TABLE public.integracao_produtos, public.integracao_linhas IN EXCLUSIVE MODE;");
+      expect(t, rel).not.toContain("SHARE ROW EXCLUSIVE");
       expect(t.indexOf("NOTIFY pgrst, 'reload schema';"), rel).toBeGreaterThan(t.indexOf("DO $pos$"));
       expect(t.indexOf("NOTIFY pgrst, 'reload schema';"), rel).toBeLessThan(t.indexOf("\nCOMMIT;"));
     }
@@ -183,10 +185,11 @@ describe("integracao 8 — arquivos da migration e do inverso (estático, sem ba
     const ordem = [i("DO $guarda$"), i(cria(NOVAS[0])), i(cria(REDEF[0])), i("REVOKE EXECUTE ON FUNCTION"), i("LOCK TABLE"),
       i("DO $reprocessa$"), i("DO $pos$")];
     expect([...ordem].sort((a, b) => a - b)).toEqual(ordem);
-    // volta: guarda → LOCK → restaura → tenant_config → 5 de antes → DROP das novas → REVOKE → pos
+    // volta: guarda → LOCK → restaura → trava+reconfere tenant_config → UPDATE tenant_config → 5 de antes → DROP → REVOKE → pos
     const v = ler(INV);
     const j = (s: string) => { const x = v.indexOf(s); expect(x, s).toBeGreaterThan(-1); return x; };
-    const ov = [j("DO $guarda$"), j("LOCK TABLE"), j("DO $restaura$"), j("UPDATE public.tenant_config"), j(cria(REDEF[0])),
+    expect(v).toContain("PERFORM 1 FROM public.tenant_config ORDER BY tenant_id FOR NO KEY UPDATE;");
+    const ov = [j("DO $guarda$"), j("LOCK TABLE"), j("DO $restaura$"), j("DO $config$"), j("UPDATE public.tenant_config"), j(cria(REDEF[0])),
       j("DROP FUNCTION IF EXISTS public._integracao_nome_sublinha(text, text, text, text, text);"), j("REVOKE EXECUTE ON FUNCTION"), j("DO $pos$")];
     expect([...ov].sort((a, b) => a - b)).toEqual(ov);
     for (const f of NOVAS) expect(v, f).not.toContain(cria(f));
@@ -233,7 +236,7 @@ describe("integracao 8 — arquivos da migration e do inverso (estático, sem ba
     expect(volta[0].fns.split(",\n").length).toBe(5);
     for (const rel of [MIG, INV]) {
       const t = ler(rel);
-      for (const bloco of t.match(/DO \$(guarda|reprocessa|restaura|pos)\$[\s\S]*?\$\1\$;/g) ?? []) {
+      for (const bloco of t.match(/DO \$(guarda|reprocessa|restaura|config|pos)\$[\s\S]*?\$\1\$;/g) ?? []) {
         for (const msg of bloco.match(/RAISE (EXCEPTION|NOTICE) '[^']*(''[^']*)*'/g) ?? []) {
           expect(/^[\x20-\x7E]*$/.test(msg), `${rel}: ${msg}`).toBe(true);
         }
@@ -379,7 +382,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
     });
   });
 
-  it("(e) P-127 B: integráveis v1 reprocessados (só o nome; P-129 cor do retrato se marcada, senão viva); integrados intocados; log; reaplicar = 0", async () => {
+  it("(e) P-127 B: integráveis v1 reprocessados (só o nome; P-129 cor do retrato se marcada, senão viva); integrados intocados; 1 log por reprocessado; reaplicar = 0", async () => {
     await withTx(async (c) => {
       await voltaSePreciso(c);
       expect(await md5Vivo(c, RETRATO)).toBe(antesDe(RETRATO));
@@ -387,34 +390,46 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       await keywordsLoja(c, "k");
       // Formato com cor_apelido ⇒ o padrão DERIVADO é o Apelido (o normalizador de antes nem guardaria a chave explícita)
       await skuConfig(c, { partes: ["ref", "cor_base", "cor_apelido", "tamanho"] });
+      const SEM = (...fora: string[]) => CAMPOS_PADRAO.filter((k) => !fora.includes(k));
       await camposLoja(c, CAMPOS_PADRAO);
       const A = await modeloInterno(c); // Nome + cores marcados
       const D = await modeloInterno(c); // idem; o apelido é renomeado DEPOIS de marcar (P-129: vale o do retrato)
       const R = await revenda(c); // revenda, Nome + cores
       const I = await modeloInterno(c); // vira integrado
-      for (const x of [A, D, R, I]) await marcar(c, x.id);
-      await camposLoja(c, CAMPOS_PADRAO.filter((k) => k !== "nome"));
-      const B = await modeloInterno(c); // SEM Nome marcado
+      const K = await modeloInterno(c); // cores marcadas; a variante SAI do cadastro depois (LOW-2: nem consulta o cadastro)
+      for (const x of [A, D, R, I, K]) await marcar(c, x.id);
+      await camposLoja(c, SEM("nome"));
+      const B = await modeloInterno(c); // SEM Nome marcado ⇒ só v/assinatura (log com sublinhas 0)
       await marcar(c, B.id);
-      await camposLoja(c, CAMPOS_PADRAO.filter((k) => k !== "cor_base" && k !== "cor_apelido"));
+      await camposLoja(c, SEM("cor_base", "cor_apelido"));
       const E = await modeloInterno(c); // Nome marcado, cores NÃO ⇒ cor VIVA do cadastro
       await marcar(c, E.id);
+      await camposLoja(c, SEM("cor_apelido"));
+      const M1 = await modeloInterno(c); // misto: só Cor base marcada; o modo é Apelido ⇒ o apelido VIVO (renomeado)
+      await marcar(c, M1.id);
+      await camposLoja(c, SEM("cor_base"));
+      const M2 = await modeloInterno(c, { semApelido: true }); // misto: só Apelido marcado e VAZIO ⇒ a cor base VIVA (renomeada)
+      await marcar(c, M2.id);
       await camposLoja(c, CAMPOS_PADRAO);
       await c.query(`UPDATE public.integracao_produtos SET estado = 'integrado', integrado_em = now() WHERE modelo_id = $1`, [I.id]);
-      await c.query(`UPDATE public.cores_apelido SET nome = nome || ' Novo' WHERE id = $1`, [D.apelidoId]);
-      await c.query(`UPDATE public.cores_apelido SET nome = nome || ' Novo' WHERE id = $1`, [E.apelidoId]);
+      for (const x of [D, E, M1]) await c.query(`UPDATE public.cores_apelido SET nome = nome || ' Novo' WHERE id = $1`, [x.apelidoId]);
+      await c.query(`UPDATE public.cores SET nome = nome || ' Novo' WHERE id = $1`, [M2.corId]);
+      await c.query(`DELETE FROM public.modelo_tecido_variantes mtv USING public.modelo_tecidos mt
+                      WHERE mt.id = mtv.modelo_tecido_id AND mt.modelo_id = $1`, [K.id]);
+      const P = { A, D, R, I, K, B, E, M1, M2 };
+      const REP = ["A", "D", "R", "K", "B", "E", "M1", "M2"] as const; // os reprocessados (todos menos o integrado)
       const antes: Record<string, Ip> = {};
-      for (const [k, x] of Object.entries({ A, D, R, I, B, E })) antes[k] = await ip(c, x.id);
-      for (const k of ["A", "D", "R", "B", "E"]) expect(antes[k].retrato.v, k).toBe(1);
+      for (const [k, x] of Object.entries(P)) antes[k] = await ip(c, x.id);
+      for (const k of REP) expect(antes[k].retrato.v, k).toBe(1);
       const nLogAntes = (await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.integracao_log WHERE tenant_id = $1`, [T])).n;
 
       await aplica(c, MIG);
 
       const depois: Record<string, Ip> = {};
-      for (const [k, x] of Object.entries({ A, D, R, I, B, E })) depois[k] = await ip(c, x.id);
+      for (const [k, x] of Object.entries(P)) depois[k] = await ip(c, x.id);
       // integrado: byte a byte (produto + linhas)
       expect(depois.I).toEqual(antes.I);
-      for (const k of ["A", "D", "R", "B", "E"]) {
+      for (const k of REP) {
         const d = depois[k];
         expect(d.retrato.v, k).toBe(2);
         expect(d.rev, k).toBe(antes[k].rev + 1);
@@ -426,13 +441,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
         const semNome = (r: Retrato) => ({ ...r, v: 0, linhas: r.linhas.map((l) => ({ ...l, valores: { ...l.valores, nome: l.tipo === "variante" ? "*" : l.valores.nome } })) });
         expect(semNome(d.retrato), k).toEqual(semNome(antes[k].retrato));
         // linhas da API = retrato
-        expect(await nomesLinhas(c, [A, D, R, I, B, E][["A", "D", "R", "I", "B", "E"].indexOf(k)].id), k)
-          .toEqual(variantes(d.retrato).map((l) => l.valores.nome ?? null));
+        expect(await nomesLinhas(c, P[k].id), k).toEqual(variantes(d.retrato).map((l) => l.valores.nome ?? null));
       }
       const nomeDe = (k: string) => depois[k].retrato.linhas[0].valores.nome;
+      const nomes = (k: string) => variantes(depois[k].retrato).map((l) => l.valores.nome);
       // A (Apelido derivado): nome + apelido + tamanho; e = o retrato_core FRESCO byte a byte (sem drift)
-      expect(variantes(depois.A.retrato).map((l) => l.valores.nome))
-        .toEqual(variantes(depois.A.retrato).map((l) => `${nomeDe("A")} ${l.valores.cor_apelido} ${l.valores.tamanho}`));
+      expect(nomes("A")).toEqual(variantes(depois.A.retrato).map((l) => `${nomeDe("A")} ${l.valores.cor_apelido} ${l.valores.tamanho}`));
       expect(JSON.stringify(await retrato(c, A.id))).toBe(JSON.stringify(depois.A.retrato));
       const fresco = (await um<{ t: string }>(c,
         `SELECT (public._integracao_retrato_core($1, p.campos, public._custo_unitario_modelos_core(ARRAY[$1::uuid]) -> $1::text) -> 'retrato')::text AS t
@@ -441,32 +455,46 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       expect(JSON.stringify(await retrato(c, R.id))).toBe(JSON.stringify(depois.R.retrato));
       // D (P-129): cores marcadas ⇒ a do RETRATO (o apelido renomeado depois NÃO entra)
       expect(variantes(depois.D.retrato)[0].valores.cor_apelido).not.toMatch(/ Novo$/);
-      expect(variantes(depois.D.retrato)[0].valores.nome).toBe(`${nomeDe("D")} ${variantes(depois.D.retrato)[0].valores.cor_apelido} P`);
+      expect(nomes("D")[0]).toBe(`${nomeDe("D")} ${variantes(depois.D.retrato)[0].valores.cor_apelido} P`);
+      // K (LOW-2): a variante sumiu do cadastro, mas as cores estão no retrato ⇒ reprocessa sem consultar (sem recusa)
+      expect(nomes("K")[0]).toBe(`${nomeDe("K")} ${variantes(depois.K.retrato)[0].valores.cor_apelido} P`);
+      const viva = async (tab: string, id: string | null) => (await um<{ n: string }>(c, `SELECT nome AS n FROM public.${tab} WHERE id = $1`, [id])).n;
       // E (P-129): cores NÃO marcadas ⇒ a VIVA do cadastro (renomeada)
-      const apE = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.cores_apelido WHERE id = $1`, [E.apelidoId])).n;
+      const apE = await viva("cores_apelido", E.apelidoId);
       expect(apE).toMatch(/ Novo$/);
-      expect(variantes(depois.E.retrato).map((l) => l.valores.nome)).toEqual([`${nomeDe("E")} ${apE} P`, `${nomeDe("E")} ${apE} M`]);
+      expect(nomes("E")).toEqual([`${nomeDe("E")} ${apE} P`, `${nomeDe("E")} ${apE} M`]);
+      // M1 (misto): Cor base marcada, Apelido NÃO; o modo é Apelido ⇒ o apelido VIVO (renomeado), não a cor base do retrato
+      const apM1 = await viva("cores_apelido", M1.apelidoId);
+      expect(apM1).toMatch(/ Novo$/);
+      expect(nomes("M1")).toEqual([`${nomeDe("M1")} ${apM1} P`, `${nomeDe("M1")} ${apM1} M`]);
+      // M2 (misto): Apelido marcado mas VAZIO (sem apelido) e Cor base NÃO marcada ⇒ a cor base VIVA (renomeada)
+      const baseM2 = await viva("cores", M2.corId);
+      expect(baseM2).toMatch(/ Novo$/);
+      expect(variantes(depois.M2.retrato)[0].valores.cor_apelido).toBeNull();
+      expect(nomes("M2")).toEqual([`${nomeDe("M2")} ${baseM2} P`, `${nomeDe("M2")} ${baseM2} M`]);
       // B: Nome não marcado ⇒ sem nome nenhum; só v + assinatura
       expect(variantes(depois.B.retrato).every((l) => !("nome" in l.valores))).toBe(true);
-      // log: 1 'editar' por produto com nome mudado (A, D, R, E), nenhum p/ B/I
-      for (const [k, x] of Object.entries({ A, D, R, E })) {
-        const l = await logs(c, x.id);
+      // log (LOW-1): 1 'editar' por integrável REPROCESSADO — com nome mudado (sublinhas 2) e sem (B: sublinhas 0, nomes_antes []);
+      // nenhum para o integrado
+      for (const k of REP) {
+        const l = await logs(c, P[k].id);
         expect(l.length, k).toBe(1);
         expect(l[0].acao).toBe("editar");
         expect(l[0].quem).toBe("Sistema (cor no nome das sublinhas)");
-        expect(l[0].detalhe).toMatchObject({
-          reprocesso: "nome_sublinhas_cor", cor_no_nome: "cor_apelido", sublinhas: 2,
+        const mudou = k !== "B";
+        expect(l[0].detalhe, k).toEqual({
+          reprocesso: "nome_sublinhas_cor", cor_no_nome: "cor_apelido", sublinhas: mudou ? 2 : 0,
           assinatura_antes: antes[k].assinatura, assinatura_depois: depois[k].assinatura,
-          nomes_antes: variantes(antes[k].retrato).map((v) => ({ ordem: v.ordem, nome: v.valores.nome })),
-          exemplo: { antes: variantes(antes[k].retrato)[0].valores.nome, depois: variantes(depois[k].retrato)[0].valores.nome },
+          nomes_antes: mudou ? variantes(antes[k].retrato).map((v) => ({ ordem: v.ordem, nome: v.valores.nome })) : [],
+          exemplo: mudou ? { antes: variantes(antes[k].retrato)[0].valores.nome, depois: variantes(depois[k].retrato)[0].valores.nome } : null,
         });
       }
-      for (const x of [B, I]) expect(await logs(c, x.id)).toEqual([]);
+      expect(await logs(c, I.id)).toEqual([]);
       const nLogDepois = (await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.integracao_log WHERE tenant_id = $1`, [T])).n;
-      expect(nLogDepois - nLogAntes).toBe(4);
+      expect(nLogDepois - nLogAntes).toBe(REP.length);
       // reaplicar: idempotente — 0 reprocessados, nenhum log novo, nada muda
       await aplica(c, MIG);
-      for (const [k, x] of Object.entries({ A, D, R, I, B, E })) expect(await ip(c, x.id), k).toEqual(depois[k]);
+      for (const [k, x] of Object.entries(P)) expect(await ip(c, x.id), k).toEqual(depois[k]);
       expect((await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.integracao_log WHERE tenant_id = $1`, [T])).n).toBe(nLogDepois);
     });
   });
@@ -545,12 +573,22 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       const A = await modeloInterno(c);
       await marcar(c, A.id);
       const a0 = await ip(c, A.id);
+      // LOW-1: N sem Nome marcado ⇒ reprocessado SEM nome mudado (só v/assinatura; log com sublinhas 0) — a volta o restaura também
+      await camposLoja(c, CAMPOS_PADRAO.filter((k) => k !== "nome"));
+      const N = await modeloInterno(c);
+      await marcar(c, N.id);
+      await camposLoja(c, CAMPOS_PADRAO);
+      const n0 = await ip(c, N.id);
       // ida
       await aplica(c, MIG);
       expect(await md5s()).toEqual(Object.fromEntries([...G.novas.map((g) => [g.fn, g.depois]), ...G.redef.map((g) => [g.fn, g.depois])]));
       const a1 = await ip(c, A.id);
       expect(a1.retrato.v).toBe(2);
       expect(a1.linhas).not.toBe(a0.linhas);
+      const n1 = await ip(c, N.id);
+      expect(n1.retrato.v).toBe(2);
+      expect(n1.linhas).toBe(n0.linhas);
+      expect((await logs(c, N.id)).map((l) => [l.detalhe.sublinhas, l.detalhe.nomes_antes])).toEqual([[0, []]]);
       // marcado DEPOIS da ida (v2 sem log) + a escolha gravada numa loja
       const B = await modeloInterno(c);
       await marcar(c, B.id);
@@ -568,8 +606,13 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       expect(a2.assinatura).toBe(a0.assinatura);
       expect(a2.rev).toBe(a0.rev + 2);
       expect(await nomesLinhas(c, A.id)).toEqual(variantes(a0.retrato).map((l) => l.valores.nome));
-      const b2 = await ip(c, B.id);
-      expect({ ...b2, rev: 0 }).toEqual({ ...b1, rev: 0 }); // marcado depois: fica (nome com cor, v2)
+      const n2 = await ip(c, N.id);
+      expect(n2.retrato_txt).toBe(n0.retrato_txt); // v1 de novo
+      expect(n2.assinatura).toBe(n0.assinatura);
+      expect(n2.linhas).toBe(n0.linhas);
+      expect(n2.rev).toBe(n0.rev + 2);
+      // marcado depois da ida (v2 sem log): a volta NÃO o toca — nem o rev
+      expect(await ip(c, B.id)).toEqual(b1);
       expect((await um<{ s: any }>(c, `SELECT sku_config AS s FROM public.tenant_config WHERE tenant_id = $1`, [T])).s).toEqual(FORMATO);
       // volta de novo = idempotente (nada a restaurar; sem chave ⇒ sem confirmação)
       await aplica(c, INV);
@@ -581,6 +624,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       expect(a3.retrato_txt).toBe(a1.retrato_txt);
       expect(a3.assinatura).toBe(a1.assinatura);
       expect((await logs(c, A.id)).length).toBe(2);
+      expect((await ip(c, N.id)).assinatura).toBe(n1.assinatura);
+      expect((await logs(c, N.id)).length).toBe(2);
       expect(await logs(c, B.id)).toEqual([]);
     });
   });
