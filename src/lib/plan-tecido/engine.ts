@@ -54,7 +54,7 @@ export type ModeloReal = {
   materiais: ModeloRealMaterial[];
   // custo de materiais (Σ aviamentos/insumos do BOM) — pré-preenche custo_simulado.materiais (editável)
   materiais_custo?: number;
-  // "Tamanho em" do modelo (modelos.tamanho_tipo) — só exibição no Plan. Tecido (dialog Distribuir por loja).
+  // "Tamanho em" do modelo (modelos.tamanho_tipo) — semeado no slot com card; editável no card (frente Tamanho em).
   tamanho_tipo?: "letra" | "numero" | null;
   // grade por variante_numero (=ordem da variante): { grades, grade_total }
   grade: Record<number, { grades: Record<string, number>; grade_total: number }>;
@@ -325,9 +325,11 @@ const lnKeyOf = (l: { linha_id: string | null; categoria_id: string | null }) =>
 // aceitava categoria-only, mas o SAVE do plano em si não), OU tiver referência anexada (G4: um
 // slot rascunho com só uma foto de referência, sem tecido/modelo, não pode ser descartado no
 // merge — senão a referência some ao reabrir). Slot salvo VAZIO (plano antigo pré-semeadura)
-// NÃO deve sobrescrever o modelo semeado.
-const savedTemDados = (s?: PtSlot): s is PtSlot =>
-  !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id || !!s.categoria_id || (s.referencia_paths?.length ?? 0) > 0);
+// NÃO deve sobrescrever o modelo semeado. "Tamanho em" (P-119 A, frente Tamanho em — G-plano ressalva #2): a vaga sem
+// card GUARDA a escolha (`plan_tecido_slots.tamanho_tipo`); uma vaga cujo único dado é essa escolha também conta —
+// senão o merge devolvia o slot semeado ao reabrir e o próximo Salvar gravava NULL (a escolha sumia).
+export const savedTemDados = (s?: PtSlot): s is PtSlot =>
+  !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id || !!s.categoria_id || (s.referencia_paths?.length ?? 0) > 0 || !!s.tamanho_tipo);
 
 // Consumo EFETIVO de card real (auditoria jul/2026, decisão do dono): o BOM VIVO do Dev vence,
 // mas consumo VAZIO (0) no Dev cai no consumo digitado no PLANO salvo (mesmo artigo+tipo).
@@ -620,6 +622,10 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // snapshot salvo do plano, que só reflete o rascunho pré-materialização e pode estar
             // desatualizado/vazio). Slot SEM modelo (rascunho) é dado PRÓPRIO do plano → o salvo vence.
             referencia_paths: effModeloId ? slot.referencia_paths : (saved.referencia_paths ?? slot.referencia_paths),
+            // "Tamanho em" (frente Tamanho em, Tarefa 4): com card, a fonte é o MODELO (`slot` = seed = modelos.tamanho_tipo)
+            // — igual ao markup_editado; o salvo só cobre o card cujo seed não trouxe o valor (modelo excluído). Sem card, é
+            // dado PRÓPRIO da vaga (P-119 A, `plan_tecido_slots.tamanho_tipo`) → o salvo vence.
+            tamanho_tipo: effModeloId ? (slot.tamanho_tipo ?? saved.tamanho_tipo ?? null) : (saved.tamanho_tipo ?? null),
             // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (por modelo_id, não
             // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
             // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.

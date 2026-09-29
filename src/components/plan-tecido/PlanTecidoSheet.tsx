@@ -52,6 +52,9 @@ import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/component
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
 import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, pointerWithin, rectIntersection, type DragEndEvent, type CollisionDetection } from "@dnd-kit/core";
 import { DroppableLane, DroppableLaneHeader, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
+import { marcarTamanhoTocado, textoTamanhoRevertido } from "@/lib/plan-tecido/tamanho-tocado";
+import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
+import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type Nome = { id: string; nome: string };
 
@@ -278,6 +281,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   const retryRef = useRef(false);
   const arvoreLiveRef = useRef<PtArvore | null>(null);
   arvoreLiveRef.current = arvore;
+  // "Tamanho em" (frente Tamanho em, Tarefa 4): `arvoreSalvaRef` = a árvore LOCAL efetivamente salva (com o "Tamanho em"
+  // de card travado já revertido — `marcarTamanhoTocado`), que vira a nova base no `onSuccess`; `tamanhoSalvoRef` =
+  // modelo_ids cujo "Tamanho em" foi gravado no modelo neste Salvar (o eco do save espera os modelos novos chegarem —
+  // senão o seed velho repintava o valor antigo por um instante; ver `autoAplicarDirty`).
+  const arvoreSalvaRef = useRef<PtArvore | null>(null);
+  const tamanhoSalvoRef = useRef<Map<string, "letra" | "numero">>(new Map());
   const [conflitosSlot, setConflitosSlot] = useState<Conflito[]>([]);
   const conflitosSlotRef = useRef<Conflito[]>([]);
   const [ultimoMergeSlot, setUltimoMergeSlot] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
@@ -493,6 +502,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   const distOpts = useMemo<OpcoesDist>(() => ({ ligado: distribOn, tamanhos }), [distribOn, tamanhos]);
   // PR12: sem permissão de editar, a carga que recalcula só AVISA (não suja — não dá para salvar).
   const paginaSoLeitura = useReadOnly();
+  // Integração (invariante #14): card integrável/integrado trava SEMPRE o "Tamanho em" — o Salvar não marca o slot dele
+  // como tocado e devolve o rascunho ao valor do modelo (o banco recusaria com 42501). Mesma consulta por loja do selo.
+  const estadosIntegracao = useIntegracaoEstados();
   const [recalculadas, setRecalculadas] = useState(0);
   // M5 (Lote A fix1): quando a carga recalcula SÓ o Tecido 1 (nenhuma cor de forro/Tecido 2 afetada),
   // mostra um aviso PRÓPRIO no mesmo lugar do PR12 — `recalculadasForaT1===0 && recalculadasT1>0`.
@@ -959,8 +971,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // dispara a guarda vazio-sobre-preenchido (P0001) → junta em `pendentes` → diálogo de confirmação.
   // Fonte única preservada: o BOM do Dev continua sendo a fonte; o card só passa a ESCREVER nele.
   async function autoAplicarDirty(touchedIds: Set<string>) {
+    // "Tamanho em" gravado no modelo neste Salvar: o seed (modelos vivos) tem de chegar NOVO antes de o eco desligar,
+    // senão a re-semeadura repinta o valor antigo do modelo (com card, o seed vence no merge). Consome a lista.
+    const tamanhoNovo = tamanhoSalvoRef.current;
+    tamanhoSalvoRef.current = new Map();
+    const esperarTamanho = tamanhoNovo.size > 0 ? invalidarTamanhoNoModelo(tamanhoNovo) : Promise.resolve();
     const arv = arvoreLiveRef.current;
-    if (!arv || touchedIds.size === 0) return;
+    if (!arv || touchedIds.size === 0) { await esperarTamanho; return; }
     const alvos: { slotId: string; modeloId: string; nome: string; materiais: unknown }[] = [];
     for (const sub of arv.subcolecoes)
       for (const ln of sub.linhas)
@@ -972,7 +989,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           if (!slot.materiais.some((m) => m.artigo_id)) continue;          // sem tecido escolhido: nada a gravar
           alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: materiaisParaAplicar(slot, distribOn) });
         }
-    if (alvos.length === 0) return;
+    if (alvos.length === 0) { await esperarTamanho; return; }
     const pendentes: { slotId: string; nome: string; materiais: unknown }[] = [];
     for (const a of alvos) {
       const err = await aplicarSlotNoModelo(a.slotId, a.materiais);
@@ -984,8 +1001,29 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     // C1 (T5 fix1): ESPERA os modelos novos chegarem antes de devolver — o `onSuccess` do Salvar
     // encadeia essa espera para só então desligar o eco (ver `ecoDoSaveRef`).
     await invalidarBomVivo(alvos.map((a) => a.modeloId));
+    await esperarTamanho;
     if (pendentes.length > 0) setSobrescritaPendentes(pendentes);
   }
+
+  // "Tamanho em" gravado no modelo pelo Salvar do Plan. Tecido (frente Tamanho em, Tarefa 4): os modelos vivos desta
+  // tela (seed) + o card do Planejamento/Dev e os SKUs ("N a regerar") passam a ver o valor novo. ORDEM importa (lição
+  // do N1 do eco): primeiro ESPERA a árvore salva chegar (`cancelRefetch:false` reusa a busca já disparada pelo
+  // onSuccess) — modelos novos com a árvore VELHA re-semeariam a tela sem as edições recém-salvas; depois aplica o valor
+  // gravado no cache dos modelos (o seed já nasce certo, sem piscar o antigo) e busca de novo. Quem chama espera antes
+  // de desligar o eco do save.
+  const invalidarTamanhoNoModelo = async (novo: ReadonlyMap<string, "letra" | "numero">) => {
+    await qc.refetchQueries({ queryKey: ["plan-tecido-arvore", colecaoId] }, { cancelRefetch: false });
+    qc.setQueryData<any[]>(["plan-tecido-modelos", colecaoId], (old) =>
+      old?.map((m) => (novo.has(m.id) ? { ...m, tamanho_tipo: novo.get(m.id) } : m)));
+    void qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    for (const mid of novo.keys()) {
+      void qc.invalidateQueries({ queryKey: ["modelo", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-detail", mid] });
+      void qc.invalidateQueries({ queryKey: ["plan-skus", mid] });
+      void qc.invalidateQueries({ queryKey: ["plan-skus-previa", mid] });
+    }
+    await qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
+  };
 
   // Confirma a sobrescrita (esvaziar/zerar) dos slots pendentes → re-aplica com _confirmar_sobrescrita.
   const confirmarSobrescrita = async () => {
@@ -1010,11 +1048,25 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // estado local — a tela não deve "piscar" a lane) quando ela bate com a auto do Tecido 1. Um
       // slot salvo com NULL auto-preenche do vivo no próximo merge (comportamento já existente) →
       // a lane passa a SEGUIR o cadastro; arraste manual pra lane DIFERENTE da auto persiste normal.
-      const arvorePayload = normalizarCategoriasAuto(arvore!, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null);
+      // "Tamanho em" (frente Tamanho em, Tarefa 4): slot com card cujo valor difere da base leva
+      // `tamanho_tipo_tocado: true` (só então o servidor grava no modelo); card travado pela Integração fica no payload
+      // SEM a marca e o rascunho volta ao valor do modelo (ruling #1 do G-plano — tirar o slot apagaria a árvore dele).
+      const marca = marcarTamanhoTocado(arvore!, planBaseRef.current, (mid) => colunasTravadas(estadosIntegracao[mid]).has("tamanho_tipo"));
+      if (marca.revertidos.length > 0) {
+        setArvore(marca.local);
+        toast.warning(textoTamanhoRevertido(marca.revertidos));
+      }
+      arvoreSalvaRef.current = marca.local;
+      const arvorePayload = normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null);
       const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
         _colecao_id: colecaoId, _arvore: arvorePayload, _rev_base: revRef.current,
       });
       if (error) throw error;
+      const tocados = new Set(marca.tocados);
+      const novo = new Map<string, "letra" | "numero">();
+      for (const sub of marca.local.subcolecoes) for (const ln of sub.linhas) for (const sl of ln.slots)
+        if (sl.modelo_id && tocados.has(sl.modelo_id) && sl.tamanho_tipo) novo.set(sl.modelo_id, sl.tamanho_tipo);
+      tamanhoSalvoRef.current = novo;
     },
     onSuccess: () => {
       // CAPTURA os slots que editei ANTES de zerar o touched — o auto-aplicar (regra do dono, bug #9)
@@ -1041,7 +1093,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       sujoSoDaCargaRef.current = false; // salvou: a sujeira anterior (se só da carga) já foi persistida
       // O que acabei de salvar já É a base "servidor" — evita que o eco do Realtime (meu próprio
       // UPDATE) apareça como conflito ou "alguém atualizou N slots" no banner.
-      planBaseRef.current = arvore;
+      // "Tamanho em": a árvore efetivamente salva (com o de card travado revertido) — cai na `arvore` se não houver.
+      planBaseRef.current = arvoreSalvaRef.current ?? arvore;
       touchedSlotIdsRef.current = new Set();
       conflitosSlotRef.current = [];
       setConflitosSlot([]);
@@ -1063,6 +1116,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       });
     },
     onError: async (e: any) => {
+      // Integração (invariante #14): 42501 `integracao_travado:*` = o card foi travado depois que a tela abriu (estado
+      // local velho) — invalida o estado para o próximo Salvar já omitir a marca do "Tamanho em" desse card.
+      invalidarEstadoSeTravado(qc, e);
       // Colab: conflito de versão (P0409) — outra pessoa salvou entre a última carga e agora.
       // Busca o estado novo, faz o merge 3-vias por slot AQUI MESMO (síncrono, ver precedente do
       // piloto OC Tecido) e, se não sobrou conflito de verdade, retenta salvar 1 vez com o rev
@@ -1362,6 +1418,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         custo_simulado: slot.custo_simulado ?? {},
         referencia_paths: slot.referencia_paths ?? [],
         materiais: materiaisParaAplicar(slot, distribOn),
+        // "Tamanho em" da vaga (P-119 A): o servidor usa primeiro o valor SALVO da vaga (o ensureSaved acima já gravou);
+        // este é o fallback validado.
+        tamanho_tipo: slot.tamanho_tipo ?? null,
       }));
       const { data, error } = await supabase.rpc("plan_tecido_criar_cards" as any, { _colecao_id: colecaoId, _slots });
       if (error) throw error;

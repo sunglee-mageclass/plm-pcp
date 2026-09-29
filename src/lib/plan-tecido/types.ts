@@ -30,7 +30,10 @@ export type PtMaterial = { id?: string; artigo_id: string | null; artigo_ids_ext
 // modelo_id, a referência mora em `modelos.fotos_referencia` (mesma coluna do Plan. Produto/Dev,
 // bucket "modelos") — este campo então é só o que sobrou do rascunho antes de materializar (a RPC
 // `_plan_tecido_criar_card_core` migra pra `fotos_referencia` na criação do card).
-// tamanho_tipo: "Tamanho em" do modelo (modelos.tamanho_tipo) — SÓ exibição (o servidor não lê); NULL/sem modelo ⇒ Letra.
+// tamanho_tipo: "Tamanho em" (Letra/Número) — EDITÁVEL no card (frente Tamanho em, Tarefa 4). Slot COM card: é o
+// `modelos.tamanho_tipo` (a árvore devolve o do modelo); o servidor só grava no modelo quando o payload leva
+// `tamanho_tipo_tocado: true` (marcado por `marcarTamanhoTocado` só no Salvar — nunca no estado local). Slot SEM card:
+// é da vaga (`plan_tecido_slots.tamanho_tipo`, P-119 A) e o card nasce com ele. NULL ⇒ Letra (P-25).
 export type PtSlot = { id?: string; modelo_id: string | null; slot_index?: number; ref?: string | null; nome?: string | null; thumb_path?: string | null; proporcoes?: Record<string, number> | null; custo_simulado?: unknown; custo_terceirizados_previsto?: number | null; custos_adicionais?: { descricao: string; valor: number }[]; preco_venda?: number | null; categoria_id?: string | null; categoria_tecido_id?: string | null; mix_id?: string | null; linha_id?: string | null; markup_editado?: number | null; usar_estoque?: boolean; referencia_paths?: string[]; tamanho_tipo?: "letra" | "numero" | null; materiais: PtMaterial[] };
 export type PtLinha = { id?: string; linha_id: string | null; categoria_id: string | null; ordem: number; slots: PtSlot[] };
 export type PtSub = { id?: string; subcolecao_id: string | null; ordem: number; categorias_tecido?: string[]; linhas: PtLinha[] };

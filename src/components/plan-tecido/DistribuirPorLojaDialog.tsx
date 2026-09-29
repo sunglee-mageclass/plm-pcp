@@ -196,7 +196,7 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
           Tecido 1: {t1?.artigo_nome ?? "—"} · {n} {n === 1 ? "cor" : "cores"} · tamanhos em {tipo === "numero" ? "Número" : "Letra"}
           {!impressao && (
             <InfoHover ariaLabel="De onde vêm as lojas e os tamanhos">
-              O “Tamanho em” vem do Planejamento de Produto (seção Códigos). Lojas ativas de Cadastro › Lojas; todos os tamanhos da grade da loja.
+              O “Tamanho em” vem do Tamanho em deste card (o mesmo valor do Planejamento de Produto, seção Códigos) — trocar no card muda os tamanhos daqui. Lojas ativas de Cadastro › Lojas; os tamanhos da grade da loja no lado escolhido.
             </InfoHover>
           )}
         </p>
