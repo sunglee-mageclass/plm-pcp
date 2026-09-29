@@ -1357,3 +1357,53 @@ describe("P-135 B — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx 
     expect(src).not.toMatch(/Promise\.allSettled\(drafts\.map\(\(d\) => salvarUmProduto\(d\)\)\)/);
   });
 });
+
+// Fix round 1 — F4 (achado pré-existente, mesmo branch): produto importado NOVO salvo pela 1a
+// vez mostrava um banner falso "Alguém salvou agora - 1 campo(s) atualizado(s)" e ficava
+// "alteracoes nao salvas" mesmo tendo sido persistido com sucesso. Causa: `salvarUmProduto`
+// (ProdutoImportadoSheet.tsx) so relia `rev` apos o INSERT; `ref` (gerada no servidor pelo
+// trigger `fn_produto_importado_ref`, ver supabase/migrations/20260904120000) ficava `null` em
+// `salvo` (herdado do draft local, que nunca teve REF) enquanto o servidor ja tinha a REF real.
+// Como `ref` esta em `chaveDirty`, o proximo refetch/merge via `mergeDraft` via `fresh.ref`
+// (preenchida) != `base.ref` (null, do baseline gravado com o `salvo` errado) e sinalizava
+// "atualizado" sem ninguem ter editado nada.
+describe("F4 — REF gerada no INSERT precisa ser relida (produto novo nao pode ficar phantom-dirty)", () => {
+  it("chaveDirty distingue ref:null de ref preenchida — prova o mecanismo exato do bug", () => {
+    const semRef = { ...emptyDraft(null, null), id: "novo-1" };
+    const comRefDoServidor = { ...semRef, ref: "VIM0000001" };
+    expect(JSON.stringify(chaveDirty(semRef))).not.toBe(JSON.stringify(chaveDirty(comRefDoServidor)));
+  });
+
+  it("mergeDraft sem touched ainda assim reporta o campo ref como ATUALIZADO quando base.ref diverge do fresh.ref", () => {
+    // Reproduz o efeito do bug: se o baseline (base) foi gravado com ref:null (o erro), e o
+    // fresh do servidor tem a ref real, o merge marca esse campo como "atualizado" mesmo sem
+    // touched nenhum — é exatamente o banner falso "1 campo(s) atualizado(s)".
+    const base = { ...emptyDraft(null, null), id: "p1", ref: null };
+    const draftLocal = base; // nada editado localmente
+    const fresh = { ...base, ref: "VIM0000001" }; // servidor tem a REF real
+    const m = mergeDraft({ base: base as any, draft: draftLocal as any, fresh: fresh as any, touched: new Set() });
+    expect((m.valor as any).ref).toBe("VIM0000001");
+    expect(m.atualizados).toContain("ref");
+  });
+
+  it("relendo ref junto com rev (o fix), o baseline gravado bate com o fresh — sem falso 'atualizado'", () => {
+    const salvoComFix = { ...emptyDraft(null, null), id: "p1", ref: "VIM0000001" }; // fix: ref vem do SELECT pós-insert
+    const fresh = { ...salvoComFix }; // servidor tem exatamente isso
+    const m = mergeDraft({ base: salvoComFix as any, draft: salvoComFix as any, fresh: fresh as any, touched: new Set() });
+    expect(m.atualizados).toEqual([]);
+    expect(m.conflitos).toEqual([]);
+  });
+});
+
+describe("F4 — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx relê ref junto com rev pós-save)", () => {
+  const src = readFileSync("src/components/produto-importado/ProdutoImportadoSheet.tsx", "utf8");
+
+  it("o SELECT pós-save busca rev E ref (não só rev)", () => {
+    expect(src).toMatch(/\.select\("rev, ref"\)/);
+    expect(src).not.toMatch(/\.select\("rev"\)\.eq\("id", novoId\)/);
+  });
+
+  it("`salvo` usa o ref lido do servidor (refNovo), não o ref do draft local (d.ref)", () => {
+    expect(src).toContain("const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo };");
+  });
+});

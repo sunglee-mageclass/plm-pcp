@@ -800,9 +800,19 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     // produto, não o rev novo — busca ele pontualmente (1 SELECT leve) e faz um PATCH local
     // IMEDIATO. Mais seguro que esperar o `invalidateQueries`/refetch geral: a janela até o
     // refetch terminar deixaria um 2º Salvar comparar `d.rev` contra um valor velho.
-    const { data: revRow } = await supabase.from("produtos_importados" as any).select("rev").eq("id", novoId).maybeSingle();
-    const revNovo = revRow ? Number((revRow as any).rev) || 0 : d.rev + 1; // fallback otimista
-    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo };
+    // Fix round 1 (F4, achado pré-existente): busca `ref` JUNTO com `rev` — o trigger
+    // `fn_produto_importado_ref` (BEFORE INSERT) gera a REF no servidor quando o produto nasce
+    // sem uma (caso normal de "Novo produto importado", `emptyDraft().ref === null`); `d.ref`
+    // aqui ainda é o valor local (`null`) que foi ENVIADO, não o que o servidor gravou. Sem
+    // reler, `salvo.ref` ficava `null` enquanto o servidor tinha a REF gerada — `ref` está em
+    // `chaveDirty` (produto-importado/shared.ts:166), então o PRÓXIMO refetch/merge via
+    // `fresh.ref` (preenchida) contra o `base.ref` (null, do baseline gravado aqui) marcava
+    // `touched`/"atualizado" — o banner falso "Alguém salvou agora — 1 campo(s) atualizado(s)"
+    // e o card ficava "alterações não salvas" mesmo recém-criado e persistido com sucesso.
+    const { data: pos } = await supabase.from("produtos_importados" as any).select("rev, ref").eq("id", novoId).maybeSingle();
+    const revNovo = pos ? Number((pos as any).rev) || 0 : d.rev + 1; // fallback otimista
+    const refNovo = pos ? ((pos as any).ref ?? null) : d.ref;
+    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo };
     baseServidorRef.current = { ...baseServidorRef.current, [novoId]: salvo };
     if (isLocal) {
       const idAntigo = d.id!;
