@@ -24,6 +24,14 @@ export function criarFakeSupabase() {
   const canais: { nome: string; ouvintes: { tabela: string; cb: (p: unknown) => void }[] }[] = [];
   // Revisão T3/T4 (M4): P0409 sem DETAIL (o cliente tem de tratar TODAS as colunas enviadas como conflito).
   const opcoes = { p0409SemDetalhe: false };
+  // Fix round pós-QA (L2): próxima(s) chamada(s) de RPC devolvem erro de REDE (sem `code` — não é um
+  // erro estruturado do Postgres) em vez de rodar a lógica normal. Usado para provar o toast de "loja
+  // anterior" quando o save falha por conexão (não por P0409).
+  const falhasRpc: Record<string, number> = {};
+  // Fix round pós-QA (L3): resposta de `kanban_previa_recalculo` — null até algum teste pedir a prévia
+  // do KanbanSalvarDialog ("Salvar e mover N cards"); nesse caso o `rpc()` genérico devolveria
+  // `{data:null}` e a tela quebraria tentando ler `previa.mudam`.
+  let previaKanban: Record<string, unknown> | null = null;
 
   const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -135,12 +143,24 @@ export function criarFakeSupabase() {
     from: (t: string) => builder(t),
     rpc: (nome: string, args?: unknown) => {
       chamadas.push({ tabela: `rpc:${nome}`, op: "rpc", filtros: [], payload: args });
+      // Fix round pós-QA (L2): falha de REDE simulada — sem `code`, como um fetch que não completou.
+      // Respeita o MESMO gate de `segurar` (se houver) — sem isso a "falha de rede" resolveria na
+      // hora, antes de o teste ter chance de trocar de loja no meio do voo.
+      if ((falhasRpc[`rpc:${nome}`] ?? 0) > 0) {
+        falhasRpc[`rpc:${nome}`] -= 1;
+        const g = gates[`rpc:${nome}`];
+        const run = () => ({ data: null, error: { message: "Failed to fetch" } });
+        return g ? g.promessa.then(run) : Promise.resolve().then(run);
+      }
       if (nome === "salvar_config_loja") {
         // Revisão T3/T4: a RPC pode ser SEGURADA (`segurar("rpc:salvar_config_loja")`) — simula a resposta
         // lenta (eco do Realtime/troca de loja no meio do voo). A decisão (compare-and-set) roda ao SOLTAR.
         const g = gates["rpc:salvar_config_loja"];
         const run = () => salvarConfigLoja(args as Record<string, any>);
         return g ? g.promessa.then(run) : Promise.resolve().then(run);
+      }
+      if (nome === "kanban_previa_recalculo" && previaKanban) {
+        return Promise.resolve({ data: clone(previaKanban), error: null });
       }
       return Promise.resolve({ data: null, error: null });
     },
@@ -176,8 +196,10 @@ export function criarFakeSupabase() {
       chamadas.length = 0;
       for (const k of Object.keys(gates)) delete gates[k];
       for (const k of Object.keys(falhas)) delete falhas[k];
+      for (const k of Object.keys(falhasRpc)) delete falhasRpc[k];
       canais.length = 0;
       opcoes.p0409SemDetalhe = false;
+      previaKanban = null;
     },
     chamadas,
     /** Segura TODAS as próximas leituras da tabela até `soltar()`. */
@@ -186,6 +208,11 @@ export function criarFakeSupabase() {
     p0409SemDetalhe(v = true) { opcoes.p0409SemDetalhe = v; },
     /** Faz as próximas `n` leituras (select) da tabela devolverem `{data:null,error}` em vez do dado. */
     falhar(tabela: string, n = 1) { falhas[tabela] = n; },
+    /** Fix round pós-QA (L2): faz as próximas `n` chamadas da RPC devolverem erro de REDE (sem `code`). */
+    falharProximaRpc(nome: string, n = 1) { falhasRpc[`rpc:${nome}`] = n; },
+    /** Fix round pós-QA (L3): próxima(s) chamada(s) de `kanban_previa_recalculo` devolvem este shape
+     *  (abre o KanbanSalvarDialog "Salvar e mover N cards"). `null` volta ao padrão (`{data:null}`). */
+    definirPreviaKanban(p: Record<string, unknown> | null) { previaKanban = p; },
     /** Emite um evento `postgres_changes` (o que o Realtime faz quando OUTRA escrita chega na tabela). */
     emitirRealtime(tabela: string) {
       for (const canal of canais) for (const o of canal.ouvintes) if (o.tabela === tabela) o.cb({ table: tabela });

@@ -62,7 +62,10 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
 
   it("T4: presença por loja, banner com resolução e checagem de 'nada mudou' antes da confirmação", () => {
     expect(pagina).toContain("canal: data?.tenantId ? `colab:config-loja:${data.tenantId}` : null");
-    expect(pagina).toContain("<ColabPresenceOverlay presentes={presentesNoBloco} scopeRef={colabScopeRef} />");
+    // Fix round pós-QA (achado #8): o overlay da PÁGINA ganhou `abaixoDeModal` (fica abaixo do
+    // z-50 de Dialog/Sheet/AlertDialog abertos por cima — ex. Nomenclaturas) — segue sendo o MESMO
+    // `<ColabPresenceOverlay>`, só com a prop nova.
+    expect(pagina).toContain("<ColabPresenceOverlay presentes={presentesNoBloco} scopeRef={colabScopeRef} abaixoDeModal />");
     expect(pagina).toMatch(/<ColabBanner[\s\S]*onResolver=\{resolverConflito\}[\s\S]*rotulo=\{rotuloColuna\}/);
     const prep = pagina.slice(pagina.indexOf("const prepararSalvar = async"), pagina.indexOf("setConfirmSalvar(true)", pagina.indexOf("const prepararSalvar = async")));
     expect(prep).toContain('toast.info("Nenhuma alteração para salvar.")');
@@ -81,7 +84,12 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
   });
 
   it("revisão T3/T4: M2 (conflito pendente barra no handler), I1 (loja do save), M1 (colunas em voo)", () => {
-    expect(pagina).toContain("if (conflitosRef.current.length > 0) throw new Error(");
+    expect(pagina).toContain("if (conflitosRef.current.length > 0) {");
+    // Fix round pós-QA (L3): a guarda M2 virou uma recusa MARCADA (`conflitoEsperado`/
+    // `fecharDialogoKanban`), não um `throw new Error(...)` cru — o onError agora fecha o
+    // KanbanSalvarDialog/AlertDialog quando ela dispara com a prévia aberta (achado QA (d)).
+    expect(pagina).toContain("conflitoEsperado: true, kanbanEmConflito");
+    expect(pagina).toContain("if (e?.conflitoEsperado) {");
     expect(pagina).toContain("onMutate: () => ({ tenantId: data?.tenantId ?? null })");
     expect(pagina).toContain("ctx?.tenantId !== cfgBaseTenantRef.current");
     expect(pagina).toContain("emVooRef.current = new Set(Object.keys(mudancas))");

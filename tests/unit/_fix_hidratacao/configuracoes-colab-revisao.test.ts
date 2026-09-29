@@ -176,10 +176,38 @@ describe("Config da Loja colaborativa — fix round da revisão T3+T4", () => {
     await qc.invalidateQueries({ queryKey: ["tenant-config"] });
     await aguardar(() => kw()?.value === "LOJA B", "tela mostra a loja t2", 2000);
     soltar();
-    await aguardar(() => toastMock.error.mock.calls.some((c) => String(c[0]).startsWith("A loja mudou durante o salvamento")), "aviso da loja anterior");
+    // Fix round pós-QA (L2): redação nova deixa explícito que foi a loja ANTERIOR que não gravou —
+    // e que a loja atual (nesta tela) não foi tocada.
+    await aguardar(() => toastMock.error.mock.calls.some((c) => String(c[0]).startsWith("Não foi possível salvar a configuração da loja anterior")), "aviso da loja anterior");
+    expect(toastMock.error.mock.calls.at(-1)![0]).toContain("Nada foi gravado nesta loja.");
     await esperar(100);
     expect(texto()).not.toContain("a resolver");
     expect(salvar().disabled).toBe(false);
+  });
+
+  it("L2: troca de loja com a RPC pendente que falha por REDE (sem P0409) — toast deixa claro que foi a loja anterior", async () => {
+    const qc = await abrirPagina(true);
+    await digitar(kw()!, "EDITADO NA A");
+    FAKE.falharProximaRpc("salvar_config_loja");
+    const soltar = FAKE.segurar("rpc:salvar_config_loja");
+    await clicar(salvar());
+    await aguardar(() => !!botaoPorTexto("Salvar mesmo assim"), "confirmação");
+    await clicar(botaoPorTexto("Salvar mesmo assim")!);
+    FAKE.linhas.users[0].tenant_id = "t2";
+    await qc.invalidateQueries({ queryKey: ["tenant-config"] });
+    await aguardar(() => kw()?.value === "LOJA B", "tela mostra a loja t2", 2000);
+    soltar();
+    await aguardar(() => toastMock.error.mock.calls.length > 0, "toast de erro");
+    const ultimo = String(toastMock.error.mock.calls.at(-1)![0]);
+    expect(ultimo).toBe(
+      "Não foi possível salvar a configuração da loja anterior (Falha de conexão. Verifique sua internet e tente novamente). Nada foi gravado nesta loja.",
+    );
+    await esperar(100);
+    // Loja B (na tela) não foi tocada pelo erro da A: sem conflito, sem "não salvo", Salvar liberado.
+    expect(texto()).not.toContain("a resolver");
+    expect(salvar().disabled).toBe(false);
+    // Nada foi de fato gravado em NENHUMA das duas lojas (a falha foi de rede, não do servidor).
+    expect(FAKE.linhas.tenant_config[0].keywords).toBe(ORIGINAL);
   });
 
   it("P0409 com DETAIL listando as DUAS colunas enviadas → as duas em conflito", async () => {
@@ -209,6 +237,85 @@ describe("Config da Loja colaborativa — fix round da revisão T3+T4", () => {
     await aguardar(() => !!botaoPorTexto("Salvar mesmo assim"), "confirmação");
     await clicar(botaoPorTexto("Salvar mesmo assim")!);
     await aguardar(() => texto().includes("2 conflitos a resolver antes de salvar"), "todas as enviadas em conflito");
+    expect(salvar().disabled).toBe(true);
+  });
+
+  // Fix round pós-QA (L1): o trim de keywords (I2) tinha ficado só no `serializarColuna` usado pelo
+  // Salvar — a régua de "tocado" do merge de recarga/realtime e o filtro de "convergiu" dos
+  // conflitos pendentes ainda comparavam com `igual` cru (sem trim). Os dois casos abaixo provam
+  // que um espaço no fim (que a RPC apara, `btrim`) não gera conflito/banner falso nem trava um
+  // conflito que já convergiu.
+  it("L1a: digitar 'X ' com espaço no fim (sem mudar o sentido) não conta como tocado — eco alheio noutro campo não gera conflito nem falso 'atualizado' em keywords", async () => {
+    await abrirPagina();
+    // Reafirma o valor atual só com um espaço no fim — cosmético, o servidor grava igual (btrim).
+    await digitar(kw()!, `${ORIGINAL} `);
+    FAKE.linhas.tenant_config[0].timezone = "America/Manaus"; // mudança alheia noutro campo
+    await ecoDoOutroAdmin();
+    expect(texto()).toContain("Manaus / Amazonas (GMT-4)");
+    // Só o Fuso mudou de verdade — keywords não deveria contar nem como "tocado" (conflito) nem
+    // como "atualizado" (o servidor não mexeu nele).
+    expect(texto()).toContain("Alguém salvou agora — 1 campo(s) atualizado(s)");
+    expect(texto()).not.toContain("a resolver");
+    expect(bloco("cfg:keywords")!.className).not.toContain("ring-amber-500");
+    expect(salvar().disabled).toBe(false);
+  });
+
+  it("L1b: conflito de keywords converge sozinho quando 'meu' (com espaço no fim) e 'dele' são o MESMO valor aparado", async () => {
+    await abrirPagina();
+    await digitar(kw()!, `${ORIGINAL}, Sardinha`);
+    // Outro admin grava um valor DIFERENTE primeiro → conflito genuíno.
+    FAKE.linhas.tenant_config[0].keywords = "DO OUTRO ADMIN";
+    await ecoDoOutroAdmin();
+    expect(texto()).toContain("1 conflito a resolver antes de salvar");
+    // Sem eu resolver, o valor no servidor volta a ser exatamente o que eu tenho na tela, só com um
+    // espaço extra no fim — o mesmo valor uma vez aparado pelo banco. O conflito deve soltar sozinho
+    // (nada a resolver) em vez de ficar preso esperando "manter meu"/"usar o novo" pra sempre.
+    FAKE.linhas.tenant_config[0].keywords = `${ORIGINAL}, Sardinha `;
+    await ecoDoOutroAdmin();
+    expect(texto()).not.toContain("a resolver");
+    expect(bloco("cfg:keywords")!.className).not.toContain("ring-amber-500");
+    expect(salvar().disabled).toBe(false);
+  });
+
+  // Fix round pós-QA (L3 + achado QA (d)): A abre a prévia "Salvar e mover N cards" (kanban automático
+  // ligado); B reordena as colunas e salva ENQUANTO a prévia de A está aberta; A clica "Salvar e mover"
+  // → a guarda M2 (conflito pendente) recusa ANTES de chamar a RPC. Esperado: o dialog da prévia FECHA
+  // (não fica preso), toast específico de kanban, nada gravado, e a RPC de salvar nem é chamada.
+  it("L3: prévia do Kanban aberta + conflito de kanban chega antes do clique — 'Salvar e mover' fecha o dialog com o toast certo (nada gravado, RPC não chamada)", async () => {
+    FAKE.linhas.tenant_config[0].kanban_automatico = true;
+    FAKE.linhas.tenant_config[0].kanban_requisitos = { aprovado: ["preco_venda_preenchido"] };
+    FAKE.definirPreviaKanban({
+      chave_proposta: true, total: 3, mudam: 3, fixados: 0, cards: [], cards_fixados: [],
+      revelam_ref: 0, refs_reveladas: [], avisos: [],
+    });
+    // COM Realtime (precisa do eco de B chegando durante a prévia aberta de A).
+    await abrirPagina();
+    // Mudança de kanban NA TELA (reordena/adiciona coluna) para o diff não ficar vazio — sem isso
+    // `prepararSalvar` cai direto no AlertDialog comum (sem prévia nenhuma pra abrir).
+    const draftStatus = () => document.querySelector<HTMLInputElement>('input[placeholder="Ex: Em Modelagem"]');
+    await digitar(draftStatus()!, "MINHA COLUNA");
+    await clicar(botaoPorTexto("Adicionar")!);
+    await aguardar(() => texto().includes("MINHA COLUNA"), "coluna nova na lista");
+    await clicar(salvar());
+    await aguardar(() => !!botaoPorTexto("Salvar e mover 3 cards"), "prévia do Kanban aberta");
+    // B reordena/salva enquanto a prévia de A está aberta: chega como eco alheio no MESMO campo que A
+    // tocou (status_kanban) → conflito de kanban registrado (P-122 A trava o Salvar da página).
+    FAKE.linhas.tenant_config[0].status_kanban = ["Em Modelagem", "COLUNA DO OUTRO", "Aprovado"];
+    await ecoDoOutroAdmin();
+    expect(bloco("cfg:status_kanban")!.className).toContain("ring-amber-500");
+    const rpcsAntes = rpcs().length;
+    await clicar(botaoPorTexto("Salvar e mover 3 cards")!);
+    // O dialog da prévia FECHA (achado QA (d) — antes ficava preso mostrando o erro só no console).
+    await aguardar(() => !botaoPorTexto("Salvar e mover 3 cards"), "dialog da prévia fechou");
+    await aguardar(
+      () => toastMock.error.mock.calls.some((c) => c[0] === "A configuração do Kanban mudou depois da prévia. Confira os itens em destaque e abra a prévia de novo."),
+      "toast específico de kanban",
+    );
+    // Nada foi gravado (a RPC nem chegou a ser chamada — a guarda M2 recusa ANTES do `supabase.rpc`).
+    expect(rpcs().length).toBe(rpcsAntes);
+    expect(FAKE.linhas.tenant_config[0].status_kanban).toEqual(["Em Modelagem", "COLUNA DO OUTRO", "Aprovado"]);
+    // O conflito de kanban segue pendente na página (o toast não resolveu por si; ainda precisa
+    // "manter meu"/"usar o novo") — Salvar continua travado.
     expect(salvar().disabled).toBe(true);
   });
 });

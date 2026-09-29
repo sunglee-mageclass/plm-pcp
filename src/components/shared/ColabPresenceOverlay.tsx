@@ -11,18 +11,31 @@
 // Posicionamento: um portal FIXO no body (position:fixed segue o viewport, então basta reagir a
 // scroll/resize, sem recalcular a cada frame). z alto p/ ficar sobre o input, pointer-events-none
 // p/ nunca bloquear o clique/foco do campo por baixo.
-
+//
+// Fix round pós-QA (achado #8): quando ESTE overlay é o de uma PÁGINA (não de dentro de um
+// Sheet/Dialog próprio) e a mesma página abre um Dialog/Sheet por cima (ex.: "Nomenclaturas" em
+// Config da Loja), o anel de presença de quem está num campo da página de TRÁS aparecia desenhado
+// por cima do backdrop do modal — `z-[60]`/`z-[61]` é maior que o `z-50` que os componentes
+// Dialog/Sheet/AlertDialog usam pro overlay+conteúdo (`src/components/ui/{dialog,sheet,alert-
+// dialog}.tsx`). `abaixoDeModal` (default `false`, preserva TODO uso existente byte a byte — a
+// maioria vive DENTRO do próprio Sheet/Dialog colaborativo e precisa ficar ACIMA do backdrop
+// dele) baixa o anel pra `z-40`/`z-41`, abaixo de qualquer Dialog/Sheet/AlertDialog — só a
+// instância da PÁGINA (fora de qualquer modal) passa `true`.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { PresencaColab } from "@/hooks/useColabRegistro";
 import { corDoUsuario } from "@/lib/colab/presenca-cor";
 import { elementoDoPath } from "@/lib/colab/colab-field-path";
 
-type Marca = { userId: string; nome: string; solid: string; text: string; rect: DOMRect; topClipado: boolean };
+type Marca = { userId: string; nome: string; solid: string; text: string; rect: DOMRect; topClipado: boolean; dentroDeDialog: boolean };
 
-export function ColabPresenceOverlay({ presentes, scopeRef }: {
+export function ColabPresenceOverlay({ presentes, scopeRef, abaixoDeModal = false }: {
   presentes: PresencaColab[];
   scopeRef: RefObject<HTMLElement | null>;
+  /** true = este overlay é da PÁGINA (fica ABAIXO de qualquer Dialog/Sheet/AlertDialog aberto por
+   *  cima, `z-50`). Default false = comportamento de sempre (acima do backdrop do MESMO modal em
+   *  que este overlay vive). */
+  abaixoDeModal?: boolean;
 }) {
   const [marcas, setMarcas] = useState<Marca[]>([]);
   // presentes muda de identidade a cada broadcast; guardamos numa ref p/ o loop de reposição ler o
@@ -62,9 +75,16 @@ export function ColabPresenceOverlay({ presentes, scopeRef }: {
         // por baixo), o rótulo iria pra fora — nesse caso ele será reposicionado no render.
         const topClipado = top > r.top + 0.5;
         const cor = corDoUsuario(p.userId);
+        // Fix round pós-QA (achado #8): o campo em si pode estar DENTRO de um Dialog/Sheet/AlertDialog
+        // PRÓPRIO (ex.: o diálogo de Requisitos, que é um portal com o MESMO `data-colab-path` deste
+        // scope de página) — aí o anel tem de ficar ACIMA do backdrop desse modal (senão fica escondido
+        // por baixo do próprio conteúdo que ele deveria contornar). Só quando NÃO está dentro de nenhum
+        // modal é que `abaixoDeModal` baixa a camada (o caso do achado: campo da página, modal de OUTRO
+        // assunto aberto por cima).
+        const dentroDeDialog = !!el.closest('[role="dialog"],[role="alertdialog"]');
         next.push({
           userId: p.userId, nome: p.nome, solid: cor.solid, text: cor.text,
-          rect: new DOMRect(left, top, w, h), topClipado,
+          rect: new DOMRect(left, top, w, h), topClipado, dentroDeDialog,
         });
       }
       // Só re-renderiza se algo mudou de fato (evita loop de layout).
@@ -94,29 +114,39 @@ export function ColabPresenceOverlay({ presentes, scopeRef }: {
 
   return createPortal(
     <>
-      {marcas.map((m) => (
-        <div
-          key={m.userId}
-          className="pointer-events-none fixed z-[60] rounded-md"
-          style={{
-            top: m.rect.top,
-            left: m.rect.left,
-            width: m.rect.width,
-            height: m.rect.height,
-            boxShadow: `0 0 0 2px ${m.solid}`,
-          }}
-        >
-          {/* Rótulo ACIMA do anel normalmente; quando o topo do campo está clipado (campo entra por
-              baixo do rodapé/topo), joga o rótulo p/ DENTRO do anel — senão ele apareceria fora da
-              área visível, por cima do rodapé (bug do "Sung Lee" sobre a barra Salvar). */}
-          <span
-            className={`pointer-events-none absolute right-0 z-[61] rounded px-1.5 py-px text-[10px] font-semibold leading-tight shadow-sm whitespace-nowrap ${m.topClipado ? "top-0.5" : "-top-4"}`}
-            style={{ background: m.solid, color: m.text }}
+      {marcas.map((m) => {
+        // Fix round pós-QA (achado #8): `abaixoDeModal` só baixa a camada pra campos que NÃO estão
+        // eles mesmos dentro de um Dialog/Sheet/AlertDialog (`m.dentroDeDialog`) — um campo DENTRO de
+        // um modal próprio (ex.: o diálogo de Requisitos, que usa este MESMO overlay de página) segue
+        // precisando ficar ACIMA do backdrop dele, senão o anel fica escondido atrás do conteúdo do
+        // próprio modal que deveria contornar.
+        const abaixo = abaixoDeModal && !m.dentroDeDialog;
+        const zAnel = abaixo ? "z-40" : "z-[60]";
+        const zRotulo = abaixo ? "z-41" : "z-[61]";
+        return (
+          <div
+            key={m.userId}
+            className={`pointer-events-none fixed ${zAnel} rounded-md`}
+            style={{
+              top: m.rect.top,
+              left: m.rect.left,
+              width: m.rect.width,
+              height: m.rect.height,
+              boxShadow: `0 0 0 2px ${m.solid}`,
+            }}
           >
-            {m.nome}
-          </span>
-        </div>
-      ))}
+            {/* Rótulo ACIMA do anel normalmente; quando o topo do campo está clipado (campo entra por
+                baixo do rodapé/topo), joga o rótulo p/ DENTRO do anel — senão ele apareceria fora da
+                área visível, por cima do rodapé (bug do "Sung Lee" sobre a barra Salvar). */}
+            <span
+              className={`pointer-events-none absolute right-0 ${zRotulo} rounded px-1.5 py-px text-[10px] font-semibold leading-tight shadow-sm whitespace-nowrap ${m.topClipado ? "top-0.5" : "-top-4"}`}
+              style={{ background: m.solid, color: m.text }}
+            >
+              {m.nome}
+            </span>
+          </div>
+        );
+      })}
     </>,
     document.body,
   );
@@ -134,7 +164,8 @@ function mesmasMarcas(a: Marca[], b: Marca[]): boolean {
       x.rect.left !== y.rect.left ||
       x.rect.width !== y.rect.width ||
       x.rect.height !== y.rect.height ||
-      x.topClipado !== y.topClipado
+      x.topClipado !== y.topClipado ||
+      x.dentroDeDialog !== y.dentroDeDialog
     ) return false;
   }
   return true;
