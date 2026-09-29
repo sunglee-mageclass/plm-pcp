@@ -9,7 +9,9 @@
 --      contagem). Integrados nunca mudam.
 --   3. tenant_config: trava as linhas (FOR NO KEY UPDATE — um Salvar do Formato do SKU no meio espera), reconfere a
 --      confirmação e tira a chave cor_no_nome (partes [] → NULL, "sem formato" de antes) — só DML nas lojas que a têm.
---   4. as 5 de antes, DROP das 2 novas, REVOKE (inv. 9), $pos$ (md5 = antes; novas ausentes; ninguém com a chave).
+--   4. as 5 de antes, DROP das 2 novas, REVOKE (inv. 9); integracao_listar volta à de 3 parâmetros (DROP da de 4, a de antes
+--      com a MESMA ACL — P-130 A); $pos$ (md5 = antes; novas ausentes; listar única; ninguém com a chave).
+-- LIFO também com o delta 7 (20261008100000): o inverso dele confere integracao_listar(text,jsonb,integer) — rode ESTE antes.
 -- O Log da ida fica (histórico). LIFO: rode este ANTES de voltar a Integração (volta-producao.sh) ou o SKU em prévia.
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -44,6 +46,19 @@ BEGIN
       RAISE EXCEPTION 'integracao_nome_cor_volta: % com outro texto (md5 %)', r.f, v USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
+  -- P-130 A: integracao_listar no estado de ANTES (3 parâmetros com o md5 de antes; a de 4 ausente) OU no de DEPOIS
+  -- (4 parâmetros com o md5 de depois; a de 3 ausente)
+  v := md5(pg_get_functiondef(to_regprocedure('public.integracao_listar(text,jsonb,integer,integer)')));
+  IF v IS NOT NULL THEN
+    IF v <> '33e492d18333905ef3862aa3dc93f8aa' OR to_regprocedure('public.integracao_listar(text,jsonb,integer)') IS NOT NULL THEN
+      RAISE EXCEPTION 'integracao_nome_cor_volta: integracao_listar com texto inesperado (md5 %)', v USING ERRCODE = 'P0001';
+    END IF;
+  ELSE
+    v := md5(pg_get_functiondef(to_regprocedure('public.integracao_listar(text,jsonb,integer)')));
+    IF v IS DISTINCT FROM '97954f033f3e70843818a1bc2ca92524' THEN
+      RAISE EXCEPTION 'integracao_nome_cor_volta: integracao_listar com texto inesperado (md5 %)', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
   SELECT count(*) INTO v_n FROM public.tenant_config tc WHERE tc.sku_config ? 'cor_no_nome';
   IF v_n > 0 AND coalesce(current_setting('app.confirmo_voltar_cor_no_nome', true), '') <> 'sim' THEN
     RAISE EXCEPTION 'integracao_nome_cor_volta: % loja(s) gravaram a escolha Cor base/Apelido do nome da sublinha; o inverso a apaga - confirme com SET app.confirmo_voltar_cor_no_nome = ''sim''', v_n
@@ -891,6 +906,123 @@ REVOKE EXECUTE ON FUNCTION
   public._integracao_exemplo(text[], integer)
   FROM PUBLIC, anon, authenticated;
 
+-- P-130 A de volta: a de 4 parâmetros sai; a de 3 (LIMIT 50 fixo) volta com a MESMA ACL
+DROP FUNCTION IF EXISTS public.integracao_listar(text, jsonb, integer, integer);
+
+CREATE OR REPLACE FUNCTION public.integracao_listar(_situacao text, _filtros jsonb, _pagina integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid := public._integracao_exige(false);
+  v_cfg public.integracao_config;
+  v_ver boolean := public._pode_ver_custos();
+  v_sit text := coalesce(nullif(btrim(coalesce(_situacao, '')), ''), 'nao_integrados');
+  v_f jsonb := coalesce(_filtros, '{}'::jsonb);
+  v_busca text := nullif(btrim(coalesce(_filtros ->> 'busca', '')), '');
+  v_pag integer := greatest(coalesce(_pagina, 1), 1);
+  v_total integer;
+  v_cont jsonb;
+  v_pagina jsonb;
+  v_colecoes jsonb;
+  v_ids uuid[];
+  v_custos jsonb := '{}'::jsonb;
+  v_prod jsonb := '[]'::jsonb;
+  v_ret jsonb;
+  v_gravado jsonb;
+  v_difere jsonb;
+  v_kw text;
+  v_etapas jsonb;
+  r record;
+BEGIN
+  IF v_sit NOT IN ('nao_integrados', 'integrados', 'todos') THEN
+    RAISE EXCEPTION 'Situação inválida.' USING ERRCODE = 'P0001';
+  END IF;
+  v_cfg := public._integracao_cfg(v_tenant);
+
+  WITH b AS (SELECT * FROM public._integracao_base(v_tenant)),
+       f AS (
+         SELECT b.* FROM b
+          WHERE (v_sit = 'todos' OR (v_sit = 'integrados' AND b.estado = 'integrado')
+                 OR (v_sit = 'nao_integrados' AND b.estado <> 'integrado'))
+            AND (v_f ->> 'colecao' IS NULL OR b.colecao = v_f ->> 'colecao')
+            AND (v_f ->> 'etapa' IS NULL OR b.etapa = v_f ->> 'etapa')
+            AND (v_f ->> 'origem' IS NULL OR b.origem = v_f ->> 'origem')
+            AND (v_f ->> 'estado' IS NULL OR b.estado = v_f ->> 'estado')
+            AND (v_busca IS NULL OR b.nome ILIKE '%' || v_busca || '%' OR coalesce(b.ref, '') ILIKE '%' || v_busca || '%'))
+  SELECT jsonb_build_object(
+           'nao_integrados', (SELECT count(*) FROM b WHERE b.estado <> 'integrado'),
+           'integrados', (SELECT count(*) FROM b WHERE b.estado = 'integrado'),
+           'todos', (SELECT count(*) FROM b)),
+         (SELECT count(*) FROM f),
+         coalesce((SELECT jsonb_agg(jsonb_build_object('id', p.id, 'colecao', p.colecao, 'etapa', p.etapa, 'estado', p.estado,
+                                                        'marcado_em', p.marcado_em, 'integrado_em', p.integrado_em)
+                                    ORDER BY p.nome, p.id)
+                     FROM (SELECT f.* FROM f ORDER BY f.nome, f.id OFFSET (v_pag - 1) * 50 LIMIT 50) p), '[]'::jsonb),
+         coalesce((SELECT jsonb_agg(DISTINCT b.colecao ORDER BY b.colecao) FROM b WHERE b.colecao IS NOT NULL), '[]'::jsonb)
+    INTO v_cont, v_total, v_pagina, v_colecoes;
+
+  v_ids := ARRAY(SELECT (x.p ->> 'id')::uuid FROM jsonb_array_elements(v_pagina) AS x(p));
+  IF cardinality(v_ids) > 0 THEN
+    v_custos := coalesce(public._custo_unitario_modelos_core(v_ids), '{}'::jsonb);
+  END IF;
+  FOR r IN
+    SELECT m.*, e.p ->> 'colecao' AS b_colecao, e.p ->> 'etapa' AS b_etapa, e.p ->> 'estado' AS b_estado,
+           e.p -> 'marcado_em' AS b_marcado, e.p -> 'integrado_em' AS b_integrado, ip.retrato AS ip_retrato, e.n AS b_n
+      FROM jsonb_array_elements(v_pagina) WITH ORDINALITY AS e(p, n)
+      JOIN public.modelos m ON m.id = (e.p ->> 'id')::uuid
+      LEFT JOIN public.integracao_produtos ip ON ip.modelo_id = m.id
+     ORDER BY e.n
+  LOOP
+    v_ret := public._integracao_retrato_core(r.id, v_cfg.campos, v_custos -> r.id::text);
+    v_gravado := CASE WHEN r.ip_retrato IS NULL THEN NULL WHEN v_ver THEN r.ip_retrato
+                      ELSE public._integracao_mascarar(r.ip_retrato) END;
+    -- N10: linha integrável/integrada mostra o RETRATO; o "i" avisa quais campos do produto mudaram depois dele
+    v_difere := CASE WHEN r.ip_retrato IS NULL THEN '[]'::jsonb ELSE coalesce((
+      SELECT jsonb_agg(k.k ORDER BY k.k)
+        FROM jsonb_object_keys(r.ip_retrato -> 'linhas' -> 0 -> 'valores') AS k(k)
+       WHERE (v_ver OR k.k <> 'preco_custo')
+         AND (r.ip_retrato -> 'linhas' -> 0 -> 'valores' -> k.k)
+             IS DISTINCT FROM (v_ret -> 'retrato' -> 'linhas' -> 0 -> 'valores' -> k.k)), '[]'::jsonb) END;
+    v_prod := v_prod || jsonb_build_array(jsonb_build_object(
+      'modelo_id', r.id, 'origem', coalesce(r.origem, 'interno'), 'colecao', r.b_colecao, 'etapa', r.b_etapa,
+      'estado', r.b_estado, 'marcado_em', r.b_marcado, 'integrado_em', r.b_integrado, 'rev', r.rev,
+      'raw', jsonb_build_object(
+        'nome', r.nome, 'ref', r.ref, 'preco_anterior', r.preco_anterior, 'preco_venda', r.preco_venda,
+        'peso_kg', r.peso_kg, 'ncm', r.ncm, 'titulo_pagina', r.titulo_pagina, 'descricao_produto', r.descricao_produto,
+        'comprimento_cm', r.comprimento_cm, 'largura_cm', r.largura_cm, 'altura_cm', r.altura_cm,
+        'fotos_modelo', to_jsonb(coalesce(r.fotos_modelo, '{}'::text[])), 'tamanho_tipo', r.tamanho_tipo),
+      'vivo', CASE WHEN v_ver THEN v_ret -> 'retrato' ELSE public._integracao_mascarar(v_ret -> 'retrato') END,
+      'faltas', v_ret -> 'faltas', 'completo', (v_ret ->> 'completo')::boolean, 'sublinhas', v_ret -> 'meta',
+      'retrato', v_gravado, 'retrato_difere', v_difere, 'gates', public._integracao_gates(r.id),
+      -- ruling do controlador, G-migration fix 3 #J4: selo "Reprovado — não vai para a API" (T12a) precisa do
+      -- boolean por produto na LISTA (integracao_listar), não só na prévia (integracao_previa já mandava). MESMA
+      -- definição do D9 (_integracao_base): status_planejamento='reprovado' OU status_desenvolvimento='reprovado'.
+      'reprovado', (coalesce(r.status_planejamento, '') = 'reprovado'
+                    OR lower(btrim(coalesce(r.status_desenvolvimento, ''))) = 'reprovado')));
+  END LOOP;
+
+  SELECT tc.keywords INTO v_kw FROM public.tenant_config tc WHERE tc.tenant_id = v_tenant;
+  v_etapas := jsonb_build_array(jsonb_build_object('key', 'planejamento', 'label', 'Planejamento'))
+    || coalesce((SELECT jsonb_agg(jsonb_build_object('key', s.key, 'label', s.lbl) ORDER BY s.ord)
+                   FROM public._kanban_status_rows(v_tenant) s), '[]'::jsonb)
+    || jsonb_build_array(jsonb_build_object('key', 'lancado', 'label', 'Lançado'));
+  RETURN jsonb_build_object(
+    'pagina', v_pag, 'por_pagina', 50, 'total', v_total, 'contagens', v_cont,
+    'campos', to_jsonb(v_cfg.campos), 'rotulos', public._integracao_rotulos(),
+    'opcoes', jsonb_build_object('colecoes', v_colecoes, 'etapas', v_etapas),
+    'pode', jsonb_build_object('editar', public._integracao_pode(true), 'ver_custos', v_ver,
+                               'super', public.is_super_admin(), 'keywords', public.is_tenant_admin() OR public.is_super_admin()),
+    'keywords', v_kw,
+    'produtos', v_prod);
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.integracao_listar(text, jsonb, integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.integracao_listar(text, jsonb, integer) TO authenticated, service_role;
+
 DO $pos$
 DECLARE
   r record;
@@ -924,6 +1056,13 @@ BEGIN
       RAISE EXCEPTION '%: % executavel por PUBLIC/anon/authenticated (inv. 9)', v_tag, r.f USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
+  -- integracao_listar: 1 só (a assinatura certa), md5 e ACL exatos (authenticated + service_role)
+  v := md5(pg_get_functiondef(to_regprocedure('public.integracao_listar(text,jsonb,integer)')));
+  IF v IS DISTINCT FROM '97954f033f3e70843818a1bc2ca92524' OR to_regprocedure('public.integracao_listar(text,jsonb,integer,integer)') IS NOT NULL
+     OR (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = 'integracao_listar') <> 1
+     OR (SELECT p.proacl::text FROM pg_proc p WHERE p.oid = to_regprocedure('public.integracao_listar(text,jsonb,integer)')) IS DISTINCT FROM '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}' THEN
+    RAISE EXCEPTION 'integracao_nome_cor_volta: pos-condicao falhou em integracao_listar (md5 %)', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
+  END IF;
   IF to_regprocedure('public._integracao_cor_no_nome(jsonb)') IS NOT NULL
      OR to_regprocedure('public._integracao_nome_sublinha(text,text,text,text,text)') IS NOT NULL THEN
     RAISE EXCEPTION 'integracao_nome_cor_volta: funcao nova ainda existe' USING ERRCODE = 'P0001';

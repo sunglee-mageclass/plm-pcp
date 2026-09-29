@@ -56,13 +56,31 @@ const IGUAIS: Record<string, string> = {
   "public._sku_resolver(jsonb,text,jsonb,jsonb,text,text,jsonb)": "390596838baf5a8855bb44a5146246a7",
   "public.fn_tenant_config_sku_normaliza()": "13ef9f85864fb245db843e7de25127a9",
   "public.integracao_marcar(jsonb)": "208d916232f308772c77eaa4220bbf0a",
-  "public.integracao_listar(text,jsonb,integer)": "97954f033f3e70843818a1bc2ca92524",
   "public.integracao_previa(uuid[])": "66f0b0183cffdcdf5b1224b752ac6030",
   "public._integracao_ler(text,boolean,text,integer,text,text)": "1ac58b343e992fefe0062dac512e11eb",
   "public._integracao_valores(integracao_linhas,text[],text[])": "1397511c97477a103dbeebad85121dd8",
   "public._integracao_assinar(jsonb)": "bbe03c7d24dc3a470387c0164073146b",
   "public._integracao_logar(uuid,text,uuid,jsonb,text)": "52b347ee02742906c19765c46e8cfec4",
 };
+// P-130 A: integracao_listar troca de ASSINATURA (3 → 4 parâmetros, _limite DEFAULT 50) — a de 3 sai, a de 4 entra.
+const LISTAR_ANTES = "public.integracao_listar(text,jsonb,integer)";
+const LISTAR = "public.integracao_listar(text,jsonb,integer,integer)";
+const CRIA_LISTAR = "CREATE OR REPLACE FUNCTION public.integracao_listar(";
+const ACL_LISTAR = "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}";
+const TROCAS_LISTAR: [string, string][] = [
+  ["CREATE OR REPLACE FUNCTION public.integracao_listar(_situacao text, _filtros jsonb, _pagina integer)\n",
+   "CREATE OR REPLACE FUNCTION public.integracao_listar(_situacao text, _filtros jsonb, _pagina integer, _limite integer DEFAULT 50)\n"],
+  ["  v_pag integer := greatest(coalesce(_pagina, 1), 1);\n",
+   "  v_pag integer := greatest(coalesce(_pagina, 1), 1);\n" +
+   "  v_lim integer := coalesce(_limite, 50);  -- P-130 A: produtos por página (1..500; sem o parâmetro = 50, como antes)\n"],
+  ["    RAISE EXCEPTION 'Situação inválida.' USING ERRCODE = 'P0001';\n  END IF;\n",
+   "    RAISE EXCEPTION 'Situação inválida.' USING ERRCODE = 'P0001';\n  END IF;\n" +
+   "  IF v_lim < 1 OR v_lim > 500 THEN\n" +
+   "    RAISE EXCEPTION 'Limite de produtos por página inválido (use de 1 a 500).' USING ERRCODE = 'P0001';\n" +
+   "  END IF;\n"],
+  ["OFFSET (v_pag - 1) * 50 LIMIT 50", "OFFSET (v_pag - 1) * v_lim LIMIT v_lim"],
+  ["'por_pagina', 50,", "'por_pagina', v_lim,"],
+];
 // Trocas DECLARADAS do plano (o gerador tem as mesmas; aqui provam que a migration = inverso + SÓ isto, cada âncora 1×).
 const LEITOR: [string, string] = ["tc.sku_config", "CASE WHEN tc.sku_config -> 'partes' = '[]'::jsonb THEN NULL ELSE tc.sku_config END"];
 const TROCAS: Record<string, [string, string][]> = {
@@ -210,6 +228,8 @@ describe("integracao 8 — arquivos da migration e do inverso (estático, sem ba
     for (const [fn, trocas] of Object.entries(TROCAS)) {
       expect(corpo(MIG, cria(fn)), fn).toBe(aplicaTrocas(corpo(INV, cria(fn)), trocas, fn));
     }
+    // P-130 A: integracao_listar = a de antes (texto do inverso) com SÓ o _limite (cabeçalho, v_lim, faixa, LIMIT/OFFSET, por_pagina)
+    expect(corpo(MIG, CRIA_LISTAR)).toBe(aplicaTrocas(corpo(INV, CRIA_LISTAR), TROCAS_LISTAR, "integracao_listar"));
     // o normalizador: o cabeçalho igual e as mensagens de antes intactas; a nova P0001 entra DEPOIS das checagens de partes
     const n = corpo(MIG, cria(REDEF[0]));
     const a = corpo(INV, cria(REDEF[0]));
@@ -242,6 +262,34 @@ describe("integracao 8 — arquivos da migration e do inverso (estático, sem ba
         }
       }
     }
+  });
+});
+
+describe("integracao 8 — P-130 A: integracao_listar com _limite (estático)", () => {
+  it("guarda/pos com o md5 dos 2 textos; ida: DROP da de 3 → a de 4 → ACL; volta: DROP da de 4 → a de 3 → ACL (a MESMA)", () => {
+    const antes = md5(corpo(INV, CRIA_LISTAR));
+    const depois = md5(corpo(MIG, CRIA_LISTAR));
+    expect(antes).toBe("97954f033f3e70843818a1bc2ca92524"); // o texto vivo de produção = cópia (29/set)
+    for (const rel of [MIG, INV]) {
+      const t = ler(rel);
+      const g = t.slice(t.indexOf("DO $guarda$"), t.indexOf("$guarda$;"));
+      expect(g, rel).toContain(`IF v <> '${depois}' OR to_regprocedure('${LISTAR_ANTES}') IS NOT NULL THEN`);
+      expect(g, rel).toContain(`IF v IS DISTINCT FROM '${antes}' THEN`);
+    }
+    const m = ler(MIG);
+    const i = (s: string) => { const x = m.indexOf(s); expect(x, s).toBeGreaterThan(-1); return x; };
+    const om = [i("DROP FUNCTION IF EXISTS public.integracao_listar(text, jsonb, integer);"), i(CRIA_LISTAR),
+      i("REVOKE ALL ON FUNCTION public.integracao_listar(text, jsonb, integer, integer) FROM PUBLIC, anon, authenticated, service_role;"),
+      i("GRANT EXECUTE ON FUNCTION public.integracao_listar(text, jsonb, integer, integer) TO authenticated, service_role;"), i("DO $pos$")];
+    expect([...om].sort((a, b) => a - b)).toEqual(om);
+    expect(m.slice(m.indexOf("DO $pos$"))).toContain(`IS DISTINCT FROM '${ACL_LISTAR}'`);
+    const v = ler(INV);
+    const j = (s: string) => { const x = v.indexOf(s); expect(x, s).toBeGreaterThan(-1); return x; };
+    const ov = [j("DROP FUNCTION IF EXISTS public.integracao_listar(text, jsonb, integer, integer);"), j(CRIA_LISTAR),
+      j("REVOKE ALL ON FUNCTION public.integracao_listar(text, jsonb, integer) FROM PUBLIC, anon, authenticated, service_role;"),
+      j("GRANT EXECUTE ON FUNCTION public.integracao_listar(text, jsonb, integer) TO authenticated, service_role;"), j("DO $pos$")];
+    expect([...ov].sort((a, b) => a - b)).toEqual(ov);
+    expect(v.slice(v.indexOf("DO $pos$"))).toContain(`IS DISTINCT FROM '${ACL_LISTAR}'`);
   });
 });
 
@@ -546,6 +594,53 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
         expect(a, fn).toEqual({ anon: false, auth: false, acl: "{postgres=X/postgres,service_role=X/postgres}" });
       }
       for (const [fn, m] of Object.entries(IGUAIS)) expect(await md5Vivo(c, fn), fn).toBe(m);
+      // P-130 A: 1 só integracao_listar (a de 4), com o texto do arquivo e a MESMA ACL de antes
+      expect((await um<{ d: string }>(c, "SELECT pg_get_functiondef(to_regprocedure($1)) AS d", [LISTAR])).d).toBe(corpo(MIG, CRIA_LISTAR));
+      expect(await md5Vivo(c, LISTAR_ANTES)).toBeNull();
+      expect(await um<any>(c,
+        `SELECT (SELECT count(*)::int FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'integracao_listar') AS n,
+                (SELECT proacl::text FROM pg_proc WHERE oid = to_regprocedure($1)) AS acl,
+                has_function_privilege('anon', $1, 'EXECUTE') AS anon, has_function_privilege('authenticated', $1, 'EXECUTE') AS auth,
+                has_function_privilege('service_role', $1, 'EXECUTE') AS srv`, [LISTAR]))
+        .toEqual({ n: 1, acl: ACL_LISTAR, anon: false, auth: true, srv: true });
+    });
+  });
+
+  it("(i) P-130 A: integracao_listar — sem _limite = 50; _limite 500 traz a maior loja inteira; 0/501 = P0001; paginação igual; chamada nomeada sem _limite", async () => {
+    await withTx(async (c) => {
+      await prepara8(c);
+      await comoUsuario(c, U);
+      const maior = (await um<{ t: string; n: number }>(c,
+        `SELECT m.tenant_id AS t, count(*)::int AS n FROM public.modelos m GROUP BY m.tenant_id ORDER BY 2 DESC LIMIT 1`)).t;
+      await c.query(`UPDATE public.users SET tenant_id = $1 WHERE id = $2`, [maior, U]);
+      const listar = async (sql: string, p: unknown[] = []) => (await um<{ r: any }>(c, sql, p)).r;
+      const p50 = await listar(`SELECT public.integracao_listar('todos', '{}'::jsonb, 1) AS r`);
+      expect(p50.por_pagina).toBe(50);
+      expect(p50.produtos.length).toBe(Math.min(50, p50.total));
+      // a chamada do PostgREST (argumentos NOMEADOS, sem _limite) segue igual — sem ambiguidade (só 1 integracao_listar)
+      const nomeada = await listar(`SELECT public.integracao_listar(_situacao => 'todos', _filtros => '{}'::jsonb, _pagina => 1) AS r`);
+      expect(nomeada.produtos.map((x: any) => x.modelo_id)).toEqual(p50.produtos.map((x: any) => x.modelo_id));
+      const t0 = Date.now();
+      const tudo = await listar(`SELECT public.integracao_listar('todos', '{}'::jsonb, 1, 500) AS r`);
+      console.log(`[medição] integracao_listar 500 (maior loja, ${tudo.total} produtos) = ${Date.now() - t0} ms`);
+      expect(tudo.total).toBeGreaterThan(50); // a maior loja da cópia tem mais que 1 página de antes
+      expect(tudo.total).toBeLessThanOrEqual(500);
+      expect(tudo.por_pagina).toBe(500);
+      expect(tudo.produtos.length).toBe(tudo.total);
+      expect(tudo.produtos.slice(0, 50).map((x: any) => x.modelo_id)).toEqual(p50.produtos.map((x: any) => x.modelo_id));
+      // paginação: OFFSET (página − 1) × limite — a página 2 de 10 = os itens 11..20
+      const p2 = await listar(`SELECT public.integracao_listar('todos', '{}'::jsonb, 2, 10) AS r`);
+      expect(p2.por_pagina).toBe(10);
+      expect(p2.produtos.map((x: any) => x.modelo_id)).toEqual(tudo.produtos.slice(10, 20).map((x: any) => x.modelo_id));
+      // NULL = 50 (como sem o parâmetro); fora de 1..500 = P0001 com mensagem PT
+      expect((await listar(`SELECT public.integracao_listar('todos', '{}'::jsonb, 1, NULL) AS r`)).por_pagina).toBe(50);
+      for (const lim of [0, 501, -1]) {
+        expect(await falha(c, `SELECT public.integracao_listar('todos', '{}'::jsonb, 1, $1)`, [lim]), String(lim))
+          .toEqual({ code: "P0001", message: "Limite de produtos por página inválido (use de 1 a 500)." });
+      }
+      // sem permissão continua 42501 ANTES de olhar o limite
+      await comoUsuarioCom(c, "00000000-0000-4000-8000-0000000c0830", []);
+      expect((await falha(c, `SELECT public.integracao_listar('todos', '{}'::jsonb, 1, 501)`)).code).toBe("42501");
     });
   });
 
@@ -563,9 +658,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
   it("(h) ida → volta (confirmação) → md5 de antes, novas somem, integráveis restaurados (assinatura = a de antes), chave removida → ida de novo", async () => {
     await withTx(async (c) => {
       await voltaSePreciso(c);
-      const md5s = async () => { const o: Record<string, string | null> = {}; for (const f of [...NOVAS, ...REDEF]) o[f] = await md5Vivo(c, f); return o; };
+      const md5s = async () => { const o: Record<string, string | null> = {}; for (const f of [...NOVAS, ...REDEF, LISTAR_ANTES, LISTAR]) o[f] = await md5Vivo(c, f); return o; };
       const estadoAntes = await md5s();
-      expect(estadoAntes).toEqual({ ...Object.fromEntries(NOVAS.map((f) => [f, null])), ...Object.fromEntries(G.redef.map((g) => [g.fn, g.antes])) });
+      expect(estadoAntes).toEqual({ ...Object.fromEntries(NOVAS.map((f) => [f, null])), ...Object.fromEntries(G.redef.map((g) => [g.fn, g.antes])),
+        [LISTAR_ANTES]: md5(corpo(INV, CRIA_LISTAR)), [LISTAR]: null });
+      const estadoDepois = { ...Object.fromEntries([...G.novas.map((g) => [g.fn, g.depois]), ...G.redef.map((g) => [g.fn, g.depois])]),
+        [LISTAR_ANTES]: null, [LISTAR]: md5(corpo(MIG, CRIA_LISTAR)) };
       await comoUsuario(c, U);
       await keywordsLoja(c, "k");
       await skuConfig(c, FORMATO);
@@ -581,7 +679,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       const n0 = await ip(c, N.id);
       // ida
       await aplica(c, MIG);
-      expect(await md5s()).toEqual(Object.fromEntries([...G.novas.map((g) => [g.fn, g.depois]), ...G.redef.map((g) => [g.fn, g.depois])]));
+      expect(await md5s()).toEqual(estadoDepois);
       const a1 = await ip(c, A.id);
       expect(a1.retrato.v).toBe(2);
       expect(a1.linhas).not.toBe(a0.linhas);
@@ -601,6 +699,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       await aplica(c, INV);
       await c.query("SET LOCAL app.confirmo_voltar_cor_no_nome = ''");
       expect(await md5s()).toEqual(estadoAntes);
+      expect((await um<{ a: string }>(c, "SELECT proacl::text AS a FROM pg_proc WHERE oid = to_regprocedure($1)", [LISTAR_ANTES])).a).toBe(ACL_LISTAR);
       const a2 = await ip(c, A.id);
       expect(a2.retrato_txt).toBe(a0.retrato_txt);
       expect(a2.assinatura).toBe(a0.assinatura);
@@ -619,7 +718,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 8 — cor no nome das sublinhas (b
       expect(await md5s()).toEqual(estadoAntes);
       // ida de novo: md5 de depois; A reprocessado de novo (2º log); B (v2) não
       await aplica(c, MIG);
-      expect(await md5s()).toEqual(Object.fromEntries([...G.novas.map((g) => [g.fn, g.depois]), ...G.redef.map((g) => [g.fn, g.depois])]));
+      expect(await md5s()).toEqual(estadoDepois);
       const a3 = await ip(c, A.id);
       expect(a3.retrato_txt).toBe(a1.retrato_txt);
       expect(a3.assinatura).toBe(a1.assinatura);

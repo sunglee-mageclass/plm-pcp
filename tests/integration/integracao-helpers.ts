@@ -72,6 +72,9 @@ export async function prepara(c: Client, ate: Ate): Promise<void> {
   exigeBancoLocal();
   await c.query("SET LOCAL lock_timeout = '3s'");
   await c.query("SET LOCAL statement_timeout = '120s'");
+  // LIFO: a 20261013100000 redefine funções da 2/6 E troca a assinatura de integracao_listar (P-130 A: + _limite) — reaplicar a 2
+  // por cima dela criaria uma 2ª integracao_listar (chamada ambígua). Com ela na cópia, volta-a DENTRO da txn antes.
+  if (MIG_TXN) await voltaNomeCorSePreciso(c);
   if (MIG_TXN) for (const rel of MIGRACOES.slice(0, ate)) await aplica(c, rel);
   for (let i = 0; i < ate; i++) {
     const r = await um<{ ok: boolean }>(c, `SELECT ${MARCAS[i]} AS ok`);
