@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { entradaParaDerivacao, derivarModelo, destinoDrop, lerKanbanAutoConfig, boardDaLoja, type ModeloKanban } from "@/lib/kanban-auto";
 import {
-  RPC_KANBAN, descricaoModoColuna, dropBloqueado, etapaDoModelo, labelDaColuna, labelsCondicoes, modoColuna,
-  motorKanbanDisponivel, notaMoverPara, proximaFalta, rotuloModoColuna, subtituloColuna, textoFaixaDrop,
-  tituloSelo, toastDoMover, MOTIVO_REPROVADO_MANUAL,
+  RPC_KANBAN, descricaoModoColuna, dropBloqueado, etapaDoModelo, etapaFiltroId, etapaKanbanFiltroOpts,
+  labelDaColuna, labelsCondicoes, modoColuna, motorKanbanDisponivel, notaMoverPara, proximaFalta,
+  rotuloModoColuna, subtituloColuna, textoFaixaDrop, tituloSelo, toastDoMover, MOTIVO_REPROVADO_MANUAL,
+  ETAPA_FILTRO_PLANEJAMENTO, ETAPA_FILTRO_LANCADO,
 } from "@/lib/kanban-auto-ui";
 
 const RAW = {
@@ -182,5 +183,115 @@ describe("kanban-auto-ui — selo da etapa", () => {
     expect(tituloSelo(etapaDoModelo(INTERNO, CFG_OFF))).toBe("Etapa do Desenvolvimento: Em Pilotagem");
     expect(tituloSelo(etapaDoModelo(INTERNO, CFG))).toBe("Etapa do Desenvolvimento: Em Pilotagem — anda sozinho conforme os campos salvos.");
     expect(tituloSelo(etapaDoModelo(FIXADO, CFG))).toBe("Etapa do Desenvolvimento: Stand By — fixado numa coluna manual: não anda sozinho.");
+  });
+});
+
+// Filtro "Etapa do kanban" do Planejamento de Produto (owner request set/2026) — as opções e o id
+// usado pra casar o card vêm da MESMA fonte do selo (`etapaDoModelo`), pra filtro e badge nunca
+// divergirem.
+describe("kanban-auto-ui — etapaKanbanFiltroOpts (opções do filtro)", () => {
+  it("Planejamento → colunas do board NA ORDEM da loja (mesmos rótulos do selo) → Lançado", () => {
+    expect(etapaKanbanFiltroOpts(CFG)).toEqual([
+      { id: ETAPA_FILTRO_PLANEJAMENTO, nome: "Planejamento" },
+      ...BOARD.map((c) => ({ id: c.key, nome: c.label })),
+      { id: ETAPA_FILTRO_LANCADO, nome: "Lançado" },
+    ]);
+  });
+  it("não depende das condições/derivação — mesma lista com a chave ligada ou desligada (só o board muda)", () => {
+    expect(etapaKanbanFiltroOpts(CFG).map((o) => o.id)).toEqual(etapaKanbanFiltroOpts(CFG_OFF).map((o) => o.id));
+  });
+  it("board customizado (labels próprios da loja) — opções batem com os rótulos configurados", () => {
+    const cfgCustom = lerKanbanAutoConfig({ ...RAW, status_kanban: ["Cadastro", "Aprovado"] });
+    expect(etapaKanbanFiltroOpts(cfgCustom)).toEqual([
+      { id: ETAPA_FILTRO_PLANEJAMENTO, nome: "Planejamento" },
+      { id: "cadastro", nome: "Cadastro" },
+      { id: "aprovado", nome: "Aprovado" },
+      { id: ETAPA_FILTRO_LANCADO, nome: "Lançado" },
+    ]);
+  });
+});
+
+describe("kanban-auto-ui — etapaFiltroId (id do filtro a partir do selo)", () => {
+  it("cada coluna do board vira sua própria key", () => {
+    for (const c of BOARD) {
+      expect(etapaFiltroId(etapaDoModelo({ ...INTERNO, status_desenvolvimento: c.key }, CFG_OFF))).toBe(c.key);
+    }
+  });
+  it("Planejamento (antes da Ordem de Criação)", () => {
+    expect(etapaFiltroId(etapaDoModelo({ ...INTERNO, ordem_criacao_enviada: false }, CFG))).toBe(ETAPA_FILTRO_PLANEJAMENTO);
+  });
+  it("Lançado", () => {
+    expect(etapaFiltroId(etapaDoModelo({ ...INTERNO, lancado: true }, CFG))).toBe(ETAPA_FILTRO_LANCADO);
+  });
+  it("revenda: usa a MESMA coluna que o selo mostra pra ela (fluxo próprio)", () => {
+    const revendaEmModelagem: ModeloKanban = { ...INTERNO, origem: "revenda", status_desenvolvimento: "em_modelagem" };
+    expect(etapaFiltroId(etapaDoModelo(revendaEmModelagem, CFG))).toBe("em_modelagem");
+    const revendaFixada: ModeloKanban = { ...FIXADO, origem: "revenda" }; // stand_by: fluxo revenda tem stand_by, manual → fixado
+    expect(etapaFiltroId(etapaDoModelo(revendaFixada, CFG))).toBe("stand_by");
+  });
+  it("coluna órfã/desconhecida cai na 1ª coluna do board (mesma régua do selo — nunca 'sem etapa' à parte)", () => {
+    const orfa: ModeloKanban = { ...INTERNO, status_desenvolvimento: "coluna_que_nao_existe_mais" };
+    const selo = etapaDoModelo(orfa, CFG_OFF);
+    expect(selo.key).toBe(BOARD[0].key);
+    expect(etapaFiltroId(selo)).toBe(BOARD[0].key);
+  });
+  it("status nulo (nunca arrastado) cai na 1ª coluna, igual à órfã", () => {
+    const nulo: ModeloKanban = { ...INTERNO, status_desenvolvimento: null };
+    expect(etapaFiltroId(etapaDoModelo(nulo, CFG_OFF))).toBe(BOARD[0].key);
+  });
+});
+
+describe("kanban-auto-ui — filtro 'Etapa do kanban' narrows a lista E concorda com o selo do card", () => {
+  // Simula o predicado exato de `criacao.planejamento.tsx` (`fEtapaKanban.includes(etapaFiltroId(etapaDoModelo(m, kanbanCfg)))`)
+  // sobre uma lista de "cards" com as etapas cobertas pelo requisito: Planejamento, Lançado, uma etapa
+  // comum do board, uma etapa fixada (chave ligada) e um card de origem comprada (revenda).
+  const cardPlanejamento: ModeloKanban = { origem: null, status_desenvolvimento: null, ordem_criacao_enviada: false, lancado: false };
+  const cardLancado: ModeloKanban = { origem: null, status_desenvolvimento: "aprovado", ordem_criacao_enviada: true, lancado: true };
+  const cardEmPilotagem: ModeloKanban = INTERNO; // em_pilotagem, automática com CFG
+  const cardFixado: ModeloKanban = FIXADO; // stand_by, fixado com CFG
+  const cardRevenda: ModeloKanban = { origem: "revenda", status_desenvolvimento: "em_modelagem", ordem_criacao_enviada: true, lancado: false };
+  const lista = [cardPlanejamento, cardLancado, cardEmPilotagem, cardFixado, cardRevenda];
+
+  const filtrar = (sel: string[], cfg = CFG) =>
+    sel.length === 0 ? lista : lista.filter((m) => sel.includes(etapaFiltroId(etapaDoModelo(m, cfg))));
+
+  it("seleção vazia = sem filtro (comportamento de hoje) — devolve a lista inteira", () => {
+    expect(filtrar([])).toEqual(lista);
+  });
+
+  it("marcar só 'Planejamento' isola o card antes da Ordem de Criação", () => {
+    expect(filtrar([ETAPA_FILTRO_PLANEJAMENTO])).toEqual([cardPlanejamento]);
+  });
+
+  it("marcar só 'Lançado' isola o card lançado", () => {
+    expect(filtrar([ETAPA_FILTRO_LANCADO])).toEqual([cardLancado]);
+  });
+
+  it("marcar uma coluna do board isola quem está nela (inclusive fixado)", () => {
+    expect(filtrar(["em_pilotagem"])).toEqual([cardEmPilotagem]);
+    expect(filtrar(["stand_by"])).toEqual([cardFixado]);
+  });
+
+  it("revenda: marcar a coluna que o SELO mostra pra ela também isola o card comprado", () => {
+    // cardRevenda está em "em_modelagem" (fluxo interno E revenda concordam nessa key aqui).
+    expect(filtrar(["em_modelagem"])).toEqual([cardRevenda]);
+  });
+
+  it("marcar várias etapas soma (OR dentro do próprio filtro)", () => {
+    expect(filtrar([ETAPA_FILTRO_PLANEJAMENTO, ETAPA_FILTRO_LANCADO])).toEqual([cardPlanejamento, cardLancado]);
+  });
+
+  it("badge e filtro SEMPRE concordam: pra cada card, o selo mostrado bate com a ÚNICA opção que o inclui", () => {
+    for (const m of lista) {
+      const selo = etapaDoModelo(m, CFG);
+      const id = etapaFiltroId(selo);
+      // a opção com esse id existe no catálogo do filtro...
+      const opts = etapaKanbanFiltroOpts(CFG);
+      expect(opts.some((o) => o.id === id)).toBe(true);
+      // ...e filtrar por ela devolve exatamente os cards cujo selo é esse mesmo id (agreement).
+      const filtrados = filtrar([id]);
+      for (const f of filtrados) expect(etapaFiltroId(etapaDoModelo(f, CFG))).toBe(id);
+      expect(filtrados).toContain(m);
+    }
   });
 });
