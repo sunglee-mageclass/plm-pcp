@@ -19,7 +19,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { erroValidacao } from "@/components/produto-acabado/shared";
+import { erroValidacao, produtosParaSalvar } from "@/components/produto-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
@@ -819,13 +819,17 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       if (produtosEmConflito.length > 0) {
         throw erroValidacao("Resolva os conflitos indicados nos cards destacados antes de salvar.");
       }
-      // Valida TODOS os drafts no cliente ANTES de qualquer save — senão um produto com Σ%≠100
-      // (rejeitado pelo servidor) abortaria o lote no meio.
-      for (const d of drafts) {
+      // P-135 B (fix, mesmo padrão do ProdutoAcabadoSheet.tsx — verificado que tinha o MESMO
+      // defeito): o Salvar em lote mandava TODOS os drafts, editados ou não — sem filtro de
+      // sujo. Corte por `chaveDirty` vs `baseline` (mesmo predicado que já alimenta `dirty`).
+      const lista = produtosParaSalvar(drafts, baseline, chaveDirty);
+      // Valida só os drafts que VÃO ser enviados — um produto intocado (fora do lote) não deve
+      // bloquear o Salvar por uma invalidez que já existia antes desta sessão.
+      for (const d of lista) {
         const erro = validarDraft(d);
         if (erro) throw new Error(`${d.nome || "Produto sem nome"}: ${erro}`);
       }
-      const resultados = await Promise.allSettled(drafts.map((d) => salvarUmProduto(d)));
+      const resultados = await Promise.allSettled(lista.map((d) => salvarUmProduto(d)));
       const falhas = resultados.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
       const falhasP0409 = falhas.filter((r) => (r.reason as any)?.code === "P0409");
       const outrasFalhas = falhas.filter((r) => (r.reason as any)?.code !== "P0409");

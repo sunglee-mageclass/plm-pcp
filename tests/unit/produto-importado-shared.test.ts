@@ -21,6 +21,7 @@ import {
 } from "@/components/produto-importado/shared";
 import {
   resolverTravaAcabado, aplicarResolucaoTravaAcabado, toastTravaAcabado, chaveDirty as chaveDirtyPA, markupVarejoParaBlurAtacado,
+  produtosParaSalvar,
   type ProdutoDraft,
 } from "@/components/produto-acabado/shared";
 import { colunasTravadas, lerEstados } from "@/lib/integracao/trava";
@@ -1314,5 +1315,45 @@ describe("BUG-1 — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx nu
     expect(usos).toBe(3);
     // Nenhum select-literal (com embed completo) sobrevive fora da constante.
     expect(src).not.toMatch(/\.select\("\*, modelo_id, variantes:produto_importado_variantes/);
+  });
+});
+
+// P-135 B (fix, set/2026): mesma causa raiz "a" achada em `ProdutoAcabadoSheet.tsx` ("Cinto
+// Teste" regravado 7× sem edição) — verificado que `ProdutoImportadoSheet.tsx` tinha o MESMO
+// padrão (`mutationFn` fazia `drafts.map(salvarUmProduto)` sem filtro de sujo). Corrigido com o
+// MESMO helper `produtosParaSalvar` (produto-acabado/shared.ts), reusado aqui pelo Importado.
+describe("produtosParaSalvar aplicado ao draft do Produto Importado (P-135 B)", () => {
+  it("draft intocado (igual ao baseline) fica de fora do lote", () => {
+    const d = emptyDraft(null, null);
+    const salvo: ProdutoImportadoDraft = { ...d, id: "imp-1", nome: "Vestido China" };
+    const baseline = { "imp-1": JSON.stringify(chaveDirty(salvo)) };
+    expect(produtosParaSalvar([salvo], baseline, chaveDirty)).toEqual([]);
+  });
+
+  it("editar 1 de N produtos importados → só o editado entra no lote", () => {
+    const intocado: ProdutoImportadoDraft = { ...emptyDraft(null, null), id: "imp-a", nome: "A" };
+    const editado: ProdutoImportadoDraft = { ...emptyDraft(null, null), id: "imp-b", nome: "B editado" };
+    const baseline = {
+      "imp-a": JSON.stringify(chaveDirty(intocado)),
+      "imp-b": JSON.stringify(chaveDirty({ ...editado, nome: "B original" })),
+    };
+    const resultado = produtosParaSalvar([intocado, editado], baseline, chaveDirty);
+    expect(resultado.map((d) => d.id)).toEqual(["imp-b"]);
+  });
+
+  it("draft novo/local (id null, ainda não persistido) sempre entra no lote", () => {
+    const novo = emptyDraft(null, null); // id: null
+    expect(produtosParaSalvar([novo], {}, chaveDirty).length).toBe(1);
+  });
+});
+
+// Guarda de regressão no SOURCE — espelha o bloco BUG-1 acima: prova que o `mutationFn` do
+// Salvar em lote filtra por `produtosParaSalvar` (não manda mais TODOS os drafts sem filtro).
+describe("P-135 B — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx filtra por sujo antes de salvar em lote)", () => {
+  const src = readFileSync("src/components/produto-importado/ProdutoImportadoSheet.tsx", "utf8");
+
+  it("mutationFn usa produtosParaSalvar (não drafts.map(salvarUmProduto) direto, sem filtro)", () => {
+    expect(src).toContain("produtosParaSalvar(drafts, baseline, chaveDirty)");
+    expect(src).not.toMatch(/Promise\.allSettled\(drafts\.map\(\(d\) => salvarUmProduto\(d\)\)\)/);
   });
 });
