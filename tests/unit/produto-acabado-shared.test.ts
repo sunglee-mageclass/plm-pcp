@@ -4,6 +4,7 @@ import {
   redistribuirVariantesPorPeso,
   variantesBatemComTotal,
   produtosParaSalvar,
+  baselinePatchDoServidor,
   chaveDirty,
   type VarianteDraft,
   type ProdutoDraft,
@@ -117,5 +118,64 @@ describe("P-135 B — guarda de regressão no SOURCE (ProdutoAcabadoSheet.tsx fi
     const src = fs.readFileSync("src/components/produto-acabado/ProdutoAcabadoSheet.tsx", "utf8");
     expect(src).toContain("produtosParaSalvar(drafts ?? [], baseline, chaveDirty)");
     expect(src).not.toMatch(/const lista = drafts \?\? \[\];/);
+  });
+});
+
+// Fix round 1 (review Opus, H1+M1): baselinePatchDoServidor — a regra "baseline = chaveDirty do
+// SERVIDOR (fresh), nunca do merge/draft local" que corrige H1 (reconciliar P0409 sem conflito
+// marcava limpo mesmo com edição não persistida) e M1 (merge de refetch/Realtime nunca
+// re-baselinava, deixando produto convergido "phantom dirty").
+describe("baselinePatchDoServidor (Fix round 1, H1+M1)", () => {
+  it("(a) P0409 sem conflito: o produto AINDA É enviado no próximo Salvar (edição não persistida)", () => {
+    // Cenário do review: A edita ref_fornecedor; B salva valor_unitario no meio (bump rev);
+    // A tenta salvar, toma P0409; reconciliação funde (fresh.valor_unitario + meu ref_fornecedor).
+    const base = draftBase({ id: "x", ref_fornecedor: "REF-ORIGINAL", valor_unitario: 10 });
+    const meuEnviado = draftBase({ id: "x", ref_fornecedor: "REF-EDITADA-POR-A", valor_unitario: 10 });
+    const fresh = draftBase({ id: "x", ref_fornecedor: "REF-ORIGINAL", valor_unitario: 99, rev: 5 });
+    // fundido = merge 3-vias: adota fresh onde eu não toquei (valor_unitario), preserva meu onde toquei (ref_fornecedor).
+    const fundido = draftBase({ id: "x", ref_fornecedor: "REF-EDITADA-POR-A", valor_unitario: 99, rev: 5 });
+    void base; void meuEnviado;
+    // H1: o baseline TEM que vir do fresh (servidor), não do fundido (merge) — senão o produto
+    // "convergiria" com seu próprio estado local e desapareceria do próximo Salvar.
+    const patch = baselinePatchDoServidor(["x"], new Map([["x", fresh]]), chaveDirty);
+    const baselineDepois = { x: patch.x };
+    // O fundido (com a edição de ref_fornecedor preservada) deve continuar DIFERENTE do baseline
+    // recém-gravado — ou seja, `produtosParaSalvar` ainda o inclui no próximo lote.
+    const resultado = produtosParaSalvar([fundido], baselineDepois, chaveDirty);
+    expect(resultado.map((p) => p.id)).toEqual(["x"]);
+  });
+
+  it("(b) Realtime/refetch atualiza um produto NÃO tocado pelo usuário -> não é enviado depois", () => {
+    // Outro usuário salvou X (ninguém aqui editou X); o merge adota o fresh inteiro (touched vazio).
+    const fresh = draftBase({ id: "y", nome: "Nome atualizado por outra pessoa", rev: 7 });
+    // O merge, sem touched, produz exatamente o fresh como novo draft.
+    const draftPosMerge = fresh;
+    const patch = baselinePatchDoServidor(["y"], new Map([["y", fresh]]), chaveDirty);
+    const resultado = produtosParaSalvar([draftPosMerge], patch, chaveDirty);
+    expect(resultado).toEqual([]);
+  });
+
+  it("(c) Realtime/refetch atualiza um produto que o usuário EDITOU -> ainda é enviado", () => {
+    // Eu editei valor_unitario localmente; o servidor mudou nome (outro campo) nesse meio tempo.
+    const fresh = draftBase({ id: "z", nome: "Nome novo do servidor", valor_unitario: 10, rev: 3 });
+    // Merge: adota nome do fresh (não toquei), preserva meu valor_unitario editado.
+    const draftPosMerge = draftBase({ id: "z", nome: "Nome novo do servidor", valor_unitario: 555, rev: 3 });
+    const patch = baselinePatchDoServidor(["z"], new Map([["z", fresh]]), chaveDirty);
+    const resultado = produtosParaSalvar([draftPosMerge], patch, chaveDirty);
+    expect(resultado.map((p) => p.id)).toEqual(["z"]);
+  });
+
+  it("preserva entradas de baseline de produtos NÃO incluídos em ids (outra subcoleção) — é um PATCH, não substitui tudo", () => {
+    const freshY = draftBase({ id: "y", nome: "Y atualizado" });
+    const patch = baselinePatchDoServidor(["y"], new Map([["y", freshY]]), chaveDirty);
+    const baselineExistente = { outro: "algum-json-antigo" };
+    const baselineFinal = { ...baselineExistente, ...patch };
+    expect(baselineFinal.outro).toBe("algum-json-antigo");
+    expect(baselineFinal.y).toBe(JSON.stringify(chaveDirty(freshY)));
+  });
+
+  it("id sem fresh correspondente (produto sumiu do servidor) não entra no patch", () => {
+    const patch = baselinePatchDoServidor(["fantasma"], new Map(), chaveDirty);
+    expect(patch).toEqual({});
   });
 });

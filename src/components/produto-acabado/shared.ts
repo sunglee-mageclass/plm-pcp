@@ -255,6 +255,44 @@ export function produtosParaSalvar<T extends { id?: string | null }>(
   return drafts.filter((p) => JSON.stringify(chave(p)) !== (p.id ? baseline[p.id] : undefined));
 }
 
+/** Fix round 1 (review Opus, H1+M1): agora que `produtosParaSalvar` DECIDE o que é enviado (não
+ *  só pinta o botão), o `baseline` de cada produto precisa SEMPRE refletir o último estado
+ *  CONHECIDO DO SERVIDOR — nunca o resultado de um merge local (`fundido`) nem o draft do
+ *  usuário. Regra única: `baseline[id] = chaveDirty(fresh)`, onde `fresh` é a linha que o
+ *  servidor de fato tem (pós-reconciliação de P0409 OU pós-merge de refetch/Realtime).
+ *
+ *  Dois usos, mesma regra:
+ *  (H1) `reconciliarProdutoP0409`, ramo SEM conflito: antes, `marcarProdutoLimpo(fundido)`
+ *  gravava a chave do MERGE (que preserva os campos `touched` do usuário — exatamente os que
+ *  NÃO foram persistidos, porque a RPC deu P0409) como se fossem "salvos". Isso marcava como
+ *  limpo um produto que ainda tinha edição pendente — o próximo Salvar (via
+ *  `produtosParaSalvar`) o excluía do lote e a edição nunca chegava ao servidor. Com
+ *  `baseline[id] = chaveDirty(fresh)`, o produto CONTINUA dirty exatamente enquanto o valor
+ *  tocado pelo usuário diverge do servidor — o que é correto: nada foi persistido.
+ *  (M1) merge de refetch/Realtime, POR ID PROCESSADO (`idsProcessados`): antes, o efeito nunca
+ *  tocava `baseline` — um produto que adotou valores do `fresh` (ninguém tocou aqui, só
+ *  refletiu o servidor) ficava "phantom dirty" (chaveDirty(draft) != baseline antigo) e era
+ *  reenviado no PRÓXIMO Salvar mesmo sem edição real, reabrindo o caminho da causa (a) por outra
+ *  porta. Com `baseline[id] = chaveDirty(fresh)`, o produto some do lote quando convergiu com o
+ *  servidor — e continua dirty SÓ onde o usuário editou algo que o fresh não tem.
+ *
+ *  PURA: recebe os ids a re-baselinar + um lookup de "fresh" (linha do servidor, já no shape do
+ *  draft) + a função `chave` (mesma `chaveDirty` de cada tela) e devolve o PATCH a aplicar via
+ *  `setBaseline((b) => ({...b, ...patch}))` — nunca o objeto `baseline` inteiro (preserva
+ *  entradas de produtos não tocados nesta rodada, ex. outra subcoleção). */
+export function baselinePatchDoServidor<T extends { id?: string | null }>(
+  ids: Iterable<string>,
+  freshById: ReadonlyMap<string, T>,
+  chave: (p: T) => unknown,
+): Record<string, string> {
+  const patch: Record<string, string> = {};
+  for (const id of ids) {
+    const fresh = freshById.get(id);
+    if (fresh) patch[id] = JSON.stringify(chave(fresh));
+  }
+  return patch;
+}
+
 /**
  * Erro de validação CLIENT-SIDE que deve aparecer VERBATIM no toast — mesmo mecanismo que
  * `mensagemErro` (`@/lib/erro-mensagem`) já usa pro `RAISE ... using errcode = 'P0001'` do

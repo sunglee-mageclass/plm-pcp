@@ -19,7 +19,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { erroValidacao, produtosParaSalvar } from "@/components/produto-acabado/shared";
+import { erroValidacao, produtosParaSalvar, baselinePatchDoServidor } from "@/components/produto-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
@@ -380,10 +380,21 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       proximosDrafts.push({ ...(m.valor as ProdutoImportadoDraft), rev: fr.rev });
     }
     // Produtos novos no servidor (criado por outra aba) que eu ainda não tenho localmente.
+    const idsNovosDoServidor: string[] = [];
     for (const fr of fresh) {
-      if (fr.id && !drafts.some((d) => d.id === fr.id)) proximosDrafts.push(fr);
+      if (fr.id && !drafts.some((d) => d.id === fr.id)) { proximosDrafts.push(fr); idsNovosDoServidor.push(fr.id); }
     }
     baseServidorRef.current = Object.fromEntries(fresh.filter((d) => d.id).map((d) => [d.id as string, d]));
+
+    // Fix round 1 (review Opus, M1 — mesmo padrão do ProdutoAcabadoSheet.tsx): re-baseline pelo
+    // SERVIDOR para todo id processado + os novos que apareceram agora. Sem isto, um produto sem
+    // edição minha (ex.: `_touched` de uma variante volta a `false` pós-save, achado do review)
+    // ficava "phantom dirty" contra o baseline velho e era reenviado no próximo Salvar.
+    setBaseline((b) => ({
+      ...b,
+      ...baselinePatchDoServidor(idsProcessados, freshById, chaveDirty),
+      ...baselinePatchDoServidor(idsNovosDoServidor, freshById, chaveDirty),
+    }));
 
     // Conflitos: RECONSTRÓI o conjunto p/ os produtos processados — mantém quem ainda conflita,
     // REMOVE quem convergiu (o servidor passou a coincidir com o meu draft SEM eu ter clicado
@@ -714,10 +725,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     if (m.conflitos.length > 0) {
       setConflitosPorProduto((prev) => ({ ...prev, [d.id as string]: m.conflitos }));
     } else {
-      // Sem conflito de verdade — o card já está atualizado com o fresh + minhas edições
-      // preservadas; rebaseline pra não segurar `dirty`/bloquear um novo Salvar por um
-      // conflito fantasma.
-      marcarProdutoLimpo(fundido);
+      // Fix round 1 (review Opus, H1 — mesmo padrão do ProdutoAcabadoSheet.tsx): NÃO
+      // `marcarProdutoLimpo(fundido)`. `fundido` preserva os campos que EU toquei e a RPC
+      // nunca persistiu (deu P0409) — marcar isso como "limpo" fazia o produto desaparecer do
+      // PRÓXIMO Salvar (`produtosParaSalvar`) mesmo com edição pendente de verdade. O baseline
+      // vem do SERVIDOR (`fresh`), nunca do merge.
+      setBaseline((b) => ({ ...b, ...baselinePatchDoServidor([d.id as string], new Map([[d.id as string, fresh]]), chaveDirty) }));
     }
   };
 

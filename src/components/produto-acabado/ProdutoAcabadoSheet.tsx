@@ -29,6 +29,7 @@ import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar,
+  baselinePatchDoServidor,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
@@ -460,10 +461,23 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       proximosDrafts.push({ ...(m.valor as ProdutoDraft), rev: fresh.rev });
     }
     // Produtos novos no servidor (criado por outra aba) que eu ainda não tenho localmente.
+    const idsNovosDoServidor: string[] = [];
     for (const fresh of produtosQuery.data) {
-      if (!drafts.some((d) => d.id === fresh.id)) proximosDrafts.push(fresh);
+      if (!drafts.some((d) => d.id === fresh.id)) { proximosDrafts.push(fresh); idsNovosDoServidor.push(fresh.id); }
     }
     baseServidorRef.current = Object.fromEntries(produtosQuery.data.map((p) => [p.id, p]));
+
+    // Fix round 1 (review Opus, M1): re-baseline pelo SERVIDOR (`fresh`) para todo id que passou
+    // pelo merge (`idsProcessados`) + os novos que apareceram agora (`idsNovosDoServidor`). Sem
+    // isto, um produto que adotou valores do fresh sem eu ter tocado aqui (outra aba salvou, ou
+    // o `_touched` de uma variante volta a `false` pós-save no Importado) ficava "phantom dirty"
+    // contra o baseline VELHO e era reenviado no próximo Salvar sem edição real — reabrindo a
+    // causa (a) por outra porta (`baselinePatchDoServidor`, `produto-acabado/shared.ts`).
+    setBaseline((b) => ({
+      ...b,
+      ...baselinePatchDoServidor(idsProcessados, freshById, chaveDirty),
+      ...baselinePatchDoServidor(idsNovosDoServidor, freshById, chaveDirty),
+    }));
 
     // Conflitos: RECONSTRÓI o conjunto p/ os produtos processados — mantém quem ainda conflita,
     // REMOVE quem convergiu (o servidor passou a coincidir com o meu draft SEM eu ter clicado
@@ -648,10 +662,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     if (m.conflitos.length > 0) {
       setConflitosPorProduto((prev) => ({ ...prev, [p.id]: m.conflitos }));
     } else {
-      // Sem conflito de verdade (ex.: o outro save não tocou nenhum campo que eu também
-      // editei) — o card já está atualizado com o fresh + minhas edições preservadas;
-      // rebaseline pra não segurar `dirty`/bloquear um novo Salvar por um conflito fantasma.
-      marcarProdutoLimpo(fundido);
+      // Fix round 1 (review Opus, H1): NÃO usar `marcarProdutoLimpo(fundido)` — `fundido`
+      // preserva os campos que EU toquei e a RPC nunca persistiu (deu P0409). Marcar como
+      // "limpo" o próprio merge fazia o produto desaparecer do PRÓXIMO Salvar
+      // (`produtosParaSalvar` o comparava contra si mesmo) mesmo com edição pendente de
+      // verdade. O baseline tem que vir do SERVIDOR (`fresh`), nunca do resultado do merge —
+      // aí o produto continua dirty exatamente enquanto `fundido` divergir do que o servidor
+      // tem (`baselinePatchDoServidor`, `produto-acabado/shared.ts`).
+      setBaseline((b) => ({ ...b, ...baselinePatchDoServidor([p.id], new Map([[p.id, fresh]]), chaveDirty) }));
     }
   };
 
