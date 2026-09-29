@@ -540,6 +540,134 @@ export function normalizarCategoriasAuto(arvore: PtArvore, categoriaAutoDoArtigo
   };
 }
 
+// Slot salvo tem QUALQUER dado do usuário (mais amplo que `savedTemDados`, que só decide se um
+// slot SALVO pode vencer um slot do SEED no pareamento normal — não cobre preço/proporção/custo,
+// que num slot COM bucket vivo vêm do próprio seed, mas num slot ÓRFÃO são a ÚNICA fonte). Um
+// slot com preço/proporção mas sem tecido/modelo (exatamente o card do QA: "Sem subcoleção ›
+// Blusa", preço 200, com proporções) tem que sobreviver — a regra do controlador é "nunca apaga
+// dado que a pessoa não apagou", não "só preserva o que savedTemDados já cobria". Repete as
+// condições de `savedTemDados` (em vez de chamá-la) para não herdar o type guard `s is PtSlot`
+// dela — aqui `s` já é sempre `PtSlot` (não opcional), e o retorno `false` do guard narrowaria
+// o parâmetro pra `never` num early-return (TS2339 nas props abaixo).
+const slotOrfaoTemDados = (s: PtSlot): boolean =>
+  !!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id || !!s.categoria_id
+  || (s.referencia_paths?.length ?? 0) > 0 || !!s.preco_venda
+  || (s.proporcoes != null && Object.keys(s.proporcoes).length > 0)
+  || !!s.custo_terceirizados_previsto || (s.custos_adicionais?.length ?? 0) > 0 || s.custo_simulado != null
+  || !!s.markup_editado || !!s.nome || !!s.ref
+  // "Tamanho em" (P-119 A): vaga sem card guarda a escolha — espelha `savedTemDados`.
+  || !!s.tamanho_tipo
+  // M-1 (review round 1): mix_id (EditarMixDialog/vaga picker) é dado do usuário numa vaga sem
+  // tecido/modelo. `usar_estoque` foi REMOVIDO daqui na rodada 2 (M-R1-2, review re-revisão R1):
+  // a flag está INERTE desde 17/ago (ver invariante `estoque_zerado`/CLAUDE.md — não é essa flag,
+  // mas o mesmo padrão de campo aposentado só round-trip) e "Limpar" (`ModelCard.tsx`) PRESERVA
+  // `usar_estoque` ao esvaziar o card — se o predicado a contasse como "dado de verdade", um card
+  // limpo com só esse resíduo legado nunca deixaria de ser preservado como órfão/sobra (ghost
+  // card que o usuário não tem como remover, já que "Limpar" não zera o campo). O valor ainda
+  // sobrevive normalmente quando o slot é preservado por QUALQUER outro motivo (spread em
+  // `mesclarSlot`/`{...l, slots}`) — só não é, por si só, motivo de preservação.
+  || !!s.mix_id;
+
+// Filtra uma linha salva (bucket órfão) só para os slots com dados de verdade — um slot vazio de
+// verdade não precisa "ressuscitar". Slot de modelo VIVO (liveByModelo) NÃO entra aqui — ele já
+// tem posição própria via savedByModelo (a colocação viva vence, regra a.1); sem esse filtro, um
+// modelo que se moveu para OUTRO bucket apareceria DUAS vezes (uma na posição viva, outra
+// "preservado" na posição órfã antiga).
+function linhaOrfaComDados(l: PtLinha, liveByModelo: Map<string, PtSlot>): PtLinha | null {
+  const slots = l.slots.filter((s) => slotOrfaoTemDados(s) && !(s.modelo_id && liveByModelo.has(s.modelo_id)));
+  return slots.length > 0 ? { ...l, slots } : null;
+}
+
+/**
+ * I-3 (review round 1): mescla UM slot do seed com o slot SALVO casado com ele (por posição ou
+ * por modelo_id). Extraído do corpo de `mergeArvore` (era só inline) para poder ser chamado
+ * também nos ramos `!ss`/`!sl` (sub ou linha ausentes do `salvo`) — antes esses ramos devolviam
+ * o slot do seed CRU sem nunca consultar `savedByModelo`, então um modelo que se moveu para uma
+ * sub/linha sem par no `salvo` perdia preço/custos/distribuição e o `id` do slot (usado pelo
+ * re-link de `plan_tecido_slot_oc` na RPC de save).
+ */
+function mesclarSlot(slot: PtSlot, saved: PtSlot, liveByModelo: Map<string, PtSlot>, moveu: boolean): PtSlot {
+  // modelo_id EFETIVO: o do seed (colocação viva); num vazio posicional, o do salvo
+  // (modelo excluído — limpo depois pelo Sheet).
+  const effModeloId = slot.modelo_id ?? saved.modelo_id;
+  // BOM vivo do modelo efetivo (por id, não por posição) — pode não existir se o modelo
+  // foi excluído do Desenvolvimento; aí cai no snapshot salvo.
+  const live = effModeloId ? liveByModelo.get(effModeloId) : undefined;
+  // salvo tem dados do usuário: usa o salvo, mas preserva a identidade do seed onde o salvo não tem
+  return {
+    ...slot, ...saved,
+    modelo_id: effModeloId,
+    ref: saved.ref ?? slot.ref,
+    nome: saved.nome ?? slot.nome,
+    thumb_path: saved.thumb_path ?? slot.thumb_path,
+    // categoria_id (M-R1-1 → correção na re-revisão R2, I-R2-1): campo que DEFINE o bucket, mas
+    // SÓ quando o modelo MOVEU pra um bucket sem par no salvo (`moveu=true`, ramos !ss/!sl OU o
+    // slot salvo achado por modelo_id não está fisicamente em `sl.slots` desta linha). Nesse
+    // caso o seed VENCE — sem isso a categoria VELHA do salvo era exibida e regravada (probe F).
+    // Quando o bucket bate (`moveu=false`, caminho casado de sempre) o SALVO vence, como desde
+    // `820fb0f8` — o select "Categoria" do card (`ModelCard.tsx:368`) é editável e grava só no
+    // plano; fazer o seed vencer AQUI desfazia a escolha do usuário no próximo load/save
+    // (I-R2-1: probe R, card editado de VESTIDO→SAIA voltava pra VESTIDO). Rascunho (sem modelo)
+    // nunca muda de bucket sozinho — o salvo sempre vence, como sempre.
+    categoria_id: (slot.modelo_id && moveu) ? (slot.categoria_id ?? saved.categoria_id) : (saved.categoria_id ?? slot.categoria_id),
+    // categoria de TECIDO (lane): manual salvo VENCE; se o slot salvo está sem categoria,
+    // usa a AUTO do seed (Tecido 1). Assim planos antigos "sem categoria" auto-preenchem ao
+    // reabrir, e uma categorização manual do usuário é preservada.
+    categoria_tecido_id: saved.categoria_tecido_id ?? slot.categoria_tecido_id,
+    // linha_id (L-R2-1, hardening): mesma regra do categoria_id — só o seed vence se o modelo
+    // MOVEU pra um bucket sem par. Hoje `_plan_tecido_arvore_core` NÃO retorna `linha_id` no
+    // slot (`saved.linha_id` é sempre undefined na prática, então isso não muda nada agora),
+    // mas blinda contra uma regressão futura se a RPC um dia passar a devolver o campo.
+    linha_id: (slot.modelo_id && moveu) ? (slot.linha_id ?? saved.linha_id) : (saved.linha_id ?? slot.linha_id),
+    // markup_editado é congelado NO MODELO (modelos.markup_editado, invariante do banco) —
+    // o seed (`slot`, sempre o modelo vivo) VENCE sempre, nunca o snapshot salvo do plano
+    // (senão editar o markup aplicado no Planejamento não refletiria aqui até o dono limpar
+    // o plano salvo). Espelha o tratamento de `materiais`/BOM vivo, não o de `linha_id`.
+    markup_editado: effModeloId ? slot.markup_editado : (saved.markup_editado ?? slot.markup_editado),
+    // proporção: "Dev vence se preenchido" (mesmo princípio do consumo). A proporção do
+    // MODELO (`slot` = seed = modelos.proporcoes) vence quando tem tamanhos; senão cai no
+    // plano salvo. Sem isso, um plano salvo com proporção VAZIA ({}) apagava a proporção do
+    // modelo no dado do slot — o display se salvava pela busca própria do GradeSection, mas o
+    // cálculo de distribuição por tamanho (distribuirGrade) ficava sem proporção (grade por
+    // tamanho vazia na hora de gerar a OC).
+    proporcoes: (slot.proporcoes && Object.keys(slot.proporcoes).length)
+      ? slot.proporcoes
+      : (saved.proporcoes ?? slot.proporcoes),
+    // custo de materiais (aviamentos/insumos) pré-preenchido do BOM não é apagado por save
+    // antigo (null). NÃO forçamos o vivo aqui: o editor "Custo & Preço" do plano pode ter
+    // ajustado esse custo (o salvo vence); só o BOM de TECIDO (materiais) puxa o vivo.
+    custo_simulado: saved.custo_simulado ?? slot.custo_simulado,
+    // referência (G4): slot COM modelo tem a referência REAL em modelos.fotos_referencia —
+    // o seed (`slot`, sempre o modelo vivo) VENCE sempre, IGUAL markup_editado (nunca o
+    // snapshot salvo do plano, que só reflete o rascunho pré-materialização e pode estar
+    // desatualizado/vazio). Slot SEM modelo (rascunho) é dado PRÓPRIO do plano → o salvo vence.
+    referencia_paths: effModeloId ? slot.referencia_paths : (saved.referencia_paths ?? slot.referencia_paths),
+    // "Tamanho em" (frente Tamanho em, Tarefa 4): com card, a fonte é o MODELO (`slot` = seed = modelos.tamanho_tipo)
+    // — igual ao markup_editado; o salvo só cobre o card cujo seed não trouxe o valor (modelo excluído). Sem card, é
+    // dado PRÓPRIO da vaga (P-119 A, `plan_tecido_slots.tamanho_tipo`) → o salvo vence.
+    tamanho_tipo: effModeloId ? (slot.tamanho_tipo ?? saved.tamanho_tipo ?? null) : (saved.tamanho_tipo ?? null),
+    // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (por modelo_id, não
+    // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
+    // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.
+    // Ordem dos fallbacks (todos "Dev vence só se preenchido"): consumo → variantes → pç.
+    // comGradeDoPlano por ÚLTIMO porque depende das variantes já resolvidas (as que vieram do
+    // plano via comVariantesDoPlano já trazem a pç; as que vieram do Dev sem grade — forro/
+    // Tecido 2 ou variante nova do Tecido 1 — recebem a pç do plano aqui).
+    // … → pç → distribuição (Tecido 1) → "atende a" (demais blocos) — Distribuição por produto, spec R7.
+    materiais: effModeloId
+      ? (live?.materiais?.length
+          ? comAtendeDoPlano(
+              comDistribuicaoDoPlano(
+                comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais),
+                saved.materiais,
+              ),
+              saved.materiais,
+            )
+          : (saved.materiais ?? []))
+      : (saved.materiais?.length ? saved.materiais : slot.materiais),
+  };
+}
+
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
@@ -559,16 +687,58 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
     for (const ln of sub.linhas)
       for (const s of ln.slots)
         if (s.modelo_id) savedByModelo.set(s.modelo_id, s);
+  // Chaves de subcoleção que o SEED cobre (usado abaixo para achar as subcoleções órfãs).
+  const subKeysDoSeed = new Set(seed.subcolecoes.map((s) => s.subcolecao_id ?? "__none__"));
+  // Subcoleções salvas INTEIRAS cujo bucket não existe mais no seed (ex.: subcoleção excluída da
+  // coleção) — mesma regra das linhas órfãs acima, um nível mais alto: preserva com dados de
+  // verdade, senão o Salvar apaga a subcoleção (e tudo dentro dela) em silêncio.
+  const subcolecoesOrfas = salvo.subcolecoes
+    .filter((sub) => !subKeysDoSeed.has(sub.subcolecao_id ?? "__none__"))
+    .map((sub) => ({
+      ...sub,
+      linhas: sub.linhas.map((l) => linhaOrfaComDados(l, liveByModelo)).filter((l): l is PtLinha => l !== null),
+    }))
+    .filter((sub) => sub.linhas.length > 0);
   return {
     ...seed,
     plan_id: salvo.plan_id,
-    subcolecoes: seed.subcolecoes.map((s) => {
+    subcolecoes: [...seed.subcolecoes.map((s) => {
       const ss = salvo.subcolecoes.find((x) => (x.subcolecao_id ?? "__none__") === (s.subcolecao_id ?? "__none__"));
-      if (!ss) return s;
+      if (!ss) {
+        // I-3 probe E: a SUB inteira não existe no salvo (ex.: criada depois do último save), mas
+        // um slot do seed pode ter modelo_id VIVO cujo dado de plano está salvo em OUTRA sub —
+        // consulta savedByModelo mesmo sem par de bucket, senão o modelo perde preço/custos/
+        // distribuição/id só por ter mudado de sub para uma nova.
+        return { ...s, linhas: s.linhas.map((l) => ({ ...l, slots: l.slots.map((slot) => {
+          if (!slot.modelo_id) return slot;
+          const saved = savedByModelo.get(slot.modelo_id);
+          // moveu=true: por definição deste ramo, a SUB não existe no salvo — o modelo só pode
+          // estar aqui porque se moveu para um bucket sem par (M-R2, categoria_id/linha_id do seed vence).
+          return saved ? mesclarSlot(slot, saved, liveByModelo, true) : slot;
+        }) })) };
+      }
+      // Linhas (bucket linha/categoria) salvas cujo bucket NÃO existe mais neste seed (ex.: categoria
+      // saiu do mix, linha saiu da coleção) — preservadas INTACTAS ao final (com dados de verdade),
+      // senão o Salvar (delete+reinsert da árvore inteira) as apaga em silêncio (regra do controlador:
+      // Salvar nunca apaga dado que a pessoa não apagou). Calculado ANTES do .map de linhas (que só
+      // cobre as linhas do seed) — a ordem entre elas não importa (a UI/ordem já as agrupa por bucket).
+      const lnKeysDoSeed = new Set(s.linhas.map(lnKeyOf));
+      const linhasOrfas = ss.linhas
+        .filter((l) => !lnKeysDoSeed.has(lnKeyOf(l)))
+        .map((l) => linhaOrfaComDados(l, liveByModelo))
+        .filter((l): l is PtLinha => l !== null);
       // preserva as categorias (lanes) da subcoleção salva — o seed não as tem
-      return { ...s, id: ss.id, categorias_tecido: ss.categorias_tecido ?? s.categorias_tecido, linhas: s.linhas.map((l) => {
+      return { ...s, id: ss.id, categorias_tecido: ss.categorias_tecido ?? s.categorias_tecido, linhas: [...s.linhas.map((l) => {
         const sl = ss.linhas.find((x) => lnKeyOf(x) === lnKeyOf(l));
-        if (!sl) return l;
+        if (!sl) {
+          // I-3 probe D: a LINHA/categoria não existe no salvo (mesma sub, categoria nova) — mesmo
+          // tratamento do ramo !ss acima, um nível abaixo. moveu=true pela mesma razão.
+          return { ...l, slots: l.slots.map((slot) => {
+            if (!slot.modelo_id) return slot;
+            const saved = savedByModelo.get(slot.modelo_id);
+            return saved ? mesclarSlot(slot, saved, liveByModelo, true) : slot;
+          }) };
+        }
         // Pareamento em 2 trilhas:
         //  • slot do seed COM modelo casa pelo MODELO_ID (onde quer que o salvo estivesse — a
         //    colocação VIVA vence; o dado de plano salvo segue o modelo);
@@ -577,77 +747,30 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
         //    de modelo EXCLUÍDO continua entrando (comportamento antigo: o Sheet limpa via validIds).
         const restantes = sl.slots.filter((x) => !(x.modelo_id && liveByModelo.has(x.modelo_id)));
         let k = 0;
-        return { ...l, id: sl.id, slots: l.slots.map((slot) => {
+        const slotsMapeados = l.slots.map((slot) => {
           const saved = slot.modelo_id ? savedByModelo.get(slot.modelo_id) : restantes[k++];
-          if (!savedTemDados(saved)) return slot; // não deixa slot salvo vazio apagar o modelo semeado
-          // modelo_id EFETIVO: o do seed (colocação viva); num vazio posicional, o do salvo
-          // (modelo excluído — limpo depois pelo Sheet).
-          const effModeloId = slot.modelo_id ?? saved.modelo_id;
-          // BOM vivo do modelo efetivo (por id, não por posição) — pode não existir se o modelo
-          // foi excluído do Desenvolvimento; aí cai no snapshot salvo.
-          const live = effModeloId ? liveByModelo.get(effModeloId) : undefined;
-          // salvo tem dados do usuário: usa o salvo, mas preserva a identidade do seed onde o salvo não tem
-          return {
-            ...slot, ...saved,
-            modelo_id: effModeloId,
-            ref: saved.ref ?? slot.ref,
-            nome: saved.nome ?? slot.nome,
-            thumb_path: saved.thumb_path ?? slot.thumb_path,
-            categoria_id: saved.categoria_id ?? slot.categoria_id,
-            // categoria de TECIDO (lane): manual salvo VENCE; se o slot salvo está sem categoria,
-            // usa a AUTO do seed (Tecido 1). Assim planos antigos "sem categoria" auto-preenchem ao
-            // reabrir, e uma categorização manual do usuário é preservada.
-            categoria_tecido_id: saved.categoria_tecido_id ?? slot.categoria_tecido_id,
-            linha_id: saved.linha_id ?? slot.linha_id,
-            // markup_editado é congelado NO MODELO (modelos.markup_editado, invariante do banco) —
-            // o seed (`slot`, sempre o modelo vivo) VENCE sempre, nunca o snapshot salvo do plano
-            // (senão editar o markup aplicado no Planejamento não refletiria aqui até o dono limpar
-            // o plano salvo). Espelha o tratamento de `materiais`/BOM vivo, não o de `linha_id`.
-            markup_editado: effModeloId ? slot.markup_editado : (saved.markup_editado ?? slot.markup_editado),
-            // proporção: "Dev vence se preenchido" (mesmo princípio do consumo). A proporção do
-            // MODELO (`slot` = seed = modelos.proporcoes) vence quando tem tamanhos; senão cai no
-            // plano salvo. Sem isso, um plano salvo com proporção VAZIA ({}) apagava a proporção do
-            // modelo no dado do slot — o display se salvava pela busca própria do GradeSection, mas o
-            // cálculo de distribuição por tamanho (distribuirGrade) ficava sem proporção (grade por
-            // tamanho vazia na hora de gerar a OC).
-            proporcoes: (slot.proporcoes && Object.keys(slot.proporcoes).length)
-              ? slot.proporcoes
-              : (saved.proporcoes ?? slot.proporcoes),
-            // custo de materiais (aviamentos/insumos) pré-preenchido do BOM não é apagado por save
-            // antigo (null). NÃO forçamos o vivo aqui: o editor "Custo & Preço" do plano pode ter
-            // ajustado esse custo (o salvo vence); só o BOM de TECIDO (materiais) puxa o vivo.
-            custo_simulado: saved.custo_simulado ?? slot.custo_simulado,
-            // referência (G4): slot COM modelo tem a referência REAL em modelos.fotos_referencia —
-            // o seed (`slot`, sempre o modelo vivo) VENCE sempre, IGUAL markup_editado (nunca o
-            // snapshot salvo do plano, que só reflete o rascunho pré-materialização e pode estar
-            // desatualizado/vazio). Slot SEM modelo (rascunho) é dado PRÓPRIO do plano → o salvo vence.
-            referencia_paths: effModeloId ? slot.referencia_paths : (saved.referencia_paths ?? slot.referencia_paths),
-            // "Tamanho em" (frente Tamanho em, Tarefa 4): com card, a fonte é o MODELO (`slot` = seed = modelos.tamanho_tipo)
-            // — igual ao markup_editado; o salvo só cobre o card cujo seed não trouxe o valor (modelo excluído). Sem card, é
-            // dado PRÓPRIO da vaga (P-119 A, `plan_tecido_slots.tamanho_tipo`) → o salvo vence.
-            tamanho_tipo: effModeloId ? (slot.tamanho_tipo ?? saved.tamanho_tipo ?? null) : (saved.tamanho_tipo ?? null),
-            // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (por modelo_id, não
-            // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
-            // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.
-            // Ordem dos fallbacks (todos "Dev vence só se preenchido"): consumo → variantes → pç.
-            // comGradeDoPlano por ÚLTIMO porque depende das variantes já resolvidas (as que vieram do
-            // plano via comVariantesDoPlano já trazem a pç; as que vieram do Dev sem grade — forro/
-            // Tecido 2 ou variante nova do Tecido 1 — recebem a pç do plano aqui).
-            // … → pç → distribuição (Tecido 1) → "atende a" (demais blocos) — Distribuição por produto, spec R7.
-            materiais: effModeloId
-              ? (live?.materiais?.length
-                  ? comAtendeDoPlano(
-                      comDistribuicaoDoPlano(
-                        comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais),
-                        saved.materiais,
-                      ),
-                      saved.materiais,
-                    )
-                  : (saved.materiais ?? []))
-              : (saved.materiais?.length ? saved.materiais : slot.materiais),
-          };
-        }) };
-      }) };
-    }),
+          // I-1 (review round 1, probe A): usava `savedTemDados` aqui — não cobre preço/proporção/
+          // custo/mix_id (exatamente a forma do card do QA: só preço+proporções, sem tecido/modelo)
+          // — uma vaga salva com QUALQUER dado de verdade tinha que perder pra vaga vazia do seed.
+          // `slotOrfaoTemDados` é seguro aqui: quando `saved` vem de `savedByModelo` (slot.modelo_id
+          // truthy), `saved.modelo_id` também é truthy, então o predicado já dá true por esse termo
+          // sozinho — nenhum caso de modelo regride.
+          if (!saved || !slotOrfaoTemDados(saved)) return slot; // não deixa slot salvo vazio apagar o modelo semeado
+          // M-R2 (I-R2-1): moveu=true SÓ se o `saved` achado por modelo_id (savedByModelo) não é
+          // fisicamente um dos slots DESTA linha (`sl.slots`) — ou seja, o modelo estava salvo em
+          // OUTRO bucket e "aterrissou" aqui pela colocação viva. Bucket casado normal (o salvo já
+          // estava exatamente nesta linha) é moveu=false — categoria/linha do SALVO continuam
+          // vencendo (o select "Categoria" do card, editável, grava só no plano; ver I-R2-1/probe R).
+          const moveu = !!slot.modelo_id && !sl.slots.includes(saved);
+          return mesclarSlot(slot, saved, liveByModelo, moveu);
+        });
+        // I-2 (review round 1, probe B): o bucket ENCOLHEU (qtd caiu no OTB) — o seed só produz
+        // `qtd` vagas, então `restantes[k..]` (excedente salvo, já filtrado de modelo VIVO acima)
+        // nunca tem posição no `.map` acima. Acrescenta os que têm dado de verdade, intactos
+        // (mesmo id) — não pode duplicar modelo (já excluídos de `restantes`).
+        const sobra = restantes.slice(k).filter(slotOrfaoTemDados);
+        return { ...l, id: sl.id, slots: [...slotsMapeados, ...sobra] };
+      }), ...linhasOrfas] };
+    }), ...subcolecoesOrfas],
   };
 }

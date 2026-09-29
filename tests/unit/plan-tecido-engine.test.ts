@@ -1029,3 +1029,419 @@ describe("plan-tecido/engine — Lote A rodada de correção 2 (N1, N2, N4)", ()
     expect(r[0].variantes.map((v) => v.distribuicao)).toEqual([d, undefined]);
   });
 });
+
+// Bug real (QA 29/set, achado na coleção "Teste 1"): um slot SALVO cujo bucket (subcoleção/linha
+// OU linha/categoria) não existe mais no SEED do plano atual (ex.: categoria saiu do mix, linha/
+// subcoleção removida da coleção) sumia em SILÊNCIO no merge — o Salvar reescreve a árvore inteira
+// (`_salvar_plan_tecido_core`: delete + reinsert de `_arvore->'subcolecoes'`), então um bucket que o
+// merge nunca reproduz na árvore em memória é APAGADO do banco ao clicar Salvar, mesmo sem o usuário
+// ter tocado nele. Regra do controlador: Salvar NUNCA apaga dado que a pessoa não apagou — um slot
+// salvo "órfão de bucket" tem que sobreviver ao merge intacto (mesmo id/rev), não virar alteração.
+describe("mergeArvore — slot órfão de bucket (bug real QA 29/set, 'Sem subcoleção › Blusa')", () => {
+  it("FALHA HOJE: linha (categoria) salva que não existe mais no seed é DESCARTADA pelo merge", () => {
+    // Seed atual: subcoleção "Sem subcoleção" (null) só tem a linha/categoria "Vestido" (o mix do
+    // plano não tem mais "Blusa"). Salvo: a MESMA subcoleção tinha um card em "Blusa" (preço 200,
+    // com proporções) — igual ao card relatado no QA.
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_VESTIDO", ordem: 0, slots: [] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_BLUSA", ordem: 1, slots: [
+        { id: "slot-blusa-1", modelo_id: null, slot_index: 0, preco_venda: 200, proporcoes: { P: 1, M: 2 }, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const linhas = merged.subcolecoes[0].linhas;
+    const linhaBlusa = linhas.find((l) => l.categoria_id === "CAT_BLUSA");
+    // Comportamento correto: a linha/slot salvo sobrevive intacto (mesmo sem bucket no seed atual).
+    expect(linhaBlusa).toBeDefined();
+    expect(linhaBlusa?.slots).toHaveLength(1);
+    expect(linhaBlusa?.slots[0].id).toBe("slot-blusa-1");
+    expect(linhaBlusa?.slots[0].preco_venda).toBe(200);
+    expect(linhaBlusa?.slots[0].proporcoes).toEqual({ P: 1, M: 2 });
+  });
+
+  it("FALHA HOJE: subcoleção salva inteira que não existe mais no seed é DESCARTADA pelo merge", () => {
+    // Seed atual só tem S1 (a coleção não lista mais S2 — ex.: subcoleção excluída/renomeada).
+    const seed = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+    ] };
+    const salvo = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [
+        { id: "slot-s2-1", modelo_id: null, slot_index: 0, preco_venda: 350, custos_adicionais: [], materiais: [] },
+      ] }] },
+    ] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const s2 = merged.subcolecoes.find((s) => s.subcolecao_id === "S2");
+    expect(s2).toBeDefined();
+    expect(s2?.linhas[0]?.slots).toHaveLength(1);
+    expect(s2?.linhas[0]?.slots[0].id).toBe("slot-s2-1");
+  });
+
+  it("linha órfã preservada não ganha modelo_id nem se mistura com outra linha (id/rev intactos)", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_VIVA", ordem: 0, slots: [] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, id: "sub-id-1", linhas: [
+      { linha_id: null, categoria_id: "CAT_ORFA", ordem: 1, id: "linha-id-orfa", slots: [
+        { id: "slot-orfa", modelo_id: null, slot_index: 0, preco_venda: 150, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const linhaViva = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "CAT_VIVA");
+    const linhaOrfa = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "CAT_ORFA");
+    expect(linhaViva?.slots).toHaveLength(0); // não ganhou o slot órfão
+    expect(linhaOrfa?.id).toBe("linha-id-orfa"); // id preservado (save não deve tratar como novo)
+    expect(linhaOrfa?.slots[0].id).toBe("slot-orfa");
+  });
+});
+
+// Fix round 1 (review Opus, SHIP WITH FIXES): 3 achados Important + M-1, todos na MESMA
+// mergeArvore, mesma regra "Salvar nunca apaga dado que a pessoa não apagou" — a rodada 1 só
+// cobriu bucket (linha/subcoleção) inteiramente ausente do seed; a revisão reproduziu 3 caminhos
+// SIBLING onde o bucket EXISTE (ou o modelo se move para um que existe) mas o slot com dado
+// ainda é descartado. Probes replicados literalmente do review.md.
+describe("mergeArvore — Fix round 1 (probes do review: I-1, I-2, I-3, M-1)", () => {
+  // I-1 (probe A): bucket AINDA VIVO no seed (vaga vazia); o slot salvo tem só preço+proporções
+  // (a MESMA forma do card do QA) — savedTemDados (usado no pareamento posicional) não cobre
+  // esses campos, então a vaga vazia do seed vence e o preço/proporção do salvo é descartado.
+  it("I-1 probe A: vaga viva com salvo só-preço+proporções não pode ser substituída por vaga vazia", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_BLUSA", ordem: 0, slots: [
+        { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }, // vaga do seed (qtd ainda 1)
+      ] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_BLUSA", ordem: 0, slots: [
+        { id: "slot-A", modelo_id: null, slot_index: 0, preco_venda: 200, proporcoes: { P: 1, M: 2 }, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes[0].linhas[0].slots[0];
+    expect(slot.id).toBe("slot-A");
+    expect(slot.preco_venda).toBe(200);
+    expect(slot.proporcoes).toEqual({ P: 1, M: 2 });
+  });
+
+  it("I-1: mix_id de uma vaga (aplicarMixEmSlots) também sobrevive ao pareamento posicional", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_X", ordem: 0, slots: [
+        { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_X", ordem: 0, slots: [
+        { id: "slot-mix", modelo_id: null, slot_index: 0, mix_id: "MIX1", custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    expect(merged.subcolecoes[0].linhas[0].slots[0].mix_id).toBe("MIX1");
+  });
+
+  // M-1: mix_id/usar_estoque isolados também contam como "dado de verdade" no caminho ÓRFÃO
+  // (linha/subcoleção sem bucket no seed) — mesmo predicado usado pelos dois caminhos.
+  it("M-1: órfão de bucket com SÓ mix_id/usar_estoque sobrevive (não é mais dropado)", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_VIVA", ordem: 0, slots: [] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_ORFA", ordem: 1, slots: [
+        { id: "slot-orfa-mix", modelo_id: null, slot_index: 0, mix_id: "MIX2", usar_estoque: true, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const linhaOrfa = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "CAT_ORFA");
+    expect(linhaOrfa?.slots).toHaveLength(1);
+    expect(linhaOrfa?.slots[0].mix_id).toBe("MIX2");
+  });
+
+  // I-2 (probe B): bucket encolheu de qtd 3→1 no OTB — o seed só produz 1 vaga; os 2 slots
+  // salvos "restantes" (com dado: nome + categoria_id) não têm posição no seed e são descartados.
+  it("I-2 probe B: bucket encolhido (qtd 3→1) preserva os slots salvos excedentes com dado", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_Y", ordem: 0, slots: [
+        { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }, // só 1 vaga agora (qtd caiu p/ 1)
+      ] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_Y", ordem: 0, slots: [
+        { id: "x1", modelo_id: null, slot_index: 0, nome: "Card 1", categoria_id: "CAT_PROD", custos_adicionais: [], materiais: [] },
+        { id: "x2", modelo_id: null, slot_index: 1, nome: "Card 2", categoria_id: "CAT_PROD", custos_adicionais: [], materiais: [] },
+        { id: "x3", modelo_id: null, slot_index: 2, nome: "Card 3", categoria_id: "CAT_PROD", custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const ids = merged.subcolecoes[0].linhas[0].slots.map((s) => s.id).sort();
+    expect(ids).toEqual(["x1", "x2", "x3"]);
+    // nenhum duplicado, nenhum com modelo_id inventado
+    expect(merged.subcolecoes[0].linhas[0].slots.every((s) => !s.modelo_id)).toBe(true);
+  });
+
+  it("I-2: bucket encolhido não duplica quando o slot excedente tem modelo VIVO em outro bucket", () => {
+    // O slot "excedente" tem modelo_id — mas esse modelo já tem posição própria (liveByModelo),
+    // então NÃO deve ser reinserido como sobra (senão o modelo apareceria 2×).
+    const seed = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }, // qtd caiu p/ 1
+      ] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [] }, // M1 vive em S2 agora
+      ] }] },
+    ] };
+    const salvo = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { id: "s1-a", modelo_id: null, slot_index: 0, nome: "A", categoria_id: "CAT_PROD", custos_adicionais: [], materiais: [] },
+        { id: "s1-b", modelo_id: "M1", slot_index: 1, custos_adicionais: [], materiais: [] }, // snapshot antigo de M1 em S1
+      ] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0, slots: [] }] },
+    ] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const s1 = merged.subcolecoes.find((s) => s.subcolecao_id === "S1")!;
+    const s2 = merged.subcolecoes.find((s) => s.subcolecao_id === "S2")!;
+    // S1: só a sobra "A" (sem modelo); M1 NÃO aparece aqui (evita duplicar)
+    expect(s1.linhas[0].slots.map((s) => s.id)).toEqual(["s1-a"]);
+    expect(s1.linhas[0].slots.some((s) => s.modelo_id === "M1")).toBe(false);
+    // S2: M1 aparece exatamente 1×, na posição viva
+    const emS2 = s2.linhas[0].slots.filter((s) => s.modelo_id === "M1");
+    expect(emS2).toHaveLength(1);
+  });
+
+  // I-3 (probe D/E): modelo se move para uma sub OU linha que NÃO existe no `salvo` (ex.: sub
+  // criada depois do último save) — os ramos `!ss`/`!sl` devolvem o slot do seed CRU, sem
+  // consultar savedByModelo, então o dado de plano do modelo (preço, custos, distribuição) e o
+  // id do slot (usado pelo re-link de plan_tecido_slot_oc) se perdem.
+  it("I-3 probe E: modelo movido para SUBCOLEÇÃO nova (sem par no salvo) mantém preço/custos/distribuição/id", () => {
+    const distTeste = { loja1: { base: 10, grades: { P: 10 }, manuais: {} } };
+    const seed = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S2", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+            { variante_tecido_id: "v1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 },
+          ] },
+        ] },
+      ] }] },
+    ] };
+    // Salvo NÃO tem S2 (nasceu depois do último save) — só S1, onde M1 estava antes.
+    const salvo = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { id: "slot-antigo", modelo_id: "M1", slot_index: 0, preco_venda: 99, custos_adicionais: [{ descricao: "Bordado", valor: 5 }], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+            { variante_tecido_id: "v1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, distribuicao: distTeste },
+          ] },
+        ] },
+      ] }] },
+    ] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes.find((s) => s.subcolecao_id === "S2")!.linhas[0].slots[0];
+    expect(slot.id).toBe("slot-antigo"); // id preservado (plan_tecido_slot_oc re-linka por id)
+    expect(slot.preco_venda).toBe(99);
+    expect(slot.custos_adicionais).toEqual([{ descricao: "Bordado", valor: 5 }]);
+    expect(slot.materiais[0].variantes[0].distribuicao).toEqual(distTeste);
+    // Não duplica: só 1 slot com modelo_id=M1 em toda a árvore.
+    const todos = merged.subcolecoes.flatMap((s) => s.linhas.flatMap((l) => l.slots));
+    expect(todos.filter((s) => s.modelo_id === "M1")).toHaveLength(1);
+  });
+
+  it("I-3 probe D: modelo mudou de LINHA/categoria (mesma sub) para uma sem par no salvo mantém preço", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_NOVA", ordem: 0, slots: [
+        { modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    // Salvo tem a MESMA sub, mas a linha/categoria salva é outra (CAT_VELHA) — CAT_NOVA não existe no salvo.
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "CAT_VELHA", ordem: 0, slots: [
+        { id: "slot-velho", modelo_id: "M1", slot_index: 0, preco_venda: 99, custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "CAT_NOVA")!.slots[0];
+    expect(slot.id).toBe("slot-velho");
+    expect(slot.preco_venda).toBe(99);
+    const todos = merged.subcolecoes.flatMap((s) => s.linhas.flatMap((l) => l.slots));
+    expect(todos.filter((s) => s.modelo_id === "M1")).toHaveLength(1);
+  });
+});
+
+// Fix round 2 (re-revisão R1, verdict SHIP com 2 Medium a corrigir antes do merge): M-R1-1,
+// M-R1-2 e o gap de teste do L-1 (probes F, G, C — literais do review.md, seção "Re-revisão R1").
+describe("mergeArvore — Fix round 2 (probes do re-review: M-R1-1, M-R1-2, L-1)", () => {
+  // M-R1-1 (probe F): modelo mudou de categoria no Planejamento (BLUSA→VESTIDO); a linha VESTIDO
+  // não existe no salvo (I-3, ramo !sl) — antes do fix, mesclarSlot devolvia categoria_id do
+  // SALVO (BLUSA, stale) em vez da categoria VIVA do seed (VESTIDO). O card ficava na posição
+  // certa (linha VESTIDO) mas com o select de categoria mostrando Blusa — e o próximo Salvar
+  // regravava esse valor errado no banco. Campos que DEFINEM o bucket seguem o seed p/ modelo.
+  it("M-R1-1 probe F: categoria segue o SEED (viva) para modelo, não o salvo (stale)", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "VESTIDO", ordem: 0, slots: [
+        { modelo_id: "M1", slot_index: 0, categoria_id: "VESTIDO", custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    // Salvo: M1 estava na linha BLUSA (não existe mais no seed — a categoria mudou no Planejamento).
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "BLUSA", ordem: 0, slots: [
+        { id: "slot-m1", modelo_id: "M1", slot_index: 0, categoria_id: "BLUSA", preco_venda: 99, custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "VESTIDO")!.slots[0];
+    expect(slot.categoria_id).toBe("VESTIDO"); // seed vence, NÃO "BLUSA" (stale do salvo)
+    expect(slot.preco_venda).toBe(99); // dado de plano (não define bucket) continua vindo do salvo
+    expect(slot.id).toBe("slot-m1");
+  });
+
+  it("M-R1-1: categoria de um DRAFT (sem modelo) continua vindo do salvo (comportamento intocado)", () => {
+    // Slot sem modelo_id: categoria é dado PRÓPRIO do plano (não "definido pelo seed" — o seed não
+    // tem opinião sobre a categoria de um rascunho). O salvo deve continuar vencendo aqui.
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { modelo_id: null, slot_index: 0, categoria_id: "CAT_PRODUTO_ESCOLHIDA", custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    expect(merged.subcolecoes[0].linhas[0].slots[0].categoria_id).toBe("CAT_PRODUTO_ESCOLHIDA");
+  });
+
+  // M-R1-2 (probe G): usar_estoque isolado (sem mais nenhum dado) não é mais motivo de preservação
+  // — a flag está inerte e "Limpar" não a zera, então um card só-com-esse-resíduo virava um ghost
+  // card impossível de remover. mix_id sozinho ainda preserva (M-1 original segue valendo).
+  it("M-R1-2 probe G: usar_estoque isolado NÃO preserva mais (evita ghost card); mix_id sozinho ainda preserva", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }, // qtd caiu p/ 1
+      ] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { id: "v1", modelo_id: null, slot_index: 0, usar_estoque: true, custos_adicionais: [], materiais: [] },
+        { id: "v2", modelo_id: null, slot_index: 1, usar_estoque: true, custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const ids = merged.subcolecoes[0].linhas[0].slots.map((s) => s.id);
+    expect(ids).not.toContain("v2"); // não sobra como excedente (I-2) só por usar_estoque
+    // mix_id sozinho continua preservando (não é regressão do M-1 original).
+    const salvoComMix = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "cat", ordem: 0, slots: [
+        { id: "w1", modelo_id: null, slot_index: 0, mix_id: "MIX9", custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const mergedMix = mergeArvore(seed as any, salvoComMix as any);
+    expect(mergedMix.subcolecoes[0].linhas[0].slots[0].mix_id).toBe("MIX9");
+  });
+
+  // L-1 (probe C): a coleção AGORA TEM subcoleções (seed só lista S1/S2, nenhuma null), e o
+  // salvo tem um slot com dado só na subcoleção "Sem subcoleção" (subcolecao_id: null) — um
+  // órfão de bucket NO NÍVEL DE SUBCOLEÇÃO com key null (o único órfão de sub real possível,
+  // per o review: sub com id não-null é sempre removida via CASCADE junto com a linha do plano).
+  it("L-1 probe C: subcoleção órfã 'Sem subcoleção' (null) sobrevive quando a coleção só tem subs nomeadas", () => {
+    const seed = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+    ] };
+    const salvo = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots: [] }] },
+      { subcolecao_id: null, ordem: 2, linhas: [{ linha_id: null, categoria_id: "CAT_LEGADO", ordem: 0, slots: [
+        { id: "slot-legado", modelo_id: null, slot_index: 0, preco_venda: 77, custos_adicionais: [], materiais: [] },
+      ] }] },
+    ] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const semSub = merged.subcolecoes.find((s) => s.subcolecao_id === null);
+    expect(semSub).toBeDefined();
+    expect(semSub?.linhas[0].slots[0].id).toBe("slot-legado");
+    expect(semSub?.linhas[0].slots[0].preco_venda).toBe(77);
+    // as duas subs vivas continuam intactas (nenhuma mistura)
+    expect(merged.subcolecoes.find((s) => s.subcolecao_id === "S1")?.linhas[0].slots).toHaveLength(0);
+    expect(merged.subcolecoes.find((s) => s.subcolecao_id === "S2")?.linhas[0].slots).toHaveLength(0);
+  });
+});
+
+// Fix round 3 (re-revisão R2, achado Important I-R2-1): a rodada 2 fez o seed vencer categoria_id
+// pra TODO slot de modelo, inclusive no bucket CASADO (não só quando o modelo se move) — o select
+// "Categoria" do card (ModelCard.tsx, editável, grava só no plano) ficava sempre desfeito no
+// próximo load/save. Ruling do controlador: seed vence categoria_id SÓ quando o modelo MOVEU pra
+// um bucket sem par no salvo (os ramos I-3 !ss/!sl, ou o savedByModelo achado fora de sl.slots).
+// Bucket casado/sem mudança: comportamento de sempre — o salvo (editável) vence.
+describe("mergeArvore — Fix round 3 (probes do re-review R2: R, F, regressão de save simples)", () => {
+  // Probe R: bucket CASADO (mesma posição em seed e salvo) — o usuário editou a categoria do
+  // card no Plan. Tecido (VESTIDO→SAIA) e salvou. Sem moveu, o SALVO tem que vencer.
+  it("probe R: categoria editada no card (bucket sem mudança) sobrevive ao reload/save", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "VESTIDO", ordem: 0, slots: [
+        { modelo_id: "M1", slot_index: 0, categoria_id: "VESTIDO", custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    // Salvo: MESMA linha/categoria (VESTIDO) do seed — bucket casado; usuário escolheu SAIA no card.
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "VESTIDO", ordem: 0, slots: [
+        { id: "slot-m1", modelo_id: "M1", slot_index: 0, categoria_id: "SAIA", custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes[0].linhas[0].slots[0];
+    expect(slot.categoria_id).toBe("SAIA"); // a escolha do usuário SOBREVIVE (moveu=false)
+    expect(slot.id).toBe("slot-m1");
+  });
+
+  // Probe F (re-confirmação): modelo mudou de categoria no Planejamento e caiu num bucket sem
+  // par no salvo (moveu=true) — a categoria VIVA (do seed) ainda tem que vencer aqui.
+  it("probe F: modelo movido (bucket sem par) ainda usa a categoria do SEED", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "VESTIDO", ordem: 0, slots: [
+        { modelo_id: "M1", slot_index: 0, categoria_id: "VESTIDO", custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "BLUSA", ordem: 0, slots: [
+        { id: "slot-m1", modelo_id: "M1", slot_index: 0, categoria_id: "BLUSA", preco_venda: 99, custos_adicionais: [], materiais: [
+          { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] },
+        ] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes[0].linhas.find((l) => l.categoria_id === "VESTIDO")!.slots[0];
+    expect(slot.categoria_id).toBe("VESTIDO"); // seed vence (moveu=true)
+    expect(slot.preco_venda).toBe(99); // dado de plano continua vindo do salvo
+    expect(slot.id).toBe("slot-m1");
+  });
+
+  // Regressão explícita: um card SEM mudança nenhuma (categoria plan-only, preexistente,
+  // diferente do "categoria_id" do seed por qualquer motivo histórico) não é tocado por um
+  // Salvar simples (bucket casado) — a categoria do salvo passa incólume pelo merge.
+  it("regressão: categoria plan-only existente num card SEM MUDANÇA não é sobrescrita por save simples", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "ACESSORIO", ordem: 0, slots: [
+        { modelo_id: "M2", slot_index: 0, categoria_id: "ACESSORIO", custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    // Plano pré-existente com uma categoria DIFERENTE da do modelo (dado histórico, legítimo).
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [
+      { linha_id: null, categoria_id: "ACESSORIO", ordem: 0, slots: [
+        { id: "slot-m2", modelo_id: "M2", slot_index: 0, categoria_id: "CINTO_LEGADO", custos_adicionais: [], materiais: [] },
+      ] },
+    ] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    expect(merged.subcolecoes[0].linhas[0].slots[0].categoria_id).toBe("CINTO_LEGADO");
+  });
+});
