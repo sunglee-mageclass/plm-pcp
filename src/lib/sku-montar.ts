@@ -5,6 +5,7 @@
 //   normalizarRefSku      ⇄ public._sku_norm_ref(text)
 //   normalizarSkuManual   ⇄ public._sku_norm_manual(text)              (mesmas mensagens de erro, em PT)
 //   normalizarSkuConfig   ⇄ public._sku_config_normaliza(jsonb)      (mesmas mensagens de erro, em PT)
+//   corNoNomeEfetiva      ⇄ public._integracao_cor_no_nome(jsonb)    (anti-drift tests/fixtures/nome-sublinha-casos.ts)
 //   normalizarTamanhosSku ⇄ public._sku_tamanhos_normaliza(jsonb)    (mesmas mensagens de erro, em PT)
 //   montarSku             ⇄ public._sku_montar(jsonb,jsonb)
 //   resolverSku           ⇄ public._sku_resolver(jsonb,text,jsonb,jsonb,text,text,jsonb)
@@ -19,6 +20,10 @@
 //  - Formato: `partes` ⊆ {ref, cor_base, cor_apelido, tamanho}, sem repetir, na ordem do SKU; lista vazia ⇒ sem
 //    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS ("a|b"). F3.6 (dono 25/set): SEM padrão
 //    da loja p/ o "Tamanho em" — a chave legada `tamanho_padrao` é IGNORADA (o lado vem SÓ do card: `modelos.tamanho_tipo`).
+//  - Cor no nome da sublinha da Integração (P-126, dono 29/set, migration 20261013100000): chave `cor_no_nome`
+//    ('cor_base' | 'cor_apelido') no MESMO jsonb; ausente/null = fora da saída; outro valor = erro (checado DEPOIS das
+//    partes). Sem partes e COM a chave ⇒ `{ partes: [], separadores: {}, cor_no_nome }` (loja SEM formato do SKU que
+//    escolheu a cor do nome) — quem lê o formato trata `partes` vazio como "sem formato" (igual aos leitores do SQL).
 //  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (apelido que não entra — D4;
 //    tamanho "UN" sem sigla — D1) some JUNTO com o separador que a antecede.
 //  - Cor apelido (D4 — decidido pelo dono 24/set): apelido COM sigla entra. Variante SEM apelido, ou apelido SEM
@@ -37,7 +42,10 @@ export const SKU_PARTE_LABEL: Record<SkuParte, string> = {
   cor_apelido: "Cor apelido",
   tamanho: "Tamanho",
 };
-export type SkuConfig = { partes: SkuParte[]; separadores: Record<string, string> };
+/** Qual cor entra no nome da sublinha da Integração/API (P-126): o nome da Cor base ou o do Apelido. */
+export type CorNoNome = "cor_base" | "cor_apelido";
+export const COR_NO_NOME: readonly CorNoNome[] = ["cor_base", "cor_apelido"];
+export type SkuConfig = { partes: SkuParte[]; separadores: Record<string, string>; cor_no_nome?: CorNoNome };
 export type SkuFalta = { atributo: "cor_base" | "cor_apelido" | "tamanho"; id: string | null; nome: string | null };
 export type SkuCor = { id: string; nome: string; sigla: string | null };
 export type Normalizado<T> = { ok: true; valor: T } | { ok: false; erro: string };
@@ -102,7 +110,18 @@ export function normalizarSkuConfig(raw: unknown): Normalizado<SkuConfig | null>
     if (partes.includes(p as SkuParte)) return { ok: false, erro: `Parte do SKU repetida: ${p}.` };
     partes.push(p as SkuParte);
   }
-  if (partes.length === 0) return { ok: true, valor: null };
+  // P-126: a cor do nome da sublinha — checada DEPOIS das partes (= SQL); sem partes, a chave sozinha fica guardada.
+  let corNoNome: CorNoNome | null = null;
+  const cn = raw.cor_no_nome;
+  if (cn !== null && cn !== undefined) {
+    if (typeof cn !== "string" || !(COR_NO_NOME as readonly string[]).includes(cn)) {
+      return { ok: false, erro: "Cor no nome da sublinha inválida (use cor_base ou cor_apelido)." };
+    }
+    corNoNome = cn as CorNoNome;
+  }
+  if (partes.length === 0) {
+    return { ok: true, valor: corNoNome === null ? null : { partes: [], separadores: {}, cor_no_nome: corNoNome } };
+  }
   let seps: unknown = raw.separadores;
   if (seps === null || seps === undefined) seps = {};
   if (!ehObjeto(seps)) return { ok: false, erro: "Formato do SKU inválido: separadores." };
@@ -117,7 +136,19 @@ export function normalizarSkuConfig(raw: unknown): Normalizado<SkuConfig | null>
     if (v !== "") separadores[k] = v;
   }
   // F3.6 (R24): a chave legada `tamanho_padrao` é IGNORADA — sem erro, fora da saída (= `_sku_config_normaliza`, Task 6).
-  return { ok: true, valor: { partes, separadores } };
+  return { ok: true, valor: corNoNome === null ? { partes, separadores } : { partes, separadores, cor_no_nome: corNoNome } };
+}
+
+/**
+ * A cor que entra no nome da sublinha da Integração/API para este `sku_config` CRU (= `public._integracao_cor_no_nome`):
+ * a escolha explícita válida (`cor_no_nome`); sem ela, "cor_apelido" se as partes do SKU usam `cor_apelido`, senão
+ * "cor_base" (P-126 — padrão derivado, sem backfill).
+ */
+export function corNoNomeEfetiva(raw: unknown): CorNoNome {
+  if (!ehObjeto(raw)) return "cor_base";
+  const cn = raw.cor_no_nome;
+  if (cn === "cor_base" || cn === "cor_apelido") return cn;
+  return Array.isArray(raw.partes) && raw.partes.includes("cor_apelido") ? "cor_apelido" : "cor_base";
 }
 
 /**
