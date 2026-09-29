@@ -308,9 +308,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   na tela/campo) + reagir a UPDATE alheio; `mergeDraft`/`mergeLinhas` (`@/lib/colab/merge`, puros)
   fazem merge 3-vias (base/draft/fresh) por campo tocado (`touched`), sinalizando conflito só onde
   EU editei e o servidor também mudou (`<ColabBanner>` + destaque âmbar + "manter meu · usar o novo").
-  **Adotado em 6 telas**: OC Tecido (piloto, `entrada-saida.oc-tecido.tsx`) · Desenvolvimento ·
+  **Adotado em 7 telas**: OC Tecido (piloto, `entrada-saida.oc-tecido.tsx`) · Desenvolvimento ·
   Plan. Produto · Plan. Tecido (merge POR SLOT, `colab-merge-arvore.ts`) · **PCP Serviços + CQ**
-  (ago/2026, spec `.superpowers/sdd/2026-08-07-colab-pcp-cq/`). PCP+CQ têm um grão mais fino porque
+  (ago/2026, spec `.superpowers/sdd/2026-08-07-colab-pcp-cq/`) · **Config da Loja** (release 5,
+  via RPC `salvar_config_loja` — ver bloco "Fix salvar rápido" acima). PCP+CQ têm um grão mais fino porque
   as 2 telas editam o MESMO dado — o `grade_detalhe` destrinchado do bloco-fonte (Grade Cortada):
   `rev` é POR BLOCO em `producao_terceirizados` (cobre o PCP e o grade_detalhe que o CQ também
   escreve) e por cad em `controle_qualidade`; `salvar_terceirizados` checa `_rev_base` `{bloco_id:
@@ -340,7 +341,25 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   rascunho — trocar de loja no meio da edição não mistura config de tenants diferentes) e o
   dialog **"Nomenclaturas"** (editor de `tab_labels`/`campos_editaveis`) ganhou `tenantId` na
   própria `queryKey` (`["tenant_config","nomenclaturas_edit",tenantId]`) — sem isso, trocar de
-  loja com o dialog aberto podia mostrar/gravar nomenclaturas da loja ERRADA.
+  loja com o dialog aberto podia mostrar/gravar nomenclaturas da loja ERRADA. **Substituído em
+  release 5** pela Config da Loja colaborativa (ver bloco abaixo) — o merge 3-vias "current/base/
+  rascunho" e o `upsert` da linha inteira saíram; quem grava agora é `salvar_config_loja`
+  (compare-and-set por coluna).
+- **Config da Loja colaborativa (P-28 A, release 5, migration `20261015100000`)** — a tela deixou
+  de fazer `upsert` da linha inteira de `tenant_config` ("último vence": trocar de loja/o outro
+  editar zerava o que você tinha acabado de gravar noutra coluna) e passou a chamar
+  `salvar_config_loja(_tenant_id, _mudancas jsonb, _base jsonb, _chave_kanban_esperada)` — RPC
+  única, SEM DDL na tabela (`tenant_config` fica sem `rev`/gatilho novo; zero risco do incidente
+  de 23/set), com **compare-and-set POR COLUNA**: só grava as colunas em `_mudancas`; qualquer
+  outra que divergiu de `_base` desde a última leitura vira `RAISE 'conflito_versao: config_loja'
+  USING ERRCODE='P0409'` (ASCII) e nada é gravado. Chave do Kanban Automático exige
+  `_chave_kanban_esperada` explícito quando a mudança toca colunas do kanban (diverge →
+  `chave_kanban_mudou`, P0409). Nomenclaturas grava por RPC própria, com base só dos mapas que
+  mudaram. **P-122 A:** conflito no mesmo item BLOQUEIA o Salvar até resolver (igual às outras 7
+  telas colaborativas). **P-123 A:** Nomenclaturas entra na mesma frente. **P-124 A:** o anel de
+  presença é POR BLOCO (`data-colab-path` em cada card/seção da página, não por controle
+  individual). `<ColabPresenceOverlay>` ganhou a opção `abaixoDeModal` (usada pelo 2º overlay
+  dentro do dialog Nomenclaturas, que fica acima da página mas abaixo do próprio modal).
 
 ## Invariantes a preservar (não regredir)
 
@@ -665,6 +684,15 @@ e verifique** — o repo muda rápido.
     **nomes DIFERENTES em dois blocos do mesmo componente** (`PlanejamentoDetail.tsx`) só para
     não colidir: `origemComprado` no bloco da grade/BOM do comprado, `origemSalva` no bloco
     "Mover para…" do kanban — não são dois conceitos opostos, é o mesmo valor lido 2×.
+    ⚠️ **Card só recebe do produto o que MUDOU (P-136 A, release 5, migration `20261016100000`)** —
+    `_salvar_produto_acabado_core` copiava nome/categoria/subcategorias pro card espelho
+    INCONDICIONALMENTE em toda chamada com `modelo_id` (sem `IS DISTINCT FROM`), então qualquer
+    save do produto (mesmo de um campo qualquer) anulava uma edição de Categoria feita nesse
+    meio-tempo pelo Sheet do Planejamento. Fix: cada coluna só vai ao card se de fato mudou NESTE
+    save (`v_x_final IS DISTINCT FROM v_x_atual`), com `FOR UPDATE` no SELECT do "antes" pra
+    fechar a corrida entre o SELECT e o UPDATE na mesma txn. Rollback é LIFO: o inverso de
+    `20261016100000` roda ANTES do de `20261014100000` (Tamanho em nos cards). Ver relatório
+    `.claude/worktrees/fix-pa-sync/.superpowers/sdd/2026-09-29-pa-sync/report.md`.
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
     super admin + quem ELE deu a permissão `integracao` no próprio usuário — admin da loja NÃO passa sozinho, P-107 A; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
@@ -930,6 +958,18 @@ tem a chave `cor_no_nome` (`'cor_base'|'cor_apelido'`, release 4/API — ver inv
 partes/separadores de sempre; `partes: []` (loja "Sem formato") continua significando ausência de
 formato — `_skus_plano`/`_skus_matriz_ref_tipo` tratam esse jsonb como **NULL** mesmo com `cor_no_nome`
 guardado dentro dele (senão a loja sem formato não teria onde guardar a escolha da cor no nome).
+⚠️ **"Tamanho em" editável nos cards (release 5, migration `20261014100000`):** o toggle Letra/
+Número deixou de ser exclusivo do Sheet do Planejamento — Plan. Tecido, Produto Acabado e
+Produto Importado ganharam o MESMO `TamanhoEmToggle` no card, nas duas direções com o
+Planejamento (trocar em qualquer tela reflete nas outras). **Vaga sem card do Plan. Tecido guarda
+a escolha** (`plan_tecido_slots.tamanho_tipo`, P-119 A) — o card nasce com ela ao materializar; o
+valor do produto é entregue ao card em "Criar card" e depois o campo do produto some (a fonte
+passa a ser o card). Toggle **escondido em Acessórios** (grade sempre "UN"). Travado pela
+Integração (invariante #14 — a trava sempre cobre `tamanho_tipo`); numa aba desatualizada, a
+trava reverte no PRIMEIRO erro (não precisa de um 2º Salvar). Aviso âmbar quando o produto já tem
+SKUs gerados (trocar o lado não regenera sozinho). O anel de presença do radio sobe até um
+ancestral `role=radiogroup` marcado com `data-colab-path` (`colab-field-path.ts`) — o radio em si
+nunca carrega o path.
 
 **Distribuição por produto (set/2026, migration `20261006100000`, deploy 26/set):** dialog
 **"Distribuir por loja"** no card do Plan. Tecido (`DistribuirPorLojaDialog.tsx`) substitui a
@@ -946,6 +986,33 @@ parte 2 (`20261010100000_distribuicao_antiga_drop.sql`, produção 29/set 11h07,
 `app.confirmo_apagar_distribuicao_antiga='sim'` + recontagem sob LOCK vs backup; inverso recria estrutura
 e funções; dados no backup `savepoints/pre-dist-parte2/`) — ver `feedback_aposentar_ocultar_primeiro`. Detalhe: `mapeamento-campos-calculos.md`
 §17.5–§17.6.
+
+**Release 5 — 2 bugs antigos de perda de dado corrigidos (P-135 B/P-136 A, set/2026):**
+(1) **Plan. Tecido Salvar não apaga mais slot órfão de bucket.** `mergeArvore`
+(`src/lib/plan-tecido/engine.ts`) iterava só pelos buckets do SEED atual — uma categoria/linha/
+subcoleção que saiu do mix/split/OTB, mas tinha um slot salvo com dado real (preço, proporções,
+materiais…), era descartada em silêncio no próximo Salvar (a RPC faz delete-and-reinsert
+completo). Fix: `mesclarSlot`/`slotOrfaoTemDados` preservam esses slots órfãos (com `id` intacto,
+sem duplicar modelo vivo); um modelo que MOVEU de bucket mantém seus dados de plano, e a
+categoria só segue o bucket novo (seed) quando o modelo de fato moveu — card parado no mesmo
+bucket continua com a categoria editável pelo usuário. Regra geral: **"Salvar nunca apaga o que o
+usuário não apagou".** Report: `.claude/worktrees/fix-plan-tecido-orfaos/.superpowers/sdd/
+2026-09-29-fix-orfaos/report.md`.
+(2) **Salvar em lote do Produto Acabado/Importado manda só os produtos EDITADOS**
+(`produtosParaSalvar`, filtra pelo mesmo `chaveDirty` que já pintava o selo "não salvo") — antes
+reenviava TODOS os produtos carregados na subcoleção a cada clique, e o UPDATE incondicional de
+nome/categoria do `_salvar_produto_acabado_core` (ver invariante #13, P-136 A) anulava edições
+feitas em paralelo pelo Sheet do Planejamento. A base do baseline pós-P0409/merge agora vem
+SEMPRE do SERVIDOR (nunca do resultado do merge nem do rascunho local — senão um campo não
+persistido por um P0409 sumia do próximo lote calado). Importado passou a reler a REF do
+servidor depois do INSERT (o trigger gera a REF; o cliente mandava `ref:null` e achava que o
+produto tinha mudado). O blur do preço fixo do card do Produto Acabado (Preço atacado/varejo)
+também foi corrigido — lia o texto MASCARADO do input (vírgula decimal) com `Number()`, que dá
+`NaN` pra qualquer valor com centavos, e ou zerava o preço fixo ou não salvava nada. Reports:
+`.claude/worktrees/fix-pa-salvar-editados/.superpowers/sdd/2026-09-29-fix-pa-salvar/report.md`.
+
+**Deploy da release 5:** os 3 passos de banco (Tamanho em nos cards, Config da Loja colaborativa,
+PA sync card só mudou) vão ANTES do site, num kit único — `savepoints/pre-release5/`.
 
 ## O que NÃO fazer
 
