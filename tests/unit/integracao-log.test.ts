@@ -17,6 +17,10 @@ describe("Log — detalhe legível (mockup 8)", () => {
     // P-126: reprocessamento cirúrgico do nome das sublinhas (Sistema, ao trocar "Cor no nome da sublinha").
     expect(textoDetalhe(l("editar", { reprocesso: "nome_sublinhas_cor", cor_no_nome: "cor_apelido", sublinhas: 6, exemplo: { antes: "Saia Marola P", depois: "Saia Marola Preto P" } })))
       .toBe('Nome das sublinhas atualizado com a cor: "Saia Marola P" → "Saia Marola Preto P" (6 sublinhas)');
+    // Follow-up do controlador: o banco loga TODO integrável reprocessado, mesmo sem mudança de nome
+    // (sublinhas:0, nomes_antes:[], exemplo:null) — texto próprio, nunca "→ ... (0 sublinhas)".
+    expect(textoDetalhe(l("editar", { reprocesso: "nome_sublinhas_cor", cor_no_nome: "cor_base", sublinhas: 0, nomes_antes: [], exemplo: null })))
+      .toBe("Retrato atualizado com a regra nova do nome (sem mudança de nome)");
   });
   it("ações do super admin", () => {
     expect(textoDetalhe(l("campos", { antes: ["nome"], depois: ["nome", "foto"] }))).toBe('Adicionado "Foto do Modelo" à seleção');
