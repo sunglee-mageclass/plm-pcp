@@ -497,6 +497,11 @@ export function ModelCard({
                     value={tipoEfetivo(slot.tamanho_tipo)}
                     onChange={(v) => onChange({ ...slot, tamanho_tipo: v })}
                     disabled={paginaSoLeitura || tamanhoTravado}
+                    // Fix round pós-QA (F2) — path POR CARD/SLOT (mesma convenção de `pt-prop`/`pt-consumo`/`pt-grade`
+                    // deste módulo: `slot.id ?? slot.modelo_id ?? "x"`); sem isto, TODOS os cards caíam no default
+                    // "tamanho_tipo" do componente compartilhado e compartilhavam o MESMO path — com N cards abertos
+                    // no canvas, o anel de presença aparecia no card errado (ou em todos ao mesmo tempo).
+                    colabPath={`pt-tamtipo:${slot.id ?? slot.modelo_id ?? "x"}`}
                     motivoDesabilitado={tamanhoTravado ? (
                       <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3 shrink-0" aria-hidden />Travado pela Integração</span>
                     ) : undefined}

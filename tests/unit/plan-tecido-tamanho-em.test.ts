@@ -277,6 +277,11 @@ describe("fonte: fiação do Plan. Tecido", () => {
     expect(faixa).toContain("<TamanhoEmToggle");
     expect(faixa).not.toMatch(/disabled=\{[^}]*\b(travado|lancado)\b/);
   });
+  it("Fix round pós-QA (F2) — o toggle leva um colabPath POR CARD/SLOT (mesma convenção de pt-prop/pt-consumo/pt-grade); sem isto, N cards abertos compartilhavam o path default e o anel de presença aparecia no card errado", () => {
+    const card = ler("src/components/plan-tecido/ModelCard.tsx");
+    const faixa = card.slice(card.indexOf("Proporção por tamanho</div>"), card.indexOf("<GradeSection"));
+    expect(faixa).toContain('colabPath={`pt-tamtipo:${slot.id ?? slot.modelo_id ?? "x"}`}');
+  });
 });
 
 describe("M-4: merge colaborativo por slot com o 'Tamanho em'", () => {
