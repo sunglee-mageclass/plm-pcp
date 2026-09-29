@@ -900,9 +900,10 @@ Direcionamento. Card já **Enviado à Explosão** abre o dialog **SÓ LEITURA**.
 `/distribuicao` foi APAGADA do código** (F5b, P-111 A: rota, `src/components/distribuicao/`,
 `src/lib/distribuicao.ts` e testes removidos; URL antiga cai no 404) — as tabelas/RPCs antigas
 (`distribuicao_tabelas` + `distribuicao_resumo`/`salvar_distribuicao_tabela`/
-`excluir_distribuicao_tabela` + `direcionamento_resumo_subcolecao` morta) SÓ saem do banco na
-parte 2, DEPOIS do deploy da F5 (backup + passo do dono; ajustar
-`tests/integration/distribuicao-produto.test.ts`) — ver `feedback_aposentar_ocultar_primeiro`. Detalhe: `mapeamento-campos-calculos.md`
+`excluir_distribuicao_tabela` + `direcionamento_resumo_subcolecao` morta) foram DROPADAS na
+parte 2 (`20261010100000_distribuicao_antiga_drop.sql`, produção 29/set 11h07, P-125 A; guarda
+`app.confirmo_apagar_distribuicao_antiga='sim'` + recontagem sob LOCK vs backup; inverso recria estrutura
+e funções; dados no backup `savepoints/pre-dist-parte2/`) — ver `feedback_aposentar_ocultar_primeiro`. Detalhe: `mapeamento-campos-calculos.md`
 §17.5–§17.6.
 
 ## O que NÃO fazer
