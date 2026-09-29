@@ -87,6 +87,18 @@ export function pathDoElemento(el: HTMLElement, scope: HTMLElement): string | nu
   // Distribuição por produto R20). Sem marcação, só campo de texto participa (regra de sempre).
   const explicit = el?.getAttribute?.("data-colab-path");
   if (explicit) return explicit;
+  // Fix round pós-QA (F2) — rádio dentro de um `role="radiogroup"` MARCADO (ex.: `TamanhoEmToggle`/`CodigosSecao`):
+  // o `data-colab-path` mora no CONTAINER (o grupo), não no `<input type="radio">` que de fato recebe o foco —
+  // `ehCampoColab` exclui radio de propósito (não é um "campo de texto" com ring útil), então sem este passo o
+  // path do próprio radio nunca era achado e o anel de presença nunca aparecia no toggle. Sobe até o ancestral
+  // `[role="radiogroup"][data-colab-path]` mais próximo e publica O PATH DO GRUPO — só quando o alvo É um radio
+  // (checkbox/botão soltos continuam excluídos como sempre; um radio SOLTO, sem grupo marcado, `closest` não
+  // acha nada e cai no `ehCampoColab` de baixo → null, como antes — comportamento intacto).
+  if (el?.getAttribute?.("type") === "radio") {
+    const grupo = el.closest?.('[role="radiogroup"][data-colab-path]');
+    const pathGrupo = grupo?.getAttribute("data-colab-path");
+    if (pathGrupo) return pathGrupo;
+  }
   if (!ehCampoColab(el)) return null;
 
   const name = el.getAttribute("name");

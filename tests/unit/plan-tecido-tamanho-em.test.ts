@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { marcarTamanhoTocado, slotDaBase, soTamanhoMudou, textoTamanhoRevertido } from "@/lib/plan-tecido/tamanho-tocado";
+import { igual } from "@/lib/plan-tecido/atendimento";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
 import { normalizarDistribuicao, recalcularLinha, totaisDaDistribuicao, definirCelula, tamanhosDoTipo } from "@/lib/distribuicao-produto";
 import { mergeArvore, savedTemDados, semearArvore, semearComModelos, type ModeloReal } from "@/lib/plan-tecido/engine";
@@ -127,6 +128,29 @@ describe("marcarTamanhoTocado (payload do Salvar do Plan. Tecido)", () => {
     expect(soTamanhoMudou({ ...b }, b)).toBe(false); // nada mudou
     expect(soTamanhoMudou({ ...b, tamanho_tipo: "numero" }, undefined)).toBe(false); // sem base: aplica como antes
     expect(slotDaBase(arv([b]), { ...b, modelo_id: "outro" })).toBe(b); // por id primeiro
+  });
+
+  it("Fix round 1 (L-5, review) — soTamanhoMudou devolve false pra um slot BYTE-IDÊNTICO à base (linha 127, M-3 acima), exatamente o que sobra depois do revert automático de F3: 'igual' (a checagem NOVA no autoAplicarDirty) devolve true nesse caso — a razão por que precisa de um guard À PARTE (não dá pra reusar soTamanhoMudou pra isto)", () => {
+    const mats = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }];
+    const b = slot({ id: "s1", modelo_id: "m1", tamanho_tipo: "letra", materiais: mats });
+    // Cenário do L-5: F3 reverteu tamanho_tipo (voltou a "letra", igual à base) — o slot no rascunho fica
+    // BYTE-IDÊNTICO à base (nem tamanho_tipo, nem tecido/cor/pç diferem).
+    const slotRevertido = { ...b };
+    expect(soTamanhoMudou(slotRevertido, b)).toBe(false); // confirma o achado: NÃO cai no ramo "só o tamanho mudou"
+    expect(igual(slotRevertido, b)).toBe(true); // o guard novo PEGA esse caso — autoAplicarDirty pode pular
+    // Contraste: slot com edição REAL (tecido mudou) — soTamanhoMudou já dizia false, e o guard novo tem que
+    // continuar false também (nunca pode pular um slot com mudança de verdade).
+    const slotEditado = { ...b, materiais: [{ ...mats[0], consumo: 2 }] };
+    expect(soTamanhoMudou(slotEditado, b)).toBe(false);
+    expect(igual(slotEditado, b)).toBe(false); // o guard NÃO pula — o BOM precisa ir pro auto-aplicar
+    // Contraste 2: só o "Tamanho em" mudou de verdade (M-3 original) — soTamanhoMudou já pulava (true), e o
+    // guard novo `igual` teria de dar false aqui (tamanho_tipo difere) — mas o `if` de M-3 (linha acima) já
+    // capturou este caso com `continue` ANTES de chegar no guard novo, então a ordem no código importa: M-3
+    // primeiro, L-5 depois (nunca o inverso — o guard L-5 sozinho não distingue "só tamanho mudou" de "nada
+    // mudou", ambos têm materiais/etc iguais; só soTamanhoMudou sabe que o tamanho É diferente).
+    const soTamanho = { ...b, tamanho_tipo: "numero" as const };
+    expect(soTamanhoMudou(soTamanho, b)).toBe(true);
+    expect(igual(soTamanho, b)).toBe(false);
   });
 
   it("modelo legado com NULL: escolher Letra/Número conta como tocado", () => {
@@ -251,7 +275,10 @@ describe("fonte: fiação do Plan. Tecido", () => {
     expect(sheet).toMatch(/if \(marca\.revertidos\.length > 0\) \{\n\s+setArvore\(marca\.local\);\n\s+toast\.warning\(textoTamanhoRevertido\(marca\.revertidos\)\);/);
     // M-3: o auto-aplicar pula o slot que só trocou o "Tamanho em", comparando com a base ANTES do Salvar
     expect(sheet).toContain("baseAntesDoSaveRef.current = planBaseRef.current;");
-    expect(sheet).toContain("if (soTamanhoMudou(slot, slotDaBase(baseAntesDoSaveRef.current, slot))) continue;");
+    // Fix round 1 (L-5, review) — `baseDoSlot` extraído numa variável (reusado pelo guard novo abaixo, na
+    // mesma linha de código); a chamada de `soTamanhoMudou` continua a MESMA, só lendo da variável.
+    expect(sheet).toContain("const baseDoSlot = slotDaBase(baseAntesDoSaveRef.current, slot);");
+    expect(sheet).toContain("if (soTamanhoMudou(slot, baseDoSlot)) continue;");
     // N-2: nº de SKUs na mesma consulta dos modelos vivos + aviso no card
     expect(sheet).toContain("modelo_skus(count)");
     expect(sheet).toContain("avisoSkuTamanho={avisoSkuTamanhoDe(slot)}");
@@ -276,6 +303,20 @@ describe("fonte: fiação do Plan. Tecido", () => {
     const faixa = card.slice(card.indexOf("Proporção por tamanho</div>"), card.indexOf("<GradeSection"));
     expect(faixa).toContain("<TamanhoEmToggle");
     expect(faixa).not.toMatch(/disabled=\{[^}]*\b(travado|lancado)\b/);
+  });
+  it("Fix round pós-QA (F2) — o toggle leva um colabPath POR CARD/SLOT (mesma convenção de pt-prop/pt-consumo/pt-grade); sem isto, N cards abertos compartilhavam o path default e o anel de presença aparecia no card errado", () => {
+    const card = ler("src/components/plan-tecido/ModelCard.tsx");
+    const faixa = card.slice(card.indexOf("Proporção por tamanho</div>"), card.indexOf("<GradeSection"));
+    expect(faixa).toContain('colabPath={`pt-tamtipo:${slot.id ?? slot.modelo_id ?? "x"}`}');
+  });
+  it("Fix round 1 (L-5, review) — autoAplicarDirty pula o slot BYTE-IDÊNTICO à base (guard novo com 'igual', DEPOIS do continue de M-3/soTamanhoMudou — a ordem importa)", () => {
+    const sheet = ler("src/components/plan-tecido/PlanTecidoSheet.tsx");
+    expect(sheet).toContain('import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";');
+    const idxM3 = sheet.indexOf("if (soTamanhoMudou(slot, baseDoSlot)) continue;");
+    const idxL5 = sheet.indexOf("if (baseDoSlot && igual(slot, baseDoSlot)) continue;");
+    expect(idxM3).toBeGreaterThan(-1);
+    expect(idxL5).toBeGreaterThan(idxM3); // L-5 DEPOIS de M-3 — ver o comentário no teste puro acima (a ordem é obrigatória)
+    expect(sheet).toContain("const baseDoSlot = slotDaBase(baseAntesDoSaveRef.current, slot);");
   });
 });
 

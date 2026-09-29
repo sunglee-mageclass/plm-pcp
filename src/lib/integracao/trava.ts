@@ -92,3 +92,36 @@ export function invalidarEstadoSeTravado(qc: QueryClient, e: unknown): void {
     void qc.invalidateQueries({ queryKey: ["integracao-estado"] });
   }
 }
+
+/** Fix round pós-QA (F3) — o erro é um `42501 integracao_travado:*`? PURO, mesma leitura de código/mensagem de
+ *  `invalidarEstadoSeTravado` (extraída pra reusar sem duplicar a leitura de `.code`/`.message`/`.error`/`.cause`
+ *  nos 3 lugares que agora precisam decidir "foi ESSE erro" antes de tentar reverter o campo travado). */
+export function ehErroIntegracaoTravado(e: unknown): boolean {
+  const err = e as { code?: unknown; message?: unknown; error?: { code?: unknown; message?: unknown }; cause?: { code?: unknown } } | null | undefined;
+  const codigo = String(err?.code ?? err?.error?.code ?? err?.cause?.code ?? "");
+  const mensagem = String(err?.message ?? err?.error?.message ?? "");
+  return codigo === "42501" && mensagem.startsWith("integracao_travado:");
+}
+
+/** Fix round pós-QA (F3) — achado do QA: aba desatualizada (produto travado DEPOIS que o Sheet abriu) só
+ *  revertia o rascunho no 2º Salvar. `invalidarEstadoSeTravado` só invalida a query (mensagem original — "pro
+ *  PRÓXIMO clique já vir certo"); este helper vai além: REFETCHA de verdade (`refetchQueries`, não só invalida —
+ *  precisamos do dado FRESCO agora, não só marcado como stale) e devolve o mapa atualizado direto do cache, pro
+ *  chamador poder rodar a MESMA lógica de revert (`resolverTravaAcabado`/`resolverTravaImportado`/
+ *  `marcarTamanhoTocado`, cada uma já usada no pré-save) imediatamente, no PRÓPRIO erro — sem esperar a pessoa
+ *  clicar Salvar de novo. `getQueriesData` (não `getQueryData`) porque nenhum destes 3 arquivos tem o `tenantId`
+ *  em mão neste ponto (mesmo motivo de `invalidarEstadoSeTravado` invalidar por prefixo, sem tenantId no filtro):
+ *  casa qualquer entrada `["integracao-estado", *]` — na prática há só uma (a da loja ativa). Sem entrada
+ *  nenhuma no cache (query nunca rodou) devolve `{}` — chamador trata como "sem trava conhecida", igual a antes.
+ *  Fix round 1 (L-2, review) — `type: "active"` nos DOIS (`refetchQueries` E `getQueriesData`): sem isto, um
+ *  super admin que trocou de loja na mesma sessão (`gcTime` de 5min mantém a entrada da loja anterior INATIVA
+ *  no cache) tinha essa entrada antiga refeita pela MESMA `queryFn` — que roda sob o tenant ATUAL da sessão —
+ *  "envenenando" a chave da loja A com o mapa de travas da loja B, e `getQueriesData` (sem filtro) podia achar
+ *  essa entrada ANTIGA (ordem de inserção) em vez da ativa. Restrito a queries ATIVAS (só a da loja realmente
+ *  aberta agora), replica o comportamento do `invalidateQueries` anterior (default `refetchType: "active"`),
+ *  que nunca tocava chaves inativas. */
+export async function estadoIntegracaoFresco(qc: QueryClient): Promise<Record<string, EstadoModeloIntegracao>> {
+  await qc.refetchQueries({ queryKey: ["integracao-estado"], type: "active" });
+  const entradas = qc.getQueriesData<Record<string, EstadoModeloIntegracao>>({ queryKey: ["integracao-estado"], type: "active" });
+  return entradas.find(([, dado]) => !!dado)?.[1] ?? {};
+}

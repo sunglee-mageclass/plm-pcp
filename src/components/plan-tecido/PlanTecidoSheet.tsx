@@ -41,7 +41,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { efeitoDaCarga, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
+import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
 import { difVariantes, aplicarDifNoMaterial, indiceMaterialCorrespondente } from "@/lib/plan-tecido/replicar-variantes";
 import { ehOrigemComprada } from "@/lib/origem";
@@ -54,7 +54,7 @@ import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSens
 import { DroppableLane, DroppableLaneHeader, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
 import { marcarTamanhoTocado, slotDaBase, soTamanhoMudou, textoTamanhoRevertido } from "@/lib/plan-tecido/tamanho-tocado";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type Nome = { id: string; nome: string };
 
@@ -279,6 +279,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   const salvoConsumidoRef = useRef<PtArvore | null | undefined>(undefined);
   const revRef = useRef<number | null>(null);
   const retryRef = useRef(false);
+  // Fix round pós-QA (F3) — trava PRÓPRIA do retry de 42501 `integracao_travado:*` (abaixo, no onError):
+  // não reusa `retryRef` (essa é do retry do P0409, mecanismo separado) — os dois podem, em teoria,
+  // acontecer em saves diferentes sem se atrapalhar.
+  const retryIntegracaoRef = useRef(false);
   const arvoreLiveRef = useRef<PtArvore | null>(null);
   arvoreLiveRef.current = arvore;
   // "Tamanho em" (frente Tamanho em, Tarefa 4): `arvoreSalvaRef` = a árvore LOCAL efetivamente salva (com o "Tamanho em"
@@ -1000,7 +1004,19 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           if (enviadoCadSet.has(slot.modelo_id)) continue;                 // pós-explosão: card NÃO toca o BOM
           if (ehOrigemComprada(origemMap[slot.modelo_id])) continue;        // comprado (revenda/importado): sem BOM de tecido
           if (!slot.materiais.some((m) => m.artigo_id)) continue;          // sem tecido escolhido: nada a gravar
-          if (soTamanhoMudou(slot, slotDaBase(baseAntesDoSaveRef.current, slot))) continue; // M-3: só o "Tamanho em" mudou — não reescreve o BOM
+          const baseDoSlot = slotDaBase(baseAntesDoSaveRef.current, slot);
+          if (soTamanhoMudou(slot, baseDoSlot)) continue; // M-3: só o "Tamanho em" mudou — não reescreve o BOM
+          // Fix round 1 (L-5, review) — depois do revert automático de F3 (o "Tamanho em" de um card travado
+          // volta ao valor da base), `soTamanhoMudou` devolve `false` (linha 115: `tamanho_tipo` já bate,
+          // sai ANTES de checar o resto) mesmo quando o slot ficou byte-a-byte IGUAL à base — não passa pelo
+          // ramo "só o Tamanho em mudou", passa direto pro `alvos.push` de baixo, reaplicando um BOM que não
+          // mudou NADA (bumpa `modelos.rev` à toa — exatamente o caso que a M-3 original tentou evitar). Esse
+          // slot também nunca deveria ter continuado marcado como "tocado" depois do revert, mas o guard aqui,
+          // no ponto de uso, é mais seguro/local que tentar podar `touchedSlotIdsRef` no meio do retry (o
+          // mesmo Set alimenta outras decisões do save). Guard puramente ADITIVO: só pula quando o slot é
+          // IDÊNTICO à base (nem "Tamanho em" nem tecido/cor/pç mudaram) — nenhum slot com edição real deixa
+          // de ser aplicado.
+          if (baseDoSlot && igual(slot, baseDoSlot)) continue;
           alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: materiaisParaAplicar(slot, distribOn) });
         }
     if (alvos.length === 0) { await esperarTamanho; return; }
@@ -1140,6 +1156,32 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // Integração (invariante #14): 42501 `integracao_travado:*` = o card foi travado depois que a tela abriu (estado
       // local velho) — invalida o estado para o próximo Salvar já omitir a marca do "Tamanho em" desse card.
       invalidarEstadoSeTravado(qc, e);
+      // Fix round pós-QA (F3) — achado do QA: aba desatualizada só revertia o "Tamanho em" do card travado no
+      // 2º Salvar (o `marca.revertidos`/toast do mutationFn usava o `estadosIntegracao` VELHO, então não viu a
+      // trava nova). Espelha o retry do P0409 abaixo: busca o estado FRESCO da Integração (refetch de verdade),
+      // roda `marcarTamanhoTocado` de novo no rascunho ATUAL com essa trava fresca (sem tocar na árvore salva —
+      // só o "Tamanho em" pode ter sido recusado, o resto do save nem chegou a gravar por causa do 42501) e, se
+      // sobrou algo a reverter, aplica no estado local + avisa (MESMO toast de sempre) e reenvia o Salvar 1 vez
+      // já sem o campo recusado — sem esperar a pessoa clicar Salvar de novo.
+      if (ehErroIntegracaoTravado(e) && !retryIntegracaoRef.current) {
+        retryIntegracaoRef.current = true;
+        const estadoFresco = await estadoIntegracaoFresco(qc);
+        const draft = arvoreLiveRef.current ?? arvore;
+        if (draft) {
+          const marca2 = marcarTamanhoTocado(draft, planBaseRef.current, {
+            travado: (mid) => colunasTravadas(estadoFresco[mid] ?? null).has("tamanho_tipo"),
+            touchedIds: touchedSlotIdsRef.current,
+          });
+          if (marca2.revertidos.length > 0) {
+            setArvore(marca2.local);
+            arvoreLiveRef.current = marca2.local;
+            toast.warning(textoTamanhoRevertido(marca2.revertidos));
+            salvarMut.mutate(undefined, { onSettled: () => { retryIntegracaoRef.current = false; } });
+            return;
+          }
+        }
+        retryIntegracaoRef.current = false;
+      }
       // Colab: conflito de versão (P0409) — outra pessoa salvou entre a última carga e agora.
       // Busca o estado novo, faz o merge 3-vias por slot AQUI MESMO (síncrono, ver precedente do
       // piloto OC Tecido) e, se não sobrou conflito de verdade, retenta salvar 1 vez com o rev

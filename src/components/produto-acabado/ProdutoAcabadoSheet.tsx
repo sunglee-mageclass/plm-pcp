@@ -35,7 +35,7 @@ import {
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -746,6 +746,33 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
         toast.warning(`Alguém salvou "${p.nome}" agora — o card foi recarregado e fundido com suas edições.`);
         await reconciliarProdutoP0409(p);
       }
+      // Fix round pós-QA (F3) — achado do QA: card travado DEPOIS que o Sheet abriu (estado local
+      // `estadosIntegracao` velho, `travaAtual` acima veio vazio) só revertia o rascunho no 2º Salvar — até
+      // lá o toggle ficava desabilitado mostrando o valor RECUSADO e o Salvar continuava habilitado. Agora,
+      // no PRÓPRIO erro: busca o estado FRESCO (`estadoIntegracaoFresco` — refetch de verdade, não só
+      // invalida) e roda a MESMA `resolverTravaAcabado` de novo com ele — reverte já aqui, sem esperar
+      // o 2º clique. `p0` (não `p`) porque `p` já passou pelo revert (vazio) da 1ª tentativa.
+      // Fix round 1 (L-3, review) — o patch vira `aplicarResolucaoTravaAcabado` (a MESMA função pura já usada
+      // linhas acima, no revert pré-save) em vez de reescrever o mesmo spread na mão — elimina a duplicação e
+      // ganha de graça a cobertura dos testes puros já existentes daquele helper.
+      if (ehErroIntegracaoTravado(error)) {
+        const travaFresca = p0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[p0.modelo_id] ?? null) : new Set<string>();
+        const resolucao2 = resolverTravaAcabado({ enviado: p0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora });
+        if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
+          const idAlvo = p0.id;
+          setDrafts((ds) => (ds ? ds.map((x) => (x.id === idAlvo ? aplicarResolucaoTravaAcabado(x, resolucao2) : x)) as ProdutoDraft[] : ds));
+          // Fix round 1 (L-4, review) — antes disto o onError do salvarMut SEMPRE mostrava um 2º toast
+          // (`mensagemErro`, genérico) por cima deste `toastTravaAcabado` — redundante (os dois textos em PT
+          // corretos, mas duplicados). Marca o erro (`revertidoLocal`) quando o toast ACIMA já avisou algo —
+          // o onError do salvarMut (abaixo, na mutation do lote) pula o `toast.error` nesse caso. Espelha o
+          // Plan. Tecido, que já mostra só 1 toast (retorna cedo depois do revert+retry, antes de chegar no
+          // `toast.error` genérico).
+          if (resolucao2.avisos.length > 0) {
+            toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao2.avisos)}`);
+            (error as any).revertidoLocal = true;
+          }
+        }
+      }
       throw error;
     }
     // rev pós-save (item 5): a RPC só retorna o `uuid` do produto, não o rev novo — busca ele
@@ -795,7 +822,17 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       const falhas = resultados.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
       const falhasP0409 = falhas.filter((r) => (r.reason as any)?.code === "P0409");
       const outrasFalhas = falhas.filter((r) => (r.reason as any)?.code !== "P0409");
-      if (outrasFalhas.length > 0) throw outrasFalhas[0].reason; // erro "de verdade" (validação/rede) — propaga o 1º pro onError
+      // Fix round 2 (R1-M1, re-revisão) — um erro DE VERDADE de outro produto do lote não pode perder o
+      // toast só porque um produto ANTERIOR na lista já foi revertido pelo F3/L-4 (`revertidoLocal=true`).
+      // `outrasFalhas[0]` era sempre o 1º da lista, em ORDEM DE RASCUNHO — se o produto A (travado,
+      // já revertido e avisado) vem antes do produto B (erro real: P0001/rede/RLS) no array, o `onError`
+      // recebia o erro de A, via `revertidoLocal`, e RETORNAVA sem mostrar nada pro erro de B — B ficava
+      // sujo, Salvar habilitado, sem nenhum aviso do porquê. Prioriza o 1º erro que NÃO foi revertido
+      // localmente; só cai no `outrasFalhas[0]` (que pode ser um `revertidoLocal`) se TODOS os erros do
+      // lote já foram revertidos — nesse caso o toast do revert já avisou algo, então não faz falta o
+      // genérico (mesma lógica do L-4, só espalhada por MAIS de um produto agora).
+      const realFalha = outrasFalhas.find((r) => !(r.reason as any)?.revertidoLocal) ?? outrasFalhas[0];
+      if (outrasFalhas.length > 0) throw realFalha.reason;
       return { totalConflitos: falhasP0409.length };
     },
     onSuccess: ({ totalConflitos }) => {
@@ -819,6 +856,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       // Salvar já vir com a trava certa em vez de repetir o mesmo erro (mirror do onError de
       // `usePlanejamentoSave.ts`).
       invalidarEstadoSeTravado(qc, e);
+      // Fix round 1 (L-4, review) — `revertidoLocal` (marcado dentro de `salvarUmProduto`, acima) significa
+      // que o revert imediato JÁ mostrou o toast certo (`toastTravaAcabado`) pra esse erro — pula o genérico
+      // aqui pra não duplicar (o usuário via os 2, redundantes). Sem a marca (erro que NÃO foi revertido —
+      // ex.: nenhuma coluna travada bateu, ou é um 42501 de outra causa), o toast genérico segue mostrando
+      // como antes.
+      if (e?.revertidoLocal) return;
       toast.error(mensagemErro(e, "Erro ao salvar."));
     },
   });

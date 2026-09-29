@@ -34,7 +34,7 @@ import {
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -824,6 +824,28 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         toast.warning(`Alguém salvou "${d.nome}" agora — o card foi recarregado e fundido com suas edições.`);
         await reconciliarProdutoP0409(d);
       }
+      // Fix round pós-QA (F3) — espelha ProdutoAcabadoSheet.tsx: card travado DEPOIS que o Sheet abriu
+      // (`travaAtual` acima veio vazio/velho) só revertia no 2º Salvar. Busca o estado FRESCO agora
+      // (refetch de verdade) e roda `resolverTravaImportado` de novo com ele, revertendo já no 1º erro.
+      // `isLocal` (produto ainda sem id no servidor) nunca teve `servidorAtual`/trava — `resolverTravaImportado`
+      // já no-opa sem servidor (mesma guarda de sempre), então não precisa de checagem extra aqui.
+      // Fix round 1 (L-3, review) — `aplicarResolucaoTrava` (a mesma função pura do revert pré-save, linhas
+      // acima) em vez do spread duplicado à mão.
+      if (ehErroIntegracaoTravado(error)) {
+        const travaFresca = !isLocal && d0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[d0.modelo_id] ?? null) : new Set<string>();
+        const resolucao2 = resolverTravaImportado({ enviado: d0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora });
+        if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
+          const idAlvo = d0.id!;
+          setDrafts((ds) => ds.map((x) => (x.id === idAlvo ? aplicarResolucaoTrava(x, resolucao2) : x)) as ProdutoImportadoDraft[]);
+          // Fix round 1 (L-4, review) — espelha ProdutoAcabadoSheet.tsx: marca o erro quando este toast já
+          // avisou algo, pro onError do salvarMut (abaixo) pular o `toast.error` genérico e evitar 2 toasts
+          // pra 1 refusal (mesmo comportamento do Plan. Tecido, que já mostra só 1).
+          if (resolucao2.avisos.length > 0) {
+            toast.warning(`"${d0.nome}": ${toastTravaImportado(resolucao2.avisos)}`);
+            (error as any).revertidoLocal = true;
+          }
+        }
+      }
       throw error;
     }
     const novoId = data as string;
@@ -889,7 +911,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       const falhas = resultados.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
       const falhasP0409 = falhas.filter((r) => (r.reason as any)?.code === "P0409");
       const outrasFalhas = falhas.filter((r) => (r.reason as any)?.code !== "P0409");
-      if (outrasFalhas.length > 0) throw outrasFalhas[0].reason; // erro "de verdade" — propaga o 1º pro onError
+      // Fix round 2 (R1-M1, re-revisão) — espelha ProdutoAcabadoSheet.tsx: prioriza o 1º erro do lote que
+      // NÃO foi revertido localmente (revertidoLocal) — um erro real de outro produto (P0001/rede/RLS) não
+      // pode perder o toast só porque um produto ANTERIOR na lista já foi travado+revertido+avisado.
+      const realFalha = outrasFalhas.find((r) => !(r.reason as any)?.revertidoLocal) ?? outrasFalhas[0];
+      if (outrasFalhas.length > 0) throw realFalha.reason;
       return { totalConflitos: falhasP0409.length };
     },
     onSuccess: ({ totalConflitos }) => {
@@ -905,6 +931,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       // 42501 `integracao_travado:*` invalida `["integracao-estado", tenantId]` pra o PRÓXIMO Salvar
       // já vir com a trava certa.
       invalidarEstadoSeTravado(qc, e);
+      // Fix round 1 (L-4, review) — espelha ProdutoAcabadoSheet.tsx: pula o toast genérico quando o revert
+      // imediato (dentro de salvarUmProduto) já avisou com o texto certo — evita 2 toasts pra 1 refusal.
+      if (e?.revertidoLocal) return;
       toast.error(mensagemErro(e, "Falha ao salvar"));
     },
   });
