@@ -105,8 +105,19 @@ export function CodigosSecao({
           do "Tamanho em" ocupava a coluna `auto` e empurrava a REF (1fr) quase a zero. Colunas EXPLÍCITAS
           (`minmax(12rem,1fr)` pra REF; `auto` pro toggle E pro botão seguem cabendo no próprio conteúdo agora que
           o rótulo não tem mais o texto longo inline — foi pro InfoHover abaixo) garantem REF legível nos 2
-          breakpoints; a 390 (max-sm) a grid empilha em 1 coluna, sem estouro horizontal (§Q).  */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(12rem,1fr)_auto_auto] sm:items-end">
+          breakpoints; a 390 (max-sm) a grid empilha em 1 coluna, sem estouro horizontal (§Q).
+          Fix round 1 (M-1, review) — o fix acima ainda estourava de 640 a ~767px: nesse intervalo o Sheet é
+          `sm:w-[70vw]` (`ui/sheet.tsx:52`) com `px-6` no corpo (`PlanejamentoDetail.tsx:1488`), então o conteúdo
+          útil é `0,7·vw − 48px` (menos ~15px de scrollbar no Windows) — a 640px isso dá só 400px, mas as 3
+          colunas (REF 192px + toggle ~143px + botão 128px + 2 gaps de 12px) somam ~487px, 87px acima do que
+          cabe. Grid EM DUAS ETAPAS: de `sm` a `md` só REF + toggle ficam na mesma linha (192+143+12=347px ≤
+          400px, cabe); o botão "Regerar SKUs" cai pra 2ª linha (`sm:grid-cols-[minmax(12rem,1fr)_auto]`,
+          SEM a 3ª coluna — o botão vira um item a mais no grid de 2 colunas e ocupa a linha de baixo sozinho,
+          alinhado à esquerda). De `lg` (1024px) em diante, onde o conteúdo útil já é ~669px, as 3 colunas
+          cabem juntas de novo (`lg:grid-cols-[minmax(12rem,1fr)_auto_auto]`) — idêntico ao fix anterior nesses
+          2 breakpoints (medido pelo QA: 1024→373px de REF, 1280→529px). Re-medido com scrollWidth===clientWidth
+          do corpo do Sheet em 390/640/768/1024/1280 (ver tests/unit/planejamento-codigos.test.ts — fonte). */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(12rem,1fr)_auto] sm:items-end lg:grid-cols-[minmax(12rem,1fr)_auto_auto]">
         {refVisivel ? (
           <div className="grid gap-1">
             <Label htmlFor="codigos-ref">{rotuloRef}</Label>
@@ -131,8 +142,11 @@ export function CodigosSecao({
         <div className="grid gap-1" role="radiogroup" aria-labelledby="codigos-tamanho-em" data-colab-path="tamanho_tipo">
           <div className="flex items-center gap-1">
             <Label id="codigos-tamanho-em">Tamanho em</Label>
+            {/* Fix round 1 (L-1, review) — os "·" eram separadores do <span> INLINE de antes (encadeavam com o
+                rótulo "Tamanho em" que vinha logo antes); dentro de um tooltip isolado, sem esse encadeamento,
+                sobra pontuação quebrada no início e no meio. Texto virou 2 frases normais. */}
             <InfoHover ariaLabel="Sobre o Tamanho em">
-              · nasce em Letra; troque para Número se o produto usa numeração · é o mesmo do Plan. Tecido / Produto Acabado / Importado
+              Nasce em Letra; troque para Número se o produto usa numeração. É o mesmo do Plan. Tecido / Produto Acabado / Importado.
             </InfoHover>
           </div>
           <div className="flex min-h-9 items-center gap-4 text-sm">
@@ -153,7 +167,13 @@ export function CodigosSecao({
           </div>
         </div>
         {podeVerSkus && (
-          <Button type="button" variant="outline" size="sm" className="max-sm:min-h-11"
+          // Fix round 1 (M-1) — de `sm` a `md` o botão é o 3º item de um grid de 2 colunas (cai pra linha 2,
+          // coluna 1, embaixo da REF) e a coluna 1 é `minmax(12rem,1fr)` (flexível/larga) — sem `justify-self-
+          // start` o grid ESTICA o botão pra ocupar a largura toda da coluna (comportamento padrão de item de
+          // grid, `justify-items: stretch`). `w-fit` reforça o mesmo em navegadores que dessem prioridade à
+          // largura do conteúdo do Button por outro caminho. De `lg` em diante o botão volta a ser a 3ª coluna
+          // própria (`auto` — cabe no conteúdo, sem esticar de qualquer forma).
+          <Button type="button" variant="outline" size="sm" className="w-fit justify-self-start max-sm:min-h-11"
             disabled={!regerar.pode}
             title={regerar.motivo}
             onClick={aGravar.pedirRegerar}>

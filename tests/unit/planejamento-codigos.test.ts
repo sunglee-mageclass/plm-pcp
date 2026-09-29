@@ -242,19 +242,31 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
   });
   it("Fix round pós-QA (F1) — REF tem largura útil garantida (minmax) e o rótulo do 'Tamanho em' não leva mais o texto longo inline (foi pro InfoHover), então não empurra a REF a 1024/1280", () => {
     const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
-    expect(s).toContain("sm:grid-cols-[minmax(12rem,1fr)_auto_auto]");
-    expect(s).not.toContain("sm:grid-cols-[1fr_auto_auto]");
     // o rótulo "Tamanho em" continua um <Label> simples — o texto longo agora está DENTRO do InfoHover, não como
     // <span> irmão dentro do próprio <Label> (o que voltava a inflar a coluna `auto`).
     expect(s).not.toMatch(/<Label id="codigos-tamanho-em">\s*Tamanho em\{" "\}\s*<span/);
-    expect(s).toMatch(/<InfoHover ariaLabel="Sobre o Tamanho em">[\s\S]*nasce em Letra; troque para Número se o produto usa numeração[\s\S]*<\/InfoHover>/);
+  });
+  it("Fix round 1 (M-1) — grid em DUAS etapas: sm/md só REF+toggle (2 colunas, sem estouro 640-767px); lg+ volta às 3 colunas (idêntico ao fix anterior em 1024/1280)", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
+    expect(s).toContain("sm:grid-cols-[minmax(12rem,1fr)_auto] sm:items-end lg:grid-cols-[minmax(12rem,1fr)_auto_auto]");
+    expect(s).not.toContain("sm:grid-cols-[minmax(12rem,1fr)_auto_auto]"); // versão do fix anterior (3 colunas já a partir de sm) — SUBSTITUÍDA
+    expect(s).not.toContain("sm:grid-cols-[1fr_auto_auto]"); // versão original pré-F1
+    // Math (review M-1): Sheet sm:w-[70vw] (ui/sheet.tsx) com px-6 no corpo (PlanejamentoDetail.tsx) => conteúdo
+    // útil = 0,7·vw − 48px. A 640px isso é 400px; REF(min 192) + toggle(~143) + 1 gap(12) = 347px ≤ 400px (cabe,
+    // com o botão OMITIDO das 2 colunas de sm/md — vai para a linha 2). A 1024px o conteúdo é ~669px (medido no
+    // QA), onde as 3 colunas (REF+toggle+botão+2 gaps = 487px mínimo) cabem com folga — REF recebe o resto (1fr).
+    // Botão precisa de w-fit + justify-self-start pra NÃO esticar na coluna larga (minmax(12rem,1fr)) quando cai
+    // pra linha 2 sozinho, de sm a md.
+    expect(s).toContain('<Button type="button" variant="outline" size="sm" className="w-fit justify-self-start max-sm:min-h-11"');
   });
   it("CodigosSecao (SKU em prévia — P-46): REF, 'Tamanho em' (P-25), Regerar SEM AlertDialog e SEM trava de rascunho sujo, aviso de prévia, SKU com data-colab-path", () => {
     const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
     expect(s).toContain('data-colab-path="ref"');
     expect(s).toContain('data-colab-path="tamanho_tipo"');
     expect(s).toContain('type="radio"');
-    expect(s).toContain("· nasce em Letra; troque para Número se o produto usa numeração");
+    // Fix round 1 (L-1, review) — o texto perdeu os "·" leftover (eram do <span> inline de antes; sobravam
+    // como pontuação quebrada dentro do InfoHover isolado). Agora são 2 frases normais.
+    expect(s).toContain("Nasce em Letra; troque para Número se o produto usa numeração.");
     expect(s).not.toContain("Padrão da loja");
     expect(s).not.toMatch(/tamanho_padrao|TAMANHO_PADRAO/);
     expect(s).not.toContain("AvisoCamposDev"); // R29
