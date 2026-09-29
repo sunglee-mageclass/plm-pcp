@@ -56,6 +56,12 @@ export function textoDetalhe(l: LinhaLog): string {
         const k = obj(d.keywords);
         return `Keywords da loja: "${txt(k.antes) ?? ""}" → "${txt(k.depois) ?? ""}" (salvo)`;
       }
+      // P-126 (reprocessamento cirúrgico do nome das sublinhas ao trocar a cor no nome / mudar cor no cadastro):
+      // `Sistema (cor no nome das sublinhas)` grava {reprocesso:'nome_sublinhas_cor', exemplo:{antes,depois}, sublinhas}.
+      if (d.reprocesso) {
+        const ex = obj(d.exemplo);
+        return `Nome das sublinhas atualizado com a cor: "${txt(ex.antes) ?? ""}" → "${txt(ex.depois) ?? ""}" (${Number(d.sublinhas ?? 0)} sublinhas)`;
+      }
       const partes = Object.entries(obj(d.campos)).map(([col, x]) => {
         const ad = obj(x);
         return `${ROTULO_COLUNA[col] ?? col}: ${valorColuna(col, ad.antes)} → ${valorColuna(col, ad.depois)}`;
