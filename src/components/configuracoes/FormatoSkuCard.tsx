@@ -53,7 +53,18 @@ const COR_NO_NOME_LABEL: Record<CorNoNome, string> = { cor_base: "Cor base", cor
 const TEXTO_COR_NO_NOME_INFO =
   "Na Integração e na API, cada sublinha se chama Nome do produto + cor + tamanho (ex.: Vestido Suelen Preto PPP). Escolha se entra o nome da Cor base ou do Apelido. Variante sem apelido usa a cor base; sem cor, fica só o tamanho. Vale para o que for marcado como Integrável a partir de agora — os já integráveis/integrados mantêm o nome do retrato.";
 
-type Exemplo = { ref: string | null; nome: string | null; cor: SkuCor | null; apelido: SkuCor | null };
+type Exemplo = {
+  ref: string | null;
+  nome: string | null;
+  cor: SkuCor | null;
+  apelido: SkuCor | null;
+  // QA (dono, follow-up): a prévia do NOME (Cor no nome da sublinha) precisa de uma cor QUE TENHA apelido — a
+  // escolha da SKU (1ª cor com sigla) pode não ter nenhum (ex.: Loja Teste "Bege"), e nesse caso trocar Cor
+  // base ↔ Apelido não mudava a prévia nem aparecia a 2ª linha "sem apelido". `corComApelido`/`apelidoDaCor` são
+  // SÓ para essa prévia — a prévia do SKU (`corPrevia`/`exemplos`) continua na cor de sempre, intocada.
+  corComApelido: SkuCor | null;
+  apelidoDaCor: SkuCor | null;
+};
 
 export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
   const qc = useQueryClient();
@@ -97,7 +108,29 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
       const ape = daCor.find((a) => !!a.sigla_sku) ?? daCor[0] ?? null;
       const comoCor = (x: any): SkuCor | null => (x ? { id: x.id, nome: x.nome, sigla: x.sigla_sku ?? null } : null);
       const modelo = (m.data?.[0] as any) ?? null;
-      return { ref: modelo?.ref ?? null, nome: modelo?.nome ?? null, cor: comoCor(cor), apelido: comoCor(ape) };
+      // QA (dono, follow-up): a prévia do NOME precisa de uma cor QUE TENHA apelido — a cor da prévia do SKU
+      // (`cor` acima) pode não ter nenhum (ex.: Loja Teste "Bege"), o que travava a prévia do nome numa cor sem
+      // apelido pra sempre. Acha, entre TODAS as cores, uma que tenha ≥1 apelido (prefere sigla, como o resto do
+      // arquivo); sem nenhuma, cai na MESMA cor/apelido da prévia do SKU (comportamento de hoje).
+      const apelidosPorCorBase = new Map<string, any[]>();
+      for (const a of (apelidos.data ?? []) as any[]) {
+        const arr = apelidosPorCorBase.get(a.cor_base_id) ?? [];
+        arr.push(a);
+        apelidosPorCorBase.set(a.cor_base_id, arr);
+      }
+      const corComApelidoBruta = lista.find((c) => (apelidosPorCorBase.get(c.id) ?? []).length > 0) ?? null;
+      const apelidoDaCorBruto = corComApelidoBruta
+        ? ((apelidosPorCorBase.get(corComApelidoBruta.id) ?? []).find((a) => !!a.sigla_sku) ??
+            (apelidosPorCorBase.get(corComApelidoBruta.id) ?? [])[0] ?? null)
+        : null;
+      return {
+        ref: modelo?.ref ?? null,
+        nome: modelo?.nome ?? null,
+        cor: comoCor(cor),
+        apelido: comoCor(ape),
+        corComApelido: comoCor(corComApelidoBruta ?? cor),
+        apelidoDaCor: comoCor(apelidoDaCorBruto ?? ape),
+      };
     },
   });
 
@@ -201,11 +234,16 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
 
   // P-126: prévia do NOME DA SUBLINHA (Integração/API) — nome do produto mais recente da loja (ou "Produto Exemplo",
   // sem nenhum ainda) + a cor de exemplo/real + o tamanho pelo LADO Letra (`ladoTamanho`).
+  // QA (dono, follow-up): usa `corComApelido`/`apelidoDaCor` (uma cor que TENHA apelido, quando existir) — NUNCA
+  // `corPrevia`/`ex?.apelido` aqui, que são a escolha da prévia do SKU (1ª cor com sigla; pode não ter apelido,
+  // como "Bege" na Loja Teste) e travavam a prévia do nome sempre na cor base, sem a 2ª linha "sem apelido".
   const nomeProdutoPrevia = ex?.nome || "Produto Exemplo";
   const tamanhoPreviaNome = ladoTamanho(grade0, "letra") ?? grade0;
-  const nomeSublinhaPrevia = nomeSublinha(nomeProdutoPrevia, corPrevia.nome, ex?.apelido?.nome ?? null, tamanhoPreviaNome, rascunho.corNoNome);
-  const nomeSublinhaPreviaSemApelido = ex?.apelido
-    ? nomeSublinha(nomeProdutoPrevia, corPrevia.nome, null, tamanhoPreviaNome, rascunho.corNoNome)
+  const corPreviaNome = ex?.corComApelido?.nome ?? corPrevia.nome;
+  const apelidoPreviaNome = ex?.apelidoDaCor?.nome ?? null;
+  const nomeSublinhaPrevia = nomeSublinha(nomeProdutoPrevia, corPreviaNome, apelidoPreviaNome, tamanhoPreviaNome, rascunho.corNoNome);
+  const nomeSublinhaPreviaSemApelido = apelidoPreviaNome
+    ? nomeSublinha(nomeProdutoPrevia, corPreviaNome, null, tamanhoPreviaNome, rascunho.corNoNome)
     : null;
 
   return (

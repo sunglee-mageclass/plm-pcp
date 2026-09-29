@@ -93,6 +93,53 @@ describe("FormatoSkuCard — prévia do nome da sublinha (Exemplo: nome + cor + 
   });
 });
 
+// QA gap (dono, follow-up): na Loja Teste a cor da prévia do SKU (1ª cor com sigla) é "Bege", que NÃO tem apelido
+// — a prévia do NOME usava essa MESMA cor, então trocar Cor base ↔ Apelido nunca mudava o texto e a 2ª linha "sem
+// apelido" nunca aparecia. Fix: a prévia do NOME usa uma cor QUE TENHA apelido (`corComApelido`/`apelidoDaCor`),
+// caindo na cor da prévia do SKU só se NENHUMA cor da loja tiver apelido. Reproduz aqui a MESMA conta do card
+// (`corPreviaNome`/`apelidoPreviaNome`) com os dados brutos de `ex`, sem tocar a prévia do SKU (`corPrevia`).
+describe("FormatoSkuCard — prévia do NOME usa uma cor com apelido (não a cor da prévia do SKU, que pode não ter)", () => {
+  type ExParcial = { cor: { nome: string } | null; corComApelido: { nome: string } | null; apelidoDaCor: { nome: string } | null };
+  const corPreviaNome = (ex: ExParcial, corExemploFicticiaNome: string) => ex.corComApelido?.nome ?? ex.cor?.nome ?? corExemploFicticiaNome;
+  const apelidoPreviaNome = (ex: ExParcial) => ex.apelidoDaCor?.nome ?? null;
+
+  it("Bege (cor da prévia do SKU) sem apelido + Preto com apelido Noite: a prévia do NOME usa Preto/Noite, não Bege", () => {
+    const ex: ExParcial = { cor: { nome: "Bege" }, corComApelido: { nome: "Preto" }, apelidoDaCor: { nome: "Noite" } };
+    expect(corPreviaNome(ex, "Amarelo")).toBe("Preto");
+    expect(apelidoPreviaNome(ex)).toBe("Noite");
+    const tam = ladoTamanho("P", "letra");
+    expect(nomeSublinha("Produto Exemplo", corPreviaNome(ex, "Amarelo"), apelidoPreviaNome(ex), tam, "cor_apelido")).toBe("Produto Exemplo Noite P");
+    expect(nomeSublinha("Produto Exemplo", corPreviaNome(ex, "Amarelo"), apelidoPreviaNome(ex), tam, "cor_base")).toBe("Produto Exemplo Preto P");
+    // com apelido presente, a 2ª linha "sem apelido" tem que aparecer (nunca null quando existe apelido).
+    expect(apelidoPreviaNome(ex)).not.toBeNull();
+  });
+  it("nenhuma cor da loja tem apelido: cai na MESMA cor da prévia do SKU (comportamento de hoje)", () => {
+    const ex: ExParcial = { cor: { nome: "Bege" }, corComApelido: { nome: "Bege" }, apelidoDaCor: null };
+    expect(corPreviaNome(ex, "Amarelo")).toBe("Bege");
+    expect(apelidoPreviaNome(ex)).toBeNull(); // sem apelido: 2ª linha continua ausente
+  });
+  it("sem exemplo real da loja ainda (ex null): cai na cor fictícia — igual à prévia do SKU", () => {
+    expect(corPreviaNome({ cor: null, corComApelido: null, apelidoDaCor: null }, "Amarelo")).toBe("Amarelo");
+  });
+});
+
+describe("FormatoSkuCard.tsx (fonte) — prévia do nome usa corComApelido/apelidoDaCor, não corPrevia/ex?.apelido", () => {
+  it("a prévia do NOME lê ex?.corComApelido/ex?.apelidoDaCor (nunca corPrevia/ex?.apelido, da prévia do SKU)", () => {
+    expect(FONTE).toContain("ex?.corComApelido?.nome ?? corPrevia.nome");
+    expect(FONTE).toContain("ex?.apelidoDaCor?.nome ?? null");
+    expect(FONTE).toContain("nomeSublinha(nomeProdutoPrevia, corPreviaNome, apelidoPreviaNome, tamanhoPreviaNome, rascunho.corNoNome)");
+  });
+  it("a query 'tenant-sku-exemplo' calcula corComApelido/apelidoDaCor achando uma cor com ≥1 apelido", () => {
+    expect(FONTE).toContain("corComApelido: SkuCor | null");
+    expect(FONTE).toContain("apelidoDaCor: SkuCor | null");
+    expect(FONTE).toMatch(/lista\.find\(\(c\) => \(apelidosPorCorBase\.get\(c\.id\) \?\? \[\]\)\.length > 0\)/);
+  });
+  it("a prévia do SKU (exemplos/corPrevia) fica intocada — continua na 1ª cor com sigla", () => {
+    expect(FONTE).toContain("const corPrevia = ex?.cor ?? corExemploFicticia;");
+    expect(FONTE).toContain("previa(ex?.apelido ?? null, tipo)");
+  });
+});
+
 describe("FormatoSkuCard.tsx (fonte) — rótulo, InfoHover, rádio, onSuccess, diálogo", () => {
   it('rótulo "Cor no nome da sublinha (Integração)"', () => {
     expect(FONTE).toContain("Cor no nome da sublinha (Integração)");
