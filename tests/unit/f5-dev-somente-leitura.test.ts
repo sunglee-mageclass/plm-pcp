@@ -219,6 +219,38 @@ describe("F5a — Sheet do Desenvolvimento SÓ LEITURA", () => {
     await abrir({ somenteLeitura: true });
     expect(botoesRodape()).toEqual(["Voltar", "Imprimir"]);
   });
+
+  // M3 da revisão (28/set, ModeloDetailPanel.tsx ~886-899 e ~1078): antes do fix, um save de
+  // OUTRA pessoa que mexe SÓ no CAD (Explosão/PCP) não reabaixava `cadSeeded` — a seção "4. CAD"
+  // ficava com o valor antigo até o Sheet ser reaberto, mesmo a tela estando "ao vivo" (Realtime).
+  // Este teste seeda um `cad`+`cad_tecidos` com consumo_cad=5, confirma que a seção mostra 5,00,
+  // muda o valor no FAKE p/ 9 e dispara o mesmo evento que o Realtime dispararia
+  // (`postgres_changes` em `modelos`, que é o que `useColabRegistro({tabela:"modelos"})` escuta),
+  // e afirma que a seção "4. CAD" passa a mostrar 9,00 — SEM reabrir o Sheet.
+  it("CAD (seção 4) re-semeia sozinha quando um save de outra pessoa muda só o CAD", async () => {
+    seed({ enviadoCad: true });
+    FAKE.linhas.cad = [{ id: "cad1", modelo_id: "m1" }];
+    FAKE.linhas.cad_tecidos = [{
+      id: "ct1", cad_id: "cad1", numero: 1, tipo: "tecido", artigo_id: null,
+      consumo_cad: 5, loss_percent_cad: 0, custo_cad: 0, tamanho_folha: 0,
+      artigos: null, cad_tecido_variantes: [],
+    }];
+    await abrir({ somenteLeitura: true });
+    await abrirTodasSecoes();
+    const campoConsumo = () => Array.from(document.querySelectorAll<HTMLInputElement>("input"))
+      .find((el) => Number(el.value.replace(",", ".")) === 5 || Number(el.value.replace(",", ".")) === 9);
+    await aguardar(() => !!campoConsumo(), "seed do CAD (consumo_cad=5)");
+    expect(campoConsumo()!.value).toBe("5,00");
+
+    // Simula outro usuário salvando SÓ o CAD (não muda `modelos`, mas o Realtime entrega o
+    // mesmo evento — o comentário em ModeloDetailPanel.tsx confirma isto: "o evento
+    // postgres_changes não distingue escalar de BOM"). Muda o dado e dispara o listener da
+    // tabela "modelos", exatamente como `useColabRegistro({tabela:"modelos"})` recebe.
+    FAKE.linhas.cad_tecidos[0].consumo_cad = 9;
+    await act(async () => { FAKE.emitirRealtime("modelos"); });
+    await aguardar(() => campoConsumo()?.value === "9,00", "re-seed do CAD após mudança do servidor");
+    expect(campoConsumo()!.value).toBe("9,00");
+  });
 });
 
 describe("F5a — somenteLeitura=false (padrão) segue IGUAL a hoje", () => {
