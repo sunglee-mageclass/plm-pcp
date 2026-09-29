@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { cn } from "@/lib/utils";
 import type { Draft } from "@/components/planejamento/modelo-shared";
@@ -100,7 +101,12 @@ export function CodigosSecao({
   };
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+      {/* Fix round pós-QA (F1) — REF a 26px a 1024/1280 (regressão do release 5, commit b02dc215): o rótulo maior
+          do "Tamanho em" ocupava a coluna `auto` e empurrava a REF (1fr) quase a zero. Colunas EXPLÍCITAS
+          (`minmax(12rem,1fr)` pra REF; `auto` pro toggle E pro botão seguem cabendo no próprio conteúdo agora que
+          o rótulo não tem mais o texto longo inline — foi pro InfoHover abaixo) garantem REF legível nos 2
+          breakpoints; a 390 (max-sm) a grid empilha em 1 coluna, sem estouro horizontal (§Q).  */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(12rem,1fr)_auto_auto] sm:items-end">
         {refVisivel ? (
           <div className="grid gap-1">
             <Label htmlFor="codigos-ref">{rotuloRef}</Label>
@@ -119,14 +125,16 @@ export function CodigosSecao({
         )}
         {/* P-25 (dono 25/set 14:57) — SEM padrão da LOJA: o Draft já chega marcado em Letra; dá p/ trocar p/ Número. Rádio nativo
             (não há RadioGroup em ui/, que não se edita): grupo rotulado; alvo de toque 44px no mobile. P-53 A — só
-            editável com `podeEditarSkus` (= editar o Planejamento; não é campo do Dev — CAMPOS_SO_PLANEJAMENTO_DRAFT). */}
+            editável com `podeEditarSkus` (= editar o Planejamento; não é campo do Dev — CAMPOS_SO_PLANEJAMENTO_DRAFT).
+            F1 (fix round pós-QA) — o texto longo que ficava inline no rótulo (empurrava a REF) virou `InfoHover`
+            (mesmo padrão do `TamanhoEmToggle.tsx` compartilhado — "i" ao lado do rótulo, mesmo texto). */}
         <div className="grid gap-1" role="radiogroup" aria-labelledby="codigos-tamanho-em" data-colab-path="tamanho_tipo">
-          <Label id="codigos-tamanho-em">
-            Tamanho em{" "}
-            <span className="font-normal text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <Label id="codigos-tamanho-em">Tamanho em</Label>
+            <InfoHover ariaLabel="Sobre o Tamanho em">
               · nasce em Letra; troque para Número se o produto usa numeração · é o mesmo do Plan. Tecido / Produto Acabado / Importado
-            </span>
-          </Label>
+            </InfoHover>
+          </div>
           <div className="flex min-h-9 items-center gap-4 text-sm">
             {TAMANHOS_EM.map((o) => (
               <label key={o.v} className="flex cursor-pointer items-center gap-1.5 max-sm:min-h-11">

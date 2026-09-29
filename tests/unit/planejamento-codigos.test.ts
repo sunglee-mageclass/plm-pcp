@@ -240,6 +240,15 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
     expect(s).not.toContain('data-colab-path="ref"');
     expect(s).not.toMatch(/refVisivel/);
   });
+  it("Fix round pós-QA (F1) — REF tem largura útil garantida (minmax) e o rótulo do 'Tamanho em' não leva mais o texto longo inline (foi pro InfoHover), então não empurra a REF a 1024/1280", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
+    expect(s).toContain("sm:grid-cols-[minmax(12rem,1fr)_auto_auto]");
+    expect(s).not.toContain("sm:grid-cols-[1fr_auto_auto]");
+    // o rótulo "Tamanho em" continua um <Label> simples — o texto longo agora está DENTRO do InfoHover, não como
+    // <span> irmão dentro do próprio <Label> (o que voltava a inflar a coluna `auto`).
+    expect(s).not.toMatch(/<Label id="codigos-tamanho-em">\s*Tamanho em\{" "\}\s*<span/);
+    expect(s).toMatch(/<InfoHover ariaLabel="Sobre o Tamanho em">[\s\S]*nasce em Letra; troque para Número se o produto usa numeração[\s\S]*<\/InfoHover>/);
+  });
   it("CodigosSecao (SKU em prévia — P-46): REF, 'Tamanho em' (P-25), Regerar SEM AlertDialog e SEM trava de rascunho sujo, aviso de prévia, SKU com data-colab-path", () => {
     const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
     expect(s).toContain('data-colab-path="ref"');
