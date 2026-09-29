@@ -1671,6 +1671,8 @@ function PlanejamentoDetailConteudo({
               estoque={estoqueMap}
               ordemEnviada={enviada}
               proporcoes={draft.proporcoes ?? {}}
+              // P-120 A (plano tamanho-em, Tarefa 7) — a Grade do card INTERNO mostra só o lado escolhido.
+              tamanhoTipo={draft.tamanho_tipo}
             />
           )}
 
@@ -1788,7 +1790,7 @@ function PlanejamentoDetailConteudo({
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {vis.grade_revenda && (
-            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} motivoSemProduto={motivoSemProdutoComprado} />
+            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} motivoSemProduto={motivoSemProdutoComprado} tamanhoTipo={draft.tamanho_tipo} />
           )}
 
           {/* SETOR 5 — Anexos. P-53 A (fix 1, m-2): croqui/desenho/fotos são COMPARTILHADOS (o Dev antigo também

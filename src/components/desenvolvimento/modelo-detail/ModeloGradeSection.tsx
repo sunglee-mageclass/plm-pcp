@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -6,6 +7,8 @@ import { Separator } from "@/components/ui/separator";
 import { Field } from "./shared";
 import type { GradeRow } from "./types";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+import type { TamanhoTipo } from "@/lib/tamanho";
+import { tamanhosVisiveis } from "@/lib/tamanho-exibicao";
 
 // `tecido` só vem preenchido quando o pool do Tecido 1 tem mais de um artigo (substitutos):
 // aí o nome do tecido prefixa a variante p/ desambiguar qual variante é de qual tecido.
@@ -29,6 +32,7 @@ export function ModeloGradeSection({
   onToggleGradeAuto,
   camposCopiados = new Set(),
   onCampoEditado,
+  tamanhoTipo,
 }: {
   tamanhos: string[];
   proporcoes: Record<string, number>;
@@ -41,6 +45,13 @@ export function ModeloGradeSection({
   onToggleGradeAuto: (v: boolean) => void;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
+  /** P-120 A (plano `2026-09-29-tamanho-em`, Tarefa 7) — OPCIONAL: sem ela, o componente é BYTE A BYTE o de hoje (o
+   *  Sheet do Dev só-leitura, F5a, depende disso — `tests/unit/f5-dev-somente-leitura*.test.ts`). Com ela, rótulo
+   *  pelo lado escolhido (`rotuloDoTamanho`) e colunas filtradas por `tamanhosVisiveis` — mas as chaves de
+   *  `grades`/`proporcoes` (e os handlers `onChangeProporcao`/`onChangeGradeCell`) continuam usando a chave CHEIA
+   *  de `tamanhos` (ex. "34|PPP"); o filtro é só de EXIBIÇÃO (ressalva #3 do G-plano) — nunca esconde um tamanho
+   *  que já tem quantidade lançada (fica esmaecido, não desaparece). */
+  tamanhoTipo?: TamanhoTipo | null;
 }) {
   const ensureGrade = (n: number): GradeRow =>
     grades.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
@@ -50,6 +61,20 @@ export function ModeloGradeSection({
   // proporção > 0, o que travava o total logo após "Aplicar ao modelo" (Plan. Tecido) sem proporção.
   const somaProp = tamanhos.reduce((s, t) => s + (Number(proporcoes?.[t]) || 0), 0);
   const totalEditavel = gradeAuto;
+
+  // Tamanhos a MOSTRAR (colunas da matriz de proporção E de cada card de variante): `comValor` junta os tamanhos
+  // com proporção > 0 OU com alguma quantidade lançada em QUALQUER variante — um solto do lado não-escolhido que já
+  // tem dado real nunca desaparece (fica esmaecido). Sem `tamanhoTipo`, mostra TUDO (byte a byte o comportamento
+  // de hoje) — `tamanhosVisiveis` só entra em jogo quando o card já sabe o "Tamanho em".
+  const comValor = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of tamanhos) {
+      if (Number(proporcoes?.[t]) > 0) { s.add(t); continue; }
+      for (const g of grades) if (Number(g.grades?.[t]) > 0) { s.add(t); break; }
+    }
+    return s;
+  }, [tamanhos, proporcoes, grades]);
+  const colunas = tamanhoTipo ? tamanhosVisiveis(tamanhos, tamanhoTipo, comValor) : tamanhos.map((t) => ({ chave: t, rotulo: t, esmaecido: false }));
 
   return (
     <div className="space-y-3">
@@ -68,12 +93,13 @@ export function ModeloGradeSection({
         </div>
         <div
           className="grid gap-2 overflow-x-auto pb-1"
-          style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(48px, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${colunas.length}, minmax(48px, 1fr))` }}
         >
-          {tamanhos.map((t) => (
-            // Matriz numérica: rótulo + valor CENTRADOS sob o cabeçalho (leem melhor alinhados).
-            <div key={t} className="grid gap-1 text-center">
-              <Label className="text-xs">{t}</Label>
+          {colunas.map(({ chave: t, rotulo, esmaecido }) => (
+            // Matriz numérica: rótulo + valor CENTRADOS sob o cabeçalho (leem melhor alinhados). `t` (chave cheia)
+            // segue indo pro handler — o filtro/rótulo é só de exibição (ressalva #3).
+            <div key={t} className={`grid gap-1 text-center ${esmaecido ? "opacity-50" : ""}`}>
+              <Label className="text-xs">{rotulo}</Label>
               <NumberInput
                 integer
                 className="text-center tabular-nums"
@@ -134,11 +160,11 @@ export function ModeloGradeSection({
                 </div>
                 <div
                   className="grid gap-2 overflow-x-auto pb-1"
-                  style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(48px, 1fr))` }}
+                  style={{ gridTemplateColumns: `repeat(${colunas.length}, minmax(48px, 1fr))` }}
                 >
-                  {tamanhos.map((t) => (
-                    <div key={t} className="grid gap-1 text-center">
-                      <Label className="text-xs">{t}</Label>
+                  {colunas.map(({ chave: t, rotulo, esmaecido }) => (
+                    <div key={t} className={`grid gap-1 text-center ${esmaecido ? "opacity-50" : ""}`}>
+                      <Label className="text-xs">{rotulo}</Label>
                       <NumberInput
                         integer
                         className="text-center tabular-nums"

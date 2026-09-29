@@ -184,7 +184,10 @@ export function resumoGeracao(raw: unknown): { erro: boolean; texto: string } {
 
 /** Selo da seção Códigos (spec §5.3): "N SKU(s) sem sigla" âmbar vence; seção sem linha nenhuma = sem selo (`seloDeSecao` —
  *  a seção não tem requisito de kanban). SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.8): algo "a gravar" vence
- *  tudo — o card ainda não gravou os SKUs. */
+ *  tudo — o card ainda não gravou os SKUs. "Tamanho em" (plano `2026-09-29-tamanho-em`, Tarefa 7): trocar o lado muda o
+ *  `sku_previsto` das linhas SEM disparar o Regerar — elas ficam `divergente` (spec do SKU) até alguém regerar/salvar.
+ *  Sem falta/conflito (que vencem por serem mais graves) e com ≥1 linha `divergente`, mostra "N a regerar" (tom info —
+ *  é um aviso informativo, não bloqueia nada; a linha em si já mostra "Regerar muda para …", `situacaoSku`). */
 export function seloCodigos(m: MatrizSkus | null | undefined, temPrevia: boolean): SeloSecao | undefined {
   if (temPrevia) return { tone: "warn", texto: "prévia a gravar" };
   if (!m) return undefined;
@@ -192,6 +195,7 @@ export function seloCodigos(m: MatrizSkus | null | undefined, temPrevia: boolean
   const nFalta = conta("falta");
   const nConflito = conta("conflito");
   const nPendente = conta("pendente");
+  const nDivergente = conta("divergente");
   const informativo = ((): SeloSecao => {
     if (nFalta > 0) {
       return {
@@ -210,6 +214,7 @@ export function seloCodigos(m: MatrizSkus | null | undefined, temPrevia: boolean
     // Minor (2) — "desconhecido" (status ausente/não reconhecido) trava igual aos outros estados de espera.
     if (m.status === "desconhecido") return { tone: "muted", texto: "não foi possível ler o status" };
     if (nPendente > 0) return { tone: "muted", texto: `${nPendente} a gerar` };
+    if (nDivergente > 0) return { tone: "info", texto: `${nDivergente} a regerar` };
     if (m.avisos.length > 0) return { tone: "info", texto: "aviso: apelido sem sigla", title: m.avisos.map(textoAviso).join(" · ") };
     const n = m.linhas.filter((l) => l.estado !== "orfa" && !!l.sku).length;
     return { tone: "ok", texto: `${n} SKU${n > 1 ? "s" : ""}` };

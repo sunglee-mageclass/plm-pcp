@@ -21,6 +21,7 @@ import { SecaoBom } from "./SecaoBom";
 import { SeloBadge } from "./SeloBadge";
 import type { SecaoSheetKey } from "../selos-secoes";
 import { SECOES_FICHA_INTERNO, type SecoesFicha } from "@/components/planejamento/planejamento-detail/comprado";
+import type { TamanhoTipo } from "@/lib/tamanho";
 
 // Avisos da trava ÚNICA (R2), IGUAIS aos da F3.1 (`AvisoCamposDev`): sem a trava interina "tem CAD", o "Editar" destrava
 // BOM e CAD como os demais campos do Dev (F3.3) — "enviado" usa a MESMA frase.
@@ -41,7 +42,7 @@ function Carregando({ erro }: { erro: boolean }) {
   );
 }
 
-export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, numeros, visiveis }: {
+export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, numeros, visiveis, tamanhoTipo }: {
   ficha: FichaTecnica;
   modeloId: string;
   estoque: Record<string, EstoqueArtigo>;
@@ -59,6 +60,10 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
   numeros?: Partial<Record<SecaoSheetKey, number>>;
   /** F3.4 — seções desta origem (`secoesFicha`): comprado segue o "Fluxo de Revenda" e nunca tem a grade do Tecido 1. */
   visiveis?: SecoesFicha;
+  /** P-120 A (plano `2026-09-29-tamanho-em`, Tarefa 7) — `draft.tamanho_tipo`, passado pro `ModeloGradeSection` da
+   *  seção Grade (a Grade do card INTERNO no Sheet do Planejamento mostra só o lado escolhido). Sem valor = a seção
+   *  mostra todos os tamanhos (comportamento de hoje, `ModeloGradeSection` sem a prop). */
+  tamanhoTipo?: TamanhoTipo | null;
 }) {
   if (!ficha.habilitada) return null;
   const { estado, handlers, dados } = ficha;
@@ -147,6 +152,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
             onToggleGradeAuto={handlers.toggleGradeAuto}
             camposCopiados={ficha.camposCopiados}
             onCampoEditado={ficha.onCampoEditado}
+            tamanhoTipo={tamanhoTipo}
           />,
         )}
       </SecaoBom>

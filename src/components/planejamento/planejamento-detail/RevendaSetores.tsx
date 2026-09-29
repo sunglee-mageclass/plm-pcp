@@ -19,6 +19,8 @@ import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejam
 import { InfoHover } from "@/components/shared/InfoHover";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
+import { rotuloDoTamanho } from "@/lib/tamanho-exibicao";
+import type { TamanhoTipo } from "@/lib/tamanho";
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
@@ -278,13 +280,18 @@ export function ProdutoImportadoSecao({ gc, numero, navigate }: {
 /** Seção "Grade" cor×tamanho do card COMPRADO (revenda e importado — F3.4, decisão F3 #4: a fonte ÚNICA da grade do
  *  comprado). Edita o rascunho de `useGradeComprado`; o Salvar grava (revenda: `salvar_grade_revenda`; importado: junto
  *  com o BOM — plano F3.4 §3). `motivoSomenteLeitura`: texto do porquê de não editar (ou null = editável). */
-export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = null, motivoSemProduto = null }: {
+export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = null, motivoSemProduto = null, tamanhoTipo }: {
   gc: GradeComprado; numero?: number; selo?: ReactNode; motivoSomenteLeitura?: string | null;
   /** Fix minors (M1) — motivo do "sem produto vinculado" QUANDO ele realmente impede criar o produto por aqui (ex.:
    *  ficha travada no importado). `null`/omitido = mantém o texto genérico "salve para criar" — cobre o caso comum
    *  (card recém-criado, sem OC ainda) E a troca de Origem pendente (é O PRÓPRIO Salvar do Planejamento que cria o
    *  produto ali, sem depender do Dev — mostrar "editar a grade" seria enganoso, ver `PlanejamentoDetail.tsx`). */
   motivoSemProduto?: string | null;
+  /** P-120 A (plano `2026-09-29-tamanho-em`, Tarefa 7) — "Tamanho em" do rascunho (`draft.tamanho_tipo`): o cabeçalho
+   *  da grade mostra o LADO escolhido (`rotuloDoTamanho`) em vez da chave cheia ("34|PPP"). `tamanhosRevenda` já é a
+   *  lista de colunas a mostrar (de `useGradeComprado`) — aqui só troca o RÓTULO da coluna, nunca a chave usada por
+   *  `setCelulaGradeRevenda`/`gradeRevenda` (ressalva #3: filtro de exibição nunca reduz o que é gravado). */
+  tamanhoTipo?: TamanhoTipo | null;
 }) {
   const {
     origem, produto, produtoLoading, produtoError, gradeRevenda, variantesRevenda, tamanhosRevenda,
@@ -333,7 +340,11 @@ export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = nul
                         <thead className="bg-muted/50 text-left">
                           <tr>
                             <th className="px-3 py-2">Variante</th>
-                            {tamanhosRevenda.map((t) => <th key={t} className="px-3 py-2 text-right">{t}</th>)}
+                            {tamanhosRevenda.map((t) => (
+                              <th key={t} className="px-3 py-2 text-right">
+                                {tamanhoTipo ? rotuloDoTamanho(t, tamanhoTipo) : t}
+                              </th>
+                            ))}
                             <th className="px-3 py-2 text-right font-semibold">Total</th>
                           </tr>
                         </thead>

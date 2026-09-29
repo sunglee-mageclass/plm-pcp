@@ -122,7 +122,10 @@ export function CodigosSecao({
             editável com `podeEditarSkus` (= editar o Planejamento; não é campo do Dev — CAMPOS_SO_PLANEJAMENTO_DRAFT). */}
         <div className="grid gap-1" role="radiogroup" aria-labelledby="codigos-tamanho-em" data-colab-path="tamanho_tipo">
           <Label id="codigos-tamanho-em">
-            Tamanho em <span className="font-normal text-muted-foreground">· nasce em Letra; troque para Número se o produto usa numeração</span>
+            Tamanho em{" "}
+            <span className="font-normal text-muted-foreground">
+              · nasce em Letra; troque para Número se o produto usa numeração · é o mesmo do Plan. Tecido / Produto Acabado / Importado
+            </span>
           </Label>
           <div className="flex min-h-9 items-center gap-4 text-sm">
             {TAMANHOS_EM.map((o) => (
