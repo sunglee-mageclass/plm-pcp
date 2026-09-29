@@ -295,7 +295,7 @@ describe("estado vem de `estado`, nunca de marcado_em/marcado_por (ruling)", () 
     // Owner (set/2026): "não integrável" agora tem 2 textos (faltam dados vs completo, via `p.completo`) — a
     // fixture `cru()` tem faltas (NCM + SKU), então `completo=false` e o rótulo é o vermelho. Nunca "em 01/01/2020".
     expect(p.completo).toBe(false);
-    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Não integrável — faltam dados");
+    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Faltam dados");
     // motivoIntegrar/motivoVoltar também não devem citar essa data velha em lugar nenhum do texto.
     const ctx = {
       podeEditar: true,
