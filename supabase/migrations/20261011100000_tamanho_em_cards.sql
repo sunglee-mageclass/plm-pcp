@@ -83,7 +83,7 @@ BEGIN
     RAISE EXCEPTION 'tamanho_em: _salvar_plan_tecido_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._salvar_plan_tecido_core(uuid,jsonb,integer)'::regprocedure));
-  IF v_md5 NOT IN ('58fcaddadee3c7ab8cac44c0597c9368', '062cb94abcebda214b2bfec3c9b8cdee') THEN
+  IF v_md5 NOT IN ('58fcaddadee3c7ab8cac44c0597c9368', '81a3606444a2cf68ee376937009b9bad') THEN
     RAISE EXCEPTION 'tamanho_em: _salvar_plan_tecido_core mudou desde o planejamento (md5 %) - outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)') IS NULL THEN
@@ -903,8 +903,10 @@ begin
         returning id into v_ln_id;
       for v_slot in select * from jsonb_array_elements(coalesce(v_ln->'slots','[]'::jsonb)) loop
         -- [tamanho-em v1] "Tamanho em" (P-119 A): a vaga SEM card guarda a escolha; com card ele mora no modelo.
+        -- Valida SÓ onde o valor é gravado (vaga sem card; o "tocado" valida abaixo): na vaga COM card sem a marca o
+        -- valor é descartado — um legado fora do domínio no modelo (CHECK NOT VALID) não pode travar o Salvar inteiro.
         v_tt := nullif(v_slot->>'tamanho_tipo', '');
-        if v_tt is not null and v_tt not in ('letra', 'numero') then
+        if v_tt is not null and v_tt not in ('letra', 'numero') and nullif(v_slot->>'modelo_id','') is null then
           raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';
         end if;
         insert into plan_tecido_slots (id, linha_ref_id, modelo_id, slot_index, nome, custo_simulado,
@@ -928,7 +930,7 @@ begin
         -- Filtro loja + coleção + interno fecha o IDOR do modelo_id vindo do cliente (fora dele: ignorado) e espelha a
         -- tela (o toggle só existe no interno). Card integravel/integrado recusa 42501 via trg_zz_integracao_trava.
         if nullif(v_slot->>'modelo_id','') is not null and coalesce(v_slot->>'tamanho_tipo_tocado', '') = 'true' then
-          if v_tt is null then
+          if v_tt is null or v_tt not in ('letra', 'numero') then
             raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';
           end if;
           update public.modelos m set tamanho_tipo = v_tt
@@ -1463,7 +1465,7 @@ BEGIN
     RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _limpar_produto_importado_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._salvar_plan_tecido_core(uuid,jsonb,integer)')));
-  IF v_md5 IS DISTINCT FROM '062cb94abcebda214b2bfec3c9b8cdee' THEN
+  IF v_md5 IS DISTINCT FROM '81a3606444a2cf68ee376937009b9bad' THEN
     RAISE EXCEPTION 'tamanho_em: pos-condicao falhou - _salvar_plan_tecido_core nao ficou com o texto esperado (md5 %); possivel corrupcao (client_encoding?) - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)')));

@@ -6,8 +6,11 @@
 --   1. o FRONT volta ANTES do banco (front novo + banco velho perde a escolha e manda chaves que o banco velho ignora);
 --   2. EXPORTAR as vagas com valor antes (o kit faz):
 --        psql -c "COPY (SELECT id, linha_ref_id, tamanho_tipo FROM public.plan_tecido_slots WHERE tamanho_tipo IS NOT NULL) TO STDOUT CSV HEADER" > vagas_tamanho_tipo.csv
---   3. rodar este arquivo com a confirmação (o DROP COLUMN recusa sem ela):
---        SET app.tamanho_em_drop_ok = 'sim';   (na sessão, antes do psql -f; ou injetado logo depois do BEGIN como SET LOCAL)
+--   3. rodar este arquivo com a confirmação NA MESMA SESSÃO do psql -f (o DROP COLUMN recusa sem ela). Forma provada
+--      na cópia (29/set):
+--        PGOPTIONS='-c app.tamanho_em_drop_ok=sim' psql "<url>" -v ON_ERROR_STOP=1 -f <este arquivo>
+--      alternativa equivalente (mesma sessão): psql "<url>" -v ON_ERROR_STOP=1 -c "SET app.tamanho_em_drop_ok = 'sim'" -f <este arquivo>
+--      (um "SET" num psql separado NÃO vale: a configuração morre com aquela sessão.)
 -- LIFO: este inverso roda ANTES das voltas da Integração 5 (20261007140000), da Distribuição (20261006100000) e da
 -- F3.5a (20261003100000). As duas primeiras têm guarda md5 e RECUSAM enquanto esta migration estiver no ar (esperado:
 -- o volta-producao.sh da Integração passa a recusar a volta 5). ⚠️ A volta da F3.5a NÃO tem guarda md5 (faz DROP
@@ -82,7 +85,7 @@ BEGIN
     RAISE EXCEPTION 'tamanho_em (volta): _salvar_plan_tecido_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef('public._salvar_plan_tecido_core(uuid,jsonb,integer)'::regprocedure));
-  IF v_md5 IS DISTINCT FROM '062cb94abcebda214b2bfec3c9b8cdee' THEN
+  IF v_md5 IS DISTINCT FROM '81a3606444a2cf68ee376937009b9bad' THEN
     RAISE EXCEPTION 'tamanho_em (volta): _salvar_plan_tecido_core nao esta no texto da migration (md5 %) - outra frente mexeu depois ou a volta ja rodou; refazer o inverso', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)') IS NULL THEN

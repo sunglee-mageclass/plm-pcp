@@ -52,3 +52,13 @@ describe("mensagemErro — Kanban automático (RPCs da F1)", () => {
       expect(mensagemErro({ code: "P0002", message: m }, "fb")).toBe(m);
   });
 });
+
+describe("mensagemErro — \"Tamanho em\" nos cards (20261011100000)", () => {
+  it("P0001 'tamanho_tipo invalido: …' (ASCII do banco) vira texto PT", () => {
+    expect(mensagemErro({ code: "P0001", message: "tamanho_tipo invalido: use letra ou numero" }, "fb"))
+      .toBe('O "Tamanho em" precisa ser Letra ou Número.');
+  });
+  it("outros P0001 seguem passando a mensagem da RPC", () => {
+    expect(mensagemErro({ code: "P0001", message: "Informe o nome do produto." }, "fb")).toBe("Informe o nome do produto.");
+  });
+});

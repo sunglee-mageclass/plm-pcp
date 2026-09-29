@@ -42,7 +42,7 @@ const FUNCS = [
   { arq: "_salvar_produto_importado_core", sig: "_salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)", antes: "d29c80190739b780523a3a4d4a175f08", depois: "2f3a81d18248752c56a7bd386c8bfe69" },
   { arq: "_limpar_produto_acabado_core", sig: "_limpar_produto_acabado_core(uuid)", antes: "5e93aa82de5cf6f24faa25ba2d7891af", depois: "123ddc5a717d896bc38193806769ccae" },
   { arq: "_limpar_produto_importado_core", sig: "_limpar_produto_importado_core(uuid)", antes: "b1b89e0d2020d0de4c32b1448872ab08", depois: "5fe6e90f2a96881614f45f84f9865bdd" },
-  { arq: "_salvar_plan_tecido_core", sig: "_salvar_plan_tecido_core(uuid,jsonb,integer)", antes: "58fcaddadee3c7ab8cac44c0597c9368", depois: "062cb94abcebda214b2bfec3c9b8cdee" },
+  { arq: "_salvar_plan_tecido_core", sig: "_salvar_plan_tecido_core(uuid,jsonb,integer)", antes: "58fcaddadee3c7ab8cac44c0597c9368", depois: "81a3606444a2cf68ee376937009b9bad" },
   { arq: "_plan_tecido_criar_card_core", sig: "_plan_tecido_criar_card_core(uuid,uuid,jsonb)", antes: "3a398cfecbfd8c434e998fc781a71f0b", depois: "fceac02c52bd0b29a33856dc9e0f9b11" },
   { arq: "_plan_tecido_snapshot", sig: "_plan_tecido_snapshot(uuid)", antes: "75d43c800b38b08c77831a645dcb4b3d", depois: "2c2ba1e79ab311b2c5ba8080cac958e9" },
   { arq: "_replicar_cards_plan_tecido_core", sig: "_replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)", antes: "cd89885741a32a63cbfa899d31ac0661", depois: "aaf3f2e4e4bd8eb14b99d53c79a653da" },
@@ -100,11 +100,11 @@ const TROCAS: Record<string, [string, string][]> = {
     ["  v_slot_oc jsonb;\n",
      "  v_slot_oc jsonb;\n  v_tt text;  -- [tamanho-em v1]\n"],
     ["      for v_slot in select * from jsonb_array_elements(coalesce(v_ln->'slots','[]'::jsonb)) loop\n",
-     "      for v_slot in select * from jsonb_array_elements(coalesce(v_ln->'slots','[]'::jsonb)) loop\n        -- [tamanho-em v1] \"Tamanho em\" (P-119 A): a vaga SEM card guarda a escolha; com card ele mora no modelo.\n        v_tt := nullif(v_slot->>'tamanho_tipo', '');\n        if v_tt is not null and v_tt not in ('letra', 'numero') then\n          raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';\n        end if;\n"],
+     "      for v_slot in select * from jsonb_array_elements(coalesce(v_ln->'slots','[]'::jsonb)) loop\n        -- [tamanho-em v1] \"Tamanho em\" (P-119 A): a vaga SEM card guarda a escolha; com card ele mora no modelo.\n        -- Valida SÓ onde o valor é gravado (vaga sem card; o \"tocado\" valida abaixo): na vaga COM card sem a marca o\n        -- valor é descartado — um legado fora do domínio no modelo (CHECK NOT VALID) não pode travar o Salvar inteiro.\n        v_tt := nullif(v_slot->>'tamanho_tipo', '');\n        if v_tt is not null and v_tt not in ('letra', 'numero') and nullif(v_slot->>'modelo_id','') is null then\n          raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';\n        end if;\n"],
     ["          categoria_tecido_id, mix_id, referencia_paths)\n",
      "          categoria_tecido_id, mix_id, referencia_paths, tamanho_tipo)\n"],
     ["            coalesce((select array_agg(t.x) from jsonb_array_elements_text(coalesce(v_slot->'referencia_paths','[]'::jsonb)) t(x)), '{}'))\n          returning id into v_slot_id;\n",
-     "            coalesce((select array_agg(t.x) from jsonb_array_elements_text(coalesce(v_slot->'referencia_paths','[]'::jsonb)) t(x)), '{}'),\n            case when nullif(v_slot->>'modelo_id','') is null then v_tt end)  -- [tamanho-em v1] com card: NULL\n          returning id into v_slot_id;\n        -- [tamanho-em v1] vaga COM card: grava no modelo SÓ quando a tela marca tamanho_tipo_tocado (a pessoa trocou).\n        -- Filtro loja + coleção + interno fecha o IDOR do modelo_id vindo do cliente (fora dele: ignorado) e espelha a\n        -- tela (o toggle só existe no interno). Card integravel/integrado recusa 42501 via trg_zz_integracao_trava.\n        if nullif(v_slot->>'modelo_id','') is not null and coalesce(v_slot->>'tamanho_tipo_tocado', '') = 'true' then\n          if v_tt is null then\n            raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';\n          end if;\n          update public.modelos m set tamanho_tipo = v_tt\n           where m.id = (v_slot->>'modelo_id')::uuid\n             and m.tenant_id = (select c.tenant_id from public.colecoes c where c.id = _colecao_id)\n             and m.colecao_id = _colecao_id\n             and coalesce(m.origem, 'interno') = 'interno'\n             and m.tamanho_tipo is distinct from v_tt;\n        end if;\n"],
+     "            coalesce((select array_agg(t.x) from jsonb_array_elements_text(coalesce(v_slot->'referencia_paths','[]'::jsonb)) t(x)), '{}'),\n            case when nullif(v_slot->>'modelo_id','') is null then v_tt end)  -- [tamanho-em v1] com card: NULL\n          returning id into v_slot_id;\n        -- [tamanho-em v1] vaga COM card: grava no modelo SÓ quando a tela marca tamanho_tipo_tocado (a pessoa trocou).\n        -- Filtro loja + coleção + interno fecha o IDOR do modelo_id vindo do cliente (fora dele: ignorado) e espelha a\n        -- tela (o toggle só existe no interno). Card integravel/integrado recusa 42501 via trg_zz_integracao_trava.\n        if nullif(v_slot->>'modelo_id','') is not null and coalesce(v_slot->>'tamanho_tipo_tocado', '') = 'true' then\n          if v_tt is null or v_tt not in ('letra', 'numero') then\n            raise exception 'tamanho_tipo invalido: use letra ou numero' using errcode = 'P0001';\n          end if;\n          update public.modelos m set tamanho_tipo = v_tt\n           where m.id = (v_slot->>'modelo_id')::uuid\n             and m.tenant_id = (select c.tenant_id from public.colecoes c where c.id = _colecao_id)\n             and m.colecao_id = _colecao_id\n             and coalesce(m.origem, 'interno') = 'interno'\n             and m.tamanho_tipo is distinct from v_tt;\n        end if;\n"],
   ],
   _plan_tecido_criar_card_core: [
     ["declare v_mid uuid; v_mes uuid; v_ano uuid; v_sub text;\n",
@@ -640,7 +640,7 @@ describe.skipIf(!PRONTO)("Tamanho em — Plan. Tecido", () => {
       // marca "true" em string/qualquer outro valor não conta; true com valor ausente/ruim = P0001
       await salvarArvore(c, col, [{ id: vivos[0].id, modelo_id: meu, slot_index: 0, tamanho_tipo: "letra", tamanho_tipo_tocado: "sim", materiais: [] }]);
       expect(await tipoModelo(c, meu)).toBe("numero");
-      for (const ruim of [null, "", "g"]) {
+      for (const ruim of [null, "", "g", "Letra"]) {
         expect(await falha(c, "SELECT public._salvar_plan_tecido_core($1::uuid, $2::jsonb, NULL::integer)",
           [col, JSON.stringify(arvore([{ modelo_id: meu, slot_index: 0, tamanho_tipo: ruim, tamanho_tipo_tocado: true, materiais: [] }]))]),
         String(ruim)).toEqual({ code: "P0001", message: MSG_INVALIDO });
@@ -683,6 +683,12 @@ describe.skipIf(!PRONTO)("Tamanho em — Plan. Tecido", () => {
       expect(e).toEqual({ code: "42501", message: "integracao_travado: tamanho_tipo" });
       expect(await tipoModelo(c, m)).toBe("letra");
       expect(await retrato()).toEqual(antes);
+      // L5 (revisão): "tocado" com o MESMO valor num card travado passa (UPDATE com IS DISTINCT FROM = 0 linhas), sem mexer no rev
+      const revTravado = await revModelo(c, m);
+      await salvarArvore(c, col, [{ id: sid, modelo_id: m, slot_index: 0, nome: "Travado", tamanho_tipo: "letra", tamanho_tipo_tocado: true, materiais }]);
+      expect(await tipoModelo(c, m)).toBe("letra");
+      expect(await revModelo(c, m)).toBe(revTravado);
+      expect((await retrato()).oc).toEqual(antes.oc);
       // ruling #1: o slot CONTINUA no payload, só sem a marca — salva inteiro, modelo intocado
       await salvarArvore(c, col, [{ id: sid, modelo_id: m, slot_index: 0, nome: "Travado", tamanho_tipo: "letra", materiais }]);
       expect(await tipoModelo(c, m)).toBe("letra");
@@ -692,6 +698,62 @@ describe.skipIf(!PRONTO)("Tamanho em — Plan. Tecido", () => {
       expect(depois.arv[0].materiais.map((x: any) => [x.tipo, x.numero])).toEqual([["tecido", 1], ["tecido", 2]]);
       expect(depois.arv[0].materiais[0].variantes[0].distribuicao).toEqual(dist);
       expect(depois.arv[0].materiais[1].variantes[0].atende).toEqual([av.var]);
+    });
+  });
+
+  it("M1 (revisão): vaga COM card e sem a marca não valida o valor (é descartado) — legado fora do domínio não trava o Salvar; vaga SEM card segue P0001", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await comoUsuario(c);
+      const col = await colecao(c, "TAM-T Legado");
+      const m = await internoNa(c, col, "TAM-T Legado");
+      const rev0 = await revModelo(c, m);
+      // payload como o front manda (valor do modelo) — fora do domínio, sem a marca: passa e nada muda
+      await salvarArvore(c, col, [{ modelo_id: m, slot_index: 0, nome: "Legado", tamanho_tipo: "Letra", materiais: [] }]);
+      expect(await tipoModelo(c, m)).toBe("letra");
+      expect(await revModelo(c, m)).toBe(rev0);
+      const sid = (await slotsVivos(c, col))[0].id;
+      expect(await tipoSlot(c, sid)).toBeNull();
+      // mesma palavra numa vaga SEM card (seria gravada) = P0001
+      expect(await falha(c, "SELECT public._salvar_plan_tecido_core($1::uuid, $2::jsonb, NULL::integer)",
+        [col, JSON.stringify(arvore([{ modelo_id: null, slot_index: 0, tamanho_tipo: "Letra", materiais: [] }]))]))
+        .toEqual({ code: "P0001", message: MSG_INVALIDO });
+      if (MIG_TXN) {
+        // legado REAL no modelo (o CHECK é NOT VALID; aqui ele sai e volta DENTRO da txn revertida — só no modo txn/N3):
+        // a árvore devolve o valor legado, a tela o reenvia e o Salvar passa
+        await c.query("ALTER TABLE public.modelos DROP CONSTRAINT modelos_tamanho_tipo_chk");
+        await c.query("UPDATE public.modelos SET tamanho_tipo = 'unico' WHERE id = $1", [m]);
+        await c.query("ALTER TABLE public.modelos ADD CONSTRAINT modelos_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID");
+        const vivos = await slotsVivos(c, col);
+        expect(vivos[0].tamanho_tipo).toBe("unico");
+        await salvarArvore(c, col, vivos.map((x, i) => ({ id: x.id, modelo_id: x.modelo_id, slot_index: i, nome: x.nome, tamanho_tipo: x.tamanho_tipo, materiais: [] })));
+        expect(await tipoModelo(c, m)).toBe("unico");
+        // trocar de verdade (tocado) sai do legado
+        await salvarArvore(c, col, vivos.map((x, i) => ({ id: x.id, modelo_id: x.modelo_id, slot_index: i, nome: x.nome, tamanho_tipo: "numero", tamanho_tipo_tocado: true, materiais: [] })));
+        expect(await tipoModelo(c, m)).toBe("numero");
+      }
+    });
+  });
+
+  it("L5 (revisão): criar cards em LOTE (_plan_tecido_criar_cards_core) leva o valor da vaga SALVA e zera a vaga", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await comoUsuario(c);
+      const col = await colecao(c, "TAM-T Lote");
+      await salvarArvore(c, col, [
+        { modelo_id: null, slot_index: 0, nome: "Lote N", tamanho_tipo: "numero", materiais: [] },
+        { modelo_id: null, slot_index: 1, nome: "Lote vazio", materiais: [] },
+      ]);
+      const s = await slotsVivos(c, col);
+      const r = (await um<{ r: any[] }>(c, "SELECT public._plan_tecido_criar_cards_core($1, $2, $3::jsonb) AS r", [T, col, JSON.stringify([
+        { slot_id: s[0].id, nome: "Lote N", materiais: [] },
+        { slot_id: s[1].id, nome: "Lote vazio", materiais: [] },
+      ])])).r;
+      expect(r).toHaveLength(2);
+      const porSlot = Object.fromEntries(r.map((x) => [x.slot_id, x.modelo_id]));
+      expect(await tipoModelo(c, porSlot[s[0].id])).toBe("numero");
+      expect(await tipoModelo(c, porSlot[s[1].id])).toBe("letra");
+      expect([await tipoSlot(c, s[0].id), await tipoSlot(c, s[1].id)]).toEqual([null, null]);
     });
   });
 
