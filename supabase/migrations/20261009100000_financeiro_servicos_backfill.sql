@@ -17,13 +17,16 @@
 -- reais: user_permissions(user_id,pagina) e papel_permissoes(papel_id,pagina)). Admins furam as permissões no front; as
 -- linhas deles seguem a mesma regra (inofensivas; preservam o acesso se um dia virarem `user`).
 -- Registro p/ o inverso: cada linha inserida vai (id da linha) p/ public._bkp_financeiro_servicos_backfill (RLS ligada SEM
--- policy + REVOKE ALL de PUBLIC/anon/authenticated). O inverso apaga SÓ as linhas cujo id está lá (se um admin salvou o
+-- policy + REVOKE ALL de PUBLIC/anon/authenticated/service_role — o default ACL do Supabase dá ALL ao service_role, que fura RLS). O inverso apaga SÓ as linhas cujo id está lá (se um admin salvou o
 -- usuário/papel depois, set_user_permissions/salvar_papel apagam+reinserem com id NOVO — o inverso não mexe nelas).
 -- Gatilhos: set_tenant_id (tenant_id vai preenchido), fn_audit (grava no audit_log, sem auth.uid), e o delta 7
 -- (trg_integracao_perm_*) só olha páginas integracao/integracao:* — não interfere.
 -- Idempotente: rodar de novo sem mudança nas permissões não insere nada (a chave já existe). ⚠️ NÃO rodar de novo depois que
 -- admins começarem a editar permissões no front novo: "revogar" = linha AUSENTE (salvar_papel/set_user_permissions sem papel
--- não gravam linha false) e a 2ª rodada re-concederia. O script ida-financeiro-servicos.sh PARA se a tabela de registro já existe.
+-- não gravam linha false) e a 2ª rodada re-concederia. O script ida-financeiro-servicos.sh PARA se a tabela de registro já existe
+-- ou se já há alguma linha financeiro_servicos. Depois de uma VOLTA (o inverso deixa o marcador
+-- `financeiro_servicos_backfill_revertido` no audit_log), esta migration RECUSA rodar de novo, a menos que a sessão tenha
+-- `SET app.financeiro_servicos_apos_volta = 'sim'` (o script só faz isso com `--apos-volta`, decisão do controlador).
 -- Autocheck no fim (aborta a transação inteira se falhar): toda linha registrada bate com a regra e, p/ todo usuário sem linha
 -- financeiro_servicos pré-existente (nele ou no papel), _perm_efetiva(servicos) = valor calculado das 3 chaves.
 -- Inverso: supabase/rollback/20261009100000_financeiro_servicos_backfill_down.sql.
@@ -46,6 +49,15 @@ BEGIN
                    AND conrelid = 'public.papel_permissoes'::regclass) THEN
     RAISE EXCEPTION 'financeiro_servicos_backfill: chave unica (user_id,pagina)/(papel_id,pagina) ausente' USING ERRCODE = 'P0001';
   END IF;
+  -- Ida depois de uma volta: só com override explícito (a volta apagou o registro, que era a trava contra 2ª rodada).
+  IF to_regclass('public._bkp_financeiro_servicos_backfill') IS NULL
+     AND EXISTS (SELECT 1 FROM public.audit_log
+                  WHERE tabela = '_bkp_financeiro_servicos_backfill'
+                    AND dados->>'marcador' = 'financeiro_servicos_backfill_revertido')
+     AND coalesce(current_setting('app.financeiro_servicos_apos_volta', true), '') <> 'sim' THEN
+    RAISE EXCEPTION 'financeiro_servicos_backfill: a volta ja rodou - ida de novo so com SET app.financeiro_servicos_apos_volta = sim (controlador)'
+      USING ERRCODE = 'P0001';
+  END IF;
 END
 $guarda$;
 
@@ -60,9 +72,9 @@ CREATE TABLE IF NOT EXISTS public._bkp_financeiro_servicos_backfill (
   PRIMARY KEY (tabela, row_id)
 );
 COMMENT ON TABLE public._bkp_financeiro_servicos_backfill IS
-  'Linhas financeiro_servicos inseridas pelo backfill 20261009100000 (o inverso apaga so estas). Sem policy: so postgres le.';
+  'Linhas financeiro_servicos inseridas pelo backfill 20261009100000 (o inverso apaga so estas). RLS sem policy e sem grant: so o dono (postgres) le.';
 ALTER TABLE public._bkp_financeiro_servicos_backfill ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public._bkp_financeiro_servicos_backfill FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public._bkp_financeiro_servicos_backfill FROM PUBLIC, anon, authenticated, service_role;
 
 DO $backfill$
 DECLARE

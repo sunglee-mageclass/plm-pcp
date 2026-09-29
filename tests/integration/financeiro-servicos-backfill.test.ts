@@ -64,7 +64,11 @@ async function usuario(c: Client, id: string, papelId: string | null, perms: [st
     );
   }
 }
+const MARCADOR_VOLTA = "financeiro_servicos_backfill_revertido";
 async function semeia(c: Client): Promise<void> {
+  // Independe do estado da cópia: um marcador de volta deixado por uma rodada REAL na cópia faria a ida recusar
+  // (DELETE dentro da txn do teste — revertido no fim).
+  await c.query(`DELETE FROM public.audit_log WHERE tabela = '_bkp_financeiro_servicos_backfill' AND dados->>'marcador' = $1`, [MARCADOR_VOLTA]);
   await papel(c, PA, [["financeiro_parcelas", true, true], ["financeiro_resumo", true, false]]);
   await papel(c, PR, [["financeiro_resumo", true, true]]);
   await papel(c, PX, [["financeiro_servicos", true, false], ["financeiro_parcelas", true, true]]);
@@ -166,16 +170,17 @@ describe.skipIf(!hasDb || !ehBancoLocal())("financeiro_servicos — backfill de 
           ...[U2, U4, U5, U7, U8].sort().map((d) => ({ tabela: "user_permissions", dono_id: d })),
         ],
       );
-      // tabela de registro: RLS ligada, sem policy, sem grant p/ anon/authenticated
-      const acl = await um<{ rls: boolean; pol: number; anon: boolean; auth: boolean }>(
+      // tabela de registro: RLS ligada, sem policy, NENHUM privilégio p/ anon/authenticated/service_role (review M-1/M-5)
+      const acl = await um<{ rls: boolean; pol: number; algum: boolean }>(
         c,
         `SELECT c.relrowsecurity AS rls,
                 (SELECT count(*)::int FROM pg_policy WHERE polrelid = c.oid) AS pol,
-                has_table_privilege('anon', c.oid, 'SELECT') AS anon,
-                has_table_privilege('authenticated', c.oid, 'SELECT') AS auth
+                EXISTS (SELECT 1 FROM unnest(ARRAY['anon','authenticated','service_role']) r(papel),
+                               unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p(priv)
+                         WHERE has_table_privilege(r.papel, c.oid, p.priv)) AS algum
            FROM pg_class c WHERE c.oid = 'public._bkp_financeiro_servicos_backfill'::regclass`,
       );
-      expect(acl).toEqual({ rls: true, pol: 0, anon: false, auth: false });
+      expect(acl).toEqual({ rls: true, pol: 0, algum: false });
     });
   });
 
@@ -196,6 +201,36 @@ describe.skipIf(!hasDb || !ehBancoLocal())("financeiro_servicos — backfill de 
       // inverso 2× (sem registro) = não faz nada
       await aplicarArquivo(c, INV);
       expect(await retrato(c)).toBe(antes);
+    });
+  });
+
+  it("volta deixa marcador no audit_log; ida de novo RECUSA sem override e roda com SET app.financeiro_servicos_apos_volta", async () => {
+    await withTx(async (c) => {
+      await semeia(c);
+      await aplicarArquivo(c, MIG);
+      await aplicarArquivo(c, INV);
+      const m = await um<{ n: number; d: any }>(
+        c,
+        `SELECT count(*)::int AS n, max(dados::text)::jsonb AS d FROM public.audit_log
+          WHERE tabela = '_bkp_financeiro_servicos_backfill' AND dados->>'marcador' = $1`,
+        [MARCADOR_VOLTA],
+      );
+      expect(m.n).toBe(1);
+      // registradas = nossos 7 + o que a cópia tiver de real; tudo apagado (nada foi regravado)
+      expect(m.d.papeis).toBe(2);
+      expect(m.d.registradas).toBe(m.d.papeis + m.d.usuarios);
+      expect(m.d.usuarios).toBeGreaterThanOrEqual(5);
+      await expect(aplicarArquivo(c, MIG)).rejects.toThrow(/a volta ja rodou/);
+      expect(await temRegistro(c)).toBe(false); // recusou inteiro (savepoint do harness)
+      expect(await linhaP(c, PA)).toBeNull();
+      // inverso sem registro NÃO grava outro marcador
+      await aplicarArquivo(c, INV);
+      expect((await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.audit_log WHERE dados->>'marcador' = $1`, [MARCADOR_VOLTA])).n).toBe(1);
+      // override explícito (decisão do controlador)
+      await c.query(`SET LOCAL app.financeiro_servicos_apos_volta = 'sim'`);
+      await aplicarArquivo(c, MIG);
+      expect(await linhaP(c, PA)).toEqual([true, true]);
+      expect(await linhaU(c, U2)).toEqual([true, false]);
     });
   });
 
