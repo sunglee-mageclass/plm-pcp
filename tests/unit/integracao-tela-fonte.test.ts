@@ -2408,7 +2408,7 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
         setter.call(inputDoisAntes!, "Produto Dois Editado");
         inputDoisAntes!.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      const abriu = await escolherEstado(view, "Não integrável — completo");
+      const abriu = await escolherEstado(view, "Pronto para integrar");
       if (!abriu) {
         // Radix Select real precisa de layout (getBoundingClientRect/scrollIntoView) que happy-dom não fornece —
         // a mesma limitação de ambiente que os outros testes desta suíte contornam usando controles NÃO-Select
@@ -2446,7 +2446,7 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
         { pagina: 2, total: 600, por_pagina: 500 },
       );
       const view = await montarComMocks({ lista });
-      const abriu = await escolherEstado(view, "Não integrável — completo");
+      const abriu = await escolherEstado(view, "Pronto para integrar");
       if (!abriu) {
         // Mesma limitação de ambiente do teste anterior — Radix Select sem layout real em happy-dom.
         await view.desmontar();
@@ -2538,7 +2538,7 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       ];
       const lista = listaRaw(produtos, { pagina: 1, total: 80, por_pagina: 500 });
       const view = await montarComMocks({ lista });
-      const abriu = await escolherEstado(view, "Não integrável — completo");
+      const abriu = await escolherEstado(view, "Pronto para integrar");
       if (!abriu) {
         await view.desmontar();
         return;

@@ -712,20 +712,24 @@ e verifique** — o repo muda rápido.
     `LOCK TABLE integracao_produtos, integracao_linhas IN EXCLUSIVE MODE` pra fechar a corrida com
     `integracao_marcar` durante o reprocesso). **P-127 B**: na aplicação, produtos **integráveis**
     (retrato `v=1`) são REPROCESSADOS — SÓ o nome (a assinatura HMAC é refeita); **integrados** ficam
-    intocados. 1 registro de Log "Editar — Sistema" por produto reprocessado (só quando o nome de
-    alguma sublinha mudou). **P-128 A**: trocar a escolha depois NÃO reprocessa o que já é
+    intocados. A migration final grava **1 registro de Log "Editar — Sistema" por produto integrável
+    reprocessado** — TODOS eles, inclusive os cujo nome de sublinha não mudou (`sublinhas: 0` no
+    detalhe do registro); não é condicionado a ter mudado algo. **P-128 A**: trocar a escolha depois
+    NÃO reprocessa o que já é
     integrável/integrado (só passa a valer pro que for marcado Integrável a partir de então — pra
     reaplicar num produto já marcado, é Voltar + marcar de novo). **P-129 A**: no reprocessamento, a cor
     vem do RETRATO gravado quando o campo Cor base/Apelido estava marcado (coerente com a coluna de cor
     que a API já entregou); senão vem do cadastro vivo. **P-130 A**: `integracao_listar` ganhou parâmetro
     opcional `_limite int DEFAULT 50` (máx 500 — acima disso, `RAISE P0001` ASCII); Integração › Produtos
     passou a carregar até 500 produtos de uma vez (era paginado a 50), com ordenação clicável em TODA
-    coluna da tabela e **Estado em 4 níveis**: vermelho "Não integrável — faltam dados" / âmbar
-    "Não integrável — completo" (= `podeIntegrarAgora`: completo && !moduloBloqueado && !reprovado) /
-    Integrável / Integrado — com filtro por esses 4 níveis; paginação de verdade só entra em cena acima
-    de 500. **Ordem de aplicação (LIFO, como toda migration da Integração): banco ANTES do site** — o
-    inverso desta migration é o PRIMEIRO passo que `.superpowers/integracao/mig/volta-producao.sh` roda
-    (a volta de emergência da Integração desfaz a mais recente primeiro).
+    coluna da tabela e **Estado em 4 níveis**: vermelho "Faltam dados" / âmbar "Pronto para integrar"
+    (= `podeIntegrarAgora`: completo && !moduloBloqueado && !reprovado; renomeados de "Não integrável —
+    faltam dados"/"Não integrável — completo" pelo dono em P-133 A, 29/set — cor/lógica de cada nível
+    NÃO mudaram) / Integrável / Integrado — com filtro por esses 4 níveis; paginação de verdade só
+    entra em cena acima de 500. **Ordem de aplicação (LIFO, como toda migration da Integração): banco
+    ANTES do site** — o inverso desta migration é o PRIMEIRO passo que
+    `.superpowers/integracao/mig/volta-producao.sh` roda (a volta de emergência da Integração desfaz a
+    mais recente primeiro).
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**

@@ -46,13 +46,13 @@ describe("Badge — cor e rótulo dos 2 níveis de 'não integrável' (owner set
   it("VERMELHO (danger) quando falta dado (completo=false)", () => {
     const p = produtoDe({ completo: false, faltas: [{ campo: "ncm", texto: "NCM" }] });
     expect(tomEstado(p)).toBe("danger");
-    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Não integrável — faltam dados");
+    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Faltam dados");
     expect(nivelDoProduto(p)).toBe("nao_integravel_faltam");
   });
   it("ÂMBAR (warning) quando completo (nada falta, só falta acionar o toggle)", () => {
     const p = produtoDe({ completo: true, faltas: [] });
     expect(tomEstado(p)).toBe("warning");
-    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Não integrável — completo");
+    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Pronto para integrar");
     expect(nivelDoProduto(p)).toBe("nao_integravel_completo");
   });
   it("integrável continua âmbar e integrado continua verde (sem regressão dos 2 estados de sempre)", () => {
@@ -65,7 +65,7 @@ describe("Badge — cor e rótulo dos 2 níveis de 'não integrável' (owner set
   });
   it("o rótulo do amarelo NUNCA aparece pra um produto que ainda falta dado (não é um falso 'pronto')", () => {
     const p = produtoDe({ completo: false });
-    expect(rotuloEstado(p, "America/Sao_Paulo")).not.toBe("Não integrável — completo");
+    expect(rotuloEstado(p, "America/Sao_Paulo")).not.toBe("Pronto para integrar");
   });
   // MEDIUM-1 (review 685544fa): "amarelo" tem que significar "o servidor aceitaria integrar isto agora" — a
   // ordem espelha `integracao_marcar` (estado, módulo, reprovado, assinatura, completo). Um produto COMPLETO mas
@@ -77,7 +77,7 @@ describe("Badge — cor e rótulo dos 2 níveis de 'não integrável' (owner set
     });
     expect(nivelDoProduto(p)).toBe("nao_integravel_faltam");
     expect(tomEstado(p)).toBe("danger");
-    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Não integrável — faltam dados");
+    expect(rotuloEstado(p, "America/Sao_Paulo")).toBe("Faltam dados");
   });
   it("completo=true + reprovado cai no VERMELHO, não no âmbar", () => {
     const p = produtoDe({ completo: true, faltas: [], reprovado: true });
@@ -218,7 +218,7 @@ describe("EstadoCelula — RENDER de verdade: classe de tom (vermelho/âmbar) + 
     const view = montar(p);
     await view.montar();
     const el = badge(view.container);
-    expect(el.textContent).toBe("Não integrável — faltam dados");
+    expect(el.textContent).toBe("Faltam dados");
     expect(el.className).toContain("tone-danger-bg");
     expect(el.className).toContain("tone-danger-fg");
     expect(el.className).not.toContain("tone-warning");
@@ -227,12 +227,12 @@ describe("EstadoCelula — RENDER de verdade: classe de tom (vermelho/âmbar) + 
     await view.desmontar();
   });
 
-  it("completo: badge usa o token de ATENÇÃO/âmbar (--tone-warning-*) e o texto 'completo' — SEM hex/oklch literal", async () => {
+  it("completo: badge usa o token de ATENÇÃO/âmbar (--tone-warning-*) e o texto 'Pronto para integrar' — SEM hex/oklch literal", async () => {
     const p = produtoDe({ completo: true, faltas: [] });
     const view = montar(p);
     await view.montar();
     const el = badge(view.container);
-    expect(el.textContent).toBe("Não integrável — completo");
+    expect(el.textContent).toBe("Pronto para integrar");
     expect(el.className).toContain("tone-warning-bg");
     expect(el.className).toContain("tone-warning-fg");
     expect(el.className).not.toContain("tone-danger");

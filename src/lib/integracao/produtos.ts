@@ -145,10 +145,12 @@ export const ROTULO_ESTADO: Record<EstadoIntegracao, string> = {
 // Owner (set/2026): rótulos do FILTRO "Estado" — os 2 novos níveis substituem a opção única "Não integrável".
 // Labels escolhidos pra bater com a leitura do dono ("os vermelhos que faltam dados e os amarelos que estão
 // completos mas falta acionar o toggle") — curtos, sem repetir "não integrável" 2x na mesma frase.
+// P-133 A (dono 29/set): renomeados de novo — "Não integrável — faltam dados" → "Faltam dados" e
+// "Não integrável — completo" → "Pronto para integrar" (cor/lógica de cada nível NÃO mudam).
 export const ROTULO_ESTADO_NIVEL: Record<EstadoNivel, string> = {
   nao_integravel: ROTULO_ESTADO.nao_integravel, // legado — mantido só p/ compat de valor salvo/serializado antigo
-  nao_integravel_faltam: "Não integrável — faltam dados",
-  nao_integravel_completo: "Não integrável — completo",
+  nao_integravel_faltam: "Faltam dados",
+  nao_integravel_completo: "Pronto para integrar",
   integravel: ROTULO_ESTADO.integravel,
   integrado: ROTULO_ESTADO.integrado,
 };
@@ -446,7 +448,7 @@ export function motivoNivelVermelho(p: Pick<ProdutoLista, "moduloBloqueado" | "r
 export function rotuloEstado(p: Pick<ProdutoLista, "estado" | "integradoEm"> & PodeIntegrarAgoraInput, tz: string): string {
   if (p.estado === "integrado") return `Integrado em ${fmtDataHora(p.integradoEm, tz)}`;
   if (p.estado === "nao_integravel")
-    return podeIntegrarAgora(p) ? "Não integrável — completo" : "Não integrável — faltam dados";
+    return podeIntegrarAgora(p) ? "Pronto para integrar" : "Faltam dados";
   return ROTULO_ESTADO[p.estado];
 }
 /** Nível efetivo de um produto (o mesmo split do filtro/ordenação, aplicado ao PRÓPRIO produto) — usado pelo
