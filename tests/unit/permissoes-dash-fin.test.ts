@@ -9,6 +9,15 @@ import { createRoot, type Root } from "react-dom/client";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** Repete até `cond()` ser verdade ou estourar o prazo (mesmo padrão de tests/unit/_fix_hidratacao/dom-helpers.ts). */
+async function aguardar(cond: () => boolean, rotulo: string, prazoMs = 2000) {
+  const t0 = Date.now();
+  while (!cond()) {
+    if (Date.now() - t0 > prazoMs) throw new Error(`timeout esperando: ${rotulo}`);
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  }
+}
+
 async function montar(el: ReturnType<typeof import("react").createElement>): Promise<{ container: HTMLElement; root: Root; unmount: () => void }> {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -202,9 +211,15 @@ describe("PapelEditor — Dashboard organizado (F5c)", () => {
 describe("Financeiro por aba (F5c, P-112 A)", () => {
   async function montarFinanceiro(opts: {
     canView: (k: string) => boolean;
+    canEdit?: (k: string) => boolean;
     isAdmin?: boolean;
     tab?: string;
     status?: string;
+    // F5c (controller ruling): 1 linha de servicos_financeiro pra poder ver o sinal de
+    // edição da aba Serviços (botão "Marcar pago" + DateField de vencimento habilitado/
+    // desabilitado) — o fake supabase.rpc genérico devolve null pra qualquer nome, então
+    // sobrepomos SÓ "servicos_financeiro" aqui, sem tocar no fake compartilhado.
+    servicosRows?: any[];
   }) {
     vi.resetModules();
     const { FAKE } = await import("./_fix_hidratacao/fake-supabase");
@@ -212,12 +227,22 @@ describe("Financeiro por aba (F5c, P-112 A)", () => {
     FAKE.linhas.parcelas = [];
     FAKE.linhas.tenant_config = [{ tenant_id: "t1", timezone: "America/Sao_Paulo", modules: { financeiro: true } }];
     FAKE.linhas.users = [{ id: "u1", tenant_id: "t1" }];
-    vi.doMock("@/integrations/supabase/client", async () => ({ supabase: (await import("./_fix_hidratacao/fake-supabase")).FAKE.supabase }));
+    vi.doMock("@/integrations/supabase/client", async () => {
+      const { FAKE: F } = await import("./_fix_hidratacao/fake-supabase");
+      const supabase = {
+        ...F.supabase,
+        rpc: (nome: string, args?: unknown) =>
+          nome === "servicos_financeiro"
+            ? Promise.resolve({ data: opts.servicosRows ?? [], error: null })
+            : F.supabase.rpc(nome, args),
+      };
+      return { supabase };
+    });
     vi.doMock("@/hooks/useAuth", () => ({
       useAuth: () => ({
         user: { id: "u1", email: "qa@teste" }, session: null,
         isAdmin: !!opts.isAdmin, isSuperAdmin: false, isTenantAdmin: !!opts.isAdmin, permissions: [],
-        canView: opts.canView, canEdit: () => false, loading: false, signOut: async () => {},
+        canView: opts.canView, canEdit: opts.canEdit ?? (() => false), loading: false, signOut: async () => {},
       }),
     }));
     vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
@@ -291,6 +316,52 @@ describe("Financeiro por aba (F5c, P-112 A)", () => {
     const view = await montarFinanceiro({ canView: () => true, isAdmin: true });
     try {
       expect(abasVisiveis()).toEqual(["Calendário", "OCs", "Serviços", "Resumo"]);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  // Controller ruling (28/set): a aba Serviços obedece à SUA PRÓPRIA permissão de edição
+  // (financeiro_servicos), independente de Calendário/OCs — FinanceiroEditContext.Provider
+  // aninhado em torno do TabsContent de "servicos" sobrescreve o valor do provider externo.
+  // Sinal de edição: o botão "Marcar pago" (só aparece com podeEditar) e o DateField de
+  // Vencimento (VencimentoCell, disabled={!podeEditar || status==='pago'}).
+  const SERVICO_ROW = {
+    parcela_id: "sv1", servico: "Costura", ref: "REF1", numero_parcela: 1, numero_parcelas: 1,
+    valor_parcela: 100, data_vencimento: "2026-10-01", data_pagamento: null, status: "a_pagar",
+    empresa_nome: "Fornecedor X", representante_nome: null, responsavel: null, comprovante_url: null,
+  };
+  const marcarPagoBtn = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Marcar pago") as HTMLButtonElement | undefined;
+  const vencimentoInput = () => document.body.querySelector('input[inputmode="numeric"]') as HTMLInputElement | null;
+
+  it("usuário com financeiro_parcelas editar E financeiro_servicos editar: Serviços fica editável ('Marcar pago' aparece)", async () => {
+    const view = await montarFinanceiro({
+      canView: (k) => k === "financeiro_calendario" || k === "financeiro_servicos",
+      canEdit: (k) => k === "financeiro_parcelas" || k === "financeiro_servicos",
+      tab: "servicos",
+      servicosRows: [SERVICO_ROW],
+    });
+    try {
+      await aguardar(() => !!marcarPagoBtn(), "linha de serviço com Marcar pago");
+      expect(marcarPagoBtn()).toBeTruthy();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it("usuário com financeiro_parcelas editar mas financeiro_servicos SÓ VER: Serviços fica somente-leitura ('Marcar pago' não aparece)", async () => {
+    const view = await montarFinanceiro({
+      canView: (k) => k === "financeiro_calendario" || k === "financeiro_parcelas" || k === "financeiro_servicos",
+      canEdit: (k) => k === "financeiro_parcelas" || k === "financeiro_calendario", // servicos NÃO está aqui — só ver
+      tab: "servicos",
+      servicosRows: [SERVICO_ROW],
+    });
+    try {
+      await aguardar(() => document.body.textContent?.includes("Costura") ?? false, "linha de serviço renderizada");
+      expect(marcarPagoBtn()).toBeUndefined();
+      // O DateField de vencimento também some/desabilita sem podeEditar — reforça o sinal.
+      const venc = vencimentoInput();
+      if (venc) expect(venc.disabled).toBe(true);
     } finally {
       view.unmount();
     }

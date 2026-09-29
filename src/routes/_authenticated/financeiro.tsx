@@ -472,9 +472,17 @@ function FinanceiroPage() {
           <ListaView parcelas={parcelas} loading={isLoading} initialStatus={search.status} />
         </TabsContent>
         )}
+        {/* F5c (controller ruling): Serviços obedece à SUA PRÓPRIA permissão de edição
+            (financeiro_servicos), não a de Calendário/OCs — provider ANINHADO sobrescreve
+            o de fora só para esta subtree (Radix Dialog/Portal ainda respeita o contexto
+            React, não o DOM, então PagarDialog/AnexarComprovanteDialog renderizados dentro
+            de ServicosView leem este valor). Nada perde acesso: o backfill dá
+            financeiro_servicos com o mesmo ver/editar de quem já tinha algum financeiro_*. */}
         {canView("financeiro_servicos") && (
         <TabsContent value="servicos" className="mt-4">
-          <ServicosView />
+          <FinanceiroEditContext.Provider value={canEdit("financeiro_servicos")}>
+            <ServicosView />
+          </FinanceiroEditContext.Provider>
         </TabsContent>
         )}
         {canView("financeiro_resumo") && (
