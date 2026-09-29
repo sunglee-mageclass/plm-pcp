@@ -78,6 +78,25 @@ export async function prepara(c: Client, ate: Ate): Promise<void> {
     if (!r.ok) throw new Error(`migration ${i + 1} ausente — rode com INTEGRACAO_MIG_TXN=1 (janela N3) ou aplique na cópia`);
   }
 }
+/**
+ * LIFO — "Cor no nome das sublinhas" (20261013100000, P-126) redefine _integracao_retrato_core/_integracao_exemplo (Integração
+ * 2/6) e _sku_config_normaliza/_skus_plano/_skus_matriz_ref_tipo (SKU 20261003/20261005/20261005110000) POR CIMA delas. Com ela
+ * na cópia, as suítes que REAPLICAM uma dessas migrations na txn (modos *_MIG_TXN) voltam-na antes, DENTRO da txn, pelo inverso
+ * dela (confirmação SET LOCAL; as 2 travas SET LOCAL do arquivo saem). Sem efeito quando ela não está aplicada.
+ */
+export const MIG_NOME_COR = "supabase/migrations/20261013100000_integracao_nome_sublinha_cor.sql";
+export const INV_NOME_COR = "supabase/rollback/20261013100000_integracao_nome_sublinha_cor_down.sql";
+export async function nomeCorViva(c: Client): Promise<boolean> {
+  return (await um<{ ok: boolean }>(c,
+    "SELECT to_regprocedure('public._integracao_nome_sublinha(text,text,text,text,text)') IS NOT NULL AS ok")).ok;
+}
+export async function voltaNomeCorSePreciso(c: Client): Promise<void> {
+  if (!(await nomeCorViva(c))) return;
+  exigeBancoLocal();
+  await c.query("SET LOCAL app.confirmo_voltar_cor_no_nome = 'sim'");
+  await aplica(c, INV_NOME_COR);
+  await c.query("SET LOCAL app.confirmo_voltar_cor_no_nome = ''");
+}
 /** Dispara os gatilhos ADIADOS (a txn do teste nunca faz COMMIT) e volta ao modo adiado. */
 export async function imediato(c: Client): Promise<void> {
   await c.query("SET CONSTRAINTS ALL IMMEDIATE");

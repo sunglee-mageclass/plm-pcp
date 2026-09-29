@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um } from "./db";
-import { INVERSOS, LOCAL, MD5_ANTES, MIGRACOES, MIG_TXN, U, aplica, prepara } from "./integracao-helpers";
+import { INVERSOS, LOCAL, MD5_ANTES, MIGRACOES, MIG_TXN, U, aplica, nomeCorViva, prepara, voltaNomeCorSePreciso } from "./integracao-helpers";
 
 const INTERNAS_PREFIXO = "_integracao_";
 const RPCS = ["integracao_previa", "integracao_listar", "integracao_estado_modelos", "integracao_config_ler", "integracao_marcar",
@@ -46,7 +46,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
       // — 46 sem d7, 49 com d7 na cópia. `prepara(c,6)` não aplica nem desfaz o d7 (é uma frente separada), então o total
       // esperado precisa refletir o que JÁ está na cópia, não o que esta suíte preparou.
       const temD7 = (await um<{ ok: boolean }>(c, `SELECT to_regprocedure('public._integracao_pode(boolean)') IS NOT NULL AS ok`)).ok;
-      const totalEsperado = String(46 + (temD7 ? 3 : 0));
+      // "Cor no nome das sublinhas" (20261013100000) soma +2 funções `_integracao_*` (_integracao_cor_no_nome/_nome_sublinha,
+      // internas com EXECUTE revogado dos TRÊS — entram também na contagem `internas` = 0 acima).
+      const temNomeCor = await nomeCorViva(c);
+      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0));
       const r = await um<{ internas: string; rpc_anon: string; rpc_auth: string; rota: string; total: string }>(c,
         `SELECT
            (SELECT count(*) FROM pg_proc p CROSS JOIN (VALUES ('public'), ('anon'), ('authenticated')) r(y)
@@ -117,6 +120,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
         ctx.skip(true, "d7 presente na cópia: round-trip 1..6 não cobre o d7 (fora de escopo sem mexer em SQL)");
         return;
       }
+      // LIFO: a 20261013100000 (cor no nome das sublinhas) redefine funções da 2 e da 6 — volta-a DENTRO da txn antes da volta 6→1.
+      await voltaNomeCorSePreciso(c);
       const antes = await retratoBanco(c);
       expect(antes.t).toBe("0");
       expect(antes.md5).toBe(MD5_4_ANTES);
