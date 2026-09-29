@@ -56,7 +56,7 @@ export const Route = createFileRoute("/_authenticated/financeiro")({
   }),
   component: () => (
     <ModuleGuard module="financeiro">
-      <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario","financeiro_resumo"]}>
+      <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario","financeiro_servicos","financeiro_resumo"]}>
         <FinanceiroPage />
       </RequirePermission>
     </ModuleGuard>
@@ -215,13 +215,53 @@ function StatusFilterChips({ value, onChange }: { value: string; onChange: (v: s
 const FinanceiroEditContext = createContext(false);
 const usePodeEditarFinanceiro = () => useContext(FinanceiroEditContext);
 
+// F5c (P-112 A, 28/set): 1 aba = 1 permissão. Ordem fixa (a mesma da TabsList/SegmentedTabs) —
+// a 1ª desta lista que o usuário PODE VER vira a aba padrão quando `?tab=` está ausente ou aponta
+// pra uma aba sem permissão (fallback). Admins furam via `canView` (RequirePermission já garantiu
+// pelo menos UMA das 4 antes de a página montar).
+const FINANCEIRO_TABS = [
+  { value: "calendario", label: "Calendário", key: "financeiro_calendario" },
+  { value: "lista", label: "OCs", key: "financeiro_parcelas" },
+  { value: "servicos", label: "Serviços", key: "financeiro_servicos" },
+  { value: "resumo", label: "Resumo", key: "financeiro_resumo" },
+] as const;
+
 function FinanceiroPage() {
-  const { canEdit } = useAuth();
+  const { canEdit, canView } = useAuth();
   // Escrita só com edição na aba que de fato muta (parcelas a pagar / calendário).
   // `financeiro_resumo` é relatório, não concede escrita.
   const podeEditar = canEdit("financeiro_parcelas") || canEdit("financeiro_calendario");
   const search = Route.useSearch();
-  const [tab, setTab] = useState(search.tab ?? "calendario");
+  // F5c review (I-2): SEM useMemo — recomputa em TODO render, igual dashboard.tsx:68 (`DASH_TABS
+  // .filter((t) => canView(...))`, sem memo). Um `useMemo([canView])` dependeria da REFERÊNCIA de
+  // `canView` mudar pra recalcular; isso hoje funciona porque `useAuth` recria `canView` via
+  // `useCallback` quando `permissions` muda, mas é um acoplamento implícito e fácil de quebrar —
+  // o filtro é barato (4 itens), não precisa de memo.
+  const abasPermitidas = FINANCEIRO_TABS.filter((t) => canView(t.key));
+  // Aba padrão = a 1ª permitida (ordem fixa acima). `?tab=` só é honrado se essa aba estiver entre
+  // as permitidas — senão cai no fallback (mesma regra pedida: "?tab=lista sem financeiro_parcelas
+  // cai pro default"). RequirePermission já barrou a página se `abasPermitidas` viesse vazia (o
+  // `anyOf` da rota cobre as mesmas 4 keys), mas o `?? "calendario"` final é defensivo.
+  const tabPadrao = useMemo(() => {
+    if (search.tab && abasPermitidas.some((t) => t.value === search.tab)) return search.tab;
+    return abasPermitidas[0]?.value ?? "calendario";
+  }, [search.tab, abasPermitidas]);
+  const [tab, setTab] = useState(tabPadrao);
+  // F5c review (M-3, cheap): re-sincroniza `tab` quando `search.tab` muda com a página JÁ montada
+  // (ex.: link "Contas atrasadas" da Home clicado enquanto /financeiro já está aberto — mesma
+  // rota, TanStack Router não remonta o componente, só atualiza o search; o `useState(tabPadrao)`
+  // é one-shot e não reagiria por si só). Só sincroniza pra uma aba PERMITIDA — `?tab=` sem
+  // permissão continua caindo no fallback via `abaAtiva` abaixo, nunca aqui.
+  useEffect(() => {
+    if (search.tab && abasPermitidas.some((t) => t.value === search.tab)) setTab(search.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.tab]);
+  // F5c review (I-2): deriva a aba ATIVA em TODO render (mesmo padrão de dashboard.tsx:70) — se
+  // `tab` (guardado em estado) não estiver mais entre as permitidas (permissão revogada, recheck do
+  // useAuth no foco, ou o próprio one-shot inicial antes de abasPermitidas assentar), cai na 1ª
+  // permitida em vez de deixar o Radix com um `value` sem TabsTrigger/TabsContent correspondente
+  // (aba em branco, sem nada selecionado na TabsList).
+  const abaAtiva = abasPermitidas.some((t) => t.value === tab) ? tab : tabPadrao;
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
@@ -424,41 +464,56 @@ function FinanceiroPage() {
         </Card>
       )}
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={abaAtiva} onValueChange={setTab}>
         {/* Mobile (<md): abas como pílulas roláveis (SegmentedTabs do dashboard) — substitui
-            o Select. Desktop mantém a TabsList (agora ≥md, alinhado à camada mobile). */}
+            o Select. Desktop mantém a TabsList (agora ≥md, alinhado à camada mobile). Só as
+            abas PERMITIDAS entram nas duas superfícies (F5c, 1 aba = 1 permissão). */}
         <div className="md:hidden mb-4">
           <SegmentedTabs
-            value={tab}
+            value={abaAtiva}
             onChange={setTab}
-            tabs={[
-              { value: "calendario", label: "Calendário" },
-              { value: "lista", label: "OCs" },
-              { value: "servicos", label: "Serviços" },
-              { value: "resumo", label: "Resumo" },
-            ]}
+            tabs={abasPermitidas.map((t) => ({ value: t.value, label: t.label }))}
           />
         </div>
         {/* Abas no nível da página: FORA do card/calendário (antes ficavam embutidas
             no cabeçalho do calendário, parecendo "camufladas" dentro dele). */}
         <TabsList className="mb-2 hidden md:inline-flex md:flex-nowrap">
-          <TabsTrigger value="calendario">Calendário</TabsTrigger>
-          <TabsTrigger value="lista">OCs</TabsTrigger>
-          <TabsTrigger value="servicos">Serviços</TabsTrigger>
-          <TabsTrigger value="resumo">Resumo</TabsTrigger>
+          {abasPermitidas.map((t) => (
+            <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
+          ))}
         </TabsList>
+        {canView("financeiro_calendario") && (
         <TabsContent value="calendario" className="mt-4">
-          <CalendarioView parcelas={parcelasCal} loading={isLoading} onServico={() => setTab("servicos")} />
+          {/* F5c review (I-2): só oferece o salto pra Serviços quando o usuário PODE VER essa
+              aba — senão o clique num item de serviço no calendário levava a um TabsContent
+              inexistente (Radix seta value="servicos" sem TabsTrigger/TabsContent correspondente,
+              tela em branco até o usuário clicar em outra aba pra se recuperar). */}
+          <CalendarioView parcelas={parcelasCal} loading={isLoading} onServico={canView("financeiro_servicos") ? () => setTab("servicos") : undefined} />
         </TabsContent>
+        )}
+        {canView("financeiro_parcelas") && (
         <TabsContent value="lista" className="mt-4">
           <ListaView parcelas={parcelas} loading={isLoading} initialStatus={search.status} />
         </TabsContent>
+        )}
+        {/* F5c (controller ruling): Serviços obedece à SUA PRÓPRIA permissão de edição
+            (financeiro_servicos), não a de Calendário/OCs — provider ANINHADO sobrescreve
+            o de fora só para esta subtree (Radix Dialog/Portal ainda respeita o contexto
+            React, não o DOM, então PagarDialog/AnexarComprovanteDialog renderizados dentro
+            de ServicosView leem este valor). Nada perde acesso: o backfill dá
+            financeiro_servicos com o mesmo ver/editar de quem já tinha algum financeiro_*. */}
+        {canView("financeiro_servicos") && (
         <TabsContent value="servicos" className="mt-4">
-          <ServicosView />
+          <FinanceiroEditContext.Provider value={canEdit("financeiro_servicos")}>
+            <ServicosView />
+          </FinanceiroEditContext.Provider>
         </TabsContent>
+        )}
+        {canView("financeiro_resumo") && (
         <TabsContent value="resumo" className="mt-4">
           <ResumoView parcelas={parcelas} servicos={servicosCal as unknown as Parcela[]} />
         </TabsContent>
+        )}
       </Tabs>
     </div>
     </FinanceiroEditContext.Provider>

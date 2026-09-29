@@ -157,12 +157,17 @@ export const PAGES_CATALOG: ModuleDef[] = [
     ],
   },
   {
+    // F5c (P-112 A, 28/set): Financeiro passou a gatear CADA ABA pela própria permissão (antes
+    // só a página inteira era gateada). `financeiro_servicos` é NOVA (a aba Serviços existia mas
+    // não tinha key própria — ficava sempre visível pra quem via a página). A tela abre com
+    // QUALQUER uma das 4; cada aba só aparece com a SUA key (admin fura, como sempre).
     module: "financeiro",
     label: "Financeiro",
     basePath: "/financeiro",
     pages: [
       { key: "financeiro_calendario", label: "Calendário" },
       { key: "financeiro_parcelas", label: "OCs" },
+      { key: "financeiro_servicos", label: "Serviços" },
       { key: "financeiro_resumo", label: "Resumo" },
     ],
   },
@@ -184,13 +189,22 @@ export const PAGES_CATALOG: ModuleDef[] = [
       // "Custo & Financeiro" (visão por gestor): a pagar/investido/estoque parado/custo prev×real
       // das RPCs dashboard_financeiro/estoque_parado/custos (cada uma segue seu gate no banco).
       { key: "dashboard_custo_financeiro", label: "Custo & Financeiro" },
-      { key: "dashboard_colecao", label: "Coleção" },
-      { key: "dashboard_estoque", label: "Estoque" },
-      { key: "dashboard_producao", label: "Produção" },
-      { key: "dashboard_financeiro", label: "Financeiro" },
-      { key: "dashboard_custos", label: "Custos" },
-      { key: "dashboard_comercial", label: "Comercial" },
+      // F5c review (I-1, 29/set): `dashboard_leadtime` é a permissão da PRÓPRIA ABA Leadtime
+      // (dashboard.tsx:68 `canView(`dashboard_${t.value}`)`, DASH_TABS tem `value: "leadtime"`) —
+      // NÃO é uma chave de dado. Fica aqui como a 5ª aba (mesmo nível de Desenvolvimento/Produção &
+      // Qualidade/Comercial & Coleção/Custo & Financeiro acima), fora de DASHBOARD_DADOS_ABAS.
       { key: "dashboard_leadtime", label: "Leadtime" },
+      // F5c (P-112 A, 28/set): as 6 chaves de DADOS abaixo continuam EXATAMENTE como estavam (o
+      // banco gateia as RPCs por elas + `_pode_ver_custos`) — só o RÓTULO ganhou o prefixo "Dados:"
+      // (rótulo é só exibição; a key/payload não mudam). No editor (PermissoesModal/PapelEditor)
+      // elas são renderizadas AGRUPADAS, sob uma sub-legenda + InfoHover — ver DASHBOARD_DADOS_ABAS
+      // logo abaixo (mapa dado→aba(s) que ele alimenta, lido de dashboard.tsx).
+      { key: "dashboard_colecao", label: "Dados: Coleção" },
+      { key: "dashboard_estoque", label: "Dados: Estoque" },
+      { key: "dashboard_producao", label: "Dados: Produção" },
+      { key: "dashboard_financeiro", label: "Dados: Financeiro" },
+      { key: "dashboard_custos", label: "Dados: Custos" },
+      { key: "dashboard_comercial", label: "Dados: Comercial" },
     ],
   },
   {
@@ -209,3 +223,47 @@ export const PAGES_CATALOG: ModuleDef[] = [
 export const ALL_PAGE_KEYS: PageKey[] = PAGES_CATALOG.flatMap((m) =>
   m.pages.flatMap((p) => [p.key, ...(p.sections?.map((s) => s.key) ?? [])]),
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F5c (P-112 A, 28/set) — Dashboard: as 6 chaves de DADOS acima (`dashboard_colecao/estoque/
+// producao/financeiro/custos/comercial`) continuam INTACTAS (mesmas keys, mesmo payload) — o
+// banco as usa direto nos gates de RPC + `_pode_ver_custos`. Isso aqui é só metadado de EXIBIÇÃO:
+// pra qual(is) das 5 abas cada chave de dado alimenta números, lido de `dashboard.tsx` (cada
+// função `<Aba>Tab` e as RPCs que ela chama):
+//   - Desenvolvimento    → dashboard_producao, dashboard_colecao (o leadtime da aba Desenvolvimento
+//     é liberado pela permissão da PRÓPRIA aba Leadtime, `dashboard_leadtime` — ver nota abaixo)
+//   - Produção & Qualidade → dashboard_producao (dashboard_producao/_servicos/ranking_servicos)
+//   - Comercial & Coleção  → dashboard_custos, dashboard_comercial (via `_pode_ver_custos`,
+//     `custo_unitario_modelos` — a aba não tem RPC dashboard_* própria)
+//   - Custo & Financeiro   → dashboard_financeiro, dashboard_custos
+// `dashboard_estoque` é a ÚNICA das 6 sem consumidor hoje: a RPC `dashboard_estoque()` existe no
+// banco (grep confirma) mas NENHUMA aba do dashboard.tsx atual a chama (órfã do dashboard de 7
+// abas pré-"por gestor" — ver memória `project_dashboard_por_gestor`). Fica listada em Custo &
+// Financeiro (vizinha temática mais próxima — estoque parado já mora lá) com aviso no InfoHover.
+// ⚠️ F5c review (I-1): `dashboard_leadtime` NÃO entra aqui — é a permissão da PRÓPRIA aba
+// Leadtime (dashboard.tsx:68, DASH_TABS `value: "leadtime"`), não uma chave de dado. Ela também
+// libera os números de leadtime que aparecem na aba Desenvolvimento (mesma RPC
+// `dashboard_leadtime`/`_itens`) — por isso o rótulo da linha-aba ganha um hint próprio no editor
+// (ver `DASHBOARD_LEADTIME_HINT` abaixo), em vez de virar uma linha "Dados: Leadtime" agrupada.
+export const DASHBOARD_DADOS_ABAS: Record<string, string[]> = {
+  dashboard_colecao: ["Desenvolvimento"],
+  dashboard_producao: ["Desenvolvimento", "Produção & Qualidade"],
+  dashboard_custos: ["Comercial & Coleção", "Custo & Financeiro"],
+  dashboard_comercial: ["Comercial & Coleção"],
+  dashboard_financeiro: ["Custo & Financeiro"],
+  dashboard_estoque: [], // órfã — nenhuma aba chama a RPC hoje (ver comentário acima)
+};
+
+// Hint opcional (I-1) exibido junto à linha-aba "Leadtime" nos dois editores: a mesma permissão
+// também libera os números de leadtime mostrados dentro da aba Desenvolvimento (RPC compartilhada
+// `dashboard_leadtime`/`dashboard_leadtime_itens`), não só a aba Leadtime em si.
+export const DASHBOARD_LEADTIME_HINT = "também libera os números de leadtime da aba Desenvolvimento";
+
+// Texto do InfoHover ao lado da sub-legenda "Dados por aba" no editor (usuário e papel). PT,
+// explica que sem a chave de dado a aba mostra o gráfico vazio/sem permissão mesmo com a aba em
+// si liberada, e que Custos/Comercial também liberam ver custo no card do produto.
+export const DASHBOARD_DADOS_INFO =
+  "Cada aba do Dashboard mostra números de uma ou mais dessas permissões de DADOS. " +
+  "Sem a chave de dado, a aba abre mas o gráfico correspondente fica vazio ou sem permissão — " +
+  "mesmo com a aba liberada acima. \"Dados: Custos\" e \"Dados: Comercial\" também liberam ver " +
+  "o custo no card do produto (fora do Dashboard).";
