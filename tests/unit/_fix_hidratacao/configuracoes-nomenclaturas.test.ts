@@ -5,6 +5,9 @@
 // diálogo só olhava `saveMut.isPending` — nunca esperou a leitura assentar. Clicar Salvar com a
 // leitura ainda em voo, OU depois de uma falha (que nunca hidrata), fazia o upsert gravar
 // `tab_labels`/`campos_editaveis` VAZIOS por cima das nomenclaturas reais da loja.
+// T3 da Config colaborativa (29/set): o diálogo segue com o upsert PRÓPRIO até a T5 (RPC com base por
+// mapa); o Salvar da PÁGINA foi para a RPC `salvar_config_loja` — as asserções abaixo conferem que
+// NENHUM dos dois caminhos grava (nem upsert do diálogo, nem RPC da página).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -81,6 +84,7 @@ describe("[fix hidratação revisão final] F1 — diálogo Nomenclaturas (Confi
     await esperar(80);
     const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1);
     expect(up).toBeUndefined();
+    expect(FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja")).toHaveLength(0);
   });
 
   it("leitura do diálogo FALHA (erro engolido antes; agora lança) — Salvar fica TRAVADO, nunca upserta vazio", async () => {
@@ -94,5 +98,6 @@ describe("[fix hidratação revisão final] F1 — diálogo Nomenclaturas (Confi
     expect(salvarDlg?.disabled).toBe(true);
     const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1);
     expect(up).toBeUndefined();
+    expect(FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja")).toHaveLength(0);
   });
 });

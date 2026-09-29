@@ -22,12 +22,16 @@ describe("config-keywords", () => {
 
 describe("Config da Loja — card Keywords (fonte)", () => {
   const s = readFileSync(fileURLToPath(new URL("../../src/routes/_authenticated/admin/configuracoes.tsx", import.meta.url)), "utf8");
-  it("Textarea no cfg geral (mesmo Salvar/guarda), lida do servidor e no upsert SÓ se mudou", () => {
+  it("Textarea no cfg geral (mesmo Salvar/guarda), lida do servidor e no save SÓ se mudou", () => {
     expect(s).toContain("<CardTitle>Keywords</CardTitle>");
     expect(s).toContain('id="cfg-keywords"');
     expect(s).toContain("onChange={(e) => setCfg((c) => ({ ...c, keywords: e.target.value }))}");
     expect(s).toContain("keywords: keywordsDoServidor((r as any).keywords),");
-    expect(s).toContain("...keywordsParaPayload(cfg.keywords, (data?.cfg as any)?.keywords),");
-    expect(s).toContain("keywords: _kw,"); // fora do spread geral — só entra pelo keywordsParaPayload
+    // T3 da Config colaborativa: "só se mudou" agora vale para TODAS as colunas — `montarMudancas`
+    // (config-loja-colab.ts, com a mesma regra "só espaços ⇒ NULL" em `serializarColuna`) monta o
+    // payload da RPC `salvar_config_loja`; o antigo `keywordsParaPayload` no upsert saiu da tela.
+    expect(s).toContain("montarMudancas({");
+    expect(s).toContain('supabase.rpc("salvar_config_loja"');
+    expect(s).not.toContain("keywordsParaPayload(");
   });
 });

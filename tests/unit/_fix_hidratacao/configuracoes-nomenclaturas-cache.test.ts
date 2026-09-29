@@ -9,6 +9,10 @@
 //     velho e o Salvar apaga a mudança alheia.
 // (b) super admin troca de loja: abre o diálogo na loja A, troca para a B, reabre — o diálogo
 //     mostra as nomenclaturas DA A e o Salvar grava a A NA B.
+// T3 da Config colaborativa (29/set): SÓ o Salvar da PÁGINA foi para a RPC `salvar_config_loja`; o
+// diálogo "Nomenclaturas" continua com o upsert próprio até a T5 (RPC com base por mapa + merge por
+// nome) — por isso estas asserções seguem lendo o upsert do diálogo. Conferimos também que salvar o
+// diálogo nunca dispara a RPC da página.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -96,6 +100,7 @@ describe("[fix hidratação re-revisão final] N7 — diálogo Nomenclaturas hid
     await clicar(botaoPorTexto("Salvar")!);
     await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Nomenclaturas salvas"), "salvo");
     const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1)!.payload as any;
+    expect(FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja")).toHaveLength(0);
     // Fix N7: o diálogo, ao reabrir, espera a leitura NOVA (não o cache velho) — a mudança do
     // outro admin (financeiro) sobrevive no upsert.
     expect(up.tab_labels.financeiro).toBe("FINANCEIRO-DO-OUTRO-ADMIN");
@@ -117,6 +122,7 @@ describe("[fix hidratação re-revisão final] N7 — diálogo Nomenclaturas hid
     await clicar(botaoPorTexto("Salvar")!);
     await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Nomenclaturas salvas"), "salvo");
     const up = FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1)!.payload as any;
+    expect(FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja")).toHaveLength(0);
     // Fix N7: a key inclui o tenantId (cache por loja) e o gate espera `currentOk && !currentFetching`
     // — o upsert vai para a t2 com as nomenclaturas DA B (nunca "Cadastros da Loja", que é da A).
     expect(up.tenant_id === "t2" && up.tab_labels.cadastro === "Cadastros da Loja").toBe(false);

@@ -8,6 +8,7 @@
 // Uso: toast.error(mensagemErro(e, "Erro ao excluir."))
 
 import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
+import { MENSAGEM_CHAVE_KANBAN_MUDOU } from "@/lib/kanban-auto-config";
 
 /** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
  *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
@@ -28,6 +29,9 @@ const POR_CODIGO: Record<string, string> = {
   // pelo Sheet do Planejamento e pela tela de Produto Acabado/Importado.
   "40P01": "Outra pessoa salvou este produto ao mesmo tempo. Tente de novo.",
   "42501": "Você não tem permissão para esta ação.",
+  // statement_timeout (ex.: Salvar da Config da Loja com o Kanban automático ligado recalcula a loja inteira
+  // na MESMA transação — loja grande pode estourar o tempo). A transação inteira é desfeita.
+  "57014": "O salvamento demorou demais e foi cancelado — nada foi gravado. Tente de novo em instantes.",
   P0409: "Outra pessoa salvou este registro agora há pouco. A tela foi atualizada — confira suas alterações e salve de novo.",
   P0001: "", // RAISE das nossas funções: já vem em PT, usa a própria mensagem.
   PGRST301: TEXTO_SESSAO_EXPIRADA,
@@ -47,6 +51,8 @@ const MENSAGENS_42501_PROPRIAS = new Set([
   "Sem permissão para editar a Integração.",
   "Só o super admin pode fazer isto.",
   "Loja inativa ou sem loja — operação não permitida.",
+  // Config da Loja colaborativa (RPC `salvar_config_loja`, T1/T3)
+  "Apenas o administrador da loja pode salvar a Configuração da Loja.",
 ]);
 
 // Integração + API: as recusas do banco chegam em ASCII com prefixo (lição P-58/P-59 — 5xx só ASCII); a tela traduz aqui.
@@ -77,6 +83,16 @@ function mensagemIntegracao(code: string, msg: string): string | null {
     // que de fato acontece, sem prometer um recarregamento visível.
     return "Outra pessoa mudou as Keywords da loja enquanto você editava. Confira o valor mais recente e salve de novo.";
   }
+  return null;
+}
+
+// Config da Loja colaborativa (RPC `salvar_config_loja`): recusas P0409 em ASCII com prefixo (regra "RAISE 5xx só
+// ASCII"). A tela trata as duas no próprio onError (com os rótulos das colunas); isto é o FALLBACK genérico.
+function mensagemConfigLoja(code: string, msg: string): string | null {
+  if (code === "P0409" && msg.startsWith("conflito_versao: config_loja")) {
+    return "Outra pessoa salvou a Configuração da Loja agora há pouco. Confira os itens em destaque e salve de novo.";
+  }
+  if (code === "P0409" && msg.startsWith("chave_kanban_mudou:")) return MENSAGEM_CHAVE_KANBAN_MUDOU;
   return null;
 }
 
@@ -126,6 +142,9 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   const integracao = mensagemIntegracao(code, msg);
   if (integracao) return integracao;
+
+  const configLoja = mensagemConfigLoja(code, msg);
+  if (configLoja) return configLoja;
 
   // 42501 do Kanban automático com texto próprio → mostra o motivo real.
   if (code === "42501" && MENSAGENS_42501_PROPRIAS.has(msg)) return msg;

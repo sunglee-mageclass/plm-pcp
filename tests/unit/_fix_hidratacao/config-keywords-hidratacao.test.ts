@@ -7,6 +7,10 @@
 // cima); (B) eco do Realtime com a linha MUDADA por outro admin funde por campo tocado; (C)
 // controle — linha idêntica não muda nada; (D) salvar o diálogo "Nomenclaturas" da mesma tela
 // não apaga a Keyword digitada.
+// T3 da Config colaborativa (29/set): o Salvar da página grava pela RPC `salvar_config_loja` (só as
+// colunas mudadas + a base crua de cada uma; compare-and-set no servidor) — as asserções leem a
+// chamada da RPC (`_mudancas`/`_base`) em vez do antigo `upsert` da linha inteira. O diálogo
+// "Nomenclaturas" segue com o upsert próprio até a T5.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -61,7 +65,10 @@ function PaginaComRealtime({ semRealtime = false }: { semRealtime?: boolean }) {
 const kw = () => document.querySelector<HTMLTextAreaElement>("#cfg-keywords");
 const seloNaoSalvo = () => document.body.textContent?.includes("alterações não salvas") ?? false;
 const getsTenantConfig = () => FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "select").length;
-const upsertTenantConfig = () => FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && c.op === "upsert").at(-1);
+const rpcSalvar = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_config_loja").at(-1)?.payload as
+  | { _tenant_id: string; _mudancas: Record<string, any>; _base: Record<string, any>; _chave_kanban_esperada?: boolean }
+  | undefined;
+const upsertsPagina = () => FAKE.chamadas.filter((c) => c.tabela === "tenant_config" && (c.op === "upsert" || c.op === "update"));
 
 async function salvarComoAQa() {
   // igual ao spec E2E: "Salvar alterações" → AlertDialog → "Salvar mesmo assim"
@@ -97,8 +104,12 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação");
     await digitar(kw()!, `${ORIGINAL}\nQA keywords (restaurar)`);
     await salvarComoAQa();
-    const up = upsertTenantConfig()!;
-    expect((up.payload as any).keywords).toBe(`${ORIGINAL}\nQA keywords (restaurar)`);
+    const rpc = rpcSalvar()!;
+    // T3: SÓ a coluna mudada vai, com a base CRUA que a tela carregou; nenhum upsert/update direto.
+    expect(rpc._tenant_id).toBe("t1");
+    expect(rpc._mudancas).toEqual({ keywords: `${ORIGINAL}\nQA keywords (restaurar)` });
+    expect(rpc._base).toEqual({ keywords: ORIGINAL });
+    expect(upsertsPagina()).toHaveLength(0);
     expect(FAKE.linhas.tenant_config[0].keywords).toBe(`${ORIGINAL}\nQA keywords (restaurar)`);
   });
 
@@ -124,9 +135,13 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     expect(document.body.textContent).toContain("Manaus / Amazonas (GMT-4)");
 
     await salvarComoAQa();
-    const up = upsertTenantConfig()!.payload as any;
-    expect(up.keywords).toBe(`${ORIGINAL}, Sardinha`); // minha edição
-    expect(up.timezone).toBe("America/Manaus"); // adotado do outro admin + re-base pós-save (M5)
+    const rpc = rpcSalvar()!;
+    expect(rpc._mudancas.keywords).toBe(`${ORIGINAL}, Sardinha`); // minha edição
+    // T3: o Fuso NÃO vai no save (não mexi nele) — antes o upsert da linha inteira regravava o valor
+    // adotado; agora nem é enviado, e o do outro admin fica no banco.
+    expect("timezone" in rpc._mudancas).toBe(false);
+    expect(FAKE.linhas.tenant_config[0].timezone).toBe("America/Manaus");
+    expect(FAKE.linhas.tenant_config[0].keywords).toBe(`${ORIGINAL}, Sardinha`);
   });
 
   it("C' controle — o MESMO eco com a linha IDÊNTICA não muda nada", async () => {
@@ -142,7 +157,7 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     expect(seloNaoSalvo()).toBe(true);
 
     await salvarComoAQa();
-    expect((upsertTenantConfig()!.payload as any).keywords).toBe(`${ORIGINAL}, Sardinha`);
+    expect(rpcSalvar()!._mudancas).toEqual({ keywords: `${ORIGINAL}, Sardinha` });
   });
 
   it("D' salvar o diálogo 'Nomenclaturas' da mesma tela NÃO apaga as Keywords digitadas", async () => {
@@ -161,7 +176,9 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     await esperar(300);
     expect(kw()!.value).toBe(`${ORIGINAL}, Sardinha`); // NÃO apagado pela re-hidratação
     await salvarComoAQa();
-    expect((upsertTenantConfig()!.payload as any).keywords).toBe(`${ORIGINAL}, Sardinha`);
+    expect(rpcSalvar()!._mudancas).toEqual({ keywords: `${ORIGINAL}, Sardinha` });
+    // As nomenclaturas gravadas pelo diálogo não são regravadas pelo Salvar da página.
+    expect(FAKE.linhas.tenant_config[0].tab_labels).not.toEqual({});
   });
 
   // Achado I1 da revisão (review.md): o SELECT de `tenant_config` engolia o erro — uma falha de
@@ -241,7 +258,57 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     // E o Salvar da página grava a coluna nova (prova que não é só um resíduo visual "morto" —
     // o diff/`kanbanBase` continuam corretos e o Salvar consegue gravar a edição real).
     await salvarComoAQa();
-    const statusSalvo = FAKE.chamadas.find((c) => c.tabela === "tenant_config" && c.op === "update")?.payload as any;
-    expect(statusSalvo?.status_kanban).toContain(novoStatus);
+    const rpc = rpcSalvar()!;
+    expect(rpc._mudancas.status_kanban).toContain(novoStatus);
+    // Kanban no payload ⇒ a chave esperada vai junto (contrato da RPC) e a base é a CRUA do servidor.
+    expect(rpc._chave_kanban_esperada).toBe(false);
+    expect(rpc._base.status_kanban).toEqual(["Em Modelagem", "Aprovado"]);
+    expect(FAKE.linhas.tenant_config[0].status_kanban).toContain(novoStatus);
+  });
+
+  // T3 (Config colaborativa): outro admin grava a MESMA coluna depois que a tela carregou e o eco do
+  // Realtime NÃO chegou (sem `useRealtimeInvalidation` aqui) — a RPC recusa com P0409 e NADA é gravado;
+  // a tela avisa com o rótulo da coluna, guarda o conflito e trava o Salvar até resolver (P-122 A).
+  it("P0409: outra pessoa salvou a mesma coluna — nada gravado, toast com o rótulo e Salvar travado", async () => {
+    await abrirPagina(true);
+    await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação");
+    await digitar(kw()!, `${ORIGINAL}, Sardinha`);
+    FAKE.linhas.tenant_config[0].keywords = "DO OUTRO ADMIN"; // gravado por outra aba, sem eco
+    await clicar(botaoPorTexto("Salvar alterações")!);
+    await aguardar(() => !!botaoPorTexto("Salvar mesmo assim"), "AlertDialog de confirmação");
+    await clicar(botaoPorTexto("Salvar mesmo assim")!);
+    await aguardar(() => toastMock.error.mock.calls.length > 0, "toast de erro");
+    expect(toastMock.error.mock.calls.at(-1)![0]).toBe(
+      "Outra pessoa salvou Keywords agora há pouco. Confira os itens em destaque e salve de novo.",
+    );
+    expect(FAKE.linhas.tenant_config[0].keywords).toBe("DO OUTRO ADMIN"); // nada gravado
+    expect(toastMock.success).not.toHaveBeenCalled();
+    await esperar(100); // refetch
+    expect(kw()!.value).toBe(`${ORIGINAL}, Sardinha`); // a minha edição continua na tela
+    expect(botaoPorTexto("Salvar alterações")!.disabled).toBe(true); // conflito pendente trava
+  });
+
+  it("nada mudou: Salvar não chama a RPC — avisa 'Nenhuma alteração para salvar.'", async () => {
+    await abrirPagina(true);
+    await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação");
+    await clicar(botaoPorTexto("Salvar alterações")!);
+    await aguardar(() => !!botaoPorTexto("Salvar mesmo assim"), "AlertDialog de confirmação");
+    await clicar(botaoPorTexto("Salvar mesmo assim")!);
+    await aguardar(() => toastMock.info.mock.calls.some((c) => c[0] === "Nenhuma alteração para salvar."), "toast de nada mudou");
+    expect(rpcSalvar()).toBeUndefined();
+    expect(upsertsPagina()).toHaveLength(0);
+  });
+
+  it("loja SEM linha de tenant_config: hidrata de DEFAULTS e o 1º Salvar manda base null (a RPC cria a linha)", async () => {
+    FAKE.linhas.tenant_config = [];
+    await abrirPagina(true);
+    await aguardar(() => !!kw(), "formulário na tela");
+    await aguardar(() => botaoPorTexto("Salvar alterações")?.disabled === false, "Salvar habilitado (hidratou dos DEFAULTS)");
+    await digitar(kw()!, "primeira keyword");
+    await salvarComoAQa();
+    const rpc = rpcSalvar()!;
+    expect(rpc._mudancas).toEqual({ keywords: "primeira keyword" });
+    expect(rpc._base).toEqual({ keywords: null });
+    expect(FAKE.linhas.tenant_config[0]).toMatchObject({ tenant_id: "t1", keywords: "primeira keyword" });
   });
 });

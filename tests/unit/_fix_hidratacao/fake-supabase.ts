@@ -53,6 +53,55 @@ export function criarFakeSupabase() {
     return Promise.resolve({ data: null, error: null });
   }
 
+  // Config da Loja colaborativa (T3): espelho em memória da RPC `salvar_config_loja` (T1) — o
+  // compare-and-set POR COLUNA sobre a linha falsa de `tenant_config`. Mesmas regras/textos do banco
+  // (ver .superpowers/sdd/2026-09-29-config-colab/t1-report.md): toda chave de `_mudancas` em `_base`
+  // (senão P0001); conflito = linha ≠ base E linha ≠ mudança (convergido não conta); linha recém-criada
+  // pula o compare-and-set; chave do kanban conferida quando alguma das 5 colunas de kanban vai; nada
+  // gravado em qualquer recusa; devolve `{gravadas, valores}` só das colunas gravadas.
+  const KANBAN_CFG = ["status_kanban", "kanban_requisitos", "kanban_requisitos_excecoes", "revenda_kanban_colunas", "revenda_kanban_requisitos"];
+  const canon = (v: unknown): string => {
+    if (v === undefined || v === null) return "null";
+    if (typeof v !== "object") return JSON.stringify(v);
+    if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
+  };
+  function salvarConfigLoja(a: Record<string, any>): { data: any; error: any } {
+    const mud = (a?._mudancas ?? {}) as Record<string, unknown>;
+    const base = (a?._base ?? {}) as Record<string, unknown>;
+    const chaves = Object.keys(mud).sort();
+    if (chaves.length === 0) return { data: { gravadas: [], valores: {} }, error: null };
+    for (const k of chaves) {
+      if (!(k in base)) return { data: null, error: { code: "P0001", message: `Falta o valor carregado do campo "${k}". Recarregue a página e tente de novo.` } };
+    }
+    const tabela = (linhas.tenant_config ??= []);
+    let row = tabela.find((r) => r.tenant_id === a._tenant_id);
+    const criada = !row;
+    const kanban = chaves.some((k) => KANBAN_CFG.includes(k));
+    if (kanban) {
+      if (a._chave_kanban_esperada === undefined || a._chave_kanban_esperada === null) {
+        return { data: null, error: { code: "P0001", message: "Recarregue a página antes de salvar o Kanban (estado da chave do Kanban automático não informado)." } };
+      }
+      if (a._chave_kanban_esperada !== ((row?.kanban_automatico ?? false) === true)) {
+        return { data: null, error: { code: "P0409", message: "chave_kanban_mudou: a chave do kanban mudou" } };
+      }
+    }
+    if (!criada) {
+      const conf = chaves.filter((k) => canon(row![k]) !== canon(base[k]) && canon(row![k]) !== canon(mud[k]));
+      if (conf.length) return { data: null, error: { code: "P0409", message: "conflito_versao: config_loja", details: conf.join(",") } };
+    }
+    if (!row) { row = { tenant_id: a._tenant_id }; tabela.push(row); }
+    const valores: Record<string, unknown> = {};
+    for (const k of chaves) {
+      let v = clone(mud[k] ?? null);
+      if (k === "keywords" && typeof v === "string" && v.trim() === "") v = null;
+      row[k] = v;
+      valores[k] = clone(v);
+    }
+    return { data: { gravadas: chaves, valores }, error: null };
+  }
+
   function builder(tabela: string) {
     const c: Chamada = { tabela, op: "select", filtros: [] };
     const b: any = {
@@ -74,7 +123,11 @@ export function criarFakeSupabase() {
 
   const supabase: any = {
     from: (t: string) => builder(t),
-    rpc: (nome: string, args?: unknown) => { chamadas.push({ tabela: `rpc:${nome}`, op: "rpc", filtros: [], payload: args }); return Promise.resolve({ data: null, error: null }); },
+    rpc: (nome: string, args?: unknown) => {
+      chamadas.push({ tabela: `rpc:${nome}`, op: "rpc", filtros: [], payload: args });
+      if (nome === "salvar_config_loja") return Promise.resolve().then(() => salvarConfigLoja(args as Record<string, any>));
+      return Promise.resolve({ data: null, error: null });
+    },
     channel: (nome: string) => {
       const canal = { nome, ouvintes: [] as { tabela: string; cb: (p: unknown) => void }[] };
       canais.push(canal);
