@@ -145,7 +145,13 @@ describe("T5 (P-156 C) — funções puras", () => {
     const iVersao = a.indexOf('<FiltroSelect id="f-versao" rotulo="Versão"');
     expect(iEstado).toBeGreaterThan(0);
     expect(iVersao).toBeGreaterThan(iEstado);
-    expect(a).toContain('label: "Versão de produto já integrado"');
+    expect(a).toContain('label: "Já integrado (versão)"');
+    // Layout (1280/1024): o gatilho do Select encolhe e trunca em vez de vazar sobre o "Buscar"; texto completo no title.
+    expect(a).toContain('className="min-w-0 [&>span]:truncate"');
+    expect(a).toContain("opcoes.find((o) => o.key === valor)?.label");
+    // Falha da verificação com o filtro Versão DESLIGADO: aviso não bloqueante com "Tentar de novo" (não some em silêncio).
+    expect(a).toContain("{versoesInt.erro && !filtros.versaoIntegrada && (");
+    expect(a).toContain("<FalhaVersaoAnterior onTentar={versoesInt.tentarDeNovo}");
     expect(a).toContain("const versoesInt = useVersoesIntegradas(idsPagina);");
     // Minor 6: filtro ligado com o mapa carregando/em erro NÃO cai no "nenhum produto" enganoso
     expect(a).toContain("Verificando as versões já integradas…");

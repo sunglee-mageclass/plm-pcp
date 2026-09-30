@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "../../src/lib/categoria-card-produto";
 import { mensagemErro } from "../../src/lib/erro-mensagem";
 
 describe("mensagemErro", () => {
@@ -60,5 +61,27 @@ describe("mensagemErro — \"Tamanho em\" nos cards (20261014100000)", () => {
   });
   it("outros P0001 seguem passando a mensagem da RPC", () => {
     expect(mensagemErro({ code: "P0001", message: "Informe o nome do produto." }, "fb")).toBe("Informe o nome do produto.");
+  });
+});
+
+describe("mensagemErro — recusas esperadas do P-137 não vão pro console como erro", () => {
+  const spy = () => vi.spyOn(console, "error").mockImplementation(() => {});
+  it("RecusaEsperadaError (pré-checagem do front): devolve o texto e NÃO loga", () => {
+    const s = spy();
+    expect(mensagemErro(new RecusaEsperadaError("Não dá para trocar a Categoria."), "fb")).toBe("Não dá para trocar a Categoria.");
+    expect(s).not.toHaveBeenCalled();
+    s.mockRestore();
+  });
+  it("P0001 categoria_acessorio_com_pedido (gatilho do banco): texto PT e NÃO loga", () => {
+    const s = spy();
+    expect(mensagemErro({ code: "P0001", message: "categoria_acessorio_com_pedido: x" }, "fb")).toBe(TEXTO_CATEGORIA_ACESSORIO_PEDIDO);
+    expect(s).not.toHaveBeenCalled();
+    s.mockRestore();
+  });
+  it("erro inesperado continua sendo logado", () => {
+    const s = spy();
+    mensagemErro(new Error("boom"), "fb");
+    expect(s).toHaveBeenCalledTimes(1);
+    s.mockRestore();
   });
 });

@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { conferirCategoriaAcessorioPedido, textoBloqueioCategoriaLote, type ClienteLeitura } from "@/lib/categoria-card-produto";
+import { conferirCategoriaAcessorioPedido, RecusaEsperadaError, textoBloqueioCategoriaLote, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { Dialog, DialogContent, DialogHeader, DialogBody, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -114,7 +114,7 @@ export function BulkEditDialog({
         const bloqueados = await conferirCategoriaAcessorioPedido(supabase as unknown as ClienteLeitura, {
           modeloIds: ids, categoriaNova: patch.categoria_principal_id, origemNova: patch.origem ?? null,
         });
-        if (bloqueados.length > 0) throw new Error(textoBloqueioCategoriaLote(bloqueados));
+        if (bloqueados.length > 0) throw new RecusaEsperadaError(textoBloqueioCategoriaLote(bloqueados));
       }
       const { error } = await supabase.from("modelos").update(patch as any).in("id", ids);
       if (error) throw error;

@@ -206,7 +206,7 @@ describe("fonte: a pré-checagem roda ANTES de qualquer gravação", () => {
     const header = src.indexOf(".update(payload)", inicio);
     expect(pre).toBeLessThan(grade);
     expect(pre).toBeLessThan(header);
-    expect(src.slice(pre, grade)).toContain("throw new Error(textoBloqueioCategoriaCard(bloqueados[0]))");
+    expect(src.slice(pre, grade)).toContain("throw new RecusaEsperadaError(textoBloqueioCategoriaCard(bloqueados[0]))");
     // fiação: os argumentos vêm da função PURA testada acima (não de um objeto montado à mão)
     expect(src.slice(src.lastIndexOf("argsConferirCategoria({", pre), pre)).toContain("payload,");
   });
@@ -216,7 +216,7 @@ describe("fonte: a pré-checagem roda ANTES de qualquer gravação", () => {
     const upd = src.indexOf('supabase.from("modelos").update(patch');
     expect(pre).toBeGreaterThan(0);
     expect(pre).toBeLessThan(upd);
-    expect(src.slice(pre, upd)).toContain("throw new Error(textoBloqueioCategoriaLote(bloqueados))");
+    expect(src.slice(pre, upd)).toContain("throw new RecusaEsperadaError(textoBloqueioCategoriaLote(bloqueados))");
     expect(src).toContain('onError: (e: unknown) => toast.error(mensagemErro(e, "Erro ao atualizar cards"))');
   });
 });

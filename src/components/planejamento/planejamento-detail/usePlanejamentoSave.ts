@@ -14,7 +14,7 @@ import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
-import { argsConferirCategoria, conferirCategoriaAcessorioPedido, textoBloqueioCategoriaCard, type ClienteLeitura } from "@/lib/categoria-card-produto";
+import { argsConferirCategoria, conferirCategoriaAcessorioPedido, RecusaEsperadaError, textoBloqueioCategoriaCard, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
 import { rotuloDaColuna } from "@/lib/integracao/campos";
@@ -489,7 +489,7 @@ export function usePlanejamentoSave({
             modeloIds: [modeloId], categoriaNova: conferir.categoriaNova, origemNova: conferir.origem,
           });
           // Pré-checagem = ANTES de qualquer gravação: aqui "nada foi salvo" é verdade (texto próprio, com a dica da família).
-          if (bloqueados.length > 0) throw new Error(textoBloqueioCategoriaCard(bloqueados[0]));
+          if (bloqueados.length > 0) throw new RecusaEsperadaError(textoBloqueioCategoriaCard(bloqueados[0]));
         }
       }
       let savedId: string | null = isEdit ? modeloId : null;

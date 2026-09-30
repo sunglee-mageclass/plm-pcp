@@ -17,6 +17,16 @@ import { ehOrigemComprada } from "@/lib/origem";
 
 export const PREFIXO_CATEGORIA_ACESSORIO_PEDIDO = "categoria_acessorio_com_pedido:";
 
+/** Recusa ESPERADA da pré-checagem (não é falha do sistema): a mensagem já é o texto final em PT. `mensagemErro` a
+ *  reconhece e NÃO a registra no console como erro (mesmo critério das recusas esperadas da Config da Loja). */
+export class RecusaEsperadaError extends Error {
+  readonly recusaEsperada = true;
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = "RecusaEsperadaError";
+  }
+}
+
 // Textos POR CAMINHO (fix round 1 da review do front, M1(a)/L2/L3):
 //  • recusa do BANCO (P0001 traduzido em erro-mensagem.ts): vale para o Sheet, a edição em lote e qualquer outro gravador;
 //    o UPDATE do card inteiro é desfeito, mas num Salvar do Sheet algo gravado ANTES dele (ex.: a grade da revenda, numa

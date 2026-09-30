@@ -9,7 +9,7 @@
 
 import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
 import { MENSAGEM_CHAVE_KANBAN_MUDOU } from "@/lib/kanban-auto-config";
-import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "@/lib/categoria-card-produto";
+import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "@/lib/categoria-card-produto";
 
 /** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
  *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
@@ -154,9 +154,12 @@ const PARECE_PT =
   /[áàâãéêíóôõúüç]|\b(n[aã]o|j[aá]|usu[aá]rio|loja|rolo|estoque|parcela|tecido|erro|inv[aá]lid|obrigat[oó]ri|permiss|registro|excluir|salvar|nenhum|quantidade|metragem)\b/i;
 
 export function mensagemErro(e: unknown, fallback?: string): string {
-  if (import.meta.env.DEV) console.error(e);
   const code = getCode(e);
   const msg = getMessage(e);
+  // Recusas ESPERADAS (P-137: pré-checagem do front ou P0001 do gatilho) não são erro do sistema: não vão pro console.
+  const recusaEsperada = e instanceof RecusaEsperadaError
+    || (code === "P0001" && msg.startsWith(PREFIXO_CATEGORIA_ACESSORIO_PEDIDO));
+  if (import.meta.env.DEV && !recusaEsperada) console.error(e);
 
   // "Tamanho em" nos cards (20261014100000): recusa em ASCII (padrão das mensagens novas) → texto PT.
   if (code === "P0001" && msg.startsWith(PREFIXO_TAMANHO_INVALIDO)) return TEXTO_TAMANHO_INVALIDO;

@@ -92,7 +92,12 @@ function FiltroSelect({ id, rotulo, valor, opcoes, desabilitado, info, onMudar }
         {info && <InfoHover ariaLabel={`Sobre o filtro ${rotulo}`}>{info}</InfoHover>}
       </div>
       <Select value={valor ?? TODOS} disabled={desabilitado} onValueChange={(v) => onMudar(v === TODOS ? null : v)}>
-        <SelectTrigger id={id} title={desabilitado ? TEXTO_TRAVA_FILTRO : undefined}><SelectValue /></SelectTrigger>
+        {/* min-w-0 + truncate: um rótulo longo (ex.: Versão) encolhe com reticências em vez de vazar sobre o campo ao lado;
+            o texto completo fica no `title`. */}
+        <SelectTrigger id={id} className="min-w-0 [&>span]:truncate"
+          title={desabilitado ? TEXTO_TRAVA_FILTRO : opcoes.find((o) => o.key === valor)?.label}>
+          <SelectValue />
+        </SelectTrigger>
         <SelectContent>
           <SelectItem value={TODOS}>Todos</SelectItem>
           {opcoes.map((o) => <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>)}
@@ -745,7 +750,7 @@ export function ProdutosAba() {
         {/* P-156 C (R7c): filtro LOCAL — age só na lista carregada (≤500), soma com o Estado, nunca vai à RPC da lista. */}
         <FiltroSelect id="f-versao" rotulo="Versão" valor={filtros.versaoIntegrada ? VERSAO_JA_INTEGRADA : null}
           desabilitado={travaFiltro} info={textoFiltroVersao(mostraPaginacao)}
-          opcoes={[{ key: VERSAO_JA_INTEGRADA, label: "Versão de produto já integrado" }]}
+          opcoes={[{ key: VERSAO_JA_INTEGRADA, label: "Já integrado (versão)" }]}
           onMudar={(v) => setFiltros((f) => ({ ...f, versaoIntegrada: v === VERSAO_JA_INTEGRADA }))} />
         <div className="grid gap-1">
           <Label htmlFor="f-busca">Buscar</Label>
@@ -786,6 +791,14 @@ export function ProdutosAba() {
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
               <FalhaVersaoAnterior onTentar={versaoAnt.tentarDeNovo}
                 texto="Não foi possível carregar a versão anterior dos produtos — Título e Preço anterior automáticos ficam indisponíveis." />
+            </div>
+          )}
+          {versoesInt.erro && !filtros.versaoIntegrada && (
+            // Filtro Versão DESLIGADO: a falha de `integracao_versoes_integradas` só some com os marcadores "vN já
+            // integrada" — aviso NÃO bloqueante (a tabela segue), mesmo padrão da faixa da versão anterior.
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <FalhaVersaoAnterior onTentar={versoesInt.tentarDeNovo}
+                texto="Não foi possível verificar as versões já integradas — os marcadores “vN já integrada” ficam indisponíveis." />
             </div>
           )}
           {versaoFiltroPendente ? (
