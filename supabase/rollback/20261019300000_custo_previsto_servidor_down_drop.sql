@@ -56,7 +56,8 @@ DROP FUNCTION IF EXISTS public.fn_custo_processar_fila();
 DROP FUNCTION IF EXISTS public._custo_enfileirar(uuid[], boolean);
 DROP FUNCTION IF EXISTS public._custo_recalcular_modelos(uuid, uuid[]);
 DROP FUNCTION IF EXISTS public._custo_calcular(uuid, uuid[]);
-DROP FUNCTION IF EXISTS public._custo_preco_etiqueta(uuid, uuid);
+DROP FUNCTION IF EXISTS public._custo_preco_etiqueta(uuid, uuid, uuid);
+DROP FUNCTION IF EXISTS public._custo_preco_etiqueta(uuid, uuid);  -- texto da 1a versao (antes do fix round do G-MIGRATION)
 DROP FUNCTION IF EXISTS public._custo_preco_tecido(uuid, uuid);
 DROP FUNCTION IF EXISTS public._custo_adicionais_soma(jsonb);
 DROP FUNCTION IF EXISTS public._custo_linha(numeric, numeric, numeric);

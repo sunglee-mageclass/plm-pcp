@@ -48,7 +48,7 @@ const NOVAS = [
   "public._custo_linha(numeric,numeric,numeric)",
   "public._custo_adicionais_soma(jsonb)",
   "public._custo_preco_tecido(uuid,uuid)",
-  "public._custo_preco_etiqueta(uuid,uuid)",
+  "public._custo_preco_etiqueta(uuid,uuid,uuid)",
   "public._custo_calcular(uuid,uuid[])",
   "public._custo_recalcular_modelos(uuid,uuid[])",
   "public._custo_enfileirar(uuid[],boolean)",
@@ -750,18 +750,21 @@ describe.skipIf(!PRONTO)("C1 (g) — R1: lock_timeout não perde o recálculo", 
     }
   }, 60_000);
 
-  it("linha que SOBROU de uma transação anterior é reprocessada quando o PRÓPRIO card é editado de novo (ON CONFLICT … criado_at)", async () => {
+  it("M2: sobra de uma transação que COMEÇOU DEPOIS (t0 < t1) é rearmada pela próxima edição do próprio card", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const m = await modelo(c);
       await mo(c, m, 2);
       await imediato(c);
       expect((await custos(c, m)).peca).toBe(2);
-      // simula a SOBRA de um COMMIT anterior que falhou o recálculo: linha antiga na fila, sem disparo pendente (o gatilho
-      // adiado é desligado só p/ esse INSERT — DDL local, revertido com a txn)
+      // a SOBRA vem de OUTRA transação (t1), que começou DEPOIS desta (t0): criado_at no futuro em relação ao now() daqui e
+      // xmin diferente do desta transação (SAVEPOINT = outro xid). O gatilho adiado é desligado só p/ esse INSERT (DDL local,
+      // revertido) — é como a linha fica depois de um COMMIT cujo recálculo falhou.
+      await c.query("SAVEPOINT outra_txn");
       await c.query(`ALTER TABLE public.custo_recalculo_fila DISABLE TRIGGER trg_custo_processar_fila`);
-      await c.query(`INSERT INTO public.custo_recalculo_fila (modelo_id, tenant_id, criado_at) VALUES ($1, $2, now() - interval '1 hour')`, [m, T]);
+      await c.query(`INSERT INTO public.custo_recalculo_fila (modelo_id, tenant_id, criado_at) VALUES ($1, $2, now() + interval '1 hour')`, [m, T]);
       await c.query(`ALTER TABLE public.custo_recalculo_fila ENABLE TRIGGER trg_custo_processar_fila`);
+      await c.query("RELEASE SAVEPOINT outra_txn");
       await comoSistema(c, async () => {
         await c.query(`UPDATE public.modelos SET custo_peca_previsto = 99 WHERE id = $1`, [m]); // valor velho
       });
@@ -773,4 +776,141 @@ describe.skipIf(!PRONTO)("C1 (g) — R1: lock_timeout não perde o recálculo", 
       expect((await custos(c, m)).peca).toBe(3);
     });
   });
+});
+
+// ─────────────────────────────── (h) rodada de correções do G-MIGRATION (M1, M3, L2) ───────────────────────────────
+const OUTRA_LOJA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // Ave Rara (existe na cópia)
+const APLICADOR = "public._custo_recalcular_modelos(uuid,uuid[])";
+async function textoAplicador(c: Client): Promise<string> {
+  return (await um<{ d: string }>(c, `SELECT pg_get_functiondef($1::regprocedure) AS d`, [APLICADOR])).d;
+}
+async function tentativas(c: Client, id: string): Promise<number | null> {
+  const r = await um<{ t: number } | undefined>(c, `SELECT tentativas AS t FROM public.custo_recalculo_fila WHERE modelo_id = $1`, [id]);
+  return r ? Number(r.t) : null;
+}
+
+describe.skipIf(!PRONTO)("C1 (h) — fix round G-MIGRATION", () => {
+  it("M1: leque que estoura o orçamento de tempo NÃO derruba o COMMIT (statement_timeout 8 s); o resto fica na fila e o próximo COMMIT da loja termina", async () => {
+    await withTx(async (c) => {
+      const avisos: string[] = [];
+      const ouvir = (x: { message?: string }) => avisos.push(String(x.message));
+      c.on("notice", ouvir);
+      try {
+        await prepara(c);
+        const original = await textoAplicador(c);
+        const ids: string[] = [];
+        for (let i = 0; i < 60; i++) ids.push(await modelo(c)); // 60 internos na fila (INSERT)
+        await mo(c, ids[0], 1);
+        // aplicador LENTO só nesta txn (revertida): 1,6 s por chamada — o lote de 60 passaria dos 8 s se fosse feito inteiro
+        await c.query(`CREATE OR REPLACE FUNCTION public._custo_recalcular_modelos(_tenant uuid, _ids uuid[])
+                       RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+                       AS $f$ BEGIN PERFORM pg_sleep(1.6); RETURN 0; END $f$`);
+        await c.query("SET LOCAL statement_timeout = '8s'"); // o do authenticated
+        const t0 = Date.now();
+        await imediato(c); // não lança
+        const ms = Date.now() - t0;
+        expect(ms).toBeLessThan(8000);
+        const sobra = await fila(c);
+        expect(sobra.length).toBeGreaterThan(0);
+        expect(sobra.length).toBeLessThan(60);
+        expect(avisos.some((a) => /orcamento de tempo/.test(a))).toBe(true);
+        // próximo COMMIT da loja, com o aplicador de verdade: termina o que sobrou
+        await c.query(original);
+        await c.query("SET LOCAL statement_timeout = '120s'");
+        const y = await modelo(c);
+        await imediato(c);
+        expect(await fila(c)).toEqual([]);
+        for (const id of [...sobra, y]) expect(await gravadoBateComCalculo(c, id)).toBe(true);
+      } finally {
+        c.off("notice", ouvir);
+      }
+    });
+  }, 60_000);
+
+  it("M3: referência a artigo/aviamento/insumo/OC de OUTRA loja nunca vaza o preço dela (vira 0 / não congela)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cores(c);
+      const artFora = (await um<{ id: string }>(c,
+        `INSERT INTO public.artigos (tenant_id, nome, unidade_medida, preco) VALUES ($1, $2, 'metro', 50) RETURNING id`, [OUTRA_LOJA, `C1 fora ${suf()}`])).id;
+      const vtFora = (await um<{ id: string }>(c,
+        `INSERT INTO public.variantes_tecido (tenant_id, artigo_id, nome_variante) VALUES ($1, $2, 'fora') RETURNING id`, [OUTRA_LOJA, artFora])).id;
+      const aviFora = (await um<{ id: string }>(c,
+        `INSERT INTO public.aviamentos (tenant_id, codigo_nome, preco) VALUES ($1, $2, 9) RETURNING id`, [OUTRA_LOJA, `C1 avi fora ${suf()}`])).id;
+      const etqFora = (await um<{ id: string }>(c,
+        `INSERT INTO public.etiquetas (tenant_id, nome, preco) VALUES ($1, $2, 0.8) RETURNING id`, [OUTRA_LOJA, `C1 etq fora ${suf()}`])).id;
+      await c.query(`INSERT INTO public.variantes_etiqueta (tenant_id, etiqueta_id, tamanho, cor_id, preco) VALUES ($1, $2, 'U', $3, 0.9)`, [OUTRA_LOJA, etqFora, k.X]);
+      const ocFora = (await um<{ id: string }>(c,
+        `INSERT INTO public.ocs_tecido (tenant_id, numero_pedido) VALUES ($1, $2) RETURNING id`, [OUTRA_LOJA, `C1-FORA-${suf()}`])).id;
+      const local = await artigo(c, { unidade: "metro", preco: 7, rendimento: null });
+      const itemFora = (await um<{ id: string }>(c,
+        `INSERT INTO public.ocs_tecido_itens (oc_tecido_id, artigo_id, artigo_numero, variante_tecido_id, quantidade_pedida, preco, cancelado)
+         VALUES ($1, $2, 1, $3, 10, 99, false) RETURNING id`, [ocFora, local.art, local.vt])).id;
+
+      const m = await modelo(c);
+      const lFora = (await um<{ id: string }>(c,
+        `INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo, consumo, loss_percent) VALUES ($1, $2, 1, 'tecido', 1, 0) RETURNING id`, [m, artFora])).id;
+      const lSub = (await um<{ id: string }>(c,
+        `INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo, consumo, loss_percent) VALUES ($1, $2, 2, 'tecido', 1, 0) RETURNING id`, [m, local.art])).id;
+      await c.query(`INSERT INTO public.modelo_tecido_variantes (modelo_tecido_id, variante_tecido_id, ordem) VALUES ($1, $2, 1)`, [lSub, vtFora]);
+      const lOc = (await um<{ id: string }>(c,
+        `INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo, consumo, loss_percent) VALUES ($1, $2, 1, 'forro', 1, 0) RETURNING id`, [m, local.art])).id;
+      await vincular(c, m, "forro", 1, local.vt, itemFora);
+      const la = (await um<{ id: string }>(c,
+        `INSERT INTO public.modelo_aviamentos (modelo_id, aviamento_id, numero, consumo, loss_percent) VALUES ($1, $2, 1, 1, 0) RETURNING id`, [m, aviFora])).id;
+      const le = (await um<{ id: string }>(c,
+        `INSERT INTO public.modelo_etiquetas (tenant_id, modelo_id, etiqueta_id, cor_id, numero, consumo, loss_percent) VALUES ($1, $2, $3, $4, 1, 1, 0) RETURNING id`,
+        [T, m, etqFora, k.X])).id;
+      await imediato(c);
+      expect(await custoLinha(c, "modelo_tecidos", lFora)).toBe(0); // artigo da linha de outra loja
+      expect(await custoLinha(c, "modelo_tecidos", lSub)).toBe(7); // substituto de outra loja não entra no MAX
+      expect(await custoLinha(c, "modelo_tecidos", lOc)).toBe(7); // item de OC de outra loja não congela
+      expect(await custoLinha(c, "modelo_aviamentos", la)).toBe(0);
+      expect(await custoLinha(c, "modelo_etiquetas", le)).toBe(0);
+      expect((await custos(c, m)).peca).toBe(14);
+    });
+  });
+
+  it("L2: card que falha 5 vezes seguidas deixa de ser tentado (fica marcado na fila, WARNING); uma edição de verdade zera o contador", async () => {
+    await withTx(async (c) => {
+      const avisos: string[] = [];
+      const ouvir = (x: { message?: string }) => avisos.push(String(x.message));
+      c.on("notice", ouvir);
+      try {
+        await prepara(c);
+        const original = await textoAplicador(c);
+        const m = await modelo(c);
+        const moId = await mo(c, m, 2);
+        await imediato(c);
+        // sabotagem SÓ para o card m (txn revertida): os outros cards da loja seguem normais
+        await c.query(`CREATE OR REPLACE FUNCTION public._custo_recalcular_modelos(_tenant uuid, _ids uuid[])
+                       RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+                       AS $f$ BEGIN IF '${m}'::uuid = ANY (_ids) THEN RAISE EXCEPTION 'sabotagem de teste'; END IF; RETURN 0; END $f$`);
+        await c.query(`UPDATE public.modelo_servico_mo SET valor = 3 WHERE id = $1`, [moId]);
+        await imediato(c);
+        expect(await tentativas(c, m)).toBe(1);
+        for (let i = 2; i <= 5; i++) {
+          await modelo(c); // outro card da loja entra na fila → o processador roda de novo e tenta m de novo
+          await imediato(c);
+          expect(await tentativas(c, m)).toBe(i);
+        }
+        expect(avisos.some((a) => a.includes(`card ${m}`) && /5 tentativas/.test(a))).toBe(true);
+        avisos.length = 0;
+        await modelo(c);
+        await imediato(c);
+        expect(avisos.some((a) => a.includes(m))).toBe(false); // não é mais tentado…
+        expect(await fila(c)).toEqual([m]); // …mas continua na fila, marcado
+        expect(await tentativas(c, m)).toBe(5);
+        // edição de verdade do próprio card: zera o contador e volta a tentar (agora com o aplicador de verdade)
+        await c.query(original);
+        await c.query(`UPDATE public.modelo_servico_mo SET valor = 4 WHERE id = $1`, [moId]);
+        expect(await tentativas(c, m)).toBe(0);
+        await imediato(c);
+        expect(await fila(c)).toEqual([]);
+        expect((await custos(c, m)).peca).toBe(4);
+      } finally {
+        c.off("notice", ouvir);
+      }
+    });
+  }, 60_000);
 });

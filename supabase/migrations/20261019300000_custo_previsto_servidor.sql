@@ -25,9 +25,12 @@
 --      fn_custo_processar_fila no CONSTRAINT TRIGGER adiado (roda no COMMIT). R1 - o processador NUNCA perde recalculo: o
 --      DELETE ... RETURNING fica DENTRO do bloco protegido (falhou = a fila volta); se o lote da loja falhar, tenta card a
 --      card (cada um no seu sub-bloco, WARNING ASCII por card); card que falhou FICA na fila e e refeito no proximo COMMIT da
---      loja - inclusive quando o proprio card e editado de novo: o re-enfileirar de uma linha que sobrou de transacao ANTERIOR
---      faz UPDATE de criado_at (ON CONFLICT ... WHERE criado_at < now()), e o gatilho adiado tambem escuta UPDATE (desvio
---      consciente do "ON CONFLICT DO NOTHING / AFTER INSERT" do §2.6, so para cumprir o R1).
+--      loja - inclusive quando o proprio card e editado de novo: o re-enfileirar de uma linha que nao foi escrita por ESTA
+--      transacao (xmin; M2) ou que ja falhou (tentativas > 0; L2) faz UPDATE de criado_at (= clock_timestamp()) e zera
+--      tentativas, e o gatilho adiado escuta INSERT e UPDATE OF criado_at (ruling (2) do controlador: desvio aceito do
+--      "ON CONFLICT DO NOTHING / AFTER INSERT" do §2.6). M1: orcamento de 3 s por comando (COMMIT) em lotes de 25; o resto
+--      fica na fila. L2: 5 falhas seguidas = o card para de ser tentado sozinho (marcado na fila) ate a proxima edicao.
+--      M3: todo preco (artigo, substituto, OC do vinculo, aviamento, insumo) so vale se for DA LOJA do modelo.
 --   7. Quem enfileira (R-CD3): gatilhos por EVENTO, AFTER ... REFERENCING ... FOR EACH STATEMENT, sem OF; o filtro OLD x NEW por
 --      coluna fica na funcao (nunca custo_previsto). Excecao em modelos (tabela quente): por LINHA com WHEN (precedente
 --      trg_kanban_fila_upd). Precos (artigos/aviamentos/etiquetas/variantes_etiqueta/ocs_tecido_itens) respeitam o congelado
@@ -96,15 +99,15 @@ INSERT INTO _cc_c1_md5 VALUES
   ('public._integracao_retrato_core(uuid,text[],jsonb)',                      '1cfaed33c1b166e433ca20a42e5905c5', 'dep'),
   ('public._dashboard_custos_core(date,date,text,uuid,uuid)',                 '4c30871b2f9491cfd568d6ff53cb13d8', 'dep'),
   -- funcoes NOVAS (texto deste arquivo)
-  ('public._precos_tecido_congelado_core(uuid,uuid)',                         '99fe1c5e98cd2fdee26e6ce5c89f695f', 'novo'),
+  ('public._precos_tecido_congelado_core(uuid,uuid)',                         '1092be10e608976560cb855eb64d2c0f', 'novo'),
   ('public._custo_linha(numeric,numeric,numeric)',                            '461a79844e15f336824e52aca4986f42', 'novo'),
   ('public._custo_adicionais_soma(jsonb)',                                    '7d86994b9823f71362bf1901012ecbd4', 'novo'),
-  ('public._custo_preco_tecido(uuid,uuid)',                                   'b1b1f8b85089dfb7cf5f77ed073d11b5', 'novo'),
-  ('public._custo_preco_etiqueta(uuid,uuid)',                                 'fb0acf066156b55a414c883c965b5824', 'novo'),
-  ('public._custo_calcular(uuid,uuid[])',                                     '1d13caf0a1672c2fc4fa7f63c4084c0c', 'novo'),
+  ('public._custo_preco_tecido(uuid,uuid)',                                   '68ec09cdd52566ceecfcd6267d470a29', 'novo'),
+  ('public._custo_preco_etiqueta(uuid,uuid,uuid)',                            '078b1e9b66300a5de9d2d993698e48bb', 'novo'),
+  ('public._custo_calcular(uuid,uuid[])',                                     'f9d87d6a1f9f307a7d83cf837730566c', 'novo'),
   ('public._custo_recalcular_modelos(uuid,uuid[])',                           '89c502499b65b52964a03b0ad5856138', 'novo'),
-  ('public._custo_enfileirar(uuid[],boolean)',                                '46add076c0cad5f3df2e9417159aae66', 'novo'),
-  ('public.fn_custo_processar_fila()',                                        '186821db6c25a3344817e78cfae74e29', 'novo'),
+  ('public._custo_enfileirar(uuid[],boolean)',                                'fd6a7337dd76a8a06b18d0040dd6abde', 'novo'),
+  ('public.fn_custo_processar_fila()',                                        '3c8471bba6760986989ddc659dbee42f', 'novo'),
   ('public.fn_custo_fila_por_modelo()',                                       'f4ae106c44af7759106d23223e56c677', 'novo'),
   ('public.fn_custo_fila_por_modelo_tecido()',                                '627ae4106dd610c339f413914bd5ac4c', 'novo'),
   ('public.fn_custo_fila_preco()',                                            'cd405a624d82e23f0ce8120472f04471', 'novo'),
@@ -188,7 +191,7 @@ UNION ALL VALUES
    'CREATE TRIGGER trg_modelo_custo_derivado BEFORE UPDATE ON public.modelos FOR EACH ROW WHEN (((old.custo_peca_previsto IS DISTINCT FROM new.custo_peca_previsto) OR (old.custo_tecido_total IS DISTINCT FROM new.custo_tecido_total) OR (old.custo_forro_total IS DISTINCT FROM new.custo_forro_total) OR (old.custo_entretela_total IS DISTINCT FROM new.custo_entretela_total) OR (old.custo_aviamento_total IS DISTINCT FROM new.custo_aviamento_total))) EXECUTE FUNCTION fn_modelo_custo_derivado()',
    NULL, NULL),
   ('custo_recalculo_fila', 'trg_custo_processar_fila',
-   'CREATE CONSTRAINT TRIGGER trg_custo_processar_fila AFTER INSERT OR UPDATE ON public.custo_recalculo_fila DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_custo_processar_fila()',
+   'CREATE CONSTRAINT TRIGGER trg_custo_processar_fila AFTER INSERT OR UPDATE OF criado_at ON public.custo_recalculo_fila DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_custo_processar_fila()',
    NULL, NULL);
 
 DO $guarda$
@@ -248,7 +251,7 @@ BEGIN
   IF to_regclass('public.custo_recalculo_fila') IS NOT NULL
      AND (SELECT string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text, ',' ORDER BY a.attnum)
             FROM pg_attribute a WHERE a.attrelid = to_regclass('public.custo_recalculo_fila') AND a.attnum > 0 AND NOT a.attisdropped)
-         IS DISTINCT FROM 'modelo_id:uuid:true,tenant_id:uuid:true,criado_at:timestamp with time zone:true' THEN
+         IS DISTINCT FROM 'modelo_id:uuid:true,tenant_id:uuid:true,criado_at:timestamp with time zone:true,tentativas:integer:true' THEN
     RAISE EXCEPTION 'contas_certas_c1: custo_recalculo_fila ja existe com outro formato' USING ERRCODE = 'P0001';
   END IF;
 END $guarda$;
@@ -260,7 +263,8 @@ CREATE OR REPLACE FUNCTION public._precos_tecido_congelado_core(_modelo_id uuid,
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  -- [custo-servidor C1] RC1: o MESMO corpo de precos_tecido_congelado, com a LOJA por parametro (o servidor recalcula sem JWT).
+  -- [custo-servidor C1] RC1: o corpo de precos_tecido_congelado com a LOJA por parametro (o servidor recalcula sem JWT). M3: a
+  -- OC do item e o artigo da variante do vinculo tambem tem de ser DA LOJA - referencia a outra loja nao congela nada.
   SELECT COALESCE(jsonb_object_agg(s.k, s.ppm), '{}'::jsonb)
   FROM (
     SELECT l.tipo || '|' || l.numero AS k,
@@ -268,8 +272,9 @@ AS $function$
                     THEN oti.preco / a.rendimento ELSE oti.preco END) AS ppm
     FROM public.modelo_tecido_oc_links l
     JOIN public.ocs_tecido_itens oti ON oti.id = l.oc_tecido_item_id
+    JOIN public.ocs_tecido oc ON oc.id = oti.oc_tecido_id AND oc.tenant_id = _tenant
     JOIN public.variantes_tecido vt ON vt.id = l.variante_tecido_id
-    JOIN public.artigos a ON a.id = vt.artigo_id
+    JOIN public.artigos a ON a.id = vt.artigo_id AND a.tenant_id = _tenant
     WHERE l.modelo_id = _modelo_id
       AND l.tenant_id = _tenant
       AND oti.preco IS NOT NULL AND COALESCE(oti.cancelado,false) = false
@@ -325,31 +330,34 @@ CREATE OR REPLACE FUNCTION public._custo_preco_tecido(_modelo_tecido_id uuid, _t
 AS $function$
   -- [custo-servidor C1] preco por metro da linha: congelado pela OC vinculada ao (tipo, numero) (RC1, loja do modelo), senao o
   -- MAIOR coalesce(preco_por_metro, preco, 0) dos artigos das variantes (substitutos), senao o do artigo da linha, senao 0.
+  -- M3: so artigo DA LOJA (_tenant) - linha apontando para artigo de outra loja nunca vaza o preco dela.
   SELECT coalesce(
            (public._precos_tecido_congelado_core(mt.modelo_id, _tenant) ->> (mt.tipo || '|' || mt.numero))::numeric,
            (SELECT max(coalesce(a.preco_por_metro, a.preco, 0))
               FROM public.modelo_tecido_variantes mtv
               JOIN public.variantes_tecido vt ON vt.id = mtv.variante_tecido_id
-              JOIN public.artigos a ON a.id = vt.artigo_id
+              JOIN public.artigos a ON a.id = vt.artigo_id AND a.tenant_id = _tenant
              WHERE mtv.modelo_tecido_id = mt.id),
-           (SELECT coalesce(a.preco_por_metro, a.preco, 0) FROM public.artigos a WHERE a.id = mt.artigo_id),
+           (SELECT coalesce(a.preco_por_metro, a.preco, 0) FROM public.artigos a WHERE a.id = mt.artigo_id AND a.tenant_id = _tenant),
            0)
     FROM public.modelo_tecidos mt
    WHERE mt.id = _modelo_tecido_id;
 $function$;
 
-CREATE OR REPLACE FUNCTION public._custo_preco_etiqueta(_etiqueta_id uuid, _cor_id uuid)
+CREATE OR REPLACE FUNCTION public._custo_preco_etiqueta(_etiqueta_id uuid, _cor_id uuid, _tenant uuid)
  RETURNS numeric
  LANGUAGE sql
  STABLE
  SET search_path TO 'public'
 AS $function$
   -- [custo-servidor C1] = precoEtiquetaCor: MAX das variantes da cor (IS NOT DISTINCT FROM) contando so preco > 0 (o TS
-  -- comeca o MAX em 0 - preco negativo nunca vence; G-scripts L4), senao o preco base da etiqueta, senao 0.
+  -- comeca o MAX em 0 - preco negativo nunca vence; G-scripts L4), senao o preco base da etiqueta, senao 0. M3: so etiqueta
+  -- DA LOJA (_tenant; as variantes pela etiqueta) - insumo de outra loja = 0.
   SELECT coalesce(
            (SELECT max(ve.preco) FROM public.variantes_etiqueta ve
+              JOIN public.etiquetas et ON et.id = ve.etiqueta_id AND et.tenant_id = _tenant
              WHERE ve.etiqueta_id = _etiqueta_id AND ve.cor_id IS NOT DISTINCT FROM _cor_id AND ve.preco > 0),
-           (SELECT et.preco FROM public.etiquetas et WHERE et.id = _etiqueta_id),
+           (SELECT et.preco FROM public.etiquetas et WHERE et.id = _etiqueta_id AND et.tenant_id = _tenant),
            0);
 $function$;
 
@@ -364,7 +372,7 @@ AS $function$
   -- [custo-servidor C1] custo previsto de cada modelo INTERNO da loja (_ids NULL = todos): uma linha por linha do BOM
   -- (tabela, id, modelo, tipo, custo) + uma linha 'modelos' por card (id = modelo) com os totais e custo = peca, somada na
   -- ordem de pecaCom: tecido + forro + entretela + aviamento + etiqueta + M.O. + adicionais. Sem arredondar a peca (o
-  -- aplicador grava round(peca, 2) em numeric(10,2)).
+  -- aplicador grava round(peca, 2) em numeric(10,2)). M3: todo preco vem so de cadastro/OC DA LOJA (_tenant).
   WITH mo_ AS (
     SELECT m.id AS mid, m.custos_adicionais AS ca
       FROM public.modelos m
@@ -376,12 +384,12 @@ AS $function$
       FROM public.modelo_tecidos mt JOIN mo_ ON mo_.mid = mt.modelo_id
     UNION ALL
     SELECT 'modelo_aviamentos'::text, ma.id, ma.modelo_id, 'aviamento'::text,
-           public._custo_linha(coalesce((SELECT av.preco FROM public.aviamentos av WHERE av.id = ma.aviamento_id), 0),
+           public._custo_linha(coalesce((SELECT av.preco FROM public.aviamentos av WHERE av.id = ma.aviamento_id AND av.tenant_id = _tenant), 0),
                                ma.consumo, ma.loss_percent)
       FROM public.modelo_aviamentos ma JOIN mo_ ON mo_.mid = ma.modelo_id
     UNION ALL
     SELECT 'modelo_etiquetas'::text, me.id, me.modelo_id, 'etiqueta'::text,
-           public._custo_linha(public._custo_preco_etiqueta(me.etiqueta_id, me.cor_id), me.consumo, me.loss_percent)
+           public._custo_linha(public._custo_preco_etiqueta(me.etiqueta_id, me.cor_id, _tenant), me.consumo, me.loss_percent)
       FROM public.modelo_etiquetas me JOIN mo_ ON mo_.mid = me.modelo_id
   ),
   tot AS (
@@ -472,7 +480,8 @@ $function$;
 CREATE TABLE IF NOT EXISTS public.custo_recalculo_fila (
   modelo_id uuid        NOT NULL PRIMARY KEY REFERENCES public.modelos(id) ON DELETE CASCADE,
   tenant_id uuid        NOT NULL,
-  criado_at timestamptz NOT NULL DEFAULT now()
+  criado_at timestamptz NOT NULL DEFAULT now(),
+  tentativas integer    NOT NULL DEFAULT 0
 );
 COMMENT ON TABLE public.custo_recalculo_fila IS
   'Modelos INTERNOS com custo previsto a recalcular no COMMIT (contas certas C1). So o gatilho adiado trg_custo_processar_fila le; RLS sem policy.';
@@ -489,7 +498,10 @@ AS $function$
 -- [custo-servidor C1] poe na fila os modelos INTERNOS de _ids (JOIN em modelos: id que nao existe mais - exclusao em cascata -
 -- nunca viola a FK). Com a GUC app.custo_sistema='on' (o proprio aplicador escrevendo) nao faz nada. _respeitar_congelado
 -- (gatilhos de PRECO, R-CD1/P-169 A): pula o card ja enviado ao corte. Linha que SOBROU de transacao anterior (recalculo que
--- falhou, R1) ganha criado_at novo = dispara o processador de novo; na mesma transacao nao (criado_at = now()).
+-- falhou, R1) e REARMADA (criado_at = clock_timestamp(), tentativas = 0 -> o gatilho adiado dispara de novo): M2 - o criterio e
+-- "a linha nao foi escrita por ESTA transacao" (xmin), nao o horario de inicio (now() de uma transacao que comecou antes da
+-- falha seria menor que o criado_at dela); L2 - linha com tentativas > 0 (falhou antes) tambem e rearmada: uma edicao de
+-- verdade zera o contador. Linha ja escrita por esta transacao e sem falha: nada (sem disparo repetido).
 BEGIN
   IF _ids IS NULL OR cardinality(_ids) = 0 THEN
     RETURN;
@@ -506,8 +518,8 @@ BEGIN
      AND (NOT coalesce(_respeitar_congelado, false)
           OR NOT EXISTS (SELECT 1 FROM public.cad c WHERE c.modelo_id = m.id AND c.enviado_corte))
    ORDER BY m.id
-  ON CONFLICT (modelo_id) DO UPDATE SET criado_at = excluded.criado_at
-   WHERE f.criado_at < excluded.criado_at;
+  ON CONFLICT (modelo_id) DO UPDATE SET criado_at = clock_timestamp(), tentativas = 0
+   WHERE f.tentativas > 0 OR f.xmin <> pg_current_xact_id()::xid;
 END;
 $function$;
 
@@ -518,40 +530,92 @@ CREATE OR REPLACE FUNCTION public.fn_custo_processar_fila()
  SET search_path TO 'public'
  SET lock_timeout TO '2s'
 AS $function$
--- [custo-servidor C1] roda no COMMIT (CONSTRAINT TRIGGER adiado). O 1o disparo da loja leva a fila inteira dela; os demais
--- acham a propria linha ja processada e saem. R1 - nunca perde recalculo: o DELETE ... RETURNING fica DENTRO do bloco
--- protegido (erro = a fila volta); lote falhou -> card a card, cada um no seu sub-bloco; o card que falhar FICA na fila
--- (WARNING ASCII) e e refeito no proximo COMMIT da loja. Erro nunca derruba o COMMIT de quem disparou.
+-- [custo-servidor C1] roda no COMMIT (CONSTRAINT TRIGGER adiado). O 1o disparo da loja leva a fila dela; os demais acham a
+-- propria linha ja processada e saem. Erro nunca derruba o COMMIT de quem disparou:
+--   R1 - nunca perde recalculo: o DELETE ... RETURNING fica DENTRO do bloco protegido (erro = a fila volta); lote falhou ->
+--     card a card, cada um no seu sub-bloco; o card que falhar FICA na fila (WARNING ASCII) e e refeito no proximo COMMIT da loja.
+--   M1 - ORCAMENTO DE TEMPO: EXCEPTION WHEN OTHERS nao pega 57014 (statement_timeout do authenticated = 8 s, que conta o
+--     COMMIT inteiro; um SET statement_timeout na funcao NAO desliga o relogio do comando em curso - medido). Entao a fila e
+--     feita em lotes de 25 cards e PARA quando o comando (COMMIT / SET CONSTRAINTS) ja gastou 3 s - o prazo e um so para
+--     todos os disparos do mesmo comando (GUC app.custo_fila_prazo marcada com statement_timestamp()); o que sobrar fica na
+--     fila (WARNING ASCII) para o proximo COMMIT da loja ou a proxima edicao do card. Pior caso ~ 3 s + 1 espera de trava (2 s).
+--   L2 - card que falha 5 vezes seguidas deixa de ser tentado sozinho (tentativas = 5, fica na fila, WARNING ASCII); a
+--     proxima edicao de verdade do card zera o contador (_custo_enfileirar). O UPDATE de tentativas nao redispara o
+--     gatilho (ele so escuta INSERT e UPDATE OF criado_at).
 DECLARE
+  c_orcamento CONSTANT interval := interval '3 seconds';
+  c_lote CONSTANT integer := 25;
+  c_max CONSTANT integer := 5;
+  v_marca text;
+  v_prazo timestamptz;
   v_ids uuid[];
+  v_lote uuid[];
+  v_feitos uuid[];
   v_id uuid;
+  v_n integer;
+  i integer;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.custo_recalculo_fila f WHERE f.modelo_id = NEW.modelo_id) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.custo_recalculo_fila f WHERE f.modelo_id = NEW.modelo_id AND f.tentativas < c_max) THEN
     RETURN NULL;
   END IF;
-  BEGIN
-    WITH alvo AS (
-      SELECT f.modelo_id FROM public.custo_recalculo_fila f
-       WHERE f.tenant_id = NEW.tenant_id ORDER BY f.modelo_id FOR UPDATE
-    ), d AS (
-      DELETE FROM public.custo_recalculo_fila f USING alvo WHERE f.modelo_id = alvo.modelo_id RETURNING f.modelo_id
-    )
-    SELECT array_agg(d.modelo_id ORDER BY d.modelo_id) INTO v_ids FROM d;
-    IF v_ids IS NOT NULL THEN
-      PERFORM public._custo_recalcular_modelos(NEW.tenant_id, v_ids);
+  v_marca := coalesce(current_setting('app.custo_fila_prazo', true), '');
+  IF split_part(v_marca, '|', 1) = statement_timestamp()::text THEN
+    v_prazo := split_part(v_marca, '|', 2)::timestamptz;
+    IF clock_timestamp() >= v_prazo THEN
+      RETURN NULL;  -- este comando ja gastou o orcamento (o aviso saiu no disparo que parou)
     END IF;
-    RETURN NULL;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'custo_previsto: recalculo do lote falhou (loja %, % card(s)): % [%] - tentando card a card',
-      NEW.tenant_id, coalesce(cardinality(v_ids), 0), SQLERRM, SQLSTATE;
-  END;
-  FOR v_id IN SELECT f.modelo_id FROM public.custo_recalculo_fila f
-               WHERE f.tenant_id = NEW.tenant_id ORDER BY f.modelo_id LOOP
+  ELSE
+    v_prazo := clock_timestamp() + c_orcamento;
+    PERFORM set_config('app.custo_fila_prazo', statement_timestamp()::text || '|' || v_prazo::text, true);
+  END IF;
+  SELECT array_agg(f.modelo_id ORDER BY f.modelo_id) INTO v_ids
+    FROM public.custo_recalculo_fila f
+   WHERE f.tenant_id = NEW.tenant_id AND f.tentativas < c_max;
+  FOR i IN 1 .. coalesce(cardinality(v_ids), 0) BY c_lote LOOP
+    IF clock_timestamp() >= v_prazo THEN
+      RAISE WARNING 'custo_previsto: orcamento de tempo do COMMIT esgotado (loja %): % card(s) ficam na fila para o proximo COMMIT',
+        NEW.tenant_id, cardinality(v_ids) - i + 1;
+      RETURN NULL;
+    END IF;
+    v_lote := v_ids[i : i + c_lote - 1];
+    v_feitos := NULL;
     BEGIN
-      DELETE FROM public.custo_recalculo_fila f WHERE f.modelo_id = v_id;
-      PERFORM public._custo_recalcular_modelos(NEW.tenant_id, ARRAY[v_id]);
+      WITH alvo AS (
+        SELECT f.modelo_id FROM public.custo_recalculo_fila f
+         WHERE f.modelo_id = ANY (v_lote) AND f.tentativas < c_max ORDER BY f.modelo_id FOR UPDATE
+      ), d AS (
+        DELETE FROM public.custo_recalculo_fila f USING alvo WHERE f.modelo_id = alvo.modelo_id RETURNING f.modelo_id
+      )
+      SELECT array_agg(d.modelo_id ORDER BY d.modelo_id) INTO v_feitos FROM d;
+      IF v_feitos IS NOT NULL THEN
+        PERFORM public._custo_recalcular_modelos(NEW.tenant_id, v_feitos);
+      END IF;
     EXCEPTION WHEN OTHERS THEN
-      RAISE WARNING 'custo_previsto: card % continua na fila (loja %): % [%]', v_id, NEW.tenant_id, SQLERRM, SQLSTATE;
+      RAISE WARNING 'custo_previsto: recalculo do lote falhou (loja %, % card(s)): % [%] - tentando card a card',
+        NEW.tenant_id, cardinality(v_lote), SQLERRM, SQLSTATE;
+      FOREACH v_id IN ARRAY v_lote LOOP
+        IF clock_timestamp() >= v_prazo THEN
+          RAISE WARNING 'custo_previsto: orcamento de tempo do COMMIT esgotado (loja %) no card a card - o resto fica na fila para o proximo COMMIT',
+            NEW.tenant_id;
+          RETURN NULL;
+        END IF;
+        BEGIN
+          DELETE FROM public.custo_recalculo_fila f WHERE f.modelo_id = v_id AND f.tentativas < c_max;
+          IF FOUND THEN
+            PERFORM public._custo_recalcular_modelos(NEW.tenant_id, ARRAY[v_id]);
+          END IF;
+        EXCEPTION WHEN OTHERS THEN
+          UPDATE public.custo_recalculo_fila f SET tentativas = f.tentativas + 1 WHERE f.modelo_id = v_id
+          RETURNING f.tentativas INTO v_n;
+          IF coalesce(v_n, 0) >= c_max THEN
+            RAISE WARNING 'custo_previsto: card % desistiu apos % tentativas (loja %): % [%] - fica na fila marcado; a proxima edicao do card tenta de novo',
+              v_id, c_max, NEW.tenant_id, SQLERRM, SQLSTATE;
+          ELSE
+            RAISE WARNING 'custo_previsto: card % continua na fila (loja %, tentativa % de %): % [%]',
+              v_id, NEW.tenant_id, coalesce(v_n, 0), c_max, SQLERRM, SQLSTATE;
+          END IF;
+        END;
+      END LOOP;
     END;
   END LOOP;
   RETURN NULL;
@@ -794,7 +858,7 @@ REVOKE EXECUTE ON FUNCTION public._precos_tecido_congelado_core(uuid, uuid) FROM
 REVOKE EXECUTE ON FUNCTION public._custo_linha(numeric, numeric, numeric) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._custo_adicionais_soma(jsonb) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._custo_preco_tecido(uuid, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public._custo_preco_etiqueta(uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._custo_preco_etiqueta(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._custo_calcular(uuid, uuid[]) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._custo_recalcular_modelos(uuid, uuid[]) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._custo_enfileirar(uuid[], boolean) FROM PUBLIC, anon, authenticated;
@@ -873,7 +937,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_custo_processar_fila' AND tgrelid = 'public.custo_recalculo_fila'::regclass) THEN
     CREATE CONSTRAINT TRIGGER trg_custo_processar_fila
-      AFTER INSERT OR UPDATE ON public.custo_recalculo_fila
+      AFTER INSERT OR UPDATE OF criado_at ON public.custo_recalculo_fila
       DEFERRABLE INITIALLY DEFERRED
       FOR EACH ROW EXECUTE FUNCTION public.fn_custo_processar_fila();
   END IF;
@@ -924,7 +988,7 @@ BEGIN
     JOIN pg_trigger t ON t.tgname = g.nome AND t.tgrelid = to_regclass('public.' || g.tabela) AND NOT t.tgisinternal
    WHERE t.tgenabled = 'O'
      AND pg_get_triggerdef(t.oid) = g.def
-     AND cardinality(t.tgattr::int2[]) = 0
+     AND cardinality(t.tgattr::int2[]) = CASE WHEN g.nome = 'trg_custo_processar_fila' THEN 1 ELSE 0 END  -- a fila: UPDATE OF criado_at
      AND t.tgoldtable IS NOT DISTINCT FROM g.velha
      AND t.tgnewtable IS NOT DISTINCT FROM g.nova;
   IF v_n <> (SELECT count(*) FROM _cc_c1_gatilhos_novos) THEN
