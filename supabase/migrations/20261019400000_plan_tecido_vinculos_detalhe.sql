@@ -10,7 +10,7 @@
 --     loja = get_user_tenant_id()); REVOKE de PUBLIC e anon + GRANT authenticated.
 --   * A RPC antiga plan_tecido_vinculos_modelo fica como esta (ModelCard/ModoPlanoView continuam nela).
 -- Guarda de deriva: _plan_tecido_vinculos_modelo_core (o padrao espelhado) = md5 da copia 64acf81f...
---   PROVISORIO: confirmar com a Rodada #1 do Passo 0-CD. Funcoes novas: so aceita "nao existe" ou o texto deste arquivo
+--   CONFIRMADO pela Rodada #1 do Passo 0-CD (producao 30/set 15:42, 64acf81f = copia). Funcoes novas: so aceita "nao existe" ou o texto deste arquivo
 --   (core 203e9d403a8f68055bf9c087ef5590b3, wrapper 7ff16cd3559e8fb88b4b680643a1cbe5) -> reaplicar e um no-op.
 -- Travas: so CREATE FUNCTION + GRANT/REVOKE (nenhuma trava em tabela; nada em auth/storage; sem DROP TRIGGER/POLICY).
 -- Volta: supabase/rollback/20261019400000_plan_tecido_vinculos_detalhe_down.sql (DROP FUNCTION das 2). O front que chama a
@@ -28,7 +28,7 @@ BEGIN
   IF to_regprocedure('public._plan_tecido_vinculos_modelo_core(uuid,uuid)') IS NULL THEN
     RAISE EXCEPTION 'contas_certas_d5a: _plan_tecido_vinculos_modelo_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
-  -- PROVISORIO: confirmar com a Rodada #1 do Passo 0-CD (md5 da copia 54422, 30/set).
+  -- CONFIRMADO: producao = copia (Passo 0-CD Rodada #1, 30/set 15:42).
   IF md5(pg_get_functiondef(to_regprocedure('public._plan_tecido_vinculos_modelo_core(uuid,uuid)'))) IS DISTINCT FROM '64acf81ffea335ce1fae9a6b3e910a3d' THEN
     RAISE EXCEPTION 'contas_certas_d5a: _plan_tecido_vinculos_modelo_core mudou desde o planejamento - o padrao espelhado pode ter mudado'
       USING ERRCODE = 'P0001';
