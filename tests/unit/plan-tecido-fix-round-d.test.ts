@@ -90,16 +90,33 @@ describe("fix 4: fallback sem detalhe é determinístico e espera a situação",
   });
 });
 
-describe("fix 5: ordem entra na chave da parcela", () => {
-  it("blocos com mesmo tipo/numero e ordens diferentes não se fundem", () => {
-    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", 1, [["v1", 100]], 1), mat("A", 1, [["v1", 50]], 2)] }]);
-    // (mat ordem 1 e 2 casam com vin.ordem 1 e 2)
+describe("fix 5 (revisto): ordem do vínculo é a da VARIANTE, sem filtro por ordem do material", () => {
+  it("2º material (índice 1) com vínculos de ordem 1..n respeita prioridade e quantidade_m", () => {
+    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", 1, [["v1", 10]], 0), mat("B", 2, [["v2", 100]], 1)] }]);
     const vinculos = [
-      vin({ oc_tecido_id: "ocA", oc_tecido_item_id: "i1", ordem: 1 }),
-      vin({ oc_tecido_id: "ocB", oc_tecido_item_id: "i2", ordem: 2 }),
+      vin({ numero: 2, variante_tecido_id: "v2", artigo_id: "B", ordem: 3, oc_tecido_id: "ocB", oc_tecido_item_id: "i2", prioridade: 2 }),
+      vin({ numero: 2, variante_tecido_id: "v2", artigo_id: "B", ordem: 4, oc_tecido_id: "ocA", oc_tecido_item_id: "i1", prioridade: 1, quantidade_m: 30 }),
     ];
     const d = detalheOc(arv, { m1: ["ocA", "ocB"] }, {}, new Set(), undefined, undefined, { vinculos, capacidade: new Map() });
-    expect(d.reservPorOc.get("ocA")).toBeCloseTo(100, 5);
-    expect(d.reservPorOc.get("ocB")).toBeCloseTo(50, 5);
+    expect(d.reservPorOcVar.get("ocA|v2")).toBeCloseTo(30, 5);
+    expect(d.reservPorOcVar.get("ocB|v2")).toBeCloseTo(70, 5);
+  });
+});
+
+describe("fix 1b: parcela só-artigo listada ANTES da de variante não estoura a OC", () => {
+  it("variantes processadas antes das só-artigo", () => {
+    const arv = arvDe([
+      { id: "sy", modelo_id: "my", materiais: [mat("A", 1, [[null, 80]])] },
+      { id: "sx", modelo_id: "mx", materiais: [mat("A", 1, [["V", 100]])] },
+    ]);
+    const vinculos = [
+      vin({ modelo_id: "mx", variante_tecido_id: "V", oc_tecido_id: "oc1", oc_tecido_item_id: "i1", prioridade: 1 }),
+      vin({ modelo_id: "my", variante_tecido_id: null, oc_tecido_id: "oc1", oc_tecido_item_id: "i1", prioridade: 1 }),
+      vin({ modelo_id: "my", variante_tecido_id: null, oc_tecido_id: "oc2", oc_tecido_item_id: "i2", prioridade: 2 }),
+    ];
+    const capacidade = new Map([["oc1|V", 100], ["oc2|V", 100], ["oc1|artigo:A", 100], ["oc2|artigo:A", 100]]);
+    const d = detalheOc(arv, { mx: ["oc1"], my: ["oc1", "oc2"] }, {}, new Set(), undefined, undefined, { vinculos, capacidade });
+    expect(d.reservPorOc.get("oc1")).toBeCloseTo(100, 5);
+    expect(d.reservPorOc.get("oc2")).toBeCloseTo(80, 5);
   });
 });

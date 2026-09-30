@@ -271,26 +271,24 @@ export function detalheOc(
   // enviados à Explosão primeiro (já consumiram), depois a ordem da vaga (sort estável)
   slotsInfo.sort((a, b) => Number(b.enviado) - Number(a.enviado));
 
+  type ParcelaPlano = { vid: string | null; artigoId: string | null; tipo: string; numero: number; metros: number };
+  const plano: { slot: PtSlot; ocIds: string[]; enviado: boolean; usaDetalhe: boolean; parcelas: ParcelaPlano[] }[] = [];
   for (const { slot, ocIds, enviado } of slotsInfo) {
     const usaDetalhe = !!slot.modelo_id && ocIds === (vinculoOcMap[slot.modelo_id] ?? []);
-    type Parcela = { vid: string | null; artigoId: string | null; tipo: string; numero: number; ordem: number | null; metros: number };
+    type Parcela = { vid: string | null; artigoId: string | null; tipo: string; numero: number; metros: number };
     const parcelas = new Map<string, Parcela>();
     for (const mat of slot.materiais ?? []) for (const v of mat.variantes ?? []) {
       const metros = necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
       if (metros <= 0) continue;
       const tipo = mat.tipo ?? "tecido", numero = Number(mat.numero) || 1;
-      // `ordem` (bloco Tecido 1/2/3) só entra na chave quando o detalhe a traz p/ este modelo×tipo×numero
-      const temOrdem = usaDetalhe && (vinPorChave.get(`${slot.modelo_id}|${tipo}|${numero}`) ?? []).some((l) => l.ordem != null);
-      const ordem = temOrdem ? (Number(mat.ordem) || 0) : null;
-      const ok = ordem == null ? "" : `|o:${ordem}`;
       if (v.variante_tecido_id) {
-        const k = `${tipo}|${numero}${ok}|v:${v.variante_tecido_id}`;
-        const cur = parcelas.get(k) ?? { vid: v.variante_tecido_id, artigoId: mat.artigo_id ?? null, tipo, numero, ordem, metros: 0 };
+        const k = `${tipo}|${numero}|v:${v.variante_tecido_id}`;
+        const cur = parcelas.get(k) ?? { vid: v.variante_tecido_id, artigoId: mat.artigo_id ?? null, tipo, numero, metros: 0 };
         cur.metros += metros;
         parcelas.set(k, cur);
       } else if (mat.artigo_id) {
-        const k = `${tipo}|${numero}${ok}|a:${mat.artigo_id}`;
-        const cur = parcelas.get(k) ?? { vid: null, artigoId: mat.artigo_id, tipo, numero, ordem, metros: 0 };
+        const k = `${tipo}|${numero}|a:${mat.artigo_id}`;
+        const cur = parcelas.get(k) ?? { vid: null, artigoId: mat.artigo_id, tipo, numero, metros: 0 };
         cur.metros += metros;
         parcelas.set(k, cur);
       }
@@ -299,14 +297,20 @@ export function detalheOc(
       reservPorOc.set(ocId, reservPorOc.get(ocId) ?? 0);
       nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
     }
-    for (const p of parcelas.values()) {
+    plano.push({ slot, ocIds, enviado, usaDetalhe, parcelas: [...parcelas.values()] });
+  }
+  // 2 passes: primeiro TODAS as parcelas com variante, depois as só-artigo — o pool do artigo já enxerga
+  // o que as variantes usaram (senão `oc|vid` poderia estourar a mesma OC depois). Dentro de cada passe
+  // vale a ordem dos cards (enviados primeiro, depois a da vaga).
+  for (const fase of [true, false]) for (const { slot, ocIds, enviado, usaDetalhe, parcelas } of plano) {
+    for (const p of parcelas) {
+      if (!!p.vid !== fase) continue;
       // candidatos elegíveis (artigo/cor da OC) na ordem do vínculo (prioridade) ou do array
       const elegivel = (ocId: string) => pertence(ocId, p.artigoId) && (!p.vid || varPertence(ocId, p.vid));
       let cands: { ocId: string; chave: string; quantidade_m?: number | null }[] = [];
       const todasLinhas = usaDetalhe ? (vinPorChave.get(`${slot.modelo_id}|${p.tipo}|${p.numero}`) ?? []) : [];
-      // separa por bloco (`ordem`); se nenhuma linha casa a ordem (numeração diferente), usa todas
-      const daOrdem = p.ordem == null ? todasLinhas : todasLinhas.filter((l) => l.ordem == null || l.ordem === p.ordem);
-      const linhas = daOrdem.length ? daOrdem : todasLinhas;
+      // `ordem` do vínculo é a da VARIANTE (não do material): a seleção é por variante_tecido_id, sem filtro por ordem
+      const linhas = todasLinhas;
       const chaveDe = (ocId: string) => (p.vid ? `${ocId}|${p.vid}` : `${ocId}|artigo:${p.artigoId}`);
       if (linhas.length) {
         const sel = p.vid ? linhas.filter((l) => l.variante_tecido_id === p.vid) : linhas.filter((l) => !l.variante_tecido_id || l.artigo_id === p.artigoId);
