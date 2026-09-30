@@ -15,6 +15,7 @@ import { hasDb, withTx, comoUsuario, um } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import {
   CAMPOS_PADRAO, LAYOUT, LOCAL, MARCAS, T, U, camposLoja, comoUsuarioCom, keywordsLoja, ler, modeloInterno, revenda, semTravas,
+  voltaPrecoVersaoSePreciso,
 } from "./integracao-helpers";
 import { CASOS_CONFIG } from "../fixtures/sku-casos";
 import { CASOS_COR_NO_NOME, CASOS_NOME_SUBLINHA } from "../fixtures/nome-sublinha-casos";
@@ -122,6 +123,9 @@ async function timeouts(c: Client): Promise<void> {
 /** Integração 1..6 na cópia (as marcas) + a migration desta frente viva (aplica NA TXN se ainda não estiver). */
 async function prepara8(c: Client): Promise<void> {
   await timeouts(c);
+  // LIFO: a 20261018100000 (Preço anterior/Título por versão) redefine o retrato POR CIMA desta — esta suíte prova a 20261013100000
+  // no texto DELA, então a 20261018 (e a 20261018110000) volta antes, DENTRO da txn.
+  await voltaPrecoVersaoSePreciso(c);
   for (const m of MARCAS) {
     if (!(await um<{ ok: boolean }>(c, `SELECT ${m} AS ok`)).ok) throw new Error("Integração 1..6 ausente na cópia");
   }
@@ -130,6 +134,7 @@ async function prepara8(c: Client): Promise<void> {
 /** Volta ao estado de ANTES dentro da txn (se a cópia tem a migration): o inverso, com a confirmação SET LOCAL. */
 async function voltaSePreciso(c: Client): Promise<void> {
   await timeouts(c);
+  await voltaPrecoVersaoSePreciso(c); // LIFO (20261018 antes da 20261013)
   if (!(await viva(c))) return;
   await c.query("SET LOCAL app.confirmo_voltar_cor_no_nome = 'sim'");
   await aplica(c, INV);

@@ -94,11 +94,42 @@ export async function nomeCorViva(c: Client): Promise<boolean> {
     "SELECT to_regprocedure('public._integracao_nome_sublinha(text,text,text,text,text)') IS NOT NULL AS ok")).ok;
 }
 export async function voltaNomeCorSePreciso(c: Client): Promise<void> {
+  // LIFO (R5 do G-plano da frente Preço anterior/Título por versão): a 20261018100000 redefine _integracao_retrato_core POR CIMA
+  // desta — a guarda do inverso da 20261013100000 exige o retrato 4cd22e4b…, então a 20261018 (e a 20261018110000) volta ANTES.
+  await voltaPrecoVersaoSePreciso(c);
   if (!(await nomeCorViva(c))) return;
   exigeBancoLocal();
   await c.query("SET LOCAL app.confirmo_voltar_cor_no_nome = 'sim'");
   await aplica(c, INV_NOME_COR);
   await c.query("SET LOCAL app.confirmo_voltar_cor_no_nome = ''");
+}
+/**
+ * LIFO — "Preço anterior e Título por versão" (20261018100000, P-146..P-159) redefine _integracao_retrato_core (da 20261013100000)
+ * e _replicar_cards_plan_tecido_core (da 20261014100000) POR CIMA delas; a "Versão de produto já integrado" (20261018110000, T5) é
+ * uma RPC nova só-leitura. As guardas dos inversos da 20261013/20261014 exigem o texto de ANTES (4cd22e4b…/aaf3f2e4…): com a 20261018
+ * na cópia, as suítes que voltam/reaplicam aquelas migrations na txn voltam ESTAS antes (T5 primeiro), DENTRO da txn, pelos
+ * inversos (confirmação SET LOCAL; as 2 travas SET LOCAL do arquivo saem). Sem efeito quando não estão aplicadas.
+ */
+export const MIG_PRECO_VERSAO = "supabase/migrations/20261018100000_preco_titulo_versao_anterior.sql";
+export const INV_PRECO_VERSAO = "supabase/rollback/20261018100000_preco_titulo_versao_anterior_down.sql";
+export const MIG_VERSAO_INTEGRADA = "supabase/migrations/20261018110000_integracao_versao_integrada.sql";
+export const INV_VERSAO_INTEGRADA = "supabase/rollback/20261018110000_integracao_versao_integrada_down.sql";
+export async function precoVersaoViva(c: Client): Promise<boolean> {
+  return (await um<{ ok: boolean }>(c, "SELECT to_regprocedure('public._modelo_versao_anterior(uuid)') IS NOT NULL AS ok")).ok;
+}
+export async function versaoIntegradaViva(c: Client): Promise<boolean> {
+  return (await um<{ ok: boolean }>(c, "SELECT to_regprocedure('public.integracao_versoes_integradas(uuid[])') IS NOT NULL AS ok")).ok;
+}
+export async function voltaPrecoVersaoSePreciso(c: Client): Promise<void> {
+  if (await versaoIntegradaViva(c)) {
+    exigeBancoLocal();
+    await aplica(c, INV_VERSAO_INTEGRADA);
+  }
+  if (!(await precoVersaoViva(c))) return;
+  exigeBancoLocal();
+  await c.query("SET LOCAL app.confirmo_voltar_preco_versao = 'sim'");
+  await aplica(c, INV_PRECO_VERSAO);
+  await c.query("SET LOCAL app.confirmo_voltar_preco_versao = ''");
 }
 /** Dispara os gatilhos ADIADOS (a txn do teste nunca faz COMMIT) e volta ao modo adiado. */
 export async function imediato(c: Client): Promise<void> {

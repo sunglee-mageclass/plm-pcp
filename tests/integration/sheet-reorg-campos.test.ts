@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
-import { MIG_NOME_COR, voltaNomeCorSePreciso } from "./integracao-helpers";
+import { MIG_NOME_COR, precoVersaoViva, voltaNomeCorSePreciso } from "./integracao-helpers";
 import { CASOS_TITULO } from "../fixtures/titulo-pagina-casos";
 import { TITULO_CONECTIVOS, TITULO_MAIUSC, TITULO_MINUSC, tituloPaginaCalculado } from "../../src/lib/titulo-pagina";
 import { draftFromModeloRow } from "../../src/components/planejamento/modelo-shared";
@@ -404,7 +404,9 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       const d = (await def(c))!;
       // "Tamanho em" nos cards (20261014100000, LIFO por cima desta): na cópia com ela o _replicar está no texto DELA (a vaga
       // livre reaproveitada zera o tamanho_tipo; a suíte tamanho-em-cards prova "depois = este texto + só a troca dela").
-      if (md5(d) !== "aaf3f2e4e4bd8eb14b99d53c79a653da") {
+      // "Preço anterior e Título por versão" (20261018100000, LIFO por cima das duas): na cópia com ela o _replicar está no texto
+      // DELA (título/preço anterior nascem NULL — a suíte preco-titulo-versao prova "depois = aaf3f2e4 + só as trocas dela").
+      if (md5(d) !== "aaf3f2e4e4bd8eb14b99d53c79a653da" && !(await precoVersaoViva(c))) {
         expect(d).toBe(corpoReplicar(MIG) + "\n");
         expect(md5(d)).toBe(guarda(MIG).depois);
       }
@@ -414,7 +416,7 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
     });
   });
 
-  it("Replicar card(s) leva os 7 campos e o 'Tamanho em' como estão (manual E automático/NULL — ruling 5; D4)", async () => {
+  it("Replicar card(s) leva os 7 campos e o 'Tamanho em' como estão (manual E automático/NULL — ruling 5; D4; P-150 A/P-155 B: Título e Preço anterior nascem automáticos)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await comoUsuario(c);
@@ -434,8 +436,12 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       const novo = (orig: string) => r.out.find((x) => x.origem_modelo_id === orig)!.novo_modelo_id;
       const q = `select titulo_pagina, peso_kg::text peso, comprimento_cm::text comp, largura_cm::text larg, altura_cm::text alt,
                         ncm, preco_anterior::text pa, tamanho_tipo tt from modelos where id = $1`;
+      // 20261018100000 (P-150 A/P-155 B): com ela viva o Título e o Preço anterior da réplica nascem NULL (automáticos — herdam
+      // da maior versão existente); sem ela, a réplica leva os dois como estão (F3.6, ruling 5).
+      const pv = await precoVersaoViva(c);
       expect(await um(c, q, [novo(com.id)])).toEqual({
-        titulo_pagina: "Título à mão (ITEST)", peso: "0.350", comp: "60.00", larg: "40.00", alt: "2.50", ncm: "6204.43.00", pa: "199.90", tt: "numero",
+        titulo_pagina: pv ? null : "Título à mão (ITEST)", peso: "0.350", comp: "60.00", larg: "40.00", alt: "2.50", ncm: "6204.43.00",
+        pa: pv ? null : "199.90", tt: "numero",
       });
       // P-25: o `sem` nasceu sem a coluna ⇒ DEFAULT 'letra', e a réplica leva o valor (D4)
       expect(await um(c, q, [novo(sem.id)])).toEqual({ titulo_pagina: null, peso: null, comp: null, larg: null, alt: null, ncm: null, pa: null, tt: "letra" });

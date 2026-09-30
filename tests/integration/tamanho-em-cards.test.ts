@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
+import { voltaPrecoVersaoSePreciso } from "./integracao-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261014100000_tamanho_em_cards.sql";
@@ -190,12 +191,16 @@ async function timeouts(c: Client): Promise<void> {
 /** Estado de DEPOIS: com TAMANHO_MIG_TXN aplica o arquivo na txn (idempotente — vale com a cópia antes ou depois). */
 async function prepara(c: Client): Promise<void> {
   await timeouts(c);
+  // LIFO: a 20261018100000 (Preço anterior/Título por versão) redefine o _replicar_cards_plan_tecido_core POR CIMA desta — no
+  // modo txn volta-a (e a 20261018110000) antes de reaplicar esta (a guarda daqui recusaria o texto dela).
+  if (MIG_TXN) await voltaPrecoVersaoSePreciso(c);
   if (MIG_TXN) await aplica(c, MIG);
   expect(await md5Vivo(c, FUNCS[0].sig), "migration 20261014100000 ausente").toBe(FUNCS[0].depois);
 }
 /** Estado de ANTES (só no modo txn): se a cópia já tem a migration, volta pelo próprio inverso DENTRO da txn. */
 async function preparaAntes(c: Client): Promise<void> {
   await timeouts(c);
+  await voltaPrecoVersaoSePreciso(c); // LIFO: a guarda do inverso daqui exige o _replicar aaf3f2e4… (20261018 volta antes)
   if ((await md5Vivo(c, FUNCS[0].sig)) === FUNCS[0].depois) {
     await c.query("SET LOCAL app.tamanho_em_drop_ok = 'sim'");
     await aplica(c, INV);

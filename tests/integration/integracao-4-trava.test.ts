@@ -10,6 +10,25 @@ import {
 
 const SSL = false; // cópia local, sem SSL — mesmo padrão de integracao-3-estados.test.ts/kanban-auto.test.ts
 
+/**
+ * LIFO com a 20261018100000 (Preço anterior/Título por versão): no modo INTEGRACAO_MIG_TXN o `prepara` volta essa migration DENTRO
+ * da txn antes da 20261013100000 — e o inverso dela tira o gatilho de captura de `modelos` (DROP TRIGGER = AccessExclusive em
+ * `modelos` até o fim da txn do teste). Os 2 testes "REAL 2 conexões" abaixo precisam que a 2ª conexão prenda uma linha de
+ * `modelos`, o que fica impossível nesse estado. Eles provam a trava da migration 4 (que a 20261018 não toca) e continuam
+ * rodando no modo padrão (migrations já na cópia) — só são pulados no modo txn com a 20261018 na cópia.
+ */
+async function precoVersaoNaCopia(): Promise<boolean> {
+  if (!hasDb || !LOCAL || !MIG_TXN) return false;
+  const c = new Client({ connectionString: dbUrl()!, ssl: SSL });
+  await c.connect();
+  try {
+    return (await c.query("SELECT to_regprocedure('public._modelo_versao_anterior(uuid)') IS NOT NULL AS ok")).rows[0]?.ok === true;
+  } finally {
+    await c.end();
+  }
+}
+const PULA_2_CONEXOES = await precoVersaoNaCopia();
+
 /** Trecho inserido nos 2 recálculos (diff mínimo — o "depois" menos ISTO é o "antes"). */
 export const TRECHO_B1 =
   "  -- [integracao v1] B1: produto travado pela Integração com \"Preço de venda\" marcado — o recálculo automático (OC, MO,\n" +
@@ -687,7 +706,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
     });
   });
 
-  it("revisão T3->T4 (carry, ruling do controlador — Important #3 da revisão da Task 4, REAL 2 conexões): fn_integracao_trava_espelho fica esperando o FOR NO KEY UPDATE de um marcar concorrente em modelos (55P03 com lock_timeout curto), depois passa", async () => {
+  it.skipIf(PULA_2_CONEXOES)("revisão T3->T4 (carry, ruling do controlador — Important #3 da revisão da Task 4, REAL 2 conexões): fn_integracao_trava_espelho fica esperando o FOR NO KEY UPDATE de um marcar concorrente em modelos (55P03 com lock_timeout curto), depois passa", async () => {
     // Important #3 da revisão: o teste antigo (mesma sessão, sem 2ª conexão) não provava nada — passava
     // igual com ou sem as linhas FOR SHARE. Prova de verdade (mesmo padrão de integracao-3-estados.test.ts
     // "Important #1 (revisão T3)"): uma 2ª conexão prende `modelos FOR NO KEY UPDATE` (a MESMA trava que
@@ -736,7 +755,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
     }
   });
 
-  it("revisão T4 #3 (Important #3, mesmo padrão — caminho ADIADO das variantes): fn_integracao_trava_variantes (constraint trigger, disparado por imediato) também fica esperando o FOR NO KEY UPDATE de modelos", async () => {
+  it.skipIf(PULA_2_CONEXOES)("revisão T4 #3 (Important #3, mesmo padrão — caminho ADIADO das variantes): fn_integracao_trava_variantes (constraint trigger, disparado por imediato) também fica esperando o FOR NO KEY UPDATE de modelos", async () => {
     const segunda = new Client({ connectionString: dbUrl()!, ssl: SSL });
     await segunda.connect();
     // revisão T4 re-review C (Minor): mesmo lock_timeout de segurança da 2ª conexão do teste anterior.
