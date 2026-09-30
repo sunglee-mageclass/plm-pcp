@@ -693,6 +693,21 @@ e verifique** — o repo muda rápido.
     fechar a corrida entre o SELECT e o UPDATE na mesma txn. Rollback é LIFO: o inverso de
     `20261016100000` roda ANTES do de `20261014100000` (Tamanho em nos cards). Ver relatório
     `.claude/worktrees/fix-pa-sync/.superpowers/sdd/2026-09-29-pa-sync/report.md`.
+    **Categoria do card → produto espelho (P-137 A, release 6, migrations `20261017100000` gatilho + `20261017110000` backfill):**
+    o Sheet do Planejamento passa a propagar Categoria/Grupo/Sub1/Sub2 do card ao `produtos_acabados`/`produtos_importados`
+    espelho — `trg_modelo_espelho_categoria` (`fn_modelo_espelho_categoria`, DEFINER; complementa o espelho Nome/REF). Regras:
+    copia SÓ o que MUDOU no card, coluna a coluna (`IS DISTINCT FROM`); o **grupo acompanha a categoria**; **NULL no card
+    NUNCA é copiado** (não apaga valor do produto); **subs que não pertencem à categoria nova são LIMPAS** no produto (fecha o
+    achado H1 do G-MIGRATION: sub órfã de outra categoria); mudança só de sub só copia se o produto tem a MESMA categoria;
+    categoria sem grupo não copia nada. **Acessórios↔outro grupo em produto COM OC é RECUSADO** (`P0001
+    categoria_acessorio_com_pedido:`, ASCII, PA e PI — grade `UN`/REF `ACE` não migram com pedido aberto); pré-checagem no front
+    em `src/lib/categoria-card-produto.ts` (`usePlanejamentoSave` + `BulkEditDialog`, mensagem em `erro-mensagem.ts`).
+    `_salvar_produto_acabado_core` NÃO foi tocado (P-136 intacta). Backfill único: produtos divergentes hoje são alinhados,
+    o estado anterior fica em `_bkp_p137_backfill` (+ helpers DEFINER revogados `_p137_backfill_rodar`/`_desfazer`; divergente
+    acessório+pedido é PULADO). Auditoria: o filtro de entidade ganhou Produto Acabado/Importado. **Volta em 2 passos**:
+    `_down_neutraliza.sql` (só neutraliza o gatilho — pega AccessExclusive em `modelos`, rodar em horário calmo) e depois o
+    `_down` completo (LIFO: backfill antes do gatilho). Plano/relatórios:
+    `.claude/worktrees/p137/.superpowers/sdd/2026-09-30-p137/` (plan.md, report.md, G-MIGRATION.md, review-front.md).
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
     super admin + quem ELE deu a permissão `integracao` no próprio usuário — admin da loja NÃO passa sozinho, P-107 A; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
@@ -758,6 +773,17 @@ e verifique** — o repo muda rápido.
     ANTES do site** — o inverso desta migration é o PRIMEIRO passo que
     `.superpowers/integracao/mig/volta-producao.sh` roda (a volta de emergência da Integração desfaz a
     mais recente primeiro).
+    **Release 6 — Preço anterior e Título por versão (P-146..P-159, `20261018100000` + `20261018110000`):** o
+    "Preço anterior" e o "Título" automáticos (`NULL`) do RETRATO passam a vir da **versão anterior** (helper
+    `_modelo_automaticos`/`_modelo_versao_anterior`; ver parágrafo do Sheet F3.6). Efeito na Integração: v2+ cuja anterior não
+    tem `preco_venda` digitado fica com `preco_anterior` VAZIO e, se o campo está marcado, conta como **falta** ("Faltam dados"
+    — P-159 A: "não ter é sinônimo de não integrável"); integrável/integrado mantêm o retrato congelado (o "i" avisa). A troca em
+    `_integracao_retrato_core` mantém o marcador `'v',2`. RPC nova só-leitura `integracao_versoes_integradas` (T5, DEFINER +
+    `_integracao_exige(false)` + tenant + REVOKE): compara com o RETRATO gravado da maior versão menor já Integrável/Integrada.
+    **Integração › Produtos**: linha marcada "vN já integrada" (borda esquerda âmbar + selo), hover com a **comparação de
+    variantes** (iguais/novas/saíram) e filtro **local** "Versão" (sobre a lista carregada, até 500; não é estado do servidor).
+    Só aviso — não bloqueia. Plano (rulings no fim PREVALECEM) e revisões:
+    `.claude/worktrees/preco-anterior/.superpowers/sdd/2026-09-30-preco-anterior/`.
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
@@ -928,14 +954,36 @@ Enviar Ordem de Criação, Excluir) são só do Planejamento. `ReadOnlyScope` ap
 **Reorganização do Sheet F3.6 (set/2026, migration `20261005100000`, deploy 26/set):** a seção 1
 "Informações Gerais do Produto" (`InfoGeraisSecao.tsx`) ganhou layout novo — L2 Nome do Modelo
 (50%) | Versão (25%) | **NCM do Produto** (25%, `modelos.ncm` texto livre, sem tabela/sugestão) ·
-L4 **Título para a página** (`modelos.titulo_pagina`; `NULL` = automático — Nome em "Iniciais
-Maiúsculas" + `" | "` + `tenants.nome`, calculado por `_titulo_pagina_calculado`/
-`src/lib/titulo-pagina.ts`; digitar igual ao automático mantém `NULL`) · L6 **Peso (kg)/
+L4 **Título para a página** (`modelos.titulo_pagina`; `NULL` = automático — **v1/órfã**: Nome em "Iniciais
+Maiúsculas" + `" | "` + `tenants.nome`, `_titulo_pagina_calculado`/`src/lib/titulo-pagina.ts`; **v2+**: o título EFETIVO da
+versão anterior, de forma RECURSIVA, selo "herdado da vN" — P-155 B; digitar igual ao automático (o HERDADO na v2+) mantém
+`NULL`) · L6 **Peso (kg)/
 Comprimento/Largura/Altura (cm)** (`modelos.peso_kg`/`comprimento_cm`/`largura_cm`/`altura_cm`,
 nullable, `MoneyInput` com casas fixas). **Preço anterior** (`modelos.preco_anterior`) entra na
 seção Preço. **Keywords da loja** (`tenant_config.keywords` text) fica em Config da Loja (só
-texto livre hoje, para uma tela FUTURA de super admin ler). Mesmos 6 campos + `tamanho_tipo`
-replicados pelo "Replicar card(s)" do Plan. Tecido. Detalhe de fórmulas: `mapeamento-campos-
+texto livre hoje, para uma tela FUTURA de super admin ler). Os 4 campos de medida + NCM + `tamanho_tipo`
+são replicados pelo "Replicar card(s)" do Plan. Tecido; **Título e Preço anterior NÃO** (release 6, P-150 A/P-155 B): a
+nova versão nasce com os dois `NULL` (automáticos).
+**Preço anterior e Título por versão (release 6, P-146..P-159, migrations `20261018100000` + `20261018110000`):** o
+Preço anterior automático (`NULL`) = o `preco_venda` DIGITADO da **versão anterior** (P-146 A; só varejo, P-148 A);
+anterior = a maior `versao` MENOR na família `coalesce(modelo_base_id, id)` da mesma loja (P-149 A; empate: `created_at` mais
+novo, depois `id`). **Anterior sem `preco_venda` > 0 → campo VAZIO, selo "aguardando preço da vN"** (P-158; NÃO usa o
+sugerido nem o próprio preço) e conta como falta na Integração (P-159 A); v1 e órfãs (raiz excluída → `SET NULL`) usam o
+PRÓPRIO preço digitado (P-147 A/M4; sem ele, vazio "aguardando preço de venda" — o Sheet não mostra mais o sugerido aqui).
+Valor digitado fixa; ↺ volta ao automático; v2+ automáticas seguem a regra nova na hora, digitados ficam (P-151 A).
+Fonte única SQL: helpers `_modelo_versao_anterior`/`_modelo_automaticos` + RPC `modelos_versao_anterior`; espelho TS
+`src/lib/versao-anterior.ts` (+ `useVersaoAnterior`, fixture anti-drift); retrato de integráveis (`_integracao_retrato_core`,
+`'v',2` mantido) e `_replicar_cards_plan_tecido_core` trocados por REPLACE exato guardado por md5. **Congelar ao excluir**
+(P-154 A): apagar um modelo grava o valor automático CONGELADO (preço e título) nas versões que dependiam dele e mudariam —
+BEFORE DELETE só anota na fila `modelo_versao_congelar_fila`; CONSTRAINT TRIGGER adiado aplica no COMMIT (pula linhas que
+sumiram, ex. v1+v2 apagadas juntas); NÃO congela Integrável/Integrado (retrato já guarda; trava #14); **falha fechada**;
+sobe o `rev` e audita em nome de quem excluiu. Não há backfill. **Aviso de versões (P-152)** no Replicar/Duplicar:
+`VersoesExistentesAviso.tsx` + `src/lib/versoes-familia*.ts` lista a família (1 checkbox por lote, agrupada por família;
+Duplicar sem diálogo se não há outras versões; erro na consulta = falha fechada, sem replicar). Integração › Produtos:
+"vN já integrada" (invariante 14). Volta LIFO: os inversos de `20261018110000` e `20261018100000` rodam ANTES dos de
+`20261014100000`/`20261013100000` (o retrato/replicar de antes é exigido pelas guardas md5); valores congelados por exclusões
+depois do deploy ficam gravados. Plano e revisões:
+`.claude/worktrees/preco-anterior/.superpowers/sdd/2026-09-30-preco-anterior/`. Detalhe de fórmulas: `mapeamento-campos-
 calculos.md` §17.3.
 
 **SKU automático + SKU em prévia (F3.5a/F3.5b, set/2026, migrations `20261003100000`/
@@ -1013,6 +1061,14 @@ também foi corrigido — lia o texto MASCARADO do input (vírgula decimal) com 
 
 **Deploy da release 5:** os 3 passos de banco (Tamanho em nos cards, Config da Loja colaborativa,
 PA sync card só mudou) vão ANTES do site, num kit único — `savepoints/pre-release5/`.
+
+**Deploy da release 6:** banco ANTES do site (há front novo: pré-checagem P-137, versão anterior, aviso P-152, Integração ›
+Produtos), num kit único — `savepoints/pre-release6/` (`kit/ida-release6.sh` e `kit/volta-release6.sh`). Ordem de ida: (1)
+P-137 gatilho `20261017100000` → (2) P-137 backfill `20261017110000` → (3) `20261018100000` → (4) `20261018110000`.
+Volta LIFO: `20261018110000` → `20261018100000` → backfill P-137 → gatilho P-137; o inverso do P-137 pode ser NEUTRALIZADO
+antes (`_down_neutraliza.sql`, horário calmo) e o `_down` completo vem depois. A volta da release 5 e a de emergência da
+Integração ganham um passo prévio (`volta-release6.sh`) — sem ele os inversos de `20261014100000`/`20261013100000` recusam
+pelo md5. Site velho + banco novo por alguns minutos é aceitável (só muda o que o Sheet mostra).
 
 ## O que NÃO fazer
 
