@@ -72,7 +72,7 @@ function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: st
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -85,6 +85,8 @@ export function ResumoPanel({
   vinculosDetalhe?: VinculoDetalhe[];
   /** Capacidade por OC×variante (`oc|vid`) e OC×artigo (`oc|artigo:id`) — limite da repartição. */
   capacidade?: Map<string, number>;
+  /** situação das OCs ainda carregando: não reparte a demanda (evita a 1ª OC levar tudo). */
+  aguardandoCapacidade?: boolean;
   /** modelos já ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) AO VIVO. */
   enviadoCadSet?: Set<string>;
   catTecidoNome: (id: string) => string | null | undefined;
@@ -281,7 +283,7 @@ export function ResumoPanel({
     if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
     if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade });
+  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade });
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;

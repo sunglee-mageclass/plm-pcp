@@ -204,7 +204,13 @@ export type DetalheOc = {
 
 /** 7º parâmetro de `detalheOc`. `capacidade`: `${ocId}|${variante_tecido_id}` → metros (entregue_m se a
  *  OC está recebida, senão pedida_m); `${ocId}|artigo:${artigo_id}` p/ parcela sem variante. */
-export type DetalheOcOpts = { vinculos?: VinculoDetalhe[]; capacidade?: Map<string, number> };
+export type DetalheOcOpts = {
+  vinculos?: VinculoDetalhe[];
+  capacidade?: Map<string, number>;
+  /** true enquanto a situação das OCs (capacidade) ainda não carregou: não reparte (mapas vazios) em vez de
+   *  deixar a 1ª OC levar tudo de forma visível. */
+  aguardando?: boolean;
+};
 
 export function detalheOc(
   arvore: PtArvore,
@@ -228,6 +234,7 @@ export function detalheOc(
   const nPorOc = new Map<string, number>();
   const reservPorOcVar = new Map<string, number>();
   const comprometidoPorOcVar = new Map<string, number>();
+  if (opts?.aguardando) return { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar };
   const pertence = (ocId: string, artigoId: string | null | undefined): boolean => {
     const s = ocArtigos?.get(ocId);
     return !s ? true : (!!artigoId && s.has(artigoId));
@@ -266,20 +273,24 @@ export function detalheOc(
 
   for (const { slot, ocIds, enviado } of slotsInfo) {
     const usaDetalhe = !!slot.modelo_id && ocIds === (vinculoOcMap[slot.modelo_id] ?? []);
-    type Parcela = { vid: string | null; artigoId: string | null; tipo: string; numero: number; metros: number };
+    type Parcela = { vid: string | null; artigoId: string | null; tipo: string; numero: number; ordem: number | null; metros: number };
     const parcelas = new Map<string, Parcela>();
     for (const mat of slot.materiais ?? []) for (const v of mat.variantes ?? []) {
       const metros = necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
       if (metros <= 0) continue;
       const tipo = mat.tipo ?? "tecido", numero = Number(mat.numero) || 1;
+      // `ordem` (bloco Tecido 1/2/3) só entra na chave quando o detalhe a traz p/ este modelo×tipo×numero
+      const temOrdem = usaDetalhe && (vinPorChave.get(`${slot.modelo_id}|${tipo}|${numero}`) ?? []).some((l) => l.ordem != null);
+      const ordem = temOrdem ? (Number(mat.ordem) || 0) : null;
+      const ok = ordem == null ? "" : `|o:${ordem}`;
       if (v.variante_tecido_id) {
-        const k = `${tipo}|${numero}|v:${v.variante_tecido_id}`;
-        const cur = parcelas.get(k) ?? { vid: v.variante_tecido_id, artigoId: mat.artigo_id ?? null, tipo, numero, metros: 0 };
+        const k = `${tipo}|${numero}${ok}|v:${v.variante_tecido_id}`;
+        const cur = parcelas.get(k) ?? { vid: v.variante_tecido_id, artigoId: mat.artigo_id ?? null, tipo, numero, ordem, metros: 0 };
         cur.metros += metros;
         parcelas.set(k, cur);
       } else if (mat.artigo_id) {
-        const k = `${tipo}|${numero}|a:${mat.artigo_id}`;
-        const cur = parcelas.get(k) ?? { vid: null, artigoId: mat.artigo_id, tipo, numero, metros: 0 };
+        const k = `${tipo}|${numero}${ok}|a:${mat.artigo_id}`;
+        const cur = parcelas.get(k) ?? { vid: null, artigoId: mat.artigo_id, tipo, numero, ordem, metros: 0 };
         cur.metros += metros;
         parcelas.set(k, cur);
       }
@@ -292,7 +303,10 @@ export function detalheOc(
       // candidatos elegíveis (artigo/cor da OC) na ordem do vínculo (prioridade) ou do array
       const elegivel = (ocId: string) => pertence(ocId, p.artigoId) && (!p.vid || varPertence(ocId, p.vid));
       let cands: { ocId: string; chave: string; quantidade_m?: number | null }[] = [];
-      const linhas = usaDetalhe ? (vinPorChave.get(`${slot.modelo_id}|${p.tipo}|${p.numero}`) ?? []) : [];
+      const todasLinhas = usaDetalhe ? (vinPorChave.get(`${slot.modelo_id}|${p.tipo}|${p.numero}`) ?? []) : [];
+      // separa por bloco (`ordem`); se nenhuma linha casa a ordem (numeração diferente), usa todas
+      const daOrdem = p.ordem == null ? todasLinhas : todasLinhas.filter((l) => l.ordem == null || l.ordem === p.ordem);
+      const linhas = daOrdem.length ? daOrdem : todasLinhas;
       const chaveDe = (ocId: string) => (p.vid ? `${ocId}|${p.vid}` : `${ocId}|artigo:${p.artigoId}`);
       if (linhas.length) {
         const sel = p.vid ? linhas.filter((l) => l.variante_tecido_id === p.vid) : linhas.filter((l) => !l.variante_tecido_id || l.artigo_id === p.artigoId);
@@ -306,7 +320,8 @@ export function detalheOc(
           } else cands.push({ ocId: l.oc_tecido_id, chave: chaveDe(l.oc_tecido_id), quantidade_m: l.quantidade_m });
         }
       }
-      if (!cands.length) cands = ocIds.filter(elegivel).map((ocId) => ({ ocId, chave: chaveDe(ocId) }));
+      // sem detalhe: ordem determinística (oc_tecido_id), não a do array (que varia com o fetch)
+      if (!cands.length) cands = [...ocIds].sort().filter(elegivel).map((ocId) => ({ ocId, chave: chaveDe(ocId) }));
       if (!cands.length) continue;
       const partes = repartirDemanda(p.metros, cands, opts?.capacidade, usado);
       cands.forEach((c, i) => {
@@ -315,6 +330,11 @@ export function detalheOc(
         reservPorOc.set(c.ocId, (reservPorOc.get(c.ocId) ?? 0) + m);
         if (enviado) comprometidoPorOc.set(c.ocId, (comprometidoPorOc.get(c.ocId) ?? 0) + m);
         if (p.vid) {
+          // a mesma OC tem UM estoque por artigo: o que a variante consome também sai do pool do artigo
+          if (p.artigoId) {
+            const ka = `${c.ocId}|artigo:${p.artigoId}`;
+            usado.set(ka, (usado.get(ka) ?? 0) + m);
+          }
           const k = `${c.ocId}|${p.vid}`;
           reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + m);
           if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + m);

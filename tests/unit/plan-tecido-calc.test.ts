@@ -678,7 +678,7 @@ describe("plan-tecido/calc — D5b repartição da demanda entre OCs vinculadas 
     };
     const r = chamada("src/components/plan-tecido/ResumoPanel.tsx");
     const d = chamada("src/components/plan-tecido/PlanTecidoDrawer.tsx");
-    expect(r).toContain("{vinculos:vinculosDetalhe,capacidade}");
+    expect(r).toContain("{vinculos:vinculosDetalhe,capacidade,aguardando:aguardandoCapacidade}");
     expect(d).toBe(r);
   });
 });

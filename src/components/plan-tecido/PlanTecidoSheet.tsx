@@ -38,7 +38,7 @@ import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { precoDoCard } from "@/lib/preco";
-import type { PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
+import { precoCardDoPlano, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe } from "@/lib/plan-tecido/calc";
@@ -380,7 +380,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     setDrawer({ kind, arg: arg ?? null });
     setMobileTab(kind === "comprar" ? "comprar" : "oc");
   };
-  const { data: situacaoRows = [] } = useSituacaoOcs(colecaoId);
+  const { data: situacaoRows = [], isPending: situacaoPendente } = useSituacaoOcs(colecaoId);
   const ocNumeroDe = (id: string) => situacaoRows.find((r) => r.oc_tecido_id === id)?.numero ?? null;
   // arrastar card entre lanes (grip inicia; distância p/ não confundir com clique)
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }));
@@ -844,7 +844,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   });
   // D4 (P-167 A): custo/markup/preço do CARD (vaga COM card é só leitura). `custo_unitario_modelos` devolve
   // `{}` sem permissão de custos → custo 0 → a UI mostra "—". queryKey própria desta tela.
-  const { data: custoCardMap = {} } = useQuery({
+  const { data: custoCardMap = {}, isSuccess: custoCardOk } = useQuery({
     queryKey: ["plan-tecido-custo-cards", colecaoId, modeloIdsDb],
     enabled: modeloIdsDb.length > 0,
     queryFn: async () => {
@@ -860,10 +860,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       return Object.fromEntries(rows.map((r) => [r.id, Number(r.markup) || 0])) as Record<string, number>;
     },
   });
-  const precoCardDe: PrecoCardFn = (modeloId) => {
-    const m = ((modelosDb ?? []) as any[]).find((x) => x.id === modeloId);
-    return m ? precoDoCard(m, custoCardMap, linhaMarkupCards) : null;
-  };
+  // Custo ainda carregando => null (estimativa); mascarado (sem permissão) => preço digitado ou estimativa.
+  const precoCardDe: PrecoCardFn = (modeloId) =>
+    precoCardDoPlano(modeloId, (modelosDb ?? []) as any[], custoCardOk ? custoCardMap : undefined, linhaMarkupCards);
   const maoObraEstadoDe = (modeloId: string): string | undefined => moResumoMap[modeloId]?.estado;
   const maoObraPorServicoDe = (modeloId: string): number | null => {
     const t = moResumoMap[modeloId]?.total;
@@ -1155,7 +1154,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         setArvore(marca.local);
         toast.warning(textoTamanhoRevertido(marca.revertidos));
       }
-      arvoreSalvaRef.current = marca.local;
+      arvoreSalvaRef.current = semPrecoNasVagasComCard(marca.local);
       const arvorePayload = semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null));
       const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
         _colecao_id: colecaoId, _arvore: arvorePayload, _rev_base: revRef.current,
@@ -2209,7 +2208,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} />
                   </div>
                 </aside>
               )}
@@ -2217,18 +2216,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                   em tablet os botões do trilho acendiam e NADA abria — ação sem feedback (laudo). */}
               {!modoPlano && drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r md:flex">
-                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
                 </aside>
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">
                   <PlanTecidoDrawer
                     state={drawer && (mobileTab === "comprar" ? drawer.kind === "comprar" : drawer.kind !== "comprar") ? drawer : { kind: mobileTab === "comprar" ? "comprar" : "oc", arg: null }}
-                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
+                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
                     onClose={() => setMobileTab("canvas")} temRascunho={dirty} />
                 </div>
               )}

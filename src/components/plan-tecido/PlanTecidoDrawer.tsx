@@ -18,7 +18,7 @@ type Linha = { key: string; label: string; cor_nome: string | null; reservada: n
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
-  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, enviadoCadSet, ocNumeroDe, onClose, temRascunho = false,
+  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, ocNumeroDe, onClose, temRascunho = false,
 }: {
   state: DrawerState;
   subArvore: PtArvore;
@@ -30,6 +30,8 @@ export function PlanTecidoDrawer({
   /** Mesma repartição do Resumo (prioridade/quantidade + capacidade) — fonte única detalheOc. */
   vinculosDetalhe?: VinculoDetalhe[];
   capacidade?: Map<string, number>;
+  /** situação das OCs ainda carregando: não reparte a demanda (evita a 1ª OC levar tudo). */
+  aguardandoCapacidade?: boolean;
   /** modelos ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) por variante. */
   enviadoCadSet?: Set<string>;
   ocNumeroDe: (ocId: string) => string | null;
@@ -77,7 +79,7 @@ export function PlanTecidoDrawer({
     if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
     if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade });
+  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade });
   const reservaVar = (vid: string): number =>
     kind === "ocnum" && arg ? (det.reservPorOcVar.get(`${arg}|${vid}`) ?? 0) : (necByVar.get(vid) ?? 0);
   const comprometidaVar = (vid: string): number =>
