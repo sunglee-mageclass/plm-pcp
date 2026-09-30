@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { precoInfo } from "@/lib/preco";
@@ -72,7 +72,7 @@ function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: st
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -81,6 +81,10 @@ export function ResumoPanel({
   /** OC REAL vinculada no Desenvolvimento por modelo_id (modelo_tecido_oc_links). Fonte da verdade:
    * quando o modelo tem vínculo no Dev, ele vence o hint do plano (que o Dev não atualiza). */
   vinculoOcMap?: Record<string, string[]>;
+  /** Vínculos com prioridade/quantidade (RPC plan_tecido_vinculos_detalhe) — repartição da demanda entre OCs. */
+  vinculosDetalhe?: VinculoDetalhe[];
+  /** Capacidade por OC×variante (`oc|vid`) e OC×artigo (`oc|artigo:id`) — limite da repartição. */
+  capacidade?: Map<string, number>;
   /** modelos já ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) AO VIVO. */
   enviadoCadSet?: Set<string>;
   catTecidoNome: (id: string) => string | null | undefined;
@@ -275,7 +279,7 @@ export function ResumoPanel({
     if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
     if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
+  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade });
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;

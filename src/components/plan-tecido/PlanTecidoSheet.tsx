@@ -39,7 +39,7 @@ import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoF
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -590,11 +590,49 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     [vinculosMap],
   );
 
+  // Vínculos COM prioridade/quantidade_m (RPC plan_tecido_vinculos_detalhe) → repartição da demanda entre as
+  // OCs vinculadas, igual ao corte (P-168 A). Falha SILENCIOSA: se a RPC ainda não existe/erra, sem detalhe →
+  // detalheOc reparte em sequência pela ordem do array (nunca N×). Sem toast, sem retry.
+  const { data: vinculosDetalhe } = useQuery({
+    queryKey: ["plan-tecido-vinculos-detalhe", colecaoId],
+    refetchOnWindowFocus: true,
+    retry: false,
+    queryFn: async (): Promise<VinculoDetalhe[]> => {
+      try {
+        const { data, error } = await supabase.rpc("plan_tecido_vinculos_detalhe" as any, { _colecao_id: colecaoId });
+        if (error || !Array.isArray(data)) return [];
+        return (data as any[]).map((r) => ({
+          modelo_id: r.modelo_id, tipo: r.tipo, numero: Number(r.numero) || 1, ordem: r.ordem ?? null,
+          variante_tecido_id: r.variante_tecido_id ?? null, oc_tecido_item_id: r.oc_tecido_item_id, oc_tecido_id: r.oc_tecido_id,
+          artigo_id: r.artigo_id ?? null, prioridade: r.prioridade == null ? null : Number(r.prioridade),
+          quantidade_m: r.quantidade_m == null ? null : Number(r.quantidade_m),
+        }));
+      } catch {
+        return [];
+      }
+    },
+  });
+  // Capacidade por OC×variante (`oc|vid`) e OC×artigo (`oc|artigo:id`): entregue_m se a OC está recebida,
+  // senão pedida_m (mesma regra do corte).
+  const capacidadeOc = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of situacaoRows) {
+      const cap = r.status === "recebido" ? Number(r.entregue_m) || 0 : Number(r.pedida_m) || 0;
+      if (r.variante_tecido_id) {
+        const k = `${r.oc_tecido_id}|${r.variante_tecido_id}`;
+        m.set(k, (m.get(k) ?? 0) + cap);
+      }
+      const ka = `${r.oc_tecido_id}|artigo:${r.artigo_id}`;
+      m.set(ka, (m.get(ka) ?? 0) + cap);
+    }
+    return m;
+  }, [situacaoRows]);
+
   // hint OC por SLOT → Map<slot_id, oc_ids[]>
   const { data: slotOcMap = {} } = useQuery({
     queryKey: ["plan-tecido-slot-oc", colecaoId],
     queryFn: async () => {
-      const rows = ((await supabase.from("plan_tecido_slot_oc" as any).select("slot_id, oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { slot_id: string; oc_tecido_id: string }[];
+      const rows = ((await supabase.from("plan_tecido_slot_oc" as any).select("slot_id, oc_tecido_id").eq("colecao_id", colecaoId).order("created_at", { ascending: true }).order("oc_tecido_id", { ascending: true })).data ?? []) as unknown as { slot_id: string; oc_tecido_id: string }[];
       const map: Record<string, string[]> = {};
       for (const r of rows) (map[r.slot_id] ??= []).push(r.oc_tecido_id);
       return map;
@@ -2146,7 +2184,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} />
                   </div>
                 </aside>
               )}
@@ -2154,18 +2192,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                   em tablet os botões do trilho acendiam e NADA abria — ação sem feedback (laudo). */}
               {!modoPlano && drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r md:flex">
-                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
                 </aside>
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">
                   <PlanTecidoDrawer
                     state={drawer && (mobileTab === "comprar" ? drawer.kind === "comprar" : drawer.kind !== "comprar") ? drawer : { kind: mobileTab === "comprar" ? "comprar" : "oc", arg: null }}
-                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
+                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
                     onClose={() => setMobileTab("canvas")} temRascunho={dirty} />
                 </div>
               )}

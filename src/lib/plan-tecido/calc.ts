@@ -133,14 +133,62 @@ export function contabilizarOc(total: number, comprometido: number, baixa: numbe
   return { reservadaLivre: Math.max(0, t - usada), usada, sobra: e - Math.max(t, usada), baixaDomina: b > 0 && b >= c };
 }
 
+/** Vínculo OC↔modelo com prioridade e quantidade (RPC `plan_tecido_vinculos_detalhe`, 1 linha por
+ *  vínculo modelo×tipo×numero×variante×item da OC). */
+export type VinculoDetalhe = {
+  modelo_id: string;
+  tipo: string;
+  numero: number;
+  ordem?: number | null;
+  variante_tecido_id: string | null;
+  oc_tecido_item_id: string;
+  oc_tecido_id: string;
+  artigo_id: string | null;
+  prioridade: number | null;
+  quantidade_m: number | null;
+};
+
+/** Reparte `metros` entre candidatos EM SEQUÊNCIA (igual ao corte, P-168 A): cada um leva
+ *  `min(restante, livre, quantidade_m se > 0)`; a SOBRA vai para o ÚLTIMO. Σ das partes = metros
+ *  (nunca N×). `capacidade` (chave → metros) menos `usado` (mutado) dá o `livre`; chave ausente =
+ *  sem limite. Devolve as partes na ordem dos candidatos. */
+export function repartirDemanda(
+  metros: number,
+  candidatos: { chave: string; quantidade_m?: number | null }[],
+  capacidade: Map<string, number> | undefined,
+  usado: Map<string, number>,
+): number[] {
+  const out = new Array<number>(candidatos.length).fill(0);
+  let restante = Number(metros) || 0;
+  if (!candidatos.length || restante <= 0) return out;
+  for (let i = 0; i < candidatos.length; i++) {
+    const c = candidatos[i];
+    let parte: number;
+    if (i === candidatos.length - 1) parte = restante;
+    else {
+      const cap = capacidade?.get(c.chave);
+      const livre = cap === undefined ? Infinity : Math.max(0, cap - (usado.get(c.chave) ?? 0));
+      const q = Number(c.quantidade_m) || 0;
+      parte = Math.max(0, Math.min(restante, livre, q > 0 ? q : Infinity));
+    }
+    out[i] = parte;
+    restante -= parte;
+    usado.set(c.chave, (usado.get(c.chave) ?? 0) + parte);
+  }
+  return out;
+}
+
 /** Reservada/comprometida por OC — FONTE ÚNICA consumida pelo Resumo (por OC) e pelo Drawer
  *  (por OC×variante). "Comprometido" = demanda dos cards já ENVIADOS À EXPLOSÃO (enviado_cad); o
  *  comprometido SAI da reservada (ver contabilizarOc). OC efetiva do slot: o vínculo real do Dev
  *  (vinculoOcMap por modelo) vence o hint do plano (slotOcMap por slot).
- *  ⚠️ O total por-OC (reservPorOc, via slotMetros) e a soma por-variante (reservPorOcVar) NÃO são
- *  garantidamente iguais: (a) variante sem variante_tecido_id conta no total mas não no por-variante;
- *  (b) um slot vinculado a 2+ OCs soma inteiro em cada OC. São casos raros; por isso o Drawer NÃO
- *  exibe total por-OC (só itens).
+ *  REPARTIÇÃO (P-168 A): a demanda de cada parcela (modelo×tipo×numero×variante, ou ×artigo quando
+ *  ainda sem cor) é dividida ENTRE as OCs vinculadas, em sequência, como o corte consome
+ *  (`repartirDemanda`): ordem por prioridade/oc_tecido_item_id, limite min(restante, livre,
+ *  quantidade_m>0), sobra na ÚLTIMA OC. Σ por OC = demanda elegível (nunca N×). Cards: enviados à
+ *  Explosão primeiro, depois a ordem da vaga. Sem `vinculos` (detalhe não carregado/hint do plano):
+ *  ordem do array, sem limite quantidade_m, mas sempre em sequência.
+ *  ⚠️ Parcela sem variante_tecido_id conta no total por-OC mas não no por-variante.
  *  (O split "do estoque" — parcela de cards "usar estoque existente" — foi REMOVIDO com a
  *  aposentadoria do flag usar_estoque, decisão do dono 17/ago/2026: régua única = vínculo abate a
  *  Sobra, sem vínculo é compra; não há mais um 3º estado "consome físico sem comprar" separado do
@@ -153,6 +201,10 @@ export type DetalheOc = {
   reservPorOcVar: Map<string, number>;
   comprometidoPorOcVar: Map<string, number>;
 };
+
+/** 7º parâmetro de `detalheOc`. `capacidade`: `${ocId}|${variante_tecido_id}` → metros (entregue_m se a
+ *  OC está recebida, senão pedida_m); `${ocId}|artigo:${artigo_id}` p/ parcela sem variante. */
+export type DetalheOcOpts = { vinculos?: VinculoDetalhe[]; capacidade?: Map<string, number> };
 
 export function detalheOc(
   arvore: PtArvore,
@@ -169,6 +221,7 @@ export function detalheOc(
    *  por OC dizia 576 e a soma por variante 567,04 na mesma tela). Parcela SEM variante (cor ainda
    *  não escolhida) segue contando pelo artigo. Sem o mapa (compat), só o filtro por artigo. */
   ocVariantes?: Map<string, Set<string>>,
+  opts?: DetalheOcOpts,
 ): DetalheOc {
   const reservPorOc = new Map<string, number>();
   const comprometidoPorOc = new Map<string, number>();
@@ -183,40 +236,90 @@ export function detalheOc(
     const s = ocVariantes?.get(ocId);
     return !s ? true : s.has(vid);
   };
+  // vínculos do detalhe por (modelo|tipo|numero), já em ordem prioridade (NULL por último) → item
+  const vinPorChave = new Map<string, VinculoDetalhe[]>();
+  for (const v of opts?.vinculos ?? []) {
+    const k = `${v.modelo_id}|${v.tipo}|${v.numero}`;
+    let arr = vinPorChave.get(k);
+    if (!arr) { arr = []; vinPorChave.set(k, arr); }
+    arr.push(v);
+  }
+  for (const arr of vinPorChave.values())
+    arr.sort((x, y) => {
+      const px = x.prioridade ?? Number.POSITIVE_INFINITY, py = y.prioridade ?? Number.POSITIVE_INFINITY;
+      if (px !== py) return px < py ? -1 : 1;
+      return x.oc_tecido_item_id < y.oc_tecido_item_id ? -1 : x.oc_tecido_item_id > y.oc_tecido_item_id ? 1 : 0;
+    });
+  const usado = new Map<string, number>();
+
+  type SlotInfo = { slot: PtSlot; ocIds: string[]; enviado: boolean };
+  const slotsInfo: SlotInfo[] = [];
   for (const sub of arvore.subcolecoes ?? []) for (const ln of sub.linhas ?? []) for (const slot of ln.slots ?? []) {
     if (!slot.id) continue;
     const devOc = slot.modelo_id ? (vinculoOcMap[slot.modelo_id] ?? []) : [];
     const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
     if (!ocIds.length) continue;
-    const enviado = !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id);
-    // metros por parcela: COM variante (perVar) e SEM variante (por artigo) — a atribuição por OC
-    // filtra pelo artigo da OC e, quando há o mapa, pela COR da OC (parcela com variante).
-    const semVarPorArtigo = new Map<string, number>();
-    const perVar = new Map<string, { artigoId: string | null; metros: number }>();
+    slotsInfo.push({ slot, ocIds, enviado: !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id) });
+  }
+  // enviados à Explosão primeiro (já consumiram), depois a ordem da vaga (sort estável)
+  slotsInfo.sort((a, b) => Number(b.enviado) - Number(a.enviado));
+
+  for (const { slot, ocIds, enviado } of slotsInfo) {
+    const usaDetalhe = !!slot.modelo_id && ocIds === (vinculoOcMap[slot.modelo_id] ?? []);
+    type Parcela = { vid: string | null; artigoId: string | null; tipo: string; numero: number; metros: number };
+    const parcelas = new Map<string, Parcela>();
     for (const mat of slot.materiais ?? []) for (const v of mat.variantes ?? []) {
       const metros = necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
       if (metros <= 0) continue;
+      const tipo = mat.tipo ?? "tecido", numero = Number(mat.numero) || 1;
       if (v.variante_tecido_id) {
-        const cur = perVar.get(v.variante_tecido_id) ?? { artigoId: mat.artigo_id ?? null, metros: 0 };
+        const k = `${tipo}|${numero}|v:${v.variante_tecido_id}`;
+        const cur = parcelas.get(k) ?? { vid: v.variante_tecido_id, artigoId: mat.artigo_id ?? null, tipo, numero, metros: 0 };
         cur.metros += metros;
-        perVar.set(v.variante_tecido_id, cur);
+        parcelas.set(k, cur);
       } else if (mat.artigo_id) {
-        semVarPorArtigo.set(mat.artigo_id, (semVarPorArtigo.get(mat.artigo_id) ?? 0) + metros);
+        const k = `${tipo}|${numero}|a:${mat.artigo_id}`;
+        const cur = parcelas.get(k) ?? { vid: null, artigoId: mat.artigo_id, tipo, numero, metros: 0 };
+        cur.metros += metros;
+        parcelas.set(k, cur);
       }
     }
     for (const ocId of ocIds) {
-      let mOc = 0;
-      for (const [aid, metros] of semVarPorArtigo) if (pertence(ocId, aid)) mOc += metros;
-      for (const [vid, pv] of perVar) if (pv.artigoId && pertence(ocId, pv.artigoId) && varPertence(ocId, vid)) mOc += pv.metros;
-      reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + mOc);
+      reservPorOc.set(ocId, reservPorOc.get(ocId) ?? 0);
       nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
-      if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + mOc);
-      for (const [vid, pv] of perVar) {
-        if (!pertence(ocId, pv.artigoId) || !varPertence(ocId, vid)) continue;
-        const k = `${ocId}|${vid}`;
-        reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + pv.metros);
-        if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + pv.metros);
+    }
+    for (const p of parcelas.values()) {
+      // candidatos elegíveis (artigo/cor da OC) na ordem do vínculo (prioridade) ou do array
+      const elegivel = (ocId: string) => pertence(ocId, p.artigoId) && (!p.vid || varPertence(ocId, p.vid));
+      let cands: { ocId: string; chave: string; quantidade_m?: number | null }[] = [];
+      const linhas = usaDetalhe ? (vinPorChave.get(`${slot.modelo_id}|${p.tipo}|${p.numero}`) ?? []) : [];
+      const chaveDe = (ocId: string) => (p.vid ? `${ocId}|${p.vid}` : `${ocId}|artigo:${p.artigoId}`);
+      if (linhas.length) {
+        const sel = p.vid ? linhas.filter((l) => l.variante_tecido_id === p.vid) : linhas.filter((l) => !l.variante_tecido_id || l.artigo_id === p.artigoId);
+        const vistos = new Set<string>();
+        for (const l of sel) {
+          if (!elegivel(l.oc_tecido_id) || !ocIds.includes(l.oc_tecido_id)) continue;
+          if (!p.vid) { // sem variante: 1 candidato por OC, na ordem da menor prioridade (sem limite quantidade_m)
+            if (vistos.has(l.oc_tecido_id)) continue;
+            vistos.add(l.oc_tecido_id);
+            cands.push({ ocId: l.oc_tecido_id, chave: chaveDe(l.oc_tecido_id) });
+          } else cands.push({ ocId: l.oc_tecido_id, chave: chaveDe(l.oc_tecido_id), quantidade_m: l.quantidade_m });
+        }
       }
+      if (!cands.length) cands = ocIds.filter(elegivel).map((ocId) => ({ ocId, chave: chaveDe(ocId) }));
+      if (!cands.length) continue;
+      const partes = repartirDemanda(p.metros, cands, opts?.capacidade, usado);
+      cands.forEach((c, i) => {
+        const m = partes[i];
+        if (m <= 0) return;
+        reservPorOc.set(c.ocId, (reservPorOc.get(c.ocId) ?? 0) + m);
+        if (enviado) comprometidoPorOc.set(c.ocId, (comprometidoPorOc.get(c.ocId) ?? 0) + m);
+        if (p.vid) {
+          const k = `${c.ocId}|${p.vid}`;
+          reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + m);
+          if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + m);
+        }
+      });
     }
   }
   return { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar };

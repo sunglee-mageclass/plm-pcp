@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub, dedupVariantes, buildMateriaisAplicar, coberturaVar, aComprarVivoVar, aComprarVivoPorArtigo, necVivoPorVariante, type CoberturaVarRow } from "@/lib/plan-tecido/calc";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub, repartirDemanda, type VinculoDetalhe, dedupVariantes, buildMateriaisAplicar, coberturaVar, aComprarVivoVar, aComprarVivoPorArtigo, necVivoPorVariante, type CoberturaVarRow } from "@/lib/plan-tecido/calc";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
@@ -195,16 +195,18 @@ describe("distribuirGrade", () => {
     expect(d.reservPorOcVar.size).toBe(0);              // por-variante descarta (sem id) — divergência documentada
   });
 
-  it("detalheOc: mesmo slot em 2 OCs soma o slot inteiro em CADA OC (comportamento documentado)", () => {
+  it("detalheOc: mesmo slot em 2 OCs SEM detalhe/capacidade reparte em SEQUÊNCIA (nunca N×): tudo na 1ª livre, sobra na última", () => {
     const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
       { id: "s1", modelo_id: "m1", materiais: [{ artigo_id: "A", artigo_nome: "V", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
         variantes: [{ variante_tecido_id: "v1", label: "x", ordem: 1, multiplicador: 1, grades: {}, grade_total: 10 }] }] } as unknown as PtSlot,
     ] }] }] };
     const d = detalheOc(arv, { m1: ["oc1", "oc2"] }, {}, new Set());
-    expect(d.reservPorOc.get("oc1")).toBe(10);
-    expect(d.reservPorOc.get("oc2")).toBe(10);
-    expect(d.reservPorOcVar.get("oc1|v1")).toBe(10);
-    expect(d.reservPorOcVar.get("oc2|v1")).toBe(10);
+    const soma = (d.reservPorOc.get("oc1") ?? 0) + (d.reservPorOc.get("oc2") ?? 0);
+    expect(soma).toBeCloseTo(10, 5);                 // Σ = demanda elegível (antes: 20, N×)
+    expect(d.reservPorOc.get("oc1")).toBeCloseTo(10, 5);
+    expect(d.reservPorOc.get("oc2")).toBeCloseTo(0, 5);
+    expect(d.nPorOc.get("oc1")).toBe(1);             // nPorOc segue contando os modelos vinculados
+    expect(d.nPorOc.get("oc2")).toBe(1);
   });
 
   it("detalheOc: forro entra no total por-OC (slotMetros não filtra papel)", () => {
@@ -550,5 +552,133 @@ describe('plan-tecido/calc — "a comprar" AO VIVO', () => {
     const m = necVivoPorVariante(arv);
     expect(m.get("v1")).toBeCloseTo(100, 5); // 90 + 10
     expect(m.size).toBe(1);                  // a cor planejada (sem id) não entra
+  });
+});
+
+describe("plan-tecido/calc — D5b repartição da demanda entre OCs vinculadas (P-168 A)", () => {
+  const mat = (aid: string, tipo: string, numero: number, vars: [string | null, number][]) => ({
+    artigo_id: aid, artigo_nome: aid, unidade_medida: "metro", rendimento: null, tipo, numero, consumo: 1, loss_percent: 0, ordem: 0,
+    variantes: vars.map(([vid, g], i) => ({ variante_tecido_id: vid, cor_id: vid ? undefined : "cor", label: "x", ordem: i + 1, multiplicador: 1, grades: {}, grade_total: g })),
+  });
+  const arvDe = (slots: any[]): PtArvore => ({ colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots }] }] });
+  const vin = (o: Partial<VinculoDetalhe> & { oc_tecido_id: string; oc_tecido_item_id: string }): VinculoDetalhe => ({
+    modelo_id: "m1", tipo: "tecido", numero: 1, ordem: 1, variante_tecido_id: "v1", artigo_id: "A", prioridade: 1, quantidade_m: null, ...o,
+  });
+
+  it("SUZY: 6 OCs, demanda 1.681,12, entregue 1.510,60 → Σ reservas 1.681,12 e Σ sobras −170,52", () => {
+    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", "tecido", 1, [["v1", 1681.12]])] }]);
+    const entregues = [300, 300, 300, 300, 300, 10.6];
+    const ocs = entregues.map((_, i) => `oc${i + 1}`);
+    const vinculos = ocs.map((oc, i) => vin({ oc_tecido_id: oc, oc_tecido_item_id: `it${i + 1}`, prioridade: i + 1 }));
+    const capacidade = new Map(ocs.map((oc, i) => [`${oc}|v1`, entregues[i]] as [string, number]));
+    const d = detalheOc(arv, { m1: ocs }, {}, new Set(), undefined, undefined, { vinculos, capacidade });
+    const reservas = ocs.map((oc) => d.reservPorOc.get(oc) ?? 0);
+    expect(reservas.reduce((a, b) => a + b, 0)).toBeCloseTo(1681.12, 5);
+    const sobras = ocs.map((oc, i) => contabilizarOc(d.reservPorOc.get(oc) ?? 0, 0, 0, entregues[i]).sobra);
+    expect(sobras.reduce((a, b) => a + b, 0)).toBeCloseTo(-170.52, 5);
+    expect(reservas[0]).toBeCloseTo(300, 5);
+    expect(reservas[5]).toBeCloseTo(181.12, 5);       // a sobra vai pra ÚLTIMA OC
+    expect(ocs.reduce((a, oc) => a + (d.reservPorOcVar.get(`${oc}|v1`) ?? 0), 0)).toBeCloseTo(1681.12, 5);
+  });
+
+  it("respeita a prioridade (não a ordem do array) e desempata por oc_tecido_item_id", () => {
+    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", "tecido", 1, [["v1", 100]])] }]);
+    const vinculos = [
+      vin({ oc_tecido_id: "ocB", oc_tecido_item_id: "i2", prioridade: 2 }),
+      vin({ oc_tecido_id: "ocA", oc_tecido_item_id: "i1", prioridade: 1 }),
+      vin({ oc_tecido_id: "ocN", oc_tecido_item_id: "i0", prioridade: null }),
+    ];
+    const capacidade = new Map([["ocA|v1", 60], ["ocB|v1", 30], ["ocN|v1", 500]]);
+    const d = detalheOc(arv, { m1: ["ocB", "ocA", "ocN"] }, {}, new Set(), undefined, undefined, { vinculos, capacidade });
+    expect(d.reservPorOc.get("ocA")).toBeCloseTo(60, 5);
+    expect(d.reservPorOc.get("ocB")).toBeCloseTo(30, 5);
+    expect(d.reservPorOc.get("ocN")).toBeCloseTo(10, 5); // prioridade NULL por último
+  });
+
+  it("quantidade_m > 0 limita o vínculo; a sobra cai na última OC", () => {
+    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", "tecido", 1, [["v1", 100]])] }]);
+    const vinculos = [
+      vin({ oc_tecido_id: "ocA", oc_tecido_item_id: "i1", prioridade: 1, quantidade_m: 25 }),
+      vin({ oc_tecido_id: "ocB", oc_tecido_item_id: "i2", prioridade: 2, quantidade_m: 0 }),
+    ];
+    const capacidade = new Map([["ocA|v1", 1000], ["ocB|v1", 30]]);
+    const d = detalheOc(arv, { m1: ["ocA", "ocB"] }, {}, new Set(), undefined, undefined, { vinculos, capacidade });
+    expect(d.reservPorOc.get("ocA")).toBeCloseTo(25, 5);
+    expect(d.reservPorOc.get("ocB")).toBeCloseTo(75, 5);
+  });
+
+  it("card 2 só usa o que o card 1 deixou livre (enviado à Explosão vai primeiro)", () => {
+    const arv = arvDe([
+      { id: "s1", modelo_id: "m1", materiais: [mat("A", "tecido", 1, [["v1", 40]])] },
+      { id: "s2", modelo_id: "m2", materiais: [mat("A", "tecido", 1, [["v1", 40]])] },
+    ]);
+    const vinculos = ["m1", "m2"].flatMap((m) => [
+      vin({ modelo_id: m, oc_tecido_id: "ocA", oc_tecido_item_id: "i1", prioridade: 1 }),
+      vin({ modelo_id: m, oc_tecido_id: "ocB", oc_tecido_item_id: "i2", prioridade: 2 }),
+    ]);
+    const capacidade = new Map([["ocA|v1", 50], ["ocB|v1", 500]]);
+    // m2 enviado: entra primeiro e leva 40 da ocA; m1 leva 10 da ocA + 30 da ocB
+    const d = detalheOc(arvDe((arv.subcolecoes[0].linhas[0].slots as any[])), { m1: ["ocA", "ocB"], m2: ["ocA", "ocB"] }, {}, new Set(["m2"]), undefined, undefined, { vinculos, capacidade });
+    expect(d.reservPorOc.get("ocA")).toBeCloseTo(50, 5);
+    expect(d.reservPorOc.get("ocB")).toBeCloseTo(30, 5);
+    expect(d.comprometidoPorOc.get("ocA")).toBeCloseTo(40, 5);
+    expect(d.comprometidoPorOc.get("ocB") ?? 0).toBeCloseTo(0, 5);
+  });
+
+  it("1 OC vinculada = igual a antes (card inteiro na OC)", () => {
+    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", "tecido", 1, [["v1", 70]])] }]);
+    const d0 = detalheOc(arv, { m1: ["oc1"] }, {}, new Set());
+    const d1 = detalheOc(arv, { m1: ["oc1"] }, {}, new Set(), undefined, undefined, {
+      vinculos: [vin({ oc_tecido_id: "oc1", oc_tecido_item_id: "i1", quantidade_m: 5 })], capacidade: new Map([["oc1|v1", 1]]),
+    });
+    expect(d0.reservPorOc.get("oc1")).toBe(70);
+    expect(d1.reservPorOc.get("oc1")).toBe(70);
+    expect(d1.reservPorOcVar.get("oc1|v1")).toBe(70);
+  });
+
+  it("sem variante: reparte por ARTIGO, filtrando OCs que não têm o artigo", () => {
+    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", "tecido", 1, [[null, 100]])] }]);
+    const vinculos = [
+      vin({ oc_tecido_id: "ocX", oc_tecido_item_id: "i0", prioridade: 1, variante_tecido_id: null, artigo_id: "Z" }),
+      vin({ oc_tecido_id: "ocA", oc_tecido_item_id: "i1", prioridade: 2, variante_tecido_id: null, artigo_id: "A" }),
+      vin({ oc_tecido_id: "ocB", oc_tecido_item_id: "i2", prioridade: 3, variante_tecido_id: null, artigo_id: "A" }),
+    ];
+    const ocArtigos = new Map([["ocX", new Set(["Z"])], ["ocA", new Set(["A"])], ["ocB", new Set(["A"])]]);
+    const capacidade = new Map([["ocA|artigo:A", 40], ["ocB|artigo:A", 500]]);
+    const d = detalheOc(arv, { m1: ["ocX", "ocA", "ocB"] }, {}, new Set(), ocArtigos, undefined, { vinculos, capacidade });
+    expect(d.reservPorOc.get("ocX") ?? 0).toBe(0);
+    expect(d.reservPorOc.get("ocA")).toBeCloseTo(40, 5);
+    expect(d.reservPorOc.get("ocB")).toBeCloseTo(60, 5);
+  });
+
+  it("detalhe não carregado: ordem do array, sem limite quantidade_m, sempre em sequência (Σ = demanda, nunca N×)", () => {
+    const arv = arvDe([{ id: "s1", modelo_id: "m1", materiais: [mat("A", "tecido", 1, [["v1", 100]])] }]);
+    const capacidade = new Map([["oc1|v1", 30], ["oc2|v1", 30], ["oc3|v1", 30]]);
+    const d = detalheOc(arv, { m1: ["oc1", "oc2", "oc3"] }, {}, new Set(), undefined, undefined, { capacidade });
+    expect(d.reservPorOc.get("oc1")).toBeCloseTo(30, 5);
+    expect(d.reservPorOc.get("oc2")).toBeCloseTo(30, 5);
+    expect(d.reservPorOc.get("oc3")).toBeCloseTo(40, 5);
+    const d2 = detalheOc(arv, { m1: ["oc1", "oc2", "oc3"] }, {}, new Set());
+    expect([...d2.reservPorOc.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(100, 5);
+  });
+
+  it("repartirDemanda: Σ das partes = metros, também com capacidade zerada", () => {
+    const usado = new Map<string, number>();
+    const r = repartirDemanda(55, [{ chave: "a" }, { chave: "b" }], new Map([["a", 0], ["b", 0]]), usado);
+    expect(r.reduce((a, b) => a + b, 0)).toBeCloseTo(55, 5);
+    expect(r[1]).toBeCloseTo(55, 5);
+  });
+
+  it("Resumo e Drawer passam o MESMO 7º parâmetro a detalheOc (asserção de fonte)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const chamada = (f: string) => {
+      const src = readFileSync(f, "utf8");
+      const m = src.match(/detalheOc\(([^;]*)\);/);
+      return (m?.[1] ?? "").replace(/\s+/g, "");
+    };
+    const r = chamada("src/components/plan-tecido/ResumoPanel.tsx");
+    const d = chamada("src/components/plan-tecido/PlanTecidoDrawer.tsx");
+    expect(r).toContain("{vinculos:vinculosDetalhe,capacidade}");
+    expect(d).toBe(r);
   });
 });
