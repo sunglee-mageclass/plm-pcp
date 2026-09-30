@@ -6,7 +6,7 @@
 // Este módulo ESPELHA essa regra no front para a pré-checagem SÓ-LEITURA (R6 do G-plano) que o Sheet do Planejamento e a
 // edição em lote rodam ANTES de qualquer gravação — sem ela, a grade da revenda (`salvar_grade_revenda`, que grava ANTES
 // do cabeçalho) já teria comitado quando o banco recusasse (card meio salvo). A recusa do banco continua sendo a rede de
-// segurança; a tela traduz o prefixo em `erro-mensagem.ts`.
+// segurança; a tela traduz o prefixo em `erro-mensagem.ts` (texto do caminho do banco, sem apontar tela).
 //
 // Regra (idêntica ao gatilho): só quando a CATEGORIA do card muda para um valor não-nulo (NULL nunca é copiado), a
 // categoria nova tem grupo, o card é comprado (revenda → produtos_acabados/ocs_p_acabado; importado →
@@ -17,19 +17,67 @@ import { ehOrigemComprada } from "@/lib/origem";
 
 export const PREFIXO_CATEGORIA_ACESSORIO_PEDIDO = "categoria_acessorio_com_pedido:";
 
+// Textos POR CAMINHO (fix round 1 da review do front, M1(a)/L2/L3):
+//  • recusa do BANCO (P0001 traduzido em erro-mensagem.ts): vale para o Sheet, a edição em lote e qualquer outro gravador;
+//    o UPDATE do card inteiro é desfeito, mas num Salvar do Sheet algo gravado ANTES dele (ex.: a grade da revenda, numa
+//    corrida com uma OC criada no meio) pode ter ficado — por isso fala da ALTERAÇÃO da Categoria, não de "nada foi salvo";
+//    e não aponta tela nenhuma (com o módulo PA/PI desligado a tela do produto nem aparece);
+//  • pré-checagem (Sheet / lote): roda ANTES de qualquer gravação, então "nada foi salvo" é verdade; só chega aqui quando
+//    o produto é visível (módulo ligado), então dá a dica POR FAMÍLIA de onde desvincular (PA: tela Produto Acabado; PI:
+//    formulário da OC do Importado).
 export const TEXTO_CATEGORIA_ACESSORIO_PEDIDO =
-  "Este produto já tem pedido (OC) e a nova Categoria mudaria o grupo dele entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nada foi salvo. Escolha uma categoria do mesmo tipo de grupo ou desvincule a OC na tela do produto.";
+  "A troca de Categoria foi recusada: o produto deste card tem pedido (OC) e o grupo dele mudaria entre Acessórios e outro grupo — a grade do pedido deixaria de bater. A alteração da Categoria não foi gravada; escolha uma categoria do mesmo tipo de grupo.";
 
-/** Edição em lote: nomeia os cards barrados (o lote inteiro é recusado — 1 UPDATE só). */
-export function textoBloqueioCategoriaLote(nomes: readonly string[]): string {
-  const lista = nomes.map((n) => `"${n}"`).join(", ");
-  const quem = nomes.length === 1 ? `O card ${lista} tem` : `${nomes.length} cards (${lista}) têm`;
-  return `${quem} produto com pedido (OC) e a nova Categoria mudaria o grupo entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nada foi salvo. Tire esses cards da seleção ou escolha uma categoria do mesmo tipo de grupo.`;
+export type TipoProdutoEspelho = "PA" | "PI";
+export type BloqueioCategoria = { modeloId: string; nome: string; ref: string | null; tipo: TipoProdutoEspelho };
+
+const DICA_DESVINCULAR: Record<TipoProdutoEspelho, string> = {
+  PA: "desvincule a OC na tela Produto Acabado",
+  PI: "desvincule o produto no formulário da OC do Produto Importado",
+};
+function dicas(tipos: readonly TipoProdutoEspelho[]): string {
+  const us = [...new Set(tipos)].sort();
+  return us.map((t) => DICA_DESVINCULAR[t]).join(" ou ");
 }
 
-/** Erro no MESMO formato da recusa do banco (code P0001 + prefixo) — `mensagemErro` traduz os dois igual. */
-export function erroCategoriaAcessorioPedido(): Error & { code: string } {
-  return Object.assign(new Error(`${PREFIXO_CATEGORIA_ACESSORIO_PEDIDO} produto com pedido nao pode trocar entre Acessorios e outro grupo pela Categoria do card`), { code: "P0001" });
+/** Rótulo do card na mensagem: nome; sem nome → "(sem nome)" + REF quando houver (L1). */
+export function rotuloCardBloqueado(b: Pick<BloqueioCategoria, "nome" | "ref">): string {
+  const nome = (b.nome ?? "").trim();
+  if (nome) return `"${nome}"`;
+  const ref = (b.ref ?? "").trim();
+  return ref ? `(sem nome) REF ${ref}` : "(sem nome)";
+}
+
+/** Sheet do Planejamento (pré-checagem, ANTES de gravar). */
+export function textoBloqueioCategoriaCard(b: Pick<BloqueioCategoria, "tipo">): string {
+  return `Não dá para trocar a Categoria: o produto deste card tem pedido (OC) e o grupo dele mudaria entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nada foi salvo. Escolha uma categoria do mesmo tipo de grupo ou ${dicas([b.tipo])}.`;
+}
+
+/** Edição em lote (pré-checagem, ANTES do UPDATE único): nomeia os cards barrados. */
+export function textoBloqueioCategoriaLote(bs: readonly Pick<BloqueioCategoria, "nome" | "ref" | "tipo">[]): string {
+  const lista = bs.map(rotuloCardBloqueado).join(", ");
+  const quem = bs.length === 1 ? `O card ${lista} tem` : `${bs.length} cards (${lista}) têm`;
+  return `${quem} produto com pedido (OC) e a nova Categoria mudaria o grupo entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nenhum card foi alterado. Tire esses cards da seleção, escolha uma categoria do mesmo tipo de grupo ou ${dicas(bs.map((b) => b.tipo))}.`;
+}
+
+/** Sheet: o que o `mutationFn` passa para a pré-checagem (PURO — L5 da review do front: testa a fiação do gancho). */
+export function argsConferirCategoria(o: {
+  isEdit: boolean;
+  modeloId: string | null;
+  payload: Record<string, unknown>;
+  servidorModelo: { origem?: string | null; categoria_principal_id?: string | null } | null | undefined;
+  baseCategoria: string | null | undefined;
+  draftOrigem: string | null | undefined;
+}): { precisa: boolean; origem: string | null | undefined; categoriaNova: string | null | undefined } {
+  const origem = "origem" in o.payload ? (o.payload.origem as string | null) : (o.servidorModelo?.origem ?? o.draftOrigem);
+  const categoriaNova = "categoria_principal_id" in o.payload ? (o.payload.categoria_principal_id as string | null) : undefined;
+  const precisa = !!o.modeloId && precisaConferirCategoria({
+    isEdit: o.isEdit,
+    origem,
+    categoriaPayload: categoriaNova,
+    categoriaServidor: o.servidorModelo ? o.servidorModelo.categoria_principal_id : o.baseCategoria,
+  });
+  return { precisa, origem, categoriaNova };
 }
 
 /** Espelho PURO da recusa do gatilho para UM produto. */
@@ -80,15 +128,15 @@ async function ler<T>(p: Resp<T>): Promise<T[]> {
 export async function conferirCategoriaAcessorioPedido(
   client: ClienteLeitura,
   o: { modeloIds: readonly string[]; categoriaNova: string | null | undefined; origemNova?: string | null },
-): Promise<{ modeloId: string; nome: string }[]> {
+): Promise<BloqueioCategoria[]> {
   if (!o.categoriaNova || o.modeloIds.length === 0) return [];
   const [cat] = await ler<{ id: string; grupo_id: string | null }>(
     client.from("categorias_produto").select("id, grupo_id").eq("id", o.categoriaNova));
   const grupoNovo = cat?.grupo_id ?? null;
   if (!grupoNovo) return [];
 
-  const cards = await ler<{ id: string; nome: string | null; origem: string | null; categoria_principal_id: string | null }>(
-    client.from("modelos").select("id, nome, origem, categoria_principal_id").in("id", o.modeloIds));
+  const cards = await ler<{ id: string; nome: string | null; ref: string | null; origem: string | null; categoria_principal_id: string | null }>(
+    client.from("modelos").select("id, nome, ref, origem, categoria_principal_id").in("id", o.modeloIds));
   const mudam = cards
     .map((m) => ({ ...m, origemEfetiva: o.origemNova ?? m.origem }))
     .filter((m) => ehOrigemComprada(m.origemEfetiva) && m.categoria_principal_id !== o.categoriaNova);
@@ -121,7 +169,7 @@ export async function conferirCategoriaAcessorioPedido(
       client.from("ocs_importado").select("produto_importado_id").in("produto_importado_id", ocPi)) : []).map((r) => r.produto_importado_id),
   ]);
 
-  const nomeCard = new Map(mudam.map((m) => [m.id, m.nome ?? ""]));
+  const card = new Map(mudam.map((m) => [m.id, m]));
   return cruzam
     .filter((p) => cruzaAcessorioComPedido({
       categoriaAntes: mudam.find((m) => m.id === p.modelo_id)?.categoria_principal_id ?? null,
@@ -132,5 +180,5 @@ export async function conferirCategoriaAcessorioPedido(
       grupoProdutoNome: p.grupo_id ? nomeGrupo.get(p.grupo_id) ?? null : null,
       temPedido: comPedido.has(p.id),
     }))
-    .map((p) => ({ modeloId: p.modelo_id, nome: nomeCard.get(p.modelo_id) ?? "" }));
+    .map((p) => ({ modeloId: p.modelo_id, nome: card.get(p.modelo_id)?.nome ?? "", ref: card.get(p.modelo_id)?.ref ?? null, tipo: p.tipo }));
 }

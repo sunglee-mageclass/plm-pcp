@@ -14,7 +14,7 @@ import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
-import { conferirCategoriaAcessorioPedido, erroCategoriaAcessorioPedido, precisaConferirCategoria, type ClienteLeitura } from "@/lib/categoria-card-produto";
+import { argsConferirCategoria, conferirCategoriaAcessorioPedido, textoBloqueioCategoriaCard, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
 import { rotuloDaColuna } from "@/lib/integracao/campos";
@@ -474,21 +474,22 @@ export function usePlanejamentoSave({
       // a Categoria de um card comprado cujo produto TEM pedido quando o grupo mudaria entre Acessórios e outro grupo —
       // recusado só no UPDATE do cabeçalho, o card ficaria meio salvo (grade gravada, resto não). Mesma regra do banco
       // (`src/lib/categoria-card-produto.ts`); só consulta o servidor quando ESTE save troca a categoria de um comprado
-      // já salvo. Recusa = erro no formato do banco (P0001 + prefixo) → o `onError` mostra o texto PT; nada foi gravado.
+      // já salvo (argumentos montados pela função PURA `argsConferirCategoria`, testada). Recusa = texto PT próprio deste
+      // caminho (nada foi gravado) → o `onError` mostra via mensagemErro.
       // A recusa do banco continua valendo como rede de segurança (corrida com uma OC criada neste meio-tempo).
       {
-        const servidorModelo = isEdit && modeloId ? qc.getQueryData<any>(["modelo", modeloId]) : null;
-        const origemDoSave = "origem" in payload ? payload.origem : (servidorModelo?.origem ?? d.origem);
-        if (modeloId && precisaConferirCategoria({
-          isEdit,
-          origem: origemDoSave,
-          categoriaPayload: "categoria_principal_id" in payload ? payload.categoria_principal_id : undefined,
-          categoriaServidor: servidorModelo ? servidorModelo.categoria_principal_id : baseRef.current?.draft.categoria_principal_id,
-        })) {
+        const conferir = argsConferirCategoria({
+          isEdit, modeloId, payload,
+          servidorModelo: isEdit && modeloId ? qc.getQueryData<any>(["modelo", modeloId]) : null,
+          baseCategoria: baseRef.current?.draft.categoria_principal_id,
+          draftOrigem: d.origem,
+        });
+        if (modeloId && conferir.precisa) {
           const bloqueados = await conferirCategoriaAcessorioPedido(supabase as unknown as ClienteLeitura, {
-            modeloIds: [modeloId], categoriaNova: payload.categoria_principal_id, origemNova: origemDoSave,
+            modeloIds: [modeloId], categoriaNova: conferir.categoriaNova, origemNova: conferir.origem,
           });
-          if (bloqueados.length > 0) throw erroCategoriaAcessorioPedido();
+          // Pré-checagem = ANTES de qualquer gravação: aqui "nada foi salvo" é verdade (texto próprio, com a dica da família).
+          if (bloqueados.length > 0) throw new Error(textoBloqueioCategoriaCard(bloqueados[0]));
         }
       }
       let savedId: string | null = isEdit ? modeloId : null;

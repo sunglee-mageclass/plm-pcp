@@ -114,7 +114,7 @@ export function BulkEditDialog({
         const bloqueados = await conferirCategoriaAcessorioPedido(supabase as unknown as ClienteLeitura, {
           modeloIds: ids, categoriaNova: patch.categoria_principal_id, origemNova: patch.origem ?? null,
         });
-        if (bloqueados.length > 0) throw new Error(textoBloqueioCategoriaLote(bloqueados.map((b) => b.nome)));
+        if (bloqueados.length > 0) throw new Error(textoBloqueioCategoriaLote(bloqueados));
       }
       const { error } = await supabase.from("modelos").update(patch as any).in("id", ids);
       if (error) throw error;

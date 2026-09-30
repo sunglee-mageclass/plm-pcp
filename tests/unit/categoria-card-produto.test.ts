@@ -7,8 +7,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  cruzaAcessorioComPedido, precisaConferirCategoria, conferirCategoriaAcessorioPedido, erroCategoriaAcessorioPedido,
-  textoBloqueioCategoriaLote, PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, TEXTO_CATEGORIA_ACESSORIO_PEDIDO, type ClienteLeitura,
+  cruzaAcessorioComPedido, precisaConferirCategoria, conferirCategoriaAcessorioPedido, argsConferirCategoria,
+  textoBloqueioCategoriaLote, textoBloqueioCategoriaCard, rotuloCardBloqueado,
+  PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, TEXTO_CATEGORIA_ACESSORIO_PEDIDO, type ClienteLeitura,
 } from "@/lib/categoria-card-produto";
 import { mensagemErro } from "@/lib/erro-mensagem";
 
@@ -53,6 +54,33 @@ describe("precisaConferirCategoria (quando o Sheet vai ao servidor)", () => {
   });
 });
 
+describe("argsConferirCategoria (fiação do gancho do Sheet — L5)", () => {
+  const base = { isEdit: true, modeloId: "m1", baseCategoria: "cBase", draftOrigem: "revenda" as string | null };
+  it("categoria vem do PAYLOAD e é comparada com o SERVIDOR (cache ['modelo', id]), não com o rascunho", () => {
+    const r = argsConferirCategoria({ ...base, payload: { categoria_principal_id: "c2", origem: "revenda" },
+      servidorModelo: { origem: "revenda", categoria_principal_id: "c1" } });
+    expect(r).toEqual({ precisa: true, origem: "revenda", categoriaNova: "c2" });
+    // igual ao servidor -> não consulta (mesmo que a base do merge seja outra)
+    expect(argsConferirCategoria({ ...base, payload: { categoria_principal_id: "c1" },
+      servidorModelo: { origem: "revenda", categoria_principal_id: "c1" } }).precisa).toBe(false);
+  });
+  it("origem: a do payload quando o save a troca; senão a do servidor; sem cache, a do rascunho", () => {
+    expect(argsConferirCategoria({ ...base, payload: { categoria_principal_id: "c2", origem: "importado" },
+      servidorModelo: { origem: "interno", categoria_principal_id: "c1" } }).origem).toBe("importado");
+    expect(argsConferirCategoria({ ...base, payload: { categoria_principal_id: "c2" },
+      servidorModelo: { origem: "interno", categoria_principal_id: "c1" } })).toEqual({ precisa: false, origem: "interno", categoriaNova: "c2" });
+    expect(argsConferirCategoria({ ...base, payload: { categoria_principal_id: "c2" }, servidorModelo: null }))
+      .toEqual({ precisa: true, origem: "revenda", categoriaNova: "c2" });
+  });
+  it("sem cache usa a base do merge; sem modeloId/card novo/categoria fora do payload não consulta", () => {
+    expect(argsConferirCategoria({ ...base, payload: { categoria_principal_id: "cBase" }, servidorModelo: undefined }).precisa).toBe(false);
+    expect(argsConferirCategoria({ ...base, modeloId: null, payload: { categoria_principal_id: "c2" }, servidorModelo: null }).precisa).toBe(false);
+    expect(argsConferirCategoria({ ...base, isEdit: false, payload: { categoria_principal_id: "c2" }, servidorModelo: null }).precisa).toBe(false);
+    expect(argsConferirCategoria({ ...base, payload: {}, servidorModelo: { origem: "revenda", categoria_principal_id: "c1" } }))
+      .toEqual({ precisa: false, origem: "revenda", categoriaNova: undefined });
+  });
+});
+
 // Fake de cliente: SÓ leitura (select + in/eq). Qualquer outra chamada explode — prova que a pré-checagem não grava.
 type Linha = Record<string, unknown>;
 function fake(db: Record<string, Linha[]>) {
@@ -80,10 +108,10 @@ const DB = (): Record<string, Linha[]> => ({
   categorias_produto: [{ id: "cA", grupo_id: "gA" }, { id: "cT", grupo_id: "gT" }, { id: "cSem", grupo_id: null }],
   grupos_produto: [{ id: "gA", nome: "Acessórios" }, { id: "gV", nome: "Vestidos" }, { id: "gT", nome: "Tops" }],
   modelos: [
-    { id: "m1", nome: "Vestido Ana", origem: "revenda", categoria_principal_id: "cV" },
-    { id: "m2", nome: "Vestido Bia", origem: "revenda", categoria_principal_id: "cV" },
-    { id: "m3", nome: "Blusa Imp", origem: "importado", categoria_principal_id: "cV" },
-    { id: "m4", nome: "Interno", origem: "interno", categoria_principal_id: "cV" },
+    { id: "m1", nome: "Vestido Ana", ref: "VE0001", origem: "revenda", categoria_principal_id: "cV" },
+    { id: "m2", nome: "Vestido Bia", ref: null, origem: "revenda", categoria_principal_id: "cV" },
+    { id: "m3", nome: "", ref: "IM0003", origem: "importado", categoria_principal_id: "cV" },
+    { id: "m4", nome: "Interno", ref: null, origem: "interno", categoria_principal_id: "cV" },
   ],
   produtos_acabados: [{ id: "p1", modelo_id: "m1", grupo_id: "gV" }, { id: "p2", modelo_id: "m2", grupo_id: "gV" }],
   produtos_importados: [{ id: "i3", modelo_id: "m3", grupo_id: "gV" }],
@@ -95,7 +123,7 @@ describe("conferirCategoriaAcessorioPedido (pré-checagem só-leitura)", () => {
   it("lote: barra só os cards com pedido que cruzariam Acessórios (PA e PI); sem pedido e interno passam", async () => {
     const { client } = fake(DB());
     const r = await conferirCategoriaAcessorioPedido(client, { modeloIds: ["m1", "m2", "m3", "m4"], categoriaNova: "cA" });
-    expect(r).toEqual([{ modeloId: "m1", nome: "Vestido Ana" }, { modeloId: "m3", nome: "Blusa Imp" }]);
+    expect(r).toEqual([{ modeloId: "m1", nome: "Vestido Ana", ref: "VE0001", tipo: "PA" }, { modeloId: "m3", nome: "", ref: "IM0003", tipo: "PI" }]);
   });
   it("sem cruzar Acessórios (Vestidos -> Tops) = nada barrado", async () => {
     const { client } = fake(DB());
@@ -121,7 +149,7 @@ describe("conferirCategoriaAcessorioPedido (pré-checagem só-leitura)", () => {
     const f2 = fake(db2);
     expect(await conferirCategoriaAcessorioPedido(f2.client, { modeloIds: ["m4"], categoriaNova: "cA" })).toEqual([]);
     expect(await conferirCategoriaAcessorioPedido(f2.client, { modeloIds: ["m4"], categoriaNova: "cA", origemNova: "revenda" }))
-      .toEqual([{ modeloId: "m4", nome: "Interno" }]);
+      .toEqual([{ modeloId: "m4", nome: "Interno", ref: null, tipo: "PA" }]);
   });
   it("erro de leitura sobe (nada é gravado; o save não segue às cegas)", async () => {
     const client = { from: () => ({ select: () => ({ eq: () => Promise.resolve({ data: null, error: { message: "boom" } }), in: () => Promise.resolve({ data: null, error: null }) }) }) };
@@ -130,21 +158,32 @@ describe("conferirCategoriaAcessorioPedido (pré-checagem só-leitura)", () => {
   });
 });
 
-describe("mensagens PT (recusa do banco e da pré-checagem)", () => {
-  it("P0001 com o prefixo ASCII do gatilho vira o texto PT; o erro da pré-checagem tem o MESMO formato", () => {
+describe("mensagens PT por caminho (recusa do banco × pré-checagem)", () => {
+  it("banco: P0001 + prefixo ASCII vira texto PT que NÃO aponta tela e NÃO diz 'nada foi salvo' (o UPDATE da Categoria é que foi desfeito)", () => {
     const doBanco = { code: "P0001", message: `${PREFIXO_CATEGORIA_ACESSORIO_PEDIDO} produto com pedido nao pode trocar entre Acessorios e outro grupo pela Categoria do card` };
     expect(mensagemErro(doBanco)).toBe(TEXTO_CATEGORIA_ACESSORIO_PEDIDO);
-    const e = erroCategoriaAcessorioPedido();
-    expect(e.code).toBe("P0001");
-    expect(e.message).toBe(doBanco.message);
-    expect(mensagemErro(e)).toBe(TEXTO_CATEGORIA_ACESSORIO_PEDIDO);
-    expect(TEXTO_CATEGORIA_ACESSORIO_PEDIDO).toMatch(/Nada foi salvo/);
+    expect(TEXTO_CATEGORIA_ACESSORIO_PEDIDO).toMatch(/A alteração da Categoria não foi gravada/);
+    expect(TEXTO_CATEGORIA_ACESSORIO_PEDIDO).not.toMatch(/Nada foi salvo|tela|formulário/i);
   });
-  it("lote: o texto nomeia os cards e passa intacto pelo mensagemErro", () => {
-    const um = textoBloqueioCategoriaLote(["Vestido Ana"]);
+  it("Sheet (pré-checagem): 'Nada foi salvo' + dica POR FAMÍLIA de onde desvincular", () => {
+    const pa = textoBloqueioCategoriaCard({ tipo: "PA" });
+    const pi = textoBloqueioCategoriaCard({ tipo: "PI" });
+    expect(pa).toMatch(/Nada foi salvo/);
+    expect(pa).toMatch(/desvincule a OC na tela Produto Acabado\.$/);
+    expect(pi).toMatch(/desvincule o produto no formulário da OC do Produto Importado\.$/);
+    expect(mensagemErro(new Error(pa), "Erro")).toBe(pa); // passa intacto (PT)
+  });
+  it("lote: nomeia os cards; sem nome vira '(sem nome)' + REF; 'Nenhum card foi alterado'; dicas das famílias presentes", () => {
+    expect(rotuloCardBloqueado({ nome: "Vestido Ana", ref: "X" })).toBe('"Vestido Ana"');
+    expect(rotuloCardBloqueado({ nome: "  ", ref: "IM0003" })).toBe("(sem nome) REF IM0003");
+    expect(rotuloCardBloqueado({ nome: "", ref: null })).toBe("(sem nome)");
+    const um = textoBloqueioCategoriaLote([{ nome: "Vestido Ana", ref: null, tipo: "PA" }]);
     expect(um).toMatch(/^O card "Vestido Ana" tem produto com pedido/);
-    const dois = textoBloqueioCategoriaLote(["Vestido Ana", "Blusa Imp"]);
-    expect(dois).toMatch(/^2 cards \("Vestido Ana", "Blusa Imp"\) têm produto com pedido/);
+    expect(um).toMatch(/Nenhum card foi alterado/);
+    expect(um).toMatch(/tela Produto Acabado\.$/);
+    const dois = textoBloqueioCategoriaLote([{ nome: "Vestido Ana", ref: null, tipo: "PA" }, { nome: "", ref: "IM0003", tipo: "PI" }]);
+    expect(dois).toMatch(/^2 cards \("Vestido Ana", \(sem nome\) REF IM0003\) têm produto com pedido/);
+    expect(dois).toMatch(/tela Produto Acabado ou desvincule o produto no formulário da OC do Produto Importado\.$/);
     expect(mensagemErro(new Error(dois), "Erro ao atualizar cards")).toBe(dois);
   });
   it("outro P0001 continua passando a própria mensagem", () => {
@@ -167,7 +206,9 @@ describe("fonte: a pré-checagem roda ANTES de qualquer gravação", () => {
     const header = src.indexOf(".update(payload)", inicio);
     expect(pre).toBeLessThan(grade);
     expect(pre).toBeLessThan(header);
-    expect(src.slice(pre, grade)).toContain("throw erroCategoriaAcessorioPedido()");
+    expect(src.slice(pre, grade)).toContain("throw new Error(textoBloqueioCategoriaCard(bloqueados[0]))");
+    // fiação: os argumentos vêm da função PURA testada acima (não de um objeto montado à mão)
+    expect(src.slice(src.lastIndexOf("argsConferirCategoria({", pre), pre)).toContain("payload,");
   });
   it("BulkEditDialog: confere ANTES do UPDATE em lote e mostra o erro por mensagemErro", () => {
     const src = ler("src/components/planejamento/BulkEditDialog.tsx");
@@ -175,7 +216,19 @@ describe("fonte: a pré-checagem roda ANTES de qualquer gravação", () => {
     const upd = src.indexOf('supabase.from("modelos").update(patch');
     expect(pre).toBeGreaterThan(0);
     expect(pre).toBeLessThan(upd);
-    expect(src.slice(pre, upd)).toContain("throw new Error(textoBloqueioCategoriaLote(");
+    expect(src.slice(pre, upd)).toContain("throw new Error(textoBloqueioCategoriaLote(bloqueados))");
     expect(src).toContain('onError: (e: unknown) => toast.error(mensagemErro(e, "Erro ao atualizar cards"))');
+  });
+});
+
+describe("Admin › Auditoria: filtro de entidade inclui os produtos do backfill da P-137 (G-migration L6)", () => {
+  it("'Produto Acabado' e 'Produto Importado' estão em ENTIDADES com o MESMO texto que a migration grava em audit_log.entidade", () => {
+    const tela = ler("src/routes/_authenticated/admin/auditoria.tsx");
+    const ent = tela.slice(tela.indexOf("const ENTIDADES = ["), tela.indexOf("];", tela.indexOf("const ENTIDADES = [")));
+    const mig = ler("supabase/migrations/20261017110000_categoria_card_para_produto_backfill.sql");
+    for (const e of ["Produto Acabado", "Produto Importado"]) {
+      expect(ent, e).toContain(`"${e}"`);
+      expect(mig, e).toContain(`'${e}'`);
+    }
   });
 });
