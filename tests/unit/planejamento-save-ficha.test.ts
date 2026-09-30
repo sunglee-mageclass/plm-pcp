@@ -1,19 +1,17 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio, contadorVoo,
   bomRecarregando, deveLimparTocadoAposSalvar, draftEnviadoComColunasDev, deveBarrarPorBomRecarregando,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
 import { normalizarDraftSalvo } from "@/components/planejamento/planejamento-detail/helpers";
-import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { mensagemErro } from "@/lib/erro-mensagem";
 
 // F3.2 — regras do Salvar unificado do Planejamento (payload do UPDATE `modelos`, rebase pós-save e
 // o retry do P0409). Fixes: receita 2419d0f do Desenvolvimento.
-const totais: TotaisBom = { tecido: 57.17, forro: 16.52, entretela: 0, aviamento: 4.9, etiqueta: 1.2, custosAdicionais: 3.5, materiaisBom: 79.79, terceirizados: 0, peca: 83.29 };
 const base = () => ({ nome: "X", tecidos_planejados: ["a"], proporcoes: { P: 1 }, custos_adicionais: [{ descricao: "B", valor: 3.5 }] } as Record<string, unknown>);
 const op = (p: Partial<Parameters<typeof aplicarColunasFicha>[1]> = {}) => ({
-  isEdit: true, podeGravarColunasDev: true, incluirDerivados: true, podeVerCustos: true,
-  totais, maoObraServidor: 35, gravaBom: false, tecidosPlanejados: ["a", "s"], ...p,
+  isEdit: true, podeGravarColunasDev: true, gravaBom: false, tecidosPlanejados: ["a", "s"], ...p,
 });
 
 describe("aplicarColunasFicha", () => {
@@ -24,26 +22,25 @@ describe("aplicarColunasFicha", () => {
     const p = aplicarColunasFicha(base(), op({ podeGravarColunasDev: false }));
     expect(p).toEqual({ nome: "X" });
   });
-  it("edição com permissão, 1ª tentativa, BOM não gravado: custos derivados SIM, tecidos_planejados NÃO", () => {
+  it("edição com permissão, BOM não gravado: tecidos_planejados NÃO; proporções SIM; NUNCA colunas de custo derivadas (o servidor deriva)", () => {
     const p = aplicarColunasFicha(base(), op());
     expect(p.tecidos_planejados).toBeUndefined();
-    expect(p).toMatchObject({ custo_tecido_total: 57.17, custo_forro_total: 16.52, custo_entretela_total: 0, custo_aviamento_total: 4.9 });
-    expect(p.custo_peca_previsto as number).toBeCloseTo(118.29);
     expect(p.proporcoes).toEqual({ P: 1 });
+    for (const k of ["custo_peca_previsto", "custo_tecido_total", "custo_forro_total", "custo_entretela_total", "custo_aviamento_total"]) {
+      expect(k in p).toBe(false);
+    }
   });
-  it("sem ver custos: não grava custo_peca_previsto (a MO vem mascarada — Dev :1914-1930)", () => {
-    expect(aplicarColunasFicha(base(), op({ podeVerCustos: false })).custo_peca_previsto).toBeUndefined();
+  it("BOM gravado: também NUNCA carrega colunas de custo derivadas", () => {
+    const p = aplicarColunasFicha(base(), op({ gravaBom: true }));
+    expect(Object.keys(p).filter((k) => k.startsWith("custo_") && k !== "custos_adicionais")).toEqual([]);
   });
-  it("retry do P0409 sem gravar o BOM (incluirDerivados=false): nenhum custo derivado", () => {
-    const p = aplicarColunasFicha(base(), op({ incluirDerivados: false }));
-    expect(p.custo_tecido_total).toBeUndefined();
-    expect(p.custo_peca_previsto).toBeUndefined();
+  it("usePlanejamentoSave.ts não tem o 2º UPDATE de custo_peca_previsto nem pecaCom(", () => {
+    const src = readFileSync("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts", "utf8");
+    expect(src).not.toMatch(/\.update\(\s*\{\s*custo_peca_previsto/);
+    expect(src).not.toContain("pecaCom(");
   });
   it("BOM gravado: tecidos_planejados = lista DERIVADA", () => {
     expect(aplicarColunasFicha(base(), op({ gravaBom: true })).tecidos_planejados).toEqual(["a", "s"]);
-  });
-  it("ficha não carregada (totais null): sem custos derivados", () => {
-    expect(aplicarColunasFicha(base(), op({ totais: null })).custo_tecido_total).toBeUndefined();
   });
 });
 

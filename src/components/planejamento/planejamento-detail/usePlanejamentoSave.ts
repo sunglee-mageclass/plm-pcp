@@ -22,7 +22,7 @@ import { invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
-import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
+import { type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import type { FichaSave } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
 import {
   aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, draftEnviadoComColunasDev,
@@ -405,9 +405,6 @@ export function usePlanejamentoSave({
         conflito.gradeConflict = true;
         throw conflito;
       }
-      // Colunas DERIVADAS do BOM: na 1ª tentativa sempre; no retry do P0409 só quando ESTE save grava o BOM (os derivados
-      // saem do MESMO BOM gravado — R5). Retry sem gravar o BOM: o BOM local (não tocado) pode estar velho.
-      const incluirDerivados = !retryRef.current || bom.gravar;
       const moLinhasEnviadas = moLinhasRef.current;
       // Fix round 1 (I1) — completa a captura (síncrona, sem `await` desde a linha acima) com `bom`/`moLinhas`
       // agora disponíveis. Os 3 campos do Item C já estavam corretos desde ANTES do await — só reafirma o
@@ -456,16 +453,12 @@ export function usePlanejamentoSave({
         const semPlanejamento = aplicarRegrasCamposPlanejamento(payload, { podeEditarPlanejamento });
         for (const k of Object.keys(payload)) if (!(k in semPlanejamento)) delete payload[k];
       }
-      // F3.2 — colunas do Desenvolvimento no UPDATE: proporções/custos adicionais (só com permissão), custos
-      // derivados do BOM e `tecidos_planejados` DERIVADO (só quando o BOM grava). Regras: save-ficha.ts.
-      const moServidor = moBaseRef.current.reduce((s, l) => s + (Number(l.valor) || 0), 0);
+      // F3.2 — colunas do Desenvolvimento no UPDATE: proporções/custos adicionais (só com permissão) e
+      // `tecidos_planejados` DERIVADO (só quando o BOM grava). Os custos derivados (custo_*_total,
+      // custo_peca_previsto) NÃO vão do navegador: o servidor os deriva. Regras: save-ficha.ts.
       aplicarColunasFicha(payload, {
         isEdit,
         podeGravarColunasDev: fichaRef.current.podeGravarColunasDev,
-        incluirDerivados,
-        podeVerCustos: fichaRef.current.podeVerCustos,
-        totais: bom.totais,
-        maoObraServidor: moServidor,
         gravaBom: bom.gravar,
         tecidosPlanejados: bom.tecidosPlanejados,
       });
@@ -669,23 +662,6 @@ export function usePlanejamentoSave({
         });
         // Ajuste (set/2026): marca a etapa que falhou (mão de obra) — ver comentário acima.
         if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }
-        // F3.2 — MO CONFIRMADA: só AGORA corrige custo_peca_previsto com a MO nova (update pontual, desenho do
-        // Dev :2140-2150). Só quando esta tentativa já mandou as colunas derivadas.
-        // Fix round 4 (item 3) — `custo_peca_previsto` é DERIVADO (Σ BOM + MO), não coluna do Dev: passa a
-        // depender de `totais != null` (a ficha estava CARREGADA na captura — ver `useFichaTecnica.capturar`),
-        // não mais de `podeGravarColunasDev`. Cenário: card ainda carregando (trava "carregando") ou usuário sem `canEdit` do
-        // Dev edita a MO no Planejamento — antes o update pontual ficava preso à trava do Dev e o
-        // `custo_peca_previsto` gravado divergia do previsto ao vivo mostrado no Sheet; agora recalcula com os
-        // totais do BOM CARREGADO (do servidor, já que travado não edita) + a MO recém-enviada. As demais
-        // colunas derivadas do Dev (`custo_*` por tipo) continuam só com `podeGravarColunasDev`, em
-        // `aplicarColunasFicha` (save-ficha.ts) — intocado.
-        if (isEdit && incluirDerivados && bom.totais && fichaRef.current.podeVerCustos) {
-          const moSomaEnviada = moLinhasEnviadas.reduce((s, l) => s + (Number(l.valor) || 0), 0);
-          const { error: pecaErr } = await (supabase.from("modelos") as any)
-            .update({ custo_peca_previsto: pecaCom(bom.totais, moSomaEnviada) })
-            .eq("id", savedId);
-          if (pecaErr) throw pecaErr;
-        }
       }
       // F3.2 — #Erro nas etapas seguintes quando o BOM gravado mudou grade/consumo/aviamento (Dev :2198-2213).
       // A RPC só marca com CAD e etapas existentes; erro aqui NÃO derruba o save (paridade: o Dev ignora).
@@ -1328,7 +1304,7 @@ export function usePlanejamentoSave({
           setConflitos(r.conflitos);
           setUltimoMerge({ atualizados: r.atualizados, conflitos: r.conflitos });
           // BOM tocado E o BOM do servidor mudou ⇒ conflito de SEÇÃO (Dev :2306-2307); o retry não acontece. BOM tocado
-          // com o do servidor IGUAL ⇒ retry normal (grava o BOM; os derivados vão junto — `incluirDerivados`).
+          // com o do servidor IGUAL ⇒ retry normal (grava o BOM).
           if (bomConflito) fichaRef.current.setConflitoBom(true);
           // Avança base/rev AQUI — o merge effect (dispara em seguida pelo mesmo refetch) vai
           // ver base===fresh e virar no-op: nada é reaplicado em dobro.

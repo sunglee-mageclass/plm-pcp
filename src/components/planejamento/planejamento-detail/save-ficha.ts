@@ -2,20 +2,12 @@
 // tests/unit/planejamento-save-ficha.test.ts. Os dois fixes vêm da receita do Desenvolvimento
 // (commit 2419d0f): re-basear no ENVIADO (não no ao vivo) e mandar no retry o draft MESCLADO.
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
-import { pecaCom, type TotaisBom, type BomCapturado } from "./ficha/ficha-calc";
+import { type BomCapturado } from "./ficha/ficha-calc";
 
 export type OpcoesColunasFicha = {
   isEdit: boolean;
   /** habilitada (interno) E carregada E `canEdit("criacao_desenvolvimento")` E sem trava. */
   podeGravarColunasDev: boolean;
-  /** true na 1ª tentativa OU quando ESTE save grava o BOM (os derivados saem do mesmo BOM gravado — R5); false no retry
-   *  do P0409 SEM gravar o BOM (o BOM local, não tocado, pode estar velho frente ao do servidor). */
-  incluirDerivados: boolean;
-  /** `criacao_planejamento:custos` OU `criacao_desenvolvimento:custos` (decisão F3 #2). */
-  podeVerCustos: boolean;
-  totais: TotaisBom | null;
-  /** Σ das linhas de MO do SERVIDOR (baseline) — o Dev grava custo_peca_previsto com ela e corrige depois (:1921-1930, :2140-2150). */
-  maoObraServidor: number;
   gravaBom: boolean;
   tecidosPlanejados: string[];
 };
@@ -29,13 +21,6 @@ export function aplicarColunasFicha(payload: Record<string, unknown>, o: OpcoesC
     delete payload.proporcoes;
     delete payload.custos_adicionais;
     return payload;
-  }
-  if (o.incluirDerivados && o.totais) {
-    payload.custo_tecido_total = o.totais.tecido;
-    payload.custo_forro_total = o.totais.forro;
-    payload.custo_entretela_total = o.totais.entretela;
-    payload.custo_aviamento_total = o.totais.aviamento;
-    if (o.podeVerCustos) payload.custo_peca_previsto = pecaCom(o.totais, o.maoObraServidor);
   }
   if (o.gravaBom) payload.tecidos_planejados = o.tecidosPlanejados;
   return payload;
