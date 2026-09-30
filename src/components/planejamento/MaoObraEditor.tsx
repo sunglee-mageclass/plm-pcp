@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
-import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, type MoLinha } from "@/lib/mao-obra";
+import { moLinhaVaiReabrir, somaAprovadaVigente, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, type MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
@@ -147,7 +147,7 @@ export function MaoObraEditor({
         </div>
       )}
       {podeVerCustos && linhas.length > 0 && (
-        <p className="text-xs text-muted-foreground">Total aprovado: {brl(linhas.reduce((s, l) => s + (l.aprovado === true ? Number(l.valor) || 0 : 0), 0))}</p>
+        <p className="text-xs text-muted-foreground">Total aprovado: {brl(somaAprovadaVigente(linhas, linhasBase))}</p>
       )}
 
       <MoReprovarDialog

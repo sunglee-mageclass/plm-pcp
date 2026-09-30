@@ -20,6 +20,8 @@ import {
 import {
   montarRef,
   numeroDaPrevia,
+  clampNumInicio,
+  numInicioValidoParaServidor,
   siglaAutoParte,
   type RefConfig,
   type RefFamilia,
@@ -182,7 +184,7 @@ export function FormatoRefCard({
     isPending: proximoCarregando,
   } = useQuery({
     queryKey: ["ref-proximo-numero", tenantId, numInicioDeb],
-    enabled: !!tenantId,
+    enabled: !!tenantId && numInicioValidoParaServidor(numInicioDeb),
     placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("ref_proximo_numero" as any, { _num_inicio: numInicioDeb });
@@ -190,7 +192,7 @@ export function FormatoRefCard({
       return data == null ? null : Number(data);
     },
   });
-  const numeroExemplo = numeroDaPrevia(proximoServidor, numInicio);
+  const numeroExemplo = numeroDaPrevia(numInicioValidoParaServidor(numInicioDeb) ? proximoServidor : null, numInicio);
 
   return (
     <Card>
@@ -270,7 +272,7 @@ export function FormatoRefCard({
                         <NumberInput
                           integer
                           value={numInicio}
-                          onChange={(e) => patch({ num_inicio: Math.max(0, Number(e.target.value) || 0) })}
+                          onChange={(e) => patch({ num_inicio: clampNumInicio(Number(e.target.value) || 0) })}
                           className="h-8"
                         />
                       </div>

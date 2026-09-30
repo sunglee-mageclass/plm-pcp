@@ -178,3 +178,18 @@ export function numeroDaPrevia(proximoServidor: number | null | undefined, numIn
   if (proximoServidor != null && Number.isFinite(Number(proximoServidor))) return Math.trunc(Number(proximoServidor));
   return numInicio ?? 10000000;
 }
+
+/** Maior "Começar em" aceito (18 dígitos, regra do servidor `^[0-9]{1,18}$`). Literal = maior double abaixo de 1e18
+ *  cuja forma decimal ainda tem 18 dígitos. */
+export const NUM_INICIO_MAX = 999999999999999900;
+
+/** Limita o "Começar em" digitado: inteiro, >= 0 e no máximo 18 dígitos. */
+export function clampNumInicio(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(Math.trunc(n), NUM_INICIO_MAX);
+}
+
+/** O valor passa na regra do servidor (`^[0-9]{1,18}$`) e pode ir para `ref_proximo_numero`? */
+export function numInicioValidoParaServidor(n: number | null | undefined): n is number {
+  return n != null && Number.isFinite(n) && /^[0-9]{1,18}$/.test(String(n));
+}

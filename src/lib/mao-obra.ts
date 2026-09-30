@@ -73,3 +73,15 @@ export function moLinhaVaiReabrir(linha: MoLinha, base: MoLinha | null | undefin
   return centavos(linha.valor) !== centavos(base.valor)
     || (linha.categoria_terceirizado_id ?? null) !== (base.categoria_terceirizado_id ?? null);
 }
+
+/**
+ * "Total aprovado" exibido no editor: Σ das linhas aprovadas, EXCETO as que vão reabrir no Salvar (valor/serviço
+ * editado e ainda não salvo — `moLinhaVaiReabrir`). `base` = linhas como estão no servidor (casadas por `id`).
+ */
+export function somaAprovadaVigente(linhas: MoLinha[], base: MoLinha[] | null | undefined): number {
+  return linhas.reduce((s, l) => {
+    if (l.aprovado !== true) return s;
+    if (moLinhaVaiReabrir(l, l.id != null ? base?.find((b) => b.id === l.id) : undefined)) return s;
+    return s + (Number(l.valor) || 0);
+  }, 0);
+}

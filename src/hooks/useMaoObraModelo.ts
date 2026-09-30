@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { moLinhasEqual } from "@/lib/mao-obra";
+import { moLinhasEqual, moLinhaVaiReabrir } from "@/lib/mao-obra";
 import type { MaoObraEditorLinha, CategoriaServicoOpt } from "@/components/planejamento/MaoObraEditor";
 
 /**
@@ -66,7 +66,9 @@ export function useMaoObraModelo(modeloId: string | null | undefined, podeVerCus
 
   const salvar = useMutation({
     mutationFn: async () => {
-      if (!modeloId) return;
+      if (!modeloId) return false;
+      // Calculado ANTES do envio (a base ainda é a do servidor): linhas decididas com valor/serviço mudado reabrem.
+      const reabriu = linhasRef.current.some((l) => l.id != null && moLinhaVaiReabrir(l, baseRef.current.find((b) => b.id === l.id)));
       const { error } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
         _modelo_id: modeloId,
         _linhas: linhasRef.current.map((l) => ({
@@ -77,8 +79,12 @@ export function useMaoObraModelo(modeloId: string | null | undefined, podeVerCus
         })),
       });
       if (error) throw error;
+      return reabriu;
     },
-    onSuccess: () => {
+    onSuccess: (reabriu) => {
+      toast.success(reabriu
+        ? "Mão de obra salva. Serviço alterado volta para pendente e precisa de nova aprovação."
+        : "Mão de obra salva.");
       setLinhasBase(linhasRef.current);
       qc.invalidateQueries({ queryKey: ["mo-resumo-card", modeloId] });
       qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });

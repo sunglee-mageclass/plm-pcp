@@ -103,3 +103,22 @@ describe("siglaFamilia — normaliza livre + default", () => {
     expect(siglaFamilia({ sigla_familia: { importado: "" } }, "importado")).toBe("M"); // vazio = default
   });
 });
+
+import { clampNumInicio, numInicioValidoParaServidor, NUM_INICIO_MAX } from "@/lib/ref-montar";
+describe("Começar em — limite de 18 dígitos", () => {
+  it("clamp limita a 18 dígitos e nunca negativo", () => {
+    expect(String(clampNumInicio(12345678901234567890)).length).toBeLessThanOrEqual(18);
+    expect(clampNumInicio(-5)).toBe(0);
+    expect(clampNumInicio(123)).toBe(123);
+    expect(clampNumInicio(1e25)).toBe(NUM_INICIO_MAX);
+  });
+  it("validação espelha ^[0-9]{1,18}$", () => {
+    expect(numInicioValidoParaServidor(0)).toBe(true);
+    expect(numInicioValidoParaServidor(NUM_INICIO_MAX)).toBe(true);
+    expect(numInicioValidoParaServidor(1e18)).toBe(false);
+    expect(numInicioValidoParaServidor(1e21)).toBe(false);
+    expect(numInicioValidoParaServidor(-1)).toBe(false);
+    expect(numInicioValidoParaServidor(1.5)).toBe(false);
+    expect(numInicioValidoParaServidor(null)).toBe(false);
+  });
+});

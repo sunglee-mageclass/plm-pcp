@@ -205,7 +205,7 @@ describe("item 9b — prévia da REF usa o número do servidor", () => {
     expect(card).toMatch(/setTimeout\(\(\) => setNumInicioDeb\(numInicio\), 300\)/);
     expect(card).toMatch(/\{proximoErro && \(/);
     expect(novo).toMatch(/\{proximoErro && <span/);
-    expect(card).toMatch(/const numeroExemplo = numeroDaPrevia\(proximoServidor, numInicio\);/);
+    expect(card).toMatch(/const numeroExemplo = numeroDaPrevia\(numInicioValidoParaServidor\(numInicioDeb\) \? proximoServidor : null, numInicio\);/);
     expect(novo).toMatch(/supabase\.rpc\("ref_proximo_numero" as any, \{\}\)/);
     expect(novo).toMatch(
       /const numeroExemplo = numeroDaPrevia\(proximoServidor, refConfig\?\.num_inicio\);/,
