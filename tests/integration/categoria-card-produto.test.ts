@@ -22,12 +22,14 @@ import { CAMPOS, LAYOUT_KEYS } from "@/lib/integracao/campos";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261017100000_categoria_card_para_produto.sql";
 const INV = "supabase/rollback/20261017100000_categoria_card_para_produto_down.sql";
+const NEUTRALIZA = "supabase/rollback/20261017100000_categoria_card_para_produto_down_neutraliza.sql";
 const MIG_B = "supabase/migrations/20261017110000_categoria_card_para_produto_backfill.sql";
 const INV_B = "supabase/rollback/20261017110000_categoria_card_para_produto_backfill_down.sql";
-const MD5_FN = "3ff558f37ef4ee75d36db77635a51268";
+const MD5_FN = "ea9edd59c5ec5eff207336dbe06a3499"; // função ATIVA (fix round 1: H1/M1)
+const MD5_NEUTRA = "bb13fa0c820f96463b877f89f8e1085b"; // corpo no-op da volta de emergência (passo 1)
 const MD5_TRG = "871039e642390c357188b6b2a1134d64";
-const MD5_RODAR = "fa343381c1d7d2ed3422255312b9fad7";
-const MD5_DESFAZER = "14780b0ee671098f3da1440481a466e4";
+const MD5_RODAR = "01191f62b141827f5f747fc5b44552fe";
+const MD5_DESFAZER = "ead14b02eab972e833596fd6f2cf9702";
 const MD5_CORE_P136 = "e5473bb29fa559408093d1a82c6ac11f";
 const T = TENANT_TESTE;
 const T2 = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // outra loja (Ave Rara) na cópia local
@@ -47,7 +49,7 @@ describe("P-137 categoria card → produto — arquivos (estático, sem banco)",
     expect(guarda).toContain("e239279ec27fe8257d31e262138b547e");
     expect(guarda).toContain("6e98c10d13c469a910c778f66354aac3");
     expect(guarda).toContain("_integracao_layout()");
-    expect(guarda).toContain(`IS DISTINCT FROM '${MD5_FN}'`);
+    expect(guarda).toContain(`NOT IN ('${MD5_FN}', '${MD5_NEUTRA}')`); // reaplicar = no-op; neutralizada = religa
     const pos = m.slice(m.indexOf("DO $pos$"), m.indexOf("END $pos$"));
     expect(pos).toContain(`IS DISTINCT FROM '${MD5_FN}'`);
     expect(pos).toContain(`IS DISTINCT FROM '${MD5_TRG}'`);
@@ -68,7 +70,7 @@ describe("P-137 categoria card → produto — arquivos (estático, sem banco)",
       "SET client_encoding = 'UTF8';\nBEGIN;\nSET LOCAL lock_timeout = '500ms';\nSET LOCAL statement_timeout = '10s';\n")).toBe(true);
     const guarda = v.slice(v.indexOf("DO $guarda$"), v.indexOf("END $guarda$"));
     expect(guarda).toContain("to_regclass('public._bkp_p137_backfill') IS NOT NULL");
-    expect(guarda).toContain(MD5_FN);
+    expect(guarda).toContain(`NOT IN ('${MD5_FN}', '${MD5_NEUTRA}')`); // aceita ativa OU neutralizada
     expect(guarda).toContain(MD5_TRG);
     const volta = v.slice(v.indexOf("DO $volta$"), v.indexOf("END $volta$"));
     expect(volta).toContain("FOR i IN 1..3 LOOP");
@@ -89,8 +91,8 @@ describe("P-137 categoria card → produto — arquivos (estático, sem banco)",
     }
     expect(b).toContain("ALTER TABLE public._bkp_p137_backfill ENABLE ROW LEVEL SECURITY;");
     expect(b).toContain("REVOKE ALL ON TABLE public._bkp_p137_backfill FROM PUBLIC, anon, authenticated, service_role;");
-    expect(b).toContain("REVOKE EXECUTE ON FUNCTION public._p137_backfill_rodar() FROM PUBLIC, anon, authenticated;");
-    expect(b).toContain("REVOKE EXECUTE ON FUNCTION public._p137_backfill_desfazer() FROM PUBLIC, anon, authenticated;");
+    expect(b).toContain("REVOKE EXECUTE ON FUNCTION public._p137_backfill_rodar() FROM PUBLIC, anon, authenticated, service_role;");
+    expect(b).toContain("REVOKE EXECUTE ON FUNCTION public._p137_backfill_desfazer() FROM PUBLIC, anon, authenticated, service_role;");
     expect(b).toContain("'Sistema: categoria alinhada ao card (P-137) — '");
     expect(b.trimEnd().endsWith("COMMIT;")).toBe(true);
     const vb = ler(INV_B);
@@ -100,8 +102,25 @@ describe("P-137 categoria card → produto — arquivos (estático, sem banco)",
     for (const txt of [b, vb]) expect(txt).not.toMatch(/^\s*\\/m);
   });
 
-  it("toda mensagem de RAISE EXCEPTION nos 4 arquivos é SÓ ASCII (regra RAISE 5xx) e a recusa usa o prefixo traduzido pela tela", () => {
-    for (const rel of [MIG, INV, MIG_B, INV_B]) {
+  it("volta de emergência (passo 1): troca o corpo por no-op SEM DDL em modelos; guarda ativa|neutra; pós confere md5 e ausência de lock em modelos", () => {
+    const n = ler(NEUTRALIZA);
+    expect(n.replace(/^--[^\n]*\n/gm, "").trimStart().startsWith(
+      "SET client_encoding = 'UTF8';\nBEGIN;\nSET LOCAL lock_timeout = '500ms';\nSET LOCAL statement_timeout = '5s';\n")).toBe(true);
+    const guarda = n.slice(n.indexOf("DO $guarda$"), n.indexOf("END $guarda$"));
+    expect(guarda).toContain(`NOT IN ('${MD5_FN}', '${MD5_NEUTRA}')`);
+    const pos = n.slice(n.indexOf("DO $pos$"), n.indexOf("END $pos$"));
+    expect(pos).toContain(`IS DISTINCT FROM '${MD5_NEUTRA}'`);
+    expect(pos).toContain("l.relation = 'public.modelos'::regclass");
+    const semComentario = n.replace(/--[^\n]*/g, "");
+    expect(semComentario).not.toMatch(/^\s*(DROP|ALTER|LOCK|TRUNCATE)\b/im); // nenhum comando que trave tabela
+    expect(semComentario).not.toMatch(/CREATE\s+(OR\s+REPLACE\s+)?TRIGGER/i);
+    expect(semComentario).toContain("RETURN NEW;");
+    expect(n).toContain("REVOKE EXECUTE ON FUNCTION public.fn_modelo_espelho_categoria() FROM PUBLIC, anon, authenticated;");
+    expect(n.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("toda mensagem de RAISE EXCEPTION nos 5 arquivos é SÓ ASCII (regra RAISE 5xx) e a recusa usa o prefixo traduzido pela tela", () => {
+    for (const rel of [MIG, INV, NEUTRALIZA, MIG_B, INV_B]) {
       const txt = ler(rel);
       const msgs = [...txt.matchAll(/raise exception '((?:[^']|'')*)'/gi)].map((r) => r[1]);
       expect(msgs.length, rel).toBeGreaterThanOrEqual(2);
@@ -213,6 +232,9 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
             has_function_privilege('anon', $1, 'EXECUTE') AS a, has_function_privilege('authenticated', $1, 'EXECUTE') AS u`, [f]);
         expect(a, f).toEqual({ p: false, a: false, u: false });
       }
+      for (const f of ["public._p137_backfill_rodar()", "public._p137_backfill_desfazer()"]) {
+        expect((await um<any>(c, "SELECT has_function_privilege('service_role', $1, 'EXECUTE') AS s", [f])).s, f).toBe(false);
+      }
       const t = await um<any>(c, `SELECT has_table_privilege('anon', 'public._bkp_p137_backfill', 'SELECT') AS a,
           has_table_privilege('authenticated', 'public._bkp_p137_backfill', 'SELECT') AS u,
           has_table_privilege('service_role', 'public._bkp_p137_backfill', 'SELECT') AS s`);
@@ -239,21 +261,52 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
         const p0 = await prod(c, tipo, pid), c0 = await card(c, mid);
         await sheet(c, mid, { categoria_principal_id: k.catT, subcategoria1_id: k.s1T, subcategoria2_id: null });
         const p1 = await prod(c, tipo, pid);
-        // P-143 A: grupo acompanha a categoria; P-145 A/R3b: sub2 NULL do card NÃO apaga a do produto
-        expect(p1).toMatchObject({ grupo: k.gT, cat: k.catT, s1: k.s1T, s2: k.s2V1a });
+        // P-143 A: grupo acompanha a categoria. H1 (fix round 1): com a categoria copiada, a sub2 do produto ("Liso", de
+        // Longo) NÃO pertence a "Blusa" -> é limpa (nunca sub órfã), mesmo com a sub2 do card NULL.
+        expect(p1).toMatchObject({ grupo: k.gT, cat: k.catT, s1: k.s1T, s2: null });
         expect(p1.rev).toBe(p0.rev + 1);
         expect((await card(c, mid)).rev).toBe(c0.rev + 1);
       });
     });
 
-    it(`${tipo}: coluna a coluna — só a sub2 muda no card -> só a sub2 do produto muda (categoria/grupo divergentes ficam)`, async () => {
+    it(`${tipo}: coluna a coluna — só a sub2 muda no card -> só a sub2 do produto muda (grupo divergente fica, nada de carona)`, async () => {
       await withTx(async (c) => {
         const k = await prepara(c);
-        // produto JÁ divergente (legado): produto em Tops/Blusa, card em Vestidos/Longo
-        const { pid, mid } = await par(c, tipo, { grupo: k.gT, cat: k.catT, s1: k.s1T }, { cat: k.catV1, s1: k.s1V1a, s2: k.s2V1a });
+        // produto na MESMA categoria do card, mas com grupo divergente (legado) e sub1 própria
+        const { pid, mid } = await par(c, tipo, { grupo: k.gT, cat: k.catV1, s1: k.s1V1b }, { cat: k.catV1, s1: k.s1V1a, s2: k.s2V1a });
         const p0 = await prod(c, tipo, pid);
         await sheet(c, mid, { subcategoria2_id: k.s2V1b });
-        expect(await prod(c, tipo, pid)).toEqual({ grupo: k.gT, cat: k.catT, s1: k.s1T, s2: k.s2V1b, rev: p0.rev + 1 });
+        expect(await prod(c, tipo, pid)).toEqual({ grupo: k.gT, cat: k.catV1, s1: k.s1V1b, s2: k.s2V1b, rev: p0.rev + 1 });
+      });
+    });
+
+    it(`${tipo}: M1 — troca SÓ da sub no card não vai a produto de OUTRA categoria (cenário "Cinto Teste": produto em Acessórios sem categoria)`, async () => {
+      await withTx(async (c) => {
+        const k = await prepara(c);
+        const { pid, mid } = await par(c, tipo, { grupo: k.gA, cat: null }, { cat: k.catV1, s1: null, s2: null });
+        await comOc(c, tipo, pid);
+        const p0 = await prod(c, tipo, pid);
+        await sheet(c, mid, { subcategoria1_id: k.s1V1a });
+        await sheet(c, mid, { subcategoria2_id: k.s2V1a });
+        expect(await prod(c, tipo, pid)).toEqual(p0); // nem sub de "Longo" num produto sem categoria, nem recusa
+        const outro = await par(c, tipo, { grupo: k.gT, cat: k.catT, s1: k.s1T }, { cat: k.catV1 });
+        const o0 = await prod(c, tipo, outro.pid);
+        await sheet(c, outro.mid, { subcategoria1_id: k.s1V1a });
+        expect(await prod(c, tipo, outro.pid)).toEqual(o0); // produto em "Blusa" não recebe sub de "Longo"
+      });
+    });
+
+    it(`${tipo}: H1 — categoria copiada: sub do produto que VALE para a categoria nova fica; a que não vale é limpa`, async () => {
+      await withTx(async (c) => {
+        const k = await prepara(c);
+        // produto com sub1 de Longo e sub2 "Bordado" (que pertence a Midi) — card vai para Midi com as subs vazias
+        const { pid, mid } = await par(c, tipo, { grupo: k.gV, cat: k.catV1, s1: k.s1V1a, s2: k.s2V2 }, { cat: k.catV1, s1: k.s1V1a });
+        const p0 = await prod(c, tipo, pid);
+        await sheet(c, mid, { categoria_principal_id: k.catV2, subcategoria1_id: null, subcategoria2_id: null });
+        expect(await prod(c, tipo, pid)).toEqual({ grupo: k.gV, cat: k.catV2, s1: null, s2: k.s2V2, rev: p0.rev + 1 });
+        // e a sub nova do card, junto com a categoria, é copiada
+        await sheet(c, mid, { categoria_principal_id: k.catV1, subcategoria1_id: k.s1V1b });
+        expect(await prod(c, tipo, pid)).toMatchObject({ cat: k.catV1, s1: k.s1V1b, s2: null });
       });
     });
 
@@ -424,7 +477,7 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       // BulkEditDialog: categoria nova + subs NULL
       await c.query("UPDATE public.modelos SET categoria_principal_id = $2, subcategoria1_id = NULL, subcategoria2_id = NULL WHERE id = ANY($1)",
         [[a.mid, b.mid], k.catT]);
-      expect(await prod(c, "PA", a.pid)).toMatchObject({ grupo: k.gT, cat: k.catT, s1: k.s1V1a });
+      expect(await prod(c, "PA", a.pid)).toMatchObject({ grupo: k.gT, cat: k.catT, s1: null }); // H1: sub de Longo limpa
       expect(await prod(c, "PI", b.pid)).toMatchObject({ grupo: k.gT, cat: k.catT });
       const d = await par(c, "PA", { grupo: k.gV, cat: k.catV1 });
       await comOc(c, "PA", d.pid);
@@ -441,7 +494,10 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       const div = async (tipo: Tipo, prodTax: { grupo: string | null; cat: string | null; s1?: string | null; s2?: string | null },
         cardTax: { cat: string | null; s1?: string | null; s2?: string | null; origem?: string }) => par(c, tipo, prodTax, cardTax);
       const p1 = await div("PA", { grupo: k.gT, cat: k.catT, s1: k.s1T }, { cat: k.catV1, s1: k.s1V1a, s2: k.s2V1a });   // arruma
-      const p6 = await div("PI", { grupo: k.gV, cat: k.catV2, s1: k.s1V2 }, { cat: k.catV1, s1: null });                  // arruma (sub1 NULL no card: fica a do produto)
+      const p6 = await div("PI", { grupo: k.gV, cat: k.catV2, s1: k.s1V2 }, { cat: k.catV1, s1: null });                  // arruma; H1: sub1 "Alça" (de Midi) é LIMPA
+      const p8 = await div("PI", { grupo: k.gV, cat: k.catV2, s2: k.s2V1a }, { cat: k.catV1, s2: null });                 // arruma; H1: sub2 "Liso" (de Longo) FICA
+      const kOutra = await taxonomia(c, T2);
+      const p9 = await div("PA", { grupo: k.gV, cat: k.catV1 }, { cat: kOutra.catT });                                   // pula: categoria de OUTRA loja
       const p2 = await div("PA", { grupo: k.gV, cat: k.catV1, s1: k.s1V1a }, { cat: k.catV1, s1: null });                // só NULL no card: fica
       const p3 = await div("PA", { grupo: k.gV, cat: k.catV1 }, { cat: null });                                           // pula: card sem categoria
       const p4 = await div("PA", { grupo: k.gV, cat: k.catV1 }, { cat: k.catSemGrupo });                                  // pula: categoria sem grupo
@@ -451,17 +507,21 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       const rev1 = (await prod(c, "PA", p1.pid)).rev;
       const tax = async () => {
         const out: Prod[] = [];
-        for (const x of [p2, p3, p4, p5, p7]) out.push(await prod(c, "PA", x.pid)); // sequencial: 1 client pg
+        for (const x of [p2, p3, p4, p5, p7, p9]) out.push(await prod(c, "PA", x.pid)); // sequencial: 1 client pg
         return out;
       };
       const intocados = await tax();
 
       const r = (await um<{ r: any }>(c, "SELECT public._p137_backfill_rodar() AS r")).r;
-      expect(r.arrumados_ids).toEqual(expect.arrayContaining([p1.pid, p6.pid]));
-      for (const x of [p2, p3, p4, p5, p7]) expect(r.arrumados_ids).not.toContain(x.pid);
+      expect(r.arrumados_ids).toEqual(expect.arrayContaining([p1.pid, p6.pid, p8.pid]));
+      for (const x of [p2, p3, p4, p5, p7, p9]) expect(r.arrumados_ids).not.toContain(x.pid);
       const motivo = (pid: string) => r.pulados_lista.find((l: any) => l.produto_id === pid)?.motivo;
-      expect([motivo(p3.pid), motivo(p4.pid), motivo(p5.pid), motivo(p2.pid), motivo(p7.pid)])
-        .toEqual(["card_sem_categoria", "categoria_sem_grupo", "acessorio_com_pedido", undefined, undefined]);
+      expect([motivo(p3.pid), motivo(p4.pid), motivo(p9.pid), motivo(p5.pid), motivo(p2.pid), motivo(p7.pid)])
+        .toEqual(["card_sem_categoria", "categoria_sem_grupo", "categoria_de_outra_loja", "acessorio_com_pedido", undefined, undefined]);
+      // L5: a lista e os totais por loja trazem o NOME da loja (não só o UUID)
+      expect(r.pulados_lista.find((l: any) => l.produto_id === p3.pid)).toMatchObject({ loja: "Loja Teste", produto: "P137 Produto" });
+      expect(r.por_loja.find((l: any) => l.tipo === "PA" && l.tenant_id === T)).toMatchObject({ loja: "Loja Teste" });
+      expect(r.pulados.categoria_de_outra_loja).toBeGreaterThanOrEqual(1);
       expect(r.arrumados).toBe(r.auditoria);
       expect(r.arrumados).toBe(r.bkp);
       expect(r.fica_por_null_no_card).toBeGreaterThanOrEqual(1);
@@ -469,7 +529,8 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       expect(loja.pula_acessorio_com_pedido).toBeGreaterThanOrEqual(1);
 
       expect(await prod(c, "PA", p1.pid)).toEqual({ grupo: k.gV, cat: k.catV1, s1: k.s1V1a, s2: k.s2V1a, rev: rev1 + 1 });
-      expect(await prod(c, "PI", p6.pid)).toMatchObject({ grupo: k.gV, cat: k.catV1, s1: k.s1V2 });
+      expect(await prod(c, "PI", p6.pid)).toMatchObject({ grupo: k.gV, cat: k.catV1, s1: null });
+      expect(await prod(c, "PI", p8.pid)).toMatchObject({ grupo: k.gV, cat: k.catV1, s1: null, s2: k.s2V1a });
       expect(await tax()).toEqual(intocados);
 
       // auditoria legível (Admin › Auditoria): nomes, formato {campo:{de,para}}, só os campos que mudaram
@@ -486,7 +547,10 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
         },
       });
       const aud6 = await um<any>(c, "SELECT entidade, dados FROM public.audit_log WHERE registro_id = $1", [p6.pid]);
-      expect(aud6).toEqual({ entidade: "Produto Importado", dados: { categoria_id: { de: "P137 Midi", para: "P137 Longo" } } });
+      expect(aud6).toEqual({ entidade: "Produto Importado", dados: {
+        categoria_id: { de: "P137 Midi", para: "P137 Longo" }, subcategoria1_id: { de: "P137 Alça", para: null } } });
+      const aud8 = await um<any>(c, "SELECT dados FROM public.audit_log WHERE registro_id = $1", [p8.pid]);
+      expect(aud8.dados).toEqual({ categoria_id: { de: "P137 Midi", para: "P137 Longo" } });
       const bkp = await um<any>(c, `SELECT tabela, grupo_de, categoria_de, sub1_de, sub2_de, grupo_para, categoria_para, sub1_para, sub2_para
                                       FROM public._bkp_p137_backfill WHERE produto_id = $1`, [p1.pid]);
       expect(bkp).toEqual({ tabela: "produtos_acabados", grupo_de: k.gT, categoria_de: k.catT, sub1_de: k.s1T, sub2_de: null,
@@ -507,6 +571,44 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
                                         AND descricao LIKE 'Sistema: categoria do produto devolvida%'`, [p1.pid]);
       expect(volta.dados.categoria_id).toEqual({ de: "P137 Longo", para: "P137 Blusa" });
       expect((await um<any>(c, "SELECT count(*)::int AS n FROM public._bkp_p137_backfill")).n).toBe(0);
+    });
+  });
+
+  it("M2: a volta do backfill NÃO devolve produto que agora tem pedido quando cruzaria Acessórios (P-142 B); conta e lista", async () => {
+    await withTx(async (c) => {
+      const k = await prepara(c);
+      // backfill leva o produto de Vestidos para Acessórios (sem OC: permitido)
+      const a = await par(c, "PA", { grupo: k.gV, cat: k.catV1 }, { cat: k.catA });
+      const b = await par(c, "PI", { grupo: k.gV, cat: k.catV1 }, { cat: k.catA });
+      const r = (await um<{ r: any }>(c, "SELECT public._p137_backfill_rodar() AS r")).r;
+      expect(r.arrumados_ids).toEqual(expect.arrayContaining([a.pid, b.pid]));
+      expect(await prod(c, "PA", a.pid)).toMatchObject({ grupo: k.gA, cat: k.catA });
+      // depois alguém cria a OC (grade UN) do PA; o PI segue sem pedido
+      await comOc(c, "PA", a.pid);
+      const a0 = await prod(c, "PA", a.pid);
+      const v = (await um<{ v: any }>(c, "SELECT public._p137_backfill_desfazer() AS v")).v;
+      expect(v.acessorio_pedido_ids).toContain(a.pid);
+      expect(v.acessorio_pedido_ids).not.toContain(b.pid);
+      expect(v.nao_devolvidas_ids).toContain(a.pid);
+      expect(v.nao_devolvidas_acessorio_pedido).toBeGreaterThanOrEqual(1);
+      expect(await prod(c, "PA", a.pid)).toEqual(a0);                             // intocado
+      expect(await prod(c, "PI", b.pid)).toMatchObject({ grupo: k.gV, cat: k.catV1 }); // devolvido
+    });
+  });
+
+  it("D16: a cópia para o produto não mexe na fila do kanban — só o UPDATE do card enfileira o modelo, 1×", async () => {
+    await withTx(async (c) => {
+      const k = await prepara(c);
+      const { pid, mid } = await par(c, "PA", { grupo: k.gV, cat: k.catV1 });
+      // a chave só muda pela RPC protegida; na cópia a Loja Teste já está ligada (conferido aqui)
+      const ligada = (await um<any>(c, "SELECT kanban_automatico AS l FROM public.tenant_config WHERE tenant_id = $1", [T])).l;
+      expect(ligada, "a Loja Teste da cópia precisa estar com o Kanban automático ligado").toBe(true);
+      await c.query("UPDATE public.modelos SET ordem_criacao_enviada = true WHERE id = $1", [mid]);
+      await c.query("DELETE FROM public.kanban_recalculo_fila");
+      await sheet(c, mid, { categoria_principal_id: k.catT });
+      expect(await prod(c, "PA", pid)).toMatchObject({ grupo: k.gT, cat: k.catT }); // a cópia aconteceu
+      const fila = await c.query<{ modelo_id: string }>("SELECT modelo_id FROM public.kanban_recalculo_fila");
+      expect(fila.rows.map((x) => x.modelo_id)).toEqual([mid]);                      // só o card, 1 linha
     });
   });
 });
