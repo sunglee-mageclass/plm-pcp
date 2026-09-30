@@ -47,6 +47,19 @@ export function precoInfo(custo: unknown, markupLinha: unknown, precoVenda: unkn
 }
 
 /**
+ * Preço/markup do CARD (modelo) — fonte única p/ o Planejamento (lista) e o Plan. Tecido (vaga COM card).
+ * Usa o markup da LINHA DO MODELO (não o da colocação da vaga). `custoMap` = `custo_unitario_modelos`
+ * (`{}` sem permissão → custo 0 → a UI mostra "—").
+ */
+export function precoDoCard(
+  card: { id: string; linha_id?: string | null; preco_venda?: unknown; markup_editado?: unknown },
+  custoMap: Record<string, { real?: unknown } | undefined> | null | undefined,
+  linhaMarkupMap: Record<string, unknown> | null | undefined,
+): PrecoInfo {
+  return precoInfo(custoMap?.[card.id]?.real, card.linha_id ? linhaMarkupMap?.[card.linha_id] : 0, card.preco_venda, card.markup_editado);
+}
+
+/**
  * Markup Fase B — PREÇO que cada faixa de markup pede, dado o custo real.
  *
  * preco_da_faixa = custo × markup_da_faixa (mín/ideal/máx da LINHA). Base = custo TOTAL

@@ -26,6 +26,7 @@ import {
 import { MaterialBlock } from "./MaterialBlock";
 import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
+import type { PrecoInfo } from "@/lib/preco";
 import { ModeloThumb } from "./ModeloThumb";
 import { SlotOcHint } from "./SlotOcHint";
 import { ReferenciaDialog } from "./ReferenciaDialog";
@@ -80,6 +81,7 @@ export function ModelCard({
   travado,
   maoObraEstado,
   maoObraServico,
+  precoCard,
   versao,
   origem,
   fase,
@@ -115,6 +117,8 @@ export function ModelCard({
   /** Estado da MO por serviço (aprovada|pendente|reprovada|sem_servico) — READ-ONLY; undefined = sem custo/mascarado. */
   maoObraEstado?: string;
   maoObraServico?: number | null;
+  /** D4: preço/custo/markup do CARD (vaga COM card; só leitura). */
+  precoCard?: PrecoInfo | null;
   versao?: number | null;
   /** `modelos.origem` ("interno"|"revenda"|"importado") — espelho de comprado: badge + esconde controles de tecido. */
   origem?: string | null;
@@ -711,7 +715,7 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraServico={maoObraServico}
+                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraServico={maoObraServico} precoCard={precoCard}
                     precoTravado={travaIntegracao.has("preco_venda")} motivoPrecoTravado={TEXTO_PRECO_TRAVADO} />
                 </AccordionContent>
               </AccordionItem>

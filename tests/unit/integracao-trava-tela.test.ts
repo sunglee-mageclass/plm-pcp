@@ -1897,7 +1897,8 @@ describe("F4 — Plan. Tecido", () => {
 describe("Task 24 — RENDER real: CustoSection (preço travado)", () => {
   function slotBase(): PtSlot {
     return {
-      id: "s1", modelo_id: "m1", nome: "Blusa", ref: "REF1",
+      // D4: o campo de preço só existe na vaga SEM card (com card o preço é só leitura, vive no Planejamento).
+      id: "s1", modelo_id: null, nome: "Blusa", ref: "REF1",
       preco_venda: 199.9, custo_simulado: {}, materiais: [],
     };
   }

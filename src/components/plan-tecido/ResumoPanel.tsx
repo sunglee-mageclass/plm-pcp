@@ -4,10 +4,10 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
-import { precoInfo } from "@/lib/preco";
+import { termoPoderDeVenda, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { brl } from "@/lib/format";
 import { Lock, ChevronDown, ChevronRight, ShoppingCart, X } from "lucide-react";
 import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
@@ -72,7 +72,7 @@ function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: st
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -81,6 +81,12 @@ export function ResumoPanel({
   /** OC REAL vinculada no Desenvolvimento por modelo_id (modelo_tecido_oc_links). Fonte da verdade:
    * quando o modelo tem vínculo no Dev, ele vence o hint do plano (que o Dev não atualiza). */
   vinculoOcMap?: Record<string, string[]>;
+  /** Vínculos com prioridade/quantidade (RPC plan_tecido_vinculos_detalhe) — repartição da demanda entre OCs. */
+  vinculosDetalhe?: VinculoDetalhe[];
+  /** Capacidade por OC×variante (`oc|vid`) e OC×artigo (`oc|artigo:id`) — limite da repartição. */
+  capacidade?: Map<string, number>;
+  /** situação das OCs ainda carregando: não reparte a demanda (evita a 1ª OC levar tudo). */
+  aguardandoCapacidade?: boolean;
   /** modelos já ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) AO VIVO. */
   enviadoCadSet?: Set<string>;
   catTecidoNome: (id: string) => string | null | undefined;
@@ -88,6 +94,8 @@ export function ResumoPanel({
   /** Há edição de rascunho não salva influenciando os números vivos (necessidade/"a comprar")? Só
    *  acende uma indicação leve (ponto âmbar + title) — o valor já é vivo de qualquer forma. */
   temRascunho?: boolean;
+  /** D4: preço/custo/markup do CARD do modelo (vaga COM card usa o preço do card no poder de venda). */
+  precoCardDe?: PrecoCardFn;
 }) {
   const slots = arvore.subcolecoes.flatMap((sub) => sub.linhas.flatMap((ln) => ln.slots));
   const firstTec = (slot: PtSlot) => slot.materiais.find((m) => m.tipo === "tecido");
@@ -275,7 +283,7 @@ export function ResumoPanel({
     if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
     if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
+  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade });
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
@@ -299,7 +307,7 @@ export function ResumoPanel({
     const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
     const custo = custoMateriaisPrevisto(slot) + (Number(cs.materiais) || 0) + maoObraSlot(slot);
     const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
-    pv += precoInfo(custo, markup, slot.preco_venda ?? null, slot.markup_editado ?? null).efetivo * grade;
+    pv += termoPoderDeVenda(slot, grade, slot.modelo_id ? precoCardDe?.(slot.modelo_id) : null, { custo, markup });
   }
 
   return (

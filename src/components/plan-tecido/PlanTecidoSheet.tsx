@@ -30,16 +30,18 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
+import { precoDoCard } from "@/lib/preco";
+import { precoCardDoPlano, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -378,7 +380,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     setDrawer({ kind, arg: arg ?? null });
     setMobileTab(kind === "comprar" ? "comprar" : "oc");
   };
-  const { data: situacaoRows = [] } = useSituacaoOcs(colecaoId);
+  const { data: situacaoRows = [], isPending: situacaoPendente } = useSituacaoOcs(colecaoId);
   const ocNumeroDe = (id: string) => situacaoRows.find((r) => r.oc_tecido_id === id)?.numero ?? null;
   // arrastar card entre lanes (grip inicia; distância p/ não confundir com clique)
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }));
@@ -481,7 +483,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
+          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -590,11 +592,49 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     [vinculosMap],
   );
 
+  // Vínculos COM prioridade/quantidade_m (RPC plan_tecido_vinculos_detalhe) → repartição da demanda entre as
+  // OCs vinculadas, igual ao corte (P-168 A). Falha SILENCIOSA: se a RPC ainda não existe/erra, sem detalhe →
+  // detalheOc reparte em sequência pela ordem do array (nunca N×). Sem toast, sem retry.
+  const { data: vinculosDetalhe } = useQuery({
+    queryKey: ["plan-tecido-vinculos-detalhe", colecaoId],
+    refetchOnWindowFocus: true,
+    retry: false,
+    queryFn: async (): Promise<VinculoDetalhe[]> => {
+      try {
+        const { data, error } = await supabase.rpc("plan_tecido_vinculos_detalhe" as any, { _colecao_id: colecaoId });
+        if (error || !Array.isArray(data)) return [];
+        return (data as any[]).map((r) => ({
+          modelo_id: r.modelo_id, tipo: r.tipo, numero: Number(r.numero) || 1, ordem: r.ordem ?? null,
+          variante_tecido_id: r.variante_tecido_id ?? null, oc_tecido_item_id: r.oc_tecido_item_id, oc_tecido_id: r.oc_tecido_id,
+          artigo_id: r.artigo_id ?? null, prioridade: r.prioridade == null ? null : Number(r.prioridade),
+          quantidade_m: r.quantidade_m == null ? null : Number(r.quantidade_m),
+        }));
+      } catch {
+        return [];
+      }
+    },
+  });
+  // Capacidade por OC×variante (`oc|vid`) e OC×artigo (`oc|artigo:id`): entregue_m se a OC está recebida,
+  // senão pedida_m (mesma regra do corte).
+  const capacidadeOc = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of situacaoRows) {
+      const cap = r.status === "recebido" ? Number(r.entregue_m) || 0 : Number(r.pedida_m) || 0;
+      if (r.variante_tecido_id) {
+        const k = `${r.oc_tecido_id}|${r.variante_tecido_id}`;
+        m.set(k, (m.get(k) ?? 0) + cap);
+      }
+      const ka = `${r.oc_tecido_id}|artigo:${r.artigo_id}`;
+      m.set(ka, (m.get(ka) ?? 0) + cap);
+    }
+    return m;
+  }, [situacaoRows]);
+
   // hint OC por SLOT → Map<slot_id, oc_ids[]>
   const { data: slotOcMap = {} } = useQuery({
     queryKey: ["plan-tecido-slot-oc", colecaoId],
     queryFn: async () => {
-      const rows = ((await supabase.from("plan_tecido_slot_oc" as any).select("slot_id, oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { slot_id: string; oc_tecido_id: string }[];
+      const rows = ((await supabase.from("plan_tecido_slot_oc" as any).select("slot_id, oc_tecido_id").eq("colecao_id", colecaoId).order("created_at", { ascending: true }).order("oc_tecido_id", { ascending: true })).data ?? []) as unknown as { slot_id: string; oc_tecido_id: string }[];
       const map: Record<string, string[]> = {};
       for (const r of rows) (map[r.slot_id] ??= []).push(r.oc_tecido_id);
       return map;
@@ -802,6 +842,27 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       return (data ?? {}) as Record<string, { estado: string; total: number | null; total_aprovado: number | null }>;
     },
   });
+  // D4 (P-167 A): custo/markup/preço do CARD (vaga COM card é só leitura). `custo_unitario_modelos` devolve
+  // `{}` sem permissão de custos → custo 0 → a UI mostra "—". queryKey própria desta tela.
+  const { data: custoCardMap = {}, isSuccess: custoCardOk } = useQuery({
+    queryKey: ["plan-tecido-custo-cards", colecaoId, modeloIdsDb],
+    enabled: modeloIdsDb.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsDb });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+    },
+  });
+  const { data: linhaMarkupCards = {} } = useQuery({
+    queryKey: ["plan-tecido-linhas-markup"],
+    queryFn: async () => {
+      const rows = ((await supabase.from("linhas").select("id, markup")).data ?? []) as { id: string; markup: number | null }[];
+      return Object.fromEntries(rows.map((r) => [r.id, Number(r.markup) || 0])) as Record<string, number>;
+    },
+  });
+  // Custo ainda carregando => null (estimativa); mascarado (sem permissão) => preço digitado ou estimativa.
+  const precoCardDe: PrecoCardFn = (modeloId) =>
+    precoCardDoPlano(modeloId, (modelosDb ?? []) as any[], custoCardOk ? custoCardMap : undefined, linhaMarkupCards);
   const maoObraEstadoDe = (modeloId: string): string | undefined => moResumoMap[modeloId]?.estado;
   const maoObraPorServicoDe = (modeloId: string): number | null => {
     const t = moResumoMap[modeloId]?.total;
@@ -1093,8 +1154,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         setArvore(marca.local);
         toast.warning(textoTamanhoRevertido(marca.revertidos));
       }
-      arvoreSalvaRef.current = marca.local;
-      const arvorePayload = normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null);
+      arvoreSalvaRef.current = semPrecoNasVagasComCard(marca.local);
+      const arvorePayload = semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null));
       const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
         _colecao_id: colecaoId, _arvore: arvorePayload, _rev_base: revRef.current,
       });
@@ -2027,6 +2088,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               travado={slot.modelo_id ? enviadoCadSet.has(slot.modelo_id) : false}
               maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
               maoObraServico={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
+              precoCard={slot.modelo_id ? precoCardDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
               fase={slot.modelo_id ? faseInfo(slot.modelo_id) : null}
@@ -2146,7 +2208,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} />
                   </div>
                 </aside>
               )}
@@ -2154,18 +2216,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                   em tablet os botões do trilho acendiam e NADA abria — ação sem feedback (laudo). */}
               {!modoPlano && drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r md:flex">
-                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
                 </aside>
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">
                   <PlanTecidoDrawer
                     state={drawer && (mobileTab === "comprar" ? drawer.kind === "comprar" : drawer.kind !== "comprar") ? drawer : { kind: mobileTab === "comprar" ? "comprar" : "oc", arg: null }}
-                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
+                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
                     onClose={() => setMobileTab("canvas")} temRascunho={dirty} />
                 </div>
               )}
