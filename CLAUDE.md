@@ -738,8 +738,9 @@ e verifique** — o repo muda rápido.
     `_salvar_produto_acabado_core` NÃO foi tocado (P-136 intacta). Backfill único: produtos divergentes hoje são alinhados,
     o estado anterior fica em `_bkp_p137_backfill` (+ helpers DEFINER revogados `_p137_backfill_rodar`/`_desfazer`; divergente
     acessório+pedido é PULADO). Auditoria: o filtro de entidade ganhou Produto Acabado/Importado. **Volta em 2 passos**:
-    `_down_neutraliza.sql` (só neutraliza o gatilho — pega AccessExclusive em `modelos`, rodar em horário calmo) e depois o
-    `_down` completo (LIFO: backfill antes do gatilho). Plano/relatórios:
+    `_down_neutraliza.sql` (só neutraliza o gatilho — CREATE OR REPLACE da função, NÃO pega trava em tabela nem em
+    login/storage: é o freio de emergência) e depois o `_down` completo (LIFO: backfill antes do gatilho; o DROP TRIGGER dele
+    pega AccessExclusive em `modelos` E em ~23 tabelas auth/storage/realtime até o COMMIT → horário calmo). Plano/relatórios:
     `.claude/worktrees/p137/.superpowers/sdd/2026-09-30-p137/` (plan.md, report.md, G-MIGRATION.md, review-front.md).
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
@@ -1099,7 +1100,8 @@ PA sync card só mudou) vão ANTES do site, num kit único — `savepoints/pre-r
 Produtos), num kit único — `savepoints/pre-release6/` (`kit/ida-release6.sh` e `kit/volta-release6.sh`). Ordem de ida: (1)
 P-137 gatilho `20261017100000` → (2) P-137 backfill `20261017110000` → (3) `20261018100000` → (4) `20261018110000`.
 Volta LIFO: `20261018110000` → `20261018100000` → backfill P-137 → gatilho P-137; o inverso do P-137 pode ser NEUTRALIZADO
-antes (`_down_neutraliza.sql`, horário calmo) e o `_down` completo vem depois. A volta da release 5 e a de emergência da
+antes (`_down_neutraliza.sql`, sem trava) e o `_down` completo (DROP TRIGGER → trava auth/storage, horário calmo) vem depois;
+o kit tem ainda `emergencia-congelar.sh desliga` (DISABLE TRIGGER da fila de congelar, sem trava de login). A volta da release 5 e a de emergência da
 Integração ganham um passo prévio (`volta-release6.sh`) — sem ele os inversos de `20261014100000`/`20261013100000` recusam
 pelo md5. Site velho + banco novo por alguns minutos é aceitável (só muda o que o Sheet mostra).
 
