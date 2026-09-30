@@ -247,7 +247,7 @@ BEGIN
   -- (e) a fila, se existe, tem o formato deste arquivo
   IF to_regclass('public.custo_recalculo_fila') IS NOT NULL
      AND (SELECT string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text, ',' ORDER BY a.attnum)
-            FROM pg_attribute a WHERE a.attrelid = 'public.custo_recalculo_fila'::regclass AND a.attnum > 0 AND NOT a.attisdropped)
+            FROM pg_attribute a WHERE a.attrelid = to_regclass('public.custo_recalculo_fila') AND a.attnum > 0 AND NOT a.attisdropped)
          IS DISTINCT FROM 'modelo_id:uuid:true,tenant_id:uuid:true,criado_at:timestamp with time zone:true' THEN
     RAISE EXCEPTION 'contas_certas_c1: custo_recalculo_fila ja existe com outro formato' USING ERRCODE = 'P0001';
   END IF;
@@ -924,7 +924,7 @@ BEGIN
     JOIN pg_trigger t ON t.tgname = g.nome AND t.tgrelid = to_regclass('public.' || g.tabela) AND NOT t.tgisinternal
    WHERE t.tgenabled = 'O'
      AND pg_get_triggerdef(t.oid) = g.def
-     AND t.tgattr::int2[] = '{}'::int2[]
+     AND cardinality(t.tgattr::int2[]) = 0
      AND t.tgoldtable IS NOT DISTINCT FROM g.velha
      AND t.tgnewtable IS NOT DISTINCT FROM g.nova;
   IF v_n <> (SELECT count(*) FROM _cc_c1_gatilhos_novos) THEN

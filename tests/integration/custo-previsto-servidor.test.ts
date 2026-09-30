@@ -246,7 +246,7 @@ describe.skipIf(!PRONTO)("C1 (a) — catálogo e ACL (#9, R-CD3)", () => {
   it("R-CD3: 26 gatilhos de STATEMENT sem lista de colunas e com tabelas de transição; modelos por LINHA com WHEN; fila adiada", async () => {
     await withTx(async (c) => {
       const { rows } = await c.query(
-        `SELECT c.relname AS tabela, t.tgname, t.tgenabled, t.tgattr::int2[] AS attr, t.tgoldtable AS velha, t.tgnewtable AS nova,
+        `SELECT c.relname AS tabela, t.tgname, t.tgenabled, cardinality(t.tgattr::int2[]) AS nattr, t.tgoldtable AS velha, t.tgnewtable AS nova,
                 (t.tgtype & 1) = 1 AS por_linha, t.tgdeferrable AS adiavel, t.tginitdeferred AS adiado
            FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
           WHERE NOT t.tgisinternal AND (t.tgname LIKE 'trg\\_custo\\_%' OR t.tgname = 'trg_modelo_custo_derivado')
@@ -257,12 +257,12 @@ describe.skipIf(!PRONTO)("C1 (a) — catálogo e ACL (#9, R-CD3)", () => {
       expect(stmt.length).toBe(26);
       for (const r of stmt) {
         expect(r.por_linha).toBe(false);
-        expect(r.attr).toEqual([]);
+        expect(r.nattr).toBe(0);
         if (r.tgname.endsWith("_ins")) expect([r.velha, r.nova]).toEqual([null, "novas"]);
         if (r.tgname.endsWith("_upd")) expect([r.velha, r.nova]).toEqual(["antigas", "novas"]);
         if (r.tgname.endsWith("_del")) expect([r.velha, r.nova]).toEqual(["antigas", null]);
       }
-      const mod = rows.filter((r) => r.tabela === "modelos").map((r) => [r.tgname, r.por_linha, r.attr.length]);
+      const mod = rows.filter((r) => r.tabela === "modelos").map((r) => [r.tgname, r.por_linha, r.nattr]);
       expect(mod).toEqual([
         ["trg_custo_fila_modelo_ins", true, 0],
         ["trg_custo_fila_modelo_upd", true, 0],
