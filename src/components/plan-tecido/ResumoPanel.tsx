@@ -7,7 +7,7 @@ import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
-import { precoInfo } from "@/lib/preco";
+import { termoPoderDeVenda, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { brl } from "@/lib/format";
 import { Lock, ChevronDown, ChevronRight, ShoppingCart, X } from "lucide-react";
 import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
@@ -72,7 +72,7 @@ function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: st
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -92,6 +92,8 @@ export function ResumoPanel({
   /** Há edição de rascunho não salva influenciando os números vivos (necessidade/"a comprar")? Só
    *  acende uma indicação leve (ponto âmbar + title) — o valor já é vivo de qualquer forma. */
   temRascunho?: boolean;
+  /** D4: preço/custo/markup do CARD do modelo (vaga COM card usa o preço do card no poder de venda). */
+  precoCardDe?: PrecoCardFn;
 }) {
   const slots = arvore.subcolecoes.flatMap((sub) => sub.linhas.flatMap((ln) => ln.slots));
   const firstTec = (slot: PtSlot) => slot.materiais.find((m) => m.tipo === "tecido");
@@ -303,7 +305,7 @@ export function ResumoPanel({
     const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
     const custo = custoMateriaisPrevisto(slot) + (Number(cs.materiais) || 0) + maoObraSlot(slot);
     const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
-    pv += precoInfo(custo, markup, slot.preco_venda ?? null, slot.markup_editado ?? null).efetivo * grade;
+    pv += termoPoderDeVenda(slot, grade, slot.modelo_id ? precoCardDe?.(slot.modelo_id) : null, { custo, markup });
   }
 
   return (

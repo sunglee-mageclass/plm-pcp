@@ -30,13 +30,15 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
+import { precoDoCard } from "@/lib/preco";
+import type { PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe } from "@/lib/plan-tecido/calc";
@@ -481,7 +483,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
+          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -840,6 +842,28 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       return (data ?? {}) as Record<string, { estado: string; total: number | null; total_aprovado: number | null }>;
     },
   });
+  // D4 (P-167 A): custo/markup/preço do CARD (vaga COM card é só leitura). `custo_unitario_modelos` devolve
+  // `{}` sem permissão de custos → custo 0 → a UI mostra "—". queryKey própria desta tela.
+  const { data: custoCardMap = {} } = useQuery({
+    queryKey: ["plan-tecido-custo-cards", colecaoId, modeloIdsDb],
+    enabled: modeloIdsDb.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsDb });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+    },
+  });
+  const { data: linhaMarkupCards = {} } = useQuery({
+    queryKey: ["plan-tecido-linhas-markup"],
+    queryFn: async () => {
+      const rows = ((await supabase.from("linhas").select("id, markup")).data ?? []) as { id: string; markup: number | null }[];
+      return Object.fromEntries(rows.map((r) => [r.id, Number(r.markup) || 0])) as Record<string, number>;
+    },
+  });
+  const precoCardDe: PrecoCardFn = (modeloId) => {
+    const m = ((modelosDb ?? []) as any[]).find((x) => x.id === modeloId);
+    return m ? precoDoCard(m, custoCardMap, linhaMarkupCards) : null;
+  };
   const maoObraEstadoDe = (modeloId: string): string | undefined => moResumoMap[modeloId]?.estado;
   const maoObraPorServicoDe = (modeloId: string): number | null => {
     const t = moResumoMap[modeloId]?.total;
@@ -1132,7 +1156,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         toast.warning(textoTamanhoRevertido(marca.revertidos));
       }
       arvoreSalvaRef.current = marca.local;
-      const arvorePayload = normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null);
+      const arvorePayload = semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null));
       const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
         _colecao_id: colecaoId, _arvore: arvorePayload, _rev_base: revRef.current,
       });
@@ -2065,6 +2089,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               travado={slot.modelo_id ? enviadoCadSet.has(slot.modelo_id) : false}
               maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
               maoObraServico={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
+              precoCard={slot.modelo_id ? precoCardDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
               fase={slot.modelo_id ? faseInfo(slot.modelo_id) : null}
@@ -2184,7 +2209,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} />
                   </div>
                 </aside>
               )}
@@ -2197,7 +2222,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">

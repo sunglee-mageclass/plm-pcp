@@ -774,3 +774,21 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
     }), ...subcolecoesOrfas],
   };
 }
+
+/**
+ * D4 (P-167 A): vaga COM card não guarda preço próprio — o preço vive no card (Planejamento).
+ * Antes de `salvar_plan_tecido`, zera `preco_venda` em toda vaga com `modelo_id`. Vaga sem card
+ * mantém o preço (`_plan_tecido_criar_card_core` o leva ao criar o card). Pura: não muta a entrada.
+ */
+export function semPrecoNasVagasComCard(arvore: PtArvore): PtArvore {
+  return {
+    ...arvore,
+    subcolecoes: arvore.subcolecoes.map((sub) => ({
+      ...sub,
+      linhas: sub.linhas.map((ln) => ({
+        ...ln,
+        slots: ln.slots.map((sl) => (sl.modelo_id ? { ...sl, preco_venda: null } : sl)),
+      })),
+    })),
+  };
+}

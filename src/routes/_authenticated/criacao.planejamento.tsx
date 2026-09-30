@@ -28,7 +28,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
-import { precoInfo } from "@/lib/preco";
+import { precoDoCard } from "@/lib/preco";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado, pecasReaisLiberadas } from "@/lib/cq-status";
@@ -651,8 +651,7 @@ function PlanejamentoPage() {
   );
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
   // Preço/markup efetivos de um modelo (custo × markup da linha → sugerido → venda).
-  const piFor = (m: Modelo) =>
-    precoInfo((custoMap as any)[m.id]?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda, m.markup_editado);
+  const piFor = (m: Modelo) => precoDoCard(m, custoMap as any, linhaMarkupMap);
   const mesMap = Object.fromEntries(meses.map((x) => [x.id, x.nome]));
   const anoMap = Object.fromEntries(anos.map((x) => [x.id, x.nome]));
 

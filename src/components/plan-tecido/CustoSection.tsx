@@ -1,14 +1,87 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
-import { precoInfo } from "@/lib/preco";
+import { precoInfo, type PrecoInfo } from "@/lib/preco";
+import { useNavigate } from "@tanstack/react-router";
+import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
 import { brl, fmtNum } from "@/lib/format";
 import { AlertTriangle, Check, X } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
-export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico, precoTravado = false, motivoPrecoTravado }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null; precoTravado?: boolean; motivoPrecoTravado?: string }) {
+type CustoSectionProps = { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null; precoTravado?: boolean; motivoPrecoTravado?: string; precoCard?: PrecoInfo | null };
+
+/** D4 (P-167 A): vaga COM card mostra o custo/markup/preço do CARD (só leitura); vaga SEM card mantém a estimativa. */
+export function CustoSection(props: CustoSectionProps) {
+  return props.slot.modelo_id ? <CustoDoCard {...props} /> : <CustoDaVagaSemCard {...props} />;
+}
+
+function MoBadge({ maoObraEstado }: { maoObraEstado: string }) {
+  return (
+    <div className="col-span-2 space-y-0.5 text-[11px]">
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground">Mão de Obra:</span>
+        <StatusBadge
+          tone={maoObraEstado === "aprovada" ? "success" : maoObraEstado === "reprovada" ? "danger" : maoObraEstado === "pendente" ? "warning" : "neutral"}
+          className="ml-auto gap-1 normal-case tracking-normal"
+        >
+          {maoObraEstado === "aprovada" ? <Check className="h-3 w-3" /> : maoObraEstado === "reprovada" ? <X className="h-3 w-3" /> : maoObraEstado === "pendente" ? <AlertTriangle className="h-3 w-3" /> : null}
+          {maoObraEstado === "aprovada" ? "aprovada"
+            : maoObraEstado === "reprovada" ? "reprovada"
+            : maoObraEstado === "pendente" ? "pendente" : "sem serviço"}
+        </StatusBadge>
+      </div>
+      <p className="text-[10px] text-muted-foreground">Aprovação da mão de obra é por serviço, no Planejamento.</p>
+    </div>
+  );
+}
+
+function RO({ label, value }: { label: string; value: string }) {
+  return <div><div className="text-[10px] text-muted-foreground">{label}</div><div className="rounded-md border bg-muted px-2 py-1 text-right text-xs text-muted-foreground">{value}</div></div>;
+}
+
+/** Vaga COM card — NÃO lê `slot.preco_venda` (o preço vive no card; edição só no Planejamento). */
+function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard }: CustoSectionProps) {
+  const navigate = useNavigate();
+  const { canView } = useAuth();
+  const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
+  const custoTecido = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "tecido") });
+  const custoForro = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "forro") });
+  const materiais = Number(cs.materiais) || 0;
+  const maoObra = Number(maoObraServico) || 0;
+  // Custo mascarado (`custo_unitario_modelos` → {}) ou ainda carregando → custo 0 → "—".
+  const pc = precoCard ?? null;
+  const temCusto = !!pc && pc.custo > 0;
+  const txt = (v: number | undefined, f: (n: number) => string) => (temCusto && v && v > 0 ? f(v) : "—");
+  return (
+    <div className="p-2">
+      <div className="mb-2 rounded-md border bg-muted/40 p-2 text-[10px] text-muted-foreground">
+        Valores do card no Planejamento (só leitura). Para alterar custo, markup ou preço, abra o card no Planejamento.
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <RO label="Custo de tecido (auto)" value={brl(custoTecido)} />
+        <RO label="Custo de forro (auto)" value={brl(custoForro)} />
+        <RO label="Materiais" value={brl(materiais)} />
+        <RO label="Mão de obra (por serviço)" value={brl(maoObra)} />
+        {maoObraEstado && <MoBadge maoObraEstado={maoObraEstado} />}
+        <RO label="Custo (do card)" value={txt(pc?.custo, brl)} />
+        <RO label="Markup (do card)" value={txt(pc?.markupExibir, (n) => `${fmtNum(n)}×`)} />
+        <RO label="Preço sugerido (do card)" value={txt(pc?.sugerido, brl)} />
+        <RO label="Preço p/ venda (do card)" value={pc && pc.efetivo > 0 ? brl(pc.efetivo) : "—"} />
+      </div>
+      {canView("criacao_planejamento") && slot.modelo_id && (
+        <Button type="button" variant="outline" size="sm" className="mt-2 w-full"
+          onClick={() => navigate({ to: "/criacao/planejamento", search: { modelo: slot.modelo_id } as any })}>
+          Abrir no Planejamento
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function CustoDaVagaSemCard({ slot, onChange, maoObraEstado, maoObraServico, precoTravado = false, motivoPrecoTravado }: CustoSectionProps) {
   // markup vem da LINHA do modelo (linhas.markup) — necessário p/ o preço sugerido
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -31,10 +104,6 @@ export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico, pr
   const custoTotal = custoTecido + custoForro + materiais + maoObra;
   const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null, slot.markup_editado ?? null);
   const fromDev = !!slot.modelo_id; // materiais vem dos aviamentos do Dev quando é modelo
-
-  const RO = ({ label, value }: { label: string; value: string }) => (
-    <div><div className="text-[10px] text-muted-foreground">{label}</div><div className="rounded-md border bg-muted px-2 py-1 text-right text-xs text-muted-foreground">{value}</div></div>
-  );
 
   return (
     <div className="p-2">
