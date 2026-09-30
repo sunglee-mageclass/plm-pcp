@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um } from "./db";
-import { INVERSOS, LOCAL, MD5_ANTES, MIGRACOES, MIG_TXN, U, aplica, nomeCorViva, prepara, voltaNomeCorSePreciso } from "./integracao-helpers";
+import { INVERSOS, LOCAL, MD5_ANTES, MIGRACOES, MIG_TXN, U, aplica, nomeCorViva, prepara, versaoIntegradaViva, voltaNomeCorSePreciso } from "./integracao-helpers";
 
 const INTERNAS_PREFIXO = "_integracao_";
 const RPCS = ["integracao_previa", "integracao_listar", "integracao_estado_modelos", "integracao_config_ler", "integracao_marcar",
@@ -49,7 +49,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
       // "Cor no nome das sublinhas" (20261013100000) soma +2 funções `_integracao_*` (_integracao_cor_no_nome/_nome_sublinha,
       // internas com EXECUTE revogado dos TRÊS — entram também na contagem `internas` = 0 acima).
       const temNomeCor = await nomeCorViva(c);
-      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0));
+      // "Versão de produto já integrado" (20261018110000, T5) soma +1 RPC `integracao_versoes_integradas` (casa `integracao\_%`;
+      // authenticated, anon sem EXECUTE — a suíte integracao-versao-integrada prova a ACL dela).
+      const temVersaoIntegrada = await versaoIntegradaViva(c);
+      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0) + (temVersaoIntegrada ? 1 : 0));
       const r = await um<{ internas: string; rpc_anon: string; rpc_auth: string; rota: string; total: string }>(c,
         `SELECT
            (SELECT count(*) FROM pg_proc p CROSS JOIN (VALUES ('public'), ('anon'), ('authenticated')) r(y)
