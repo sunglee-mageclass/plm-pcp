@@ -34,7 +34,7 @@ DECLARE
 BEGIN
   -- funções redefinidas: texto de ANTES (4cd22e4b.../aaf3f2e4...) ou o de DEPOIS (reaplicar = no-op)
   FOR r IN SELECT * FROM (VALUES
-      ('public._integracao_retrato_core(uuid,text[],jsonb)', '4cd22e4bb5bf081c1ac2fcf34d4a6cf2', 'ed728d100ef6a048427a61c69fa3a1ac'),
+      ('public._integracao_retrato_core(uuid,text[],jsonb)', '4cd22e4bb5bf081c1ac2fcf34d4a6cf2', '1cfaed33c1b166e433ca20a42e5905c5'),
       ('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)', 'aaf3f2e4e4bd8eb14b99d53c79a653da', '2f2669cf7136c15038950ac1c1161637')
     ) AS x(f, antes, depois) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -48,7 +48,7 @@ BEGIN
       ('public._modelo_versao_anterior(uuid)', '1e50e83e02176b5d09481d827cea3a41'),
       ('public._modelo_automaticos(uuid)', '3a80e1c213968d7e2ec0f0ba8a97b0d0'),
       ('public.fn_modelo_versao_congelar_captura()', '3738030da556e51a81186b04347f8ec4'),
-      ('public.fn_modelo_versao_congelar_aplicar()', '12ec7e8d8263f7187b7d3ef685cf040c'),
+      ('public.fn_modelo_versao_congelar_aplicar()', 'af32e23b409edb4fe02b6062a2f0868d'),
       ('public.modelos_versao_anterior(uuid[])', '7ef5b3b3d45a712e9c183474832262a5')
     ) AS x(f, depois) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -207,12 +207,13 @@ BEGIN
                   ELSE (_custo ->> 'previsto')::numeric END;
   -- ruling do controlador, G-migration fix 1 #G1 (A-I1 + B-I-1): titulo_pagina/preco_anterior NULL = automatico
   -- (contrato da coluna, 20261005100000:760/:766) — o retrato NUNCA le cru (senão TODO produto nasce com falta,
-  -- 272/272 na copia). Titulo automatico = _titulo_pagina_calculado(nome, tenants.nome — a MARCA da loja).
+  -- 272/272 na copia). [preco-versao v1] Titulo e Preco anterior automaticos = _modelo_automaticos (abaixo): v2+ = da
+  -- VERSAO ANTERIOR (titulo herdado, recursivo; preco de venda GRAVADO > 0 da anterior, senao vazio = falta); v1/orfa =
+  -- titulo calculado do nome + loja e o proprio preco_venda. v_loja_nome/v_preco_venda_efetivo ficaram sem uso (diff minimo).
   SELECT t.nome INTO v_loja_nome FROM public.tenants t WHERE t.id = m.tenant_id;
   -- [preco-versao v1] P-146/P-155 B/P-158: automáticos pela VERSÃO ANTERIOR (_modelo_automaticos)
   SELECT a.titulo_auto, a.preco_auto INTO v_titulo_auto, v_preco_anterior_auto FROM public._modelo_automaticos(m.id) a;
-  -- Preco anterior automatico = acompanha o preco de venda EFETIVO — a MESMA expressao que o retrato usa para
-  -- "Preço de venda" (campo 'preco_venda' abaixo: m.preco_venda, sem outra fonte de preco efetivo nesta funcao).
+  -- [preco-versao v1] sem uso desde a 20261018100000 (o Preco anterior automatico vem de _modelo_automaticos acima).
   v_preco_venda_efetivo := m.preco_venda;
 
   -- linha do PRODUTO
@@ -657,10 +658,13 @@ BEGIN
   -- tudo; os outros acham a fila vazia). Por versão que SOBROU: (1) sumiu na mesma transação -> pula; (2) Integrável/
   -- Integrada -> pula (R2: o retrato já guarda o valor e o "i" avisa; a trava #14 nunca é furada); (3) congela o valor de
   -- ANTES só se o campo continua automático, a fonte de antes era a versão anterior e o automático de DEPOIS é outro.
-  -- Um "aguardando" (antes NULL, P-158) não tem o que congelar. FALHA FECHADA (ruling do controlador): qualquer erro
-  -- (lock de 2 s, bug) desfaz a exclusão INTEIRA com P0001 ASCII 'versao_congelar: <SQLSTATE>' (erro-mensagem.ts traduz).
-  -- O UPDATE sobe o rev da versão (P0409 num Sheet aberto -> merge) e audita em nome de quem excluiu; fora da fila do
-  -- kanban (o WHEN de trg_kanban_fila_upd não cita esses 2 campos).
+  -- Um "aguardando" (antes NULL, P-158) não tem o que congelar.
+  -- M1 (G-migration, fix round 1): a condição é avaliada 1º SEM trava; só a versão que VAI congelar leva FOR NO KEY UPDATE
+  -- (o lock do próprio UPDATE — não bloqueia as checagens de FK das tabelas filhas) e a condição é REFEITA sob a trava.
+  -- Excluir o topo não trava mais v1/v2 à toa.
+  -- FALHA FECHADA (ruling do controlador): qualquer erro (lock de 2 s, bug) desfaz a exclusão INTEIRA com P0001 ASCII
+  -- 'versao_congelar: <SQLSTATE>' (erro-mensagem.ts traduz). O UPDATE sobe o rev da versão (P0409 num Sheet aberto ->
+  -- merge) e audita em nome de quem excluiu; fora da fila do kanban (o WHEN de trg_kanban_fila_upd não cita esses 2 campos).
   BEGIN
     FOR v_f IN
       WITH dr AS (
@@ -668,10 +672,24 @@ BEGIN
       )
       SELECT * FROM dr ORDER BY dr.modelo_id
     LOOP
+      -- 1ª passada, SEM trava
+      SELECT x.id, x.preco_anterior, x.titulo_pagina INTO v_m
+        FROM public.modelos x
+       WHERE x.id = v_f.modelo_id AND x.tenant_id = v_f.tenant_id;
+      CONTINUE WHEN NOT FOUND;
+      CONTINUE WHEN EXISTS (SELECT 1 FROM public.integracao_produtos ip
+                             WHERE ip.modelo_id = v_f.modelo_id AND ip.estado IN ('integravel', 'integrado'));
+      SELECT a.preco_auto, a.titulo_auto INTO v_d FROM public._modelo_automaticos(v_f.modelo_id) a;
+      v_preco := v_m.preco_anterior IS NULL AND v_f.preco_fonte = 'anterior' AND v_f.preco_antes IS NOT NULL
+                 AND v_d.preco_auto IS DISTINCT FROM v_f.preco_antes;
+      v_titulo := nullif(btrim(coalesce(v_m.titulo_pagina, '')), '') IS NULL AND v_f.titulo_fonte = 'herdado'
+                  AND v_f.titulo_antes IS NOT NULL AND v_d.titulo_auto IS DISTINCT FROM v_f.titulo_antes;
+      CONTINUE WHEN NOT (v_preco OR v_titulo);
+      -- 2ª passada, SOB a trava: refaz tudo (outra transação pode ter mudado a linha entre as duas leituras)
       SELECT x.id, x.preco_anterior, x.titulo_pagina INTO v_m
         FROM public.modelos x
        WHERE x.id = v_f.modelo_id AND x.tenant_id = v_f.tenant_id
-         FOR UPDATE;
+         FOR NO KEY UPDATE;
       CONTINUE WHEN NOT FOUND;
       CONTINUE WHEN EXISTS (SELECT 1 FROM public.integracao_produtos ip
                              WHERE ip.modelo_id = v_f.modelo_id AND ip.estado IN ('integravel', 'integrado'));
@@ -753,7 +771,7 @@ DECLARE
   v_n bigint;
 BEGIN
   v := md5(pg_get_functiondef(to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)')));
-  IF v IS DISTINCT FROM 'ed728d100ef6a048427a61c69fa3a1ac' THEN
+  IF v IS DISTINCT FROM '1cfaed33c1b166e433ca20a42e5905c5' THEN
     RAISE EXCEPTION 'preco_versao: pos-condicao (ida) - _integracao_retrato_core com md5 %', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)')));
@@ -773,7 +791,7 @@ BEGIN
     RAISE EXCEPTION 'preco_versao: pos-condicao (ida) - fn_modelo_versao_congelar_captura com md5 %', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_versao_congelar_aplicar()')));
-  IF v IS DISTINCT FROM '12ec7e8d8263f7187b7d3ef685cf040c' THEN
+  IF v IS DISTINCT FROM 'af32e23b409edb4fe02b6062a2f0868d' THEN
     RAISE EXCEPTION 'preco_versao: pos-condicao (ida) - fn_modelo_versao_congelar_aplicar com md5 %', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.modelos_versao_anterior(uuid[])')));
@@ -845,7 +863,7 @@ BEGIN
     RAISE EXCEPTION 'preco_versao: pos-condicao (ida) - trg_modelo_versao_congelar_captura ausente ou diferente' USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)')));
-  IF v IS DISTINCT FROM 'ed728d100ef6a048427a61c69fa3a1ac' THEN
+  IF v IS DISTINCT FROM '1cfaed33c1b166e433ca20a42e5905c5' THEN
     RAISE EXCEPTION 'preco_versao: pos-condicao (ida) - _integracao_retrato_core com md5 %', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)')));
@@ -865,7 +883,7 @@ BEGIN
     RAISE EXCEPTION 'preco_versao: pos-condicao (ida) - fn_modelo_versao_congelar_captura com md5 %', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_versao_congelar_aplicar()')));
-  IF v IS DISTINCT FROM '12ec7e8d8263f7187b7d3ef685cf040c' THEN
+  IF v IS DISTINCT FROM 'af32e23b409edb4fe02b6062a2f0868d' THEN
     RAISE EXCEPTION 'preco_versao: pos-condicao (ida) - fn_modelo_versao_congelar_aplicar com md5 %', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.modelos_versao_anterior(uuid[])')));

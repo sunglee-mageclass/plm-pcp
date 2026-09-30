@@ -37,6 +37,15 @@ describe("mensagemErro — recusas da Integração (traduz pelo code + prefixo A
 describe("mensagemErro — 40P01 (deadlock, ruling T5 Minor 4)", () => {
   it("deadlock detected vira mensagem PT amigável", () => {
     expect(mensagemErro({ code: "40P01", message: "deadlock detected" }))
-      .toBe("Outra pessoa salvou este produto ao mesmo tempo. Tente de novo.");
+      .toBe("Outra pessoa salvou ou excluiu este produto ao mesmo tempo. Nada foi gravado — tente de novo.");
+  });
+  // M2 (G-migration da frente Preço anterior/Título por versão): 2 pessoas excluindo versões da MESMA família no mesmo
+  // instante podem cair num deadlock (a vítima recebe o 40P01 CRU no DELETE, fora do P0001 do congelamento) — o PostgREST
+  // devolve o código; a tela mostra "tente de novo", nunca o genérico nem o inglês.
+  it("M2: deadlock ao EXCLUIR (DELETE de versões da mesma família) vira 'tente de novo' em PT", () => {
+    const m = mensagemErro({ code: "40P01", message: "deadlock detected", details: "Process 123 waits for ShareLock on transaction 456" }, "Não foi possível excluir.");
+    expect(m).toMatch(/tente de novo/);
+    expect(m).toMatch(/excluiu/);
+    expect(m).not.toMatch(/deadlock/i);
   });
 });

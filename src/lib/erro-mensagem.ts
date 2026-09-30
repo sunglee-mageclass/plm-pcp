@@ -27,7 +27,9 @@ const POR_CODIGO: Record<string, string> = {
   "40001": "Conflito de acesso simultâneo. Tente novamente.",
   // Revisão T5 Minor 4: pode acontecer quando o mesmo produto comprado é salvo simultaneamente
   // pelo Sheet do Planejamento e pela tela de Produto Acabado/Importado.
-  "40P01": "Outra pessoa salvou este produto ao mesmo tempo. Tente de novo.",
+  // deadlock: salvar o mesmo comprado em 2 telas (T5 Minor 4) OU excluir versões da MESMA família ao mesmo tempo (M2 da
+  // frente Preço anterior/Título por versão — o congelamento ao excluir). A transação inteira é desfeita.
+  "40P01": "Outra pessoa salvou ou excluiu este produto ao mesmo tempo. Nada foi gravado — tente de novo.",
   "42501": "Você não tem permissão para esta ação.",
   // statement_timeout (ex.: Salvar da Config da Loja com o Kanban automático ligado recalcula a loja inteira
   // na MESMA transação — loja grande pode estourar o tempo). A transação inteira é desfeita.

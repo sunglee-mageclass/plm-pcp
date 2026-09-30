@@ -7,8 +7,8 @@
 -- LIFO: roda DEPOIS do inverso da 20261018110000 (integracao_versoes_integradas) e ANTES dos inversos da 20261014100000
 -- (a guarda dele exige o replicar aaf3f2e4...) e da 20261013100000 (exige o retrato 4cd22e4b...). O FRONT volta antes.
 -- Guarda: as 7 funções no texto de DEPOIS (senão P0001; rodar 2x recusa na 2ª) e a fila VAZIA (sempre, fora de uma txn).
--- Passos: DROP do gatilho em modelos -> retrato e replicar com o texto de ANTES -> DROP do gatilho adiado, das 2 funções
--- de gatilho e da fila -> DROP da RPC e dos 2 helpers -> COMMENTs de antes -> REVOKE -> pós (md5 de ANTES, novos ausentes).
+-- Passos: retrato e replicar com o texto de ANTES -> DROP do gatilho em modelos (só então: B3) -> DROP do gatilho adiado,
+-- das 2 funções de gatilho e da fila -> DROP da RPC e dos 2 helpers -> COMMENTs de antes -> REVOKE -> pós (md5 de ANTES, novos ausentes).
 
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -24,7 +24,7 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)')));
-  IF v IS DISTINCT FROM 'ed728d100ef6a048427a61c69fa3a1ac' THEN
+  IF v IS DISTINCT FROM '1cfaed33c1b166e433ca20a42e5905c5' THEN
     RAISE EXCEPTION 'preco_versao (volta): _integracao_retrato_core nao esta no texto da ida (md5 %) - outra frente mexeu ou a volta ja rodou', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;
@@ -49,7 +49,7 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_versao_congelar_aplicar()')));
-  IF v IS DISTINCT FROM '12ec7e8d8263f7187b7d3ef685cf040c' THEN
+  IF v IS DISTINCT FROM 'af32e23b409edb4fe02b6062a2f0868d' THEN
     RAISE EXCEPTION 'preco_versao (volta): fn_modelo_versao_congelar_aplicar nao esta no texto da ida (md5 %) - outra frente mexeu ou a volta ja rodou', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;
@@ -67,9 +67,7 @@ BEGIN
 END
 $guarda$;
 
-DROP TRIGGER IF EXISTS trg_modelo_versao_congelar_captura ON public.modelos;
-
--- retrato e replicar: o texto de ANTES
+-- retrato e replicar: o texto de ANTES (1º — sem trava forte em modelos; B3 do G-migration)
 CREATE OR REPLACE FUNCTION public._integracao_retrato_core(_modelo_id uuid, _campos text[], _custo jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -503,6 +501,8 @@ begin
 end $function$
 ;
 
+-- só agora o gatilho de captura em modelos (AccessExclusive até o COMMIT — o resto é curto)
+DROP TRIGGER IF EXISTS trg_modelo_versao_congelar_captura ON public.modelos;
 DROP TRIGGER IF EXISTS trg_modelo_versao_congelar_aplicar ON public.modelo_versao_congelar_fila;
 DROP FUNCTION IF EXISTS public.fn_modelo_versao_congelar_aplicar();
 DROP FUNCTION IF EXISTS public.fn_modelo_versao_congelar_captura();

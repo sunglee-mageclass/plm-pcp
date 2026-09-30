@@ -48,6 +48,14 @@ const TROCAS: Record<string, [string, string][]> = {
       `  -- ${MARCA} P-146/P-155 B/P-158: automáticos pela VERSÃO ANTERIOR (_modelo_automaticos)\n` +
       "  SELECT a.titulo_auto, a.preco_auto INTO v_titulo_auto, v_preco_anterior_auto FROM public._modelo_automaticos(m.id) a;\n"],
     ["coalesce(m.preco_anterior, v_preco_venda_efetivo)", "coalesce(m.preco_anterior, v_preco_anterior_auto)"],
+    // B2 (G-migration, fix round 1): os 2 comentários que descreviam a regra velha
+    ["  -- 272/272 na copia). Titulo automatico = _titulo_pagina_calculado(nome, tenants.nome — a MARCA da loja).\n",
+      `  -- 272/272 na copia). ${MARCA} Titulo e Preco anterior automaticos = _modelo_automaticos (abaixo): v2+ = da\n` +
+      "  -- VERSAO ANTERIOR (titulo herdado, recursivo; preco de venda GRAVADO > 0 da anterior, senao vazio = falta); v1/orfa =\n" +
+      "  -- titulo calculado do nome + loja e o proprio preco_venda. v_loja_nome/v_preco_venda_efetivo ficaram sem uso (diff minimo).\n"],
+    ["  -- Preco anterior automatico = acompanha o preco de venda EFETIVO — a MESMA expressao que o retrato usa para\n" +
+      "  -- \"Preço de venda\" (campo 'preco_venda' abaixo: m.preco_venda, sem outra fonte de preco efetivo nesta funcao).\n",
+      `  -- ${MARCA} sem uso desde a 20261018100000 (o Preco anterior automatico vem de _modelo_automaticos acima).\n`],
   ],
   [REPLICAR]: [
     ["    insert into modelos (\n",
@@ -181,8 +189,13 @@ describe("preço/título por versão — (a) arquivos da migration e do inverso 
     expect(t).toMatch(/congelados por exclus[õo]es feitas depois da ida FICAM gravados/i);
     expect(t).toContain("EXISTS (SELECT 1 FROM public.modelo_versao_congelar_fila)");
     expect(t).toContain("integracao_versoes_integradas(uuid[])"); // LIFO: T5 volta antes
+    // B3 (G-migration, fix round 1): o gatilho de captura em modelos (AccessExclusive) cai SÓ depois de restaurar as 2 funções
+    const iDrop = t.indexOf("DROP TRIGGER IF EXISTS trg_modelo_versao_congelar_captura ON public.modelos;");
+    expect(iDrop).toBeGreaterThan(t.indexOf("CREATE OR REPLACE FUNCTION public._integracao_retrato_core("));
+    expect(iDrop).toBeGreaterThan(t.indexOf("CREATE OR REPLACE FUNCTION public._replicar_cards_plan_tecido_core("));
+    expect(iDrop).toBeLessThan(t.indexOf("DROP FUNCTION IF EXISTS public.fn_modelo_versao_congelar_captura();"));
   });
-  it("as trocas do gerador = diff do inverso para a migration (só as 5 trocas nas 2 redefinidas + objetos novos)", () => {
+  it("as trocas do gerador = diff do inverso para a migration (só as 7 trocas nas 2 redefinidas + objetos novos)", () => {
     for (const sig of [RETRATO, REPLICAR]) {
       const antes = corpo(INV, sig);
       const depois = corpo(MIG, sig);
@@ -234,7 +247,7 @@ describe.skipIf(!PRONTO)("preço/título por versão — (b) helper, composiçã
       });
     });
   }
-  it("RB3: modelo inexistente → 1 linha de NULLs; o retrato da v1 continua com título (sem falta)", async () => {
+  it("RB3: _modelo_automaticos de um modelo inexistente devolve 1 linha de NULLs (nunca 0 linhas)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const { rows } = await c.query("SELECT * FROM public._modelo_automaticos(gen_random_uuid())");
@@ -303,26 +316,33 @@ describe.skipIf(!PRONTO)("preço/título por versão — (c) congelar ao excluir
   });
 });
 
-// ─────────────────────────────── (d) falha fechada ───────────────────────────────
-describe.skipIf(!PRONTO || MIG_TXN)("preço/título por versão — (d) falha FECHADA (lock na versão que sobra)", () => {
-  it("outra conexão segura a versão que congelaria (FOR UPDATE) → P0001 versao_congelar e a exclusão inteira volta", async () => {
-    // dados COMMITADOS da cópia (a outra conexão precisa enxergar a linha): raiz r + filho f (versao >= 2), nenhum integrável
-    const par = await (async () => {
-      const c = new Client({ connectionString: dbUrl()!, ssl: false });
-      await c.connect();
-      try {
-        return (await c.query(
-          `SELECT r.id AS r, f.id AS f, f.versao AS v, f.tenant_id AS t
-             FROM public.modelos f JOIN public.modelos r ON r.id = f.modelo_base_id AND r.tenant_id = f.tenant_id
-            WHERE f.versao >= 2 AND f.preco_anterior IS NULL AND coalesce(r.preco_venda, 0) <> 777
-              AND NOT EXISTS (SELECT 1 FROM public.integracao_produtos ip WHERE ip.modelo_id IN (r.id, f.id)
-                                AND ip.estado IN ('integravel', 'integrado'))
-            ORDER BY f.id LIMIT 1`)).rows[0];
-      } finally {
-        await c.end();
-      }
-    })();
-    if (!par) return; // cópia sem família commitada: nada a provar aqui
+// ─────────────────────────────── (d) falha fechada + M1 (só trava quem congela) ───────────────────────────────
+/** Dados COMMITADOS da cópia (a 2ª conexão precisa enxergar a linha): raiz r + filho f (versao >= 2), nenhum integrável. */
+async function parCommitado(): Promise<{ r: string; f: string; v: number; t: string } | null> {
+  if (!PRONTO || MIG_TXN) return null;
+  const c = new Client({ connectionString: dbUrl()!, ssl: false });
+  await c.connect();
+  try {
+    return (await c.query(
+      `SELECT r.id AS r, f.id AS f, f.versao AS v, f.tenant_id AS t
+         FROM public.modelos f JOIN public.modelos r ON r.id = f.modelo_base_id AND r.tenant_id = f.tenant_id
+        WHERE f.versao >= 2 AND f.preco_anterior IS NULL AND coalesce(r.preco_venda, 0) <> 777
+          AND NOT EXISTS (SELECT 1 FROM public.integracao_produtos ip WHERE ip.modelo_id IN (r.id, f.id)
+                            AND ip.estado IN ('integravel', 'integrado'))
+        ORDER BY f.id LIMIT 1`)).rows[0] ?? null;
+  } finally {
+    await c.end();
+  }
+}
+const PAR = await parCommitado();
+if (PRONTO && !MIG_TXN && !PAR) {
+  // B6 (G-migration, fix round 1): nunca passar em silêncio — sem família commitada na cópia, os 2 testes abaixo são PULADOS.
+  // eslint-disable-next-line no-console
+  console.warn("[preco-titulo-versao] (d) PULADO: a cópia não tem família commitada (raiz + filho versao >= 2) para a 2ª conexão travar.");
+}
+describe.skipIf(!PRONTO || MIG_TXN)("preço/título por versão — (d) falha FECHADA e M1 (2ª conexão real)", () => {
+  it.skipIf(!PAR)("outra conexão segura a versão que congelaria (FOR UPDATE) → P0001 versao_congelar e a exclusão inteira volta (pula se a cópia não tiver família commitada)", async () => {
+    const par = PAR!;
     const b = new Client({ connectionString: dbUrl()!, ssl: false });
     await b.connect();
     try {
@@ -354,6 +374,35 @@ describe.skipIf(!PRONTO || MIG_TXN)("preço/título por versão — (d) falha FE
         // a exclusão voltou (savepoint) e nada foi gravado no filho
         expect((await um<{ n: string }>(c, "SELECT count(*) AS n FROM public.modelos WHERE id = $1", [z])).n).toBe("1");
         expect((await um<{ p: string | null }>(c, "SELECT preco_anterior AS p FROM public.modelos WHERE id = $1", [par.f])).p).toBeNull();
+      });
+    } finally {
+      await b.end();
+    }
+  }, 30_000);
+  it.skipIf(!PAR)("M1: excluir o TOPO com as versões de baixo em edição por outra conexão (FOR NO KEY UPDATE) passa sem erro — ninguém congela, ninguém é travado (pula se a cópia não tiver família commitada)", async () => {
+    const par = PAR!;
+    const b = new Client({ connectionString: dbUrl()!, ssl: false });
+    await b.connect();
+    try {
+      await withTx(async (c) => {
+        await prepara(c);
+        // Z = um NOVO topo da família (acima de tudo): excluí-lo não muda o automático de ninguém
+        const topo = (await um<{ v: number }>(c,
+          "SELECT max(versao) AS v FROM public.modelos WHERE id = $1 OR modelo_base_id = $1", [par.r])).v;
+        const z = (await um<{ id: string }>(c,
+          `INSERT INTO public.modelos (tenant_id, nome, versao, preco_venda, modelo_base_id)
+           VALUES ($1, 'PV TOPO Z', $2, 555, $3) RETURNING id`, [par.t, Number(topo) + 1, par.r])).id;
+        await b.query("BEGIN");
+        await b.query("SELECT id FROM public.modelos WHERE id = ANY($1::uuid[]) FOR NO KEY UPDATE", [[par.r, par.f]]);
+        await c.query("DELETE FROM public.modelos WHERE id = $1", [z]);
+        const t0 = Date.now();
+        await c.query("SET CONSTRAINTS ALL IMMEDIATE"); // antes do M1: FOR UPDATE em r e f → 55P03 → exclusão desfeita
+        const ms = Date.now() - t0;
+        await c.query("SET CONSTRAINTS ALL DEFERRED");
+        await b.query("ROLLBACK");
+        expect(ms).toBeLessThan(1500);
+        expect((await um<{ n: string }>(c, "SELECT count(*) AS n FROM public.modelos WHERE id = $1", [z])).n).toBe("0");
+        expect((await um<{ n: string }>(c, "SELECT count(*) AS n FROM public.modelo_versao_congelar_fila")).n).toBe("0");
       });
     } finally {
       await b.end();

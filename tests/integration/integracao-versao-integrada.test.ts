@@ -12,6 +12,7 @@ import { exigeBancoLocal } from "./mig-txn";
 import {
   CAMPOS_PADRAO, LOCAL, T, U, aplica, apelido, camposLoja, comoUsuarioCom, cor, ler, MIG_VERSAO_INTEGRADA, INV_VERSAO_INTEGRADA,
 } from "./integracao-helpers";
+import { CASOS_VERSAO } from "../fixtures/versao-anterior-casos";
 
 const MIG = MIG_VERSAO_INTEGRADA;
 const INV = INV_VERSAO_INTEGRADA;
@@ -108,6 +109,45 @@ const chave = (c: Client, v: Var) => um<{ k: string }>(c, "SELECT public._sku_va
 async function versoes(c: Client, ids: string[]): Promise<any[]> {
   return (await um<{ r: any[] }>(c, "SELECT public.integracao_versoes_integradas($1::uuid[]) AS r", [ids])).r;
 }
+
+// B5 (G-migration, fix round 1) — ANTI-DRIFT da regra de família: a T5 reimplementa o predicado (a MAIOR versão MENOR da
+// família, mesma loja, desempate created_at/id) porque procura a maior menor INTEGRÁVEL, não a anterior imediata. Com TODA
+// versão menor marcada integrável, as duas regras têm de coincidir: a T5 aponta para a MESMA anterior que o helper da §1.5
+// (tests/fixtures/versao-anterior-casos.ts — empate, número pulado, buraco, órfã, loja cruzada…).
+describe.skipIf(!PRONTO)("integração — versão já integrada ≡ regra de família da §1.5 (anti-drift, B5)", () => {
+  for (const caso of CASOS_VERSAO) {
+    it(caso.nome, async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const outra = (await um<{ id: string }>(c, "SELECT id FROM public.tenants WHERE id <> $1 ORDER BY id LIMIT 1", [T])).id;
+        const ids: Record<string, string> = {};
+        const lojaDe: Record<string, string> = {};
+        for (const l of caso.familia) {
+          lojaDe[l.k] = l.outraLoja ? outra : T;
+          ids[l.k] = (await um<{ id: string }>(c,
+            `INSERT INTO public.modelos (tenant_id, nome, versao, created_at, preco_venda, modelo_base_id, origem)
+             VALUES ($1, $2, $3, $4::timestamptz, $5, $6, $7) RETURNING id`,
+            [lojaDe[l.k], l.nome, l.versao, l.created_at, l.preco_venda, l.base ? ids[l.base] : null, l.origem ?? "interno"])).id;
+        }
+        for (const l of caso.familia) {
+          if (l.k === caso.alvo) continue;
+          await c.query("INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado) VALUES ($1, $2, 'integravel')",
+            [lojaDe[l.k], ids[l.k]]);
+        }
+        await comoUsuario(c, U);
+        const r = await versoes(c, [ids[caso.alvo]]);
+        if (caso.helper === null) {
+          expect(r, "sem anterior na regra da §1.5 ⇒ sem aviso").toEqual([]);
+        } else {
+          expect(r.length).toBe(1);
+          expect(r[0].anterior_id).toBe(ids[caso.helper.anterior]);
+          expect(r[0].anterior_versao).toBe(caso.helper.anterior_versao);
+          expect(r[0].anterior_estado).toBe("integravel");
+        }
+      });
+    });
+  }
+});
 
 describe.skipIf(!PRONTO)("integração — versão de produto já integrado (T5)", () => {
   it("v1 integrada + v2 com 1 cor nova e 1 que saiu → iguais/novas/saíram; nomes do RETRATO (cor marcada)", async () => {
