@@ -22,23 +22,14 @@ export const PREFIXO_CATEGORIA_ACESSORIO_PEDIDO = "categoria_acessorio_com_pedid
 //    o UPDATE do card inteiro é desfeito, mas num Salvar do Sheet algo gravado ANTES dele (ex.: a grade da revenda, numa
 //    corrida com uma OC criada no meio) pode ter ficado — por isso fala da ALTERAÇÃO da Categoria, não de "nada foi salvo";
 //    e não aponta tela nenhuma (com o módulo PA/PI desligado a tela do produto nem aparece);
-//  • pré-checagem (Sheet / lote): roda ANTES de qualquer gravação, então "nada foi salvo" é verdade; só chega aqui quando
-//    o produto é visível (módulo ligado), então dá a dica POR FAMÍLIA de onde desvincular (PA: tela Produto Acabado; PI:
-//    formulário da OC do Importado).
+//  • pré-checagem (Sheet / lote): roda ANTES de qualquer gravação, então "nada foi salvo" é verdade. Sem dica de
+//    "desvincular a OC" (re-review R1, M): o botão de desvincular do PA não funciona hoje (backlog) e o PI não tem
+//    caminho de desvincular numa OC existente — a única saída real é escolher uma categoria do mesmo tipo de grupo.
 export const TEXTO_CATEGORIA_ACESSORIO_PEDIDO =
-  "A troca de Categoria foi recusada: o produto deste card tem pedido (OC) e o grupo dele mudaria entre Acessórios e outro grupo — a grade do pedido deixaria de bater. A alteração da Categoria não foi gravada; escolha uma categoria do mesmo tipo de grupo.";
+  "A troca de Categoria foi recusada: o produto deste card tem pedido (OC) e o grupo dele mudaria entre Acessórios e outro grupo — a grade do pedido deixaria de bater. A alteração do card não foi gravada; escolha uma categoria do mesmo tipo de grupo.";
 
 export type TipoProdutoEspelho = "PA" | "PI";
 export type BloqueioCategoria = { modeloId: string; nome: string; ref: string | null; tipo: TipoProdutoEspelho };
-
-const DICA_DESVINCULAR: Record<TipoProdutoEspelho, string> = {
-  PA: "desvincule a OC na tela Produto Acabado",
-  PI: "desvincule o produto no formulário da OC do Produto Importado",
-};
-function dicas(tipos: readonly TipoProdutoEspelho[]): string {
-  const us = [...new Set(tipos)].sort();
-  return us.map((t) => DICA_DESVINCULAR[t]).join(" ou ");
-}
 
 /** Rótulo do card na mensagem: nome; sem nome → "(sem nome)" + REF quando houver (L1). */
 export function rotuloCardBloqueado(b: Pick<BloqueioCategoria, "nome" | "ref">): string {
@@ -50,14 +41,14 @@ export function rotuloCardBloqueado(b: Pick<BloqueioCategoria, "nome" | "ref">):
 
 /** Sheet do Planejamento (pré-checagem, ANTES de gravar). */
 export function textoBloqueioCategoriaCard(b: Pick<BloqueioCategoria, "tipo">): string {
-  return `Não dá para trocar a Categoria: o produto deste card tem pedido (OC) e o grupo dele mudaria entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nada foi salvo. Escolha uma categoria do mesmo tipo de grupo ou ${dicas([b.tipo])}.`;
+  return `Não dá para trocar a Categoria: o produto deste card tem pedido (OC) e o grupo dele mudaria entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nada foi salvo. Escolha uma categoria do mesmo tipo de grupo.`;
 }
 
 /** Edição em lote (pré-checagem, ANTES do UPDATE único): nomeia os cards barrados. */
 export function textoBloqueioCategoriaLote(bs: readonly Pick<BloqueioCategoria, "nome" | "ref" | "tipo">[]): string {
   const lista = bs.map(rotuloCardBloqueado).join(", ");
   const quem = bs.length === 1 ? `O card ${lista} tem` : `${bs.length} cards (${lista}) têm`;
-  return `${quem} produto com pedido (OC) e a nova Categoria mudaria o grupo entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nenhum card foi alterado. Tire esses cards da seleção, escolha uma categoria do mesmo tipo de grupo ou ${dicas(bs.map((b) => b.tipo))}.`;
+  return `${quem} produto com pedido (OC) e a nova Categoria mudaria o grupo entre Acessórios e outro grupo — a grade do pedido deixaria de bater. Nenhum card foi alterado. Tire esses cards da seleção ou escolha uma categoria do mesmo tipo de grupo.`;
 }
 
 /** Sheet: o que o `mutationFn` passa para a pré-checagem (PURO — L5 da review do front: testa a fiação do gancho). */

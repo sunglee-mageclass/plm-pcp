@@ -162,28 +162,28 @@ describe("mensagens PT por caminho (recusa do banco × pré-checagem)", () => {
   it("banco: P0001 + prefixo ASCII vira texto PT que NÃO aponta tela e NÃO diz 'nada foi salvo' (o UPDATE da Categoria é que foi desfeito)", () => {
     const doBanco = { code: "P0001", message: `${PREFIXO_CATEGORIA_ACESSORIO_PEDIDO} produto com pedido nao pode trocar entre Acessorios e outro grupo pela Categoria do card` };
     expect(mensagemErro(doBanco)).toBe(TEXTO_CATEGORIA_ACESSORIO_PEDIDO);
-    expect(TEXTO_CATEGORIA_ACESSORIO_PEDIDO).toMatch(/A alteração da Categoria não foi gravada/);
+    expect(TEXTO_CATEGORIA_ACESSORIO_PEDIDO).toMatch(/A alteração do card não foi gravada/);
     expect(TEXTO_CATEGORIA_ACESSORIO_PEDIDO).not.toMatch(/Nada foi salvo|tela|formulário/i);
   });
-  it("Sheet (pré-checagem): 'Nada foi salvo' + dica POR FAMÍLIA de onde desvincular", () => {
+  it("Sheet (pré-checagem): 'Nada foi salvo' e sem dica de desvincular (re-review R1)", () => {
     const pa = textoBloqueioCategoriaCard({ tipo: "PA" });
     const pi = textoBloqueioCategoriaCard({ tipo: "PI" });
     expect(pa).toMatch(/Nada foi salvo/);
-    expect(pa).toMatch(/desvincule a OC na tela Produto Acabado\.$/);
-    expect(pi).toMatch(/desvincule o produto no formulário da OC do Produto Importado\.$/);
+    expect(pa).toMatch(/mesmo tipo de grupo\.$/); expect(pa).not.toMatch(/desvincul/i);
+    expect(pi).toMatch(/mesmo tipo de grupo\.$/); expect(pi).not.toMatch(/desvincul/i);
     expect(mensagemErro(new Error(pa), "Erro")).toBe(pa); // passa intacto (PT)
   });
-  it("lote: nomeia os cards; sem nome vira '(sem nome)' + REF; 'Nenhum card foi alterado'; dicas das famílias presentes", () => {
+  it("lote: nomeia os cards; sem nome vira '(sem nome)' + REF; 'Nenhum card foi alterado'; sem dica de desvincular", () => {
     expect(rotuloCardBloqueado({ nome: "Vestido Ana", ref: "X" })).toBe('"Vestido Ana"');
     expect(rotuloCardBloqueado({ nome: "  ", ref: "IM0003" })).toBe("(sem nome) REF IM0003");
     expect(rotuloCardBloqueado({ nome: "", ref: null })).toBe("(sem nome)");
     const um = textoBloqueioCategoriaLote([{ nome: "Vestido Ana", ref: null, tipo: "PA" }]);
     expect(um).toMatch(/^O card "Vestido Ana" tem produto com pedido/);
     expect(um).toMatch(/Nenhum card foi alterado/);
-    expect(um).toMatch(/tela Produto Acabado\.$/);
+    expect(um).toMatch(/mesmo tipo de grupo\.$/); expect(um).not.toMatch(/desvincul/i);
     const dois = textoBloqueioCategoriaLote([{ nome: "Vestido Ana", ref: null, tipo: "PA" }, { nome: "", ref: "IM0003", tipo: "PI" }]);
     expect(dois).toMatch(/^2 cards \("Vestido Ana", \(sem nome\) REF IM0003\) têm produto com pedido/);
-    expect(dois).toMatch(/tela Produto Acabado ou desvincule o produto no formulário da OC do Produto Importado\.$/);
+    expect(dois).toMatch(/escolha uma categoria do mesmo tipo de grupo\.$/); expect(dois).not.toMatch(/desvincul/i);
     expect(mensagemErro(new Error(dois), "Erro ao atualizar cards")).toBe(dois);
   });
   it("outro P0001 continua passando a própria mensagem", () => {
