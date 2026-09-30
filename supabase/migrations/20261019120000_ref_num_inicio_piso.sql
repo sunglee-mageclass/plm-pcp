@@ -16,7 +16,12 @@
 -- Passo 0 (producao, 30/set 11:22): os 3 embrulhos estao com o piso FIXO (igual a copia). So a Ave Rara muda de numero:
 -- ultimo 10000305, "Comecar em" 100000000 (9 digitos) -> a proxima REF sai com 100000000. As outras 5 lojas nao mudam.
 -- Numeracao ja emitida: a VOLTA nao devolve (REFs >= num_inicio ficam; ref_sequencia.ultimo fica acima do piso antigo).
--- Dependencias lidas (nao trocadas; md5 conferido): _ref_num_inicio(uuid), _ref_next_global(uuid,bigint).
+-- M2 (revisao G-migration, fix round 1): _ref_num_inicio passa a ser TOLERANTE - so '^[0-9]{1,18}$' vale como
+-- "Comecar em"; qualquer outro valor gravado em ref_config.num_inicio (fracao, 1e+21, texto, acima do bigint) cai no piso
+-- 10000000. Antes da correcao o valor era ignorado; agora ele esta no caminho quente dos 3 gatilhos de REF, entao uma
+-- config ruim nao pode derrubar o salvar do modelo nem a criacao de PA/PI. (Escolhida a opcao (b) da revisao: vale
+-- tambem para um valor ruim que ja esteja gravado, sem depender de salvar_config_loja.)
+-- Dependencia lida (nao trocada; md5 conferido): _ref_next_global(uuid,bigint).
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public._modelo_ref_next_num(uuid)
@@ -34,10 +39,13 @@
 --     ANTES  6a7581ed44b8055070a80c6db4bd0386  (texto do REPO = fase 2 20260916200000 (_ref_num_inicio); aceito por RG1)
 --     PRODUCAO = f79493ba5d989dc85ce21b21e02dfca2 (piso FIXO, igual a copia; texto em passo0-ref-funcoes-2026-09-30-112215.sql)  (Passo 0 somente leitura, 30/set 11:22 - passo0-funcoes-2026-09-30-112215.csv)
 --     DEPOIS 5549319a6bc74b76e7cb05c0ac37588b  (este arquivo; reaplicar = no-op)
+--   public._ref_num_inicio(uuid)
+--     ANTES  8bb3e4247d8db14eb0379eb4e28033b4  (copia local 30/set = PRODUCAO (Passo 0 30/set 11:22) = 20260916190000)
+--     PRODUCAO = 8bb3e4247d8db14eb0379eb4e28033b4 (igual a copia)  (Passo 0 somente leitura, 30/set 11:22 - passo0-funcoes-2026-09-30-112215.csv)
+--     DEPOIS addf044a5ebf27c29d533c35698db959  (este arquivo; reaplicar = no-op)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
 --   Dependencias (so conferidas, nao trocadas):
---     public._ref_num_inicio(uuid)  8bb3e4247d8db14eb0379eb4e28033b4  (copia 30/set = PRODUCAO, Passo 0 30/set 11:22)
 --     public._ref_next_global(uuid,bigint)  ec89901135f6f52d24d2a764d5e72a56  (copia 30/set = PRODUCAO, Passo 0 30/set 11:22)
 -- Volta: supabase/rollback/20261019120000_ref_num_inicio_piso_down.sql - recoloca o texto EXATO que estava vivo (guardado por esta
 -- migration em public._bkp_funcoes_contas_certas; vale mesmo se producao != copia). Ordem de volta = LIFO da APLICACAO.
@@ -61,7 +69,8 @@ INSERT INTO _cc_md5_aceitos VALUES
   ('public._produto_importado_ref_next(uuid)', 'f79493ba5d989dc85ce21b21e02dfca2', 'antes'),   -- texto FIXO 10000000 = copia local 30/set = PRODUCAO (Passo 0 30/set 11:22) = fase 1 20260916180000
   ('public._produto_importado_ref_next(uuid)', '6a7581ed44b8055070a80c6db4bd0386', 'antes'),   -- texto do REPO = fase 2 20260916200000 (_ref_num_inicio); aceito por RG1
   ('public._produto_importado_ref_next(uuid)', '5549319a6bc74b76e7cb05c0ac37588b', 'depois'),
-  ('public._ref_num_inicio(uuid)', '8bb3e4247d8db14eb0379eb4e28033b4', 'dep'),   -- dependencia lida, nao trocada (copia 30/set = producao, Passo 0 30/set 11:22)
+  ('public._ref_num_inicio(uuid)', '8bb3e4247d8db14eb0379eb4e28033b4', 'antes'),   -- copia local 30/set = PRODUCAO (Passo 0 30/set 11:22) = 20260916190000
+  ('public._ref_num_inicio(uuid)', 'addf044a5ebf27c29d533c35698db959', 'depois'),
   ('public._ref_next_global(uuid,bigint)', 'ec89901135f6f52d24d2a764d5e72a56', 'dep')   -- dependencia lida, nao trocada (copia 30/set = producao, Passo 0 30/set 11:22)
 ;
 
@@ -102,6 +111,19 @@ BEGIN
   END LOOP;
 END $guarda$;
 
+CREATE OR REPLACE FUNCTION public._ref_num_inicio(_tenant uuid)
+ RETURNS bigint
+ LANGUAGE sql
+ STABLE
+AS $function$
+  -- [contas-certas 9, M2] tolerante: so um inteiro de 1 a 18 digitos vale como "Comecar em"; qualquer outra coisa gravada
+  -- em ref_config.num_inicio (fracao, notacao 1e+21, texto, acima do bigint) cai no piso historico 10000000 - uma config
+  -- ruim nunca derruba o salvar do modelo nem a criacao de Produto Acabado/Importado.
+  SELECT CASE WHEN (public._ref_cfg(_tenant)->>'num_inicio') ~ '^[0-9]{1,18}$'
+              THEN (public._ref_cfg(_tenant)->>'num_inicio')::bigint
+              ELSE 10000000 END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._modelo_ref_next_num(_tenant uuid)
  RETURNS bigint LANGUAGE sql
 AS $function$ SELECT public._ref_next_global(_tenant, public._ref_num_inicio(_tenant)); /* [contas-certas 9] piso = "Comecar em" da loja */ $function$;
@@ -118,6 +140,7 @@ AS $function$ SELECT public._ref_next_global(_tenant, public._ref_num_inicio(_te
 REVOKE EXECUTE ON FUNCTION public._modelo_ref_next_num(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._produto_acabado_ref_next(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._produto_importado_ref_next(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._ref_num_inicio(uuid) FROM PUBLIC, anon, authenticated;
 
 -- 9b: previa do proximo numero (RPC nova, so leitura).
 CREATE OR REPLACE FUNCTION public.ref_proximo_numero(_num_inicio bigint DEFAULT NULL::bigint)

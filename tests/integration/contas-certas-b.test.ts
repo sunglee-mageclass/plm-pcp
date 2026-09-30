@@ -2,8 +2,12 @@
 // Migrations: 20261019100000 (item 6), 20261019110000 (item 8), 20261019120000 (item 9 + 9b). Só leitura de DDL
 // (md5/ACL); nenhum teste aplica migration. Precisa das 3 migrations aplicadas no banco em uso (cópia local).
 import { describe, it, expect } from "vitest";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
+import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal } from "./db";
 import type { Client } from "pg";
+
+// L3 (revisão G-migration): SÓ na cópia local. Sem DATABASE_URL o db.ts cai em /tmp/dburl.txt (PRODUÇÃO) — este arquivo
+// faz DML (tenant_config, ref_sequencia, auth.users) em transação revertida e nunca deve rodar lá.
+const RODA = hasDb && ehBancoLocal();
 
 const MD5 = {
   estoqueEtiqueta: "82840be36eb6cd8bc0c18e8219841d5d",
@@ -32,7 +36,7 @@ async function pode(c: Client, papel: string, sig: string): Promise<boolean> {
 }
 
 // ─────────────────────────────── item 6 — insumo de revenda sem baixa em dobro ───────────────────────────────
-describe.skipIf(!hasDb)("contas certas 6 — _estoque_etiqueta_core: revenda baixa UMA vez", () => {
+describe.skipIf(!RODA)("contas certas 6 — _estoque_etiqueta_core: revenda baixa UMA vez", () => {
   async function baixa(c: Client, etq: string): Promise<number> {
     const r = await um<{ b: string | null }>(
       c,
@@ -123,7 +127,7 @@ describe.skipIf(!hasDb)("contas certas 6 — _estoque_etiqueta_core: revenda bai
 });
 
 // ─────────────────────────────── item 8 — M.O. decidida que muda de valor volta a pendente ───────────────────────────────
-describe.skipIf(!hasDb)(
+describe.skipIf(!RODA)(
   "contas certas 8 — linha de M.O. aprovada/reprovada que muda de valor ou serviço volta a pendente",
   () => {
     const SEM_PERM = "0a0a0a0a-0000-4000-8000-0000000000c8";
@@ -324,7 +328,7 @@ describe.skipIf(!hasDb)(
 );
 
 // ─────────────────────────────── item 9 — "Começar em" vale para REF nova ───────────────────────────────
-describe.skipIf(!hasDb)(
+describe.skipIf(!RODA)(
   "contas certas 9 — piso da REF = 'Começar em' da loja; ref_proximo_numero",
   () => {
     async function prepara(c: Client, ultimo: number, numInicio: number | null) {
@@ -479,3 +483,81 @@ describe.skipIf(!hasDb)(
     });
   },
 );
+
+// ─────────────── item 9 / M2 (fix round 1) — "Começar em" inválido nunca derruba REF nem o salvar ───────────────
+describe.skipIf(!RODA)("contas certas 9 / M2 — _ref_num_inicio tolerante a config ruim", () => {
+  async function cfgNumInicio(c: Client, valorJson: string) {
+    await c.query(
+      `update tenant_config set ref_config = coalesce(ref_config, '{}'::jsonb) || jsonb_build_object('num_inicio', $2::jsonb)
+        where tenant_id = $1`,
+      [TENANT_TESTE, valorJson],
+    );
+  }
+
+  it("md5 de depois do _ref_num_inicio tolerante", async () => {
+    await withTx(async (c) => {
+      expect(await md5Fn(c, "public._ref_num_inicio(uuid)")).toBe(
+        "addf044a5ebf27c29d533c35698db959",
+      );
+      expect(await pode(c, "anon", "public._ref_num_inicio(uuid)")).toBe(false);
+      expect(await pode(c, "authenticated", "public._ref_num_inicio(uuid)")).toBe(false);
+    });
+  });
+
+  it.each([
+    ["notação 1e+21 (vira 22 dígitos no jsonb)", "1e+21"],
+    ["fração", "12.5"],
+    ["acima do bigint", "99999999999999999999"],
+    ["texto", '"abc"'],
+    ["negativo", "-5"],
+    ["vazio", '""'],
+  ])(
+    "%s → piso 10000000; o gatilho de REF e o salvar do modelo seguem funcionando",
+    async (_rotulo, valor) => {
+      await withTx(async (c) => {
+        await comoUsuario(c);
+        await c.query(
+          `insert into ref_sequencia (tenant_id, ultimo) values ($1, 10000274)
+         on conflict (tenant_id) do update set ultimo = excluded.ultimo`,
+          [TENANT_TESTE],
+        );
+        await cfgNumInicio(c, valor);
+        const ini = await um<{ n: string }>(c, `select public._ref_num_inicio($1) as n`, [
+          TENANT_TESTE,
+        ]);
+        expect(Number(ini.n)).toBe(10000000);
+        expect(
+          Number((await um<{ n: string }>(c, `select public.ref_proximo_numero() as n`)).n),
+        ).toBe(10000275);
+        // modelo chega ao Dev (gatilho fn_modelo_ref_auto → _modelo_ref_next_num → _ref_num_inicio)
+        const cat = await um<{ id: string }>(
+          c,
+          `select categoria_principal_id as id from modelos where tenant_id = $1 and categoria_principal_id is not null limit 1`,
+          [TENANT_TESTE],
+        );
+        const m = await um<{ id: string }>(
+          c,
+          `insert into modelos (tenant_id, nome, categoria_principal_id) values ($1, 'M CC9 M2', $2) returning id`,
+          [TENANT_TESTE, cat.id],
+        );
+        await c.query(`update modelos set ordem_criacao_enviada = true where id = $1`, [m.id]);
+        const r = await um<{ ref_auto: string | null }>(
+          c,
+          `select ref_auto from modelos where id = $1`,
+          [m.id],
+        );
+        expect(r.ref_auto ?? "").toMatch(/10000275$/);
+      });
+    },
+  );
+
+  it("valor válido de 18 dígitos continua valendo", async () => {
+    await withTx(async (c) => {
+      await cfgNumInicio(c, "123456789012345678");
+      const ini = await um<{ n: string }>(c, `select public._ref_num_inicio($1) as n`, [
+        TENANT_TESTE,
+      ]);
+      expect(ini.n).toBe("123456789012345678");
+    });
+  });
+});
