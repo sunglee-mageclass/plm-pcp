@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { VersoesExistentesAviso, useVersoesFamilia } from "@/components/planejamento/VersoesExistentesAviso";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 /**
@@ -71,7 +72,7 @@ function ComboBusca({
 }
 
 export function ReplicarAcabadoDialog({
-  open, onOpenChange, nEleg, nIgnorados, colecaoAtualId, replicando, onConfirmar,
+  open, onOpenChange, nEleg, nIgnorados, colecaoAtualId, replicando, onConfirmar, modeloIds,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -80,6 +81,8 @@ export function ReplicarAcabadoDialog({
   colecaoAtualId: string;
   replicando: boolean;
   onConfirmar: (colecaoId: string, subcolecaoId: string | null) => void;
+  /** P-152 — modelos (cards) de origem, para listar as versões já existentes das famílias. */
+  modeloIds: string[];
 }) {
   const [colId, setColId] = useState<string>(colecaoAtualId);
   const [subId, setSubId] = useState<string>(SEM_SUB);
@@ -97,6 +100,9 @@ export function ReplicarAcabadoDialog({
     queryFn: async () =>
       ((await supabase.from("colecao_subcolecoes" as any).select("id, nome, ordem").eq("colecao_id", colId).order("ordem")).data ?? []) as unknown as Opcao[],
   });
+
+  // P-152 — versões existentes das famílias (falha fechada: sem a lista não replica).
+  const versoes = useVersoesFamilia(modeloIds, open);
 
   const colNome = useMemo(() => colecoes.find((c) => c.id === colId)?.nome ?? "—", [colecoes, colId]);
   const subNome = subId === SEM_SUB ? "Sem subcoleção" : (subs.find((s) => s.id === subId)?.nome ?? "—");
@@ -135,12 +141,17 @@ export function ReplicarAcabadoDialog({
             <b> mantém a mesma REF</b> — nasce como nova versão do original.
             {nIgnorados > 0 && <> · <span className="text-amber-600">{nIgnorados} ignorado(s)</span> — sem card no Planejamento.</>}
           </p>
+
+          <VersoesExistentesAviso
+            estado={versoes}
+            destino={{ colecaoId: colId, subcolecao: subId === SEM_SUB ? null : subNome }}
+          />
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={replicando}>Cancelar</Button>
           <Button
-            disabled={replicando || !colId || nEleg === 0}
+            disabled={replicando || !colId || nEleg === 0 || !versoes.pronto}
             onClick={() => onConfirmar(colId, subId === SEM_SUB ? null : subId)}
           >
             {replicando ? "Replicando…" : `Replicar (${nEleg})`}

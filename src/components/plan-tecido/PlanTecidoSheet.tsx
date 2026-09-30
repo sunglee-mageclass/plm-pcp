@@ -2526,6 +2526,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
             onOpenChange={(o) => { if (!o && !replicando) setReplicarPayload(null); }}
             nEleg={replicarPayload.modeloIds.length}
             nIgnorados={replicarPayload.nIgnorados}
+            modeloIds={replicarPayload.modeloIds}
             colecaoAtualId={colecaoId}
             replicando={replicando}
             onConfirmar={confirmarReplicar}

@@ -220,7 +220,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [mixDialogOpen, setMixDialogOpen] = useState(false);
   // Multi-seleção p/ ações em massa (#2.2 Replicar) — espelha o Importado.
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
-  const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; nIgnorados: number } | null>(null);
+  const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; modeloIds: string[]; nIgnorados: number } | null>(null);
   const [replicando, setReplicando] = useState(false);
   const [pedidoPickerOpen, setPedidoPickerOpen] = useState(false);
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
@@ -589,7 +589,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       toast.error("Selecione ao menos um produto com card no Planejamento para replicar.");
       return;
     }
-    setReplicarPayload({ produtoIds, nIgnorados });
+    setReplicarPayload({ produtoIds, modeloIds: elegiveis.map((d) => d.modelo_id as string), nIgnorados });
   };
   // Criar card em massa (#2.3, espelha o Importado). Só rascunhos SEM card (modelo_id null).
   // Tarefa 5: `_criar_card_produto_acabado_core`/`_lote_core` materializam o modelo a partir da
@@ -1370,6 +1370,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             onOpenChange={(o) => { if (!o && !replicando) setReplicarPayload(null); }}
             nEleg={replicarPayload.produtoIds.length}
             nIgnorados={replicarPayload.nIgnorados}
+            modeloIds={replicarPayload.modeloIds}
             colecaoAtualId={colecaoId}
             replicando={replicando}
             onConfirmar={confirmarReplicar}

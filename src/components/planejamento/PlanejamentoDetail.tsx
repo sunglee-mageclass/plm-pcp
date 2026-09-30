@@ -14,6 +14,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, ArrowLeft, Save, Pencil, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { VersoesExistentesAviso, useVersoesFamilia } from "@/components/planejamento/VersoesExistentesAviso";
+import { buscarVersoesFamilia } from "@/lib/versoes-familia-query";
+import { agruparPorFamilia, precisaConfirmar } from "@/lib/versoes-familia";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -1128,10 +1131,32 @@ function PlanejamentoDetailConteudo({
     },
   });
 
-  const handleDuplicate = () => {
+  const iniciarDuplicar = () => {
     if (duplicandoRef.current || duplicate.isPending) return;
     duplicandoRef.current = true;
     duplicate.mutate(undefined, { onSettled: () => { duplicandoRef.current = false; } });
+  };
+  // P-152 — antes de duplicar, confere as outras versões da família (leitura pela RLS). Sem outras versões
+  // duplica direto, como sempre; com outras (ou se a conferência falhar — falha FECHADA) abre o AlertDialog.
+  const [dupChecando, setDupChecando] = useState(false);
+  const [dupAviso, setDupAviso] = useState(false);
+  const versoesDup = useVersoesFamilia(modeloId ? [modeloId] : [], dupAviso);
+  const handleDuplicate = async () => {
+    if (!modeloId || dupChecando || duplicandoRef.current || duplicate.isPending) return;
+    setDupChecando(true);
+    try {
+      const linhas = await qc.fetchQuery({
+        queryKey: ["versoes-familia", modeloId],
+        staleTime: 0,
+        queryFn: () => buscarVersoesFamilia(supabase, [modeloId]),
+      });
+      if (precisaConfirmar(agruparPorFamilia(linhas, [modeloId]))) setDupAviso(true);
+      else iniciarDuplicar();
+    } catch {
+      setDupAviso(true); // o diálogo mostra o erro + "Tentar de novo"
+    } finally {
+      setDupChecando(false);
+    }
   };
 
   const del = useMutation({
@@ -1990,7 +2015,7 @@ function PlanejamentoDetailConteudo({
               // Rebase F3.3→3adfbd3 — + a condição do micro-fix M1 da F3.2 (3adfbd3): `isEdit && !modeloData` (cache FRIO:
               // `isCompradoParaFicha` desabilita a ficha por precaução e destravaria o Duplicar antes do seed, copiando o
               // `emptyDraft()`), no `duplicando` e na dica.
-              duplicando={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
+              duplicando={duplicate.isPending || dupChecando || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
               duplicandoTitle={(ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData) ? "Carregando a ficha…" : undefined}
               // F3.4 — só interno: o diálogo do Dev copia a grade por variante do Tecido 1, que o comprado não tem.
               onImportar={ficha.podeEditar && !isComprado ? () => importar.setAberto(true) : undefined}
@@ -2079,6 +2104,31 @@ function PlanejamentoDetailConteudo({
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={() => del.mutate()}>Excluir</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* P-152 — Duplicar quando já existem outras versões da família (ou a conferência falhou). */}
+        <AlertDialog open={dupAviso} onOpenChange={setDupAviso}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Duplicar — já existem outras versões</AlertDialogTitle>
+              <AlertDialogDescription>
+                A cópia vira uma nova versão desta família. Confira as versões que já existem antes de continuar.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <VersoesExistentesAviso
+              estado={versoesDup}
+              destino={{ colecaoId: draft.colecao_id ?? null, subcolecao: draft.subcolecao ?? null }}
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={!versoesDup.pronto}
+                onClick={() => { setDupAviso(false); iniciarDuplicar(); }}
+              >
+                Duplicar
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
