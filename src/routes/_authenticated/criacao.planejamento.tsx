@@ -31,7 +31,7 @@ import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { markupDePreco } from "@/lib/preco-revenda";
-import { cqLiberado } from "@/lib/cq-status";
+import { cqLiberado, pecasReaisLiberadas } from "@/lib/cq-status";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -527,14 +527,8 @@ function PlanejamentoPage() {
         .select("modelo_id, controle_qualidade(status, status_pos), producao_terceirizados(ativo, categorias_terceirizado(etapa)), cad_grades(grade_total_real)")
         .in("modelo_id", modeloIdsAll);
       if (error) throw error;
-      const m: Record<string, number> = {};
-      for (const row of (data ?? []) as any[]) {
-        if (!row.modelo_id) continue;
-        if (!cqLiberado(row)) continue; // real só vale com o CQ liberado (Pré + Pós se houver)
-        const soma = (row.cad_grades ?? []).reduce((s: number, g: any) => s + Number(g.grade_total_real ?? 0), 0);
-        if (soma > 0) m[row.modelo_id] = (m[row.modelo_id] ?? 0) + soma;
-      }
-      return m;
+      // real só vale com o CQ liberado (Pré + Pós se houver) — fonte única com o Dashboard Comercial
+      return pecasReaisLiberadas((data ?? []) as any[]);
     },
   });
   // CQ liberado por modelo (Pré + Pós se há serviço pós-costura) → "pronto para lançar".

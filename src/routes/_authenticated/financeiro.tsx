@@ -22,7 +22,12 @@ import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider, TooltipTrigger as UiTooltipTrigger,
 } from "@/components/ui/tooltip";
-import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, type LucideIcon } from "lucide-react";
+import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, Hand, RotateCcw, type LucideIcon } from "lucide-react";
+import { InfoHover } from "@/components/shared/InfoHover";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtInt } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
@@ -92,7 +97,13 @@ type Parcela = {
   ocBadge?: { label: string; tone: StatusTone } | null;
   // Data da Nota de Entrada (spec 2026-09-24): parcela NÃO paga de OC recebida sem a data — vencimento provisório.
   provisoria?: boolean;
+  // Contas certas A1 (P-165 A): vencimento ajustado À MÃO — o recálculo/Nota/prazo preservam esta data (gatilho no banco).
+  vencimento_manual?: boolean;
 };
+
+/** Contas certas A1: por que a data ajustada à mão não andou com a Nota/prazo (InfoHover do detalhe da parcela). */
+const TEXTO_VENCIMENTO_MANUAL =
+  "Esta data foi ajustada à mão. Recalcular as parcelas, mudar a Data da Nota ou o prazo não mexe nela — só as outras parcelas se ajustam. Use \"Voltar ao cálculo automático\" para desfazer.";
 
 // Parse de "yyyy-MM-dd" como data LOCAL (parseISO trata date-only como UTC → shift de dia em BRT).
 function parseLocalDate(s: string | null | undefined): Date {
@@ -836,8 +847,9 @@ function ParcelaDetailDialog({
       if (!parcela) return {};
       await qc.cancelQueries({ queryKey: ["parcelas"] });
       const prev = qc.getQueryData<any[]>(["parcelas"]);
+      // o gatilho do banco marca `vencimento_manual` (contas certas A1) — espelha já, p/ o selo aparecer sem esperar o refetch
       qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
-        p.id === parcela.id ? { ...p, data_vencimento: vencimento } : p));
+        p.id === parcela.id ? { ...p, data_vencimento: vencimento, vencimento_manual: true } : p));
       return { prev };
     },
     onError: (e: any, _vars, ctx: any) => {
@@ -851,6 +863,31 @@ function ParcelaDetailDialog({
       // O badge já está vermelho aqui — a lógica de status NÃO muda.
       onVencimentoSaved?.(vencimento);
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["parcelas"] }),
+  });
+
+  // P-171 A: "Voltar ao cálculo automático" — tira a marca "ajustado à mão" e recalcula a data pela regra da OC
+  // (Nota de Entrada + prazo; sem a Nota, a base de sempre). RPC DEFINER: exige editar o Financeiro, recusa parcela paga.
+  const [confirmVoltarAuto, setConfirmVoltarAuto] = useState(false);
+  const voltarAutoMut = useMutation({
+    mutationFn: async () => {
+      if (!parcela) return null;
+      const { data, error } = await supabase.rpc("parcela_voltar_vencimento_automatico" as any, { _parcela_id: parcela.id });
+      if (error) throw error;
+      return data as { data_vencimento: string } | null;
+    },
+    onSuccess: (data) => {
+      toast.success("Vencimento voltou ao cálculo automático");
+      if (data?.data_vencimento && parcela) {
+        // R1-L1: atualiza a parcela NO CACHE já (data calculada + sem a marca). O useEffect ressincroniza `vencimento`
+        // com `parcela.data_vencimento`, então o "Salvar" da data NÃO reaparece nem por um instante — clicar nele
+        // gravaria a data como ajuste da pessoa e religaria a marca "ajustado à mão".
+        qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
+          p.id === parcela.id ? { ...p, data_vencimento: data.data_vencimento, vencimento_manual: false } : p));
+        onVencimentoSaved?.(data.data_vencimento);
+      }
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível voltar ao cálculo automático")),
     onSettled: () => qc.invalidateQueries({ queryKey: ["parcelas"] }),
   });
 
@@ -910,7 +947,7 @@ function ParcelaDetailDialog({
           <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
           <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
           <TagParcelaProvisoria show={!!parcela.provisoria} className="text-sm" />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-muted-foreground">Vencimento:</span>
             <DateField
               value={vencimento}
@@ -926,6 +963,24 @@ function ParcelaDetailDialog({
                 disabled={updateVencimentoMut.isPending}
               >
                 Salvar
+              </Button>
+            )}
+            {parcela.vencimento_manual && st !== "pago" && (
+              <span data-testid="venc-ajustado-mao" className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Hand className="h-3.5 w-3.5" aria-hidden />
+                ajustado à mão
+                <InfoHover ariaLabel="Por que esta data não acompanha a Nota">{TEXTO_VENCIMENTO_MANUAL}</InfoHover>
+              </span>
+            )}
+            {parcela.vencimento_manual && st !== "pago" && podeEditar && (
+              <Button
+                size="sm"
+                variant="ghost"
+                data-testid="venc-voltar-automatico"
+                onClick={() => setConfirmVoltarAuto(true)}
+                disabled={voltarAutoMut.isPending}
+              >
+                <RotateCcw className="h-4 w-4 mr-1" /> Voltar ao cálculo automático
               </Button>
             )}
           </div>
@@ -1004,6 +1059,22 @@ function ParcelaDetailDialog({
             <Button size="sm" onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
           ))}
         </DialogFooter>
+        <AlertDialog open={confirmVoltarAuto} onOpenChange={setConfirmVoltarAuto}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Voltar ao cálculo automático?</AlertDialogTitle>
+              <AlertDialogDescription>
+                A data ajustada à mão ({parcela.data_vencimento ? parcela.data_vencimento.slice(0, 10).split("-").reverse().join("/") : "—"}) será trocada pela
+                data calculada da OC (Data da Nota de Entrada + prazo; sem a Nota, a data de entrega/pedido). Daqui em diante ela
+                volta a acompanhar a Nota e o prazo. O valor da parcela não muda.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => voltarAutoMut.mutate()}>Voltar ao cálculo</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

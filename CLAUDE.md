@@ -380,7 +380,20 @@ e verifique** — o repo muda rápido.
    ⚠️ O cliente (`authenticated`) só tem
    UPDATE em `parcelas(data_vencimento,status,data_pagamento,comprovante_url)` — `valor`/
    `numero_parcela` são só-derivados das geradoras (DEFINER, owner=postgres). Vencimento de
-   parcela PAGA é bloqueado no front (não muta conta quitada). `servicos_financeiro` (DEFINER
+   parcela PAGA é bloqueado no front (não muta conta quitada). **Vencimento ajustado À MÃO sobrevive ao recálculo**
+   (contas certas A1, P-165 A, migration `20261019200000`): `parcelas.vencimento_manual` (o cliente NÃO ALTERA a coluna
+   por UPDATE — permissão por coluna; o INSERT de cliente em `parcelas` segue aberto, item fin #11 do Reforço de
+   Segurança; o gatilho `trg_parcela_vencimento_manual` marca quando a PESSOA muda a data de parcela não paga — função do
+   servidor que fizer UPDATE em `parcelas` TEM de ligar a GUC `app.parcelas_sistema='on'`, conferido por teste anti-drift
+   em `parcelas-vencimento-manual.test.ts`). **Volta (P-171 A, `20261019220000`):** RPC
+   `parcela_voltar_vencimento_automatico(_parcela_id)` (DEFINER; só quem edita o Financeiro — `user_can_edit` de
+   `financeiro_parcelas`/`financeiro_calendario`; recusa paga) limpa a marca e recalcula a data pela regra da geradora
+   da família (Nota + prazo / fallback); botão "Voltar ao cálculo automático" no detalhe da parcela. As regeradoras NÃO foram
+   reescritas: `trg_parcela_vencimento_guarda` (BEFORE DELETE) guarda a data em `parcelas_vencimento_guardado` por
+   (tipo_oc, OC, nº) e `trg_parcela_vencimento_reaplica` (BEFORE INSERT) devolve a data à parcela de mesmo nº que renasce
+   — vale para recálculo, Nota/prazo mudando (a manual FICA) e desmarcar→re-receber (RA2); o valor segue redistribuído.
+   Limpeza no COMMIT (gatilho adiado): OC excluída ou OC com parcela aberta sem aquele nº (prazo encurtou) → a data some.
+   `servicos_financeiro` (DEFINER
    que sincroniza `parcelas_servico` na leitura) tem EXECUTE revogado de PUBLIC/anon; e
    `parcelas_servico` tem o modgate RESTRICTIVE do módulo `financeiro` (igual `parcelas`).
 2. **Storage por tenant** — todos os buckets via `(storage.foldername(name))[1] =
@@ -484,6 +497,14 @@ e verifique** — o repo muda rápido.
    no CQ (Grade CAD → Grade Cortada), sem relação com o corte de tecido.
 8. **Serviços no financeiro** — serviços terceirizados externos viram contas a pagar
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
+   **Parcela PAGA guarda o valor pago** (contas certas A2, `20261019210000`): `parcelas_servico.valor_pago` é gravado SÓ
+   pelo gatilho `trg_servico_parcela_valor_pago` (ao virar paga — inclusive INSERT já paga — congela o valor de antes;
+   ao desfazer, NULL; o que o cliente mandar é ignorado; GUC `app.servico_valor_pago_correcao='on'` só na correção
+   única). Fonte única do valor = `_servico_parcelas_valores(pt)` (EXECUTE revogado dos 3): paga = `valor_pago`; as não
+   pagas em 1..n_eff dividem (líquido − pago), a última leva o arredondamento; legado pago sem `valor_pago` = fórmula
+   antiga. Parcela paga aparece SEMPRE na lista (mesmo de bloco inativo/interno). Saldo novo com TODAS pagas não vira
+   parcela "complemento" (RA1 → MÉDIA). Pagar parcela fora da faixa 1..n_eff (tela velha depois de o prazo encurtar) =
+   P0001 `parcela_fora_do_prazo` (recarregar) — nunca grava 0,00 pago; parcela de outra loja no bloco = P0001.
    **MO por serviço (ago/2026):** o antigo flag único virou **agregado DERIVADO**.
    `modelo_servico_mo` guarda 1 linha por **modelo×serviço** (`categoria_terceirizado_id`;
    `NULL` = "Geral (legado)", do backfill) com `valor` + `aprovado` (`null`=pendente/true/false)
@@ -545,7 +566,12 @@ e verifique** — o repo muda rápido.
     é gerada por trigger `fn_modelo_ref_auto` (`BEFORE INSERT/UPDATE`, DEFINER): sigla = Grupo (2
     iniciais; multi-palavra = inicial de cada, "One Piece"→OP) + Categoria (1ª letra) + Subcategoria1
     (2 letras se 1 palavra; inicial de cada palavra se 2+, "Manga Curta"→MC) + nº de 8 dígitos (contador
-    ÚNICO por loja de 10000000, `pg_advisory_xact_lock` por tenant). Guardada na **coluna sombra
+    ÚNICO por loja de 10000000, `pg_advisory_xact_lock` por tenant). **Piso = "Começar em" da loja** (contas certas 9,
+    P-162 A, `20261019120000`): os 3 embrulhos `_modelo_ref_next_num`/`_produto_acabado_ref_next`/
+    `_produto_importado_ref_next` passam `_ref_num_inicio(tenant)` a `_ref_next_global` (GREATEST(ultimo+1, piso): só
+    sobe; REF já emitida nunca muda). `_ref_num_inicio` é TOLERANTE: só `^[0-9]{1,18}$` vale, qualquer outro valor em
+    `ref_config.num_inicio` cai no piso 10000000 (config ruim nunca derruba o salvar/criar PA-PI). Prévia = RPC só
+    leitura `ref_proximo_numero(_num_inicio bigint DEFAULT NULL)` (não consome; anon sem EXECUTE). Guardada na **coluna sombra
     `modelos.ref_auto`** enquanto NÃO 'aprovado' (nº fixo na chegada; sigla RE-SINCRONIZA com grupo/cat/
     subcat — a subcategoria só é definida durante o Dev); ao **aprovar** copia `ref_auto → ref` (só se
     `ref` vazio). Assim toda exibição lê `modelos.ref` (vazio até aprovar = "só exibida quando aprovado")
@@ -571,7 +597,12 @@ e verifique** — o repo muda rápido.
     bloqueariam o próprio recompute do flag). A permissão `producao_servico_aprovacao` agora é
     enforçada **por linha** em `modelo_servico_mo`: `trg_enforce_servico_mo_aprovacao`/
     `enforce_servico_mo_aprovacao` (BEFORE INSERT/UPDATE) RAISE 42501 se `aprovado` for
-    definido/mudar sem `user_can_edit(...)`; `trg_enforce_servico_mo_del_aprovacao`/
+    definido/mudar sem `user_can_edit(...)` — **exceto voltar a PENDENTE** (contas certas 8, P-163 A,
+    `20261019110000`): linha já decidida (aprovada OU reprovada) cujo `valor` ou serviço muda volta sozinha a
+    `aprovado NULL` + motivo limpo, sem exigir a permissão (voltar a pendente não é escalada). O front avisa em âmbar
+    ANTES do Salvar (`moLinhaVaiReabrir`, `@/lib/mao-obra`) no Sheet do Planejamento (`MaoObraEditor`) E nos cards de
+    Produto Acabado/Importado (`MaoObraCardMini`), trava Aprovar/Reprovar da linha até salvar e o Lançar conta essa
+    linha como pendente ("salve antes"); `trg_enforce_servico_mo_del_aprovacao`/
     `enforce_servico_mo_del_aprovacao` (BEFORE DELETE) RAISE 42501 ao apagar linha
     **não-aprovada** sem a permissão (apagar libera o modelo tanto quanto aprovar — mesmo
     furo, mesmo gate; guarda de cascade: não bloqueia se o `modelos` pai já sumiu, ex. exclusão
@@ -619,8 +650,10 @@ e verifique** — o repo muda rápido.
     `produto_acabado_variantes` como fonte (fallback por `origem==='revenda'`, antes do
     fallback genérico "Variante N"). **Insumos**: consumo revenda entra na aba Estoque do OC
     Insumo por **peças recebidas** (`baixa_revenda` nova CTE em `_estoque_etiqueta_core`,
-    casada por etiqueta+cor sem tamanho — BOM de revenda não distingue tamanho), já que
-    revenda nunca passa por `enviado_corte`/`cad_etiquetas` (caminho manufaturado intocado).
+    casada por etiqueta+cor sem tamanho — BOM de revenda não distingue tamanho) **SÓ enquanto o cad-espelho
+    ainda não foi "Enviado para PCP"** (contas certas 6, `20261019100000`): desde a Rota A a revenda passa por
+    `enviado_corte` e `_receber_oc_p_acabado_core` materializa `cad_etiquetas` — depois do envio vale o "a enviar" da
+    Explosão (`baixa_sem`/`baixa_var`), sem baixa em dobro (caminho manufaturado intocado).
     **Preço/custo**: `modelos.preco_atacado` (novo, ao lado do varejo `preco_venda`);
     `_custo_unitario_modelos_core` ganhou ramo revenda (ativo só quando
     `produtos_acabados.modelo_id` existe) — `previsto` = valor unitário real (bruto − desconto)

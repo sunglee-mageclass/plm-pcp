@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
-import type { MoLinha } from "@/lib/mao-obra";
+import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, type MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
@@ -23,7 +23,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; v
  */
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
-  onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas,
+  onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase,
   readOnly = false,
 }: {
   linhas: MaoObraEditorLinha[];
@@ -43,6 +43,10 @@ export function MaoObraEditor({
   // encontrada". Só habilita os botões nas linhas persistidas; as novas pedem Salvar antes.
   // `undefined` = chamador não informou (retrocompat) → considera todas persistidas.
   linhasPersistidas?: Set<string>;
+  /** Contas certas item 8 (P-163 A): as linhas como estão no SERVIDOR (baseline). Linha aprovada/reprovada cujo valor ou
+   * serviço mudou no rascunho mostra a dica âmbar "volta para pendente" (o servidor reabre a aprovação no Salvar).
+   * `undefined` = sem dica (retrocompat). */
+  linhasBase?: MaoObraEditorLinha[];
   /** F5a QA B-1 (Sheet do Dev só leitura): esconde "Adicionar serviço" e a lixeira "Remover"
    * (o fieldset do pai já bloqueia o clique; isto some com a afordância que parecia clicável).
    * `false` (padrão) = comportamento de hoje, usado pelo Planejamento — byte a byte igual. */
@@ -77,6 +81,7 @@ export function MaoObraEditor({
         const estado = l.aprovado === true ? "aprovada" : l.aprovado === false ? "reprovada" : "pendente";
         // Só linha persistida (com id no baseline do servidor) pode ser aprovada/reprovada.
         const persistida = linhaId != null && (linhasPersistidas === undefined || linhasPersistidas.has(linhaId));
+        const vaiReabrir = moLinhaVaiReabrir(l, linhaId != null ? linhasBase?.find((b) => b.id === linhaId) : undefined);
         return (
           <div key={linhaId ?? `nova-${idx}`} className="flex flex-wrap items-center gap-2 rounded-md border p-2">
             <span className="min-w-[8rem] flex-1 truncate text-sm font-medium">{nomeCat(l.categoria_terceirizado_id)}</span>
@@ -99,14 +104,20 @@ export function MaoObraEditor({
             {l.aprovado === false && l.motivo_reprovacao && (
               <span className="w-full text-xs text-red-700 dark:text-red-300">Motivo: {l.motivo_reprovacao}</span>
             )}
+            {vaiReabrir && (
+              <span role="status" data-testid="mo-vai-reabrir" className="flex w-full items-start gap-1 text-xs text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{TEXTO_MO_VAI_REABRIR}
+              </span>
+            )}
             {podeAprovar && (() => {
               const rowPending = pendingLinhaId !== undefined && pendingLinhaId != null && pendingLinhaId === linhaId;
-              const bloqTitulo = !persistida ? "Salve o modelo antes de aprovar este serviço" : undefined;
+              // Linha com valor/serviço mudado e NÃO salvo: aprovar agora aprovaria o valor ANTIGO e o Salvar reabriria.
+              const bloqTitulo = !persistida ? "Salve o modelo antes de aprovar este serviço" : vaiReabrir ? TEXTO_MO_SALVE_ANTES : undefined;
               return (
                 <span className="ml-auto flex shrink-0 flex-col items-end gap-1">
                   <span className="flex gap-1">
-                    <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title={bloqTitulo ?? "Aprovar"} className="text-emerald-700" disabled={rowPending || !persistida} onClick={() => linhaId && onAprovar(linhaId)}><Check className="h-4 w-4" /></Button>
-                    <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={bloqTitulo ?? "Reprovar"} className="text-red-700" disabled={rowPending || !persistida} onClick={() => linhaId && setRepro({ linhaId })}><X className="h-4 w-4" /></Button>
+                    <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title={bloqTitulo ?? "Aprovar"} className="text-emerald-700" disabled={rowPending || !persistida || vaiReabrir} onClick={() => linhaId && onAprovar(linhaId)}><Check className="h-4 w-4" /></Button>
+                    <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={bloqTitulo ?? "Reprovar"} className="text-red-700" disabled={rowPending || !persistida || vaiReabrir} onClick={() => linhaId && setRepro({ linhaId })}><X className="h-4 w-4" /></Button>
                   </span>
                   {!persistida && <span className="text-[11px] text-muted-foreground">Salve para aprovar</span>}
                 </span>
