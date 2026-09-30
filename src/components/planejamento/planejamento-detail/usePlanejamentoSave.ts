@@ -14,6 +14,7 @@ import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
+import { conferirCategoriaAcessorioPedido, erroCategoriaAcessorioPedido, precisaConferirCategoria, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
 import { rotuloDaColuna } from "@/lib/integracao/campos";
@@ -468,6 +469,28 @@ export function usePlanejamentoSave({
         gravaBom: bom.gravar,
         tecidosPlanejados: bom.tecidosPlanejados,
       });
+      // P-137 A (R6 do G-plano) — PRÉ-CHECAGEM SÓ-LEITURA, ANTES de QUALQUER gravação deste save (a grade da revenda,
+      // logo abaixo, comita ANTES do UPDATE do cabeçalho): o gatilho `fn_modelo_espelho_categoria` recusa (P0001) trocar
+      // a Categoria de um card comprado cujo produto TEM pedido quando o grupo mudaria entre Acessórios e outro grupo —
+      // recusado só no UPDATE do cabeçalho, o card ficaria meio salvo (grade gravada, resto não). Mesma regra do banco
+      // (`src/lib/categoria-card-produto.ts`); só consulta o servidor quando ESTE save troca a categoria de um comprado
+      // já salvo. Recusa = erro no formato do banco (P0001 + prefixo) → o `onError` mostra o texto PT; nada foi gravado.
+      // A recusa do banco continua valendo como rede de segurança (corrida com uma OC criada neste meio-tempo).
+      {
+        const servidorModelo = isEdit && modeloId ? qc.getQueryData<any>(["modelo", modeloId]) : null;
+        const origemDoSave = "origem" in payload ? payload.origem : (servidorModelo?.origem ?? d.origem);
+        if (modeloId && precisaConferirCategoria({
+          isEdit,
+          origem: origemDoSave,
+          categoriaPayload: "categoria_principal_id" in payload ? payload.categoria_principal_id : undefined,
+          categoriaServidor: servidorModelo ? servidorModelo.categoria_principal_id : baseRef.current?.draft.categoria_principal_id,
+        })) {
+          const bloqueados = await conferirCategoriaAcessorioPedido(supabase as unknown as ClienteLeitura, {
+            modeloIds: [modeloId], categoriaNova: payload.categoria_principal_id, origemNova: origemDoSave,
+          });
+          if (bloqueados.length > 0) throw erroCategoriaAcessorioPedido();
+        }
+      }
       let savedId: string | null = isEdit ? modeloId : null;
       if (isEdit && modeloId) {
         // Grade cor×tamanho (revenda, fast-follow — fecha o last-write-wins do antigo

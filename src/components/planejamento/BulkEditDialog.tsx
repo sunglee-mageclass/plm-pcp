@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { conferirCategoriaAcessorioPedido, textoBloqueioCategoriaLote, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { Dialog, DialogContent, DialogHeader, DialogBody, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -105,6 +106,16 @@ export function BulkEditDialog({
       // deriva "repetição" de versao>1). O `field` grava a string; convertemos aqui.
       if (versao !== NONE) patch.versao = Number(versao);
       if (Object.keys(patch).length === 0) throw new Error("Nada para alterar. Preencha ao menos um campo.");
+      // P-137 A — pré-checagem SÓ-LEITURA (mesma regra do gatilho fn_modelo_espelho_categoria): um card comprado cujo
+      // produto TEM pedido não pode trocar de Categoria se o grupo mudar entre Acessórios e outro grupo. O UPDATE abaixo
+      // é UM statement só — o banco recusaria o lote inteiro (P0001, traduzido por mensagemErro); aqui a recusa vem
+      // ANTES e NOMEIA os cards, para o usuário tirá-los da seleção. Nada é gravado.
+      if (patch.categoria_principal_id) {
+        const bloqueados = await conferirCategoriaAcessorioPedido(supabase as unknown as ClienteLeitura, {
+          modeloIds: ids, categoriaNova: patch.categoria_principal_id, origemNova: patch.origem ?? null,
+        });
+        if (bloqueados.length > 0) throw new Error(textoBloqueioCategoriaLote(bloqueados.map((b) => b.nome)));
+      }
       const { error } = await supabase.from("modelos").update(patch as any).in("id", ids);
       if (error) throw error;
       return ids.length;
