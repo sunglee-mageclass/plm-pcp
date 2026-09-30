@@ -22,7 +22,8 @@ import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider, TooltipTrigger as UiTooltipTrigger,
 } from "@/components/ui/tooltip";
-import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, type LucideIcon } from "lucide-react";
+import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, Hand, type LucideIcon } from "lucide-react";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtInt } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
@@ -92,7 +93,13 @@ type Parcela = {
   ocBadge?: { label: string; tone: StatusTone } | null;
   // Data da Nota de Entrada (spec 2026-09-24): parcela NÃO paga de OC recebida sem a data — vencimento provisório.
   provisoria?: boolean;
+  // Contas certas A1 (P-165 A): vencimento ajustado À MÃO — o recálculo/Nota/prazo preservam esta data (gatilho no banco).
+  vencimento_manual?: boolean;
 };
+
+/** Contas certas A1: por que a data ajustada à mão não andou com a Nota/prazo (InfoHover do detalhe da parcela). */
+const TEXTO_VENCIMENTO_MANUAL =
+  "Esta data foi ajustada à mão. Recalcular as parcelas, mudar a Data da Nota ou o prazo não mexe nela — só as outras parcelas se ajustam.";
 
 // Parse de "yyyy-MM-dd" como data LOCAL (parseISO trata date-only como UTC → shift de dia em BRT).
 function parseLocalDate(s: string | null | undefined): Date {
@@ -927,6 +934,13 @@ function ParcelaDetailDialog({
               >
                 Salvar
               </Button>
+            )}
+            {parcela.vencimento_manual && st !== "pago" && (
+              <span data-testid="venc-ajustado-mao" className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Hand className="h-3.5 w-3.5" aria-hidden />
+                ajustado à mão
+                <InfoHover ariaLabel="Por que esta data não acompanha a Nota">{TEXTO_VENCIMENTO_MANUAL}</InfoHover>
+              </span>
             )}
           </div>
           <div className="flex items-center gap-2">
