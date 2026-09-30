@@ -176,14 +176,32 @@ describe.skipIf(!hasDb)("MO por serviço — Task 3: rollup derivado do flag", (
   // Fix round 1 (review): o rollup fazia UPDATE modelos SEM guard → bumpava modelos.rev
   // (trg_colab_rev) a cada escrita em modelo_servico_mo, mesmo quando o flag não mudava.
   // O Planejamento usa colab por modelos.rev — isso geraria P0409 falsos nas Tasks 4/5.
-  it("editar valor de linha JÁ aprovada (flag não muda) NÃO bumpa modelos.rev", async () => {
+  // Contas certas item 8 (P-163 A, 30/set): a regra MUDOU — valor novo numa linha JÁ aprovada volta a linha para
+  // PENDENTE (enforce_servico_mo_aprovacao, 20261019110000). O flag derivado cai para false (transição real) e o rollup
+  // bumpa modelos.rev 1× (mesmo efeito de uma linha pendente nova). A garantia original deste teste (o rollup NÃO bumpa
+  // o rev quando o flag não muda) segue coberta pelo caso de baixo: editar só a observação de uma linha aprovada.
+  it("editar VALOR de linha JÁ aprovada volta a PENDENTE (P-163 A): flag → false e modelos.rev bumpa 1×", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const id = await novoModeloComLinhas(c, [true]); // 1 linha aprovada → flag true
       expect(await flag(c, id)).toBe(true);
       const revAntes = await rev(c, id);
       await c.query(`update modelo_servico_mo set valor=99 where modelo_id=$1`, [id]);
-      expect(await flag(c, id)).toBe(true); // continua aprovada
+      const l = await um<{ aprovado: boolean | null }>(c, `select aprovado from modelo_servico_mo where modelo_id=$1`, [id]);
+      expect(l.aprovado).toBeNull(); // voltou a pendente
+      expect(await flag(c, id)).toBe(false); // transição real do flag
+      expect(await rev(c, id)).toBe(revAntes + 1); // bumpou exatamente 1×
+    });
+  });
+  it("editar só a OBSERVAÇÃO de linha aprovada (flag não muda) NÃO bumpa modelos.rev", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, [true]);
+      const revAntes = await rev(c, id);
+      await c.query(`update modelo_servico_mo set observacoes='obs nova' where modelo_id=$1`, [id]);
+      const l = await um<{ aprovado: boolean | null }>(c, `select aprovado from modelo_servico_mo where modelo_id=$1`, [id]);
+      expect(l.aprovado).toBe(true); // continua aprovada
+      expect(await flag(c, id)).toBe(true);
       expect(await rev(c, id)).toBe(revAntes); // rev NÃO bumpou
     });
   });
