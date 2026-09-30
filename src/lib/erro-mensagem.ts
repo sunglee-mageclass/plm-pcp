@@ -28,7 +28,9 @@ const POR_CODIGO: Record<string, string> = {
   "40001": "Conflito de acesso simultâneo. Tente novamente.",
   // Revisão T5 Minor 4: pode acontecer quando o mesmo produto comprado é salvo simultaneamente
   // pelo Sheet do Planejamento e pela tela de Produto Acabado/Importado.
-  "40P01": "Outra pessoa salvou este produto ao mesmo tempo. Tente de novo.",
+  // deadlock: salvar o mesmo comprado em 2 telas (T5 Minor 4) OU excluir versões da MESMA família ao mesmo tempo (M2 da
+  // frente Preço anterior/Título por versão — o congelamento ao excluir). A transação inteira é desfeita.
+  "40P01": "Outra pessoa salvou ou excluiu este produto ao mesmo tempo. Nada foi gravado — tente de novo.",
   "42501": "Você não tem permissão para esta ação.",
   // statement_timeout (ex.: Salvar da Config da Loja com o Kanban automático ligado recalcula a loja inteira
   // na MESMA transação — loja grande pode estourar o tempo). A transação inteira é desfeita.
@@ -92,6 +94,19 @@ function mensagemIntegracao(code: string, msg: string): string | null {
 const PREFIXO_TAMANHO_INVALIDO = "tamanho_tipo invalido:";
 export const TEXTO_TAMANHO_INVALIDO = 'O "Tamanho em" precisa ser Letra ou Número.';
 
+// Preço anterior e Título por versão (20261018100000): recusas P0001 em ASCII com prefixo → texto PT.
+// `versao_congelar: <SQLSTATE>` = a exclusão INTEIRA foi desfeita (falha fechada do congelamento — P-154 A);
+// `versao_anterior: limite` / `versoes_integradas: limite` = teto de 500 ids das RPCs de leitura.
+export const TEXTO_VERSAO_CONGELAR =
+  "Não foi possível guardar o preço/título automático das outras versões — nada foi excluído. Tente excluir de novo.";
+export const TEXTO_VERSAO_LIMITE = "Muitos produtos de uma vez (máximo 500). Filtre a lista e tente de novo.";
+function mensagemVersao(code: string, msg: string): string | null {
+  if (code !== "P0001") return null;
+  if (msg.startsWith("versao_congelar:")) return TEXTO_VERSAO_CONGELAR;
+  if (msg.startsWith("versao_anterior: limite") || msg.startsWith("versoes_integradas: limite")) return TEXTO_VERSAO_LIMITE;
+  return null;
+}
+
 // Config da Loja colaborativa (RPC `salvar_config_loja`): recusas P0409 em ASCII com prefixo (regra "RAISE 5xx só
 // ASCII"). A tela trata as duas no próprio onError (com os rótulos das colunas); isto é o FALLBACK genérico.
 function mensagemConfigLoja(code: string, msg: string): string | null {
@@ -145,6 +160,8 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   // "Tamanho em" nos cards (20261014100000): recusa em ASCII (padrão das mensagens novas) → texto PT.
   if (code === "P0001" && msg.startsWith(PREFIXO_TAMANHO_INVALIDO)) return TEXTO_TAMANHO_INVALIDO;
+  const versao = mensagemVersao(code, msg);
+  if (versao) return versao;
 
   // P-137 A (20261017100000): produto com pedido não troca entre Acessórios e outro grupo pela Categoria do card —
   // recusa ASCII com prefixo (do gatilho fn_modelo_espelho_categoria OU da pré-checagem do front) → texto PT.

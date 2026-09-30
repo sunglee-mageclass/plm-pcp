@@ -40,11 +40,16 @@ describe("Preço anterior (fonte)", () => {
     expect(iVenda).toBeGreaterThan(iAnt);
     const linha = s.slice(iAnt, iVenda);
     expect(linha).toContain('data-colab-path="preco_anterior"');
-    expect(linha).toContain("precoAnteriorExibido(precoAnterior, precoBase)");
+    // P-146/P-158 + M4: o exibido recebe o AUTOMÁTICO composto (versão anterior ou o próprio preço DIGITADO), não o efetivo.
+    expect(s).toContain("const autoAnterior = precoAnteriorAutomatico(versaoAnterior, precoDigitado);");
+    expect(s).toContain("const exibidoAnterior = precoAnteriorExibido(precoAnterior, autoAnterior.valor ?? 0);");
+    expect(linha).toContain("exibidoAnterior");
     expect(linha).toContain("podeEditarPreco && !travaPrecoAnterior ?");
     expect(linha).toContain('aria-label="Preço anterior: voltar ao automático"');
-    expect(linha).toContain("acompanha o preço de venda até ser editado · ↺ volta ao automático");
-    const iSelo = linha.indexOf('{precoAnterior === null ? "automático" : "editado"}');
+    // Minor 2 (revisão front): editado = "valor fixado à mão"; automático = a dica da regra por versão (lib).
+    expect(linha).toContain("precoAnterior !== null ? DICA_PRECO_ANTERIOR_EDITADO");
+    expect(linha).toContain("dicaPrecoAnterior(autoAnterior)");
+    const iSelo = linha.indexOf("{seloAnterior.texto}");
     expect(iSelo).toBeGreaterThan(0);
     expect(linha.indexOf('aria-label="Preço anterior: voltar ao automático"')).toBeGreaterThan(iSelo);
     expect(linha.indexOf('aria-label="Preço anterior: voltar ao automático"')).toBeLessThan(linha.indexOf('data-colab-path="preco_anterior"'));
@@ -70,9 +75,11 @@ describe("Preço anterior (fonte)", () => {
     expect(iMarkupVarejo).toBeGreaterThan(0);
     expect(iAnt).toBeGreaterThan(iMarkupVarejo);
     expect(s.indexOf("<Label>Preço atacado</Label>")).toBeGreaterThan(iAnt);
-    expect(s).toContain("precoAnteriorExibido(precoAnterior, piRevenda.efetivo)");
+    // P-146/P-158 + M4: v2+ = o varejo da versão anterior; v1 = o varejo GRAVADO (draft.preco_venda — o que o retrato manda).
+    expect(s).toContain("const autoAnterior = precoAnteriorAutomatico(versaoAnterior, draft.preco_venda);");
+    expect(s).toContain("const exibidoAnterior = precoAnteriorExibido(precoAnterior, autoAnterior.valor ?? 0);");
     const iBotao = s.indexOf('aria-label="Preço anterior: voltar ao automático"');
-    expect(iBotao).toBeGreaterThan(s.indexOf('{precoAnterior === null ? "automático" : "editado"}'));
+    expect(iBotao).toBeGreaterThan(s.indexOf("{seloAnterior.texto}"));
     expect(iBotao).toBeLessThan(iAnt);
     // M1 (fix1) — mesmo fix de onChange no bloco da revenda.
     expect(s).toContain("onPrecoAnterior(precoAnteriorOuNull(e.target.value))");
@@ -81,6 +88,23 @@ describe("Preço anterior (fonte)", () => {
     expect(linha).toContain("max-sm:h-11 max-sm:w-11");
     // M4 (fix1) — aria-label no MoneyInput da revenda.
     expect(s).toContain('aria-label="Preço anterior"');
+  });
+  it("P-146/P-158: selos 'acompanha o preço da versão anterior (vN)' / 'aguardando preço da vN' e a prop versaoAnterior nos 2 blocos", () => {
+    const lib = fonte("src/lib/versao-anterior.ts");
+    expect(lib).toContain("`acompanha o preço da versão anterior (v${auto.versao})`");
+    expect(lib).toContain("`aguardando preço da v${auto.versao}`");
+    expect(lib).toContain('"aguardando preço de venda"'); // M4 — v1/órfã sem preço digitado
+    for (const f of [PT, RS]) {
+      const s = fonte(f);
+      expect(s, f).toContain("seloPrecoAnterior(precoAnterior, autoAnterior)");
+      expect(s, f).toContain("hoverPrecoAnteriorTravado(autoAnterior)");
+      expect(s, f).toContain("versaoAnterior?: VersaoAnteriorInfo; versaoAnteriorCarregando?: boolean;");
+    }
+    const pd = fonte(PD);
+    expect(pd.split("versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}").length - 1).toBe(3); // Info + 2 blocos
+    // só na v2+ SALVA consulta a RPC; o Salvar invalida a key
+    expect(pd).toContain("const temVersaoAnterior = isEdit && !!modeloId && versaoSalva > 1;");
+    expect(pd).toContain('void qc.invalidateQueries({ queryKey: ["versao-anterior"] });');
   });
   it("o orquestrador liga o Draft nos DOIS blocos", () => {
     const s = fonte(PD);

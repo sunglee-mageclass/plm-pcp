@@ -30,6 +30,7 @@
 //   genérica agora cita o motivo real (com 1 selecionado, usa o motivo dele; com vários, some "módulo desligado"
 //   na lista de causas) — antes dizia só "(incompleto, já integrável ou integrado)", escondendo a causa real.
 import { brl } from "@/lib/format";
+import { corApelidoLabel } from "@/lib/variante";
 import { CAMPO_BY_KEY, ordenarCampos, type CampoKey, type GateKey } from "@/lib/integracao/campos";
 
 export type Situacao = "nao_integrados" | "integrados" | "todos";
@@ -50,6 +51,9 @@ export type Filtros = {
   origem: string | null;
   estado: EstadoNivel | null;
   busca: string;
+  /** P-156 C (R7c) — "Versão de produto já integrado": filtro LOCAL (sobre a lista carregada, até 500) somado ao
+   *  Estado. NUNCA vai para a RPC da lista (`filtrosParaRpc` o ignora de propósito). */
+  versaoIntegrada: boolean;
 };
 export const FILTROS_VAZIOS: Filtros = {
   colecao: null,
@@ -57,6 +61,7 @@ export const FILTROS_VAZIOS: Filtros = {
   origem: null,
   estado: null,
   busca: "",
+  versaoIntegrada: false,
 };
 export type Gate = { ok: boolean; motivo: string | null };
 export type Gates = Record<GateKey, Gate>;
@@ -612,3 +617,86 @@ export function faixaPagina(
   const ini = (l.pagina - 1) * l.porPagina + 1;
   return `Mostrando ${ini}–${ini + l.produtos.length - 1} de ${l.total} produtos`;
 }
+
+// ─────────────────────────── P-156 C + R7 — "Versão de produto já integrado" (T5, só leitura) ───────────────────────────
+// Dados da RPC `integracao_versoes_integradas(ids)` (DEFINER, `_integracao_exige(false)`): para cada card da lista, a
+// versão MENOR mais alta da família que já está Integrável/Integrada e a comparação de variantes com o RETRATO que ela
+// enviou (iguais / novas / saíram, pela variante_key = cor base + apelido). Só AVISO: não bloqueia marcar nem editar.
+export type VarianteComparada = { varianteKey: string; corNome: string | null; apelidoNome: string | null };
+export type VersaoIntegradaInfo = {
+  modeloId: string;
+  anteriorId: string;
+  anteriorVersao: number;
+  anteriorEstado: "integravel" | "integrado";
+  anteriorMarcadoEm: string | null;
+  anteriorIntegradoEm: string | null;
+  iguais: VarianteComparada[];
+  novas: VarianteComparada[];
+  sairam: VarianteComparada[];
+};
+const lerVariantes = (v: unknown): VarianteComparada[] =>
+  (Array.isArray(v) ? v : [])
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+    .map((x) => ({
+      varianteKey: String(x.variante_key ?? ""),
+      corNome: typeof x.cor_nome === "string" ? x.cor_nome : null,
+      apelidoNome: typeof x.apelido_nome === "string" ? x.apelido_nome : null,
+    }))
+    .filter((x) => x.varianteKey !== "");
+/** Leitura TOLERANTE do jsonb da RPC → mapa modeloId → info (linha ilegível fica de fora — nunca inventa um aviso). */
+export function lerVersoesIntegradas(raw: unknown): Map<string, VersaoIntegradaInfo> {
+  const m = new Map<string, VersaoIntegradaInfo>();
+  for (const x of Array.isArray(raw) ? raw : []) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const estado = o.anterior_estado === "integrado" ? "integrado" : o.anterior_estado === "integravel" ? "integravel" : null;
+    const versao = Number(o.anterior_versao);
+    if (typeof o.modelo_id !== "string" || typeof o.anterior_id !== "string" || !estado || !Number.isFinite(versao)) continue;
+    m.set(o.modelo_id, {
+      modeloId: o.modelo_id,
+      anteriorId: o.anterior_id,
+      anteriorVersao: versao,
+      anteriorEstado: estado,
+      anteriorMarcadoEm: typeof o.anterior_marcado_em === "string" ? o.anterior_marcado_em : null,
+      anteriorIntegradoEm: typeof o.anterior_integrado_em === "string" ? o.anterior_integrado_em : null,
+      iguais: lerVariantes(o.iguais),
+      novas: lerVariantes(o.novas),
+      sairam: lerVariantes(o.sairam),
+    });
+  }
+  return m;
+}
+/** Filtro LOCAL "Versão de produto já integrado" (R7c): com `on`, passa só o produto da lista CARREGADA que tem uma versão
+ *  menor já Integrável/Integrada; desligado, passa tudo. Soma com o Estado (`produtoPassaFiltroEstado` — quem chama
+ *  aplica os dois; é o predicado que a aba Produtos usa de fato). */
+export function produtoPassaFiltroVersao(
+  p: { modeloId: string }, mapa: ReadonlyMap<string, VersaoIntegradaInfo>, on: boolean,
+): boolean {
+  return !on || mapa.has(p.modeloId);
+}
+/** Selo da linha: "vN já integrada" (Integrado) ou "vN já integrável" (Integrável). */
+export const seloVersaoIntegrada = (i: Pick<VersaoIntegradaInfo, "anteriorVersao" | "anteriorEstado">): string =>
+  `v${i.anteriorVersao} já ${i.anteriorEstado === "integrado" ? "integrada" : "integrável"}`;
+/** Rótulo de uma variante comparada — o MESMO rótulo de variante do sistema (`corApelidoLabel`); sem nome = "cor sem nome". */
+export function rotuloVarianteComparada(v: VarianteComparada): string {
+  const t = corApelidoLabel(v.corNome, v.apelidoNome);
+  return t && t !== "—" ? t : "cor sem nome";
+}
+export type ResumoVariantes = { titulo: string; grupos: { rotulo: string; itens: string[] }[] };
+/** Texto do hover: "Comparado com o que a vN enviou à loja virtual:" + Iguais (n) · Novas nesta versão (n) · Saíram (n). */
+export function resumoVariantes(i: VersaoIntegradaInfo): ResumoVariantes {
+  const lista = (vs: VarianteComparada[]) => vs.map(rotuloVarianteComparada);
+  return {
+    titulo: `Comparado com o que a v${i.anteriorVersao} enviou à loja virtual:`,
+    grupos: [
+      { rotulo: `Iguais (${i.iguais.length})`, itens: lista(i.iguais) },
+      { rotulo: `Novas nesta versão (${i.novas.length})`, itens: lista(i.novas) },
+      { rotulo: `Saíram (${i.sairam.length})`, itens: lista(i.sairam) },
+    ],
+  };
+}
+/** InfoHover do filtro "Versão" (R7c): deixa claro que é LOCAL e soma com o Estado. */
+export const textoFiltroVersao = (mostraPaginacao: boolean): string =>
+  mostraPaginacao
+    ? "Vale só para os produtos desta página (até 500); soma com o filtro de Estado."
+    : "Vale para os produtos carregados nesta lista (até 500); soma com o filtro de Estado.";

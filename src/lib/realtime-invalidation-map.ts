@@ -188,6 +188,9 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     "producao-explosao-list",
     // OTB (poder de venda / links de modelo)
     "otb-modelos-link", "otb-custo-lista", "otb-grade-lista", "otb-pv-poder",
+    // P-146/P-155 B — a versão anterior do card (Sheet do Planejamento e Integração › Produtos): a anterior pode ser
+    // repreçada/renomeada por outra pessoa. Key `["versao-anterior", loja, ...ids]` (k[1] é a LOJA, não um id de detalhe).
+    "versao-anterior",
   ],
   ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos"],
   colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],

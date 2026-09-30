@@ -1556,6 +1556,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", cid] });
         void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", cid] });
       }
+      qc.invalidateQueries({ queryKey: ["versoes-familia"] }); // P-152: a lista de versões mudou
       setReplicarPayload(null);
       toast.success(`${res.length} card(s) replicado(s).`);
     } catch (e) {
@@ -2526,6 +2527,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
             onOpenChange={(o) => { if (!o && !replicando) setReplicarPayload(null); }}
             nEleg={replicarPayload.modeloIds.length}
             nIgnorados={replicarPayload.nIgnorados}
+            modeloIds={replicarPayload.modeloIds}
             colecaoAtualId={colecaoId}
             replicando={replicando}
             onConfirmar={confirmarReplicar}

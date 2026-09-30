@@ -244,7 +244,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // (espelha `PlanTecidoSheet`, Plan. Tecido). `replicarPayload` guarda os ids ELEGÍVEIS
   // (já persistidos e com modelo_id) + o nº ignorados até o dialog confirmar o destino.
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
-  const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; nIgnorados: number } | null>(null);
+  const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; modeloIds: string[]; nIgnorados: number } | null>(null);
   const [replicando, setReplicando] = useState(false);
   // Baseline de dirty POR PRODUTO (id → snapshot serializado dos campos de `chaveDirty`) —
   // espelha `ProdutoAcabadoSheet.tsx` (não é mais o `useDirtySnapshot` de 1 blob só).
@@ -636,7 +636,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       toast.error("Selecione ao menos um produto materializado (com card no Planejamento) para replicar.");
       return;
     }
-    setReplicarPayload({ produtoIds, nIgnorados });
+    setReplicarPayload({ produtoIds, modeloIds: elegiveis.map((d) => d.modelo_id as string), nIgnorados });
   }
 
   async function confirmarReplicar(destinoColId: string, destinoSubId: string | null) {
@@ -655,6 +655,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         void qc.invalidateQueries({ queryKey: ["produtos-importados", cid] });
         void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
       }
+      qc.invalidateQueries({ queryKey: ["versoes-familia"] }); // P-152: a lista de versões mudou
       setReplicarPayload(null);
       setSelecao(new Set());
       toast.success(`${res.length} card(s) replicado(s).`);
@@ -1354,6 +1355,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             onOpenChange={(o) => { if (!o && !replicando) setReplicarPayload(null); }}
             nEleg={replicarPayload.produtoIds.length}
             nIgnorados={replicarPayload.nIgnorados}
+            modeloIds={replicarPayload.modeloIds}
             colecaoAtualId={colecaoId}
             replicando={replicando}
             onConfirmar={confirmarReplicar}

@@ -183,7 +183,8 @@ export function precoAnteriorOuNull(v: unknown): number | null {
   const n = numeroOuNull(v, 2);
   return n !== null && n > 0 ? n : null;
 }
-/** O que a linha "Preço anterior" mostra: o fixado à mão; senão o preço EFETIVO (o digitado ou o sugerido); 0 ⇒ vazio. */
+/** O que a linha "Preço anterior" mostra: o fixado à mão; senão o AUTOMÁTICO (P-146/P-158 + M4 — `precoAnteriorAutomatico` de
+ *  `src/lib/versao-anterior.ts`: o preço de venda gravado da versão anterior, ou o próprio preço DIGITADO na v1); 0 ⇒ vazio. */
 export function precoAnteriorExibido(fixado: number | null | undefined, efetivo: number): number | null {
   if (fixado !== null && fixado !== undefined) return fixado;
   return efetivo > 0 ? efetivo : null;

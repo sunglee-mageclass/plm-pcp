@@ -38,11 +38,20 @@ describe("InfoGeraisSecao (fonte)", () => {
     expect(iTit).toBeGreaterThan(iSub2);
     expect(iDesc).toBeGreaterThan(iTit);
     expect(s).toContain('data-colab-path="titulo_pagina"');
-    expect(s).toContain("tituloPaginaCalculado(draft.nome, nomeLoja)");
-    expect(s).toContain("Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺.");
+    // P-155 B + R4: o automático vem de `tituloAutomatico` (v2+ = o HERDADO da versão anterior; v1 = o calculado do
+    // Nome do rascunho + a loja) — é com ele que o "digitou igual ao automático" compara.
+    expect(s).toContain("const autoTitulo = tituloAutomaticoDe(versaoAnterior, draft.nome, nomeLoja);");
+    expect(s).toContain("const tituloCalculado = autoTitulo.valor;");
+    expect(s).toContain("Na v2+, segue o Título da versão anterior enquanto ninguém editar; na v1, o Nome do Modelo + o nome da loja. Editado à mão, fica fixo até clicar em ↺.");
     // Dono 26/set: a explicação é hover (InfoHover ao lado do rótulo), nunca texto fixo embaixo do campo.
-    expect(s).toMatch(/<InfoHover ariaLabel="Como funciona o Título para a página\?">\s*<p>Acompanha o Nome do Modelo/);
+    expect(s).toMatch(/<InfoHover ariaLabel="Como funciona o Título para a página\?">\s*<p>Na v2\+, segue o Título/);
     expect(s).not.toContain('<p className="text-xs text-muted-foreground">Acompanha o Nome do Modelo');
+    // selo "herdado da vN" (v2+) / "automático" (v1) e o campo travado enquanto a versão anterior carrega
+    expect(s).toContain("{seloTitulo(autoTitulo)}");
+    // I1 (revisão front): bloqueia carregando OU com falha sem dado (a falha mostra "Tentar de novo" ao lado do rótulo)
+    expect(s).toContain("const semVersaoAnterior = versaoAnteriorCarregando || versaoAnteriorErro;");
+    expect(s).toContain('disabled={planBloqueado || trava.has("titulo_pagina") || semVersaoAnterior}');
+    expect(s).toContain("<FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} />");
     expect(s).toContain('aria-label="Título: voltar ao automático"');
   });
   it("L6 Peso/medidas DEPOIS da Descrição: MoneyInput com casas 3/2, placeholder e data-colab-path por campo (NULL = vazio)", () => {

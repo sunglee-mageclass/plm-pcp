@@ -27,6 +27,8 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, className }: { children: React.ReactNode; className?: string }) =>
     createElement("a", { className }, children),
 }));
+// P-155 B (Título herdado): a célula do Título lê o nome da loja de `useTenantBranding` (query do Supabase) — aqui fixo.
+vi.mock("@/hooks/useTenantBranding", () => ({ useTenantBranding: () => ({ nome: "Loja Teste" }) }));
 const { CelulaCampo } = await import("@/components/integracao/CelulaCampo");
 
 const g = (ok: boolean, motivo: string | null = null) => ({ ok, motivo });
@@ -364,8 +366,10 @@ describe("Fix round 1 T12b (A-I3) — 'usar o novo' do SKU mostra o valor novo m
 describe("Fix round 2 (R1-2) — selo 'automático' do Preço anterior editável VOLTOU", () => {
   it("mostra o placeholder automático E o selo 'automático' ao mesmo tempo (não troca um pelo outro)", () => {
     // `p()` padrão tem o gate `preco` FECHADO (usado pelos testes de modoCelula) — aqui precisa ABERTO pra
-    // exercitar o ramo editável de verdade.
-    const produto = p({ gates: { compartilhado: g(true), planejamento: g(true), preco: g(true), ref: g(true), sku: g(true), keywords: g(true) } });
+    // exercitar o ramo editável de verdade. M4 (P-158/P-159): com preço de venda no rascunho (v1) o selo é "automático";
+    // sem ele vira "aguardando preço de venda" (teste abaixo, P-146/P-158).
+    const produto = p({ raw: { nome: "X", tamanho_tipo: "letra", preco_venda: 159.9 },
+      gates: { compartilhado: g(true), planejamento: g(true), preco: g(true), ref: g(true), sku: g(true), keywords: g(true) } });
     const rascunho = novoRascunho(produto); // preco_anterior é null por padrão no raw da fixture `p()`
     const view = montar(createElement(CelulaCampo, {
       campo: c("preco_anterior"), produto, indice: null, rascunho, previa: undefined, salvando: false,
@@ -493,5 +497,129 @@ describe("Fix round 1 — Acessibilidade: a seta de sublinhas leva aria-expanded
 describe("Fix round 1 — desempenho: linha memoizada (Minor 7/M7)", () => {
   it("ProdutosTabela usa React.memo na linha do produto", () => {
     expect(TABELA_TSX).toMatch(/const LinhaProduto = memo\(function LinhaProduto/);
+  });
+});
+
+// ─────────────────────────── P-146/P-155 B/P-158 — Preço anterior e Título pela VERSÃO ANTERIOR ───────────────────────────
+describe("P-146/P-158 — Preço anterior automático na célula (versão anterior)", () => {
+  const aberto = { compartilhado: g(true), planejamento: g(true), preco: g(true), ref: g(true), sku: g(true), keywords: g(true) };
+  const monta = (raw: Record<string, unknown>, versaoAnterior?: unknown) => {
+    const produto = p({ raw: { nome: "X", tamanho_tipo: "letra", ...raw }, gates: aberto });
+    return montar(createElement(CelulaCampo, {
+      campo: c("preco_anterior"), produto, indice: null, rascunho: novoRascunho(produto), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: versaoAnterior as never,
+    }));
+  };
+  const info = (preco: number | null) => ({ info: { anterior_versao: 1, anterior_preco: preco, titulo_herdado: "T", titulo_origem_versao: 1 }, carregando: false });
+  it("anterior com preço: placeholder = o preço da vN + selo 'acompanha o preço da versão anterior (v1)'", () => {
+    const view = monta({ preco_venda: 250 }, info(200));
+    expect((view.container.querySelector("input") as HTMLInputElement).placeholder).toBe("200,00");
+    expect(view.container.textContent).toContain("acompanha o preço da versão anterior (v1)");
+    view.unmount();
+  });
+  it("anterior SEM preço (P-158): placeholder '—' + selo 'aguardando preço da v1' (nunca o próprio preço)", () => {
+    const view = monta({ preco_venda: 250 }, info(null));
+    expect((view.container.querySelector("input") as HTMLInputElement).placeholder).toBe("—");
+    expect(view.container.textContent).toContain("aguardando preço da v1");
+    expect(view.container.textContent).not.toContain("250");
+    view.unmount();
+  });
+  it("sem anterior (v1): o preço de venda do RASCUNHO (n2); sem ele, 'aguardando preço de venda' (M4)", () => {
+    const v1 = monta({ preco_venda: 159.9 }, { info: null, carregando: false });
+    expect((v1.container.querySelector("input") as HTMLInputElement).placeholder).toBe("159,90");
+    expect(v1.container.textContent).toContain("automático");
+    v1.unmount();
+    const v2 = monta({}, { info: null, carregando: false });
+    expect(v2.container.textContent).toContain("aguardando preço de venda");
+    expect((v2.container.querySelector("input") as HTMLInputElement).placeholder).toBe("—"); // Minor 1: nunca "0,00"
+    v2.unmount();
+  });
+  it("I1: falha sem dado — Preço anterior com '—' e sem selo (nunca '…' eterno)", () => {
+    const view = monta({ preco_venda: 250 }, { info: null, carregando: false, erro: true });
+    expect((view.container.querySelector("input") as HTMLInputElement).placeholder).toBe("—");
+    expect(view.container.textContent).not.toMatch(/automático|aguardando/);
+    view.unmount();
+  });
+  it("versão anterior carregando: placeholder '…' e nenhum selo (não chuta o automático)", () => {
+    const view = monta({ preco_venda: 250 }, { info: null, carregando: true });
+    expect((view.container.querySelector("input") as HTMLInputElement).placeholder).toBe("…");
+    expect(view.container.textContent).not.toMatch(/automático|aguardando/);
+    view.unmount();
+  });
+  it("leitura (gate de preço fechado) mostrando o VIVO: o selo ganha a versão", () => {
+    const produto = p({ raw: { nome: "X", tamanho_tipo: "letra", preco_venda: 250 } }); // gate preco FECHADO
+    const view = montar(createElement(CelulaCampo, {
+      campo: c("preco_anterior"), produto, indice: null, rascunho: novoRascunho(produto), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: info(null) as never,
+    }));
+    expect(view.container.textContent).toContain("aguardando preço da v1");
+    view.unmount();
+  });
+});
+
+describe("P-155 B + R4 — Título herdado na célula", () => {
+  const produto = () => p({ raw: { nome: "Vestido Andreia", tamanho_tipo: "letra" } });
+  const herdado = { info: { anterior_versao: 1, anterior_preco: 598, titulo_herdado: "Vestido Gardenia | Loja Teste", titulo_origem_versao: 1 }, carregando: false };
+  it("v2+ automático mostra o HERDADO + selo 'herdado da v1'", () => {
+    const pr = produto();
+    const view = montar(createElement(CelulaCampo, {
+      campo: c("titulo"), produto: pr, indice: null, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: herdado as never,
+    }));
+    expect((view.container.querySelector("input") as HTMLInputElement).value).toBe("Vestido Gardenia | Loja Teste");
+    expect(view.container.textContent).toContain("herdado da v1");
+    view.unmount();
+  });
+  it("R4: digitar o título PRÓPRIO (do Nome da v2) fica DIGITADO; digitar o herdado volta a automático", () => {
+    const pr = produto();
+    let r = novoRascunho(pr);
+    const onAtualizar = (f: (x: Rascunho) => Rascunho) => { r = f(r); };
+    const el = () => createElement(CelulaCampo, {
+      campo: c("titulo"), produto: pr, indice: null, rascunho: r, previa: undefined, salvando: false,
+      onAtualizar, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: herdado as never,
+    });
+    const view = montar(el());
+    const digita = (v: string) => {
+      const input = view.container.querySelector("input") as HTMLInputElement;
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      act(() => { set.call(input, v); input.dispatchEvent(new Event("input", { bubbles: true })); });
+      view.rerender(el());
+    };
+    digita("Vestido Andreia | Loja Teste"); // o calculado PRÓPRIO — na v2 é um título digitado de verdade
+    expect(r.valores.titulo_pagina).toBe("Vestido Andreia | Loja Teste");
+    digita("Vestido Gardenia | Loja Teste"); // = o herdado ⇒ automático
+    expect(r.valores.titulo_pagina).toBeNull();
+    view.unmount();
+  });
+  it("I1: falha SEM dado em cache — Título bloqueado com o aviso de falha (nunca 'Carregando' eterno)", () => {
+    const pr = produto();
+    const view = montar(createElement(CelulaCampo, {
+      campo: c("titulo"), produto: pr, indice: null, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: { info: null, carregando: false, erro: true } as never,
+    }));
+    const input = view.container.querySelector("input") as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(input.value).toBe("");
+    expect(view.container.querySelector('[aria-label="Não foi possível carregar a versão anterior"]')).not.toBeNull();
+    expect(view.container.querySelector('[aria-label="Aguardando a versão anterior"]')).toBeNull();
+    view.unmount();
+  });
+  it("I1: com o dado (mesmo depois de um refetch falho — o hook não marca erro com cache) o Título segue EDITÁVEL", () => {
+    const pr = produto();
+    const view = montar(createElement(CelulaCampo, {
+      campo: c("titulo"), produto: pr, indice: null, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: herdado as never,
+    }));
+    expect((view.container.querySelector("input") as HTMLInputElement).disabled).toBe(false);
+    view.unmount();
+  });
+  it("versão anterior carregando: o Título fica DESABILITADO (sem o herdado o colapso compararia errado)", () => {
+    const pr = produto();
+    const view = montar(createElement(CelulaCampo, {
+      campo: c("titulo"), produto: pr, indice: null, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: { info: null, carregando: true } as never,
+    }));
+    expect((view.container.querySelector("input") as HTMLInputElement).disabled).toBe(true);
+    view.unmount();
   });
 });

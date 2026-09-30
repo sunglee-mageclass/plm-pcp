@@ -28,7 +28,7 @@ import { Client } from "pg";
 type PgClient = Client;
 import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
-import { voltaNomeCorSePreciso } from "./integracao-helpers";
+import { voltaNomeCorSePreciso, voltaPrecoVersaoSePreciso } from "./integracao-helpers";
 import {
   CASOS_CONFIG, CASOS_MONTAR, CASOS_REF, CASOS_RESOLVER, CASOS_SIGLA, CASOS_SKU_MANUAL, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
 } from "../fixtures/sku-casos";
@@ -93,6 +93,9 @@ async function prepara(c: PgClient): Promise<void> {
     // do mais novo para o mais velho, antes de reaplicar. 1º o Tamanho em (se a cópia o tiver — o guarda da 20261005100000
     // recusaria o _replicar_cards dela); 2º a 20261013100000 (redefine _sku_config_normaliza por cima destas; sem efeito
     // quando ela não está na cópia).
+    // 0º a 20261018100000/20261018110000 (Preço anterior/Título por versão — a guarda do inverso da 20261014100000 exige o
+    // _replicar aaf3f2e4…, que ela redefine por cima; sem efeito quando não estão na cópia).
+    await voltaPrecoVersaoSePreciso(c);
     if (TAMANHO_NA_COPIA) {
       await c.query("SET LOCAL app.tamanho_em_drop_ok = 'sim'");
       await aplica(c, INV_TAMANHO);

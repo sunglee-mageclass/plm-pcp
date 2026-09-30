@@ -22,6 +22,11 @@ import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { InfoHover } from "@/components/shared/InfoHover";
+import {
+  DICA_PRECO_ANTERIOR_EDITADO, dicaPrecoAnterior, hoverPrecoAnteriorTravado, precoAnteriorAutomatico, seloPrecoAnterior,
+  type VersaoAnteriorInfo,
+} from "@/lib/versao-anterior";
+import { FalhaVersaoAnterior } from "@/components/shared/FalhaVersaoAnterior";
 
 /**
  * F3.2 (decisão F3 #2 + mockup Anotado, seção 10 — R9c do G-plano conjunto): os custos do BOM (previsto) são LINHAS
@@ -54,6 +59,12 @@ export function PrecoTabela(props: {
   // F3.6 (Parte B, ruling 11) — Preço anterior: NULL = acompanha o preço EFETIVO (`precoBase` — o digitado ou o sugerido, o
   // mesmo da linha "Preço de venda"); não-NULL = fixado à mão até o ↺. Editar = `podeEditarPreco` (mesma permissão).
   precoAnterior: number | null; onPrecoAnterior: (v: number | null) => void;
+  // P-146/P-158 + M4 — a versão anterior (RPC `modelos_versao_anterior`, pela versão SALVA; null = v1/órfã) decide o
+  // AUTOMÁTICO: v2+ = o preço de venda GRAVADO da anterior (vazio = "aguardando preço da vN"); v1/órfã = o próprio preço
+  // DIGITADO (`precoDigitado`; vazio = "aguardando preço de venda" — espelha o retrato, nunca o sugerido).
+  versaoAnterior?: VersaoAnteriorInfo; versaoAnteriorCarregando?: boolean;
+  /** I1 (revisão front): falhou SEM dado em cache → mostra a falha + "Tentar de novo" (nunca "…" eterno). */
+  versaoAnteriorErro?: boolean; onTentarVersaoAnterior?: () => void;
   // F3.2 (decisão F3 #6): custo-base ÚNICO (o MESMO que o markup usa) + selo de 3 estados —
   // real (CAD enviado ao corte) › previsto (BOM) › estimado (tecido + materiais + M.O.).
   seloCusto: SeloCusto; custoBase: number;
@@ -98,7 +109,7 @@ export function PrecoTabela(props: {
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
     travaPrecoVenda = false, travaPrecoAnterior = false, precoImportadoOff = false,
-    precoAnterior, onPrecoAnterior,
+    precoAnterior, onPrecoAnterior, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
     linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn,
@@ -176,6 +187,12 @@ export function PrecoTabela(props: {
     : moStatusFaixa === "acima" ? <StatusBadge tone="danger">acima do limite</StatusBadge>
     : null;
   const temFaixas = !!linhaFaixas && (linhaFaixas.min != null || linhaFaixas.ideal != null || linhaFaixas.max != null);
+  // Preço anterior automático (fonte única no SQL; aqui só compõe — src/lib/versao-anterior.ts).
+  const autoAnterior = precoAnteriorAutomatico(versaoAnterior, precoDigitado);
+  const seloAnterior = seloPrecoAnterior(precoAnterior, autoAnterior);
+  const carregandoAnterior = versaoAnteriorCarregando && precoAnterior === null;
+  const falhaAnterior = versaoAnteriorErro && precoAnterior === null; // sem o automático: "—" + falha com "Tentar de novo"
+  const exibidoAnterior = precoAnteriorExibido(precoAnterior, autoAnterior.valor ?? 0);
 
   return (
     <div className="relative">
@@ -200,14 +217,16 @@ export function PrecoTabela(props: {
             <td className="py-2 pr-3">
               <span className="inline-flex flex-wrap items-center gap-1.5">
                 Preço anterior
-                <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
-                  {precoAnterior === null ? "automático" : "editado"}
-                </StatusBadge>
+                {!carregandoAnterior && !falhaAnterior && (
+                  <StatusBadge tone={seloAnterior.tom} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
+                    {seloAnterior.texto}
+                  </StatusBadge>
+                )}
                 {/* Ruling da revisão (Task 21): travado + automático — o valor continua acompanhando o preço de
-                    venda mesmo com o campo travado pela Integração (usePlanejamentoSave.ts omite a coluna). */}
-                {travaPrecoAnterior && precoAnterior === null && (
+                    venda (da vN, na v2+) mesmo com o campo travado pela Integração (usePlanejamentoSave.ts omite a coluna). */}
+                {travaPrecoAnterior && precoAnterior === null && !carregandoAnterior && !falhaAnterior && (
                   <InfoHover ariaLabel="Preço anterior travado pela Integração">
-                    <p>Automático: acompanha o Preço de venda, mesmo travado pela Integração.</p>
+                    <p>{hoverPrecoAnteriorTravado(autoAnterior)}</p>
                   </InfoHover>
                 )}
               </span>
@@ -225,18 +244,18 @@ export function PrecoTabela(props: {
                     fixedDecimals
                     aria-label="Preço anterior"
                     className="h-8 w-32 text-right tabular-nums"
-                    value={precoAnteriorExibido(precoAnterior, precoBase) ?? ""}
-                    placeholder="0,00"
+                    value={carregandoAnterior || falhaAnterior ? "" : exibidoAnterior ?? ""}
+                    placeholder={carregandoAnterior ? "…" : (falhaAnterior || autoAnterior.aguardando) && precoAnterior === null ? "—" : "0,00"}
                     data-colab-path="preco_anterior"
                     // M1 (fix1) — 0/negativo volta ao automático NA TELA (não só no payload): evita "editado · 0,00" e conflito falso.
                     onChange={(e) => onPrecoAnterior(precoAnteriorOuNull(e.target.value))}
                   />
                 </span>
               ) : (
-                <span className="tabular-nums">{(() => { const v = precoAnteriorExibido(precoAnterior, precoBase); return v != null ? brl(v) : "—"; })()}</span>
+                <span className="tabular-nums">{carregandoAnterior ? "…" : falhaAnterior ? "—" : exibidoAnterior != null ? brl(exibidoAnterior) : "—"}</span>
               )}
             </td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">acompanha o preço de venda até ser editado · ↺ volta ao automático</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">{precoAnterior !== null ? DICA_PRECO_ANTERIOR_EDITADO : carregandoAnterior ? "…" : falhaAnterior && onTentarVersaoAnterior ? <FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} /> : dicaPrecoAnterior(autoAnterior)}</td>
           </tr>
           <tr className="border-t">
             <td className="py-2 pr-3">

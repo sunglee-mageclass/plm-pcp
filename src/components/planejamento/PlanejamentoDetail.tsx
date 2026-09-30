@@ -14,6 +14,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, ArrowLeft, Save, Pencil, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { VersoesExistentesAviso, useVersoesFamilia } from "@/components/planejamento/VersoesExistentesAviso";
+import { buscarVersoesFamilia } from "@/lib/versoes-familia-query";
+import { agruparPorFamilia, precisaConfirmar } from "@/lib/versoes-familia";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +77,7 @@ import { PrecoTabela } from "@/components/planejamento/planejamento-detail/Preco
 import { rotuloConflitoPlan, invalidarAposAprovarMO, camposParaDuplicar } from "@/components/planejamento/planejamento-detail/helpers";
 import { resolverPermissoesSheet } from "@/components/planejamento/planejamento-detail/permissoes-sheet";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
+import { useVersaoAnterior } from "@/hooks/useVersaoAnterior";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
@@ -582,6 +586,17 @@ function PlanejamentoDetailConteudo({
   // F3.6 (ruling 1) — a MARCA da loja (`tenants.nome`, não o WISH360) p/ o Título automático da seção 1; mesma query cacheada
   // dos relatórios (useTenantBranding).
   const { nome: nomeLoja } = useTenantBranding();
+  // P-146..P-158 + R4 — a VERSÃO ANTERIOR do card (fonte única no SQL, RPC `modelos_versao_anterior`). Só na v2+ SALVA (a v1
+  // nunca tem anterior — sem consulta na maioria dos cards); uma Versão digitada e ainda não salva só vale depois do Salvar.
+  const versaoSalva = Number((modeloData as { versao?: number } | undefined)?.versao ?? 1);
+  const temVersaoAnterior = isEdit && !!modeloId && versaoSalva > 1;
+  const versaoAnt = useVersaoAnterior(modeloId && temVersaoAnterior ? [modeloId] : [], temVersaoAnterior);
+  const versaoAnterior = temVersaoAnterior && modeloId ? versaoAnt.mapa.get(modeloId) ?? null : null;
+  // I1 (revisão front): "carregando" = pedido e ainda sem dado; "erro" = falhou SEM dado em cache (mostra a falha com
+  // "Tentar de novo"). Um refetch em segundo plano que falha com dado em cache segue o dado anterior — campo editável.
+  const versaoAnteriorCarregando = temVersaoAnterior && versaoAnt.carregando;
+  const versaoAnteriorErro = temVersaoAnterior && versaoAnt.erro;
+  const tentarVersaoAnterior = versaoAnt.tentarDeNovo;
   // Toggle opt-in (Config da Loja): mostra os 2 blocos de análise de markup por faixa. Default OFF.
   // Reflete no próximo refetch/reabrir do Sheet (config muda raro). Ver [[project_markup_min_ideal_max]].
   const { data: markupFaixaOn = false } = useQuery({
@@ -889,6 +904,8 @@ function PlanejamentoDetailConteudo({
   const aoSalvar = async () => {
     setEditandoDev(false);
     onSaved();
+    // P-146/P-155 B: a Versão (ou o preço/título que as versões seguintes herdam) pode ter mudado neste Salvar.
+    void qc.invalidateQueries({ queryKey: ["versao-anterior"] });
     if (!isEdit) return;
     const r = await skus.aplicarAGravar();
     if (r !== "falhou") await skus.gerarSeFaltar();
@@ -1103,7 +1120,7 @@ function PlanejamentoDetailConteudo({
         }
       }
     },
-    onSuccess: () => { toast.success("Card duplicado"); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved(); onClose(); },
+    onSuccess: () => { toast.success("Card duplicado"); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); qc.invalidateQueries({ queryKey: ["versoes-familia"] }); onSaved(); onClose(); },
     onError: (e: any) => {
       // Acréscimo do controlador (item b) — o INSERT já criou a cópia mesmo quando `gravarTecidosIniciais`
       // falha depois dele: não desfazer. Mesmo padrão do card NOVO no Salvar (usePlanejamentoSave.ts,
@@ -1120,6 +1137,7 @@ function PlanejamentoDetailConteudo({
             : "A nova versão foi criada, mas os tecidos NÃO foram para a Ficha (BOM). Peça a quem edita o Desenvolvimento para salvar a nova versão.",
         );
         qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+        qc.invalidateQueries({ queryKey: ["versoes-familia"] });
         onSaved();
         onClose();
         return;
@@ -1128,10 +1146,36 @@ function PlanejamentoDetailConteudo({
     },
   });
 
-  const handleDuplicate = () => {
+  const iniciarDuplicar = () => {
     if (duplicandoRef.current || duplicate.isPending) return;
     duplicandoRef.current = true;
     duplicate.mutate(undefined, { onSettled: () => { duplicandoRef.current = false; } });
+  };
+  // P-152 — antes de duplicar, confere as outras versões da família (leitura pela RLS). Sem outras versões
+  // duplica direto, como sempre; com outras (ou se a conferência falhar — falha FECHADA) abre o AlertDialog.
+  const [dupChecando, setDupChecando] = useState(false);
+  const [dupAviso, setDupAviso] = useState(false);
+  const versoesDup = useVersoesFamilia(modeloId ? [modeloId] : [], dupAviso, { colecaoId: draft.colecao_id ?? null, subcolecao: draft.subcolecao ?? null });
+  // Fechou o Sheet durante a conferência assíncrona → NÃO duplica depois.
+  const montadoRef = useRef(true);
+  useEffect(() => { montadoRef.current = true; return () => { montadoRef.current = false; }; }, []);
+  const handleDuplicate = async () => {
+    if (!modeloId || dupChecando || duplicandoRef.current || duplicate.isPending) return;
+    setDupChecando(true);
+    try {
+      const linhas = await qc.fetchQuery({
+        queryKey: ["versoes-familia", modeloId],
+        staleTime: 0,
+        queryFn: () => buscarVersoesFamilia(supabase, [modeloId]),
+      });
+      if (!montadoRef.current) return;
+      if (precisaConfirmar(agruparPorFamilia(linhas, [modeloId]))) setDupAviso(true);
+      else iniciarDuplicar();
+    } catch {
+      if (montadoRef.current) setDupAviso(true); // o diálogo mostra o erro + "Tentar de novo"
+    } finally {
+      if (montadoRef.current) setDupChecando(false);
+    }
   };
 
   const del = useMutation({
@@ -1552,6 +1596,8 @@ function PlanejamentoDetailConteudo({
             nomeLoja={nomeLoja}
             planBloqueado={perm.planBloqueado}
             compartilhadoBloqueado={perm.compartilhadoBloqueado}
+            versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
+            versaoAnteriorErro={versaoAnteriorErro} onTentarVersaoAnterior={tentarVersaoAnterior}
           />
 
           {/* SETOR 2 — Coleção */}
@@ -1765,6 +1811,8 @@ function PlanejamentoDetailConteudo({
                 // F3.6 (ruling 11) — Preço anterior (grava no Salvar; payload só com podeEditarPreco — usePlanejamentoSave).
                 precoAnterior={draft.preco_anterior}
                 onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
+                versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
+            versaoAnteriorErro={versaoAnteriorErro} onTentarVersaoAnterior={tentarVersaoAnterior}
               />
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
@@ -1776,7 +1824,9 @@ function PlanejamentoDetailConteudo({
                 planBloqueado={perm.planBloqueado}
                 travaVarejo={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 precoAnterior={draft.preco_anterior}
-                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))} />
+                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
+                versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
+            versaoAnteriorErro={versaoAnteriorErro} onTentarVersaoAnterior={tentarVersaoAnterior} />
             )}
           </Secao>
           )}
@@ -1990,7 +2040,7 @@ function PlanejamentoDetailConteudo({
               // Rebase F3.3→3adfbd3 — + a condição do micro-fix M1 da F3.2 (3adfbd3): `isEdit && !modeloData` (cache FRIO:
               // `isCompradoParaFicha` desabilita a ficha por precaução e destravaria o Duplicar antes do seed, copiando o
               // `emptyDraft()`), no `duplicando` e na dica.
-              duplicando={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
+              duplicando={duplicate.isPending || dupChecando || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
               duplicandoTitle={(ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData) ? "Carregando a ficha…" : undefined}
               // F3.4 — só interno: o diálogo do Dev copia a grade por variante do Tecido 1, que o comprado não tem.
               onImportar={ficha.podeEditar && !isComprado ? () => importar.setAberto(true) : undefined}
@@ -2079,6 +2129,33 @@ function PlanejamentoDetailConteudo({
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={() => del.mutate()}>Excluir</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* P-152 — Duplicar quando já existem outras versões da família (ou a conferência falhou). */}
+        <AlertDialog open={dupAviso} onOpenChange={(o) => { setDupAviso(o); if (!o) versoesDup.reset(); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {versoesDup.erro ? "Não foi possível conferir as versões" : versoesDup.precisa ? "Duplicar — já existem outras versões" : "Duplicar esta versão"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                A cópia vira uma nova versão desta família. Confira as versões que já existem antes de continuar.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <VersoesExistentesAviso
+              estado={versoesDup}
+              destino={{ colecaoId: draft.colecao_id ?? null, subcolecao: draft.subcolecao ?? null }}
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={!versoesDup.pronto}
+                onClick={() => { setDupAviso(false); versoesDup.reset(); iniciarDuplicar(); }}
+              >
+                Duplicar
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

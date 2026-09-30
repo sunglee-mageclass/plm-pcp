@@ -38,15 +38,17 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_MAO_DUPLA } from "@/lib/integracao/campos";
 import {
   FILTROS_VAZIOS, OPCOES_ESTADO_NIVEL, ROTULO_ESTADO_NIVEL, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar,
-  motivoVoltar, produtoPassaFiltroEstado, totalPaginas,
+  motivoVoltar, produtoPassaFiltroEstado, produtoPassaFiltroVersao, totalPaginas, textoFiltroVersao,
   type EstadoNivel, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
 } from "@/lib/integracao/produtos";
 import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
 import { useAbaSuja } from "./guard";
 import {
   LIMITE_PRODUTOS, chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao,
+  useVersaoAnteriorIntegracao, useVersoesIntegradas,
 } from "./useIntegracao";
 import { ProdutosTabela } from "./ProdutosTabela";
+import { FalhaVersaoAnterior } from "@/components/shared/FalhaVersaoAnterior";
 import { FotosDialog } from "./FotosDialog";
 import { KeywordsDialog } from "./KeywordsDialog";
 import { EstadoCelula, IntegravelCelula } from "./EstadoLinha";
@@ -55,6 +57,8 @@ import { VoltarDialog } from "./VoltarDialog";
 import { DesfazerDialog } from "./DesfazerDialog";
 
 const TODOS = "__todos__";
+// P-156 C (R7c) — opção única do filtro LOCAL "Versão" (o "Todos" é o default do FiltroSelect).
+const VERSAO_JA_INTEGRADA = "ja_integrada";
 const SITUACOES: { key: Situacao; rotulo: string }[] = [
   { key: "nao_integrados", rotulo: "Não integrados" },
   { key: "integrados", rotulo: "Integrados" },
@@ -184,6 +188,12 @@ export function ProdutosAba() {
   useIntegracaoAoVivo(idsPagina);
   const salvar = useSalvarIntegracao();
   const lista = q.data;
+  // P-146/P-155 B — versão anterior de cada produto (Preço anterior/Título automáticos na célula).
+  const versaoAnt = useVersaoAnteriorIntegracao(lista);
+  // P-156 C (T5) — versão MENOR já integrável/integrada de cada produto carregado (linha âmbar + selo + filtro local).
+  const versoesInt = useVersoesIntegradas(idsPagina);
+  // Minor 6: com o filtro "Versão" ligado, a lista só vale depois que o mapa chegou (senão "nenhum produto" enganoso).
+  const versaoFiltroPendente = filtros.versaoIntegrada && (versoesInt.carregando || versoesInt.erro);
   // P-130 A (dono, set/2026): a tela pede a RPC com `_limite: LIMITE_PRODUTOS` (500, o teto da RPC) — pra uma loja
   // com ATÉ 500 produtos na Situação/filtros escolhidos, a "página 1" JÁ é a lista INTEIRA (`lista.total <=
   // LIMITE_PRODUTOS`), então ordenação e o filtro de nível de Estado valem pra TUDO, não só por um recorte de 50.
@@ -202,6 +212,8 @@ export function ProdutosAba() {
   // `mostraPaginacao=false` (≤500 produtos), "a página" JÁ É a lista inteira — ordenação/nível cobrem tudo de
   // verdade, não é mais um recorte; os textos abaixo (`filtroEstreitaNivel`) refletem isso.
   const filtroEstreitaNivel = filtros.estado === "nao_integravel_faltam" || filtros.estado === "nao_integravel_completo";
+  // P-156 C (R7c): "Versão de produto já integrado" também é recorte LOCAL da lista carregada (soma com o Estado).
+  const filtroLocal = filtroEstreitaNivel || filtros.versaoIntegrada;
   // MEDIUM-2 (review 685544fa): um produto com RASCUNHO PENDENTE nunca desaparece por causa do filtro de nível —
   // mesmo que a edição em curso (ainda staging, não salva) o levasse pra outro nível quando salvar (ex.: corrigir
   // o único campo que faltava), ele continua visível/editável até o Salvar de verdade. Sem isso, o filtro de nível
@@ -212,10 +224,11 @@ export function ProdutosAba() {
     () => (lista
       ? lista.produtos.filter((p) => {
           const r = rascunhos[p.modeloId];
-          return produtoPassaFiltroEstado(p, filtros.estado) || (r !== undefined && temAlteracao(r));
+          const passaVersao = produtoPassaFiltroVersao(p, versoesInt.mapa, filtros.versaoIntegrada);
+          return (produtoPassaFiltroEstado(p, filtros.estado) && passaVersao) || (r !== undefined && temAlteracao(r));
         })
       : []),
-    [lista, filtros.estado, rascunhos],
+    [lista, filtros.estado, filtros.versaoIntegrada, versoesInt.mapa, rascunhos],
   );
   const sujos = useMemo(() => Object.values(rascunhos).filter(temAlteracao), [rascunhos]);
   // `sujoLinhas` governa o botão Salvar/onSalvar da PÁGINA (só as linhas da tabela); `sujo` (guarda/trava de
@@ -713,7 +726,7 @@ export function ProdutosAba() {
           </InfoHover>
         </div>
       )}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <FiltroSelect id="f-colecao" rotulo="Coleção" valor={filtros.colecao} desabilitado={travaFiltro}
           opcoes={(lista?.opcoes.colecoes ?? []).map((c) => ({ key: c, label: c }))}
           onMudar={(v) => { setFiltros((f) => ({ ...f, colecao: v })); setPagina(1); }} />
@@ -729,6 +742,11 @@ export function ProdutosAba() {
         <FiltroSelect id="f-estado" rotulo="Estado" valor={filtros.estado} desabilitado={travaFiltro} info={textoEstadoDentro(mostraPaginacao)}
           opcoes={OPCOES_ESTADO_NIVEL.map((key) => ({ key, label: ROTULO_ESTADO_NIVEL[key] }))}
           onMudar={(v) => { setFiltros((f) => ({ ...f, estado: v as EstadoNivel | null })); setPagina(1); }} />
+        {/* P-156 C (R7c): filtro LOCAL — age só na lista carregada (≤500), soma com o Estado, nunca vai à RPC da lista. */}
+        <FiltroSelect id="f-versao" rotulo="Versão" valor={filtros.versaoIntegrada ? VERSAO_JA_INTEGRADA : null}
+          desabilitado={travaFiltro} info={textoFiltroVersao(mostraPaginacao)}
+          opcoes={[{ key: VERSAO_JA_INTEGRADA, label: "Versão de produto já integrado" }]}
+          onMudar={(v) => setFiltros((f) => ({ ...f, versaoIntegrada: v === VERSAO_JA_INTEGRADA }))} />
         <div className="grid gap-1">
           <Label htmlFor="f-busca">Buscar</Label>
           <Input id="f-busca" value={busca} placeholder="Nome ou REF" disabled={travaFiltro}
@@ -762,17 +780,42 @@ export function ProdutosAba() {
         </>
       ) : (
         <>
-          {produtosExibidos.length === 0 ? (
+          {versaoAnt.erro && (
+            // I1 (revisão front): a versão anterior (Título/Preço anterior automáticos) falhou SEM dado em cache — as
+            // células de Título ficam bloqueadas (mesmo motivo R4 do Sheet) até tentar de novo; nunca "carregando" eterno.
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <FalhaVersaoAnterior onTentar={versaoAnt.tentarDeNovo}
+                texto="Não foi possível carregar a versão anterior dos produtos — Título e Preço anterior automáticos ficam indisponíveis." />
+            </div>
+          )}
+          {versaoFiltroPendente ? (
+            versoesInt.erro ? (
+              <EmptyState title="Não foi possível verificar as versões já integradas"
+                description="O filtro Versão depende dessa verificação. Tente de novo ou escolha Versão “Todos”."
+                action={{ label: "Tentar de novo", onClick: versoesInt.tentarDeNovo }} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Verificando as versões já integradas…</p>
+            )
+          ) : produtosExibidos.length === 0 ? (
             // HIGH-1 (review 685544fa) + P-130 A: filtro de nível (faltam dados/completo) esvaziou a página ATUAL —
             // a situação/filtros de base ainda têm produtos (senão cairia no ramo de cima), só não neste RECORTE.
             // Com tudo carregado (`!mostraPaginacao`), não existe "trocar de página" de verdade — o texto vira só
             // "escolha outro Estado"; só quando `mostraPaginacao` é true a dica de trocar de página faz sentido.
+            filtros.versaoIntegrada ? (
+              // P-156 C (R7c): o filtro LOCAL "Versão de produto já integrado" esvaziou a lista carregada.
+              <EmptyState title={mostraPaginacao ? "Nenhum produto nesta página com este Estado e Versão" : "Nenhum produto com este Estado e Versão"}
+                description={mostraPaginacao ? "Troque de página ou escolha Estado e Versão “Todos”." : "Escolha Versão (ou Estado) “Todos” pra ver os demais."} />
+            ) : (
             <EmptyState title={mostraPaginacao ? "Nenhum produto nesta página com este nível de Estado" : "Nenhum produto com este nível de Estado"}
               description={mostraPaginacao ? "Troque de página ou escolha Estado “Todos”." : "Escolha Estado “Todos” pra ver os demais."} />
+            )
           ) : (
             <ProdutosTabela lista={listaExibida!} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
               onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
-              integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined} />
+              integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined}
+              versoesAnteriores={versaoAnt.mapa} versoesAnterioresCarregando={versaoAnt.carregando}
+              versoesAnterioresErro={versaoAnt.erro}
+              versoesIntegradas={versoesInt.mapa} />
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             {/* Owner (set/2026) + P-130 A: com o filtro de nível ativo, `lista.total` é o total de "não integrável"
@@ -781,8 +824,8 @@ export function ProdutosAba() {
                 página" só quando `mostraPaginacao` é de verdade (>500 produtos); senão "da lista" (tudo). Inclui o
                 caso 0 de N (HIGH-1: nunca esconder esta linha, mesmo com a tabela vazia). */}
             <span className="text-muted-foreground">
-              {filtroEstreitaNivel
-                ? `Mostrando ${produtosExibidos.length} de ${lista.produtos.length} produtos ${mostraPaginacao ? "desta página" : "da lista"} (filtrados por Estado)`
+              {filtroLocal
+                ? `Mostrando ${produtosExibidos.length} de ${lista.produtos.length} produtos ${mostraPaginacao ? "desta página" : "da lista"} (filtrados por ${filtroEstreitaNivel && filtros.versaoIntegrada ? "Estado e Versão" : filtros.versaoIntegrada ? "Versão" : "Estado"})`
                 : faixaPagina(lista)}
             </span>
             {/* P-130 A: Anterior/Próxima/"Página X de Y" só aparecem quando a loja passou de LIMITE_PRODUTOS — com

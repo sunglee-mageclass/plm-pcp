@@ -153,23 +153,33 @@ export function editar<K extends ColunaEditavel>(
  *  como o Sheet passa pra `InfoGeraisSecao`; nunca fica guardado no rascunho (senão ficaria stale). */
 export const tituloCalculadoDoRascunho = (r: Rascunho, nomeLoja: string | null): string =>
   tituloPaginaCalculado(r.valores.nome, nomeLoja);
+/** P-155 B + R4 — o Título AUTOMÁTICO do produto: na v2+ o título EFETIVO da versão anterior (`herdado`, pronto do
+ *  servidor — RPC `modelos_versao_anterior`); na v1/órfã (`herdado` null) o calculado do Nome do rascunho + a loja. */
+export const tituloAutomaticoDoRascunho = (r: Rascunho, nomeLoja: string | null, herdado: string | null = null): string =>
+  herdado ?? tituloCalculadoDoRascunho(r, nomeLoja);
 /** Important #1 (fix round 1) + Important R1-1/Minor R1-1 (fix round 2) — onChange do campo Título.
  *  `nomeLoja` null (nome da loja ainda não carregou): NUNCA colapsa o digitado pra NULL nem trata um Nome puro
  *  como automático — mantém exatamente o que a pessoa digitou (rede de segurança; T12a deve desabilitar o campo
  *  nesse estado, então esse ramo não deveria ser exercitado na prática). Minor R1-1: retorna `r` sem tocar quando
- *  o valor não muda (nunca marca `titulo_pagina` como tocado num blur/edição que é no-op). */
-export function editarTitulo(r: Rascunho, digitado: string, nomeLoja: string | null): Rascunho {
+ *  o valor não muda (nunca marca `titulo_pagina` como tocado num blur/edição que é no-op).
+ *  R4 (P-155 B): com `herdado` (v2+), o colapso "digitou igual ao automático → NULL" compara com o HERDADO — digitar
+ *  o título "próprio" (calculado do Nome desta versão) fica DIGITADO (não vira herdado em silêncio). O herdado não
+ *  depende de `nomeLoja` (já vem com a loja do servidor). */
+export function editarTitulo(r: Rascunho, digitado: string, nomeLoja: string | null, herdado: string | null = null): Rascunho {
   const novo =
-    nomeLoja === null
-      ? digitado
-      : tituloAoDigitar(digitado, tituloCalculadoDoRascunho(r, nomeLoja));
+    herdado !== null
+      ? tituloAoDigitar(digitado, herdado)
+      : nomeLoja === null
+        ? digitado
+        : tituloAoDigitar(digitado, tituloCalculadoDoRascunho(r, nomeLoja));
   return igual(novo, r.valores.titulo_pagina) ? r : editar(r, "titulo_pagina", novo);
 }
 /** Important #1 (fix round 1) + Important R1-1/Minor R1-1 (fix round 2) — onBlur do campo Título.
- *  `nomeLoja` null: nunca colapsa pra NULL (mesma rede de segurança de `editarTitulo`). */
-export function sairTitulo(r: Rascunho, nomeLoja: string | null): Rascunho {
-  if (nomeLoja === null) return r; // nada a normalizar sem o automático calculável — mantém o que já está
-  const novo = tituloAoSair(r.valores.titulo_pagina, tituloCalculadoDoRascunho(r, nomeLoja));
+ *  `nomeLoja` null: nunca colapsa pra NULL (mesma rede de segurança de `editarTitulo`). R4: com `herdado`, compara
+ *  com ele. */
+export function sairTitulo(r: Rascunho, nomeLoja: string | null, herdado: string | null = null): Rascunho {
+  if (herdado === null && nomeLoja === null) return r; // nada a normalizar sem o automático calculável — mantém o que já está
+  const novo = tituloAoSair(r.valores.titulo_pagina, tituloAutomaticoDoRascunho(r, nomeLoja, herdado));
   return igual(novo, r.valores.titulo_pagina) ? r : editar(r, "titulo_pagina", novo);
 }
 export function adicionarFotos(r: Rascunho, novas: FotoNova[]): Rascunho {

@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
+import { voltaPrecoVersaoSePreciso } from "./integracao-helpers";
 
 // T4 fix2 · G1 (revisor 2 I-1): `.superpowers/distribuicao/mig/trocas.json` NÃO é versionado — some no checkout
 // principal depois do merge e o teste estático dava ENOENT. As TROCAS ficam TRANSCRITAS aqui, à mão, como
@@ -259,6 +260,9 @@ async function voltaParte2SePreciso(c: Client): Promise<void> {
 /** LIFO (Tamanho em, 20261014100000): se a cópia a tem, volta-a DENTRO da txn pelo inverso dela (confirmação SET LOCAL;
  *  as 2 travas SET LOCAL do arquivo saem — a txn do teste tem as suas). Sem efeito quando ela não está aplicada. */
 async function voltaTamanhoEmSePreciso(c: Client): Promise<void> {
+  // LIFO: a 20261018100000 redefine o _replicar_cards_plan_tecido_core por cima da 20261014100000 — a guarda do inverso dela
+  // exige o texto aaf3f2e4…, então a 20261018 (e a 20261018110000) volta antes (sem efeito quando não estão na cópia).
+  await voltaPrecoVersaoSePreciso(c);
   const m = (await um<{ m: string | null }>(c,
     "select md5(pg_get_functiondef(to_regprocedure('public.fn_produto_tamanho_tipo_handover()'))) m")).m;
   if (m !== MD5_REPASSE_TAMANHO_EM) return;

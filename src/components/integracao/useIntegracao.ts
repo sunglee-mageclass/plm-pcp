@@ -24,7 +24,11 @@ import {
   chaveEntradaPrevia, entradaDaChave, lerPrevia,
   type ErroPrevia, type LinhaPrevia, type PreviaSkus,
 } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
-import { filtrosParaRpc, lerLista, type Filtros, type ListaIntegracao, type Situacao } from "@/lib/integracao/produtos";
+import {
+  filtrosParaRpc, lerLista, lerVersoesIntegradas, type Filtros, type ListaIntegracao, type Situacao, type VersaoIntegradaInfo,
+} from "@/lib/integracao/produtos";
+import { useVersaoAnterior } from "@/hooks/useVersaoAnterior";
+import type { VersaoAnteriorInfo } from "@/lib/versao-anterior";
 import type { Rascunho } from "@/lib/integracao/rascunho";
 import { entradaSkus, salvarIntegracao, temSkuAGravar, type DepsSalvar, type EntradaSkus, type ResultadoSalvar } from "./salvar-integracao";
 
@@ -253,6 +257,60 @@ export function useIntegracaoAoVivo(ids: string[]): void {
   }, [tenantId, chaveIds, qc]);
 }
 
+/** P-146/P-155 B — a versão anterior de cada produto da lista (1 chamada a `modelos_versao_anterior`, ≤ 500 ids), SÓ
+ *  quando "Preço anterior" ou "Título" está marcado nos Campos da API (os únicos que dependem dela). */
+export function useVersaoAnteriorIntegracao(lista: ListaIntegracao | undefined): {
+  mapa: Map<string, VersaoAnteriorInfo> | undefined; carregando: boolean; erro: boolean; tentarDeNovo: () => void;
+} {
+  const ativo = !!lista && (lista.campos.includes("preco_anterior") || lista.campos.includes("titulo"));
+  const ids = useMemo(() => (ativo && lista ? lista.produtos.map((p) => p.modeloId) : []), [ativo, lista]);
+  const r = useVersaoAnterior(ids, ativo);
+  // I1 (revisão front): erro SÓ quando falhou sem dado em cache (um refetch que falha com dado segue o dado anterior).
+  return { mapa: ativo ? r.mapa : undefined, carregando: r.carregando, erro: r.erro, tentarDeNovo: r.tentarDeNovo };
+}
+
+/** P-156 C + R7 (T5) — "Versão de produto já integrado": 1 chamada a `integracao_versoes_integradas` com os ids da lista
+ *  carregada (≤ 500). Só leitura; banco velho (PGRST202) ou erro = nenhum aviso (nunca bloqueia a tela). */
+export const chaveVersoesIntegradas = (tenantId: string) => ["integracao-versoes-integradas", tenantId] as const;
+export function useVersoesIntegradas(ids: readonly string[]): {
+  mapa: Map<string, VersaoIntegradaInfo>; carregando: boolean; erro: boolean; tentarDeNovo: () => void;
+} {
+  const tenantId = useActiveTenantId();
+  const chave = useMemo(() => [...new Set(ids)].sort().join(","), [ids]);
+  const q = useQuery({
+    queryKey: [...chaveVersoesIntegradas(tenantId), chave],
+    enabled: !!tenantId && chave !== "",
+    staleTime: 30_000,
+    retry: false,
+    queryFn: async (): Promise<unknown[]> => {
+      const lista = chave.split(",");
+      const out: unknown[] = [];
+      for (let i = 0; i < lista.length; i += LIMITE_PRODUTOS) {
+        const { data: d, error } = await supabase.rpc("integracao_versoes_integradas" as any, {
+          _modelo_ids: lista.slice(i, i + LIMITE_PRODUTOS),
+        });
+        if (error) {
+          if ((error as { code?: string }).code === "PGRST202") return [];
+          throw error;
+        }
+        if (Array.isArray(d)) out.push(...d);
+      }
+      return out;
+    },
+  });
+  const mapa = useMemo(() => lerVersoesIntegradas(q.data ?? []), [q.data]);
+  // Minor 6 (revisão front): o filtro "Versão" precisa saber se o mapa ainda não chegou (ou falhou sem dado) — senão a
+  // lista cairia num "nenhum produto" enganoso.
+  const pedido = chave !== "";
+  const semDado = q.data === undefined;
+  return {
+    mapa,
+    carregando: pedido && semDado && !q.isError,
+    erro: pedido && semDado && q.isError,
+    tentarDeNovo: () => void q.refetch(),
+  };
+}
+
 export type ConfigIntegracao = {
   campos: string[]; layout: string[]; rev: number;
   api: { limite_por_minuto: number; max_por_pagina: number; validade_foto_dias: number; bloqueio_tentativas: number } | null;
@@ -433,7 +491,11 @@ export const depsSupabase: DepsSalvar = {
  *  modeloIdsAll]`, casadas por prefixo do 1º elemento) e `pa-produto-modelo` (o bloco de revenda do Sheet do
  *  Planejamento, key `["pa-produto-modelo", modeloId]` — POR id, não em bulk; entra no loop de `ids` abaixo). */
 export function invalidarIntegracao(qc: QueryClient, tenantId: string, ids: string[] = []): void {
-  for (const k of [chaveLista(tenantId), chaveEstado(tenantId), chaveLog(tenantId)]) void qc.invalidateQueries({ queryKey: k });
+  for (const k of [chaveLista(tenantId), chaveEstado(tenantId), chaveLog(tenantId), chaveVersoesIntegradas(tenantId)]) {
+    void qc.invalidateQueries({ queryKey: k });
+  }
+  // P-146/P-155 B: o Salvar pode ter repreçado/renomeado uma versão que outra herda.
+  void qc.invalidateQueries({ queryKey: ["versao-anterior"] });
   for (const k of ["modelos-planejamento", "modelos-desenvolvimento", "produtos-acabados", "produtos-importados", "plan-custo-unit", "plan-revenda-markups", "plan-importado-produtos"]) {
     void qc.invalidateQueries({ queryKey: [k] });
   }
