@@ -914,3 +914,70 @@ describe.skipIf(!PRONTO)("C1 (h) — fix round G-MIGRATION", () => {
     });
   }, 60_000);
 });
+
+// ─────────────────────────────── (i) fix round 2 do G-MIGRATION (F1, F2) ───────────────────────────────
+describe.skipIf(!PRONTO)("C1 (i) — fix round 2: F1 (SKIP LOCKED + marcação protegida) e F2 (prazo desde o início do comando)", () => {
+  it("F1: o processador nunca espera trava da FILA (SKIP LOCKED na seleção do lote, no card a card e na marcação)", async () => {
+    await withTx(async (c) => {
+      const src = (await um<{ s: string }>(c, `SELECT prosrc AS s FROM pg_proc WHERE oid = 'public.fn_custo_processar_fila()'::regprocedure`)).s;
+      expect((src.match(/FOR UPDATE SKIP LOCKED/g) ?? []).length).toBe(3);
+      expect(/FOR UPDATE\s*\n|FOR UPDATE\s*\)/.test(src.replace(/FOR UPDATE SKIP LOCKED/g, ""))).toBe(false);
+    });
+  });
+
+  it("F1: falha ao MARCAR a tentativa (erro no UPDATE do handler) vira WARNING e NÃO derruba o COMMIT; o card fica na fila", async () => {
+    await withTx(async (c) => {
+      const avisos: string[] = [];
+      const ouvir = (x: { message?: string }) => avisos.push(String(x.message));
+      c.on("notice", ouvir);
+      try {
+        await prepara(c);
+        const m = await modelo(c);
+        await mo(c, m, 2);
+        // sabotagens SÓ nesta txn (revertida; cópia local): o aplicador falha p/ m e o UPDATE da fila (marcar a tentativa) também
+        await c.query(`CREATE OR REPLACE FUNCTION public._custo_recalcular_modelos(_tenant uuid, _ids uuid[])
+                       RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+                       AS $f$ BEGIN RAISE EXCEPTION 'sabotagem de teste'; END $f$`);
+        await c.query(`CREATE FUNCTION public.c1_teste_fila_trava() RETURNS trigger LANGUAGE plpgsql
+                       AS $f$ BEGIN RAISE EXCEPTION 'sabotagem da marcacao' USING ERRCODE = '55P03'; END $f$`);
+        await c.query(`CREATE TRIGGER c1_teste_fila_trava BEFORE UPDATE ON public.custo_recalculo_fila
+                       FOR EACH ROW EXECUTE FUNCTION public.c1_teste_fila_trava()`);
+        await imediato(c); // não lança
+        expect(avisos.some((a) => a.includes(`card ${m}`) && /sem marcar a tentativa/.test(a) && /55P03/.test(a))).toBe(true);
+        expect(await fila(c)).toEqual([m]);
+        expect(await tentativas(c, m)).toBe(0);
+      } finally {
+        c.off("notice", ouvir);
+      }
+    });
+  });
+
+  it("F2: o prazo de 3 s conta desde o INÍCIO do comando (o tempo de outros gatilhos adiados antes do processador entra na conta)", async () => {
+    await withTx(async (c) => {
+      const avisos: string[] = [];
+      const ouvir = (x: { message?: string }) => avisos.push(String(x.message));
+      c.on("notice", ouvir);
+      try {
+        await prepara(c);
+        // um gatilho adiado que roda ANTES do processador (evento enfileirado antes) e gasta 2,5 s do comando
+        await c.query(`CREATE TEMP TABLE c1_dorme (x int)`);
+        await c.query(`CREATE FUNCTION pg_temp.c1_dorme() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN PERFORM pg_sleep(2.5); RETURN NULL; END $f$`);
+        await c.query(`CREATE CONSTRAINT TRIGGER c1_dorme AFTER INSERT ON c1_dorme DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.c1_dorme()`);
+        await c.query(`INSERT INTO c1_dorme VALUES (1)`);
+        for (let i = 0; i < 60; i++) await modelo(c);
+        await c.query(`CREATE OR REPLACE FUNCTION public._custo_recalcular_modelos(_tenant uuid, _ids uuid[])
+                       RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+                       AS $f$ BEGIN PERFORM pg_sleep(1.6); RETURN 0; END $f$`);
+        await c.query("SET LOCAL statement_timeout = '8s'");
+        const t0 = Date.now();
+        await imediato(c); // não lança
+        expect(Date.now() - t0).toBeLessThan(8000);
+        // 2,5 s já gastos: só UM lote de 25 cabe antes do prazo (contando do início do comando, não do processador)
+        expect((await fila(c)).length).toBe(35);
+        expect(avisos.some((a) => /orcamento de tempo/.test(a))).toBe(true);
+      } finally {
+        c.off("notice", ouvir);
+      }
+    });
+  }, 60_000);
+});

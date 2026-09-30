@@ -20,8 +20,8 @@ SET LOCAL transaction_timeout = '10s';
 
 CREATE TEMP TABLE _cc_c1_neutro (assinatura text, md5_depois text, md5_neutro text) ON COMMIT DROP;
 INSERT INTO _cc_c1_neutro VALUES
-  ('public._custo_enfileirar(uuid[],boolean)',  'fd6a7337dd76a8a06b18d0040dd6abde',    '5db568ca49628eb2ed2e2cdf3c40afd7'),
-  ('public.fn_custo_processar_fila()',          '3c8471bba6760986989ddc659dbee42f',   'e1ce39bcdbb607fe74ce887ab8d5b15c'),
+  ('public._custo_enfileirar(uuid[],boolean)',  'af8976a493758423d267325156f14633',    '5db568ca49628eb2ed2e2cdf3c40afd7'),
+  ('public.fn_custo_processar_fila()',          'e401fe02e63efee355a59f9f58c399ad',   'e1ce39bcdbb607fe74ce887ab8d5b15c'),
   ('public.fn_custo_fila_por_modelo()',         'f4ae106c44af7759106d23223e56c677',    'e062138f732e9ddf18cfe3e382e9b9b0'),
   ('public.fn_custo_fila_por_modelo_tecido()',  '627ae4106dd610c339f413914bd5ac4c',   '15a053aef51fe9d18f8cd4ed60248dd7'),
   ('public.fn_custo_fila_preco()',              'cd405a624d82e23f0ce8120472f04471', 'c511be3920624e989008b9e628aaaa2e'),

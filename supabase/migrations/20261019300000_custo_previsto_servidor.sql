@@ -106,8 +106,8 @@ INSERT INTO _cc_c1_md5 VALUES
   ('public._custo_preco_etiqueta(uuid,uuid,uuid)',                            '078b1e9b66300a5de9d2d993698e48bb', 'novo'),
   ('public._custo_calcular(uuid,uuid[])',                                     'f9d87d6a1f9f307a7d83cf837730566c', 'novo'),
   ('public._custo_recalcular_modelos(uuid,uuid[])',                           '89c502499b65b52964a03b0ad5856138', 'novo'),
-  ('public._custo_enfileirar(uuid[],boolean)',                                'fd6a7337dd76a8a06b18d0040dd6abde', 'novo'),
-  ('public.fn_custo_processar_fila()',                                        '3c8471bba6760986989ddc659dbee42f', 'novo'),
+  ('public._custo_enfileirar(uuid[],boolean)',                                'af8976a493758423d267325156f14633', 'novo'),
+  ('public.fn_custo_processar_fila()',                                        'e401fe02e63efee355a59f9f58c399ad', 'novo'),
   ('public.fn_custo_fila_por_modelo()',                                       'f4ae106c44af7759106d23223e56c677', 'novo'),
   ('public.fn_custo_fila_por_modelo_tecido()',                                '627ae4106dd610c339f413914bd5ac4c', 'novo'),
   ('public.fn_custo_fila_preco()',                                            'cd405a624d82e23f0ce8120472f04471', 'novo'),
@@ -502,6 +502,9 @@ AS $function$
 -- "a linha nao foi escrita por ESTA transacao" (xmin), nao o horario de inicio (now() de uma transacao que comecou antes da
 -- falha seria menor que o criado_at dela); L2 - linha com tentativas > 0 (falhou antes) tambem e rearmada: uma edicao de
 -- verdade zera o contador. Linha ja escrita por esta transacao e sem falha: nada (sem disparo repetido).
+-- F3: linha escrita dentro de SAVEPOINT/bloco EXCEPTION carrega o xid da SUBtransacao (xmin <> xid da transacao), entao os
+-- enfileiramentos seguintes da MESMA transacao a rearmam - UMA vez cada (o rearme e feito pela transacao principal, dai em
+-- diante o xmin ja e o dela): limitado, sem laco; custa so um disparo a mais do processador, que sai logo.
 BEGIN
   IF _ids IS NULL OR cardinality(_ids) = 0 THEN
     RETURN;
@@ -534,11 +537,15 @@ AS $function$
 -- propria linha ja processada e saem. Erro nunca derruba o COMMIT de quem disparou:
 --   R1 - nunca perde recalculo: o DELETE ... RETURNING fica DENTRO do bloco protegido (erro = a fila volta); lote falhou ->
 --     card a card, cada um no seu sub-bloco; o card que falhar FICA na fila (WARNING ASCII) e e refeito no proximo COMMIT da loja.
---   M1 - ORCAMENTO DE TEMPO: EXCEPTION WHEN OTHERS nao pega 57014 (statement_timeout do authenticated = 8 s, que conta o
+--   M1/F2 - ORCAMENTO DE TEMPO: EXCEPTION WHEN OTHERS nao pega 57014 (statement_timeout do authenticated = 8 s, que conta o
 --     COMMIT inteiro; um SET statement_timeout na funcao NAO desliga o relogio do comando em curso - medido). Entao a fila e
---     feita em lotes de 25 cards e PARA quando o comando (COMMIT / SET CONSTRAINTS) ja gastou 3 s - o prazo e um so para
---     todos os disparos do mesmo comando (GUC app.custo_fila_prazo marcada com statement_timestamp()); o que sobrar fica na
---     fila (WARNING ASCII) para o proximo COMMIT da loja ou a proxima edicao do card. Pior caso ~ 3 s + 1 espera de trava (2 s).
+--     feita em lotes de 25 cards e PARA quando o comando (COMMIT / SET CONSTRAINTS) ja passou de 3 s CONTADOS DO INICIO DO
+--     COMANDO (statement_timestamp(): entra o tempo dos outros gatilhos adiados, FKs e DML que rodaram antes). O que sobrar
+--     fica na fila (WARNING ASCII, uma vez por comando) para o proximo COMMIT da loja ou a proxima edicao do card.
+--   F1 - a FILA nunca espera trava: selecao do lote, card a card e marcacao pulam linha travada (SKIP LOCKED; travada por
+--     outra transacao = ela a processa no COMMIT dela, ou fica para depois); a marcacao de tentativa roda no seu proprio
+--     sub-bloco (erro nela = WARNING, nunca derruba o COMMIT). A unica espera que sobra e a trava da LINHA do modelo no
+--     aplicador (lock_timeout 2 s). Pior caso: 3 s + 2 s (uma espera) + o trabalho de 1 lote de 25 cards < 8 s.
 --   L2 - card que falha 5 vezes seguidas deixa de ser tentado sozinho (tentativas = 5, fica na fila, WARNING ASCII); a
 --     proxima edicao de verdade do card zera o contador (_custo_enfileirar). O UPDATE de tentativas nao redispara o
 --     gatilho (ele so escuta INSERT e UPDATE OF criado_at).
@@ -546,33 +553,33 @@ DECLARE
   c_orcamento CONSTANT interval := interval '3 seconds';
   c_lote CONSTANT integer := 25;
   c_max CONSTANT integer := 5;
-  v_marca text;
-  v_prazo timestamptz;
+  v_prazo timestamptz := statement_timestamp() + c_orcamento;
   v_ids uuid[];
   v_lote uuid[];
   v_feitos uuid[];
   v_id uuid;
   v_n integer;
+  v_erro text;
+  v_estado text;
   i integer;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.custo_recalculo_fila f WHERE f.modelo_id = NEW.modelo_id AND f.tentativas < c_max) THEN
     RETURN NULL;
   END IF;
-  v_marca := coalesce(current_setting('app.custo_fila_prazo', true), '');
-  IF split_part(v_marca, '|', 1) = statement_timestamp()::text THEN
-    v_prazo := split_part(v_marca, '|', 2)::timestamptz;
-    IF clock_timestamp() >= v_prazo THEN
-      RETURN NULL;  -- este comando ja gastou o orcamento (o aviso saiu no disparo que parou)
+  IF clock_timestamp() >= v_prazo THEN
+    IF coalesce(current_setting('app.custo_fila_avisado', true), '') IS DISTINCT FROM statement_timestamp()::text THEN
+      PERFORM set_config('app.custo_fila_avisado', statement_timestamp()::text, true);
+      RAISE WARNING 'custo_previsto: orcamento de tempo do COMMIT esgotado antes da fila (loja %, prazo %) - os cards ficam na fila para o proximo COMMIT',
+        NEW.tenant_id, c_orcamento;
     END IF;
-  ELSE
-    v_prazo := clock_timestamp() + c_orcamento;
-    PERFORM set_config('app.custo_fila_prazo', statement_timestamp()::text || '|' || v_prazo::text, true);
+    RETURN NULL;
   END IF;
   SELECT array_agg(f.modelo_id ORDER BY f.modelo_id) INTO v_ids
     FROM public.custo_recalculo_fila f
    WHERE f.tenant_id = NEW.tenant_id AND f.tentativas < c_max;
   FOR i IN 1 .. coalesce(cardinality(v_ids), 0) BY c_lote LOOP
     IF clock_timestamp() >= v_prazo THEN
+      PERFORM set_config('app.custo_fila_avisado', statement_timestamp()::text, true);
       RAISE WARNING 'custo_previsto: orcamento de tempo do COMMIT esgotado (loja %): % card(s) ficam na fila para o proximo COMMIT',
         NEW.tenant_id, cardinality(v_ids) - i + 1;
       RETURN NULL;
@@ -582,7 +589,7 @@ BEGIN
     BEGIN
       WITH alvo AS (
         SELECT f.modelo_id FROM public.custo_recalculo_fila f
-         WHERE f.modelo_id = ANY (v_lote) AND f.tentativas < c_max ORDER BY f.modelo_id FOR UPDATE
+         WHERE f.modelo_id = ANY (v_lote) AND f.tentativas < c_max ORDER BY f.modelo_id FOR UPDATE SKIP LOCKED
       ), d AS (
         DELETE FROM public.custo_recalculo_fila f USING alvo WHERE f.modelo_id = alvo.modelo_id RETURNING f.modelo_id
       )
@@ -595,24 +602,41 @@ BEGIN
         NEW.tenant_id, cardinality(v_lote), SQLERRM, SQLSTATE;
       FOREACH v_id IN ARRAY v_lote LOOP
         IF clock_timestamp() >= v_prazo THEN
+          PERFORM set_config('app.custo_fila_avisado', statement_timestamp()::text, true);
           RAISE WARNING 'custo_previsto: orcamento de tempo do COMMIT esgotado (loja %) no card a card - o resto fica na fila para o proximo COMMIT',
             NEW.tenant_id;
           RETURN NULL;
         END IF;
         BEGIN
-          DELETE FROM public.custo_recalculo_fila f WHERE f.modelo_id = v_id AND f.tentativas < c_max;
+          DELETE FROM public.custo_recalculo_fila f
+           WHERE f.modelo_id = (SELECT q.modelo_id FROM public.custo_recalculo_fila q
+                                 WHERE q.modelo_id = v_id AND q.tentativas < c_max FOR UPDATE SKIP LOCKED);
           IF FOUND THEN
             PERFORM public._custo_recalcular_modelos(NEW.tenant_id, ARRAY[v_id]);
           END IF;
         EXCEPTION WHEN OTHERS THEN
-          UPDATE public.custo_recalculo_fila f SET tentativas = f.tentativas + 1 WHERE f.modelo_id = v_id
-          RETURNING f.tentativas INTO v_n;
-          IF coalesce(v_n, 0) >= c_max THEN
+          v_erro := SQLERRM;
+          v_estado := SQLSTATE;
+          v_n := NULL;
+          BEGIN
+            UPDATE public.custo_recalculo_fila f SET tentativas = f.tentativas + 1
+             WHERE f.modelo_id = (SELECT q.modelo_id FROM public.custo_recalculo_fila q
+                                   WHERE q.modelo_id = v_id FOR UPDATE SKIP LOCKED)
+            RETURNING f.tentativas INTO v_n;
+          EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'custo_previsto: card % continua na fila (loja %) sem marcar a tentativa: % [%] (falha original: % [%])',
+              v_id, NEW.tenant_id, SQLERRM, SQLSTATE, v_erro, v_estado;
+            CONTINUE;
+          END;
+          IF v_n IS NULL THEN
+            RAISE WARNING 'custo_previsto: card % continua na fila (loja %) sem marcar a tentativa (linha com outra transacao): % [%]',
+              v_id, NEW.tenant_id, v_erro, v_estado;
+          ELSIF v_n >= c_max THEN
             RAISE WARNING 'custo_previsto: card % desistiu apos % tentativas (loja %): % [%] - fica na fila marcado; a proxima edicao do card tenta de novo',
-              v_id, c_max, NEW.tenant_id, SQLERRM, SQLSTATE;
+              v_id, c_max, NEW.tenant_id, v_erro, v_estado;
           ELSE
             RAISE WARNING 'custo_previsto: card % continua na fila (loja %, tentativa % de %): % [%]',
-              v_id, NEW.tenant_id, coalesce(v_n, 0), c_max, SQLERRM, SQLSTATE;
+              v_id, NEW.tenant_id, v_n, c_max, v_erro, v_estado;
           END IF;
         END;
       END LOOP;
