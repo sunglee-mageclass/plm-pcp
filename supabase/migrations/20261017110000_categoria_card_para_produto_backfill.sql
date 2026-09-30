@@ -4,7 +4,10 @@
 --     produtos_importados <-> 'importado') — produto ligado a card de outra origem nao e alcancado (igual o gatilho);
 --   • alvo: grupo = grupo da categoria do card (categorias_produto, mesma loja), categoria = a do card, sub1/sub2 = as do
 --     card QUANDO nao-NULAS (NULL do card nunca e copiado — P-145 A / R3b; o produto mantem a dele);
---   • PULA (contado por motivo, nada muda no produto): (a) card sem categoria; (b) categoria sem grupo no cadastro;
+--   • subs sem par no card (card NULL): ficam as do produto que pertencem a categoria do card; as de outra categoria sao
+--     LIMPAS (fix round 1, H1 do G-migration — nunca sub orfa);
+--   • PULA (contado por motivo, nada muda no produto): (a) card sem categoria; (b) categoria sem grupo no cadastro OU
+--     (b') categoria de OUTRA loja (motivo proprio);
 --     (c) produto COM pedido (OC) cujo grupo cruzaria Acessorios <-> outro grupo (P-142 B, PA e PI).
 -- Cada produto arrumado ganha 1 linha em audit_log (Admin > Auditoria): user_nome 'Sistema', acao 'editar', entidade
 -- 'Produto Acabado'/'Produto Importado', descricao 'Sistema: categoria alinhada ao card (P-137) — <nome>', dados no
@@ -32,7 +35,7 @@ DO $guarda$
 DECLARE
   v_md5 text;
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_espelho_categoria()'))) IS DISTINCT FROM '3ff558f37ef4ee75d36db77635a51268'
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_espelho_categoria()'))) IS DISTINCT FROM 'ea9edd59c5ec5eff207336dbe06a3499'
      OR (SELECT md5(pg_get_triggerdef(t.oid)) FROM pg_trigger t
           WHERE t.tgname = 'trg_modelo_espelho_categoria' AND t.tgrelid = 'public.modelos'::regclass)
         IS DISTINCT FROM '871039e642390c357188b6b2a1134d64' THEN
@@ -46,11 +49,11 @@ BEGIN
     RAISE EXCEPTION 'p137_backfill: _grupo_eh_acessorio(uuid) ausente' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_rodar()')));
-  IF v_md5 IS NOT NULL AND v_md5 IS DISTINCT FROM 'fa343381c1d7d2ed3422255312b9fad7' THEN
+  IF v_md5 IS NOT NULL AND v_md5 IS DISTINCT FROM '01191f62b141827f5f747fc5b44552fe' THEN
     RAISE EXCEPTION 'p137_backfill: _p137_backfill_rodar ja existe com outro texto (md5 %)', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_desfazer()')));
-  IF v_md5 IS NOT NULL AND v_md5 IS DISTINCT FROM '14780b0ee671098f3da1440481a466e4' THEN
+  IF v_md5 IS NOT NULL AND v_md5 IS DISTINCT FROM 'ead14b02eab972e833596fd6f2cf9702' THEN
     RAISE EXCEPTION 'p137_backfill: _p137_backfill_desfazer ja existe com outro texto (md5 %)', v_md5 USING ERRCODE = 'P0001';
   END IF;
   -- Ida depois de uma volta: so com override explicito (a volta apagou o registro _bkp).
@@ -111,25 +114,31 @@ BEGIN
       FROM public.produtos_importados p
       JOIN public.modelos m ON m.id = p.modelo_id AND m.tenant_id = p.tenant_id AND m.origem = 'importado'
   ), x AS (
-    SELECT par.*, cp.grupo_id AS mg
+    SELECT par.*, cp.grupo_id AS mg, (cp.id IS NULL AND par.mc IS NOT NULL) AS cat_outra_loja
       FROM par LEFT JOIN public.categorias_produto cp ON cp.id = par.mc AND cp.tenant_id = par.tenant_id
+  ), y AS (
+    -- Alvo das subs (H1 do G-migration): a do card quando nao-NULA; senao a do produto SE pertencer a categoria do card
+    -- (a que nao pertence e limpa — nunca sub orfa de outra categoria).
+    SELECT x.*,
+           coalesce(x.ms1, (SELECT s.id FROM public.subcategorias1_produto s WHERE s.id = x.s1 AND s.categoria_id = x.mc)) AS alvo_s1,
+           coalesce(x.ms2, (SELECT s.id FROM public.subcategorias2_produto s WHERE s.id = x.s2 AND s.categoria_id = x.mc)) AS alvo_s2
+      FROM x
   ), cls AS (
     SELECT x.*,
            (x.g, x.c, x.s1, x.s2) IS DISTINCT FROM (x.mg, x.mc, x.ms1, x.ms2) AS divergente,
-           coalesce(x.ms1, x.s1) AS alvo_s1,
-           coalesce(x.ms2, x.s2) AS alvo_s2,
            CASE
              WHEN (x.g, x.c, x.s1, x.s2) IS NOT DISTINCT FROM (x.mg, x.mc, x.ms1, x.ms2) THEN 'alinhado'
              WHEN x.mc IS NULL THEN 'card_sem_categoria'
+             WHEN x.cat_outra_loja THEN 'categoria_de_outra_loja'
              WHEN x.mg IS NULL THEN 'categoria_sem_grupo'
-             WHEN (x.g, x.c, x.s1, x.s2) IS NOT DISTINCT FROM (x.mg, x.mc, coalesce(x.ms1, x.s1), coalesce(x.ms2, x.s2))
+             WHEN (x.g, x.c, x.s1, x.s2) IS NOT DISTINCT FROM (x.mg, x.mc, x.alvo_s1, x.alvo_s2)
                THEN 'so_null_no_card'
              WHEN x.g IS DISTINCT FROM x.mg AND x.tem_oc
                   AND public._grupo_eh_acessorio(x.g) IS DISTINCT FROM public._grupo_eh_acessorio(x.mg)
                THEN 'acessorio_com_pedido'
              ELSE 'arrumar'
            END AS situacao
-      FROM x
+      FROM y x
   ), upa AS (
     UPDATE public.produtos_acabados p
        SET grupo_id = k.mg, categoria_id = k.mc, subcategoria1_id = k.alvo_s1, subcategoria2_id = k.alvo_s2, updated_at = now()
@@ -177,12 +186,13 @@ BEGIN
       FROM up
     RETURNING id
   ), loja AS (
-    SELECT k.tipo, k.tenant_id,
+    SELECT k.tipo, k.tenant_id, (SELECT t.nome FROM public.tenants t WHERE t.id = k.tenant_id) AS loja,
            count(*) AS total,
            count(*) FILTER (WHERE k.divergente) AS divergentes,
            count(*) FILTER (WHERE k.situacao = 'arrumar') AS a_arrumar,
            count(*) FILTER (WHERE k.situacao = 'card_sem_categoria') AS pula_card_sem_categoria,
            count(*) FILTER (WHERE k.situacao = 'categoria_sem_grupo') AS pula_categoria_sem_grupo,
+           count(*) FILTER (WHERE k.situacao = 'categoria_de_outra_loja') AS pula_categoria_de_outra_loja,
            count(*) FILTER (WHERE k.situacao = 'acessorio_com_pedido') AS pula_acessorio_com_pedido,
            count(*) FILTER (WHERE k.situacao = 'so_null_no_card') AS fica_por_null_no_card
       FROM cls k GROUP BY k.tipo, k.tenant_id
@@ -196,12 +206,14 @@ BEGIN
            'pulados', jsonb_build_object(
               'card_sem_categoria', (SELECT count(*) FROM cls WHERE situacao = 'card_sem_categoria'),
               'categoria_sem_grupo', (SELECT count(*) FROM cls WHERE situacao = 'categoria_sem_grupo'),
+              'categoria_de_outra_loja', (SELECT count(*) FROM cls WHERE situacao = 'categoria_de_outra_loja'),
               'acessorio_com_pedido', (SELECT count(*) FROM cls WHERE situacao = 'acessorio_com_pedido')),
            'fica_por_null_no_card', (SELECT count(*) FROM cls WHERE situacao = 'so_null_no_card'),
            'arrumados_ids', coalesce((SELECT jsonb_agg(id ORDER BY id) FROM up), '[]'::jsonb),
            'pulados_lista', coalesce((SELECT jsonb_agg(jsonb_build_object('tipo', tipo, 'produto_id', id, 'tenant_id', tenant_id,
-                                                                          'motivo', situacao) ORDER BY tipo, id)
-                                        FROM cls WHERE situacao IN ('card_sem_categoria', 'categoria_sem_grupo', 'acessorio_com_pedido')),
+                                                                          'loja', (SELECT t.nome FROM public.tenants t WHERE t.id = cls.tenant_id),
+                                                                          'produto', nome, 'motivo', situacao) ORDER BY tipo, id)
+                                        FROM cls WHERE situacao IN ('card_sem_categoria', 'categoria_de_outra_loja', 'categoria_sem_grupo', 'acessorio_com_pedido')),
                                      '[]'::jsonb),
            'por_loja', coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY l.tipo, l.tenant_id) FROM loja l), '[]'::jsonb))
     INTO v_res;
@@ -209,7 +221,7 @@ BEGIN
 END
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public._p137_backfill_rodar() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._p137_backfill_rodar() FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public._p137_backfill_desfazer()
  RETURNS jsonb
@@ -222,12 +234,23 @@ DECLARE
   v_n int := 0;
   v_ok int := 0;
   v_nao jsonb := '[]'::jsonb;
+  v_bloq jsonb := '[]'::jsonb;
   v_achou boolean;
 BEGIN
   -- Mais recente primeiro (mais de uma ida = volta na ordem inversa). So devolve o "antes" onde o produto AINDA esta
   -- igual ao "depois" desta linha — edicao posterior (tela PA/PI ou gatilho do card) nao e desfeita.
   FOR r IN SELECT * FROM public._bkp_p137_backfill ORDER BY id DESC LOOP
     v_n := v_n + 1;
+    -- M2 do G-migration (P-142 B): a volta nao leva de Acessorios para outro grupo (ou o contrario) um produto que
+    -- AGORA tem pedido — a grade do pedido deixaria de bater. Fica como esta e e contado/listado.
+    IF public._grupo_eh_acessorio(r.grupo_para) IS DISTINCT FROM public._grupo_eh_acessorio(r.grupo_de)
+       AND (EXISTS (SELECT 1 FROM public.ocs_p_acabado o WHERE r.tabela = 'produtos_acabados' AND o.produto_acabado_id = r.produto_id)
+         OR EXISTS (SELECT 1 FROM public.ocs_importado o WHERE r.tabela = 'produtos_importados' AND o.produto_importado_id = r.produto_id)) THEN
+      v_nao := v_nao || jsonb_build_array(r.produto_id);
+      v_bloq := v_bloq || jsonb_build_array(r.produto_id);
+      RAISE NOTICE 'p137_backfill (volta): produto % NAO devolvido - tem pedido e a volta cruzaria Acessorios', r.produto_id;
+      CONTINUE;
+    END IF;
     IF r.tabela = 'produtos_acabados' THEN
       UPDATE public.produtos_acabados p
          SET grupo_id = r.grupo_de, categoria_id = r.categoria_de, subcategoria1_id = r.sub1_de,
@@ -268,11 +291,12 @@ BEGIN
     END IF;
   END LOOP;
   DELETE FROM public._bkp_p137_backfill;
-  RETURN jsonb_build_object('registradas', v_n, 'devolvidas', v_ok, 'nao_devolvidas', v_n - v_ok, 'nao_devolvidas_ids', v_nao);
+  RETURN jsonb_build_object('registradas', v_n, 'devolvidas', v_ok, 'nao_devolvidas', v_n - v_ok, 'nao_devolvidas_ids', v_nao,
+                            'nao_devolvidas_acessorio_pedido', jsonb_array_length(v_bloq), 'acessorio_pedido_ids', v_bloq);
 END
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public._p137_backfill_desfazer() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._p137_backfill_desfazer() FROM PUBLIC, anon, authenticated, service_role;
 
 DO $backfill$
 DECLARE
@@ -280,16 +304,16 @@ DECLARE
   l jsonb;
 BEGIN
   v := public._p137_backfill_rodar();
-  RAISE NOTICE 'p137_backfill: arrumados % | divergentes (antes) % | pulados: card sem categoria %, categoria sem grupo %, acessorio com pedido % | ficam divergentes so por NULL no card %',
-    v->>'arrumados', v->>'divergentes', v->'pulados'->>'card_sem_categoria', v->'pulados'->>'categoria_sem_grupo',
-    v->'pulados'->>'acessorio_com_pedido', v->>'fica_por_null_no_card';
+  RAISE NOTICE 'p137_backfill: arrumados % | divergentes (antes) % | pulados: card sem categoria %, categoria de outra loja %, categoria sem grupo %, acessorio com pedido % | ficam divergentes so por NULL no card %',
+    v->>'arrumados', v->>'divergentes', v->'pulados'->>'card_sem_categoria', v->'pulados'->>'categoria_de_outra_loja',
+    v->'pulados'->>'categoria_sem_grupo', v->'pulados'->>'acessorio_com_pedido', v->>'fica_por_null_no_card';
   FOR l IN SELECT jsonb_array_elements(v->'por_loja') LOOP
-    RAISE NOTICE 'p137_backfill: % loja % -> total %, divergentes %, arrumar %, pula(sem categoria %, sem grupo %, acessorio+pedido %), so NULL no card %',
-      l->>'tipo', l->>'tenant_id', l->>'total', l->>'divergentes', l->>'a_arrumar', l->>'pula_card_sem_categoria',
-      l->>'pula_categoria_sem_grupo', l->>'pula_acessorio_com_pedido', l->>'fica_por_null_no_card';
+    RAISE NOTICE 'p137_backfill: % loja "%" (%) -> total %, divergentes %, arrumar %, pula(sem categoria %, categoria de outra loja %, sem grupo %, acessorio+pedido %), so NULL no card %',
+      l->>'tipo', l->>'loja', l->>'tenant_id', l->>'total', l->>'divergentes', l->>'a_arrumar', l->>'pula_card_sem_categoria',
+      l->>'pula_categoria_de_outra_loja', l->>'pula_categoria_sem_grupo', l->>'pula_acessorio_com_pedido', l->>'fica_por_null_no_card';
   END LOOP;
   FOR l IN SELECT jsonb_array_elements(v->'pulados_lista') LOOP
-    RAISE NOTICE 'p137_backfill: PULADO % produto % (loja %) motivo %', l->>'tipo', l->>'produto_id', l->>'tenant_id', l->>'motivo';
+    RAISE NOTICE 'p137_backfill: PULADO % "%" % (loja "%") motivo %', l->>'tipo', l->>'produto', l->>'produto_id', l->>'loja', l->>'motivo';
   END LOOP;
   IF (v->>'arrumados')::int IS DISTINCT FROM (v->>'a_arrumar')::int THEN
     RAISE EXCEPTION 'p137_backfill: % a arrumar mas so % arrumados (gravacao concorrente?) - desfazendo; rode de novo em horario calmo',
@@ -316,11 +340,11 @@ BEGIN
     END IF;
   END;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_rodar()')));
-  IF v_md5 IS DISTINCT FROM 'fa343381c1d7d2ed3422255312b9fad7' THEN
+  IF v_md5 IS DISTINCT FROM '01191f62b141827f5f747fc5b44552fe' THEN
     RAISE EXCEPTION 'p137_backfill: pos-condicao falhou - _p137_backfill_rodar com outro texto (md5 %)', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_desfazer()')));
-  IF v_md5 IS DISTINCT FROM '14780b0ee671098f3da1440481a466e4' THEN
+  IF v_md5 IS DISTINCT FROM 'ead14b02eab972e833596fd6f2cf9702' THEN
     RAISE EXCEPTION 'p137_backfill: pos-condicao falhou - _p137_backfill_desfazer com outro texto (md5 %)', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF has_function_privilege('public', 'public._p137_backfill_rodar()', 'EXECUTE')
@@ -328,8 +352,10 @@ BEGIN
      OR has_function_privilege('authenticated', 'public._p137_backfill_rodar()', 'EXECUTE')
      OR has_function_privilege('public', 'public._p137_backfill_desfazer()', 'EXECUTE')
      OR has_function_privilege('anon', 'public._p137_backfill_desfazer()', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public._p137_backfill_desfazer()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'p137_backfill: pos-condicao falhou - funcoes do backfill com EXECUTE para PUBLIC/anon/authenticated' USING ERRCODE = 'P0001';
+     OR has_function_privilege('authenticated', 'public._p137_backfill_desfazer()', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public._p137_backfill_rodar()', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public._p137_backfill_desfazer()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'p137_backfill: pos-condicao falhou - funcoes do backfill com EXECUTE para PUBLIC/anon/authenticated/service_role' USING ERRCODE = 'P0001';
   END IF;
   IF has_table_privilege('anon', 'public._bkp_p137_backfill', 'SELECT')
      OR has_table_privilege('authenticated', 'public._bkp_p137_backfill', 'SELECT')
