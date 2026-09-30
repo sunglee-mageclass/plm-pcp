@@ -66,7 +66,7 @@ export function useMaoObraModelo(modeloId: string | null | undefined, podeVerCus
 
   const salvar = useMutation({
     mutationFn: async () => {
-      if (!modeloId) return false;
+      if (!modeloId) return null;
       // Calculado ANTES do envio (a base ainda é a do servidor): linhas decididas com valor/serviço mudado reabrem.
       const reabriu = linhasRef.current.some((l) => l.id != null && moLinhaVaiReabrir(l, baseRef.current.find((b) => b.id === l.id)));
       const { error } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
@@ -82,6 +82,7 @@ export function useMaoObraModelo(modeloId: string | null | undefined, podeVerCus
       return reabriu;
     },
     onSuccess: (reabriu) => {
+      if (reabriu === null) return; // sem modelo: nada foi salvo
       toast.success(reabriu
         ? "Mão de obra salva. Serviço alterado volta para pendente e precisa de nova aprovação."
         : "Mão de obra salva.");

@@ -105,9 +105,10 @@ describe("siglaFamilia — normaliza livre + default", () => {
 });
 
 import { clampNumInicio, numInicioValidoParaServidor, NUM_INICIO_MAX } from "@/lib/ref-montar";
-describe("Começar em — limite de 18 dígitos", () => {
-  it("clamp limita a 18 dígitos e nunca negativo", () => {
-    expect(String(clampNumInicio(12345678901234567890)).length).toBeLessThanOrEqual(18);
+describe("Começar em — limite sem perda de precisão", () => {
+  it("clamp limita ao maior inteiro exato e nunca negativo", () => {
+    expect(clampNumInicio(12345678901234567890)).toBe(NUM_INICIO_MAX);
+    expect(Number.isSafeInteger(NUM_INICIO_MAX)).toBe(true);
     expect(clampNumInicio(-5)).toBe(0);
     expect(clampNumInicio(123)).toBe(123);
     expect(clampNumInicio(1e25)).toBe(NUM_INICIO_MAX);

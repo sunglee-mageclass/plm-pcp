@@ -179,11 +179,11 @@ export function numeroDaPrevia(proximoServidor: number | null | undefined, numIn
   return numInicio ?? 10000000;
 }
 
-/** Maior "Começar em" aceito (18 dígitos, regra do servidor `^[0-9]{1,18}$`). Literal = maior double abaixo de 1e18
- *  cuja forma decimal ainda tem 18 dígitos. */
-export const NUM_INICIO_MAX = 999999999999999900;
+/** Maior "Começar em" aceito na tela: o maior inteiro EXATO do JavaScript (16 dígitos). O servidor aceita até 18
+ *  (`^[0-9]{1,18}$`), mas acima de 2^53 o número arredondaria no caminho (o digitado não seria o gravado). */
+export const NUM_INICIO_MAX = Number.MAX_SAFE_INTEGER;
 
-/** Limita o "Começar em" digitado: inteiro, >= 0 e no máximo 18 dígitos. */
+/** Limita o "Começar em" digitado: inteiro, >= 0 e no máximo `NUM_INICIO_MAX` (sem perda de precisão). */
 export function clampNumInicio(n: number): number {
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.min(Math.trunc(n), NUM_INICIO_MAX);
