@@ -878,8 +878,12 @@ function ParcelaDetailDialog({
     },
     onSuccess: (data) => {
       toast.success("Vencimento voltou ao cálculo automático");
-      if (data?.data_vencimento) {
-        setVencimento(data.data_vencimento);
+      if (data?.data_vencimento && parcela) {
+        // R1-L1: atualiza a parcela NO CACHE já (data calculada + sem a marca). O useEffect ressincroniza `vencimento`
+        // com `parcela.data_vencimento`, então o "Salvar" da data NÃO reaparece nem por um instante — clicar nele
+        // gravaria a data como ajuste da pessoa e religaria a marca "ajustado à mão".
+        qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
+          p.id === parcela.id ? { ...p, data_vencimento: data.data_vencimento, vencimento_manual: false } : p));
         onVencimentoSaved?.(data.data_vencimento);
       }
     },

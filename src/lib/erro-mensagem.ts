@@ -101,6 +101,35 @@ function mensagemConfigLoja(code: string, msg: string): string | null {
   return null;
 }
 
+// Contas certas (blocos A e B, set/2026): as recusas novas chegam em ASCII com prefixo técnico (padrão das mensagens
+// novas); a tela mostra o texto PT daqui. P0001 = 400 (acento seria permitido, mas o banco manda o prefixo p/ a tela
+// reconhecer). Um texto por prefixo — `MENSAGENS_CONTAS_CERTAS` é exportado p/ os testes.
+export const MENSAGENS_CONTAS_CERTAS = {
+  parcela_paga: "Esta parcela já está paga — o vencimento de parcela paga não muda.",
+  parcela_nao_encontrada: "Esta parcela não existe mais (as parcelas podem ter sido recalculadas). Recarregue a tela.",
+  oc_nao_encontrada: "A OC desta parcela não foi encontrada. Recarregue a tela.",
+  tipo_oc_sem_regra: "Este tipo de parcela não tem cálculo automático de vencimento.",
+  parcela_fora_do_prazo:
+    "Esta parcela saiu do prazo atual do serviço (o prazo mudou). Recarregue a tela antes de pagar.",
+  parcela_servico_outra_loja: "Esta parcela não pertence à loja do serviço — não foi possível registrar o pagamento.",
+  sem_permissao_financeiro: "Você não tem permissão para editar o Financeiro.",
+  modulo_financeiro_desligado: "O módulo Financeiro não está habilitado para esta loja.",
+} as const;
+function mensagemContasCertas(code: string, msg: string): string | null {
+  if (code === "P0001") {
+    for (const prefixo of ["parcela_paga", "parcela_nao_encontrada", "oc_nao_encontrada", "tipo_oc_sem_regra",
+      "parcela_fora_do_prazo", "parcela_servico_outra_loja"] as const) {
+      if (msg.startsWith(prefixo + ":")) return MENSAGENS_CONTAS_CERTAS[prefixo];
+    }
+  }
+  if (code === "42501") {
+    if (msg === "Sem permissao para editar o Financeiro") return MENSAGENS_CONTAS_CERTAS.sem_permissao_financeiro;
+    if (msg === "Modulo financeiro nao habilitado para esta loja") return MENSAGENS_CONTAS_CERTAS.modulo_financeiro_desligado;
+    if (msg === "Nao autenticado") return TEXTO_SESSAO_EXPIRADA;
+  }
+  return null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -144,6 +173,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   // "Tamanho em" nos cards (20261014100000): recusa em ASCII (padrão das mensagens novas) → texto PT.
   if (code === "P0001" && msg.startsWith(PREFIXO_TAMANHO_INVALIDO)) return TEXTO_TAMANHO_INVALIDO;
+
+  // Contas certas: prefixos ASCII (P0001) e 42501 sem acento das RPCs novas → texto PT.
+  const contasCertas = mensagemContasCertas(code, msg);
+  if (contasCertas) return contasCertas;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;

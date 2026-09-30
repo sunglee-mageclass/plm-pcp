@@ -41,3 +41,14 @@ describe("P-171 A — 'Voltar ao cálculo automático' no detalhe da parcela", (
     expect(fin).toMatch(/data_vencimento: vencimento, vencimento_manual: true/);
   });
 });
+
+describe("R1-L1 — depois de 'Voltar ao cálculo', o Salvar da data não reaparece", () => {
+  it("fonte: o sucesso atualiza a parcela no cache (data + vencimento_manual false) e não usa setVencimento solto", () => {
+    const fin = ler("src/routes/_authenticated/financeiro.tsx");
+    const i = fin.indexOf("const voltarAutoMut = useMutation");
+    const bloco = fin.slice(i, fin.indexOf("const recalcMut", i));
+    expect(bloco).toMatch(/qc\.setQueryData<any\[\]>\(\["parcelas"\]/);
+    expect(bloco).toMatch(/data_vencimento: data\.data_vencimento, vencimento_manual: false/);
+    expect(bloco).not.toMatch(/setVencimento\(/);
+  });
+});
