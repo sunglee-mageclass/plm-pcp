@@ -46,7 +46,9 @@ describe("Preço anterior (fonte)", () => {
     expect(linha).toContain("exibidoAnterior");
     expect(linha).toContain("podeEditarPreco && !travaPrecoAnterior ?");
     expect(linha).toContain('aria-label="Preço anterior: voltar ao automático"');
-    expect(linha).toContain("acompanha o preço de venda até ser editado · ↺ volta ao automático");
+    // Minor 2 (revisão front): editado = "valor fixado à mão"; automático = a dica da regra por versão (lib).
+    expect(linha).toContain("precoAnterior !== null ? DICA_PRECO_ANTERIOR_EDITADO");
+    expect(linha).toContain("dicaPrecoAnterior(autoAnterior)");
     const iSelo = linha.indexOf("{seloAnterior.texto}");
     expect(iSelo).toBeGreaterThan(0);
     expect(linha.indexOf('aria-label="Preço anterior: voltar ao automático"')).toBeGreaterThan(iSelo);

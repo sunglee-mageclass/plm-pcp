@@ -23,6 +23,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { filtrarNcm, numeroDoInput } from "@/components/planejamento/planejamento-detail/helpers";
 import { tituloAoDigitar, tituloAoSair, tituloExibido } from "@/lib/titulo-pagina";
 import { hoverTituloHerdado, seloTitulo, tituloAutomatico as tituloAutomaticoDe, type VersaoAnteriorInfo } from "@/lib/versao-anterior";
+import { FalhaVersaoAnterior } from "@/components/shared/FalhaVersaoAnterior";
 
 /** "i" ao lado de "Origem" com o motivo de cada opção travada — opções com o MESMO motivo (ex.: edição pendente)
  *  saem numa linha só ("Revenda, Importado: …"). Sem opção travada ⇒ não renderiza nada. */
@@ -60,6 +61,7 @@ const comMedida = (d: Draft, k: ChaveMedida, v: number | null): Draft => {
 export function InfoGeraisSecao({
   draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo, origemOpcoes,
   nomeLoja, planBloqueado, compartilhadoBloqueado, travaIntegracao, versaoAnterior = null, versaoAnteriorCarregando = false,
+  versaoAnteriorErro = false, onTentarVersaoAnterior,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -87,9 +89,13 @@ export function InfoGeraisSecao({
   travaIntegracao?: ReadonlySet<string>;
   /** P-155 B + R4 — a versão anterior do card (RPC `modelos_versao_anterior`, pela versão SALVA); null = v1/órfã. */
   versaoAnterior?: VersaoAnteriorInfo;
-  /** v2+ com a versão anterior ainda carregando (ou com erro): o Título fica desabilitado — sem o herdado, o "digitou
-   *  igual ao automático → volta a automático" compararia com o valor errado (R4). */
+  /** v2+ com a versão anterior ainda carregando: o Título fica desabilitado — sem o herdado, o "digitou igual ao
+   *  automático → volta a automático" compararia com o valor errado (R4). */
   versaoAnteriorCarregando?: boolean;
+  /** I1 (revisão front): a RPC falhou SEM dado em cache — o Título segue bloqueado (mesmo motivo R4), com a falha e
+   *  "Tentar de novo" ao lado do rótulo (nunca um "carregando" eterno). Com dado em cache, isto é false. */
+  versaoAnteriorErro?: boolean;
+  onTentarVersaoAnterior?: () => void;
 }) {
   const trava = travaIntegracao ?? new Set<string>();
   // P-155 B + R4: o automático da v2+ é o título EFETIVO da versão anterior (herdado, recursivo); na v1/órfã, o
@@ -99,6 +105,7 @@ export function InfoGeraisSecao({
   const tituloCalculado = autoTitulo.valor;
   const tituloAutomatico = draft.titulo_pagina === null;
   const hoverHerdado = hoverTituloHerdado(autoTitulo);
+  const semVersaoAnterior = versaoAnteriorCarregando || versaoAnteriorErro; // sem o herdado: bloqueia o Título
   return (
           <Secao id="info" titulo="Informações Gerais do Produto" numero={numero} selo={selo}>
             {/* L1: Status · Estilista · Origem (F3.6: o Nome foi para a L2). P-53 A: Status/Origem são SÓ do
@@ -252,23 +259,24 @@ export function InfoGeraisSecao({
                       : "Automático: acompanha o Nome do produto (e o nome da loja), mesmo travado pela Integração."}</p>
                   </InfoHover>
                 )}
-                {tituloAutomatico && tituloCalculado !== "" && !versaoAnteriorCarregando && (
+                {tituloAutomatico && tituloCalculado !== "" && !semVersaoAnterior && (
                   <StatusBadge tone="neutral" className="rounded-full px-2 py-0.5 normal-case tracking-normal">{seloTitulo(autoTitulo)}</StatusBadge>
                 )}
-                {tituloAutomatico && hoverHerdado && !versaoAnteriorCarregando && (
+                {tituloAutomatico && hoverHerdado && !semVersaoAnterior && (
                   <InfoHover ariaLabel="De onde vem o Título herdado?"><p>{hoverHerdado}</p></InfoHover>
                 )}
                 {versaoAnteriorCarregando && (
                   <InfoHover ariaLabel="Aguardando a versão anterior"><p>Carregando o Título da versão anterior — aguarde para editar.</p></InfoHover>
                 )}
+                {versaoAnteriorErro && onTentarVersaoAnterior && <FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} />}
               </div>
-              <fieldset disabled={planBloqueado || trava.has("titulo_pagina") || versaoAnteriorCarregando} className="contents">
+              <fieldset disabled={planBloqueado || trava.has("titulo_pagina") || semVersaoAnterior} className="contents">
               <div className="flex items-center gap-2">
                 <Input
                   id="titulo-pagina"
                   className="min-w-0 flex-1"
                   placeholder="Nome do Modelo | Nome da loja"
-                  value={versaoAnteriorCarregando && tituloAutomatico ? "…" : tituloExibido(draft.titulo_pagina, tituloCalculado)}
+                  value={semVersaoAnterior && tituloAutomatico ? (versaoAnteriorErro ? "" : "…") : tituloExibido(draft.titulo_pagina, tituloCalculado)}
                   onChange={(e) => { const v = e.target.value; setDraftTracked((d) => ({ ...d, titulo_pagina: tituloAoDigitar(v, tituloCalculado) })); }}
                   onBlur={() => setDraftTracked((d) => ({ ...d, titulo_pagina: tituloAoSair(d.titulo_pagina, tituloCalculado) }))}
                   data-colab-path="titulo_pagina"

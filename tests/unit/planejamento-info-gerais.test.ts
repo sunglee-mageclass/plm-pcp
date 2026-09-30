@@ -48,7 +48,10 @@ describe("InfoGeraisSecao (fonte)", () => {
     expect(s).not.toContain('<p className="text-xs text-muted-foreground">Acompanha o Nome do Modelo');
     // selo "herdado da vN" (v2+) / "automático" (v1) e o campo travado enquanto a versão anterior carrega
     expect(s).toContain("{seloTitulo(autoTitulo)}");
-    expect(s).toContain('disabled={planBloqueado || trava.has("titulo_pagina") || versaoAnteriorCarregando}');
+    // I1 (revisão front): bloqueia carregando OU com falha sem dado (a falha mostra "Tentar de novo" ao lado do rótulo)
+    expect(s).toContain("const semVersaoAnterior = versaoAnteriorCarregando || versaoAnteriorErro;");
+    expect(s).toContain('disabled={planBloqueado || trava.has("titulo_pagina") || semVersaoAnterior}');
+    expect(s).toContain("<FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} />");
     expect(s).toContain('aria-label="Título: voltar ao automático"');
   });
   it("L6 Peso/medidas DEPOIS da Descrição: MoneyInput com casas 3/2, placeholder e data-colab-path por campo (NULL = vazio)", () => {

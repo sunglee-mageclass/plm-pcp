@@ -531,7 +531,14 @@ describe("P-146/P-158 — Preço anterior automático na célula (versão anteri
     v1.unmount();
     const v2 = monta({}, { info: null, carregando: false });
     expect(v2.container.textContent).toContain("aguardando preço de venda");
+    expect((v2.container.querySelector("input") as HTMLInputElement).placeholder).toBe("—"); // Minor 1: nunca "0,00"
     v2.unmount();
+  });
+  it("I1: falha sem dado — Preço anterior com '—' e sem selo (nunca '…' eterno)", () => {
+    const view = monta({ preco_venda: 250 }, { info: null, carregando: false, erro: true });
+    expect((view.container.querySelector("input") as HTMLInputElement).placeholder).toBe("—");
+    expect(view.container.textContent).not.toMatch(/automático|aguardando/);
+    view.unmount();
   });
   it("versão anterior carregando: placeholder '…' e nenhum selo (não chuta o automático)", () => {
     const view = monta({ preco_venda: 250 }, { info: null, carregando: true });
@@ -582,6 +589,28 @@ describe("P-155 B + R4 — Título herdado na célula", () => {
     expect(r.valores.titulo_pagina).toBe("Vestido Andreia | Loja Teste");
     digita("Vestido Gardenia | Loja Teste"); // = o herdado ⇒ automático
     expect(r.valores.titulo_pagina).toBeNull();
+    view.unmount();
+  });
+  it("I1: falha SEM dado em cache — Título bloqueado com o aviso de falha (nunca 'Carregando' eterno)", () => {
+    const pr = produto();
+    const view = montar(createElement(CelulaCampo, {
+      campo: c("titulo"), produto: pr, indice: null, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: { info: null, carregando: false, erro: true } as never,
+    }));
+    const input = view.container.querySelector("input") as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(input.value).toBe("");
+    expect(view.container.querySelector('[aria-label="Não foi possível carregar a versão anterior"]')).not.toBeNull();
+    expect(view.container.querySelector('[aria-label="Aguardando a versão anterior"]')).toBeNull();
+    view.unmount();
+  });
+  it("I1: com o dado (mesmo depois de um refetch falho — o hook não marca erro com cache) o Título segue EDITÁVEL", () => {
+    const pr = produto();
+    const view = montar(createElement(CelulaCampo, {
+      campo: c("titulo"), produto: pr, indice: null, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: herdado as never,
+    }));
+    expect((view.container.querySelector("input") as HTMLInputElement).disabled).toBe(false);
     view.unmount();
   });
   it("versão anterior carregando: o Título fica DESABILITADO (sem o herdado o colapso compararia errado)", () => {

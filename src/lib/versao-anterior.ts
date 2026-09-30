@@ -134,9 +134,14 @@ export function dicaPrecoAnterior(auto: PrecoAnteriorAuto): string {
       : `preço de venda da v${auto.versao} até ser editado · ↺ volta ao automático`;
   }
   return auto.aguardando
-    ? "fica vazio até este card ter preço de venda · ou digite um valor"
+    ? "fica vazio até ter um Preço de venda digitado (o sugerido não vai para a loja virtual) · ou digite um valor"
     : "acompanha o preço de venda até ser editado · ↺ volta ao automático";
 }
+/** Dica do Preço anterior DIGITADO (fixado à mão — não acompanha nada até o ↺). */
+export const DICA_PRECO_ANTERIOR_EDITADO = "valor fixado à mão · ↺ volta ao automático";
+/** Falha ao carregar a versão anterior (RPC com erro e SEM dado em cache): Título e Preço anterior automáticos ficam
+ *  indisponíveis até "Tentar de novo" — nunca um "carregando" eterno (I1 da revisão front). */
+export const TEXTO_FALHA_VERSAO_ANTERIOR = "Não foi possível carregar a versão anterior.";
 /** Hover "travado pela Integração + automático". */
 export function hoverPrecoAnteriorTravado(auto: PrecoAnteriorAuto): string {
   if (auto.fonte === "anterior") {

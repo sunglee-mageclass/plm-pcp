@@ -260,21 +260,24 @@ export function useIntegracaoAoVivo(ids: string[]): void {
 /** P-146/P-155 B — a versão anterior de cada produto da lista (1 chamada a `modelos_versao_anterior`, ≤ 500 ids), SÓ
  *  quando "Preço anterior" ou "Título" está marcado nos Campos da API (os únicos que dependem dela). */
 export function useVersaoAnteriorIntegracao(lista: ListaIntegracao | undefined): {
-  mapa: Map<string, VersaoAnteriorInfo> | undefined; carregando: boolean;
+  mapa: Map<string, VersaoAnteriorInfo> | undefined; carregando: boolean; erro: boolean; tentarDeNovo: () => void;
 } {
   const ativo = !!lista && (lista.campos.includes("preco_anterior") || lista.campos.includes("titulo"));
   const ids = useMemo(() => (ativo && lista ? lista.produtos.map((p) => p.modeloId) : []), [ativo, lista]);
   const r = useVersaoAnterior(ids, ativo);
-  return { mapa: ativo ? r.mapa : undefined, carregando: r.carregando || r.erro };
+  // I1 (revisão front): erro SÓ quando falhou sem dado em cache (um refetch que falha com dado segue o dado anterior).
+  return { mapa: ativo ? r.mapa : undefined, carregando: r.carregando, erro: r.erro, tentarDeNovo: r.tentarDeNovo };
 }
 
 /** P-156 C + R7 (T5) — "Versão de produto já integrado": 1 chamada a `integracao_versoes_integradas` com os ids da lista
  *  carregada (≤ 500). Só leitura; banco velho (PGRST202) ou erro = nenhum aviso (nunca bloqueia a tela). */
 export const chaveVersoesIntegradas = (tenantId: string) => ["integracao-versoes-integradas", tenantId] as const;
-export function useVersoesIntegradas(ids: readonly string[]): Map<string, VersaoIntegradaInfo> {
+export function useVersoesIntegradas(ids: readonly string[]): {
+  mapa: Map<string, VersaoIntegradaInfo>; carregando: boolean; erro: boolean; tentarDeNovo: () => void;
+} {
   const tenantId = useActiveTenantId();
   const chave = useMemo(() => [...new Set(ids)].sort().join(","), [ids]);
-  const { data } = useQuery({
+  const q = useQuery({
     queryKey: [...chaveVersoesIntegradas(tenantId), chave],
     enabled: !!tenantId && chave !== "",
     staleTime: 30_000,
@@ -295,7 +298,17 @@ export function useVersoesIntegradas(ids: readonly string[]): Map<string, Versao
       return out;
     },
   });
-  return useMemo(() => lerVersoesIntegradas(data ?? []), [data]);
+  const mapa = useMemo(() => lerVersoesIntegradas(q.data ?? []), [q.data]);
+  // Minor 6 (revisão front): o filtro "Versão" precisa saber se o mapa ainda não chegou (ou falhou sem dado) — senão a
+  // lista cairia num "nenhum produto" enganoso.
+  const pedido = chave !== "";
+  const semDado = q.data === undefined;
+  return {
+    mapa,
+    carregando: pedido && semDado && !q.isError,
+    erro: pedido && semDado && q.isError,
+    tentarDeNovo: () => void q.refetch(),
+  };
 }
 
 export type ConfigIntegracao = {

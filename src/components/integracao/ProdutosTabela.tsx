@@ -46,6 +46,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { InfoHover } from "@/components/shared/InfoHover";
+import { cn } from "@/lib/utils";
 import { CAMPO_BY_KEY, type CampoDef } from "@/lib/integracao/campos";
 import {
   ROTULO_ORIGEM, SORT_KEY_ESTADO, acessorEstado, acessorOrdenacao, linhasVariante, resumoVariantes, seloVersaoIntegrada,
@@ -72,9 +73,15 @@ type Props = {
   /** P-146/P-155 B — versão anterior por produto (RPC `modelos_versao_anterior`); ausente = coluna não marcada. */
   versoesAnteriores?: ReadonlyMap<string, VersaoAnteriorInfo>;
   versoesAnterioresCarregando?: boolean;
+  /** I1 (revisão front): falhou SEM dado em cache — as células bloqueiam o Título e dizem por quê (a faixa acima tem o
+   *  "Tentar de novo"). */
+  versoesAnterioresErro?: boolean;
   /** P-156 C (T5) — versão menor já integrável/integrada por produto (RPC `integracao_versoes_integradas`). */
   versoesIntegradas?: ReadonlyMap<string, VersaoIntegradaInfo>;
 };
+
+/** P-156 C (I2) — marca da linha "vN já integrada": borda esquerda âmbar na 1ª célula (nunca o fundo âmbar da pendência). */
+export const MARCA_VERSAO_INTEGRADA = "border-l-4 border-l-[var(--tone-warning-fg)]";
 
 /** P-156 C — selo "vN já integrada/integrável" + "i" com a comparação de variantes (iguais / novas / saíram). */
 export function SeloVersaoIntegrada({ info }: { info: VersaoIntegradaInfo }) {
@@ -132,15 +139,16 @@ const LinhaProduto = memo(function LinhaProduto({
   );
   return (
     <>
-      <tr className={versaoIntegrada ? "border-t align-top bg-[var(--tone-warning-bg)]" : "border-t align-top"}
-        data-versao-integrada={versaoIntegrada ? "sim" : undefined}>
+      {/* I2 (revisão front): a linha "vN já integrada" é marcada por uma BORDA ESQUERDA âmbar na 1ª célula — o FUNDO âmbar
+          fica exclusivo do realce de "alteração pendente" das células (senão toda célula da linha pareceria alterada). */}
+      <tr className="border-t align-top" data-versao-integrada={versaoIntegrada ? "sim" : undefined}>
         {onMarcar && (
-          <td className="px-2 py-2">
+          <td className={cn("px-2 py-2", versaoIntegrada && MARCA_VERSAO_INTEGRADA)}>
             <Checkbox aria-label={`Selecionar ${p.raw.nome}`} checked={marcado ?? false}
               onCheckedChange={(v) => onMarcar(p.modeloId, v === true)} />
           </td>
         )}
-        <td className="px-1 py-2">
+        <td className={cn("px-1 py-2", versaoIntegrada && !onMarcar && MARCA_VERSAO_INTEGRADA)}>
           <Button type="button" variant="ghost" size="iconSm" disabled={subs.length === 0} aria-expanded={aberto}
             aria-label={aberto ? `Fechar sublinhas de ${p.raw.nome}` : `Abrir sublinhas de ${p.raw.nome}`}
             onClick={() => onAlternar(p.modeloId)}>
@@ -173,18 +181,21 @@ const LinhaProduto = memo(function LinhaProduto({
 
 export function ProdutosTabela({
   lista, rascunhoDe, previas, salvando, onAtualizar, onKeywords, onFotos, estadoCelula, integravelCelula, selecao,
-  versoesAnteriores, versoesAnterioresCarregando = false, versoesIntegradas,
+  versoesAnteriores, versoesAnterioresCarregando = false, versoesAnterioresErro = false, versoesIntegradas,
 }: Props) {
   // Um objeto ESTÁVEL por produto (identidade só muda quando o dado da versão muda — NUNCA a cada tecla: não depende de
   // `lista.produtos`, que é recriada a cada edição de rascunho) — o React.memo da linha segue valendo. Produto fora do
   // mapa (ainda carregando, ou sem linha) usa um objeto compartilhado `semInfo`.
-  const semInfo = useMemo<VersaoCelula>(() => ({ info: null, carregando: versoesAnterioresCarregando }), [versoesAnterioresCarregando]);
+  const semInfo = useMemo<VersaoCelula>(
+    () => ({ info: null, carregando: versoesAnterioresCarregando, erro: versoesAnterioresErro }),
+    [versoesAnterioresCarregando, versoesAnterioresErro],
+  );
   const versaoPorProduto = useMemo(() => {
     const m = new Map<string, VersaoCelula>();
     if (!versoesAnteriores) return m;
-    for (const [id, info] of versoesAnteriores) m.set(id, { info, carregando: versoesAnterioresCarregando });
+    for (const [id, info] of versoesAnteriores) m.set(id, { info, carregando: false, erro: false });
     return m;
-  }, [versoesAnteriores, versoesAnterioresCarregando]);
+  }, [versoesAnteriores]);
   const versaoDe = (id: string): VersaoCelula | undefined =>
     versoesAnteriores ? versaoPorProduto.get(id) ?? semInfo : undefined;
   const [abertos, setAbertos] = useState<ReadonlySet<string>>(new Set());

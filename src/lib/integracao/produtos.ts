@@ -666,12 +666,13 @@ export function lerVersoesIntegradas(raw: unknown): Map<string, VersaoIntegradaI
   }
   return m;
 }
-/** Filtro LOCAL "Versão de produto já integrado" (R7c): com `on`, só os produtos da lista CARREGADA que têm uma versão
- *  menor já Integrável/Integrada. Soma com o Estado (quem chama aplica os dois). */
-export function filtrarVersaoIntegrada<T extends { modeloId: string }>(
-  produtos: readonly T[], mapa: ReadonlyMap<string, VersaoIntegradaInfo>, on: boolean,
-): T[] {
-  return on ? produtos.filter((p) => mapa.has(p.modeloId)) : [...produtos];
+/** Filtro LOCAL "Versão de produto já integrado" (R7c): com `on`, passa só o produto da lista CARREGADA que tem uma versão
+ *  menor já Integrável/Integrada; desligado, passa tudo. Soma com o Estado (`produtoPassaFiltroEstado` — quem chama
+ *  aplica os dois; é o predicado que a aba Produtos usa de fato). */
+export function produtoPassaFiltroVersao(
+  p: { modeloId: string }, mapa: ReadonlyMap<string, VersaoIntegradaInfo>, on: boolean,
+): boolean {
+  return !on || mapa.has(p.modeloId);
 }
 /** Selo da linha: "vN já integrada" (Integrado) ou "vN já integrável" (Integrável). */
 export const seloVersaoIntegrada = (i: Pick<VersaoIntegradaInfo, "anteriorVersao" | "anteriorEstado">): string =>

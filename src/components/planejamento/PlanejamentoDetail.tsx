@@ -592,7 +592,11 @@ function PlanejamentoDetailConteudo({
   const temVersaoAnterior = isEdit && !!modeloId && versaoSalva > 1;
   const versaoAnt = useVersaoAnterior(modeloId && temVersaoAnterior ? [modeloId] : [], temVersaoAnterior);
   const versaoAnterior = temVersaoAnterior && modeloId ? versaoAnt.mapa.get(modeloId) ?? null : null;
-  const versaoAnteriorCarregando = temVersaoAnterior && (versaoAnt.carregando || versaoAnt.erro);
+  // I1 (revisão front): "carregando" = pedido e ainda sem dado; "erro" = falhou SEM dado em cache (mostra a falha com
+  // "Tentar de novo"). Um refetch em segundo plano que falha com dado em cache segue o dado anterior — campo editável.
+  const versaoAnteriorCarregando = temVersaoAnterior && versaoAnt.carregando;
+  const versaoAnteriorErro = temVersaoAnterior && versaoAnt.erro;
+  const tentarVersaoAnterior = versaoAnt.tentarDeNovo;
   // Toggle opt-in (Config da Loja): mostra os 2 blocos de análise de markup por faixa. Default OFF.
   // Reflete no próximo refetch/reabrir do Sheet (config muda raro). Ver [[project_markup_min_ideal_max]].
   const { data: markupFaixaOn = false } = useQuery({
@@ -1593,6 +1597,7 @@ function PlanejamentoDetailConteudo({
             planBloqueado={perm.planBloqueado}
             compartilhadoBloqueado={perm.compartilhadoBloqueado}
             versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
+            versaoAnteriorErro={versaoAnteriorErro} onTentarVersaoAnterior={tentarVersaoAnterior}
           />
 
           {/* SETOR 2 — Coleção */}
@@ -1807,6 +1812,7 @@ function PlanejamentoDetailConteudo({
                 precoAnterior={draft.preco_anterior}
                 onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
                 versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
+            versaoAnteriorErro={versaoAnteriorErro} onTentarVersaoAnterior={tentarVersaoAnterior}
               />
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
@@ -1819,7 +1825,8 @@ function PlanejamentoDetailConteudo({
                 travaVarejo={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 precoAnterior={draft.preco_anterior}
                 onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
-                versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando} />
+                versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
+            versaoAnteriorErro={versaoAnteriorErro} onTentarVersaoAnterior={tentarVersaoAnterior} />
             )}
           </Secao>
           )}

@@ -135,7 +135,8 @@ export type Draft = {
   // Grava no Salvar (campo do Planejamento).
   tamanho_tipo: "letra" | "numero";
   // F3.6 (Parte B — spec 2026-09-25 §5.2; migration 20261005100000): campos NOVOS do Planejamento (seção 1 e Preço e Custos).
-  // NULL = automático (Título: nome em título + " | " + loja; Preço anterior: acompanha o preço de venda EFETIVO) ou vazio
+  // NULL = automático (P-146/P-155 B: Título = o herdado da versão anterior na v2+, nome em título + " | " + loja na v1;
+  // Preço anterior = o preço de venda gravado da versão anterior na v2+, o próprio preço digitado na v1) ou vazio
   // (Peso/medidas/NCM). Não são do Dev (fora de CAMPOS_DEV_DRAFT). Fora do types.ts até regenerar — o Draft é tipo próprio.
   titulo_pagina: string | null;
   peso_kg: number | null;

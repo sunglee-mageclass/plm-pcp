@@ -6,12 +6,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { CASOS_VERSAO, LOJA_CASOS } from "../fixtures/versao-anterior-casos";
 import {
-  dicaPrecoAnterior, hoverTituloHerdado, infoDaLinha, mapaVersaoAnterior, precoAnteriorAutomatico, seloPrecoAnterior,
+  DICA_PRECO_ANTERIOR_EDITADO, dicaPrecoAnterior, hoverTituloHerdado, infoDaLinha, mapaVersaoAnterior, precoAnteriorAutomatico, seloPrecoAnterior,
   seloTitulo, tituloAutomatico, type VersaoAnteriorInfo,
 } from "@/lib/versao-anterior";
 import { TEXTO_VERSAO_CONGELAR, TEXTO_VERSAO_LIMITE, mensagemErro } from "@/lib/erro-mensagem";
 import {
-  FILTROS_VAZIOS, filtrarVersaoIntegrada, filtrosParaRpc, lerVersoesIntegradas, resumoVariantes, rotuloVarianteComparada,
+  FILTROS_VAZIOS, produtoPassaFiltroVersao, filtrosParaRpc, lerVersoesIntegradas, resumoVariantes, rotuloVarianteComparada,
   seloVersaoIntegrada, textoFiltroVersao,
 } from "@/lib/integracao/produtos";
 
@@ -66,6 +66,10 @@ describe("textos (selos/dicas) — Sheet e Integração", () => {
     expect(seloPrecoAnterior(null, precoAnteriorAutomatico(null, null))).toEqual({ texto: "aguardando preço de venda", tom: "warning" });
     expect(dicaPrecoAnterior(precoAnteriorAutomatico(ant(200), 0))).toBe("preço de venda da v2 até ser editado · ↺ volta ao automático");
     expect(dicaPrecoAnterior(precoAnteriorAutomatico(ant(null), 0))).toBe("fica vazio até a v2 ter preço de venda · ou digite um valor");
+    // Minor 3 (revisão front): na v1 sem preço DIGITADO, deixa claro que o sugerido não conta
+    expect(dicaPrecoAnterior(precoAnteriorAutomatico(null, null)))
+      .toBe("fica vazio até ter um Preço de venda digitado (o sugerido não vai para a loja virtual) · ou digite um valor");
+    expect(DICA_PRECO_ANTERIOR_EDITADO).toBe("valor fixado à mão · ↺ volta ao automático"); // Minor 2
   });
   it("Título", () => {
     const h = tituloAutomatico(ant(1), "QUALQUER", "L");
@@ -114,10 +118,13 @@ describe("T5 (P-156 C) — funções puras", () => {
     ]);
     expect(rotuloVarianteComparada({ varianteKey: "k", corNome: "  ", apelidoNome: null })).toBe("cor sem nome");
   });
-  it("filtrarVersaoIntegrada: LOCAL, sobre a lista carregada; desligado = tudo", () => {
+  it("produtoPassaFiltroVersao (o predicado que a aba usa): LOCAL, sobre a lista carregada; desligado = tudo", () => {
     const ps = [{ modeloId: "m1" }, { modeloId: "m2" }, { modeloId: "m9" }];
-    expect(filtrarVersaoIntegrada(ps, mapa, true).map((p) => p.modeloId)).toEqual(["m2", "m9"]);
-    expect(filtrarVersaoIntegrada(ps, mapa, false)).toEqual(ps);
+    expect(ps.filter((p) => produtoPassaFiltroVersao(p, mapa, true)).map((p) => p.modeloId)).toEqual(["m2", "m9"]);
+    expect(ps.filter((p) => produtoPassaFiltroVersao(p, mapa, false))).toEqual(ps);
+    // Minor 5: a aba usa ESTE helper (não uma cópia inline)
+    expect(fonte("src/components/integracao/ProdutosAba.tsx"))
+      .toContain("produtoPassaFiltroVersao(p, versoesInt.mapa, filtros.versaoIntegrada)");
   });
   it("o filtro NÃO vai para a RPC da lista (R7c)", () => {
     expect(FILTROS_VAZIOS.versaoIntegrada).toBe(false);
@@ -128,7 +135,10 @@ describe("T5 (P-156 C) — funções puras", () => {
   });
   it("gate de fonte: linha âmbar + selo na coluna Estado; filtro 'Versão' depois do Estado; 1 chamada com os ids da lista", () => {
     const t = fonte("src/components/integracao/ProdutosTabela.tsx");
-    expect(t).toContain('versaoIntegrada ? "border-t align-top bg-[var(--tone-warning-bg)]" : "border-t align-top"');
+    // I2 (revisão front): marca = borda esquerda âmbar na 1ª célula; o FUNDO âmbar fica só para a pendência
+    expect(t).toContain('export const MARCA_VERSAO_INTEGRADA = "border-l-4 border-l-[var(--tone-warning-fg)]";');
+    expect(t).toContain('<tr className="border-t align-top" data-versao-integrada=');
+    expect(t).not.toContain("align-top bg-[var(--tone-warning-bg)]");
     expect(t).toContain("{versaoIntegrada && <SeloVersaoIntegrada info={versaoIntegrada} />}");
     const a = fonte("src/components/integracao/ProdutosAba.tsx");
     const iEstado = a.indexOf('<FiltroSelect id="f-estado"');
@@ -136,7 +146,10 @@ describe("T5 (P-156 C) — funções puras", () => {
     expect(iEstado).toBeGreaterThan(0);
     expect(iVersao).toBeGreaterThan(iEstado);
     expect(a).toContain('label: "Versão de produto já integrado"');
-    expect(a).toContain("const versoesIntegradas = useVersoesIntegradas(idsPagina);");
+    expect(a).toContain("const versoesInt = useVersoesIntegradas(idsPagina);");
+    // Minor 6: filtro ligado com o mapa carregando/em erro NÃO cai no "nenhum produto" enganoso
+    expect(a).toContain("Verificando as versões já integradas…");
+    expect(a).toContain("Não foi possível verificar as versões já integradas");
     const u = fonte("src/components/integracao/useIntegracao.ts");
     expect(u).toContain('supabase.rpc("integracao_versoes_integradas" as any');
     expect(u).toContain('if ((error as { code?: string }).code === "PGRST202") return [];');

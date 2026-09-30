@@ -15,8 +15,8 @@ import { abasVisiveis } from "@/lib/integracao/abas";
 const ler = (p: string) => readFileSync(p, "utf8");
 
 // P-146/P-156 C — retornos estáveis dos 2 hooks novos de `useIntegracao` no mock da aba Produtos.
-const VERSAO_ANTERIOR_VAZIA = { mapa: undefined, carregando: false };
-const VERSOES_INTEGRADAS_VAZIAS = new Map();
+const VERSAO_ANTERIOR_VAZIA = { mapa: undefined, carregando: false, erro: false, tentarDeNovo: () => {} };
+const VERSOES_INTEGRADAS_VAZIAS = { mapa: new Map(), carregando: false, erro: false, tentarDeNovo: () => {} };
 
 describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-81 A, v4)", () => {
   it("ModuleDef próprio 'integracao' no FIM do catálogo, página única (link direto)", () => {

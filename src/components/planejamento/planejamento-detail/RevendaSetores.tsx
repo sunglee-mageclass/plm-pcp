@@ -19,8 +19,10 @@ import { Secao, CampoRO } from "@/components/planejamento/planejamento-detail/ca
 import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { InfoHover } from "@/components/shared/InfoHover";
 import {
-  dicaPrecoAnterior, hoverPrecoAnteriorTravado, precoAnteriorAutomatico, seloPrecoAnterior, type VersaoAnteriorInfo,
+  DICA_PRECO_ANTERIOR_EDITADO, dicaPrecoAnterior, hoverPrecoAnteriorTravado, precoAnteriorAutomatico, seloPrecoAnterior,
+  type VersaoAnteriorInfo,
 } from "@/lib/versao-anterior";
+import { FalhaVersaoAnterior } from "@/components/shared/FalhaVersaoAnterior";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import { tamanhosVisiveis } from "@/lib/tamanho-exibicao";
@@ -28,7 +30,7 @@ import type { TamanhoTipo } from "@/lib/tamanho";
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
   /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
@@ -46,10 +48,13 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
   /** P-146/P-158 + M4 — mesma regra de PrecoTabela.tsx: v2+ = o VAREJO gravado da versão anterior (vazio = "aguardando
    *  preço da vN"); v1/órfã = o próprio varejo GRAVADO (`draft.preco_venda`, o que o retrato manda). */
   versaoAnterior?: VersaoAnteriorInfo; versaoAnteriorCarregando?: boolean;
+  /** I1 (revisão front): falhou SEM dado em cache → mostra a falha + "Tentar de novo" (nunca "…" eterno). */
+  versaoAnteriorErro?: boolean; onTentarVersaoAnterior?: () => void;
 }) {
   const autoAnterior = precoAnteriorAutomatico(versaoAnterior, draft.preco_venda);
   const seloAnterior = seloPrecoAnterior(precoAnterior, autoAnterior);
   const carregandoAnterior = versaoAnteriorCarregando && precoAnterior === null;
+  const falhaAnterior = versaoAnteriorErro && precoAnterior === null; // sem o automático: "—" + falha com "Tentar de novo"
   const exibidoAnterior = precoAnteriorExibido(precoAnterior, autoAnterior.valor ?? 0);
   const {
     produtoRevenda, produtoRevendaLoading,
@@ -111,7 +116,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                       <div className="grid gap-1 sm:col-span-2">
                         <div className="flex items-center gap-1.5">
                           <Label htmlFor="preco-anterior-revenda">Preço anterior</Label>
-                          {!carregandoAnterior && (
+                          {!carregandoAnterior && !falhaAnterior && (
                             <StatusBadge tone={seloAnterior.tom} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
                               {seloAnterior.texto}
                             </StatusBadge>
@@ -129,25 +134,26 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                             aria-label="Preço anterior"
                             className="min-w-0 flex-1"
                             // M1 (fix1) — 0/negativo volta ao automático NA TELA (não só no payload); evita "editado · 0,00".
-                            value={carregandoAnterior ? "" : exibidoAnterior ?? ""}
-                            placeholder={carregandoAnterior ? "…" : autoAnterior.aguardando && precoAnterior === null ? "—" : "0,00"}
+                            value={carregandoAnterior || falhaAnterior ? "" : exibidoAnterior ?? ""}
+                            placeholder={carregandoAnterior ? "…" : (falhaAnterior || autoAnterior.aguardando) && precoAnterior === null ? "—" : "0,00"}
                             data-colab-path="preco_anterior"
                             onChange={(e) => onPrecoAnterior(precoAnteriorOuNull(e.target.value))}
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">{precoAnterior !== null ? "acompanha o preço de venda até ser editado · ↺ volta ao automático" : carregandoAnterior ? "…" : dicaPrecoAnterior(autoAnterior)}</p>
+                        <p className="text-xs text-muted-foreground">{precoAnterior !== null ? DICA_PRECO_ANTERIOR_EDITADO : carregandoAnterior ? "…" : falhaAnterior && onTentarVersaoAnterior ? <FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} /> : dicaPrecoAnterior(autoAnterior)}</p>
                       </div>
                     ) : (
                       <div className="sm:col-span-2 sm:max-w-xs">
                         <div className="flex items-center gap-1.5">
-                          <CampoRO label="Preço anterior" value={carregandoAnterior ? "…" : exibidoAnterior != null ? brl(exibidoAnterior) : "—"} />
-                          {!carregandoAnterior && (
+                          <CampoRO label="Preço anterior" value={carregandoAnterior ? "…" : falhaAnterior ? "—" : exibidoAnterior != null ? brl(exibidoAnterior) : "—"} />
+                          {falhaAnterior && onTentarVersaoAnterior && <FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} />}
+                          {!carregandoAnterior && !falhaAnterior && (
                             <StatusBadge tone={seloAnterior.tom} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
                               {seloAnterior.texto}
                             </StatusBadge>
                           )}
                           {/* Ruling da revisão (Task 21): travado + automático — mesmo aviso de PrecoTabela.tsx. */}
-                          {travaPrecoAnterior && precoAnterior === null && !carregandoAnterior && (
+                          {travaPrecoAnterior && precoAnterior === null && !carregandoAnterior && !falhaAnterior && (
                             <InfoHover ariaLabel="Preço anterior travado pela Integração">
                               <p>{hoverPrecoAnteriorTravado(autoAnterior)}</p>
                             </InfoHover>

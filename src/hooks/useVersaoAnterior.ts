@@ -21,8 +21,12 @@ export function useVersaoAnterior(
   enabled = true,
 ): {
   mapa: Map<string, VersaoAnteriorInfo>;
+  /** pedido e SEM dado ainda (inclui a janela sem loja resolvida) — quem usa bloqueia o Título. */
   carregando: boolean;
+  /** a RPC falhou e NÃO há dado em cache — quem usa mostra a falha + "Tentar de novo". Um refetch em segundo plano que
+   *  falha COM dado em cache NÃO conta (segue o dado anterior; o campo continua editável) — I1 da revisão front. */
   erro: boolean;
+  tentarDeNovo: () => void;
 } {
   const tenantId = useActiveTenantId();
   const chave = useMemo(() => [...new Set(ids.filter(Boolean))].sort().join(","), [ids]);
@@ -32,7 +36,7 @@ export function useVersaoAnterior(
     queryKey: ["versao-anterior", tenantId, ...lista],
     enabled: ativo,
     staleTime: 10_000,
-    retry: false,
+    retry: 1,
     queryFn: async (): Promise<LinhaVersaoAnteriorRpc[]> => {
       const out: LinhaVersaoAnteriorRpc[] = [];
       for (let i = 0; i < lista.length; i += LIMITE_VERSAO_ANTERIOR) {
@@ -50,5 +54,12 @@ export function useVersaoAnterior(
     },
   });
   const mapa = useMemo(() => mapaVersaoAnterior(q.data ?? []), [q.data]);
-  return { mapa, carregando: ativo && q.isLoading, erro: ativo && q.isError };
+  const pedido = enabled && lista.length > 0;
+  const semDado = q.data === undefined;
+  return {
+    mapa,
+    carregando: pedido && semDado && !q.isError,
+    erro: pedido && semDado && q.isError,
+    tentarDeNovo: () => void q.refetch(),
+  };
 }

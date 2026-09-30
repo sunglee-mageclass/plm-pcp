@@ -38,7 +38,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_MAO_DUPLA } from "@/lib/integracao/campos";
 import {
   FILTROS_VAZIOS, OPCOES_ESTADO_NIVEL, ROTULO_ESTADO_NIVEL, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar,
-  motivoVoltar, produtoPassaFiltroEstado, totalPaginas, textoFiltroVersao,
+  motivoVoltar, produtoPassaFiltroEstado, produtoPassaFiltroVersao, totalPaginas, textoFiltroVersao,
   type EstadoNivel, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
 } from "@/lib/integracao/produtos";
 import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
@@ -48,6 +48,7 @@ import {
   useVersaoAnteriorIntegracao, useVersoesIntegradas,
 } from "./useIntegracao";
 import { ProdutosTabela } from "./ProdutosTabela";
+import { FalhaVersaoAnterior } from "@/components/shared/FalhaVersaoAnterior";
 import { FotosDialog } from "./FotosDialog";
 import { KeywordsDialog } from "./KeywordsDialog";
 import { EstadoCelula, IntegravelCelula } from "./EstadoLinha";
@@ -190,7 +191,9 @@ export function ProdutosAba() {
   // P-146/P-155 B — versão anterior de cada produto (Preço anterior/Título automáticos na célula).
   const versaoAnt = useVersaoAnteriorIntegracao(lista);
   // P-156 C (T5) — versão MENOR já integrável/integrada de cada produto carregado (linha âmbar + selo + filtro local).
-  const versoesIntegradas = useVersoesIntegradas(idsPagina);
+  const versoesInt = useVersoesIntegradas(idsPagina);
+  // Minor 6: com o filtro "Versão" ligado, a lista só vale depois que o mapa chegou (senão "nenhum produto" enganoso).
+  const versaoFiltroPendente = filtros.versaoIntegrada && (versoesInt.carregando || versoesInt.erro);
   // P-130 A (dono, set/2026): a tela pede a RPC com `_limite: LIMITE_PRODUTOS` (500, o teto da RPC) — pra uma loja
   // com ATÉ 500 produtos na Situação/filtros escolhidos, a "página 1" JÁ é a lista INTEIRA (`lista.total <=
   // LIMITE_PRODUTOS`), então ordenação e o filtro de nível de Estado valem pra TUDO, não só por um recorte de 50.
@@ -221,11 +224,11 @@ export function ProdutosAba() {
     () => (lista
       ? lista.produtos.filter((p) => {
           const r = rascunhos[p.modeloId];
-          const passaVersao = !filtros.versaoIntegrada || versoesIntegradas.has(p.modeloId);
+          const passaVersao = produtoPassaFiltroVersao(p, versoesInt.mapa, filtros.versaoIntegrada);
           return (produtoPassaFiltroEstado(p, filtros.estado) && passaVersao) || (r !== undefined && temAlteracao(r));
         })
       : []),
-    [lista, filtros.estado, filtros.versaoIntegrada, versoesIntegradas, rascunhos],
+    [lista, filtros.estado, filtros.versaoIntegrada, versoesInt.mapa, rascunhos],
   );
   const sujos = useMemo(() => Object.values(rascunhos).filter(temAlteracao), [rascunhos]);
   // `sujoLinhas` governa o botão Salvar/onSalvar da PÁGINA (só as linhas da tabela); `sujo` (guarda/trava de
@@ -777,7 +780,23 @@ export function ProdutosAba() {
         </>
       ) : (
         <>
-          {produtosExibidos.length === 0 ? (
+          {versaoAnt.erro && (
+            // I1 (revisão front): a versão anterior (Título/Preço anterior automáticos) falhou SEM dado em cache — as
+            // células de Título ficam bloqueadas (mesmo motivo R4 do Sheet) até tentar de novo; nunca "carregando" eterno.
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <FalhaVersaoAnterior onTentar={versaoAnt.tentarDeNovo}
+                texto="Não foi possível carregar a versão anterior dos produtos — Título e Preço anterior automáticos ficam indisponíveis." />
+            </div>
+          )}
+          {versaoFiltroPendente ? (
+            versoesInt.erro ? (
+              <EmptyState title="Não foi possível verificar as versões já integradas"
+                description="O filtro Versão depende dessa verificação. Tente de novo ou escolha Versão “Todos”."
+                action={{ label: "Tentar de novo", onClick: versoesInt.tentarDeNovo }} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Verificando as versões já integradas…</p>
+            )
+          ) : produtosExibidos.length === 0 ? (
             // HIGH-1 (review 685544fa) + P-130 A: filtro de nível (faltam dados/completo) esvaziou a página ATUAL —
             // a situação/filtros de base ainda têm produtos (senão cairia no ramo de cima), só não neste RECORTE.
             // Com tudo carregado (`!mostraPaginacao`), não existe "trocar de página" de verdade — o texto vira só
@@ -795,7 +814,8 @@ export function ProdutosAba() {
               onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
               integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined}
               versoesAnteriores={versaoAnt.mapa} versoesAnterioresCarregando={versaoAnt.carregando}
-              versoesIntegradas={versoesIntegradas} />
+              versoesAnterioresErro={versaoAnt.erro}
+              versoesIntegradas={versoesInt.mapa} />
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             {/* Owner (set/2026) + P-130 A: com o filtro de nível ativo, `lista.total` é o total de "não integrável"

@@ -85,8 +85,9 @@ import {
   situacaoPrevia, skuExibido, type LinhaPrevia, type PreviaSkus,
 } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 
-/** A versão anterior do produto (P-146/P-155 B): `info` null = v1/órfã; `carregando` = a RPC ainda não voltou. */
-export type VersaoCelula = { info: VersaoAnteriorInfo; carregando: boolean };
+/** A versão anterior do produto (P-146/P-155 B): `info` null = v1/órfã; `carregando` = a RPC ainda não voltou; `erro` = a
+ *  RPC falhou SEM dado em cache (I1 — a faixa acima da tabela tem o "Tentar de novo"). Os dois bloqueiam o Título (R4). */
+export type VersaoCelula = { info: VersaoAnteriorInfo; carregando: boolean; erro?: boolean };
 type Props = {
   campo: CampoDef; produto: ProdutoLista; indice: number | null; rascunho: Rascunho; previa: PreviaSkus | undefined;
   salvando: boolean; onAtualizar: (f: (r: Rascunho) => Rascunho) => void; onKeywords: () => void; onFotos: () => void;
@@ -347,7 +348,8 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar, versaoAnterior }: {
   // P-155 B + R4: na v2+ o automático é o HERDADO (pronto do servidor) — é com ele que o colapso compara.
   const infoVersao = versaoAnterior?.info ?? null;
   const herdado = infoVersao ? (infoVersao.titulo_herdado ?? "") : null;
-  const carregandoVersao = versaoAnterior?.carregando ?? false;
+  const erroVersao = versaoAnterior?.erro ?? false;
+  const carregandoVersao = (versaoAnterior?.carregando ?? false) || erroVersao; // sem o herdado: bloqueia (R4)
   const autoTitulo = tituloAutomaticoDe(infoVersao, r.valores.nome, nomeLoja);
   const hoverHerdado = hoverTituloHerdado(autoTitulo);
   const [travadoPorTimeout, setTravadoPorTimeout] = useState(false);
@@ -399,7 +401,7 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar, versaoAnterior }: {
         <Input
           aria-label={`Título para a página — ${p.raw.nome}`}
           className={cn("h-8 min-w-[14rem]", realce)}
-          value={carregandoVersao && automatico ? "…" : exibido}
+          value={carregandoVersao && automatico ? (erroVersao ? "" : "…") : exibido}
           disabled={carregandoLoja || carregandoVersao || salvando}
           onChange={(e) => {
             // Minor (code-review, M3): captura o valor ANTES do updater (não depende de o React manter
@@ -413,7 +415,12 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar, versaoAnterior }: {
           <StatusBadge tone="neutral" className="shrink-0 normal-case tracking-normal">{seloTitulo(autoTitulo)}</StatusBadge>
         )}
         {automatico && hoverHerdado && !carregandoVersao && <InfoHover ariaLabel="De onde vem o Título herdado?">{hoverHerdado}</InfoHover>}
-        {carregandoVersao && <InfoHover ariaLabel="Aguardando a versão anterior">Carregando o Título da versão anterior — aguarde para editar.</InfoHover>}
+        {carregandoVersao && !erroVersao && <InfoHover ariaLabel="Aguardando a versão anterior">Carregando o Título da versão anterior — aguarde para editar.</InfoHover>}
+        {erroVersao && (
+          <InfoHover ariaLabel="Não foi possível carregar a versão anterior" className="text-destructive">
+            Não foi possível carregar a versão anterior — use “Tentar de novo” acima da tabela para editar o título.
+          </InfoHover>
+        )}
         {carregandoLoja && <InfoHover ariaLabel="Aguardando o nome da loja">Carregando o nome da loja — aguarde para editar o título.</InfoHover>}
         {travadoPorTimeout && nomeLoja === null && (
           <InfoHover ariaLabel="Não foi possível carregar o nome da loja">
@@ -502,7 +509,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
     // (`valorCelula` lê pronto); aqui só soma o badge "automático" quando a linha mostra o VIVO (m5/M5(c) — não
     // discordar do retrato numa linha travada).
     const automaticoLeitura = campo.key === "preco_anterior" && !usaRetrato(p) && p.raw.preco_anterior === null
-      && !(versaoAnterior?.carregando ?? false);
+      && !(versaoAnterior?.carregando ?? false) && !(versaoAnterior?.erro ?? false);
     const seloLeitura = seloPrecoAnterior(null, precoAnteriorAutomatico(versaoAnterior?.info ?? null, p.raw.preco_venda));
     const seloComAutomatico = automaticoLeitura
       ? <StatusBadge tone={seloLeitura.tom} className="normal-case tracking-normal">{seloLeitura.texto}</StatusBadge>
@@ -538,16 +545,16 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
     // P-146/P-158: com versão anterior, o automático é o preço da vN ("—" + "aguardando preço da vN" sem ele); sem
     // anterior, o do rascunho — vazio = "aguardando preço de venda" (M4).
     const precoVendaRascunho = precoAnteriorOuNull(r.valores.preco_venda) ?? Number(r.valores.preco_venda ?? 0);
-    const carregandoVersao = campo.key === "preco_anterior" && (versaoAnterior?.carregando ?? false);
+    const carregandoVersao = campo.key === "preco_anterior" && ((versaoAnterior?.carregando ?? false) || (versaoAnterior?.erro ?? false));
     const autoAnterior = precoAnteriorAutomatico(versaoAnterior?.info ?? null, precoVendaRascunho);
     const seloAuto = seloPrecoAnterior(null, autoAnterior);
     const placeholder = !automatico
       ? "0,00"
       : carregandoVersao
-        ? "…"
+        ? (versaoAnterior?.erro ? "—" : "…")
         : autoAnterior.valor !== null
           ? autoAnterior.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-          : autoAnterior.fonte === "anterior" ? "—" : "0,00";
+          : "—"; // aguardando (da vN ou do próprio preço de venda — Minor 1): nunca "0,00", que parece um valor
     controle = (
       <div className="flex items-center gap-1">
         <MoneyInput fixedDecimals aria-label={ariaLabel} placeholder={placeholder} disabled={salvando}
