@@ -6,7 +6,9 @@
 --     independente). O GRUPO do produto so acompanha quando a CATEGORIA e copiada (P-143 A) e vem da categoria nova
 --     (categorias_produto.grupo_id). Nada "de carona": trocar so a sub1 nunca leva a categoria/grupo do card junto (D8b).
 --   • NULL do card NUNCA e copiado (P-145 A, estendido as subs pelo ruling R3b): card sem categoria nao mexe no produto;
---     sub apagada no card nao apaga a do produto.
+--     sub apagada no card nao apaga a do produto — SALVO (fix round 1, H1) quando a CATEGORIA e copiada: a sub do produto
+--     que nao pertence a categoria nova e limpa (a que ainda pertence fica). Troca SO da sub (M1) so vai ao produto que
+--     ja esta na mesma categoria do card (senao seria sub de outra categoria).
 --   • Categoria sem grupo no cadastro (ou de outra loja) -> nao copia nada (R3a; o pre-voo conta esses casos).
 --   • Produto COM pedido (OC) cuja categoria nova o levaria de Acessorios para outro grupo (ou o contrario) -> recusa
 --     P0001 ASCII 'categoria_acessorio_com_pedido: ...' e o UPDATE do card inteiro e desfeito (P-142 B, PA e PI — R3d).
@@ -20,7 +22,8 @@
 --     anti-drift): a copia nunca recebe 42501 integracao_travado.
 -- • Guarda: _salvar_produto_acabado_core = e5473bb29fa559408093d1a82c6ac11f (P-136 viva), travas da Integracao com o
 --   texto conhecido, _integracao_layout sem taxonomia, trg_modelo_espelho_nome_ref presente, _grupo_eh_acessorio
---   presente; fn_modelo_espelho_categoria ausente OU ja com o texto desta migration (reaplicar = no-op).
+--   presente; fn_modelo_espelho_categoria ausente, OU ja com o texto desta migration (reaplicar = no-op), OU neutralizada
+--   pela volta de emergencia (_down_neutraliza.sql — reaplicar RELIGA).
 -- • Zero DDL de tabela, zero backfill (o backfill e o arquivo 20261017110000, separado, com volta propria).
 -- • Lock: CREATE TRIGGER pega SHARE ROW EXCLUSIVE em modelos (bloqueia GRAVACOES de cards por um instante, nao as
 --   leituras) — lock_timeout 500ms + 3 tentativas so em 55P03.
@@ -60,7 +63,8 @@ BEGIN
   END IF;
   IF to_regprocedure('public.fn_modelo_espelho_categoria()') IS NOT NULL THEN
     v_md5 := md5(pg_get_functiondef('public.fn_modelo_espelho_categoria()'::regprocedure));
-    IF v_md5 IS DISTINCT FROM '3ff558f37ef4ee75d36db77635a51268' THEN
+    -- ja com o texto desta migration (reaplicar = no-op) OU neutralizada pela volta de emergencia (reaplicar = religar)
+    IF v_md5 NOT IN ('ea9edd59c5ec5eff207336dbe06a3499', 'bb13fa0c820f96463b877f89f8e1085b') THEN
       RAISE EXCEPTION 'p137: fn_modelo_espelho_categoria ja existe com outro texto (md5 %) - outra frente mexeu; refazer', v_md5 USING ERRCODE = 'P0001';
     END IF;
   END IF;
@@ -79,8 +83,11 @@ DECLARE
   v_s1 boolean := NEW.subcategoria1_id IS NOT NULL AND OLD.subcategoria1_id IS DISTINCT FROM NEW.subcategoria1_id;
   v_s2 boolean := NEW.subcategoria2_id IS NOT NULL AND OLD.subcategoria2_id IS DISTINCT FROM NEW.subcategoria2_id;
   v_grupo uuid;
-  v_prod_id uuid;
-  v_prod_grupo uuid;
+  r record;
+  v_g uuid;
+  v_c uuid;
+  v_n1 uuid;
+  v_n2 uuid;
 BEGIN
   -- Card sem categoria (passo intermediario da troca de grupo no Sheet): o produto fica como esta.
   IF NEW.categoria_principal_id IS NULL THEN
@@ -94,57 +101,81 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  IF NEW.origem = 'revenda' THEN
+  -- Cada produto espelho (1:1 por gatilho, nao por UNIQUE — por isso o laco cobre todas as linhas) travado FOR UPDATE:
+  -- serializa com um INSERT de OC concorrente (a FK dele pede KEY SHARE nesta linha).
+  FOR r IN
+    SELECT 'produtos_acabados'::text AS tabela, pa.id, pa.grupo_id, pa.categoria_id, pa.subcategoria1_id AS s1, pa.subcategoria2_id AS s2
+      FROM public.produtos_acabados pa
+     WHERE NEW.origem = 'revenda' AND pa.modelo_id = NEW.id AND pa.tenant_id = NEW.tenant_id
+       FOR UPDATE
+  LOOP
     -- P-142 B: produto com pedido nao troca entre Acessorios e outro grupo (grade UN x grade por tamanho).
-    -- FOR UPDATE: serializa com um INSERT de OC concorrente (a FK dele pede KEY SHARE nesta linha).
-    IF v_cat THEN
-      SELECT pa.id, pa.grupo_id INTO v_prod_id, v_prod_grupo
-        FROM public.produtos_acabados pa
-       WHERE pa.modelo_id = NEW.id AND pa.tenant_id = NEW.tenant_id
-       FOR UPDATE;
-      IF FOUND AND v_prod_grupo IS DISTINCT FROM v_grupo
-         AND public._grupo_eh_acessorio(v_prod_grupo) IS DISTINCT FROM public._grupo_eh_acessorio(v_grupo)
-         AND EXISTS (SELECT 1 FROM public.ocs_p_acabado o WHERE o.produto_acabado_id = v_prod_id) THEN
-        RAISE EXCEPTION 'categoria_acessorio_com_pedido: produto com pedido nao pode trocar entre Acessorios e outro grupo pela Categoria do card'
-          USING ERRCODE = 'P0001';
-      END IF;
+    IF v_cat AND r.grupo_id IS DISTINCT FROM v_grupo
+       AND public._grupo_eh_acessorio(r.grupo_id) IS DISTINCT FROM public._grupo_eh_acessorio(v_grupo)
+       AND (EXISTS (SELECT 1 FROM public.ocs_p_acabado o WHERE r.tabela = 'produtos_acabados' AND o.produto_acabado_id = r.id)
+         OR EXISTS (SELECT 1 FROM public.ocs_importado o WHERE r.tabela = 'produtos_importados' AND o.produto_importado_id = r.id)) THEN
+      RAISE EXCEPTION 'categoria_acessorio_com_pedido: produto com pedido nao pode trocar entre Acessorios e outro grupo pela Categoria do card'
+        USING ERRCODE = 'P0001';
     END IF;
-    UPDATE public.produtos_acabados pa
-       SET grupo_id = CASE WHEN v_cat THEN v_grupo ELSE pa.grupo_id END,
-           categoria_id = CASE WHEN v_cat THEN NEW.categoria_principal_id ELSE pa.categoria_id END,
-           subcategoria1_id = CASE WHEN v_s1 THEN NEW.subcategoria1_id ELSE pa.subcategoria1_id END,
-           subcategoria2_id = CASE WHEN v_s2 THEN NEW.subcategoria2_id ELSE pa.subcategoria2_id END,
-           updated_at = now()
-     WHERE pa.modelo_id = NEW.id
-       AND pa.tenant_id = NEW.tenant_id
-       AND ((v_cat AND (pa.grupo_id IS DISTINCT FROM v_grupo OR pa.categoria_id IS DISTINCT FROM NEW.categoria_principal_id))
-         OR (v_s1 AND pa.subcategoria1_id IS DISTINCT FROM NEW.subcategoria1_id)
-         OR (v_s2 AND pa.subcategoria2_id IS DISTINCT FROM NEW.subcategoria2_id));
-  ELSIF NEW.origem = 'importado' THEN
-    IF v_cat THEN
-      SELECT pi.id, pi.grupo_id INTO v_prod_id, v_prod_grupo
-        FROM public.produtos_importados pi
-       WHERE pi.modelo_id = NEW.id AND pi.tenant_id = NEW.tenant_id
-       FOR UPDATE;
-      IF FOUND AND v_prod_grupo IS DISTINCT FROM v_grupo
-         AND public._grupo_eh_acessorio(v_prod_grupo) IS DISTINCT FROM public._grupo_eh_acessorio(v_grupo)
-         AND EXISTS (SELECT 1 FROM public.ocs_importado o WHERE o.produto_importado_id = v_prod_id) THEN
-        RAISE EXCEPTION 'categoria_acessorio_com_pedido: produto com pedido nao pode trocar entre Acessorios e outro grupo pela Categoria do card'
-          USING ERRCODE = 'P0001';
-      END IF;
+    v_g := CASE WHEN v_cat THEN v_grupo ELSE r.grupo_id END;
+    v_c := CASE WHEN v_cat THEN NEW.categoria_principal_id ELSE r.categoria_id END;
+    -- Sub (H1/M1 do G-migration): a sub do card vai ao produto quando mudou E pertence ao contexto certo — junto com a
+    -- categoria copiada, ou (troca SO da sub) quando o produto ja esta na MESMA categoria do card (senao seria sub de
+    -- outra categoria). Categoria copiada e sub do card vazia: a sub do produto fica SE ainda pertence a categoria
+    -- nova; se nao pertence, e limpa (nunca sub orfa de outra categoria).
+    v_n1 := CASE
+      WHEN v_s1 AND (v_cat OR r.categoria_id = NEW.categoria_principal_id) THEN NEW.subcategoria1_id
+      WHEN v_cat AND r.s1 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.subcategorias1_produto s
+                                                      WHERE s.id = r.s1 AND s.categoria_id = NEW.categoria_principal_id) THEN NULL
+      ELSE r.s1 END;
+    v_n2 := CASE
+      WHEN v_s2 AND (v_cat OR r.categoria_id = NEW.categoria_principal_id) THEN NEW.subcategoria2_id
+      WHEN v_cat AND r.s2 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.subcategorias2_produto s
+                                                      WHERE s.id = r.s2 AND s.categoria_id = NEW.categoria_principal_id) THEN NULL
+      ELSE r.s2 END;
+    IF (v_g, v_c, v_n1, v_n2) IS DISTINCT FROM (r.grupo_id, r.categoria_id, r.s1, r.s2) THEN
+      UPDATE public.produtos_acabados
+         SET grupo_id = v_g, categoria_id = v_c, subcategoria1_id = v_n1, subcategoria2_id = v_n2, updated_at = now()
+       WHERE id = r.id;
     END IF;
-    UPDATE public.produtos_importados pi
-       SET grupo_id = CASE WHEN v_cat THEN v_grupo ELSE pi.grupo_id END,
-           categoria_id = CASE WHEN v_cat THEN NEW.categoria_principal_id ELSE pi.categoria_id END,
-           subcategoria1_id = CASE WHEN v_s1 THEN NEW.subcategoria1_id ELSE pi.subcategoria1_id END,
-           subcategoria2_id = CASE WHEN v_s2 THEN NEW.subcategoria2_id ELSE pi.subcategoria2_id END,
-           updated_at = now()
-     WHERE pi.modelo_id = NEW.id
-       AND pi.tenant_id = NEW.tenant_id
-       AND ((v_cat AND (pi.grupo_id IS DISTINCT FROM v_grupo OR pi.categoria_id IS DISTINCT FROM NEW.categoria_principal_id))
-         OR (v_s1 AND pi.subcategoria1_id IS DISTINCT FROM NEW.subcategoria1_id)
-         OR (v_s2 AND pi.subcategoria2_id IS DISTINCT FROM NEW.subcategoria2_id));
-  END IF;
+  END LOOP;
+
+  FOR r IN
+    SELECT 'produtos_importados'::text AS tabela, pi.id, pi.grupo_id, pi.categoria_id, pi.subcategoria1_id AS s1, pi.subcategoria2_id AS s2
+      FROM public.produtos_importados pi
+     WHERE NEW.origem = 'importado' AND pi.modelo_id = NEW.id AND pi.tenant_id = NEW.tenant_id
+       FOR UPDATE
+  LOOP
+    -- P-142 B: produto com pedido nao troca entre Acessorios e outro grupo (grade UN x grade por tamanho).
+    IF v_cat AND r.grupo_id IS DISTINCT FROM v_grupo
+       AND public._grupo_eh_acessorio(r.grupo_id) IS DISTINCT FROM public._grupo_eh_acessorio(v_grupo)
+       AND (EXISTS (SELECT 1 FROM public.ocs_p_acabado o WHERE r.tabela = 'produtos_acabados' AND o.produto_acabado_id = r.id)
+         OR EXISTS (SELECT 1 FROM public.ocs_importado o WHERE r.tabela = 'produtos_importados' AND o.produto_importado_id = r.id)) THEN
+      RAISE EXCEPTION 'categoria_acessorio_com_pedido: produto com pedido nao pode trocar entre Acessorios e outro grupo pela Categoria do card'
+        USING ERRCODE = 'P0001';
+    END IF;
+    v_g := CASE WHEN v_cat THEN v_grupo ELSE r.grupo_id END;
+    v_c := CASE WHEN v_cat THEN NEW.categoria_principal_id ELSE r.categoria_id END;
+    -- Sub (H1/M1 do G-migration): a sub do card vai ao produto quando mudou E pertence ao contexto certo — junto com a
+    -- categoria copiada, ou (troca SO da sub) quando o produto ja esta na MESMA categoria do card (senao seria sub de
+    -- outra categoria). Categoria copiada e sub do card vazia: a sub do produto fica SE ainda pertence a categoria
+    -- nova; se nao pertence, e limpa (nunca sub orfa de outra categoria).
+    v_n1 := CASE
+      WHEN v_s1 AND (v_cat OR r.categoria_id = NEW.categoria_principal_id) THEN NEW.subcategoria1_id
+      WHEN v_cat AND r.s1 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.subcategorias1_produto s
+                                                      WHERE s.id = r.s1 AND s.categoria_id = NEW.categoria_principal_id) THEN NULL
+      ELSE r.s1 END;
+    v_n2 := CASE
+      WHEN v_s2 AND (v_cat OR r.categoria_id = NEW.categoria_principal_id) THEN NEW.subcategoria2_id
+      WHEN v_cat AND r.s2 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.subcategorias2_produto s
+                                                      WHERE s.id = r.s2 AND s.categoria_id = NEW.categoria_principal_id) THEN NULL
+      ELSE r.s2 END;
+    IF (v_g, v_c, v_n1, v_n2) IS DISTINCT FROM (r.grupo_id, r.categoria_id, r.s1, r.s2) THEN
+      UPDATE public.produtos_importados
+         SET grupo_id = v_g, categoria_id = v_c, subcategoria1_id = v_n1, subcategoria2_id = v_n2, updated_at = now()
+       WHERE id = r.id;
+    END IF;
+  END LOOP;
   RETURN NULL;
 END
 $function$;
@@ -181,7 +212,7 @@ DECLARE
   v_md5 text;
 BEGIN
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_espelho_categoria()')));
-  IF v_md5 IS DISTINCT FROM '3ff558f37ef4ee75d36db77635a51268' THEN
+  IF v_md5 IS DISTINCT FROM 'ea9edd59c5ec5eff207336dbe06a3499' THEN
     RAISE EXCEPTION 'p137: pos-condicao falhou - fn_modelo_espelho_categoria nao ficou com o texto esperado (md5 %); client_encoding? - desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   SELECT md5(pg_get_triggerdef(t.oid)) INTO v_md5 FROM pg_trigger t

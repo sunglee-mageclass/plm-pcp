@@ -2,7 +2,9 @@
 -- Derruba o gatilho trg_modelo_espelho_categoria e a funcao fn_modelo_espelho_categoria: a Categoria/Subcategorias do
 -- card voltam a NAO ir para o produto (comportamento anterior). NAO desfaz dados ja copiados enquanto o gatilho esteve
 -- no ar (igual ao espelho de Nome: o dado copiado e o do card, que continua la).
--- • Guarda: so roda se a funcao viva tem o texto da 20261017100000 (md5 3ff558f37ef4ee75d36db77635a51268) e o gatilho a
+-- • PASSO 2 de 2 (horario calmo). O passo 1 de emergencia, sem lock em modelos, e o
+--   20261017100000_categoria_card_para_produto_down_neutraliza.sql (troca o corpo da funcao por um no-op).
+-- • Guarda: so roda se a funcao viva tem o texto da 20261017100000 (ATIVA) ou o neutralizado (passo 1) e o gatilho a
 --   definicao dela; ambos ausentes = nada a desfazer (NOTICE, no-op); outro texto -> P0001.
 -- • Guarda LIFO: o backfill 20261017110000 depende deste gatilho — se _bkp_p137_backfill ainda existe, PARE (rode antes
 --   o inverso do backfill, supabase/rollback/20261017110000_categoria_card_para_produto_backfill_down.sql).
@@ -33,8 +35,9 @@ BEGIN
     RAISE NOTICE 'p137 (volta): gatilho e funcao ausentes - nada a desfazer';
     RETURN;
   END IF;
-  IF v_md5 IS DISTINCT FROM '3ff558f37ef4ee75d36db77635a51268' THEN
-    RAISE EXCEPTION 'p137 (volta): fn_modelo_espelho_categoria nao esta com o texto da 20261017100000 (md5 %) - outra frente mexeu', v_md5 USING ERRCODE = 'P0001';
+  -- aceita a funcao ATIVA (texto da 20261017100000) ou NEUTRALIZADA (passo 1, _down_neutraliza.sql)
+  IF v_md5 NOT IN ('ea9edd59c5ec5eff207336dbe06a3499', 'bb13fa0c820f96463b877f89f8e1085b') THEN
+    RAISE EXCEPTION 'p137 (volta): fn_modelo_espelho_categoria nem ativa nem neutralizada (md5 %) - outra frente mexeu', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF v_trg IS NOT NULL AND v_trg IS DISTINCT FROM '871039e642390c357188b6b2a1134d64' THEN
     RAISE EXCEPTION 'p137 (volta): trg_modelo_espelho_categoria com outra definicao (md5 %) - outra frente mexeu', v_trg USING ERRCODE = 'P0001';
