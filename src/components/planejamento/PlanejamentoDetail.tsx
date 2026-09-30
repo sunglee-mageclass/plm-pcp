@@ -38,7 +38,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { TEXTO_SKU_TRAVADO, TEXTO_TRAVA_SHEET, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
-import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
+import { estadoMO, moLinhasEqual, moLinhaVaiReabrir, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
@@ -718,7 +718,10 @@ function PlanejamentoDetailConteudo({
   // Gate do botão Lançar: liberada = sem serviço OU todas as linhas aprovadas. Derivado das
   // linhas LOCAIS (`estadoMO`) — reflete aprovações imediatas sem esperar o refetch do resumo.
   const moEstadoLocal = estadoMO(moLinhas);
-  const maoObraPendente = !(moEstadoLocal === "sem_servico" || moEstadoLocal === "aprovada");
+  // Contas certas item 8 (P-163 A): linha aprovada com valor/serviço mudado e AINDA NÃO salvo conta como pendente — o
+  // Salvar a reabre no servidor; sem isto o Lançar (que não passa pelo Salvar) lançaria com a M.O. antiga aprovada.
+  const moReabreAoSalvar = moLinhas.some((l) => l.id != null && moLinhaVaiReabrir(l, moLinhasBase.find((b) => b.id === l.id)));
+  const maoObraPendente = !(moEstadoLocal === "sem_servico" || moEstadoLocal === "aprovada") || moReabreAoSalvar;
 
   // Aprovar/reprovar POR SERVIÇO (RPC `aprovar_servico_mo`, gated no servidor por
   // `producao_servico_aprovacao`). Ação imediata (não entra no Salvar da página). Patch LOCAL
@@ -1030,6 +1033,7 @@ function PlanejamentoDetailConteudo({
       // Pré-checagens de UX (mensagem imediata); o SERVIDOR re-valida em lancar_modelo.
       if (send) {
         if (!cqConfirmado) throw new Error("Confirme o Controle de Qualidade antes de lançar.");
+        if (moReabreAoSalvar) throw new Error("Salve antes de lançar: a mão de obra alterada volta para pendente e precisa de nova aprovação.");
         if (maoObraPendente) throw new Error("Aprove a mão de obra antes de lançar.");
         if (!draft.data_lancamento) throw new Error("Preencha a Data de Lançamento.");
       }
@@ -1152,7 +1156,8 @@ function PlanejamentoDetailConteudo({
   // do botão desabilitado no setor Lançamento.
   const lancarBloqueios: string[] = [];
   if (!cqConfirmado) lancarBloqueios.push("Confirme o Controle de Qualidade (Pré e, se houver acabamento, o Pós).");
-  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Preço e Custos).");
+  if (moReabreAoSalvar) lancarBloqueios.push("Salve antes: a mão de obra alterada volta para pendente e precisa de nova aprovação.");
+  else if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Preço e Custos).");
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   // Selo da etapa no HEADER (decisão 5: Nome → REF → selo). "Planejamento" antes da Ordem de Criação, "Lançado"

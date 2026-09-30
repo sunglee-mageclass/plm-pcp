@@ -56,7 +56,9 @@ export function moLinhasEqual(a: MoLinha[], b: MoLinha[]): boolean {
 }
 
 /** Texto da dica âmbar da linha que vai reabrir (MaoObraEditor). */
-export const TEXTO_MO_VAI_REABRIR = "Mudar o valor volta este serviço para pendente — precisa aprovar de novo.";
+export const TEXTO_MO_VAI_REABRIR = "Mudar o valor volta este serviço para pendente — precisa de nova aprovação.";
+/** Title dos botões Aprovar/Reprovar enquanto a linha tem valor/serviço mudado e ainda não salvo. */
+export const TEXTO_MO_SALVE_ANTES = "Salve o novo valor antes de aprovar ou reprovar";
 
 /**
  * Contas certas item 8 (P-163 A): no servidor, linha JÁ DECIDIDA (aprovada OU reprovada) que muda de VALOR ou de SERVIÇO

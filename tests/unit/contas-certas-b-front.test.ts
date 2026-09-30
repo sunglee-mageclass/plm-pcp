@@ -6,7 +6,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cqLiberado, pecasReaisLiberadas } from "@/lib/cq-status";
-import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, type MoLinha } from "@/lib/mao-obra";
+import {
+  moLinhaVaiReabrir,
+  TEXTO_MO_VAI_REABRIR,
+  TEXTO_MO_SALVE_ANTES,
+  type MoLinha,
+} from "@/lib/mao-obra";
 import { numeroDaPrevia } from "@/lib/ref-montar";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -125,11 +130,59 @@ describe("item 8 — moLinhaVaiReabrir (P-163 A)", () => {
     );
     expect(ed).toMatch(/\{vaiReabrir && \(/);
     expect(ed).toMatch(/\{TEXTO_MO_VAI_REABRIR\}/);
+    // vale para aprovada E reprovada (a reprovada nunca foi aprovada: "nova aprovação")
     expect(TEXTO_MO_VAI_REABRIR).toBe(
-      "Mudar o valor volta este serviço para pendente — precisa aprovar de novo.",
+      "Mudar o valor volta este serviço para pendente — precisa de nova aprovação.",
     );
     expect(ler("src/components/planejamento/PlanejamentoDetail.tsx")).toMatch(
       /linhasBase=\{moLinhasBase\}/,
+    );
+    // ícone alinhado ao topo (texto quebra a 360 px) e Aprovar/Reprovar travados até salvar
+    expect(ed).toMatch(
+      /items-start gap-1 text-xs text-amber-700[^"]*">\s*<AlertTriangle className="mt-0\.5 h-3 w-3 shrink-0" \/>/,
+    );
+    expect(ed).toMatch(
+      /disabled=\{rowPending \|\| !persistida \|\| vaiReabrir\} onClick=\{\(\) => linhaId && onAprovar\(linhaId\)\}/,
+    );
+    expect(ed).toMatch(
+      /disabled=\{rowPending \|\| !persistida \|\| vaiReabrir\} onClick=\{\(\) => linhaId && setRepro\(\{ linhaId \}\)\}/,
+    );
+    expect(ed).toMatch(/vaiReabrir \? TEXTO_MO_SALVE_ANTES/);
+    expect(TEXTO_MO_SALVE_ANTES).toBe("Salve o novo valor antes de aprovar ou reprovar");
+  });
+
+  it("I-1: o editor enxuto dos cards de Produto Acabado/Importado também avisa e trava", () => {
+    const mini = ler("src/components/planejamento/MaoObraCardMini.tsx");
+    expect(mini).toMatch(
+      /const vaiReabrir = moLinhaVaiReabrir\(l, linhaId != null \? linhasBase\?\.find\(\(b\) => b\.id === linhaId\) : undefined\);/,
+    );
+    expect(mini).toMatch(/\{vaiReabrir && \(/);
+    expect(mini).toMatch(/\{TEXTO_MO_VAI_REABRIR\}/);
+    expect((mini.match(/!persistida \|\| vaiReabrir/g) ?? []).length).toBe(2);
+    expect(ler("src/hooks/useMaoObraModelo.ts")).toMatch(
+      /linhas, setLinhas, linhasBase, catsServico/,
+    );
+    for (const card of [
+      "src/components/produto-acabado/ProdutoCard.tsx",
+      "src/components/produto-importado/ProdutoImportadoCard.tsx",
+    ]) {
+      expect(ler(card)).toMatch(/linhasBase=\{mo\.linhasBase\}/);
+    }
+  });
+
+  it("I-2: Lançar antes do Salvar — a linha que vai reabrir conta como pendente e bloqueia com 'salve antes'", () => {
+    const det = ler("src/components/planejamento/PlanejamentoDetail.tsx");
+    expect(det).toMatch(
+      /const moReabreAoSalvar = moLinhas\.some\(\(l\) => l\.id != null && moLinhaVaiReabrir\(l, moLinhasBase\.find/,
+    );
+    expect(det).toMatch(
+      /const maoObraPendente = !\(moEstadoLocal === "sem_servico" \|\| moEstadoLocal === "aprovada"\) \|\| moReabreAoSalvar;/,
+    );
+    expect(det).toMatch(
+      /if \(moReabreAoSalvar\) throw new Error\("Salve antes de lançar: a mão de obra alterada volta para pendente/,
+    );
+    expect(det).toMatch(
+      /if \(moReabreAoSalvar\) lancarBloqueios\.push\("Salve antes: a mão de obra alterada volta para pendente/,
     );
   });
 });
@@ -146,8 +199,12 @@ describe("item 9b — prévia da REF usa o número do servidor", () => {
     const card = ler("src/components/configuracoes/FormatoRefCard.tsx");
     const novo = ler("src/components/produto-acabado/NovoProdutoDialog.tsx");
     expect(card).toMatch(
-      /supabase\.rpc\("ref_proximo_numero" as any, \{ _num_inicio: numInicio \}\)/,
+      /supabase\.rpc\("ref_proximo_numero" as any, \{ _num_inicio: numInicioDeb \}\)/,
     );
+    // debounce ~300 ms e erro NÃO cai calado no número antigo
+    expect(card).toMatch(/setTimeout\(\(\) => setNumInicioDeb\(numInicio\), 300\)/);
+    expect(card).toMatch(/\{proximoErro && \(/);
+    expect(novo).toMatch(/\{proximoErro && <span/);
     expect(card).toMatch(/const numeroExemplo = numeroDaPrevia\(proximoServidor, numInicio\);/);
     expect(novo).toMatch(/supabase\.rpc\("ref_proximo_numero" as any, \{\}\)/);
     expect(novo).toMatch(

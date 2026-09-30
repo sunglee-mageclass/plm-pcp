@@ -109,7 +109,7 @@ export function useMaoObraModelo(modeloId: string | null | undefined, podeVerCus
   });
 
   return {
-    linhas, setLinhas, catsServico, linhasPersistidas, dirty,
+    linhas, setLinhas, linhasBase, catsServico, linhasPersistidas, dirty,
     salvar, aprovar,
     total: linhas.reduce((s, l) => s + (Number(l.valor) || 0), 0),
     podeVerCustos,

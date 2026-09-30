@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
-import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, type MoLinha } from "@/lib/mao-obra";
+import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, type MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
@@ -105,18 +105,19 @@ export function MaoObraEditor({
               <span className="w-full text-xs text-red-700 dark:text-red-300">Motivo: {l.motivo_reprovacao}</span>
             )}
             {vaiReabrir && (
-              <span role="status" data-testid="mo-vai-reabrir" className="flex w-full items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="h-3 w-3 shrink-0" />{TEXTO_MO_VAI_REABRIR}
+              <span role="status" data-testid="mo-vai-reabrir" className="flex w-full items-start gap-1 text-xs text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{TEXTO_MO_VAI_REABRIR}
               </span>
             )}
             {podeAprovar && (() => {
               const rowPending = pendingLinhaId !== undefined && pendingLinhaId != null && pendingLinhaId === linhaId;
-              const bloqTitulo = !persistida ? "Salve o modelo antes de aprovar este serviço" : undefined;
+              // Linha com valor/serviço mudado e NÃO salvo: aprovar agora aprovaria o valor ANTIGO e o Salvar reabriria.
+              const bloqTitulo = !persistida ? "Salve o modelo antes de aprovar este serviço" : vaiReabrir ? TEXTO_MO_SALVE_ANTES : undefined;
               return (
                 <span className="ml-auto flex shrink-0 flex-col items-end gap-1">
                   <span className="flex gap-1">
-                    <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title={bloqTitulo ?? "Aprovar"} className="text-emerald-700" disabled={rowPending || !persistida} onClick={() => linhaId && onAprovar(linhaId)}><Check className="h-4 w-4" /></Button>
-                    <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={bloqTitulo ?? "Reprovar"} className="text-red-700" disabled={rowPending || !persistida} onClick={() => linhaId && setRepro({ linhaId })}><X className="h-4 w-4" /></Button>
+                    <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title={bloqTitulo ?? "Aprovar"} className="text-emerald-700" disabled={rowPending || !persistida || vaiReabrir} onClick={() => linhaId && onAprovar(linhaId)}><Check className="h-4 w-4" /></Button>
+                    <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={bloqTitulo ?? "Reprovar"} className="text-red-700" disabled={rowPending || !persistida || vaiReabrir} onClick={() => linhaId && setRepro({ linhaId })}><X className="h-4 w-4" /></Button>
                   </span>
                   {!persistida && <span className="text-[11px] text-muted-foreground">Salve para aprovar</span>}
                 </span>

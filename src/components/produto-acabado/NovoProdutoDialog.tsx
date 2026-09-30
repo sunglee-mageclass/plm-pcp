@@ -77,7 +77,7 @@ export function NovoProdutoDialog({
   // parte antes do número), pra manter o visual "SIGLA" + máscara "NNN…" de dígitos que o
   // número real (sequencial, só o banco sabe) vai ocupar — sem reimplementar a montagem.
   // Contas certas 9b: nº real do próximo produto (max(último + 1, "Começar em")), lido sem consumir a sequência.
-  const { data: proximoServidor } = useQuery({
+  const { data: proximoServidor, isError: proximoErro } = useQuery({
     queryKey: ["ref-proximo-numero", tenantId, null],
     enabled: !!tenantId && open,
     queryFn: async () => {
@@ -189,6 +189,7 @@ export function NovoProdutoDialog({
           {refPreview && (
             <p className="text-xs text-muted-foreground">
               Prévia da REF: <span className="font-medium tabular-nums text-foreground">{refPreview}{refNumMask}</span> (número sequencial ao criar)
+              {proximoErro && <span className="block text-amber-700 dark:text-amber-300">Não foi possível ler o contador da loja — a quantidade de dígitos pode mudar.</span>}
             </p>
           )}
         </div>

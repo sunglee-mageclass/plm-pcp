@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowUp, ArrowDown, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -170,12 +170,22 @@ export function FormatoRefCard({
   };
   // Contas certas 9b: o número da prévia é o próximo REAL — max(último emitido + 1, "Começar em" digitado) — lido do
   // servidor sem consumir a sequência (antes mostrava só o "Começar em", que o contador podia já ter passado).
-  const { data: proximoServidor } = useQuery({
-    queryKey: ["ref-proximo-numero", tenantId, numInicio],
+  // Debounce de ~300 ms no "Começar em" digitado: 1 leitura quando a pessoa para de digitar, não 1 por tecla.
+  const [numInicioDeb, setNumInicioDeb] = useState(numInicio);
+  useEffect(() => {
+    const t = setTimeout(() => setNumInicioDeb(numInicio), 300);
+    return () => clearTimeout(t);
+  }, [numInicio]);
+  const {
+    data: proximoServidor,
+    isError: proximoErro,
+    isPending: proximoCarregando,
+  } = useQuery({
+    queryKey: ["ref-proximo-numero", tenantId, numInicioDeb],
     enabled: !!tenantId,
     placeholderData: keepPreviousData,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("ref_proximo_numero" as any, { _num_inicio: numInicio });
+      const { data, error } = await supabase.rpc("ref_proximo_numero" as any, { _num_inicio: numInicioDeb });
       if (error) throw error;
       return data == null ? null : Number(data);
     },
@@ -336,6 +346,15 @@ export function FormatoRefCard({
           <p className="text-xs text-muted-foreground">
             Exemplo com {exGrupo ? "o 1º grupo/categoria/subcategoria cadastrado" : "valores de exemplo (loja sem taxonomia cadastrada ainda)"}.
           </p>
+          {/* Sem o contador do servidor, a prévia NÃO finge o número: avisa que é só o "Começar em". */}
+          {proximoErro && (
+            <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+              Não foi possível ler o contador da loja — o número abaixo é só o "Começar em"; o real pode ser maior.
+            </p>
+          )}
+          {!proximoErro && proximoCarregando && (
+            <p className="text-xs text-muted-foreground">Lendo o contador da loja…</p>
+          )}
           <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 font-mono text-sm">
             {FAMILIA_ROWS.map((f) => (
               <div key={f.key} className="flex items-center justify-between gap-2">

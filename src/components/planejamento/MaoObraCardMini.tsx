@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
+import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES } from "@/lib/mao-obra";
 import type { MaoObraEditorLinha, CategoriaServicoOpt } from "./MaoObraEditor";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
@@ -21,7 +22,7 @@ import { MoReprovarDialog } from "./MoReprovarDialog";
  */
 export function MaoObraCardMini({
   linhas, categorias, podeVerCustos, podeAprovar,
-  onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas,
+  onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -32,6 +33,9 @@ export function MaoObraCardMini({
   onReprovar: (linhaId: string, motivo: string) => void;
   pendingLinhaId?: string | null;
   linhasPersistidas?: Set<string>;
+  /** Contas certas item 8 (P-163 A): linhas como estão no SERVIDOR — linha aprovada/reprovada com valor mudado mostra a
+   * dica âmbar "volta para pendente" e trava Aprovar/Reprovar até salvar (mesma regra do MaoObraEditor). */
+  linhasBase?: MaoObraEditorLinha[];
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [addSel, setAddSel] = useState<string>("");
@@ -70,6 +74,8 @@ export function MaoObraCardMini({
         const estado = l.aprovado === true ? "aprovada" : l.aprovado === false ? "reprovada" : "pendente";
         const rowPending = pendingLinhaId !== undefined && pendingLinhaId != null && pendingLinhaId === linhaId;
         const persistida = linhaId != null && (linhasPersistidas === undefined || linhasPersistidas.has(linhaId));
+        const vaiReabrir = moLinhaVaiReabrir(l, linhaId != null ? linhasBase?.find((b) => b.id === linhaId) : undefined);
+        const tituloBloq = !persistida ? null : vaiReabrir ? TEXTO_MO_SALVE_ANTES : null;
         return (
           <div key={linhaId ?? `nova-${idx}`} className="flex flex-wrap items-center gap-2 rounded-md border p-1.5">
             <span className="min-w-[6rem] flex-1 truncate text-xs font-medium">{nomeCat(l.categoria_terceirizado_id)}</span>
@@ -87,12 +93,17 @@ export function MaoObraCardMini({
             </StatusBadge>
             {podeAprovar && (
               <span className="flex shrink-0 gap-1">
-                <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title={persistida ? "Aprovar" : "Salve antes de aprovar"} className="text-emerald-700" disabled={rowPending || !persistida} onClick={() => linhaId && onAprovar(linhaId)}><Check className="h-3.5 w-3.5" /></Button>
-                <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={persistida ? "Reprovar" : "Salve antes de reprovar"} className="text-red-700" disabled={rowPending || !persistida} onClick={() => linhaId && setRepro({ linhaId })}><X className="h-3.5 w-3.5" /></Button>
+                <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title={tituloBloq ?? (persistida ? "Aprovar" : "Salve antes de aprovar")} className="text-emerald-700" disabled={rowPending || !persistida || vaiReabrir} onClick={() => linhaId && onAprovar(linhaId)}><Check className="h-3.5 w-3.5" /></Button>
+                <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={tituloBloq ?? (persistida ? "Reprovar" : "Salve antes de reprovar")} className="text-red-700" disabled={rowPending || !persistida || vaiReabrir} onClick={() => linhaId && setRepro({ linhaId })}><X className="h-3.5 w-3.5" /></Button>
               </span>
             )}
             {podeVerCustos && (podeAprovar || l.aprovado === true) && (
               <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" onClick={() => removerAt(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
+            )}
+            {vaiReabrir && (
+              <span role="status" data-testid="mo-vai-reabrir" className="flex w-full items-start gap-1 text-[11px] text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{TEXTO_MO_VAI_REABRIR}
+              </span>
             )}
           </div>
         );

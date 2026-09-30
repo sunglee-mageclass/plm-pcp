@@ -1130,6 +1130,7 @@ export function ProdutoCard({
                     onReprovar={(linhaId, motivo) => mo.aprovar.mutate({ linhaId, aprovado: false, motivo })}
                     pendingLinhaId={mo.aprovar.isPending ? mo.aprovar.variables?.linhaId : undefined}
                     linhasPersistidas={mo.linhasPersistidas}
+                    linhasBase={mo.linhasBase}
                   />
                   {podeVerCustosMO && mo.dirty && (
                     <div className="flex justify-end">
