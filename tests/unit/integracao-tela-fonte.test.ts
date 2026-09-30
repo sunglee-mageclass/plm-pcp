@@ -14,6 +14,10 @@ import { abasVisiveis } from "@/lib/integracao/abas";
 
 const ler = (p: string) => readFileSync(p, "utf8");
 
+// P-146/P-156 C — retornos estáveis dos 2 hooks novos de `useIntegracao` no mock da aba Produtos.
+const VERSAO_ANTERIOR_VAZIA = { mapa: undefined, carregando: false };
+const VERSOES_INTEGRADAS_VAZIAS = new Map();
+
 describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-81 A, v4)", () => {
   it("ModuleDef próprio 'integracao' no FIM do catálogo, página única (link direto)", () => {
     const ult = PAGES_CATALOG[PAGES_CATALOG.length - 1];
@@ -984,6 +988,10 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       },
       useIntegracaoAoVivo: () => {},
       usePreviasSkus: () => ({}),
+      // P-146/P-156 C: versão anterior (Preço anterior/Título) e "versão já integrada" — sem dado neste harness
+      // (objetos ESTÁVEIS por identidade, pra não derrotar o React.memo das linhas que este arquivo mede).
+      useVersaoAnteriorIntegracao: () => VERSAO_ANTERIOR_VAZIA,
+      useVersoesIntegradas: () => VERSOES_INTEGRADAS_VAZIAS,
       invalidarIntegracao: invalidarIntegracaoSpy,
       useSalvarIntegracao: () => ({
         isPending: mutationState.isPending,
