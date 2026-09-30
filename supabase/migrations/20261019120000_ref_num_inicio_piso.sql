@@ -152,6 +152,8 @@ AS $function$
 -- [contas-certas 9b] Previa SO LEITURA do proximo numero de REF da loja do usuario: max(ultimo + 1, piso), a MESMA
 -- conta de _ref_next_global, SEM consumir a sequencia (nao grava, nao trava). Piso = "Comecar em" salvo da loja
 -- (_ref_num_inicio) ou, quando a tela manda, o valor ainda nao salvo que a pessoa esta digitando (_num_inicio).
+-- R1d: o valor digitado segue a MESMA regra do _ref_num_inicio (so '^[0-9]{1,18}$'; senao o piso 10000000) - a previa
+-- nunca mostra um numero que a emissao real nao usaria.
 DECLARE
   v_tenant uuid := public.get_user_tenant_id();
   v_ultimo bigint;
@@ -160,7 +162,10 @@ BEGIN
     RAISE EXCEPTION 'Nao autenticado' USING ERRCODE = '42501';
   END IF;
   SELECT rs.ultimo INTO v_ultimo FROM public.ref_sequencia rs WHERE rs.tenant_id = v_tenant;
-  RETURN GREATEST(COALESCE(v_ultimo, 0) + 1, COALESCE(_num_inicio, public._ref_num_inicio(v_tenant)));
+  RETURN GREATEST(COALESCE(v_ultimo, 0) + 1,
+                  CASE WHEN _num_inicio IS NULL THEN public._ref_num_inicio(v_tenant)
+                       WHEN _num_inicio::text ~ '^[0-9]{1,18}$' THEN _num_inicio
+                       ELSE 10000000 END);
 END
 $function$;
 
@@ -180,7 +185,7 @@ BEGIN
         USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  IF md5(pg_get_functiondef('public.ref_proximo_numero(bigint)'::regprocedure)) IS DISTINCT FROM '2aa82c7778515a91f9d33bf33bbb9f6e' THEN
+  IF md5(pg_get_functiondef('public.ref_proximo_numero(bigint)'::regprocedure)) IS DISTINCT FROM 'be30ddeab566a8997cb8b935365c733c' THEN
     RAISE EXCEPTION 'contas_certas_9: ref_proximo_numero nao ficou com o texto deste arquivo' USING ERRCODE = 'P0001';
   END IF;
   IF has_function_privilege('anon', 'public.ref_proximo_numero(bigint)', 'EXECUTE')

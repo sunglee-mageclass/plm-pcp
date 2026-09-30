@@ -503,10 +503,22 @@ describe.skipIf(!RODA)("contas certas A1 — fix round 1", () => {
           where n.nspname = 'public'
             and (p.prosrc ~* 'update\\s+(public\\.)?parcelas\\y'
                  or p.prosrc ~* 'insert\\s+into\\s+(public\\.)?parcelas\\y[^;]*on\\s+conflict[^;]*do\\s+update')
-            and p.prosrc !~ 'app\\.parcelas_sistema'
+            and p.prosrc !~* 'set_config\\s*\\(\\s*''app\\.parcelas_sistema'''
           order by 1`,
       );
       expect(rows.map((r) => r.f)).toEqual([]);
+      // R1a: citar a GUC num COMENTÁRIO não basta — controle negativo (função descartada no ROLLBACK)
+      await c.query(`create function public._cc_drift_fake() returns void language plpgsql as $f$
+        begin
+          -- app.parcelas_sistema (so citada)
+          update public.parcelas set data_vencimento = data_vencimento where false;
+        end $f$`);
+      const fake = await c.query(
+        `select p.oid::regprocedure::text f from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.prosrc ~* 'update\\s+(public\\.)?parcelas\\y'
+            and p.prosrc !~* 'set_config\\s*\\(\\s*''app\\.parcelas_sistema'''`,
+      );
+      expect(fake.rows.map((r) => r.f)).toEqual(["_cc_drift_fake()"]);
       // e a única que faz UPDATE (P-171) liga a GUC de fato
       const v = await um<{ d: string }>(
         c,
@@ -588,7 +600,12 @@ describe.skipIf(!RODA)("contas certas P-171 A — parcela_voltar_vencimento_auto
           limit 1`,
         [TENANT_TESTE],
       );
-      if (imp) casos.push(["p_importado", imp.id]);
+      // R1c: as 5 famílias são obrigatórias (a cópia tem OC de importado com parcela aberta; sem ela o teste FALHA)
+      if (!imp)
+        throw new Error(
+          "Cópia sem OC de importado com parcela aberta — o teste exige as 5 famílias",
+        );
+      casos.push(["p_importado", imp.id]);
       for (const [f, oc] of casos) {
         const orig = (await parcelas(c, f, oc)).find((p) => p.status !== "pago")!;
         await ajustarAMao(c, orig.id, "2028-01-31");
@@ -610,7 +627,13 @@ describe.skipIf(!RODA)("contas certas P-171 A — parcela_voltar_vencimento_auto
         expect(a.dados).toMatchObject({ vencimento_manual: { de: true, para: false } });
         expect(a.u).not.toBeNull(); // autor = quem clicou
       }
-      expect(casos.length).toBeGreaterThanOrEqual(4);
+      expect(casos.map(([f]) => f)).toEqual([
+        "tecido",
+        "aviamento",
+        "etiqueta",
+        "p_acabado",
+        "p_importado",
+      ]);
     });
   });
 

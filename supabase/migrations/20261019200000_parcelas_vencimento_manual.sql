@@ -49,7 +49,8 @@
 --     public.gerar_parcelas_oc_aviamento()               e98640190802afd6de9f82ac4ecb39c3  (copia 30/set)
 --     public.gerar_parcelas_oc_etiqueta()                b05942e71d0aa87fd68e50530e748e94  (copia 30/set)
 --   Premissa conferida (DURA): nenhuma funcao do schema public faz UPDATE em parcelas (nem INSERT ... ON CONFLICT DO
---   UPDATE) sem ligar app.parcelas_sistema = 'on' (senao o gatilho marcaria um ajuste do sistema como "manual").
+--   UPDATE) sem LIGAR a GUC por set_config('app.parcelas_sistema', ...) - citar o nome num comentario nao conta (R1a) -
+--   (senao o gatilho marcaria um ajuste do sistema como "manual").
 --   Mesma varredura num teste anti-drift (M3). Fix round 1 (L1): a data guardada so e consumida pela parcela da mesma loja.
 --   Funcoes NOVAS deste arquivo (pos-condicao): fn_parcela_vencimento_manual, fn_parcela_vencimento_guarda,
 --   fn_parcela_vencimento_reaplica, fn_parcelas_vencimento_guardado_limpa (md5 conferidos no fim).
@@ -102,14 +103,14 @@ BEGIN
     END IF;
   END LOOP;
   -- premissa: nenhuma funcao faz UPDATE em parcelas (todo UPDATE de data_vencimento e da pessoa) - a nao ser as que
-  -- ligam a GUC app.parcelas_sistema (ex.: parcela_voltar_vencimento_automatico, P-171 A). Idem INSERT ... ON CONFLICT
+  -- LIGAM a GUC por set_config('app.parcelas_sistema', ...) (ex.: parcela_voltar_vencimento_automatico, P-171 A). Idem INSERT ... ON CONFLICT
   -- DO UPDATE. O teste anti-drift tests/integration/parcelas-vencimento-manual.test.ts confere o mesmo (M3).
   SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_lista
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public'
      AND (p.prosrc ~* 'update\s+(public\.)?parcelas\y'
           OR p.prosrc ~* 'insert\s+into\s+(public\.)?parcelas\y[^;]*on\s+conflict[^;]*do\s+update')
-     AND p.prosrc !~ 'app\.parcelas_sistema';
+     AND p.prosrc !~* 'set_config\s*\(\s*''app\.parcelas_sistema''';  -- R1a: so conta quem LIGA a GUC (citar num comentario nao basta)
   IF v_lista IS NOT NULL THEN
     RAISE EXCEPTION 'contas_certas_a1: funcao(oes) do servidor fazem UPDATE em parcelas (%): o gatilho marcaria o ajuste do sistema como manual - revisar', v_lista
       USING ERRCODE = 'P0001';

@@ -15,7 +15,7 @@ const MD5 = {
   modeloRef: "0752dc9de192a431b7a241e10d00d58a",
   acabadoRef: "83041c58e76389cab40f3f12ff5a81d0",
   importadoRef: "5549319a6bc74b76e7cb05c0ac37588b",
-  refProximo: "2aa82c7778515a91f9d33bf33bbb9f6e",
+  refProximo: "be30ddeab566a8997cb8b935365c733c",
 };
 
 async function md5Fn(c: Client, sig: string): Promise<string | null> {
@@ -456,6 +456,26 @@ describe.skipIf(!RODA)(
         expect(
           Number((await um<{ n: string }>(c, `select public.ref_proximo_numero(5) as n`)).n),
         ).toBe(10000275);
+      });
+    });
+
+    it("R1d: 'Começar em' digitado fora da regra (19 dígitos, negativo) → a prévia usa o piso 10000000, como a emissão", async () => {
+      await withTx(async (c) => {
+        await prepara(c, 5, null);
+        await comoUsuario(c, USER_TESTE);
+        for (const v of ["9223372036854775807", "-5"]) {
+          const r = await um<{ n: string }>(
+            c,
+            `select public.ref_proximo_numero($1::bigint) as n`,
+            [v],
+          );
+          expect(Number(r.n)).toBe(10000000);
+        }
+        const ok = await um<{ n: string }>(
+          c,
+          `select public.ref_proximo_numero(123456789012345678) as n`,
+        );
+        expect(ok.n).toBe("123456789012345678");
       });
     });
 
