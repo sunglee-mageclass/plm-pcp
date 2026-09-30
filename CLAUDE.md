@@ -938,6 +938,52 @@ usa a MESMA função pura `etapaDoModelo`/`etapaFiltroId` (`src/lib/kanban-auto-
 alimenta o selo `EtapaKanbanBadge` no card — filtro e selo nunca divergem, inclusive
 revenda/importado (fluxo próprio de `etapaDoModelo`).
 
+15. **Custo previsto derivado no servidor (release 8, contas certas C; plano `.superpowers/sdd/2026-09-30-contas-certas-cd/plan-cd.md`)** —
+    `modelos.custo_peca_previsto`, `custo_tecido/forro/entretela/aviamento_total` e o `custo_previsto` das linhas do BOM
+    (tecido/aviamento/etiqueta) de `origem='interno'` são calculados NO BANCO (`20261019300000_custo_previsto_servidor.sql`);
+    o front (C3) **não manda mais** esses campos — `trg_modelo_custo_derivado` (BEFORE UPDATE em `modelos`, `WHEN` OLD×NEW)
+    **reverte** gravação do cliente neles (só passa com a GUC `app.custo_sistema='on'`). **Fila + processador:** os gatilhos de
+    ficha/preço (`trg_custo_fila_*`, um por evento, `FOR EACH STATEMENT` com transição; em `modelos` por linha com `WHEN`)
+    enfileiram em `custo_recalculo_fila` (RLS sem policy, `REVOKE ALL`); o **CONSTRAINT TRIGGER adiado**
+    `trg_custo_processar_fila` roda no COMMIT (`fn_custo_processar_fila`): orçamento de **3 s contados de
+    `statement_timestamp()`**, lotes de **25** cards, `SKIP LOCKED` (nunca espera trava), linhas travadas em `ORDER BY id`;
+    o que sobra **fica na fila** e o **WARNING (ASCII) nunca aborta o COMMIT do usuário**; o `DELETE … RETURNING` fica DENTRO do
+    bloco protegido (R1: nunca perde recálculo; lote falhou → card a card, cada um com sub-bloco EXCEPTION); card que falha
+    **5 vezes** (`tentativas`) para de ser tentado sozinho e segue na fila; **rearme** na próxima edição real do card
+    (`_custo_enfileirar`: `criado_at = clock_timestamp()`, `tentativas = 0`, só se a linha não foi escrita por ESTA transação
+    — `xmin` — ou já falhou; o gatilho adiado escuta INSERT e `UPDATE OF criado_at`). O aplicador
+    (`_custo_recalcular_modelos`) liga `app.custo_sistema='on'` e **RESTAURA** o valor anterior ao sair. **Cálculo:**
+    `_custo_calcular` espelha `recomputeBlock`/`recomputeAviamento`/`recomputeEtiqueta`/`pecaCom` (TS só alimenta a prévia ao
+    vivo do Sheet; o valor que vale é o do servidor); anti-drift com tolerância **0,01** por linha (caso do meio centavo: preço
+    1,005 → SQL 1,01, TS 1,00, documentado); `custos_adicionais[].valor` = número, string numérica ou 0 (R-CD6). Consulta de
+    preço **SEMPRE filtrada pela loja do modelo** (M3, nunca por id solto). **RC1:** `_precos_tecido_congelado_core(_modelo,
+    _tenant)` + wrapper JWT (preço do tecido pela OC vinculada congelada, agora também chamável pelo servidor). **Congelar
+    (P-169 A, R-CD1):** mudança de preço de catálogo (`artigos`, `aviamentos`, `etiquetas`, `variantes_etiqueta`,
+    `ocs_tecido_itens`) **pula** o modelo cuja `cad.enviado_corte` (EXISTS no 1 CAD por modelo); editar a ficha (linhas do BOM,
+    `modelo_tecido_variantes`, `modelo_tecido_oc_links`, `modelo_servico_mo`, `custos_adicionais`/`origem`) recalcula o
+    **modelo INTEIRO com os preços de HOJE** — inclusive card já cortado (R3, aviso ao dono); reverter o corte
+    (`enviado_corte` true→false) **re-enfileira**. **Autor da auditoria** (`fn_audit`) = quem disparou a transação (quem mudou o
+    preço do artigo aparece como autor dos N cards — R-CD5); só a correção única sai como "Sistema". Toda escrita do aplicador
+    usa `IS DISTINCT FROM` (obrigatório: `fn_colab_bump_modelo` sobe `rev` a cada linha do BOM, então UPDATE sem mudança
+    real geraria rev à toa). **Revenda/importado NÃO são tocados** (o previsto deles vem dos ramos próprios de
+    `_custo_unitario_modelos_core`). Limite consciente (R-C1c): UPDATE do cliente só de `custo_previsto` de uma linha não é
+    recalculado até a próxima edição do card. **Correção única (P-166 A):** `20261019310000_custo_previsto_backfill.sql` só
+    cria `_custo_backfill_rodar(_aprovado jsonb, _hash text, _n int)` (+ `_custo_previa_lista`/`_custo_lista_hash`/
+    `_custo_lista_canonica`) e a tabela de backup `_bkp_custo_previsto` (modelos + linhas do BOM, antes/depois por lote); NÃO
+    recalcula sozinha. Só roda com a **lista aprovada pelo dono** (linhas do `passo0-cd-lista-canonica-<ts>.txt`, gerada pelo
+    kit SOMENTE-LEITURA do Passo 0-CD a partir de `supabase/consultas/custo_previa_lista.sql`; hash = `hash_lista` do kit),
+    em `BEGIN; SET LOCAL app.confirmo_recalculo_custo='sim'; SELECT _custo_backfill_rodar(...); COMMIT;` (R-C2c). Conferência
+    R-CD7: hash/`n` errados, id fora da aprovada ou `antes`/`depois` divergente abortam (P0001 ASCII); modelo **enviado ao corte
+    depois da aprovação é PULADO e relatado** (R-C2b; os cortados não entram na correção, R-CD2). **Ordem das travas**
+    (R-C2a): SHARE nas tabelas de preço/corte PRIMEIRO, depois SHARE ROW EXCLUSIVE em `modelos`/BOM (evita deadlock com o
+    gravar de preço); o kit repete em 40P01/55P03, em horário calmo. **Volta (R2):** site primeiro; `300000_down_neutraliza`
+    (só `CREATE OR REPLACE`, sem trava) → `300000_down` (`DISABLE TRIGGER` + neutraliza + restaura `precos_tecido_congelado`;
+    **sem DROP**) → `300000_down_drop` SEPARADO (DROP TRIGGER prende ~23 tabelas auth/storage/realtime até o COMMIT —
+    `supautils.policy_grants`; transação curtíssima, horário calmo); `310000_down` derruba as 4 funções mas **MANTÉM
+    `_bkp_custo_previsto` e os valores gravados**; devolver os custos antigos é passo explícito à parte
+    (`supabase/rollback/20261019310000_custo_previsto_restaurar.sql`, só com decisão do dono; pode deixar uma linha do BOM
+    fora de passo com os totais até a próxima edição — inofensivo, R-C2d).
+
 ## Sheet unificado do Planejamento (F3, set/2026)
 
 O Sheet do Planejamento de Produto (`src/components/planejamento/PlanejamentoDetail.tsx`, seções
@@ -1104,6 +1150,23 @@ antes (`_down_neutraliza.sql`, sem trava) e o `_down` completo (DROP TRIGGER →
 o kit tem ainda `emergencia-congelar.sh desliga` (DISABLE TRIGGER da fila de congelar, sem trava de login). A volta da release 5 e a de emergência da
 Integração ganham um passo prévio (`volta-release6.sh`) — sem ele os inversos de `20261014100000`/`20261013100000` recusam
 pelo md5. Site velho + banco novo por alguns minutos é aceitável (só muda o que o Sheet mostra).
+
+**Plan. Tecido (release 8, contas certas D):** (1) **vaga COM card** mostra custo/markup/preço DO CARD somente leitura + botão
+"Abrir no Planejamento" (P-167 A); o preço vem de `precoDoCard` em `src/lib/preco.ts` (= o `piFor` da lista); o Salvar da árvore
+manda `preco_venda: null` nas vagas com card; `_replicar_cards_plan_tecido_core` ainda pode copiar um preço de vaga que o próximo
+Salvar limpa. (2) **"Situação por OC"** reparte a demanda entre as OCs vinculadas pela mesma ordem do corte — prioridade do
+vínculo, depois `quantidade_m` (P-168 A): RPC `plan_tecido_vinculos_detalhe(_colecao_id)` (só leitura, 1 linha por vínculo
+card×item de OC; `20261019400000`) + `repartirDemanda` em `src/lib/plan-tecido/calc.ts`; parcelas de variante antes das só-artigo;
+Σ por OC = demanda. A RPC antiga `plan_tecido_vinculos_modelo` segue como está; sem a nova, o front cai na ordem do array sem
+limite de `quantidade_m`. O bloco "do card" usa os totais do SERVIDOR (`custo_*_total`).
+
+**Deploy da release 8:** banco ANTES do site (há front novo: C3 para de mandar o custo previsto — com o banco velho nada o
+derivaria). Ordem de ida: (1) `20261019300000` (fila + gatilhos; em horário calmo, pega ShareRowExclusive nas 13 tabelas) →
+(2) `20261019310000` (só funções + tabela de backup) → (3) **correção única** com a lista aprovada pelo dono (Passo 0-CD
+Rodada #2 regerada; o kit roda os passos seguidos porque R-CD7(c) aborta se alguém editar um card no meio) → (4)
+`20261019400000` (RPC de leitura do Plan. Tecido). Volta **LIFO pela ordem de APLICAÇÃO**: `400000_down` → (restaurar custos
+só se o dono mandar) → `310000_down` → `300000_down_neutraliza` → `300000_down` → `300000_down_drop` (separado, horário
+calmo). Os inversos da release 7 continuam valendo depois de reverter a release 8.
 
 ## O que NÃO fazer
 
