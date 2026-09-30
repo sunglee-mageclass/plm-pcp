@@ -14,6 +14,9 @@
 --      tabela inteira): virou paga (ou INSERT ja paga, RA3) -> congela o valor de ANTES da mudanca, sob
 --      pg_advisory_xact_lock do bloco; deixou de ser paga -> NULL; outro caso -> mantem o antigo (ignora o cliente).
 --      GUC (RA3): app.servico_valor_pago_correcao = 'on' desliga o gatilho SO na correcao unica 20261019210100.
+--      Fix round 1: M1 - pagar parcela que a conta nao reconhece (nº > n_eff: o prazo encurtou e a tela esta velha) ->
+--      P0001 'parcela_fora_do_prazo' (recarregar) em vez de gravar 0,00 pago; L1 - a parcela paga tem de ser da loja do
+--      bloco (P0001) e o helper so soma parcelas da loja do bloco.
 --   4. servicos_financeiro(): valor_parcela vem do helper; parcela PAGA aparece SEMPRE (corrige (a)); (b) some (a paga leva
 --      o proprio valor). A geracao/sincronizacao das parcelas (o LOOP) e a saida (mesmas chaves) nao mudam.
 --   RA1: a parcela "complemento n_eff+1" (saldo sem vaga quando todas ja estao pagas) NAO entra (virou MEDIA): nesse caso
@@ -107,7 +110,9 @@ AS $function$
 --   o arredondamento; saldo <= 0 -> valem 0. n_eff = a mesma conta de servicos_financeiro (nº de prazos da empresa,
 --   senao numero_parcelas; entre 1 e 24). Espelha _recalcular_parcelas_core (congela as pagas e divide o saldo).
 -- Devolve uma linha por parcela PAGA (qualquer numero) e por numero NAO pago em 1..n_eff (exista a linha ou nao).
+-- So conta parcelas da MESMA loja do bloco (L1: um INSERT de cliente com o id de bloco de outra loja nao entra na conta).
 DECLARE
+  v_tenant uuid;
   v_liq numeric;
   v_neff int;
   v_pago numeric := 0;
@@ -123,9 +128,11 @@ BEGIN
          LEAST(GREATEST(
            COALESCE(NULLIF(array_length(ARRAY(SELECT 1 FROM regexp_split_to_table(COALESCE(emp.prazo_pagamento,''),'[^0-9]+') AS t WHERE t ~ '^[0-9]+$'),1),0),
                     GREATEST(COALESCE(pt.numero_parcelas,1),1)),
-         1), 24)
-    INTO v_liq, v_neff
+         1), 24),
+         c.tenant_id
+    INTO v_liq, v_neff, v_tenant
     FROM public.producao_terceirizados pt
+    JOIN public.cad c ON c.id = pt.cad_id
     LEFT JOIN public.empresas emp ON emp.id = pt.empresa_id
    WHERE pt.id = _pt;
   IF NOT FOUND THEN
@@ -134,7 +141,8 @@ BEGIN
 
   FOR r IN SELECT ps.numero_parcela AS n, ps.valor_pago AS vp
              FROM public.parcelas_servico ps
-            WHERE ps.producao_terceirizado_id = _pt AND (ps.status = 'pago' OR ps.data_pagamento IS NOT NULL)
+            WHERE ps.producao_terceirizado_id = _pt AND ps.tenant_id = v_tenant
+              AND (ps.status = 'pago' OR ps.data_pagamento IS NOT NULL)
             ORDER BY ps.numero_parcela LOOP
     numero_parcela := r.n;
     valor := COALESCE(r.vp,
@@ -175,10 +183,14 @@ AS $function$
 --   deixa de ser paga -> NULL;
 --   qualquer outro caso -> mantem o valor antigo (ignora o que o cliente mandar).
 -- GUC de transacao app.servico_valor_pago_correcao = 'on': so a correcao unica 20261019210100 grava o valor da tela.
+-- M1 (fix round 1): pagar parcela que a conta nao reconhece (nº > n_eff - o prazo encurtou e a tela esta velha, a linha
+-- ainda nao foi apagada por servicos_financeiro) -> P0001 (recarregar), em vez de gravar 0,00 pago em silencio.
+-- L1: a parcela tem de ser da MESMA loja do bloco.
 DECLARE
   v_pago_novo boolean := (NEW.status = 'pago' OR NEW.data_pagamento IS NOT NULL);
   v_pago_antigo boolean;
   v_valor numeric;
+  v_tenant_bloco uuid;
 BEGIN
   IF COALESCE(current_setting('app.servico_valor_pago_correcao', true), '') = 'on' THEN
     RETURN NEW;
@@ -190,11 +202,21 @@ BEGIN
   END IF;
 
   IF v_pago_novo AND NOT v_pago_antigo THEN
+    SELECT c.tenant_id INTO v_tenant_bloco
+      FROM public.producao_terceirizados pt JOIN public.cad c ON c.id = pt.cad_id
+     WHERE pt.id = NEW.producao_terceirizado_id;
+    IF v_tenant_bloco IS DISTINCT FROM NEW.tenant_id THEN
+      RAISE EXCEPTION 'parcela_servico_outra_loja: a parcela nao e da loja do servico' USING ERRCODE = 'P0001';
+    END IF;
     PERFORM pg_advisory_xact_lock(hashtext('parcelas_servico:' || NEW.producao_terceirizado_id::text));
     SELECT v.valor INTO v_valor
       FROM public._servico_parcelas_valores(NEW.producao_terceirizado_id) v
      WHERE v.numero_parcela = NEW.numero_parcela;
-    NEW.valor_pago := round(COALESCE(v_valor, 0), 2);
+    IF v_valor IS NULL THEN
+      RAISE EXCEPTION 'parcela_fora_do_prazo: esta parcela saiu do prazo atual do servico - recarregue a tela antes de pagar'
+        USING ERRCODE = 'P0001';
+    END IF;
+    NEW.valor_pago := round(v_valor, 2);
   ELSIF NOT v_pago_novo THEN
     NEW.valor_pago := NULL;
   ELSE
@@ -368,8 +390,8 @@ BEGIN
     RAISE EXCEPTION 'contas_certas_a2: coluna parcelas_servico.valor_pago ausente ou diferente' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public._servico_parcelas_valores(uuid)', '1da5739d35ddbe519dc95b0cb93dff07'),
-      ('public.fn_servico_parcela_valor_pago()', '8c08867a9e1959de0419dd154f66e7b5')) v(s, m) LOOP
+      ('public._servico_parcelas_valores(uuid)', '3fa1069d5eff17633c0d31b8ba392225'),
+      ('public.fn_servico_parcela_valor_pago()', 'de9914b310477de1331f076a874696f1')) v(s, m) LOOP
     IF md5(pg_get_functiondef(to_regprocedure(r.s))) IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'contas_certas_a2: % nao ficou com o texto deste arquivo', r.s USING ERRCODE = 'P0001';
     END IF;

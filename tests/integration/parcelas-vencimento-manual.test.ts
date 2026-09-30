@@ -492,3 +492,203 @@ describe.skipIf(!RODA)(
     });
   },
 );
+
+// ─────────────── fix round 1 (revisões): M3 anti-drift, L1 loja, P-171 A "voltar ao cálculo automático" ───────────────
+describe.skipIf(!RODA)("contas certas A1 — fix round 1", () => {
+  it("M3 anti-drift: nenhuma função faz UPDATE em parcelas (nem INSERT … ON CONFLICT DO UPDATE) sem ligar app.parcelas_sistema", async () => {
+    await withTx(async (c) => {
+      const { rows } = await c.query(
+        `select p.oid::regprocedure::text f
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public'
+            and (p.prosrc ~* 'update\\s+(public\\.)?parcelas\\y'
+                 or p.prosrc ~* 'insert\\s+into\\s+(public\\.)?parcelas\\y[^;]*on\\s+conflict[^;]*do\\s+update')
+            and p.prosrc !~ 'app\\.parcelas_sistema'
+          order by 1`,
+      );
+      expect(rows.map((r) => r.f)).toEqual([]);
+      // e a única que faz UPDATE (P-171) liga a GUC de fato
+      const v = await um<{ d: string }>(
+        c,
+        `select pg_get_functiondef('public.parcela_voltar_vencimento_automatico(uuid)'::regprocedure) d`,
+      );
+      expect(v.d).toMatch(
+        /set_config\('app\.parcelas_sistema', 'on', true\);\s*UPDATE public\.parcelas/,
+      );
+    });
+  });
+
+  it("L1: parcela de OUTRA loja com a mesma OC/nº não consome a data guardada", async () => {
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      const oc = await ocTecido(c, fx);
+      const antes = await parcelas(c, "tecido", oc);
+      await ajustarAMao(c, antes[2].id, "2027-03-03");
+      await c.query(`select public._desmarcar_recebimento_oc_core('tecido', $1)`, [oc]);
+      const outra = await um<{ id: string }>(
+        c,
+        `select id from tenants where id <> $1 order by id limit 1`,
+        [TENANT_TESTE],
+      );
+      await c.query(`select set_config('request.jwt.claims', '', true)`); // sem JWT: o set_tenant_id não troca a loja
+      await c.query(
+        `insert into parcelas (tenant_id, tipo_oc, oc_tecido_id, numero_parcela, valor, data_vencimento, status)
+         values ($1, 'tecido', $2, 3, 1, '2026-01-01', 'a_pagar')`,
+        [outra.id, oc],
+      );
+      const intrusa = await um<{ d: string; m: boolean }>(
+        c,
+        `select to_char(data_vencimento,'YYYY-MM-DD') d, vencimento_manual m from parcelas where oc_tecido_id = $1 and tenant_id = $2`,
+        [oc, outra.id],
+      );
+      expect(intrusa).toEqual({ d: "2026-01-01", m: false });
+      expect(await guardadas(c, oc)).toEqual([{ n: 3, d: "2027-03-03" }]);
+    });
+  });
+});
+
+describe.skipIf(!RODA)("contas certas P-171 A — parcela_voltar_vencimento_automatico", () => {
+  const SEM_PERM = "0a0a0a0a-0000-4000-8000-0000000000a1";
+
+  async function voltar(c: Client, id: string) {
+    return (
+      await um<{ r: { data_vencimento: string; vencimento_manual: boolean } }>(
+        c,
+        `select public.parcela_voltar_vencimento_automatico($1) r`,
+        [id],
+      )
+    ).r;
+  }
+
+  it("ACL: anon não executa; authenticated sim; DEFINER", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ a: boolean; u: boolean; d: boolean }>(
+        c,
+        `select has_function_privilege('anon','public.parcela_voltar_vencimento_automatico(uuid)','EXECUTE') a,
+                has_function_privilege('authenticated','public.parcela_voltar_vencimento_automatico(uuid)','EXECUTE') u,
+                (select prosecdef from pg_proc where oid = 'public.parcela_voltar_vencimento_automatico(uuid)'::regprocedure) d`,
+      );
+      expect(r).toEqual({ a: false, u: true, d: true });
+    });
+  });
+
+  it("5 famílias: a data ajustada volta EXATAMENTE à que a geradora calculou; marca limpa; valor intacto; auditado", async () => {
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      const casos: [Familia, string][] = [
+        ["tecido", await ocTecido(c, fx)],
+        ["aviamento", await ocAviamento(c, fx)],
+        ["etiqueta", await ocInsumo(c, fx)],
+        ["p_acabado", await ocPAcabado(c, fx)],
+      ];
+      const imp = await um<{ id: string } | undefined>(
+        c,
+        `select o.id from ocs_importado o where o.tenant_id = $1
+            and exists (select 1 from parcelas p where p.oc_importado_id = o.id and p.status is distinct from 'pago' and p.data_pagamento is null)
+          limit 1`,
+        [TENANT_TESTE],
+      );
+      if (imp) casos.push(["p_importado", imp.id]);
+      for (const [f, oc] of casos) {
+        const orig = (await parcelas(c, f, oc)).find((p) => p.status !== "pago")!;
+        await ajustarAMao(c, orig.id, "2028-01-31");
+        const r = await voltar(c, orig.id);
+        const agora = (await parcelas(c, f, oc)).find((p) => p.id === orig.id)!;
+        expect([f, agora.venc, agora.manual, agora.valor]).toEqual([
+          f,
+          orig.venc,
+          false,
+          orig.valor,
+        ]);
+        expect(r.data_vencimento).toBe(orig.venc);
+        const a = await um<{ dados: Record<string, unknown>; u: string | null }>(
+          c,
+          `select dados, user_id u from audit_log
+            where registro_id = $1 and dados -> 'vencimento_manual' ->> 'para' = 'false' limit 1`,
+          [orig.id],
+        );
+        expect(a.dados).toMatchObject({ vencimento_manual: { de: true, para: false } });
+        expect(a.u).not.toBeNull(); // autor = quem clicou
+      }
+      expect(casos.length).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  it("com a Nota de Entrada: recalcula pela Nota + prazo", async () => {
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      const oc = await ocTecido(c, fx);
+      const p = (await parcelas(c, "tecido", oc))[1];
+      await ajustarAMao(c, p.id, "2028-01-31");
+      await c.query(`update ocs_tecido set data_nota_entrada = '2026-09-15' where id = $1`, [oc]);
+      const nova = (await parcelas(c, "tecido", oc))[1]; // a Nota regera as parcelas (id novo), a manual ficou
+      expect(nova).toMatchObject({ venc: "2028-01-31", manual: true });
+      await voltar(c, nova.id);
+      expect((await parcelas(c, "tecido", oc))[1]).toMatchObject({
+        venc: "2026-11-14",
+        manual: false,
+      }); // 15/09 + 60
+    });
+  });
+
+  it("parcela PAGA: P0001 parcela_paga; nada muda", async () => {
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      const oc = await ocTecido(c, fx);
+      const p = (await parcelas(c, "tecido", oc))[0];
+      await c.query(
+        `update parcelas set status='pago', data_pagamento='2026-09-20' where id = $1`,
+        [p.id],
+      );
+      await c.query("SAVEPOINT sp");
+      await expect(voltar(c, p.id)).rejects.toMatchObject({
+        code: "P0001",
+        message: expect.stringMatching(/^parcela_paga:/),
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+    });
+  });
+
+  it("sem permissão de editar o Financeiro: 42501; sem JWT: 42501; parcela de outra loja: P0001", async () => {
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      const oc = await ocTecido(c, fx);
+      const p = (await parcelas(c, "tecido", oc))[0];
+      await ajustarAMao(c, p.id, "2028-01-31");
+      await c.query(
+        `insert into auth.users (id, email) values ($1,'noperm-p171@teste') on conflict (id) do nothing`,
+        [SEM_PERM],
+      );
+      await c.query(
+        `insert into public.users (id, tenant_id, email, nome) values ($1,$2,'noperm-p171@teste','Sem Perm P171')
+         on conflict (id) do update set tenant_id = excluded.tenant_id`,
+        [SEM_PERM, TENANT_TESTE],
+      );
+      await c.query(`select set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: SEM_PERM, role: "authenticated" }),
+      ]);
+      await c.query("SAVEPOINT a");
+      await expect(voltar(c, p.id)).rejects.toMatchObject({ code: "42501" });
+      await c.query("ROLLBACK TO SAVEPOINT a");
+      await c.query(`select set_config('request.jwt.claims', '', true)`);
+      await c.query("SAVEPOINT b");
+      await expect(voltar(c, p.id)).rejects.toMatchObject({ code: "42501" });
+      await c.query("ROLLBACK TO SAVEPOINT b");
+      // outra loja: o usuário da Loja Teste olhando parcela de outra loja
+      await comoUsuario(c);
+      const outra = await um<{ id: string }>(
+        c,
+        `select id from tenants where id <> $1 order by id limit 1`,
+        [TENANT_TESTE],
+      );
+      await c.query(`update parcelas set tenant_id = $2 where id = $1`, [p.id, outra.id]);
+      await c.query("SAVEPOINT c");
+      await expect(voltar(c, p.id)).rejects.toMatchObject({
+        code: "P0001",
+        message: expect.stringMatching(/^parcela_nao_encontrada:/),
+      });
+      await c.query("ROLLBACK TO SAVEPOINT c");
+      expect((await parcelas(c, "tecido", oc)).find((x) => x.id === p.id)?.manual).toBe(true);
+    });
+  });
+});

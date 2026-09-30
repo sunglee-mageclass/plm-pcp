@@ -253,3 +253,63 @@ describe.skipIf(!RODA)(
     });
   },
 );
+
+// ─────────────── fix round 1 (revisão G-migration): M1 e L1 ───────────────
+describe.skipIf(!RODA)("contas certas A2 — fix round 1 (M1 parcela fora do prazo; L1 loja)", () => {
+  it("M1: prazo 3 → 2 SEM recarregar a lista e pagar a nº 3 (linha velha): P0001, nada de 0,00 pago", async () => {
+    await withTx(async (c) => {
+      const pt = await bloco(c);
+      await tela(c, pt); // gera 1..3
+      await c.query(`update producao_terceirizados set numero_parcelas = 2 where id = $1`, [pt]); // sem servicos_financeiro
+      await c.query("SAVEPOINT sp");
+      await expect(pagar(c, pt, 3)).rejects.toMatchObject({
+        code: "P0001",
+        message: expect.stringMatching(/^parcela_fora_do_prazo:/),
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      const r = await um<{ status: string; v: string | null }>(
+        c,
+        `select status, valor_pago v from parcelas_servico where producao_terceirizado_id=$1 and numero_parcela=3`,
+        [pt],
+      );
+      expect(r).toEqual({ status: "a_pagar", v: null });
+      // recarregou (servicos_financeiro apaga a nº 3 não paga): as 2 que ficaram pagam normal
+      await tela(c, pt);
+      await pagar(c, pt, 2);
+      expect(await valorPago(c, pt, 2)).toBe(50);
+    });
+  });
+
+  it("L1: parcela paga com tenant_id de OUTRA loja no bloco: P0001; e ela não entra na conta do bloco", async () => {
+    await withTx(async (c) => {
+      const pt = await bloco(c);
+      await tela(c, pt);
+      const outra = await um<{ id: string }>(
+        c,
+        `select id from tenants where id <> $1 order by id limit 1`,
+        [TENANT_TESTE],
+      );
+      await c.query("SAVEPOINT sp");
+      await expect(
+        c.query(
+          `insert into parcelas_servico (tenant_id, producao_terceirizado_id, numero_parcela, data_vencimento, status, data_pagamento)
+           values ($1,$2,9,'2026-10-10','pago','2026-09-20')`,
+          [outra.id, pt],
+        ),
+      ).rejects.toMatchObject({
+        code: "P0001",
+        message: expect.stringMatching(/^parcela_servico_outra_loja:/),
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      // mesmo que entre por fora do gatilho (GUC da correção), o helper ignora a linha de outra loja
+      await c.query(`select set_config('app.servico_valor_pago_correcao','on', true)`);
+      await c.query(
+        `insert into parcelas_servico (tenant_id, producao_terceirizado_id, numero_parcela, data_vencimento, status, data_pagamento, valor_pago)
+         values ($1,$2,9,'2026-10-10','pago','2026-09-20', 90)`,
+        [outra.id, pt],
+      );
+      await c.query(`select set_config('app.servico_valor_pago_correcao','', true)`);
+      expect((await tela(c, pt)).map((l) => l.valor_parcela)).toEqual([33.33, 33.33, 33.34]);
+    });
+  });
+});

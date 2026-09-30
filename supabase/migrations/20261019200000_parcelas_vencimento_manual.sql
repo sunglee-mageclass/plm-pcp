@@ -48,8 +48,9 @@
 --     public.gerar_parcelas_oc_tecido()                  fc5ce68cc48762f681d30168b1e172b6  (copia 30/set)
 --     public.gerar_parcelas_oc_aviamento()               e98640190802afd6de9f82ac4ecb39c3  (copia 30/set)
 --     public.gerar_parcelas_oc_etiqueta()                b05942e71d0aa87fd68e50530e748e94  (copia 30/set)
---   Premissa conferida (DURA): nenhuma funcao do schema public faz UPDATE em parcelas (senao o gatilho marcaria um
---   ajuste do sistema como "manual"; nesse caso a funcao teria de ligar app.parcelas_sistema = 'on').
+--   Premissa conferida (DURA): nenhuma funcao do schema public faz UPDATE em parcelas (nem INSERT ... ON CONFLICT DO
+--   UPDATE) sem ligar app.parcelas_sistema = 'on' (senao o gatilho marcaria um ajuste do sistema como "manual").
+--   Mesma varredura num teste anti-drift (M3). Fix round 1 (L1): a data guardada so e consumida pela parcela da mesma loja.
 --   Funcoes NOVAS deste arquivo (pos-condicao): fn_parcela_vencimento_manual, fn_parcela_vencimento_guarda,
 --   fn_parcela_vencimento_reaplica, fn_parcelas_vencimento_guardado_limpa (md5 conferidos no fim).
 -- =====================================================================================================================
@@ -100,10 +101,15 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
-  -- premissa: nenhuma funcao faz UPDATE em parcelas (todo UPDATE de data_vencimento e da pessoa)
+  -- premissa: nenhuma funcao faz UPDATE em parcelas (todo UPDATE de data_vencimento e da pessoa) - a nao ser as que
+  -- ligam a GUC app.parcelas_sistema (ex.: parcela_voltar_vencimento_automatico, P-171 A). Idem INSERT ... ON CONFLICT
+  -- DO UPDATE. O teste anti-drift tests/integration/parcelas-vencimento-manual.test.ts confere o mesmo (M3).
   SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_lista
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.prosrc ~* 'update\s+(public\.)?parcelas\y';
+   WHERE n.nspname = 'public'
+     AND (p.prosrc ~* 'update\s+(public\.)?parcelas\y'
+          OR p.prosrc ~* 'insert\s+into\s+(public\.)?parcelas\y[^;]*on\s+conflict[^;]*do\s+update')
+     AND p.prosrc !~ 'app\.parcelas_sistema';
   IF v_lista IS NOT NULL THEN
     RAISE EXCEPTION 'contas_certas_a1: funcao(oes) do servidor fazem UPDATE em parcelas (%): o gatilho marcaria o ajuste do sistema como manual - revisar', v_lista
       USING ERRCODE = 'P0001';
@@ -191,6 +197,7 @@ BEGIN
   END IF;
   DELETE FROM public.parcelas_vencimento_guardado g
    WHERE g.tipo_oc = NEW.tipo_oc AND g.oc_id = v_oc AND g.numero_parcela = NEW.numero_parcela
+     AND g.tenant_id IS NOT DISTINCT FROM NEW.tenant_id  -- L1: so a parcela da MESMA loja consome a data guardada
   RETURNING g.data_vencimento INTO v_data;
   IF FOUND THEN
     NEW.data_vencimento := v_data;
@@ -299,7 +306,7 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.fn_parcela_vencimento_manual()',          '4b56d7ad6d44a8e5dd5d11e71ee951cf'),
       ('public.fn_parcela_vencimento_guarda()',          '506e431966a4891a178f38df08c88086'),
-      ('public.fn_parcela_vencimento_reaplica()',        '44eab53ad96f5e52ebe3b55285ef7e41'),
+      ('public.fn_parcela_vencimento_reaplica()',        '5896aac11ce8c1b80dec651f30e57a24'),
       ('public.fn_parcelas_vencimento_guardado_limpa()', '82ff69b72802c292e07d8de7a705e0d6')) v(s, m) LOOP
     IF md5(pg_get_functiondef(to_regprocedure(r.s))) IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'contas_certas_a1: % nao ficou com o texto deste arquivo (md5 %)', r.s, md5(pg_get_functiondef(to_regprocedure(r.s)))
