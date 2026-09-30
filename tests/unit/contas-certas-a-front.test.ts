@@ -18,3 +18,26 @@ describe("A1 — detalhe da parcela avisa 'ajustado à mão'", () => {
     );
   });
 });
+
+describe("P-171 A — 'Voltar ao cálculo automático' no detalhe da parcela", () => {
+  it("fonte: botão só com a marca, parcela não paga e permissão de editar; AlertDialog; chama a RPC", () => {
+    const fin = ler("src/routes/_authenticated/financeiro.tsx");
+    expect(fin).toMatch(/\{parcela\.vencimento_manual && st !== "pago" && podeEditar && \(/);
+    expect(fin).toMatch(/data-testid="venc-voltar-automatico"/);
+    expect(fin).toMatch(/onClick=\{\(\) => setConfirmVoltarAuto\(true\)\}/);
+    expect(fin).toMatch(
+      /<AlertDialog open=\{confirmVoltarAuto\} onOpenChange=\{setConfirmVoltarAuto\}>/,
+    );
+    expect(fin).toMatch(/<AlertDialogTitle>Voltar ao cálculo automático\?<\/AlertDialogTitle>/);
+    expect(fin).toMatch(
+      /supabase\.rpc\("parcela_voltar_vencimento_automatico" as any, \{ _parcela_id: parcela\.id \}\)/,
+    );
+  });
+  it("fonte: a linha do Vencimento quebra (flex-wrap) e o Salvar da data marca o selo na hora (otimista)", () => {
+    const fin = ler("src/routes/_authenticated/financeiro.tsx");
+    expect(fin).toMatch(
+      /<div className="flex flex-wrap items-center gap-2">\s*<span className="text-muted-foreground">Vencimento:<\/span>/,
+    );
+    expect(fin).toMatch(/data_vencimento: vencimento, vencimento_manual: true/);
+  });
+});
