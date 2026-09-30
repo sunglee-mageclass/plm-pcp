@@ -14,6 +14,7 @@ import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
+import { argsConferirCategoria, conferirCategoriaAcessorioPedido, textoBloqueioCategoriaCard, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
 import { rotuloDaColuna } from "@/lib/integracao/campos";
@@ -468,6 +469,29 @@ export function usePlanejamentoSave({
         gravaBom: bom.gravar,
         tecidosPlanejados: bom.tecidosPlanejados,
       });
+      // P-137 A (R6 do G-plano) — PRÉ-CHECAGEM SÓ-LEITURA, ANTES de QUALQUER gravação deste save (a grade da revenda,
+      // logo abaixo, comita ANTES do UPDATE do cabeçalho): o gatilho `fn_modelo_espelho_categoria` recusa (P0001) trocar
+      // a Categoria de um card comprado cujo produto TEM pedido quando o grupo mudaria entre Acessórios e outro grupo —
+      // recusado só no UPDATE do cabeçalho, o card ficaria meio salvo (grade gravada, resto não). Mesma regra do banco
+      // (`src/lib/categoria-card-produto.ts`); só consulta o servidor quando ESTE save troca a categoria de um comprado
+      // já salvo (argumentos montados pela função PURA `argsConferirCategoria`, testada). Recusa = texto PT próprio deste
+      // caminho (nada foi gravado) → o `onError` mostra via mensagemErro.
+      // A recusa do banco continua valendo como rede de segurança (corrida com uma OC criada neste meio-tempo).
+      {
+        const conferir = argsConferirCategoria({
+          isEdit, modeloId, payload,
+          servidorModelo: isEdit && modeloId ? qc.getQueryData<any>(["modelo", modeloId]) : null,
+          baseCategoria: baseRef.current?.draft.categoria_principal_id,
+          draftOrigem: d.origem,
+        });
+        if (modeloId && conferir.precisa) {
+          const bloqueados = await conferirCategoriaAcessorioPedido(supabase as unknown as ClienteLeitura, {
+            modeloIds: [modeloId], categoriaNova: conferir.categoriaNova, origemNova: conferir.origem,
+          });
+          // Pré-checagem = ANTES de qualquer gravação: aqui "nada foi salvo" é verdade (texto próprio, com a dica da família).
+          if (bloqueados.length > 0) throw new Error(textoBloqueioCategoriaCard(bloqueados[0]));
+        }
+      }
       let savedId: string | null = isEdit ? modeloId : null;
       if (isEdit && modeloId) {
         // Grade cor×tamanho (revenda, fast-follow — fecha o last-write-wins do antigo

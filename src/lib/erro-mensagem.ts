@@ -9,6 +9,7 @@
 
 import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
 import { MENSAGEM_CHAVE_KANBAN_MUDOU } from "@/lib/kanban-auto-config";
+import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "@/lib/categoria-card-produto";
 
 /** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
  *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
@@ -144,6 +145,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   // "Tamanho em" nos cards (20261014100000): recusa em ASCII (padrão das mensagens novas) → texto PT.
   if (code === "P0001" && msg.startsWith(PREFIXO_TAMANHO_INVALIDO)) return TEXTO_TAMANHO_INVALIDO;
+
+  // P-137 A (20261017100000): produto com pedido não troca entre Acessórios e outro grupo pela Categoria do card —
+  // recusa ASCII com prefixo (do gatilho fn_modelo_espelho_categoria OU da pré-checagem do front) → texto PT.
+  if (code === "P0001" && msg.startsWith(PREFIXO_CATEGORIA_ACESSORIO_PEDIDO)) return TEXTO_CATEGORIA_ACESSORIO_PEDIDO;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;
