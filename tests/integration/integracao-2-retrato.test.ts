@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um } from "./db";
 import { aplicarSql } from "./mig-txn";
 import {
-  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, cor, keywordsLoja, ler, modeloInterno, prepara,
+  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoCustoSistema, comoUsuarioCom, cor, keywordsLoja, ler, modeloInterno, prepara,
   revenda, semTravas,
 } from "./integracao-helpers";
 
@@ -67,7 +67,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
       await comoUsuario(c, U);
       await keywordsLoja(c, null);
       const m = await modeloInterno(c);
-      await c.query(`UPDATE public.modelos SET ncm = '  ', peso_kg = 0, custo_peca_previsto = 0 WHERE id = $1`, [m.id]);
+      // C1: custo previsto do interno é do servidor — a fixture grava "como o servidor" (comoCustoSistema)
+      await comoCustoSistema(c, () => c.query(`UPDATE public.modelos SET ncm = '  ', peso_kg = 0, custo_peca_previsto = 0 WHERE id = $1`, [m.id]));
       const r = await retrato(c, m.id);
       expect(r.completo).toBe(false);
       expect(r.faltas).toEqual(expect.arrayContaining([
@@ -241,7 +242,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
       expect(r.retrato.linhas[0].valores.peso).toBeNull();
       expect(r.faltas).toEqual(expect.arrayContaining([{ campo: "peso", texto: "Peso" }]));
       // 2 casas: 0.001 arredonda p/ "0.00" — mesma regra no preco_custo (usa _integracao_num com 2 casas).
-      await c.query(`UPDATE public.modelos SET peso_kg = 0.220, custo_peca_previsto = 0.001 WHERE id = $1`, [m.id]);
+      await comoCustoSistema(c, () => c.query(`UPDATE public.modelos SET peso_kg = 0.220, custo_peca_previsto = 0.001 WHERE id = $1`, [m.id]));
       const r2 = await retrato(c, m.id);
       expect(r2.retrato.linhas[0].valores.preco_custo).toBeNull();
       expect(r2.faltas).toEqual(expect.arrayContaining([{ campo: "preco_custo", texto: "Preço de custo (o estimado não conta)" }]));

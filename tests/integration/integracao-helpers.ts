@@ -195,6 +195,23 @@ export async function camposLoja(c: Client, campos: readonly string[]): Promise<
 export type Fixture = { id: string; ref: string; corId: string; apelidoId: string | null; produtoId: string | null };
 export type ModeloOpts = { nome?: string; semApelido?: boolean; semSku?: boolean; fotos?: string[]; origem?: "interno" | "revenda" | "importado" };
 
+/**
+ * Contas certas C1 (20261019300000): o custo previsto do INTERNO é derivado no servidor — um UPDATE de
+ * `custo_peca_previsto` sem a GUC de transação `app.custo_sistema='on'` é devolvido ao valor de antes, e todo INSERT/edição
+ * de BOM/M.O. põe o card na fila de recálculo (processada no COMMIT/`SET CONSTRAINTS ALL IMMEDIATE`). As fixtures gravam o
+ * custo "como o servidor": liga a GUC (o gatilho deixa passar e nada entra na fila) e RESTAURA o valor anterior no fim.
+ * Sem a migration aplicada a GUC é inócua.
+ */
+export async function comoCustoSistema<R>(c: Client, fn: () => Promise<R>): Promise<R> {
+  const ant = (await um<{ v: string | null }>(c, `SELECT current_setting('app.custo_sistema', true) AS v`)).v ?? "";
+  await c.query(`SELECT set_config('app.custo_sistema', 'on', true)`);
+  try {
+    return await fn();
+  } finally {
+    await c.query(`SELECT set_config('app.custo_sistema', $1, true)`, [ant]);
+  }
+}
+
 async function colunasCompletas(c: Client, id: string, o: ModeloOpts): Promise<void> {
   await c.query(
     `UPDATE public.modelos SET preco_anterior = 179.90, preco_venda = 159.90, peso_kg = 0.220, ncm = '6109.10.00',
@@ -218,6 +235,10 @@ async function gradeESkus(c: Client, id: string, ref: string, corId: string, ape
 }
 /** Produto INTERNO completo nos 17 campos (Tecido 1 com 1 variante cor+apelido; grade P/M; 2 SKUs gravados). */
 export async function modeloInterno(c: Client, o: ModeloOpts = {}): Promise<Fixture> {
+  // C1: o card inteiro nasce "como o servidor" (custo 62,10 fica; nada entra na fila de custo) — ver comoCustoSistema
+  return comoCustoSistema(c, () => modeloInternoSemFila(c, o));
+}
+async function modeloInternoSemFila(c: Client, o: ModeloOpts): Promise<Fixture> {
   const s = sufixo();
   const ref = `ITG${s}`;
   const corId = await cor(c, `Branco ${s}`, `B${s.slice(-2)}`);
