@@ -646,6 +646,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       }
       qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      qc.invalidateQueries({ queryKey: ["versoes-familia"] }); // P-152: a lista de versões mudou
       setReplicarPayload(null);
       setSelecao(new Set());
       toast.success(`${res.length} card(s) replicado(s).`);

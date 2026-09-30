@@ -103,13 +103,13 @@ export function ReplicarCardsDialog({
   });
 
   // P-152 — versões existentes das famílias (falha fechada: sem a lista não replica).
-  const versoes = useVersoesFamilia(modeloIds, open);
-
   const colNome = useMemo(() => colecoes.find((c) => c.id === colId)?.nome ?? "—", [colecoes, colId]);
   const subNome = subId === SEM_SUB ? "Sem subcoleção" : (subs.find((s) => s.id === subId)?.nome ?? "—");
 
   // Opções da subcoleção com "Sem subcoleção" no topo.
   const subOpcoes: Opcao[] = [{ id: SEM_SUB, nome: "Sem subcoleção" }, ...subs];
+  const destinoVersoes = { colecaoId: colId, subcolecao: subId === SEM_SUB ? null : subNome };
+  const versoes = useVersoesFamilia(modeloIds, open, destinoVersoes);
   const trocarColecao = (id: string) => { setColId(id); setSubId(SEM_SUB); }; // reseta a subcoleção ao trocar de coleção
 
   return (
@@ -146,7 +146,7 @@ export function ReplicarCardsDialog({
 
           <VersoesExistentesAviso
             estado={versoes}
-            destino={{ colecaoId: colId, subcolecao: subId === SEM_SUB ? null : subNome }}
+            destino={destinoVersoes}
           />
         </div>
 

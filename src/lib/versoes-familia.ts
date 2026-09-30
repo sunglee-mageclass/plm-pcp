@@ -105,6 +105,26 @@ export function chaveGrupos(grupos: GrupoFamilia[]): string {
   return grupos.map((g) => `${g.raiz}:${g.versoes.map((v) => v.id).join(",")}`).join("|");
 }
 
+/** Chave da confirmação: a lista + o conjunto de versões tagueadas "no destino". Mudou qualquer um → desmarca
+ *  (trocar o destino para onde já existe uma versão invalida um "Sei que já existe" dado antes). */
+export function chaveConfirmacao(grupos: GrupoFamilia[], destino: Destino | null): string {
+  const noDestino = grupos
+    .flatMap((g) => g.versoes)
+    .filter((v) => estaNoDestino(v, destino))
+    .map((v) => v.id)
+    .sort();
+  return `${chaveGrupos(grupos)}#${noDestino.join(",")}`;
+}
+
+/** "Carregando" para fins de trava: um resultado em CACHE nunca conta — só dado buscado depois de montar.
+ *  Também vale durante o "Tentar de novo" (refetch após erro). */
+export function carregandoVersoes(s: {
+  enabled: boolean; nIds: number; isPending: boolean; isFetching: boolean; isFetchedAfterMount: boolean; isError: boolean;
+}): boolean {
+  if (!s.enabled || s.nIds === 0) return false;
+  return s.isPending || (s.isFetching && (!s.isFetchedAfterMount || s.isError)) || !s.isFetchedAfterMount;
+}
+
 /** Botão Replicar/Duplicar liberado? Falha FECHADA: sem a lista (carregando/erro) nunca libera. */
 export function podeProsseguir(s: { carregando: boolean; erro: boolean; precisa: boolean; confirmado: boolean }): boolean {
   if (s.carregando || s.erro) return false;

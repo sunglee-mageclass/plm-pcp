@@ -1106,7 +1106,7 @@ function PlanejamentoDetailConteudo({
         }
       }
     },
-    onSuccess: () => { toast.success("Card duplicado"); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved(); onClose(); },
+    onSuccess: () => { toast.success("Card duplicado"); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); qc.invalidateQueries({ queryKey: ["versoes-familia"] }); onSaved(); onClose(); },
     onError: (e: any) => {
       // Acréscimo do controlador (item b) — o INSERT já criou a cópia mesmo quando `gravarTecidosIniciais`
       // falha depois dele: não desfazer. Mesmo padrão do card NOVO no Salvar (usePlanejamentoSave.ts,
@@ -1123,6 +1123,7 @@ function PlanejamentoDetailConteudo({
             : "A nova versão foi criada, mas os tecidos NÃO foram para a Ficha (BOM). Peça a quem edita o Desenvolvimento para salvar a nova versão.",
         );
         qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+        qc.invalidateQueries({ queryKey: ["versoes-familia"] });
         onSaved();
         onClose();
         return;
@@ -1140,7 +1141,10 @@ function PlanejamentoDetailConteudo({
   // duplica direto, como sempre; com outras (ou se a conferência falhar — falha FECHADA) abre o AlertDialog.
   const [dupChecando, setDupChecando] = useState(false);
   const [dupAviso, setDupAviso] = useState(false);
-  const versoesDup = useVersoesFamilia(modeloId ? [modeloId] : [], dupAviso);
+  const versoesDup = useVersoesFamilia(modeloId ? [modeloId] : [], dupAviso, { colecaoId: draft.colecao_id ?? null, subcolecao: draft.subcolecao ?? null });
+  // Fechou o Sheet durante a conferência assíncrona → NÃO duplica depois.
+  const montadoRef = useRef(true);
+  useEffect(() => { montadoRef.current = true; return () => { montadoRef.current = false; }; }, []);
   const handleDuplicate = async () => {
     if (!modeloId || dupChecando || duplicandoRef.current || duplicate.isPending) return;
     setDupChecando(true);
@@ -1150,12 +1154,13 @@ function PlanejamentoDetailConteudo({
         staleTime: 0,
         queryFn: () => buscarVersoesFamilia(supabase, [modeloId]),
       });
+      if (!montadoRef.current) return;
       if (precisaConfirmar(agruparPorFamilia(linhas, [modeloId]))) setDupAviso(true);
       else iniciarDuplicar();
     } catch {
-      setDupAviso(true); // o diálogo mostra o erro + "Tentar de novo"
+      if (montadoRef.current) setDupAviso(true); // o diálogo mostra o erro + "Tentar de novo"
     } finally {
-      setDupChecando(false);
+      if (montadoRef.current) setDupChecando(false);
     }
   };
 
@@ -2109,10 +2114,12 @@ function PlanejamentoDetailConteudo({
         </AlertDialog>
 
         {/* P-152 — Duplicar quando já existem outras versões da família (ou a conferência falhou). */}
-        <AlertDialog open={dupAviso} onOpenChange={setDupAviso}>
+        <AlertDialog open={dupAviso} onOpenChange={(o) => { setDupAviso(o); if (!o) versoesDup.reset(); }}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Duplicar — já existem outras versões</AlertDialogTitle>
+              <AlertDialogTitle>
+                {versoesDup.erro ? "Não foi possível conferir as versões" : versoesDup.precisa ? "Duplicar — já existem outras versões" : "Duplicar esta versão"}
+              </AlertDialogTitle>
               <AlertDialogDescription>
                 A cópia vira uma nova versão desta família. Confira as versões que já existem antes de continuar.
               </AlertDialogDescription>
@@ -2125,7 +2132,7 @@ function PlanejamentoDetailConteudo({
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
                 disabled={!versoesDup.pronto}
-                onClick={() => { setDupAviso(false); iniciarDuplicar(); }}
+                onClick={() => { setDupAviso(false); versoesDup.reset(); iniciarDuplicar(); }}
               >
                 Duplicar
               </AlertDialogAction>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  agruparPorFamilia, precisaConfirmar, estaNoDestino, rotuloLocal, fmtDataCriacao, podeProsseguir, chaveGrupos, emLotes,
+  agruparPorFamilia, precisaConfirmar, estaNoDestino, rotuloLocal, fmtDataCriacao, podeProsseguir, chaveGrupos, emLotes, chaveConfirmacao, carregandoVersoes,
   type LinhaVersao,
 } from "@/lib/versoes-familia";
 
@@ -94,5 +94,39 @@ describe("podeProsseguir (falha fechada)", () => {
     const b = agruparPorFamilia([L("a"), L("b", { modelo_base_id: "a", versao: 2 })], ["a"]);
     expect(chaveGrupos(a)).not.toBe(chaveGrupos(b));
     expect(emLotes([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+  });
+});
+
+describe("P-152 fix — confirmação e cache", () => {
+  const fam = () => agruparPorFamilia([L("a"), L("b", { versao: 2, modelo_base_id: "a", colecao_id: "c2", colecao: "Inverno" })], ["a"]);
+  it("trocar o destino para onde já existe uma versão muda a chave (desmarca)", () => {
+    const g = fam();
+    const k1 = chaveConfirmacao(g, { colecaoId: "c9", subcolecao: null });
+    const k2 = chaveConfirmacao(g, { colecaoId: "c2", subcolecao: null });
+    expect(k1).not.toBe(k2);
+  });
+  it("trocar entre destinos que marcam as mesmas versões mantém a chave", () => {
+    const g = fam();
+    expect(chaveConfirmacao(g, { colecaoId: "c8", subcolecao: null })).toBe(chaveConfirmacao(g, { colecaoId: "c9", subcolecao: "X" }));
+  });
+  const base = { enabled: true, nIds: 1, isPending: false, isFetching: false, isFetchedAfterMount: true, isError: false };
+  it("cache nunca destrava: dado antigo em refetch ou sem fetch pós-mount = carregando", () => {
+    expect(carregandoVersoes({ ...base, isFetching: true, isFetchedAfterMount: false })).toBe(true);
+    expect(carregandoVersoes({ ...base, isFetchedAfterMount: false })).toBe(true);
+    expect(carregandoVersoes({ ...base })).toBe(false);
+  });
+  it("erro + refetch (Tentar de novo) = carregando; erro parado não é carregando", () => {
+    expect(carregandoVersoes({ ...base, isError: true, isFetching: true })).toBe(true);
+    expect(carregandoVersoes({ ...base, isError: true })).toBe(false);
+  });
+  it("desabilitado ou sem ids = não carregando", () => {
+    expect(carregandoVersoes({ ...base, enabled: false, isPending: true })).toBe(false);
+    expect(carregandoVersoes({ ...base, nIds: 0, isPending: true })).toBe(false);
+  });
+  it("gating do botão: cache + refetch nunca libera; erro nunca libera; pós-refetch sem outras libera", () => {
+    const cache = carregandoVersoes({ ...base, isFetching: true, isFetchedAfterMount: false });
+    expect(podeProsseguir({ carregando: cache, erro: false, precisa: false, confirmado: false })).toBe(false);
+    expect(podeProsseguir({ carregando: false, erro: true, precisa: false, confirmado: true })).toBe(false);
+    expect(podeProsseguir({ carregando: false, erro: false, precisa: false, confirmado: false })).toBe(true);
   });
 });
