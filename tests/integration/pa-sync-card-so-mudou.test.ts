@@ -147,9 +147,20 @@ async function produtoComCard(c: Client, k: Ids): Promise<{ pid: string; mid: st
   const mid = (await um<{ id: string }>(c, "SELECT public._criar_card_produto_acabado_core($1) AS id", [pid])).id;
   return { pid, mid };
 }
-/** "Sheet do Planejamento": troca a Categoria/Sub1 do CARD (o produto fica com o valor antigo). */
-const planejamentoTroca = (c: Client, mid: string, cat: string, s1: string) =>
-  c.query("UPDATE public.modelos SET categoria_principal_id = $2, subcategoria1_id = $3 WHERE id = $1", [mid, cat, s1]);
+/** "Sheet do Planejamento": troca a Categoria/Sub1 do CARD e deixa o produto com o valor antigo (card × produto
+ *  DIVERGENTES — o cenário da P-136). Desde a P-137 A (20261017100000) o gatilho trg_modelo_espelho_categoria leva a
+ *  troca do card ao produto; para continuar exercitando a P-136 (o save do produto não pode desfazer o card), a
+ *  taxonomia do produto é devolvida ao valor de antes — o mesmo estado de um produto legado divergente (o sentido
+ *  produto -> card da categoria não tem gatilho, então isto não mexe no card). */
+async function planejamentoTroca(c: Client, mid: string, cat: string, s1: string) {
+  const antes = await um<any>(c, `SELECT id, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id
+                                    FROM public.produtos_acabados WHERE modelo_id = $1`, [mid]);
+  await c.query("UPDATE public.modelos SET categoria_principal_id = $2, subcategoria1_id = $3 WHERE id = $1", [mid, cat, s1]);
+  if (antes) {
+    await c.query(`UPDATE public.produtos_acabados SET grupo_id = $2, categoria_id = $3, subcategoria1_id = $4, subcategoria2_id = $5
+                    WHERE id = $1`, [antes.id, antes.grupo_id, antes.categoria_id, antes.subcategoria1_id, antes.subcategoria2_id]);
+  }
+}
 async function falha(c: Client, sql: string, params: unknown[] = []): Promise<string> {
   await c.query("SAVEPOINT pasync_f");
   try {
