@@ -1385,6 +1385,7 @@ function PlanejamentoDetailConteudo({
         onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
         pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
         linhasPersistidas={moLinhasPersistidas}
+        linhasBase={moLinhasBase}
       />
     </fieldset>
   );

@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { montarRef, fmtNumero, type RefConfig } from "@/lib/ref-montar";
+import { montarRef, fmtNumero, numeroDaPrevia, type RefConfig } from "@/lib/ref-montar";
 import { erroValidacao, type Opt, type CatOpt, type SubOpt } from "./shared";
 
 /** "+ Novo produto" — Dialog central (§G: criar = Dialog). Sem dirty-guard: a ação "Criar"
@@ -76,7 +76,17 @@ export function NovoProdutoDialog({
   // Preview: monta a REF completa com um número de EXEMPLO e recorta de volta a sigla (a
   // parte antes do número), pra manter o visual "SIGLA" + máscara "NNN…" de dígitos que o
   // número real (sequencial, só o banco sabe) vai ocupar — sem reimplementar a montagem.
-  const numeroExemplo = refConfig?.num_inicio ?? 10000000;
+  // Contas certas 9b: nº real do próximo produto (max(último + 1, "Começar em")), lido sem consumir a sequência.
+  const { data: proximoServidor } = useQuery({
+    queryKey: ["ref-proximo-numero", tenantId, null],
+    enabled: !!tenantId && open,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ref_proximo_numero" as any, {});
+      if (error) throw error;
+      return data == null ? null : Number(data);
+    },
+  });
+  const numeroExemplo = numeroDaPrevia(proximoServidor, refConfig?.num_inicio);
   const numFmt = fmtNumero(refConfig, numeroExemplo);
   const refCompleta = grupoId && categoriaId
     ? montarRef({

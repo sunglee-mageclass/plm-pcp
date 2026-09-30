@@ -170,3 +170,11 @@ export function siglaAutoParte(parte: RefParte, nome: string | null | undefined)
   if (parte === "sub1" || parte === "sub2") return norm3(nome).slice(0, 2);
   return "";
 }
+
+/** Número da PRÉVIA da REF (contas certas 9b): o próximo número REAL vem do servidor (`ref_proximo_numero`, =
+ *  max(ultimo + 1, "Começar em"), sem consumir a sequência). Enquanto a RPC não respondeu (ou falhou), cai no "Começar
+ *  em" da config e, sem ele, no piso histórico 10000000 — a prévia nunca fica sem número. */
+export function numeroDaPrevia(proximoServidor: number | null | undefined, numInicio: number | null | undefined): number {
+  if (proximoServidor != null && Number.isFinite(Number(proximoServidor))) return Math.trunc(Number(proximoServidor));
+  return numInicio ?? 10000000;
+}

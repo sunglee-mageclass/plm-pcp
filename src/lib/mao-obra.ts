@@ -54,3 +54,20 @@ export function moLinhasEqual(a: MoLinha[], b: MoLinha[]): boolean {
   const norm = (ls: MoLinha[]) => ls.map((l) => ({ ...l, valor: l.valor ? l.valor : null }));
   return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
+
+/** Texto da dica âmbar da linha que vai reabrir (MaoObraEditor). */
+export const TEXTO_MO_VAI_REABRIR = "Mudar o valor volta este serviço para pendente — precisa aprovar de novo.";
+
+/**
+ * Contas certas item 8 (P-163 A): no servidor, linha JÁ DECIDIDA (aprovada OU reprovada) que muda de VALOR ou de SERVIÇO
+ * volta a PENDENTE no Salvar (`enforce_servico_mo_aprovacao`). Este espelho diz se a linha do rascunho vai reabrir:
+ * `base` = a mesma linha como está no servidor (casada por `id`). Valor 0 ≡ vazio (o Salvar manda `Number(v) || 0`,
+ * igual a `moLinhasEqual`); comparação em centavos. Linha nova (sem id) ou pendente no servidor nunca "reabre".
+ */
+export function moLinhaVaiReabrir(linha: MoLinha, base: MoLinha | null | undefined): boolean {
+  if (!base || base.id == null || linha.id !== base.id) return false;
+  if (base.aprovado == null) return false;
+  const centavos = (v: number | null | undefined) => Math.round((Number(v) || 0) * 100);
+  return centavos(linha.valor) !== centavos(base.valor)
+    || (linha.categoria_terceirizado_id ?? null) !== (base.categoria_terceirizado_id ?? null);
+}

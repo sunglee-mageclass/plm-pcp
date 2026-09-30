@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PAGE_URLS } from "@/lib/nav";
-import { cqLiberado } from "@/lib/cq-status";
+import { cqLiberado, pecasReaisLiberadas } from "@/lib/cq-status";
 import { ehOrigemComprada } from "@/lib/origem";
 import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtNum, fmtPct, fmtInt } from "@/lib/format";
@@ -521,16 +521,17 @@ function ComercialColecaoTab() {
       return m;
     },
   });
+  // "Realizado" = grade real SÓ dos CADs com o CQ LIBERADO (Pré confirmado + Pós se há pós-costura ativo) — mesmo gate
+  // e mesma soma da lista do Planejamento (`pecasReaisLiberadas`, @/lib/cq-status). Antes do CQ a grade real nasce igual
+  // à planejada (ou recebida − defeito na revenda) e contava como vendido (contas certas item 7).
   const { data: gradeReal = {} } = useQuery({
     queryKey: ["comercial-grade-real", ids], enabled: ids.length > 0,
     queryFn: async () => {
-      const { data } = await supabase.from("cad").select("modelo_id, cad_grades(grade_total_real)").in("modelo_id", ids);
-      const m: Record<string, number> = {};
-      (data ?? []).forEach((c: any) => {
-        const soma = (c.cad_grades ?? []).reduce((sum: number, g: any) => sum + Number(g.grade_total_real ?? 0), 0);
-        m[c.modelo_id] = (m[c.modelo_id] ?? 0) + soma;
-      });
-      return m;
+      const { data } = await supabase
+        .from("cad")
+        .select("modelo_id, controle_qualidade(status, status_pos), producao_terceirizados(ativo, categorias_terceirizado(etapa)), cad_grades(grade_total_real)")
+        .in("modelo_id", ids);
+      return pecasReaisLiberadas((data ?? []) as any[]);
     },
   });
 

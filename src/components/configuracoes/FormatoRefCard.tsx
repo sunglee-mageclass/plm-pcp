@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowUp, ArrowDown, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import {
   montarRef,
+  numeroDaPrevia,
   siglaAutoParte,
   type RefConfig,
   type RefFamilia,
@@ -167,7 +168,19 @@ export function FormatoRefCard({
     sub2Id: exSub2?.id ?? null,
     sub2Nome: exSub2?.nome ?? "Estampado",
   };
-  const numeroExemplo = numInicio;
+  // Contas certas 9b: o número da prévia é o próximo REAL — max(último emitido + 1, "Começar em" digitado) — lido do
+  // servidor sem consumir a sequência (antes mostrava só o "Começar em", que o contador podia já ter passado).
+  const { data: proximoServidor } = useQuery({
+    queryKey: ["ref-proximo-numero", tenantId, numInicio],
+    enabled: !!tenantId,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ref_proximo_numero" as any, { _num_inicio: numInicio });
+      if (error) throw error;
+      return data == null ? null : Number(data);
+    },
+  });
+  const numeroExemplo = numeroDaPrevia(proximoServidor, numInicio);
 
   return (
     <Card>
