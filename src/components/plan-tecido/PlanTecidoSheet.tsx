@@ -38,7 +38,7 @@ import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { precoDoCard } from "@/lib/preco";
-import { precoCardDoPlano, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
+import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe } from "@/lib/plan-tecido/calc";
@@ -483,7 +483,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
+          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -844,7 +844,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   });
   // D4 (P-167 A): custo/markup/preço do CARD (vaga COM card é só leitura). `custo_unitario_modelos` devolve
   // `{}` sem permissão de custos → custo 0 → a UI mostra "—". queryKey própria desta tela.
-  const { data: custoCardMap = {}, isSuccess: custoCardOk } = useQuery({
+  const { data: custoCardMap = {}, isSuccess: custoCardOk, isPending: custoCardPendente } = useQuery({
     queryKey: ["plan-tecido-custo-cards", colecaoId, modeloIdsDb],
     enabled: modeloIdsDb.length > 0,
     queryFn: async () => {
@@ -863,6 +863,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // Custo ainda carregando => null (estimativa); mascarado (sem permissão) => preço digitado ou estimativa.
   const precoCardDe: PrecoCardFn = (modeloId) =>
     precoCardDoPlano(modeloId, (modelosDb ?? []) as any[], custoCardOk ? custoCardMap : undefined, linhaMarkupCards);
+  const custoDetalheCardDe = (modeloId: string) => {
+    const pc = precoCardDe(modeloId);
+    return custoDetalheDoCard(((modelosDb ?? []) as any[]).find((x) => x.id === modeloId), !!pc && pc.custo > 0);
+  };
   const maoObraEstadoDe = (modeloId: string): string | undefined => moResumoMap[modeloId]?.estado;
   const maoObraPorServicoDe = (modeloId: string): number | null => {
     const t = moResumoMap[modeloId]?.total;
@@ -1020,6 +1024,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   const invalidarBomVivo = (modeloIds: string[]) => {
     const pModelos = qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
     void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-custo-cards", colecaoId] });
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos-detalhe", colecaoId] });
     // O auto-aplicar (aplicar_ao_modelo) SINCRONIZA os hints de slot em modelo_tecido_oc_links, que
     // É fonte de COBERTURA da prévia (has_card=true). Como esse write acontece DEPOIS da invalidação
     // da prévia no salvarMut.onSuccess (fire-and-forget), a prévia precisa ser re-invalidada AQUI —
@@ -1616,6 +1622,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", cid] });
         void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", cid] });
         void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", cid] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-custo-cards", cid] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos-detalhe", cid] });
       }
       qc.invalidateQueries({ queryKey: ["versoes-familia"] }); // P-152: a lista de versões mudou
       setReplicarPayload(null);
@@ -1643,6 +1651,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       void qc.invalidateQueries({ queryKey: ["dev-cad-precos-congelado", mid] });
     }
     void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-custo-cards", colecaoId] });
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos-detalhe", colecaoId] });
     void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
   };
 
@@ -2089,6 +2099,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
               maoObraServico={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
               precoCard={slot.modelo_id ? precoCardDe(slot.modelo_id) : null}
+              custoCardDetalhe={slot.modelo_id ? custoDetalheCardDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
               fase={slot.modelo_id ? faseInfo(slot.modelo_id) : null}
@@ -2208,7 +2219,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
                   </div>
                 </aside>
               )}
@@ -2221,7 +2232,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">

@@ -36,3 +36,24 @@ export function precoCardDoPlano(
   if (!m) return null;
   return precoDoCard(m, custoMap, linhaMarkupMap);
 }
+
+/** Quebra de custo do CARD (derivada no servidor em `modelos.custo_*_total`). null = mascarado/indisponível. */
+export type CustoCardDetalhe = { tecido: number; forro: number; entretela: number; aviamento: number };
+
+/**
+ * Detalhe do custo do card p/ a vaga COM card. Sem permissão de custos / custo ainda carregando
+ * (`temCusto` false) ou modelo ausente => null (a UI mostra "—"). Nunca usa a estimativa da vaga.
+ */
+export function custoDetalheDoCard(
+  modelo: { custo_tecido_total?: unknown; custo_forro_total?: unknown; custo_entretela_total?: unknown; custo_aviamento_total?: unknown } | null | undefined,
+  temCusto: boolean,
+): CustoCardDetalhe | null {
+  if (!modelo || !temCusto) return null;
+  const n = (v: unknown) => Number(v) || 0;
+  return { tecido: n(modelo.custo_tecido_total), forro: n(modelo.custo_forro_total), entretela: n(modelo.custo_entretela_total), aviamento: n(modelo.custo_aviamento_total) };
+}
+
+/** Texto do poder de venda no Resumo: "calculando…" enquanto o custo dos cards carrega (há vaga com card). */
+export function poderVendaCalculando(pendente: boolean, temSlotComCard: boolean): boolean {
+  return pendente && temSlotComCard;
+}

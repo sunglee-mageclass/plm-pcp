@@ -26,6 +26,7 @@ import {
 import { MaterialBlock } from "./MaterialBlock";
 import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
+import type { CustoCardDetalhe } from "@/lib/plan-tecido/preco-vaga";
 import type { PrecoInfo } from "@/lib/preco";
 import { ModeloThumb } from "./ModeloThumb";
 import { SlotOcHint } from "./SlotOcHint";
@@ -82,6 +83,7 @@ export function ModelCard({
   maoObraEstado,
   maoObraServico,
   precoCard,
+  custoCardDetalhe,
   versao,
   origem,
   fase,
@@ -119,6 +121,7 @@ export function ModelCard({
   maoObraServico?: number | null;
   /** D4: preço/custo/markup do CARD (vaga COM card; só leitura). */
   precoCard?: PrecoInfo | null;
+  custoCardDetalhe?: CustoCardDetalhe | null;
   versao?: number | null;
   /** `modelos.origem` ("interno"|"revenda"|"importado") — espelho de comprado: badge + esconde controles de tecido. */
   origem?: string | null;
@@ -217,7 +220,11 @@ export function ModelCard({
       void qc.invalidateQueries({ queryKey: ["dev-cad-precos-congelado", mid] });
     }
     // Chips "OC do Desenvolvimento" no card do plano refletem na hora (senão só ao refocar a janela).
-    if (colecaoId) void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+    if (colecaoId) {
+      void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+      void qc.invalidateQueries({ queryKey: ["plan-tecido-custo-cards", colecaoId] });
+      void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos-detalhe", colecaoId] });
+    }
     // Aplicar/Criar SINCRONIZA os hints de slot em modelo_tecido_oc_links, fonte de COBERTURA da
     // prévia (has_card=true) → o "a comprar" do Resumo muda. Sem isto só atualizava ao refocar (bug #2).
     if (colecaoId) void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
@@ -715,7 +722,7 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraServico={maoObraServico} precoCard={precoCard}
+                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraServico={maoObraServico} precoCard={precoCard} custoCardDetalhe={custoCardDetalhe}
                     precoTravado={travaIntegracao.has("preco_venda")} motivoPrecoTravado={TEXTO_PRECO_TRAVADO} />
                 </AccordionContent>
               </AccordionItem>

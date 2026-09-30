@@ -9,9 +9,10 @@ import { brl, fmtNum } from "@/lib/format";
 import { AlertTriangle, Check, X } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { PtSlot } from "@/lib/plan-tecido/types";
+import type { CustoCardDetalhe } from "@/lib/plan-tecido/preco-vaga";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
-type CustoSectionProps = { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null; precoTravado?: boolean; motivoPrecoTravado?: string; precoCard?: PrecoInfo | null };
+type CustoSectionProps = { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null; precoTravado?: boolean; motivoPrecoTravado?: string; precoCard?: PrecoInfo | null; custoCardDetalhe?: CustoCardDetalhe | null };
 
 /** D4 (P-167 A): vaga COM card mostra o custo/markup/preço do CARD (só leitura); vaga SEM card mantém a estimativa. */
 export function CustoSection(props: CustoSectionProps) {
@@ -43,17 +44,14 @@ function RO({ label, value }: { label: string; value: string }) {
 }
 
 /** Vaga COM card — NÃO lê `slot.preco_venda` (o preço vive no card; edição só no Planejamento). */
-function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard }: CustoSectionProps) {
+function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard, custoCardDetalhe }: CustoSectionProps) {
   const navigate = useNavigate();
   const { canView } = useAuth();
-  const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
-  const custoTecido = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "tecido") });
-  const custoForro = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "forro") });
-  const materiais = Number(cs.materiais) || 0;
   const maoObra = Number(maoObraServico) || 0;
   // Custo mascarado (`custo_unitario_modelos` → {}) ou ainda carregando → custo 0 → "—".
   const pc = precoCard ?? null;
   const temCusto = !!pc && pc.custo > 0;
+  const det = temCusto ? (custoCardDetalhe ?? null) : null;
   const txt = (v: number | undefined, f: (n: number) => string) => (temCusto && v && v > 0 ? f(v) : "—");
   return (
     <div className="p-2">
@@ -61,9 +59,10 @@ function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard }: CustoSe
         Valores do card no Planejamento (só leitura). Para alterar custo, markup ou preço, abra o card no Planejamento.
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <RO label="Custo de tecido (auto)" value={brl(custoTecido)} />
-        <RO label="Custo de forro (auto)" value={brl(custoForro)} />
-        <RO label="Materiais" value={brl(materiais)} />
+        <RO label="Custo de tecido (do card)" value={det ? brl(det.tecido) : "—"} />
+        <RO label="Custo de forro (do card)" value={det ? brl(det.forro) : "—"} />
+        <RO label="Entretela (do card)" value={det ? brl(det.entretela) : "—"} />
+        <RO label="Materiais (do card)" value={det ? brl(det.aviamento) : "—"} />
         <RO label="Mão de obra (por serviço)" value={brl(maoObra)} />
         {maoObraEstado && <MoBadge maoObraEstado={maoObraEstado} />}
         <RO label="Custo (do card)" value={txt(pc?.custo, brl)} />

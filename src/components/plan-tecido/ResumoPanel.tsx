@@ -7,7 +7,7 @@ import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
-import { termoPoderDeVenda, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
+import { termoPoderDeVenda, poderVendaCalculando, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { brl } from "@/lib/format";
 import { Lock, ChevronDown, ChevronRight, ShoppingCart, X } from "lucide-react";
 import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
@@ -72,7 +72,7 @@ function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: st
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe, custoCardsPendente = false,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -96,6 +96,8 @@ export function ResumoPanel({
   temRascunho?: boolean;
   /** D4: preço/custo/markup do CARD do modelo (vaga COM card usa o preço do card no poder de venda). */
   precoCardDe?: PrecoCardFn;
+  /** Custo dos cards ainda carregando: poder de venda mostra "calculando…" em vez da estimativa. */
+  custoCardsPendente?: boolean;
 }) {
   const slots = arvore.subcolecoes.flatMap((sub) => sub.linhas.flatMap((ln) => ln.slots));
   const firstTec = (slot: PtSlot) => slot.materiais.find((m) => m.tipo === "tecido");
@@ -298,10 +300,11 @@ export function ResumoPanel({
 
   // ---- Poder de venda (subcoleção), gated por fornecedor ----
   const comFornec = (slot: PtSlot) => { const t = firstTec(slot); return !!t?.artigo_id && fornecSet.has(t.artigo_id); };
-  let pv = 0; let nComFornec = 0;
+  let pv = 0; let nComFornec = 0; let nComCard = 0;
   for (const slot of slots) {
     if (!comFornec(slot)) continue;
     nComFornec++;
+    if (slot.modelo_id) nComCard++;
     const tec1 = firstTec(slot);
     const grade = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
     const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
@@ -374,7 +377,9 @@ export function ResumoPanel({
       <Secao title="Poder de venda (previsto)">
         {nComFornec > 0 ? (
           <div className="p-2">
-            <div className="flex justify-between text-xs"><span>Σ preço × grade</span><b>{brl(pv)}</b></div>
+            <div className="flex justify-between text-xs"><span>Σ preço × grade</span>{poderVendaCalculando(custoCardsPendente, nComCard > 0)
+              ? <span className="text-muted-foreground">calculando…</span>
+              : <b>{brl(pv)}</b>}</div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">{nComFornec} de {slots.length} modelos com fornecedor</div>
           </div>
         ) : (
