@@ -608,15 +608,50 @@ describe.skipIf(!PRONTO)("C2 (b) — R-CD7: conferência da lista aprovada", () 
     });
   });
 
-  it("(c) aprovado que foi ENVIADO AO CORTE depois da aprovação (congelado, valor ≠ depois) aborta", async () => {
+  it("aprovado que foi ENVIADO AO CORTE depois da aprovação (congelado, valor ≠ depois) é PULADO e relatado, não aborta (R-CD2, ruling do fix round)", async () => {
     await withTx(async (c) => {
       await prepara(c);
-      const { m } = await cardSimples(c, 10, 2);
+      const { m, linha } = await cardSimples(c, 10, 2);
+      const outro = await cardSimples(c, 3, 1);
       const a = await listaDeAgora(c);
       await cortar(c, m);
       await confirmar(c);
+      const r = await rodar(c, a);
+      expect(r.pulados_congelados_ids).toEqual([m]);
+      expect(r.pulados_congelados).toBe(1);
+      expect(r.pulados_ja_convergidos).toBe(0);
+      expect(r.pulados_fora_de_escopo).toBe(0);
+      expect(r.corrigidos).toBe(a.n - 1);
+      // o congelado não é tocado nem entra no backup; o resto é corrigido
+      expect((await custos(c, m)).peca).toBeNull();
+      expect(await custoAviamento(c, linha)).toBeNull();
+      const b = await um<{ n: string }>(
+        c,
+        `SELECT count(*) AS n FROM public._bkp_custo_previsto WHERE modelo_id = $1`,
+        [m],
+      );
+      expect(Number(b.n)).toBe(0);
+      expect((await custos(c, outro.m)).peca).toBe(3);
+    });
+  });
+
+  it("congelado depois da aprovação NÃO mascara outra divergência (c): o outro card editado ainda aborta", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const cong = await cardSimples(c, 10, 2);
+      const edit = await cardSimples(c, 4, 1);
+      const a = await listaDeAgora(c);
+      await cortar(c, cong.m);
+      await c.query(`UPDATE public.modelo_aviamentos SET consumo = 2 WHERE id = $1`, [edit.linha]);
+      await recalcular(c, edit.m); // agora 8, aprovado 4
+      await confirmar(c);
       const e = await erroDe(c, () => rodar(c, a));
-      expect(e.message).toMatch(/fora da lista de agora com valor gravado diferente/);
+      expect(e.code).toBe("P0001");
+      expect(e.message).toMatch(
+        /^custo_backfill: 1 modelo\(s\) aprovado\(s\) fora da lista de agora com valor gravado diferente/,
+      );
+      expect(e.message).toContain(edit.m);
+      expect(e.message).not.toContain(cong.m);
     });
   });
 
@@ -687,7 +722,7 @@ describe.skipIf(!PRONTO)("C2 (c) — confirmação obrigatória", () => {
       const e = await erroDe(c, () => rodar(c, a));
       expect(e.code).toBe("P0001");
       expect(e.message).toMatch(
-        /^custo_backfill: recusado - falta SET app.confirmo_recalculo_custo = sim/,
+        /^custo_backfill: recusado - falta SET LOCAL app.confirmo_recalculo_custo = sim/,
       );
       await c.query(`SELECT set_config('app.confirmo_recalculo_custo', 'SIM', true)`);
       const e2 = await erroDe(c, () => rodar(c, a));
@@ -911,5 +946,39 @@ describe.skipIf(!PRONTO)("C2 (g) — ACL (#9, precedente _p137_backfill_rodar)",
     expect(/(^|[^:]):[A-Za-z_]/m.test(semComentarioNemString)).toBe(false);
     expect(ARQ_LISTA).toContain("l.tenant_id = m.tenant_id");
     expect(semComentarioNemString).not.toContain("get_user_tenant_id");
+  });
+});
+
+// ─────────────────────────────── (h) fix round do G-MIGRATION (texto; sem banco) ───────────────────────────────
+describe("C2 (h) — fix round: ordem das travas e confirmação só LOCAL (texto da migration)", () => {
+  const MIG = ler("supabase/migrations/20261019310000_custo_previsto_backfill.sql");
+  const corpo = (() => {
+    const i = MIG.indexOf("CREATE OR REPLACE FUNCTION public._custo_backfill_rodar(");
+    const f = MIG.indexOf("$function$;", i);
+    return MIG.slice(i, f);
+  })();
+
+  it("trava preço/corte (SHARE) ANTES de BOM/modelos (SHARE ROW EXCLUSIVE), lock_timeout 3 s na função", () => {
+    const share = corpo.indexOf("IN SHARE MODE;");
+    const sre = corpo.indexOf("IN SHARE ROW EXCLUSIVE MODE;");
+    expect(share).toBeGreaterThan(0);
+    expect(sre).toBeGreaterThan(share);
+    const lockPreco = corpo.lastIndexOf("LOCK TABLE", share);
+    expect(corpo.slice(lockPreco, share)).toMatch(/public\.artigos[\s\S]*public\.cad/);
+    expect(corpo.slice(lockPreco, share)).not.toMatch(/public\.modelos\b/);
+    expect(corpo).toContain("SET lock_timeout TO '3s'");
+  });
+
+  it("a receita da correção única é BEGIN; SET LOCAL ...; SELECT ...; COMMIT; — nenhum SET de sessão da confirmação", () => {
+    expect(MIG).toMatch(
+      /--\s+BEGIN;\n--\s+SET LOCAL app\.confirmo_recalculo_custo = 'sim';\n--\s+SELECT public\._custo_backfill_rodar\([^\n]*\n--\s+COMMIT;/,
+    );
+    expect(MIG.replace(/SET LOCAL app\.confirmo_recalculo_custo/g, "")).not.toContain(
+      "SET app.confirmo_recalculo_custo",
+    );
+    // o helper dos testes liga a confirmação só na transação (set_config(..., true) = SET LOCAL)
+    const TESTE = ler("tests/integration/custo-previsto-backfill.test.ts");
+    expect(TESTE).toContain("set_config('app.confirmo_recalculo_custo', 'sim', true)");
+    expect(TESTE).not.toMatch(/set_config\('app\.confirmo_recalculo_custo', '[^']*', false\)/);
   });
 });

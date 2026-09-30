@@ -19,14 +19,18 @@ DECLARE
   r record;
   v_md5 text;
 BEGIN
-  FOR r IN SELECT * FROM (VALUES
-      ('public._custo_lista_canonica(jsonb)',              '9fd76efb8850e54e9ad6bfba58a9e993'),
-      ('public._custo_lista_hash(jsonb)',                  '926dea1a85ad86ab5663d7caf714980d'),
-      ('public._custo_previa_lista()',                     '54368173a0aa69a60d3cb9c5d46a712a'),
-      ('public._custo_backfill_rodar(jsonb,text,integer)', '5c4d71b0b5c1375280b429d44b9eb2ac')) x(assinatura, md5) LOOP
+  CREATE TEMP TABLE _cc_c2_down_md5 (assinatura text, md5 text) ON COMMIT DROP;
+  INSERT INTO _cc_c2_down_md5 VALUES
+    ('public._custo_lista_canonica(jsonb)',              '9fd76efb8850e54e9ad6bfba58a9e993'),
+    ('public._custo_lista_hash(jsonb)',                  '926dea1a85ad86ab5663d7caf714980d'),
+    ('public._custo_previa_lista()',                     '54368173a0aa69a60d3cb9c5d46a712a'),
+    ('public._custo_backfill_rodar(jsonb,text,integer)', 'd23616dcd428fb59d03f62396ca486ab'),
+    -- texto da 1a rodada da C2 (antes do fix round do G-MIGRATION; so a copia local chegou a ter)
+    ('public._custo_backfill_rodar(jsonb,text,integer)', '5c4d71b0b5c1375280b429d44b9eb2ac');
+  FOR r IN SELECT DISTINCT assinatura FROM _cc_c2_down_md5 LOOP
     IF to_regprocedure(r.assinatura) IS NOT NULL THEN
       v_md5 := md5(pg_get_functiondef(to_regprocedure(r.assinatura)));
-      IF v_md5 IS DISTINCT FROM r.md5 THEN
+      IF NOT EXISTS (SELECT 1 FROM _cc_c2_down_md5 y WHERE y.assinatura = r.assinatura AND y.md5 = v_md5) THEN
         RAISE EXCEPTION 'contas_certas_c2 (volta): % com outro texto (md5 %) - outra frente mexeu; conferir', r.assinatura, v_md5
           USING ERRCODE = 'P0001';
       END IF;

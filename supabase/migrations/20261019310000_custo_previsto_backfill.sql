@@ -3,9 +3,12 @@
 -- R-C1b): as PECAS da correcao unica do custo previsto. ESTA MIGRATION NAO RECALCULA NADA SOZINHA.
 --
 -- A correcao unica so roda no deploy (kit release 8, passo 5 "ida-custo-backfill.sql"), com a lista que o DONO aprovou na
--- Rodada #2 do Passo 0-CD:
---   SET app.confirmo_recalculo_custo = 'sim';
+-- Rodada #2 do Passo 0-CD, SEMPRE numa transacao propria e com a confirmacao LOCAL (nunca SET de sessao: a confirmacao
+-- nao pode sobreviver a esta chamada):
+--   BEGIN;
+--   SET LOCAL app.confirmo_recalculo_custo = 'sim';
 --   SELECT public._custo_backfill_rodar('<lista aprovada, jsonb>'::jsonb, '<hash aprovado>', <n aprovado>);
+--   COMMIT;
 --
 -- Objetos:
 --   _bkp_custo_previsto (RLS sem policy, REVOKE ALL de PUBLIC/anon/authenticated/service_role): o ANTES e o DEPOIS de cada
@@ -25,15 +28,19 @@
 --     ordem de modelo_id (uuid) unidos por quebra de linha; hash = md5 dela (= o hash_lista do kit). Elemento fora do formato
 --     ou modelo repetido = P0001.
 --   _custo_backfill_rodar(_aprovado jsonb, _hash text, _n int) (R-CD7):
---     1. exige SET app.confirmo_recalculo_custo = 'sim' (sem ela: recusa, P0001);
+--     1. exige SET LOCAL app.confirmo_recalculo_custo = 'sim' (sem ela: recusa, P0001);
 --     2. confere que o calculo da C1 (_custo_calcular, _custo_recalcular_modelos e os precos) e o de 20261019300000;
 --     3. (d) hash da lista informada <> _hash -> aborta; (e) n de elementos <> _n -> aborta;
---     4. LOCK: modelos + as 6 tabelas do BOM/ficha em SHARE ROW EXCLUSIVE e as 8 de preco/corte em SHARE, ate o fim da
---        transacao (conferencia, backup e gravacao veem o MESMO estado; ninguem grava no meio);
+--     4. LOCK, nesta ORDEM: primeiro as 8 de preco/corte em SHARE, depois modelos + as 6 tabelas do BOM/ficha em SHARE ROW
+--        EXCLUSIVE, ate o fim da transacao (conferencia, backup e gravacao veem o MESMO estado; ninguem grava no meio). A
+--        ordem e a mesma de quem muda um preco (UPDATE no cadastro e, no COMMIT, a fila de custo grava BOM/modelos) - a
+--        ordem inversa podia dar deadlock com essa pessoa. lock_timeout 3 s (na funcao);
 --     5. recalcula a lista de AGORA (L = _custo_previa_lista() sem os congelados - R-CD2) e aborta (P0001 ASCII) se:
 --        (a) um modelo de L nao esta na aprovada; (b) um modelo das duas tem antes ou depois diferente (linha canonica
 --        diferente); (c) um modelo aprovado ausente de L tem valor gravado (as 5 colunas) <> o depois aprovado;
 --        aprovado que sumiu (excluido) ou deixou de ser interno = pulado e relatado (nao ha o que gravar);
+--        aprovado que foi ENVIADO AO CORTE depois da aprovacao (congelado) = pulado e relatado (R-CD2: a correcao unica
+--        nunca toca congelado; ruling do controlador no fix round do G-MIGRATION);
 --        aprovado ausente de L que ja bate com o depois = pulado (a fila da 300000 ja acertou - card editado depois);
 --     6. grava o backup (lote novo) e chama o aplicador da C1 (_custo_recalcular_modelos, que liga app.custo_sistema='on' e
 --        a restaura) SO para aprovada ∩ L, loja a loja;
@@ -73,7 +80,7 @@ INSERT INTO _cc_c2_md5 VALUES
   ('public._custo_lista_canonica(jsonb)',                    '9fd76efb8850e54e9ad6bfba58a9e993', 'novo'),
   ('public._custo_lista_hash(jsonb)',                        '926dea1a85ad86ab5663d7caf714980d', 'novo'),
   ('public._custo_previa_lista()',                           '54368173a0aa69a60d3cb9c5d46a712a', 'novo'),
-  ('public._custo_backfill_rodar(jsonb,text,integer)',       '5c4d71b0b5c1375280b429d44b9eb2ac', 'novo');
+  ('public._custo_backfill_rodar(jsonb,text,integer)',       'd23616dcd428fb59d03f62396ca486ab', 'novo');
 
 DO $guarda$
 DECLARE
@@ -319,13 +326,14 @@ DECLARE
   v_lista text;
   v_conv uuid[];
   v_fora uuid[];
+  v_cong uuid[];
   v_gravou integer := 0;
   v_bkp_m integer := 0;
   v_bkp_l integer := 0;
   r record;
 BEGIN
   IF coalesce(current_setting('app.confirmo_recalculo_custo', true), '') <> 'sim' THEN
-    RAISE EXCEPTION 'custo_backfill: recusado - falta SET app.confirmo_recalculo_custo = sim (so no deploy, com a lista aprovada pelo dono)'
+    RAISE EXCEPTION 'custo_backfill: recusado - falta SET LOCAL app.confirmo_recalculo_custo = sim (so no deploy, com a lista aprovada pelo dono)'
       USING ERRCODE = 'P0001';
   END IF;
   IF md5(pg_get_functiondef(to_regprocedure('public._custo_calcular(uuid,uuid[])'))) IS DISTINCT FROM 'f9d87d6a1f9f307a7d83cf837730566c'
@@ -350,13 +358,15 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- ninguem grava no BOM/modelos nem muda preco/corte ate o fim da transacao: conferencia, backup e gravacao veem o mesmo estado
-  LOCK TABLE public.modelos, public.modelo_tecidos, public.modelo_tecido_variantes, public.modelo_tecido_oc_links,
-             public.modelo_aviamentos, public.modelo_etiquetas, public.modelo_servico_mo
-    IN SHARE ROW EXCLUSIVE MODE;
+  -- ninguem grava no BOM/modelos nem muda preco/corte ate o fim da transacao: conferencia, backup e gravacao veem o mesmo
+  -- estado. ORDEM: preco/corte PRIMEIRO, depois BOM/modelos - a mesma de quem muda um preco (o UPDATE do cadastro e, no
+  -- COMMIT dele, a fila de custo grava BOM/modelos); a ordem inversa podia dar deadlock com essa pessoa.
   LOCK TABLE public.artigos, public.variantes_tecido, public.ocs_tecido, public.ocs_tecido_itens, public.aviamentos,
              public.etiquetas, public.variantes_etiqueta, public.cad
     IN SHARE MODE;
+  LOCK TABLE public.modelos, public.modelo_tecidos, public.modelo_tecido_variantes, public.modelo_tecido_oc_links,
+             public.modelo_aviamentos, public.modelo_etiquetas, public.modelo_servico_mo
+    IN SHARE ROW EXCLUSIVE MODE;
 
   -- L = a lista de agora, sem os congelados (R-CD2)
   SELECT array_agg(p.modelo_id ORDER BY p.modelo_id), array_agg(p.tenant_id ORDER BY p.modelo_id),
@@ -384,13 +394,16 @@ BEGIN
     RAISE EXCEPTION 'custo_backfill: % modelo(s) da lista aprovada tem hoje antes/depois diferente do aprovado (ex.: %) - abortado; gerar a lista de novo e o dono aprovar',
       v_n, v_lista USING ERRCODE = 'P0001';
   END IF;
-  -- (c) aprovado ausente de L: tem de ja estar gravado com o depois aprovado (a fila acertou); sumiu/nao e mais interno = pulado
-  SELECT count(*) FILTER (WHERE x.m_id IS NOT NULL AND NOT x.bate),
-         string_agg(x.id::text, ',' ORDER BY x.id) FILTER (WHERE x.m_id IS NOT NULL AND NOT x.bate),
-         coalesce(array_agg(x.id ORDER BY x.id) FILTER (WHERE x.m_id IS NOT NULL AND x.bate), '{}'),
-         coalesce(array_agg(x.id ORDER BY x.id) FILTER (WHERE x.m_id IS NULL), '{}')
-    INTO v_n, v_lista, v_conv, v_fora
+  -- (c) aprovado ausente de L: tem de ja estar gravado com o depois aprovado (a fila acertou); sumiu/nao e mais interno =
+  -- pulado; enviado ao corte depois da aprovacao (congelado) = pulado (R-CD2), sem olhar o valor
+  SELECT count(*) FILTER (WHERE x.m_id IS NOT NULL AND NOT x.congelado AND NOT x.bate),
+         string_agg(x.id::text, ',' ORDER BY x.id) FILTER (WHERE x.m_id IS NOT NULL AND NOT x.congelado AND NOT x.bate),
+         coalesce(array_agg(x.id ORDER BY x.id) FILTER (WHERE x.m_id IS NOT NULL AND NOT x.congelado AND x.bate), '{}'),
+         coalesce(array_agg(x.id ORDER BY x.id) FILTER (WHERE x.m_id IS NULL), '{}'),
+         coalesce(array_agg(x.id ORDER BY x.id) FILTER (WHERE x.m_id IS NOT NULL AND x.congelado), '{}')
+    INTO v_n, v_lista, v_conv, v_fora, v_cong
     FROM (SELECT a.id, m.id AS m_id,
+                 EXISTS (SELECT 1 FROM public.cad c WHERE c.modelo_id = m.id AND c.enviado_corte) AS congelado,
                  coalesce(round(m.custo_peca_previsto, 2)::text, 'null') = split_part(a.e, '|', 3)
                  AND coalesce(round(m.custo_tecido_total, 2)::text, 'null') = split_part(a.e, '|', 5)
                  AND coalesce(round(m.custo_forro_total, 2)::text, 'null') = split_part(a.e, '|', 7)
@@ -482,7 +495,9 @@ BEGIN
     'pulados_ja_convergidos', cardinality(v_conv),
     'pulados_ja_convergidos_ids', to_jsonb(v_conv),
     'pulados_fora_de_escopo', cardinality(v_fora),
-    'pulados_fora_de_escopo_ids', to_jsonb(v_fora));
+    'pulados_fora_de_escopo_ids', to_jsonb(v_fora),
+    'pulados_congelados', cardinality(v_cong),
+    'pulados_congelados_ids', to_jsonb(v_cong));
 END;
 $function$;
 

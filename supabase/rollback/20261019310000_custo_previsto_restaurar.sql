@@ -14,6 +14,12 @@
 --     backup. Modelo mexido depois da correcao (editado, recalculado, linha apagada, modelo excluido) NAO e tocado e e
 --     relatado (NOTICE com os ids);
 --   • nao apaga o backup: rodar de novo nao faz nada (o valor ja e o "antes", nao o "depois").
+--   • LIMITE CONHECIDO (aceito pelo controlador no G-MIGRATION, LOW): o "antes" devolvido e o valor ANTIGO, gravado pelo
+--     navegador - pode nao fechar com a soma das linhas (era exatamente o defeito que a correcao consertou). O backup so
+--     tem o que a correcao MUDOU: uma linha do BOM que a correcao nao mexeu (antes = depois) fica como esta, e uma linha
+--     editada depois da correcao faz o modelo inteiro ser pulado. Por isso, depois da restauracao, um modelo pode ter uma
+--     linha do BOM fora de passo com os totais ate a proxima edicao do card (que recalcula tudo, se o 20261019300000
+--     estiver no ar).
 -- Travas: LOCK de modelos + linhas do BOM em SHARE ROW EXCLUSIVE ate o COMMIT (ninguem grava no meio). Sem DDL.
 -- Aplicar fora de transacao (psql -f). NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 
