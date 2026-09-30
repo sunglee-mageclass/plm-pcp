@@ -18,6 +18,7 @@ import {
   resultadoPosSalvar,
   sairTitulo,
   temAlteracao,
+  tituloAutomaticoDoRascunho,
   usarNovo,
   validarRascunho,
   valoresPosSalvar,
@@ -623,5 +624,44 @@ describe("Fix round 1 T12b (B-Minor 12) — mesclar normaliza antes de marcar co
     const r = editar(rascunho(7), "nome", "Blusa Brisa Nova");
     const r2 = mesclar(r, produto(8, { nome: "Nome Completamente Diferente" }));
     expect(r2.conflitos).toEqual([{ path: "nome", meu: "Blusa Brisa Nova", dele: "Nome Completamente Diferente" }]);
+  });
+});
+
+// P-155 B + R4 (G-plano da frente Preço anterior/Título por versão): na v2+ o automático é o título HERDADO da versão
+// anterior — o colapso "digitou igual ao automático → NULL" compara com ELE, não com o calculado do Nome desta versão.
+describe("R4 — editarTitulo/sairTitulo com o HERDADO (v2+)", () => {
+  const HERDADO = "Vestido Gardenia | Loja Teste"; // o título efetivo da v1
+  const PROPRIO = "Blusa Brisa | Loja Teste"; // o calculado do Nome DESTA versão (fixture: "Blusa Brisa")
+  it("tituloAutomaticoDoRascunho: herdado quando há; senão o calculado (v1)", () => {
+    expect(tituloAutomaticoDoRascunho(rascunho(7), NOME_LOJA, HERDADO)).toBe(HERDADO);
+    expect(tituloAutomaticoDoRascunho(rascunho(7), NOME_LOJA, null)).toBe(PROPRIO);
+    expect(tituloAutomaticoDoRascunho(rascunho(7), NOME_LOJA)).toBe(PROPRIO); // default = v1
+  });
+  it("digitar = herdado ⇒ NULL (automático)", () => {
+    const r = editarTitulo(rascunho(7), HERDADO, NOME_LOJA, HERDADO);
+    expect(r.valores.titulo_pagina).toBeNull();
+    expect(colunasAlteradas(r)).toEqual([]);
+  });
+  it("digitar o calculado PRÓPRIO na v2+ fica DIGITADO (não some em silêncio virando herdado)", () => {
+    let r = editarTitulo(rascunho(7), PROPRIO, NOME_LOJA, HERDADO);
+    expect(r.valores.titulo_pagina).toBe(PROPRIO);
+    r = sairTitulo(r, NOME_LOJA, HERDADO);
+    expect(r.valores.titulo_pagina).toBe(PROPRIO);
+    expect(payloadItem(r)?.campos.titulo_pagina).toBe(PROPRIO);
+  });
+  it("blur apara e reconhece o herdado com espaço extra ⇒ NULL", () => {
+    let r = editarTitulo(rascunho(7), `${HERDADO}  `, NOME_LOJA, HERDADO);
+    expect(r.valores.titulo_pagina).toBe(`${HERDADO}  `);
+    r = sairTitulo(r, NOME_LOJA, HERDADO);
+    expect(r.valores.titulo_pagina).toBeNull();
+  });
+  it("o herdado não depende do nome da loja: com nomeLoja null ainda colapsa pelo herdado", () => {
+    const r = editarTitulo(rascunho(7), HERDADO, null, HERDADO);
+    expect(r.valores.titulo_pagina).toBeNull();
+    expect(sairTitulo(editarTitulo(rascunho(7), `${HERDADO} `, null, HERDADO), null, HERDADO).valores.titulo_pagina).toBeNull();
+  });
+  it("herdado '' (nenhum nível com nome): digitar vazio = automático; digitar algo = digitado", () => {
+    expect(editarTitulo(rascunho(7), "", NOME_LOJA, "").valores.titulo_pagina).toBeNull();
+    expect(editarTitulo(rascunho(7), "X", NOME_LOJA, "").valores.titulo_pagina).toBe("X");
   });
 });

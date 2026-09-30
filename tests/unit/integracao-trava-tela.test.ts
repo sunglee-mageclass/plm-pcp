@@ -536,8 +536,12 @@ describe("Fix round 1 (m5/M-2) — capitalização e texto do SKU alinhado com P
     const preco = ler("src/components/planejamento/planejamento-detail/PrecoTabela.tsx");
     const revenda = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
     expect(info).toMatch(/mesmo travado pela Integração\./);
-    expect(preco).toMatch(/mesmo travado pela Integração\./);
-    expect(revenda).toMatch(/mesmo travado pela Integração\./);
+    // P-146/P-158: o hover do Preço anterior travado mora na lib (fonte única dos textos por versão) — as 2 telas o usam.
+    const lib = ler("src/lib/versao-anterior.ts");
+    expect(lib).toMatch(/mesmo travado pela Integração\./);
+    expect(lib).not.toMatch(/mesmo travado pela integração\./);
+    expect(preco).toContain("hoverPrecoAnteriorTravado(autoAnterior)");
+    expect(revenda).toContain("hoverPrecoAnteriorTravado(autoAnterior)");
     expect(info).not.toMatch(/mesmo travado pela integração\./);
     expect(preco).not.toMatch(/mesmo travado pela integração\./);
     expect(revenda).not.toMatch(/mesmo travado pela integração\./);

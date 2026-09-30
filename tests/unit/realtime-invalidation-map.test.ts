@@ -202,6 +202,10 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
     expect(matchesTable("modelos", ["modelos-desenvolvimento"])).toBe(true);
     expect(matchesTable("modelos", ["plan-custo-unit", ["a", "b"]])).toBe(true);
     expect(matchesTable("modelos", ["dir-list"])).toBe(true);
+    // P-146/P-155 B: a versão anterior (Sheet + Integração) — repreçar/renomear a anterior noutra aba atualiza o automático
+    expect(matchesTable("modelos", ["versao-anterior", "tenant-1", "m1", "m2"])).toBe(true);
+    expect(matchesTable("modelos", ["versao-anterior"])).toBe(true);
+    expect(matchesTable("controle_qualidade", ["versao-anterior", "tenant-1", "m1"])).toBe(false);
     expect(matchesTable("ocs_tecido", ["ocs_tecido", "tab-counts"])).toBe(true);
     expect(matchesTable("ocs_tecido", ["rolos"])).toBe(true);
     expect(matchesTable("colecoes", ["plan-tecido-colecoes"])).toBe(true);

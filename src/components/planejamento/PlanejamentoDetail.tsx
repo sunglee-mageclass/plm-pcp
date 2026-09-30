@@ -77,6 +77,7 @@ import { PrecoTabela } from "@/components/planejamento/planejamento-detail/Preco
 import { rotuloConflitoPlan, invalidarAposAprovarMO, camposParaDuplicar } from "@/components/planejamento/planejamento-detail/helpers";
 import { resolverPermissoesSheet } from "@/components/planejamento/planejamento-detail/permissoes-sheet";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
+import { useVersaoAnterior } from "@/hooks/useVersaoAnterior";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
@@ -585,6 +586,13 @@ function PlanejamentoDetailConteudo({
   // F3.6 (ruling 1) — a MARCA da loja (`tenants.nome`, não o WISH360) p/ o Título automático da seção 1; mesma query cacheada
   // dos relatórios (useTenantBranding).
   const { nome: nomeLoja } = useTenantBranding();
+  // P-146..P-158 + R4 — a VERSÃO ANTERIOR do card (fonte única no SQL, RPC `modelos_versao_anterior`). Só na v2+ SALVA (a v1
+  // nunca tem anterior — sem consulta na maioria dos cards); uma Versão digitada e ainda não salva só vale depois do Salvar.
+  const versaoSalva = Number((modeloData as { versao?: number } | undefined)?.versao ?? 1);
+  const temVersaoAnterior = isEdit && !!modeloId && versaoSalva > 1;
+  const versaoAnt = useVersaoAnterior(modeloId && temVersaoAnterior ? [modeloId] : [], temVersaoAnterior);
+  const versaoAnterior = temVersaoAnterior && modeloId ? versaoAnt.mapa.get(modeloId) ?? null : null;
+  const versaoAnteriorCarregando = temVersaoAnterior && (versaoAnt.carregando || versaoAnt.erro);
   // Toggle opt-in (Config da Loja): mostra os 2 blocos de análise de markup por faixa. Default OFF.
   // Reflete no próximo refetch/reabrir do Sheet (config muda raro). Ver [[project_markup_min_ideal_max]].
   const { data: markupFaixaOn = false } = useQuery({
@@ -892,6 +900,8 @@ function PlanejamentoDetailConteudo({
   const aoSalvar = async () => {
     setEditandoDev(false);
     onSaved();
+    // P-146/P-155 B: a Versão (ou o preço/título que as versões seguintes herdam) pode ter mudado neste Salvar.
+    void qc.invalidateQueries({ queryKey: ["versao-anterior"] });
     if (!isEdit) return;
     const r = await skus.aplicarAGravar();
     if (r !== "falhou") await skus.gerarSeFaltar();
@@ -1582,6 +1592,7 @@ function PlanejamentoDetailConteudo({
             nomeLoja={nomeLoja}
             planBloqueado={perm.planBloqueado}
             compartilhadoBloqueado={perm.compartilhadoBloqueado}
+            versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
           />
 
           {/* SETOR 2 — Coleção */}
@@ -1795,6 +1806,7 @@ function PlanejamentoDetailConteudo({
                 // F3.6 (ruling 11) — Preço anterior (grava no Salvar; payload só com podeEditarPreco — usePlanejamentoSave).
                 precoAnterior={draft.preco_anterior}
                 onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
+                versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando}
               />
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
@@ -1806,7 +1818,8 @@ function PlanejamentoDetailConteudo({
                 planBloqueado={perm.planBloqueado}
                 travaVarejo={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 precoAnterior={draft.preco_anterior}
-                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))} />
+                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
+                versaoAnterior={versaoAnterior} versaoAnteriorCarregando={versaoAnteriorCarregando} />
             )}
           </Secao>
           )}

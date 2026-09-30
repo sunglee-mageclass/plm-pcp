@@ -18,6 +18,9 @@ import { type Draft } from "@/components/planejamento/modelo-shared";
 import { Secao, CampoRO } from "@/components/planejamento/planejamento-detail/campos";
 import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { InfoHover } from "@/components/shared/InfoHover";
+import {
+  dicaPrecoAnterior, hoverPrecoAnteriorTravado, precoAnteriorAutomatico, seloPrecoAnterior, type VersaoAnteriorInfo,
+} from "@/lib/versao-anterior";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import { tamanhosVisiveis } from "@/lib/tamanho-exibicao";
@@ -25,11 +28,11 @@ import type { TamanhoTipo } from "@/lib/tamanho";
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
   /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
-  /** F3.6 (Parte B, ruling 11) — Preço anterior: NULL = acompanha o VAREJO efetivo (`piRevenda.efetivo`); editar =
+  /** F3.6 (Parte B, ruling 11) — Preço anterior: NULL = automático (P-146/P-158: o da versão anterior; v1 = o varejo gravado); editar =
    *  `criacao_planejamento:preco_venda`; grava no Salvar da página (não pela RPC de preço fixo). */
   podeEditarPreco: boolean; precoAnterior: number | null; onPrecoAnterior: (v: number | null) => void;
   /** P-53 A (fix 1, I-1b/c) — markup atacado/varejo (`salvar_markups_produto_acabado`) e preço fixo
@@ -40,7 +43,14 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
   /** Integração (F4, D34/R8) — "Preço de venda" marcado trava o VAREJO (Preço varejo + Markup varejo); "Preço anterior"
    *  marcado trava o anterior. Preço atacado e Markup atacado ficam LIVRES (não vão na API). O banco recusa; aqui só desabilita. */
   travaVarejo?: boolean; travaPrecoAnterior?: boolean;
+  /** P-146/P-158 + M4 — mesma regra de PrecoTabela.tsx: v2+ = o VAREJO gravado da versão anterior (vazio = "aguardando
+   *  preço da vN"); v1/órfã = o próprio varejo GRAVADO (`draft.preco_venda`, o que o retrato manda). */
+  versaoAnterior?: VersaoAnteriorInfo; versaoAnteriorCarregando?: boolean;
 }) {
+  const autoAnterior = precoAnteriorAutomatico(versaoAnterior, draft.preco_venda);
+  const seloAnterior = seloPrecoAnterior(precoAnterior, autoAnterior);
+  const carregandoAnterior = versaoAnteriorCarregando && precoAnterior === null;
+  const exibidoAnterior = precoAnteriorExibido(precoAnterior, autoAnterior.valor ?? 0);
   const {
     produtoRevenda, produtoRevendaLoading,
     markupAtacadoInput, setMarkupAtacadoInput, markupVarejoInput, setMarkupVarejoInput,
@@ -101,9 +111,11 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                       <div className="grid gap-1 sm:col-span-2">
                         <div className="flex items-center gap-1.5">
                           <Label htmlFor="preco-anterior-revenda">Preço anterior</Label>
-                          <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
-                            {precoAnterior === null ? "automático" : "editado"}
-                          </StatusBadge>
+                          {!carregandoAnterior && (
+                            <StatusBadge tone={seloAnterior.tom} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
+                              {seloAnterior.texto}
+                            </StatusBadge>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 sm:max-w-xs">
                           {/* M3 (fix1) — 44px no celular, como a lixeira de PrecoTabela.tsx. */}
@@ -117,22 +129,27 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                             aria-label="Preço anterior"
                             className="min-w-0 flex-1"
                             // M1 (fix1) — 0/negativo volta ao automático NA TELA (não só no payload); evita "editado · 0,00".
-                            value={precoAnteriorExibido(precoAnterior, piRevenda.efetivo) ?? ""}
-                            placeholder="0,00"
+                            value={carregandoAnterior ? "" : exibidoAnterior ?? ""}
+                            placeholder={carregandoAnterior ? "…" : autoAnterior.aguardando && precoAnterior === null ? "—" : "0,00"}
                             data-colab-path="preco_anterior"
                             onChange={(e) => onPrecoAnterior(precoAnteriorOuNull(e.target.value))}
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">acompanha o preço de venda até ser editado · ↺ volta ao automático</p>
+                        <p className="text-xs text-muted-foreground">{precoAnterior !== null ? "acompanha o preço de venda até ser editado · ↺ volta ao automático" : carregandoAnterior ? "…" : dicaPrecoAnterior(autoAnterior)}</p>
                       </div>
                     ) : (
                       <div className="sm:col-span-2 sm:max-w-xs">
                         <div className="flex items-center gap-1.5">
-                          <CampoRO label="Preço anterior" value={(() => { const v = precoAnteriorExibido(precoAnterior, piRevenda.efetivo); return v != null ? brl(v) : "—"; })()} />
+                          <CampoRO label="Preço anterior" value={carregandoAnterior ? "…" : exibidoAnterior != null ? brl(exibidoAnterior) : "—"} />
+                          {!carregandoAnterior && (
+                            <StatusBadge tone={seloAnterior.tom} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
+                              {seloAnterior.texto}
+                            </StatusBadge>
+                          )}
                           {/* Ruling da revisão (Task 21): travado + automático — mesmo aviso de PrecoTabela.tsx. */}
-                          {travaPrecoAnterior && precoAnterior === null && (
+                          {travaPrecoAnterior && precoAnterior === null && !carregandoAnterior && (
                             <InfoHover ariaLabel="Preço anterior travado pela Integração">
-                              <p>Automático: acompanha o Preço de venda, mesmo travado pela Integração.</p>
+                              <p>{hoverPrecoAnteriorTravado(autoAnterior)}</p>
                             </InfoHover>
                           )}
                         </div>

@@ -21,7 +21,8 @@ import { Secao, FieldText, FieldSelect } from "@/components/planejamento/planeja
 import type { OpcaoOrigem } from "@/components/planejamento/planejamento-detail/comprado";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { filtrarNcm, numeroDoInput } from "@/components/planejamento/planejamento-detail/helpers";
-import { tituloAoDigitar, tituloAoSair, tituloExibido, tituloPaginaCalculado } from "@/lib/titulo-pagina";
+import { tituloAoDigitar, tituloAoSair, tituloExibido } from "@/lib/titulo-pagina";
+import { hoverTituloHerdado, seloTitulo, tituloAutomatico as tituloAutomaticoDe, type VersaoAnteriorInfo } from "@/lib/versao-anterior";
 
 /** "i" ao lado de "Origem" com o motivo de cada opção travada — opções com o MESMO motivo (ex.: edição pendente)
  *  saem numa linha só ("Revenda, Importado: …"). Sem opção travada ⇒ não renderiza nada. */
@@ -58,7 +59,7 @@ const comMedida = (d: Draft, k: ChaveMedida, v: number | null): Draft => {
 
 export function InfoGeraisSecao({
   draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo, origemOpcoes,
-  nomeLoja, planBloqueado, compartilhadoBloqueado, travaIntegracao,
+  nomeLoja, planBloqueado, compartilhadoBloqueado, travaIntegracao, versaoAnterior = null, versaoAnteriorCarregando = false,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -84,10 +85,20 @@ export function InfoGeraisSecao({
   compartilhadoBloqueado: boolean;
   /** Integração (F4) — colunas travadas pelo produto integrável/integrado (o banco recusa; aqui só desabilita). */
   travaIntegracao?: ReadonlySet<string>;
+  /** P-155 B + R4 — a versão anterior do card (RPC `modelos_versao_anterior`, pela versão SALVA); null = v1/órfã. */
+  versaoAnterior?: VersaoAnteriorInfo;
+  /** v2+ com a versão anterior ainda carregando (ou com erro): o Título fica desabilitado — sem o herdado, o "digitou
+   *  igual ao automático → volta a automático" compararia com o valor errado (R4). */
+  versaoAnteriorCarregando?: boolean;
 }) {
   const trava = travaIntegracao ?? new Set<string>();
-  const tituloCalculado = tituloPaginaCalculado(draft.nome, nomeLoja);
+  // P-155 B + R4: o automático da v2+ é o título EFETIVO da versão anterior (herdado, recursivo); na v1/órfã, o
+  // calculado do Nome do RASCUNHO + a loja (como sempre). O colapso "digitou igual ao automático" compara com ESTE valor —
+  // na v2+, digitar o título "próprio" (calculado do Nome dela) fica DIGITADO (não some em silêncio).
+  const autoTitulo = tituloAutomaticoDe(versaoAnterior, draft.nome, nomeLoja);
+  const tituloCalculado = autoTitulo.valor;
   const tituloAutomatico = draft.titulo_pagina === null;
+  const hoverHerdado = hoverTituloHerdado(autoTitulo);
   return (
           <Secao id="info" titulo="Informações Gerais do Produto" numero={numero} selo={selo}>
             {/* L1: Status · Estilista · Origem (F3.6: o Nome foi para a L2). P-53 A: Status/Origem são SÓ do
@@ -229,27 +240,35 @@ export function InfoGeraisSecao({
                 <Label htmlFor="titulo-pagina">Título para a página</Label>
                 {/* Dono 26/set: a explicação sai de baixo do campo e vira hover (padrão InfoHover — nunca texto fixo). */}
                 <InfoHover ariaLabel="Como funciona o Título para a página?">
-                  <p>Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺.</p>
+                  <p>Na v2+, segue o Título da versão anterior enquanto ninguém editar; na v1, o Nome do Modelo + o nome da loja. Editado à mão, fica fixo até clicar em ↺.</p>
                 </InfoHover>
                 {/* Ruling da revisão (Task 21): travado + automático — o "i" avisa que o valor automático continua
                     acompanhando o Nome mesmo com o campo travado pela Integração (o Salvar OMITE a coluna quando
                     travada; o servidor recusaria byte-a-byte se ela fosse reenviada — usePlanejamentoSave.ts). */}
                 {trava.has("titulo_pagina") && tituloAutomatico && (
                   <InfoHover ariaLabel="Título travado pela Integração">
-                    <p>Automático: acompanha o Nome do produto (e o nome da loja), mesmo travado pela Integração.</p>
+                    <p>{autoTitulo.fonte === "herdado"
+                      ? `Automático: segue o Título da v${autoTitulo.versao}, mesmo travado pela Integração.`
+                      : "Automático: acompanha o Nome do produto (e o nome da loja), mesmo travado pela Integração."}</p>
                   </InfoHover>
                 )}
-                {tituloAutomatico && tituloCalculado !== "" && (
-                  <StatusBadge tone="neutral" className="rounded-full px-2 py-0.5 normal-case tracking-normal">automático</StatusBadge>
+                {tituloAutomatico && tituloCalculado !== "" && !versaoAnteriorCarregando && (
+                  <StatusBadge tone="neutral" className="rounded-full px-2 py-0.5 normal-case tracking-normal">{seloTitulo(autoTitulo)}</StatusBadge>
+                )}
+                {tituloAutomatico && hoverHerdado && !versaoAnteriorCarregando && (
+                  <InfoHover ariaLabel="De onde vem o Título herdado?"><p>{hoverHerdado}</p></InfoHover>
+                )}
+                {versaoAnteriorCarregando && (
+                  <InfoHover ariaLabel="Aguardando a versão anterior"><p>Carregando o Título da versão anterior — aguarde para editar.</p></InfoHover>
                 )}
               </div>
-              <fieldset disabled={planBloqueado || trava.has("titulo_pagina")} className="contents">
+              <fieldset disabled={planBloqueado || trava.has("titulo_pagina") || versaoAnteriorCarregando} className="contents">
               <div className="flex items-center gap-2">
                 <Input
                   id="titulo-pagina"
                   className="min-w-0 flex-1"
                   placeholder="Nome do Modelo | Nome da loja"
-                  value={tituloExibido(draft.titulo_pagina, tituloCalculado)}
+                  value={versaoAnteriorCarregando && tituloAutomatico ? "…" : tituloExibido(draft.titulo_pagina, tituloCalculado)}
                   onChange={(e) => { const v = e.target.value; setDraftTracked((d) => ({ ...d, titulo_pagina: tituloAoDigitar(v, tituloCalculado) })); }}
                   onBlur={() => setDraftTracked((d) => ({ ...d, titulo_pagina: tituloAoSair(d.titulo_pagina, tituloCalculado) }))}
                   data-colab-path="titulo_pagina"

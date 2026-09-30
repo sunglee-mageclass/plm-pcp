@@ -45,6 +45,13 @@
 //   `skuExibido` — o SKU novo aparece na hora, sem esperar o Realtime relistar `modelos`.
 // - n5/n6 (testes): ver `integracao-celula.test.ts` — `IS_REACT_ACT_ENVIRONMENT` setado no topo do arquivo, e os 2
 //   testes de texto de trava agora abrem o tooltip via foco e conferem o texto `TEXTO_TRAVADO_*` de verdade.
+//
+// Preço anterior e Título por VERSÃO (P-146..P-159, R4): a célula recebe `versaoAnterior` (a linha da RPC
+// `modelos_versao_anterior`, pelo `useIntegracao`). Título: o automático da v2+ é o HERDADO (selo "herdado da vN") e o
+// colapso "digitou igual ao automático" compara com ELE; desabilitado enquanto a versão anterior carrega. Preço anterior
+// (edição automática): placeholder = o preço da vN; "—" + "aguardando preço da vN" quando ela não tem preço (P-158); sem
+// anterior, o preço de venda do RASCUNHO (n2) — vazio = "aguardando preço de venda" (M4). Leitura: o valor já vem do
+// vivo/retrato; só o selo ganha a versão/"aguardando" quando a linha mostra o VIVO.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Lock, RotateCcw } from "lucide-react";
@@ -70,13 +77,20 @@ import {
 } from "@/lib/integracao/rascunho";
 import { tituloExibido } from "@/lib/titulo-pagina";
 import {
+  precoAnteriorAutomatico, seloPrecoAnterior, seloTitulo, tituloAutomatico as tituloAutomaticoDe, hoverTituloHerdado,
+  type VersaoAnteriorInfo,
+} from "@/lib/versao-anterior";
+import {
   chaveEntradaPrevia, chaveLinhaSku, digitarSku, manterMeu as manterMeuSku, semManual as semManualSku,
   situacaoPrevia, skuExibido, type LinhaPrevia, type PreviaSkus,
 } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 
+/** A versão anterior do produto (P-146/P-155 B): `info` null = v1/órfã; `carregando` = a RPC ainda não voltou. */
+export type VersaoCelula = { info: VersaoAnteriorInfo; carregando: boolean };
 type Props = {
   campo: CampoDef; produto: ProdutoLista; indice: number | null; rascunho: Rascunho; previa: PreviaSkus | undefined;
   salvando: boolean; onAtualizar: (f: (r: Rascunho) => Rascunho) => void; onKeywords: () => void; onFotos: () => void;
+  versaoAnterior?: VersaoCelula;
 };
 
 const TEXTO_SALVANDO = "Salvando…";
@@ -325,10 +339,17 @@ const TIMEOUT_LOJA_MS = 8000;
 /** Célula do Título (produto, `indice===null`): controlador — NÃO usa o `editar` genérico de `rascunho.ts`.
  *  `editarTitulo`/`sairTitulo` precisam do nome da loja a cada chamada (nunca guardado em estado, senão ficaria
  *  stale). Enquanto `nomeLoja` é null (loading), a célula fica DESABILITADA com um hint curto. */
-function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
+function CelulaTitulo({ campo, p, r, salvando, onAtualizar, versaoAnterior }: {
   campo: CampoDef; p: ProdutoLista; r: Rascunho; salvando: boolean; onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
+  versaoAnterior?: VersaoCelula;
 }) {
   const { nome: nomeLoja } = useTenantBranding();
+  // P-155 B + R4: na v2+ o automático é o HERDADO (pronto do servidor) — é com ele que o colapso compara.
+  const infoVersao = versaoAnterior?.info ?? null;
+  const herdado = infoVersao ? (infoVersao.titulo_herdado ?? "") : null;
+  const carregandoVersao = versaoAnterior?.carregando ?? false;
+  const autoTitulo = tituloAutomaticoDe(infoVersao, r.valores.nome, nomeLoja);
+  const hoverHerdado = hoverTituloHerdado(autoTitulo);
   const [travadoPorTimeout, setTravadoPorTimeout] = useState(false);
   useEffect(() => {
     if (nomeLoja !== null) return;
@@ -347,7 +368,7 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
       // n3 (carry.md, revisão T12a round 2): um título pendente que voltou a AUTOMÁTICO (`titulo_pagina` editado
       // para null) mostrava "—" (o fallback genérico) em vez do valor calculado — aqui `nomeLoja` já está disponível
       // (o campo Título só habilita depois que ele carrega), então dá pra mostrar o automático de verdade.
-      const calculadoPendente = nomeLoja === null ? "—" : tituloCalculadoDoRascunho(r, nomeLoja);
+      const calculadoPendente = herdado ?? (nomeLoja === null ? "—" : tituloCalculadoDoRascunho(r, nomeLoja));
       return (
         <LeituraComPendencia texto={tituloExibido(r.valores.titulo_pagina, calculadoPendente)} motivo={trava.motivo}
           onDescartar={() => onAtualizar((x) => usarNovo(x, col))} />
@@ -355,19 +376,21 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
     }
     // Minor m5/M5(c) (code-review): o selo "automático" só aparece quando a linha mostra o VIVO (não o retrato) —
     // uma linha travada mostra o retrato, que pode discordar do `raw` vivo.
-    const automatico = !usaRetrato(p) && p.raw.titulo_pagina === null;
+    const automatico = !usaRetrato(p) && p.raw.titulo_pagina === null && !carregandoVersao;
     return (
       <Leitura texto={valorCelula(p, "titulo", null)} info={trava.motivo} aviso={aviso} travado={trava.travado}
-        selo={automatico ? <StatusBadge tone="neutral" className="normal-case tracking-normal">automático</StatusBadge> : null} />
+        selo={automatico ? <StatusBadge tone="neutral" className="normal-case tracking-normal">{seloTitulo(autoTitulo)}</StatusBadge> : null} />
     );
   }
   // Sem o nome (loading) e ainda dentro do prazo: desabilita. Depois de `TIMEOUT_LOJA_MS`, libera a edição (rede de
   // segurança de `editarTitulo`/`sairTitulo` para `nomeLoja===null`: nunca colapsa o digitado pra NULL nem confunde
   // "Nome" puro com automático).
-  const carregandoLoja = nomeLoja === null && !travadoPorTimeout;
+  // O herdado (v2+) não depende do nome da loja; a v1 sim. A versão anterior carregando também desabilita (R4: sem ela,
+  // o colapso compararia com o automático errado).
+  const carregandoLoja = herdado === null && nomeLoja === null && !travadoPorTimeout;
   const conflito = r.conflitos.find((c) => c.path === col);
   const automatico = r.valores.titulo_pagina === null;
-  const calculado = nomeLoja === null ? "" : tituloCalculadoDoRascunho(r, nomeLoja);
+  const calculado = herdado ?? (nomeLoja === null ? "" : tituloCalculadoDoRascunho(r, nomeLoja));
   const exibido = tituloExibido(r.valores.titulo_pagina, calculado);
   const realce = cn(pendente && "bg-[var(--tone-warning-bg)]", conflito && "ring-2 ring-[var(--tone-warning-fg)]");
   return (
@@ -376,19 +399,21 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
         <Input
           aria-label={`Título para a página — ${p.raw.nome}`}
           className={cn("h-8 min-w-[14rem]", realce)}
-          value={exibido}
-          disabled={carregandoLoja || salvando}
+          value={carregandoVersao && automatico ? "…" : exibido}
+          disabled={carregandoLoja || carregandoVersao || salvando}
           onChange={(e) => {
             // Minor (code-review, M3): captura o valor ANTES do updater (não depende de o React manter
             // `e.target.value` vivo até o updater rodar — o Sheet faz igual em `InfoGeraisSecao.tsx:236`).
             const v = e.target.value;
-            onAtualizar((x) => editarTitulo(x, v, nomeLoja));
+            onAtualizar((x) => editarTitulo(x, v, nomeLoja, herdado));
           }}
-          onBlur={() => onAtualizar((x) => sairTitulo(x, nomeLoja))}
+          onBlur={() => onAtualizar((x) => sairTitulo(x, nomeLoja, herdado))}
         />
-        {automatico && !carregandoLoja && (
-          <StatusBadge tone="neutral" className="shrink-0 normal-case tracking-normal">automático</StatusBadge>
+        {automatico && !carregandoLoja && !carregandoVersao && (
+          <StatusBadge tone="neutral" className="shrink-0 normal-case tracking-normal">{seloTitulo(autoTitulo)}</StatusBadge>
         )}
+        {automatico && hoverHerdado && !carregandoVersao && <InfoHover ariaLabel="De onde vem o Título herdado?">{hoverHerdado}</InfoHover>}
+        {carregandoVersao && <InfoHover ariaLabel="Aguardando a versão anterior">Carregando o Título da versão anterior — aguarde para editar.</InfoHover>}
         {carregandoLoja && <InfoHover ariaLabel="Aguardando o nome da loja">Carregando o nome da loja — aguarde para editar o título.</InfoHover>}
         {travadoPorTimeout && nomeLoja === null && (
           <InfoHover ariaLabel="Não foi possível carregar o nome da loja">
@@ -416,7 +441,7 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
   );
 }
 
-export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, salvando, onAtualizar, onKeywords, onFotos }: Props) {
+export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, salvando, onAtualizar, onKeywords, onFotos, versaoAnterior }: Props) {
   if (indice !== null) {
     return <CelulaSublinha campo={campo} p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
   }
@@ -427,7 +452,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   const aviso = avisoRetrato(p, campo.key);
   const selo = campo.key === "nome" && usaRetrato(p) ? <StatusBadge tone="neutral">retrato</StatusBadge> : null;
   if (campo.key === "titulo") {
-    return <CelulaTitulo campo={campo} p={p} r={r} salvando={salvando} onAtualizar={onAtualizar} />;
+    return <CelulaTitulo campo={campo} p={p} r={r} salvando={salvando} onAtualizar={onAtualizar} versaoAnterior={versaoAnterior} />;
   }
   // Fix round 2 (m7/R7 — reviews): linha travada (integrável/integrado) mostra o CADEADO — mas até agora sem
   // nenhum texto explicando por quê nas células "somente_leitura por natureza" (custo/cor/tamanho) e na metatag.
@@ -476,9 +501,11 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
     // Preço anterior automático (controlador): raw NULL = o servidor já grava o valor automático em vivo/retrato
     // (`valorCelula` lê pronto); aqui só soma o badge "automático" quando a linha mostra o VIVO (m5/M5(c) — não
     // discordar do retrato numa linha travada).
-    const automaticoLeitura = campo.key === "preco_anterior" && !usaRetrato(p) && p.raw.preco_anterior === null;
+    const automaticoLeitura = campo.key === "preco_anterior" && !usaRetrato(p) && p.raw.preco_anterior === null
+      && !(versaoAnterior?.carregando ?? false);
+    const seloLeitura = seloPrecoAnterior(null, precoAnteriorAutomatico(versaoAnterior?.info ?? null, p.raw.preco_venda));
     const seloComAutomatico = automaticoLeitura
-      ? <StatusBadge tone="neutral" className="normal-case tracking-normal">automático</StatusBadge>
+      ? <StatusBadge tone={seloLeitura.tom} className="normal-case tracking-normal">{seloLeitura.texto}</StatusBadge>
       : selo;
     return (
       <Leitura texto={valorCelula(p, campo.key, null)} info={trava.motivo} aviso={aviso} travado={trava.travado} selo={seloComAutomatico} />
@@ -508,17 +535,28 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
     // n2 (carry.md, revisão T12a round 2): o placeholder do automático usa o preço de venda do RASCUNHO (a mesma
     // linha sendo editada agora), nunca o `valorCelula`/preço SALVO no servidor — o Sheet usa o `precoBase` do
     // draft pela mesma razão (`InfoGeraisSecao`/`PrecoTabela`: o automático acompanha o preço de venda ao vivo).
+    // P-146/P-158: com versão anterior, o automático é o preço da vN ("—" + "aguardando preço da vN" sem ele); sem
+    // anterior, o do rascunho — vazio = "aguardando preço de venda" (M4).
     const precoVendaRascunho = precoAnteriorOuNull(r.valores.preco_venda) ?? Number(r.valores.preco_venda ?? 0);
-    const placeholder = automatico
-      ? (precoVendaRascunho > 0 ? precoVendaRascunho.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0,00")
-      : "0,00";
+    const carregandoVersao = campo.key === "preco_anterior" && (versaoAnterior?.carregando ?? false);
+    const autoAnterior = precoAnteriorAutomatico(versaoAnterior?.info ?? null, precoVendaRascunho);
+    const seloAuto = seloPrecoAnterior(null, autoAnterior);
+    const placeholder = !automatico
+      ? "0,00"
+      : carregandoVersao
+        ? "…"
+        : autoAnterior.valor !== null
+          ? autoAnterior.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : autoAnterior.fonte === "anterior" ? "—" : "0,00";
     controle = (
       <div className="flex items-center gap-1">
         <MoneyInput fixedDecimals aria-label={ariaLabel} placeholder={placeholder} disabled={salvando}
           className={cn("h-8 w-28 text-right tabular-nums", realce)}
           value={(r.valores[col] as number | null) ?? ""}
           onChange={(e) => set(e.target.value === "" ? null : Number(e.target.value))} />
-        {automatico && <StatusBadge tone="neutral" className="shrink-0 normal-case tracking-normal">automático</StatusBadge>}
+        {automatico && !carregandoVersao && (
+          <StatusBadge tone={seloAuto.tom} className="shrink-0 normal-case tracking-normal">{seloAuto.texto}</StatusBadge>
+        )}
       </div>
     );
   } else if (campo.tipo === "peso" || campo.tipo === "medida") {
