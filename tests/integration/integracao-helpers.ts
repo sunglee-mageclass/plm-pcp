@@ -137,7 +137,25 @@ export async function voltaR14IntegracaoSePreciso(c: Client): Promise<void> {
   await aplica(c, INV_R14_INTEGRACAO);
   await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
 }
+/**
+ * LIFO — achados LEVES L3 sku #5 (20261027120000) redefine _skus_plano/_skus_matriz_ref_tipo (e o gatilho do SKU) POR CIMA da
+ * 20261013100000 (release 4), cujo inverso exige os textos de ANTES (4c19c6a4…/95309506…). Com a L3 na cópia, as suítes que
+ * voltam/reaplicam a 20261013100000 na txn voltam a L3 sku ANTES, DENTRO da txn (as 2 travas SET LOCAL do arquivo saem; o
+ * statement_timeout de 5 s do arquivo é devolvido ao valor da txn). Sem efeito quando a L3 não está aplicada.
+ */
+export const INV_L3_SKU = "supabase/rollback/20261027120000_sku_replica_familia_down.sql";
+const L3_SKUS_PLANO_DEPOIS = "5980345a105818b26329c8a4e594fee2";
+export async function voltaL3SkuSePreciso(c: Client): Promise<void> {
+  const m = (await um<{ m: string | null }>(c,
+    "SELECT md5(pg_get_functiondef(to_regprocedure('public._skus_plano(uuid,text,text,jsonb,text)'))) AS m")).m;
+  if (m !== L3_SKUS_PLANO_DEPOIS) return;
+  exigeBancoLocal();
+  const st = (await um<{ v: string }>(c, "SELECT current_setting('statement_timeout') AS v")).v;
+  await aplica(c, INV_L3_SKU);
+  await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
+}
 export async function voltaPrecoVersaoSePreciso(c: Client): Promise<void> {
+  await voltaL3SkuSePreciso(c); // LIFO: a L3 sku (20261027120000) volta antes de tudo (a mais nova)
   await voltaR14IntegracaoSePreciso(c); // LIFO: a R14 (20261024200000) volta antes da 20261018
   if (await versaoIntegradaViva(c)) {
     exigeBancoLocal();

@@ -159,9 +159,12 @@ async function tecido1(c: PgClient, mt: string, vts: string[], desde = 1): Promi
 // loja); `null` = card sem escolha (handover do produto espelho).
 const modelo = (c: PgClient, nome: string, ref: string, origem = "interno", tipo: string | null = "numero") =>
   novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem, tamanho_tipo) VALUES ($1, $2, $3, $4, $5) RETURNING id", [T, nome, ref, origem, tipo]);
-/** Modelo interno com o Tecido 1 = as variantes dadas (na ordem) — para réplica/conflito. */
-async function internoCom(c: PgClient, artigo: string, nome: string, ref: string, vts: string[]): Promise<string> {
-  const m = await modelo(c, nome, ref);
+/** Leves L3 sku #5: réplica = VERSÃO do card (mesma família, modelo_base_id = a raiz). */
+const versao = (c: PgClient, base: string, nome: string, ref: string) =>
+  novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem, tamanho_tipo, modelo_base_id, versao) VALUES ($1, $2, $3, 'interno', 'numero', $4, 2) RETURNING id", [T, nome, ref, base]);
+/** Modelo interno com o Tecido 1 = as variantes dadas (na ordem) — para réplica/conflito. `base` = versão de (mesma família). */
+async function internoCom(c: PgClient, artigo: string, nome: string, ref: string, vts: string[], base: string | null = null): Promise<string> {
+  const m = base ? await versao(c, base, nome, ref) : await modelo(c, nome, ref);
   const mt = await novoId(c, "INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo) VALUES ($1, $2, 1, 'tecido') RETURNING id", [m, artigo]);
   await tecido1(c, mt, vts);
   return m;
@@ -471,7 +474,10 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       expect((await falha(c, ins, [T, k.interno, k.kAm, "34|PPP", "X-2"])).code).toBe("23505"); // mesma linha 2×
       expect((await falha(c, ins, [T, k.interno, k.kAm, "36|PP", "  "])).code).toBe("23514");
       // réplica/versão (outro card, MESMA REF viva — comparada normalizada —, MESMA cor + tamanho) reusa o SKU
-      const rep = await modelo(c, "SKU-T Blusa v2", " sku-t1 ");
+      // Leves L3 sku #5: só DENTRO da mesma família de versões; card de OUTRA família com a mesma REF = em uso
+      const outraFamilia = await modelo(c, "SKU-T Blusa (outra família)", "SKU-T1");
+      expect(await falha(c, ins, [T, outraFamilia, k.kAm, "34|PPP", "X-1"])).toEqual(emUso);
+      const rep = await versao(c, k.interno, "SKU-T Blusa v2", " sku-t1 ");
       await c.query(ins, [T, rep, k.kAm, "34|PPP", "X-1"]);
       expect(await falha(c, ins, [T, rep, k.kAmCan, "34|PPP", "X-1"])).toEqual(emUso); // réplica, outra linha
       expect(await falha(c, "UPDATE public.modelo_skus SET tamanho_key = '36|PP' WHERE modelo_id = $1", [rep])).toEqual(emUso);
@@ -696,7 +702,13 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       const k = await cenario(c);
       await comoUsuario(c);
       await gerar(c, k.interno);
-      const rep = await internoCom(c, k.artigo, "SKU-T Blusa v2", "SKU-T1", [k.vtAm]);
+      // Leves L3 sku #5: OUTRA família com a mesma REF = conflito (não divide o SKU)
+      const outraFam = await internoCom(c, k.artigo, "SKU-T Blusa (outra família)", "SKU-T1", [k.vtAm]);
+      await grade(c, outraFam, 1, { "34|PPP": 1 });
+      const ro = await gerar(c, outraFam);
+      expect([ro.criados, ro.conflitos.length]).toEqual([0, 1]);
+      expect(linha(await matriz(c, outraFam), k.kAm, "34|PPP").estado).toBe("conflito"); // a matriz (Códigos) concorda
+      const rep = await internoCom(c, k.artigo, "SKU-T Blusa v2", "SKU-T1", [k.vtAm], k.interno);
       await grade(c, rep, 1, { "34|PPP": 1, "36|PP": 1 });
       const r = await gerar(c, rep);
       expect([r.criados, r.conflitos]).toEqual([2, []]);
@@ -715,7 +727,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       await comoUsuario(c);
       await lojaSku(c, { partes: ["cor_base", "cor_apelido", "tamanho"], separadores: { "cor_apelido|tamanho": "-" } });
       await gerar(c, k.interno);
-      const rep = await internoCom(c, k.artigo, "SKU-T Blusa v2", "SKU-T1", [k.vtAm]);
+      const rep = await internoCom(c, k.artigo, "SKU-T Blusa v2", "SKU-T1", [k.vtAm], k.interno); // versão (L3 sku #5)
       await grade(c, rep, 1, { "34|PPP": 1 });
       expect((await gerar(c, rep)).conflitos).toEqual([]); // réplica: os dois com AM-34
       expect(linha(await matriz(c, k.interno), k.kAm, "34|PPP").estado).toBe("ok");

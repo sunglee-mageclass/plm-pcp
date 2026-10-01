@@ -909,7 +909,9 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (
   });
 
   // DDL próprio (sabotagem com CREATE OR REPLACE FUNCTION) → SÓ na cópia local (decisão 17), mesmo sem KANBAN_AUTO_MIG_TXN
-  it.skipIf(!LOCAL)("erro na derivação vira WARNING: NÃO derruba o COMMIT e a fila esvazia", async () => {
+  // Leves L3 kanban #10 (20261027100000): o card que falhou FICA na fila (o DELETE passou para dentro do bloco protegido) —
+  // antes "a fila esvazia" (o recálculo se perdia até a próxima edição). WARNING ASCII com o prefixo kanban_auto.
+  it.skipIf(!LOCAL)("erro na derivação vira WARNING: NÃO derruba o COMMIT e o card FICA na fila (L3 kanban #10)", async () => {
     await withTx(async (c) => {
       const avisos: string[] = [];
       const ouvir = (n: { message?: string }) => avisos.push(String(n.message));
@@ -924,8 +926,8 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (
                        RETURNS integer LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'sabotagem de teste'; END $f$`);
         await c.query(`INSERT INTO public.kanban_recalculo_fila (modelo_id, tenant_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [M, T]);
         await imediato(c); // não lança
-        expect(avisos.some((a) => /recálculo ignorado/.test(a) && /sabotagem de teste/.test(a))).toBe(true);
-        expect(await tamanhoFila(c)).toBe(0);
+        expect(avisos.some((a) => /recalculo do lote falhou/.test(a) && /sabotagem de teste/.test(a))).toBe(true);
+        expect(await filaIds(c)).toEqual([M]);
         expect((await lerModelo(c, M)).status).toBe("entrada");
       } finally {
         c.off("notice", ouvir);
@@ -1001,8 +1003,9 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (
           const ms = Date.now() - t0;
           expect(ms).toBeLessThan(10000); // não ficou preso até o lock_timeout de 30s da txn externa nem o statement_timeout
           expect(ms).toBeGreaterThanOrEqual(1900); // realmente esperou ~2s do lock_timeout DA FUNÇÃO (não herdou os 30s daqui)
-          expect(avisos.some((a) => /recálculo ignorado/.test(a) && /55P03|lock/i.test(a))).toBe(true);
-          expect(await tamanhoFila(c)).toBe(0);
+          expect(avisos.some((a) => /recalculo do lote falhou/.test(a) && /55P03|lock/i.test(a))).toBe(true);
+          // Leves L3 kanban #10: o card que não andou FICA na fila (antes: a fila esvaziava e o recálculo se perdia)
+          expect(await filaIds(c)).toEqual([M]);
           expect((await lerModelo(c, M)).status).toBe("entrada");
         } finally {
           c.off("notice", ouvir);

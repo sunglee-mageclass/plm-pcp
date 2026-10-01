@@ -271,7 +271,8 @@ describe.skipIf(!LOCAL)(
         await c.query("SAVEPOINT sp");
         const err = await erroDe(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [R]));
         expect(err.code).toBe("P0001");
-        expect(err.message).toMatch(/Etapa C/);
+        // Leves L3 (R14 msg reprovado, 20261027100000): o motivo é o reprovado, não a etapa (que o card já passou)
+        expect(err.message).toBe("reprovado_explosao: Card reprovado nao vai a Explosao");
         await c.query("ROLLBACK TO SAVEPOINT sp");
         expect(
           (await um<{ id: string }>(c, `SELECT public.enviar_modelo_para_cad($1) AS id`, [S])).id,

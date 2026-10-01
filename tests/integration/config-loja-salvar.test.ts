@@ -32,6 +32,8 @@ const FUNCOES_INTOCADAS = [
   "fn_audit",
 ];
 const SO_ASCII = /^[\x20-\x7E]*$/;
+// md5 de salvar_config_loja com a L3 aplicada (20261027110000 "depois" e 20261027130000 "depois") — ver o bloco de concorrência.
+const L3_SALVAR_CONFIG = ["691acd27ea96adc5466464320311ef10", "6c57492d2edaa4a1a64237b83256b15c"];
 
 const ler = (rel: string) => readFileSync(ROOT + rel, "utf8");
 const RE_TRAVAS = /^SET LOCAL (lock_timeout|transaction_timeout) = '[^']*';$/gm;
@@ -639,7 +641,16 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência
     // N3 (re-review): SEMPRE reaplica a versão DESTE arquivo (uma função velha já na cópia não pode mascarar o teste);
     // o inverso no fim só roda se esta rodada é que criou a função (se ela já existia, fica — na versão deste arquivo).
     const existia = (await um<{ r: string | null }>(admin, "SELECT to_regprocedure($1)::text AS r", [SIG])).r;
-    await admin.query(ler(MIG)); // aplicação REAL (com o BEGIN/COMMIT e as travas do próprio arquivo)
+    // LIFO (achados LEVES L3, 20261027110000/130000): a L3 redefine salvar_config_loja POR CIMA desta (o texto dela contém o
+    // desta + Formato da REF/P-211). Reaplicar este arquivo DE VERDADE derrubaria a L3 da cópia (incidente 01/out: a suíte
+    // completa revertia a L3 a cada rodada). Com a L3 viva, a função viva é usada como está (mesmo comportamento p/ as
+    // colunas que este bloco salva: keywords/timezone).
+    const md5Vivo = existia
+      ? (await um<{ m: string }>(admin, "SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [SIG])).m
+      : null;
+    if (!md5Vivo || !L3_SALVAR_CONFIG.includes(md5Vivo)) {
+      await admin.query(ler(MIG)); // aplicação REAL (com o BEGIN/COMMIT e as travas do próprio arquivo)
+    }
     criouFuncao = !existia;
   });
 
@@ -705,7 +716,9 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência
       await a.query("COMMIT");
       const rb = await pb;
       expect(rb.erro).toBeNull();
-      expect(rb.r).toEqual({ gravadas: ["timezone"], valores: { timezone: fuso } });
+      // L3 (P-211 A): com a L3 viva a resposta ganha `refs_reveladas` (0 aqui) — o resto do contrato é o mesmo.
+      expect({ gravadas: rb.r.gravadas, valores: rb.r.valores }).toEqual({ gravadas: ["timezone"], valores: { timezone: fuso } });
+      expect(rb.r.refs_reveladas ?? 0).toBe(0);
       const visto = await um<{ keywords: string; timezone: string }>(b, "SELECT keywords, timezone FROM public.tenant_config WHERE tenant_id = $1", [T]);
       expect(visto).toEqual({ keywords: `${MARCA}A2`, timezone: fuso }); // a da 1ª ficou
       await b.query("ROLLBACK"); // a 2ª não precisa gravar de verdade
