@@ -20,7 +20,7 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.saldo_oc_item_m(uuid)',                              '873789084182322f0b28b315d06b0dbc'),
-      ('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])',  'dc5e43cf003506c68977b1d4a8b15834'),
+      ('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])',  'deefee4cadec3e5434aea0de970acc5f'),
       ('public._plan_tecido_situacao_ocs_core(uuid,uuid)',          '29d4953a5ea039b9d995db12c511c8ae'),
       ('public._baixar_estoque_tecido_corte_core(uuid)',            '2a6f0ef24da6f9e8b9c68f63e3863577'),
       ('public._remover_metragem_oc_core(uuid,numeric,text)',       '635774e13418a33af6880f16728575c5'),
@@ -339,6 +339,10 @@ BEGIN
     IF has_function_privilege('anon', r.s, 'EXECUTE')
        OR (r.s LIKE 'public.\_%' AND has_function_privilege('authenticated', r.s, 'EXECUTE')) THEN
       RAISE EXCEPTION 'medios_r11 (volta): % ficou executavel por anon/authenticated', r.s USING ERRCODE = 'P0001';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) x
+                WHERE p.oid = to_regprocedure(r.s) AND x.grantee = 0 AND x.privilege_type = 'EXECUTE') THEN
+      RAISE EXCEPTION 'medios_r11 (volta): % ficou executavel por PUBLIC (inv. #9)', r.s USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
 END $pos$;

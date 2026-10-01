@@ -8,6 +8,8 @@
 --   est #10 rolo_supply de _plan_tecido_previa_pedido_core usava pedida - separacao_rolo (a separacao mora no item de
 --           ORIGEM): rolo separado ficava com saldo 0 e rolo avulso nao descontava corte/ajuste.
 --   Situacao por OC: entregue_m tinha a mesma regra do est #3.
+--   [fix round 1, M1 da G-MIGRATION] o rolo separado de uma OC que JA credita a colecao no supply (propria, ou nao-propria
+--   com has_card) nao credita de novo no rolo_supply: o supply conta a origem pela PEDIDA (a separacao nao a baixa).
 -- Regra nova (rulings do controlador 01/out, plan.md): o item so tem saldo se ocs_tecido.status = 'recebido' e o item nao
 -- esta cancelado; recebido = quantidade_recebida, senao quantidade_pedida (0 se o item e reposicao de troca,
 -- substitui_item_id); kg -> m pelo rendimento; saldo = recebido - baixas do ledger DO PROPRIO item. Fora disso -> 0.
@@ -27,7 +29,7 @@
 --     DEPOIS 873789084182322f0b28b315d06b0dbc  (este arquivo; reaplicar = no-op)
 --   public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])
 --     ANTES  9ffdad2ee32301e159c58bec129ad49e  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
---     DEPOIS dc5e43cf003506c68977b1d4a8b15834  (este arquivo; reaplicar = no-op)
+--     DEPOIS deefee4cadec3e5434aea0de970acc5f  (este arquivo; reaplicar = no-op)
 --   public._plan_tecido_situacao_ocs_core(uuid,uuid)
 --     ANTES  1ab8fe2e303b04ed7b9dfcba2e1fa657  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --     DEPOIS 29d4953a5ea039b9d995db12c511c8ae  (este arquivo; reaplicar = no-op)
@@ -55,7 +57,7 @@ INSERT INTO _r11_md5_aceitos VALUES
   ('public.saldo_oc_item_m(uuid)',                              '0f6d4e7402db89db9b1e4eb803cde433', 'antes'),     -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public.saldo_oc_item_m(uuid)',                              '873789084182322f0b28b315d06b0dbc', 'depois'),
   ('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])',  '9ffdad2ee32301e159c58bec129ad49e', 'antes'),     -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
-  ('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])',  'dc5e43cf003506c68977b1d4a8b15834', 'depois'),
+  ('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])',  'deefee4cadec3e5434aea0de970acc5f', 'depois'),
   ('public._plan_tecido_situacao_ocs_core(uuid,uuid)',          '1ab8fe2e303b04ed7b9dfcba2e1fa657', 'antes'),     -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public._plan_tecido_situacao_ocs_core(uuid,uuid)',          '29d4953a5ea039b9d995db12c511c8ae', 'depois'),
   ('public._baixar_estoque_tecido_corte_core(uuid)',            '2a6f0ef24da6f9e8b9c68f63e3863577', 'chamador'),  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
@@ -237,6 +239,16 @@ begin
                        - coalesce((select sum(b.quantidade) from estoque_tecido_baixas b where b.oc_tecido_item_id = it.id), 0)
              end as saldo_m
     ) rsi
+    -- [medios R11 fix M1] rolo SEPARADO de uma OC que ja credita esta colecao no supply (propria, ou nao-propria com
+    -- has_card) NAO credita de novo: o supply conta a OC de origem pela PEDIDA, que a separacao nao baixa - os metros
+    -- do rolo ja estao la (senao contaria 2x e o "a comprar" sub-pediria).
+    where not exists (
+      select 1
+        from ocs_tecido_itens oi
+        join ocs_tecido ooc on ooc.id = oi.oc_tecido_id and ooc.tenant_id = _tenant and not coalesce(ooc.is_rolo,false)
+        join oc_link ol2 on ol2.oc_tecido_id = ooc.id and (ol2.owned or ol2.has_card)
+       where oi.id = oc.rolo_origem_item_id
+         and coalesce(oi.cancelado,false) = false and oi.variante_tecido_id is not null)
     group by it.artigo_id, it.variante_tecido_id
   ),
   base as (
