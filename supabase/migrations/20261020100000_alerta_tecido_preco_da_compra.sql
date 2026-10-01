@@ -7,12 +7,12 @@
 -- (src/components/oc-tecido/shared.ts:162: it.preco ?? artigo.preco ?? 0; preco 0 digitado vale 0). Nada mais muda.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
--- PROVISORIO: confirmar com o Passo 0 de producao (os md5 "antes" sao da COPIA local 54422, 01/out).
+-- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06) - md5 "antes" da copia 54422 = producao.
 --   public._aplicar_resolucao_alerta_tecido_core(uuid,text,uuid,uuid,numeric)
---     ANTES  f30dff2c2ece193ae5f7b36aa33ccfcf  (copia 01/out)  -- PROVISORIO: confirmar com o Passo 0 de producao
+--     ANTES  f30dff2c2ece193ae5f7b36aa33ccfcf  (copia 01/out)  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --     DEPOIS e16c604d1ce06fe77151118870c1257c  (este arquivo; reaplicar = no-op)
 --   public._receber_reposicao_troca_core(uuid,date,numeric)
---     ANTES  d5bf1259b7519bc558c191a4eb5f267d  (copia 01/out)  -- PROVISORIO: confirmar com o Passo 0 de producao
+--     ANTES  d5bf1259b7519bc558c191a4eb5f267d  (copia 01/out)  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --     DEPOIS 95fa0b06c2a5835789c8d0c3d10a8eb5  (este arquivo; reaplicar = no-op)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
@@ -30,9 +30,9 @@ SET LOCAL transaction_timeout = '10s';
 
 CREATE TEMP TABLE _r10_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _r10_md5_aceitos VALUES
-  ('public._aplicar_resolucao_alerta_tecido_core(uuid,text,uuid,uuid,numeric)', 'f30dff2c2ece193ae5f7b36aa33ccfcf', 'antes'),   -- PROVISORIO: confirmar com o Passo 0 de producao
+  ('public._aplicar_resolucao_alerta_tecido_core(uuid,text,uuid,uuid,numeric)', 'f30dff2c2ece193ae5f7b36aa33ccfcf', 'antes'),   -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public._aplicar_resolucao_alerta_tecido_core(uuid,text,uuid,uuid,numeric)', 'e16c604d1ce06fe77151118870c1257c', 'depois'),
-  ('public._receber_reposicao_troca_core(uuid,date,numeric)',                  'd5bf1259b7519bc558c191a4eb5f267d', 'antes'),   -- PROVISORIO: confirmar com o Passo 0 de producao
+  ('public._receber_reposicao_troca_core(uuid,date,numeric)',                  'd5bf1259b7519bc558c191a4eb5f267d', 'antes'),   -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public._receber_reposicao_troca_core(uuid,date,numeric)',                  '95fa0b06c2a5835789c8d0c3d10a8eb5', 'depois');
 
 DO $guarda$
