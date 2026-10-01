@@ -328,10 +328,20 @@ describe.skipIf(!hasDb)("R13 — Pós segue igual", () => {
         p.reais,
       ]);
       expect((await cqDe(c, s.cadId)).status_pos).toBe("confirmado");
+      // (leves L6, "R13 Pós [C1]") o Salvar de um Pós confirmado agora exige Σ > 0 (o [C1] vale pelo status final;
+      // com '[]' seria recusado — coberto em leves-l6-cq-falta.test.ts): salva com 1 peça num bloco do cad.
+      const pt = await um<{ id: string }>(
+        c,
+        `insert into producao_terceirizados (cad_id, ativo) values ($1, true) returning id`,
+        [s.cadId],
+      );
+      const itens = JSON.stringify([
+        { producao_terceirizado_id: pt.id, variante_numero: s.vnum, etapa: "acabamento", grades: { [TAM]: 1 } },
+      ]);
       const r = await um<{ r: { status_pos: string } }>(
         c,
-        `select salvar_cq_pos($1,'{}'::jsonb,'[]'::jsonb,false) r`,
-        [s.cadId],
+        `select salvar_cq_pos($1,'{}'::jsonb,$2::jsonb,false) r`,
+        [s.cadId, itens],
       );
       expect(r.r.status_pos).toBe("confirmado");
     });
@@ -350,8 +360,9 @@ describe.skipIf(!hasDb)("R13 — Pós segue igual", () => {
         ],
       );
       const m = Object.fromEntries(rows.map((r: { s: string; m: string }) => [r.s, r.m]));
-      expect(m["public._salvar_cq_pos_core(uuid,jsonb,jsonb,boolean)"]).toBe(
-        "b68afafc8dfa6b71e94876e4f6665f10",
+      // b68afafc = texto de antes (intocado pela R13); 677a4272 = leves L6 ("R13 Pós [C1]", 20261028110000)
+      expect(["b68afafc8dfa6b71e94876e4f6665f10", "677a4272cdb2232e06c953af7d073b33"]).toContain(
+        m["public._salvar_cq_pos_core(uuid,jsonb,jsonb,boolean)"],
       );
       expect(m["public._desmarcar_cq_pos_core(uuid)"]).toBe("df41670f6a4be90c60430c051fc5ffe8");
       expect(m["public._desmarcar_cq_core(uuid)"]).toBe("47888f082026a4f87d0761427af28448");
@@ -784,6 +795,24 @@ describe.skipIf(!hasDb)(
           `insert into categorias_terceirizado (tenant_id, nome, ativo, etapa) values ($1,'Lavanderia Teste R13 NULL',true,'pos_costura') returning id`,
           [TENANT_TESTE],
         );
+        // (leves L6, prod #11 — 20261028100000) com producao_terceirizados.ativo NOT NULL o caso "ativo NULL" deixou de
+        // existir na origem: o insert é recusado (23502) e o cenário abaixo não se aplica mais.
+        const notNull = await um<{ n: boolean }>(
+          c,
+          `select a.attnotnull n from pg_attribute a where a.attrelid='public.producao_terceirizados'::regclass and a.attname='ativo'`,
+        );
+        if (notNull.n) {
+          await c.query("savepoint l6_nn");
+          const err = await erroDe(
+            c.query(
+              `insert into producao_terceirizados (cad_id, tenant_id, categoria_terceirizado_id, ativo) values ($1,$2,$3,NULL)`,
+              [s.cadId, TENANT_TESTE, cat.id],
+            ),
+          );
+          expect(err.code).toBe("23502");
+          await c.query("rollback to savepoint l6_nn");
+          return;
+        }
         await c.query(
           `insert into producao_terceirizados (cad_id, tenant_id, categoria_terceirizado_id, ativo) values ($1,$2,$3,NULL)`,
           [s.cadId, TENANT_TESTE, cat.id],
