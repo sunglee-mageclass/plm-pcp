@@ -23,6 +23,9 @@ export type PreviaRefRevelar = {
   /** Até `limite_amostra` cards (ordem por nome). */
   amostra: RefRevelarCard[];
   limite_amostra: number;
+  /** Leves L3 fix round 1 (B4): cards que a etapa revelaria mas a Integração trava (`ref_sku` de Integrável/Integrado) — ficam
+   *  escondidos e NÃO entram em `total`. */
+  travadas_integracao: number;
 };
 
 export async function refPreviaRevelar(
@@ -43,6 +46,7 @@ export async function refPreviaRevelar(
     total: Number(d.total ?? 0),
     amostra: Array.isArray(d.amostra) ? (d.amostra as RefRevelarCard[]) : [],
     limite_amostra: Number(d.limite_amostra ?? 20),
+    travadas_integracao: Number(d.travadas_integracao ?? 0),
   };
 }
 
@@ -70,6 +74,31 @@ export function etapaRefMudouDesdeAPrevia(
 
 export const MENSAGEM_PREVIA_REF_MUDOU =
   "A etapa de revelar a REF mudou depois da prévia. Nada foi gravado — clique em Salvar de novo.";
+/** Leves L3 fix round 1 (B8): a etapa vai no Salvar mas a prévia nem foi feita (ex.: a loja ainda carregava). */
+export const MENSAGEM_PREVIA_REF_AUSENTE =
+  "A prévia das REFs não foi feita para este Salvar. Nada foi gravado — clique em Salvar de novo.";
+/** O texto certo para a recusa do `mutationFn` (null = segue). */
+export function motivoPreviaRef(
+  conferida: { valor: string | null } | undefined,
+  agora: { valor: string | null } | null,
+): string | null {
+  if (!etapaRefMudouDesdeAPrevia(conferida, agora)) return null;
+  return conferida ? MENSAGEM_PREVIA_REF_MUDOU : MENSAGEM_PREVIA_REF_AUSENTE;
+}
+
+/**
+ * Leves L3 fix round 1 (M2): a etapa da REF e o Kanban (colunas/requisitos/exceções/fluxo de revenda) NÃO vão no mesmo Salvar
+ * — `salvar_config_loja` recusa com P0001 `ref_etapa_com_kanban:` (as 2 prévias ficariam com meio estado cada). Pré-checagem
+ * da tela com a MESMA regra: `mudancas` tem `ref_exibir_status` E alguma das colunas do kanban.
+ */
+export { PREFIXO_REF_ETAPA_COM_KANBAN, TEXTO_REF_ETAPA_COM_KANBAN } from "@/lib/erro-mensagem";
+export function etapaRefComKanban(
+  mudancas: Record<string, unknown>,
+  colunasKanban: readonly string[],
+): boolean {
+  const tem = (k: string) => Object.prototype.hasOwnProperty.call(mudancas, k);
+  return tem("ref_exibir_status") && colunasKanban.some(tem);
+}
 
 /** "1 REF será revelada" / "N REFs serão reveladas". */
 export function tituloRefsReveladas(n: number): string {

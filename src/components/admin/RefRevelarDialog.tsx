@@ -75,6 +75,16 @@ export function RefRevelarDialog({
               ))}
             </ul>
             {resto > 0 && <p className="text-xs text-muted-foreground">e mais {resto}.</p>}
+            {previa.travadas_integracao > 0 && (
+              <p
+                className="text-xs text-[var(--tone-warning-fg)]"
+                data-testid="ref-revelar-travadas"
+              >
+                {previa.travadas_integracao === 1
+                  ? "1 card travado pela Integração (REF/SKU marcado) continua com a REF escondida."
+                  : `${previa.travadas_integracao} cards travados pela Integração (REF/SKU marcado) continuam com a REF escondida.`}
+              </p>
+            )}
           </div>
         </DialogBody>
         <DialogFooter className={RODAPE}>

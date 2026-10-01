@@ -1,51 +1,51 @@
 -- Achados LEVES, release L3 (Kanban, REF e SKU; banco antes do site) - parte 1: kanban #10, kanban #11 + mensagem do reprovado.
---   fn_kanban_processar_fila        kanban #10: o DELETE ... RETURNING da fila passa para DENTRO do bloco protegido (padrao R1
---                                   da fila de custo): erro no recalculo desfaz o DELETE e as linhas FICAM na fila (antes o
---                                   card sumia da fila com o erro e so voltava na proxima edicao). Lote falhou -> card a card,
---                                   cada um no seu sub-bloco (o card que falha fica; os outros andam). Orcamento de 3 s contados
---                                   de statement_timestamp() no card a card (o lock_timeout de 2 s da funcao fica; o que sobra
---                                   fica na fila). So processa se a linha que disparou ainda esta na fila (os outros disparos do
---                                   mesmo COMMIT saem na hora - sem refazer um card que falhou N vezes). WARNING ASCII; nunca
---                                   derruba o COMMIT de quem disparou (como antes).
---   _avaliar_condicoes_kanban_core  kanban #11: 'cq_liberado' por bool_or(...) em vez de subconsulta escalar - modelo com 2 CADs
---                                   (legado; hoje 0) derrubava o lote INTEIRO ("more than one row returned by a subquery").
---   _enviar_modelo_para_cad_core    kanban #11: pg_advisory_xact_lock na MESMA chave do enforce_unique_fk de cad.modelo_id
---                                   (hashtext('cad:modelo_id:' || modelo)) ANTES de procurar o CAD - 2 envios simultaneos do
---                                   mesmo card: o 2o espera o 1o e cai no caminho idempotente (antes: unique_violation em vez de
---                                   devolver o CAD). + R14 msg reprovado: card em 'reprovado' com a chave ligada (status do gate
---                                   NULL, P-190 A) recusa com 'reprovado_explosao: Card reprovado nao vai a Explosao' (P0001,
---                                   ASCII com prefixo; a tela traduz em src/lib/erro-mensagem.ts) em vez de "precisa estar na
---                                   etapa X" (que o card ja passou).
+--   fn_kanban_processar_fila        kanban #10: o DELETE ... RETURNING da fila fica DENTRO do bloco protegido (padrao R1 da fila
+--                                   de custo): erro no recalculo desfaz o DELETE e as linhas FICAM na fila. Lote falhou -> card a
+--                                   card. [fix round 1, M1] UMA passada por loja por comando (marca na GUC de transacao
+--                                   app.kanban_fila_feita - os N eventos adiados do mesmo COMMIT nao refazem o lote); orcamento
+--                                   de 3 s (statement_timestamp()) conferido antes do lote e de cada card; FOR UPDATE SKIP LOCKED
+--                                   na fila; pega query_canceled (57014) tambem - o COMMIT de quem gravou nunca cai (R15a).
+--   _kanban_enfileirar(_tenant)     [fix round 1, B5] ON CONFLICT DO UPDATE SET criado_at (so linha de transacao ANTERIOR, xmin):
+--                                   card que sobrou na fila volta a ser processado quando ELE MESMO e editado.
+--   trg_kanban_processar_fila_upd   [fix round 1, B5] gatilho NOVO (CONSTRAINT, adiado) AFTER UPDATE OF criado_at na fila -> a
+--                                   mesma fn_kanban_processar_fila. CREATE TRIGGER (sem DROP; nao trava auth/storage - precedente
+--                                   da release 9); pega ShareRowExclusive so em kanban_recalculo_fila (lock_timeout 500ms).
+--   _avaliar_condicoes_kanban_core  kanban #11: 'cq_liberado' por bool_or(...) (2 CADs - legado - nao derrubam o lote).
+--   _enviar_modelo_para_cad_core    kanban #11: pg_advisory_xact_lock na MESMA chave do enforce_unique_fk de cad.modelo_id; + R14
+--                                   msg reprovado: 'reprovado_explosao: Card reprovado nao vai a Explosao' (P0001, ASCII com
+--                                   prefixo; PT em src/lib/erro-mensagem.ts). [fix round 1, A1 / P-213 A] reprovado = Dev OU
+--                                   Planejamento: reprovado no PLANEJAMENTO e recusado com a mesma mensagem (qualquer chave).
 -- Nada gravado muda.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
--- Nenhuma das 3 foi alterada pelos MEDIOS (R12-R16 conferidos por grep): "antes" = texto de producao.
+-- Nenhuma foi alterada pelos MEDIOS (R12-R16): "antes" = texto de producao.
 --   public.fn_kanban_processar_fila()
---     ANTES  f14d567a9c20f961b8be9cc497d21238  -- CONFIRMADO: Passo 0-CD Rodada #2 em producao (01/out 08:22, savepoints/passo0-contas-certas-cd-r2) - conferir no Passo 0 dos LEVES
---     DEPOIS a7263c80a5f4322ca450a194e3ce9940  (este arquivo; reaplicar = no-op)
+--     ANTES  f14d567a9c20f961b8be9cc497d21238  -- CONFIRMADO: Passo 0-CD Rodada #2 em producao (01/out 08:22) - conferir no Passo 0 dos LEVES
+--     DEPOIS 4051368d03f06d4a8e0e118dbc6614d5
+--   public._kanban_enfileirar(uuid[])
+--     ANTES  83b3076206747102812487a0814ab809  -- PROVISORIO (copia 54422)
+--     DEPOIS d763171ea7e617ba6c791a6a204f0a21
+--   public._kanban_enfileirar_tenant(uuid)
+--     ANTES  38a64cd1bdbe0f14bd0f9a0bd041723a  -- PROVISORIO (copia 54422)
+--     DEPOIS d27c6401de3659f1b352eb18e867c7ef
 --   public._avaliar_condicoes_kanban_core(uuid,uuid[])
---     ANTES  437b115a792c44f62bb94042cdbaeebe  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
---     DEPOIS e6f3fceae7e6eb6f4589d4858e01d1d6  (este arquivo; reaplicar = no-op)
+--     ANTES  437b115a792c44f62bb94042cdbaeebe  -- PROVISORIO (copia 54422)
+--     DEPOIS e6f3fceae7e6eb6f4589d4858e01d1d6
 --   public._enviar_modelo_para_cad_core(uuid,text,text)
---     ANTES  3e49be237f86d1acdec0fefc43496008  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
---     DEPOIS 2e16dc13d5a30a33aded87c53ace50c0  (este arquivo; reaplicar = no-op)
---   Sem mudanca (so guarda - o texto novo chama):
---     public._kanban_status_gate(uuid,uuid,text)  635c7bbad3a3db2779f68fd1c5c8a954  INTOCADA  -- md5 "depois" da R14 (20261024100000)
---     public._kanban_norm(text)                   74606b6e06de34fa23fd0642d1ebafbb  INTOCADA  -- PROVISORIO (copia 54422): conferir no Passo 0 do kit R14
---     public.enforce_unique_fk()                  (chave do advisory lock)          INTOCADA  -- so existencia
+--     ANTES  3e49be237f86d1acdec0fefc43496008  -- PROVISORIO (copia 54422)
+--     DEPOIS 14179bce7709643ea068edfed128ca43
+--   Sem mudanca (so guarda): _kanban_status_gate 635c7bba ("depois" da R14) OU e269b20351a1f7fa1d1ece3df122e704 ("depois" da 20261027140000, que
+--   e aplicada depois desta - reaplicar esta com a 140000 viva = no-op); _kanban_norm 74606b6e (PROVISORIO).
+--   Gatilho trg_kanban_processar_fila_upd: ausente (antes) ou com a definicao deste arquivo (reaplicar = no-op).
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
--- Travas: so CREATE OR REPLACE FUNCTION (trava de objeto da propria funcao; nada em tabela, nada em auth/storage). Sem DDL de
--- tabela, sem DROP, sem gatilho, sem funcao nova. ACL: CREATE OR REPLACE mantem a de hoje; a pos-condicao confere que ficou
--- IDENTICA, que _avaliar_condicoes_kanban_core/_enviar_modelo_para_cad_core seguem sem EXECUTE para PUBLIC/anon/authenticated
--- (inv. #9) e que fn_kanban_processar_fila (funcao de gatilho: RETURNS trigger, nao e chamavel pelo PostgREST) mantem a ACL
--- de producao (proacl igual ao Passo 0-CD).
--- Volta: supabase/rollback/20261027100000_kanban_fila_e_cad_unico_down.sql (devolve os 3 textos de antes).
--- LIFO: os inversos da L3 rodam ANTES dos inversos da R14 (20261024*) e de qualquer anterior. A IDA da release 8
--- (20261019300000_custo_previsto_servidor.sql:95 e o kit pre-release8 DEPS_OK) guarda fn_kanban_processar_fila f14d567a como
--- dependencia: REAPLICAR a ida da release 8 exige desfazer ANTES esta migration.
--- Site: o texto PT do reprovado mora em src/lib/erro-mensagem.ts (prefixo 'reprovado_explosao:'); site velho mostra a
--- mensagem ASCII crua (P0001 passa direto) - aceitavel por minutos.
+-- ACL: CREATE OR REPLACE mantem a de hoje; a pos-condicao confere que ficou IDENTICA; internos sem EXECUTE para
+-- PUBLIC/anon/authenticated (inv. #9); fn_kanban_processar_fila (RETURNS trigger) mantem a ACL de producao.
+-- Volta: supabase/rollback/20261027100000_kanban_fila_e_cad_unico_down.sql (devolve os 5 textos; o gatilho _upd FICA, inerte:
+-- o _kanban_enfileirar de antes nunca faz UPDATE na fila) e, opcional/horario calmo, ..._down_drop.sql (DROP TRIGGER).
+-- LIFO: os inversos da L3 rodam ANTES dos inversos da R14 (20261024*) e de qualquer anterior; o desta e o ULTIMO da L3 (depois
+-- do 20261027140000_down). A IDA da release 8 (20261019300000:95 e o kit pre-release8 DEPS_OK) guarda fn_kanban_processar_fila
+-- f14d567a: REAPLICAR a ida da release 8 exige desfazer ANTES esta migration.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 
 SET client_encoding = 'UTF8';
@@ -57,12 +57,17 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _l3k_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l3k_md5_aceitos VALUES
   ('public.fn_kanban_processar_fila()', 'f14d567a9c20f961b8be9cc497d21238', 'antes'),  -- CONFIRMADO: Passo 0-CD Rodada #2 (01/out 08:22)
-  ('public.fn_kanban_processar_fila()', 'a7263c80a5f4322ca450a194e3ce9940', 'depois'),
+  ('public.fn_kanban_processar_fila()', '4051368d03f06d4a8e0e118dbc6614d5', 'depois'),
+  ('public._kanban_enfileirar(uuid[])', '83b3076206747102812487a0814ab809', 'antes'),  -- PROVISORIO (copia 54422)
+  ('public._kanban_enfileirar(uuid[])', 'd763171ea7e617ba6c791a6a204f0a21', 'depois'),
+  ('public._kanban_enfileirar_tenant(uuid)', '38a64cd1bdbe0f14bd0f9a0bd041723a', 'antes'),  -- PROVISORIO (copia 54422)
+  ('public._kanban_enfileirar_tenant(uuid)', 'd27c6401de3659f1b352eb18e867c7ef', 'depois'),
   ('public._avaliar_condicoes_kanban_core(uuid,uuid[])', '437b115a792c44f62bb94042cdbaeebe', 'antes'),  -- PROVISORIO (copia 54422)
   ('public._avaliar_condicoes_kanban_core(uuid,uuid[])', 'e6f3fceae7e6eb6f4589d4858e01d1d6', 'depois'),
   ('public._enviar_modelo_para_cad_core(uuid,text,text)', '3e49be237f86d1acdec0fefc43496008', 'antes'),  -- PROVISORIO (copia 54422)
-  ('public._enviar_modelo_para_cad_core(uuid,text,text)', '2e16dc13d5a30a33aded87c53ace50c0', 'depois'),
+  ('public._enviar_modelo_para_cad_core(uuid,text,text)', '14179bce7709643ea068edfed128ca43', 'depois'),
   ('public._kanban_status_gate(uuid,uuid,text)', '635c7bbad3a3db2779f68fd1c5c8a954', 'dep'),  -- "depois" da R14
+  ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704', 'dep'),  -- "depois" da 20261027140000
   ('public._kanban_norm(text)', '74606b6e06de34fa23fd0642d1ebafbb', 'dep');  -- PROVISORIO (copia 54422)
 
 CREATE TEMP TABLE _l3k_acl_antes ON COMMIT DROP AS
@@ -73,6 +78,7 @@ DO $guarda$
 DECLARE
   r record;
   v_md5 text;
+  v_def text;
 BEGIN
   FOR r IN SELECT DISTINCT assinatura FROM _l3k_md5_aceitos LOOP
     IF to_regprocedure(r.assinatura) IS NULL THEN
@@ -84,8 +90,13 @@ BEGIN
         USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  IF to_regprocedure('public.enforce_unique_fk()') IS NULL THEN
-    RAISE EXCEPTION 'leves_l3: enforce_unique_fk() nao existe (chave do advisory lock do CAD)' USING ERRCODE = 'P0001';
+  IF to_regprocedure('public.enforce_unique_fk()') IS NULL OR to_regclass('public.kanban_recalculo_fila') IS NULL THEN
+    RAISE EXCEPTION 'leves_l3: enforce_unique_fk()/kanban_recalculo_fila ausente' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT pg_get_triggerdef(t.oid) INTO v_def FROM pg_trigger t
+   WHERE t.tgrelid = 'public.kanban_recalculo_fila'::regclass AND t.tgname = 'trg_kanban_processar_fila_upd';
+  IF v_def IS NOT NULL AND v_def IS DISTINCT FROM 'CREATE CONSTRAINT TRIGGER trg_kanban_processar_fila_upd AFTER UPDATE OF criado_at ON public.kanban_recalculo_fila DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_kanban_processar_fila()' THEN
+    RAISE EXCEPTION 'leves_l3: trg_kanban_processar_fila_upd com outra definicao (%)', v_def USING ERRCODE = 'P0001';
   END IF;
 END $guarda$;
 
@@ -96,37 +107,59 @@ CREATE OR REPLACE FUNCTION public.fn_kanban_processar_fila()
  SET search_path TO 'public'
  SET lock_timeout TO '2s'
 AS $function$
--- [leves L3 kanban #10] roda no COMMIT (CONSTRAINT TRIGGER adiado). Erro nunca derruba o COMMIT de quem disparou e NUNCA perde
--- recalculo: o DELETE ... RETURNING fica DENTRO do bloco protegido (erro = as linhas voltam a fila - padrao R1 da fila de
--- custo); lote falhou -> card a card, cada um no seu sub-bloco (o card que falha FICA na fila, WARNING ASCII, e e refeito no
--- proximo COMMIT da loja que enfileirar algo). Card a card tem orcamento de 3 s contados de statement_timestamp() (EXCEPTION
--- WHEN OTHERS nao pega 57014; o lock_timeout de 2 s da funcao limita cada espera); o que sobra fica na fila.
+-- [leves L3 kanban #10 + fix round 1 M1] roda no COMMIT (CONSTRAINT TRIGGER adiado, um evento por linha enfileirada/rearmada).
+-- Nunca perde recalculo e nunca derruba o COMMIT de quem disparou:
+--   R1  o DELETE ... RETURNING fica DENTRO do bloco protegido (erro = as linhas voltam a fila); lote falhou -> card a card, cada
+--       um no seu sub-bloco; o card que falha FICA na fila (WARNING ASCII) e e refeito quando ele mesmo ou outro card da loja for
+--       enfileirado de novo (B5: _kanban_enfileirar rearma a linha que sobrou -> UPDATE OF criado_at -> novo evento).
+--   M1  UMA passada por loja por comando: a marca 'loja@statement_timestamp()' na GUC de transacao app.kanban_fila_feita (setada
+--       FORA do sub-bloco, o abort nao a desfaz) faz os outros N-1 eventos do mesmo COMMIT sairem na hora; orcamento de 3 s
+--       contados de statement_timestamp() conferido ANTES do lote e de cada card; linhas travadas por outra transacao sao
+--       puladas (FOR UPDATE SKIP LOCKED - a outra as processa); o lock_timeout de 2 s limita a espera da linha do modelo; o
+--       bloco pega tambem query_canceled (57014, statement_timeout - o WHEN OTHERS nao pega) e para na hora (mesma abordagem
+--       da R15a). Pior caso: 3 s + 2 s de uma espera + o trabalho de 1 lote, abaixo dos 8 s do authenticated.
 DECLARE
   c_orcamento CONSTANT interval := interval '3 seconds';
   v_prazo timestamptz := statement_timestamp() + c_orcamento;
+  v_marca text := NEW.tenant_id::text || '@' || statement_timestamp()::text;
+  v_feitas text := coalesce(current_setting('app.kanban_fila_feita', true), '');
   v_ids uuid[];
   v_fila uuid[];
   v_id uuid;
+  v_estado text;
 BEGIN
-  -- So processa se a linha que disparou ainda esta na fila: o 1o disparo da loja leva a fila dela; os demais saem.
+  IF position(v_marca IN v_feitas) > 0 THEN
+    RETURN NULL;  -- esta loja ja teve a sua passada neste comando
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM public.kanban_recalculo_fila f WHERE f.modelo_id = NEW.modelo_id) THEN
     RETURN NULL;
   END IF;
+  PERFORM set_config('app.kanban_fila_feita', v_feitas || ';' || v_marca, true);
+  IF clock_timestamp() >= v_prazo THEN
+    RAISE WARNING 'kanban_auto: orcamento de tempo do COMMIT esgotado antes da fila (loja %) - os cards ficam na fila', NEW.tenant_id;
+    RETURN NULL;
+  END IF;
   BEGIN
-    WITH d AS (
-      DELETE FROM public.kanban_recalculo_fila f WHERE f.tenant_id = NEW.tenant_id RETURNING f.modelo_id
+    WITH alvo AS (
+      SELECT f.modelo_id FROM public.kanban_recalculo_fila f
+       WHERE f.tenant_id = NEW.tenant_id
+       ORDER BY f.modelo_id
+       FOR UPDATE SKIP LOCKED
+    ), d AS (
+      DELETE FROM public.kanban_recalculo_fila f USING alvo WHERE f.modelo_id = alvo.modelo_id RETURNING f.modelo_id
     )
     SELECT array_agg(d.modelo_id ORDER BY d.modelo_id) INTO v_ids FROM d;
     IF v_ids IS NOT NULL THEN
       PERFORM public._kanban_aplicar(NEW.tenant_id, v_ids, 'auto', NULL);
     END IF;
     RETURN NULL;
-  EXCEPTION WHEN OTHERS THEN
+  EXCEPTION WHEN query_canceled OR OTHERS THEN
+    v_estado := SQLSTATE;
     RAISE WARNING 'kanban_auto: recalculo do lote falhou (loja %, % card(s)): % [%] - os cards voltam a fila; tentando card a card',
       NEW.tenant_id, coalesce(cardinality(v_ids), 0), SQLERRM, SQLSTATE;
   END;
-  -- Lote de 1 card que falhou: nao refaz o mesmo agora (fica na fila).
-  IF coalesce(cardinality(v_ids), 0) = 1 THEN
+  -- statement_timeout: para ja. Lote de 1 card que falhou: nao refaz o mesmo agora (fica na fila).
+  IF v_estado = '57014' OR coalesce(cardinality(v_ids), 0) = 1 THEN
     RETURN NULL;
   END IF;
   SELECT array_agg(f.modelo_id ORDER BY f.modelo_id) INTO v_fila
@@ -138,15 +171,69 @@ BEGIN
       RETURN NULL;
     END IF;
     BEGIN
-      DELETE FROM public.kanban_recalculo_fila f WHERE f.modelo_id = v_id;
+      DELETE FROM public.kanban_recalculo_fila f
+       WHERE f.modelo_id = (SELECT q.modelo_id FROM public.kanban_recalculo_fila q
+                             WHERE q.modelo_id = v_id FOR UPDATE SKIP LOCKED);
       IF FOUND THEN
         PERFORM public._kanban_aplicar(NEW.tenant_id, ARRAY[v_id], 'auto', NULL);
       END IF;
-    EXCEPTION WHEN OTHERS THEN
+    EXCEPTION WHEN query_canceled OR OTHERS THEN
+      v_estado := SQLSTATE;
       RAISE WARNING 'kanban_auto: card % continua na fila (loja %): % [%]', v_id, NEW.tenant_id, SQLERRM, SQLSTATE;
+      IF v_estado = '57014' THEN
+        RETURN NULL;
+      END IF;
     END;
   END LOOP;
   RETURN NULL;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._kanban_enfileirar(_ids uuid[])
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF _ids IS NULL OR cardinality(_ids) = 0 THEN RETURN; END IF;
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN; END IF;
+  INSERT INTO public.kanban_recalculo_fila AS f (modelo_id, tenant_id)
+  SELECT m.id, m.tenant_id
+    FROM public.modelos m
+    JOIN public.tenant_config tc ON tc.tenant_id = m.tenant_id AND tc.kanban_automatico
+   WHERE m.id = ANY (_ids)
+     AND coalesce(m.ordem_criacao_enviada, false)
+     AND NOT coalesce(m.lancado, false)
+   ORDER BY m.id
+  -- [leves L3 fix round 1, B5] linha que SOBROU de transacao anterior (o recalculo dela falhou) e REARMADA: o UPDATE OF
+  -- criado_at dispara de novo o gatilho adiado (trg_kanban_processar_fila_upd) - editar o proprio card o reprocessa. Linha ja
+  -- escrita por ESTA transacao: nada (sem disparo repetido; criterio xmin, mesmo de _custo_enfileirar).
+  ON CONFLICT (modelo_id) DO UPDATE SET criado_at = clock_timestamp()
+   WHERE f.xmin <> pg_current_xact_id()::xid;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._kanban_enfileirar_tenant(_tenant uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF _tenant IS NULL THEN RETURN; END IF;
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN; END IF;
+  IF NOT public._kanban_ligado(_tenant) THEN RETURN; END IF;
+  INSERT INTO public.kanban_recalculo_fila AS f (modelo_id, tenant_id)
+  SELECT m.id, m.tenant_id
+    FROM public.modelos m
+   WHERE m.tenant_id = _tenant
+     AND coalesce(m.ordem_criacao_enviada, false)
+     AND NOT coalesce(m.lancado, false)
+   ORDER BY m.id
+  -- [leves L3 fix round 1, B5] rearma a linha que sobrou de transacao anterior (ver _kanban_enfileirar).
+  ON CONFLICT (modelo_id) DO UPDATE SET criado_at = clock_timestamp()
+   WHERE f.xmin <> pg_current_xact_id()::xid;
 END;
 $function$;
 
@@ -288,6 +375,7 @@ DECLARE
   v_gate_ok boolean;
   v_gate_label text;
   v_status text;
+  v_status_plan text;
   v_status_gate text;
 BEGIN
   IF v_user IS NULL THEN
@@ -311,11 +399,14 @@ BEGIN
   -- só é enviado à Explosão A PARTIR da etapa configurada (ou de qualquer etapa POSTERIOR
   -- na ordem do board). Ausente ⇒ 'aprovado'. Órfã ⇒ fallback 'aprovado'.
   -- ERRCODE P0001 (NÃO 23514 — senão erro-mensagem.ts engole a mensagem PT).
-  SELECT status_desenvolvimento INTO v_status FROM public.modelos WHERE id = _modelo_id;
+  SELECT status_desenvolvimento, status_planejamento INTO v_status, v_status_plan FROM public.modelos WHERE id = _modelo_id;
   v_status_gate := public._kanban_status_gate(v_tenant, _modelo_id, v_status);
   -- leves L3 (R14 msg reprovado, P-190 A): com a chave ligada, card em 'reprovado' nao tem posicao (gate NULL) - o motivo e o
   -- reprovado, nao a etapa. ASCII com prefixo (a tela traduz: src/lib/erro-mensagem.ts).
-  IF v_status_gate IS NULL AND public._kanban_norm(v_status) = 'reprovado' THEN
+  -- [fix round 1, A1 / P-213 A] reprovado = Dev OU Planejamento; reprovado no PLANEJAMENTO nunca vai a Explosao (qualquer
+  -- chave - o _kanban_status_gate da 20261027140000 tambem o tira da regua; aqui fica independente dela).
+  IF public._kanban_norm(v_status_plan) = 'reprovado'
+     OR (v_status_gate IS NULL AND public._kanban_norm(v_status) = 'reprovado') THEN
     RAISE EXCEPTION 'reprovado_explosao: Card reprovado nao vai a Explosao' USING ERRCODE = 'P0001';
   END IF;
   SELECT g.ok, g.req_label INTO v_gate_ok, v_gate_label
@@ -402,41 +493,54 @@ BEGIN
 END;
 $function$;
 
+-- [fix round 1, B5] gatilho do rearme (sem DROP; cria so se falta - a guarda ja garantiu que, se existe, e o deste arquivo).
+DO $gatilho$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.kanban_recalculo_fila'::regclass
+                    AND t.tgname = 'trg_kanban_processar_fila_upd') THEN
+    CREATE CONSTRAINT TRIGGER trg_kanban_processar_fila_upd
+      AFTER UPDATE OF criado_at ON public.kanban_recalculo_fila
+      DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW EXECUTE FUNCTION public.fn_kanban_processar_fila();
+  END IF;
+END $gatilho$;
+
 DO $pos$
 DECLARE
   r record;
   v_md5 text;
   v_erros text := '';
 BEGIN
-  FOR r IN SELECT assinatura, md5, papel FROM _l3k_md5_aceitos WHERE papel IN ('depois','dep') LOOP
+  FOR r IN SELECT DISTINCT assinatura FROM _l3k_md5_aceitos LOOP
     v_md5 := md5(pg_get_functiondef(to_regprocedure(r.assinatura)));
-    IF v_md5 IS DISTINCT FROM r.md5 THEN
-      v_erros := v_erros || format(' [%s %s md5 %s]', r.assinatura, r.papel, v_md5);
+    IF NOT EXISTS (SELECT 1 FROM _l3k_md5_aceitos a WHERE a.assinatura = r.assinatura AND a.md5 = v_md5 AND a.papel IN ('depois', 'dep')) THEN
+      v_erros := v_erros || format(' [%s md5 %s]', r.assinatura, v_md5);
     END IF;
   END LOOP;
   IF v_erros <> '' THEN
     RAISE EXCEPTION 'leves_l3: pos-condicao falhou - texto inesperado:%', v_erros USING ERRCODE = 'P0001';
   END IF;
-  -- ACL identica a de antes (CREATE OR REPLACE nao mexe; conferido).
   FOR r IN SELECT assinatura, acl FROM _l3k_acl_antes LOOP
     IF (SELECT p.proacl::text FROM pg_proc p WHERE p.oid = to_regprocedure(r.assinatura)) IS DISTINCT FROM r.acl THEN
       RAISE EXCEPTION 'leves_l3: pos-condicao falhou - a ACL de % mudou', r.assinatura USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  -- inv. #9: os internos seguem sem EXECUTE para PUBLIC/anon/authenticated.
-  FOR r IN SELECT * FROM (VALUES ('public._avaliar_condicoes_kanban_core(uuid,uuid[])'), ('public._enviar_modelo_para_cad_core(uuid,text,text)'), ('public._kanban_status_gate(uuid,uuid,text)')) v(s) LOOP
+  FOR r IN SELECT * FROM (VALUES ('public._avaliar_condicoes_kanban_core(uuid,uuid[])'), ('public._enviar_modelo_para_cad_core(uuid,text,text)'),
+                                 ('public._kanban_enfileirar(uuid[])'), ('public._kanban_enfileirar_tenant(uuid)'),
+                                 ('public._kanban_status_gate(uuid,uuid,text)')) v(s) LOOP
     IF has_function_privilege('anon', to_regprocedure(r.s), 'EXECUTE')
-       OR has_function_privilege('authenticated', to_regprocedure(r.s), 'EXECUTE') THEN
-      RAISE EXCEPTION 'leves_l3: % ficou executavel por anon/authenticated (inv. #9)', r.s USING ERRCODE = 'P0001';
-    END IF;
-    IF EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) x
-                WHERE p.oid = to_regprocedure(r.s) AND x.grantee = 0 AND x.privilege_type = 'EXECUTE') THEN
-      RAISE EXCEPTION 'leves_l3: % ficou executavel por PUBLIC (inv. #9)', r.s USING ERRCODE = 'P0001';
+       OR has_function_privilege('authenticated', to_regprocedure(r.s), 'EXECUTE')
+       OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) x
+                   WHERE p.oid = to_regprocedure(r.s) AND x.grantee = 0 AND x.privilege_type = 'EXECUTE') THEN
+      RAISE EXCEPTION 'leves_l3: % ficou executavel por PUBLIC/anon/authenticated (inv. #9)', r.s USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  -- fn_kanban_processar_fila: funcao de GATILHO (RETURNS trigger - o PostgREST nao a expoe); ACL de producao (Passo 0-CD).
   IF (SELECT p.prorettype FROM pg_proc p WHERE p.oid = to_regprocedure('public.fn_kanban_processar_fila()')) <> 'trigger'::regtype THEN
     RAISE EXCEPTION 'leves_l3: fn_kanban_processar_fila deixou de ser funcao de gatilho' USING ERRCODE = 'P0001';
+  END IF;
+  IF (SELECT count(*) FROM pg_trigger t WHERE t.tgrelid = 'public.kanban_recalculo_fila'::regclass
+         AND t.tgname IN ('trg_kanban_processar_fila', 'trg_kanban_processar_fila_upd') AND t.tgenabled = 'O') <> 2 THEN
+    RAISE EXCEPTION 'leves_l3: os 2 gatilhos da fila (INSERT e UPDATE OF criado_at) deviam estar ligados' USING ERRCODE = 'P0001';
   END IF;
 END $pos$;
 

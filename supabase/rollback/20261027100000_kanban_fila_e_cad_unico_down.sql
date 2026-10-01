@@ -1,11 +1,10 @@
 -- INVERSO de supabase/migrations/20261027100000_kanban_fila_e_cad_unico.sql (achados LEVES L3, kanban #10/#11 + msg reprovado).
--- Devolve o texto de ANTES de fn_kanban_processar_fila (DELETE fora do bloco protegido), _avaliar_condicoes_kanban_core
--- ('cq_liberado' por subconsulta escalar) e _enviar_modelo_para_cad_core (sem advisory lock; reprovado recusa com "precisa
--- estar na etapa"). Guarda: as 3 com o texto da ida; outro -> P0001 e nada muda (2a execucao = recusada). Nada gravado muda
--- (cards que estiverem na fila ficam - o processador antigo os leva no proximo COMMIT da loja).
--- LIFO: o ULTIMO inverso da L3; ANTES dos inversos da R14 e da release 8 (a IDA da release 8 guarda fn_kanban_processar_fila
--- f14d567a, o texto que esta volta devolve). Travas: so CREATE OR REPLACE FUNCTION.
--- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
+-- Devolve o texto de ANTES de fn_kanban_processar_fila, _kanban_enfileirar, _kanban_enfileirar_tenant,
+-- _avaliar_condicoes_kanban_core e _enviar_modelo_para_cad_core. O gatilho trg_kanban_processar_fila_upd FICA (inerte: o
+-- _kanban_enfileirar de antes nunca faz UPDATE na fila); o DROP dele e o ..._down_drop.sql (SEPARADO, opcional, horario calmo).
+-- Guarda: as 5 com o texto da ida; outro -> P0001 e nada muda (2a execucao = recusada). Nada gravado muda (cards na fila ficam).
+-- LIFO: o ULTIMO inverso da L3; ANTES dos inversos da R14 e da reaplicacao da ida da release 8 (guarda f14d567a).
+-- Travas: so CREATE OR REPLACE FUNCTION. Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
 
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -15,7 +14,7 @@ SET LOCAL transaction_timeout = '10s';
 
 CREATE TEMP TABLE _l3kd_acl_antes ON COMMIT DROP AS
   SELECT v.s AS assinatura, (SELECT p.proacl::text FROM pg_proc p WHERE p.oid = to_regprocedure(v.s)) AS acl
-    FROM (VALUES ('public.fn_kanban_processar_fila()'), ('public._avaliar_condicoes_kanban_core(uuid,uuid[])'), ('public._enviar_modelo_para_cad_core(uuid,text,text)')) v(s);
+    FROM (VALUES ('public.fn_kanban_processar_fila()'), ('public._kanban_enfileirar(uuid[])'), ('public._kanban_enfileirar_tenant(uuid)'), ('public._avaliar_condicoes_kanban_core(uuid,uuid[])'), ('public._enviar_modelo_para_cad_core(uuid,text,text)')) v(s);
 
 DO $guarda$
 DECLARE
@@ -23,9 +22,11 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.fn_kanban_processar_fila()', 'a7263c80a5f4322ca450a194e3ce9940'),
+      ('public.fn_kanban_processar_fila()', '4051368d03f06d4a8e0e118dbc6614d5'),
+      ('public._kanban_enfileirar(uuid[])', 'd763171ea7e617ba6c791a6a204f0a21'),
+      ('public._kanban_enfileirar_tenant(uuid)', 'd27c6401de3659f1b352eb18e867c7ef'),
       ('public._avaliar_condicoes_kanban_core(uuid,uuid[])', 'e6f3fceae7e6eb6f4589d4858e01d1d6'),
-      ('public._enviar_modelo_para_cad_core(uuid,text,text)', '2e16dc13d5a30a33aded87c53ace50c0')) v(s, m) LOOP
+      ('public._enviar_modelo_para_cad_core(uuid,text,text)', '14179bce7709643ea068edfed128ca43')) v(s, m) LOOP
     v_md5 := CASE WHEN to_regprocedure(r.s) IS NULL THEN NULL ELSE md5(pg_get_functiondef(to_regprocedure(r.s))) END;
     IF v_md5 IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'leves_l3 (volta): % nao esta com o texto da ida (md5 %) - nada a desfazer, ja desfeita ou outra frente mexeu', r.s, coalesce(v_md5, 'ausente')
@@ -58,6 +59,48 @@ BEGIN
       NEW.tenant_id, cardinality(v_ids), SQLERRM, SQLSTATE;
   END;
   RETURN NULL;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._kanban_enfileirar(_ids uuid[])
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF _ids IS NULL OR cardinality(_ids) = 0 THEN RETURN; END IF;
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN; END IF;
+  INSERT INTO public.kanban_recalculo_fila (modelo_id, tenant_id)
+  SELECT m.id, m.tenant_id
+    FROM public.modelos m
+    JOIN public.tenant_config tc ON tc.tenant_id = m.tenant_id AND tc.kanban_automatico
+   WHERE m.id = ANY (_ids)
+     AND coalesce(m.ordem_criacao_enviada, false)
+     AND NOT coalesce(m.lancado, false)
+   ORDER BY m.id
+  ON CONFLICT (modelo_id) DO NOTHING;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._kanban_enfileirar_tenant(_tenant uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF _tenant IS NULL THEN RETURN; END IF;
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN; END IF;
+  IF NOT public._kanban_ligado(_tenant) THEN RETURN; END IF;
+  INSERT INTO public.kanban_recalculo_fila (modelo_id, tenant_id)
+  SELECT m.id, m.tenant_id
+    FROM public.modelos m
+   WHERE m.tenant_id = _tenant
+     AND coalesce(m.ordem_criacao_enviada, false)
+     AND NOT coalesce(m.lancado, false)
+   ORDER BY m.id
+  ON CONFLICT (modelo_id) DO NOTHING;
 END;
 $function$;
 
@@ -305,6 +348,8 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.fn_kanban_processar_fila()', 'f14d567a9c20f961b8be9cc497d21238'),
+      ('public._kanban_enfileirar(uuid[])', '83b3076206747102812487a0814ab809'),
+      ('public._kanban_enfileirar_tenant(uuid)', '38a64cd1bdbe0f14bd0f9a0bd041723a'),
       ('public._avaliar_condicoes_kanban_core(uuid,uuid[])', '437b115a792c44f62bb94042cdbaeebe'),
       ('public._enviar_modelo_para_cad_core(uuid,text,text)', '3e49be237f86d1acdec0fefc43496008')) v(s, m) LOOP
     v_md5 := md5(pg_get_functiondef(to_regprocedure(r.s)));
@@ -317,8 +362,7 @@ BEGIN
       RAISE EXCEPTION 'leves_l3 (volta): pos-condicao falhou - a ACL de % mudou', r.assinatura USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  -- inv. #9: internos sem EXECUTE para PUBLIC/anon/authenticated.
-  FOR r IN SELECT * FROM (VALUES ('public._avaliar_condicoes_kanban_core(uuid,uuid[])'), ('public._enviar_modelo_para_cad_core(uuid,text,text)')) v(s) LOOP
+  FOR r IN SELECT * FROM (VALUES ('public._avaliar_condicoes_kanban_core(uuid,uuid[])'), ('public._enviar_modelo_para_cad_core(uuid,text,text)'), ('public._kanban_enfileirar(uuid[])'), ('public._kanban_enfileirar_tenant(uuid)')) v(s) LOOP
     IF has_function_privilege('anon', to_regprocedure(r.s), 'EXECUTE')
        OR has_function_privilege('authenticated', to_regprocedure(r.s), 'EXECUTE')
        OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) x

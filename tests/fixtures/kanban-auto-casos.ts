@@ -182,7 +182,8 @@ export const BOARD_GATE = ["Entrada", "Etapa A", "Etapa B", "Stand By", "Etapa C
 export const REQS_GATE: Record<string, string[]> = {
   etapa_a: ["data_desenho_tecnico"], etapa_b: ["data_piloto1"], etapa_c: ["data_piloto2"], aprovado: ["data_aprovacao"],
 };
-export type CasoGate = { nome: string; ligado: boolean; status: string; cond: Record<string, boolean>; esperado: string | null };
+// `plan` (leves L3 fix round 1, A1 / P-213 A) = status_planejamento do card; 'reprovado' ⇒ SEM posição em qualquer chave.
+export type CasoGate = { nome: string; ligado: boolean; status: string; cond: Record<string, boolean>; esperado: string | null; plan?: string };
 const TUDO_GATE = { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true, data_aprovacao: true };
 const ATE_C_GATE = { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true };
 export const GATE_CASOS: CasoGate[] = [
@@ -193,4 +194,7 @@ export const GATE_CASOS: CasoGate[] = [
   { nome: "G5. chave ligada + stand_by fixado → posição DERIVADA (outras manuais seguem a decisão 10)", ligado: true, status: "stand_by", cond: ATE_C_GATE, esperado: "etapa_c" },
   { nome: "G6. chave ligada + card em coluna automática → posição derivada", ligado: true, status: "etapa_a", cond: { data_desenho_tecnico: true }, esperado: "etapa_a" },
   { nome: "G7. chave DESLIGADA + stand_by → status gravado", ligado: false, status: "stand_by", cond: ATE_C_GATE, esperado: "stand_by" },
+  { nome: "G8. chave DESLIGADA + Dev em aprovado mas reprovado no PLANEJAMENTO → SEM posição (L3 fix 1, P-213 A)", ligado: false, status: "aprovado", cond: TUDO_GATE, esperado: null, plan: "reprovado" },
+  { nome: "G9. chave ligada + stand_by fixado (derivada etapa_c) e reprovado no PLANEJAMENTO → SEM posição", ligado: true, status: "stand_by", cond: ATE_C_GATE, esperado: null, plan: "reprovado" },
+  { nome: "G10. chave DESLIGADA + aprovado com Planejamento 'planejado' → status gravado (controle do G8)", ligado: false, status: "aprovado", cond: TUDO_GATE, esperado: "aprovado", plan: "planejado" },
 ];

@@ -1,44 +1,44 @@
 -- Achados LEVES, release L3 (Kanban, REF e SKU; banco antes do site) - parte 2: kanban #18 + R14 msg reprovado (gate 'ref').
---   _ref_sigla_cfg_item   kanban #18: a sigla CONFIGURADA de grupo/categoria/sub1/sub2 (ref_config.sigla_taxonomia) passa a
---                         aceitar SO LETRAS (regex [^A-Za-z]; era [^A-Za-z0-9]). Digito no fim da sigla colava no numero da
---                         REF e o fn_modelo_ref_auto (re-sincronizacao do ref_auto: le o bloco FINAL de digitos como numero)
---                         engolia - a REF mudava de numero. Sigla de familia (_ref_sigla_familia) fica como esta (fora do
---                         achado; ver relatorio). Copia: 0 siglas com digito (plan.md par.4) - nenhuma REF muda.
---   _integracao_gates     R14 msg reprovado: o gate 'ref' fechado por card em 'reprovado' (chave ligada, P-190 A) passa a dizer
---                         "Card reprovado nao revela a REF (nem muda a REF ja gravada)." em vez de "A REF aparece a partir
---                         da etapa X" (falso quando a REF ja aparece). Texto de motivo (jsonb), nao RAISE: PT normal.
---   salvar_config_loja    kanban #18: ref_config com montagem (partes nao nulo) EXIGE a parte "numero" (P0001
---                         'ref_formato_sem_numero: ...') e sigla de taxonomia com digito e recusada (P0001
---                         'ref_sigla_com_digito: <sigla>'). ASCII com prefixo; a tela traduz (src/lib/erro-mensagem.ts) e o
---                         FormatoRefCard ja impede antes. ref_config NULL / sem 'partes' (fallback historico, com numero) passa.
--- Nada gravado muda. Config ja gravada sem "numero" (copia: 0 lojas) so e recusada quando a pessoa salvar o ref_config de novo.
+--   _ref_sigla_cfg_item   kanban #18: sigla CONFIGURADA de grupo/categoria/sub1/sub2 so LETRAS ([^A-Za-z]; era [^A-Za-z0-9]).
+--                         Digito no fim da sigla colava no numero da REF e o fn_modelo_ref_auto (re-sincronizacao: le o bloco
+--                         FINAL de digitos como numero) engolia. Copia: 0 siglas com digito.
+--   _ref_sigla_familia    [fix round 1, B6] sigla de FAMILIA tambem so letras (mesmo risco). Copia: 0 siglas de familia com
+--                         digito (Passo 0 tem de dar 0 em producao; senao PARAR e perguntar ao dono - a REF nova muda de prefixo).
+--   _integracao_gates     R14 msg reprovado: gate 'ref' fechado por reprovado diz "Card reprovado nao revela a REF (nem muda a
+--                         REF ja gravada)." [fix round 1, A1 / P-213 A] reprovado = Dev (chave ligada) OU Planejamento.
+--   salvar_config_loja    kanban #18: ref_config com 'partes' exige "numero" (P0001 'ref_formato_sem_numero: ...'); sigla de
+--                         taxonomia OU de familia (fix round 1, B6) com digito e recusada (P0001 'ref_sigla_com_digito: <sigla>').
+-- Nada gravado muda. Config gravada fora da regra so e recusada quando a pessoa salvar o ref_config de novo.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
--- Nenhuma das 3 foi alterada pelos MEDIOS (R12-R16): "antes" = texto de producao.
 --   public._ref_sigla_cfg_item(uuid,uuid)
---     ANTES  0c76738110eb3813669c9cfe01b9a152  -- PROVISORIO (copia 54422); visto igual no Passo 0 contas certas (30/set 11:22) - conferir no Passo 0 dos LEVES
---     DEPOIS 9f4f7b15ca761c3cf655fdc16d67af83  (este arquivo; reaplicar = no-op)
+--     ANTES  0c76738110eb3813669c9cfe01b9a152  -- PROVISORIO (copia 54422; igual ao Passo 0 contas certas 30/set)
+--     DEPOIS 9f4f7b15ca761c3cf655fdc16d67af83
+--   public._ref_sigla_familia(uuid,text)
+--     ANTES  71f75d972f8aa98cbc47f2294f794ca5  -- PROVISORIO (copia 54422)
+--     DEPOIS 3917f270e142d6922a237d67cb4acb38
 --   public._integracao_gates(uuid)
---     ANTES  0312dd0514f34acc097bc5e053a34e6a  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
---     DEPOIS 366e4f819e24b2e20793c353c4d2fae3  (este arquivo; reaplicar = no-op)
+--     ANTES  0312dd0514f34acc097bc5e053a34e6a  -- PROVISORIO (copia 54422)
+--     DEPOIS 3170d39179b01f2a6359fbdcb79c18e5
 --   public.salvar_config_loja(uuid,jsonb,jsonb,boolean)
---     ANTES  14dd20b65d6e94c71658abdf11c7969b  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
---     DEPOIS 691acd27ea96adc5466464320311ef10  (este arquivo; reaplicar = no-op; a 20261027130000 troca de novo - guarda aceita o "depois" dela)
---     DEPOIS-130000 6c57492d2edaa4a1a64237b83256b15c  (texto da 20261027130000: reaplicar ESTA migration com a 130000 ja aplicada = no-op p/ esta funcao)
---   Sem mudanca (so guarda - o texto novo chama):
---     public._kanban_status_gate(uuid,uuid,text)  635c7bbad3a3db2779f68fd1c5c8a954  INTOCADA  -- md5 "depois" da R14 (20261024100000)
---     public._kanban_norm(text)                   74606b6e06de34fa23fd0642d1ebafbb  INTOCADA  -- PROVISORIO (copia 54422)
---     public._ref_exibir_gate(uuid,text)          824e463a9223f3fe4646d771276c856f  INTOCADA  -- CONFIRMADO: Passo 0 dos MEDIOS (01/out 11:06)
+--     ANTES  14dd20b65d6e94c71658abdf11c7969b  -- PROVISORIO (copia 54422)
+--     DEPOIS 39b44a2e9067a4d45f40fb24af1d61fd
+--     DEPOIS-130000 2d43c259135119b345a09a894091c2b5  (texto da 20261027130000, que contem este: reaplicar ESTA com a 130000 viva = no-op p/ esta funcao)
+--   Sem mudanca (so guarda): _kanban_status_gate 635c7bba ("depois" da R14) OU e269b20351a1f7fa1d1ece3df122e704 ("depois" da 20261027140000);
+--   _kanban_norm 74606b6e (PROVISORIO); _ref_exibir_gate 824e463a (CONFIRMADO passo0-medios).
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
--- Travas: so CREATE OR REPLACE FUNCTION (nada em tabela, nada em auth/storage). Sem DDL de tabela, sem DROP, sem gatilho, sem
--- funcao nova. ACL: CREATE OR REPLACE mantem a de hoje; pos-condicao: ACL IDENTICA, _ref_sigla_cfg_item/_integracao_gates sem
--- EXECUTE para PUBLIC/anon/authenticated (inv. #9), salvar_config_loja (RPC da Config da Loja) COM authenticated e SEM
--- PUBLIC/anon.
--- Volta: supabase/rollback/20261027110000_ref_sigla_e_msg_reprovado_down.sql. LIFO: roda DEPOIS do inverso da 20261027130000
--- (que devolve o salvar_config_loja deste arquivo) e ANTES dos inversos da R14 e da release 5 (20261015100000_down guarda o
--- salvar_config_loja 14dd20b6). Site: FormatoRefCard (numero obrigatorio, sigla so letras) + erro-mensagem.ts; site velho com
--- banco novo so ve a recusa ASCII crua se mandar config invalida (P0001 passa direto) - aceitavel.
+-- Travas: so CREATE OR REPLACE FUNCTION (nada em tabela, nada em auth/storage). ACL: identica; internos sem EXECUTE para
+-- PUBLIC/anon/authenticated (inv. #9); salvar_config_loja COM authenticated e SEM PUBLIC/anon.
+-- Volta: supabase/rollback/20261027110000_ref_sigla_e_msg_reprovado_down.sql. LIFO:
+--   - roda DEPOIS do 20261027130000_down (que devolve o salvar_config_loja deste arquivo);
+--   - [fix round 1, B1] o down da Integracao delta 7 (20261008100000_down) e reaplicar a ida dele guardam _integracao_gates
+--     0312dd05: exigem ESTE _down antes;
+--   - [fix round 1, M3 - correcao] a release 5 (20261015100000) NAO tem guarda: a ida e um CREATE OR REPLACE sem md5 e o down
+--     um DROP FUNCTION IF EXISTS. Reaplicar a ida da release 5 depois da L3 DERRUBA a L3 em silencio (salvar_config_loja volta a
+--     14dd20b6, a 130000 fica com a previa viva e o Salvar sem revelar); rodar o down dela apaga a funcao. A protecao LIFO da
+--     release 5 e SO do roteiro: nenhum kit roda a ida/volta da release 5 com a L3 no banco sem desfazer a L3 antes.
+-- Site: FormatoRefCard (numero obrigatorio, siglas so letras) + erro-mensagem.ts.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 
 SET client_encoding = 'UTF8';
@@ -51,12 +51,15 @@ CREATE TEMP TABLE _l3r_md5_aceitos (assinatura text, md5 text, papel text) ON CO
 INSERT INTO _l3r_md5_aceitos VALUES
   ('public._ref_sigla_cfg_item(uuid,uuid)', '0c76738110eb3813669c9cfe01b9a152', 'antes'),  -- PROVISORIO (copia 54422)
   ('public._ref_sigla_cfg_item(uuid,uuid)', '9f4f7b15ca761c3cf655fdc16d67af83', 'depois'),
+  ('public._ref_sigla_familia(uuid,text)', '71f75d972f8aa98cbc47f2294f794ca5', 'antes'),  -- PROVISORIO (copia 54422)
+  ('public._ref_sigla_familia(uuid,text)', '3917f270e142d6922a237d67cb4acb38', 'depois'),
   ('public._integracao_gates(uuid)', '0312dd0514f34acc097bc5e053a34e6a', 'antes'),  -- PROVISORIO (copia 54422)
-  ('public._integracao_gates(uuid)', '366e4f819e24b2e20793c353c4d2fae3', 'depois'),
+  ('public._integracao_gates(uuid)', '3170d39179b01f2a6359fbdcb79c18e5', 'depois'),
   ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '14dd20b65d6e94c71658abdf11c7969b', 'antes'),  -- PROVISORIO (copia 54422)
-  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '691acd27ea96adc5466464320311ef10', 'depois'),
-  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '6c57492d2edaa4a1a64237b83256b15c', 'depois_130000'),
+  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '39b44a2e9067a4d45f40fb24af1d61fd', 'depois'),
+  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '2d43c259135119b345a09a894091c2b5', 'depois_130000'),
   ('public._kanban_status_gate(uuid,uuid,text)', '635c7bbad3a3db2779f68fd1c5c8a954', 'dep'),
+  ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704', 'dep'),
   ('public._kanban_norm(text)', '74606b6e06de34fa23fd0642d1ebafbb', 'dep'),
   ('public._ref_exibir_gate(uuid,text)', '824e463a9223f3fe4646d771276c856f', 'dep');
 
@@ -66,7 +69,7 @@ CREATE TEMP TABLE _l3r_acl_antes ON COMMIT DROP AS
 
 -- Com a 20261027130000 ja aplicada, salvar_config_loja NAO e trocado aqui (reaplicar = no-op; o texto da 130000 contem este).
 CREATE TEMP TABLE _l3r_pula_salvar ON COMMIT DROP AS
-  SELECT md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)'))) = '6c57492d2edaa4a1a64237b83256b15c' AS pula;
+  SELECT md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)'))) = '2d43c259135119b345a09a894091c2b5' AS pula;
 
 DO $guarda$
 DECLARE
@@ -96,6 +99,23 @@ AS $function$
     translate(coalesce(public._ref_cfg(_tenant)->'sigla_taxonomia'->>(_id::text),''),
       'áàâãäÁÀÂÃÄéèêëÉÈÊËíìîïÍÌÎÏóòôõöÓÒÔÕÖúùûüÚÙÛÜçÇñÑ',
       'aaaaaAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnN'),
+    '[^A-Za-z]','','g')),1,6);
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ref_sigla_familia(_tenant uuid, _familia text)
+ RETURNS text
+ LANGUAGE sql
+ STABLE
+AS $function$
+  -- leves L3 fix round 1 (B6): sigla de FAMILIA = SO LETRAS, igual a de grupo/categoria/sub (_ref_sigla_cfg_item) - digito
+  -- colado no numero da REF era engolido pela re-sincronizacao do fn_modelo_ref_auto.
+  SELECT substr(upper(regexp_replace(translate(
+    COALESCE(
+      NULLIF(public._ref_cfg(_tenant)->'sigla_familia'->>_familia, ''),
+      CASE _familia WHEN 'interno' THEN 'I' WHEN 'acabado' THEN 'A' WHEN 'importado' THEN 'M' ELSE '' END
+    ),
+    'áàâãäÁÀÂÃÄéèêëÉÈÊËíìîïÍÌÎÏóòôõöÓÒÔÕÖúùûüÚÙÛÜçÇñÑ',
+    'aaaaaAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnN'),
     '[^A-Za-z]','','g')),1,6);
 $function$;
 
@@ -149,8 +169,10 @@ BEGIN
   v_gate_st := public._kanban_status_gate(m.tenant_id, m.id, m.status_desenvolvimento);
   -- leves L3 (R14 msg reprovado, P-190 A): com a chave ligada, card em 'reprovado' nao tem posicao (gate NULL) - o motivo
   -- do gate 'ref' fechado e o reprovado, nao a etapa (que o card pode ja ter passado).
-  v_reprovado := v_gate_st IS NULL AND public._kanban_norm(m.status_desenvolvimento) = 'reprovado';
-  v_revelada := coalesce(m.ordem_criacao_enviada, false)
+  -- [fix round 1, A1 / P-213 A] reprovado = Dev (gate NULL, chave ligada) OU Planejamento (qualquer chave).
+  v_reprovado := public._kanban_norm(m.status_planejamento) = 'reprovado'
+    OR (v_gate_st IS NULL AND public._kanban_norm(m.status_desenvolvimento) = 'reprovado');
+  v_revelada := NOT v_reprovado AND coalesce(m.ordem_criacao_enviada, false)
     AND coalesce(public._ref_exibir_gate(m.tenant_id, v_gate_st), false);
   SELECT r.lbl INTO v_etapa
     FROM public._kanban_status_rows(m.tenant_id) r
@@ -292,6 +314,18 @@ BEGIN
               RAISE EXCEPTION 'ref_sigla_com_digito: %', v_sig USING ERRCODE = 'P0001';
             END IF;
           END IF;
+          -- [fix round 1, B6] sigla de FAMILIA tambem so letras (mesma recusa, mesma ordem: a 1a pela chave).
+          IF jsonb_typeof(v_v -> 'sigla_familia') = 'object' THEN
+            v_sig := NULL;
+            SELECT s.value INTO v_sig
+              FROM jsonb_each_text(v_v -> 'sigla_familia') AS s(key, value)
+             WHERE s.value ~ '[0-9]'
+             ORDER BY s.key
+             LIMIT 1;
+            IF v_sig IS NOT NULL THEN
+              RAISE EXCEPTION 'ref_sigla_com_digito: %', v_sig USING ERRCODE = 'P0001';
+            END IF;
+          END IF;
         END IF;
       WHEN 'pcp_etapas', 'status_kanban' THEN
         IF v_t NOT IN ('array', 'null') THEN
@@ -425,7 +459,7 @@ BEGIN
     END IF;
   END LOOP;
   -- inv. #9: os internos sem EXECUTE para PUBLIC/anon/authenticated.
-  FOR r IN SELECT * FROM (VALUES ('public._ref_sigla_cfg_item(uuid,uuid)'), ('public._integracao_gates(uuid)')) v(s) LOOP
+  FOR r IN SELECT * FROM (VALUES ('public._ref_sigla_cfg_item(uuid,uuid)'), ('public._ref_sigla_familia(uuid,text)'), ('public._integracao_gates(uuid)')) v(s) LOOP
     IF has_function_privilege('anon', to_regprocedure(r.s), 'EXECUTE')
        OR has_function_privilege('authenticated', to_regprocedure(r.s), 'EXECUTE') THEN
       RAISE EXCEPTION 'leves_l3: % ficou executavel por anon/authenticated (inv. #9)', r.s USING ERRCODE = 'P0001';

@@ -1,9 +1,8 @@
 -- INVERSO de supabase/migrations/20261027130000_ref_revelar_ao_mudar_etapa.sql (achados LEVES L3, kanban #21, P-211 A).
--- Devolve o salvar_config_loja da 20261027110000 (Salvar da etapa da REF volta a so gravar a etapa, sem revelar) e DROPa as 3
--- funcoes novas (_ref_exibir_gate_etapa, _ref_revelar_candidatos, ref_previa_revelar) - DROP FUNCTION so pega a trava de
--- objeto da propria funcao (nada em tabela, nada em auth/storage). REFs ja reveladas FICAM (inv. #11).
--- Guarda: as 4 com o texto da ida; outro -> P0001 e nada muda (2a execucao = recusada).
--- ORDEM: SITE PRIMEIRO (o site novo chama ref_previa_revelar). LIFO: e o 1o inverso da L3 (antes do 20261027110000_down).
+-- Devolve o salvar_config_loja da 20261027110000 (Salvar da etapa da REF volta a so gravar a etapa, sem revelar e sem a recusa
+-- 'ref_etapa_com_kanban:') e DROPa as 3 funcoes novas (DROP FUNCTION so pega a trava de objeto da propria funcao). REFs ja
+-- reveladas FICAM (inv. #11). Guarda: as 4 com o texto da ida; outro -> P0001 e nada muda (2a execucao = recusada).
+-- ORDEM: SITE PRIMEIRO (o site novo chama ref_previa_revelar). LIFO: DEPOIS do 20261027140000_down e antes do 110000_down.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
 
 SET client_encoding = 'UTF8';
@@ -21,11 +20,15 @@ DECLARE
   r record;
   v_md5 text;
 BEGIN
+  IF to_regprocedure('public.fn_modelo_ref_auto()') IS NOT NULL
+     AND md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_ref_auto()'))) = '6d68b20b0e5086a9a9dc0c87a8b42c69' THEN
+    RAISE EXCEPTION 'leves_l3 (volta): a 20261027140000 ainda esta aplicada - rode antes o 20261027140000_down (LIFO)' USING ERRCODE = 'P0001';
+  END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '6c57492d2edaa4a1a64237b83256b15c'),
+      ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '2d43c259135119b345a09a894091c2b5'),
       ('public._ref_exibir_gate_etapa(uuid,text,text)', '99342e2e1ea3c4c43a2d0943b2c0bdc3'),
-      ('public._ref_revelar_candidatos(uuid,text)', '98610da4b58ef8a754c823e366f3d116'),
-      ('public.ref_previa_revelar(uuid,text)', 'df61b499940f1bae770ccfd67961d16f')) v(s, m) LOOP
+      ('public._ref_revelar_candidatos(uuid,text)', '44bc4271c09322a793247259843c1a67'),
+      ('public.ref_previa_revelar(uuid,text)', '6a9da1726b5f7fcdcf8be85512b9cece')) v(s, m) LOOP
     v_md5 := CASE WHEN to_regprocedure(r.s) IS NULL THEN NULL ELSE md5(pg_get_functiondef(to_regprocedure(r.s))) END;
     IF v_md5 IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'leves_l3 (volta): % nao esta com o texto da ida (md5 %) - nada a desfazer, ja desfeita ou outra frente mexeu', r.s, coalesce(v_md5, 'ausente')
@@ -142,6 +145,18 @@ BEGIN
               RAISE EXCEPTION 'ref_sigla_com_digito: %', v_sig USING ERRCODE = 'P0001';
             END IF;
           END IF;
+          -- [fix round 1, B6] sigla de FAMILIA tambem so letras (mesma recusa, mesma ordem: a 1a pela chave).
+          IF jsonb_typeof(v_v -> 'sigla_familia') = 'object' THEN
+            v_sig := NULL;
+            SELECT s.value INTO v_sig
+              FROM jsonb_each_text(v_v -> 'sigla_familia') AS s(key, value)
+             WHERE s.value ~ '[0-9]'
+             ORDER BY s.key
+             LIMIT 1;
+            IF v_sig IS NOT NULL THEN
+              RAISE EXCEPTION 'ref_sigla_com_digito: %', v_sig USING ERRCODE = 'P0001';
+            END IF;
+          END IF;
         END IF;
       WHEN 'pcp_etapas', 'status_kanban' THEN
         IF v_t NOT IN ('array', 'null') THEN
@@ -249,7 +264,7 @@ BEGIN
   SELECT jsonb_object_agg(k, v_new -> k) INTO v_valores FROM unnest(v_gravadas) AS u(k);
   RETURN jsonb_build_object('gravadas', to_jsonb(v_gravadas), 'valores', coalesce(v_valores, '{}'::jsonb));
 END
-$function$;;
+$function$;
 
 DROP FUNCTION public.ref_previa_revelar(uuid, text);
 DROP FUNCTION public._ref_revelar_candidatos(uuid, text);
@@ -261,7 +276,7 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '691acd27ea96adc5466464320311ef10')) v(s, m) LOOP
+      ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '39b44a2e9067a4d45f40fb24af1d61fd')) v(s, m) LOOP
     v_md5 := md5(pg_get_functiondef(to_regprocedure(r.s)));
     IF v_md5 IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'leves_l3 (volta): pos-condicao falhou - % nao voltou ao texto de antes (md5 %)', r.s, v_md5 USING ERRCODE = 'P0001';

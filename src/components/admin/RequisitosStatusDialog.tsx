@@ -121,7 +121,12 @@ export function RequisitosStatusButton({
           estiverem satisfeitas.
           {herdMap.size > 0 && (
             <> Os itens <span className="font-medium text-foreground">herdados</span> vêm das etapas
-            anteriores (cascata){onExcecoesChange ? " — desmarcá-los aqui abre uma exceção." : " e valem aqui também."}</>
+            anteriores (cascata)
+            {onExcecoesChange
+              ? " — desmarcá-los aqui abre uma exceção."
+              : excSet.size > 0
+                ? ". Os marcados como “exceção” (configurada antes) não são exigidos aqui; os demais valem aqui também."
+                : " e valem aqui também."}</>
           )}
         </p>
         <Accordion type="multiple" className="space-y-1">

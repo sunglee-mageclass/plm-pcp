@@ -158,10 +158,15 @@ function mensagemContasCertas(code: string, msg: string): string | null {
 //   `ref_formato_sem_numero:`  — salvar_config_loja: Formato da REF com partes e sem a parte "Número sequencial".
 //   `ref_sigla_com_digito: X`  — salvar_config_loja: sigla de grupo/categoria/subcategoria com número.
 export const TEXTO_REPROVADO_EXPLOSAO = "Card reprovado não vai à Explosão.";
+// Leves L3 fix round 1 (M2): `salvar_config_loja` recusa a etapa da REF junto com o Kanban (a tela pré-checa: ref-revelar.ts).
+export const PREFIXO_REF_ETAPA_COM_KANBAN = "ref_etapa_com_kanban:";
+export const TEXTO_REF_ETAPA_COM_KANBAN =
+  "Salve a etapa da REF e o Kanban em dois passos: primeiro as mudanças do Kanban, depois a etapa de revelar a REF.";
 export function mensagemLevesL3(code: string, msg: string): string | null {
   if (code !== "P0001") return null;
   if (msg.startsWith("reprovado_explosao:")) return TEXTO_REPROVADO_EXPLOSAO;
   if (msg.startsWith("ref_formato_sem_numero:")) return TEXTO_REF_FORMATO_SEM_NUMERO;
+  if (msg.startsWith(PREFIXO_REF_ETAPA_COM_KANBAN)) return TEXTO_REF_ETAPA_COM_KANBAN; // fix round 1 (M2)
   if (msg.startsWith("ref_sigla_com_digito:")) return textoRefSiglaComDigito(msg.slice("ref_sigla_com_digito:".length).trim());
   return null;
 }

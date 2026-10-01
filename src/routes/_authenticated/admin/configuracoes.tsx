@@ -61,7 +61,7 @@ import { problemaFormatoRef, type RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
 import { RefRevelarDialog } from "@/components/admin/RefRevelarDialog";
 import {
-  etapaRefMudouDesdeAPrevia, etapaRefNoSalvar, MENSAGEM_PREVIA_REF_MUDOU, refPreviaRevelar, toastRefsReveladas,
+  etapaRefComKanban, etapaRefNoSalvar, motivoPreviaRef, refPreviaRevelar, TEXTO_REF_ETAPA_COM_KANBAN, toastRefsReveladas,
   type PreviaRefRevelar,
 } from "@/lib/ref-revelar";
 import { keywordsDoServidor } from "@/lib/config-keywords";
@@ -646,8 +646,14 @@ function ConfiguracoesLojaPage() {
       }
       if (Object.keys(mudancas).length === 0) return { nada: true };
       // Leves L3 kanban #21 (P-211 A): a etapa da REF que vai neste Salvar tem de ser a que a prévia conferiu.
-      if (etapaRefMudouDesdeAPrevia(refEtapaConferidaRef.current, etapaRefNoSalvar(mudancas))) {
-        throw Object.assign(new Error(MENSAGEM_PREVIA_REF_MUDOU), { fecharDialogoKanban: true });
+      // Fix round 1 (M2): etapa da REF + Kanban no mesmo Salvar = recusa (o servidor também recusa: ref_etapa_com_kanban:).
+      if (etapaRefComKanban(mudancas, KANBAN_COLS)) {
+        throw Object.assign(new Error(TEXTO_REF_ETAPA_COM_KANBAN), { fecharDialogoKanban: true });
+      }
+      // Fix round 1 (B8): texto certo para "a etapa mudou depois da prévia" × "a prévia nem foi feita".
+      const motivoRef = motivoPreviaRef(refEtapaConferidaRef.current, etapaRefNoSalvar(mudancas));
+      if (motivoRef) {
+        throw Object.assign(new Error(motivoRef), { fecharDialogoKanban: true });
       }
       // Leves L3 kanban #18: Formato da REF sem "Número sequencial" / sigla com número — o servidor recusa; avisa antes.
       if ("ref_config" in mudancas) {
@@ -902,6 +908,8 @@ function ConfiguracoesLojaPage() {
         const problema = problemaFormatoRef(cfg.ref_config);
         if (problema) { toast.error(problema); return; }
       }
+      // Leves L3 fix round 1 (M2): a etapa da REF e o Kanban vão em dois Salvar (as 2 prévias ficariam com meio estado).
+      if (etapaRefComKanban(mudancas, KANBAN_COLS)) { toast.error(TEXTO_REF_ETAPA_COM_KANBAN); return; }
       etapaRef = etapaRefNoSalvar(mudancas);
     }
     // Leves L3 kanban #21 (P-211 A): a etapa de revelar a REF vai neste Salvar → prévia só leitura ANTES de confirmar

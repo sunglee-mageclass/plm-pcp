@@ -149,7 +149,7 @@ describe("kanban-auto — GATE_CASOS (fixtures compartilhadas com o SQL _kanban_
   for (const g of GATE_CASOS) {
     it(g.nome, () => {
       const der = statusDerivado({ fluxo: FLUXO_GATE, reqs: REQS_GATE, exc: {}, cond: g.cond, status: g.status, derivavel: true });
-      expect(statusParaGate(g.ligado, der, g.status)).toBe(g.esperado);
+      expect(statusParaGate(g.ligado, der, g.status, g.plan)).toBe(g.esperado);
     });
   }
   it("fixture não está vazia e cobre reprovado com alvo ≥ etapa (anti-calado)", () => {

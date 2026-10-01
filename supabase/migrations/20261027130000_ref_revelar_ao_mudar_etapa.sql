@@ -13,22 +13,28 @@
 --                                            de amostra para a etapa candidata. So o admin da loja ativa (mesma regra do
 --                                            salvar_config_loja).
 --   salvar_config_loja                       com 'ref_exibir_status' no Salvar: depois do UPDATE, revela (ref = ref_auto) os
---                                            candidatos da etapa GRAVADA (mesmo helper da previa) e devolve 'refs_reveladas'.
+--                                            candidatos da etapa GRAVADA (mesmo helper da previa) e devolve 'refs_reveladas'
+--                                            (+ 'refs_travadas_integracao'). [fix round 1, M2] etapa da REF + coluna/requisito do
+--                                            Kanban no MESMO Salvar = P0001 'ref_etapa_com_kanban:' (salvar em 2 passos).
+-- [fix round 1] A1 / P-213 A: reprovado = Dev OU Planejamento no helper; B4: card Integravel/Integrado com 'ref_sku' travado
+-- fica fora da revelacao (contado em 'travadas_integracao').
 -- REF revelada nao volta (inv. #11) - nem com a volta desta migration.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public.salvar_config_loja(uuid,jsonb,jsonb,boolean)
---     ANTES  691acd27ea96adc5466464320311ef10  -- "depois" da 20261027110000 (esta release)
---     DEPOIS 6c57492d2edaa4a1a64237b83256b15c  (este arquivo; reaplicar = no-op)
+--     ANTES  39b44a2e9067a4d45f40fb24af1d61fd  -- "depois" da 20261027110000 (esta release)
+--     DEPOIS 2d43c259135119b345a09a894091c2b5  (este arquivo; reaplicar = no-op)
 --   NOVAS (antes = ausentes):
 --     public._ref_exibir_gate_etapa(uuid,text,text)  DEPOIS 99342e2e1ea3c4c43a2d0943b2c0bdc3
---     public._ref_revelar_candidatos(uuid,text)      DEPOIS 98610da4b58ef8a754c823e366f3d116
---     public.ref_previa_revelar(uuid,text)           DEPOIS df61b499940f1bae770ccfd67961d16f
+--     public._ref_revelar_candidatos(uuid,text)      DEPOIS 44bc4271c09322a793247259843c1a67
+--     public.ref_previa_revelar(uuid,text)           DEPOIS 6a9da1726b5f7fcdcf8be85512b9cece
 --   Sem mudanca (so guarda):
 --     public._ref_exibir_gate(uuid,text)          824e463a9223f3fe4646d771276c856f  INTOCADA  -- CONFIRMADO: Passo 0 dos MEDIOS (01/out 11:06)
 --     public._kanban_status_gate(uuid,uuid,text)  635c7bbad3a3db2779f68fd1c5c8a954  INTOCADA  -- md5 "depois" da R14 (20261024100000)
 --     public._kanban_norm(text)                   74606b6e06de34fa23fd0642d1ebafbb  INTOCADA  -- PROVISORIO (copia 54422)
 --     public.fn_modelo_ref_auto()                 36f303e458a6ed95fd97c6ed2802dc6b  INTOCADA  -- PROVISORIO (copia 54422); visto igual no Passo 0 contas certas (30/set 11:22)
+--                                                 OU 6d68b20b0e5086a9a9dc0c87a8b42c69 e _kanban_status_gate e269b20351a1f7fa1d1ece3df122e704 ("depois" da 20261027140000)
+--     public._integracao_campo_travado(uuid,text) 798bcba30f1f75be96ae55079bc19767  INTOCADA  -- guarda da R14 (conferir no Passo 0)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
 -- Travas: CREATE OR REPLACE FUNCTION (3 novas + 1 trocada); nada em tabela, nada em auth/storage. Sem DDL de tabela, sem DROP,
@@ -48,18 +54,21 @@ SET LOCAL transaction_timeout = '10s';
 
 CREATE TEMP TABLE _l3v_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l3v_md5_aceitos VALUES
-  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '691acd27ea96adc5466464320311ef10', 'antes'),  -- "depois" da 20261027110000
-  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '6c57492d2edaa4a1a64237b83256b15c', 'depois'),
+  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '39b44a2e9067a4d45f40fb24af1d61fd', 'antes'),  -- "depois" da 20261027110000
+  ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '2d43c259135119b345a09a894091c2b5', 'depois'),
   ('public._ref_exibir_gate_etapa(uuid,text,text)', NULL, 'antes'),  -- ausente
   ('public._ref_exibir_gate_etapa(uuid,text,text)', '99342e2e1ea3c4c43a2d0943b2c0bdc3', 'depois'),
   ('public._ref_revelar_candidatos(uuid,text)', NULL, 'antes'),  -- ausente
-  ('public._ref_revelar_candidatos(uuid,text)', '98610da4b58ef8a754c823e366f3d116', 'depois'),
+  ('public._ref_revelar_candidatos(uuid,text)', '44bc4271c09322a793247259843c1a67', 'depois'),
   ('public.ref_previa_revelar(uuid,text)', NULL, 'antes'),  -- ausente
-  ('public.ref_previa_revelar(uuid,text)', 'df61b499940f1bae770ccfd67961d16f', 'depois'),
+  ('public.ref_previa_revelar(uuid,text)', '6a9da1726b5f7fcdcf8be85512b9cece', 'depois'),
   ('public._ref_exibir_gate(uuid,text)', '824e463a9223f3fe4646d771276c856f', 'dep'),
   ('public._kanban_status_gate(uuid,uuid,text)', '635c7bbad3a3db2779f68fd1c5c8a954', 'dep'),
   ('public._kanban_norm(text)', '74606b6e06de34fa23fd0642d1ebafbb', 'dep'),
-  ('public.fn_modelo_ref_auto()', '36f303e458a6ed95fd97c6ed2802dc6b', 'dep');
+  ('public.fn_modelo_ref_auto()', '36f303e458a6ed95fd97c6ed2802dc6b', 'dep'),
+  ('public.fn_modelo_ref_auto()', '6d68b20b0e5086a9a9dc0c87a8b42c69', 'dep'),  -- "depois" da 20261027140000
+  ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704', 'dep'),  -- "depois" da 20261027140000
+  ('public._integracao_campo_travado(uuid,text)', '798bcba30f1f75be96ae55079bc19767', 'dep');  -- R14: conferir no Passo 0
 
 CREATE TEMP TABLE _l3v_acl_antes ON COMMIT DROP AS
   SELECT (SELECT p.proacl::text FROM pg_proc p
@@ -123,22 +132,27 @@ BEGIN
 END;
 $function$;
 
+
 CREATE OR REPLACE FUNCTION public._ref_revelar_candidatos(_tenant uuid, _etapa text)
- RETURNS TABLE(modelo_id uuid, nome text, ref_auto text, status text)
+ RETURNS TABLE(modelo_id uuid, nome text, ref_auto text, status text, travada boolean)
  LANGUAGE sql
  STABLE
  SET search_path TO 'public'
 AS $function$
   -- leves L3 kanban #21 (P-211 A): os cards cuja REF a etapa _etapa revela AGORA. Fonte UNICA da previa (ref_previa_revelar)
   -- e da revelacao no Salvar (salvar_config_loja 7b). Gate = o do fn_modelo_ref_auto (posicao do card por _kanban_status_gate)
-  -- com a etapa DADA; reprovado nunca (P-190 A).
-  SELECT m.id, m.nome::text, m.ref_auto, m.status_desenvolvimento::text
+  -- com a etapa DADA. Reprovado nunca: [fix round 1, A1 / P-213 A] reprovado = Dev OU Planejamento (qualquer chave).
+  -- [fix round 1, B4] travada = produto Integravel/Integrado com 'ref_sku' travado pela Integracao: a REF nao pode mudar (o
+  -- UPDATE levantaria 42501 e derrubaria o Salvar) - fica FORA da revelacao e e contada a parte na previa.
+  SELECT m.id, m.nome::text, m.ref_auto, m.status_desenvolvimento::text,
+         public._integracao_campo_travado(m.id, 'ref_sku')
     FROM public.modelos m
    WHERE m.tenant_id = _tenant
      AND coalesce(m.ordem_criacao_enviada, false)
      AND coalesce(m.ref, '') = ''
      AND coalesce(m.ref_auto, '') <> ''
      AND public._kanban_norm(m.status_desenvolvimento) <> 'reprovado'
+     AND public._kanban_norm(m.status_planejamento) <> 'reprovado'
      AND coalesce(public._ref_exibir_gate_etapa(_tenant,
            public._kanban_status_gate(_tenant, m.id, m.status_desenvolvimento), _etapa), false)
    ORDER BY m.nome, m.id;
@@ -152,12 +166,14 @@ CREATE OR REPLACE FUNCTION public.ref_previa_revelar(_tenant_id uuid, _ref_exibi
 AS $function$
 -- leves L3 kanban #21 (P-211 A): PREVIA so leitura do Salvar da Config da Loja com a etapa nova da REF - quantos cards (e uma
 -- amostra de ate 20) teriam a REF revelada AGORA se a etapa fosse _ref_exibir_status. Nada grava (STABLE). A revelacao de
--- verdade acontece no salvar_config_loja, com o MESMO helper (_ref_revelar_candidatos).
+-- verdade acontece no salvar_config_loja, com o MESMO helper (_ref_revelar_candidatos). [fix round 1, B4] 'travadas_integracao'
+-- = os que a etapa revelaria mas a Integracao trava (ficam escondidos; nao entram em 'total').
 DECLARE
   c_nil constant uuid := '00000000-0000-0000-0000-000000000000';
   c_amostra constant integer := 20;
   v_tenant uuid;
   v_total integer;
+  v_travadas integer;
   v_amostra jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN
@@ -173,15 +189,17 @@ BEGIN
   IF _tenant_id IS DISTINCT FROM v_tenant THEN
     RAISE EXCEPTION 'A loja ativa mudou. Recarregue a página antes de salvar.' USING ERRCODE = 'P0001';
   END IF;
-  SELECT count(*)::integer,
+  SELECT count(*) FILTER (WHERE NOT c.travada)::integer,
+         count(*) FILTER (WHERE c.travada)::integer,
          coalesce(jsonb_agg(jsonb_build_object('modelo_id', c.modelo_id, 'nome', c.nome, 'ref_auto', c.ref_auto,
                                                'status', c.status)
-                            ORDER BY c.nome, c.modelo_id) FILTER (WHERE c.rn <= c_amostra), '[]'::jsonb)
-    INTO v_total, v_amostra
-    FROM (SELECT x.*, row_number() OVER (ORDER BY x.nome, x.modelo_id) AS rn
+                            ORDER BY c.nome, c.modelo_id) FILTER (WHERE NOT c.travada AND c.rn <= c_amostra), '[]'::jsonb)
+    INTO v_total, v_travadas, v_amostra
+    FROM (SELECT x.*, row_number() OVER (PARTITION BY x.travada ORDER BY x.nome, x.modelo_id) AS rn
             FROM public._ref_revelar_candidatos(v_tenant, _ref_exibir_status) x) c;
   RETURN jsonb_build_object('etapa', coalesce(nullif(btrim(coalesce(_ref_exibir_status, '')), ''), 'aprovado'),
-                            'total', v_total, 'amostra', v_amostra, 'limite_amostra', c_amostra);
+                            'total', v_total, 'amostra', v_amostra, 'limite_amostra', c_amostra,
+                            'travadas_integracao', v_travadas);
 END;
 $function$;
 
@@ -221,6 +239,7 @@ DECLARE
   v_valores jsonb := '{}'::jsonb;
   v_sig text;
   v_reveladas integer := 0;
+  v_travadas integer := 0;
 BEGIN
   -- 1. Autorização
   IF auth.uid() IS NULL THEN
@@ -251,6 +270,12 @@ BEGIN
         USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
+
+  -- 2b. leves L3 fix round 1 (M2): a etapa da REF e o Kanban NAO vao no mesmo Salvar - a previa da REF (board gravado) e a do
+  -- Kanban (etapa gravada) ficariam com meio estado cada e a revelacao real (irreversivel) nao bateria com nenhuma das duas.
+  IF v_m ? 'ref_exibir_status' AND v_m ?| c_kanban THEN
+    RAISE EXCEPTION 'ref_etapa_com_kanban: salve a etapa da REF e o kanban em dois passos' USING ERRCODE = 'P0001';
+  END IF;
 
   -- 3. Validação por coluna (tipo JSON, NOT NULL, domínios)
   FOR v_k, v_v IN SELECT j.key, j.value FROM jsonb_each(v_m) AS j LOOP
@@ -292,6 +317,18 @@ BEGIN
             v_sig := NULL;
             SELECT s.value INTO v_sig
               FROM jsonb_each_text(v_v -> 'sigla_taxonomia') AS s(key, value)
+             WHERE s.value ~ '[0-9]'
+             ORDER BY s.key
+             LIMIT 1;
+            IF v_sig IS NOT NULL THEN
+              RAISE EXCEPTION 'ref_sigla_com_digito: %', v_sig USING ERRCODE = 'P0001';
+            END IF;
+          END IF;
+          -- [fix round 1, B6] sigla de FAMILIA tambem so letras (mesma recusa, mesma ordem: a 1a pela chave).
+          IF jsonb_typeof(v_v -> 'sigla_familia') = 'object' THEN
+            v_sig := NULL;
+            SELECT s.value INTO v_sig
+              FROM jsonb_each_text(v_v -> 'sigla_familia') AS s(key, value)
              WHERE s.value ~ '[0-9]'
              ORDER BY s.key
              LIMIT 1;
@@ -405,23 +442,27 @@ BEGIN
   -- 7b. leves L3 kanban #21 (P-211 A): a etapa de revelar a REF veio no Salvar -> revela JA, na MESMA transacao, as REFs
   -- que a etapa gravada libera (a tela mostrou antes a previa "N REFs serao reveladas (nao voltam)" pela RPC so-leitura
   -- ref_previa_revelar, com o MESMO helper). Mesmo caminho de revelar do motor (_kanban_aplicar revela_ref: ref vazia +
-  -- ref_auto preenchida -> ref = ref_auto) e mesmo gate do fn_modelo_ref_auto (_kanban_status_gate: posicao derivada com a
-  -- chave ligada). Reprovado NUNCA revela aqui (P-190 A; com a chave desligada tambem - irreversivel, so pela etapa do card).
+  -- ref_auto preenchida -> ref = ref_auto) e mesmo gate do fn_modelo_ref_auto (_kanban_status_gate). Reprovado (Dev OU
+  -- Planejamento) NUNCA revela aqui; card travado pela Integracao (ref_sku) fica de fora e e contado (fix round 1, A1/B4).
   IF v_m ? 'ref_exibir_status' THEN
     UPDATE public.modelos m
        SET ref = m.ref_auto
       FROM public._ref_revelar_candidatos(v_tenant, v_new ->> 'ref_exibir_status') c
      WHERE m.id = c.modelo_id
+       AND NOT c.travada
        AND m.tenant_id = v_tenant
        AND coalesce(m.ref, '') = ''
        AND coalesce(m.ref_auto, '') <> '';
     GET DIAGNOSTICS v_reveladas = ROW_COUNT;
+    SELECT count(*)::integer INTO v_travadas
+      FROM public._ref_revelar_candidatos(v_tenant, v_new ->> 'ref_exibir_status') c
+     WHERE c.travada;
   END IF;
 
-  -- 8. Retorno: valores pós-gatilhos SÓ das colunas gravadas (+ quantas REFs o 7b revelou)
+  -- 8. Retorno: valores pós-gatilhos SÓ das colunas gravadas (+ quantas REFs o 7b revelou / deixou travadas)
   SELECT jsonb_object_agg(k, v_new -> k) INTO v_valores FROM unnest(v_gravadas) AS u(k);
   RETURN jsonb_build_object('gravadas', to_jsonb(v_gravadas), 'valores', coalesce(v_valores, '{}'::jsonb),
-                            'refs_reveladas', v_reveladas);
+                            'refs_reveladas', v_reveladas, 'refs_travadas_integracao', v_travadas);
 END
 $function$;
 
@@ -431,11 +472,12 @@ DECLARE
   v_md5 text;
   v_erros text := '';
 BEGIN
-  FOR r IN SELECT assinatura, md5, papel FROM _l3v_md5_aceitos WHERE papel IN ('depois','dep') LOOP
+  FOR r IN SELECT DISTINCT assinatura FROM _l3v_md5_aceitos LOOP
     v_md5 := CASE WHEN to_regprocedure(r.assinatura) IS NULL THEN NULL
                   ELSE md5(pg_get_functiondef(to_regprocedure(r.assinatura))) END;
-    IF v_md5 IS DISTINCT FROM r.md5 THEN
-      v_erros := v_erros || format(' [%s %s md5 %s]', r.assinatura, r.papel, coalesce(v_md5, 'ausente'));
+    IF NOT EXISTS (SELECT 1 FROM _l3v_md5_aceitos a WHERE a.assinatura = r.assinatura AND a.md5 IS NOT DISTINCT FROM v_md5
+                      AND a.papel IN ('depois', 'dep')) THEN
+      v_erros := v_erros || format(' [%s md5 %s]', r.assinatura, coalesce(v_md5, 'ausente'));
     END IF;
   END LOOP;
   IF v_erros <> '' THEN

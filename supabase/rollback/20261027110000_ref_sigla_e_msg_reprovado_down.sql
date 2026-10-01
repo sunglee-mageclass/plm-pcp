@@ -1,9 +1,10 @@
 -- INVERSO de supabase/migrations/20261027110000_ref_sigla_e_msg_reprovado.sql (achados LEVES L3, kanban #18 + msg reprovado).
--- Devolve o texto de ANTES de _ref_sigla_cfg_item (sigla volta a aceitar digito), _integracao_gates (gate 'ref' do reprovado
--- volta a dizer "A REF aparece a partir da etapa X") e salvar_config_loja (sem exigir "numero"/sigla so letras).
--- Guarda: as 3 com o texto da ida; salvar_config_loja com o texto da 20261027130000 -> P0001 "rode antes o 130000_down".
--- 2a execucao = recusada. Nada gravado muda. LIFO: DEPOIS do 20261027130000_down e ANTES do 20261015100000_down (release 5,
--- guarda salvar_config_loja 14dd20b6) e dos inversos da R14. Travas: so CREATE OR REPLACE FUNCTION.
+-- Devolve o texto de ANTES de _ref_sigla_cfg_item e _ref_sigla_familia (siglas voltam a aceitar digito), _integracao_gates
+-- (gate 'ref' do reprovado volta a "A REF aparece a partir da etapa X") e salvar_config_loja (sem as recusas do Formato).
+-- Guarda: [fix round 1, B2] PRIMEIRO confere se a 20261027130000 ainda esta viva (ref_previa_revelar existe) -> P0001 "rode
+-- antes o 130000_down"; depois as 4 com o texto da ida; outro -> P0001 e nada muda (2a execucao = recusada). Nada gravado muda.
+-- LIFO: DEPOIS do 20261027130000_down; ANTES do down da Integracao delta 7 (20261008100000_down guarda _integracao_gates
+-- 0312dd05) e dos inversos da R14. A release 5 (20261015100000) nao tem guarda: ver o header da ida.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
 
 SET client_encoding = 'UTF8';
@@ -14,26 +15,27 @@ SET LOCAL transaction_timeout = '10s';
 
 CREATE TEMP TABLE _l3rd_acl_antes ON COMMIT DROP AS
   SELECT v.s AS assinatura, (SELECT p.proacl::text FROM pg_proc p WHERE p.oid = to_regprocedure(v.s)) AS acl
-    FROM (VALUES ('public._ref_sigla_cfg_item(uuid,uuid)'), ('public._integracao_gates(uuid)'), ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)')) v(s);
+    FROM (VALUES ('public._ref_sigla_cfg_item(uuid,uuid)'), ('public._ref_sigla_familia(uuid,text)'), ('public._integracao_gates(uuid)'), ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)')) v(s);
 
 DO $guarda$
 DECLARE
   r record;
   v_md5 text;
 BEGIN
+  IF to_regprocedure('public.ref_previa_revelar(uuid,text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'leves_l3 (volta): a 20261027130000 ainda esta aplicada - rode antes o 20261027130000_down (LIFO)' USING ERRCODE = 'P0001';
+  END IF;
   FOR r IN SELECT * FROM (VALUES
       ('public._ref_sigla_cfg_item(uuid,uuid)', '9f4f7b15ca761c3cf655fdc16d67af83'),
-      ('public._integracao_gates(uuid)', '366e4f819e24b2e20793c353c4d2fae3'),
-      ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '691acd27ea96adc5466464320311ef10')) v(s, m) LOOP
+      ('public._ref_sigla_familia(uuid,text)', '3917f270e142d6922a237d67cb4acb38'),
+      ('public._integracao_gates(uuid)', '3170d39179b01f2a6359fbdcb79c18e5'),
+      ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '39b44a2e9067a4d45f40fb24af1d61fd')) v(s, m) LOOP
     v_md5 := CASE WHEN to_regprocedure(r.s) IS NULL THEN NULL ELSE md5(pg_get_functiondef(to_regprocedure(r.s))) END;
     IF v_md5 IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'leves_l3 (volta): % nao esta com o texto da ida (md5 %) - nada a desfazer, ja desfeita ou outra frente mexeu', r.s, coalesce(v_md5, 'ausente')
         USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  IF to_regprocedure('public.ref_previa_revelar(uuid,text)') IS NOT NULL THEN
-    RAISE EXCEPTION 'leves_l3 (volta): a 20261027130000 ainda esta aplicada - rode antes o 20261027130000_down (LIFO)' USING ERRCODE = 'P0001';
-  END IF;
 END $guarda$;
 
 CREATE OR REPLACE FUNCTION public._ref_sigla_cfg_item(_tenant uuid, _id uuid)
@@ -45,6 +47,21 @@ AS $function$
     translate(coalesce(public._ref_cfg(_tenant)->'sigla_taxonomia'->>(_id::text),''),
       'áàâãäÁÀÂÃÄéèêëÉÈÊËíìîïÍÌÎÏóòôõöÓÒÔÕÖúùûüÚÙÛÜçÇñÑ',
       'aaaaaAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnN'),
+    '[^A-Za-z0-9]','','g')),1,6);
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ref_sigla_familia(_tenant uuid, _familia text)
+ RETURNS text
+ LANGUAGE sql
+ STABLE
+AS $function$
+  SELECT substr(upper(regexp_replace(translate(
+    COALESCE(
+      NULLIF(public._ref_cfg(_tenant)->'sigla_familia'->>_familia, ''),
+      CASE _familia WHEN 'interno' THEN 'I' WHEN 'acabado' THEN 'A' WHEN 'importado' THEN 'M' ELSE '' END
+    ),
+    'áàâãäÁÀÂÃÄéèêëÉÈÊËíìîïÍÌÎÏóòôõöÓÒÔÕÖúùûüÚÙÛÜçÇñÑ',
+    'aaaaaAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnN'),
     '[^A-Za-z0-9]','','g')),1,6);
 $function$;
 
@@ -323,6 +340,7 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._ref_sigla_cfg_item(uuid,uuid)', '0c76738110eb3813669c9cfe01b9a152'),
+      ('public._ref_sigla_familia(uuid,text)', '71f75d972f8aa98cbc47f2294f794ca5'),
       ('public._integracao_gates(uuid)', '0312dd0514f34acc097bc5e053a34e6a'),
       ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '14dd20b65d6e94c71658abdf11c7969b')) v(s, m) LOOP
     v_md5 := md5(pg_get_functiondef(to_regprocedure(r.s)));
@@ -335,8 +353,7 @@ BEGIN
       RAISE EXCEPTION 'leves_l3 (volta): pos-condicao falhou - a ACL de % mudou', r.assinatura USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  -- inv. #9: internos sem EXECUTE para PUBLIC/anon/authenticated.
-  FOR r IN SELECT * FROM (VALUES ('public._ref_sigla_cfg_item(uuid,uuid)'), ('public._integracao_gates(uuid)')) v(s) LOOP
+  FOR r IN SELECT * FROM (VALUES ('public._ref_sigla_cfg_item(uuid,uuid)'), ('public._ref_sigla_familia(uuid,text)'), ('public._integracao_gates(uuid)')) v(s) LOOP
     IF has_function_privilege('anon', to_regprocedure(r.s), 'EXECUTE')
        OR has_function_privilege('authenticated', to_regprocedure(r.s), 'EXECUTE')
        OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) x

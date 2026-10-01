@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { mensagemErro, TEXTO_REPROVADO_EXPLOSAO } from "@/lib/erro-mensagem";
+import {
+  mensagemErro,
+  TEXTO_REF_ETAPA_COM_KANBAN,
+  TEXTO_REPROVADO_EXPLOSAO,
+} from "@/lib/erro-mensagem";
+import { KANBAN_COLS } from "@/lib/kanban-auto-config";
+import { statusParaGate, type KanbanAutoConfig } from "@/lib/kanban-auto";
+import { gateEnvioExplosao } from "@/components/planejamento/planejamento-detail/ficha/envio-explosao";
 import {
   montarRef,
   problemaFormatoRef,
@@ -14,9 +21,12 @@ import {
   type RefTaxonomia,
 } from "@/lib/ref-montar";
 import {
+  etapaRefComKanban,
   etapaRefMudouDesdeAPrevia,
   etapaRefNoSalvar,
+  MENSAGEM_PREVIA_REF_AUSENTE,
   MENSAGEM_PREVIA_REF_MUDOU,
+  motivoPreviaRef,
   tituloRefsReveladas,
   toastRefsReveladas,
 } from "@/lib/ref-revelar";
@@ -85,16 +95,16 @@ describe("L3 kanban #18 — Formato da REF: número obrigatório e sigla de item
     };
     expect(problemaFormatoRef(cfg)).toBe(textoRefSiglaComDigito("Y1"));
   });
-  it("sigla de ITEM descarta dígito (≡ _ref_sigla_cfg_item [^A-Za-z]); sigla de FAMÍLIA mantém (≡ _ref_sigla_familia)", () => {
+  it("siglas de ITEM e de FAMÍLIA descartam dígito (≡ _ref_sigla_cfg_item/_ref_sigla_familia [^A-Za-z]; fix round 1, B6)", () => {
     const cfg: RefConfig = {
       partes: ["familia", "grupo", "numero"],
       sigla_familia: { interno: "P2" },
       sigla_taxonomia: { g: "VE1" },
     };
     expect(siglaConfiguradaItem(cfg, "g")).toBe("VE");
-    expect(siglaFamilia(cfg, "interno")).toBe("P2");
+    expect(siglaFamilia(cfg, "interno")).toBe("P");
     expect(montarRef({ cfg, familia: "interno", tax, numero: 42, acessorio: false })).toBe(
-      "P2VE00000042",
+      "PVE00000042",
     );
   });
   it("siglaItemSemDigitos (o que a pessoa digita no FormatoRefCard)", () => {
@@ -136,7 +146,7 @@ describe("L3 kanban #21 (P-211 A) — prévia da REF no Salvar da Config", () =>
     expect(src).toContain("const p = await refPreviaRevelar(data.tenantId, etapaRef.valor);");
     expect(src).toContain("if (p.total > 0) { setPreviaRef(p); return; }");
     expect(src).toContain(
-      "if (etapaRefMudouDesdeAPrevia(refEtapaConferidaRef.current, etapaRefNoSalvar(mudancas))) {",
+      "const motivoRef = motivoPreviaRef(refEtapaConferidaRef.current, etapaRefNoSalvar(mudancas));",
     );
     expect(src).toContain("<RefRevelarDialog");
     expect(src).toContain("void continuarSalvar(true);");
@@ -151,5 +161,88 @@ describe("L3 kanban #3 (P-210 A) — exceções de requisito OCULTAS (código gu
     const dlg = ler("src/components/admin/RequisitosStatusDialog.tsx");
     expect(dlg).toContain("const herdadoTravado = ehHerdado && !onExcecoesChange;");
     expect(dlg).toContain("disabled={na || herdadoTravado}");
+  });
+});
+
+describe("L3 fix round 1 — site", () => {
+  it("B6: problemaFormatoRef recusa sigla de FAMÍLIA com dígito (depois da taxonomia, como o SQL)", () => {
+    expect(
+      problemaFormatoRef({ partes: ["familia", "numero"], sigla_familia: { interno: "P2" } }),
+    ).toBe(textoRefSiglaComDigito("P2"));
+    expect(
+      problemaFormatoRef({
+        partes: ["numero"],
+        sigla_taxonomia: { a: "X1" },
+        sigla_familia: { interno: "P2" },
+      }),
+    ).toBe(textoRefSiglaComDigito("X1"));
+  });
+  it("M2: etapa da REF + coluna do kanban no mesmo Salvar = recusa; mensagem do servidor traduzida", () => {
+    expect(etapaRefComKanban({ ref_exibir_status: "a", status_kanban: [] }, KANBAN_COLS)).toBe(
+      true,
+    );
+    expect(
+      etapaRefComKanban({ ref_exibir_status: "a", kanban_requisitos_excecoes: {} }, KANBAN_COLS),
+    ).toBe(true);
+    expect(etapaRefComKanban({ ref_exibir_status: "a", keywords: "x" }, KANBAN_COLS)).toBe(false);
+    expect(etapaRefComKanban({ status_kanban: [] }, KANBAN_COLS)).toBe(false);
+    expect(
+      mensagemErro({
+        code: "P0001",
+        message: "ref_etapa_com_kanban: salve a etapa da REF e o kanban em dois passos",
+      }),
+    ).toBe(TEXTO_REF_ETAPA_COM_KANBAN);
+    expect(TEXTO_REF_ETAPA_COM_KANBAN).toMatch(/dois passos/);
+  });
+  it("B8: sem prévia × prévia de outra etapa dão textos diferentes", () => {
+    expect(motivoPreviaRef(undefined, null)).toBeNull();
+    expect(motivoPreviaRef({ valor: "a" }, { valor: "a" })).toBeNull();
+    expect(motivoPreviaRef(undefined, { valor: "a" })).toBe(MENSAGEM_PREVIA_REF_AUSENTE);
+    expect(motivoPreviaRef({ valor: "a" }, { valor: "b" })).toBe(MENSAGEM_PREVIA_REF_MUDOU);
+  });
+  it("A1: reprovado no Planejamento ⇒ sem posição em qualquer chave; gate da Explosão diz 'reprovado'", () => {
+    expect(statusParaGate(false, null, "aprovado", "reprovado")).toBeNull();
+    expect(statusParaGate(true, null, "aprovado", " Reprovado ")).toBeNull();
+    expect(statusParaGate(false, null, "aprovado", "planejado")).toBe("aprovado");
+    const cfg: KanbanAutoConfig = {
+      kanban_automatico: false,
+      status_kanban: [
+        { key: "entrada", label: "Entrada" },
+        { key: "aprovado", label: "Aprovado" },
+      ],
+      kanban_requisitos: {},
+      kanban_requisitos_excecoes: {},
+      revenda_kanban_colunas: [],
+      revenda_kanban_requisitos: {},
+    };
+    const g = gateEnvioExplosao({
+      cfg,
+      explosaoEnvioStatus: null,
+      statusCru: "aprovado",
+      derivacao: null,
+      condProntas: true,
+      statusPlanejamento: "reprovado",
+    });
+    expect([g.ok, g.reprovado, g.motivo]).toEqual([false, true, TEXTO_REPROVADO_EXPLOSAO]);
+    const g2 = gateEnvioExplosao({
+      cfg,
+      explosaoEnvioStatus: null,
+      statusCru: "aprovado",
+      derivacao: null,
+      condProntas: true,
+    });
+    expect(g2.ok).toBe(true);
+  });
+  it("useFichaKanban passa o status_planejamento ao gate da REF; RequisitosStatusDialog não diz 'valem aqui' com exceção gravada", () => {
+    const src = ler("src/components/planejamento/planejamento-detail/ficha/useFichaKanban.ts");
+    expect(src).toContain(
+      "refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, statusPlanejamento })",
+    );
+    const dlg = ler("src/components/admin/RequisitosStatusDialog.tsx");
+    expect(dlg).toContain("Os marcados como “exceção” (configurada antes) não são exigidos aqui");
+    const cfgSrc = ler("src/routes/_authenticated/admin/configuracoes.tsx");
+    expect(cfgSrc).toContain(
+      "if (etapaRefComKanban(mudancas, KANBAN_COLS)) { toast.error(TEXTO_REF_ETAPA_COM_KANBAN); return; }",
+    );
   });
 });

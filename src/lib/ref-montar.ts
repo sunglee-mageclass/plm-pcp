@@ -8,7 +8,7 @@
 //    sub1; Acessórios = 2 grupo + 3 cat). _norm3 = normaliza PT-BR (lista fixa) + só letras + upper,
 //    corta em 3.
 //  - família: config->sigla_familia[familia] SENÃO default (interno=I, acabado=A, importado=M).
-//  - sigla configurada de FAMÍLIA: normaliza livre (tira acento/espaço/símbolo, mantém letra+número, upper, corta em 6).
+//  - sigla configurada de FAMÍLIA: SÓ LETRAS também (leves L3 fix round 1, B6 — `_ref_sigla_familia` [^A-Za-z]), upper, 6.
 //  - sigla configurada de ITEM (grupo/categoria/sub): SÓ LETRAS (leves L3 kanban #18, `_ref_sigla_cfg_item` [^A-Za-z]),
 //    upper, corta em 6 — dígito colado no número era engolido pela re-sincronização da REF.
 //  - número: largura MÍNIMA = num_digitos (lpad NUNCA trunca — número maior passa inteiro).
@@ -97,7 +97,7 @@ function idDaParte(parte: RefParte, tax: RefTaxonomia): string | null {
 export function siglaFamilia(cfg: RefConfig | null | undefined, familia: RefFamilia): string {
   const conf = cfg?.sigla_familia?.[familia];
   const bruta = conf && conf.trim() !== "" ? conf : FAMILIA_DEFAULT[familia];
-  return normSiglaLivre(bruta);
+  return normSiglaLivre(bruta, true); // leves L3 fix round 1 (B6): só letras, ≡ _ref_sigla_familia
 }
 
 export function numDigitos(cfg: RefConfig | null | undefined): number {
@@ -174,21 +174,24 @@ export function siglaConfiguradaItem(cfg: RefConfig | null | undefined, id: stri
  */
 export const TEXTO_REF_FORMATO_SEM_NUMERO = 'O formato da REF precisa ter a parte "Número sequencial".';
 export const textoRefSiglaComDigito = (sigla: string) =>
-  `A sigla "${sigla}" tem número — as siglas da REF (grupo, categoria, subcategoria) só podem ter letras.`;
+  `A sigla "${sigla}" tem número — as siglas da REF (família, grupo, categoria, subcategoria) só podem ter letras.`;
 export function problemaFormatoRef(cfg: RefConfig | null | undefined): string | null {
   if (!cfg) return null;
   if (cfg.partes != null && (!Array.isArray(cfg.partes) || !cfg.partes.includes("numero"))) {
     return TEXTO_REF_FORMATO_SEM_NUMERO;
   }
-  const comDigito = Object.entries(cfg.sigla_taxonomia ?? {})
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, v]) => v)
-    .find((v) => typeof v === "string" && /[0-9]/.test(v));
-  if (comDigito != null) return textoRefSiglaComDigito(comDigito);
+  // ≡ salvar_config_loja: primeiro a taxonomia, depois a família (fix round 1, B6); em cada uma, a 1ª pela chave.
+  for (const mapa of [cfg.sigla_taxonomia ?? {}, cfg.sigla_familia ?? {}] as Record<string, unknown>[]) {
+    const comDigito = Object.entries(mapa)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, v]) => v)
+      .find((v): v is string => typeof v === "string" && /[0-9]/.test(v));
+    if (comDigito != null) return textoRefSiglaComDigito(comDigito);
+  }
   return null;
 }
 
-/** Tira os dígitos do que a pessoa digita numa sigla de grupo/categoria/sub (a sigla de item só aceita letras). */
+/** Tira os dígitos do que a pessoa digita numa sigla da REF (família, grupo, categoria, sub — só letras). */
 export function siglaItemSemDigitos(v: string): string {
   return v.replace(/[0-9]/g, "");
 }

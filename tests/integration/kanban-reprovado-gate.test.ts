@@ -21,12 +21,14 @@ const CAMPOS_COND = [
   "data_aprovacao",
 ] as const;
 
-const MD5_DEPOIS = {
-  "_kanban_status_gate(uuid,uuid,text)": "635c7bbad3a3db2779f68fd1c5c8a954",
-  "_kanban_aplicar(uuid,uuid[],text,uuid)": "9c50c6700d5bedc22b53ee95466d43f4",
-  "kanban_previa_recalculo(jsonb)": "1ed117822a5dc7b5a3f54559ba68b89b",
-  "_kanban_derivar_lote(uuid,uuid[],jsonb)": "0755d9ad499379295ba24c7a669daa76",
-} as const;
+// [leves L3 fix round 1] a 20261027140000 (reprovado no PLANEJAMENTO, P-213 A) redefine as 3 por cima desta — aceita o texto
+// da R14 OU o da L3 (a L3 só ACRESCENTA a regra do Planejamento; o resto é o da R14).
+const MD5_DEPOIS: Record<string, string[]> = {
+  "_kanban_status_gate(uuid,uuid,text)": ["635c7bbad3a3db2779f68fd1c5c8a954", "e269b20351a1f7fa1d1ece3df122e704"],
+  "_kanban_aplicar(uuid,uuid[],text,uuid)": ["9c50c6700d5bedc22b53ee95466d43f4", "d20c6f9404028c20f8336799743f234a"],
+  "kanban_previa_recalculo(jsonb)": ["1ed117822a5dc7b5a3f54559ba68b89b", "fdbc2039870d90a0277c20f859084259"],
+  "_kanban_derivar_lote(uuid,uuid[],jsonb)": ["0755d9ad499379295ba24c7a669daa76"],
+};
 
 async function chave(c: Client, ligada: boolean) {
   await c.query(`SELECT set_config('app.kanban_chave', 'rpc', true)`);
@@ -165,7 +167,7 @@ describe.skipIf(!hasDb)("R14 kanban #7 — md5 e ACL (20261024100000)", () => {
           `SELECT CASE WHEN to_regprocedure($1) IS NULL THEN NULL ELSE md5(pg_get_functiondef(to_regprocedure($1))) END AS m`,
           ["public." + sig],
         );
-        expect(r.m, sig).toBe(md5);
+        expect(md5, sig).toContain(r.m);
       }
     });
   });
@@ -211,6 +213,7 @@ describe.skipIf(!LOCAL)(
           await c.query("SET LOCAL lock_timeout = '3s'");
           await configurarBoard(c);
           const M = await cardFixado(c, g.cond, g.status);
+          if (g.plan) await comoSistema(c, () => c.query(`UPDATE public.modelos SET status_planejamento = $2 WHERE id = $1`, [M, g.plan]));
           await chave(c, g.ligado);
           const sql = await gate(c, M, g.status);
           // a derivação vem do SQL (mesma que o card recebe na tela); o TS decide o gate em cima dela
@@ -237,7 +240,7 @@ describe.skipIf(!LOCAL)(
             faltando: d.faltando,
           };
           expect(sql).toBe(g.esperado);
-          expect(statusParaGate(g.ligado, der, g.status)).toBe(sql);
+          expect(statusParaGate(g.ligado, der, g.status, g.plan)).toBe(sql);
         });
       });
     }

@@ -103,7 +103,9 @@ export function FormatoRefCard({
     patch({ partes: next });
   };
 
-  const setSiglaFamilia = (familia: RefFamilia, v: string) => {
+  // Leves L3 fix round 1 (B6): sigla de família também só letras (dígitos descartados ao digitar).
+  const setSiglaFamilia = (familia: RefFamilia, bruto: string) => {
+    const v = siglaItemSemDigitos(bruto);
     const map = { ...(cfg.sigla_familia ?? {}) };
     if (v.trim()) map[familia] = v; else delete map[familia];
     patch({ sigla_familia: map });

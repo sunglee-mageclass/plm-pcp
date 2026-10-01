@@ -25,14 +25,19 @@ export function gateEnvioExplosao(i: {
   derivacao: Derivacao | null;
   /** Condições do card E config da loja carregadas (`useFichaKanban.condProntas`). */
   condProntas: boolean;
+  /** Leves L3 fix round 1 (A1, P-213 A): `status_planejamento` SALVO (`useFichaKanban.statusPlanejamento`) — reprovado no
+   *  Planejamento nunca vai à Explosão (≡ SQL `_enviar_modelo_para_cad_core`). Ausente = regra de antes. */
+  statusPlanejamento?: string | null;
 }): GateEnvio {
   // Chave ligada sem as condições: a posição derivada ainda não é conhecida — não libera "no escuro" (o servidor
   // recusaria, mas o botão não pode prometer).
   if (i.cfg.kanban_automatico && !i.condProntas) return { ok: false, carregando: true, reqLabel: "", reprovado: false, motivo: "" };
-  const statusGate = statusParaGate(i.cfg.kanban_automatico, i.derivacao, i.statusCru);
+  const statusGate = statusParaGate(i.cfg.kanban_automatico, i.derivacao, i.statusCru, i.statusPlanejamento);
   const g = podeEnviarExplosao(i.cfg.status_kanban, i.explosaoEnvioStatus, i.statusCru, { statusGate });
-  // ≡ SQL _enviar_modelo_para_cad_core (leves L3): gate NULL + status 'reprovado' (normalizado) → recusa própria.
-  const reprovado = !g.ok && statusGate === null && (i.statusCru ?? "").trim().toLowerCase() === "reprovado";
+  // ≡ SQL _enviar_modelo_para_cad_core (leves L3 + fix round 1 A1): reprovado no Planejamento, ou gate NULL + Dev em
+  // 'reprovado' (normalizado) → recusa própria.
+  const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+  const reprovado = !g.ok && statusGate === null && (norm(i.statusPlanejamento) === "reprovado" || norm(i.statusCru) === "reprovado");
   const motivo = g.ok ? "" : reprovado ? TEXTO_REPROVADO_EXPLOSAO : `Disponível a partir da etapa "${g.reqLabel}".`;
   return { ok: g.ok, carregando: false, reqLabel: g.reqLabel, reprovado, motivo };
 }
