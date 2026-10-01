@@ -69,7 +69,7 @@ import { filtrarNcm, precoAnteriorOuNull } from "@/components/planejamento/plane
 import { infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
 import { infoEdicao, travaOuGate, TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL } from "@/lib/integracao/celula";
 import {
-  avisoRetrato, formatarValor, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
+  avisoRetrato, avisoSublinhas, formatarValor, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
 } from "@/lib/integracao/produtos";
 import {
   colunasAlteradas, comSkus, editar, editarTitulo, linhaSkuDaSublinha, manterMeu, sairTitulo,
@@ -321,7 +321,18 @@ function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: 
   campo: CampoDef; p: ProdutoLista; indice: number; r: Rascunho; previa: PreviaSkus | undefined; salvando: boolean;
   onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
 }) {
-  if (campo.key === "ref_sku") return <SkuCelula p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
+  if (campo.key === "ref_sku") {
+    const sku = <SkuCelula p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
+    // sku #10 (medios R14): as sublinhas mudaram depois do retrato — o "i" fica na coluna SKU (a API recebe as do retrato).
+    const avisoSub = avisoSublinhas(p);
+    if (!avisoSub) return sku;
+    return (
+      <div className="flex min-w-0 items-center gap-1">
+        {sku}
+        <InfoHover ariaLabel="Sublinhas mudaram depois do retrato" className="text-[var(--tone-warning-fg)]">{avisoSub}</InfoHover>
+      </div>
+    );
+  }
   const texto = valorCelula(p, campo.key, indice);
   if (campo.soVariante) {
     const sub = sublinhaDe(p, indice);

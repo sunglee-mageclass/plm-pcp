@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { CAMPO_BY_KEY } from "@/lib/integracao/campos";
-import { lerLista, type ProdutoLista } from "@/lib/integracao/produtos";
+import { avisoSublinhas, lerLista, type ProdutoLista } from "@/lib/integracao/produtos";
 import { TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL, infoEdicao, modoCelula } from "@/lib/integracao/celula";
 import { novoRascunho, type Rascunho } from "@/lib/integracao/rascunho";
 import { chaveEntradaPrevia } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
@@ -650,6 +650,30 @@ describe("AbrirCard (R14, P-199 A)", () => {
     auth.ver = true;
     const view = montar(celulaLeitura(null));
     expect(view.container.querySelector("button[aria-label^='Abrir card']")).toBeNull();
+    view.unmount();
+  });
+});
+
+// medios R14 sku #10 — aviso "as sublinhas mudaram depois do retrato" na coluna SKU.
+describe("aviso das sublinhas (sku #10)", () => {
+  const retrato = { campos: ["ref_sku"], linhas: [{ tipo: "variante", ordem: 1, variante_key: "v1", tamanho_key: "P", valores: { ref_sku: "BLTS0001-AZ-P" } }] };
+  const celula = (difere: string[]) => {
+    const pr = produtoComSublinha({ estado: "integrado", retrato, retrato_difere: difere });
+    return createElement(CelulaCampo, {
+      campo: c("ref_sku"), produto: pr, indice: 0, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {},
+    });
+  };
+  it("retrato_difere com 'sublinhas': mostra o 'i' com o texto em PT-BR", () => {
+    const view = montar(celula(["sublinhas"]));
+    const i = view.container.querySelector("[aria-label='Sublinhas mudaram depois do retrato']");
+    expect(i).not.toBeNull();
+    expect(avisoSublinhas(produtoComSublinha({ estado: "integrado", retrato, retrato_difere: ["sublinhas"] }))).toContain("sublinhas");
+    view.unmount();
+  });
+  it("sem 'sublinhas' em retrato_difere: nenhum aviso", () => {
+    const view = montar(celula([]));
+    expect(view.container.querySelector("[aria-label='Sublinhas mudaram depois do retrato']")).toBeNull();
     view.unmount();
   });
 });
