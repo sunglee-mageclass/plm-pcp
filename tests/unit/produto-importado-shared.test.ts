@@ -1587,3 +1587,20 @@ describe("RENDER real — ProdutoImportadoCard: P-207 A, cotação de referênci
     unmount();
   });
 });
+
+describe("RENDER real — ProdutoImportadoCard: sku #22 (L8 fix round 1, M2)", () => {
+  it("'Adicionar variante' com a ordem 2 já gravada (e apagada do rascunho) cria a ordem 3, não reusa a 2", () => {
+    mockEstado.current = null;
+    const mudancas: Partial<ProdutoImportadoDraft>[] = [];
+    const { container, unmount } = montarCard({
+      onChange: (p: Partial<ProdutoImportadoDraft>) => { mudancas.push(p); },
+      ordensVariantesServidor: [1, 2],
+    });
+    abrirSecao(container, "3 · Variantes");
+    const add = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Adicionar variante"));
+    act(() => { add!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); });
+    const variantes = mudancas.find((m) => m.variantes)?.variantes;
+    expect(variantes?.map((v) => v.ordem)).toEqual([1, 3]);
+    unmount();
+  });
+});

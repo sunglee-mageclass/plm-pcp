@@ -9,6 +9,7 @@
 import { ratearPorPeso, custoLanded, cadeiaMarkup, type EntradaLanded, type EtapaPagamento, type ResultadoLanded } from "@/lib/moeda";
 import type { Conflito } from "@/lib/colab/merge";
 import type { TamanhoTipo } from "@/lib/tamanho";
+import { erroCotacaoEtapas } from "@/lib/importado-etapas";
 
 export type VarianteImportadoDraft = {
   ordem: number;
@@ -109,8 +110,9 @@ export type ProdutoImportadoDraft = {
 };
 
 /** Draft novo com os defaults do design spec: RMB→USD, 1 variante vazia, 3 etapas
- *  (sinal 30% mercadoria, saldo 70% mercadoria, frete 100% frete) — cada Σ% já fecha
- *  100 por base, então `validarDraft` passa de cara num produto recém-criado. */
+ *  (sinal 30% mercadoria, saldo 70% mercadoria, frete 100% frete) — cada Σ% já fecha 100 por base. P-207 A (L8):
+ *  Sinal/Saldo nascem com cotação 0 (a referência ainda não existe); `validarDraft` só os recusa quando a compra tem
+ *  valor (M1 > 0) — e ao sair do campo Cotação de ref. eles a recebem (`etapasComCotacaoRef`). */
 export function emptyDraft(colecaoId: string | null, subcolecao: string | null): ProdutoImportadoDraft {
   return {
     id: null,
@@ -163,32 +165,8 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
   };
 }
 
-/** P-207 A (L8) — etapa NOVA do cronograma: base mercadoria e a COTAÇÃO DE REFERÊNCIA do produto (antes nascia com 0 e
- *  a etapa de mercadoria convertia 0 → o landed a ignorava e a parcela da OC saía 0 e era pulada). `null` = já há 5. */
-export function novaEtapaImportado(etapas: EtapaImportadoDraft[], cotacaoRef: number): EtapaImportadoDraft | null {
-  if (etapas.length >= 5) return null;
-  const ordem = etapas.length ? Math.max(...etapas.map((e) => e.ordem)) + 1 : 1;
-  return { ordem, rotulo: "", base: "mercadoria", percentual: 0, data_vencimento: null, cotacao: Number(cotacaoRef) > 0 ? Number(cotacaoRef) : 0 };
-}
-
-/** P-207 A (L8) — ao digitar a cotação de referência, as etapas de MERCADORIA ainda SEM cotação (0 — as que nasceram
- *  antes da referência existir, ex.: Sinal/Saldo do produto novo) passam a ter a referência. Etapa com cotação própria
- *  (> 0) e etapas de frete não mudam. Devolve o MESMO array quando nada muda (sem sujar o rascunho à toa). */
-export function etapasComCotacaoRef(etapas: EtapaImportadoDraft[], cotacaoRef: number): EtapaImportadoDraft[] {
-  const ref = Number(cotacaoRef);
-  if (!(ref > 0)) return etapas;
-  if (!etapas.some((e) => e.base === "mercadoria" && !(Number(e.cotacao) > 0))) return etapas;
-  return etapas.map((e) => (e.base === "mercadoria" && !(Number(e.cotacao) > 0) ? { ...e, cotacao: ref } : e));
-}
-
-/** P-207 A (L8) — etapa de MERCADORIA com % > 0 e cotação 0 não converte: mensagem PT do 1º caso, ou `null`. Mesma
- *  regra que `_salvar_produto_importado_core` recusa no servidor (20261028200000). */
-export function erroCotacaoEtapas(etapas: EtapaImportadoDraft[]): string | null {
-  const e = etapas.find((x) => (x.base ?? "mercadoria") === "mercadoria" && Number(x.percentual) > 0 && !(Number(x.cotacao) > 0));
-  if (!e) return null;
-  const nome = e.rotulo?.trim() ? `"${e.rotulo.trim()}"` : `${e.ordem}`;
-  return `Etapa ${nome} de mercadoria (${e.percentual}%) está sem cotação — informe a cotação (a de referência é o padrão).`;
-}
+// P-207 A (L8) — helpers das etapas: fonte única em `@/lib/importado-etapas` (card do Produto Importado E OC de importado).
+export { novaEtapaImportado, etapasComCotacaoRef, erroCotacaoEtapas, etapaSemCotacao, patchTrocaBase } from "@/lib/importado-etapas";
 
 /** Só os campos que a TELA edita — usado como snapshot do dirty-guard/merge colab, espelha
  *  `chaveDirty` de `produto-acabado/shared.ts`. NÃO inclui `rev` (read-only, bumpa sozinho no
@@ -377,7 +355,7 @@ export function validarDraft(draft: ProdutoImportadoDraft): string | null {
   if (draft.etapas.some((e) => e.base === "frete") && somaFrete !== 100) {
     return `Σ% das etapas de frete (${somaFrete}%) precisa fechar 100%.`;
   }
-  return erroCotacaoEtapas(draft.etapas); // P-207 A (L8): o servidor recusa igual
+  return erroCotacaoEtapas(draft.etapas, draft.valor_unitario_m1); // P-207 A (L8): o servidor recusa igual (só com valor M1 > 0)
 }
 
 /** Validação ESTRITA para "Fazer pedido" (gerar a OC) — tudo do `validarDraft` + exige qtd_total > 0

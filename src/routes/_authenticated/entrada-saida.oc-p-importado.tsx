@@ -37,6 +37,7 @@ import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { fmtMoeda, custoLanded, type EntradaLanded, type EtapaPagamento } from "@/lib/moeda";
 import { erroValidacao } from "@/components/produto-acabado/shared";
+import { erroCotacaoEtapas } from "@/lib/importado-etapas";
 import { OcImpForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-importado/OcImpForm";
 import { OcImpRecebimento, type ColaboradorOpt } from "@/components/oc-p-importado/OcImpRecebimento";
 import {
@@ -897,6 +898,7 @@ function OcImpDialog({
         throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de salvar.");
       if (!draft.nome_produto.trim()) throw erroValidacao("Informe o nome do produto.");
       { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
+      { const erroCot = erroCotacaoEtapas(draft.etapas, draft.valor_unitario_m1); if (erroCot) throw erroValidacao(erroCot); } // P-207 A (L8)
       const { data: savedId, error } = await supabase.rpc("salvar_oc_importado" as any, {
         _id: isEdit ? ocId : null,
         _dados: montarDados(),
@@ -930,6 +932,7 @@ function OcImpDialog({
       if (conflitosRef.current.length > 0)
         throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de receber.");
       { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
+      { const erroCot = erroCotacaoEtapas(draft.etapas, draft.valor_unitario_m1); if (erroCot) throw erroValidacao(erroCot); } // P-207 A (L8)
       // Recebimento exige a OC já salva (RPC recebe id) — salva primeiro (persiste TODO o
       // rascunho, inclusive edições ainda não gravadas) e então aplica a transição
       // (materializa cad/cad_grades/CQ — espelha receber_oc_p_acabado).
