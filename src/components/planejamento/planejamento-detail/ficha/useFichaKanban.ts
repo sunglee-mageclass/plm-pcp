@@ -33,6 +33,8 @@ export type FichaKanban = {
   /** Só com a chave ligada e as condições carregadas; senão null. */
   derivacao: Derivacao | null;
   refVisivel: boolean;
+  /** Etapa (Config) libera a REF — SEM olhar a REF gravada. A edição segue isto; `refVisivel` só decide mostrar. */
+  refNaEtapa: boolean;
   isReprovado: boolean;
   /** (Opcional, fix round 2, item 5) — a config da loja OU as condições do card falharam ao
    *  carregar (`isError` das 2 queries). Distingue "ainda carregando" de "não vai carregar
@@ -92,6 +94,7 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   const statusCru = enviada ? statusSalvo : null;
   return {
     kanbanCfg, revendaCfg, refExibirStatus, explosaoEnvioStatus, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusEfetivo, derivacao,
+    refNaEtapa: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao }),
     refVisivel: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, refSalva: row?.ref ?? null }),
     // M2 (fix round 1): modelo LANÇADO sai do fluxo normal (vai só pra coluna terminal
     // "Lançado" no board, criacao.desenvolvimento.tsx:538) — nunca é "Reprovado" mesmo que o

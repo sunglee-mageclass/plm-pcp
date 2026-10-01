@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import type { Derivacao, KanbanAutoConfig, ModeloKanban } from "@/lib/kanban-auto";
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
@@ -154,5 +155,17 @@ describe("M5(a), fix round 1 — anti-drift: etapaDoModelo(...).key ≡ statusEf
     // para…" nesse caso) — aqui provamos que ela sozinha devolveria a coluna crua, reforçando
     // por que quem chama tem que checar `selo.fase === "kanban"` antes (já é o que `podeMover` faz).
     expect(statusEfetivoFicha(modelo.status_desenvolvimento, true, cfg)).toBe("em_pilotagem");
+  });
+});
+
+describe("kanban #8 (fix round) — editável segue a ETAPA; só a visibilidade usa a REF gravada", () => {
+  it("o hook expõe refNaEtapa (sem refSalva) separado de refVisivel (com refSalva)", () => {
+    const h = readFileSync("src/components/planejamento/planejamento-detail/ficha/useFichaKanban.ts", "utf8");
+    expect(h).toMatch(/refNaEtapa: refVisivelFicha\(\{ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao \}\)/);
+    expect(h).toMatch(/refVisivel: refVisivelFicha\(\{[^}]*refSalva: row\?\.ref/);
+  });
+  it("refEditavel usa a etapa, não a visibilidade", () => {
+    const pd = readFileSync("src/components/planejamento/PlanejamentoDetail.tsx", "utf8");
+    expect(pd).toMatch(/const refEditavel = isEdit && !devBloqueado && kanbanCard\.refNaEtapa && !travaIntegracao\.has\("ref"\);/);
   });
 });

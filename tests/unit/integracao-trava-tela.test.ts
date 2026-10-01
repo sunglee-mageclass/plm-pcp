@@ -76,7 +76,7 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
   const s = ler("src/components/planejamento/PlanejamentoDetail.tsx");
   it("estado do produto, REF/SKU/preço/fotos travados, selo e Excluir", () => {
     expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: isEdit \}\);/);
-    expect(s).toMatch(/const refEditavel = isEdit && !devBloqueado && kanbanCard\.refVisivel && !travaIntegracao\.has\("ref"\);/);
+    expect(s).toMatch(/const refEditavel = isEdit && !devBloqueado && kanbanCard\.refNaEtapa && !travaIntegracao\.has\("ref"\);/);
     expect(s).toMatch(/podeEditarPlanejamento && !travaIntegracao\.has\("sku"\), \{/);
     expect(s).toMatch(/podeEditarSkus=\{podeEditarPlanejamento && !travaIntegracao\.has\("sku"\)\}/);
     expect(s).toMatch(/<fieldset disabled=\{travaIntegracao\.has\("fotos_modelo"\)\} className="contents">/);

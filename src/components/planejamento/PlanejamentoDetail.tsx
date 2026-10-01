@@ -783,7 +783,7 @@ function PlanejamentoDetailConteudo({
   const estadoIntegracao = useIntegracaoEstado(isEdit ? modeloId : null, { sempreAoAbrir: isEdit });
   const travaIntegracao = colunasTravadas(estadoIntegracao);
   // REF editável = a seção "Códigos" (F3.6) mostra o campo (etapa configurada) e os campos do Dev estão livres.
-  const refEditavel = isEdit && !devBloqueado && kanbanCard.refVisivel && !travaIntegracao.has("ref");
+  const refEditavel = isEdit && !devBloqueado && kanbanCard.refNaEtapa && !travaIntegracao.has("ref");
   // Comprado (revenda/importado) segue a config "Fluxo de Revenda" da loja (decisão F3 #8; paridade com
   // ModeloDetailPanel.tsx:1574). Interno vê tudo.
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
