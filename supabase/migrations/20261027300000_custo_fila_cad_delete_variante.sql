@@ -55,6 +55,12 @@
 -- _down da release 8 (DISABLE TRIGGER ... LIKE 'trg\_custo\_%') desliga estes 2 tambem, e o _down_drop dela os apaga.
 -- Reaplicar a IDA da 20261019300000 com a L5 no banco e recusado pela guarda (d) dela (gatilho trg_custo_* fora da lista):
 -- rodar antes o _down + _down_drop DESTA.
+-- [fix round 1, M1] FREIO DA RELEASE 8 com a L5 no banco: soltar o freio (20261019300000_custo_previsto_servidor_down_neutraliza)
+-- "reaplicando a ida da 20261019300000" e RECUSADO enquanto os gatilhos da L5 existirem (guarda (d) dela: trg_custo_* fora da
+-- lista) - o _down da L5 sozinho NAO basta (os gatilhos ficam de pe). Sequencia: _down da L5 -> _down_drop da L5 (DROP TRIGGER:
+-- AccessExclusive em cad + auth/storage/realtime, HORARIO CALMO) -> reaplicar a ida da 20261019300000 -> reaplicar esta L5.
+-- Os gatilhos NAO devem ser renomeados para fugir do padrao trg_custo_*: o _down_drop da release 8 apaga _custo_enfileirar, e
+-- um gatilho da L5 com outro nome chamaria funcao inexistente em todo DELETE de cad.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 
 SET client_encoding = 'UTF8';

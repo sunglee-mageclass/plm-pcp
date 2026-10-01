@@ -7,6 +7,12 @@
 -- Guarda: so roda se as 2 funcoes estao com o texto da ida (7a984643 / 5a57e42a); neutra/ausente/outro -> P0001 e nada muda.
 -- Nada gravado muda: custo ja recalculado fica; o que estiver na fila segue para o processador da release 8 normalmente.
 -- LIFO: roda ANTES das voltas da release 8 (20261019300000). Sem site a voltar.
+-- [fix round 1, M1] FREIO DA RELEASE 8 com a L5 no banco: soltar o freio (20261019300000_custo_previsto_servidor_down_neutraliza)
+-- "reaplicando a ida da 20261019300000" e RECUSADO enquanto os gatilhos da L5 existirem (guarda (d) dela: trg_custo_* fora da
+-- lista) - o _down da L5 sozinho NAO basta (os gatilhos ficam de pe). Sequencia: _down da L5 -> _down_drop da L5 (DROP TRIGGER:
+-- AccessExclusive em cad + auth/storage/realtime, HORARIO CALMO) -> reaplicar a ida da 20261019300000 -> reaplicar esta L5.
+-- Os gatilhos NAO devem ser renomeados para fugir do padrao trg_custo_*: o _down_drop da release 8 apaga _custo_enfileirar, e
+-- um gatilho da L5 com outro nome chamaria funcao inexistente em todo DELETE de cad.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
 
 SET client_encoding = 'UTF8';
@@ -83,4 +89,5 @@ BEGIN
   END IF;
 END $pos$;
 
+NOTIFY pgrst, 'reload schema';
 COMMIT;

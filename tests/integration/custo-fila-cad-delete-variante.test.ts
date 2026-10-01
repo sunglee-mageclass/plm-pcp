@@ -450,6 +450,48 @@ describe.skipIf(!PRONTO)("L5 (e) — loja: nunca enfileira modelo de outra loja"
   });
 });
 
+// ─────────────────────────────── (g) GUC do sistema (fix round 1, B2) ───────────────────────────────
+describe.skipIf(!PRONTO)(
+  "L5 (g) — com app.custo_sistema = 'on' (o próprio aplicador escrevendo) nada entra na fila",
+  () => {
+    it("DELETE de CAD cortado e troca de artigo da variante com a GUC ligada não enfileiram; desligada, enfileiram", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const avi = await aviamento(c, 10);
+        const k = await cardAviamento(c, avi, 1);
+        const cadK = await cad(c, k.m, true);
+        const artA = await artigo(c, 10);
+        const artB = await artigo(c, 20);
+        const vt = await variante(c, artA);
+        const m = await modelo(c);
+        await substituto(c, await linhaTecido(c, m, await artigo(c, 1)), vt);
+        await imediato(c);
+        expect(await naFila(c, [k.m, m])).toEqual([]);
+
+        await c.query(`SELECT set_config('app.custo_sistema', 'on', true)`);
+        try {
+          await c.query(`DELETE FROM public.cad WHERE id = $1`, [cadK]);
+          await c.query(`UPDATE public.variantes_tecido SET artigo_id = $2 WHERE id = $1`, [
+            vt,
+            artB,
+          ]);
+          expect(await naFila(c, [k.m, m])).toEqual([]);
+        } finally {
+          await c.query(`SELECT set_config('app.custo_sistema', '', true)`);
+        }
+        // controle: com a GUC desligada os mesmos eventos enfileiram (o teste acima não passa "de graça")
+        await cad(c, k.m, true);
+        await c.query(`DELETE FROM public.cad WHERE modelo_id = $1`, [k.m]);
+        await c.query(`UPDATE public.variantes_tecido SET artigo_id = $2 WHERE id = $1`, [
+          vt,
+          artA,
+        ]);
+        expect(await naFila(c, [k.m, m])).toEqual(ord([k.m, m]));
+      });
+    });
+  },
+);
+
 // ─────────────────────────────── (f) catálogo / ACL ───────────────────────────────
 describe.skipIf(!PRONTO)("L5 (f) — catálogo e ACL (#9)", () => {
   it("as 2 funções novas: SECURITY DEFINER, search_path fixo, sem EXECUTE para PUBLIC/anon/authenticated", async () => {
