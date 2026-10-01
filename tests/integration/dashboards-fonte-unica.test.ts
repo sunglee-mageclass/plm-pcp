@@ -17,8 +17,8 @@ const MD5_DEPOIS: Record<string, string> = {
   "public._dashboard_leadtime_itens_core(uuid,text,text)": "e90d44175464c66e6576f0f8a4bea1dd",
 };
 // _custo_unitario_modelos_core: a R12 não mexe nela; a R16 (20261026200000, P-186 A + R12 INFO 6 + preço M1) troca
-// d26c7c9a… → d4127722… (o inverso da R16 roda antes do da R12).
-const MD5_INTOCADA = "d41277224a6a74192e2b50a12740ea9a";
+// d26c7c9a… → 4bf2770e… (o inverso da R16 roda antes do da R12).
+const MD5_INTOCADA = "4bf2770e4932d00914d5209a71ca6312";
 
 /** Troca a loja ativa do usuário de teste (só na txn revertida). */
 async function naLoja(c: Client, tenant: string) {

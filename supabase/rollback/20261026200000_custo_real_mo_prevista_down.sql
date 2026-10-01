@@ -18,7 +18,7 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._custo_unitario_modelos_core(uuid[])', 'd41277224a6a74192e2b50a12740ea9a')) v(s, m) LOOP
+      ('public._custo_unitario_modelos_core(uuid[])', '4bf2770e4932d00914d5209a71ca6312')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL THEN
       RAISE EXCEPTION 'medios_r16_m7 (volta): % nao existe', r.s USING ERRCODE = 'P0001';
     END IF;

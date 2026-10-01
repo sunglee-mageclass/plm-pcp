@@ -13,9 +13,10 @@
 --     - linha "Geral (legado)" (categoria NULL, backfill de antes da M.O. por servico): fica de fora quando o cad tem
 --       bloco externo ativo de servico SEM linha propria no modelo (sem categoria ou de categoria sem linha) - esse
 --       lancado e o que a substitui; senao entra a prevista (sem contar duas vezes a mesma M.O.);
---     - fix round 1 (M2, P-186 A "o valor lancado quando ele existe"): so conta como LANCADO o bloco externo ativo com
---       valor preco x qtd enviada - desconto + multa > 0; bloco criado e ainda vazio (0 x 0) NAO tira a prevista do
---       servico (nem o "Geral"). Na copia: 0c1ee839 tem um bloco Caseado vazio - nao muda o numero (Oficina/Corte
+--     - fix round 1/2 (M2 + INFO R1, P-186 A "o valor lancado quando ele existe"): so conta como LANCADO o bloco
+--       externo ativo com BRUTO preco x qtd enviada > 0; o valor somado continua o LIQUIDO (bruto - desconto + multa),
+--       que pode ser 0 (servico feito e todo descontado = custo 0, nao a prevista). Bloco criado e ainda vazio (0 x 0)
+--       NAO tira a prevista do servico (nem o "Geral"). Na copia: 0c1ee839 tem um bloco Caseado vazio - nao muda o numero (Oficina/Corte
 --       lancados ja substituem o "Geral");
 --     - bloco externo INATIVO (servico desmarcado no PCP) nao conta mais como lancado (alinha ao Financeiro, que nao
 --       cobra parcela nao paga de bloco inativo). Hoje: 0 blocos inativos em cads cortados (copia).
@@ -45,7 +46,7 @@
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public._custo_unitario_modelos_core(uuid[])
 --     ANTES  d26c7c9afb636f6ed26e66daf76e92ae  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS d41277224a6a74192e2b50a12740ea9a  (este arquivo; reaplicar = no-op)
+--     DEPOIS 4bf2770e4932d00914d5209a71ca6312  (este arquivo; reaplicar = no-op)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
 -- Travas: so CREATE OR REPLACE FUNCTION (trava de objeto da propria funcao; nada em tabela, nada em auth/storage).
@@ -67,7 +68,7 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _r16b_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _r16b_md5_aceitos VALUES
   ('public._custo_unitario_modelos_core(uuid[])', 'd26c7c9afb636f6ed26e66daf76e92ae', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public._custo_unitario_modelos_core(uuid[])', 'd41277224a6a74192e2b50a12740ea9a', 'depois');  -- este arquivo; reaplicar = no-op
+  ('public._custo_unitario_modelos_core(uuid[])', '4bf2770e4932d00914d5209a71ca6312', 'depois');  -- este arquivo; reaplicar = no-op
 
 -- ACL de antes (a pos-condicao exige a MESMA depois).
 CREATE TEMP TABLE _r16b_acl_antes ON COMMIT DROP AS
@@ -119,13 +120,13 @@ begin
             - coalesce(pt.desconto_total,0) + coalesce(pt.multa_total,0))
         from producao_terceirizados pt where pt.cad_id = cc.cad_id and coalesce(pt.interno,false) = false
           and coalesce(pt.ativo,true)
-          -- [R16 fix round 1, M2] so o bloco com valor LANCADO (> 0) e "o lancado" do servico
-          and (coalesce(pt.preco_metro_unidade,0) * coalesce(pt.quantidade_enviada,0)
-               - coalesce(pt.desconto_total,0) + coalesce(pt.multa_total,0)) > 0), 0) as servico_total,
+          -- [R16 fix round 1/2, M2 + INFO R1] "o lancado" do servico = bloco com BRUTO (preco x qtd) > 0; soma o liquido
+          -- (bruto - desconto + multa), que pode ser 0 (servico feito e todo descontado = custo 0, nao a prevista)
+          and coalesce(pt.preco_metro_unidade,0) * coalesce(pt.quantidade_enviada,0) > 0), 0) as servico_total,
       coalesce((select sum(coalesce(g.grade_total_real, g.grade_total_planejada, 0)) from cad_grades g where g.cad_id = cc.cad_id), 0) as grade,
       -- [medios R16 preco M7, P-186 A] M.O. PREVISTA dos servicos SEM bloco externo lancado (por peca):
-      --   (fix round 1, M2: "lancado" = bloco externo ativo com valor preco x qtd - desconto + multa > 0; bloco vazio
-      --   ainda nao lancou -> vale a prevista daquele servico)
+      --   (fix round 1/2, M2 + INFO R1: "lancado" = bloco externo ativo com BRUTO preco x qtd > 0; bloco vazio ainda nao
+      --   lancou -> vale a prevista daquele servico; bloco lancado e todo descontado -> custo 0, nao a prevista)
       --   linha de modelo_servico_mo COM categoria -> entra se o cad NAO tem bloco externo ativo daquela categoria
       --     (com bloco, vale o lancado, ja somado em servico_total); costura/oficina INTERNA nunca tem lancado -> prevista;
       --   linha "Geral (legado)" (categoria NULL) -> entra se o cad NAO tem bloco externo ativo de servico SEM linha
@@ -135,13 +136,11 @@ begin
           and case when s.categoria_terceirizado_id is not null
                 then not exists (select 1 from producao_terceirizados pt
                                   where pt.cad_id = cc.cad_id and coalesce(pt.interno,false) = false and coalesce(pt.ativo,true)
-                                    and (coalesce(pt.preco_metro_unidade,0) * coalesce(pt.quantidade_enviada,0)
-                                         - coalesce(pt.desconto_total,0) + coalesce(pt.multa_total,0)) > 0
+                                    and coalesce(pt.preco_metro_unidade,0) * coalesce(pt.quantidade_enviada,0) > 0
                                     and pt.categoria_terceirizado_id = s.categoria_terceirizado_id)
                 else not exists (select 1 from producao_terceirizados pt
                                   where pt.cad_id = cc.cad_id and coalesce(pt.interno,false) = false and coalesce(pt.ativo,true)
-                                    and (coalesce(pt.preco_metro_unidade,0) * coalesce(pt.quantidade_enviada,0)
-                                         - coalesce(pt.desconto_total,0) + coalesce(pt.multa_total,0)) > 0
+                                    and coalesce(pt.preco_metro_unidade,0) * coalesce(pt.quantidade_enviada,0) > 0
                                     and (pt.categoria_terceirizado_id is null
                                          or not exists (select 1 from modelo_servico_mo s2
                                                          where s2.modelo_id = cc.modelo_id

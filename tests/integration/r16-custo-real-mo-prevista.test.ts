@@ -12,7 +12,7 @@ import { recomputeEtiqueta, type EtiquetaInfo } from "@/components/desenvolvimen
 
 const RODA = hasDb && ehBancoLocal();
 const SIG = "public._custo_unitario_modelos_core(uuid[])";
-const MD5_DEPOIS = "d41277224a6a74192e2b50a12740ea9a";
+const MD5_DEPOIS = "4bf2770e4932d00914d5209a71ca6312";
 
 type Custo = {
   previsto: number;
@@ -239,6 +239,51 @@ describe.skipIf(!RODA)("R16 preço M7 — custo real com M.O. por serviço (P-18
       const depois = await custo(c, vestal);
       expect(depois.real).toBeCloseTo(146.23, 6);
       expect(depois.mao_obra_real).toBeCloseTo(60, 6);
+    });
+  });
+
+  // [fix round 2, INFO R1] "lançado" = bruto (preço × qtd) > 0; soma o LÍQUIDO (pode ser 0): serviço feito e todo
+  // descontado custa 0 (não volta à prevista).
+  it("VESTAL com bloco bruto 20 e desconto 20: M.O. desse serviço = 0 → real = materiais do CAD 86,23 (+ demais serviços: nenhum)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const vestal = "1494e80b-554f-44c5-b848-6234e081e41f";
+      const antes = await custo(c, vestal);
+      if (!antes) throw new Error("fixture ausente: VESTAL 1494e80b (Loja Teste)");
+      const materiais = antes.real! - antes.mao_obra_real;
+      expect(materiais).toBeCloseTo(86.23, 6);
+      const cad = await um<{ id: string }>(c, `select id from cad where modelo_id = $1 and enviado_corte`, [vestal]);
+      const cat = await um<{ id: string }>(
+        c,
+        `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Bordado R16-R1','ate_costura') returning id`,
+        [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into producao_terceirizados (cad_id, tenant_id, categoria_terceirizado_id, ativo, interno, preco_metro_unidade,
+                                             quantidade_enviada, desconto_total)
+         values ($1,$2,$3,true,false,2,10,20)`,
+        [cad.id, TENANT_TESTE, cat.id],
+      );
+      const depois = await custo(c, vestal);
+      // Bordado sem linha própria e LANÇADO (bruto 20) substitui o "Geral" 60; o líquido dele é 0
+      expect(depois.mao_obra_real).toBeCloseTo(0, 6);
+      expect(depois.real).toBeCloseTo(86.23, 6);
+    });
+  });
+
+  it("serviço com linha própria lançado e todo descontado: custo 0 (não a prevista); bloco 0 × 0 segue a prevista", async () => {
+    await withTx(async (c) => {
+      const f = await cortado(c);
+      const corte = await f.cat("Corte");
+      await linhaMo(c, f.modelo, corte, 5);
+      await blocoPt(c, f.cad, corte, { preco: 0, qtd: 0 });
+      expect((await custo(c, f.modelo)).mao_obra_real).toBeCloseTo(5, 6);
+      await c.query(
+        `update producao_terceirizados set preco_metro_unidade = 2, quantidade_enviada = 10, desconto_total = 20
+          where cad_id = $1 and categoria_terceirizado_id = $2`,
+        [f.cad, corte],
+      );
+      expect((await custo(c, f.modelo)).mao_obra_real).toBeCloseTo(0, 6);
     });
   });
 
