@@ -201,3 +201,33 @@ describe("computeColecaoResumo sem reprovado (L4 P-209 A)", () => {
     );
   });
 });
+
+// Fix round 2 (revisão L4): B2 selo da sidebar no Realtime de modelos; B3 dica da linha "Etapas antigas";
+// B4 "sem custo" por coleção e no celular sem esconder o markup.
+describe("L4 fix round 2 (B2/B3/B4)", () => {
+  it("B2: 'sidebar-badges' é invalidado por mudança em modelos", async () => {
+    const { BUSINESS_KEY_TOKENS } = await import("@/lib/realtime-invalidation-map");
+    expect(BUSINESS_KEY_TOKENS.modelos).toContain("sidebar-badges");
+    expect(BUSINESS_KEY_TOKENS.modelos).toContain("otb-orcamento");
+  });
+
+  it("B3: a dica do Leadtime explica a linha 'Etapas antigas'", () => {
+    const src = dashboardSrc();
+    const bs = src.slice(
+      src.indexOf("function BulletSection("),
+      src.indexOf("function LeadtimeHero("),
+    );
+    expect(bs).toMatch(/Etapas antigas/);
+    expect(bs).toMatch(/SOMA das\s+médias/);
+  });
+
+  it("B4: tabela por coleção mostra 'sem custo' por linha; celular mantém o markup e soma o aviso", () => {
+    const src = dashboardSrc();
+    expect(src).toMatch(
+      /r\.semCusto > 0 && \(\s*<span[^>]*>\s*· \{r\.semCusto\} sem custo\s*<\/span>/,
+    );
+    expect(src).toMatch(
+      /label="Margem média"[^\n]*markup \$\{fmtMkp\(tot\.markupReal\)\}[^\n]*tot\.semCusto > 0 \? ` · \$\{tot\.semCusto\} sem custo`/,
+    );
+  });
+});

@@ -627,7 +627,7 @@ function ComercialColecaoTab() {
         <div className="flex flex-wrap items-center gap-2"><MobileFilterBar filters={filtros} /></div>
         <div className="grid grid-cols-2 gap-2.5">
           <KpiCardMobile compact label="Poder de venda" value={brlAbrev(tot.pvPlan)} valueTitle={brl(tot.pvPlan)} sub={`${pctMeta}% da meta`} />
-          <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} sub={tot.semCusto > 0 ? `${tot.semCusto} sem custo` : tot.margemReal > 0 ? `markup ${fmtMkp(tot.markupReal)}` : "planejado"} />
+          <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} sub={`${tot.margemReal > 0 ? `markup ${fmtMkp(tot.markupReal)}` : "planejado"}${tot.semCusto > 0 ? ` · ${tot.semCusto} sem custo` : ""}`} />
           <KpiCardMobile compact label="Lucro bruto" value={brlAbrev(tot.lucroPlan)} valueTitle={brl(tot.lucroPlan)} sub={`real. ${brlAbrev(tot.lucroReal)}`} />
           <KpiCardMobile compact label="Ticket médio" value={brl(tot.ticket)} sub="preço médio/peça" />
         </div>
@@ -667,7 +667,14 @@ function ComercialColecaoTab() {
                 const markupReal = markupRealComercial(r);
                 return (
                   <tr key={r.key} className="border-t">
-                    <td className="py-2 pr-3" data-label="Coleção">{r.nome}</td>
+                    <td className="py-2 pr-3" data-label="Coleção">
+                      {r.nome}
+                      {r.semCusto > 0 && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          · {r.semCusto} sem custo
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3 text-right num" data-label="PV plan.">{brlAbrev(r.pvPlan)}</td>
                     <td className="py-2 pr-3 text-right num" data-label="PV real.">{brlAbrev(r.pvReal)}</td>
                     <td className="py-2 pr-3 text-right num" data-label="Lucro real.">{brlAbrev(r.lucroReal)}</td>
@@ -773,6 +780,10 @@ function BulletSection({ icon, titulo, etapas, labelDe, preservarOrdem }: { icon
           <InfoHover ariaLabel="Como a média é calculada">
             <p>Média por modelo: para cada modelo, soma-se o tempo que ele passou na etapa (se voltou a ela, os trechos se somam); a barra é a média dessas somas.</p>
             <p>Não é a média por trecho: um modelo que passou duas vezes pela etapa conta uma vez só. &quot;mod.&quot; = modelos com tempo na etapa.</p>
+            <p>
+              Linha &quot;Etapas antigas&quot; (status que saíram do quadro): a barra é a SOMA das
+              médias dessas etapas e &quot;mod.&quot; é o maior nº de modelos entre elas.
+            </p>
           </InfoHover>
         </span>
       </SecHeader>

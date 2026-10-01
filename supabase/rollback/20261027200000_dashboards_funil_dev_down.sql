@@ -21,8 +21,8 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '656f77cd21612d1ab4c6498fac6e3b6e'),
-      ('public._dashboard_producao_core(date,date,text,uuid)', '2997a4b27f4426cdd125b76c794c7a87'),
+      ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '57e0d5ca84dab8c969169e25165a5df3'),
+      ('public._dashboard_producao_core(date,date,text,uuid)', 'f94982d5d369222d0a4b3330b67a204a'),
       ('public.dashboard_colecao(date,date,text,uuid,uuid)', '4e351a33a919a60139518606b50729c3'),
       ('public.dashboard_producao(date,date,text,uuid)', '8280bd12907d89522a215512a03821b4')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL THEN

@@ -11,8 +11,8 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
 // Tudo em txn revertida (nada grava). Sem fixture o teste FALHA alto (nunca passa vazio).
 
 const MD5_DEPOIS: Record<string, string> = {
-  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "656f77cd21612d1ab4c6498fac6e3b6e",
-  "public._dashboard_producao_core(date,date,text,uuid)": "2997a4b27f4426cdd125b76c794c7a87",
+  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "57e0d5ca84dab8c969169e25165a5df3",
+  "public._dashboard_producao_core(date,date,text,uuid)": "f94982d5d369222d0a4b3330b67a204a",
   "public._otb_orcamento_core(uuid,uuid)": "33137a0e34808d098f084f3891a61913",
   "public._otb_colecao_totais(uuid)": "4e27b6098b2197ec5239118278341f12",
 };
@@ -49,7 +49,7 @@ const ESPERADO_SQL = `
            (coalesce(mo.enviado_cad,false) or (mo.origem in ('revenda','importado')
              and exists (select 1 from cad c where c.modelo_id = mo.id))) ec,
            coalesce(mo.lancado,false) lanc,
-           (mo.ordem_criacao_enviada or (mo.origem in ('revenda','importado') and mo.status_planejamento = 'planejado')) dev
+           (mo.ordem_criacao_enviada or (mo.origem in ('revenda','importado') and mo.status_planejamento is not distinct from 'planejado')) dev
       from modelos mo where mo.tenant_id = $1)
   select count(*)::int total,
          count(*) filter (where not ec and not lanc and not dev)::int planejamento,
@@ -206,7 +206,16 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       const k4 = await k();
       expect(k4.planejamento).toBe(k3.planejamento + 1);
       expect(k4.desenvolvimento).toBe(k3.desenvolvimento);
-      for (const x of [k0, k1, k2, k3, k4])
+      // 5) [fix round 2, M1] revenda com status_planejamento NULL e sem a ordem → Planejamento; a partição fecha
+      //    (antes da correção a linha sumia dos 4 baldes: dev = NULL)
+      const nulo = await novoModelo(c, { origem: "revenda" });
+      await c.query(`update modelos set status_planejamento = null where id = $1`, [nulo]);
+      const k5 = await k();
+      expect(k5.total).toBe(k4.total + 1);
+      expect(k5.planejamento).toBe(k4.planejamento + 1);
+      expect(k5.desenvolvimento).toBe(k4.desenvolvimento);
+      expect(await kb()).toBe(kb0 + 2);
+      for (const x of [k0, k1, k2, k3, k4, k5])
         expect(x.planejamento + x.desenvolvimento + x.producao + x.lancados).toBe(x.total);
     });
   });

@@ -19,8 +19,8 @@ const MD5_DEPOIS: Record<string, string> = {
 // [leves L4] 20261027200000_dashboards_funil_dev muda _dashboard_colecao_core e _dashboard_producao_core por cima da R12
 // (prod #10: Desenvolvimento = ordem_criacao_enviada). Com a L4 aplicada vale o md5 da L4; o resto da R12 segue igual.
 const MD5_DEPOIS_L4: Record<string, string> = {
-  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "656f77cd21612d1ab4c6498fac6e3b6e",
-  "public._dashboard_producao_core(date,date,text,uuid)": "2997a4b27f4426cdd125b76c794c7a87",
+  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "57e0d5ca84dab8c969169e25165a5df3",
+  "public._dashboard_producao_core(date,date,text,uuid)": "f94982d5d369222d0a4b3330b67a204a",
 };
 const MD5_INTOCADA = "d26c7c9afb636f6ed26e66daf76e92ae"; // _custo_unitario_modelos_core
 

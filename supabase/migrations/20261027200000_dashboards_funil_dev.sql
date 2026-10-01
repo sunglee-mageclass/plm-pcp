@@ -8,6 +8,8 @@
 --             continuam uma particao: somam o total. Producao/Lancados: iguais a R12.
 --             _dashboard_producao_core: o grafico kanbanDev (e o aprovadoNaoLancado, que le o mesmo conjunto) usa o
 --             MESMO criterio. O resto da funcao: igual a R12.
+--             Fix round 2 (M1 da revisao): o termo do comprado usa status_planejamento IS NOT DISTINCT FROM 'planejado'
+--             (NULL-safe) - comprado com status_planejamento NULL cai em Planejamento e a particao fecha (como na R12).
 --   Copia 54422 (antes -> depois): Ave Rara Planejamento 15 -> 4, Desenvolvimento 184 -> 195, funil Dev 235 -> 246,
 --   kanbanDev 235 -> 246; Loja Teste Planejamento 7 -> 5, Desenvolvimento 5 -> 7, funil Dev 11 -> 13, kanbanDev 11 -> 13;
 --   Ark Store e French iguais.
@@ -17,10 +19,10 @@
 -- "antes" = o "depois" da R12 (20261022100000_dashboards_fonte_unica.sql), que roda ANTES desta no kit combinado.
 --   public._dashboard_colecao_core(date,date,text,uuid,uuid)
 --     ANTES  5dbe4d89fcaf1c1b77860cb3a8e132c8  -- "depois" da R12 (o "antes" da R12, 07aa235a, CONFIRMADO no Passo 0 dos MEDIOS)
---     DEPOIS 656f77cd21612d1ab4c6498fac6e3b6e  (este arquivo; reaplicar = no-op)
+--     DEPOIS 57e0d5ca84dab8c969169e25165a5df3  (este arquivo; reaplicar = no-op)
 --   public._dashboard_producao_core(date,date,text,uuid)
 --     ANTES  17424a059ae47674e244701f5a0fbfe4  -- "depois" da R12 (o "antes" da R12, 5437c394, CONFIRMADO no Passo 0 dos MEDIOS)
---     DEPOIS 2997a4b27f4426cdd125b76c794c7a87  (este arquivo; reaplicar = no-op)
+--     DEPOIS f94982d5d369222d0a4b3330b67a204a  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda):
 --     public.dashboard_colecao(date,date,text,uuid,uuid)  4e351a33a919a60139518606b50729c3  chamador  -- PROVISORIO (copia): conferir no Passo 0 dos LEVES
 --     public.dashboard_producao(date,date,text,uuid)      8280bd12907d89522a215512a03821b4  chamador  -- PROVISORIO (copia): conferir no Passo 0 dos LEVES
@@ -46,9 +48,9 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _l4a_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l4a_md5_aceitos VALUES
   ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '5dbe4d89fcaf1c1b77860cb3a8e132c8', 'antes'),  -- "depois" da R12
-  ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '656f77cd21612d1ab4c6498fac6e3b6e', 'depois'),
+  ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '57e0d5ca84dab8c969169e25165a5df3', 'depois'),
   ('public._dashboard_producao_core(date,date,text,uuid)', '17424a059ae47674e244701f5a0fbfe4', 'antes'),  -- "depois" da R12
-  ('public._dashboard_producao_core(date,date,text,uuid)', '2997a4b27f4426cdd125b76c794c7a87', 'depois'),
+  ('public._dashboard_producao_core(date,date,text,uuid)', 'f94982d5d369222d0a4b3330b67a204a', 'depois'),
   ('public.dashboard_colecao(date,date,text,uuid,uuid)', '4e351a33a919a60139518606b50729c3', 'dep'),  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
   ('public.dashboard_producao(date,date,text,uuid)', '8280bd12907d89522a215512a03821b4', 'dep');  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
 
@@ -94,7 +96,7 @@ BEGIN
            (COALESCE(mo.enviado_cad, false)
              OR (mo.origem IN ('revenda','importado') AND EXISTS (SELECT 1 FROM cad c WHERE c.modelo_id = mo.id))) AS ec,
            (mo.ordem_criacao_enviada
-             OR (mo.origem IN ('revenda','importado') AND mo.status_planejamento = 'planejado')) AS dev,
+             OR (mo.origem IN ('revenda','importado') AND mo.status_planejamento IS NOT DISTINCT FROM 'planejado')) AS dev,
            mo.categoria_principal_id AS cat,
            COALESCE(mo.lancado, false) AS lanc
     FROM modelos mo
@@ -124,7 +126,7 @@ BEGIN
            (COALESCE(mo.enviado_cad, false)
              OR (mo.origem IN ('revenda','importado') AND EXISTS (SELECT 1 FROM cad c WHERE c.modelo_id = mo.id))) AS ec,
            (mo.ordem_criacao_enviada
-             OR (mo.origem IN ('revenda','importado') AND mo.status_planejamento = 'planejado')) AS dev,
+             OR (mo.origem IN ('revenda','importado') AND mo.status_planejamento IS NOT DISTINCT FROM 'planejado')) AS dev,
            COALESCE(mo.lancado, false) AS lanc
     FROM modelos mo
     WHERE mo.tenant_id = v_tenant
@@ -259,7 +261,7 @@ BEGIN
     -- ordem_criacao_enviada (inv. #11); comprado (revenda/importado) sem a ordem segue pelo status_planejamento.
     WHERE m.tenant_id = v_tenant
       AND (m.ordem_criacao_enviada
-           OR (m.origem IN ('revenda','importado') AND m.status_planejamento = 'planejado'))
+           OR (m.origem IN ('revenda','importado') AND m.status_planejamento IS NOT DISTINCT FROM 'planejado'))
       AND (p_colecao IS NULL OR m.colecao = p_colecao)
       AND (p_linha IS NULL OR m.linha_id = p_linha)
       AND public._modelo_no_periodo(m.mes_id, m.ano_id, p_inicio, p_fim)
