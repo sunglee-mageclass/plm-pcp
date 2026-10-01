@@ -39,7 +39,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
   custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
-  markupVarejoExibido, markupAtacadoExibido,
+  markupVarejoExibido, markupAtacadoExibido, novaEtapaImportado, etapasComCotacaoRef,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
@@ -288,10 +288,10 @@ export function ProdutoImportadoCard({
   // ── 6 · Pagamentos — etapas (até 5) ──
   const setEtapa = (ordem: number, patch: Partial<EtapaImportadoDraft>) =>
     onChange({ etapas: draft.etapas.map((e) => (e.ordem === ordem ? { ...e, ...patch } : e)) });
+  // P-207 A (L8): a etapa nova nasce com a cotação de referência (antes: 0 — a mercadoria não convertia).
   const addEtapa = () => {
-    if (draft.etapas.length >= 5) return;
-    const proximaOrdem = draft.etapas.length ? Math.max(...draft.etapas.map((e) => e.ordem)) + 1 : 1;
-    onChange({ etapas: [...draft.etapas, { ordem: proximaOrdem, rotulo: "", base: "mercadoria", percentual: 0, data_vencimento: null, cotacao: 0 }] });
+    const nova = novaEtapaImportado(draft.etapas, draft.cotacao_ref);
+    if (nova) onChange({ etapas: [...draft.etapas, nova] });
   };
   const removeEtapa = (ordem: number) => onChange({ etapas: draft.etapas.filter((e) => e.ordem !== ordem) });
 
@@ -716,7 +716,13 @@ export function ProdutoImportadoCard({
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Cotação de ref.</Label>
-                    <NumberInput blankZero data-colab-path={cp("cotacao-ref")} className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero data-colab-path={cp("cotacao-ref")} className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })}
+                      onBlur={() => {
+                        // P-207 A (L8): ao sair do campo (valor FINAL, não a cada tecla), as etapas de mercadoria ainda
+                        // SEM cotação (0) recebem a referência; etapa com cotação própria não muda.
+                        const etapas = etapasComCotacaoRef(draft.etapas, draft.cotacao_ref);
+                        if (etapas !== draft.etapas) onChange({ etapas });
+                      }} />
                   </div>
                 </div>
                 <InfoStrip className="mt-3" itens={[
@@ -793,7 +799,17 @@ export function ProdutoImportadoCard({
                         <DateField className="w-36 max-md:w-full" data-colab-path={cp(`etapa-venc:${e.ordem}`)} value={e.data_vencimento ?? ""} onChange={(ev) => setEtapa(e.ordem, { data_vencimento: ev.target.value || null })} />
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-muted-foreground">cotação</span>
-                          <NumberInput blankZero placeholder="0,00" data-colab-path={cp(`etapa-cot:${e.ordem}`)} className="h-8 w-20 text-center" value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
+                          <NumberInput
+                            blankZero
+                            placeholder="0,00"
+                            data-colab-path={cp(`etapa-cot:${e.ordem}`)}
+                            className={`h-8 w-20 text-center ${e.base === "mercadoria" && e.percentual > 0 && !(e.cotacao > 0) ? "border-destructive" : ""}`}
+                            title={e.base === "frete" ? "Deixe 1 se o frete já está em R$" : undefined}
+                            value={e.cotacao}
+                            onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })}
+                          />
+                          {/* P-207 A (L8): dica do dono no campo cotação do FRETE */}
+                          {e.base === "frete" && <span className="text-[11px] text-muted-foreground">deixe 1 se o frete já está em R$</span>}
                         </div>
                         <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive max-md:ml-0" onClick={() => removeEtapa(e.ordem)}>
                           <Trash2 className="h-4 w-4" />

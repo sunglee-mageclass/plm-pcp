@@ -156,9 +156,38 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
     etapas: [
       { ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 30, data_vencimento: null, cotacao: 0 },
       { ordem: 2, rotulo: "Saldo", base: "mercadoria", percentual: 70, data_vencimento: null, cotacao: 0 },
-      { ordem: 3, rotulo: "Frete", base: "frete", percentual: 100, data_vencimento: null, cotacao: 0 },
+      // P-207 A (L8): frete nasce com 1 (identidade — "deixe 1 se o frete já está em R$"); as de mercadoria nascem com a
+      // cotação de referência (0 aqui, ainda não digitada) e a recebem quando ela é digitada (`etapasComCotacaoRef`).
+      { ordem: 3, rotulo: "Frete", base: "frete", percentual: 100, data_vencimento: null, cotacao: 1 },
     ],
   };
+}
+
+/** P-207 A (L8) — etapa NOVA do cronograma: base mercadoria e a COTAÇÃO DE REFERÊNCIA do produto (antes nascia com 0 e
+ *  a etapa de mercadoria convertia 0 → o landed a ignorava e a parcela da OC saía 0 e era pulada). `null` = já há 5. */
+export function novaEtapaImportado(etapas: EtapaImportadoDraft[], cotacaoRef: number): EtapaImportadoDraft | null {
+  if (etapas.length >= 5) return null;
+  const ordem = etapas.length ? Math.max(...etapas.map((e) => e.ordem)) + 1 : 1;
+  return { ordem, rotulo: "", base: "mercadoria", percentual: 0, data_vencimento: null, cotacao: Number(cotacaoRef) > 0 ? Number(cotacaoRef) : 0 };
+}
+
+/** P-207 A (L8) — ao digitar a cotação de referência, as etapas de MERCADORIA ainda SEM cotação (0 — as que nasceram
+ *  antes da referência existir, ex.: Sinal/Saldo do produto novo) passam a ter a referência. Etapa com cotação própria
+ *  (> 0) e etapas de frete não mudam. Devolve o MESMO array quando nada muda (sem sujar o rascunho à toa). */
+export function etapasComCotacaoRef(etapas: EtapaImportadoDraft[], cotacaoRef: number): EtapaImportadoDraft[] {
+  const ref = Number(cotacaoRef);
+  if (!(ref > 0)) return etapas;
+  if (!etapas.some((e) => e.base === "mercadoria" && !(Number(e.cotacao) > 0))) return etapas;
+  return etapas.map((e) => (e.base === "mercadoria" && !(Number(e.cotacao) > 0) ? { ...e, cotacao: ref } : e));
+}
+
+/** P-207 A (L8) — etapa de MERCADORIA com % > 0 e cotação 0 não converte: mensagem PT do 1º caso, ou `null`. Mesma
+ *  regra que `_salvar_produto_importado_core` recusa no servidor (20261028200000). */
+export function erroCotacaoEtapas(etapas: EtapaImportadoDraft[]): string | null {
+  const e = etapas.find((x) => (x.base ?? "mercadoria") === "mercadoria" && Number(x.percentual) > 0 && !(Number(x.cotacao) > 0));
+  if (!e) return null;
+  const nome = e.rotulo?.trim() ? `"${e.rotulo.trim()}"` : `${e.ordem}`;
+  return `Etapa ${nome} de mercadoria (${e.percentual}%) está sem cotação — informe a cotação (a de referência é o padrão).`;
 }
 
 /** Só os campos que a TELA edita — usado como snapshot do dirty-guard/merge colab, espelha
@@ -348,7 +377,7 @@ export function validarDraft(draft: ProdutoImportadoDraft): string | null {
   if (draft.etapas.some((e) => e.base === "frete") && somaFrete !== 100) {
     return `Σ% das etapas de frete (${somaFrete}%) precisa fechar 100%.`;
   }
-  return null;
+  return erroCotacaoEtapas(draft.etapas); // P-207 A (L8): o servidor recusa igual
 }
 
 /** Validação ESTRITA para "Fazer pedido" (gerar a OC) — tudo do `validarDraft` + exige qtd_total > 0

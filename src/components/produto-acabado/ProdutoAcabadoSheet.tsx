@@ -969,6 +969,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             // — D12). `baseServidorRef` é a última leitura confiável do servidor.
             markupVarejoServidor={baseServidorRef.current[p.id]?.markup_varejo}
             markupAtacadoServidor={baseServidorRef.current[p.id]?.markup_atacado}
+            ordensVariantesServidor={baseServidorRef.current[p.id]?.variantes.map((v) => v.ordem)}
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
             onOcVinculada={(oc) => patchProduto(p.id, { oc })}
             onExcluido={() => removeProduto(p.id)}

@@ -60,45 +60,10 @@ export function precoDoCard(
 }
 
 /**
- * Markup Fase B — PREÇO que cada faixa de markup pede, dado o custo real.
- *
- * preco_da_faixa = custo × markup_da_faixa (mín/ideal/máx da LINHA). Base = custo TOTAL
- * (confiável), NÃO decompõe materiais/mão de obra — a M.O. interna prevista não está dentro
- * do custo real, então "materiais = custo − M.O." não fecha (era a causa dos valores sem
- * sentido da 1ª versão). `definido = false` quando falta custo ou markup → a UI mostra "—".
- */
-export type FaixaPreco = { markup: number; preco: number; definido: boolean };
-
-export function precoPorFaixa(custo: unknown, markup: unknown): FaixaPreco {
-  const c = Number(custo) || 0;
-  const mk = Number(markup) || 0;
-  if (!(c > 0) || !(mk > 0)) return { markup: mk, preco: 0, definido: false };
-  return { markup: mk, preco: c * mk, definido: true };
-}
-
-/**
- * Semáforo do PREÇO DE VENDA contra os preços que as faixas pedem (mín/ideal da LINHA).
- * 'ideal' (verde) = preço ≥ o preço da faixa ideal; 'min' (âmbar) = ≥ o da mín (mas < ideal);
- * 'abaixo' (vermelho) = abaixo de algum teto definido (markup insuficiente). Preço ALTO nunca
- * alarma (markup alto = lucro). 'indef' = sem preço/sem faixa p/ decidir. Comparações ≥ inclusivas.
- */
-export type StatusPreco = "ideal" | "min" | "abaixo" | "indef";
-
-export function statusPreco(precoVendaEfetivo: unknown, minDef: boolean, precoMin: unknown, idealDef: boolean, precoIdeal: unknown): StatusPreco {
-  const preco = Number(precoVendaEfetivo) || 0;
-  const pIdeal = Number(precoIdeal) || 0;
-  const pMin = Number(precoMin) || 0;
-  if (!(preco > 0) || (!idealDef && !minDef)) return "indef";
-  if (idealDef && preco >= pIdeal) return "ideal";
-  if (minDef && preco >= pMin) return "min";
-  return "abaixo";
-}
-
-/**
  * Markup Fase B (2ª visão) — M.O. que ainda CABE para o preço de VENDA cair numa faixa de markup.
  *
  *   MO_max(faixa) = precoVenda / markup_da_faixa − materiais
- * Complementa `precoPorFaixa` (responde "quanto posso pagar de mão de obra?"). ⚠️ Exige o preço de
+ * Responde "quanto posso pagar de mão de obra?". ⚠️ Exige o preço de
  * VENDA digitado (o chamador passa 0 quando não há) — sem ele a base cairia no sugerido (=custo×markup)
  * e os tetos colapsariam perto da própria M.O. real (visão inútil). `atingivel = false` quando falta
  * preço/markup OU quando os materiais já estouram o markup (moMax < 0) → a UI mostra "—".
@@ -114,23 +79,6 @@ export function moPorFaixa(precoVenda: unknown, materiais: unknown, markup: unkn
   if (!(mk > 0) || !(preco > 0)) return { markup: mk, moMax: 0, atingivel: false };
   const moMax = preco / mk - mat;
   return { markup: mk, moMax, atingivel: moMax >= 0 };
-}
-
-/**
- * Semáforo da M.O. real do modelo contra os tetos das faixas (mín/ideal da LINHA).
- * 'ideal' (verde) = M.O. real cabe até o teto da faixa ideal; 'min' (âmbar) = cabe só até o teto da
- * mín; 'estoura' (vermelho) = passa até do teto da mín; 'indef' = sem base p/ decidir. ≤ inclusivo.
- */
-export type StatusMO = "ideal" | "min" | "estoura" | "indef";
-
-export function statusMO(moReal: unknown, moMinAtingivel: boolean, moMinMax: unknown, moIdealAtingivel: boolean, moIdealMax: unknown): StatusMO {
-  const real = Number(moReal) || 0;
-  const idealMax = Number(moIdealMax) || 0;
-  const minMax = Number(moMinMax) || 0;
-  if (moIdealAtingivel && real <= idealMax) return "ideal";
-  if (moMinAtingivel && real <= minMax) return "min";
-  if (moIdealAtingivel || moMinAtingivel) return "estoura";
-  return "indef";
 }
 
 /**

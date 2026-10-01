@@ -40,7 +40,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
-  variantesBatemComTotal, erroValidacao, markupCanalIntocado, limparEnviadoSeServidorMudou, type MarkupEnviado,
+  variantesBatemComTotal, erroValidacao, markupCanalIntocado, limparEnviadoSeServidorMudou, proximaOrdemVariante, type MarkupEnviado,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
@@ -85,6 +85,7 @@ export function ProdutoCard({
   onAbrirPlanejamento,
   markupVarejoServidor,
   markupAtacadoServidor,
+  ordensVariantesServidor,
   dirty,
 }: {
   produto: ProdutoDraft;
@@ -133,6 +134,9 @@ export function ProdutoCard({
    *  antes (comportamento intocado). */
   markupVarejoServidor?: number | null;
   markupAtacadoServidor?: number | null;
+  /** sku #22 (L8) — ordens das variantes GRAVADAS (última leitura do servidor, `baseServidorRef` do Sheet): a variante
+   *  nova nunca reusa a ordem de uma apagada nesta edição (senão herdaria a grade dela). Ausente = só o rascunho. */
+  ordensVariantesServidor?: readonly number[];
   /** Tarefa 5: TRUE quando ESTE produto tem edição não salva (baseline por produto do Sheet) —
    *  "Criar card em Planejamento" precisa persistir a Compra ANTES de materializar o modelo
    *  (`_criar_card_produto_acabado_core` lê a linha SALVA, "Tamanho em" inclusive — P-119 A),
@@ -233,7 +237,7 @@ export function ProdutoCard({
   const setVariante = (ordem: number, patch: Partial<VarianteDraft>) =>
     onChange({ ...produto, variantes: produto.variantes.map((v) => (v.ordem === ordem ? { ...v, ...patch } : v)) });
   const addVariante = () => {
-    const proximaOrdem = produto.variantes.length ? Math.max(...produto.variantes.map((v) => v.ordem)) + 1 : 1;
+    const proximaOrdem = proximaOrdemVariante(produto.variantes, ordensVariantesServidor);
     onChange({ ...produto, variantes: [...produto.variantes, { ordem: proximaOrdem, cor_id: null, cor_apelido_id: null, peso: 1, qtd: 0 }] });
   };
   const removeVariante = (ordem: number) => onChange({ ...produto, variantes: produto.variantes.filter((v) => v.ordem !== ordem) });
@@ -254,6 +258,10 @@ export function ProdutoCard({
   // Base do markup = custo total da peça: valor unit. real + insumos + M.O. (Σ modelo_servico_mo, ao
   // vivo via `mo.total`). A M.O. entra na base p/ ESPELHAR o banco (`_pa_recomputar_precos_modelo`
   // soma a MO em v_custo). Sem isto o preço do preview divergiria do que o servidor persiste.
+  // L8 (preço M1/M2): `insumos_total` = Σ `modelo_etiquetas.custo_previsto` UMA vez (a linha já é preço × consumo ×
+  // (1 + perda)) — o MESMO número que `_pa_recomputar_precos_modelo` e `_custo_unitario_modelos_core` somam (antes o
+  // servidor gravava Σ consumo × custo_previsto, consumo contado 2×); e acompanha a edição do insumo no card espelho
+  // (gatilho `fn_preco_comprado_por_insumo` atualiza a coluna e o preço juntos).
   const base = unitReal + produto.insumos_total + (mo.total || 0);
   const markupLinha = produto.modeloLinhaId ? linhasMarkup[produto.modeloLinhaId] ?? null : null;
 
