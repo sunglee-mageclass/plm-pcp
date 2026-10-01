@@ -138,11 +138,24 @@ export function contabilizarOc(total: number, comprometido: number, baixa: numbe
  *  `contabilizarOc` ao total da OC e o `max`/clamp por cor sumia — Resumo e Drawer discordavam quando uma cor
  *  estoura e outra sobra. O Resumo usa ESTE helper; o Drawer mostra as mesmas parcelas, cor a cor. */
 export type SobraOcLinha = { oc_tecido_id: string; artigo_id: string; variante_tecido_id: string | null; entregue_m: number; usada_m: number };
-export function sobraOc(
-  ocId: string,
-  linhas: readonly SobraOcLinha[],
-  det: { reservPorOcVar: Map<string, number>; comprometidoPorOcVar: Map<string, number> },
-): number {
+export type DetalheOcSobra = Pick<DetalheOc, "reservPorOc" | "comprometidoPorOc" | "reservPorOcVar" | "comprometidoPorOcVar">;
+
+/** Demanda de UMA OC que NÃO tem cor: parcela só-artigo (card sem cor escolhida) entra em `reservPorOc` mas em nenhum
+ *  `reservPorOcVar`. É o resíduo `por OC − Σ por cor` (≥ 0) — também abate a Sobra (Resumo e Drawer, mesma fonte). */
+export function demandaSemCor(ocId: string, det: DetalheOcSobra): { reservada: number; comprometida: number } {
+  const somaVar = (m: Map<string, number>) => {
+    let t = 0;
+    const pre = `${ocId}|`;
+    for (const [k, v] of m) if (k.startsWith(pre)) t += v;
+    return t;
+  };
+  return {
+    reservada: Math.max(0, (det.reservPorOc.get(ocId) ?? 0) - somaVar(det.reservPorOcVar)),
+    comprometida: Math.max(0, (det.comprometidoPorOc.get(ocId) ?? 0) - somaVar(det.comprometidoPorOcVar)),
+  };
+}
+
+export function sobraOc(ocId: string, linhas: readonly SobraOcLinha[], det: DetalheOcSobra): number {
   const cores = new Map<string, { vid: string | null; entregue: number; usada: number }>();
   for (const r of linhas) {
     if (r.oc_tecido_id !== ocId) continue;
@@ -157,6 +170,9 @@ export function sobraOc(
     const chave = `${ocId}|${c.vid}`;
     total += contabilizarOc(det.reservPorOcVar.get(chave) ?? 0, det.comprometidoPorOcVar.get(chave) ?? 0, c.usada, c.entregue).sobra;
   }
+  // + demanda sem cor (só-artigo): sem entregue/baixa próprios → só abate.
+  const sc = demandaSemCor(ocId, det);
+  total += contabilizarOc(sc.reservada, sc.comprometida, 0, 0).sobra;
   return total;
 }
 

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc, coberturaVar, aComprarVivoVar, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc, demandaSemCor, sobraOc, coberturaVar, aComprarVivoVar, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 
@@ -336,6 +336,27 @@ export function PlanTecidoDrawer({
                 })}
               </Fragment>
             ))}
+            {kind === "ocnum" && arg && grupos.length > 0 && (() => {
+              // D-1: demanda sem cor (só-artigo) abate a Sobra; o total é o MESMO `sobraOc` do Resumo.
+              const sc = demandaSemCor(arg, det);
+              const sobraTotal = sobraOc(arg, situacao, det);
+              return (
+                <>
+                  {sc.reservada > 0 && (
+                    <tr className="border-t">
+                      <td className="w-full p-1.5 align-top text-muted-foreground">Sem cor definida</td>
+                      <td className="whitespace-nowrap p-1.5 text-right align-top">0</td>
+                      <td className="whitespace-nowrap p-1.5 text-right align-top">{nMet(sc.reservada)}</td>
+                      <td className={`whitespace-nowrap p-1.5 text-right align-top font-medium ${sobraCls(-sc.reservada)}`}>{nMet(-sc.reservada)}</td>
+                    </tr>
+                  )}
+                  <tr className="border-t bg-muted/40 font-semibold">
+                    <td className="p-1.5" colSpan={3}>Sobra da OC</td>
+                    <td className={`whitespace-nowrap p-1.5 text-right ${sobraCls(sobraTotal)}`}>{sobraTotal > 0 ? "+" : ""}{nMet(sobraTotal)}</td>
+                  </tr>
+                </>
+              );
+            })()}
           </tbody>
         </table>
         {kind === "comprar" && grupos.length > 0 && (

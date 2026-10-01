@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { contabilizarOc, sobraOc } from "@/lib/plan-tecido/calc";
+import { contabilizarOc, demandaSemCor, sobraOc } from "@/lib/plan-tecido/calc";
 
 // D-1 — o Resumo (por OC) e o Drawer (por cor) usam a MESMA régua: Σ por cor de contabilizarOc.
 describe("sobraOc (D-1)", () => {
@@ -11,6 +11,8 @@ describe("sobraOc (D-1)", () => {
     { oc_tecido_id: "oc2", artigo_id: "t1", variante_tecido_id: "vA", entregue_m: 999, usada_m: 0 },
   ];
   const det = {
+    reservPorOc: new Map([["oc1", 40]]),
+    comprometidoPorOc: new Map<string, number>(),
     reservPorOcVar: new Map([["oc1|vA", 30], ["oc1|vB", 10]]),
     comprometidoPorOcVar: new Map<string, number>(),
   };
@@ -41,5 +43,25 @@ describe("sobraOc (D-1)", () => {
     expect(resumo).toMatch(/sobraOc\(o\.oc_tecido_id, situacao,/);
     expect(drawer).toMatch(/contabilizarOc\(v\.reservada, v\.comprometida, v\.usada, v\.entregue\)/);
     expect(calc).toMatch(/total \+= contabilizarOc\(/);
+  });
+
+  it("demanda só-artigo (sem cor) também abate a Sobra: OC 100 m, 60 m sem cor → Sobra 40 (não 100)", () => {
+    const l = [{ oc_tecido_id: "oc9", artigo_id: "t1", variante_tecido_id: "vA", entregue_m: 100, usada_m: 0 }];
+    const d = {
+      reservPorOc: new Map([["oc9", 60]]),            // 60 m só-artigo: entram no total por OC...
+      comprometidoPorOc: new Map<string, number>(),
+      reservPorOcVar: new Map<string, number>(),      // ...mas nenhuma variante
+      comprometidoPorOcVar: new Map<string, number>(),
+    };
+    expect(demandaSemCor("oc9", d)).toEqual({ reservada: 60, comprometida: 0 });
+    expect(sobraOc("oc9", l, d)).toBe(40);
+  });
+  it("Resumo e Drawer usam a mesma fonte para o resíduo sem cor", () => {
+    const drawer = readFileSync("src/components/plan-tecido/PlanTecidoDrawer.tsx", "utf8");
+    const resumo = readFileSync("src/components/plan-tecido/ResumoPanel.tsx", "utf8");
+    expect(drawer).toMatch(/sobraOc\(/);
+    expect(drawer).toMatch(/demandaSemCor\(/);
+    expect(resumo).toMatch(/sobraOc\(o\.oc_tecido_id, situacao, \{[^}]*reservPorOc[^}]*\}\)/);
+    expect(resumo).toMatch(/uma cor não usa o tecido de outra/);
   });
 });

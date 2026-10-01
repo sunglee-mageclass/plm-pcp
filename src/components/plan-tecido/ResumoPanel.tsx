@@ -5,6 +5,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, sobraOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { termoPoderDeVenda, poderVendaCalculando, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
@@ -450,7 +451,7 @@ export function ResumoPanel({
               // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
               const { reservadaLivre: reservada, usada, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
               // D-1: a Sobra é a do Drawer — Σ por cor (helper `sobraOc`), não a conta sobre o total da OC.
-              const sobra = sobraOc(o.oc_tecido_id, situacao, { reservPorOcVar, comprometidoPorOcVar });
+              const sobra = sobraOc(o.oc_tecido_id, situacao, { reservPorOc, comprometidoPorOc, reservPorOcVar, comprometidoPorOcVar });
               return (
                 <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
                   <div className="mb-0.5 flex items-center gap-2">
@@ -479,7 +480,7 @@ export function ResumoPanel({
                     </span>
                   </div>
                   <div className="flex justify-between pl-2.5 text-muted-foreground"><span>reservada (livre)</span><span>{nMet(reservada)} m</span></div>
-                  <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
+                  <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span className="inline-flex items-center gap-1">Sobra<InfoHover ariaLabel="Como a sobra é calculada">A sobra é somada por cor — uma cor não usa o tecido de outra.</InfoHover></span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
                 </div>
               );
             })}
