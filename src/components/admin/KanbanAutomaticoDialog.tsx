@@ -26,6 +26,26 @@ import { kanbanDefinirAutomatico, kanbanPreviaRecalculo, kanbanPreviaRestauracao
  * A F1 não confere se a prévia foi vista (D19): a garantia "prévia antes de confirmar" é ESTE arquivo.
  */
 
+/** Kanban #9 — aviso âmbar (não bloqueia): revenda sem requisitos no Fluxo de Revenda. `mostrar` vem de
+ *  `revendaSemRequisitos(módulo produto_acabado ligado, requisitos)`. O atalho leva ao card "Fluxo de Revenda". */
+export function AvisoRevendaSemRequisitos({ mostrar, onIrParaFluxo }: { mostrar: boolean; onIrParaFluxo?: () => void }) {
+  if (!mostrar) return null;
+  return (
+    <div className="flex gap-2 rounded-md bg-[var(--tone-warning-bg)] px-3 py-2 text-sm text-[var(--tone-warning-fg)]" data-testid="kanban-aviso-revenda">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>
+        <span className="font-semibold">Revenda sem requisitos.</span> O Fluxo de Revenda não tem nenhum requisito configurado; com o kanban
+        automático, todo produto de revenda anda até a última coluna sem exigir nada.{" "}
+        {onIrParaFluxo && (
+          <button type="button" className="font-semibold underline underline-offset-2" onClick={onIrParaFluxo}>
+            Ir para o Fluxo de Revenda
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
 const RODAPE = "border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3 flex-row flex-wrap items-center gap-2";
 
 // Important (fix round 1, revisão Opus): decisão 8 do dono, já aprovada — restaurar só é oferecido
@@ -194,8 +214,9 @@ function RestaurarOpcao({ previa, cols, timezone, restaurar, onRestaurar }: {
   );
 }
 
-function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou }: {
+function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou, avisoRevenda, onIrParaFluxoRevenda }: {
   modo: "ligar" | "desligar"; cols: KanbanStatus[]; timezone: string; onClose: () => void; onMudou: () => void;
+  avisoRevenda?: boolean; onIrParaFluxoRevenda?: () => void;
 }) {
   const [restaurar, setRestaurar] = useState(false);
   const prevLigar = useQuery({
@@ -277,6 +298,9 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou }: {
           {q.isError && modo === "ligar" && (
             <p className="text-sm text-destructive">{mensagemErro(q.error, "Erro ao calcular a prévia.")}</p>
           )}
+          {modo === "ligar" && (
+            <AvisoRevendaSemRequisitos mostrar={!!avisoRevenda} onIrParaFluxo={onIrParaFluxoRevenda && (() => { onClose(); onIrParaFluxoRevenda(); })} />
+          )}
           {modo === "ligar" && prevLigar.data && (
             <>
               <PreviaMovimentos previa={prevLigar.data} colsDe={cols} colsPara={cols} />
@@ -322,7 +346,9 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou }: {
 }
 
 /** Switch "Kanban automático" (topo do card "Status do Kanban" da Config). */
-export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols, timezone, onMudou }: {
+export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols, timezone, onMudou, avisoRevenda, onIrParaFluxoRevenda }: {
+  avisoRevenda?: boolean;
+  onIrParaFluxoRevenda?: () => void;
   ligado: boolean;
   disponivel: boolean;
   travadoMotivo: string | null;
@@ -360,14 +386,16 @@ export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols,
         {disponivel && travadoMotivo && <p className="text-xs text-[var(--tone-warning-fg)]">{travadoMotivo}</p>}
       </div>
       {dialogo && (
-        <KanbanChaveDialog modo={dialogo} cols={cols} timezone={timezone} onClose={() => setDialogo(null)} onMudou={onMudou} />
+        <KanbanChaveDialog modo={dialogo} cols={cols} timezone={timezone} onClose={() => setDialogo(null)} onMudou={onMudou}
+          avisoRevenda={avisoRevenda} onIrParaFluxoRevenda={onIrParaFluxoRevenda} />
       )}
     </div>
   );
 }
 
 /** "Salvar e mover N cards?" — salvar requisitos/ordem com a chave ligada (mockup "Prévia", 3º diálogo). */
-export function KanbanSalvarDialog({ previa, colsDe, colsPara, mudancas, salvando, onConfirmar, onClose }: {
+export function KanbanSalvarDialog({ previa, colsDe, colsPara, mudancas, salvando, onConfirmar, onClose, avisoRevenda, onIrParaFluxoRevenda }: {
+  avisoRevenda?: boolean; onIrParaFluxoRevenda?: () => void;
   previa: PreviaRecalculo;
   // Minor 4 (fix round 1): board de ANTES da edição pendente ("De") e o board ATUAL/rascunho ("Para" +
   // fixados/REFs). Quando idênticos (chamador sem essa distinção), passe o mesmo array nos dois.
@@ -391,6 +419,7 @@ export function KanbanSalvarDialog({ previa, colsDe, colsPara, mudancas, salvand
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-3">
+          <AvisoRevendaSemRequisitos mostrar={!!avisoRevenda} onIrParaFluxo={onIrParaFluxoRevenda && (() => { onClose(); onIrParaFluxoRevenda(); })} />
           <PreviaMovimentos previa={previa} colsDe={colsDe} colsPara={colsPara} />
         </DialogBody>
         <DialogFooter className={RODAPE}>

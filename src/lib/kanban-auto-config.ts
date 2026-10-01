@@ -287,3 +287,14 @@ export function formatarDataHora(iso: string | null | undefined, tz: string): st
   const v = (t: string) => partes.find((p) => p.type === t)?.value ?? "";
   return `${v("day")}/${v("month")}/${v("year")} ${v("hour")}:${v("minute")}`;
 }
+
+/**
+ * Kanban #9 (R9) — armadilha da revenda: com o módulo Produto Acabado ligado e NENHUM requisito no "Fluxo de Revenda"
+ * (`revenda_kanban_requisitos` vazio), o kanban automático leva todo produto de revenda até a última coluna sem exigir nada.
+ * Só avisa (não bloqueia). Vazio = nenhuma coluna com ao menos 1 requisito.
+ */
+export function revendaSemRequisitos(moduloProdutoAcabado: boolean, requisitos: unknown): boolean {
+  if (!moduloProdutoAcabado) return false;
+  if (!requisitos || typeof requisitos !== "object" || Array.isArray(requisitos)) return true;
+  return !Object.values(requisitos as Record<string, unknown>).some((v) => Array.isArray(v) && v.length > 0);
+}

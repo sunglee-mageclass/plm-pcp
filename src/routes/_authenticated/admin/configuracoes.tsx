@@ -76,7 +76,7 @@ import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-au
 import { modoColuna, motorKanbanDisponivel, MOTIVO_REPROVADO_MANUAL, type PreviaRecalculo } from "@/lib/kanban-auto-ui";
 import {
   conflitoKanban, descreverMudancasKanban, diffKanban, diffMudouDesdeAPrevia, jsonCanonico, juntarLista, KANBAN_COLS, mensagemConflitoKanban,
-  MENSAGEM_CHAVE_KANBAN_MUDOU, MENSAGEM_PREVIA_KANBAN_MUDOU, normalizarKanbanDefaults, pickKanban, resolverEcoKanban,
+  MENSAGEM_CHAVE_KANBAN_MUDOU, MENSAGEM_PREVIA_KANBAN_MUDOU, normalizarKanbanDefaults, pickKanban, resolverEcoKanban, revendaSemRequisitos,
   type KanbanCol, type KanbanColsValor,
 } from "@/lib/kanban-auto-config";
 
@@ -932,6 +932,11 @@ function ConfiguracoesLojaPage() {
   // PRÓPRIO = manual; Reprovado sempre manual; 1ª coluna = Entrada. Reflete o que está NA TELA (não salvo ainda).
   const kanbanCfgTela = lerKanbanAutoConfig(cfg);
   const boardKeysTela = boardDaLoja(kanbanCfgTela).map((c) => c.key);
+  // Kanban #9 — aviso âmbar (não bloqueia) + atalho p/ o card "Fluxo de Revenda".
+  const avisoRevenda = revendaSemRequisitos(!!(modules as any).produto_acabado, cfg.revenda_kanban_requisitos);
+  const irParaFluxoRevenda = () => {
+    setTimeout(() => document.getElementById("fluxo-revenda-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
   const fluxoRevendaTela = fluxoDoModelo("revenda", kanbanCfgTela).map((c) => c.key);
   // Baixo 3 (revisão final Opus): a chave LIGADA no banco (não a edição não-salva da tela) — é o que
   // faz o quadro de Desenvolvimento andar sozinho de verdade. Com a chave DESLIGADA, "Automática: entra
@@ -1052,6 +1057,8 @@ function ConfiguracoesLojaPage() {
             travadoMotivo={dirty ? "Salve ou descarte as alterações desta página antes de ligar ou desligar o Kanban automático." : null}
             cols={boardDaLoja(kanbanCfgTela)}
             timezone={cfg.timezone}
+            avisoRevenda={avisoRevenda}
+            onIrParaFluxoRevenda={irParaFluxoRevenda}
             onMudou={() => {
               qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
               qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
@@ -1415,6 +1422,8 @@ function ConfiguracoesLojaPage() {
           colsDe={boardDaLoja(lerKanbanAutoConfig(kanbanBase.cfg))}
           colsPara={boardDaLoja(kanbanCfgTela)}
           mudancas={previaSalvar.mudancas}
+          avisoRevenda={avisoRevenda}
+          onIrParaFluxoRevenda={irParaFluxoRevenda}
           salvando={save.isPending}
           onConfirmar={() => save.mutate()}
           onClose={() => setPreviaSalvar(null)}
@@ -1998,7 +2007,7 @@ function FluxoRevendaCard({
   };
 
   return (
-    <Card>
+    <Card id="fluxo-revenda-card">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>Fluxo de Revenda</CardTitle>
