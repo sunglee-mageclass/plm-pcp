@@ -104,6 +104,18 @@ export const reprovadoSaiDaDemanda = (
   enviadoCorte: boolean | null | undefined,
 ): boolean => ehReprovado(statusDesenvolvimento, statusPlanejamento) && !enviadoCorte;
 
+/** O card já foi enviado ao corte? `cad` é to-many no embed (1 CAD por modelo garantido por TRIGGER, sem UNIQUE —
+ *  invariante #7), então confere QUALQUER linha (`some`), nunca só a 1ª. */
+export const cadEnviadoCorte = (cad: readonly { enviado_corte: boolean | null }[] | null | undefined): boolean =>
+  (cad ?? []).some((c) => !!c.enviado_corte);
+
+/** Bolinha de fornecedor de uma categoria no Resumo ("g" todos com fornecedor, "a" parte, "n" nenhum). P-212 A (fix
+ *  round 3): o chamador passa só as vagas da VENDA (sem card reprovado, cortado ou não). */
+export function statusFornecedorCategoria(slots: readonly PtSlot[], comFornecedor: (artigoId: string) => boolean): "g" | "a" | "n" {
+  const comF = slots.filter((s) => { const t = s.materiais.find((m) => m.tipo === "tecido"); return !!t?.artigo_id && comFornecedor(t.artigo_id); });
+  return comF.length === 0 ? "n" : comF.length === slots.length ? "g" : "a";
+}
+
 /** Pendências do Resumo (P-212 A: o chamador passa só as vagas que contam — sem o card reprovado). */
 export function pendenciasResumo(
   slots: readonly PtSlot[],

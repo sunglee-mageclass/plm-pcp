@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, pendenciasResumo, arvoreDaDemanda, necessidadePorTecido, necVivoPorVariante, detalheOc, detalheOcColecao,
+  ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, pendenciasResumo, cadEnviadoCorte, statusFornecedorCategoria, arvoreDaDemanda, necessidadePorTecido, necVivoPorVariante, detalheOc, detalheOcColecao,
   ocItensDaSituacao, resumoOcsColecao, contabilizarOc, sobraOc, aComprarVivoPorArtigo, type VinculoDetalhe, type CoberturaVarRow,
 } from "@/lib/plan-tecido/calc";
 import { agruparPorOc, type SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -205,7 +205,8 @@ describe("R15b — fonte única (anti-drift de código)", () => {
     expect(paleta).toContain("linhasOcsPaleta");
     const sheet = ler("src/components/plan-tecido/PlanTecidoSheet.tsx");
     expect(sheet).toContain("status_desenvolvimento");
-    expect(sheet).toContain("reprovadoSaiDaDemanda(m.status_desenvolvimento, m.status_planejamento, m.cad?.[0]?.enviado_corte)");
+    expect(sheet).toContain("reprovadoSaiDaDemanda(m.status_desenvolvimento, m.status_planejamento, cadEnviadoCorte(m.cad))");
+    expect(sheet).not.toContain("cad?.[0]?.enviado_corte");
     expect(sheet).toContain("status_desenvolvimento, status_planejamento,");
     expect(sheet).toContain("cad(enviado_corte, cad_tecidos(");
     expect((sheet.match(/reprovadoSet=\{reprovadoSet\}/g) ?? []).length).toBe(4); // Resumo ×2 + Drawer ×2
@@ -324,5 +325,33 @@ describe("R15b fix round 2 — P-212 A: reprovado CORTADO fica na Demanda, mas s
     const venda = slots.filter((s) => slotContaNaDemanda(s, saiDaVenda));
     expect(venda.map((s) => s.id)).toEqual(["s-ativo", "s-vaga"]);
     expect(pendenciasResumo(venda, () => false)).toEqual({ semCategoria: 2, semTecFornec: 2, semCard: 1 });
+  });
+});
+
+describe("R15b fix round 3 — cad to-many (inv. #7) e bolinha de fornecedor da categoria (P-212 A)", () => {
+  it("cadEnviadoCorte confere QUALQUER linha do embed to-many, não só a 1ª", () => {
+    expect(cadEnviadoCorte([{ enviado_corte: false }, { enviado_corte: true }])).toBe(true);
+    expect(cadEnviadoCorte([{ enviado_corte: true }])).toBe(true);
+    expect(cadEnviadoCorte([{ enviado_corte: false }, { enviado_corte: null }])).toBe(false);
+    expect(cadEnviadoCorte([])).toBe(false);
+    expect(cadEnviadoCorte(null)).toBe(false);
+    expect(cadEnviadoCorte(undefined)).toBe(false);
+    // o cortado em linha que não é a 1ª continua contando no tecido (M2)
+    expect(reprovadoSaiDaDemanda("reprovado", null, cadEnviadoCorte([{ enviado_corte: false }, { enviado_corte: true }]))).toBe(false);
+  });
+
+  it("catStatus: card reprovado (cortado ou não) sem fornecedor não deixa a categoria âmbar; sem ele, verde", () => {
+    const comFornec = (aid: string) => aid === "COM";
+    const ok: PtSlot = { id: "s-ok", modelo_id: "m-ok", categoria_tecido_id: "cat", materiais: [mat("COM", 1, [["v1", 10]])] };
+    const rep: PtSlot = { id: "s-rep", modelo_id: "m-rep", categoria_tecido_id: "cat", materiais: [mat("SEM", 1, [["v2", 10]])] };
+    const todos = [ok, rep];
+    expect(statusFornecedorCategoria(todos, comFornec)).toBe("a"); // antes: o reprovado puxava para âmbar
+    const reprovadosVenda = new Set(["m-rep"].filter(() => ehReprovado("reprovado", null))); // cortado ou não: só o status
+    const venda = todos.filter((s) => slotContaNaDemanda(s, reprovadosVenda));
+    expect(statusFornecedorCategoria(venda, comFornec)).toBe("g");
+    expect(statusFornecedorCategoria([rep].filter((s) => slotContaNaDemanda(s, reprovadosVenda)), comFornec)).toBe("n");
+    const resumo = ler("src/components/plan-tecido/ResumoPanel.tsx");
+    expect(resumo).toContain("const slotsCat = (cid: string | null) => venda.filter(");
+    expect(resumo).toContain("statusFornecedorCategoria(slotsCat(cid), (aid) => fornecSet.has(aid))");
   });
 });

@@ -41,7 +41,7 @@ import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -778,7 +778,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     [modelosDb],
   );
   const reprovadoSet = useMemo(
-    () => new Set(((modelosDb ?? []) as ModeloStatus[]).filter((m) => reprovadoSaiDaDemanda(m.status_desenvolvimento, m.status_planejamento, m.cad?.[0]?.enviado_corte)).map((m) => m.id)),
+    () => new Set(((modelosDb ?? []) as ModeloStatus[]).filter((m) => reprovadoSaiDaDemanda(m.status_desenvolvimento, m.status_planejamento, cadEnviadoCorte(m.cad))).map((m) => m.id)),
     [modelosDb],
   );
 

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo, statusFornecedorCategoria } from "@/lib/plan-tecido/calc";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -229,13 +229,10 @@ export function ResumoPanel({
   const enc = slots.filter((s) => slotContaNaDemanda(s, reprovadoSet));
   const nReprovados = slots.length - enc.length;
   const venda = slots.filter((s) => slotContaNaDemanda(s, reprovadoStatusSet));
-  const slotsCat = (cid: string | null) => slots.filter((s) => (s.categoria_tecido_id ?? null) === cid);
+  // P-212 A (fix round 3): a bolinha de fornecedor da categoria também ignora o card reprovado (cortado ou não) — `venda`.
+  const slotsCat = (cid: string | null) => venda.filter((s) => (s.categoria_tecido_id ?? null) === cid);
   const catTecMetros = (cid: string | null) => enc.filter((s) => (s.categoria_tecido_id ?? null) === cid).reduce((a, s) => a + slotMetros(s, "tecido"), 0);
-  const catStatus = (cid: string | null): "g" | "a" | "n" => {
-    const ss = slotsCat(cid);
-    const comF = ss.filter((s) => { const t = firstTec(s); return !!t?.artigo_id && fornecSet.has(t.artigo_id); });
-    return comF.length === 0 ? "n" : comF.length === ss.length ? "g" : "a";
-  };
+  const catStatus = (cid: string | null): "g" | "a" | "n" => statusFornecedorCategoria(slotsCat(cid), (aid) => fornecSet.has(aid));
   const totTec = enc.reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const totForro = enc.reduce((a, s) => a + slotMetros(s, "forro"), 0);
   const semCatMetros = catTecMetros(null);
