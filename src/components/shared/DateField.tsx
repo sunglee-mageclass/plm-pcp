@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { format, parse, isValid } from "date-fns";
 import { CalendarDays } from "lucide-react";
 
@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { brToIso as brToIsoLim, processarDigitacao } from "@/lib/date-field";
 
 /**
  * Campo de data SEMPRE no padrão dd/mm/aaaa, independente do idioma do aparelho.
@@ -18,6 +19,11 @@ export type DateFieldProps = {
   value: string; // ISO "yyyy-MM-dd" (ou "")
   onChange?: (e: { target: { value: string } }) => void;
   onBlur?: () => void;
+  /**
+   * Confirmação da data (p/ quem persiste na hora): dispara no blur com data válida (ou campo limpo = ""), no Enter e ao
+   * escolher no calendário — nunca a cada tecla. `onChange` continua emitindo quando o ISO fica completo.
+   */
+  onCommit?: (iso: string) => void;
   disabled?: boolean;
   readOnly?: boolean;
   id?: string;
@@ -44,26 +50,11 @@ const isoToBr = (iso: string): string => {
   const d = isoToDate(iso);
   return d ? format(d, "dd/MM/yyyy") : "";
 };
-// "dd/MM/yyyy" -> ISO, ou null se incompleto/inválido (round-trip rejeita 31/02 etc.).
-const brToIso = (br: string): string | null => {
-  if (br.length !== 10) return null;
-  const d = parse(br, "dd/MM/yyyy", new Date());
-  if (!isValid(d) || format(d, "dd/MM/yyyy") !== br) return null;
-  return format(d, "yyyy-MM-dd");
-};
-// Formata enquanto digita: só dígitos, injeta as barras dd/mm/aaaa.
-const maskBr = (raw: string): string => {
-  const d = raw.replace(/\D/g, "").slice(0, 8);
-  let s = d.slice(0, 2);
-  if (d.length > 2) s += "/" + d.slice(2, 4);
-  if (d.length > 4) s += "/" + d.slice(4, 8);
-  return s;
-};
-
 export function DateField({
   value,
   onChange,
   onBlur,
+  onCommit,
   disabled,
   readOnly,
   id,
@@ -79,6 +70,10 @@ export function DateField({
 }: DateFieldProps) {
   const [text, setText] = useState(() => isoToBr(value));
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const cursorPendente = useRef<number | null>(null);
+  const lim = { min, max };
+  const brToIso = (br: string) => brToIsoLim(br, lim);
 
   // Sincroniza quando o value externo muda e não corresponde ao texto atual.
   useEffect(() => {
@@ -87,19 +82,29 @@ export function DateField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
+  // Reposiciona o cursor depois do mascaramento (o React joga o cursor pro fim ao trocar o value).
+  useLayoutEffect(() => {
+    const pos = cursorPendente.current;
+    cursorPendente.current = null;
+    const el = inputRef.current;
+    if (pos != null && el && document.activeElement === el) el.setSelectionRange(pos, pos);
+  }, [text]);
+
   const emit = (iso: string) => onChange?.({ target: { value: iso } });
 
-  const onText = (raw: string) => {
-    const masked = maskBr(raw);
-    setText(masked);
-    if (masked === "") return emit("");
-    const iso = brToIso(masked);
-    if (iso) emit(iso); // incompleto/ inválido: não emite (mantém o valor anterior)
+  const onText = (raw: string, cursorRaw: number) => {
+    const r = processarDigitacao(raw, cursorRaw, lim);
+    cursorPendente.current = r.cursor;
+    setText(r.texto);
+    // iso null = incompleto / inválido / ano fora de 1900–2100 / fora de min-max / dígito a mais: não emite.
+    if (r.iso !== null) emit(r.iso);
   };
 
   const onBlurInternal = () => {
     // Saiu com texto incompleto/inválido → volta pro último valor válido.
-    if (text !== "" && !brToIso(text)) setText(isoToBr(value));
+    const iso = brToIso(text);
+    if (text !== "" && !iso) setText(isoToBr(value));
+    else onCommit?.(iso ?? ""); // "" = campo limpo
     onBlur?.();
   };
 
@@ -121,8 +126,15 @@ export function DateField({
         aria-label={ariaLabel}
         data-colab-path={dataColabPath}
         title={title}
-        onChange={(e) => onText(e.target.value)}
+        ref={inputRef}
+        onChange={(e) => onText(e.target.value, e.target.selectionStart ?? e.target.value.length)}
         onBlur={onBlurInternal}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const iso = text === "" ? "" : brToIso(text);
+            if (iso !== null) onCommit?.(iso);
+          }
+        }}
         className={cn("h-full w-full pr-9 max-md:pr-11", inputClassName)}
       />
       <Popover open={open} onOpenChange={setOpen}>
@@ -149,6 +161,7 @@ export function DateField({
               if (d) {
                 setText(format(d, "dd/MM/yyyy"));
                 emit(format(d, "yyyy-MM-dd"));
+                onCommit?.(format(d, "yyyy-MM-dd"));
               }
               setOpen(false);
             }}

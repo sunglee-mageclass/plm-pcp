@@ -73,7 +73,7 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
           <Label className="text-[11px] text-muted-foreground">Peça Teste — Saída</Label>
           <DateField
             value={bloco.pt_data_saida ?? ""}
-            onChange={(e) => onChange("pt_data_saida", e.target.value || null)}
+            onCommit={(iso) => { if (iso !== (bloco.pt_data_saida ?? "")) onChange("pt_data_saida", iso || null); }}
             disabled={salvar.isPending}
           />
         </div>
@@ -81,7 +81,7 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
           <Label className="text-[11px] text-muted-foreground">Peça Teste — Entrada</Label>
           <DateField
             value={bloco.pt_data_entrada ?? ""}
-            onChange={(e) => onChange("pt_data_entrada", e.target.value || null)}
+            onCommit={(iso) => { if (iso !== (bloco.pt_data_entrada ?? "")) onChange("pt_data_entrada", iso || null); }}
             disabled={salvar.isPending}
           />
         </div>
@@ -111,7 +111,7 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
         <Label className="text-[11px] text-muted-foreground">Data Enviado</Label>
         <DateField
           value={bloco.data_enviado ?? ""}
-          onChange={(e) => onChange("data_enviado", e.target.value || null)}
+          onCommit={(iso) => { if (iso !== (bloco.data_enviado ?? "")) onChange("data_enviado", iso || null); }}
           disabled={salvar.isPending}
         />
       </div>

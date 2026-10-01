@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/tooltip";
 import { mostraAjustadoMaoServico, mostraVoltarAutomaticoServico } from "@/lib/servico-vencimento-manual";
 import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, Hand, RotateCcw, type LucideIcon } from "lucide-react";
-import { InfoHover } from "@/components/shared/InfoHover";
 import { totaisServicos } from "@/lib/servicos-totais";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -52,6 +51,9 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
 import { FilterButton, filtroAtivoClass } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
+import { buscarTodas } from "@/lib/buscar-todas";
+import { aplicarOcCancelada } from "@/lib/financeiro-oc-cancelada";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { AlertTriangle } from "lucide-react";
 export const Route = createFileRoute("/_authenticated/financeiro")({
@@ -281,12 +283,14 @@ function FinanceiroPage() {
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
-      const { data: rows, error } = await supabase
-        .from("parcelas")
-        .select("*")
-        .order("data_vencimento", { ascending: true });
-      if (error) throw error;
-      const list = (rows ?? []) as unknown as Parcela[];
+      // Sem .range o PostgREST corta em 1.000 linhas sem avisar (fin #16a) → busca em blocos.
+      // Ordem estável (vencimento + id) p/ a paginação não repetir/perder linha.
+      const rows = await buscarTodas<unknown>((de, ate) =>
+        supabase.from("parcelas").select("*")
+          .order("data_vencimento", { ascending: true }).order("id", { ascending: true })
+          .range(de, ate),
+      );
+      const list = rows as unknown as Parcela[];
 
       const empresaIds = Array.from(new Set(list.map((p) => p.empresa_id).filter(Boolean))) as string[];
       const tecidoIds = Array.from(new Set(list.map((p) => p.oc_tecido_id).filter(Boolean))) as string[];
@@ -354,7 +358,7 @@ function FinanceiroPage() {
       const tecBadge = new Map(
         (tecidoRes.data ?? []).map((o: any) => [o.id, alertaBadge((o.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status))]),
       );
-      // OC de tecido "cancelada" = todos os itens cancelados (valor real 0). Some do Financeiro.
+      // OC de tecido "cancelada" = todos os itens cancelados (valor real 0). Some do Financeiro (só as parcelas não pagas).
       const ocCancelada = new Set(
         (tecidoRes.data ?? []).filter((o: any) => {
           const its = o.ocs_tecido_itens ?? [];
@@ -374,8 +378,8 @@ function FinanceiroPage() {
         tecido: notaPorOcTecido, aviamento: notaPorOcAviamento, etiqueta: notaPorOcEtiqueta, p_acabado: notaPorOcPAcabado,
       };
 
-      return list
-        .filter((p) => !(p.oc_tecido_id && ocCancelada.has(p.oc_tecido_id)))
+      // fin #16b: só some a parcela NÃO paga de OC cancelada; a paga fica, com o selo "OC cancelada".
+      return aplicarOcCancelada(list, ocCancelada)
         .map((p) => {
         const empNome = p.empresa_id ? (empMap.get(p.empresa_id) ?? "—") : null;
         const empCnpj = p.empresa_id ? (empCnpjMap.get(p.empresa_id) ?? null) : null;
@@ -395,7 +399,9 @@ function FinanceiroPage() {
         ocs_etiqueta: p.oc_etiqueta_id ? { numero_pedido: etqMap.get(p.oc_etiqueta_id) ?? null } : null,
         ocs_p_acabado: p.oc_p_acabado_id ? { numero_pedido: pAcMap.get(p.oc_p_acabado_id) ?? null } : null,
         ocs_importado: p.oc_importado_id ? { numero_pedido: pImpMap.get(p.oc_importado_id) ?? null } : null,
-        ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
+        ocBadge: p.ocCancelada
+          ? { label: "OC cancelada", tone: "danger" as StatusTone }
+          : p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
         provisoria: parcelaProvisoria(p, (() => {
           const coluna = p.tipo_oc ? COLUNA_PARCELA_POR_FAMILIA[p.tipo_oc] : undefined;
           const mapa = p.tipo_oc ? notaPorOcPorFamilia[p.tipo_oc] : undefined;
@@ -1182,21 +1188,23 @@ function DiaParcelasList({
 
 /* ============================== LISTA ============================== */
 
-// Célula de vencimento com estado local. Salva no onChange do DateField — que só
-// EMITE quando o ISO está completo/válido (ou vazio), nunca a cada tecla. Antes salvava
-// no blur do input, mas ESCOLHER no calendário não dispara blur (o foco fica no popover),
-// então a data mudava na tela mas NÃO persistia e voltava ao antigo no próximo refetch.
+// Célula de vencimento com estado local. SALVA só ao confirmar (`onCommit` do DateField): blur,
+// Enter ou escolha no calendário — nunca a cada emissão do onChange (digitar no meio de uma data
+// completa já gerou datas "válidas" acidentais que eram gravadas na hora). `ultimo` evita gravar
+// duas vezes (Enter seguido de blur) antes de o valor do servidor chegar.
 function VencimentoCell({ value, onSave, disabled }: { value: string; onSave: (v: string) => void; disabled?: boolean }) {
   const podeEditar = usePodeEditarFinanceiro();
   const [v, setV] = useState(value);
-  useEffect(() => { setV(value); }, [value]);
+  const ultimo = useRef(value);
+  useEffect(() => { setV(value); ultimo.current = value; }, [value]);
   return (
     <DateField
       value={v}
-      onChange={(e) => {
-        const iso = e.target.value;
-        setV(iso);
-        if (iso && iso !== value) onSave(iso);
+      onChange={(e) => setV(e.target.value)}
+      onCommit={(iso) => {
+        if (!iso || iso === ultimo.current) return;
+        ultimo.current = iso;
+        onSave(iso);
       }}
       className="w-36 shrink-0 max-lg:w-40"
       disabled={!podeEditar || disabled}
@@ -2303,6 +2311,9 @@ function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = [
 
 /* ============================== RESUMO ============================== */
 
+/** fin #16d: o Resumo filtra por VENCIMENTO; o Dashboard conta o "pago" pela data do PAGAMENTO — os totais podem diferir. */
+const HINT_PAGO_POR_VENCIMENTO = "Soma as parcelas pagas cujo VENCIMENTO cai no período filtrado. O Dashboard conta o pago pela data do pagamento, por isso os totais podem diferir.";
+
 type StatusSel = "a_pagar" | "pago" | "vencido";
 
 function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Parcela[] }) {
@@ -2399,15 +2410,15 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
             </Select>
           </div>
           <div className="grid gap-1">
-            <Label className="text-xs">Mês</Label>
+            <Label className="text-xs">Mês de vencimento</Label>
             <Input type="month" className={`h-8 text-sm ${filtroAtivoClass(!!fMes)}`} value={fMes} onChange={(e) => setFMes(e.target.value)} />
           </div>
           <div className="grid gap-1">
-            <Label className="text-xs">De</Label>
+            <Label className="text-xs">Vencimento de</Label>
             <DateField value={fDe} onChange={(e) => setFDe(e.target.value)} />
           </div>
           <div className="grid gap-1">
-            <Label className="text-xs">Até</Label>
+            <Label className="text-xs">Vencimento até</Label>
             <DateField value={fAte} onChange={(e) => setFAte(e.target.value)} />
           </div>
         </FilterButton>
@@ -2424,7 +2435,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Mês</Label>
+            <Label className="text-xs">Mês de vencimento</Label>
             <Input type="month" className={`h-11 text-sm ${filtroAtivoClass(!!fMes)}`} value={fMes} onChange={(e) => setFMes(e.target.value)} />
           </div>
           <div className="space-y-1.5">
@@ -2461,7 +2472,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
           </div>
         </div>
         <div className="rounded-xl border bg-card p-3">
-          <div className="text-xs text-muted-foreground">Total pago</div>
+          <div className="text-xs text-muted-foreground">Total pago (por vencimento)</div>
           <div className="mt-0.5 text-xl font-bold tabular-nums text-[var(--tone-success-fg)]">{brl(totalPago)}</div>
         </div>
         {proximas.length > 0 && (
@@ -2491,7 +2502,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
       <div className="hidden gap-4 sm:grid-cols-3 md:grid">
         <SummaryCard title="Total a pagar" value={brl(totalAPagar)} accent="text-[var(--tone-warning-fg)]"
           active={selected === "a_pagar"} onClick={() => toggle("a_pagar")} />
-        <SummaryCard title="Total pago" value={brl(totalPago)} accent="text-[var(--tone-success-fg)]"
+        <SummaryCard title="Total pago (por vencimento)" hint={HINT_PAGO_POR_VENCIMENTO} value={brl(totalPago)} accent="text-[var(--tone-success-fg)]"
           active={selected === "pago"} onClick={() => toggle("pago")} />
         <SummaryCard title="Total vencido" value={brl(totalVencido)} accent="text-[var(--tone-danger-fg)]"
           active={selected === "vencido"} onClick={() => toggle("vencido")} />
@@ -2528,13 +2539,13 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
   );
 }
 
-function SummaryCard({ title, value, accent, active, onClick }: { title: string; value: string; accent: string; active?: boolean; onClick?: () => void }) {
+function SummaryCard({ title, value, accent, active, onClick, hint }: { title: string; value: string; accent: string; active?: boolean; onClick?: () => void; hint?: string }) {
   return (
     <Card
       className={cn("p-5", onClick && "cursor-pointer transition-shadow hover:shadow-md", active && "ring-2 ring-primary")}
       onClick={onClick}
     >
-      <p className="text-sm text-muted-foreground">{title}</p>
+      <p className="flex items-center gap-1 text-sm text-muted-foreground">{title}{hint && <InfoHover ariaLabel="Como o Total pago é contado">{hint}</InfoHover>}</p>
       <p className={cn("text-2xl font-bold mt-1 tabular-nums", accent)}>{value}</p>
     </Card>
   );
