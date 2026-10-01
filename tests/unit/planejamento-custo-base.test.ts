@@ -77,3 +77,25 @@ describe("preço M6 — base do markup do importado = landed + M.O.", () => {
     expect((src.match(/baseMarkupComMO\(/g) ?? []).length).toBe(2);
   });
 });
+
+describe("preço M6 (fix round) — importado não conta a M.O. duas vezes", () => {
+  // OC recebida: landed real 50, M.O. planejada 10; mao_obra_real do importado é sempre 0 (sem CAD).
+  const base = baseCustoPlanejamento({ confirmado: true, realServidor: baseMarkupComMO(50, 10), previsto: baseMarkupComMO(50, 10), estimativa: 0 });
+  it("base 60 = materiais 50 + M.O. 10; total fecha em 60", async () => {
+    const { moEmbutidaDoCusto } = await import("@/components/planejamento/planejamento-detail/custo-base");
+    expect(base.valor).toBe(60);
+    const mo = moEmbutidaDoCusto({ selo: base.selo, importado: true, maoObraSetor: 0, maoObraDevLive: 10 });
+    expect(mo).toBe(10);
+    expect(base.valor - mo).toBe(50);
+  });
+  it("interno/revenda com selo real continua usando a M.O. real do setor", async () => {
+    const { moEmbutidaDoCusto } = await import("@/components/planejamento/planejamento-detail/custo-base");
+    expect(moEmbutidaDoCusto({ selo: "real", importado: false, maoObraSetor: 7, maoObraDevLive: 10 })).toBe(7);
+    expect(moEmbutidaDoCusto({ selo: "previsto", importado: false, maoObraSetor: 7, maoObraDevLive: 10 })).toBe(10);
+  });
+  it("custoPrevisto do importado inclui a M.O. (sem 'antes (previsto)' falso)", () => {
+    const src = readFileSync("src/components/planejamento/PlanejamentoDetail.tsx", "utf8");
+    expect(src).toMatch(/const custoPrevisto = ehImportadoBase \? previstoCompradoBase :/);
+    expect(src).toMatch(/moEmbutidaDoCusto\(/);
+  });
+});

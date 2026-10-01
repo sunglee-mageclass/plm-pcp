@@ -101,7 +101,7 @@ import { requisitosUniao } from "@/components/planejamento/planejamento-detail/f
 import { SeloBadge } from "@/components/planejamento/planejamento-detail/ficha/secoes/SeloBadge";
 import { SeloObservacoesBadge, SeloProvaBadge, SeloRelacionadoBadge } from "@/components/planejamento/planejamento-detail/SelosAuxiliares";
 import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/secoes/BomSecoes";
-import { baseCustoPlanejamento, baseMarkupComMO, estimativaComCustosAdicionais, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
+import { baseCustoPlanejamento, baseMarkupComMO, estimativaComCustosAdicionais, moEmbutidaDoCusto, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
 import { somaCustosAdicionais } from "@/lib/custo";
 import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
@@ -533,7 +533,7 @@ function PlanejamentoDetailConteudo({
   const { custo, markupLinha: markup, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
     precoInfo(custoBase.valor, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
   // M.O. embutida no custo-base: a real (Serviços ÷ grade) quando confirmado; senão a planejada ao vivo.
-  const moEmbutida = custoBase.selo === "real" ? maoObraSetor : maoObraDevLive;
+  const moEmbutida = moEmbutidaDoCusto({ selo: custoBase.selo, importado: ehImportadoBase, maoObraSetor, maoObraDevLive });
   const materiaisSetor = custo > 0 ? Math.max(0, custo - moEmbutida) : 0;
 
   // Fase B — M.O. que ainda CABE por faixa = precoBase/markup − materiais. Responde "quanto posso
@@ -563,7 +563,8 @@ function PlanejamentoDetailConteudo({
   );
   // Custo previsto (p/ o histórico "antes (previsto)" quando o real assume). Só mostra quando o
   // real diverge do previsto (senão é ruído).
-  const custoPrevisto = Number(custoData?.previsto) || 0;
+  // M6: no importado o previsto comparado com a base JÁ inclui a M.O. (senão 'antes (previsto)' aparece falso).
+  const custoPrevisto = ehImportadoBase ? previstoCompradoBase : Number(custoData?.previsto) || 0;
 
   // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
   // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/

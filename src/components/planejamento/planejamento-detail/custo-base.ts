@@ -38,3 +38,12 @@ export function baseMarkupComMO(custo: unknown, maoObra: unknown): number {
   const c = Number(custo) || 0;
   return c > 0 ? c + (Number(maoObra) || 0) : 0;
 }
+
+/**
+ * M.O. embutida no custo-base. Selo "real" usa a M.O. real do setor (Serviços ÷ grade) — EXCETO no importado: ele não
+ * tem CAD/serviços (`mao_obra_real` = 0) e a base já soma a M.O. planejada (`baseMarkupComMO`); usar o setor (0) contaria a
+ * M.O. duas vezes (Materiais = base inteira + M.O.). Importado usa sempre a M.O. ao vivo.
+ */
+export function moEmbutidaDoCusto(i: { selo: SeloCusto; importado: boolean; maoObraSetor: number; maoObraDevLive: number }): number {
+  return i.selo === "real" && !i.importado ? i.maoObraSetor : i.maoObraDevLive;
+}
