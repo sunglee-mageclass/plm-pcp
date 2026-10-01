@@ -4,6 +4,11 @@
 -- card recebe a REF do produto. REF manual/digitada nunca e tocada (so REF vazia).
 -- Passo 0 de producao (01/out 11:06): SO f8e77ebe ("Cinto Teste", Loja Teste) - 1 card; copia 54422: 2 (d17ba971 "QA F3.4"
 -- e f8e77ebe "Cinto Teste", Loja Teste). Teto de seguranca: mais de 5 candidatos -> P0001 e nada muda (conferir o Passo 0).
+-- [fix round 1, B2] PREVIA OBRIGATORIA NO KIT: antes deste arquivo o kit roda a consulta SO-LEITURA
+--   supabase/consultas/r14_sku18_correcao_previa.sql (o MESMO SELECT dos candidatos abaixo, em READ ONLY + ROLLBACK) e SO
+--   segue se o resultado for EXATAMENTE 1 linha: f8e77ebe -> 0000002 (Loja Teste). Qualquer outra lista -> PARA e pergunta
+--   ao dono. Aviso ao dono (P-xx): f8e77ebe recebe a REF do produto, 0000002 (7 digitos, sem sigla); o ref_auto pendente
+--   dele (OPV10000017 na copia) nao sera revelado.
 -- Guarda: exige a 20261024210000 aplicada e ATIVA (funcao com o texto da ida + os 2 gatilhos ligados) - a regra daqui pra
 -- frente e a mesma desta correcao. Idempotente: rodar de novo = 0 cards. Imprime (NOTICE) a lista e a contagem.
 -- Autor na auditoria (fn_audit) = quem roda (sem JWT = Sistema). Sem inverso automatico: REF revelada nao volta (inv. #11);
@@ -20,7 +25,7 @@ SET LOCAL transaction_timeout = '10s';
 DO $guarda$
 BEGIN
   IF to_regprocedure('public.fn_espelho_ref_ao_vincular()') IS NULL
-     OR md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()'))) IS DISTINCT FROM '6baf719f2041243c7e340e618e5489f0' THEN
+     OR md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()'))) IS DISTINCT FROM '7e60628faafaf26beb5920abe75da5c7' THEN
     RAISE EXCEPTION 'medios_r14_sku18 (correcao): a 20261024210000 nao esta aplicada/ativa - aplicar a ida antes' USING ERRCODE = 'P0001';
   END IF;
   IF (SELECT count(*) FROM pg_trigger t WHERE t.tgname = 'trg_espelho_ref_ao_vincular' AND t.tgenabled = 'O'

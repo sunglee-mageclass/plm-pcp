@@ -42,8 +42,11 @@
 -- EXECUTE para PUBLIC/anon/authenticated (inv. #9) e kanban_previa_recalculo (RPC publica) COM authenticated e SEM
 -- PUBLIC/anon.
 -- Volta: supabase/rollback/20261024100000_kanban_reprovado_nao_passa_gate_down.sql (devolve os 3 textos de antes, com
--- guarda dos de depois). LIFO: nenhum inverso em supabase/rollback confere estes md5 (grep a3a77516/17c35880/afb8beeb:
--- 0 citacoes) - sem amarracao. Site: a volta do site (statusParaGate) pode ir antes ou depois (o servidor e quem decide).
+-- guarda dos de depois). LIFO: nenhum inverso em supabase/rollback confere estes md5 (grep a3a77516/17c35880/afb8beeb).
+-- [fix round 1, B1] MAS a IDA da release 8 (supabase/migrations/20261019300000_custo_previsto_servidor.sql:92 e o kit
+-- savepoints/pre-release8/kit/comum-release8.sh:89, DEPS_OK) guarda _kanban_aplicar 17c35880 como dependencia (e o
+-- _integracao_retrato_core 1cfaed33 da 20261024200000): REAPLICAR a ida da release 8 exige desfazer ANTES a 20261024100000
+-- E a 20261024200000. Site: a volta do site (statusParaGate) pode ir antes ou depois (o servidor e quem decide).
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 
 SET client_encoding = 'UTF8';

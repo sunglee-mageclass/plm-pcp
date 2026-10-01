@@ -6,6 +6,7 @@
 // Só na CÓPIA LOCAL, txn revertida (BEGIN…ROLLBACK): nada é gravado. Fixture ausente = FALHA (nunca passa calado).
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
+import { readFileSync } from "node:fs";
 import { hasDb, withTx, comoUsuario, um } from "./db";
 import {
   CAMPOS_PADRAO,
@@ -17,6 +18,7 @@ import {
   modeloInterno,
   prepara,
   revenda,
+  ROOT,
 } from "./integracao-helpers";
 
 type Ret = {
@@ -428,6 +430,56 @@ describe.skipIf(!hasDb || !LOCAL)(
         ]);
         expect(await preco(c, imp.id)).not.toBe(congelado);
         expect(await preco(c, int.id)).toBe(precoInt);
+      });
+    });
+  },
+);
+
+describe.skipIf(!hasDb || !LOCAL)(
+  "R14 fix round 1 — B4 (Voltar sem markup nem fixo) e B3 (prévia só-leitura do sku #3)",
+  () => {
+    it("revenda SEM markup e SEM preço fixo: Voltar recalcula e o preço de venda do card ZERA (NULL) — regra do recompute, aceita", async () => {
+      await withTx(async (c) => {
+        await prepara(c, 6);
+        await comoUsuario(c, U);
+        await keywordsLoja(c, "k");
+        const m = await revenda(c);
+        if (!m.produtoId) throw new Error("fixture: revenda sem produto");
+        await marcar(c, m.id);
+        await c.query(
+          `UPDATE public.produtos_acabados SET markup_varejo = NULL, preco_varejo_fixo = NULL WHERE id = $1`,
+          [m.produtoId],
+        );
+        expect(await preco(c, m.id)).toBe("159.90"); // congelado enquanto integrável
+        await c.query(`SELECT public.integracao_voltar(ARRAY[$1::uuid])`, [m.id]);
+        expect(await preco(c, m.id)).toBeNull();
+      });
+    });
+
+    it("supabase/consultas/r14_sku3_previa.sql: lista o produto com SKU desatualizado (vira 'Faltam dados') e conta o SKU previsto que colide com outro produto", async () => {
+      await withTx(async (c) => {
+        await prepara(c, 6);
+        await comoUsuario(c, U);
+        await keywordsLoja(c, "k");
+        const sql = readFileSync(ROOT + "supabase/consultas/r14_sku3_previa.sql", "utf8");
+        const m = await modeloInterno(c);
+        const outro = await modeloInterno(c);
+        const [p1, p2] = await previstos(c, m.id);
+        await gravarSku(c, m.id, p1.tk, `X${p1.sku}`, false); // desatualizado
+        await gravarSku(c, m.id, p2.tk, p2.sku, false); // em dia
+        let linhas = (await c.query(sql)).rows.filter((r) => r.modelo_id === m.id);
+        expect(linhas).toHaveLength(1);
+        expect(linhas[0]).toMatchObject({ estado: "nao_integravel", vira_faltam_dados: true });
+        expect([Number(linhas[0].n_desatualizados), Number(linhas[0].n_conflito)]).toEqual([1, 0]);
+        // o SKU previsto da linha p1 passa a ser usado por OUTRO produto (à mão): o Regerar não resolve -> conflito
+        const [o1] = await previstos(c, outro.id);
+        await gravarSku(c, outro.id, o1.tk, p1.sku, true);
+        linhas = (await c.query(sql)).rows.filter((r) => r.modelo_id === m.id);
+        expect([Number(linhas[0].n_desatualizados), Number(linhas[0].n_conflito)]).toEqual([1, 1]);
+        // a falta do retrato bate com a prévia
+        const r = await retrato(c, m.id);
+        expect(desatualizado(r)).toHaveLength(1);
+        expect(r.faltas.filter((f) => !/SKU.*desatualizado/.test(f.texto))).toEqual([]);
       });
     });
   },

@@ -3,8 +3,12 @@
 -- card. Os 2 gatilhos trg_espelho_ref_ao_vincular ficam de pe, inertes. Sem trava de tabela nem de auth/storage (so a
 -- trava de objeto da funcao): pode rodar a qualquer hora (e o freio de emergencia). O DROP fica no
 -- 20261024210000_espelho_ref_ao_vincular_down_drop.sql (SEPARADO, opcional, horario calmo).
--- Guarda: so roda se a funcao esta com o texto da ida (6baf719f2041243c7e340e618e5489f0); neutra/ausente/outro -> P0001 e nada muda.
--- Nada gravado muda: REFs ja copiadas ficam (REF revelada nao volta). Sem site a voltar. LIFO: independente.
+-- Guarda: so roda se a funcao esta com o texto da ida (7e60628faafaf26beb5920abe75da5c7); neutra/ausente/outro -> P0001 e nada muda.
+-- Nada gravado muda: REFs ja copiadas ficam (REF revelada nao volta). Sem site a voltar.
+-- ORDEM (G-MIGRATION M1): este _down roda ANTES da volta de emergencia da Integracao (volta-producao.sh /
+-- 20261007130000_integracao_4_trava_down.sql apaga _integracao_campo_travado). A funcao da ida e defensiva (fix round 1:
+-- ausente = nao travado, sem 42883), mas a ordem recomendada continua esta; o roteiro da volta da Integracao confere
+-- fn_espelho_ref_ao_vincular ausente ou NEUTRA (42bcb3e5) e PARA senao.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
 
 SET client_encoding = 'UTF8';
@@ -18,7 +22,7 @@ BEGIN
   IF to_regprocedure('public.fn_espelho_ref_ao_vincular()') IS NULL THEN
     RAISE EXCEPTION 'medios_r14_sku18 (volta): fn_espelho_ref_ao_vincular nao existe - a 20261024210000 nao foi aplicada' USING ERRCODE = 'P0001';
   END IF;
-  IF md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()'))) IS DISTINCT FROM '6baf719f2041243c7e340e618e5489f0' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()'))) IS DISTINCT FROM '7e60628faafaf26beb5920abe75da5c7' THEN
     RAISE EXCEPTION 'medios_r14_sku18 (volta): fn_espelho_ref_ao_vincular nao esta com o texto da 20261024210000 (md5 %) - ja neutralizada ou outra frente mexeu',
       md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()'))) USING ERRCODE = 'P0001';
   END IF;

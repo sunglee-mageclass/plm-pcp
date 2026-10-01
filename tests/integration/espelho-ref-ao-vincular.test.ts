@@ -7,11 +7,12 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
-import { LOCAL, U, aplica } from "./integracao-helpers";
+import { readFileSync } from "node:fs";
+import { LOCAL, ROOT, U, aplica } from "./integracao-helpers";
 
 const T = TENANT_TESTE;
 const SIG = "public.fn_espelho_ref_ao_vincular()";
-const MD5_FN = "6baf719f2041243c7e340e618e5489f0";
+const MD5_FN = "7e60628faafaf26beb5920abe75da5c7"; // fix round 1 (M1): guarda defensiva
 const CORRECAO = "supabase/migrations/20261024210100_espelho_ref_correcao_unica.sql";
 const TDEF = (tab: string) =>
   `CREATE TRIGGER trg_espelho_ref_ao_vincular AFTER UPDATE OF modelo_id ON public.${tab} FOR EACH ROW WHEN (((new.modelo_id IS NOT NULL) AND (old.modelo_id IS DISTINCT FROM new.modelo_id))) EXECUTE FUNCTION fn_espelho_ref_ao_vincular()`;
@@ -96,7 +97,8 @@ async function vincularComoSheet(
     if (r.rowCount !== 1)
       throw new Error(`fixture: o UPDATE do vínculo (${tipo}) não pegou a linha (RLS?)`);
   } finally {
-    await c.query("RESET ROLE");
+    // txn abortada (o UPDATE falhou): o RESET também falharia e esconderia o erro de verdade — o ROLLBACK do withTx desfaz
+    await c.query("RESET ROLE").catch(() => undefined);
   }
 }
 const refCard = async (c: Client, id: string) =>
@@ -232,6 +234,68 @@ describe.skipIf(!hasDb || !LOCAL)("R14 sku #18 — correção única (2026102421
       } finally {
         c.off("notice", ouvir);
       }
+    });
+  });
+});
+
+describe.skipIf(!hasDb || !LOCAL)("R14 sku #18 — fix round 1", () => {
+  it("M1: sem _integracao_campo_travado (volta de emergência da Integração a apaga) o vínculo continua funcionando — 'não travado', sem 42883", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c, U);
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      const mid = await card(c, "PA");
+      const p = await produtoPeloSheet(c, "PA", "R14 sku18 M1");
+      // DDL SÓ dentro desta txn revertida, na cópia local: simula o DROP de 20261007130000_integracao_4_trava_down
+      await c.query(
+        "ALTER FUNCTION public._integracao_campo_travado(uuid,text) RENAME TO _integracao_campo_travado_r14m1",
+      );
+      expect(
+        (
+          await um<{ ok: boolean }>(
+            c,
+            "SELECT to_regprocedure('public._integracao_campo_travado(uuid,text)') IS NULL AS ok",
+          )
+        ).ok,
+      ).toBe(true);
+      await vincularComoSheet(c, "PA", p.id, mid); // antes do fix: 42883 aqui
+      expect(await refCard(c, mid)).toBe(p.ref);
+    });
+  });
+
+  it("B2: a prévia só-leitura (supabase/consultas/r14_sku18_correcao_previa.sql) lista EXATAMENTE os cards que a correção única grava", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c, U);
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      const alvo = await card(c, "PI");
+      await c.query(
+        `INSERT INTO public.produtos_importados (tenant_id, nome, ref, modelo_id) VALUES ($1, 'R14 pv', 'IMPR14PV', $2)`,
+        [T, alvo],
+      );
+      const previa = readFileSync(
+        ROOT + "supabase/consultas/r14_sku18_correcao_previa.sql",
+        "utf8",
+      );
+      const lista = (await c.query(previa)).rows
+        .map((r) => `${r.modelo_id}=${r.ref_do_produto}`)
+        .sort();
+      expect(lista).toContain(`${alvo}=IMPR14PV`);
+      const antes = new Map(
+        (await c.query(`SELECT id, coalesce(ref, '') AS ref FROM public.modelos`)).rows.map((r) => [
+          r.id as string,
+          r.ref as string,
+        ]),
+      );
+      const st = (await um<{ v: string }>(c, "SELECT current_setting('statement_timeout') AS v")).v;
+      await aplica(c, CORRECAO);
+      await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
+      const mudaram = (
+        await c.query(`SELECT id, coalesce(ref, '') AS ref FROM public.modelos`)
+      ).rows
+        .filter((r) => antes.get(r.id) !== r.ref)
+        .map((r) => `${r.id}=${r.ref}`)
+        .sort();
+      expect(mudaram).toEqual(lista);
+      expect((await c.query(previa)).rows).toEqual([]); // depois da correção: nada a fazer
     });
   });
 });

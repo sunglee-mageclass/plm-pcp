@@ -12,11 +12,15 @@
 --   so escuta UPDATE OF modelo_id. As travas (trg_zz_integracao_trava*): o produto ligado agora tem OLD.modelo_id NULL ou
 --   nao travado (a trava do produto ja recusa trocar o vinculo de um travado ANTES deste AFTER), e o card travado com
 --   ref_sku e pulado - nenhuma recusa nova em uma mudanca que nao e mudanca.
---   Correcao dos ja vinculados: arquivo SEPARADO e opcional 20261024210100_espelho_ref_correcao_unica.sql.
+--   [fix round 1, M1] A funcao e DEFENSIVA quanto a _integracao_campo_travado: so a consulta se ela existe (to_regprocedure +
+--   EXECUTE dinamico); ausente (volta de emergencia da Integracao) = "nao travado" - o vinculo nunca da 42883.
+--   Correcao dos ja vinculados: arquivo SEPARADO e opcional 20261024210100_espelho_ref_correcao_unica.sql (o kit roda antes
+--   a previa so-leitura supabase/consultas/r14_sku18_correcao_previa.sql).
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
---   public.fn_espelho_ref_ao_vincular()  NOVA: ausente, ou 6baf719f2041243c7e340e618e5489f0 (este arquivo; reaplicar = no-op), ou
---     42bcb3e5845ac9753e5fb3ffa40813c8 (neutralizada pelo _down -> esta ida a restaura).
+--   public.fn_espelho_ref_ao_vincular()  NOVA: ausente (= producao), ou 7e60628faafaf26beb5920abe75da5c7 (este arquivo; reaplicar = no-op), ou
+--     42bcb3e5845ac9753e5fb3ffa40813c8 (neutralizada pelo _down -> esta ida a restaura). O texto do round 0 (6baf719f) NAO e aceito:
+--     desfazer com o _down antes.
 --   Gatilhos (conjunto = n:md5 de nome:habilitado:md5(triggerdef) em ordem de nome, igual ao Passo 0):
 --     produtos_acabados    ANTES 10:cdab1723eecc2cfe70b8589e961630f7  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
 --                          DEPOIS 11:15c4b1c236f34756c8ca324a5b389073
@@ -39,8 +43,12 @@
 -- trava de tabela, qualquer hora); supabase/rollback/20261024210000_espelho_ref_ao_vincular_down_drop.sql (SEPARADO,
 -- opcional) faz o DROP TRIGGER/DROP FUNCTION - DROP TRIGGER trava ~23 tabelas auth/storage/realtime ate o COMMIT:
 -- horario calmo. REFs ja copiadas ficam (REF revelada nao volta).
--- LIFO: nenhum inverso confere estes objetos; o Passo 0 dos MEDIOS lista "ausentes_padrao_gatilho_novo_produtos" (vai
--- passar a mostrar trg_espelho_ref_ao_vincular - esperado).
+-- LIFO / ORDEM DE VOLTA (G-MIGRATION M1): o _down (neutro) DESTA migration roda ANTES da volta de emergencia da Integracao
+-- (.superpowers/integracao/mig/volta-producao.sh - em especial 20261007130000_integracao_4_trava_down.sql, que apaga
+-- _integracao_campo_travado). Com a guarda defensiva (fix round 1) o gatilho ja nao quebra se a ordem for invertida, mas a
+-- ordem recomendada fica: o roteiro da volta confere fn_espelho_ref_ao_vincular ausente ou NEUTRA (42bcb3e5) antes de
+-- seguir. Nenhum inverso confere estes objetos por md5. O Passo 0 dos MEDIOS lista "ausentes_padrao_gatilho_novo_produtos"
+-- (vai passar a mostrar trg_espelho_ref_ao_vincular - esperado).
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 
 SET client_encoding = 'UTF8';
@@ -72,7 +80,7 @@ BEGIN
   END LOOP;
   IF to_regprocedure('public.fn_espelho_ref_ao_vincular()') IS NOT NULL THEN
     v_md5 := md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()')));
-    IF v_md5 NOT IN ('6baf719f2041243c7e340e618e5489f0', '42bcb3e5845ac9753e5fb3ffa40813c8') THEN
+    IF v_md5 NOT IN ('7e60628faafaf26beb5920abe75da5c7', '42bcb3e5845ac9753e5fb3ffa40813c8') THEN
       RAISE EXCEPTION 'medios_r14_sku18: fn_espelho_ref_ao_vincular existe com outro texto (md5 %) - outra frente mexeu', v_md5
         USING ERRCODE = 'P0001';
     END IF;
@@ -105,13 +113,21 @@ AS $function$
 -- com 'ref_sku' marcado nao recebe (nunca recusa o vinculo por causa disto). Sem REF no produto = nada.
 -- Sem loop: a REF copiada e a do proprio produto, entao o espelho card->produto (fn_modelo_espelho_nome_ref) nao acha
 -- diferenca e nao grava; este gatilho so escuta UPDATE OF modelo_id.
+-- [fix round 1, M1] DEFENSIVO: a trava so e consultada se _integracao_campo_travado(uuid,text) EXISTE (to_regprocedure +
+-- EXECUTE dinamico - o plpgsql nao guarda dependencia e uma chamada direta daria 42883 depois da volta de emergencia da
+-- Integracao, 20261007130000_integracao_4_trava_down, que a apaga); ausente = "nao travado". Mesmo assim a ordem
+-- recomendada segue: o _down (neutro) desta funcao roda ANTES da volta da Integracao.
 DECLARE
   v_ref text := nullif(btrim(coalesce(NEW.ref::text, '')), '');
+  v_travado boolean := false;
 BEGIN
   IF NEW.modelo_id IS NULL OR v_ref IS NULL OR NEW.modelo_id IS NOT DISTINCT FROM OLD.modelo_id THEN
     RETURN NULL;
   END IF;
-  IF public._integracao_campo_travado(NEW.modelo_id, 'ref_sku') THEN
+  IF to_regprocedure('public._integracao_campo_travado(uuid,text)') IS NOT NULL THEN
+    EXECUTE 'SELECT public._integracao_campo_travado($1, $2)' INTO v_travado USING NEW.modelo_id, 'ref_sku'::text;
+  END IF;
+  IF coalesce(v_travado, false) THEN
     RETURN NULL;
   END IF;
   UPDATE public.modelos m
@@ -150,7 +166,7 @@ DECLARE
   r record;
   v_set text;
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()'))) IS DISTINCT FROM '6baf719f2041243c7e340e618e5489f0' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_espelho_ref_ao_vincular()'))) IS DISTINCT FROM '7e60628faafaf26beb5920abe75da5c7' THEN
     RAISE EXCEPTION 'medios_r14_sku18: pos-condicao falhou - fn_espelho_ref_ao_vincular nao ficou com o texto deste arquivo' USING ERRCODE = 'P0001';
   END IF;
   -- inv. #9: funcao de gatilho sem EXECUTE para PUBLIC/anon/authenticated

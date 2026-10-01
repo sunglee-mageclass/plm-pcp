@@ -46,8 +46,12 @@
 --     1cfaed33 -> o inverso DESTA release roda ANTES de volta-release6.sh;
 --   * supabase/rollback/20261013100000_integracao_nome_sublinha_cor_down.sql (release 4) confere integracao_listar
 --     33e492d1 -> idem antes da volta de emergencia da Integracao (.superpowers/integracao/mig/volta-producao.sh);
---   * supabase/migrations/20261019300000_custo_previsto_servidor.sql (release 8) guarda _integracao_retrato_core
---     1cfaed33 como dependencia -> reaplicar aquela ida exige desfazer esta antes.
+--   * supabase/migrations/20261019300000_custo_previsto_servidor.sql (release 8, e o kit
+--     savepoints/pre-release8/kit/comum-release8.sh:89 DEPS_OK) guarda _integracao_retrato_core 1cfaed33 E _kanban_aplicar
+--     17c35880 como dependencias -> reaplicar aquela ida exige desfazer ANTES esta (20261024200000) E a 20261024100000
+--     [fix round 1, B1].
+--   * sku #3: o kit roda antes a contagem so-leitura supabase/consultas/r14_sku3_previa.sql (quantos "Pronto para
+--     integrar" viram "Faltam dados" e quantos SKUs previstos colidem - estes o Regerar nao resolve) [fix round 1, B3].
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 
 SET client_encoding = 'UTF8';

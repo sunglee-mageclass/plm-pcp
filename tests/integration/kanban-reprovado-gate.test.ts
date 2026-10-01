@@ -40,15 +40,27 @@ async function chave(c: Client, ligada: boolean) {
   }
 }
 /** Board sintético da Loja Teste NA TXN: 'reprovado' DEPOIS de etapa_c (a etapa da REF e da Explosão). */
-async function configurarBoard(c: Client) {
+type OptsBoard = {
+  board?: string[];
+  reqs?: Record<string, string[]>;
+  revCols?: string[];
+  revReqs?: Record<string, string[]>;
+};
+async function configurarBoard(c: Client, o: OptsBoard = {}) {
   await chave(c, false);
   const r = await c.query(
     `UPDATE public.tenant_config
         SET status_kanban = $2::jsonb, kanban_requisitos = $3::jsonb, kanban_requisitos_excecoes = '{}'::jsonb,
-            revenda_kanban_colunas = '[]'::jsonb, revenda_kanban_requisitos = '{}'::jsonb,
+            revenda_kanban_colunas = $4::jsonb, revenda_kanban_requisitos = $5::jsonb,
             ref_exibir_status = 'etapa_c', explosao_envio_status = 'etapa_c'
       WHERE tenant_id = $1`,
-    [T, JSON.stringify(BOARD_GATE), JSON.stringify(REQS_GATE)],
+    [
+      T,
+      JSON.stringify(o.board ?? BOARD_GATE),
+      JSON.stringify(o.reqs ?? REQS_GATE),
+      JSON.stringify(o.revCols ?? []),
+      JSON.stringify(o.revReqs ?? {}),
+    ],
   );
   if (r.rowCount !== 1) throw new Error("fixture ausente: tenant_config da Loja Teste");
 }
@@ -119,8 +131,9 @@ async function cardFixado(
   c: Client,
   cond: Record<string, boolean>,
   status: string,
+  extra: Record<string, unknown> = {},
 ): Promise<string> {
-  const campos: Record<string, unknown> = {};
+  const campos: Record<string, unknown> = { ...extra };
   for (const k of CAMPOS_COND) if (cond[k]) campos[k] = HOJE;
   const M = await comoSistema(c, () => novoModelo(c, campos));
   await comoSistema(c, () =>
@@ -354,3 +367,141 @@ describe.skipIf(!LOCAL)(
     });
   },
 );
+
+// ───────────── fix round 1 (G-MIGRATION B4): bordas do P-190 A ─────────────
+async function derivacao(c: Client, M: string): Promise<Derivacao> {
+  const d = await um<{
+    derivavel: boolean;
+    entrada: string | null;
+    alvo: string | null;
+    resultado: string | null;
+    fixado: boolean;
+    primeira_falha: string | null;
+    faltando: string[];
+  }>(
+    c,
+    `SELECT derivavel, entrada, alvo, resultado, fixado, primeira_falha, faltando FROM public._kanban_derivar_lote($1, ARRAY[$2]::uuid[])`,
+    [T, M],
+  );
+  if (!d) throw new Error("fixture: derivação não encontrada");
+  return {
+    derivavel: d.derivavel,
+    entrada: d.entrada,
+    alvo: d.alvo,
+    resultado: d.resultado,
+    fixado: d.fixado,
+    primeiraFalha: d.primeira_falha,
+    faltando: d.faltando,
+  };
+}
+const TUDO = {
+  data_desenho_tecnico: true,
+  data_piloto1: true,
+  data_piloto2: true,
+  data_aprovacao: true,
+};
+const ATE_C = { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true };
+
+describe.skipIf(!LOCAL)("R14 kanban #7 — bordas (fix round 1, B4)", () => {
+  it("board SEM 'reprovado' (status órfão): sem posição até o motor tirar o card; a prévia já lista a REF; aplicado, sai do reprovado e revela", async () => {
+    await withTx(async (c) => {
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await comoUsuario(c);
+      await configurarBoard(c, { board: BOARD_GATE.filter((b) => b !== "Reprovado") });
+      await chave(c, true);
+      const M = await cardFixado(c, TUDO, "reprovado"); // pelo GUC do sistema: o motor não age
+      const d = await derivacao(c, M);
+      expect(d.fixado).toBe(false); // fora do fluxo: não é coluna manual do board
+      expect(d.alvo).toBe("aprovado");
+      expect(await gate(c, M, "reprovado")).toBeNull();
+      expect(statusParaGate(true, d, "reprovado")).toBeNull(); // anti-drift TS×SQL
+      const p = await um<{ p: { refs_reveladas: { modelo_id: string }[] } }>(
+        c,
+        `SELECT public.kanban_previa_recalculo('{}'::jsonb) AS p`,
+      );
+      expect(p.p.refs_reveladas.map((x) => x.modelo_id)).toContain(M); // o motor vai tirá-lo do reprovado
+      await um(c, `SELECT public._kanban_aplicar($1, ARRAY[$2]::uuid[], 'config') AS n`, [T, M]);
+      const m = await lerModelo(c, M);
+      expect(m.status).toBe("aprovado");
+      expect(m.ref).toBe(m.ref_auto);
+      expect(await gate(c, M, "aprovado")).toBe("aprovado");
+    });
+  });
+
+  it("fluxo de REVENDA com 'reprovado': card comprado fixado em reprovado não tem posição (SQL = TS), Explosão recusada; na entrada vale a derivada", async () => {
+    await withTx(async (c) => {
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await comoUsuario(c);
+      await configurarBoard(c, {
+        revCols: ["entrada", "etapa_c", "reprovado", "aprovado"],
+        revReqs: { etapa_c: ["data_desenho_tecnico"], aprovado: ["data_aprovacao"] },
+      });
+      await chave(c, true);
+      const R = await cardFixado(c, TUDO, "reprovado", { origem: "revenda" });
+      const d = await derivacao(c, R);
+      expect([d.derivavel, d.fixado, d.alvo]).toEqual([true, true, "aprovado"]);
+      expect(await gate(c, R, "reprovado")).toBeNull();
+      expect(statusParaGate(true, d, "reprovado")).toBeNull();
+      expect(await gate(c, R, "entrada")).toBe("aprovado"); // controle: fora do reprovado, a posição derivada
+      await c.query("SAVEPOINT sp");
+      const err = await erroDe(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [R]));
+      expect(err.code).toBe("P0001");
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await um(c, `SELECT public._kanban_aplicar($1, ARRAY[$2]::uuid[], 'auto') AS n`, [T, R]);
+      expect((await lerModelo(c, R)).ref ?? "").toBe("");
+    });
+  });
+
+  it("Integração: o gate 'ref' de _integracao_gates fica FECHADO para reprovado fixado (aberto para stand_by na mesma posição derivada)", async () => {
+    await withTx(async (c) => {
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await comoUsuario(c);
+      await configurarBoard(c);
+      await chave(c, true);
+      const R = await cardFixado(c, ATE_C, "reprovado");
+      const S = await cardFixado(c, ATE_C, "stand_by");
+      const g = async (id: string) =>
+        (
+          await um<{ g: { ok: boolean; motivo: string | null } }>(
+            c,
+            `SELECT public._integracao_gates($1) -> 'ref' AS g`,
+            [id],
+          )
+        ).g;
+      expect((await g(S)).ok).toBe(true);
+      const gr = await g(R);
+      expect(gr.ok).toBe(false);
+      expect(gr.motivo ?? "").not.toBe("");
+    });
+  });
+
+  it("risco 4 (caracterização) em OUTRA coluna manual adiante da etapa ('Pausa'): segue a posição DERIVADA — 1 UPDATE que fixa e limpa um campo revela pela posição pré-UPDATE; no COMMIT a derivada recua e a REF fica", async () => {
+    await withTx(async (c) => {
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await configurarBoard(c, {
+        board: [
+          "Entrada",
+          "Etapa A",
+          "Etapa B",
+          "Stand By",
+          "Etapa C",
+          "Pausa",
+          "Reprovado",
+          "Aprovado",
+        ],
+      });
+      await chave(c, true);
+      const M = await cardFixado(c, ATE_C, "entrada");
+      expect(await gate(c, M, "pausa")).toBe("etapa_c");
+      await setar(c, M, { status_desenvolvimento: "pausa", data_piloto2: null });
+      let m = await lerModelo(c, M);
+      expect(m.status).toBe("pausa");
+      expect(m.ref).toBe(m.ref_auto); // decisão 10 intacta para manuais ≠ reprovado (limitação conhecida)
+      await imediato(c);
+      m = await lerModelo(c, M);
+      expect(m.status).toBe("pausa");
+      expect(await gate(c, M, "pausa")).toBe("etapa_b");
+      expect(m.ref).toBe(m.ref_auto);
+    });
+  });
+});
