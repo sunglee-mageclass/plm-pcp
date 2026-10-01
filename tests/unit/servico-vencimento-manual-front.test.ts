@@ -62,7 +62,8 @@ describe("mobile (390px) da aba Serviços: linha com selo/Voltar quebra em vez d
   });
   it("ações (Voltar + Marcar pago) quebram linha no mobile; data não encolhe", () => {
     expect(fin).toMatch(/inline-flex flex-wrap items-center gap-1\.5 align-middle max-lg:w-full max-lg:justify-end/);
-    expect(fin).toMatch(/className="w-36 shrink-0"/);
+    expect(fin).toMatch(/className="w-36 shrink-0 max-lg:w-40"/);
+    expect(fin).toMatch(/> Voltar ao automático\n/);
   });
   it("rodapé da impressão deixa claro que soma pago + a pagar", () => {
     expect(fin).toContain("Total (pago + a pagar): ${brl(totaisSrv.total)}");

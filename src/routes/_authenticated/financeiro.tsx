@@ -1198,7 +1198,7 @@ function VencimentoCell({ value, onSave, disabled }: { value: string; onSave: (v
         setV(iso);
         if (iso && iso !== value) onSave(iso);
       }}
-      className="w-36 shrink-0"
+      className="w-36 shrink-0 max-lg:w-40"
       disabled={!podeEditar || disabled}
     />
   );
@@ -1752,8 +1752,10 @@ function ServicosView() {
                             data-testid="srv-venc-voltar-automatico"
                             onClick={() => setConfirmVoltarId(r.parcela_id)}
                             disabled={voltarAuto.isPending}
+                            title="Voltar ao cálculo automático"
+                            aria-label="Voltar ao cálculo automático"
                           >
-                            <RotateCcw className="h-4 w-4 mr-1" /> Voltar ao cálculo automático
+                            <RotateCcw className="h-4 w-4 mr-1" /> Voltar ao automático
                           </Button>
                         )}
                         {podeEditar && (st === "pago" ? (
