@@ -21,7 +21,7 @@ import {
   type ProdutoImportadoDraft,
 } from "@/components/produto-importado/shared";
 import {
-  resolverTravaAcabado, aplicarResolucaoTravaAcabado, toastTravaAcabado, chaveDirty as chaveDirtyPA, markupCanalIntocado,
+  resolverTravaAcabado, aplicarResolucaoTravaAcabado, toastTravaAcabado, chaveDirty as chaveDirtyPA, markupCanalIntocado, limparEnviadoSeServidorMudou,
   produtosParaSalvar,
   type ProdutoDraft,
 } from "@/components/produto-acabado/shared";
@@ -763,6 +763,15 @@ describe("markupCanalIntocado — preço A2 (nunca reenvia markup derivado do ra
     // canal com preço fixo (null) enviado como null segue null até o refetch.
     expect(markupCanalIntocado(null, 4, { valor: null, servidorAntes: null })).toBeNull();
   });
+  it("override velho: salvei 2→3, refetch mostra 3, outro usuário volta p/ 2 — o próximo blur NÃO reenvia 3", () => {
+    const ref: { current: { valor: number | null; servidorAntes: number | null | undefined } | null } = { current: { valor: 3, servidorAntes: 2 } };
+    limparEnviadoSeServidorMudou(ref, 2);          // refetch ainda não chegou: mantém
+    expect(ref.current).not.toBeNull();
+    limparEnviadoSeServidorMudou(ref, 3);          // refetch trouxe 3 (meu save pousou): limpa
+    expect(ref.current).toBeNull();
+    limparEnviadoSeServidorMudou(ref, 2);          // outro usuário voltou p/ 2
+    expect(markupCanalIntocado(2, 9, ref.current)).toBe(2);
+  });
   it("os 2 sites guardam o último enviado (onMutate/onSuccess) e travam a edição enquanto a mutação está pendente", () => {
     const rs = readFileSync("src/components/planejamento/planejamento-detail/useRevendaPlanejamento.ts", "utf8");
     const rsx = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
@@ -771,6 +780,8 @@ describe("markupCanalIntocado — preço A2 (nunca reenvia markup derivado do ra
     expect(rsx).toMatch(/salvarMarkupsRevenda\.isPending/);
     expect(pc).toMatch(/enviadoAtacadoRef/);
     expect(pc).toMatch(/salvarMarkupMut\.isPending/);
+    expect(rs).toMatch(/limparEnviadoSeServidorMudou\(enviadoAtacadoRef/);
+    expect(pc).toMatch(/limparEnviadoSeServidorMudou\(enviadoAtacadoRef/);
   });
   it("blur do atacado e do varejo (Planejamento e Produto Acabado) usam o helper", () => {
     const rs = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");

@@ -40,7 +40,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
-  variantesBatemComTotal, erroValidacao, markupCanalIntocado, type MarkupEnviado,
+  variantesBatemComTotal, erroValidacao, markupCanalIntocado, limparEnviadoSeServidorMudou, type MarkupEnviado,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
@@ -357,6 +357,8 @@ export function ProdutoCard({
   // Preço A2: último markup ENVIADO por canal — o canal NÃO tocado de um 2º blur (antes do refetch) reenvia isto.
   const enviadoAtacadoRef = useRef<MarkupEnviado | null>(null);
   const enviadoVarejoRef = useRef<MarkupEnviado | null>(null);
+  limparEnviadoSeServidorMudou(enviadoAtacadoRef, markupAtacadoServidor);
+  limparEnviadoSeServidorMudou(enviadoVarejoRef, markupVarejoServidor);
   const salvarMarkupMut = useMutation({
     onMutate: () => ({ atacadoAntes: markupAtacadoServidor, varejoAntes: markupVarejoServidor }),
     mutationFn: async (p: { markupAtacado: number | null; markupVarejo: number | null }) => {

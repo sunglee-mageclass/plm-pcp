@@ -462,6 +462,16 @@ export function fmtMoney(v: number | null | undefined): string {
  *  blur varejo antes do refetch reenviariam o valor VELHO e reverteriam/NULL-ariam o preço. */
 export type MarkupEnviado = { valor: number | null; servidorAntes: number | null | undefined };
 
+/** Limpa o último enviado assim que o servidor MUDOU de `servidorAntes` (nosso save pousou): dali em diante só o valor do
+ *  servidor conta. Chamar a cada render (como os `*BaseRef`) — senão um valor que volte a `servidorAntes` por OUTRO usuário
+ *  reativaria o override velho e sobrescreveria o dele. */
+export function limparEnviadoSeServidorMudou(
+  ref: { current: MarkupEnviado | null },
+  markupServidor: number | null | undefined,
+): void {
+  if (ref.current && markupServidor !== undefined && markupServidor !== ref.current.servidorAntes) ref.current = null;
+}
+
 export function markupCanalIntocado(
   markupServidor: number | null | undefined,
   markupDraft: number | null,

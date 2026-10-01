@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { supabase } from "@/integrations/supabase/client";
-import { erroValidacao, type MarkupEnviado } from "@/components/produto-acabado/shared";
+import { erroValidacao, limparEnviadoSeServidorMudou, type MarkupEnviado } from "@/components/produto-acabado/shared";
 import { type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 
 export type UseRevendaPlanejamentoArgs = {
@@ -111,6 +111,8 @@ export function useRevendaPlanejamento({
   // refetch chegar, reenvia isto (não o valor velho do servidor). Ver `markupCanalIntocado`.
   const enviadoAtacadoRef = useRef<MarkupEnviado | null>(null);
   const enviadoVarejoRef = useRef<MarkupEnviado | null>(null);
+  limparEnviadoSeServidorMudou(enviadoAtacadoRef, produtoRevenda?.markup_atacado);
+  limparEnviadoSeServidorMudou(enviadoVarejoRef, produtoRevenda?.markup_varejo);
   const salvarMarkupsRevenda = useMutation({
     onMutate: () => ({ atacadoAntes: produtoRevenda?.markup_atacado, varejoAntes: produtoRevenda?.markup_varejo }),
     mutationFn: async (payload: { markup_atacado: number | null; markup_varejo: number | null }) => {
