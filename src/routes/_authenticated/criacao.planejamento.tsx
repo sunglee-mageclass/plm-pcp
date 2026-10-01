@@ -766,7 +766,7 @@ function PlanejamentoPage() {
         lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
-        refModelo={(m as any).ref || (m as any).ref_auto || null}
+        refModelo={(m as any).ref || null}
         etapa={etapaDoModelo(m, kanbanCfg)}
         precoVenda={(m as any).preco_venda ?? null}
         precoTravado={colunasTravadas(estadosIntegracao[m.id]).has("preco_venda") ? TEXTO_PRECO_TRAVADO : null}
