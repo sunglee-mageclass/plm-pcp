@@ -14,7 +14,7 @@ const MD5_DEPOIS: Record<string, string> = {
   "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "5dbe4d89fcaf1c1b77860cb3a8e132c8",
   "public._dashboard_producao_core(date,date,text,uuid)": "17424a059ae47674e244701f5a0fbfe4",
   "public._dashboard_leadtime_core()": "520312bb84b32f35b63f056e93d51c54",
-  "public._dashboard_leadtime_itens_core(uuid,text,text)": "0960481081dc751b6e016b3cdf16c165",
+  "public._dashboard_leadtime_itens_core(uuid,text,text)": "e90d44175464c66e6576f0f8a4bea1dd",
 };
 const MD5_INTOCADA = "d26c7c9afb636f6ed26e66daf76e92ae"; // _custo_unitario_modelos_core
 
@@ -178,8 +178,29 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
       const k3 = await k();
       expect(k3.kpis.producao).toBe(k2.kpis.producao);
       expect(k3.kpis.desenvolvimento).toBe(k2.kpis.desenvolvimento + 1);
+      // 4) (fix round 2) revenda NÃO lançada e SEM CAD → fica em Desenvolvimento (planejada), não em Produção
+      await novoModelo(c, { origem: "revenda", status_planejamento: "planejado" });
+      const k4 = await k();
+      expect(k4.kpis.desenvolvimento).toBe(k3.kpis.desenvolvimento + 1);
+      expect(k4.kpis.producao).toBe(k3.kpis.producao);
+      expect(k4.kpis.lancados).toBe(k3.kpis.lancados);
+      // 5) (fix round 2) comprado LANÇADO e COM CAD → Lançados, não Produção
+      const impLanc = await novoModelo(c, {
+        origem: "importado",
+        status_planejamento: "planejado",
+        lancado: true,
+      });
+      await c.query(`insert into cad (tenant_id, modelo_id) values ($1,$2)`, [
+        TENANT_TESTE,
+        impLanc,
+      ]);
+      const k5 = await k();
+      expect(k5.kpis.lancados).toBe(k4.kpis.lancados + 1);
+      expect(k5.kpis.producao).toBe(k4.kpis.producao);
+      expect(k5.kpis.desenvolvimento).toBe(k4.kpis.desenvolvimento);
+      expect(fun(k5, "Produção")).toBe(fun(k4, "Produção") + 1); // funil: lançado passou da produção
       // invariante de partição: os 4 baldes somam o total
-      for (const x of [k0, k1, k2, k3]) {
+      for (const x of [k0, k1, k2, k3, k4, k5]) {
         expect(
           x.kpis.planejamento + x.kpis.desenvolvimento + x.kpis.producao + x.kpis.lancados,
         ).toBe(x.kpis.total);
@@ -307,6 +328,85 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
       // o meio ganha 4 trechos (M1 fechado, M2 aberto, M3 aberto, M4 aberto); o fora do quadro ganha 2
       expect(nDe(l1, meio)).toBe(nDe(l0, meio) + 4);
       expect(nDe(l1, fora)).toBe(nDe(l0, fora) + 2);
+    });
+  });
+
+  it("prod #7 (fix round 2): card cujo ÚNICO histórico é a última coluna fica em leadtime_itens, sem etapas (quadro da loja)", async () => {
+    await withTx(async (c) => {
+      await naLoja(c, TENANT_TESTE);
+      const ult = await um<{ key: string } | undefined>(
+        c,
+        `select key from public._kanban_status_rows($1) order by ord desc limit 1`,
+        [TENANT_TESTE],
+      );
+      if (!ult) throw new Error("fixture ausente: quadro da Loja Teste");
+      const m = await novoModelo(c, { colecao: "ITEST-R12-COL", subcolecao: "ITEST-R12-SUB" });
+      await c.query(`delete from modelo_kanban_historico where modelo_id = $1`, [m]);
+      await c.query(
+        `insert into modelo_kanban_historico (tenant_id, modelo_id, status, entrou_at) values ($1,$2,$3, now() - interval '30 days')`,
+        [TENANT_TESTE, m, ult.key],
+      );
+      const itens: any[] = (await rpc(c, `public._dashboard_leadtime_itens_core()`)).itens;
+      const it = itens.find((i) => i.modelo_id === m);
+      expect(it, "card só com a última coluna some da matriz").toBeTruthy(); // round 1: sumia
+      expect(it.duracoes).toEqual({});
+      // continua alimentando o filtro coleção/subcoleção da aba Desenvolvimento (dashboard.tsx monta a lista dos itens)
+      expect(it.colecao).toBe("ITEST-R12-COL");
+      expect(it.subcolecao).toBe("ITEST-R12-SUB");
+      // card SEM histórico nenhum segue fora (mesmo conjunto de antes)
+      const semHist = await novoModelo(c, {});
+      await c.query(`delete from modelo_kanban_historico where modelo_id = $1`, [semHist]);
+      const itens2: any[] = (await rpc(c, `public._dashboard_leadtime_itens_core()`)).itens;
+      expect(itens2.some((i) => i.modelo_id === semHist)).toBe(false);
+      expect(itens2.length).toBe(itens.length);
+    });
+  });
+
+  it("prod #7 (fix round 2): loja SEM config de kanban → última coluna = 'aprovado' (default) e conta 0", async () => {
+    await withTx(async (c) => {
+      await naLoja(c, TENANT_TESTE);
+      await c.query(`update tenant_config set status_kanban = null where tenant_id = $1`, [
+        TENANT_TESTE,
+      ]);
+      const ult = await um<{ key: string }>(
+        c,
+        `select key from public._kanban_status_rows($1) order by ord desc limit 1`,
+        [TENANT_TESTE],
+      );
+      expect(ult.key).toBe("aprovado");
+      await c.query(
+        `update tenant_config set leadtime = jsonb_build_object('etapas', jsonb_build_array(
+           jsonb_build_object('key','kanban:aprovado','tipo','kanban','idealDias',5),
+           jsonb_build_object('key','kanban:em_modelagem','tipo','kanban','idealDias',5))) where tenant_id = $1`,
+        [TENANT_TESTE],
+      );
+      const hist = async (mod: string, passos: [string, number][]) => {
+        await c.query(`delete from modelo_kanban_historico where modelo_id = $1`, [mod]);
+        for (const [st, diasAtras] of passos) {
+          await c.query(
+            `insert into modelo_kanban_historico (tenant_id, modelo_id, status, entrou_at) values ($1,$2,$3, now() - ($4 || ' days')::interval)`,
+            [TENANT_TESTE, mod, st, String(diasAtras)],
+          );
+        }
+      };
+      const a = await novoModelo(c, {});
+      await hist(a, [
+        ["em_modelagem", 20],
+        ["aprovado", 10],
+      ]); // aberto no default
+      const b = await novoModelo(c, {});
+      await hist(b, [
+        ["aprovado", 40],
+        ["em_modelagem", 30],
+      ]); // fechado no default
+      const itens: any[] = (await rpc(c, `public._dashboard_leadtime_itens_core()`)).itens;
+      // nenhum item da loja tem a etapa da última coluna default
+      expect(itens.filter((i) => i.duracoes && "kanban:aprovado" in i.duracoes)).toEqual([]);
+      const dur = (id: string) => itens.find((i) => i.modelo_id === id)?.duracoes ?? {};
+      expect(Number(dur(a)["kanban:em_modelagem"])).toBeCloseTo(10, 0);
+      expect(Number(dur(b)["kanban:em_modelagem"])).toBeCloseTo(30, 0);
+      const l = await rpc(c, `public._dashboard_leadtime_core()`);
+      expect((l.etapas as any[]).find((e) => e.etapa === "kanban:aprovado")).toBeUndefined();
     });
   });
 });

@@ -14,6 +14,8 @@
 --             ULTIMA coluna do quadro ATUAL da loja (_kanban_status_rows, a mesma normalizacao do kanban) e o ponto de
 --             chegada e NUNCA conta tempo - nem o trecho aberto (card parado, nao soma ate now()) nem o fechado (card que
 --             saiu e voltou). As outras colunas e os status antigos que sairam do quadro: iguais a antes.
+--             Fix round 2: o card cujo UNICO historico e a ultima coluna continua em dashboard_leadtime_itens (sem
+--             etapas), para nao sumir da matriz nem do filtro colecao/subcolecao da aba Desenvolvimento.
 -- Funcoes STABLE, so leitura; nada gravado muda.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
@@ -32,7 +34,7 @@
 --     DEPOIS 520312bb84b32f35b63f056e93d51c54  (este arquivo; reaplicar = no-op)
 --   public._dashboard_leadtime_itens_core(uuid,text,text)
 --     ANTES  a049357d264bc60543d8bb804b49cdec  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS 0960481081dc751b6e016b3cdf16c165  (este arquivo; reaplicar = no-op)
+--     DEPOIS e90d44175464c66e6576f0f8a4bea1dd  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda):
 --     public._custo_unitario_modelos_core(uuid[])             d26c7c9afb636f6ed26e66daf76e92ae  INTOCADA (fonte unica do custo; so chamada)  -- CONFIRMADO: Passo 0 (01/out 11:06)
 --     public._kanban_status_rows(uuid)                        df58faac2e3d49f56c1d8fa4dd6d5e17  INTOCADA (ultima coluna do quadro)  -- PROVISORIO (copia): conferir no Passo 0 do kit R12
@@ -70,7 +72,7 @@ INSERT INTO _r12_md5_aceitos VALUES
   ('public._dashboard_leadtime_core()', '290807edf970fef70f1335446ac2fd45', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public._dashboard_leadtime_core()', '520312bb84b32f35b63f056e93d51c54', 'depois'),
   ('public._dashboard_leadtime_itens_core(uuid,text,text)', 'a049357d264bc60543d8bb804b49cdec', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public._dashboard_leadtime_itens_core(uuid,text,text)', '0960481081dc751b6e016b3cdf16c165', 'depois'),
+  ('public._dashboard_leadtime_itens_core(uuid,text,text)', 'e90d44175464c66e6576f0f8a4bea1dd', 'depois'),
   ('public._custo_unitario_modelos_core(uuid[])', 'd26c7c9afb636f6ed26e66daf76e92ae', 'dep'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public._kanban_status_rows(uuid)', 'df58faac2e3d49f56c1d8fa4dd6d5e17', 'dep'),  -- PROVISORIO (copia 54422): conferir no Passo 0 do kit R12
   ('public.dashboard_custos(date,date,text,uuid,uuid)', '354c9259b9f5466a7a8187ee830bceee', 'dep'),  -- PROVISORIO (copia 54422): conferir no Passo 0 do kit R12
@@ -725,14 +727,18 @@ BEGIN
       'colecao', COALESCE(col.nome, m.colecao), 'colecao_id', m.colecao_id,
       'subcolecao', m.subcolecao, 'semana', m.semana,
       'sub1_id', m.subcategoria1_id, 'sub1', s1.nome, 'sub1_sla', s1.sla_oficina,
-      'duracoes', d.duracoes
+      'duracoes', COALESCE(d.duracoes, '{}'::jsonb)
     ) ORDER BY COALESCE(col.nome, m.colecao) NULLS LAST, m.subcolecao NULLS LAST, m.semana NULLS LAST, m.ref NULLS LAST), '[]'::jsonb)
   INTO v_out
   FROM public.modelos m
-  JOIN dur d ON d.modelo_id = m.id
+  LEFT JOIN dur d ON d.modelo_id = m.id
   LEFT JOIN public.colecoes col ON col.id = m.colecao_id
   LEFT JOIN public.subcategorias1_produto s1 ON s1.id = m.subcategoria1_id
   WHERE m.tenant_id = v_tenant
+    -- [medios R12, fix round 2] o card cujo UNICO historico e a ultima coluna (que nao conta tempo) continua na lista,
+    -- com duracoes vazias: mesmo conjunto de cards de antes (todo card com historico tinha trecho de kanban).
+    AND (d.modelo_id IS NOT NULL
+         OR EXISTS (SELECT 1 FROM public.modelo_kanban_historico hk WHERE hk.modelo_id = m.id AND hk.tenant_id = v_tenant))
     AND (p_colecao IS NULL OR m.colecao_id = p_colecao)
     AND (p_subcolecao IS NULL OR m.subcolecao = p_subcolecao)
     AND (p_semana IS NULL OR m.semana = p_semana);

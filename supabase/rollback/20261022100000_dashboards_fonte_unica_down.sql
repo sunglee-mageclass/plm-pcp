@@ -25,7 +25,7 @@ BEGIN
       ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '5dbe4d89fcaf1c1b77860cb3a8e132c8'),
       ('public._dashboard_producao_core(date,date,text,uuid)', '17424a059ae47674e244701f5a0fbfe4'),
       ('public._dashboard_leadtime_core()', '520312bb84b32f35b63f056e93d51c54'),
-      ('public._dashboard_leadtime_itens_core(uuid,text,text)', '0960481081dc751b6e016b3cdf16c165'),
+      ('public._dashboard_leadtime_itens_core(uuid,text,text)', 'e90d44175464c66e6576f0f8a4bea1dd'),
       ('public._custo_unitario_modelos_core(uuid[])', 'd26c7c9afb636f6ed26e66daf76e92ae'),
       ('public._kanban_status_rows(uuid)', 'df58faac2e3d49f56c1d8fa4dd6d5e17'),
       ('public.dashboard_custos(date,date,text,uuid,uuid)', '354c9259b9f5466a7a8187ee830bceee'),
@@ -699,7 +699,7 @@ BEGIN
       RAISE EXCEPTION 'medios_r12 (volta): % ficou executavel por PUBLIC (inv. #9)', r.s USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  IF md5(pg_get_functiondef('public._custo_unitario_modelos_core(uuid[])'::regprocedure)) IS DISTINCT FROM 'd26c7c9afb636f6ed26e66daf76e92ae' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public._custo_unitario_modelos_core(uuid[])'))) IS DISTINCT FROM 'd26c7c9afb636f6ed26e66daf76e92ae' THEN
     RAISE EXCEPTION 'medios_r12 (volta): _custo_unitario_modelos_core mudou' USING ERRCODE = 'P0001';
   END IF;
 END $pos$;
