@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { mensagemToastPosSavePcp } from "@/lib/cq-status-tela";
 import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -993,9 +994,9 @@ export function TerceirizadosDetail({
     onSuccess: async () => {
       const antes = cqStatusAntesRef.current;
       cqStatusAntesRef.current = null;
-      const depois = cad?.id && antes === "confirmado" ? await lerStatusCq(cad.id) : null;
-      if (antes === "confirmado" && depois === "pendente") toast.success("O CQ voltou a pendente: a grade real zerou");
-      else toast.success("Salvo com sucesso");
+      // R13: só com o CQ confirmado antes vale reler o status depois (o toast espera essa leitura, DEPOIS do reset do colab
+      // abaixo — o `await` não pode adiar `baseBlocosRef=null`, senão o eco Realtime do próprio save cai no merge).
+      if (antes !== "confirmado") toast.success("Salvo com sucesso");
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       setEditing(false); // salvar re-trava ambas as abas que já estão finalizadas
       // Colab: limpa o touched/conflitos. Diferente do piloto (OC Tecido FECHA no save), esta
@@ -1010,6 +1011,18 @@ export function TerceirizadosDetail({
       conflitosRef.current = [];
       setConflitos([]);
       setUltimoMerge(null);
+      if (antes === "confirmado" && cad?.id) {
+        const cadId = cad.id;
+        void lerStatusCq(cadId).then((depois) => {
+          const msg = mensagemToastPosSavePcp(antes, depois);
+          if (msg.rebaixou) {
+            toast.warning(msg.texto);
+            // O servidor rebaixou em cascata CQ/Pós/Lançado/Direcionamento: as telas abaixo ficam velhas se não invalidar.
+            for (const queryKey of [["cq", cadId], ["cqpos-cq", cadId], ["producao-cq-list"], ["dir-list"], ["lancamentos-cards"], ["plan-cq"]])
+              qc.invalidateQueries({ queryKey });
+          } else toast.success(msg.texto);
+        });
+      }
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });

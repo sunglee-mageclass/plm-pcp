@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
 import { statusParaGate } from "@/lib/kanban-auto";
+import { modeloEnviadoAoKanban } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -1436,9 +1437,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
   }, [blocks, aviamentosState, etiquetasState, maoObraPorServico, draft?.custos_adicionais]);
 
   const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
-  // Kanban #14: status para os gates por posição (≡ `_kanban_status_gate`): com a chave do kanban automático ligada, a
-  // posição é a DERIVADA e Reprovado => null (nada passa — P-190 A); desligada => o status gravado (comportamento antigo).
-  const kanbanFicha = useFichaKanban({ modeloId, modeloData: modelo, enviada: !!draft?.enviado_cad, lancado: !!(modelo as any)?.lancado });
+  // Kanban #14: status para os gates por posição, mesma fonte do Sheet do Planejamento (`statusParaGate` ≡ `_kanban_status_gate`):
+  // com a chave do kanban automático ligada, a posição é a DERIVADA e Reprovado => null (nada passa — P-190 A); desligada =>
+  // o status gravado (comportamento antigo). `enviada` = `ordem_criacao_enviada` do servidor (NÃO `enviado_cad`).
+  const kanbanFicha = useFichaKanban({ modeloId, modeloData: modelo, enviada: modeloEnviadoAoKanban(modelo), lancado: !!(modelo as any)?.lancado });
   const statusGate = statusParaGate(kanbanFicha.kanbanCfg.kanban_automatico, kanbanFicha.derivacao, curStatus);
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
   // Gate de "Enviar à Explosão" (materializa CAD, `enviado_cad=true`) configurável por

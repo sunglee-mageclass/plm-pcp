@@ -756,6 +756,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     tabelasExtra: cad?.id ? [{ tabela: "producao_terceirizados", filtroColuna: "cad_id", valor: cad.id }] : [],
     onMudancaServidor: () => {
       qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
+      // N4 (R14): o CQ Pós (aba Pós, `CqPosView`) lê a MESMA linha de controle_qualidade sob outra key — o canal do pai a cobre.
+      qc.invalidateQueries({ queryKey: ["cqpos-cq", cad?.id] });
       qc.invalidateQueries({ queryKey: ["cq_variantes", cqRow?.id] });
       qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
     },

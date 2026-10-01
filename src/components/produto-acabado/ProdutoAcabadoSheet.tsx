@@ -1416,6 +1416,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       <PlanejamentoDetail
         modeloId={planModeloId}
         contexto="produto-acabado"
+        hostGuardaNavegacao={dirty}
         onClose={() => setPlanModeloId(null)}
         onSaved={() => qc.invalidateQueries({ queryKey: ["produtos-acabados", colecaoId] })}
       />

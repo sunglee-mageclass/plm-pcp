@@ -161,7 +161,12 @@ function PlanejamentoDetailConteudo({
   // (Descartar, ou fechar após salvar/excluir) — o blocker pediria confirmação DE NOVO. Ao fechar, a navegação passa.
   const fechandoRef = useRef(false);
   const onClose = useCallback(() => { fechandoRef.current = true; onCloseProp(); }, [onCloseProp]);
-  const navPermitida = useCallback(() => fechandoRef.current, []);
+  // Consome-se sozinho (1 leitura, como o `justClosingRef` do ProdutoAcabadoSheet): nunca vira bypass permanente (B6).
+  const navPermitida = useCallback(() => {
+    const v = fechandoRef.current;
+    fechandoRef.current = false;
+    return v;
+  }, []);
   // "Criar produto acabado" fecha pelo MESMO caminho do Voltar/X (pede confirmação se sujo) — o hook é chamado antes do guarda.
   const requestCloseRef = useRef<() => void>(() => {});
   // As 7 listas de opção vêm do hook (cache compartilhado com a página, sem refetch duplo).

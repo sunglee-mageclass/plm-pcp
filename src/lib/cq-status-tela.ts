@@ -61,3 +61,10 @@ export function baselineAposMerge<F, G>(p: {
 export function deveReaplicarStatusAposErro(e: unknown): boolean {
   return (e as { code?: string } | null | undefined)?.code !== "P0409";
 }
+
+/** R13: toast do Salvar do PCP. `antes`/`depois` = `controle_qualidade.status` lido ao redor da RPC (void). Só confirmado ->
+ *  pendente é o rebaixamento (grade real zerada); leitura que falhou (null) cai no toast neutro. */
+export function mensagemToastPosSavePcp(antes: string | null, depois: string | null): { rebaixou: boolean; texto: string } {
+  if (antes === "confirmado" && depois === "pendente") return { rebaixou: true, texto: "O CQ voltou a pendente: a grade real zerou" };
+  return { rebaixou: false, texto: "Salvo com sucesso" };
+}

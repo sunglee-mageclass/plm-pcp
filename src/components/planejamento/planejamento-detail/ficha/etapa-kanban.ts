@@ -56,6 +56,13 @@ export function statusEfetivoFicha(statusSalvo: string | null | undefined, envia
   return board.some((c) => c.key === s) ? s : (board[0]?.key ?? null);
 }
 
+/** "Ordem de Criação enviada" do modelo (servidor) — a entrada `enviada` do `useFichaKanban`. É `ordem_criacao_enviada`, NÃO
+ *  `enviado_cad` (esse é o "Enviado à Explosão", etapa posterior): com a coluna errada o RPC de condições e a derivação
+ *  nunca valem para o card ainda não enviado à Explosão (kanban #14, review M1). */
+export function modeloEnviadoAoKanban(row: unknown): boolean {
+  return (row as { ordem_criacao_enviada?: boolean | null } | null | undefined)?.ordem_criacao_enviada === true;
+}
+
 /** Campo REF visível na seção "Desenvolvimento"? Mesma régua do Dev (`refCampoVisivel`), com a posição
  *  DERIVADA quando a chave está ligada (decisão 10). Sem etapa (antes da Ordem de Criação) = escondido.
  *  M3 (fix round 1): `statusEfetivo` aqui é o **status CRU** do modelo (enviada ? statusSalvo : null),
