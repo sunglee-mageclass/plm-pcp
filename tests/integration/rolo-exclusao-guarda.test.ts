@@ -50,3 +50,37 @@ describe.skipIf(!hasDb)("Exclusão de rolo — guarda _rolo_em_uso (invariante #
     });
   });
 });
+
+// Achados MEDIOS R15a, B1 (migration 20261025200000): ocs_para_rolo (Rolos.tsx — criar rolo / "- Metragem") usa o saldo
+// do item pela regra do core (saldo_oc_item_m): a REPOSIÇÃO de troca ainda não recebida (substitui_item_id, recebida
+// NULL) tem saldo 0 e não aparece (antes contava a pedida — e o _criar_rolo_core recusava por falta de saldo).
+describe.skipIf(!hasDb)("ocs_para_rolo — reposição de troca não recebida fora da lista (R15a B1)", () => {
+  it("item original aparece com a recebida; a reposição pendente não aparece; kg → m pelo rendimento", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const art = (await um<{ id: string }>(c,
+        `insert into artigos (tenant_id,nome,unidade_medida,rendimento) values ($1,'ITEST-R15A-ROLO','kg',2.5) returning id`, [TENANT_TESTE])).id;
+      const vari = (await um<{ id: string }>(c,
+        `insert into variantes_tecido (tenant_id,artigo_id,nome_variante) values ($1,$2,'ITEST-R15A-ROLO') returning id`, [TENANT_TESTE, art])).id;
+      const oc = (await um<{ id: string }>(c,
+        `insert into ocs_tecido (tenant_id,status,numero_pedido,data_pedido,data_entrega) values ($1,'recebido','ITEST-R15A-OPR',current_date,current_date) returning id`,
+        [TENANT_TESTE])).id;
+      const orig = (await um<{ id: string }>(c,
+        `insert into ocs_tecido_itens (oc_tecido_id,artigo_id,variante_tecido_id,quantidade_pedida,quantidade_recebida) values ($1,$2,$3,40,40) returning id`,
+        [oc, art, vari])).id;
+      const rep = (await um<{ id: string }>(c,
+        `insert into ocs_tecido_itens (oc_tecido_id,artigo_id,variante_tecido_id,quantidade_pedida,quantidade_recebida,substitui_item_id) values ($1,$2,$3,16,null,$4) returning id`,
+        [oc, art, vari, orig])).id;
+      const lista = (await um<{ j: any[] }>(c, `select public.ocs_para_rolo() j`)).j;
+      const daOc = lista.find((o) => o.oc_id === oc);
+      if (!daOc) throw new Error("a OC do teste nao veio no ocs_para_rolo");
+      const itens = daOc.itens as any[];
+      expect(Number(itens.find((i) => i.oc_tecido_item_id === orig).disponivel_m)).toBe(100); // 40 kg × 2,5
+      expect(itens.find((i) => i.oc_tecido_item_id === rep)).toBeUndefined(); // antes: 16 kg × 2,5 = 40 m "disponível"
+      // depois que a reposição chega, ela aparece
+      await c.query(`update ocs_tecido_itens set quantidade_recebida=16 where id=$1`, [rep]);
+      const l2 = ((await um<{ j: any[] }>(c, `select public.ocs_para_rolo() j`)).j.find((o) => o.oc_id === oc).itens) as any[];
+      expect(Number(l2.find((i) => i.oc_tecido_item_id === rep).disponivel_m)).toBe(40);
+    });
+  });
+});
