@@ -6,7 +6,9 @@
 -- conferido; outro -> P0001 e nada muda. Nada gravado muda (so leitura).
 -- Ordem: o SITE volta ANTES ou junto (o dashboard.tsx novo cai no calculo antigo se aprovadoNaoLancado faltar, entao
 -- nao quebra; so volta a mostrar o numero antigo). LIFO da aplicacao: este inverso roda ANTES dos inversos da R11 e
--- anteriores; nenhum inverso anterior confere estes md5 (grep: 0).
+-- anteriores; nenhum inverso anterior confere estes md5 (grep: 0). ATENCAO (R16): esta volta confere
+-- _custo_unitario_modelos_core d26c7c9a, que a R16 (20261026200000_custo_real_mo_prevista, P-186 A) troca -> o inverso
+-- da R16 (20261026200000_custo_real_mo_prevista_down) roda ANTES deste.
 -- Travas: so CREATE OR REPLACE FUNCTION. Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
 
 SET client_encoding = 'UTF8';

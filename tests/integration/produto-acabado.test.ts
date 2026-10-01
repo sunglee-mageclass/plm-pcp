@@ -320,7 +320,8 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
 
       const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
 
-      // insumos_por_peça = Σ (consumo × custo_previsto) = 2 × 1,5 = 3
+      // insumos_por_peça = Σ custo_previsto = 1,5 (R16, preço M1: custo_previsto da linha JÁ é preço × consumo × (1+perda);
+      // antes a fonte única multiplicava o consumo de novo: 2 × 1,5 = 3)
       await c.query(
         `insert into modelo_etiquetas (tenant_id, modelo_id, consumo, custo_previsto) values ('${TENANT_TESTE}', $1, 2, 1.5)`,
         [modelo.id],
@@ -329,9 +330,9 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
       const custoDe = async () =>
         (await um<any>(c, `select custo_unitario_modelos(array[$1::uuid]) -> $1::text as v`, [modelo.id])).v;
 
-      // Antes de existir OC vinculada: previsto já reflete o produto (79,20 + 3 insumos); sem OC, real=null/não-confirmado
+      // Antes de existir OC vinculada: previsto já reflete o produto (79,20 + 1,5 insumos); sem OC, real=null/não-confirmado
       const antes = await custoDe();
-      expect(Number(antes.previsto)).toBeCloseTo(82.2, 2);
+      expect(Number(antes.previsto)).toBeCloseTo(80.7, 2);
       expect(antes.real).toBeNull();
       expect(antes.confirmado).toBe(false);
 
@@ -346,7 +347,7 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
 
       // OC vinculada mas ainda 'encomendado' (não recebida): real continua null, previsto igual
       const encomendado = await custoDe();
-      expect(Number(encomendado.previsto)).toBeCloseTo(82.2, 2);
+      expect(Number(encomendado.previsto)).toBeCloseTo(80.7, 2);
       expect(encomendado.real).toBeNull();
       expect(encomendado.confirmado).toBe(false);
 
@@ -359,10 +360,10 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
         ],
       );
 
-      // Recebida (status='recebido'): real = valor_unitario_real (79,20) + insumos (3) = 82,20; confirmado=true
+      // Recebida (status='recebido'): real = valor_unitario_real (79,20) + insumos (1,5) = 80,70; confirmado=true
       const depois = await custoDe();
-      expect(Number(depois.previsto)).toBeCloseTo(82.2, 2);
-      expect(Number(depois.real)).toBeCloseTo(82.2, 2);
+      expect(Number(depois.previsto)).toBeCloseTo(80.7, 2);
+      expect(Number(depois.real)).toBeCloseTo(80.7, 2);
       expect(depois.confirmado).toBe(true);
     });
   });
