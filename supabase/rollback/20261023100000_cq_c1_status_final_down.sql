@@ -21,7 +21,7 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '2fbf741d11b7f0131a99999e2f45fcf4'),
+      ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '3e8dc987ed35806afbad8cece86562f0'),
       ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'e5a6f830516e463911529664a4940883'),
       ('public.fn_rebaixa_lancado_cq()', '4aea9a4ec6083c8445ac86e92f88b049'),
       ('public._aplicar_reais_do_grade_detalhe(uuid,uuid)', '00f804865d9ad71c41c37351dc06178c'),

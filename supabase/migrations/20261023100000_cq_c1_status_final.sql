@@ -12,6 +12,8 @@
 --            [fix round 1, G-MIGRATION L1] trava o CQ do cad logo depois do advisory lock (FOR UPDATE; sem CQ = no-op):
 --            mesma ordem das RPCs do CQ (controle_qualidade -> bloco-fonte), sem deadlock com o rebaixamento.
 --            [L3] o #Erro 'cq' so acende se o UPDATE do CQ pegou a linha (IF FOUND).
+--            [fix round 2, N2] _salvar_cq_core tambem trava o CQ do cad PRIMEIRO em todo caminho (com ou sem
+--            _rev_base.cq; CQ inexistente = no-op), antes do bloco-fonte e da cad_grades - mesma ordem do PCP.
 --   prod #5  fn_rebaixa_lancado_cq (funcao do gatilho trg_rebaixa_lancado_cq; o gatilho NAO muda): saia cedo se o
 --            modelo nao estava lancado. Agora, quando o CQ deixa de estar liberado (Pre ou Pos), alem do lancado,
 --            cad.direcionamento_status separado -> pendente (direcionamento_confirmado_at = NULL) + #Erro
@@ -26,7 +28,7 @@
 -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06) - md5 "antes" da copia 54422 = producao.
 --   public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)
 --     ANTES  8ce76165ffa3ae67d5cdb12eb95bb620  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS 2fbf741d11b7f0131a99999e2f45fcf4  (este arquivo; reaplicar = no-op)
+--     DEPOIS 3e8dc987ed35806afbad8cece86562f0  (este arquivo; reaplicar = no-op)
 --   public.salvar_terceirizados(uuid,jsonb,text,jsonb)
 --     ANTES  53ab6f802117489e1f794aa411e755ba  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
 --     DEPOIS e5a6f830516e463911529664a4940883  (este arquivo; reaplicar = no-op)
@@ -59,7 +61,7 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _r13_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _r13_md5_aceitos VALUES
   ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '8ce76165ffa3ae67d5cdb12eb95bb620', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '2fbf741d11b7f0131a99999e2f45fcf4', 'depois'),
+  ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '3e8dc987ed35806afbad8cece86562f0', 'depois'),
   ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '53ab6f802117489e1f794aa411e755ba', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'e5a6f830516e463911529664a4940883', 'depois'),
   ('public.fn_rebaixa_lancado_cq()', 'ad991b81358029c2df58c05042f228d5', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
@@ -106,6 +108,11 @@ BEGIN
   IF v_tenant <> public.get_user_tenant_id() AND NOT public.is_super_admin() THEN
     RAISE EXCEPTION 'Sem permissão para este CAD';
   END IF;
+
+  -- (medios R13, N2) trava o CQ do cad PRIMEIRO, em todo caminho (com ou sem _rev_base.cq):
+  -- mesma ordem do salvar_terceirizados (controle_qualidade → bloco-fonte → cad_grades).
+  -- CQ ainda inexistente = nenhuma linha, nenhum efeito.
+  PERFORM 1 FROM public.controle_qualidade WHERE cad_id = _cad_id FOR UPDATE;
 
   v_fonte := public._resolver_fonte_confeccao(_cad_id);
 

@@ -521,7 +521,7 @@ describe.skipIf(!hasDb)("R13 — md5 + ACL (guarda da migration 20261023100000)"
     await withTx(async (c) => {
       const esperado: Record<string, { md5: string; acl: string }> = {
         "public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)": {
-          md5: "2fbf741d11b7f0131a99999e2f45fcf4",
+          md5: "3e8dc987ed35806afbad8cece86562f0",
           acl: "{postgres=X/postgres,service_role=X/postgres}",
         },
         "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": {
@@ -875,6 +875,66 @@ describe.skipIf(!hasDb || !ehBancoLocal())(
         const res = await pcp;
         expect(res.ok).toBe(false);
         expect(res.code).toBe("55P03"); // lock_timeout no CQ
+      } finally {
+        await a.query("ROLLBACK").catch(() => undefined);
+        await b.query("ROLLBACK").catch(() => undefined);
+        await a.end();
+        await b.end();
+      }
+    });
+  },
+);
+
+describe.skipIf(!hasDb || !ehBancoLocal())(
+  "R13 fix round 2 — N2: _salvar_cq_core SEM _rev_base trava o CQ ANTES do bloco-fonte (só cópia local)",
+  () => {
+    it("com o CQ travado por outra transação, salvar_cq(_rev_base NULL) espera no CQ sem ter tocado o bloco-fonte", async () => {
+      const a = new PgClient({ connectionString: dbUrl()!, ssl: false });
+      const b = new PgClient({ connectionString: dbUrl()!, ssl: false });
+      await a.connect();
+      await b.connect();
+      try {
+        // fixture JÁ gravada: cad da Loja Teste com CQ E bloco-fonte (sem fonte o texto antigo também
+        // travaria o CQ antes de qualquer bloco — o teste não distinguiria)
+        const fx = await um<{ cad_id: string; fonte: string } | undefined>(
+          a,
+          `select q.cad_id, _resolver_fonte_confeccao(q.cad_id) as fonte
+             from controle_qualidade q
+            where q.tenant_id = $1 and _resolver_fonte_confeccao(q.cad_id) is not null
+            order by q.cad_id limit 1`,
+          [TENANT_TESTE],
+        );
+        if (!fx) throw new Error("fixture ausente: nenhum cad da Loja Teste com CQ e bloco-fonte");
+        await a.query("BEGIN");
+        await a.query(`select 1 from controle_qualidade where cad_id=$1 for update`, [fx.cad_id]);
+        await b.query("BEGIN");
+        await comoUsuario(b);
+        await b.query("SET LOCAL lock_timeout = '2000ms'");
+        const bPid = (await um<{ pid: number }>(b, `select pg_backend_pid() pid`)).pid;
+        const cq = b
+          .query(`select salvar_cq($1,'{}'::jsonb,'[]'::jsonb,'[]'::jsonb,false,null)`, [fx.cad_id])
+          .then(
+            () => ({ ok: true as const, code: "" }),
+            (e: { code?: string }) => ({ ok: false as const, code: String(e.code) }),
+          );
+        let esperando = false;
+        for (let i = 0; i < 30 && !esperando; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          const w = await um<{ w: string | null }>(
+            a,
+            `select wait_event_type w from pg_stat_activity where pid=$1`,
+            [bPid],
+          );
+          esperando = w?.w === "Lock";
+        }
+        expect(esperando, "o salvar_cq devia estar esperando a trava do CQ").toBe(true);
+        // enquanto espera, o bloco-fonte está LIVRE (o salvar_cq ainda não o tocou)
+        await a.query(`select 1 from producao_terceirizados where id=$1 for update nowait`, [
+          fx.fonte,
+        ]);
+        const res = await cq;
+        expect(res.ok).toBe(false);
+        expect(res.code).toBe("55P03");
       } finally {
         await a.query("ROLLBACK").catch(() => undefined);
         await b.query("ROLLBACK").catch(() => undefined);
