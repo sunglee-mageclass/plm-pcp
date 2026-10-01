@@ -60,7 +60,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
   const {
     produtoRevenda, produtoRevendaLoading,
     markupAtacadoInput, setMarkupAtacadoInput, markupVarejoInput, setMarkupVarejoInput,
-    markupAtacadoBaseRef, markupVarejoBaseRef, salvarMarkupsRevenda,
+    markupAtacadoBaseRef, markupVarejoBaseRef, enviadoAtacadoRef, enviadoVarejoRef, salvarMarkupsRevenda,
     precoAtacadoDraft, setPrecoAtacadoDraft, precoVarejoDraft, setPrecoVarejoDraft, salvarPrecosFixoRevenda,
   } = rv;
   return (
@@ -86,10 +86,10 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           className="pr-6"
                           value={markupAtacadoInput ?? 0}
                           // P-53 A (fix 1, I-1b): grava na hora via salvar_markups_produto_acabado — SÓ do Planejamento.
-                          disabled={planBloqueado}
+                          disabled={planBloqueado || salvarMarkupsRevenda.isPending}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupCanalIntocado(produtoRevenda?.markup_varejo, markupVarejoInput) }); }}
+                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupCanalIntocado(produtoRevenda?.markup_varejo, markupVarejoInput, enviadoVarejoRef.current) }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -103,10 +103,10 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           className="pr-6"
                           value={markupVarejoInput ?? 0}
                           // P-53 A (fix 1, I-1b): mesma trava do markup atacado acima + Integração (D34/R8).
-                          disabled={planBloqueado || travaVarejo}
+                          disabled={planBloqueado || travaVarejo || salvarMarkupsRevenda.isPending}
                           onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupCanalIntocado(produtoRevenda?.markup_atacado, markupAtacadoInput), markup_varejo: markupVarejoInput }); }}
+                          onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupCanalIntocado(produtoRevenda?.markup_atacado, markupAtacadoInput, enviadoAtacadoRef.current), markup_varejo: markupVarejoInput }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>

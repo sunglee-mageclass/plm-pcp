@@ -457,9 +457,16 @@ export function fmtMoney(v: number | null | undefined): string {
  *  markup derivado do RASCUNHO apagaria o preço fixo do canal intocado; por isso o canal não tocado
  *  manda SEMPRE o valor do SERVIDOR — `null` quando o canal usa preço fixo (null é valor REAL, nunca
  *  cai no rascunho). `undefined` = servidor ausente (card ainda sem leitura) → cai no rascunho. */
+/** Último markup ENVIADO com sucesso a um canal + o que o servidor mostrava naquela hora. Vale enquanto o servidor ainda
+ *  mostra `servidorAntes` (refetch não chegou); depois o servidor volta a mandar. Evita a corrida: blur atacado e logo o
+ *  blur varejo antes do refetch reenviariam o valor VELHO e reverteriam/NULL-ariam o preço. */
+export type MarkupEnviado = { valor: number | null; servidorAntes: number | null | undefined };
+
 export function markupCanalIntocado(
   markupServidor: number | null | undefined,
   markupDraft: number | null,
+  enviado?: MarkupEnviado | null,
 ): number | null {
+  if (enviado && markupServidor === enviado.servidorAntes) return enviado.valor;
   return markupServidor === undefined ? markupDraft : markupServidor;
 }

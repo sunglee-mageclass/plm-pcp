@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { supabase } from "@/integrations/supabase/client";
-import { erroValidacao } from "@/components/produto-acabado/shared";
+import { erroValidacao, type MarkupEnviado } from "@/components/produto-acabado/shared";
 import { type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 
 export type UseRevendaPlanejamentoArgs = {
@@ -107,7 +107,12 @@ export function useRevendaPlanejamento({
     markupVarejoBaseRef.current = markupVarejoEfetivo ?? null;
     if (limpo) setMarkupVarejoInput(markupVarejoEfetivo ?? null);
   }
+  // Preço A2: último markup ENVIADO por canal (e o que o servidor mostrava) — o canal NÃO tocado de um 2º blur, antes do
+  // refetch chegar, reenvia isto (não o valor velho do servidor). Ver `markupCanalIntocado`.
+  const enviadoAtacadoRef = useRef<MarkupEnviado | null>(null);
+  const enviadoVarejoRef = useRef<MarkupEnviado | null>(null);
   const salvarMarkupsRevenda = useMutation({
+    onMutate: () => ({ atacadoAntes: produtoRevenda?.markup_atacado, varejoAntes: produtoRevenda?.markup_varejo }),
     mutationFn: async (payload: { markup_atacado: number | null; markup_varejo: number | null }) => {
       if (!produtoRevenda) return;
       const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
@@ -117,7 +122,9 @@ export function useRevendaPlanejamento({
       });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_d, vars, ctx) => {
+      enviadoAtacadoRef.current = { valor: vars.markup_atacado, servidorAntes: ctx?.atacadoAntes };
+      enviadoVarejoRef.current = { valor: vars.markup_varejo, servidorAntes: ctx?.varejoAntes };
       // `modelos.preco_atacado`/`preco_venda` mudaram no servidor (recompute) — refetch
       // ["modelo", modeloId] pra o rev otimista do colab não ficar defasado (mesmo cuidado
       // de `invalidarAposAprovarMO`: sem isto, o próximo "Salvar" do card comparava um rev
@@ -205,7 +212,7 @@ export function useRevendaPlanejamento({
   return {
     produtoRevenda, produtoRevendaLoading,
     markupAtacadoInput, setMarkupAtacadoInput, markupVarejoInput, setMarkupVarejoInput,
-    markupAtacadoBaseRef, markupVarejoBaseRef,
+    markupAtacadoBaseRef, markupVarejoBaseRef, enviadoAtacadoRef, enviadoVarejoRef,
     precoAtacadoDraft, setPrecoAtacadoDraft, precoVarejoDraft, setPrecoVarejoDraft,
     salvarMarkupsRevenda, salvarPrecosFixoRevenda,
     criarProdutoAcabado,

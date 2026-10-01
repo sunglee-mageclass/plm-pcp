@@ -40,7 +40,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
-  variantesBatemComTotal, erroValidacao, markupCanalIntocado,
+  variantesBatemComTotal, erroValidacao, markupCanalIntocado, type MarkupEnviado,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
@@ -354,14 +354,22 @@ export function ProdutoCard({
       toast.error(mensagemErro(e, "Erro ao salvar o preço."));
     },
   });
+  // Preço A2: último markup ENVIADO por canal — o canal NÃO tocado de um 2º blur (antes do refetch) reenvia isto.
+  const enviadoAtacadoRef = useRef<MarkupEnviado | null>(null);
+  const enviadoVarejoRef = useRef<MarkupEnviado | null>(null);
   const salvarMarkupMut = useMutation({
+    onMutate: () => ({ atacadoAntes: markupAtacadoServidor, varejoAntes: markupVarejoServidor }),
     mutationFn: async (p: { markupAtacado: number | null; markupVarejo: number | null }) => {
       const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
         _produto_id: produto.id, _markup_atacado: p.markupAtacado, _markup_varejo: p.markupVarejo,
       });
       if (error) throw error;
     },
-    onSuccess: invalidarPrecoRevenda,
+    onSuccess: (_d, vars, ctx) => {
+      enviadoAtacadoRef.current = { valor: vars.markupAtacado, servidorAntes: ctx?.atacadoAntes };
+      enviadoVarejoRef.current = { valor: vars.markupVarejo, servidorAntes: ctx?.varejoAntes };
+      invalidarPrecoRevenda();
+    },
     onError: (e: any) => {
       invalidarEstadoSeTravado(qc, e);
       toast.error(mensagemErro(e, "Erro ao salvar o markup."));
@@ -1008,6 +1016,7 @@ export function ProdutoCard({
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
+                            disabled={salvarMarkupMut.isPending}
                             value={markupAtacadoExib ?? 0}
                             onFocus={() => { markupAtacadoBaseRef.current = produto.markup_atacado ?? null; }}
                             onChange={(e) => onChange({ ...produto, markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_atacado_fixo: null })}
@@ -1019,7 +1028,7 @@ export function ProdutoCard({
                               if (mk === markupAtacadoBaseRef.current) return;
                               // Preço A2: o canal NÃO tocado (varejo) manda SEMPRE o markup do SERVIDOR
                               // (null se tem preço fixo) — nunca o draft; senão a RPC apaga o preço fixo dele.
-                              const markupVarejoParaEnviar = markupCanalIntocado(markupVarejoServidor, produto.markup_varejo);
+                              const markupVarejoParaEnviar = markupCanalIntocado(markupVarejoServidor, produto.markup_varejo, enviadoVarejoRef.current);
                               salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: markupVarejoParaEnviar });
                             }}
                           />
@@ -1032,7 +1041,7 @@ export function ProdutoCard({
                         <div className="relative">
                           <NumberInput
                             data-colab-path={`card:${produto.id}:markup-var`}
-                            disabled={travaIntegracao.has("preco_venda")}
+                            disabled={travaIntegracao.has("preco_venda") || salvarMarkupMut.isPending}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
@@ -1050,7 +1059,7 @@ export function ProdutoCard({
                               // reparseia o evento nativo de blur.
                               const mk = produto.markup_varejo ?? null;
                               if (mk === markupVarejoBaseRef.current) return;
-                              salvarMarkupMut.mutate({ markupAtacado: markupCanalIntocado(markupAtacadoServidor, produto.markup_atacado), markupVarejo: mk });
+                              salvarMarkupMut.mutate({ markupAtacado: markupCanalIntocado(markupAtacadoServidor, produto.markup_atacado, enviadoAtacadoRef.current), markupVarejo: mk });
                             }}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>

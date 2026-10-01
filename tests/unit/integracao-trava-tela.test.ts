@@ -94,10 +94,10 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
     // Importado desligado) ao lado da trava da Integração — ver describe "Fix round 1 — I-2" mais abaixo.
     expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
     const r = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
-    expect(r.match(/disabled=\{planBloqueado \|\| travaVarejo\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
-    expect(r.match(/disabled=\{planBloqueado\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
+    expect(r.match(/disabled=\{planBloqueado \|\| travaVarejo( \|\| salvarMarkupsRevenda\.isPending)?\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
+    expect(r.match(/disabled=\{planBloqueado( \|\| salvarMarkupsRevenda\.isPending)?\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
     expect(r).toMatch(/\{podeEditarPreco && !travaPrecoAnterior \? \(/);
-    expect(r).toMatch(/markup_varejo: markupCanalIntocado\(produtoRevenda\?\.markup_varejo, markupVarejoInput\)/);
+    expect(r).toMatch(/markup_varejo: markupCanalIntocado\(produtoRevenda\?\.markup_varejo, markupVarejoInput, enviadoVarejoRef\.current\)/);
   });
   it("Info Gerais trava Nome, NCM, Título, Descrição e medidas por coluna", () => {
     const i = ler("src/components/planejamento/planejamento-detail/InfoGeraisSecao.tsx");
@@ -1539,8 +1539,8 @@ describe("F4 — Produto Acabado e Importado", () => {
     expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(produto\.modelo_id\);/);
     expect(s).toMatch(/disabled=\{identidadeTravada \|\| travaIntegracao\.has\("nome"\)\}/);
     expect(s).toMatch(/disabled=\{enviandoFoto \|\| travaIntegracao\.has\("fotos_modelo"\)\}/);
-    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
-    expect(s).toMatch(/data-colab-path=\{`card:\$\{produto\.id\}:markup-var`\}\n\s+disabled=\{travaIntegracao\.has\("preco_venda"\)\}/);
+    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)( \|\| salvarMarkupMut\.isPending)?\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
+    expect(s).toMatch(/data-colab-path=\{`card:\$\{produto\.id\}:markup-var`\}\n\s+disabled=\{travaIntegracao\.has\("preco_venda"\)/);
     expect(s).toMatch(/<SeloIntegracao estado=\{estadoIntegracao\}/);
   });
   it("PI: Valor atacado/varejo = rascunho do preço FIXO, gravado no SALVAR (D14/R1); trava só o varejo marcado (R8)", () => {

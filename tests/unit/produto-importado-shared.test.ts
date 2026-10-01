@@ -751,6 +751,27 @@ describe("markupCanalIntocado — preço A2 (nunca reenvia markup derivado do ra
   it("servidor undefined (ausente): cai no draft (retrocompatível)", () => {
     expect(markupCanalIntocado(undefined, 3)).toBe(3);
   });
+  it("corrida: blur atacado e logo o blur varejo ANTES do refetch — usa o último enviado, não o servidor velho", () => {
+    // servidor velho: atacado 2, varejo null (preço fixo). Usuário muda atacado p/ 3 → RPC ok (enviou atacado=3, varejo=null).
+    const enviadoAtacado = { valor: 3, servidorAntes: 2 as number | null };
+    // 2º blur (varejo) antes do refetch: o servidor ainda diz atacado=2 → o canal intocado (atacado) manda 3, não 2.
+    expect(markupCanalIntocado(2, 2, enviadoAtacado)).toBe(3);
+    // refetch chegou (servidor agora 3): volta a valer o servidor.
+    expect(markupCanalIntocado(3, 9, enviadoAtacado)).toBe(3);
+    // refetch mudou por outra pessoa (servidor 5): o servidor vence.
+    expect(markupCanalIntocado(5, 9, enviadoAtacado)).toBe(5);
+    // canal com preço fixo (null) enviado como null segue null até o refetch.
+    expect(markupCanalIntocado(null, 4, { valor: null, servidorAntes: null })).toBeNull();
+  });
+  it("os 2 sites guardam o último enviado (onMutate/onSuccess) e travam a edição enquanto a mutação está pendente", () => {
+    const rs = readFileSync("src/components/planejamento/planejamento-detail/useRevendaPlanejamento.ts", "utf8");
+    const rsx = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
+    const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");
+    expect(rs).toMatch(/enviadoAtacadoRef/);
+    expect(rsx).toMatch(/salvarMarkupsRevenda\.isPending/);
+    expect(pc).toMatch(/enviadoAtacadoRef/);
+    expect(pc).toMatch(/salvarMarkupMut\.isPending/);
+  });
   it("blur do atacado e do varejo (Planejamento e Produto Acabado) usam o helper", () => {
     const rs = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
     const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");
