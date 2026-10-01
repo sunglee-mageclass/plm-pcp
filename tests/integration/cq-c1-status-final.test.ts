@@ -8,7 +8,8 @@
 // Txn revertida (BEGIN…ROLLBACK): nada é gravado. Fixture ausente = FALHA (nunca passa calado).
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { Client as PgClient } from "pg";
+import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, dbUrl, ehBancoLocal } from "./db";
 import { mensagemErro } from "@/lib/erro-mensagem";
 
 const TAM = "38";
@@ -524,15 +525,20 @@ describe.skipIf(!hasDb)("R13 — md5 + ACL (guarda da migration 20261023100000)"
           acl: "{postgres=X/postgres,service_role=X/postgres}",
         },
         "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": {
-          md5: "a87f0e961fe91114b4dc6f981f652177",
+          md5: "e5a6f830516e463911529664a4940883",
           acl: "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
         },
         "public.fn_rebaixa_lancado_cq()": {
-          md5: "3bff4214c95be84f342a4e0be2bddaff",
+          md5: "4aea9a4ec6083c8445ac86e92f88b049",
           acl: "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
         },
         "public._aplicar_reais_do_grade_detalhe(uuid,uuid)": {
           md5: "00f804865d9ad71c41c37351dc06178c",
+          acl: "{postgres=X/postgres,service_role=X/postgres}",
+        },
+        // fix round 1 (L2): chamada pelo gatilho; intocada
+        "public._cq_liberado(uuid)": {
+          md5: "55a5f7ad704a061087e0fc154d4605e7",
           acl: "{postgres=X/postgres,service_role=X/postgres}",
         },
       };
@@ -584,3 +590,297 @@ describe.skipIf(!hasDb)("R13 — md5 + ACL (guarda da migration 20261023100000)"
     });
   });
 });
+
+// ───────────────────────── fix round 1 (G-MIGRATION L1/L2/L5) ─────────────────────────
+
+/** CAD limpo com >= 2 variantes no tecido principal. Sem fixture → FALHA. */
+async function cadDuasVariantes(
+  c: Client,
+): Promise<{ cadId: string; modeloId: string; v: { num: number; vid: string }[] }> {
+  const r = await um<
+    { cad_id: string; modelo_id: string; vs: { num: number; vid: string }[] } | undefined
+  >(
+    c,
+    `select c.id as cad_id, c.modelo_id,
+            jsonb_agg(jsonb_build_object('num', ctv.ordem, 'vid', ctv.variante_tecido_id) order by ctv.ordem) as vs
+       from cad c
+       join cad_tecidos ct on ct.cad_id = c.id and ct.tipo='tecido' and ct.numero=1
+       join cad_tecido_variantes ctv on ctv.cad_tecido_id = ct.id
+      where c.tenant_id=$1 and c.modelo_id is not null
+        and not exists (select 1 from producao_terceirizados pt where pt.cad_id=c.id)
+        and not exists (select 1 from controle_qualidade q where q.cad_id=c.id)
+        and not exists (select 1 from direcionamento d where d.cad_id=c.id)
+        and not exists (select 1 from direcionamento_lojas dl where dl.cad_id=c.id)
+      group by c.id, c.modelo_id
+     having count(distinct ctv.ordem) >= 2
+      order by c.id limit 1`,
+    [TENANT_TESTE],
+  );
+  if (!r)
+    throw new Error(
+      "fixture ausente: nenhum CAD limpo com >= 2 variantes no tecido principal (Loja Teste)",
+    );
+  return { cadId: r.cad_id, modeloId: r.modelo_id, v: r.vs.slice(0, 2) };
+}
+
+describe.skipIf(!hasDb)(
+  "R13 fix round 1 — L5: P-192 em cadeia, multi-variante e Pós já pendente",
+  () => {
+    it("PCP zera com o modelo LANÇADO e Direcionamento separado → CQ pendente → lançado=false + #Erro lancamentos; Direcionamento pendente + #Erro", async () => {
+      await withTx(async (c) => {
+        await comoUsuario(c);
+        const s = await cadLimpo(c);
+        const { catId, blocoId } = await criarFonte(c, s, 10);
+        await confirmarCq(c, s, 10);
+        const loja = await um<{ id: string } | undefined>(
+          c,
+          `select id from lojas_direcionamento where tenant_id=$1 order by ordem nulls last, id limit 1`,
+          [TENANT_TESTE],
+        );
+        if (!loja) throw new Error("fixture ausente: nenhuma loja de direcionamento na Loja Teste");
+        await c.query(
+          `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades) values ($1,$2,$3,$4,$5::jsonb)`,
+          [TENANT_TESTE, s.cadId, loja.id, s.vnum, JSON.stringify({ [TAM]: 10 })],
+        );
+        await c.query(
+          `update cad set direcionamento_status='separado', direcionamento_confirmado_at=now() where id=$1`,
+          [s.cadId],
+        );
+        await c.query(
+          `update modelos set lancado=true, revisao_pendente = coalesce(revisao_pendente,'{}'::jsonb) - 'direcionamento' - 'lancamentos' - 'cq' where id=$1`,
+          [s.modeloId],
+        );
+        expect((await um<{ l: boolean }>(c, `select _cq_liberado($1) l`, [s.cadId])).l).toBe(true);
+        const blocos = JSON.stringify([
+          {
+            id: blocoId,
+            categoria_terceirizado_id: catId,
+            ativo: true,
+            detalhado: true,
+            grade_detalhe: { [s.vid]: { [TAM]: { recebida: 0 } } },
+          },
+        ]);
+        await c.query(`select salvar_terceirizados($1,$2::jsonb,null)`, [s.cadId, blocos]);
+        expect((await cqDe(c, s.cadId)).status).toBe("pendente");
+        const r = await revisao(c, s.modeloId);
+        expect(r.lancado).toBe(false);
+        expect(r.rp.cq).toBe(true);
+        expect(r.rp.lancamentos).toBe(true);
+        expect(r.rp.direcionamento).toBe(true);
+        const cad = await um<{ st: string; at: string | null }>(
+          c,
+          `select direcionamento_status st, direcionamento_confirmado_at at from cad where id=$1`,
+          [s.cadId],
+        );
+        expect(cad.st).toBe("pendente");
+        expect(cad.at).toBeNull();
+      });
+    });
+
+    it("2 variantes: zerar UMA (a outra > 0) mantém o CQ confirmado; zerar AS DUAS rebaixa", async () => {
+      await withTx(async (c) => {
+        await comoUsuario(c);
+        const m = await cadDuasVariantes(c);
+        const [a, b] = m.v;
+        const cat = await um<{ id: string }>(
+          c,
+          `insert into categorias_terceirizado (tenant_id, nome, ativo) values ($1,'Oficina Teste R13 MV',true) returning id`,
+          [TENANT_TESTE],
+        );
+        const gd = (ra: number, rb: number) => ({
+          [a.vid]: { [TAM]: { recebida: ra } },
+          [b.vid]: { [TAM]: { recebida: rb } },
+        });
+        await c.query(`select salvar_terceirizados($1,$2::jsonb,null)`, [
+          m.cadId,
+          JSON.stringify([
+            {
+              categoria_terceirizado_id: cat.id,
+              ativo: true,
+              detalhado: true,
+              grade_detalhe: gd(4, 6),
+            },
+          ]),
+        ]);
+        const fonte = await um<{ f: string | null }>(c, `select _resolver_fonte_confeccao($1) f`, [
+          m.cadId,
+        ]);
+        if (!fonte?.f) throw new Error("fixture: bloco nao virou fonte");
+        const variantes = JSON.stringify([
+          { variante_numero: a.num, etapa: "recebimento", grades: { [TAM]: 4 }, grade_total: 4 },
+          { variante_numero: b.num, etapa: "recebimento", grades: { [TAM]: 6 }, grade_total: 6 },
+        ]);
+        const r1 = await um<{ r: { status: string } }>(
+          c,
+          `select salvar_cq($1,'{}'::jsonb,$2::jsonb,'[]'::jsonb,true) r`,
+          [m.cadId, variantes],
+        );
+        expect(r1.r.status).toBe("confirmado");
+        const bloco = (ra: number, rb: number) =>
+          JSON.stringify([
+            {
+              id: fonte.f,
+              categoria_terceirizado_id: cat.id,
+              ativo: true,
+              detalhado: true,
+              grade_detalhe: gd(ra, rb),
+            },
+          ]);
+        await c.query(`select salvar_terceirizados($1,$2::jsonb,null)`, [m.cadId, bloco(0, 6)]);
+        expect((await cqDe(c, m.cadId)).status).toBe("confirmado");
+        expect((await revisao(c, m.modeloId)).rp.cq ?? false).toBe(false);
+        const reais = await um<{ t: number }>(
+          c,
+          `select coalesce(sum(grade_total_real),0)::int t from cad_grades where cad_id=$1 and variante_numero = any($2::int[])`,
+          [m.cadId, [a.num, b.num]],
+        );
+        expect(reais.t).toBe(6);
+        await c.query(`select salvar_terceirizados($1,$2::jsonb,null)`, [m.cadId, bloco(0, 0)]);
+        expect((await cqDe(c, m.cadId)).status).toBe("pendente");
+        expect((await revisao(c, m.modeloId)).rp.cq).toBe(true);
+      });
+    });
+
+    it("Pós JÁ pendente: PCP zera → Pré vai a pendente, Pós continua pendente (confirmado_pos_at intocado) + #Erro 'cq'", async () => {
+      await withTx(async (c) => {
+        await comoUsuario(c);
+        const s = await cadLimpo(c);
+        const { catId, blocoId } = await criarFonte(c, s, 10);
+        await confirmarCq(c, s, 10);
+        await c.query(
+          `update controle_qualidade set status_pos='pendente', confirmado_pos_at=null where cad_id=$1`,
+          [s.cadId],
+        );
+        const blocos = JSON.stringify([
+          {
+            id: blocoId,
+            categoria_terceirizado_id: catId,
+            ativo: true,
+            detalhado: true,
+            grade_detalhe: { [s.vid]: { [TAM]: { recebida: 0 } } },
+          },
+        ]);
+        await c.query(`select salvar_terceirizados($1,$2::jsonb,null)`, [s.cadId, blocos]);
+        const cq = await cqDe(c, s.cadId);
+        expect(cq.status).toBe("pendente");
+        expect(cq.status_pos).toBe("pendente");
+        expect(cq.confirmado_pos_at).toBeNull();
+        expect((await revisao(c, s.modeloId)).rp.cq).toBe(true);
+      });
+    });
+  },
+);
+
+describe.skipIf(!hasDb)(
+  "R13 fix round 1 — L2: bloco pós com ativo NULL conta como pós (mesmo predicado do _cq_liberado)",
+  () => {
+    it("desmarcar o Pós com bloco pós-costura de ativo NULL → Direcionamento separado vai a pendente + #Erro", async () => {
+      await withTx(async (c) => {
+        await comoUsuario(c);
+        const s = await cadLimpo(c, 4);
+        await confirmarCq(c, s, 5);
+        const cat = await um<{ id: string }>(
+          c,
+          `insert into categorias_terceirizado (tenant_id, nome, ativo, etapa) values ($1,'Lavanderia Teste R13 NULL',true,'pos_costura') returning id`,
+          [TENANT_TESTE],
+        );
+        await c.query(
+          `insert into producao_terceirizados (cad_id, tenant_id, categoria_terceirizado_id, ativo) values ($1,$2,$3,NULL)`,
+          [s.cadId, TENANT_TESTE, cat.id],
+        );
+        await c.query(
+          `update controle_qualidade set status_pos='confirmado', confirmado_pos_at=now() where cad_id=$1`,
+          [s.cadId],
+        );
+        await c.query(
+          `insert into direcionamento (tenant_id, cad_id, variante_numero) values ($1,$2,$3)`,
+          [TENANT_TESTE, s.cadId, s.vnum],
+        );
+        await c.query(
+          `update cad set direcionamento_status='separado', direcionamento_confirmado_at=now() where id=$1`,
+          [s.cadId],
+        );
+        // pré-condição: o bloco de ativo NULL É contado pelo _cq_liberado (Pós exigido e confirmado → liberado)
+        expect((await um<{ l: boolean }>(c, `select _cq_liberado($1) l`, [s.cadId])).l).toBe(true);
+        await c.query(`select desmarcar_cq_pos($1)`, [s.cadId]);
+        expect((await um<{ l: boolean }>(c, `select _cq_liberado($1) l`, [s.cadId])).l).toBe(false);
+        expect(
+          (
+            await um<{ st: string }>(c, `select direcionamento_status st from cad where id=$1`, [
+              s.cadId,
+            ])
+          ).st,
+        ).toBe("pendente");
+        expect((await revisao(c, s.modeloId)).rp.direcionamento).toBe(true);
+      });
+    });
+  },
+);
+
+describe.skipIf(!hasDb || !ehBancoLocal())(
+  "R13 fix round 1 — L1: salvar_terceirizados trava o CQ ANTES dos blocos (só cópia local)",
+  () => {
+    it("com o CQ travado por outra transação, o PCP espera no CQ sem ter tocado o bloco (ordem CQ → bloco, igual às RPCs do CQ)", async () => {
+      const a = new PgClient({ connectionString: dbUrl()!, ssl: false });
+      const b = new PgClient({ connectionString: dbUrl()!, ssl: false });
+      await a.connect();
+      await b.connect();
+      try {
+        // fixture JÁ gravada (2 conexões não veem dado de txn alheia): cad da Loja Teste com CQ e >= 1 bloco
+        const fx = await um<{ cad_id: string; blocos: unknown } | undefined>(
+          a,
+          `select q.cad_id,
+                (select jsonb_agg(jsonb_build_object('id', pt.id, 'categoria_terceirizado_id', pt.categoria_terceirizado_id,
+                         'ativo', coalesce(pt.ativo, true), 'detalhado', coalesce(pt.detalhado, false),
+                         'grade_detalhe', coalesce(pt.grade_detalhe, '{}'::jsonb)))
+                   from producao_terceirizados pt where pt.cad_id = q.cad_id) as blocos
+           from controle_qualidade q
+          where q.tenant_id = $1 and exists (select 1 from producao_terceirizados pt where pt.cad_id = q.cad_id)
+          order by q.cad_id limit 1`,
+          [TENANT_TESTE],
+        );
+        if (!fx)
+          throw new Error("fixture ausente: nenhum cad da Loja Teste com CQ e bloco de servico");
+        await a.query("BEGIN");
+        await a.query(`select 1 from controle_qualidade where cad_id=$1 for update`, [fx.cad_id]);
+        await b.query("BEGIN");
+        await comoUsuario(b);
+        await b.query("SET LOCAL lock_timeout = '2000ms'");
+        const bPid = (await um<{ pid: number }>(b, `select pg_backend_pid() pid`)).pid;
+        const pcp = b
+          .query(`select salvar_terceirizados($1,$2::jsonb,null)`, [
+            fx.cad_id,
+            JSON.stringify(fx.blocos),
+          ])
+          .then(
+            () => ({ ok: true as const, code: "" }),
+            (e: { code?: string }) => ({ ok: false as const, code: String(e.code) }),
+          );
+        // espera o PCP ficar parado numa trava
+        let esperando = false;
+        for (let i = 0; i < 30 && !esperando; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          const w = await um<{ w: string | null }>(
+            a,
+            `select wait_event_type w from pg_stat_activity where pid=$1`,
+            [bPid],
+          );
+          esperando = w?.w === "Lock";
+        }
+        expect(esperando, "o PCP devia estar esperando a trava do CQ").toBe(true);
+        // enquanto espera, os blocos do cad estão LIVRES (o PCP ainda não tocou nenhum)
+        await a.query(`select 1 from producao_terceirizados where cad_id=$1 for update nowait`, [
+          fx.cad_id,
+        ]);
+        const res = await pcp;
+        expect(res.ok).toBe(false);
+        expect(res.code).toBe("55P03"); // lock_timeout no CQ
+      } finally {
+        await a.query("ROLLBACK").catch(() => undefined);
+        await b.query("ROLLBACK").catch(() => undefined);
+        await a.end();
+        await b.end();
+      }
+    });
+  },
+);

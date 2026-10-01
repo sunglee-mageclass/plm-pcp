@@ -9,11 +9,16 @@
 --            PCP NAO e recusado: o CQ volta a PENDENTE (o Pos confirmado volta junto, precedente [M2] do
 --            _desmarcar_cq_core) + #Erro na etapa 'cq' (modelos.revisao_pendente.cq). O gatilho
 --            trg_rebaixa_lancado_cq (abaixo) rebaixa Lancado e Direcionamento.
+--            [fix round 1, G-MIGRATION L1] trava o CQ do cad logo depois do advisory lock (FOR UPDATE; sem CQ = no-op):
+--            mesma ordem das RPCs do CQ (controle_qualidade -> bloco-fonte), sem deadlock com o rebaixamento.
+--            [L3] o #Erro 'cq' so acende se o UPDATE do CQ pegou a linha (IF FOUND).
 --   prod #5  fn_rebaixa_lancado_cq (funcao do gatilho trg_rebaixa_lancado_cq; o gatilho NAO muda): saia cedo se o
 --            modelo nao estava lancado. Agora, quando o CQ deixa de estar liberado (Pre ou Pos), alem do lancado,
 --            cad.direcionamento_status separado -> pendente (direcionamento_confirmado_at = NULL) + #Erro
 --            'direcionamento' - mesmo gate de fn_rebaixa_direcionamento_grade (legado OU direcionamento_lojas,
 --            invariante #10). Vale para modelo lancado e nao lancado.
+--            [fix round 1, L2] o ramo do Direcionamento usa NOT _cq_liberado(NEW.cad_id) - o MESMO predicado do
+--            Confirmar do Direcionamento (bloco pos com ativo NULL conta como pos); o ramo do lancado segue igual.
 -- As funcoes so agem num save/gatilho futuro: nada gravado muda na ida. Passo 0 de producao (01/out 11:06): CQ
 -- confirmado com Sigma = 0 -> 0; direcionamento separado sem CQ liberado -> 0 (copia: 0 e 0).
 --
@@ -24,12 +29,13 @@
 --     DEPOIS 2fbf741d11b7f0131a99999e2f45fcf4  (este arquivo; reaplicar = no-op)
 --   public.salvar_terceirizados(uuid,jsonb,text,jsonb)
 --     ANTES  53ab6f802117489e1f794aa411e755ba  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS a87f0e961fe91114b4dc6f981f652177  (este arquivo; reaplicar = no-op)
+--     DEPOIS e5a6f830516e463911529664a4940883  (este arquivo; reaplicar = no-op)
 --   public.fn_rebaixa_lancado_cq()
 --     ANTES  ad991b81358029c2df58c05042f228d5  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS 3bff4214c95be84f342a4e0be2bddaff  (este arquivo; reaplicar = no-op)
+--     DEPOIS 4aea9a4ec6083c8445ac86e92f88b049  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda):
 --     public._aplicar_reais_do_grade_detalhe(uuid,uuid)   00f804865d9ad71c41c37351dc06178c  INTOCADA  -- CONFIRMADO: Passo 0 (01/out 11:06)
+--     public._cq_liberado(uuid)                            55a5f7ad704a061087e0fc154d4605e7  INTOCADA (chamada pelo gatilho)  -- PROVISORIO (copia 54422): conferir no Passo 0 do kit R13
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
 -- Travas: so CREATE OR REPLACE FUNCTION (trava de objeto da propria funcao; nada em tabela, nada em auth/storage).
@@ -55,10 +61,11 @@ INSERT INTO _r13_md5_aceitos VALUES
   ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '8ce76165ffa3ae67d5cdb12eb95bb620', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '2fbf741d11b7f0131a99999e2f45fcf4', 'depois'),
   ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '53ab6f802117489e1f794aa411e755ba', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'a87f0e961fe91114b4dc6f981f652177', 'depois'),
+  ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'e5a6f830516e463911529664a4940883', 'depois'),
   ('public.fn_rebaixa_lancado_cq()', 'ad991b81358029c2df58c05042f228d5', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public.fn_rebaixa_lancado_cq()', '3bff4214c95be84f342a4e0be2bddaff', 'depois'),
-  ('public._aplicar_reais_do_grade_detalhe(uuid,uuid)', '00f804865d9ad71c41c37351dc06178c', 'dep');  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
+  ('public.fn_rebaixa_lancado_cq()', '4aea9a4ec6083c8445ac86e92f88b049', 'depois'),
+  ('public._aplicar_reais_do_grade_detalhe(uuid,uuid)', '00f804865d9ad71c41c37351dc06178c', 'dep'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
+  ('public._cq_liberado(uuid)', '55a5f7ad704a061087e0fc154d4605e7', 'dep');  -- PROVISORIO (copia 54422): conferir no Passo 0 do kit R13
 
 -- ACL de antes (a pos-condicao exige a MESMA depois).
 CREATE TEMP TABLE _r13_acl_antes ON COMMIT DROP AS
@@ -280,6 +287,10 @@ BEGIN
     RAISE EXCEPTION 'Módulo producao não habilitado para esta loja' USING ERRCODE = '42501';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext(_cad_id::text));
+  -- (medios R13, L1) trava o CQ do cad JÁ AQUI, antes de qualquer bloco: mesma ordem das RPCs
+  -- do CQ (controle_qualidade → bloco-fonte), sem deadlock com o rebaixamento do P-192 abaixo.
+  -- Sem CQ = nenhuma linha, nenhum efeito.
+  PERFORM 1 FROM public.controle_qualidade WHERE cad_id = _cad_id FOR UPDATE;
 
   -- Trava otimista POR BLOCO (spec 2026-08-07): _rev_base = { bloco_id: rev }. Cada bloco
   -- EXISTENTE (com id) presente no payload tem o rev conferido contra o base; divergência =
@@ -397,9 +408,11 @@ BEGIN
              status_pos = CASE WHEN status_pos = 'confirmado' THEN 'pendente' ELSE status_pos END,
              confirmado_pos_at = CASE WHEN status_pos = 'confirmado' THEN NULL ELSE confirmado_pos_at END
        WHERE cad_id = _cad_id AND status = 'confirmado';
-      UPDATE public.modelos
-         SET revisao_pendente = COALESCE(revisao_pendente, '{}'::jsonb) || '{"cq": true}'::jsonb
-       WHERE id = (SELECT modelo_id FROM public.cad WHERE id = _cad_id);
+      IF FOUND THEN  -- (L3) só acende o #Erro se o CQ de fato foi rebaixado
+        UPDATE public.modelos
+           SET revisao_pendente = COALESCE(revisao_pendente, '{}'::jsonb) || '{"cq": true}'::jsonb
+         WHERE id = (SELECT modelo_id FROM public.cad WHERE id = _cad_id);
+      END IF;
     END IF;
   END IF;
 
@@ -440,9 +453,14 @@ BEGIN
        SET lancado = false,
            revisao_pendente = COALESCE(revisao_pendente, '{}'::jsonb) || '{"lancamentos": true}'::jsonb
      WHERE id = v_modelo AND lancado;
-    -- prod #5: o Direcionamento separado se apoiava no CQ liberado (_cq_liberado no Confirmar) →
-    -- volta a 'pendente' + #Erro 'direcionamento'. Mesmo gate do fn_rebaixa_direcionamento_grade
-    -- (olha as DUAS tabelas, legado e novo — invariante #10).
+  END IF;
+
+  -- prod #5: o Direcionamento separado se apoiava no CQ liberado (_cq_liberado no Confirmar) →
+  -- volta a 'pendente' + #Erro 'direcionamento'. Usa o MESMO predicado do Confirmar
+  -- (_cq_liberado, que neste gatilho AFTER já vê a linha NEW — L2: bloco pós com ativo NULL
+  -- conta como pós). Mesmo gate do fn_rebaixa_direcionamento_grade (olha as DUAS tabelas,
+  -- legado e novo — invariante #10).
+  IF NOT public._cq_liberado(NEW.cad_id) THEN
     IF EXISTS (
       SELECT 1 FROM public.cad c
        WHERE c.id = NEW.cad_id
@@ -484,8 +502,10 @@ BEGIN
   END LOOP;
   -- inv. #9: os internos seguem sem EXECUTE para PUBLIC/anon/authenticated.
   FOR r IN SELECT * FROM (VALUES ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)'),
-                                 ('public._aplicar_reais_do_grade_detalhe(uuid,uuid)')) v(s) LOOP
-    IF has_function_privilege('anon', r.s, 'EXECUTE') OR has_function_privilege('authenticated', r.s, 'EXECUTE') THEN
+                                 ('public._aplicar_reais_do_grade_detalhe(uuid,uuid)'),
+                                 ('public._cq_liberado(uuid)')) v(s) LOOP
+    IF has_function_privilege('anon', to_regprocedure(r.s), 'EXECUTE')
+       OR has_function_privilege('authenticated', to_regprocedure(r.s), 'EXECUTE') THEN
       RAISE EXCEPTION 'medios_r13: % ficou executavel por anon/authenticated (inv. #9)', r.s USING ERRCODE = 'P0001';
     END IF;
     IF EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) x
@@ -494,10 +514,10 @@ BEGIN
     END IF;
   END LOOP;
   -- salvar_terceirizados: RPC publica do PCP - authenticated SIM; anon e PUBLIC NAO (como hoje).
-  IF NOT has_function_privilege('authenticated', 'public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'EXECUTE') THEN
+  IF NOT has_function_privilege('authenticated', to_regprocedure('public.salvar_terceirizados(uuid,jsonb,text,jsonb)'), 'EXECUTE') THEN
     RAISE EXCEPTION 'medios_r13: salvar_terceirizados perdeu o EXECUTE de authenticated' USING ERRCODE = 'P0001';
   END IF;
-  IF has_function_privilege('anon', 'public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'EXECUTE')
+  IF has_function_privilege('anon', to_regprocedure('public.salvar_terceirizados(uuid,jsonb,text,jsonb)'), 'EXECUTE')
      OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) x
                  WHERE p.oid = to_regprocedure('public.salvar_terceirizados(uuid,jsonb,text,jsonb)')
                    AND x.grantee = 0 AND x.privilege_type = 'EXECUTE') THEN

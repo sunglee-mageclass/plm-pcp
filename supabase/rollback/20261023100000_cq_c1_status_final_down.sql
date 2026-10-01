@@ -3,7 +3,7 @@
 -- (re-deriva a Grade Real sem rebaixar o CQ) e fn_rebaixa_lancado_cq (sai cedo se o modelo nao esta lancado; nao
 -- rebaixa o Direcionamento). O gatilho trg_rebaixa_lancado_cq nao e tocado.
 -- Guarda: so roda se as 3 estao EXATAMENTE com o texto da ida (md5 de depois) e _aplicar_reais_do_grade_detalhe
--- segue com o texto conferido; outro -> P0001 e nada muda. Nada gravado muda (CQs/direcionamentos ja rebaixados
+-- e _cq_liberado seguem com o texto conferido; outro -> P0001 e nada muda. Nada gravado muda (CQs/direcionamentos ja rebaixados
 -- pela regra nova continuam como estao; o CQ se reconfirma pela tela).
 -- LIFO: este inverso roda ANTES de supabase/rollback/20261006120000_sku_previa_mensagens_ascii_down.sql (que confere
 -- _salvar_cq_core 8ce76165 e salvar_terceirizados 53ab6f80, os textos que esta volta devolve). Sem site a voltar.
@@ -22,9 +22,10 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '2fbf741d11b7f0131a99999e2f45fcf4'),
-      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'a87f0e961fe91114b4dc6f981f652177'),
-      ('public.fn_rebaixa_lancado_cq()', '3bff4214c95be84f342a4e0be2bddaff'),
-      ('public._aplicar_reais_do_grade_detalhe(uuid,uuid)', '00f804865d9ad71c41c37351dc06178c')) v(s, m) LOOP
+      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'e5a6f830516e463911529664a4940883'),
+      ('public.fn_rebaixa_lancado_cq()', '4aea9a4ec6083c8445ac86e92f88b049'),
+      ('public._aplicar_reais_do_grade_detalhe(uuid,uuid)', '00f804865d9ad71c41c37351dc06178c'),
+      ('public._cq_liberado(uuid)', '55a5f7ad704a061087e0fc154d4605e7')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL THEN
       RAISE EXCEPTION 'medios_r13 (volta): % nao existe', r.s USING ERRCODE = 'P0001';
     END IF;
