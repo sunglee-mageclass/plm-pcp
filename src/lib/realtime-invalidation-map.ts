@@ -186,8 +186,9 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     "lancamentos-cards", "lanc-custo-unit", "lanc-custo-real-total",
     // Explosão (lista de modelos a enviar ao corte)
     "producao-explosao-list",
-    // OTB (poder de venda / links de modelo)
-    "otb-modelos-link", "otb-custo-lista", "otb-grade-lista", "otb-pv-poder",
+    // OTB (poder de venda / links de modelo). [leves L4, P-209 A] "otb-orcamento": o Realizado do OTB agora depende do
+    // status_desenvolvimento (reprovado sai, volta ao sair de Reprovado) — mudar o kanban em outra tela atualiza as vagas.
+    "otb-modelos-link", "otb-custo-lista", "otb-grade-lista", "otb-pv-poder", "otb-orcamento",
     // P-146/P-155 B — a versão anterior do card (Sheet do Planejamento e Integração › Produtos): a anterior pode ser
     // repreçada/renomeada por outra pessoa. Key `["versao-anterior", loja, ...ids]` (k[1] é a LOJA, não um id de detalhe).
     "versao-anterior",

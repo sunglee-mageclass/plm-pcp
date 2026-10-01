@@ -6,9 +6,10 @@ import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtNum, fmtPct, fmtInt } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SegmentedTabs, MobileFilterBar, KpiCardMobile, ChartSheet } from "@/components/dashboard/mobile";
-import { precoInfo } from "@/lib/preco";
 import { normalizeKanbanStatuses, DEFAULT_STATUSES } from "@/lib/kanban-status";
 import { aprovadosNaoLancados } from "@/lib/dashboard-producao";
+import { agregarComercial, gradePlanejadaPorModelo, markupRealComercial, margemRealComercial, type LinhaComercial } from "@/lib/dashboard-comercial";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { useMemo, useState, useRef, useLayoutEffect, type ReactNode } from "react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
@@ -509,18 +510,18 @@ function ComercialColecaoTab() {
   });
   const ids = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
 
-  const { data: custoMap = {}, isFetching: custoLoading } = useQuery({
+  // [leves L4, prod #14] erro de custo/grade NÃO vira "custo 0"/"0 peças" em silêncio: a query lança e a aba mostra o aviso.
+  const { data: custoMap = {}, isFetching: custoLoading, isError: custoErro } = useQuery({
     queryKey: ["comercial-custo", ids], enabled: ids.length > 0,
-    queryFn: async () => (await supabase.rpc("custo_unitario_modelos" as any, { _ids: ids })).data ?? {},
-  });
-  const { data: gradePlan = {} } = useQuery({
-    queryKey: ["comercial-grade-plan", ids], enabled: ids.length > 0,
     queryFn: async () => {
-      const { data } = await supabase.from("modelo_grades").select("modelo_id, grade_total").in("modelo_id", ids);
-      const m: Record<string, number> = {};
-      (data ?? []).forEach((r: any) => { m[r.modelo_id] = (m[r.modelo_id] ?? 0) + Number(r.grade_total ?? 0); });
-      return m;
+      const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: ids });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
     },
+  });
+  const { data: gradePlan = {}, isError: gradePlanErro } = useQuery({
+    queryKey: ["comercial-grade-plan", ids], enabled: ids.length > 0,
+    queryFn: () => gradePlanejadaPorModelo(supabase.from("modelo_grades").select("modelo_id, grade_total").in("modelo_id", ids)),
   });
   // "Realizado" = grade real SÓ dos CADs com o CQ LIBERADO (Pré confirmado + Pós se há pós-costura ativo) — mesmo gate
   // e mesma soma da lista do Planejamento (`pecasReaisLiberadas`, @/lib/cq-status). Antes do CQ a grade real nasce igual
@@ -537,43 +538,15 @@ function ComercialColecaoTab() {
     },
   });
 
-  // Agrega por LINHA (mesma matemática da ComercialTab) + guarda a faixa (min/ideal) e a grade
-  // para o ticket. tot = total geral.
-  type LinRow = { key: string; nome: string; pvPlan: number; pvReal: number; lucroPlan: number; lucroReal: number; gradePlan: number; gradeReal: number; markupMin: number | null; markupIdeal: number | null; };
-  const { porLinha, porColecao, tot } = useMemo(() => {
-    const ml = new Map<string, LinRow>();
-    const mc = new Map<string, LinRow>();
-    let tPvPlan = 0, tPvReal = 0, tLuPlan = 0, tLuReal = 0, tGp = 0, tGr = 0;
-    const acc = (map: Map<string, LinRow>, key: string, nome: string, m: any, pvP: number, pvR: number, luP: number, luR: number, gp: number, gr: number) => {
-      let r = map.get(key);
-      if (!r) r = { key, nome, pvPlan: 0, pvReal: 0, lucroPlan: 0, lucroReal: 0, gradePlan: 0, gradeReal: 0, markupMin: m.linha?.markup_min ?? null, markupIdeal: m.linha?.markup ?? null };
-      r.pvPlan += pvP; r.pvReal += pvR; r.lucroPlan += luP; r.lucroReal += luR; r.gradePlan += gp; r.gradeReal += gr;
-      map.set(key, r);
-    };
-    for (const m of modelos) {
-      const cu = (custoMap as any)[m.id];
-      const custo = Number(cu?.real) || Number(cu?.previsto) || 0;
-      const pi = precoInfo(custo, m.linha?.markup, m.preco_venda, m.markup_editado);
-      const gp = Number((gradePlan as any)[m.id]) || 0;
-      const gr = Number((gradeReal as any)[m.id]) || 0;
-      const pvP = pi.efetivo * gp, pvR = pi.efetivo * gr, luP = (pi.efetivo - custo) * gp, luR = (pi.efetivo - custo) * gr;
-      acc(ml, m.linha_id ?? "__none__", (m.linha?.nome as string) || "Sem linha", m, pvP, pvR, luP, luR, gp, gr);
-      acc(mc, m.colecao ?? "__none__", m.colecao || "Sem coleção", m, pvP, pvR, luP, luR, gp, gr);
-      tPvPlan += pvP; tPvReal += pvR; tLuPlan += luP; tLuReal += luR; tGp += gp; tGr += gr;
-    }
-    const rows = Array.from(ml.values()).sort((a, b) => b.pvPlan - a.pvPlan);
-    const rowsCol = Array.from(mc.values()).sort((a, b) => b.pvPlan - a.pvPlan);
-    const custoRealT = tPvReal - tLuReal, custoPlanT = tPvPlan - tLuPlan;
-    const tot = {
-      pvPlan: tPvPlan, pvReal: tPvReal, lucroPlan: tLuPlan, lucroReal: tLuReal, gradePlan: tGp, gradeReal: tGr,
-      margemPlan: tPvPlan > 0 ? (tLuPlan / tPvPlan) * 100 : 0,
-      margemReal: tPvReal > 0 ? (tLuReal / tPvReal) * 100 : 0,
-      markupReal: custoRealT > 0 ? tPvReal / custoRealT : (custoPlanT > 0 ? tPvPlan / custoPlanT : 0),
-      // ticket = poder de venda ÷ peças (real quando há grade real; senão planejado).
-      ticket: tGr > 0 ? tPvReal / tGr : (tGp > 0 ? tPvPlan / tGp : 0),
-    };
-    return { porLinha: rows, porColecao: rowsCol, tot };
-  }, [modelos, custoMap, gradePlan, gradeReal]);
+  // Agrega por LINHA e por COLEÇÃO (@/lib/dashboard-comercial). [leves L4, prod #14] card sem custo (custo 0 ou
+  // mascarado) fica fora da margem, do lucro e do markup — antes virava margem de 100%; a tela conta "N sem custo".
+  type LinRow = LinhaComercial;
+  const { porLinha, porColecao, tot } = useMemo(
+    () => agregarComercial(modelos, custoMap as any, gradePlan, gradeReal),
+    [modelos, custoMap, gradePlan, gradeReal],
+  );
+  const semCustoTxt = tot.semCusto > 0 ? `${tot.semCusto} sem custo (fora da margem)` : "";
+  const comSemCusto = (txt: string) => (semCustoTxt ? `${txt} · ${semCustoTxt}` : txt);
 
   // % da meta (poder de venda realizado ÷ planejado) — barras por linha.
   const pctMeta = tot.pvPlan > 0 ? Math.round((tot.pvReal / tot.pvPlan) * 100) : 0;
@@ -581,7 +554,7 @@ function ComercialColecaoTab() {
 
   // markup real por linha × faixa cadastrada (min/ideal). Status: ideal (≥ ideal) / min (≥ min,
   // < ideal) / abaixo (< min) / indef (sem faixa ou sem markup).
-  const markupRealDe = (r: LinRow) => { const c = r.pvReal - r.lucroReal; return c > 0 ? r.pvReal / c : 0; };
+  const markupRealDe = (r: LinRow) => markupRealComercial(r);
   const statusFaixa = (mkp: number, min: number | null, ideal: number | null): "ideal" | "min" | "abaixo" | "indef" => {
     if (mkp <= 0 || (min == null && ideal == null)) return "indef";
     if (ideal != null && mkp >= ideal) return "ideal";
@@ -600,8 +573,8 @@ function ComercialColecaoTab() {
   const kpis = (
     <>
       <Kpi label="Poder de venda" value={brl(tot.pvPlan)} icon={Tag} sub={`realizado ${brl(tot.pvReal)} · ${pctMeta}% da meta`} tone={pctMeta >= 80 ? "success" : pctMeta >= 50 ? "warning" : "danger"} />
-      <Kpi label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} icon={Sparkles} sub={tot.margemReal > 0 ? `markup real ${fmtMkp(tot.markupReal)}` : "planejado (sem realizado ainda)"} />
-      <Kpi label="Lucro bruto" value={brl(tot.lucroPlan)} icon={DollarSign} sub={`realizado ${brl(tot.lucroReal)}`} />
+      <Kpi label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} icon={Sparkles} sub={comSemCusto(tot.margemReal > 0 ? `markup real ${fmtMkp(tot.markupReal)}` : "planejado (sem realizado ainda)")} />
+      <Kpi label="Lucro bruto" value={brl(tot.lucroPlan)} icon={DollarSign} sub={comSemCusto(`realizado ${brl(tot.lucroReal)}`)} />
       <Kpi label="Ticket médio" value={brl(tot.ticket)} icon={Layers} sub="preço médio por peça" />
     </>
   );
@@ -654,14 +627,14 @@ function ComercialColecaoTab() {
         <div className="flex flex-wrap items-center gap-2"><MobileFilterBar filters={filtros} /></div>
         <div className="grid grid-cols-2 gap-2.5">
           <KpiCardMobile compact label="Poder de venda" value={brlAbrev(tot.pvPlan)} valueTitle={brl(tot.pvPlan)} sub={`${pctMeta}% da meta`} />
-          <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} sub={tot.margemReal > 0 ? `markup ${fmtMkp(tot.markupReal)}` : "planejado"} />
+          <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} sub={tot.semCusto > 0 ? `${tot.semCusto} sem custo` : tot.margemReal > 0 ? `markup ${fmtMkp(tot.markupReal)}` : "planejado"} />
           <KpiCardMobile compact label="Lucro bruto" value={brlAbrev(tot.lucroPlan)} valueTitle={brl(tot.lucroPlan)} sub={`real. ${brlAbrev(tot.lucroReal)}`} />
           <KpiCardMobile compact label="Ticket médio" value={brl(tot.ticket)} sub="preço médio/peça" />
         </div>
         {cardPvLinha}
         {cardMargem}
         {isLoad && <p className="text-sm text-muted-foreground">Carregando…</p>}
-        <DashError show={isError || gradeRealErro} />
+        <DashError show={isError || gradeRealErro || gradePlanErro || custoErro} />
       </div>
     );
   }
@@ -690,9 +663,8 @@ function ComercialColecaoTab() {
             </thead>
             <tbody>
               {porColecao.map((r) => {
-                const cReal = r.pvReal - r.lucroReal;
-                const margemReal = r.pvReal > 0 ? (r.lucroReal / r.pvReal) * 100 : 0;
-                const markupReal = cReal > 0 ? r.pvReal / cReal : 0;
+                const margemReal = margemRealComercial(r);
+                const markupReal = markupRealComercial(r);
                 return (
                   <tr key={r.key} className="border-t">
                     <td className="py-2 pr-3" data-label="Coleção">{r.nome}</td>
@@ -710,7 +682,7 @@ function ComercialColecaoTab() {
         </div>
       </DetalheExpansivel>
       {isLoad && <p className="text-sm text-muted-foreground">Carregando…</p>}
-      <DashError show={isError} />
+      <DashError show={isError || gradeRealErro || gradePlanErro || custoErro} />
     </div>
   );
 }
@@ -793,7 +765,17 @@ function BulletSection({ icon, titulo, etapas, labelDe, preservarOrdem }: { icon
   );
   return (
     <div>
-      <SecHeader icon={icon}>{titulo}</SecHeader>
+      <SecHeader icon={icon}>
+        {/* [leves L4, prod #12] a barra é a média POR MODELO (soma dos trechos de cada modelo na etapa), não a média
+            por trecho; "mod." conta modelos. A aba Desenvolvimento usa a mesma conta. */}
+        <span className="inline-flex items-center gap-1.5">
+          {titulo}
+          <InfoHover ariaLabel="Como a média é calculada">
+            <p>Média por modelo: para cada modelo, soma-se o tempo que ele passou na etapa (se voltou a ela, os trechos se somam); a barra é a média dessas somas.</p>
+            <p>Não é a média por trecho: um modelo que passou duas vezes pela etapa conta uma vez só. &quot;mod.&quot; = modelos com tempo na etapa.</p>
+          </InfoHover>
+        </span>
+      </SecHeader>
       <Card className="p-4">
         {ord.map((e) => <BulletRow key={e.etapa} label={labelDe(e)} e={e} scaleMax={scaleMax} />)}
       </Card>

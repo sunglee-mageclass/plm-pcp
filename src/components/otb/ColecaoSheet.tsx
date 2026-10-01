@@ -554,9 +554,9 @@ export function ColecaoSheet({
     enabled: !!colecaoId,
     queryFn: async () => {
       // "as any" no builder: markup_editado ainda não está no types.ts gerado (regen pendente).
-      const { data, error } = await (supabase.from("modelos") as any).select("id, linha_id, preco_venda, markup_editado, status_planejamento, subcolecao").eq("colecao_id", colecaoId!);
+      const { data, error } = await (supabase.from("modelos") as any).select("id, linha_id, preco_venda, markup_editado, status_planejamento, status_desenvolvimento, subcolecao").eq("colecao_id", colecaoId!);
       if (error) throw error;
-      return data as { id: string; linha_id: string | null; preco_venda: number | null; markup_editado: number | null; status_planejamento: string | null; subcolecao: string | null }[];
+      return data as { id: string; linha_id: string | null; preco_venda: number | null; markup_editado: number | null; status_planejamento: string | null; status_desenvolvimento: string | null; subcolecao: string | null }[];
     },
   });
   // Todos os cards da coleção (p/ achar os "não classificados" — fora de qualquer bucket).
