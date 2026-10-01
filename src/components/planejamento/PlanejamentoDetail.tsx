@@ -101,7 +101,7 @@ import { requisitosUniao } from "@/components/planejamento/planejamento-detail/f
 import { SeloBadge } from "@/components/planejamento/planejamento-detail/ficha/secoes/SeloBadge";
 import { SeloObservacoesBadge, SeloProvaBadge, SeloRelacionadoBadge } from "@/components/planejamento/planejamento-detail/SelosAuxiliares";
 import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/secoes/BomSecoes";
-import { baseCustoPlanejamento, estimativaComCustosAdicionais, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
+import { baseCustoPlanejamento, baseMarkupComMO, estimativaComCustosAdicionais, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
 import { somaCustosAdicionais } from "@/lib/custo";
 import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
@@ -520,12 +520,16 @@ function PlanejamentoDetailConteudo({
   // `precoInfo` devolve custo/sugerido/markup = 0 ⇒ a tabela mostra "—" em tudo, exatamente como antes da T12.
   // F3.4 — comprado: o previsto é o do SERVIDOR (revenda = unit real + insumos; importado = landed —
   // `_custo_unitario_modelos_core`), nunca o total do BOM da ficha (que agora carrega também p/ comprado).
-  const previstoBase = !veCustos ? 0 : ficha.carregado && !isComprado ? previstoDaFicha(ficha.totais) : Number(custoData?.previsto) || 0;
+  // Preço M6: no IMPORTADO a base do markup soma a M.O. ao vivo (real ‖ previsto + M.O.), igual à revenda e ao banco.
+  const ehImportadoBase = draft.origem === "importado";
+  const previstoCompradoBase = ehImportadoBase ? baseMarkupComMO(custoData?.previsto, maoObraDevLive) : Number(custoData?.previsto) || 0;
+  const realServidorBase = ehImportadoBase ? baseMarkupComMO(custoData?.real, maoObraDevLive) : custoData?.real;
+  const previstoBase = !veCustos ? 0 : ficha.carregado && !isComprado ? previstoDaFicha(ficha.totais) : previstoCompradoBase;
   // Fix pós-rebase (item 7 — paridade com o Dev): a estimativa SOMA os custos adicionais (`estimativaComCustosAdicionais`,
   // custo-base.ts — `preco.ts`/`custoSimulado` intocados, invariante #8). A tabela mostra as linhas "Custos adicionais"
   // no estimado, então o Custo total fecha.
   const estimativaBase = veCustos ? estimativaComCustosAdicionais(simCalc.total, draft.custos_adicionais) : 0;
-  const custoBase = baseCustoPlanejamento({ confirmado: custoReal, realServidor: custoData?.real, previsto: previstoBase, estimativa: estimativaBase });
+  const custoBase = baseCustoPlanejamento({ confirmado: custoReal, realServidor: realServidorBase, previsto: previstoBase, estimativa: estimativaBase });
   const { custo, markupLinha: markup, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
     precoInfo(custoBase.valor, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
   // M.O. embutida no custo-base: a real (Serviços ÷ grade) quando confirmado; senão a planejada ao vivo.

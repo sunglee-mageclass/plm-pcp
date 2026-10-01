@@ -28,3 +28,13 @@ export function baseCustoPlanejamento(i: { confirmado: boolean; realServidor: un
 export function estimativaComCustosAdicionais(simTotal: number, custosAdicionais: unknown): number {
   return (Number(simTotal) || 0) + somaCustosAdicionais(custosAdicionais);
 }
+
+/**
+ * Preço M6 (R9) — base do markup do IMPORTADO = (real ‖ previsto) + M.O. ao vivo, igual à revenda e ao banco
+ * (`_imp_recomputar` soma a M.O.). `custoData.previsto/real` do comprado NÃO trazem a M.O. (separação materiais×MO).
+ * Só soma quando há custo (>0): sem custo a base fica 0 (a tabela mostra "—"), nunca "só a M.O.".
+ */
+export function baseMarkupComMO(custo: unknown, maoObra: unknown): number {
+  const c = Number(custo) || 0;
+  return c > 0 ? c + (Number(maoObra) || 0) : 0;
+}

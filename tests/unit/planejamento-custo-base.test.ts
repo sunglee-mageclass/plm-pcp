@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { baseCustoPlanejamento, estimativaComCustosAdicionais, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
+import { readFileSync } from "node:fs";
+import { baseCustoPlanejamento, baseMarkupComMO, estimativaComCustosAdicionais, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
 import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 
 // F3.2 — decisão F3 #6: markup e tabela no MESMO custo-base (real › previsto do BOM › estimativa).
@@ -55,5 +56,24 @@ describe("estimativaComCustosAdicionais", () => {
   it("sem custos adicionais / formato inválido ⇒ a estimativa de sempre", () => {
     expect(estimativaComCustosAdicionais(80, [])).toBe(80);
     expect(estimativaComCustosAdicionais(80, null)).toBe(80);
+  });
+});
+
+describe("preço M6 — base do markup do importado = landed + M.O.", () => {
+  it("soma a M.O. ao custo landed (previsto)", () => {
+    expect(baseMarkupComMO(100, 34)).toBe(134);
+    expect(baseCustoPlanejamento({ confirmado: false, realServidor: 0, previsto: baseMarkupComMO(100, 34), estimativa: 0 }).valor).toBe(134);
+  });
+  it("real tem precedência sobre previsto e também soma a M.O.", () => {
+    expect(baseCustoPlanejamento({ confirmado: true, realServidor: baseMarkupComMO(90, 34), previsto: baseMarkupComMO(100, 34), estimativa: 0 }).valor).toBe(124);
+  });
+  it("sem custo a base é 0 (nunca só a M.O.)", () => {
+    expect(baseMarkupComMO(0, 34)).toBe(0);
+    expect(baseMarkupComMO(null, 34)).toBe(0);
+  });
+  it("o PlanejamentoDetail aplica o helper ao importado (previsto e real)", () => {
+    const src = readFileSync("src/components/planejamento/PlanejamentoDetail.tsx", "utf8");
+    expect(src).toMatch(/draft\.origem === "importado"/);
+    expect((src.match(/baseMarkupComMO\(/g) ?? []).length).toBe(2);
   });
 });
