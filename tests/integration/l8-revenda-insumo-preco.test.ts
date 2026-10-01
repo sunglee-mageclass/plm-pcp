@@ -22,7 +22,9 @@ const MD5: Record<string, string> = {
   "public._pa_recomputar_precos_modelo(uuid)": "3f0c4d88da8e23a61ff9e3dda7817be2",
   "public._salvar_produto_acabado_core(uuid,jsonb,jsonb)": "77076d81637354d530ee38a03e8f77e7",
   "public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)":
-    "5c70c3fe0cdc83a2a5bf59f33e171d1b",
+    "3bbdcb7fd2b1040881ba55c44d04eb17",
+  "public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)":
+    "cd904901b87f15e21121b47aa1b34438",
   "public.fn_preco_comprado_por_insumo()": "ccd231e45d1e9a379b252e574c5cda5e",
 };
 
@@ -354,9 +356,9 @@ describe.skipIf(!RODA)("L8 sku #22 — a variante que sai leva a grade dela", ()
 });
 
 describe.skipIf(!RODA)(
-  "L8 P-207 A — servidor recusa etapa de mercadoria com % > 0 e cotação 0",
+  "L8 P-207 A — servidor recusa etapa de mercadoria com % > 0 e cotação 0 (card e OC)",
   () => {
-    async function salvarImp(c: Client, etapas: unknown[]) {
+    async function categoria(c: Client) {
       await comoUsuario(c);
       const g = await um<{ id: string }>(
         c,
@@ -368,17 +370,33 @@ describe.skipIf(!RODA)(
         `insert into categorias_produto (tenant_id, nome) values ($1,'Blusa L8 P207') returning id`,
         [TENANT_TESTE],
       );
+      return { grupo_id: g.id, categoria_id: cat.id };
+    }
+    async function salvarImp(c: Client, etapas: unknown[], valor = 10) {
       const dados = {
         nome: "Blusa P207",
-        grupo_id: g.id,
-        categoria_id: cat.id,
+        ...(await categoria(c)),
         cotacao_ref: 5,
         cotacao_final: 5,
+        valor_unitario_m1: valor,
       };
       return c.query(
         `select salvar_produto_importado(null, $1::jsonb, '[]'::jsonb, $2::jsonb) as id`,
         [JSON.stringify(dados), JSON.stringify(etapas)],
       );
+    }
+    async function salvarOc(c: Client, etapas: unknown[], valor = 10) {
+      const dados = {
+        nome_produto: "OC P207",
+        ...(await categoria(c)),
+        cotacao_ref: 5,
+        cotacao_final: 5,
+        valor_unitario_m1: valor,
+      };
+      return c.query(`select salvar_oc_importado(null, $1::jsonb, '{}'::jsonb, $2::jsonb) as id`, [
+        JSON.stringify(dados),
+        JSON.stringify(etapas),
+      ]);
     }
     const et = (o: Record<string, unknown>) => ({
       ordem: 1,
@@ -389,31 +407,145 @@ describe.skipIf(!RODA)(
       cotacao: 5,
       ...o,
     });
+    const recusa = {
+      code: "P0001",
+      message: expect.stringMatching(/^Informe a cotacao da etapa de mercadoria/),
+    };
+    const ruim = [
+      et({ percentual: 30, cotacao: 0 }),
+      et({ ordem: 2, rotulo: "Saldo", percentual: 70 }),
+    ];
 
-    it("mercadoria 30% com cotação 0 → P0001 (antes da L8: aceitava)", async () => {
-      await withTx(async (c) => {
-        await c.query("savepoint s");
-        await expect(
-          salvarImp(c, [
-            et({ percentual: 30, cotacao: 0 }),
-            et({ ordem: 2, rotulo: "Saldo", percentual: 70 }),
-          ]),
-        ).rejects.toMatchObject({
-          code: "P0001",
-          message: expect.stringMatching(/^Informe a cotacao da etapa de mercadoria/),
+    for (const [onde, salvar] of [
+      ["card", salvarImp],
+      ["OC", salvarOc],
+    ] as const) {
+      it(`${onde}: mercadoria 30% com cotação 0 e compra COM valor → P0001 (antes da L8: aceitava)`, async () => {
+        await withTx(async (c) => {
+          await c.query("savepoint s");
+          await expect(salvar(c, ruim)).rejects.toMatchObject(recusa);
+          await c.query("rollback to savepoint s");
         });
-        await c.query("rollback to savepoint s");
+      });
+
+      it(`${onde}: Q2 — compra SEM valor (M1 = 0) salva mesmo com cotação 0 (rascunho só com nome)`, async () => {
+        await withTx(async (c) => {
+          const r = await salvar(c, ruim, 0);
+          expect(r.rows[0].id).toBeTruthy();
+        });
+      });
+
+      it(`${onde}: aceita mercadoria com cotação, mercadoria 0% sem cotação, frete com cotação 0 (identidade)`, async () => {
+        await withTx(async (c) => {
+          const r = await salvar(c, [
+            et({ percentual: 100 }),
+            et({ ordem: 2, rotulo: "Extra", percentual: 0, cotacao: 0 }),
+            et({ ordem: 3, rotulo: "Frete", base: "frete", percentual: 100, cotacao: 0 }),
+          ]);
+          expect(r.rows[0].id).toBeTruthy();
+        });
+      });
+    }
+
+    it("card: produto sem etapas e sem valor (criado pelo Planejamento) salva o nome", async () => {
+      await withTx(async (c) => {
+        const r = await c.query(
+          `select salvar_produto_importado(null, $1::jsonb, '[]'::jsonb, '[]'::jsonb) as id`,
+          [JSON.stringify({ nome: "Só nome P207", ...(await categoria(c)) })],
+        );
+        expect(r.rows[0].id).toBeTruthy();
+      });
+    });
+  },
+);
+
+describe.skipIf(!RODA)(
+  "L8 sku #22 (importado, fix round 1 M2) — a variante que sai leva a grade dela",
+  () => {
+    type Imp = { prod: string; modelo: string; dados: Record<string, unknown> };
+    async function importado(c: Client, variantes: unknown[]): Promise<Imp> {
+      await comoUsuario(c);
+      const g = await um<{ id: string }>(
+        c,
+        `insert into grupos_produto (tenant_id, nome) values ($1,'Fem L8 PI22') returning id`,
+        [TENANT_TESTE],
+      );
+      const cat = await um<{ id: string }>(
+        c,
+        `insert into categorias_produto (tenant_id, nome) values ($1,'Blusa L8 PI22') returning id`,
+        [TENANT_TESTE],
+      );
+      const dados = {
+        nome: "Blusa PI22",
+        grupo_id: g.id,
+        categoria_id: cat.id,
+        qtd_total: 10,
+        valor_unitario_m1: 0,
+      };
+      const p = await um<{ id: string }>(
+        c,
+        `select salvar_produto_importado(null, $1::jsonb, $2::jsonb, '[]'::jsonb) as id`,
+        [JSON.stringify(dados), JSON.stringify(variantes)],
+      );
+      const m = await um<{ id: string }>(c, `select criar_card_produto_importado($1) as id`, [
+        p.id,
+      ]);
+      return { prod: p.id, modelo: m.id, dados };
+    }
+    const salvarPi = (c: Client, r: Imp, variantes: unknown[]) =>
+      c.query(`select salvar_produto_importado($1, $2::jsonb, $3::jsonb, '[]'::jsonb)`, [
+        r.prod,
+        JSON.stringify(r.dados),
+        JSON.stringify(variantes),
+      ]);
+    const grade = (c: Client, modelo: string) =>
+      c
+        .query(
+          `select variante_numero n, grades from modelo_grades where modelo_id = $1 order by 1`,
+          [modelo],
+        )
+        .then((x) => x.rows);
+    async function comGrades(c: Client, r: Imp, ns: number[]) {
+      await c.query(`delete from modelo_grades where modelo_id = $1`, [r.modelo]);
+      for (const n of ns)
+        await c.query(
+          `insert into modelo_grades (modelo_id, variante_numero, grades, grade_total) values ($1, $2, '{"P":10}', 10)`,
+          [r.modelo, n],
+        );
+    }
+
+    it("apagou a ÚLTIMA variante (save) e adicionou outra com a mesma ordem (save): a nova NÃO herda a grade", async () => {
+      await withTx(async (c) => {
+        const r = await importado(c, [{ ordem: 1, peso: 1, qtd: 10 }]);
+        await comGrades(c, r, [1]);
+        await salvarPi(c, r, []);
+        expect(await grade(c, r.modelo)).toEqual([]); // antes do fix round 1: a grade da 1 ficava
+        await salvarPi(c, r, [{ ordem: 1, peso: 1, qtd: 10 }]);
+        expect(await grade(c, r.modelo)).toEqual([]);
       });
     });
 
-    it("aceita: mercadoria com cotação, mercadoria 0% sem cotação, frete com cotação 0 (identidade)", async () => {
+    it("no MESMO save: sai a 1, entra a 4 → some só a grade da 1; a de quem fica não muda", async () => {
       await withTx(async (c) => {
-        const r = await salvarImp(c, [
-          et({ percentual: 100 }),
-          et({ ordem: 2, rotulo: "Extra", percentual: 0, cotacao: 0 }),
-          et({ ordem: 3, rotulo: "Frete", base: "frete", percentual: 100, cotacao: 0 }),
+        const r = await importado(c, [
+          { ordem: 1, peso: 1, qtd: 5 },
+          { ordem: 3, peso: 1, qtd: 5 },
         ]);
-        expect(r.rows[0].id).toBeTruthy();
+        await comGrades(c, r, [1, 3]);
+        await salvarPi(c, r, [
+          { ordem: 3, peso: 1, qtd: 5 },
+          { ordem: 4, peso: 1, qtd: 5 },
+        ]);
+        expect(await grade(c, r.modelo)).toEqual([{ n: 3, grades: { P: 10 } }]);
+      });
+    });
+
+    it("save sem mudar variantes não apaga grade nenhuma", async () => {
+      await withTx(async (c) => {
+        const r = await importado(c, [{ ordem: 1, peso: 1, qtd: 10 }]);
+        await comGrades(c, r, [1]);
+        await salvarPi(c, r, [{ ordem: 1, peso: 1, qtd: 10 }]);
+        expect(await grade(c, r.modelo)).toEqual([{ n: 1, grades: { P: 10 } }]);
       });
     });
   },

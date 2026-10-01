@@ -9,9 +9,14 @@
 --   revendas_markup_zero      revendas com markup 0 (B3: o preço daquele canal vira NULL na próxima conta);
 --   grades_orfas_pa           modelo_grades de card de revenda sem variante do produto com aquela ordem (sku #22). Esperado 0;
 --   grades_orfas_imp          idem no importado (informativo: a L8 só limpa a revenda);
---   etapas_merc_cotacao_zero  etapas de MERCADORIA do importado com % > 0 e cotação <= 0 (P-207 A: o próximo Salvar
---                             desse produto é recusado até informar a cotação). Esperado 0;
---   etapas_frete_cotacao_zero etapas de frete com cotação 0 (informativo: valem como 1, identidade).
+--   etapas_merc_cotacao_zero  etapas de MERCADORIA do card do importado com % > 0 e cotação <= 0 em produto COM valor de
+--                             compra (valor_unitario_m1 > 0) — P-207 A + Q2: o próximo Salvar desse produto é recusado até
+--                             informar a cotação. Esperado 0;
+--   oc_etapas_merc_cotacao_zero idem nas etapas da OC de importado (ocs_importado_etapas; fix round 1, Q1) — a parcela
+--                             dessas etapas saiu 0 e foi pulada (fin #10) e o próximo Salvar da OC é recusado. Esperado 0;
+--   etapas_frete_cotacao_zero etapas de frete do card com cotação 0 (informativo: valem como 1, identidade);
+--   importados_sem_etapas     produtos importados sem nenhuma etapa gravada (informativo, B2: a tela injeta as padrão,
+--                             já com a cotação de referência).
 -- Rodar em transação READ ONLY + ROLLBACK. Regras do arquivo (embutível pelo psql): um único SELECT, SEM ponto e vírgula,
 -- sem meta-comando do psql.
 WITH rev AS (
@@ -49,6 +54,14 @@ SELECT
     WHERE NOT EXISTS (SELECT 1 FROM public.produto_importado_variantes v
                        WHERE v.produto_importado_id = p.id AND v.ordem = g.variante_numero)) AS grades_orfas_imp,
   (SELECT count(*) FROM public.produto_importado_etapas e
-    WHERE e.base = 'mercadoria' AND e.percentual > 0 AND coalesce(e.cotacao, 0) <= 0) AS etapas_merc_cotacao_zero,
+     JOIN public.produtos_importados p ON p.id = e.produto_importado_id
+    WHERE e.base = 'mercadoria' AND e.percentual > 0 AND coalesce(e.cotacao, 0) <= 0
+      AND coalesce(p.valor_unitario_m1, 0) > 0) AS etapas_merc_cotacao_zero,
+  (SELECT count(*) FROM public.ocs_importado_etapas e
+     JOIN public.ocs_importado o ON o.id = e.oc_importado_id
+    WHERE e.base = 'mercadoria' AND e.percentual > 0 AND coalesce(e.cotacao, 0) <= 0
+      AND coalesce(o.valor_unitario_m1, 0) > 0) AS oc_etapas_merc_cotacao_zero,
   (SELECT count(*) FROM public.produto_importado_etapas e
-    WHERE e.base = 'frete' AND coalesce(e.cotacao, 0) = 0) AS etapas_frete_cotacao_zero
+    WHERE e.base = 'frete' AND coalesce(e.cotacao, 0) = 0) AS etapas_frete_cotacao_zero,
+  (SELECT count(*) FROM public.produtos_importados p
+    WHERE NOT EXISTS (SELECT 1 FROM public.produto_importado_etapas e WHERE e.produto_importado_id = p.id)) AS importados_sem_etapas
