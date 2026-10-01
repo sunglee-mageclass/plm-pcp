@@ -80,6 +80,34 @@ export function dedupVariantes(vs: PtVariante[]): PtVariante[] {
   return ordem.map((k, i) => ({ ...byKey.get(k)!, ordem: i + 1 }));
 }
 
+// ─── P-198 A (dono 01/out, R15b): card REPROVADO fora da necessidade/Demanda ─────────────────────────────
+// Card cujo `modelos.status_desenvolvimento` é `reprovado` continua VISÍVEL na vaga (selo "Reprovado"), mas
+// NÃO conta na necessidade da coleção nem na Demanda/Sobra das OCs; saindo de Reprovado volta a contar (calculado
+// na hora, nada é gravado). ESPELHO do servidor (anti-drift): `_plan_tecido_nec_variante_core` (→ prévia/"A
+// comprar"/Fazer pedido/Modo Plano) e o `comprometida_m` de `_plan_tecido_situacao_ocs_core`
+// (migration 20261025400000) usam o MESMO predicado do `_estoque_tecido_core`:
+// `lower(coalesce(status_desenvolvimento,'')) <> 'reprovado'`. Vaga SEM card sempre conta.
+
+/** Mesmo predicado do servidor: `lower(coalesce(status,'')) = 'reprovado'`. */
+export const ehReprovado = (status: string | null | undefined): boolean => (status ?? "").toLowerCase() === "reprovado";
+
+/** A vaga entra na necessidade/Demanda? Só sai a que tem card REPROVADO (`reprovados` = modelo_ids). */
+export const slotContaNaDemanda = (slot: PtSlot, reprovados?: ReadonlySet<string>): boolean =>
+  !slot.modelo_id || !reprovados?.has(slot.modelo_id);
+
+/** A árvore que entra nas CONTAS (necessidade, Demanda por OC, "a comprar" vivo): sem as vagas de card
+ *  reprovado. A árvore original (com elas) segue para a EXIBIÇÃO. Sem reprovados → a mesma referência. */
+export function arvoreDaDemanda(arvore: PtArvore, reprovados?: ReadonlySet<string>): PtArvore {
+  if (!reprovados || reprovados.size === 0) return arvore;
+  return {
+    ...arvore,
+    subcolecoes: (arvore.subcolecoes ?? []).map((sub) => ({
+      ...sub,
+      linhas: (sub.linhas ?? []).map((ln) => ({ ...ln, slots: (ln.slots ?? []).filter((s) => slotContaNaDemanda(s, reprovados)) })),
+    })),
+  };
+}
+
 export type NecTecido = {
   artigo_id: string;
   artigo_nome: string;
@@ -390,6 +418,77 @@ export function detalheOc(
     }
   }
   return { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar };
+}
+
+/** Linha da Situação (RPC `plan_tecido_situacao_ocs`) com o mínimo que a repartição usa. */
+export type SituacaoItemOc = { oc_tecido_id: string; artigo_id: string; variante_tecido_id: string | null };
+
+/** OC → artigos e OC → variantes dos ITENS dela (filtros do `detalheOc`), a partir da Situação. */
+export function ocItensDaSituacao(situacao: readonly SituacaoItemOc[]): { ocArtigos: Map<string, Set<string>>; ocVariantes: Map<string, Set<string>> } {
+  const ocArtigos = new Map<string, Set<string>>();
+  const ocVariantes = new Map<string, Set<string>>();
+  for (const r of situacao) {
+    let s = ocArtigos.get(r.oc_tecido_id);
+    if (!s) { s = new Set(); ocArtigos.set(r.oc_tecido_id, s); }
+    s.add(r.artigo_id);
+    let v = ocVariantes.get(r.oc_tecido_id);
+    if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
+    if (r.variante_tecido_id) v.add(r.variante_tecido_id);
+  }
+  return { ocArtigos, ocVariantes };
+}
+
+/** Reparte a Demanda da COLEÇÃO entre as OCs — FONTE ÚNICA do Resumo (Situação por OC), do Drawer e da Paleta:
+ *  `detalheOc` sobre a árvore SEM os cards reprovados (P-198 A), filtrado pelos itens de cada OC da Situação. */
+export function detalheOcColecao(
+  colecaoArvore: PtArvore,
+  situacao: readonly SituacaoItemOc[],
+  vinculoOcMap: Record<string, string[]>,
+  slotOcMap: Record<string, string[]>,
+  enviadoCadSet: Set<string> | undefined,
+  opts?: DetalheOcOpts & { reprovados?: ReadonlySet<string> },
+): DetalheOc {
+  const { ocArtigos, ocVariantes } = ocItensDaSituacao(situacao);
+  return detalheOc(arvoreDaDemanda(colecaoArvore, opts?.reprovados), vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, opts);
+}
+
+/** OC agrupada da Situação (forma de `agruparPorOc` em useSituacaoOcs.ts). */
+export type OcAgrupada = { oc_tecido_id: string; numero: string | null; status: string | null; tecidos: string[]; pedida: number; entregue: number; usada: number };
+export type OcSituacaoResumo = OcAgrupada & {
+  /** nº de cards (vagas) que apontam a OC */
+  nModelos: number;
+  reservadaTotal: number;
+  comprometido: number;
+  reservadaLivre: number;
+  /** em produção = max(comprometido, baixa real) */
+  usadaEfetiva: number;
+  baixaDomina: boolean;
+  /** Demanda exibida = max(reservada, em produção) */
+  demanda: number;
+  /** Σ por cor (D-1) */
+  sobra: number;
+};
+
+/** est #12 / P-189 A — a conta de CADA OC da "Situação por OC" (Pedida · Entregue · Demanda · Sobra), FONTE ÚNICA
+ *  do Resumo e da Paleta ("OCs que cobrem"): mesma LISTA (as OCs da Situação = união das 4 fontes) e mesmos METROS
+ *  (Demanda repartida pela prioridade do vínculo, D5). Mantém a ordem de `ocs`. */
+export function resumoOcsColecao(ocs: readonly OcAgrupada[], linhas: readonly SobraOcLinha[], det: DetalheOc): OcSituacaoResumo[] {
+  return ocs.map((o) => {
+    const reservadaTotal = det.reservPorOc.get(o.oc_tecido_id) ?? 0;
+    const comprometido = det.comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
+    const { reservadaLivre, usada, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
+    return {
+      ...o,
+      nModelos: det.nPorOc.get(o.oc_tecido_id) ?? 0,
+      reservadaTotal,
+      comprometido,
+      reservadaLivre,
+      usadaEfetiva: usada,
+      baixaDomina,
+      demanda: Math.max(reservadaTotal, usada),
+      sobra: sobraOc(o.oc_tecido_id, linhas, det),
+    };
+  });
 }
 
 // ─── "A comprar" AO VIVO (real-time) ──────────────────────────────────────────────────────────────

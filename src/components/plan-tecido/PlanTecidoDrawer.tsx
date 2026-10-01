@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc, demandaSemCor, sobraOc, coberturaVar, aComprarVivoVar, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, necessidadePorTecido, detalheOcColecao, arvoreDaDemanda, fmtMetros, contabilizarOc, demandaSemCor, sobraOc, coberturaVar, aComprarVivoVar, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 
@@ -18,7 +18,7 @@ type Linha = { key: string; label: string; cor_nome: string | null; reservada: n
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
-  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, ocNumeroDe, onClose, temRascunho = false,
+  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, reprovadoSet, ocNumeroDe, onClose, temRascunho = false,
 }: {
   state: DrawerState;
   subArvore: PtArvore;
@@ -34,6 +34,8 @@ export function PlanTecidoDrawer({
   aguardandoCapacidade?: boolean;
   /** modelos ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) por variante. */
   enviadoCadSet?: Set<string>;
+  /** P-198 A: modelos em `reprovado` — fora da necessidade e da Demanda (mesma régua do Resumo). */
+  reprovadoSet?: ReadonlySet<string>;
   ocNumeroDe: (ocId: string) => string | null;
   onClose: () => void;
   /** Rascunho não salvo influenciando o "a comprar" AO VIVO (só acende indicação leve no subtítulo). */
@@ -56,9 +58,11 @@ export function PlanTecidoDrawer({
 
   // Somatórios por variante — usados SÓ no painel colecao-wide 'oc' (o 'ocnum' vem da fonte única
   // detalheOc; o 'comprar' tem conta própria via RPC).
+  // P-198 A: as contas usam a árvore SEM os cards reprovados (o servidor faz o mesmo).
+  const colecaoDem = arvoreDaDemanda(colecaoArvore, reprovadoSet);
   const somaPorVar = (filtro?: (s: PtSlot) => boolean) => {
     const m = new Map<string, number>();
-    for (const t of necessidadePorTecido(colecaoArvore, filtro))
+    for (const t of necessidadePorTecido(colecaoDem, filtro))
       for (const v of t.variantes) if (v.variante_tecido_id) m.set(v.variante_tecido_id, (m.get(v.variante_tecido_id) ?? 0) + v.metros);
     return m;
   };
@@ -69,17 +73,7 @@ export function PlanTecidoDrawer({
   // Por OC (kind='ocnum') a reservada/comprometida vêm da FONTE ÚNICA detalheOc — a MESMA fn do Resumo
   // por OC×variante — pra nunca divergir (antes o "detalhar da OC" mostrava 0 enquanto o Resumo mostrava
   // o comprometido). 'oc'/'comprar' seguem colecao-wide (necByVar/comprometidoByVar).
-  const ocArtigos = new Map<string, Set<string>>();
-  const ocVariantes = new Map<string, Set<string>>();
-  for (const r of situacao) {
-    let s = ocArtigos.get(r.oc_tecido_id);
-    if (!s) { s = new Set(); ocArtigos.set(r.oc_tecido_id, s); }
-    s.add(r.artigo_id);
-    let v = ocVariantes.get(r.oc_tecido_id);
-    if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
-    if (r.variante_tecido_id) v.add(r.variante_tecido_id);
-  }
-  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade });
+  const det = detalheOcColecao(colecaoArvore, situacao, vinculoOcMap, slotOcMap, enviadoCadSet, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade, reprovados: reprovadoSet });
   const reservaVar = (vid: string): number =>
     kind === "ocnum" && arg ? (det.reservPorOcVar.get(`${arg}|${vid}`) ?? 0) : (necByVar.get(vid) ?? 0);
   const comprometidaVar = (vid: string): number =>
@@ -107,7 +101,7 @@ export function PlanTecidoDrawer({
   type CobRow = { artigo_id: string; artigo_nome: string; variante_tecido_id: string | null; label: string | null; nec_m: number; estoque_m: number; deficit_m: number };
   const cobertura = ((previaDrawer as any)?.cobertura ?? []) as CobRow[];
   // nec VIVA do rascunho por variante (coleção) — casa com a cobertura por variante_tecido_id.
-  const necVivoColByVar = kind === "comprar" ? necVivoPorVariante(colecaoArvore) : new Map<string, number>();
+  const necVivoColByVar = kind === "comprar" ? necVivoPorVariante(colecaoDem) : new Map<string, number>();
 
   // 'oc'/'ocnum' = dirigido pelos ITENS DA OC (mostra o pedido mesmo sem card atribuído) + reservada.
   let grupos: Grupo[];
