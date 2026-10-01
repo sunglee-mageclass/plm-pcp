@@ -159,8 +159,10 @@ describe("podeEnviarExplosao/refCampoVisivel — opts.statusGate (decisão 10: p
     expect(refCampoVisivel(board, "em_modelagem", "stand_by", { statusGate: "em_negociacao" })).toBe(false);
     expect(podeEnviarExplosao(board, "em_modelagem", "desenho_tecnico", { statusGate: "aprovado" }).ok).toBe(true);
   });
-  it("statusGate nulo/vazio é ignorado", () => {
-    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", { statusGate: null }).ok).toBe(true);
+  it("statusGate undefined/vazio é ignorado; null EXPLÍCITO = sem posição, nada passa (medios R14, P-190 A)", () => {
+    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", { statusGate: undefined }).ok).toBe(true);
+    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", { statusGate: null }).ok).toBe(false);
+    expect(refCampoVisivel(board, "em_modelagem", "stand_by", { statusGate: null })).toBe(false);
     expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", { statusGate: "  " }).ok).toBe(true);
     expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", {}).ok).toBe(true);
   });
