@@ -48,6 +48,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
+import { baselineAposMerge, decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -480,6 +481,23 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ form, grades, fotografado });
   // Só marca sujo depois de hidratar e enquanto editável (readOnly não altera nada).
   const dirty = hydrated && !readOnly && changed;
+  // R14 (M-A/M-C): espelhos para o efeito de merge decidir, sem entrar nas deps, se há edição não salva e qual status a tela mostra.
+  const changedLiveRef = useRef(changed); changedLiveRef.current = changed;
+  const statusLiveRef = useRef(status); statusLiveRef.current = status;
+  const fotografadoLiveRef = useRef(fotografado); fotografadoLiveRef.current = fotografado;
+  const acaoLocalEmVooRef = useRef(false); // espelha saveMut/confirmMut/desmarcarMut.isPending (atribuído após as mutations)
+  const temEdicaoNaoSalva = () => touchedFormRef.current.size > 0 || touchedGradeRef.current.size > 0 || changedLiveRef.current;
+  // Aplica a decisão do helper (status adotado + edição mantida + aviso). Devolve se há edição a preservar.
+  const aplicarDecisaoStatus = (fresco: string, temEdicao: boolean) => {
+    const dec = decidirStatusServidor({ atual: statusLiveRef.current, fresco, temEdicao });
+    if (dec.status !== statusLiveRef.current) {
+      statusLiveRef.current = dec.status;
+      setStatus(dec.status);
+      if (dec.manterEdicao) setEditing(true);
+      if (dec.aviso) toast.info(dec.aviso);
+    }
+    return dec;
+  };
   // Full-page (rota /expedicao/cq/$modeloId): bloqueia navegação. Modal (Sheet no index):
   // o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui fica inerte.
   const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
@@ -638,7 +656,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           pecas_sem_etiqueta: Number(cqRow.pecas_sem_etiqueta ?? 0),
         };
         setForm(nextForm);
-        setStatus((cqRow as any).status ?? "pendente");
+        setStatus(statusCqDe(cqRow as { status?: string | null } | null));
         const fv = (cqRow as any).fotografado_variantes ?? {};
         const fmap: Record<number, boolean> = {};
         Object.entries(fv).forEach(([k, v]) => { fmap[Number(k)] = Boolean(v); });
@@ -694,6 +712,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     if (!baseFormRef.current) return;                 // antes da 1ª captura de base (o seed effect cuida)
     const freshForm = freshFormDe(cqRow);
     const freshGrade = gradeDetalheDeFonte(fonteGrade);
+    // M1/M-A/M-C (R14): o servidor pode ter REBAIXADO/CONFIRMADO o CQ em outra tela — adota o status fresco, mas
+    // com edição não salva mantém a edição aberta + aviso; sem edição, re-baselina (sem falso "não salvo") + aviso.
+    const temEdicao = temEdicaoNaoSalva();
+    // N2: com Confirmar/Desmarcar/Salvar LOCAL em voo o status novo é o da própria ação (o onSuccess cuida) — não é "outra tela".
+    if (!acaoLocalEmVooRef.current) aplicarDecisaoStatus(statusCqDe(cqRow as { status?: string | null } | null), temEdicao);
     const meuGrade = meuGradeAtual();
     const md = mergeDraft({ base: baseFormRef.current, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
     const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -707,6 +730,13 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     }
     if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
     if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+    // M-C: nada era meu (sem edição) e adotei o servidor => o baseline do "não salvo" acompanha (senão sobra falso selo âmbar).
+    if (!temEdicao) {
+      const formMexeu = md.atualizados.length > 0 || md.conflitos.length > 0;
+      const gradeMexeu = mg.atualizados.length > 0 || mg.conflitos.length > 0;
+      const b = baselineAposMerge({ formMexeu, gradeMexeu, formMesclado: md.valor, formAtual: formLiveRef.current, gradesAtuais: gradesLiveRef.current, aplicarGrade: () => aplicarGradeNoState(gradesLiveRef.current, mg.valor) });
+      resetBaseline({ form: b.form, grades: b.grades, fotografado: fotografadoLiveRef.current });
+    }
     conflitosRef.current = todos; setConflitos(todos);
     setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
     baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
@@ -952,6 +982,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
       const freshForm = freshFormDe(freshCq);
       const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
+      aplicarDecisaoStatus(statusCqDe(freshCq), temEdicaoNaoSalva()); // M1/M-A (R14)
       const meuGrade = meuGradeAtual();
       const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
       const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -1014,6 +1045,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     const freshForm = freshFormDe(freshCq);
     const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
     setForm(freshForm);
+    setStatus(statusCqDe(freshCq)); // M1 (R14): re-adota o status do servidor (rebaixe em outra tela/aba)
     if (temFonte) setGrades((prev) => aplicarGradeNoState(prev, freshGrade));
     baseFormRef.current = freshForm;
     baseGradeRef.current = freshGrade;
@@ -1077,6 +1109,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
+      setEditing(false); // N3: volta ao modo travado (um manterEdicao anterior não pode ficar preso)
       posSaveReset(); // reseedingRef=true (merge effect fora até a re-baseline manual)
       // Colab (fix round 2): try/finally — espelha o saveMut acima (mesmo risco de flag presa).
       try {
@@ -1121,6 +1154,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Confirmação desmarcada — CQ voltou a editável");
       setStatus("pendente");
+      setEditing(false); // N3
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       await invalidateDownstream();
       await refetchCq();
@@ -1139,6 +1173,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
     onSuccess: async () => {
       toast.success("Modelo voltou para Serviços");
+      setStatus("pendente"); // N5: ação própria — o refetch seguinte não é "outra tela" (sem toast de causa errada)
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
         qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
@@ -1152,6 +1187,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar para Serviços")),
   });
+  acaoLocalEmVooRef.current = saveMut.isPending || confirmMut.isPending || desmarcarMut.isPending || voltarMut.isPending; // N2/N5
 
   // Botões de ação (Pré/Pós) — renderizados na barra STICKY do rodapé (todos os tamanhos):
   // rodapé do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.

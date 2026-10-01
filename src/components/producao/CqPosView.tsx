@@ -1,7 +1,8 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,9 @@ export const CqPosView = forwardRef<CqPosHandle, {
   const [statusPos, setStatusPos] = useState("pendente");
   const [editing, setEditing] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // R14 (L7 / M1·M-A·M-C): o Pós também pode ser rebaixado/confirmado em outra tela (prod #5: desmarcar o Pré rebaixa o
+  // Pós). `tocado` = o usuário digitou algo desde a última hidratação (esta tela não tem snapshot de "sujo").
+  const tocadoRef = useRef(false);
 
   // Baseline: grade real do CQ Pré (cad_grades.grades_reais) — leitura.
   const { data: cadGrades = [] } = useQuery({
@@ -151,8 +155,28 @@ export const CqPosView = forwardRef<CqPosHandle, {
       };
     });
     setPosState(st);
+    tocadoRef.current = false;
     setHydrated(true);
   }, [cqRow, posItens, cqFetched, cqFetching, cqOk, itensFetched, itensFetching, itensOk, cqId, servicosFetched, servicosFetching, servicosOk, hydrated]);
+
+  // Releitura do servidor com status diferente do mostrado (só depois de hidratar e fora de Salvar/Desmarcar em voo):
+  // sem edição => re-hidrata do servidor (zera o rascunho) + toast; com edição => adota o status, MANTÉM a edição e o
+  // rascunho + toast. Nunca troca de modo em silêncio.
+  useEffect(() => {
+    if (!hydrated || !cqFetched || cqFetching || !cqOk || !cqRow) return;
+    if (save.isPending || desmarcar.isPending) return;
+    const dec = decidirStatusServidor({ atual: statusPos, fresco: statusCqDe({ status: (cqRow as { status_pos?: string | null }).status_pos }), temEdicao: tocadoRef.current, nome: "CQ Pós" });
+    if (dec.status === statusPos) return;
+    if (dec.aviso) toast.info(dec.aviso);
+    if (dec.manterEdicao) {
+      setStatusPos(dec.status);
+      setEditing(true);
+    } else {
+      setEditing(false);
+      setHydrated(false); // a hidratação acima re-semeia status, obs, datas e itens do servidor
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cqRow, cqFetched, cqFetching, cqOk, hydrated, statusPos]);
 
   const confirmado = statusPos === "confirmado";
   const readOnly = permReadOnly || (confirmado && !editing);
@@ -161,6 +185,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
     posState[sid]?.[et]?.[num] ?? { grades: {}, grade_total: 0 };
 
   const setQtd = (sid: string, et: PosEtapa, num: number, tam: string, qtd: number) => {
+    tocadoRef.current = true;
     setPosState((s) => {
       const svc = s[sid] ?? emptySvc();
       const row = { ...(svc[et][num] ?? { grades: {}, grade_total: 0 }) };
@@ -169,8 +194,10 @@ export const CqPosView = forwardRef<CqPosHandle, {
       return { ...s, [sid]: { ...svc, [et]: { ...svc[et], [num]: row } } };
     });
   };
-  const setConserto = (sid: string, k: "enviado" | "prevista" | "entregue", v: string | null) =>
+  const setConserto = (sid: string, k: "enviado" | "prevista" | "entregue", v: string | null) => {
+    tocadoRef.current = true;
     setConsertoDatas((s) => ({ ...s, [sid]: { ...(s[sid] ?? {}), [k]: v || null } }));
+  };
 
   const buildItens = () => {
     const itens: any[] = [];
@@ -389,7 +416,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
 
         <Card className="p-5 space-y-2">
           <Label className="text-sm font-medium">Observações do CQ Pós</Label>
-          <Textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={3} />
+          <Textarea value={obs} onChange={(e) => { tocadoRef.current = true; setObs(e.target.value); }} rows={3} />
         </Card>
       </fieldset>
       </>
