@@ -7,9 +7,10 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db
 
 const RODA = hasDb && ehBancoLocal();
 const MD5 = {
-  servicos_financeiro: "da903333e753e75c8a6e033226b0a78c",
+  // R16 RA1 (20261026100000, P-187 A: parcela complemento) trocou servicos_financeiro (da903333) e a RPC (4d6681d1)
+  servicos_financeiro: "a06f4cc32646cc41ed249d91a68dcd51",
   gatilho: "3cbad67dc2f335929ffadb19d26b2019",
-  rpc: "4d6681d10b3e0cf3a4ea57abd3b2ac4d",
+  rpc: "9ea5069e414c736bf3dc02c22405cbeb",
 };
 const RPC = "public.parcela_servico_voltar_vencimento_automatico(uuid)";
 
