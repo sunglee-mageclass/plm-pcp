@@ -54,3 +54,17 @@ describe("mensagemErro — RPC parcela_servico_voltar_vencimento_automatico", ()
     expect(r).not.toMatch(/^[a-z_]+:/);
   });
 });
+
+describe("mobile (390px) da aba Serviços: linha com selo/Voltar quebra em vez de estourar", () => {
+  it("célula de vencimento quebra linha e o selo ocupa linha própria no mobile", () => {
+    expect(fin).toMatch(/max-lg:flex-wrap" data-label="Vencimento"/);
+    expect(fin).toMatch(/data-testid="srv-venc-ajustado-mao" className="[^"]*max-lg:basis-full/);
+  });
+  it("ações (Voltar + Marcar pago) quebram linha no mobile; data não encolhe", () => {
+    expect(fin).toMatch(/inline-flex flex-wrap items-center gap-1\.5 align-middle max-lg:w-full max-lg:justify-end/);
+    expect(fin).toMatch(/className="w-36 shrink-0"/);
+  });
+  it("rodapé da impressão deixa claro que soma pago + a pagar", () => {
+    expect(fin).toContain("Total (pago + a pagar): ${brl(totaisSrv.total)}");
+  });
+});
