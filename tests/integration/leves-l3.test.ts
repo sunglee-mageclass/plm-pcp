@@ -74,7 +74,7 @@ const MD5_L3: Record<string, string> = {
   "_ref_revelar_candidatos(uuid,text)": "44bc4271c09322a793247259843c1a67",
   "ref_previa_revelar(uuid,text)": "6a9da1726b5f7fcdcf8be85512b9cece",
   // 20261027140000 (fix round 1, A1): funções da R14 + o gatilho da REF
-  "_kanban_status_gate(uuid,uuid,text)": "e269b20351a1f7fa1d1ece3df122e704",
+  "_kanban_status_gate(uuid,uuid,text)": "44a0ebe16970322eefa949dce8c2f38f",
   "_kanban_aplicar(uuid,uuid[],text,uuid)": "d20c6f9404028c20f8336799743f234a",
   "kanban_previa_recalculo(jsonb)": "fdbc2039870d90a0277c20f859084259",
   "fn_modelo_ref_auto()": "6d68b20b0e5086a9a9dc0c87a8b42c69",
@@ -584,31 +584,35 @@ describe.skipIf(!LOCAL)(
         expect([tsS.ok, tsS.reprovado]).toEqual([false, false]);
       });
     });
-    it("chave DESLIGADA + Reprovado depois da etapa no board: nada muda (envia; SQL = TS)", async () => {
+    // Leves L3 fix round 2 (ruling do controlador): reprovado no Dev também com a chave DESLIGADA nunca revela nem vai à Explosão.
+    it("chave DESLIGADA + Reprovado no Dev (depois da etapa no board): editar não revela a REF; Explosão recusada (SQL = TS)", async () => {
       await tx(async (c) => {
         await c.query("SET LOCAL lock_timeout = '3s'");
         await comoUsuario(c);
         await configurarBoard(c);
-        const R = await cardFixado(c, {}, "reprovado");
-        const r = await um<{ id: string }>(c, `SELECT public.enviar_modelo_para_cad($1) AS id`, [
-          R,
-        ]);
-        expect(r.id).toBeTruthy();
-        const cfgRow = (
-          await um<{ j: Record<string, unknown> }>(
-            c,
-            `SELECT to_jsonb(tc) AS j FROM public.tenant_config tc WHERE tenant_id = $1`,
-            [T],
-          )
-        ).j;
+        // entra em Reprovado por uma edição (status muda = relevante p/ o fn_modelo_ref_auto); controle vai p/ Aprovado
+        const R = await cardFixado(c, {}, "entrada", "L3 F2 reprovado");
+        const A = await cardFixado(c, {}, "entrada", "L3 F2 controle");
+        await setar(c, R, { status_desenvolvimento: "reprovado" });
+        await setar(c, A, { status_desenvolvimento: "aprovado" });
+        expect((await lerModelo(c, R)).ref ?? "").toBe("");
+        const a = await lerModelo(c, A);
+        expect(a.ref).toBe(a.ref_auto);
+        expect((await um<{ g: string | null }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, R])).g).toBeNull();
+        const err = await erroDe(c, `SELECT public.enviar_modelo_para_cad($1)`, [R]);
+        expect(err.message).toBe("reprovado_explosao: Card reprovado nao vai a Explosao");
+        expect(mensagemErro(err)).toBe(TEXTO_REPROVADO_EXPLOSAO);
         const ts = gateEnvioExplosao({
-          cfg: lerKanbanAutoConfig(cfgRow),
+          cfg: lerKanbanAutoConfig(await cfgDaLoja(c)),
           explosaoEnvioStatus: "etapa_c",
           statusCru: "reprovado",
           derivacao: null,
           condProntas: true,
         });
-        expect([ts.ok, ts.reprovado]).toEqual([true, false]);
+        expect([ts.ok, ts.reprovado, ts.motivo]).toEqual([false, true, TEXTO_REPROVADO_EXPLOSAO]);
+        expect(statusParaGate(false, null, "reprovado")).toBeNull();
+        const gr = (await um<{ g: { ok: boolean; motivo: string } }>(c, `SELECT public._integracao_gates($1) -> 'ref' AS g`, [R])).g;
+        expect(gr).toMatchObject({ ok: false, motivo: "Card reprovado não revela a REF (nem muda a REF já gravada)." });
       });
     });
     it("Integração: gate 'ref' do reprovado diz 'Card reprovado não revela a REF…'; stand_by na mesma posição abre", async () => {

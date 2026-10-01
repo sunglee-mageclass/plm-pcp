@@ -141,7 +141,7 @@ describe("kanban-auto — statusParaGate (≡ _kanban_status_gate)", () => {
     expect(statusParaGate(true, d, " Reprovado ")).toBeNull();
     expect(statusParaGate(true, { ...d, derivavel: false, alvo: null }, "reprovado")).toBeNull();
     expect(statusParaGate(true, null, "REPROVADO")).toBeNull();
-    expect(statusParaGate(false, d, "reprovado")).toBe("reprovado");
+    expect(statusParaGate(false, d, "reprovado")).toBeNull(); // leves L3 fix round 2: qualquer chave
   });
 });
 
@@ -168,13 +168,14 @@ describe("kanban-status — statusGate null = sem posição (P-190 A)", () => {
     expect(refCampoVisivel(board, "etapa_c", "reprovado", { statusGate: null })).toBe(false);
     expect(podeEnviarExplosao(board, "etapa_c", "reprovado", { statusGate: "aprovado" }).ok).toBe(true);
   });
-  it("cadeia statusParaGate → gate: reprovado com chave ligada nunca libera; desligada segue a régua do status", () => {
+  it("cadeia statusParaGate → gate: reprovado nunca libera, com a chave ligada OU desligada (L3 fix round 2)", () => {
     const der = statusDerivado({ fluxo: FLUXO_GATE, reqs: REQS_GATE, exc: {}, cond: { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true, data_aprovacao: true }, status: "reprovado", derivavel: true });
     expect(der.fixado).toBe(true);
     expect(der.alvo).toBe("aprovado");
     const fluxoLabels = ["Entrada", "Etapa A", "Etapa B", "Stand By", "Etapa C", "Reprovado", "Aprovado"];
     expect(podeEnviarExplosao(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(true, der, "reprovado") }).ok).toBe(false);
     expect(refCampoVisivel(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(true, der, "reprovado") })).toBe(false);
-    expect(podeEnviarExplosao(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(false, der, "reprovado") }).ok).toBe(true);
+    expect(podeEnviarExplosao(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(false, der, "reprovado") }).ok).toBe(false);
+    expect(refCampoVisivel(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(false, der, "reprovado") })).toBe(false);
   });
 });

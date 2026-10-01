@@ -33,7 +33,7 @@
 --     public._kanban_status_gate(uuid,uuid,text)  635c7bbad3a3db2779f68fd1c5c8a954  INTOCADA  -- md5 "depois" da R14 (20261024100000)
 --     public._kanban_norm(text)                   74606b6e06de34fa23fd0642d1ebafbb  INTOCADA  -- PROVISORIO (copia 54422)
 --     public.fn_modelo_ref_auto()                 36f303e458a6ed95fd97c6ed2802dc6b  INTOCADA  -- PROVISORIO (copia 54422); visto igual no Passo 0 contas certas (30/set 11:22)
---                                                 OU 6d68b20b0e5086a9a9dc0c87a8b42c69 e _kanban_status_gate e269b20351a1f7fa1d1ece3df122e704 ("depois" da 20261027140000)
+--                                                 OU 6d68b20b0e5086a9a9dc0c87a8b42c69 e _kanban_status_gate 44a0ebe16970322eefa949dce8c2f38f ("depois" da 20261027140000)
 --     public._integracao_campo_travado(uuid,text) 798bcba30f1f75be96ae55079bc19767  INTOCADA  -- guarda da R14 (conferir no Passo 0)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
@@ -67,7 +67,7 @@ INSERT INTO _l3v_md5_aceitos VALUES
   ('public._kanban_norm(text)', '74606b6e06de34fa23fd0642d1ebafbb', 'dep'),
   ('public.fn_modelo_ref_auto()', '36f303e458a6ed95fd97c6ed2802dc6b', 'dep'),
   ('public.fn_modelo_ref_auto()', '6d68b20b0e5086a9a9dc0c87a8b42c69', 'dep'),  -- "depois" da 20261027140000
-  ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704', 'dep'),  -- "depois" da 20261027140000
+  ('public._kanban_status_gate(uuid,uuid,text)', '44a0ebe16970322eefa949dce8c2f38f', 'dep'),  -- "depois" da 20261027140000
   ('public._integracao_campo_travado(uuid,text)', '798bcba30f1f75be96ae55079bc19767', 'dep');  -- R14: conferir no Passo 0
 
 CREATE TEMP TABLE _l3v_acl_antes ON COMMIT DROP AS

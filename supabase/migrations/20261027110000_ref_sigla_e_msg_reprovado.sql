@@ -24,7 +24,7 @@
 --     ANTES  14dd20b65d6e94c71658abdf11c7969b  -- PROVISORIO (copia 54422)
 --     DEPOIS 39b44a2e9067a4d45f40fb24af1d61fd
 --     DEPOIS-130000 2d43c259135119b345a09a894091c2b5  (texto da 20261027130000, que contem este: reaplicar ESTA com a 130000 viva = no-op p/ esta funcao)
---   Sem mudanca (so guarda): _kanban_status_gate 635c7bba ("depois" da R14) OU e269b20351a1f7fa1d1ece3df122e704 ("depois" da 20261027140000);
+--   Sem mudanca (so guarda): _kanban_status_gate 635c7bba ("depois" da R14) OU 44a0ebe16970322eefa949dce8c2f38f ("depois" da 20261027140000);
 --   _kanban_norm 74606b6e (PROVISORIO); _ref_exibir_gate 824e463a (CONFIRMADO passo0-medios).
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
@@ -59,7 +59,7 @@ INSERT INTO _l3r_md5_aceitos VALUES
   ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '39b44a2e9067a4d45f40fb24af1d61fd', 'depois'),
   ('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)', '2d43c259135119b345a09a894091c2b5', 'depois_130000'),
   ('public._kanban_status_gate(uuid,uuid,text)', '635c7bbad3a3db2779f68fd1c5c8a954', 'dep'),
-  ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704', 'dep'),
+  ('public._kanban_status_gate(uuid,uuid,text)', '44a0ebe16970322eefa949dce8c2f38f', 'dep'),
   ('public._kanban_norm(text)', '74606b6e06de34fa23fd0642d1ebafbb', 'dep'),
   ('public._ref_exibir_gate(uuid,text)', '824e463a9223f3fe4646d771276c856f', 'dep');
 

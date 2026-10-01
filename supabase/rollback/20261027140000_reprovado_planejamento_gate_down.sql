@@ -21,7 +21,7 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704'),
+      ('public._kanban_status_gate(uuid,uuid,text)', '44a0ebe16970322eefa949dce8c2f38f'),
       ('public._kanban_aplicar(uuid,uuid[],text,uuid)', 'd20c6f9404028c20f8336799743f234a'),
       ('public.kanban_previa_recalculo(jsonb)', 'fdbc2039870d90a0277c20f859084259'),
       ('public.fn_modelo_ref_auto()', '6d68b20b0e5086a9a9dc0c87a8b42c69')) v(s, m) LOOP

@@ -24,7 +24,7 @@ const CAMPOS_COND = [
 // [leves L3 fix round 1] a 20261027140000 (reprovado no PLANEJAMENTO, P-213 A) redefine as 3 por cima desta — aceita o texto
 // da R14 OU o da L3 (a L3 só ACRESCENTA a regra do Planejamento; o resto é o da R14).
 const MD5_DEPOIS: Record<string, string[]> = {
-  "_kanban_status_gate(uuid,uuid,text)": ["635c7bbad3a3db2779f68fd1c5c8a954", "e269b20351a1f7fa1d1ece3df122e704"],
+  "_kanban_status_gate(uuid,uuid,text)": ["635c7bbad3a3db2779f68fd1c5c8a954", "44a0ebe16970322eefa949dce8c2f38f"],
   "_kanban_aplicar(uuid,uuid[],text,uuid)": ["9c50c6700d5bedc22b53ee95466d43f4", "d20c6f9404028c20f8336799743f234a"],
   "kanban_previa_recalculo(jsonb)": ["1ed117822a5dc7b5a3f54559ba68b89b", "fdbc2039870d90a0277c20f859084259"],
   "_kanban_derivar_lote(uuid,uuid[],jsonb)": ["0755d9ad499379295ba24c7a669daa76"],
@@ -322,13 +322,15 @@ describe.skipIf(!LOCAL)(
       });
     });
 
-    it("chave DESLIGADA: nada muda — o gate segue o status gravado ('reprovado' depois de etapa_c passa, como antes)", async () => {
+    // Leves L3 fix round 2 (ruling do controlador, P-213/P-190): reprovado não tem posição em QUALQUER chave — com a chave
+    // desligada também (era "nada muda" na R14).
+    it("chave DESLIGADA: reprovado também SEM posição ('reprovado' depois de etapa_c NÃO passa — L3 fix 2)", async () => {
       await withTx(async (c) => {
         await c.query("SET LOCAL lock_timeout = '3s'");
         await comoUsuario(c);
         await configurarBoard(c);
         const R = await cardFixado(c, {}, "reprovado");
-        expect(await gate(c, R, "reprovado")).toBe("reprovado");
+        expect(await gate(c, R, "reprovado")).toBeNull();
         expect(
           (
             await um<{ ok: boolean }>(
@@ -337,7 +339,7 @@ describe.skipIf(!LOCAL)(
               [T, R],
             )
           ).ok,
-        ).toBe(true);
+        ).toBe(false);
       });
     });
   },

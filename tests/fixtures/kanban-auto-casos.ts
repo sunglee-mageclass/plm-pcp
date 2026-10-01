@@ -187,7 +187,8 @@ export type CasoGate = { nome: string; ligado: boolean; status: string; cond: Re
 const TUDO_GATE = { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true, data_aprovacao: true };
 const ATE_C_GATE = { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true };
 export const GATE_CASOS: CasoGate[] = [
-  { nome: "G1. chave DESLIGADA + reprovado → status gravado (nada muda)", ligado: false, status: "reprovado", cond: TUDO_GATE, esperado: "reprovado" },
+  // Leves L3 fix round 2 (ruling do controlador): reprovado = SEM posição em QUALQUER chave (era "status gravado" na R14).
+  { nome: "G1. chave DESLIGADA + reprovado no Dev → SEM posição (L3 fix 2: qualquer chave)", ligado: false, status: "reprovado", cond: TUDO_GATE, esperado: null },
   { nome: "G2. chave ligada + reprovado com posição derivada = aprovado → SEM posição (P-190 A)", ligado: true, status: "reprovado", cond: TUDO_GATE, esperado: null },
   { nome: "G3. chave ligada + reprovado com posição derivada = etapa_c (≥ etapa da REF/Explosão) → SEM posição", ligado: true, status: "reprovado", cond: ATE_C_GATE, esperado: null },
   { nome: "G4. chave ligada + reprovado sem nada satisfeito → SEM posição", ligado: true, status: "reprovado", cond: {}, esperado: null },

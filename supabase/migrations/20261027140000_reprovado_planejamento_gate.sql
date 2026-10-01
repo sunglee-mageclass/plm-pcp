@@ -2,8 +2,11 @@
 -- tambem nos caminhos POR CARD do P-190 A ("reprovado nunca revela a REF nem passa no gate da Explosao"). Ruling do controlador
 -- (01/out): mesmo predicado da Integracao/OTB/Plan. Tecido. Funcoes da R14 (+ o gatilho da REF), redefinidas aqui guardadas
 -- pelos md5 "depois" da R14:
---   _kanban_status_gate       card REPROVADO NO PLANEJAMENTO -> NULL (sem posicao) em QUALQUER estado da chave. O reprovado do
---                             Dev segue como na R14 (so com a chave ligada; desligada = o status gravado - inalterado).
+--   _kanban_status_gate       card REPROVADO (Dev OU Planejamento) -> NULL (sem posicao) em QUALQUER estado da chave.
+--                             [fix round 2, ruling do controlador] o reprovado do DEV tambem com a chave DESLIGADA (a R14
+--                             so o tratava com a chave ligada): com a chave desligada, 'reprovado' depois da etapa no board
+--                             deixava revelar a REF e enviar a Explosao. Efeito: fn_modelo_ref_auto, _enviar_modelo_para_cad_core
+--                             ('reprovado_explosao:') e _integracao_gates (gate 'ref') recusam sem mudar de texto.
 --   _kanban_aplicar           revela_ref (fixado) exclui o reprovado no planejamento.
 --   kanban_previa_recalculo   a previa "REFs reveladas" exclui o reprovado no planejamento (≡ _kanban_aplicar/gatilho).
 --   fn_modelo_ref_auto        nao revela com NEW.status_planejamento = 'reprovado' (o mesmo UPDATE que o marca).
@@ -17,7 +20,7 @@
 -- escondidos (antes revelariam ao chegar na etapa) e nao vao a Explosao.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
---   public._kanban_status_gate(uuid,uuid,text)        ANTES 635c7bbad3a3db2779f68fd1c5c8a954 ("depois" da R14 20261024100000) -> DEPOIS e269b20351a1f7fa1d1ece3df122e704
+--   public._kanban_status_gate(uuid,uuid,text)        ANTES 635c7bbad3a3db2779f68fd1c5c8a954 ("depois" da R14 20261024100000) -> DEPOIS 44a0ebe16970322eefa949dce8c2f38f
 --   public._kanban_aplicar(uuid,uuid[],text,uuid)     ANTES 9c50c6700d5bedc22b53ee95466d43f4 ("depois" da R14)               -> DEPOIS d20c6f9404028c20f8336799743f234a
 --   public.kanban_previa_recalculo(jsonb)             ANTES 1ed117822a5dc7b5a3f54559ba68b89b ("depois" da R14)               -> DEPOIS fdbc2039870d90a0277c20f859084259
 --   public.fn_modelo_ref_auto()                       ANTES 36f303e458a6ed95fd97c6ed2802dc6b (PROVISORIO, copia; = Passo 0 contas certas 30/set) -> DEPOIS 6d68b20b0e5086a9a9dc0c87a8b42c69
@@ -43,7 +46,7 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _l3p_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l3p_md5_aceitos VALUES
   ('public._kanban_status_gate(uuid,uuid,text)', '635c7bbad3a3db2779f68fd1c5c8a954', 'antes'),
-  ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704', 'depois'),
+  ('public._kanban_status_gate(uuid,uuid,text)', '44a0ebe16970322eefa949dce8c2f38f', 'depois'),
   ('public._kanban_aplicar(uuid,uuid[],text,uuid)', '9c50c6700d5bedc22b53ee95466d43f4', 'antes'),
   ('public._kanban_aplicar(uuid,uuid[],text,uuid)', 'd20c6f9404028c20f8336799743f234a', 'depois'),
   ('public.kanban_previa_recalculo(jsonb)', '1ed117822a5dc7b5a3f54559ba68b89b', 'antes'),
@@ -86,9 +89,13 @@ DECLARE
   v_derivavel boolean;
   v_alvo      text;
 BEGIN
-  -- leves L3 fix round 1 (A1, P-213 A + P-190 A): reprovado = Dev OU Planejamento. Card REPROVADO NO PLANEJAMENTO nao tem
-  -- posicao para os gates em QUALQUER estado da chave (nunca revela a REF nem libera a Explosao). Le a linha gravada; o
-  -- fn_modelo_ref_auto confere tambem o NEW.status_planejamento (mesmo UPDATE). Espelho TS: statusParaGate (4o parametro).
+  -- leves L3 fix round 1/2 (A1, P-213 A + P-190 A; ruling do controlador 01/out): reprovado = Dev OU Planejamento e NAO tem
+  -- posicao para os gates em QUALQUER estado da chave (nunca revela a REF nem libera a Explosao). O Dev pelo status dado
+  -- (_status_atual); o Planejamento pela linha gravada (o fn_modelo_ref_auto confere tambem o NEW.status_planejamento, mesmo
+  -- UPDATE). Espelho TS: statusParaGate (4o parametro).
+  IF public._kanban_norm(_status_atual) = 'reprovado' THEN
+    RETURN NULL;
+  END IF;
   IF _modelo_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.modelos mp
                                          WHERE mp.id = _modelo_id AND public._kanban_norm(mp.status_planejamento) = 'reprovado') THEN
     RETURN NULL;
@@ -96,13 +103,8 @@ BEGIN
   IF _tenant IS NULL OR _modelo_id IS NULL OR NOT public._kanban_ligado(_tenant) THEN
     RETURN _status_atual;
   END IF;
-  -- medios R14 kanban #7 (P-190 A, dono 01/out): com a chave LIGADA, card em 'reprovado' NAO tem posicao para os
-  -- gates (excecao a decisao 10): devolve NULL -> _ref_exibir_gate e _explosao_envio_gate nunca passam (nem a REF
-  -- revela nem a Explosao libera), qualquer que seja a ordem do board. Antes do GUC do motor: vale tambem dentro dele.
-  -- Espelho TS: statusParaGate (src/lib/kanban-auto.ts). Outras colunas manuais seguem pela posicao DERIVADA.
-  IF public._kanban_norm(_status_atual) = 'reprovado' THEN
-    RETURN NULL;
-  END IF;
+  -- (medios R14 kanban #7: o 'reprovado' do Dev com a chave ligada - agora tratado no topo, para qualquer chave.)
+  -- Outras colunas manuais seguem pela posicao DERIVADA (decisao 10).
   IF coalesce(current_setting('app.kanban_sistema', true), '') IN ('auto', 'config', 'restauracao') THEN
     RETURN _status_atual;
   END IF;

@@ -558,7 +558,9 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 2C: _kanban_derivar_lote / _
       for (const m of ms) {
         const g = await um<{ g: string | null }>(c, `SELECT public._kanban_status_gate($1, $2, $3) AS g`, [m.tenant_id, m.id, m.status_desenvolvimento]);
         // leves L3 fix round 1 (A1, P-213 A): reprovado no PLANEJAMENTO = sem posição em qualquer chave (20261027140000)
-        const planRep = String(m.status_planejamento ?? "").trim().toLowerCase() === "reprovado";
+        // leves L3 fix round 2: o reprovado do Dev também, em qualquer chave
+        const planRep = String(m.status_planejamento ?? "").trim().toLowerCase() === "reprovado"
+          || String(m.status_desenvolvimento ?? "").trim().toLowerCase() === "reprovado";
         expect(g.g).toBe(planRep ? null : m.status_desenvolvimento);
       }
       expect((await um<{ c: unknown }>(c, `SELECT public._kanban_cfg('00000000-0000-0000-0000-000000000000') AS c`)).c).toBeNull();

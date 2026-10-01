@@ -34,7 +34,7 @@
 --   public._enviar_modelo_para_cad_core(uuid,text,text)
 --     ANTES  3e49be237f86d1acdec0fefc43496008  -- PROVISORIO (copia 54422)
 --     DEPOIS 14179bce7709643ea068edfed128ca43
---   Sem mudanca (so guarda): _kanban_status_gate 635c7bba ("depois" da R14) OU e269b20351a1f7fa1d1ece3df122e704 ("depois" da 20261027140000, que
+--   Sem mudanca (so guarda): _kanban_status_gate 635c7bba ("depois" da R14) OU 44a0ebe16970322eefa949dce8c2f38f ("depois" da 20261027140000, que
 --   e aplicada depois desta - reaplicar esta com a 140000 viva = no-op); _kanban_norm 74606b6e (PROVISORIO).
 --   Gatilho trg_kanban_processar_fila_upd: ausente (antes) ou com a definicao deste arquivo (reaplicar = no-op).
 --   Qualquer outro texto -> P0001 e nada muda.
@@ -67,7 +67,7 @@ INSERT INTO _l3k_md5_aceitos VALUES
   ('public._enviar_modelo_para_cad_core(uuid,text,text)', '3e49be237f86d1acdec0fefc43496008', 'antes'),  -- PROVISORIO (copia 54422)
   ('public._enviar_modelo_para_cad_core(uuid,text,text)', '14179bce7709643ea068edfed128ca43', 'depois'),
   ('public._kanban_status_gate(uuid,uuid,text)', '635c7bbad3a3db2779f68fd1c5c8a954', 'dep'),  -- "depois" da R14
-  ('public._kanban_status_gate(uuid,uuid,text)', 'e269b20351a1f7fa1d1ece3df122e704', 'dep'),  -- "depois" da 20261027140000
+  ('public._kanban_status_gate(uuid,uuid,text)', '44a0ebe16970322eefa949dce8c2f38f', 'dep'),  -- "depois" da 20261027140000
   ('public._kanban_norm(text)', '74606b6e06de34fa23fd0642d1ebafbb', 'dep');  -- PROVISORIO (copia 54422)
 
 CREATE TEMP TABLE _l3k_acl_antes ON COMMIT DROP AS
