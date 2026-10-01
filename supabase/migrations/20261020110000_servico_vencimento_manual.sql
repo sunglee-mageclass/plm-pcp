@@ -22,15 +22,15 @@
 --   acompanhar a data calculada na proxima leitura de servicos_financeiro.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
--- PROVISORIO: confirmar com o Passo 0 de producao (os md5 "antes"/"dep" sao da COPIA local 54422, 01/out).
+-- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06) - md5 "antes"/"dep" da copia 54422 = producao.
 --   public.servicos_financeiro()
---     ANTES  daec320c497c283929b33b55303aba89  (copia 01/out = texto da 20261019210000)  -- PROVISORIO: confirmar com o Passo 0 de producao
+--     ANTES  daec320c497c283929b33b55303aba89  (copia 01/out = texto da 20261019210000)  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --     DEPOIS da903333e753e75c8a6e033226b0a78c  (este arquivo; reaplicar = no-op)
 --   public.fn_servico_parcela_valor_pago()   (dep, so conferida)
---            de9914b310477de1331f076a874696f1  (copia 01/out)  -- PROVISORIO: confirmar com o Passo 0 de producao
+--            de9914b310477de1331f076a874696f1  (copia 01/out)  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --   Gatilhos de parcelas_servico (fora o novo) = EXATAMENTE 2, ligados, com estas definicoes (md5 do conjunto na copia
 --   = 007e7b837cf385ce5dff12e2b7bb1b42 sobre string_agg(tgname||' '||tgenabled||' '||pg_get_triggerdef, E'\n' order by tgname)):
---     audit_parcelas_servico, trg_servico_parcela_valor_pago   -- PROVISORIO: confirmar com o Passo 0 de producao
+--     audit_parcelas_servico, trg_servico_parcela_valor_pago   -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --   Funcoes novas: nao existe OU texto deste arquivo (fn do gatilho: tambem o texto NEUTRO da volta, d88bb1ed...).
 --     public.fn_servico_parcela_vencimento_manual()                 3cbad67dc2f335929ffadb19d26b2019
 --     public.parcela_servico_voltar_vencimento_automatico(uuid)     4d6681d10b3e0cf3a4ea57abd3b2ac4d
@@ -54,9 +54,9 @@ SET LOCAL transaction_timeout = '10s';
 
 CREATE TEMP TABLE _r10_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _r10_md5_aceitos VALUES
-  ('public.servicos_financeiro()',                                'daec320c497c283929b33b55303aba89', 'antes'),   -- PROVISORIO: confirmar com o Passo 0 de producao
+  ('public.servicos_financeiro()',                                'daec320c497c283929b33b55303aba89', 'antes'),   -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public.servicos_financeiro()',                                'da903333e753e75c8a6e033226b0a78c', 'depois'),
-  ('public.fn_servico_parcela_valor_pago()',                      'de9914b310477de1331f076a874696f1', 'dep'),     -- PROVISORIO: confirmar com o Passo 0 de producao
+  ('public.fn_servico_parcela_valor_pago()',                      'de9914b310477de1331f076a874696f1', 'dep'),     -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public.fn_servico_parcela_vencimento_manual()',               '3cbad67dc2f335929ffadb19d26b2019', 'nova'),
   ('public.fn_servico_parcela_vencimento_manual()',               'd88bb1ed58effa55eaf473c5af73be6a', 'neutra'),
   ('public.parcela_servico_voltar_vencimento_automatico(uuid)',   '4d6681d10b3e0cf3a4ea57abd3b2ac4d', 'nova');

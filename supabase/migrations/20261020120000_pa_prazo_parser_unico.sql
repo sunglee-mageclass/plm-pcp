@@ -10,12 +10,12 @@
 -- O espelho TS (contarParcelasPrazo, src/components/oc-p-acabado/shared.ts:136) e do front da R10 (outra tarefa).
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
--- PROVISORIO: confirmar com o Passo 0 de producao (os md5 "antes" sao da COPIA local 54422, 01/out).
+-- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06) - md5 "antes" da copia 54422 = producao.
 --   public.gerar_parcelas_oc_p_acabado()
---     ANTES  2229a974f172a8302085f15ab2d63ae9  (copia 01/out = producao 30/set)  -- PROVISORIO: confirmar com o Passo 0 de producao
+--     ANTES  2229a974f172a8302085f15ab2d63ae9  (copia 01/out = producao 30/set)  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --     DEPOIS 4b90865ad77d4f68a71c41959a283d62  (este arquivo; reaplicar = no-op)
 --   public.parcela_voltar_vencimento_automatico(uuid)
---     ANTES  82677bf24887f6e1ad7caadfa920ae45  (copia 01/out = texto da 20261019220000)  -- PROVISORIO: confirmar com o Passo 0 de producao
+--     ANTES  82677bf24887f6e1ad7caadfa920ae45  (copia 01/out = texto da 20261019220000)  -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
 --     DEPOIS ef80c3c810c22bb32d04d818ebbc6e9c  (este arquivo; reaplicar = no-op)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
@@ -34,9 +34,9 @@ SET LOCAL transaction_timeout = '10s';
 
 CREATE TEMP TABLE _r10_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _r10_md5_aceitos VALUES
-  ('public.gerar_parcelas_oc_p_acabado()',              '2229a974f172a8302085f15ab2d63ae9', 'antes'),   -- PROVISORIO: confirmar com o Passo 0 de producao
+  ('public.gerar_parcelas_oc_p_acabado()',              '2229a974f172a8302085f15ab2d63ae9', 'antes'),   -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public.gerar_parcelas_oc_p_acabado()',              '4b90865ad77d4f68a71c41959a283d62', 'depois'),
-  ('public.parcela_voltar_vencimento_automatico(uuid)', '82677bf24887f6e1ad7caadfa920ae45', 'antes'),   -- PROVISORIO: confirmar com o Passo 0 de producao
+  ('public.parcela_voltar_vencimento_automatico(uuid)', '82677bf24887f6e1ad7caadfa920ae45', 'antes'),   -- CONFIRMADO: Passo 0 dos MÉDIOS em produção (01/out 11:06)
   ('public.parcela_voltar_vencimento_automatico(uuid)', 'ef80c3c810c22bb32d04d818ebbc6e9c', 'depois');
 
 DO $guarda$
