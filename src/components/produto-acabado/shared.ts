@@ -451,23 +451,15 @@ export function fmtMoney(v: number | null | undefined): string {
   return brl(Number(v) || 0);
 }
 
-/** N-3 (Fix round 2, Integração) — PURA: qual `markup_varejo` o blur do Markup ATACADO deve
- *  reenviar pra `salvar_markups_produto_acabado` (a RPC grava os 2 campos SEMPRE, sem "só toca
- *  1" — `_salvar_markups_produto_acabado_core`). Sem varejo travado, o draft local manda (como
- *  sempre). COM o varejo travado, o draft pode ter divergido do servidor desde a marcação (ex.:
- *  um blur anterior que falhou) — reenviar o draft reescreveria o canal travado em SILÊNCIO (a
- *  trigger de trava só checa `preco_varejo_fixo`, nunca `markup_varejo` — D12 deixa markup passar
- *  sempre); manda o markup do SERVIDOR (`markupVarejoServidor`) nesse caso. `null`/`undefined` em
- *  `markupVarejoServidor === undefined` (prop AUSENTE — ex.: uso legado do `ProdutoCard` sem o
- *  prop novo) cai de volta no draft — melhor um valor potencialmente divergente do que travar a
- *  UI numa ausência de dado. `null` é um valor REAL do servidor (canal usa preço fixo, sem
- *  markup) — nesse caso manda `null`, nunca o draft (distinção `null` vs `undefined` proposital:
- *  `??` sozinho trataria os dois igual e mandaria o draft errado quando o servidor tem `null`). */
-export function markupVarejoParaBlurAtacado(o: {
-  travaVarejo: boolean;
-  markupVarejoDraft: number | null;
-  markupVarejoServidor: number | null | undefined;
-}): number | null {
-  if (!o.travaVarejo) return o.markupVarejoDraft;
-  return o.markupVarejoServidor === undefined ? o.markupVarejoDraft : o.markupVarejoServidor;
+/** Preço A2 (R9) — PURA: o markup que o blur de UM canal (atacado/varejo) reenvia pro OUTRO canal
+ *  (o NÃO tocado) em `salvar_markups_produto_acabado`. A RPC grava os 2 campos SEMPRE e, ao gravar
+ *  um markup, apaga o preço fixo daquele canal (`_salvar_markups_produto_acabado_core`). Reenviar um
+ *  markup derivado do RASCUNHO apagaria o preço fixo do canal intocado; por isso o canal não tocado
+ *  manda SEMPRE o valor do SERVIDOR — `null` quando o canal usa preço fixo (null é valor REAL, nunca
+ *  cai no rascunho). `undefined` = servidor ausente (card ainda sem leitura) → cai no rascunho. */
+export function markupCanalIntocado(
+  markupServidor: number | null | undefined,
+  markupDraft: number | null,
+): number | null {
+  return markupServidor === undefined ? markupDraft : markupServidor;
 }

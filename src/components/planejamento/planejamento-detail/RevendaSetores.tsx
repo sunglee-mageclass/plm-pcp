@@ -12,6 +12,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
+import { markupCanalIntocado } from "@/components/produto-acabado/shared";
 import { varianteLabel } from "@/lib/variante";
 import { type PrecoInfo } from "@/lib/preco";
 import { type Draft } from "@/components/planejamento/modelo-shared";
@@ -88,7 +89,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           disabled={planBloqueado}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: travaVarejo ? (produtoRevenda?.markup_varejo ?? null) : markupVarejoInput }); }}
+                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupCanalIntocado(produtoRevenda?.markup_varejo, markupVarejoInput) }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -105,7 +106,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           disabled={planBloqueado || travaVarejo}
                           onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
+                          onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupCanalIntocado(produtoRevenda?.markup_atacado, markupAtacadoInput), markup_varejo: markupVarejoInput }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>

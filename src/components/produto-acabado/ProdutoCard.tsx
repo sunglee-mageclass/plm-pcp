@@ -40,7 +40,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
-  variantesBatemComTotal, erroValidacao, markupVarejoParaBlurAtacado,
+  variantesBatemComTotal, erroValidacao, markupCanalIntocado,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
@@ -84,6 +84,7 @@ export function ProdutoCard({
   onLimpo,
   onAbrirPlanejamento,
   markupVarejoServidor,
+  markupAtacadoServidor,
   dirty,
 }: {
   produto: ProdutoDraft;
@@ -131,6 +132,7 @@ export function ProdutoCard({
    *  `null`/ausente (outros usos futuros do ProdutoCard) cai no `produto.markup_varejo` como
    *  antes (comportamento intocado). */
   markupVarejoServidor?: number | null;
+  markupAtacadoServidor?: number | null;
   /** Tarefa 5: TRUE quando ESTE produto tem edição não salva (baseline por produto do Sheet) —
    *  "Criar card em Planejamento" precisa persistir a Compra ANTES de materializar o modelo
    *  (`_criar_card_produto_acabado_core` lê a linha SALVA, "Tamanho em" inclusive — P-119 A),
@@ -1015,21 +1017,9 @@ export function ProdutoCard({
                               // fixo — ver comentário em `markupAtacadoBaseRef`).
                               const mk = produto.markup_atacado ?? null;
                               if (mk === markupAtacadoBaseRef.current) return;
-                              // N-3 (Fix round 2): com o varejo TRAVADO, o blur do ATACADO reenviava
-                              // `produto.markup_varejo` (o draft local — pode ter divergido do servidor
-                              // desde a marcação, ex.: um blur anterior que falhou) — `_salvar_markups_
-                              // produto_acabado_core` grava `markup_varejo` incondicional e limpa o
-                              // `preco_varejo_fixo` (D12 deixa passar), apagando o preço fixo travado em
-                              // silêncio (a trigger de trava só checa `preco_varejo_fixo`, nunca
-                              // `markup_varejo`). Manda o markup varejo do SERVIDOR (`markupVarejoServidor`,
-                              // prop do Sheet via `baseServidorRef` — nunca o do draft) quando travado —
-                              // o atacado continua livre (D34), só o valor enviado pro OUTRO canal muda
-                              // de fonte.
-                              const markupVarejoParaEnviar = markupVarejoParaBlurAtacado({
-                                travaVarejo: travaIntegracao.has("preco_venda"),
-                                markupVarejoDraft: produto.markup_varejo,
-                                markupVarejoServidor,
-                              });
+                              // Preço A2: o canal NÃO tocado (varejo) manda SEMPRE o markup do SERVIDOR
+                              // (null se tem preço fixo) — nunca o draft; senão a RPC apaga o preço fixo dele.
+                              const markupVarejoParaEnviar = markupCanalIntocado(markupVarejoServidor, produto.markup_varejo);
                               salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: markupVarejoParaEnviar });
                             }}
                           />
@@ -1060,7 +1050,7 @@ export function ProdutoCard({
                               // reparseia o evento nativo de blur.
                               const mk = produto.markup_varejo ?? null;
                               if (mk === markupVarejoBaseRef.current) return;
-                              salvarMarkupMut.mutate({ markupAtacado: produto.markup_atacado, markupVarejo: mk });
+                              salvarMarkupMut.mutate({ markupAtacado: markupCanalIntocado(markupAtacadoServidor, produto.markup_atacado), markupVarejo: mk });
                             }}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>

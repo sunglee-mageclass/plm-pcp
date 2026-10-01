@@ -968,6 +968,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             // travado em silêncio (a trigger só checa `preco_varejo_fixo`, nunca `markup_varejo`
             // — D12). `baseServidorRef` é a última leitura confiável do servidor.
             markupVarejoServidor={baseServidorRef.current[p.id]?.markup_varejo}
+            markupAtacadoServidor={baseServidorRef.current[p.id]?.markup_atacado}
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
             onOcVinculada={(oc) => patchProduto(p.id, { oc })}
             onExcluido={() => removeProduto(p.id)}

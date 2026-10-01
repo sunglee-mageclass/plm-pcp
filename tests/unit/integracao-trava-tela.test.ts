@@ -97,7 +97,7 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
     expect(r.match(/disabled=\{planBloqueado \|\| travaVarejo\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
     expect(r.match(/disabled=\{planBloqueado\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
     expect(r).toMatch(/\{podeEditarPreco && !travaPrecoAnterior \? \(/);
-    expect(r).toMatch(/markup_varejo: travaVarejo \? \(produtoRevenda\?\.markup_varejo \?\? null\) : markupVarejoInput/);
+    expect(r).toMatch(/markup_varejo: markupCanalIntocado\(produtoRevenda\?\.markup_varejo, markupVarejoInput\)/);
   });
   it("Info Gerais trava Nome, NCM, Título, Descrição e medidas por coluna", () => {
     const i = ler("src/components/planejamento/planejamento-detail/InfoGeraisSecao.tsx");
@@ -1869,7 +1869,7 @@ describe("Fix round 2 — ProdutoCard.tsx (Produto Acabado): blur de preço/mark
   it("o markup atacado usa produto.markup_atacado no onBlur e preserva a lógica de trava do varejo (N-3)", () => {
     expect(s).toMatch(/const mk = produto\.markup_atacado \?\? null;\s*\n\s*if \(mk === markupAtacadoBaseRef\.current\) return;/);
     // N-3 (fix round 2 anterior) continua intacto — a resolução do par travado não foi tocada.
-    expect(s).toMatch(/markupVarejoParaBlurAtacado\(\{/);
+    expect(s).toMatch(/markupCanalIntocado\(markupVarejoServidor/);
   });
 
   it("o markup varejo respeita a trava de Integração (early return) e usa produto.markup_varejo no onBlur", () => {

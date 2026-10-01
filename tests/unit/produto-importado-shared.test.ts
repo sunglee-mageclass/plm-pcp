@@ -21,7 +21,7 @@ import {
   type ProdutoImportadoDraft,
 } from "@/components/produto-importado/shared";
 import {
-  resolverTravaAcabado, aplicarResolucaoTravaAcabado, toastTravaAcabado, chaveDirty as chaveDirtyPA, markupVarejoParaBlurAtacado,
+  resolverTravaAcabado, aplicarResolucaoTravaAcabado, toastTravaAcabado, chaveDirty as chaveDirtyPA, markupCanalIntocado,
   produtosParaSalvar,
   type ProdutoDraft,
 } from "@/components/produto-acabado/shared";
@@ -739,32 +739,23 @@ describe("resolverTravaAcabado — N-5 (PA, espelha resolverTravaImportado, sem 
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────────────────────
-// N-3 (Fix round 2) — markupVarejoParaBlurAtacado (PA): o blur do Markup ATACADO reenvia o
-// markup_varejo do SERVIDOR (nunca o draft local, potencialmente divergente) quando o varejo
-// está travado — a RPC `salvar_markups_produto_acabado` grava os 2 campos sempre, e a trigger
-// de trava NUNCA checa `markup_varejo` (D12), então um valor divergente passa em silêncio.
-// ────────────────────────────────────────────────────────────────────────────────────────────
-describe("markupVarejoParaBlurAtacado — N-3 (nunca reenvia o draft do varejo travado)", () => {
-  it("sem trava: manda o markup do DRAFT (comportamento de sempre)", () => {
-    const r = markupVarejoParaBlurAtacado({ travaVarejo: false, markupVarejoDraft: 3, markupVarejoServidor: 2 });
-    expect(r).toBe(3);
+// Preço A2 (R9) — markupCanalIntocado: o canal NÃO tocado manda SEMPRE o markup do servidor
+// (null quando tem preço fixo); nunca o draft. Substitui N-3 (que só valia com trava).
+describe("markupCanalIntocado — preço A2 (nunca reenvia markup derivado do rascunho)", () => {
+  it("manda o do SERVIDOR mesmo com draft divergente", () => {
+    expect(markupCanalIntocado(2, 3)).toBe(2);
   });
-  it("com trava, draft DIVERGENTE do servidor: manda o do SERVIDOR (não o draft potencialmente stale)", () => {
-    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 3, markupVarejoServidor: 2 });
-    expect(r).toBe(2);
+  it("servidor null (canal com preço fixo): manda null, nunca o draft", () => {
+    expect(markupCanalIntocado(null, 3)).toBeNull();
   });
-  it("com trava, draft e servidor iguais: tanto faz, dá o mesmo valor (servidor)", () => {
-    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 2, markupVarejoServidor: 2 });
-    expect(r).toBe(2);
+  it("servidor undefined (ausente): cai no draft (retrocompatível)", () => {
+    expect(markupCanalIntocado(undefined, 3)).toBe(3);
   });
-  it("com trava, servidor null (canal usa preço fixo, sem markup): manda null — nunca o draft", () => {
-    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 3, markupVarejoServidor: null });
-    expect(r).toBeNull();
-  });
-  it("com trava, servidor undefined (prop ausente — uso legado do card sem o prop novo): cai no draft (retrocompatível)", () => {
-    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 3, markupVarejoServidor: undefined });
-    expect(r).toBe(3);
+  it("blur do atacado e do varejo (Planejamento e Produto Acabado) usam o helper", () => {
+    const rs = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
+    const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");
+    expect((rs.match(/markupCanalIntocado\(/g) ?? []).length).toBe(2);
+    expect((pc.match(/markupCanalIntocado\(/g) ?? []).length).toBe(2);
   });
 });
 
