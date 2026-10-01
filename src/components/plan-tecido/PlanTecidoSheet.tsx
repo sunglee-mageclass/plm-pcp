@@ -30,7 +30,7 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
@@ -468,7 +468,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, status_desenvolvimento, status_planejamento, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(enviado_corte, cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
+          "id, created_at, ref, nome, versao, origem, status_desenvolvimento, status_planejamento, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(enviado_corte, cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -724,6 +724,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       const categoria_tecido_id = (tec1?.artigo?.categoria_tecido_id ?? null) as string | null;
       return {
         id: m.id,
+        created_at: (m.created_at ?? null) as string | null,
         ref: m.ref ?? null,
         nome: m.nome ?? null,
         categoria_tecido_id,
@@ -1210,6 +1211,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       setRecalculadas(0);
       setRecalculadasT1(0);
       toast.success("Planejamento de tecido salvo.");
+      // est #14 (L7, fix round 1, M2 opção b): a marca `card_saiu` é só desta sessão — depois deste Salvar a vaga vira uma
+      // vaga comum. Avisa (sem bloquear) que os materiais do card que saiu continuam contando.
+      const nCardSaiu = contarVagasCardSaiuComMateriais(arvoreSalvaRef.current ?? arvore);
+      if (nCardSaiu > 0) toast.warning(textoAvisoCardSaiu(nCardSaiu), { duration: 10000 });
       const refetchArvore = qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] }); // plan_rev novo p/ o próximo save
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" exato do Resumo

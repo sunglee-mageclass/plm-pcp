@@ -58,6 +58,8 @@ export type ModeloReal = {
   tamanho_tipo?: "letra" | "numero" | null;
   // grade por variante_numero (=ordem da variante): { grades, grade_total }
   grade: Record<number, { grades: Record<string, number>; grade_total: number }>;
+  // modelos.created_at — desempate da D5 (`ordemD5`, D-3 L7); a consulta já vem nessa ordem.
+  created_at?: string | null;
 };
 
 // id client-side estável desde a criação: o save PRESERVA esse id (não regenera), então o slot.id em
@@ -198,6 +200,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     id: crypto.randomUUID(), // id client-side estável (o save preserva) — ver slotVazio
     modelo_id: mr.id,
     slot_index: slotIndex,
+    criado_em: mr.created_at ?? null,
     ref: mr.ref ?? null,
     nome: mr.nome ?? null,
     thumb_path: mr.thumb_path ?? null,
@@ -813,6 +816,17 @@ export function limparSlotsOrfaos(arv: PtArvore, validIds: Set<string>): PtArvor
 
 /** est #14: a vaga cujo card saiu ainda guarda materiais (o selo âmbar aparece). */
 export const vagaComMateriaisDeCardQueSaiu = (s: PtSlot): boolean => !!s.card_saiu && !s.modelo_id && (s.materiais?.length ?? 0) > 0;
+
+/** est #14 (fix round 1, M2 opção b): quantas vagas sem card de um card que saiu ainda têm materiais — o Salvar avisa. */
+export function contarVagasCardSaiuComMateriais(arv: PtArvore | null | undefined): number {
+  let n = 0;
+  for (const s of arv?.subcolecoes ?? []) for (const l of s.linhas ?? []) for (const sl of l.slots ?? []) if (vagaComMateriaisDeCardQueSaiu(sl)) n++;
+  return n;
+}
+
+/** Texto do aviso do Salvar (est #14, M2 b). Não bloqueia. */
+export const textoAvisoCardSaiu = (n: number): string =>
+  `${n} vaga(s) sem card ainda têm materiais — eles continuam contando na necessidade`;
 
 /** est #14: o atalho "limpar materiais" — tira SÓ os materiais da vaga (o resto do rascunho fica). Estado local; grava
  *  no Salvar (regra do staging). Pura. */

@@ -26,11 +26,13 @@ type VarRow = { id: string; artigo_id: string; nome_variante: string | null; cod
 
 const comboKey = (cid?: string | null, aid?: string | null) => `${cid ?? ""}|${aid ?? ""}`;
 
-export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false, variantesGrupo, dist, acaoExtra }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean; variantesGrupo?: PtVariante[];
+export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false, variantesGrupo, dist, acaoExtra, comCard = true }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean; variantesGrupo?: PtVariante[];
   /** Distribuição por produto (só com o módulo): `t1` = cores do Tecido 1 do card (p/ o "atende a" dos demais blocos). */
   dist?: { ligado: boolean; t1?: PtVariante[] };
   /** Ação extra na linha de ações (o "Distribuir por loja" do Tecido 1) — aparece também com o bloco travado. */
-  acaoExtra?: ReactNode }) {
+  acaoExtra?: ReactNode;
+  /** A vaga tem card (modelo)? Só então o aviso do prod #9 manda "ajuste no Planejamento" (vaga sem card não tem card lá). */
+  comCard?: boolean }) {
   const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria, artigoMap } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
@@ -46,6 +48,8 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
   const setAtende = (v: PtVariante, atende: string[] | null) =>
     onChange({ ...material, variantes: material.variantes.map((x) => (varKey(x) === varKey(v) ? { ...x, atende } : x)) });
   // "Marrom · Canela" (cor planejada guarda "Cor - Apelido" no label) — p/ o "atende a" e os avisos.
+  // prod #9 (L7): onde ajustar os tamanhos — o card mora no Planejamento; a vaga sem card não (fix round 1, B6).
+  const ondeAjustarTamanhos = comCard ? "ajuste no Planejamento" : "ajuste os tamanhos";
   const nomeCorCurto = (v: PtVariante): string => {
     const cor = v.cor_nome || v.label || "—";
     const ap = v.label && v.cor_nome && v.label.startsWith(`${v.cor_nome} - `) ? v.label.slice(v.cor_nome.length + 3) : null;
@@ -391,7 +395,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                   <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700" title="Cor planejada — vira variante quando o tecido tiver essa cor">planejada</span>
                 ) : null}
                 {somaTam !== null && (
-                  <span role="img" className="shrink-0 text-amber-600" title={`Os tamanhos somam ${somaTam} — ajuste no Planejamento`} aria-label={`Os tamanhos somam ${somaTam} — ajuste no Planejamento`}>
+                  <span role="img" className="shrink-0 text-amber-600" title={`Os tamanhos somam ${somaTam} — ${ondeAjustarTamanhos}`} aria-label={`Os tamanhos somam ${somaTam} — ${ondeAjustarTamanhos}`}>
                     <AlertTriangle className="h-3 w-3" />
                   </span>
                 )}
@@ -464,14 +468,15 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
             Planejamento (a grade por tamanho do card). Texto fora da linha p/ não mudar a altura (Modo Plano). */}
         {(() => {
           const dif = material.variantes
-            .map((v) => ({ v, soma: somaTamanhosDivergente(v) }))
-            .filter((x): x is { v: PtVariante; soma: number } => x.soma !== null);
+            .map((v, i) => ({ v, i, soma: somaTamanhosDivergente(v) }))
+            .filter((x): x is { v: PtVariante; i: number; soma: number } => x.soma !== null);
           return dif.length > 0 ? (
             <div className="mt-1 space-y-0.5">
-              {dif.map(({ v, soma }) => (
-                <p key={varKey(v)} className="flex items-start gap-1 text-[10px] font-medium text-amber-700">
+              {dif.map(({ v, i, soma }) => (
+                // key com o índice (fix round 1, B1): a mesma cor pode vir duplicada no material e `varKey` colide
+                <p key={`${varKey(v)}-${i}`} className="flex items-start gap-1 text-[10px] font-medium text-amber-700">
                   <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
-                  <span>{nomeCorCurto(v)}: {v.grade_total ?? 0} pç, mas os tamanhos somam {soma} — ajuste no Planejamento</span>
+                  <span>{nomeCorCurto(v)}: {v.grade_total ?? 0} pç, mas os tamanhos somam {soma} — {ondeAjustarTamanhos}</span>
                 </p>
               ))}
             </div>

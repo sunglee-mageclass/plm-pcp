@@ -25,6 +25,8 @@ import {
   comOrdemDasVagas,
   limparMateriaisDaVaga,
   limparSlotsOrfaos,
+  contarVagasCardSaiuComMateriais,
+  textoAvisoCardSaiu,
   mergeArvore,
   semearComModelos,
   vagaComMateriaisDeCardQueSaiu,
@@ -208,8 +210,19 @@ describe('PT gaveta "oc" — visão da coleção pela mesma fonte do Resumo', ()
 // ─── D-3 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 // 2 cards disputam a MESMA OC (ocA, 100 m de AZUL); cada um transborda para uma OC DIFERENTE (P → ocB, Q → ocC):
 // quem vem primeiro enche a ocA e o outro transborda — a ordem muda os metros por OC.
-const P: PtSlot = { id: "sP", modelo_id: "m-p", materiais: [mat("T", 1, [["AZUL", 80]])] };
-const Q: PtSlot = { id: "sQ", modelo_id: "m-q", materiais: [mat("T", 1, [["AZUL", 60]])] };
+// Fix round 1 (B3): o desempate é o card mais ANTIGO (`criado_em` = modelos.created_at), depois o modelo_id.
+const P: PtSlot = {
+  id: "sP",
+  modelo_id: "m-p",
+  criado_em: "2026-08-01T10:00:00+00:00",
+  materiais: [mat("T", 1, [["AZUL", 80]])],
+};
+const Q: PtSlot = {
+  id: "sQ",
+  modelo_id: "m-q",
+  criado_em: "2026-08-02T09:00:00.5+00:00",
+  materiais: [mat("T", 1, [["AZUL", 60]])],
+};
 const VAGA: PtSlot = { id: "sV", modelo_id: null, materiais: [mat("T", 1, [["AZUL", 10]])] };
 const vin = (modelo_id: string, oc: string, item: string, prioridade: number): VinculoDetalhe => ({
   modelo_id,
@@ -241,9 +254,18 @@ const CAP = new Map([
 ]);
 
 describe("D-3 — o desempate da D5 não depende da posição da vaga", () => {
-  it("ordemD5: card antes de vaga sem card; cards pelo modelo_id; vagas pelo id", () => {
+  it("ordemD5: card antes de vaga sem card; cards pelo created_at e depois modelo_id; vagas pelo id", () => {
     expect(ordemD5(P, Q)).toBeLessThan(0);
     expect(ordemD5(Q, P)).toBeGreaterThan(0);
+    // created_at vence o modelo_id (Q mais antigo que P → Q primeiro, mesmo com modelo_id maior)
+    const qVelho = { ...Q, criado_em: "2026-07-01T00:00:00+00:00" };
+    expect(ordemD5(qVelho, P)).toBeLessThan(0);
+    // mesmo instante (formatos diferentes do mesmo tempo) → desempata pelo modelo_id
+    const pMesmo = { ...P, criado_em: "2026-08-02T09:00:00.500+00:00" };
+    expect(ordemD5(pMesmo, Q)).toBeLessThan(0);
+    expect(ordemD5(Q, pMesmo)).toBeGreaterThan(0);
+    // card sem created_at vai depois dos que têm
+    expect(ordemD5({ ...P, criado_em: null }, Q)).toBeGreaterThan(0);
     expect(ordemD5(VAGA, P)).toBeGreaterThan(0);
     expect(
       ordemD5(
@@ -276,14 +298,32 @@ describe("D-3 — o desempate da D5 não depende da posição da vaga", () => {
     );
     mapsIguais(d1.reservPorOcVar, d2.reservPorOcVar);
     mapsIguais(d1.reservPorOc, d2.reservPorOc);
-    // m-p (menor modelo_id) vem 1º: leva 80 da ocA; m-q leva os 20 que sobram e transborda 40 p/ a ocC; a vaga, 10 na ocB.
+    // m-p (mais antigo) vem 1º: leva 80 da ocA; m-q leva os 20 que sobram e transborda 40 p/ a ocC; a vaga, 10 na ocB.
     // (Com m-q primeiro seria ocA 100 · ocB 50 · ocC 0 — era o que a posição da vaga decidia.)
     expect(d1.reservPorOcVar.get("ocA|AZUL")).toBe(100);
     expect(d1.reservPorOcVar.get("ocB|AZUL")).toBe(10);
     expect(d1.reservPorOcVar.get("ocC|AZUL")).toBe(40);
   });
 
-  it("enviado à Explosão continua vindo primeiro (antes do modelo_id)", () => {
+  it("card mais antigo corta primeiro: Q criado antes de P leva a ocA (independe do modelo_id)", () => {
+    const opts = { vinculos: VINC_PQ, capacidade: CAP };
+    const qVelho = { ...Q, criado_em: "2026-07-01T00:00:00+00:00" };
+    const d = detalheOc(
+      arvDe([P, qVelho, VAGA]),
+      MAP_PQ,
+      SLOT_OC,
+      undefined,
+      undefined,
+      undefined,
+      opts,
+    );
+    // Q 60 na ocA; P 40 na ocA + 40 na ocB; vaga 10 na ocB; ocC vazia
+    expect(d.reservPorOcVar.get("ocA|AZUL")).toBe(100);
+    expect(d.reservPorOcVar.get("ocB|AZUL")).toBe(50);
+    expect(d.reservPorOcVar.get("ocC|AZUL") ?? 0).toBe(0);
+  });
+
+  it("enviado à Explosão continua vindo primeiro (antes do created_at)", () => {
     const opts = { vinculos: VINC_PQ, capacidade: CAP };
     const d = detalheOc(arvDe([P, Q]), MAP_PQ, {}, new Set(["m-q"]), undefined, undefined, opts);
     // m-q enviado leva 60 da ocA; m-p leva os 40 que sobram e transborda 40 p/ a ocB; ocC fica vazia
@@ -295,8 +335,13 @@ describe("D-3 — o desempate da D5 não depende da posição da vaga", () => {
 
   // Salvar 2× pelo pipeline real do Sheet: seed (modelos na ordem FIXA da consulta) → merge com o salvo →
   // payload (comOrdemDasVagas) → o banco grava `slot_index` como veio e a árvore volta ORDENADA por ele (sem a chave).
-  const modelo = (id: string, metros: number): ModeloReal => ({
+  const modelo = (
+    id: string,
+    metros: number,
+    created_at = `2026-08-0${id === "m-p" ? 1 : 2}T00:00:00+00:00`,
+  ): ModeloReal => ({
     id,
+    created_at,
     ref: id,
     nome: id,
     subcolecao: null,
@@ -400,6 +445,11 @@ describe("D-3 — o desempate da D5 não depende da posição da vaga", () => {
     expect(calc).toContain(
       "slotsInfo.sort((a, b) => Number(b.enviado) - Number(a.enviado) || ordemD5(a.slot, b.slot));",
     );
+    // B3: a consulta traz o created_at e a semeadura leva p/ o slot (criado_em) — mesma ordem da consulta
+    expect(q).toContain('"id, created_at, ref,');
+    expect(sheet).toContain("created_at: (m.created_at ?? null) as string | null,");
+    const engine = ler("src/lib/plan-tecido/engine.ts");
+    expect(engine).toContain("criado_em: mr.created_at ?? null,");
   });
 });
 
@@ -415,14 +465,30 @@ describe("prod #9 — pç ≠ soma dos tamanhos: aviso, sem redistribuir", () =>
     expect(somaTamanhosDivergente({ grade_total: 25, grades: { "38|P": 10, "40|M": 10 } })).toBe(
       20,
     );
-    expect(somaTamanhosDivergente({ grade_total: 10, grades: { "38|P": 0, "40|M": 0 } })).toBe(0);
+    // M1 (fix round 1): mapa todo zerado = vazio (o Planejamento grava as chaves com 0 sem a grade preenchida)
+    expect(
+      somaTamanhosDivergente({ grade_total: 10, grades: { "38|P": 0, "40|M": 0 } }),
+    ).toBeNull();
+    expect(
+      somaTamanhosDivergente({
+        grade_total: 56,
+        grades: { "34|PPP": 0, "36|PP": 0, "38|P": 0, "40|M": 0, "42|G": 0, "44|GG": 0 },
+      }),
+    ).toBeNull();
     expect(somaTamanhosDivergente({ grade_total: 0, grades: { "38|P": 3 } })).toBe(3);
   });
 
   it("MaterialBlock mostra o aviso âmbar e o pç continua sendo gravado sozinho (sem redistribuir)", () => {
     const mb = ler("src/components/plan-tecido/MaterialBlock.tsx");
     expect(mb).toContain("somaTamanhosDivergente(v)");
-    expect(mb).toContain("os tamanhos somam {soma} — ajuste no Planejamento");
+    expect(mb).toContain("os tamanhos somam {soma} — {ondeAjustarTamanhos}");
+    // B6: vaga sem card não manda ao Planejamento
+    expect(mb).toContain(
+      'const ondeAjustarTamanhos = comCard ? "ajuste no Planejamento" : "ajuste os tamanhos";',
+    );
+    expect(ler("src/components/plan-tecido/ModelCard.tsx")).toContain("comCard={!!slot.modelo_id}");
+    // B1: key com o índice (cor duplicada no material não colide)
+    expect(mb).toContain("key={`${varKey(v)}-${i}`}");
     expect(mb).toContain("text-amber-700");
     // setGrade intocado: só troca o grade_total (o mapa por tamanho não é recalculado aqui)
     expect(mb).toContain(
@@ -475,6 +541,26 @@ describe("est #14 — card saiu da coleção: vaga fica com os materiais, selo +
     ).toBe(false); // vaga comum
   });
 
+  it("M2 (opção b): conta as vagas de card que saiu ainda com materiais e monta o aviso do Salvar", () => {
+    expect(contarVagasCardSaiuComMateriais(limpa)).toBe(1);
+    expect(contarVagasCardSaiuComMateriais(arv)).toBe(0);
+    expect(contarVagasCardSaiuComMateriais(null)).toBe(0);
+    const limpou = {
+      ...limpa,
+      subcolecoes: limpa.subcolecoes.map((sub) => ({
+        ...sub,
+        linhas: sub.linhas.map((l) => ({
+          ...l,
+          slots: l.slots.map((x) => (x.card_saiu ? limparMateriaisDaVaga(x) : x)),
+        })),
+      })),
+    };
+    expect(contarVagasCardSaiuComMateriais(limpou)).toBe(0);
+    expect(textoAvisoCardSaiu(2)).toBe(
+      "2 vaga(s) sem card ainda têm materiais — eles continuam contando na necessidade",
+    );
+  });
+
   it("'limpar materiais' só mexe no rascunho: materiais [], o resto da vaga fica, o selo some", () => {
     const depois = limparMateriaisDaVaga(s);
     expect(depois).toEqual({ ...s, materiais: [] });
@@ -496,6 +582,17 @@ describe("est #14 — card saiu da coleção: vaga fica com os materiais, selo +
     );
     expect(bloco).not.toMatch(/supabase|rpc\(/);
     expect(sheet).not.toMatch(/^function limparSlotsOrfaos/m);
+    // B8: o selo fica no FIM do card (depois do Accordion), não entre o cabeçalho e as variantes (Modo Plano alinha)
+    expect(card.indexOf("vagaComMateriaisDeCardQueSaiu(slot) && (")).toBeGreaterThan(
+      card.lastIndexOf("</Accordion>"),
+    );
+    // M2 (opção b): o Salvar avisa, sem bloquear, quando sobrou vaga de card que saiu com materiais
+    const posSucesso = sheet.indexOf('toast.success("Planejamento de tecido salvo.");');
+    const aviso = sheet.indexOf(
+      "contarVagasCardSaiuComMateriais(arvoreSalvaRef.current ?? arvore)",
+    );
+    expect(aviso).toBeGreaterThan(posSucesso);
+    expect(sheet).toContain("toast.warning(textoAvisoCardSaiu(nCardSaiu)");
     expect(sheet).toMatch(/return normalizarArvoreDistribuicao\(limparSlotsOrfaos\(/);
   });
 });

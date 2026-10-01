@@ -300,14 +300,16 @@ export function contaOcColecao(linhas: readonly SobraOcLinha[], det: DetalheOcSo
 }
 
 /** prod #9 (L7): o pç da cor (`grade_total`) não bate com a soma dos tamanhos (`grades`)? Devolve a soma dos tamanhos
- *  quando o mapa NÃO está vazio e diverge do pç; senão `null` (mapa vazio = o pç é distribuído pela proporção). Só
- *  avisa — nunca redistribui. */
+ *  quando o mapa tem valor e diverge do pç; senão `null`. Mapa vazio OU todo zerado (Σ = 0, ex. `{"34|PPP":0,…}` que o
+ *  Planejamento grava sem a grade preenchida — fix round 1, M1) = o pç é distribuído pela proporção. Só avisa — nunca
+ *  redistribui. */
 export function somaTamanhosDivergente(v: { grade_total?: number | null; grades?: Record<string, number> | null }): number | null {
   const g = v.grades;
   if (!g || typeof g !== "object") return null;
   const vals = Object.values(g);
   if (vals.length === 0) return null;
   const soma = vals.reduce((s, x) => s + (Number(x) || 0), 0);
+  if (soma === 0) return null;
   return soma === (Number(v.grade_total) || 0) ? null : soma;
 }
 
@@ -364,7 +366,7 @@ export function repartirDemanda(
  *  ainda sem cor) é dividida ENTRE as OCs vinculadas, em sequência, como o corte consome
  *  (`repartirDemanda`): ordem por prioridade/oc_tecido_item_id, limite min(restante, livre,
  *  quantidade_m>0), sobra na ÚLTIMA OC. Σ por OC = demanda elegível (nunca N×). Cards: enviados à
- *  Explosão primeiro, depois `ordemD5` (modelo_id — D-3). Sem `vinculos` (detalhe não carregado/hint do plano):
+ *  Explosão primeiro, depois `ordemD5` (created_at, modelo_id — D-3). Sem `vinculos` (detalhe não carregado/hint do plano):
  *  ordem do array, sem limite quantidade_m, mas sempre em sequência.
  *  ⚠️ Parcela sem variante_tecido_id conta no total por-OC mas não no por-variante.
  *  (O split "do estoque" — parcela de cards "usar estoque existente" — foi REMOVIDO com a
@@ -390,14 +392,22 @@ export type DetalheOcOpts = {
   aguardando?: boolean;
 };
 
-/** D-3 (L7): desempate da repartição D5 entre cards da MESMA leva (enviados ou não) — pelo `modelo_id`, nunca pela
- *  posição da vaga na linha. A posição vinha da ordem em que os modelos chegam do banco (sem ORDER BY) e o Salvar a
- *  regravava (`slot_index`), então salvar podia trocar quem leva a capacidade de uma OC disputada. Card antes de vaga
- *  sem card; vaga sem card desempata pelo `id` da vaga. O D5 só é calculado aqui (o banco não reparte). */
+/** D-3 (L7): desempate da repartição D5 entre cards da MESMA leva (enviados ou não) — nunca pela posição da vaga na
+ *  linha. A posição vinha da ordem em que os modelos chegam do banco (sem ORDER BY) e o Salvar a regravava
+ *  (`slot_index`), então salvar podia trocar quem leva a capacidade de uma OC disputada. Fix round 1 (B3): o card mais
+ *  ANTIGO corta primeiro — `criado_em` (= `modelos.created_at`, a MESMA ordem da consulta `plan-tecido-modelos`), depois
+ *  `modelo_id`; card sem `criado_em` vai depois dos que têm. Card antes de vaga sem card; vaga sem card desempata pelo
+ *  `id` da vaga. O D5 só é calculado aqui (o banco não reparte). */
 export function ordemD5(a: PtSlot, b: PtSlot): number {
-  const ka = a.modelo_id ? `0|${a.modelo_id}` : `1|${a.id ?? ""}`;
-  const kb = b.modelo_id ? `0|${b.modelo_id}` : `1|${b.id ?? ""}`;
-  return ka < kb ? -1 : ka > kb ? 1 : 0;
+  if (!!a.modelo_id !== !!b.modelo_id) return a.modelo_id ? -1 : 1;
+  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  if (!a.modelo_id) return cmp(a.id ?? "", b.id ?? "");
+  const ta = a.criado_em ? Date.parse(a.criado_em) : NaN;
+  const tb = b.criado_em ? Date.parse(b.criado_em) : NaN;
+  const na = Number.isNaN(ta), nb = Number.isNaN(tb);
+  if (na !== nb) return na ? 1 : -1;
+  if (!na && ta !== tb) return ta < tb ? -1 : 1;
+  return cmp(a.modelo_id, b.modelo_id!);
 }
 
 export function detalheOc(
@@ -489,7 +499,7 @@ export function detalheOc(
   }
   // 2 passes: primeiro TODAS as parcelas com variante, depois as só-artigo — o pool do artigo já enxerga
   // o que as variantes usaram (senão `oc|vid` poderia estourar a mesma OC depois). Dentro de cada passe
-  // vale a ordem dos cards (enviados primeiro, depois a da vaga).
+  // vale a ordem dos cards (enviados primeiro, depois `ordemD5`: o card mais antigo, depois o modelo_id).
   for (const fase of [true, false]) for (const { slot, ocIds, enviado, usaDetalhe, parcelas } of plano) {
     for (const p of parcelas) {
       if (!!p.vid !== fase) continue;
