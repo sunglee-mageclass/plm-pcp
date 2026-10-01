@@ -48,6 +48,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
+import { statusCqAposServidor, statusCqDe } from "@/lib/cq-status-tela";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -638,7 +639,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           pecas_sem_etiqueta: Number(cqRow.pecas_sem_etiqueta ?? 0),
         };
         setForm(nextForm);
-        setStatus((cqRow as any).status ?? "pendente");
+        setStatus(statusCqDe(cqRow as any));
         const fv = (cqRow as any).fotografado_variantes ?? {};
         const fmap: Record<number, boolean> = {};
         Object.entries(fv).forEach(([k, v]) => { fmap[Number(k)] = Boolean(v); });
@@ -694,6 +695,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     if (!baseFormRef.current) return;                 // antes da 1ª captura de base (o seed effect cuida)
     const freshForm = freshFormDe(cqRow);
     const freshGrade = gradeDetalheDeFonte(fonteGrade);
+    // M1 (R14): o servidor pode ter REBAIXADO o CQ (P-192 A / prod #5) — o status não é rascunho, adota o fresco.
+    setStatus((atual) => statusCqAposServidor(atual, cqRow as any));
     const meuGrade = meuGradeAtual();
     const md = mergeDraft({ base: baseFormRef.current, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
     const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -952,6 +955,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
       const freshForm = freshFormDe(freshCq);
       const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
+      setStatus((atual) => statusCqAposServidor(atual, freshCq)); // M1 (R14)
       const meuGrade = meuGradeAtual();
       const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
       const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -1014,6 +1018,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     const freshForm = freshFormDe(freshCq);
     const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
     setForm(freshForm);
+    setStatus(statusCqDe(freshCq)); // M1 (R14): re-adota o status do servidor (rebaixe em outra tela/aba)
     if (temFonte) setGrades((prev) => aplicarGradeNoState(prev, freshGrade));
     baseFormRef.current = freshForm;
     baseGradeRef.current = freshGrade;
