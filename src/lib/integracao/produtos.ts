@@ -121,6 +121,9 @@ export type ProdutoLista = {
   sublinhas: Sublinha[];
   retrato: Retrato | null;
   retratoDifere: CampoKey[];
+  /** medios R14 sku #10: as SUBLINHAS (variante × tamanho — conjunto, SKU, cor, tamanho, nome) mudaram depois do retrato
+   *  (chave `sublinhas` em `retrato_difere`; não é um CampoKey, por isso fica à parte). Ver `avisoSublinhas`. */
+  retratoDifereSublinhas: boolean;
   gates: Gates;
   moduloBloqueado: boolean;
   reprovado: boolean;
@@ -277,6 +280,7 @@ function produtoDe(v: unknown): ProdutoLista {
       ),
     retrato: retratoDe(o.retrato),
     retratoDifere: ordenarCampos(strs(o.retrato_difere)),
+    retratoDifereSublinhas: strs(o.retrato_difere).includes("sublinhas"),
     gates: Object.fromEntries(GATE_KEYS.map((k) => [k, gateDe(g[k])])) as Gates,
     // d2-M3: chave BOOLEANA à parte de `gates` (não é um GateKey) — true SÓ quando === true (fail-closed nos dois
     // sentidos: ausente/string/number nunca vira bloqueio nem destrava por engano).
@@ -402,6 +406,13 @@ export function avisoRetrato(p: ProdutoLista, campo: CampoKey): string | null {
   if (campo === "preco_custo")
     return `O custo mudou depois do retrato (hoje ${hoje}) — a API recebe o valor do retrato (${ret}).`;
   return `"${CAMPO_BY_KEY.get(campo)?.rotulo ?? campo}" mudou depois do retrato (hoje ${hoje}) — a API recebe o valor do retrato (${ret}).`;
+}
+
+/** medios R14 sku #10: rótulo do "i" quando as SUBLINHAS mudaram depois do retrato (a API recebe as do retrato). */
+export const AVISO_SUBLINHAS =
+  "As sublinhas (cor × tamanho: SKU, cor, tamanho ou nome) mudaram depois do retrato — a API recebe as sublinhas do retrato.";
+export function avisoSublinhas(p: ProdutoLista): string | null {
+  return usaRetrato(p) && p.retratoDifereSublinhas ? AVISO_SUBLINHAS : null;
 }
 
 export function fmtDataHora(iso: string | null, tz: string, comAno = false): string {
