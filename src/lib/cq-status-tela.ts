@@ -25,19 +25,32 @@ export type DecisaoStatusServidor = {
 const ROTULO: Record<string, string> = { pendente: "pendente", confirmado: "confirmado" };
 const rotulo = (s: string) => ROTULO[s] ?? s;
 
-export function decidirStatusServidor(p: { atual: string; fresco: string; temEdicao: boolean }): DecisaoStatusServidor {
+export function decidirStatusServidor(p: { atual: string; fresco: string; temEdicao: boolean; nome?: string }): DecisaoStatusServidor {
   const { atual, fresco, temEdicao } = p;
+  const nome = p.nome ?? "CQ"; // "CQ Pós" na visão Pós (N4)
   if (fresco === atual) return { status: atual, manterEdicao: false, rebaselinar: false, aviso: null };
   if (temEdicao) {
     return {
       status: fresco,
       manterEdicao: true,
       rebaselinar: false,
-      aviso: `O CQ foi alterado por outra tela (agora: ${rotulo(fresco)}). Suas alterações continuam aqui — revise antes de salvar.`,
+      aviso: `O ${nome} foi alterado por outra tela (agora: ${rotulo(fresco)}). Suas alterações continuam aqui — revise antes de salvar.`,
     };
   }
   const aviso = fresco === "pendente"
-    ? "O CQ voltou para pendente (a grade real mudou no PCP ou o Pré foi desmarcado)."
-    : `O CQ foi alterado por outra tela (agora: ${rotulo(fresco)}).`;
+    ? `O ${nome} voltou para pendente (a grade real mudou no PCP ou o Pré foi desmarcado).`
+    : `O ${nome} foi alterado por outra tela (agora: ${rotulo(fresco)}).`;
   return { status: fresco, manterEdicao: false, rebaselinar: true, aviso };
+}
+
+/** Baseline do "não salvo" depois de um merge remoto SEM edição local (R14 N1): espelha EXATAMENTE as condições dos
+ *  setters do merge — só troca form/grade quando o merge de fato os atualizou. Sem isso, com `temFonte = false`
+ *  (`mg.valor` vazio) o baseline ganhava a grade zerada enquanto o state seguia com a de `cq_variantes` => falso "não salvo". */
+export function baselineAposMerge<F, G>(p: {
+  formMexeu: boolean; gradeMexeu: boolean; formMesclado: F; formAtual: F; gradesAtuais: G; aplicarGrade: () => G;
+}): { form: F; grades: G } {
+  return {
+    form: p.formMexeu ? p.formMesclado : p.formAtual,
+    grades: p.gradeMexeu ? p.aplicarGrade() : p.gradesAtuais,
+  };
 }

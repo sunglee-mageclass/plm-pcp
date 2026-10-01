@@ -165,7 +165,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
   useEffect(() => {
     if (!hydrated || !cqFetched || cqFetching || !cqOk || !cqRow) return;
     if (save.isPending || desmarcar.isPending) return;
-    const dec = decidirStatusServidor({ atual: statusPos, fresco: statusCqDe({ status: (cqRow as { status_pos?: string | null }).status_pos }), temEdicao: tocadoRef.current });
+    const dec = decidirStatusServidor({ atual: statusPos, fresco: statusCqDe({ status: (cqRow as { status_pos?: string | null }).status_pos }), temEdicao: tocadoRef.current, nome: "CQ Pós" });
     if (dec.status === statusPos) return;
     if (dec.aviso) toast.info(dec.aviso);
     if (dec.manterEdicao) {

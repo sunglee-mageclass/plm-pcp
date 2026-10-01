@@ -48,7 +48,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
-import { decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
+import { baselineAposMerge, decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -485,6 +485,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const changedLiveRef = useRef(changed); changedLiveRef.current = changed;
   const statusLiveRef = useRef(status); statusLiveRef.current = status;
   const fotografadoLiveRef = useRef(fotografado); fotografadoLiveRef.current = fotografado;
+  const acaoLocalEmVooRef = useRef(false); // espelha saveMut/confirmMut/desmarcarMut.isPending (atribuído após as mutations)
   const temEdicaoNaoSalva = () => touchedFormRef.current.size > 0 || touchedGradeRef.current.size > 0 || changedLiveRef.current;
   // Aplica a decisão do helper (status adotado + edição mantida + aviso). Devolve se há edição a preservar.
   const aplicarDecisaoStatus = (fresco: string, temEdicao: boolean) => {
@@ -714,7 +715,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     // M1/M-A/M-C (R14): o servidor pode ter REBAIXADO/CONFIRMADO o CQ em outra tela — adota o status fresco, mas
     // com edição não salva mantém a edição aberta + aviso; sem edição, re-baselina (sem falso "não salvo") + aviso.
     const temEdicao = temEdicaoNaoSalva();
-    aplicarDecisaoStatus(statusCqDe(cqRow as { status?: string | null } | null), temEdicao);
+    // N2: com Confirmar/Desmarcar/Salvar LOCAL em voo o status novo é o da própria ação (o onSuccess cuida) — não é "outra tela".
+    if (!acaoLocalEmVooRef.current) aplicarDecisaoStatus(statusCqDe(cqRow as { status?: string | null } | null), temEdicao);
     const meuGrade = meuGradeAtual();
     const md = mergeDraft({ base: baseFormRef.current, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
     const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -729,7 +731,12 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
     if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
     // M-C: nada era meu (sem edição) e adotei o servidor => o baseline do "não salvo" acompanha (senão sobra falso selo âmbar).
-    if (!temEdicao) resetBaseline({ form: md.valor, grades: aplicarGradeNoState(gradesLiveRef.current, mg.valor), fotografado: fotografadoLiveRef.current });
+    if (!temEdicao) {
+      const formMexeu = md.atualizados.length > 0 || md.conflitos.length > 0;
+      const gradeMexeu = mg.atualizados.length > 0 || mg.conflitos.length > 0;
+      const b = baselineAposMerge({ formMexeu, gradeMexeu, formMesclado: md.valor, formAtual: formLiveRef.current, gradesAtuais: gradesLiveRef.current, aplicarGrade: () => aplicarGradeNoState(gradesLiveRef.current, mg.valor) });
+      resetBaseline({ form: b.form, grades: b.grades, fotografado: fotografadoLiveRef.current });
+    }
     conflitosRef.current = todos; setConflitos(todos);
     setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
     baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
@@ -1102,6 +1109,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
+      setEditing(false); // N3: volta ao modo travado (um manterEdicao anterior não pode ficar preso)
       posSaveReset(); // reseedingRef=true (merge effect fora até a re-baseline manual)
       // Colab (fix round 2): try/finally — espelha o saveMut acima (mesmo risco de flag presa).
       try {
@@ -1146,12 +1154,14 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Confirmação desmarcada — CQ voltou a editável");
       setStatus("pendente");
+      setEditing(false); // N3
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       await invalidateDownstream();
       await refetchCq();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
+  acaoLocalEmVooRef.current = saveMut.isPending || confirmMut.isPending || desmarcarMut.isPending; // N2
 
   // "Voltar uma etapa" — do CQ volta UMA etapa (para Serviços): reabre os serviços pré e
   // desfaz o CQ; o corte é mantido (NÃO volta até a Explosão — isso é o botão do Serviços).

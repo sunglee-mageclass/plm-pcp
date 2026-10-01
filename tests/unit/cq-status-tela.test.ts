@@ -42,3 +42,23 @@ describe("cq-status-tela (R14 M1 / M-A / M-C)", () => {
     expect(pos).toContain("decidirStatusServidor(");
   });
 });
+
+import { baselineAposMerge } from "@/lib/cq-status-tela";
+describe("baselineAposMerge (R14 N1)", () => {
+  it("sem bloco-fonte (merge só do form): a grade do baseline é a do state, NÃO a zerada de mg.valor", () => {
+    const gradesAtuais = { recebimento: { 1: { grades: { P: 3 }, grade_total: 3 } } };
+    const aplicar = () => ({ recebimento: { 1: { grades: {}, grade_total: 0 } } }); // o que aplicarGradeNoState faria com mg.valor = {}
+    const b = baselineAposMerge({ formMexeu: true, gradeMexeu: false, formMesclado: { obs: "novo" }, formAtual: { obs: "velho" }, gradesAtuais, aplicarGrade: aplicar });
+    expect(b.grades).toBe(gradesAtuais);
+    expect(b.form).toEqual({ obs: "novo" });
+    // o snapshot (JSON) do baseline == o do state => changed === false
+    expect(JSON.stringify({ form: b.form, grades: b.grades })).toBe(JSON.stringify({ form: { obs: "novo" }, grades: gradesAtuais }));
+  });
+  it("só a grade mexeu: form do state; grade aplicada", () => {
+    const b = baselineAposMerge({ formMexeu: false, gradeMexeu: true, formMesclado: { obs: "x" }, formAtual: { obs: "atual" }, gradesAtuais: { a: 1 }, aplicarGrade: () => ({ a: 2 }) });
+    expect(b).toEqual({ form: { obs: "atual" }, grades: { a: 2 } });
+  });
+  it("Pós: o aviso fala em 'CQ Pós'", () => {
+    expect(decidirStatusServidor({ atual: "confirmado", fresco: "pendente", temEdicao: false, nome: "CQ Pós" }).aviso).toMatch(/^O CQ Pós voltou para pendente/);
+  });
+});
