@@ -69,7 +69,11 @@ export function refVisivelFicha(o: {
   refExibirStatus: string | null | undefined;
   statusEfetivo: string | null;
   derivacao: Derivacao | null;
+  /** Kanban #8 — REF já GRAVADA no servidor (`modelos.ref`). REF revelada fica (invariante #11): se existe, aparece SEMPRE,
+   *  mesmo sem etapa/ordem de criação ou com o card fora da etapa de exibição. Nunca o rascunho (`ref_auto` não conta). */
+  refSalva?: string | null;
 }): boolean {
+  if (String(o.refSalva ?? "").trim() !== "") return true;
   if (!o.statusEfetivo) return false;
   return refCampoVisivel(o.cfg.status_kanban, o.refExibirStatus, o.statusEfetivo, {
     statusGate: statusParaGate(o.cfg.kanban_automatico, o.derivacao, o.statusEfetivo),

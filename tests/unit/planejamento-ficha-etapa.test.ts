@@ -29,6 +29,12 @@ describe("statusEfetivoFicha (≡ coluna onde o board mostra o card)", () => {
 });
 
 describe("refVisivelFicha (campo REF da seção 'Desenvolvimento')", () => {
+  it("kanban #8: REF já gravada no servidor aparece SEMPRE (sem etapa, fora da etapa de exibição)", () => {
+    expect(refVisivelFicha({ cfg: cfg(), refExibirStatus: null, statusEfetivo: null, derivacao: null, refSalva: "453000012" })).toBe(true);
+    expect(refVisivelFicha({ cfg: cfg(), refExibirStatus: null, statusEfetivo: "em_modelagem", derivacao: null, refSalva: "453000012" })).toBe(true);
+    expect(refVisivelFicha({ cfg: cfg(), refExibirStatus: null, statusEfetivo: "em_modelagem", derivacao: null, refSalva: "  " })).toBe(false);
+    expect(refVisivelFicha({ cfg: cfg(), refExibirStatus: null, statusEfetivo: "em_modelagem", derivacao: null, refSalva: null })).toBe(false);
+  });
   it("sem etapa (antes da Ordem de Criação) = escondido", () => {
     expect(refVisivelFicha({ cfg: cfg(), refExibirStatus: null, statusEfetivo: null, derivacao: null })).toBe(false);
   });
