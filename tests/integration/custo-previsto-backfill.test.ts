@@ -6,6 +6,9 @@
  *   (a) equivalência: supabase/consultas/custo_previa_lista.sql (lido e rodado em READ ONLY) = _custo_previa_lista() = o que
  *       o aplicador grava (valores do modelo E md5 das linhas do BOM) · (b) R-CD7 (d)/(e)/(a)/(b)/(c) + convergido/fora ·
  *   (c) confirmação · (d) backup · (e) restauração (arquivo rollback/..._restaurar.sql, bloco DO) · (f) congelados · (g) ACL
+ * T-1 (LEVES L5, plano .superpowers/sdd/2026-10-02-leves/plan.md): nenhum teste depende de a cópia ter cards divergentes —
+ * a equivalência (a) e a restauração (e) usam fixtures próprias (`cardDivergente`: custo VELHO gravado como o sistema) na
+ * txn revertida; o que a cópia tiver entra junto nas comparações, sem contagem fixa.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -157,6 +160,35 @@ async function cardSimples(
   const m = await modelo(c);
   const linha = await linhaAviamento(c, m, await aviamento(c, preco), consumo);
   return { m, linha };
+}
+/**
+ * Card DIVERGENTE de verdade (T-1, LEVES L5): o servidor calcularia preço × consumo, mas o gravado é um valor VELHO (como o
+ * custo antigo que o navegador gravava) — modelo (peça e aviamento) e a linha do BOM com `velho`, tecido/forro/entretela 0.
+ * Gravado como o sistema (GUC app.custo_sistema ligada e devolvida), dentro da txn revertida: o teste nunca depende de a
+ * cópia ter (ou não) cards divergentes.
+ */
+async function cardDivergente(
+  c: Client,
+  preco: number,
+  consumo: number,
+  velho: number,
+): Promise<{ m: string; linha: string }> {
+  const k = await cardSimples(c, preco, consumo);
+  await c.query(`SELECT set_config('app.custo_sistema', 'on', true)`);
+  try {
+    await c.query(
+      `UPDATE public.modelos SET custo_peca_previsto = $2, custo_aviamento_total = $2, custo_tecido_total = 0,
+              custo_forro_total = 0, custo_entretela_total = 0 WHERE id = $1`,
+      [k.m, velho],
+    );
+    await c.query(`UPDATE public.modelo_aviamentos SET custo_previsto = $2 WHERE id = $1`, [
+      k.linha,
+      velho,
+    ]);
+  } finally {
+    await c.query(`SELECT set_config('app.custo_sistema', '', true)`);
+  }
+  return k;
 }
 async function cortar(c: Client, m: string): Promise<void> {
   await c.query(
@@ -413,25 +445,65 @@ async function montarFixtures(c: Client): Promise<string[]> {
 
 // ─────────────────────────────── (a) equivalência ───────────────────────────────
 describe.skipIf(!PRONTO)("C2 (a) — prévia pura ≡ servidor ≡ o que o aplicador grava", () => {
-  it("dados da cópia: o arquivo (READ ONLY) = _custo_previa_lista(), linha a linha e coluna a coluna", async () => {
-    const c = new Client({ connectionString: dbUrl()!, ssl: false });
-    await c.connect();
-    try {
-      await c.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+  it("fixture própria (divergente, convergente e congelado) + o que a cópia tiver: o arquivo, rodado em READ ONLY, = _custo_previa_lista(), linha a linha e coluna a coluna", async () => {
+    // T-1 (LEVES L5): não depende mais de a cópia ter cards divergentes — os casos são criados aqui, na txn revertida.
+    await withTx(async (c) => {
+      await prepara(c);
+      const div = await cardDivergente(c, 10, 2, 99); // gravado 99, servidor 20
+      const conv = await cardSimples(c, 3, 1);
+      await recalcular(c, conv.m); // gravado = calculado: NÃO entra na lista
+      const cong = await cardDivergente(c, 4, 1, 7); // divergente E enviado ao corte: entra marcado congelado
+      await cortar(c, cong.m);
+      // o arquivo roda em READ ONLY (como no kit do Passo 0-CD), vendo as fixtures desta txn
+      await c.query("SET TRANSACTION READ ONLY");
+      expect(
+        (await um<{ ro: string }>(c, "SELECT current_setting('transaction_read_only') AS ro")).ro,
+      ).toBe("on");
       const { arquivo, funcao } = await compararArquivoFuncao(c);
-      expect(arquivo.length).toBeGreaterThan(0);
       expect(funcao).toEqual(arquivo);
+      const pega = (id: string) => {
+        const j = arquivo.find((x) => x.modelo_id === id);
+        return j == null
+          ? null
+          : [
+              j.congelado,
+              n(j.previsto_antes),
+              n(j.previsto_depois),
+              n(j.aviamento_antes),
+              n(j.aviamento_depois),
+              j.linhas_que_mudam,
+            ];
+      };
+      expect(pega(div.m)).toEqual([false, 99, 20, 99, 20, 1]);
+      expect(pega(cong.m)).toEqual([true, 7, 4, 7, 4, 1]);
+      expect(pega(conv.m)).toBeNull();
+      // a linha canônica do divergente: peça e aviamento 99 → 20, tecido/forro/entretela 0 → 0
+      expect(
+        arquivo
+          .find((x) => x.modelo_id === div.m)
+          .linha_canonica.split("|")
+          .slice(0, 11),
+      ).toEqual([
+        div.m,
+        "99.00",
+        "20.00",
+        "0.00",
+        "0.00",
+        "0.00",
+        "0.00",
+        "0.00",
+        "0.00",
+        "99.00",
+        "20.00",
+      ]);
       // a lista inclui congelados (coluna à parte) e só modelos internos com loja
       const r = await um<any>(
         c,
-        `SELECT count(*) FILTER (WHERE x.congelado) AS cong, count(*) FILTER (WHERE m.origem <> 'interno' OR m.tenant_id IS NULL) AS fora
+        `SELECT count(*) FILTER (WHERE m.origem <> 'interno' OR m.tenant_id IS NULL) AS fora
            FROM (${ARQ_LISTA}) x JOIN public.modelos m ON m.id = x.modelo_id`,
       );
       expect(Number(r.fora)).toBe(0);
-    } finally {
-      await c.query("ROLLBACK").catch(() => {});
-      await c.end();
-    }
+    });
   });
 
   it("com fixtures de cada regra (substitutos, OC em kg, cancelada, etiqueta por cor/negativo/zero, OUTRA loja, M.O. 3 casas, adicionais com lixo): arquivo = função", async () => {
@@ -520,15 +592,28 @@ describe.skipIf(!PRONTO)("C2 (b) — R-CD7: conferência da lista aprovada", () 
       await prepara(c);
       const { m } = await cardSimples(c, 10, 2);
       const a = await listaDeAgora(c);
+      // T-1: a cópia pode ter lotes de backup GRAVADOS (correções de verdade) — compara com o que havia antes
+      const bkp = async () =>
+        Number(
+          (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public._bkp_custo_previsto`)).n,
+        );
+      const bkpAntes = await bkp();
       await confirmar(c);
       const e = await erroDe(c, () => rodar(c, { ...a, hash: "0".repeat(32) }));
       expect(e.code).toBe("P0001");
       expect(e.message).toMatch(/^custo_backfill: hash da lista informada/);
       expect(e.message).toMatch(/^[\x20-\x7E]*$/);
       expect((await custos(c, m)).peca).toBeNull();
+      expect(await bkp()).toBe(bkpAntes);
       expect(
         Number(
-          (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public._bkp_custo_previsto`)).n,
+          (
+            await um<{ n: string }>(
+              c,
+              `SELECT count(*) AS n FROM public._bkp_custo_previsto WHERE modelo_id = $1`,
+              [m],
+            )
+          ).n,
         ),
       ).toBe(0);
     });
@@ -695,7 +780,9 @@ describe.skipIf(!PRONTO)("C2 (b) — R-CD7: conferência da lista aprovada", () 
   it("lista fora do formato canônico ou com modelo repetido = P0001", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      await cardSimples(c, 10, 2); // T-1: a lista tem ao menos 1 linha, tenha a cópia divergentes ou não
       const a = await listaDeAgora(c);
+      expect(a.n).toBeGreaterThan(0);
       await confirmar(c);
       const ruim = { lista: [...a.lista.slice(1), "nao-e-uuid|1|2"], hash: a.hash, n: a.n }; // o formato e conferido ANTES do hash
       const e1 = await erroDe(c, () => rodar(c, ruim));
@@ -785,14 +872,18 @@ describe.skipIf(!PRONTO)("C2 (d/e/f) — backup, restauração e congelados", ()
         await prepara(c);
         const intacto = await cardSimples(c, 10, 2);
         const mexido = await cardSimples(c, 5, 1);
+        // T-1 (LEVES L5): um card com custo VELHO gravado (não NULL) — a restauração tem de devolver o valor velho. Antes
+        // o teste pegava "um modelo da cópia" da lista e quebrava quando a cópia não tinha nenhum divergente.
+        const div = await cardDivergente(c, 6, 1, 42);
+        const antesDiv = await custos(c, div.m);
+        expect(antesDiv).toEqual({ peca: 42, tecido: 0, forro: 0, entretela: 0, aviamento: 42 });
         const a = await listaDeAgora(c);
-        // um modelo da cópia (o 1º da lista que não é nosso) também é devolvido
-        const daCopia = a.lista
-          .map((l) => l.split("|")[0])
-          .find((id) => id !== intacto.m && id !== mexido.m)!;
-        const antesCopia = await custos(c, daCopia);
+        expect(linhaDe(a, div.m)).toBeDefined();
         await confirmar(c);
-        await rodar(c, a);
+        const res = await rodar(c, a);
+        expect(res.corrigidos).toBe(a.n);
+        expect((await custos(c, div.m)).peca).toBe(6);
+        expect(await custoAviamento(c, div.linha)).toBe(6);
         expect((await custos(c, intacto.m)).peca).toBe(20);
         await c.query(`UPDATE public.modelo_aviamentos SET consumo = 4 WHERE id = $1`, [
           mexido.linha,
@@ -817,7 +908,17 @@ describe.skipIf(!PRONTO)("C2 (d/e/f) — backup, restauração e congelados", ()
         expect((await custos(c, mexido.m)).peca).toBe(20);
         expect(await custoAviamento(c, mexido.linha)).toBe(20);
         expect(avisos.some((x) => /PULADOS/.test(x) && x.includes(mexido.m))).toBe(true);
-        expect(await custos(c, daCopia)).toEqual(antesCopia);
+        // o divergente volta ao valor VELHO (modelo e linha do BOM)
+        expect(await custos(c, div.m)).toEqual(antesDiv);
+        expect(await custoAviamento(c, div.linha)).toBe(42);
+        // o lote desta correção: todos os corrigidos voltam, menos o mexido (que é pulado)
+        expect(
+          avisos.some(
+            (x) =>
+              x.includes(`lote ${res.lote} -> ${res.corrigidos - 1} modelo(s) devolvido(s)`) &&
+              x.includes(", 1 pulado(s) por terem mudado depois da correcao"),
+          ),
+        ).toBe(true);
         // a GUC do sistema volta ao que era; o restaurado não entrou na fila
         expect(
           (
@@ -838,7 +939,10 @@ describe.skipIf(!PRONTO)("C2 (d/e/f) — backup, restauração e congelados", ()
           aviamento: null,
         });
         expect((await custos(c, mexido.m)).peca).toBe(20);
-        expect(avisos.some((x) => /0 modelo\(s\) devolvido\(s\)/.test(x))).toBe(true);
+        expect(await custos(c, div.m)).toEqual(antesDiv);
+        expect(avisos.some((x) => x.includes(`lote ${res.lote} -> 0 modelo(s) devolvido(s)`))).toBe(
+          true,
+        );
         // o backup continua lá
         expect(
           Number(
