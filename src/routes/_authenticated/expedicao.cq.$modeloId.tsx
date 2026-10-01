@@ -445,6 +445,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const cqRevRef = useRef<number | null>(null);
   const fonteRevRef = useRef<number | null>(null);
   const retryRef = useRef(false);
+  // QA cenário 19: estado MESCLADO (form + grades) que o re-envio automático do P0409 precisa mandar. O `setForm` do
+  // reconcile só aparece no state no PRÓXIMO render, mas o `mutate()` do retry roda antes dele — então o retry lê daqui
+  // (nunca do state) e não reenvia o form VELHO com o rev novo (apagaria a edição do outro). Limpo no onSettled/saída.
+  const retryEstadoRef = useRef<{ form: typeof form; grades: GradesByEtapa } | null>(null);
   const savingRef = useRef(false);
   // Colab (fix round 1): enquanto verdadeiro, o merge effect fica de fora — uma re-baseline
   // MANUAL (pós-save / reconcile P0409) está lendo um snapshot consistente das DUAS queries do
@@ -864,11 +868,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   }, [grades, variantList, tamanhos, refByNum]);
 
   // Grade Real = Recebimento − Defeito (por variante, por tamanho; mínimo 0).
-  const realByNum = useMemo(() => {
+  const realDeGrades = (gr: GradesByEtapa) => {
     const out: Record<number, { grades: Record<string, number>; total: number }> = {};
     variantList.forEach(({ num }) => {
-      const receb = grades.recebimento[num]?.grades ?? {};
-      const def = grades.defeito[num]?.grades ?? {};
+      const receb = gr.recebimento[num]?.grades ?? {};
+      const def = gr.defeito[num]?.grades ?? {};
       const g: Record<string, number> = {};
       let total = 0;
       tamanhos.forEach((t) => {
@@ -879,7 +883,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       out[num] = { grades: g, total };
     });
     return out;
-  }, [grades, variantList, tamanhos]);
+  };
+  const realByNum = useMemo(() => realDeGrades(grades), [grades, variantList, tamanhos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A Grade Real (Recebimento − Defeito) é o que segue p/ o Direcionamento. Alerta
   // quando ela diverge da grade planejada no CAD — pega inclusive o caso em que o
@@ -895,27 +900,31 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
 
   // Monta os dados do CQ (controle_qualidade + cq_variantes + grade real) para o RPC.
   const buildCqData = () => {
+    // Retry do P0409: usa o estado mesclado do reconcile (ver `retryEstadoRef`); fora dele, o state normal.
+    const f = retryEstadoRef.current?.form ?? form;
+    const gr = retryEstadoRef.current?.grades ?? grades;
+    const real = retryEstadoRef.current ? realDeGrades(gr) : realByNum;
     const cq = {
       // Datas de oficina vêm de Serviços (read-only no CQ) — gravadas como snapshot.
       data_recebimento_enviado_oficina: oficina.enviado || null,
       data_recebimento_prevista: oficina.prevista || null,
       data_recebimento_entregue: oficina.entregue || null,
-      data_conserto_enviado: form.data_conserto_enviado || null,
-      data_conserto_prevista: form.data_conserto_prevista || null,
-      data_conserto_entregue: form.data_conserto_entregue || null,
-      data_lavagem_enviado: form.data_lavagem_enviado || null,
-      data_lavagem_entregue: form.data_lavagem_entregue || null,
-      observacoes_cq: form.observacoes_cq,
-      pecas_incompletas: form.pecas_incompletas,
-      pecas_faltantes: form.pecas_faltantes,
-      pecas_sem_etiqueta: form.pecas_sem_etiqueta,
+      data_conserto_enviado: f.data_conserto_enviado || null,
+      data_conserto_prevista: f.data_conserto_prevista || null,
+      data_conserto_entregue: f.data_conserto_entregue || null,
+      data_lavagem_enviado: f.data_lavagem_enviado || null,
+      data_lavagem_entregue: f.data_lavagem_entregue || null,
+      observacoes_cq: f.observacoes_cq,
+      pecas_incompletas: f.pecas_incompletas,
+      pecas_faltantes: f.pecas_faltantes,
+      pecas_sem_etiqueta: f.pecas_sem_etiqueta,
       fotografado_variantes: Object.fromEntries(
         variantList.filter((v) => fotografado[v.num]).map((v) => [String(v.num), true]),
       ),
     };
     const variantes: any[] = [];
     ETAPAS.forEach((et) => {
-      Object.values(grades[et]).forEach((r) => {
+      Object.values(gr[et]).forEach((r) => {
         // Caminho fonte-única: Recebimento/Defeito vão com a grade COMPLETA (zeros explícitos) e a
         // linha NÃO é descartada mesmo com total 0 — senão a zeragem líquida não persiste no
         // grade_detalhe da fonte (o jsonb_set do backend só toca size-keys presentes) e o refetch
@@ -937,8 +946,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     });
     const reais = variantList.map((v) => ({
       variante_numero: v.num,
-      grades: realByNum[v.num]?.grades ?? {},
-      grade_total: realByNum[v.num]?.total ?? 0,
+      grades: real[v.num]?.grades ?? {},
+      grade_total: real[v.num]?.total ?? 0,
     }));
     return { cq, variantes, reais };
   };
@@ -986,8 +995,13 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       const meuGrade = meuGradeAtual();
       const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
       const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
-      if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
-      if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+      const formMexeu = md.atualizados.length > 0 || md.conflitos.length > 0;
+      const gradeMexeu = mg.atualizados.length > 0 || mg.conflitos.length > 0;
+      if (formMexeu) setForm(md.valor);
+      if (gradeMexeu) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+      // QA 19: o retry (mutate síncrono logo abaixo) NÃO vê o setForm acima — entrega o mesclado por ref.
+      const b = baselineAposMerge({ formMexeu, gradeMexeu, formMesclado: md.valor, formAtual: formLiveRef.current, gradesAtuais: gradesLiveRef.current, aplicarGrade: () => aplicarGradeNoState(gradesLiveRef.current, mg.valor) });
+      retryEstadoRef.current = { form: b.form, grades: b.grades };
       const todos = [...md.conflitos, ...mg.conflitos];
       conflitosRef.current = todos; setConflitos(todos);
       setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
@@ -1093,10 +1107,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         retryRef.current = true; savingRef.current = true;
         const restantes = await reconciliarCq();
         if (restantes.length === 0) {
-          saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+          saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null; } });
           return;
         }
-        savingRef.current = false; retryRef.current = false;
+        savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null;
         toast.error(mensagemErro(e, "Erro ao salvar"));
         return;
       }
@@ -1134,10 +1148,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         retryRef.current = true; savingRef.current = true;
         const restantes = await reconciliarCq();
         if (restantes.length === 0) {
-          confirmMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+          confirmMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null; } });
           return;
         }
-        savingRef.current = false; retryRef.current = false;
+        savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null;
         toast.error(mensagemErro(e, "Erro ao confirmar"));
         return;
       }

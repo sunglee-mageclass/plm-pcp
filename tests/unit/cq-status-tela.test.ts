@@ -62,3 +62,23 @@ describe("baselineAposMerge (R14 N1)", () => {
     expect(decidirStatusServidor({ atual: "confirmado", fresco: "pendente", temEdicao: false, nome: "CQ Pós" }).aviso).toMatch(/^O CQ Pós voltou para pendente/);
   });
 });
+
+import { mergeDraft } from "@/lib/colab/merge";
+describe("retry do P0409 (QA cenário 19)", () => {
+  it("o estado do retry contém o campo que o OUTRO salvou (A não tocou) e preserva o que A tocou", () => {
+    const base = { observacoes_cq: "QA19 do B", pecas_incompletas: 0 };
+    const draftA = { observacoes_cq: "QA19 do B", pecas_incompletas: 7 }; // A só mexeu em peças
+    const fresh = { observacoes_cq: "QA19 B novo", pecas_incompletas: 0 }; // B salvou a obs
+    const md = mergeDraft({ base, draft: draftA, fresh, touched: new Set(["pecas_incompletas"]) });
+    const formMexeu = md.atualizados.length > 0 || md.conflitos.length > 0;
+    const b = baselineAposMerge({ formMexeu, gradeMexeu: false, formMesclado: md.valor, formAtual: draftA, gradesAtuais: {}, aplicarGrade: () => ({}) });
+    expect(formMexeu).toBe(true);
+    expect(b.form.observacoes_cq).toBe("QA19 B novo"); // antes do fix: "QA19 do B" (velho) apagava a edição do B
+    expect(b.form.pecas_incompletas).toBe(7);
+  });
+  it("a tela monta o payload do retry a partir de retryEstadoRef (não do state)", () => {
+    const src = readFileSync("src/routes/_authenticated/expedicao.cq.$modeloId.tsx", "utf8");
+    expect(src).toContain("retryEstadoRef.current = { form: b.form, grades: b.grades }");
+    expect(src).toContain("const f = retryEstadoRef.current?.form ?? form;");
+  });
+});
