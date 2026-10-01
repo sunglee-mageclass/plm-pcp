@@ -384,7 +384,8 @@ function PlanejamentoDetailConteudo({
     queryFn: async () => {
       const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: [modeloId] });
       if (error) throw error;
-      return ((data ?? {}) as any)[modeloId as string] as { previsto: number; real: number; confirmado: boolean } | undefined;
+      // null (não undefined): o TanStack recusa `undefined` ("Query data cannot be undefined") — vem sem permissão de custos / modelo apagado.
+      return (((data ?? {}) as any)[modeloId as string] ?? null) as { previsto: number; real: number; confirmado: boolean } | null;
     },
   });
 
