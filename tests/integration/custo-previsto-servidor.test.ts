@@ -250,6 +250,10 @@ describe.skipIf(!PRONTO)("C1 (a) — catálogo e ACL (#9, R-CD3)", () => {
                 (t.tgtype & 1) = 1 AS por_linha, t.tgdeferrable AS adiavel, t.tginitdeferred AS adiado
            FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
           WHERE NOT t.tgisinternal AND (t.tgname LIKE 'trg\\_custo\\_%' OR t.tgname = 'trg_modelo_custo_derivado')
+            -- os 2 gatilhos da LEVES L5 (20261027300000; cad DELETE e variantes_tecido UPDATE OF artigo_id, por LINHA)
+            -- têm o teste próprio: custo-fila-cad-delete-variante.test.ts (f)
+            AND NOT (c.relname = 'cad' AND t.tgname = 'trg_custo_fila_del')
+            AND NOT (c.relname = 'variantes_tecido' AND t.tgname = 'trg_custo_fila_upd')
           ORDER BY 1, 2`);
       expect(rows.length).toBe(30);
       for (const r of rows) expect(r.tgenabled).toBe("O");
