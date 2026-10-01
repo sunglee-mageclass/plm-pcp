@@ -57,8 +57,13 @@ import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialo
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 import { REVENDA_COND_NA, requisitosHerdados } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
-import type { RefConfig } from "@/lib/ref-montar";
+import { problemaFormatoRef, type RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
+import { RefRevelarDialog } from "@/components/admin/RefRevelarDialog";
+import {
+  etapaRefMudouDesdeAPrevia, etapaRefNoSalvar, MENSAGEM_PREVIA_REF_MUDOU, refPreviaRevelar, toastRefsReveladas,
+  type PreviaRefRevelar,
+} from "@/lib/ref-revelar";
 import { keywordsDoServidor } from "@/lib/config-keywords";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { ColabBanner } from "@/components/shared/ColabBanner";
@@ -317,7 +322,13 @@ function juntarConflitos(atuais: Conflito[], novos: Conflito[]): Conflito[] {
 }
 
 // Resposta da RPC `salvar_config_loja` (T1): só as colunas gravadas, com o valor pós-gatilhos.
-type RetornoSalvarConfig = { gravadas: string[]; valores: Record<string, unknown> };
+// Leves L3 kanban #21 (P-211 A): + `refs_reveladas` (quantas REFs o Salvar da etapa da REF revelou; ausente no banco velho).
+type RetornoSalvarConfig = { gravadas: string[]; valores: Record<string, unknown>; refs_reveladas?: number };
+
+// Leves L3 kanban #3 (P-210 A, dono 01/out): a configuração de EXCEÇÕES de requisito (herdado desligado numa etapa) fica
+// OCULTA — o editor não aparece no diálogo de Requisitos (os herdados ficam marcados e travados). Código e coluna
+// `kanban_requisitos_excecoes` GUARDADOS ("ocultar primeiro"); exceções já gravadas (0 lojas na cópia) seguem valendo.
+const EXCECOES_REQUISITO_OCULTAS = true;
 
 // Fix round 1 (B5, review-fixqa.md): motivo CURTO pro toast de "loja anterior" (I1/L2) — o texto
 // completo do `mensagemErro` (uma frase própria, com ponto interno) ficava verboso dentro dos
@@ -404,6 +415,11 @@ function ConfiguracoesLojaPage() {
   const [preparandoSalvar, setPreparandoSalvar] = useState(false);
   // "Salvar e mover N cards" (chave ligada + requisitos/ordem mudados): prévia calculada no clique de Salvar.
   const [previaSalvar, setPreviaSalvar] = useState<{ previa: PreviaRecalculo; mudancas: string } | null>(null);
+  // Leves L3 kanban #21 (P-211 A): prévia "N REFs serão reveladas (não voltam)" quando o Salvar leva a etapa nova da REF.
+  // `refEtapaConferidaRef` = a etapa que a prévia conferiu (o `mutationFn` aborta se a que vai no Salvar for outra — mesma
+  // garantia D19 do kanban); undefined = nenhuma conferida.
+  const [previaRef, setPreviaRef] = useState<PreviaRefRevelar | null>(null);
+  const refEtapaConferidaRef = useRef<{ valor: string | null } | undefined>(undefined);
   // Fix round 2 (revisão Opus): PROTEGE o kanban local (na tela) enquanto o save com diff de kanban
   // está EM VOO. (Desde o T3 da Config colaborativa o save é UMA RPC atômica — a antiga falha parcial
   // "geral gravou, kanban não" deixou de existir; qualquer erro = nada gravado e a proteção desliga.)
@@ -629,6 +645,15 @@ function ConfiguracoesLojaPage() {
         throw Object.assign(new Error(MENSAGEM_PREVIA_KANBAN_MUDOU), { fecharDialogoKanban: true });
       }
       if (Object.keys(mudancas).length === 0) return { nada: true };
+      // Leves L3 kanban #21 (P-211 A): a etapa da REF que vai neste Salvar tem de ser a que a prévia conferiu.
+      if (etapaRefMudouDesdeAPrevia(refEtapaConferidaRef.current, etapaRefNoSalvar(mudancas))) {
+        throw Object.assign(new Error(MENSAGEM_PREVIA_REF_MUDOU), { fecharDialogoKanban: true });
+      }
+      // Leves L3 kanban #18: Formato da REF sem "Número sequencial" / sigla com número — o servidor recusa; avisa antes.
+      if ("ref_config" in mudancas) {
+        const problema = problemaFormatoRef(cfg.ref_config);
+        if (problema) throw Object.assign(new Error(problema), { fecharDialogoKanban: true });
+      }
       // Fix hidratação (P-57 A): guarda o que ESTE save está mandando — o onSuccess usa para
       // re-basear `cfgBaseRef` (o eco do PRÓPRIO save não deve ser tratado como edição alheia).
       cfgEnviadoRef.current = cfg;
@@ -659,6 +684,14 @@ function ConfiguracoesLojaPage() {
       emVooRef.current = new Set();
       kanbanProtegidoRef.current = false;
       setPreviaSalvar(null);
+      setPreviaRef(null);
+      refEtapaConferidaRef.current = undefined;
+      // Leves L3 kanban #21: REFs reveladas pelo Salvar (mesma transação) — os cards precisam reler a REF.
+      const nReveladas = !r.nada ? Number(r.retorno.refs_reveladas ?? 0) : 0;
+      if (nReveladas > 0) {
+        qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+        qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      }
       if (ctx?.tenantId !== cfgBaseTenantRef.current) {
         if (!r.nada) {
           toast.success("Configurações salvas (na loja anterior).");
@@ -671,7 +704,7 @@ function ConfiguracoesLojaPage() {
         markClean();
         return;
       }
-      toast.success("Configurações salvas");
+      toast.success(toastRefsReveladas(nReveladas) ?? "Configurações salvas");
       markClean();
       setUltimoMerge(null);
       // Fix hidratação (P-57 A): o que este save mandou vira a base do merge — evita "não salvo"
@@ -707,6 +740,9 @@ function ConfiguracoesLojaPage() {
     },
     onError: (e: any, _v, ctx) => {
       // A RPC é atômica: qualquer erro = NADA gravado (kanban incluído) — sem proteção a manter.
+      // Leves L3 (P-211 A): qualquer recusa fecha a prévia da REF (o próximo Salvar confere de novo).
+      setPreviaRef(null);
+      refEtapaConferidaRef.current = undefined;
       const enviadas = [...emVooRef.current];
       emVooRef.current = new Set();
       kanbanProtegidoRef.current = false;
@@ -845,9 +881,10 @@ function ConfiguracoesLojaPage() {
   // prévia (`kanban_previa_recalculo` com SÓ o que mudou) antes de confirmar. Sem cards mudando nem REF revelada
   // → o AlertDialog de sempre. A F1 não confere se a prévia foi vista (D19) — a garantia é esta função.
   const prepararSalvar = async () => {
-    const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
+    refEtapaConferidaRef.current = undefined;
     // T4 (decisão do controlador): nada mudou ⇒ avisa JÁ, sem abrir a confirmação "Salvar mesmo
     // assim" (que não teria o que salvar). O `mutationFn` mantém a mesma checagem como defesa.
+    let etapaRef: { valor: string | null } | null = null;
     if (cfgBaseRef.current) {
       const { mudancas } = montarMudancas({
         cfg,
@@ -860,13 +897,46 @@ function ConfiguracoesLojaPage() {
         markClean();
         return;
       }
+      // Leves L3 kanban #18: Formato da REF fora da regra — o servidor recusaria; avisa antes de qualquer diálogo.
+      if ("ref_config" in mudancas) {
+        const problema = problemaFormatoRef(cfg.ref_config);
+        if (problema) { toast.error(problema); return; }
+      }
+      etapaRef = etapaRefNoSalvar(mudancas);
     }
+    // Leves L3 kanban #21 (P-211 A): a etapa de revelar a REF vai neste Salvar → prévia só leitura ANTES de confirmar
+    // ("N REFs serão reveladas (não voltam)"). Com N > 0 abre o RefRevelarDialog; o "Salvar e revelar" segue para o
+    // resto (kanban) já como confirmado. N = 0: segue direto (sem diálogo extra).
+    if (etapaRef && data?.tenantId) {
+      setPreparandoSalvar(true);
+      try {
+        const p = await refPreviaRevelar(data.tenantId, etapaRef.valor);
+        refEtapaConferidaRef.current = etapaRef;
+        if (p.total > 0) { setPreviaRef(p); return; }
+      } catch (e) {
+        toast.error(mensagemErro(e, "Erro ao preparar o salvamento"));
+        return;
+      } finally {
+        setPreparandoSalvar(false);
+      }
+    }
+    await continuarSalvar(false);
+  };
+
+  // O resto do preparo (kanban). `jaConfirmou` = a pessoa já confirmou na prévia da REF: o caminho que abriria o
+  // AlertDialog comum salva direto (não pergunta 2 vezes); a prévia do kanban (cards que mudam) continua aparecendo.
+  const continuarSalvar = async (jaConfirmou: boolean) => {
+    const confirmar = () => {
+      if (jaConfirmou) save.mutate();
+      else setConfirmSalvar(true);
+    };
+    const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
     // Médio 1 (garantia D19): guarda o diff que embasa a decisão desta chamada — tanto o caminho sem
     // prévia (AlertDialog comum) quanto o com prévia (KanbanSalvarDialog). O `mutationFn` recalcula o
     // diff na hora de salvar e aborta se divergir deste (a tela seguiu editável durante os `await`s
     // abaixo).
     diffEsperadoRef.current = diff;
-    if (!data?.tenantId || Object.keys(diff).length === 0) { setConfirmSalvar(true); return; }
+    if (!data?.tenantId || Object.keys(diff).length === 0) { confirmar(); return; }
     setPreparandoSalvar(true);
     try {
       const row = await lerConfigServidor(data.tenantId);
@@ -879,9 +949,9 @@ function ConfiguracoesLojaPage() {
       // e aborta se mudou nesse meio-tempo (Minor 1, garantia D19: sem isso, outra aba ligando a
       // chave com o diálogo aberto faria o Salvar mover cards em cascata sem prévia nenhuma).
       chaveEsperadaRef.current = row?.kanban_automatico === true;
-      if (row?.kanban_automatico !== true) { setConfirmSalvar(true); return; }
+      if (row?.kanban_automatico !== true) { confirmar(); return; }
       const previa = await kanbanPreviaRecalculo(diff as Record<string, unknown>);
-      if (previa.mudam === 0 && previa.revelam_ref === 0) { setConfirmSalvar(true); return; }
+      if (previa.mudam === 0 && previa.revelam_ref === 0) { confirmar(); return; }
       setPreviaSalvar({ previa, mudancas: descreverMudancasKanban(Object.keys(diff) as KanbanCol[]) });
     } catch (e) {
       toast.error(mensagemErro(e, "Erro ao preparar o salvamento"));
@@ -1091,8 +1161,10 @@ function ConfiguracoesLojaPage() {
                   })
                 }
                 herdados={herdados}
+                // Leves L3 kanban #3 (P-210 A): editor de exceções OCULTO (código guardado) — sem `onExcecoesChange` os
+                // herdados ficam travados no diálogo (uma exceção já gravada só aparece, não muda).
                 excecoes={cfg.kanban_requisitos_excecoes?.[key] ?? []}
-                onExcecoesChange={(next) =>
+                onExcecoesChange={EXCECOES_REQUISITO_OCULTAS ? undefined : (next) =>
                   setCfg((c) => {
                     const map = { ...(c.kanban_requisitos_excecoes ?? {}) };
                     if (next.length) map[key] = next; else delete map[key];
@@ -1427,6 +1499,22 @@ function ConfiguracoesLojaPage() {
           salvando={save.isPending}
           onConfirmar={() => save.mutate()}
           onClose={() => setPreviaSalvar(null)}
+        />
+      )}
+
+      {previaRef && (
+        <RefRevelarDialog
+          previa={previaRef}
+          cols={boardDaLoja(kanbanCfgTela)}
+          salvando={save.isPending || preparandoSalvar}
+          onConfirmar={() => {
+            setPreviaRef(null);
+            void continuarSalvar(true);
+          }}
+          onClose={() => {
+            setPreviaRef(null);
+            refEtapaConferidaRef.current = undefined;
+          }}
         />
       )}
 

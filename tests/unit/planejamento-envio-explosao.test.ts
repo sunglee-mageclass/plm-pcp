@@ -22,7 +22,7 @@ const deriv = (alvo: string | null, derivavel = true): Derivacao => ({
 describe("gateEnvioExplosao", () => {
   it("chave desligada: status gravado antes da etapa exigida (padrão Aprovado) ⇒ bloqueia e diz a etapa", () => {
     expect(gateEnvioExplosao({ cfg: cfg(false), explosaoEnvioStatus: null, statusCru: "em_ajuste", derivacao: null, condProntas: true }))
-      .toEqual({ ok: false, carregando: false, reqLabel: "Aprovado" });
+      .toEqual({ ok: false, carregando: false, reqLabel: "Aprovado", reprovado: false, motivo: 'Disponível a partir da etapa "Aprovado".' });
   });
   it("chave desligada: na etapa ⇒ libera", () => {
     expect(gateEnvioExplosao({ cfg: cfg(false), explosaoEnvioStatus: null, statusCru: "aprovado", derivacao: null, condProntas: true }).ok).toBe(true);
@@ -35,10 +35,24 @@ describe("gateEnvioExplosao", () => {
   });
   it("chave LIGADA e condições ainda não carregadas ⇒ 'carregando' (não libera no escuro)", () => {
     expect(gateEnvioExplosao({ cfg: cfg(true), explosaoEnvioStatus: null, statusCru: "aprovado", derivacao: null, condProntas: false }))
-      .toEqual({ ok: false, carregando: true, reqLabel: "" });
+      .toEqual({ ok: false, carregando: true, reqLabel: "", reprovado: false, motivo: "" });
   });
   it("antes da Ordem de Criação (sem status) ⇒ bloqueia", () => {
     expect(gateEnvioExplosao({ cfg: cfg(false), explosaoEnvioStatus: null, statusCru: null, derivacao: null, condProntas: true }).ok).toBe(false);
+  });
+  // Leves L3 (R14 msg reprovado, P-190 A): com a chave LIGADA, Reprovado não tem posição — o motivo é o reprovado (≡ SQL
+  // `reprovado_explosao:` do _enviar_modelo_para_cad_core), mesmo com a posição DERIVADA já depois da etapa.
+  it("chave LIGADA + card em Reprovado (derivado em Aprovado) ⇒ bloqueia com 'Card reprovado não vai à Explosão.'", () => {
+    const boardR = [...board, { key: "reprovado", label: "Reprovado" }];
+    const g = gateEnvioExplosao({ cfg: { ...cfg(true), status_kanban: boardR }, explosaoEnvioStatus: null, statusCru: "Reprovado ",
+      derivacao: deriv("aprovado"), condProntas: true });
+    expect(g).toEqual({ ok: false, carregando: false, reqLabel: "Aprovado", reprovado: true, motivo: "Card reprovado não vai à Explosão." });
+  });
+  it("chave DESLIGADA + Reprovado depois de Aprovado no board ⇒ segue o status gravado (libera, como antes)", () => {
+    const boardR = [...board, { key: "reprovado", label: "Reprovado" }];
+    const g = gateEnvioExplosao({ cfg: { ...cfg(false), status_kanban: boardR }, explosaoEnvioStatus: null, statusCru: "reprovado",
+      derivacao: null, condProntas: true });
+    expect([g.ok, g.reprovado, g.motivo]).toEqual([true, false, ""]);
   });
   it("etapa configurada pela loja (explosao_envio_status) vale", () => {
     expect(gateEnvioExplosao({ cfg: cfg(false), explosaoEnvioStatus: "em_modelagem", statusCru: "em_ajuste", derivacao: null, condProntas: true }).ok).toBe(true);

@@ -121,7 +121,7 @@ export function RequisitosStatusButton({
           estiverem satisfeitas.
           {herdMap.size > 0 && (
             <> Os itens <span className="font-medium text-foreground">herdados</span> vêm das etapas
-            anteriores (cascata) — desmarcá-los aqui abre uma exceção.</>
+            anteriores (cascata){onExcecoesChange ? " — desmarcá-los aqui abre uma exceção." : " e valem aqui também."}</>
           )}
         </p>
         <Accordion type="multiple" className="space-y-1">
@@ -140,6 +140,8 @@ export function RequisitosStatusButton({
                     const na = naSet.has(c.key);
                     const origem = herdMap.get(c.key);
                     const ehHerdado = origem != null && !set.has(c.key); // herdado e não próprio
+                    // Leves L3 kanban #3 (P-210 A): sem `onExcecoesChange` (exceções ocultas) o herdado fica travado.
+                    const herdadoTravado = ehHerdado && !onExcecoesChange;
                     const herdadoAtivo = ehHerdado && !excSet.has(c.key);
                     const marcado = na ? false : (set.has(c.key) || herdadoAtivo);
                     return (
@@ -147,12 +149,12 @@ export function RequisitosStatusButton({
                         key={c.key}
                         className={
                           "flex items-start gap-2" +
-                          (na ? " cursor-not-allowed opacity-50" : " cursor-pointer")
+                          (na ? " cursor-not-allowed opacity-50" : herdadoTravado ? " cursor-not-allowed" : " cursor-pointer")
                         }
                       >
                         <Checkbox
                           checked={marcado}
-                          disabled={na}
+                          disabled={na || herdadoTravado}
                           onCheckedChange={(v) => (ehHerdado ? toggleHerdado(c.key, !!v, c.label) : toggle(c.key, !!v))}
                           className="mt-0.5"
                         />

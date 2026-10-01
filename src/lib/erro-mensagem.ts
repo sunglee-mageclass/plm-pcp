@@ -10,6 +10,7 @@
 import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
 import { MENSAGEM_CHAVE_KANBAN_MUDOU } from "@/lib/kanban-auto-config";
 import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "@/lib/categoria-card-produto";
+import { TEXTO_REF_FORMATO_SEM_NUMERO, textoRefSiglaComDigito } from "@/lib/ref-montar";
 
 /** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
  *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
@@ -152,6 +153,19 @@ function mensagemContasCertas(code: string, msg: string): string | null {
   return null;
 }
 
+// Leves L3 (kanban #18, R14 msg reprovado): recusas P0001 em ASCII com prefixo (padrão das mensagens novas) → texto PT.
+//   `reprovado_explosao:`      — _enviar_modelo_para_cad_core: card em Reprovado (chave do kanban ligada, P-190 A).
+//   `ref_formato_sem_numero:`  — salvar_config_loja: Formato da REF com partes e sem a parte "Número sequencial".
+//   `ref_sigla_com_digito: X`  — salvar_config_loja: sigla de grupo/categoria/subcategoria com número.
+export const TEXTO_REPROVADO_EXPLOSAO = "Card reprovado não vai à Explosão.";
+export function mensagemLevesL3(code: string, msg: string): string | null {
+  if (code !== "P0001") return null;
+  if (msg.startsWith("reprovado_explosao:")) return TEXTO_REPROVADO_EXPLOSAO;
+  if (msg.startsWith("ref_formato_sem_numero:")) return TEXTO_REF_FORMATO_SEM_NUMERO;
+  if (msg.startsWith("ref_sigla_com_digito:")) return textoRefSiglaComDigito(msg.slice("ref_sigla_com_digito:".length).trim());
+  return null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -208,6 +222,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Contas certas: prefixos ASCII (P0001) e 42501 sem acento das RPCs novas → texto PT.
   const contasCertas = mensagemContasCertas(code, msg);
   if (contasCertas) return contasCertas;
+
+  // Leves L3: prefixos ASCII (P0001) do reprovado na Explosão e do Formato da REF → texto PT.
+  const levesL3 = mensagemLevesL3(code, msg);
+  if (levesL3) return levesL3;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;

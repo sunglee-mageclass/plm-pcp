@@ -23,6 +23,8 @@ import {
   clampNumInicio,
   numInicioValidoParaServidor,
   siglaAutoParte,
+  problemaFormatoRef,
+  siglaItemSemDigitos,
   type RefConfig,
   type RefFamilia,
   type RefParte,
@@ -83,8 +85,13 @@ export function FormatoRefCard({
   // Atualiza um campo do RefConfig, preservando os demais. `null` explícito reseta tudo.
   const patch = (p: Partial<RefConfig>) => onChange({ ...cfg, ...p });
 
+  // Leves L3 kanban #18: com montagem configurada, o "Número sequencial" é OBRIGATÓRIO (salvar_config_loja recusa sem ele —
+  // sem número a REF re-sincronizada consumia um número novo a cada vez). Marcar a 1ª parte já traz o número junto (no fim);
+  // desmarcar o número fica travado (checkbox desabilitado).
   const toggleParte = (parte: RefParte, on: boolean) => {
-    const next = on ? [...partes, parte] : partes.filter((p) => p !== parte);
+    if (parte === "numero" && !on) return;
+    let next = on ? [...partes, parte] : partes.filter((p) => p !== parte);
+    if (on && !next.includes("numero")) next = [...next, "numero"];
     patch({ partes: next });
   };
 
@@ -102,11 +109,15 @@ export function FormatoRefCard({
     patch({ sigla_familia: map });
   };
 
-  const setSiglaItem = (id: string, v: string) => {
+  // Leves L3 kanban #18: sigla de grupo/categoria/sub só aceita LETRAS (os dígitos digitados são descartados).
+  const setSiglaItem = (id: string, bruto: string) => {
+    const v = siglaItemSemDigitos(bruto);
     const map = { ...(cfg.sigla_taxonomia ?? {}) };
     if (v.trim()) map[id] = v; else delete map[id];
     patch({ sigla_taxonomia: map });
   };
+  // Config já gravada fora da regra (sem "numero" / sigla com dígito): avisa aqui; o Salvar recusa até corrigir.
+  const problema = problemaFormatoRef(value);
 
   // Taxonomia da loja — só carregada pra alimentar as abas de sigla + a prévia.
   const { data: grupos = [] } = useQuery({
@@ -212,8 +223,13 @@ export function FormatoRefCard({
           </p>
           <p className="text-xs text-muted-foreground">
             Marque as partes que compõem a REF. Use as setas para ordenar — a ordem aqui é a
-            ordem final na REF.
+            ordem final na REF. O número sequencial é obrigatório.
           </p>
+          {problema && (
+            <p role="alert" className="text-xs text-[var(--tone-warning-fg)]" data-testid="formato-ref-problema">
+              {problema}
+            </p>
+          )}
           <ul className="space-y-1.5">
             {/* Primeiro as partes MARCADAS, na ordem configurada; depois as não-marcadas. */}
             {[...partes, ...PARTES_DEF.map((p) => p.key).filter((k) => !marcadas.has(k))].map((key) => {
@@ -225,6 +241,7 @@ export function FormatoRefCard({
                   <div className="flex items-center gap-3">
                     <Checkbox
                       checked={on}
+                      disabled={key === "numero" && on}
                       onCheckedChange={(v) => toggleParte(key, !!v)}
                       aria-label={`Usar "${def.label}" na REF`}
                     />
@@ -233,6 +250,7 @@ export function FormatoRefCard({
                       onClick={() => toggleParte(key, !on)}
                     >
                       {def.label}
+                      {key === "numero" && <span className="ml-1 text-xs text-muted-foreground">(obrigatório)</span>}
                     </span>
                     {on && (
                       <div className="flex shrink-0 items-center gap-1">
