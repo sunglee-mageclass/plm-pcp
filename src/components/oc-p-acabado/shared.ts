@@ -123,18 +123,12 @@ export function redistribuirVariantesPorPeso(variantes: VarianteDraft[], qtdTota
   return variantes.map((v) => ({ ...v, qtd: split[String(v.ordem)] ?? 0 }));
 }
 
-/** Nº de parcelas a pagar DERIVADO do prazo de pagamento digitado — espelha
- *  BYTE-A-BYTE o parsing do trigger `gerar_parcelas_oc_p_acabado` (banco):
- *    `unnest(string_to_array(coalesce(prazo_pagamento,'30'), '/')) where t ~ '^[0-9]+$'`
- *  — separa só por "/", SEM trim (um token com espaço, ex. " 60", falha o regex ancorado
- *  igual no banco — NÃO tolerar espaço aqui seria uma divergência silenciosa do preview),
- *  cai em 1 quando nenhum token válido (mesmo fallback `array[30]` do trigger) e limita a
- *  24 (`least(array_length,24)`). Refino onda 2, item 2 — mostra a contagem ao lado do
- *  campo "Prazo de pagamento" (mesmo formato da OC Tecido, que deriva `quantidade_
- *  prazos`), mas com o parser PRÓPRIO da OC P. Acabado (o trigger daqui só reconhece "/"
- *  como separador — não vírgula/traço/espaço como o de tecido). */
+/** Nº de parcelas a pagar DERIVADO do prazo de pagamento digitado — mesma regra do banco
+ *  (R10 fin #9, `regexp_split_to_table(prazo, '[^0-9]+')` + `t ~ '^[0-9]+$'`): qualquer
+ *  não-dígito separa ("30/60/90", "30, 60", "30 60 90"), cai em 1 quando nenhum número
+ *  (ex.: "à vista", vazio — fallback `array[30]` do trigger) e limita a 24. */
 export function contarParcelasPrazo(prazoPagamento: string): number {
-  const tokens = (prazoPagamento ?? "").split("/").filter((t) => /^[0-9]+$/.test(t));
+  const tokens = (prazoPagamento ?? "").split(/[^0-9]+/).filter((t) => /^[0-9]+$/.test(t));
   const n = tokens.length > 0 ? tokens.length : 1;
   return Math.min(n, 24);
 }

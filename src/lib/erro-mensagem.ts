@@ -128,18 +128,24 @@ export const MENSAGENS_CONTAS_CERTAS = {
   parcela_fora_do_prazo:
     "Esta parcela saiu do prazo atual do serviço (o prazo mudou). Recarregue a tela antes de pagar.",
   parcela_servico_outra_loja: "Esta parcela não pertence à loja do serviço — não foi possível registrar o pagamento.",
+  servico_nao_encontrado: "O serviço desta parcela não foi encontrado nesta loja. Recarregue a tela.",
+  servico_sem_data_base:
+    "O serviço está sem data de entrega nem de envio — não há base para calcular o vencimento. Preencha uma delas e tente de novo.",
   sem_permissao_financeiro: "Você não tem permissão para editar o Financeiro.",
   modulo_financeiro_desligado: "O módulo Financeiro não está habilitado para esta loja.",
+  sem_permissao_financeiro_servicos: "Você não tem permissão para editar os Serviços do Financeiro.",
 } as const;
 function mensagemContasCertas(code: string, msg: string): string | null {
   if (code === "P0001") {
     for (const prefixo of ["parcela_paga", "parcela_nao_encontrada", "oc_nao_encontrada", "tipo_oc_sem_regra",
-      "parcela_fora_do_prazo", "parcela_servico_outra_loja"] as const) {
+      "parcela_fora_do_prazo", "parcela_servico_outra_loja", "servico_nao_encontrado",
+      "servico_sem_data_base"] as const) {
       if (msg.startsWith(prefixo + ":")) return MENSAGENS_CONTAS_CERTAS[prefixo];
     }
   }
   if (code === "42501") {
     if (msg === "Sem permissao para editar o Financeiro") return MENSAGENS_CONTAS_CERTAS.sem_permissao_financeiro;
+    if (msg === "Sem permissao para editar os Servicos do Financeiro") return MENSAGENS_CONTAS_CERTAS.sem_permissao_financeiro_servicos;
     if (msg === "Modulo financeiro nao habilitado para esta loja") return MENSAGENS_CONTAS_CERTAS.modulo_financeiro_desligado;
     if (msg === "Nao autenticado") return TEXTO_SESSAO_EXPIRADA;
   }

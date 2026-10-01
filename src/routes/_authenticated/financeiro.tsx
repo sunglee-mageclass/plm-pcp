@@ -22,6 +22,7 @@ import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider, TooltipTrigger as UiTooltipTrigger,
 } from "@/components/ui/tooltip";
+import { mostraAjustadoMaoServico, mostraVoltarAutomaticoServico } from "@/lib/servico-vencimento-manual";
 import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, Hand, RotateCcw, type LucideIcon } from "lucide-react";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { totaisServicos } from "@/lib/servicos-totais";
@@ -105,6 +106,9 @@ type Parcela = {
 /** Contas certas A1: por que a data ajustada à mão não andou com a Nota/prazo (InfoHover do detalhe da parcela). */
 const TEXTO_VENCIMENTO_MANUAL =
   "Esta data foi ajustada à mão. Recalcular as parcelas, mudar a Data da Nota ou o prazo não mexe nela — só as outras parcelas se ajustam. Use \"Voltar ao cálculo automático\" para desfazer.";
+
+const TEXTO_VENCIMENTO_MANUAL_SERVICO =
+  "Esta data foi ajustada à mão. Mudar a entrega ou o prazo do serviço não mexe nela — só as outras parcelas se ajustam. Use \"Voltar ao cálculo automático\" para desfazer.";
 
 // Parse de "yyyy-MM-dd" como data LOCAL (parseISO trata date-only como UTC → shift de dia em BRT).
 function parseLocalDate(s: string | null | undefined): Date {
@@ -1573,6 +1577,27 @@ function ServicosView() {
     return true;
   }), [rows, fornecedor, status, dataIni, dataFim]);
 
+  // `servicos_financeiro()` não devolve a marca (fin #6) — lê da tabela (id + vencimento_manual) e cruza por parcela_id.
+  const { data: manuais = [] } = useQuery({
+    queryKey: ["servicos-financeiro", "vencimento-manual"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("parcelas_servico" as any).select("id, vencimento_manual").eq("vencimento_manual", true);
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; vencimento_manual: boolean }[];
+    },
+  });
+  const manualIds = useMemo(() => new Set(manuais.map((m) => m.id)), [manuais]);
+  const [confirmVoltarId, setConfirmVoltarId] = useState<string | null>(null);
+  const voltarAuto = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("parcela_servico_voltar_vencimento_automatico" as any, { _parcela_id: id });
+      if (error) throw error;
+    },
+    onSuccess: () => toast.success("Vencimento voltou ao cálculo automático"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível voltar ao cálculo automático")),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }),
+  });
+
   const updVenc = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: string }) => {
       const { error } = await supabase.from("parcelas_servico" as any).update({ data_vencimento: data || null }).eq("id", id);
@@ -1706,6 +1731,13 @@ function ServicosView() {
                     <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} disabled={st === "pago"} />
                       <OffsetTag dias={(r as any).dias_offset} />
+                      {mostraAjustadoMaoServico(manualIds.has(r.parcela_id), st) && (
+                        <span data-testid="srv-venc-ajustado-mao" className="ml-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <Hand className="h-3.5 w-3.5" aria-hidden />
+                          ajustado à mão
+                          <InfoHover ariaLabel="Por que esta data não acompanha a entrega">{TEXTO_VENCIMENTO_MANUAL_SERVICO}</InfoHover>
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento">{r.data_pagamento ? format(parseISO(r.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="Status">
@@ -1713,6 +1745,17 @@ function ServicosView() {
                     </td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       <span className="inline-flex items-center gap-1.5 align-middle">
+                        {mostraVoltarAutomaticoServico(manualIds.has(r.parcela_id), st, podeEditar) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            data-testid="srv-venc-voltar-automatico"
+                            onClick={() => setConfirmVoltarId(r.parcela_id)}
+                            disabled={voltarAuto.isPending}
+                          >
+                            <RotateCcw className="h-4 w-4 mr-1" /> Voltar ao cálculo automático
+                          </Button>
+                        )}
                         {podeEditar && (st === "pago" ? (
                           <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
                         ) : (
@@ -1759,6 +1802,23 @@ function ServicosView() {
         onClose={() => setDetalhe(null)}
         onAnexar={(id) => { setDetalhe(null); setAnexarId(id); }}
       />
+      <AlertDialog open={!!confirmVoltarId} onOpenChange={(o) => { if (!o) setConfirmVoltarId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Voltar ao cálculo automático?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A data ajustada à mão será trocada pela data calculada do serviço (data de entrega, ou de envio, + prazo de
+              pagamento da empresa). Daqui em diante ela volta a acompanhar a entrega e o prazo. O valor da parcela não muda.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (confirmVoltarId) voltarAuto.mutate(confirmVoltarId); setConfirmVoltarId(null); }}>
+              Voltar ao cálculo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <PagarDialog
         parcelaId={pagandoId}
         table="parcelas_servico"

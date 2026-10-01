@@ -136,8 +136,8 @@ describe("contarParcelasPrazo — espelha o parser do trigger gerar_parcelas_oc_
     expect(contarParcelasPrazo("/")).toBe(1);
   });
 
-  it("vírgula NÃO é separador aqui (diferente da OC Tecido) — '30,60' vira 1 token não-numérico → 1", () => {
-    expect(contarParcelasPrazo("30,60")).toBe(1);
+  it("vírgula é separador (R10 fin #9) — '30,60' → 2", () => {
+    expect(contarParcelasPrazo("30,60")).toBe(2);
   });
 
   it("token não-numérico misturado é descartado, mas os numéricos contam", () => {
@@ -149,7 +149,12 @@ describe("contarParcelasPrazo — espelha o parser do trigger gerar_parcelas_oc_
     expect(contarParcelasPrazo(prazo)).toBe(24);
   });
 
-  it("espaço ao redor do número quebra o token (SEM trim — espelha o regex ancorado ^[0-9]+$ do trigger, sem espaço tolerado) → cai no fallback 1", () => {
-    expect(contarParcelasPrazo("30 / 60 / 90")).toBe(1);
+  it("R10 fin #9: separa por qualquer não-dígito (mesma regra do banco '[^0-9]+')", () => {
+    expect(contarParcelasPrazo("30/60/90")).toBe(3);
+    expect(contarParcelasPrazo("30, 60")).toBe(2);
+    expect(contarParcelasPrazo("30 60 90")).toBe(3);
+    expect(contarParcelasPrazo("30 / 60 / 90")).toBe(3);
+    expect(contarParcelasPrazo("")).toBe(1);
+    expect(contarParcelasPrazo("à vista")).toBe(1);
   });
 });
