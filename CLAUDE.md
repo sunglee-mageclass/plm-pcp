@@ -413,6 +413,12 @@ e verifique** — o repo muda rápido.
    `_dashboard_estoque_parado_core`) e `detalhe_estoque_variante` TODOS rolam esse core — nenhum
    re-implementa a conta (senão dá drift). `previsto` NÃO é clampado (pode ficar negativo: reserva
    > físico é sinal legítimo, ex.: cortou mais que comprou); só `fisico` clampa em ≥0.
+   **Saldo POR ITEM = a MESMA regra do core** (R11, out/2026, `20261021100000`): `saldo_oc_item_m` (corte/“- Metragem”/criar
+   rolo), o `rolo_supply` da prévia do Plan. Tecido e o `entregue_m` da Situação por OC só contam item **não cancelado** de OC
+   com `status='recebido'`; recebido = `quantidade_recebida`, senão a **pedida** (0 se é reposição de troca); kg→m; menos as baixas
+   DO PRÓPRIO item. OC encomendada = 0 no corte (continua previsão/reserva no `previsto` e no Plan. Tecido, que usa a pedida). Rolo
+   separado não conta 2× na prévia quando a OC de origem já credita a coleção. Ainda divergem (backlog R15):
+   `ocs_disponiveis_variante` e `ocs_para_rolo`.
    ⚠️ **Estoque de AVIAMENTO é POR VARIANTE (cor base + apelido)** (ago/2026, `20260820140000`),
    espelhando o tecido: **fonte única `_estoque_aviamento_core`** reagrupa por
    `aviamento_id × variante_aviamento_id` (recebido/prev ← `ocs_aviamento_itens.variante_aviamento_id`;
@@ -1214,6 +1220,14 @@ independente. O `_down` NEUTRALIZA a função do gatilho (CREATE OR REPLACE, sem
 emergência** (`freio-release9.sh`): só troca a função do gatilho pela neutra (sem trava de tabela, qualquer hora; valores e
 marcas ficam; nada novo é marcado); a volta completa depois do freio usa `volta-pos-freio-release9.sql` (= o `_down` com a
 guarda aceitando a função neutra, md5 `d88bb1ed`). Nenhum valor gravado volta sozinho.
+
+**Deploy da release 10** (só banco, R11; código `ec590d0d`; no ar 01/out 14:46; kit `savepoints/pre-release10/`): uma migration
+(`20261021100000_saldo_item_regra_do_core`, 3 CREATE OR REPLACE: `saldo_oc_item_m`, `_plan_tecido_previa_pedido_core`,
+`_plan_tecido_situacao_ocs_core`; chamadores intocados) por `ida-release10.sh`, que EXIGE backup completo (pg_dump public+auth via
+container, ≤30 min, conferido) antes da ida e da volta. Nenhum valor gravado muda. Sem freio (a volta devolve os 3 textos na
+hora). Volta **LIFO**: `20261021100000_down` ANTES dos inversos da release 9 e anteriores (por convenção — nenhum confere estas
+funções). Efeito: 8 itens de 5 OCs ainda "encomendadas" com recebida digitada deixam de contar no corte até a loja marcar a OC
+como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a contar a pedida.
 
 ## O que NÃO fazer
 
