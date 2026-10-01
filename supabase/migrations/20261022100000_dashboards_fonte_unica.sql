@@ -10,9 +10,10 @@
 --             antes (enviado_cad), exceto o lancado sem enviado_cad (0 hoje), que passa a Lancados.
 --   prod #6   _dashboard_producao_core: chave NOVA aprovadoNaoLancado (modelos na coluna "Aprovado" ainda NAO lancados;
 --             ex.: a Blusa Master da Loja Teste, aprovada E lancada, sai). kanbanDev (grafico) NAO muda.
---   prod #7   _dashboard_leadtime_core e _dashboard_leadtime_itens_core (P-185 A): a ULTIMA coluna do quadro da loja
---             (_kanban_status_rows, a mesma normalizacao do kanban) e o ponto de chegada - o trecho ABERTO nela (card
---             parado, sem proxima entrada no historico) NAO soma ate now(). Trechos fechados e as outras colunas: iguais.
+--   prod #7   _dashboard_leadtime_core e _dashboard_leadtime_itens_core (P-185 A, leitura literal - fix round 1): a
+--             ULTIMA coluna do quadro ATUAL da loja (_kanban_status_rows, a mesma normalizacao do kanban) e o ponto de
+--             chegada e NUNCA conta tempo - nem o trecho aberto (card parado, nao soma ate now()) nem o fechado (card que
+--             saiu e voltou). As outras colunas e os status antigos que sairam do quadro: iguais a antes.
 -- Funcoes STABLE, so leitura; nada gravado muda.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
@@ -28,10 +29,10 @@
 --     DEPOIS 17424a059ae47674e244701f5a0fbfe4  (este arquivo; reaplicar = no-op)
 --   public._dashboard_leadtime_core()
 --     ANTES  290807edf970fef70f1335446ac2fd45  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS aa45c3d1c78deb137a2c52add56fc6dd  (este arquivo; reaplicar = no-op)
+--     DEPOIS 520312bb84b32f35b63f056e93d51c54  (este arquivo; reaplicar = no-op)
 --   public._dashboard_leadtime_itens_core(uuid,text,text)
 --     ANTES  a049357d264bc60543d8bb804b49cdec  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS 79a96e4ce2f812c1e04c0366e876f352  (este arquivo; reaplicar = no-op)
+--     DEPOIS 0960481081dc751b6e016b3cdf16c165  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda):
 --     public._custo_unitario_modelos_core(uuid[])             d26c7c9afb636f6ed26e66daf76e92ae  INTOCADA (fonte unica do custo; so chamada)  -- CONFIRMADO: Passo 0 (01/out 11:06)
 --     public._kanban_status_rows(uuid)                        df58faac2e3d49f56c1d8fa4dd6d5e17  INTOCADA (ultima coluna do quadro)  -- PROVISORIO (copia): conferir no Passo 0 do kit R12
@@ -67,9 +68,9 @@ INSERT INTO _r12_md5_aceitos VALUES
   ('public._dashboard_producao_core(date,date,text,uuid)', '5437c394c0b576f8875f6ce526f020af', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public._dashboard_producao_core(date,date,text,uuid)', '17424a059ae47674e244701f5a0fbfe4', 'depois'),
   ('public._dashboard_leadtime_core()', '290807edf970fef70f1335446ac2fd45', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public._dashboard_leadtime_core()', 'aa45c3d1c78deb137a2c52add56fc6dd', 'depois'),
+  ('public._dashboard_leadtime_core()', '520312bb84b32f35b63f056e93d51c54', 'depois'),
   ('public._dashboard_leadtime_itens_core(uuid,text,text)', 'a049357d264bc60543d8bb804b49cdec', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public._dashboard_leadtime_itens_core(uuid,text,text)', '79a96e4ce2f812c1e04c0366e876f352', 'depois'),
+  ('public._dashboard_leadtime_itens_core(uuid,text,text)', '0960481081dc751b6e016b3cdf16c165', 'depois'),
   ('public._custo_unitario_modelos_core(uuid[])', 'd26c7c9afb636f6ed26e66daf76e92ae', 'dep'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public._kanban_status_rows(uuid)', 'df58faac2e3d49f56c1d8fa4dd6d5e17', 'dep'),  -- PROVISORIO (copia 54422): conferir no Passo 0 do kit R12
   ('public.dashboard_custos(date,date,text,uuid,uuid)', '354c9259b9f5466a7a8187ee830bceee', 'dep'),  -- PROVISORIO (copia 54422): conferir no Passo 0 do kit R12
@@ -530,7 +531,7 @@ DECLARE
   v_ultima text;
 BEGIN
   IF v_tenant IS NULL THEN RAISE EXCEPTION 'Sem tenant'; END IF;
-  -- [medios R12, prod #7, P-185 A] a ULTIMA coluna do quadro e o ponto de chegada: o card parado nela NAO conta tempo.
+  -- [medios R12, prod #7, P-185 A] a ULTIMA coluna do quadro e o ponto de chegada: NAO conta tempo.
   SELECT r.key INTO v_ultima FROM public._kanban_status_rows(v_tenant) r ORDER BY r.ord DESC LIMIT 1;
   SELECT leadtime INTO v_cfg FROM public.tenant_config WHERE tenant_id = v_tenant;
   v_has_cfg := (v_cfg ? 'etapas') AND jsonb_array_length(COALESCE(v_cfg->'etapas', '[]'::jsonb)) > 0;
@@ -582,7 +583,8 @@ BEGIN
       WHERE ct.tenant_id = v_tenant AND pt.data_enviado IS NOT NULL AND pt.data_entregue IS NOT NULL
   ),
   -- Tempo em cada COLUNA do kanban (Desenvolvimento) via o histórico.
-  -- [medios R12, P-185 A] o trecho ABERTO (sem proxima entrada) na ultima coluna do quadro nao soma now().
+  -- [medios R12, P-185 A] a ultima coluna do quadro NUNCA conta tempo (trecho aberto ou fechado). O lead() e calculado
+  -- ANTES do filtro: a coluna anterior fecha quando o card ENTRA na ultima. Status fora do quadro atual seguem contando.
   kb AS (
     SELECT ('kanban:' || h.status) AS etapa, 'kanban'::text AS tipo, h.status AS label,
            (EXTRACT(EPOCH FROM (COALESCE(h.nxt, now()) - h.entrou_at)) / 86400.0)::numeric AS dias, 0::numeric AS sub
@@ -590,7 +592,7 @@ BEGIN
                    lead(h0.entrou_at) OVER (PARTITION BY h0.modelo_id ORDER BY h0.entrou_at) AS nxt
               FROM public.modelo_kanban_historico h0
              WHERE h0.tenant_id = v_tenant) h
-      WHERE h.nxt IS NOT NULL OR h.status IS DISTINCT FROM v_ultima
+      WHERE h.status IS DISTINCT FROM v_ultima
   ),
   spans AS (SELECT * FROM macro UNION ALL SELECT * FROM svc UNION ALL SELECT * FROM kb),
   -- Etapas escolhidas na Config da Loja (ideal + ordem de exibição).
@@ -644,7 +646,7 @@ DECLARE
   v_ultima text;
 BEGIN
   IF v_tenant IS NULL THEN RAISE EXCEPTION 'Sem tenant'; END IF;
-  -- [medios R12, prod #7, P-185 A] a ULTIMA coluna do quadro e o ponto de chegada: o card parado nela NAO conta tempo.
+  -- [medios R12, prod #7, P-185 A] a ULTIMA coluna do quadro e o ponto de chegada: NAO conta tempo.
   SELECT r.key INTO v_ultima FROM public._kanban_status_rows(v_tenant) r ORDER BY r.ord DESC LIMIT 1;
   SELECT leadtime->>'slaServico' INTO v_sla_servico FROM public.tenant_config WHERE tenant_id = v_tenant;
 
@@ -699,14 +701,15 @@ BEGIN
       JOIN public.categorias_terceirizado ct ON ct.id = pt.categoria_terceirizado_id
       WHERE pt.data_enviado IS NOT NULL AND pt.data_entregue IS NOT NULL
     UNION ALL
-    -- [medios R12, P-185 A] o trecho ABERTO (sem proxima entrada) na ultima coluna do quadro nao soma now().
+    -- [medios R12, P-185 A] a ultima coluna do quadro NUNCA conta tempo (trecho aberto ou fechado). O lead() e calculado
+  -- ANTES do filtro: a coluna anterior fecha quando o card ENTRA na ultima. Status fora do quadro atual seguem contando.
     SELECT h.modelo_id, 'kanban:' || h.status,
            (EXTRACT(EPOCH FROM (COALESCE(h.nxt, now()) - h.entrou_at)) / 86400.0)::numeric
       FROM (SELECT h0.modelo_id, h0.status, h0.entrou_at,
                    lead(h0.entrou_at) OVER (PARTITION BY h0.modelo_id ORDER BY h0.entrou_at) AS nxt
               FROM public.modelo_kanban_historico h0
              WHERE h0.tenant_id = v_tenant) h
-      WHERE h.nxt IS NOT NULL OR h.status IS DISTINCT FROM v_ultima
+      WHERE h.status IS DISTINCT FROM v_ultima
   ),
   per_etapa AS (
     SELECT modelo_id, etapa, ROUND(SUM(GREATEST(dias, 0)), 1) AS dias

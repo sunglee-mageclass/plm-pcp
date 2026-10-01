@@ -6,15 +6,15 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
 //   preço M3  custo do dashboard = custo_unitario_modelos (fonte única: revenda/importado pela compra/landed);
 //   prod #2   "Lançado" = modelos.lancado sozinho; comprado lançado sai de Planejamento/Desenvolvimento;
 //   prod #6   aprovadoNaoLancado (coluna "Aprovado" sem os lançados — Blusa Master sai);
-//   prod #7   P-185 A: a última coluna do quadro é o ponto de chegada — o trecho aberto nela não soma now().
+//   prod #7   P-185 A (literal): a última coluna do quadro é o ponto de chegada e NUNCA conta tempo (aberto ou fechado).
 // Tudo em txn revertida (nada grava). Sem fixture o teste FALHA alto (nunca passa vazio).
 
 const MD5_DEPOIS: Record<string, string> = {
   "public._dashboard_custos_core(date,date,text,uuid,uuid)": "177263673f730f333b2870acd59e8859",
   "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "5dbe4d89fcaf1c1b77860cb3a8e132c8",
   "public._dashboard_producao_core(date,date,text,uuid)": "17424a059ae47674e244701f5a0fbfe4",
-  "public._dashboard_leadtime_core()": "aa45c3d1c78deb137a2c52add56fc6dd",
-  "public._dashboard_leadtime_itens_core(uuid,text,text)": "79a96e4ce2f812c1e04c0366e876f352",
+  "public._dashboard_leadtime_core()": "520312bb84b32f35b63f056e93d51c54",
+  "public._dashboard_leadtime_itens_core(uuid,text,text)": "0960481081dc751b6e016b3cdf16c165",
 };
 const MD5_INTOCADA = "d26c7c9afb636f6ed26e66daf76e92ae"; // _custo_unitario_modelos_core
 
@@ -228,27 +228,34 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
     });
   });
 
-  it("prod #7 (P-185 A): o trecho ABERTO na última coluna não soma now(); fechado e outras colunas seguem", async () => {
+  it("prod #7 (P-185 A, literal): a última coluna do quadro NUNCA conta (aberto nem fechado); meio e status fora do quadro seguem", async () => {
     await withTx(async (c) => {
       await naLoja(c, TENANT_TESTE);
-      const ult = await um<{ key: string } | undefined>(
-        c,
-        `select key from public._kanban_status_rows($1) order by ord desc limit 1`,
-        [TENANT_TESTE],
-      );
-      if (!ult) throw new Error("fixture ausente: quadro da Loja Teste");
+      const quadro = (
+        await c.query(`select key, ord from public._kanban_status_rows($1) order by ord`, [
+          TENANT_TESTE,
+        ])
+      ).rows as { key: string; ord: number }[];
+      if (quadro.length < 2) throw new Error("fixture ausente: quadro da Loja Teste");
+      const ult = quadro[quadro.length - 1].key;
       const meio = "em_modelagem";
-      if (ult.key === meio) throw new Error("fixture inesperada: última coluna = em_modelagem");
+      const fora = "r12_status_fora_do_quadro";
+      if (!quadro.some((q) => q.key === meio))
+        throw new Error("fixture ausente: em_modelagem no quadro");
+      if (ult === meio) throw new Error("fixture inesperada: última coluna = em_modelagem");
+      if (quadro.some((q) => q.key === fora))
+        throw new Error("fixture inesperada: status de teste no quadro");
       await c.query(
         `update tenant_config set leadtime = jsonb_build_object('etapas', jsonb_build_array(
            jsonb_build_object('key','kanban:'||$2::text,'tipo','kanban','idealDias',5),
-           jsonb_build_object('key','kanban:'||$3::text,'tipo','kanban','idealDias',5))) where tenant_id = $1`,
-        [TENANT_TESTE, ult.key, meio],
+           jsonb_build_object('key','kanban:'||$3::text,'tipo','kanban','idealDias',5),
+           jsonb_build_object('key','kanban:'||$4::text,'tipo','kanban','idealDias',5))) where tenant_id = $1`,
+        [TENANT_TESTE, ult, meio, fora],
       );
       const etapa = (x: any, k: string) =>
         (x.etapas as any[]).find((e) => e.etapa === "kanban:" + k);
+      const nDe = (x: any, k: string) => Number(etapa(x, k)?.nModelos ?? 0);
       const l0 = await rpc(c, `public._dashboard_leadtime_core()`);
-      const n0 = Number(etapa(l0, ult.key)?.nModelos ?? 0);
       const hist = async (mod: string, passos: [string, number][]) => {
         await c.query(`delete from modelo_kanban_historico where modelo_id = $1`, [mod]);
         for (const [st, diasAtras] of passos) {
@@ -258,33 +265,48 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
           );
         }
       };
-      // M1: em_modelagem há 110d → última coluna há 100d (parado lá: NÃO conta)
+      // M1: meio há 110d → última coluna há 100d e PARADO lá (trecho ABERTO na última: conta 0)
       const m1 = await novoModelo(c, {});
       await hist(m1, [
         [meio, 110],
-        [ult.key, 100],
+        [ult, 100],
       ]);
-      // M2: parado no MEIO há 50d (continua contando até hoje)
+      // M2: parado no MEIO há 50d (trecho aberto fora da última: continua contando até hoje)
       const m2 = await novoModelo(c, {});
       await hist(m2, [[meio, 50]]);
-      // M3: passou pela última coluna e voltou (trecho FECHADO de 10d conta)
+      // M3: passou pela última coluna e VOLTOU (trecho FECHADO de 10d na última: conta 0)
       const m3 = await novoModelo(c, {});
       await hist(m3, [
-        [ult.key, 30],
+        [ult, 30],
         [meio, 20],
       ]);
+      // M4: status ANTIGO fora do quadro atual (fechado 15d + aberto 25d noutro card): segue contando
+      const m4 = await novoModelo(c, {});
+      await hist(m4, [
+        [fora, 60],
+        [meio, 45],
+      ]);
+      const m5 = await novoModelo(c, {});
+      await hist(m5, [[fora, 25]]);
 
       const itens: any[] = (await rpc(c, `public._dashboard_leadtime_itens_core()`)).itens;
       const dur = (id: string) => itens.find((i) => i.modelo_id === id)?.duracoes ?? {};
+      // fechado no MEIO conta (fecha quando o card ENTRA na última)
       expect(Number(dur(m1)["kanban:" + meio])).toBeCloseTo(10, 0);
-      expect(dur(m1)["kanban:" + ult.key]).toBeUndefined(); // antes: ~100 dias até now()
+      expect(dur(m1)["kanban:" + ult]).toBeUndefined(); // antes: ~100 dias até now()
       expect(Number(dur(m2)["kanban:" + meio])).toBeCloseTo(50, 0);
-      expect(Number(dur(m3)["kanban:" + ult.key])).toBeCloseTo(10, 0);
+      expect(dur(m3)["kanban:" + ult]).toBeUndefined(); // antes: 10 dias (fechado)
       expect(Number(dur(m3)["kanban:" + meio])).toBeCloseTo(20, 0);
+      expect(Number(dur(m4)["kanban:" + fora])).toBeCloseTo(15, 0);
+      expect(Number(dur(m4)["kanban:" + meio])).toBeCloseTo(45, 0);
+      expect(Number(dur(m5)["kanban:" + fora])).toBeCloseTo(25, 0);
 
       const l1 = await rpc(c, `public._dashboard_leadtime_core()`);
-      // M1 não entra na última coluna; M3 (fechado) entra → +1, não +2
-      expect(Number(etapa(l1, ult.key)?.nModelos ?? 0)).toBe(n0 + 1);
+      // a última coluna não ganha NENHUM trecho (antes: +2, M1 aberto e M3 fechado)
+      expect(nDe(l1, ult)).toBe(nDe(l0, ult));
+      // o meio ganha 4 trechos (M1 fechado, M2 aberto, M3 aberto, M4 aberto); o fora do quadro ganha 2
+      expect(nDe(l1, meio)).toBe(nDe(l0, meio) + 4);
+      expect(nDe(l1, fora)).toBe(nDe(l0, fora) + 2);
     });
   });
 });
