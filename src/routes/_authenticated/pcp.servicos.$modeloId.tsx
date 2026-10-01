@@ -926,9 +926,17 @@ export function TerceirizadosDetail({
   const moEstado = moResumo?.estado ?? null;
   const moLinhas = moResumo?.linhas ?? [];
 
+  const cqStatusAntesRef = useRef<string | null>(null);
+  const lerStatusCq = async (cadId: string): Promise<string | null> => {
+    const { data, error } = await supabase.from("controle_qualidade").select("status").eq("cad_id", cadId).maybeSingle();
+    return error ? null : ((data as { status?: string | null } | null)?.status ?? "pendente");
+  };
+
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado para este modelo. Abra o CAD primeiro.");
+      // R13: a RPC devolve void — lê o status do CQ ANTES p/ saber, depois, se o save o rebaixou (grade real zerada).
+      cqStatusAntesRef.current = await lerStatusCq(cad.id);
       // RPC transacional com diff-por-id: preserva ids, atualiza/insere/deleta numa
       // transação (a lógica de `interno` fica aqui; o resto é genérico no banco).
       const _blocos = blocos.map((b) => ({
@@ -983,7 +991,11 @@ export function TerceirizadosDetail({
       if (error) throw error;
     },
     onSuccess: async () => {
-      toast.success("Salvo com sucesso");
+      const antes = cqStatusAntesRef.current;
+      cqStatusAntesRef.current = null;
+      const depois = cad?.id && antes === "confirmado" ? await lerStatusCq(cad.id) : null;
+      if (antes === "confirmado" && depois === "pendente") toast.success("O CQ voltou a pendente: a grade real zerou");
+      else toast.success("Salvo com sucesso");
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       setEditing(false); // salvar re-trava ambas as abas que já estão finalizadas
       // Colab: limpa o touched/conflitos. Diferente do piloto (OC Tecido FECHA no save), esta

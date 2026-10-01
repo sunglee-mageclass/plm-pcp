@@ -443,7 +443,7 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar, versaoAnterior }: {
       </div>
       {conflito && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
-          <span className="text-[var(--tone-warning-fg)]">Outra pessoa mudou este campo.</span>
+          <span className="text-[var(--tone-warning-fg)]">Este campo mudou no servidor (outra tela ou pessoa).</span>
           {/* n4 (carry.md, revisão T12a round 2): desabilitado durante o Salvar — o rascunho não pode mudar no meio
               de uma chamada já em voo (mesma classe de risco do R1-1: um clique durante o Salvar pareceria resolver
               o conflito, mas o servidor já recebeu o valor de antes desta decisão). */}
@@ -613,7 +613,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
       </div>
       {conflito && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
-          <span className="text-[var(--tone-warning-fg)]">Outra pessoa mudou este campo.</span>
+          <span className="text-[var(--tone-warning-fg)]">Este campo mudou no servidor (outra tela ou pessoa).</span>
           {/* n4 (carry.md, revisão T12a round 2): desabilitado durante o Salvar (mesma razão do bloco do Título). */}
           <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" disabled={salvando} onClick={() => onAtualizar((x) => manterMeu(x, col))}>
             manter o meu

@@ -54,3 +54,10 @@ export function baselineAposMerge<F, G>(p: {
     grades: p.gradeMexeu ? p.aplicarGrade() : p.gradesAtuais,
   };
 }
+
+/** R14 N6: a decisão de status do servidor é PULADA enquanto há ação local em voo. Se a ação falha com algo que não seja
+ *  conflito de versão (P0409 — esse reconcilia por conta própria), o status remoto que chegou nesse meio-tempo ficou
+ *  sem ser aplicado: precisa reler o CQ para o efeito reaplicá-lo. */
+export function deveReaplicarStatusAposErro(e: unknown): boolean {
+  return (e as { code?: string } | null | undefined)?.code !== "P0409";
+}

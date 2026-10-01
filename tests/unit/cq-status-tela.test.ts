@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
+import { decidirStatusServidor, deveReaplicarStatusAposErro, statusCqDe } from "@/lib/cq-status-tela";
 
 describe("cq-status-tela (R14 M1 / M-A / M-C)", () => {
   it("statusCqDe: sem linha/sem status = pendente", () => {
@@ -60,5 +60,16 @@ describe("baselineAposMerge (R14 N1)", () => {
   });
   it("Pós: o aviso fala em 'CQ Pós'", () => {
     expect(decidirStatusServidor({ atual: "confirmado", fresco: "pendente", temEdicao: false, nome: "CQ Pós" }).aviso).toMatch(/^O CQ Pós voltou para pendente/);
+  });
+});
+
+describe("deveReaplicarStatusAposErro (R14 N6)", () => {
+  it("erro que não é P0409 relê o CQ", () => {
+    expect(deveReaplicarStatusAposErro({ code: "42501" })).toBe(true);
+    expect(deveReaplicarStatusAposErro(new Error("rede"))).toBe(true);
+    expect(deveReaplicarStatusAposErro(null)).toBe(true);
+  });
+  it("P0409 segue pelo reconcile próprio", () => {
+    expect(deveReaplicarStatusAposErro({ code: "P0409" })).toBe(false);
   });
 });

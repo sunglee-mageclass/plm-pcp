@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
 import { supabase } from "@/integrations/supabase/client";
@@ -108,6 +109,14 @@ export const CqPosView = forwardRef<CqPosHandle, {
       if (error) throw error;
       return data;
     },
+  });
+  // N4 (R14): Realtime — outra tela/aba mexendo no CQ (status_pos etc.) relê esta query; o efeito de status/merge reage.
+  useColabRegistro({
+    canal: cadId ? `colab:cqpos:${cadId}` : null,
+    tabela: "controle_qualidade",
+    filtroColuna: "cad_id",
+    registroId: cadId || null,
+    onMudancaServidor: () => { qc.invalidateQueries({ queryKey: ["cqpos-cq", cadId] }); },
   });
   const cqId = (cqRow as any)?.id;
   const { data: posItens = [], isFetched: itensFetched, isFetching: itensFetching, isSuccess: itensOk, isError: itensErrored, refetch: refetchItens } = useQuery({

@@ -48,7 +48,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
-import { baselineAposMerge, decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
+import { baselineAposMerge, decidirStatusServidor, deveReaplicarStatusAposErro, statusCqDe } from "@/lib/cq-status-tela";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -1100,6 +1100,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         toast.error(mensagemErro(e, "Erro ao salvar"));
         return;
       }
+      // N6: erro que não é P0409 — o status remoto chegado durante a ação em voo foi ignorado; relê p/ reaplicar.
+      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       toast.error(mensagemErro(e, "Erro ao salvar"));
     },
   });
@@ -1141,6 +1143,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         toast.error(mensagemErro(e, "Erro ao confirmar"));
         return;
       }
+      // N6: erro que não é P0409 — o status remoto chegado durante a ação em voo foi ignorado; relê p/ reaplicar.
+      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       toast.error(mensagemErro(e, "Erro ao confirmar"));
     },
   });
@@ -1159,7 +1163,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       await invalidateDownstream();
       await refetchCq();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
+    onError: (e: any) => {
+      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] }); // N6
+      toast.error(mensagemErro(e, "Erro ao desmarcar"));
+    },
   });
 
   // "Voltar uma etapa" — do CQ volta UMA etapa (para Serviços): reabre os serviços pré e
@@ -1185,7 +1192,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       // A RPC já desfez o CQ no servidor — fecha SEM pedir confirmação de descarte.
       (onForceClose ?? onClose)?.();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar para Serviços")),
+    onError: (e: any) => {
+      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] }); // N6
+      toast.error(mensagemErro(e, "Erro ao voltar para Serviços"));
+    },
   });
   acaoLocalEmVooRef.current = saveMut.isPending || confirmMut.isPending || desmarcarMut.isPending || voltarMut.isPending; // N2/N5
 
