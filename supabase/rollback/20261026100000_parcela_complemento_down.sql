@@ -24,10 +24,10 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._recalcular_parcelas_core(uuid,text)', '3dcb59e6958c89d2d06901c50af390d7'),
-      ('public.gerar_parcelas_oc_p_acabado()', '99865f2335e0d2392a5bd42231c22dfd'),
+      ('public.gerar_parcelas_oc_p_acabado()', 'bb1519aaaa70259aaa222be67045377b'),
       ('public.recalcular_parcelas_etiqueta(uuid)', '2127d43b976ab54a4490abae27fd4fd8'),
       ('public.parcela_voltar_vencimento_automatico(uuid)', '05f05e87411e9dcb6be9aeee9602cf70'),
-      ('public._servico_parcelas_valores(uuid)', '913a2d324244a6a0b4bacb8fa94cb049'),
+      ('public._servico_parcelas_valores(uuid)', '4143576f8b6261550771d1fb9513c66f'),
       ('public.servicos_financeiro()', 'a06f4cc32646cc41ed249d91a68dcd51'),
       ('public.parcela_servico_voltar_vencimento_automatico(uuid)', '9ea5069e414c736bf3dc02c22405cbeb'),
       ('public.fn_servico_parcela_valor_pago()', 'de9914b310477de1331f076a874696f1'),

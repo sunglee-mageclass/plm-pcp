@@ -58,7 +58,7 @@ describe.skipIf(!RODA)("medios R10 fin #9 — prazo da OC P. Acabado com o parse
       );
       expect(r).toEqual({
         // R16 RA1 (20261026100000, P-187 A) trocou os 2 textos de novo (parcela complemento): 4b90865a/ef80c3c8 → abaixo
-        g: "99865f2335e0d2392a5bd42231c22dfd",
+        g: "bb1519aaaa70259aaa222be67045377b",
         v: "05f05e87411e9dcb6be9aeee9602cf70",
         va: false,
         vu: true,

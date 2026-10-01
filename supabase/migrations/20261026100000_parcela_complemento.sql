@@ -22,6 +22,13 @@
 --     _servico_parcelas_valores      fonte unica do valor das parcelas de servico: devolve a linha do complemento
 --     servicos_financeiro            cria/apaga o complemento pela fonte unica + filtro de visibilidade (nao paga acima de
 --                                    n_eff aparece SO quando e o complemento pedido)
+--   Fix round 1 (G-MIGRATION): [M1] o saldo do complemento de SERVICO e arredondado a centavos (round(liquido - pago, 2),
+--   como o valor_pago congelado): saldo < meio centavo (multa/desconto com 3+ casas) nao gera parcela de R$ 0,00 em
+--   cadeia. Lado OC ja arredonda pelo tipo (v_restante numeric(12,2)/(14,2)). [L1] gerar_parcelas_oc_p_acabado toma a
+--   MESMA trava consultiva do _recalcular_parcelas_core (pg_advisory_xact_lock(hashtext(id da OC))) no inicio: save da
+--   OC x "Recalcular parcelas" da mesma OC ficam em fila (sem 2 complementos em aberto). Ordem de travas: o save ja
+--   segura a linha de ocs_p_acabado e entao pede a consultiva; o core pede so a consultiva e mexe em parcelas (nao
+--   trava ocs_p_acabado) -> sem ciclo.
 --   Fora: OC de produto IMPORTADO (_gerar_parcelas_importado: parcelas nascem das ETAPAS, nao do prazo) - intocada.
 -- As funcoes so agem no proximo recalculo/save/leitura: nada gravado muda na ida. Passo 0 de producao (01/out 11:06):
 -- OCs com saldo e tudo pago = 0; blocos de servico com saldo e tudo pago = 0 (copia: 0 e 0).
@@ -34,14 +41,14 @@
 --     DEPOIS 3dcb59e6958c89d2d06901c50af390d7  (este arquivo; reaplicar = no-op)
 --   public._servico_parcelas_valores(uuid)
 --     ANTES  3fa1069d5eff17633c0d31b8ba392225  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS 913a2d324244a6a0b4bacb8fa94cb049  (este arquivo; reaplicar = no-op)
+--     DEPOIS 4143576f8b6261550771d1fb9513c66f  (este arquivo; reaplicar = no-op)
 --   public.servicos_financeiro()
 --     ANTES  da903333e753e75c8a6e033226b0a78c  -- PROVISORIO: = DEPOIS da R10 20261020110000 (no ar no 9o deploy, 01/out);
 --                                                 o Passo 0 dos MEDIOS leu daec320c (antes da R10). Conferir no kit combinado.
 --     DEPOIS a06f4cc32646cc41ed249d91a68dcd51  (este arquivo; reaplicar = no-op)
 --   public.gerar_parcelas_oc_p_acabado()
 --     ANTES  4b90865ad77d4f68a71c41959a283d62  -- PROVISORIO: = DEPOIS da R10 20261020120000 (9o deploy); Passo 0 leu 2229a974
---     DEPOIS 99865f2335e0d2392a5bd42231c22dfd  (este arquivo; reaplicar = no-op)
+--     DEPOIS bb1519aaaa70259aaa222be67045377b  (este arquivo; reaplicar = no-op)
 --   public.recalcular_parcelas_etiqueta(uuid)
 --     ANTES  cf86f487ca3d643f625087a55395ef73  -- PROVISORIO: copia 54422 (= Passo 0 de 30/set, guarda 'dep' da 20261019200000)
 --     DEPOIS 2127d43b976ab54a4490abae27fd4fd8  (este arquivo; reaplicar = no-op)
@@ -87,13 +94,13 @@ INSERT INTO _r16a_md5_aceitos VALUES
   ('public._recalcular_parcelas_core(uuid,text)', '1b03dbd69233d761fd150ab45722b7f6', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public._recalcular_parcelas_core(uuid,text)', '3dcb59e6958c89d2d06901c50af390d7', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public.gerar_parcelas_oc_p_acabado()', '4b90865ad77d4f68a71c41959a283d62', 'antes'),  -- PROVISORIO: DEPOIS da R10 20261020120000 (9o deploy); conferir no kit combinado
-  ('public.gerar_parcelas_oc_p_acabado()', '99865f2335e0d2392a5bd42231c22dfd', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public.gerar_parcelas_oc_p_acabado()', 'bb1519aaaa70259aaa222be67045377b', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public.recalcular_parcelas_etiqueta(uuid)', 'cf86f487ca3d643f625087a55395ef73', 'antes'),  -- PROVISORIO (copia 54422 = Passo 0 de 30/set): conferir no kit combinado
   ('public.recalcular_parcelas_etiqueta(uuid)', '2127d43b976ab54a4490abae27fd4fd8', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public.parcela_voltar_vencimento_automatico(uuid)', 'ef80c3c810c22bb32d04d818ebbc6e9c', 'antes'),  -- PROVISORIO: DEPOIS da R10 20261020120000 (9o deploy); conferir no kit combinado
   ('public.parcela_voltar_vencimento_automatico(uuid)', '05f05e87411e9dcb6be9aeee9602cf70', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public._servico_parcelas_valores(uuid)', '3fa1069d5eff17633c0d31b8ba392225', 'antes'),  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public._servico_parcelas_valores(uuid)', '913a2d324244a6a0b4bacb8fa94cb049', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public._servico_parcelas_valores(uuid)', '4143576f8b6261550771d1fb9513c66f', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public.servicos_financeiro()', 'da903333e753e75c8a6e033226b0a78c', 'antes'),  -- PROVISORIO: DEPOIS da R10 20261020110000 (9o deploy); conferir no kit combinado
   ('public.servicos_financeiro()', 'a06f4cc32646cc41ed249d91a68dcd51', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public.parcela_servico_voltar_vencimento_automatico(uuid)', '4d6681d10b3e0cf3a4ea57abd3b2ac4d', 'antes'),  -- PROVISORIO: DEPOIS da R10 20261020110000 (9o deploy); conferir no kit combinado
@@ -321,6 +328,9 @@ declare
   v_num_comp integer;
   i integer;
 begin
+  -- [medios R16 fix round 1, L1] mesma trava consultiva de _recalcular_parcelas_core (hashtext(id da OC)): o save da OC e o
+  -- "Recalcular parcelas" da mesma OC nao rodam juntos (senao 2 complementos em aberto, n+1 e n+2).
+  perform pg_advisory_xact_lock(hashtext(NEW.id::text));
   -- [medios R10 fin #9] parser UNICO de prazo (o mesmo das outras OCs e de servicos_financeiro): separa por qualquer
   -- caractere nao numerico ('30/60', '30, 60', '30-60', '30 60'); antes so por '/' (e ' 60' caia fora).
   v_dias := array(
@@ -649,7 +659,8 @@ BEGIN
 
   SELECT count(*) INTO v_k FROM generate_series(1, v_neff) g(n) WHERE NOT (g.n = ANY (v_pagos));
   IF v_k = 0 THEN
-    v_saldo := v_liq - v_pago;
+    -- [R16 fix round 1, M1] em centavos (como o valor_pago congelado): saldo < meio centavo nao gera complemento
+    v_saldo := round(v_liq - v_pago, 2);
     IF v_saldo > 0 THEN
       numero_parcela := GREATEST(v_neff, COALESCE((SELECT max(x) FROM unnest(v_pagos) x), 0)) + 1;
       valor := v_saldo;

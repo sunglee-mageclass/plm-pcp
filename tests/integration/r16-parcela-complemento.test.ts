@@ -3,17 +3,17 @@
 // Migration 20261026100000_parcela_complemento. Integração em BEGIN…ROLLBACK (withTx): nada é gravado. Só na cópia
 // local (as fixtures criam OCs/blocos pelas RPCs de sempre). Sem fixture o teste FALHA alto.
 import { describe, it, expect } from "vitest";
-import type { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { Client } from "pg";
+import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal, dbUrl } from "./db";
 
 const RODA = hasDb && ehBancoLocal();
 
 const MD5_DEPOIS: Record<string, string> = {
   "public._recalcular_parcelas_core(uuid,text)": "3dcb59e6958c89d2d06901c50af390d7",
-  "public.gerar_parcelas_oc_p_acabado()": "99865f2335e0d2392a5bd42231c22dfd",
+  "public.gerar_parcelas_oc_p_acabado()": "bb1519aaaa70259aaa222be67045377b",
   "public.recalcular_parcelas_etiqueta(uuid)": "2127d43b976ab54a4490abae27fd4fd8",
   "public.parcela_voltar_vencimento_automatico(uuid)": "05f05e87411e9dcb6be9aeee9602cf70",
-  "public._servico_parcelas_valores(uuid)": "913a2d324244a6a0b4bacb8fa94cb049",
+  "public._servico_parcelas_valores(uuid)": "4143576f8b6261550771d1fb9513c66f",
   "public.servicos_financeiro()": "a06f4cc32646cc41ed249d91a68dcd51",
   "public.parcela_servico_voltar_vencimento_automatico(uuid)": "9ea5069e414c736bf3dc02c22405cbeb",
 };
@@ -431,6 +431,55 @@ describe.skipIf(!RODA)("R16 RA1 — parcela complemento (P-187 A)", () => {
       ls = await tela(c, pt);
       expect(ls.map((l) => l.n)).toEqual([1, 2]);
       expect((await parcelasS(c, pt)).map((p) => p.n)).toEqual([1, 2]);
+    });
+  });
+
+  it("SERVIÇO [fix round 1, M1]: multa de 0,004 com tudo pago NÃO cria complemento (saldo em centavos); 0,005 cria 0,01", async () => {
+    await withTx(async (c) => {
+      const pt = await bloco(c, "30/60");
+      await tela(c, pt);
+      await pagarS(c, pt, 1);
+      await pagarS(c, pt, 2);
+      await multa(c, pt, 0.004);
+      expect((await tela(c, pt)).map((l) => l.n)).toEqual([1, 2]);
+      expect((await parcelasS(c, pt)).map((p) => p.n)).toEqual([1, 2]);
+      await multa(c, pt, 0.005);
+      const ls = await tela(c, pt);
+      expect(ls.map((l) => [l.n, l.valor])).toEqual([
+        [1, 50],
+        [2, 50],
+        [3, 0.01],
+      ]);
+    });
+  });
+
+  it("P. ACABADO [fix round 1, L1]: o gatilho do save toma a MESMA trava consultiva do _recalcular_parcelas_core (hashtext(id da OC))", async () => {
+    // T1 (withTx) segura pg_advisory_xact_lock(hashtext(oc)); T2 (outra conexão) salva a MESMA OC → espera a trava
+    // (lock_timeout 300ms → 55P03). OC existente da Loja Teste; as duas transações são revertidas.
+    await withTx(async (c) => {
+      const oc = await um<{ id: string } | undefined>(
+        c,
+        `select id from ocs_p_acabado where tenant_id = $1 order by id limit 1`,
+        [TENANT_TESTE],
+      );
+      if (!oc) throw new Error("fixture ausente: OC de produto acabado na Loja Teste");
+      await c.query(`select pg_advisory_xact_lock(hashtext($1::text))`, [oc.id]);
+      const src = (await um<{ d: string }>(c, `select pg_get_functiondef('public.gerar_parcelas_oc_p_acabado()'::regprocedure) d`)).d;
+      expect(src).toMatch(/perform pg_advisory_xact_lock\(hashtext\(NEW\.id::text\)\);/);
+      const core = (await um<{ d: string }>(c, `select pg_get_functiondef('public._recalcular_parcelas_core(uuid,text)'::regprocedure) d`)).d;
+      expect(core).toMatch(/PERFORM pg_advisory_xact_lock\(hashtext\(_oc_id::text\)\);/);
+      const c2 = new Client({ connectionString: dbUrl()! });
+      await c2.connect();
+      try {
+        await c2.query("BEGIN");
+        await c2.query("SET LOCAL lock_timeout = '300ms'");
+        await expect(
+          c2.query(`update ocs_p_acabado set valor_total_desconto = valor_total_desconto where id = $1`, [oc.id]),
+        ).rejects.toMatchObject({ code: "55P03" });
+      } finally {
+        await c2.query("ROLLBACK").catch(() => {});
+        await c2.end();
+      }
     });
   });
 

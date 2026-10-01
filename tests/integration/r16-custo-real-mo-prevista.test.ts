@@ -12,7 +12,7 @@ import { recomputeEtiqueta, type EtiquetaInfo } from "@/components/desenvolvimen
 
 const RODA = hasDb && ehBancoLocal();
 const SIG = "public._custo_unitario_modelos_core(uuid[])";
-const MD5_DEPOIS = "49300957b8a81048211a0930dd0c04c7";
+const MD5_DEPOIS = "d41277224a6a74192e2b50a12740ea9a";
 
 type Custo = {
   previsto: number;
@@ -108,7 +108,7 @@ describe.skipIf(!RODA)("R16 preço M7 — custo real com M.O. por serviço (P-18
     });
   });
 
-  it("Loja Teste (Passo 0: os 5 cortados): VESTAL 86,23 → 146,23 (CAD + M.O. prevista 60); Blusa do Teste 1 12,37 → 22,37", async () => {
+  it("Loja Teste (Passo 0: os 5 cortados): VESTAL 86,23 → 146,23 (CAD + M.O. prevista 60); Blusa do Teste 1 = Corte previsto + PL lançado ÷ grade", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const ids = {
@@ -128,9 +128,24 @@ describe.skipIf(!RODA)("R16 preço M7 — custo real com M.O. por serviço (P-18
       expect(cu[ids.vestal].mao_obra_real).toBeCloseTo(60, 6);
       expect(cu[ids.vestal].real! - cu[ids.vestal].mao_obra_real).toBeCloseTo(86.23, 6);
       expect(cu[ids.vestal].previsto).toBeCloseTo(134.98, 6); // previsto (materiais do BOM 74,98 + 60) intocado
-      // Blusa do Teste 1: Corte 10 sem bloco → prevista; PL lançado 9 (sem linha) substitui o "Geral" 9
-      expect(cu[ids.blusaTeste1].mao_obra_real).toBeCloseTo(19, 6);
-      expect(cu[ids.blusaTeste1].real).toBeCloseTo(22.37, 6);
+      // Blusa do Teste 1: Corte sem bloco → a prevista da linha Corte; PL lançado (sem linha própria) substitui o "Geral".
+      // [fix round 1, L2] âncoras AO VIVO (a grade real desse cad mudou na cópia compartilhada: 192 → 208)
+      const bt1 = await um<{ lanc: string; corte: string; geral: string }>(
+        c,
+        `select (select coalesce(sum(coalesce(pt.preco_metro_unidade,0)*coalesce(pt.quantidade_enviada,0)
+                                     - coalesce(pt.desconto_total,0) + coalesce(pt.multa_total,0)),0)
+                   from producao_terceirizados pt where pt.cad_id = c.id and not coalesce(pt.interno,false))
+                / nullif((select sum(coalesce(g.grade_total_real, g.grade_total_planejada, 0)) from cad_grades g
+                           where g.cad_id = c.id), 0) lanc,
+                (select sum(s.valor) from modelo_servico_mo s join categorias_terceirizado ct on ct.id = s.categoria_terceirizado_id
+                  where s.modelo_id = c.modelo_id and ct.nome = 'Corte') corte,
+                (select sum(s.valor) from modelo_servico_mo s where s.modelo_id = c.modelo_id and s.categoria_terceirizado_id is null) geral
+           from cad c where c.modelo_id = $1 and c.enviado_corte`,
+        [ids.blusaTeste1],
+      );
+      expect(Number(bt1.corte)).toBeGreaterThan(0);
+      expect(Number(bt1.geral)).toBeGreaterThan(0); // o "Geral" existe e NÃO entra (substituído pelo PL lançado)
+      expect(cu[ids.blusaTeste1].mao_obra_real).toBeCloseTo(Number(bt1.lanc) + Number(bt1.corte), 6);
       // sem mudança: os lançados cobrem tudo → M.O. = só o lançado ÷ grade (a conta de antes; grade lida ao vivo)
       for (const id of [ids.blusaTeste, ids.blusaTesteB, ids.blusaMaster]) {
         const l = await um<{ v: string }>(
@@ -185,13 +200,45 @@ describe.skipIf(!RODA)("R16 preço M7 — custo real com M.O. por serviço (P-18
     });
   });
 
-  it("bloco externo lançado com valor 0 ainda é 'o lançado' do serviço (existe o bloco); grade 0 → lançado 0/peça", async () => {
+  // [fix round 1, M2 — P-186 A "o valor lançado quando ele existe"] bloco externo VAZIO (0 × 0) ainda não lançou:
+  // vale a prevista daquele serviço (e o "Geral" não sai); só bloco com valor > 0 é "o lançado".
+  it("bloco externo VAZIO (0 × 0) não conta como lançado: segue a prevista do serviço e o 'Geral'", async () => {
     await withTx(async (c) => {
       const f = await cortado(c);
       const corte = await f.cat("Corte");
+      const bordado = await f.cat("Bordado");
       await linhaMo(c, f.modelo, corte, 5);
+      await linhaMo(c, f.modelo, null, 2);
       await blocoPt(c, f.cad, corte, { preco: 0, qtd: 0 });
-      expect((await custo(c, f.modelo)).mao_obra_real).toBeCloseTo(0, 6);
+      await blocoPt(c, f.cad, bordado, { preco: 0, qtd: 0 });
+      expect((await custo(c, f.modelo)).mao_obra_real).toBeCloseTo(5 + 2, 6);
+      // lançou o Corte (3 × 10 / 10 peças = 3): troca a prevista 5; o Bordado vazio segue não tirando o "Geral"
+      await c.query(
+        `update producao_terceirizados set preco_metro_unidade = 3, quantidade_enviada = 10
+          where cad_id = $1 and categoria_terceirizado_id = $2`,
+        [f.cad, corte],
+      );
+      expect((await custo(c, f.modelo)).mao_obra_real).toBeCloseTo(3 + 2, 6);
+    });
+  });
+
+  it("VESTAL com um bloco externo vazio continua 146,23 (antes do fix round 1 caía a 86,23)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const vestal = "1494e80b-554f-44c5-b848-6234e081e41f";
+      const antes = await custo(c, vestal);
+      if (!antes) throw new Error("fixture ausente: VESTAL 1494e80b (Loja Teste)");
+      expect(antes.real).toBeCloseTo(146.23, 6);
+      const cad = await um<{ id: string }>(c, `select id from cad where modelo_id = $1 and enviado_corte`, [vestal]);
+      const cat = await um<{ id: string }>(
+        c,
+        `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Bordado R16-M2','ate_costura') returning id`,
+        [TENANT_TESTE],
+      );
+      await blocoPt(c, cad.id, cat.id, { preco: 0, qtd: 0 });
+      const depois = await custo(c, vestal);
+      expect(depois.real).toBeCloseTo(146.23, 6);
+      expect(depois.mao_obra_real).toBeCloseTo(60, 6);
     });
   });
 
