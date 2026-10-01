@@ -2235,7 +2235,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
                   </div>
                 </aside>
               )}
@@ -2248,7 +2248,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">

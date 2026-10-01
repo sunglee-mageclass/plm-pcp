@@ -300,8 +300,29 @@ describe("P-213 A / P-212 A — reprovado só no Planejamento; Poder de venda e 
     // fonte: Pendências e o laço do Poder de venda leem `enc` (vagas que contam), não `slots`
     const resumo = ler("src/components/plan-tecido/ResumoPanel.tsx");
     expect(resumo).toContain("const enc = slots.filter((s) => slotContaNaDemanda(s, reprovadoSet));");
-    expect(resumo).toContain("pendenciasResumo(enc, (aid) => fornecSet.has(aid))");
-    expect(resumo).toMatch(/for \(const slot of enc\) \{ \/\/ P-212 A/);
-    expect(resumo).toContain("{nComFornec} de {enc.length} modelos com fornecedor");
+    const sheet = ler("src/components/plan-tecido/PlanTecidoSheet.tsx");
+    expect((sheet.match(/reprovadoStatusSet=\{reprovadoStatusSet\}/g) ?? []).length).toBe(2); // Resumo desktop + mobile
+    expect(resumo).toContain("const venda = slots.filter((s) => slotContaNaDemanda(s, reprovadoStatusSet));");
+    expect(resumo).toContain("pendenciasResumo(venda, (aid) => fornecSet.has(aid))");
+    expect(resumo).toMatch(/for \(const slot of venda\) \{ \/\/ P-212 A/);
+    expect(resumo).toContain("{nComFornec} de {venda.length} modelos com fornecedor");
+  });
+});
+
+describe("R15b fix round 2 — P-212 A: reprovado CORTADO fica na Demanda, mas sai do Poder de venda e das Pendências", () => {
+  it("cortado: conta no tecido (M2), não conta na venda (ehReprovado)", () => {
+    const m = { id: "m-aurelia", dev: "reprovado", plan: "planejado", cortado: true };
+    const saiDaDemanda = new Set([m].filter((x) => reprovadoSaiDaDemanda(x.dev, x.plan, x.cortado)).map((x) => x.id));
+    const saiDaVenda = new Set([m].filter((x) => ehReprovado(x.dev, x.plan)).map((x) => x.id));
+    expect(saiDaDemanda.size).toBe(0);
+    expect([...saiDaVenda]).toEqual(["m-aurelia"]);
+    // Demanda: a AURELIA cortada continua na OC (176,96 × 2 + 60 do ativo)
+    const det = detalheOcColecao(ARV, SITUACAO, VINC_MAP, SLOT_OC, new Set(), { ...OPTS, reprovados: saiDaDemanda });
+    expect(det.reservPorOc.get("oc2509")).toBeCloseTo(353.92 + 60, 6);
+    // Poder de venda / Pendências: a vaga dela sai (mesmo filtro do Resumo: slotContaNaDemanda(s, reprovadoStatusSet))
+    const slots = ARV.subcolecoes[0].linhas[0].slots;
+    const venda = slots.filter((s) => slotContaNaDemanda(s, saiDaVenda));
+    expect(venda.map((s) => s.id)).toEqual(["s-ativo", "s-vaga"]);
+    expect(pendenciasResumo(venda, () => false)).toEqual({ semCategoria: 2, semTecFornec: 2, semCard: 1 });
   });
 });
