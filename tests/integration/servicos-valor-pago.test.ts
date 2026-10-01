@@ -5,7 +5,9 @@ import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 
 const RODA = hasDb && ehBancoLocal();
-const MD5_SF = "daec320c497c283929b33b55303aba89";
+// texto de servicos_financeiro depois da R10 fin #6 (20261020110000; era daec320c… na 20261019210000) — o valor das
+// parcelas (este arquivo) não mudou; só o UPDATE do vencimento no loop (servicos-vencimento-manual.test.ts).
+const MD5_SF = "da903333e753e75c8a6e033226b0a78c";
 // chaves de cada linha da saída de servicos_financeiro() — o formato NÃO muda (HomeLogado, Calendário e Lista)
 const CHAVES = [
   "custo_bruto",
