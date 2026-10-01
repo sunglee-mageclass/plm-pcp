@@ -83,15 +83,42 @@ export function dedupVariantes(vs: PtVariante[]): PtVariante[] {
 // ─── P-198 A (dono 01/out, R15b): card REPROVADO fora da necessidade/Demanda ─────────────────────────────
 // Card cujo `modelos.status_desenvolvimento` é `reprovado` continua VISÍVEL na vaga (selo "Reprovado"), mas
 // NÃO conta na necessidade da coleção nem na Demanda/Sobra das OCs; saindo de Reprovado volta a contar (calculado
-// na hora, nada é gravado). ESPELHO do servidor (anti-drift): `_plan_tecido_nec_variante_core` (→ prévia/"A
-// comprar"/Fazer pedido/Modo Plano) e o `comprometida_m` de `_plan_tecido_situacao_ocs_core`
-// (migration 20261025400000) usam o MESMO predicado do `_estoque_tecido_core`:
-// `lower(coalesce(status_desenvolvimento,'')) <> 'reprovado'`. Vaga SEM card sempre conta.
+// na hora, nada é gravado). EXCEÇÃO (fix round 1, M2): reprovado JÁ ENVIADO AO CORTE (`cad.enviado_corte`) continua
+// contando — o consumo dele é físico e real (mesma régua da reserva do `_estoque_tecido_core`). ESPELHO do servidor
+// (anti-drift): `_plan_tecido_nec_variante_core` (→ prévia/"A comprar"/Fazer pedido/Modo Plano), o `comprometida_m`
+// de `_plan_tecido_situacao_ocs_core` e o `oc_link` da prévia (migration 20261025400000) usam o MESMO predicado:
+// `NOT ((lower(coalesce(status_desenvolvimento,'')) = 'reprovado' OR lower(coalesce(status_planejamento,'')) = 'reprovado')
+//   AND NOT EXISTS (cad com enviado_corte))`. Reprovado = no Dev OU no Planejamento (P-213 A, a mesma regra da Integração).
+// Vaga SEM card sempre conta. No Resumo, o card que sai também sai do Poder de venda e das Pendências (P-212 A).
 
-/** Mesmo predicado do servidor: `lower(coalesce(status,'')) = 'reprovado'`. */
-export const ehReprovado = (status: string | null | undefined): boolean => (status ?? "").toLowerCase() === "reprovado";
+/** Mesmo predicado do servidor (é o que acende o selo): `lower(coalesce(status_desenvolvimento,'')) = 'reprovado' OR
+ *  lower(coalesce(status_planejamento,'')) = 'reprovado'` (P-213 A). */
+export const ehReprovado = (statusDesenvolvimento: string | null | undefined, statusPlanejamento?: string | null): boolean =>
+  (statusDesenvolvimento ?? "").toLowerCase() === "reprovado" || (statusPlanejamento ?? "").toLowerCase() === "reprovado";
 
-/** A vaga entra na necessidade/Demanda? Só sai a que tem card REPROVADO (`reprovados` = modelo_ids). */
+/** O card SAI da necessidade/Demanda? Reprovado (Dev OU Planejamento) e AINDA NÃO enviado ao corte (o cortado já
+ *  consumiu de verdade). */
+export const reprovadoSaiDaDemanda = (
+  statusDesenvolvimento: string | null | undefined,
+  statusPlanejamento: string | null | undefined,
+  enviadoCorte: boolean | null | undefined,
+): boolean => ehReprovado(statusDesenvolvimento, statusPlanejamento) && !enviadoCorte;
+
+/** Pendências do Resumo (P-212 A: o chamador passa só as vagas que contam — sem o card reprovado). */
+export function pendenciasResumo(
+  slots: readonly PtSlot[],
+  comFornecedor: (artigoId: string) => boolean,
+): { semCategoria: number; semTecFornec: number; semCard: number } {
+  const firstTec = (s: PtSlot) => s.materiais.find((m) => m.tipo === "tecido");
+  return {
+    semCategoria: slots.filter((s) => !s.categoria_tecido_id).length,
+    semTecFornec: slots.filter((s) => { const t = firstTec(s); return !t?.artigo_id || !comFornecedor(t.artigo_id); }).length,
+    semCard: slots.filter((s) => !s.modelo_id).length,
+  };
+}
+
+/** A vaga entra na necessidade/Demanda? Só sai a vaga cujo card está em `reprovados` = modelo_ids para os quais
+ *  `reprovadoSaiDaDemanda` é verdadeiro (reprovado ainda não cortado). */
 export const slotContaNaDemanda = (slot: PtSlot, reprovados?: ReadonlySet<string>): boolean =>
   !slot.modelo_id || !reprovados?.has(slot.modelo_id);
 

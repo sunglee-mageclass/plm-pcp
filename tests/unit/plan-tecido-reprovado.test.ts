@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  ehReprovado, slotContaNaDemanda, arvoreDaDemanda, necessidadePorTecido, necVivoPorVariante, detalheOc, detalheOcColecao,
+  ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, pendenciasResumo, arvoreDaDemanda, necessidadePorTecido, necVivoPorVariante, detalheOc, detalheOcColecao,
   ocItensDaSituacao, resumoOcsColecao, contabilizarOc, sobraOc, aComprarVivoPorArtigo, type VinculoDetalhe, type CoberturaVarRow,
 } from "@/lib/plan-tecido/calc";
 import { agruparPorOc, type SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -68,6 +68,11 @@ describe("P-198 A — card reprovado fora da necessidade/Demanda (calc.ts)", () 
     expect(ehReprovado(undefined)).toBe(false);
     expect(ehReprovado("")).toBe(false);
     expect(ehReprovado("aprovado")).toBe(false);
+    // P-213 A: reprovado no Planejamento também conta (mesma regra da Integração)
+    expect(ehReprovado(null, "reprovado")).toBe(true);
+    expect(ehReprovado("aprovado", "Reprovado")).toBe(true);
+    expect(ehReprovado("aprovado", "aprovado")).toBe(false);
+    expect(ehReprovado(null, null)).toBe(false);
   });
 
   it("vaga sem card sempre conta; card reprovado não; sem reprovados = a MESMA árvore", () => {
@@ -172,11 +177,18 @@ describe("P-189 A (est #12) — Paleta = Situação por OC (mesma lista, mesmos 
 });
 
 describe("R15b — fonte única (anti-drift de código)", () => {
-  it("migration: o MESMO predicado do _estoque_tecido_core na necessidade e no comprometido da Situação", () => {
+  it("migration: o MESMO predicado (reprovado E não cortado sai) na necessidade, no comprometido e no oc_link da prévia", () => {
     const up = ler("supabase/migrations/20261025400000_plan_tecido_reprovado.sql");
+    const pred = (a: string) =>
+      new RegExp(`not \\(\\(lower\\(coalesce\\(${a}\\.status_desenvolvimento,''\\)\\) = 'reprovado' or lower\\(coalesce\\(${a}\\.status_planejamento,''\\)\\) = 'reprovado'\\)\\s+and not exists \\(select 1 from cad cc where cc\\.modelo_id = ${a}\\.id and cc\\.enviado_corte\\)\\)`, "g");
     expect(up).toContain("left join modelos mo on mo.id = sl.modelo_id");
-    expect(up).toContain("and lower(coalesce(mo.status_desenvolvimento,'')) <> 'reprovado'");
-    expect(up).toContain("and lower(coalesce(m.status_desenvolvimento,'')) <> 'reprovado'");
+    expect(up.match(pred("mo"))?.length).toBe(1); // necessidade
+    expect(up.match(pred("m"))?.length).toBe(2); // comprometida_m + vínculo do Dev no oc_link
+    expect(up.match(pred("hm"))?.length).toBe(1); // hint de vaga no oc_link
+    // espelho TS: mesma regra (status reprovado E sem cad.enviado_corte)
+    const calc = ler("src/lib/plan-tecido/calc.ts");
+    expect(calc).toContain("ehReprovado(statusDesenvolvimento, statusPlanejamento) && !enviadoCorte");
+    expect(calc).toContain(`(statusDesenvolvimento ?? "").toLowerCase() === "reprovado" || (statusPlanejamento ?? "").toLowerCase() === "reprovado"`);
   });
 
   it("Resumo e Drawer usam a árvore sem reprovados + detalheOcColecao; a Paleta não chama mais a RPC de 2 fontes", () => {
@@ -193,7 +205,103 @@ describe("R15b — fonte única (anti-drift de código)", () => {
     expect(paleta).toContain("linhasOcsPaleta");
     const sheet = ler("src/components/plan-tecido/PlanTecidoSheet.tsx");
     expect(sheet).toContain("status_desenvolvimento");
-    expect(sheet).toContain("ehReprovado(m.status_desenvolvimento)");
+    expect(sheet).toContain("reprovadoSaiDaDemanda(m.status_desenvolvimento, m.status_planejamento, m.cad?.[0]?.enviado_corte)");
+    expect(sheet).toContain("status_desenvolvimento, status_planejamento,");
+    expect(sheet).toContain("cad(enviado_corte, cad_tecidos(");
     expect((sheet.match(/reprovadoSet=\{reprovadoSet\}/g) ?? []).length).toBe(4); // Resumo ×2 + Drawer ×2
+  });
+});
+
+describe("R15b fix round 1 — M2 (reprovado já cortado continua) e L1 (transbordo de capacidade)", () => {
+  it("reprovadoSaiDaDemanda: só o reprovado AINDA NÃO enviado ao corte sai", () => {
+    expect(reprovadoSaiDaDemanda("reprovado", null, false)).toBe(true);
+    expect(reprovadoSaiDaDemanda("Reprovado", null, null)).toBe(true);
+    expect(reprovadoSaiDaDemanda("reprovado", undefined, undefined)).toBe(true);
+    expect(reprovadoSaiDaDemanda("reprovado", null, true)).toBe(false);
+    expect(reprovadoSaiDaDemanda("aprovado", "aprovado", false)).toBe(false);
+    expect(reprovadoSaiDaDemanda(null, null, true)).toBe(false);
+    // P-213 A: só no Planejamento também sai; cortado continua (M2)
+    expect(reprovadoSaiDaDemanda("aprovado", "reprovado", false)).toBe(true);
+    expect(reprovadoSaiDaDemanda(null, "reprovado", true)).toBe(false);
+  });
+
+  it("M2: reprovado cortado 100 m + ativo enviado 50 m na mesma OC → Demanda 150 (não 100)", () => {
+    const R: PtSlot = { id: "s-r", modelo_id: "m-r", materiais: [mat("A", 1, [["v1", 100]])] };
+    const A: PtSlot = { id: "s-a", modelo_id: "m-a", materiais: [mat("A", 1, [["v1", 50]])] };
+    const arv = arvDe([R, A]);
+    const sitX: SituacaoOcRow[] = [sit({ oc_tecido_id: "ocX", numero: "X", status: "recebido", artigo_id: "A", variante_tecido_id: "v1", pedida_m: 500, entregue_m: 500, usada_m: 100 })];
+    const vincs = ["m-r", "m-a"].map((m, i) => vin({ modelo_id: m, oc_tecido_id: "ocX", oc_tecido_item_id: "iX", variante_tecido_id: "v1", artigo_id: "A", prioridade: 1, ordem: i + 1 }));
+    const status = [
+      { id: "m-r", st: "reprovado", cortado: true },
+      { id: "m-a", st: "aprovado", cortado: false },
+    ];
+    const reprovados = new Set(status.filter((m) => reprovadoSaiDaDemanda(m.st, null, m.cortado)).map((m) => m.id));
+    expect(reprovados.size).toBe(0); // o cortado NÃO sai
+    const det = detalheOcColecao(arv, sitX, { "m-r": ["ocX"], "m-a": ["ocX"] }, {}, new Set(["m-r", "m-a"]), { vinculos: vincs, capacidade: capacidade(sitX), reprovados });
+    const [linha] = resumoOcsColecao(agruparPorOc(sitX), sitX, det);
+    expect(linha.demanda).toBeCloseTo(150, 6);
+    expect(linha.sobra).toBeCloseTo(350, 6);
+    // contraprova (régua da rodada 0, que tirava QUALQUER reprovado): a Demanda caía para 100 e a Sobra subia 50 à toa
+    const det0 = detalheOcColecao(arv, sitX, { "m-r": ["ocX"], "m-a": ["ocX"] }, {}, new Set(["m-r", "m-a"]), { vinculos: vincs, capacidade: capacidade(sitX), reprovados: new Set(["m-r"]) });
+    expect(resumoOcsColecao(agruparPorOc(sitX), sitX, det0)[0].demanda).toBeCloseTo(100, 6);
+  });
+
+  it("L1: com o reprovado a 1ª OC estoura e o ativo transborda para a 2ª; sem ele, o ativo fica todo na 1ª", () => {
+    const R: PtSlot = { id: "s-r", modelo_id: "m-r", materiais: [mat("A", 1, [["v1", 80]])] };
+    const A: PtSlot = { id: "s-a", modelo_id: "m-a", materiais: [mat("A", 1, [["v1", 60]])] };
+    const arv = arvDe([R, A]);
+    const sit2: SituacaoOcRow[] = [
+      sit({ oc_tecido_id: "oc1", numero: "1", artigo_id: "A", variante_tecido_id: "v1", pedida_m: 100 }),
+      sit({ oc_tecido_id: "oc2", numero: "2", artigo_id: "A", variante_tecido_id: "v1", pedida_m: 500 }),
+    ];
+    const vincs = ["m-r", "m-a"].flatMap((m) => [
+      vin({ modelo_id: m, oc_tecido_id: "oc1", oc_tecido_item_id: "i1", variante_tecido_id: "v1", artigo_id: "A", prioridade: 1 }),
+      vin({ modelo_id: m, oc_tecido_id: "oc2", oc_tecido_item_id: "i2", variante_tecido_id: "v1", artigo_id: "A", prioridade: 2 }),
+    ]);
+    const vm = { "m-r": ["oc1", "oc2"], "m-a": ["oc1", "oc2"] };
+    const com = detalheOcColecao(arv, sit2, vm, {}, new Set(), { vinculos: vincs, capacidade: capacidade(sit2), reprovados: new Set() });
+    expect(com.reservPorOc.get("oc1")).toBeCloseTo(100, 6); // 80 do reprovado + 20 do ativo (estourou)
+    expect(com.reservPorOc.get("oc2")).toBeCloseTo(40, 6); // o ativo transbordou
+    const sem = detalheOcColecao(arv, sit2, vm, {}, new Set(), { vinculos: vincs, capacidade: capacidade(sit2), reprovados: new Set(["m-r"]) });
+    expect(sem.reservPorOc.get("oc1")).toBeCloseTo(60, 6); // o ativo cabe todo na 1ª
+    expect(sem.reservPorOc.get("oc2") ?? 0).toBeCloseTo(0, 6);
+  });
+});
+
+describe("P-213 A / P-212 A — reprovado só no Planejamento; Poder de venda e Pendências", () => {
+  // fixture: o card reprovado SÓ no Planejamento (status_desenvolvimento ativo) e um card reprovado em nenhum
+  const status = [
+    { id: "m-aurelia", dev: "em_desenvolvimento", plan: "reprovado", cortado: false },
+    { id: "m-ativo", dev: "aprovado", plan: "aprovado", cortado: false },
+  ];
+  const reprovados = new Set(status.filter((m) => reprovadoSaiDaDemanda(m.dev, m.plan, m.cortado)).map((m) => m.id));
+
+  it("card reprovado SÓ no Planejamento sai da necessidade e da Demanda; o que não é reprovado em nenhum segue contando", () => {
+    expect([...reprovados]).toEqual(["m-aurelia"]);
+    const viva = necVivoPorVariante(arvoreDaDemanda(ARV, reprovados));
+    expect(viva.get("LUNE_CAFE")).toBeUndefined();
+    expect(viva.get("LUNE_BUTTER")).toBeCloseTo(60, 6); // só o ativo
+    const det = detalheOcColecao(ARV, SITUACAO, VINC_MAP, SLOT_OC, new Set(), { ...OPTS, reprovados });
+    expect(det.reservPorOc.get("oc2509")).toBeCloseTo(60, 6);
+    // ninguém reprovado → tudo conta
+    const nenhum = new Set(status.filter((m) => reprovadoSaiDaDemanda(m.dev, "aprovado", m.cortado)).map((m) => m.id));
+    expect(nenhum.size).toBe(0);
+    expect(detalheOcColecao(ARV, SITUACAO, VINC_MAP, SLOT_OC, new Set(), { ...OPTS, reprovados: nenhum }).reservPorOc.get("oc2509")).toBeCloseTo(353.92 + 60, 6);
+  });
+
+  it("P-212 A: Pendências e Poder de venda do Resumo usam só as vagas que contam (reprovado sai; volta ao sair de Reprovado)", () => {
+    const semFornec = (_aid: string) => false;
+    const slots = ARV.subcolecoes[0].linhas[0].slots;
+    const todas = pendenciasResumo(slots, semFornec);
+    const semRep = pendenciasResumo(slots.filter((s) => slotContaNaDemanda(s, reprovados)), semFornec);
+    expect(todas).toEqual({ semCategoria: 3, semTecFornec: 3, semCard: 1 });
+    expect(semRep).toEqual({ semCategoria: 2, semTecFornec: 2, semCard: 1 });
+    expect(pendenciasResumo(slots.filter((s) => slotContaNaDemanda(s, new Set())), semFornec)).toEqual(todas);
+    // fonte: Pendências e o laço do Poder de venda leem `enc` (vagas que contam), não `slots`
+    const resumo = ler("src/components/plan-tecido/ResumoPanel.tsx");
+    expect(resumo).toContain("const enc = slots.filter((s) => slotContaNaDemanda(s, reprovadoSet));");
+    expect(resumo).toContain("pendenciasResumo(enc, (aid) => fornecSet.has(aid))");
+    expect(resumo).toMatch(/for \(const slot of enc\) \{ \/\/ P-212 A/);
+    expect(resumo).toContain("{nComFornec} de {enc.length} modelos com fornecedor");
   });
 });

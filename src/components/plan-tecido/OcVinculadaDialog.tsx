@@ -10,6 +10,7 @@ import { ModeloThumb } from "./ModeloThumb";
 import { OcResumoCores } from "./OcResumoCores";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import { useModelosDaOc, type ModeloDaOc } from "./useModelosDaOc";
+import { ehReprovado } from "@/lib/plan-tecido/calc";
 
 // Dialog de uma OC vinculada (Modo Plano, set/2026). Mostra, daquela OC:
 //  • Cores: Pedido · Reserva · Sobra por variante (de `situacaoRows` filtrado pela OC).
@@ -92,7 +93,14 @@ export function OcVinculadaDialog({
                     title="Ir para este produto"
                     className="block w-full px-2 py-1 text-left hover:bg-muted"
                   >
-                    <div className="truncate text-xs font-medium">{m.nome ?? "Modelo"}</div>
+                    <div className="flex min-w-0 items-center gap-1">
+                      <span className="min-w-0 truncate text-xs font-medium">{m.nome ?? "Modelo"}</span>
+                      {ehReprovado(m.status_desenvolvimento, m.status_planejamento) && (
+                        <StatusBadge tone="danger" title="Card reprovado — fora da Demanda desta OC (salvo se já foi enviado ao corte)" className="shrink-0 px-1 py-0 normal-case tracking-normal">
+                          Reprovado
+                        </StatusBadge>
+                      )}
+                    </div>
                     {m.ref && <div className="truncate text-[10px] tabular-nums text-muted-foreground">{m.ref}</div>}
                     {m.colecao_nome && (
                       <div className="truncate text-[10px] text-muted-foreground" title={`Coleção: ${m.colecao_nome}`}>

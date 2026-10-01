@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo } from "@/lib/plan-tecido/calc";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -221,7 +221,8 @@ export function ResumoPanel({
   // Régua única (dono 17/ago/2026, flag usar_estoque APOSENTADO): TODO card entra na necessidade;
   // a cobertura por vínculo é quem abate o "a comprar" (no servidor). Espelha o
   // _plan_tecido_nec_variante_core (que também deixou de filtrar usar_estoque).
-  // P-198 A: card REPROVADO fica na vaga (e nas pendências/poder de venda) mas SAI da necessidade.
+  // P-198 A: card REPROVADO fica na vaga mas SAI da necessidade; P-212 A: sai também do Poder de venda e das Pendências
+  // (todas essas contas usam `enc`; só a exibição de categorias/fornecedor segue com `slots`).
   const enc = slots.filter((s) => slotContaNaDemanda(s, reprovadoSet));
   const nReprovados = slots.length - enc.length;
   const slotsCat = (cid: string | null) => slots.filter((s) => (s.categoria_tecido_id ?? null) === cid);
@@ -289,9 +290,8 @@ export function ResumoPanel({
   const contaOc = new Map(resumoOcsColecao(ocs, situacao, det).map((r) => [r.oc_tecido_id, r]));
 
   // ---- Pendências (subcoleção) ----
-  const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
-  const semTecFornec = slots.filter((s) => { const t = firstTec(s); return !t?.artigo_id || !fornecSet.has(t.artigo_id); }).length;
-  const semCard = slots.filter((s) => !s.modelo_id).length;
+  // P-212 A: card reprovado (que saiu da demanda) não cobra pendência.
+  const { semCategoria, semTecFornec, semCard } = pendenciasResumo(enc, (aid) => fornecSet.has(aid));
   const pendAll: [number, string][] = [
     [semCategoria, "sem categoria de tecido"],
     [semTecFornec, "sem tecido / fornecedor"],
@@ -302,7 +302,7 @@ export function ResumoPanel({
   // ---- Poder de venda (subcoleção), gated por fornecedor ----
   const comFornec = (slot: PtSlot) => { const t = firstTec(slot); return !!t?.artigo_id && fornecSet.has(t.artigo_id); };
   let pv = 0; let nComFornec = 0; let nComCard = 0;
-  for (const slot of slots) {
+  for (const slot of enc) { // P-212 A: card reprovado (que saiu da demanda) não entra no poder de venda
     if (!comFornec(slot)) continue;
     nComFornec++;
     if (slot.modelo_id) nComCard++;
@@ -371,7 +371,7 @@ export function ResumoPanel({
             </div>
             <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">a comprar</b> = parte DESTA subcoleção do déficit da coleção (necessidade − OCs vinculadas; plano salvo). O <b className="font-semibold">Fazer pedido</b> sai da seleção de cards.</div>
             {nReprovados > 0 && (
-              <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground">{nReprovados} card{nReprovados === 1 ? "" : "s"} <b className="font-semibold">reprovado{nReprovados === 1 ? "" : "s"}</b> fora da necessidade (e da Demanda das OCs) — volta{nReprovados === 1 ? "" : "m"} a contar ao sair de Reprovado.</div>
+              <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground">{nReprovados} card{nReprovados === 1 ? "" : "s"} <b className="font-semibold">reprovado{nReprovados === 1 ? "" : "s"}</b> fora da necessidade, da Demanda das OCs, do poder de venda e das pendências — volta{nReprovados === 1 ? "" : "m"} a contar ao sair de Reprovado.</div>
             )}
           </>
         )}
@@ -384,7 +384,7 @@ export function ResumoPanel({
             <div className="flex justify-between text-xs"><span>Σ preço × grade</span>{poderVendaCalculando(custoCardsPendente, nComCard > 0)
               ? <span className="text-muted-foreground">calculando…</span>
               : <b>{brl(pv)}</b>}</div>
-            <div className="mt-0.5 text-[10px] text-muted-foreground">{nComFornec} de {slots.length} modelos com fornecedor</div>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">{nComFornec} de {enc.length} modelos com fornecedor</div>
           </div>
         ) : (
           <div className="flex items-start gap-1.5 p-2 text-[11px] text-amber-700">

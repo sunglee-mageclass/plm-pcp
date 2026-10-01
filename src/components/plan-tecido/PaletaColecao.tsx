@@ -25,7 +25,7 @@ export function linhasOcsPaleta(ocs: readonly OcSituacaoResumo[]) {
  * `ocs` = `resumoOcsColecao(...)` (calc.ts), a MESMA lista (união das 4 fontes da Situação) e os MESMOS metros
  * (Pedida e Demanda repartida pela prioridade do vínculo, D5; sem cards reprovados, P-198 A) da "Situação por OC".
  */
-export function PaletaColecao({ colecaoId, emUso = [], ocs = [] }: { colecaoId: string; emUso?: PaletaRow[]; ocs?: readonly OcSituacaoResumo[] }) {
+export function PaletaColecao({ colecaoId, emUso = [], ocs }: { colecaoId: string; emUso?: PaletaRow[]; ocs: readonly OcSituacaoResumo[] }) {
   const qc = useQueryClient();
   const { artigoMap, tecidoArtigos, forroArtigos } = useArtigosTecido();
   const [addTec, setAddTec] = useState("");
@@ -119,6 +119,9 @@ export function PaletaColecao({ colecaoId, emUso = [], ocs = [] }: { colecaoId: 
           <div className="mb-1 text-[11px] font-medium text-muted-foreground">OCs</div>
           {/* OCs da coleção (acompanhamento), com status (encomendado × em casa) — Pedida e Demanda desta coleção,
               os mesmos números da "Situação por OC". */}
+          {ocsCobertura.length === 0 && (
+            <p className="mb-2 text-[11px] text-muted-foreground">Nenhuma OC na Situação por OC desta coleção.</p>
+          )}
           {ocsCobertura.length > 0 && (
             <div className="mb-2 space-y-0.5">
               {ocsCobertura.map((o) => (

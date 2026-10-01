@@ -161,7 +161,6 @@ export function FazerPedidoWizard({
       qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" do Resumo cai após o pedido
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura", colecaoId] });
-      qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura-ocs", colecaoId] });
       // G5: pedido por seleção grava plan_tecido_slot_oc — o carrinho (ShoppingCart) do card lê
       // essa query; sem invalidar, só acende ao refocar a janela (trg_colab_bump/realtime cobre
       // OUTRAS abas, não esta mesma sessão que acabou de gerar o pedido).
