@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/tooltip";
 import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, Hand, RotateCcw, type LucideIcon } from "lucide-react";
 import { InfoHover } from "@/components/shared/InfoHover";
+import { totaisServicos } from "@/lib/servicos-totais";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -1592,7 +1593,7 @@ function ServicosView() {
   // A data de pagamento NÃO é mais editável inline (igual às OCs): marca-se como pago pelo
   // botão "Marcar pago" → PagarDialog (data + comprovante). A data fica read-only na coluna.
 
-  const total = filtered.reduce((s, r) => s + Number(r.valor_parcela || 0), 0);
+  const totaisSrv = totaisServicos(filtered, stOf);
 
   return (
     <div className="space-y-4">
@@ -1735,7 +1736,11 @@ function ServicosView() {
           </table>
         </div>
         {filtered.length > 0 && (
-          <p className="mt-3 text-sm text-right text-muted-foreground">Total a pagar (parcelas): <b className="text-foreground">{brl(total)}</b></p>
+          <p className="mt-3 text-sm text-right text-muted-foreground">
+            Pago: <b className="text-foreground">{brl(totaisSrv.pago)}</b>
+            <span className="mx-2">·</span>
+            A pagar: <b className="text-foreground">{brl(totaisSrv.aPagar)}</b>
+          </p>
         )}
       </Card>
 
@@ -1773,7 +1778,8 @@ function ServicosView() {
         subtitulo={`${filtered.length} parcela(s) de serviço`}
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
-          { label: "Total a pagar", valor: brl(total) },
+          { label: "A pagar", valor: brl(totaisSrv.aPagar) },
+          { label: "Pago", valor: brl(totaisSrv.pago), cor: REL_COR_SUCESSO },
           { label: "Parcelas", valor: String(filtered.length) },
           { label: "Pagas", valor: String(filtered.filter((r) => stOf(r) === "pago").length), cor: REL_COR_SUCESSO },
         ]}
@@ -1803,7 +1809,7 @@ function ServicosView() {
           vencimento: fmtD(r.data_vencimento),
           status: stOf(r) === "pago" ? "Pago" : stOf(r) === "vencido" ? "Vencido" : "A pagar",
         }))}
-        rodape={`Total: ${brl(total)}`}
+        rodape={`Total: ${brl(totaisSrv.total)}`}
       />
     </div>
   );
