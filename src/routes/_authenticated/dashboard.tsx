@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { SegmentedTabs, MobileFilterBar, KpiCardMobile, ChartSheet } from "@/components/dashboard/mobile";
 import { precoInfo } from "@/lib/preco";
 import { normalizeKanbanStatuses, DEFAULT_STATUSES } from "@/lib/kanban-status";
+import { aprovadosNaoLancados } from "@/lib/dashboard-producao";
 import { useMemo, useState, useRef, useLayoutEffect, type ReactNode } from "react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
@@ -973,17 +974,12 @@ function DesenvolvimentoTab() {
     .filter((e) => e.n > 0)
     .sort((a, b) => (b.n >= 3 ? b.ratio : 0) - (a.n >= 3 ? a.ratio : 0) || b.ratio - a.ratio)[0];
 
-  // "No status Aprovado": modelos na coluna "aprovado" do kanban. A RPC dashboard_producao já
-  // exclui os lançados desse balde (CASE WHEN m.lancado THEN 'Lançado' vem primeiro), então são
-  // aprovados AINDA não lançados — mas NÃO garante CQ/Direcionamento feitos; por isso o rótulo
-  // diz "no status Aprovado", não "prontos p/ lançar" (seria promessa que o dado não sustenta).
+  // "No status Aprovado": modelos na coluna "aprovado" do kanban AINDA NÃO lançados — chave
+  // `aprovadoNaoLancado` da RPC dashboard_producao (R12, prod #6). A coluna do gráfico (kanbanDev)
+  // conta também os já lançados, por isso não serve para o rótulo. NÃO garante CQ/Direcionamento
+  // feitos; por isso o rótulo diz "no status Aprovado", não "prontos p/ lançar".
   const kanbanDev: any[] = prod.data?.kanbanDev ?? [];
-  const aprovados = (() => {
-    // Prefere a coluna com key exata "aprovado"; só então cai no match por label (evita pegar
-    // "Pré-aprovado" ou outra coluna cujo label contenha "aprovad").
-    const aprovado = kanbanDev.find((k) => k.key === "aprovado") ?? kanbanDev.find((k) => /aprovad/i.test(String(k.label)));
-    return aprovado ? Number(aprovado.modelos ?? 0) : 0;
-  })();
+  const aprovados = aprovadosNaoLancados(prod.data);
 
   // Top-4 "o que destravar" = itens com maior EXCESSO acumulado vs meta (os que mais atrasam).
   const topDestravar = [...comExcesso]
