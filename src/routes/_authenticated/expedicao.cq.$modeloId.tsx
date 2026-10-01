@@ -1161,7 +1161,6 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
-  acaoLocalEmVooRef.current = saveMut.isPending || confirmMut.isPending || desmarcarMut.isPending; // N2
 
   // "Voltar uma etapa" — do CQ volta UMA etapa (para Serviços): reabre os serviços pré e
   // desfaz o CQ; o corte é mantido (NÃO volta até a Explosão — isso é o botão do Serviços).
@@ -1174,6 +1173,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
     onSuccess: async () => {
       toast.success("Modelo voltou para Serviços");
+      setStatus("pendente"); // N5: ação própria — o refetch seguinte não é "outra tela" (sem toast de causa errada)
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
         qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
@@ -1187,6 +1187,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar para Serviços")),
   });
+  acaoLocalEmVooRef.current = saveMut.isPending || confirmMut.isPending || desmarcarMut.isPending || voltarMut.isPending; // N2/N5
 
   // Botões de ação (Pré/Pós) — renderizados na barra STICKY do rodapé (todos os tamanhos):
   // rodapé do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
