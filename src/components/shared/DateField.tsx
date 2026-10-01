@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { format, parse, isValid } from "date-fns";
 import { CalendarDays } from "lucide-react";
 
@@ -77,6 +77,8 @@ export function DateField({
   const cursorPendente = useRef<number | null>(null);
   const [tick, setTick] = useState(0);
   const [erroLimite, setErroLimite] = useState<string | null>(null);
+  const digitou = useRef(false); // o usuário digitou desde o último blur (só aí o aviso de limite faz sentido)
+  const erroId = useId();
   const lim = { min, max };
   const brToIso = (br: string) => brToIsoLim(br, lim);
 
@@ -84,6 +86,7 @@ export function DateField({
   useEffect(() => {
     const cur = brToIso(text) ?? "";
     if (cur !== (value ?? "").slice(0, 10)) setText(isoToBr(value));
+    setErroLimite(null); // valor mudou de fora: o aviso antigo não vale mais
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
@@ -101,6 +104,7 @@ export function DateField({
   const onText = (raw: string, cursorRaw: number) => {
     const r = processarDigitacao(raw, cursorRaw, lim, text);
     cursorPendente.current = r.cursor;
+    digitou.current = true;
     setErroLimite(null);
     setText(r.texto);
     setTick((t) => t + 1);
@@ -122,7 +126,7 @@ export function DateField({
     if (!confirmar()) {
       // Incompleto/inválido/fora do limite → volta pro último valor válido (e explica se for o limite).
       const livre = text.length === 10 ? brToIsoLim(text) : null;
-      if (livre) {
+      if (livre && digitou.current) {
         const abaixo = !!min && livre < min.slice(0, 10);
         setErroLimite(
           mensagemForaDoLimite ??
@@ -133,6 +137,7 @@ export function DateField({
       }
       setText(isoToBr(value));
     }
+    digitou.current = false;
     onBlur?.();
   };
 
@@ -141,64 +146,68 @@ export function DateField({
   const maxDate = isoToDate(max ?? "");
 
   return (
-    <div className={cn("relative h-9 max-md:h-11", className)}>
-      <Input
-        id={id}
-        inputMode="numeric"
-        autoComplete="off"
-        placeholder="dd/mm/aaaa"
-        value={text}
-        disabled={disabled}
-        readOnly={readOnly}
-        required={required}
-        aria-label={ariaLabel}
-        data-colab-path={dataColabPath}
-        title={title}
-        ref={inputRef}
-        onChange={(e) => onText(e.target.value, e.target.selectionStart ?? e.target.value.length)}
-        onBlur={onBlurInternal}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") confirmar();
-        }}
-        aria-invalid={erroLimite ? true : undefined}
-        className={cn("h-full w-full pr-9 max-md:pr-11", inputClassName)}
-      />
+    <div className={className}>
+      <div className="relative h-9 max-md:h-11">
+        <Input
+          id={id}
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="dd/mm/aaaa"
+          value={text}
+          disabled={disabled}
+          readOnly={readOnly}
+          required={required}
+          aria-label={ariaLabel}
+          data-colab-path={dataColabPath}
+          title={title}
+          ref={inputRef}
+          onChange={(e) => onText(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+          onBlur={onBlurInternal}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") confirmar();
+          }}
+          aria-invalid={erroLimite ? true : undefined}
+          aria-describedby={erroLimite ? erroId : undefined}
+          className={cn("h-full w-full pr-9 max-md:pr-11", inputClassName)}
+        />
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={disabled || readOnly}
+              aria-label="Abrir calendário"
+              className="absolute inset-y-0 right-0 grid w-9 max-md:w-11 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <CalendarDays className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={selected}
+              defaultMonth={selected ?? isoToDate(defaultMonth ?? "") ?? new Date()}
+              disabled={[
+                ...(minDate ? [{ before: minDate }] : []),
+                ...(maxDate ? [{ after: maxDate }] : []),
+              ]}
+              onSelect={(d) => {
+                if (d) {
+                  setText(format(d, "dd/MM/yyyy"));
+                  setErroLimite(null);
+                  emit(format(d, "yyyy-MM-dd"));
+                  onCommit?.(format(d, "yyyy-MM-dd"));
+                }
+                setOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
       {erroLimite && (
-        <p role="alert" className="absolute left-0 top-full z-10 mt-0.5 whitespace-nowrap text-xs text-destructive">
+        <p id={erroId} role="alert" className="mt-0.5 text-xs text-destructive">
           {erroLimite}
         </p>
       )}
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            disabled={disabled || readOnly}
-            aria-label="Abrir calendário"
-            className="absolute inset-y-0 right-0 grid w-9 max-md:w-11 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
-            <CalendarDays className="h-4 w-4" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
-          <Calendar
-            mode="single"
-            selected={selected}
-            defaultMonth={selected ?? isoToDate(defaultMonth ?? "") ?? new Date()}
-            disabled={[
-              ...(minDate ? [{ before: minDate }] : []),
-              ...(maxDate ? [{ after: maxDate }] : []),
-            ]}
-            onSelect={(d) => {
-              if (d) {
-                setText(format(d, "dd/MM/yyyy"));
-                emit(format(d, "yyyy-MM-dd"));
-                onCommit?.(format(d, "yyyy-MM-dd"));
-              }
-              setOpen(false);
-            }}
-          />
-        </PopoverContent>
-      </Popover>
     </div>
   );
 }

@@ -163,6 +163,86 @@ describe("DateField (componente)", () => {
   });
 });
 
+describe("DateField: aviso de limite (round 2)", () => {
+  const alerta = () => container!.querySelector('[role="alert"]');
+
+  it("R6: mensagem ligada ao input por aria-describedby, fora do wrapper absoluto", async () => {
+    const el = await montar(
+      createElement(Pai, {
+        inicial: "2026-07-15",
+        onCommit: vi.fn(),
+        emitidos: [],
+        max: "2026-07-20",
+      }),
+    );
+    await digitar(el, "25/07/2026", 10);
+    await blur(el);
+    expect(alerta()).toBeTruthy();
+    expect(el.getAttribute("aria-describedby")).toBe(alerta()!.id);
+    expect(alerta()!.className).not.toMatch(/absolute/);
+  });
+
+  it("R2: value mudando de fora limpa a mensagem", async () => {
+    let setar: (v: string) => void = () => {};
+    function Ext() {
+      const [v, setV] = useState("2026-07-15");
+      setar = setV;
+      return createElement(DateField, {
+        value: v,
+        max: "2026-07-20",
+        onChange: (e: any) => setV(e.target.value),
+      });
+    }
+    const el = await montar(createElement(Ext));
+    await digitar(el, "25/07/2026", 10);
+    await blur(el);
+    expect(alerta()).toBeTruthy();
+    await act(async () => setar("2026-07-18"));
+    expect(alerta()).toBeNull();
+  });
+
+  it("R2: escolher um dia no calendário limpa a mensagem", async () => {
+    const el = await montar(
+      createElement(Pai, {
+        inicial: "2026-07-15",
+        onCommit: vi.fn(),
+        emitidos: [],
+        max: "2026-07-25",
+      }),
+    );
+    await digitar(el, "30/07/2026", 10);
+    await blur(el);
+    expect(alerta()).toBeTruthy();
+    const gatilho = document.querySelector(
+      'button[aria-label="Abrir calendário"]',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      gatilho.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const dia = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent === "20" && b.closest("[role=grid], table"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      dia.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(alerta()).toBeNull();
+  });
+
+  it("R3: valor guardado já fora do limite: focar e sair NÃO mostra erro", async () => {
+    const el = await montar(
+      createElement(Pai, {
+        inicial: "2026-08-10",
+        onCommit: vi.fn(),
+        emitidos: [],
+        max: "2026-07-20",
+      }),
+    );
+    el.focus();
+    await blur(el);
+    expect(alerta()).toBeNull();
+  });
+});
+
 describe("VencimentoCell", () => {
   it("Enter seguido de blur salva UMA vez", async () => {
     const onSave = vi.fn();
