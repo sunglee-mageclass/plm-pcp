@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -51,8 +51,9 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
 import { FilterButton, filtroAtivoClass } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
+import { VencimentoCell as VencimentoCellBase } from "@/components/financeiro/VencimentoCell";
 import { buscarTodas } from "@/lib/buscar-todas";
-import { aplicarOcCancelada } from "@/lib/financeiro-oc-cancelada";
+import { aplicarOcCancelada, ocTecidoCancelada, podeDesmarcarPagamento, MOTIVO_NAO_DESMARCAR_OC_CANCELADA } from "@/lib/financeiro-oc-cancelada";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { AlertTriangle } from "lucide-react";
@@ -99,6 +100,8 @@ type Parcela = {
   ocs_p_acabado?: { numero_pedido: string | null } | null;
   ocs_importado?: { numero_pedido: string | null } | null;
   ocBadge?: { label: string; tone: StatusTone } | null;
+  /** fin #16b: parcela PAGA de OC de tecido cancelada (não se desmarca o pagamento). */
+  ocCancelada?: boolean;
   // Data da Nota de Entrada (spec 2026-09-24): parcela NÃO paga de OC recebida sem a data — vencimento provisório.
   provisoria?: boolean;
   // Contas certas A1 (P-165 A): vencimento ajustado À MÃO — o recálculo/Nota/prazo preservam esta data (gatilho no banco).
@@ -360,10 +363,7 @@ function FinanceiroPage() {
       );
       // OC de tecido "cancelada" = todos os itens cancelados (valor real 0). Some do Financeiro (só as parcelas não pagas).
       const ocCancelada = new Set(
-        (tecidoRes.data ?? []).filter((o: any) => {
-          const its = o.ocs_tecido_itens ?? [];
-          return its.length > 0 && its.every((it: any) => it.cancelado) ;
-        }).map((o: any) => o.id),
+        (tecidoRes.data ?? []).filter((o: any) => ocTecidoCancelada(o.ocs_tecido_itens)).map((o: any) => o.id),
       );
       // Data da Nota de Entrada: status + data de cada OC → parcela provisória (regra única em nota-entrada.ts).
       // Um Map POR FAMÍLIA (não um único casado pela cadeia `??`): a chave é o UUID da respectiva
@@ -399,6 +399,7 @@ function FinanceiroPage() {
         ocs_etiqueta: p.oc_etiqueta_id ? { numero_pedido: etqMap.get(p.oc_etiqueta_id) ?? null } : null,
         ocs_p_acabado: p.oc_p_acabado_id ? { numero_pedido: pAcMap.get(p.oc_p_acabado_id) ?? null } : null,
         ocs_importado: p.oc_importado_id ? { numero_pedido: pImpMap.get(p.oc_importado_id) ?? null } : null,
+        ocCancelada: p.ocCancelada,
         ocBadge: p.ocCancelada
           ? { label: "OC cancelada", tone: "danger" as StatusTone }
           : p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
@@ -1063,9 +1064,9 @@ function ParcelaDetailDialog({
             </UiTooltipProvider>
           ))}
           {podeEditar && (st === "pago" ? (
-            <Button size="sm" variant="destructive" onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
+            <DesmarcarPagoBtn parcela={parcela} onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
               Desmarcar pago
-            </Button>
+            </DesmarcarPagoBtn>
           ) : (
             <Button size="sm" onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
           ))}
@@ -1145,6 +1146,25 @@ function parcelaOrigemLabel(p: Parcela): string {
 // payee, origem, valor). Cada linha chama `onPick` (abre o detalhe = TODAS as ações da tela:
 // marcar/desmarcar pago, abrir OC, comprovante). Compartilhada: popover do dia (desktop) e
 // sheet do dia (mobile).
+/** "Desmarcar pago" — desabilitado (com o porquê) na parcela PAGA de OC cancelada: desmarcar a faria sumir da lista. */
+function DesmarcarPagoBtn({ parcela, onClick, disabled, children }: { parcela: Parcela; onClick: () => void; disabled?: boolean; children: ReactNode }) {
+  if (podeDesmarcarPagamento(parcela)) {
+    return <Button size="sm" variant="destructive" onClick={onClick} disabled={disabled}>{children}</Button>;
+  }
+  return (
+    <UiTooltipProvider delayDuration={0}>
+      <UiTooltip>
+        <UiTooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex">
+            <Button size="sm" variant="destructive" disabled className="pointer-events-none">{children}</Button>
+          </span>
+        </UiTooltipTrigger>
+        <UiTooltipContent>{MOTIVO_NAO_DESMARCAR_OC_CANCELADA}</UiTooltipContent>
+      </UiTooltip>
+    </UiTooltipProvider>
+  );
+}
+
 function DiaParcelasList({
   day, items, hoje, today, onPick,
 }: {
@@ -1176,6 +1196,7 @@ function DiaParcelasList({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{nome}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span><TagParcelaProvisoria show={!!p.provisoria} />
+                {p.ocBadge && <StatusBadge tone={p.ocBadge.tone} className="ml-1">{p.ocBadge.label}</StatusBadge>}
               </span>
               <span className="shrink-0 text-sm font-bold tabular-nums">{brl(Number(p.valor))}</span>
             </button>
@@ -1188,28 +1209,10 @@ function DiaParcelasList({
 
 /* ============================== LISTA ============================== */
 
-// Célula de vencimento com estado local. SALVA só ao confirmar (`onCommit` do DateField): blur,
-// Enter ou escolha no calendário — nunca a cada emissão do onChange (digitar no meio de uma data
-// completa já gerou datas "válidas" acidentais que eram gravadas na hora). `ultimo` evita gravar
-// duas vezes (Enter seguido de blur) antes de o valor do servidor chegar.
-function VencimentoCell({ value, onSave, disabled }: { value: string; onSave: (v: string) => void; disabled?: boolean }) {
+// Célula de vencimento (lógica em `VencimentoCell`): só liga a permissão do Financeiro.
+function VencimentoCell(props: { value: string; onSave: (v: string, h?: { onError: () => void }) => void; disabled?: boolean }) {
   const podeEditar = usePodeEditarFinanceiro();
-  const [v, setV] = useState(value);
-  const ultimo = useRef(value);
-  useEffect(() => { setV(value); ultimo.current = value; }, [value]);
-  return (
-    <DateField
-      value={v}
-      onChange={(e) => setV(e.target.value)}
-      onCommit={(iso) => {
-        if (!iso || iso === ultimo.current) return;
-        ultimo.current = iso;
-        onSave(iso);
-      }}
-      className="w-36 shrink-0 max-lg:w-40"
-      disabled={!podeEditar || disabled}
-    />
-  );
+  return <VencimentoCellBase podeEditar={podeEditar} {...props} />;
 }
 
 // Sufixo discreto "+Nd" ao lado da data de vencimento quando a parcela foi gerada
@@ -1454,7 +1457,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                     <td className="py-2 pr-3 max-lg:flex-wrap" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell
                         value={p.data_vencimento}
-                        onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
+                        onSave={(v, h) => updateVencimentoMut.mutate({ id: p.id, data: v }, h)}
                         disabled={st === "pago"}
                       />
                       <OffsetTag dias={(p as any).dias_offset} />
@@ -1469,7 +1472,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                         {podeEditar && (st !== "pago" ? (
                           <Button size="sm" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                         ) : (
-                          <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
+                          <DesmarcarPagoBtn parcela={p} onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</DesmarcarPagoBtn>
                         ))}
                         {p.comprovante_url && (
                           <ComprovanteLink value={p.comprovante_url} label="Ver comprovante" icone />
@@ -1737,7 +1740,7 @@ function ServicosView() {
                     <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
                     <td className="py-2 pr-3 text-right font-medium tabular-nums" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3 max-lg:flex-wrap" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
-                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} disabled={st === "pago"} />
+                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data, h) => updVenc.mutate({ id: r.parcela_id, data }, h)} disabled={st === "pago"} />
                       <OffsetTag dias={(r as any).dias_offset} />
                       {mostraAjustadoMaoServico(manualIds.has(r.parcela_id), st) && (
                         <span data-testid="srv-venc-ajustado-mao" className="ml-1 inline-flex items-center gap-1 text-xs text-muted-foreground max-lg:ml-0 max-lg:basis-full max-lg:justify-end">

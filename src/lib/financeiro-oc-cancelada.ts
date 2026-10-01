@@ -24,3 +24,19 @@ export function aplicarOcCancelada<P extends ParcelaCanc>(
   }
   return out;
 }
+
+/** OC de tecido "cancelada" = tem ≥1 item e TODOS estão cancelados. */
+export const ocTecidoCancelada = (
+  itens: ReadonlyArray<{ cancelado?: boolean | null }> | null | undefined,
+): boolean => !!itens && itens.length > 0 && itens.every((it) => !!it.cancelado);
+
+/** Texto do tooltip do "Desmarcar" desabilitado (parcela PAGA de OC cancelada). */
+export const MOTIVO_NAO_DESMARCAR_OC_CANCELADA =
+  "OC cancelada — para desfazer o pagamento, reabra a OC";
+
+/**
+ * Desmarcar pago numa parcela de OC cancelada a faria sumir do Financeiro (a não paga de OC cancelada
+ * é escondida) sem como remarcar → só se desmarca quando a OC NÃO está cancelada.
+ */
+export const podeDesmarcarPagamento = (p: { ocCancelada?: boolean | null }): boolean =>
+  !p.ocCancelada;

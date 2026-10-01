@@ -17,3 +17,26 @@ describe("fin #16b: OC cancelada", () => {
     expect(r.filter((p) => p.ocCancelada).map((p) => p.id)).toEqual(["b", "c"]);
   });
 });
+
+import { ocTecidoCancelada, podeDesmarcarPagamento } from "@/lib/financeiro-oc-cancelada";
+
+describe("ocTecidoCancelada", () => {
+  it("todos cancelados e ≥1 item", () => {
+    expect(ocTecidoCancelada([{ cancelado: true }, { cancelado: true }])).toBe(true);
+    expect(ocTecidoCancelada([{ cancelado: true }, { cancelado: false }])).toBe(false);
+    expect(ocTecidoCancelada([{ cancelado: null }])).toBe(false);
+  });
+  it("sem itens não é cancelada", () => {
+    expect(ocTecidoCancelada([])).toBe(false);
+    expect(ocTecidoCancelada(null)).toBe(false);
+    expect(ocTecidoCancelada(undefined)).toBe(false);
+  });
+});
+
+describe("podeDesmarcarPagamento (M1)", () => {
+  it("bloqueia só na parcela de OC cancelada", () => {
+    expect(podeDesmarcarPagamento({ ocCancelada: true })).toBe(false);
+    expect(podeDesmarcarPagamento({ ocCancelada: false })).toBe(true);
+    expect(podeDesmarcarPagamento({})).toBe(true);
+  });
+});

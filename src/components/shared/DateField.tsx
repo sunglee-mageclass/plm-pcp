@@ -38,6 +38,8 @@ export type DateFieldProps = {
   "data-colab-path"?: string;
   title?: string;
   inputClassName?: string;
+  /** Mensagem (sob o campo, no blur) quando a data digitada é válida mas fora de `min`/`max`. */
+  mensagemForaDoLimite?: string;
 };
 
 const isoToDate = (iso: string): Date | undefined => {
@@ -67,11 +69,14 @@ export function DateField({
   "data-colab-path": dataColabPath,
   title,
   inputClassName,
+  mensagemForaDoLimite,
 }: DateFieldProps) {
   const [text, setText] = useState(() => isoToBr(value));
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const cursorPendente = useRef<number | null>(null);
+  const [tick, setTick] = useState(0);
+  const [erroLimite, setErroLimite] = useState<string | null>(null);
   const lim = { min, max };
   const brToIso = (br: string) => brToIsoLim(br, lim);
 
@@ -83,28 +88,51 @@ export function DateField({
   }, [value]);
 
   // Reposiciona o cursor depois do mascaramento (o React joga o cursor pro fim ao trocar o value).
+  // `tick` força a passada mesmo quando o texto mascarado ficou IGUAL ao anterior (backspace numa "/").
   useLayoutEffect(() => {
     const pos = cursorPendente.current;
     cursorPendente.current = null;
     const el = inputRef.current;
     if (pos != null && el && document.activeElement === el) el.setSelectionRange(pos, pos);
-  }, [text]);
+  }, [text, tick]);
 
   const emit = (iso: string) => onChange?.({ target: { value: iso } });
 
   const onText = (raw: string, cursorRaw: number) => {
-    const r = processarDigitacao(raw, cursorRaw, lim);
+    const r = processarDigitacao(raw, cursorRaw, lim, text);
     cursorPendente.current = r.cursor;
+    setErroLimite(null);
     setText(r.texto);
-    // iso null = incompleto / inválido / ano fora de 1900–2100 / fora de min-max / dígito a mais: não emite.
+    setTick((t) => t + 1);
+    // iso null = incompleto / inválido / ano fora de 1900–2100 / fora de min-max / dígito a mais (rejeitado).
     if (r.iso !== null) emit(r.iso);
   };
 
+  // Confirma o que está NA TELA: se é uma data válida diferente do `value`, emite antes do commit
+  // (tela e estado nunca divergem). Retorna false se o texto é inválido (nada a confirmar).
+  const confirmar = (): boolean => {
+    const iso = text === "" ? "" : brToIso(text);
+    if (iso === null) return false;
+    if (iso !== (value ?? "").slice(0, 10)) emit(iso);
+    onCommit?.(iso);
+    return true;
+  };
+
   const onBlurInternal = () => {
-    // Saiu com texto incompleto/inválido → volta pro último valor válido.
-    const iso = brToIso(text);
-    if (text !== "" && !iso) setText(isoToBr(value));
-    else onCommit?.(iso ?? ""); // "" = campo limpo
+    if (!confirmar()) {
+      // Incompleto/inválido/fora do limite → volta pro último valor válido (e explica se for o limite).
+      const livre = text.length === 10 ? brToIsoLim(text) : null;
+      if (livre) {
+        const abaixo = !!min && livre < min.slice(0, 10);
+        setErroLimite(
+          mensagemForaDoLimite ??
+            (abaixo
+              ? `Data anterior ao mínimo permitido (${isoToBr(min!)})`
+              : `Data posterior ao máximo permitido (${isoToBr(max ?? "")})`),
+        );
+      }
+      setText(isoToBr(value));
+    }
     onBlur?.();
   };
 
@@ -130,13 +158,16 @@ export function DateField({
         onChange={(e) => onText(e.target.value, e.target.selectionStart ?? e.target.value.length)}
         onBlur={onBlurInternal}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            const iso = text === "" ? "" : brToIso(text);
-            if (iso !== null) onCommit?.(iso);
-          }
+          if (e.key === "Enter") confirmar();
         }}
+        aria-invalid={erroLimite ? true : undefined}
         className={cn("h-full w-full pr-9 max-md:pr-11", inputClassName)}
       />
+      {erroLimite && (
+        <p role="alert" className="absolute left-0 top-full z-10 mt-0.5 whitespace-nowrap text-xs text-destructive">
+          {erroLimite}
+        </p>
+      )}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button

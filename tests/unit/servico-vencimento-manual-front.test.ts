@@ -6,7 +6,10 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { mostraAjustadoMaoServico, mostraVoltarAutomaticoServico } from "@/lib/servico-vencimento-manual";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const fin = readFileSync(ROOT + "src/routes/_authenticated/financeiro.tsx", "utf8");
+// VencimentoCell foi extraído (L1) p/ src/components/financeiro — o texto da célula é lido junto.
+const fin =
+  readFileSync(ROOT + "src/routes/_authenticated/financeiro.tsx", "utf8") +
+  readFileSync(ROOT + "src/components/financeiro/VencimentoCell.tsx", "utf8");
 
 describe("selo 'ajustado à mão' (Serviços)", () => {
   it("aparece só com vencimento_manual e parcela não paga", () => {

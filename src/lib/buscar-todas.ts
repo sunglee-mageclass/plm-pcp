@@ -16,11 +16,19 @@ export async function buscarTodas<T>(
   tamanho: number = TAMANHO_BLOCO,
 ): Promise<T[]> {
   const todas: T[] = [];
+  const vistos = new Set<unknown>(); // dedupe por id: insert/delete concorrente desloca a janela entre páginas
   for (let de = 0; ; de += tamanho) {
     const { data, error } = await pagina(de, de + tamanho - 1);
     if (error) throw error;
     const rows = data ?? [];
-    todas.push(...rows);
+    for (const r of rows) {
+      const id = (r as { id?: unknown } | null)?.id;
+      if (id != null) {
+        if (vistos.has(id)) continue;
+        vistos.add(id);
+      }
+      todas.push(r);
+    }
     if (rows.length < tamanho) break;
   }
   return todas;

@@ -35,3 +35,13 @@ describe("buscarTodas", () => {
     ).rejects.toEqual({ message: "x" });
   });
 });
+
+describe("buscarTodas: dedupe", () => {
+  it("descarta ids repetidos entre páginas, mantendo a parada na página curta", async () => {
+    const pags = [Array.from({ length: 3 }, (_, i) => ({ id: i })), [{ id: 2 }, { id: 3 }]];
+    let n = 0;
+    const r = await buscarTodas(async () => ({ data: pags[n++] ?? [], error: null }), 3);
+    expect(r.map((x: any) => x.id)).toEqual([0, 1, 2, 3]);
+    expect(n).toBe(2);
+  });
+});

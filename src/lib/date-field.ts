@@ -38,38 +38,55 @@ export type ResultadoDigitacao = {
   texto: string;
   /** Posição do cursor no texto mascarado. */
   cursor: number;
-  /** ISO a emitir: "" = limpou; null = não emitir (incompleto/inválido/ambíguo). */
+  /** ISO a emitir: "" = limpou; null = não emitir (incompleto/inválido). */
   iso: string | null;
+  /** true = digitou/colou além de 8 dígitos: a tecla foi REJEITADA (texto = o anterior). */
+  rejeitado?: boolean;
+};
+
+const contarDigitos = (s: string) => s.replace(/\D/g, "").length;
+
+/** Posição no texto mascarado logo depois do `alvo`-ésimo dígito (0 = início). */
+const cursorAposDigito = (texto: string, alvo: number): number => {
+  if (alvo <= 0) return 0;
+  let cont = 0;
+  for (let i = 0; i < texto.length; i++) {
+    if (/\d/.test(texto[i])) cont++;
+    if (cont === alvo) return i + 1;
+  }
+  return texto.length;
 };
 
 /**
  * Processa o que o <input> entregou (`raw`, com o cursor em `cursorRaw`): mascara, mantém o cursor
- * ao lado do mesmo dígito e decide se há data válida a emitir. Se o usuário digitou dígitos além
- * de 8 (ex.: inserir no meio de uma data completa), o mascaramento truncaria a cauda e criaria uma
- * data "válida" errada (15/07/2026 + "1" no meio -> 11/50/7202...) — nesse caso NÃO emite.
+ * ao lado do mesmo dígito e decide se há data válida a emitir.
+ *
+ * Passou de 8 dígitos (inserir/colar sobre uma data completa)? A tecla é REJEITADA como um
+ * `maxLength`: volta o texto `anterior` (se não vier, desfaz o trecho inserido assumindo que o
+ * anterior tinha 10 caracteres) com o cursor onde estava. Assim tela e estado nunca divergem.
  */
 export const processarDigitacao = (
   raw: string,
   cursorRaw: number,
   lim: LimitesData = {},
+  anterior?: string,
 ): ResultadoDigitacao => {
-  const texto = maskBr(raw);
-  const digitosAntes = raw.slice(0, Math.max(0, cursorRaw)).replace(/\D/g, "").length;
-  const alvo = Math.min(digitosAntes, 8);
-  let cursor = texto.length;
-  if (alvo === 0) cursor = 0;
-  else {
-    let cont = 0;
-    for (let i = 0; i < texto.length; i++) {
-      if (/\d/.test(texto[i])) cont++;
-      if (cont === alvo) {
-        cursor = i + 1;
-        break;
-      }
+  if (contarDigitos(raw) > 8) {
+    let prev: string;
+    let cursor: number;
+    if (anterior !== undefined) {
+      prev = maskBr(anterior);
+      cursor = Math.max(0, Math.min(prev.length, cursorRaw - (raw.length - anterior.length)));
+    } else {
+      const k = Math.max(0, raw.length - 10);
+      const ini = Math.max(0, cursorRaw - k);
+      prev = maskBr(raw.slice(0, ini) + raw.slice(cursorRaw));
+      cursor = Math.min(ini, prev.length);
     }
+    return { texto: prev, cursor, iso: null, rejeitado: true };
   }
-  const nDigitos = raw.replace(/\D/g, "").length;
+  const texto = maskBr(raw);
+  const cursor = cursorAposDigito(texto, contarDigitos(raw.slice(0, Math.max(0, cursorRaw))));
   if (texto === "") return { texto, cursor, iso: "" };
-  if (nDigitos > 8) return { texto, cursor, iso: null };
   return { texto, cursor, iso: brToIso(texto, lim) };
 };

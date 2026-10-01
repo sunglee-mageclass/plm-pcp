@@ -29,6 +29,7 @@ export function InfoHover({ ariaLabel, children, className }: { ariaLabel: strin
             onPointerDown={(e) => { ponteiro.current = e.pointerType; e.preventDefault(); }}
             onClick={(e) => {
               e.preventDefault();
+              e.stopPropagation(); // não dispara o pai clicável (ex.: card que alterna filtro)
               const tipo = ponteiro.current;
               ponteiro.current = null;
               if (tipo === "mouse") return;

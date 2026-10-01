@@ -19,10 +19,26 @@ describe("DateField: validação", () => {
 });
 
 describe("DateField: digitação", () => {
-  it("digitar no meio de data completa NÃO emite data acidental", () => {
-    const r = processarDigitacao("115/07/2026", 2);
+  it("digitar no meio de data completa é REJEITADO (volta ao texto anterior)", () => {
+    const r = processarDigitacao("115/07/2026", 2, {}, "15/07/2026");
+    expect(r.rejeitado).toBe(true);
     expect(r.iso).toBeNull();
-    expect(r.texto).toBe("11/50/7202");
+    expect(r.texto).toBe("15/07/2026");
+    expect(r.cursor).toBe(1);
+  });
+  it("A1: 15/07/20256 (cursor 10) mantém 15/07/2026, sem 'anterior' também", () => {
+    expect(processarDigitacao("15/07/20256", 10).texto).toBe("15/07/2026");
+    expect(processarDigitacao("15/07/20256", 10, {}, "15/07/2026").texto).toBe("15/07/2026");
+  });
+  it("A1: colar 15/08/2026 no início de campo cheio mantém o anterior", () => {
+    const r = processarDigitacao("15/08/202615/07/2026", 10, {}, "15/07/2026");
+    expect(r.texto).toBe("15/07/2026");
+    expect(r.iso).toBeNull();
+    expect(r.rejeitado).toBe(true);
+  });
+  it("bissexto", () => {
+    expect(brToIso("29/02/2024")).toBe("2024-02-29");
+    expect(brToIso("29/02/2100")).toBeNull();
   });
   it("sequência de dígitos pura 15072026 emite 2026-07-15", () => {
     expect(processarDigitacao("15072026", 8).iso).toBe("2026-07-15");
