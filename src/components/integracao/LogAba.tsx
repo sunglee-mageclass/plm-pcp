@@ -1,19 +1,23 @@
 // Integração — aba Log (mockup 8; N11 por papel — o servidor já filtra: não-super recebe só ações de PRODUTO).
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useAuth } from "@/hooks/useAuth";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { ROTULO_ACAO, TEXTO_LOG_NAO_SUPER, lerLog, textoDetalhe } from "@/lib/integracao/log";
 import { fmtDataHora } from "@/lib/integracao/produtos";
+import { useAbrirCard } from "./abrir-card";
 import { chaveLog } from "./useIntegracao";
 
 export function LogAba() {
   const tenantId = useActiveTenantId();
   const tz = useStoreTimezone();
+  const { canView } = useAuth();
+  const abrirCard = useAbrirCard();
+  const podeAbrir = canView("criacao_planejamento") && !!abrirCard;
   const [pagina, setPagina] = useState(1);
   const q = useQuery({
     queryKey: [...chaveLog(tenantId), pagina],
@@ -58,7 +62,11 @@ export function LogAba() {
                   <td className="whitespace-nowrap px-3 py-2 tabular-nums">{fmtDataHora(l.quando, tz, true)}</td>
                   <td className="px-3 py-2">
                     {l.modeloId ? (
-                      <Link to="/criacao/planejamento" search={{ modelo: l.modeloId }} className="text-primary hover:underline">{l.modeloNome ?? "produto"}</Link>
+                      podeAbrir ? (
+                        <button type="button" onClick={() => abrirCard?.(l.modeloId!)} className="text-left text-primary hover:underline">{l.modeloNome ?? "produto"}</button>
+                      ) : (
+                        <span>{l.modeloNome ?? "produto"}</span>
+                      )
                     ) : "—"}
                   </td>
                   <td className="px-3 py-2">{textoDetalhe(l)}</td>

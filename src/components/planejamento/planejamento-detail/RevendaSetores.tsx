@@ -227,7 +227,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
 
 /** Seção "Produto Acabado" do card revenda: vínculo (atalho ⧉) ou "Criar produto acabado". */
 export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero, podeAcoesPlanejamento }: {
-  rv: RevendaPlanejamento; contexto: "planejamento" | "produto-acabado"; modeloId: string | null;
+  rv: RevendaPlanejamento; contexto: "planejamento" | "produto-acabado" | "integracao"; modeloId: string | null;
   navigate: ReturnType<typeof useNavigate>; numero?: number;
   /** P-53 A (fix 1, I-1d) — criar o espelho Produto Acabado é ação de ciclo do Planejamento (mesma família de
    *  Excluir/Duplicar/Lançar); sem a permissão, o botão nem aparece (como as demais ações escondidas). */

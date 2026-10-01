@@ -53,7 +53,6 @@
 // anterior, o preço de venda do RASCUNHO (n2) — vazio = "aguardando preço de venda" (M4). Leitura: o valor já vem do
 // vivo/retrato; só o selo ganha a versão/"aguardando" quando a linha mostra o VIVO.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 import { Lock, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -63,6 +62,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useAuth } from "@/hooks/useAuth";
+import { useAbrirCard } from "./abrir-card";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { cn } from "@/lib/utils";
 import { filtrarNcm, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
@@ -99,11 +99,12 @@ const TEXTO_SALVANDO = "Salvando…";
 function AbrirCard({ id }: { id: string }) {
   // N6 (G-plano do plano): quem só tem a permissão "Integração" não abre o Planejamento — o link some
   const { canView } = useAuth();
-  if (!canView("criacao_planejamento")) return null;
+  const abrirCard = useAbrirCard();
+  if (!canView("criacao_planejamento") || !abrirCard) return null;
   return (
-    <Link to="/criacao/planejamento" search={{ modelo: id }} className="shrink-0 text-xs text-primary underline-offset-2 hover:underline">
+    <button type="button" onClick={() => abrirCard(id)} className="shrink-0 text-xs text-primary underline-offset-2 hover:underline">
       abrir card
-    </Link>
+    </button>
   );
 }
 function Leitura({ texto, info, aviso, travado, cardId, selo }: {

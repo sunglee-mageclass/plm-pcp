@@ -135,7 +135,7 @@ export function PlanejamentoDetail(props: {
   modeloId: string | null;
   onClose: () => void;
   onSaved: () => void;
-  contexto?: "planejamento" | "produto-acabado";
+  contexto?: "planejamento" | "produto-acabado" | "integracao";
 }) {
   const [idCriado, setIdCriado] = useState<string | null>(null);
   const id = props.modeloId ?? idCriado;
@@ -148,7 +148,7 @@ function PlanejamentoDetailConteudo({
   modeloId: string | null;
   onClose: () => void;
   onSaved: () => void;
-  contexto?: "planejamento" | "produto-acabado";
+  contexto?: "planejamento" | "produto-acabado" | "integracao";
   /** Card NOVO: chamado com o id depois do INSERT (o wrapper remonta como Sheet desse id). */
   onCreated?: (id: string) => void;
 }) {

@@ -28,6 +28,9 @@ import { CamposAba } from "./CamposAba";
 import { ApiAba } from "./ApiAba";
 import { ManualAba } from "./ManualAba";
 import { LogAba } from "./LogAba";
+import { AbrirCardContext } from "./abrir-card";
+import { chaveLista, chaveLog } from "./useIntegracao";
+import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 
 // Cada task da tela troca a sua entrada (Tasks 12b, 14, 15, 16 e 17).
 const CONTEUDO_ABA: Record<Aba, ComponentType> = {
@@ -154,8 +157,16 @@ export function IntegracaoPage() {
   }, [qc, user?.id, lojaEstavel, dirty, chaveVisivel, avisarTrocaDeLoja]);
   const { requestAction, confirm } = useUnsavedGuard({ dirty, blockNav: true, navPermitida });
   const atual = abas.includes(aba) ? aba : "produtos";
+  // R14 / P-199 A: "abrir card" abre o PlanejamentoDetail em Sheet POR CIMA desta página (1 instância só; as
+  // células e a aba Log chamam `abrirCard`). Guarda a loja junto do id: o Sheet só vale na loja em que abriu —
+  // trocar de loja o fecha (derivado no render, sem efeito). O Sheet tem a PRÓPRIA guarda de "não salvo"
+  // (`useUnsavedGuard` interno do PlanejamentoDetail), separada da `dirty` desta página.
+  const [cardAberto, setCardAberto] = useState<{ id: string; tenantId: string } | null>(null);
+  const abrirCard = useCallback((id: string) => setCardAberto({ id, tenantId: lojaEstavel }), [lojaEstavel]);
+  const cardVisivel = cardAberto && cardAberto.tenantId === lojaEstavel ? cardAberto.id : null;
   return (
     <GuardaIntegracaoContext.Provider value={guarda}>
+    <AbrirCardContext.Provider value={abrirCard}>
       <div className="space-y-4 p-4 pb-24 md:p-6">
         <Breadcrumb items={[{ label: "Sistema" }, { label: "Integração" }]} />
         <div className="flex items-center gap-3">
@@ -184,6 +195,20 @@ export function IntegracaoPage() {
         </Tabs>
       </div>
       <UnsavedChangesGuard confirm={confirm} />
+      {cardVisivel && (
+        <PlanejamentoDetail
+          modeloId={cardVisivel}
+          contexto="integracao"
+          onClose={() => setCardAberto(null)}
+          onSaved={() => {
+            // A linha da Integração refresca (lista + log). A lista nova passa pelo efeito de merge 3-vias do
+            // ProdutosAba (rev maior → `mesclar`), então um rascunho não salvo da MESMA linha é preservado/avisado.
+            void qc.invalidateQueries({ queryKey: chaveLista(lojaEstavel) });
+            void qc.invalidateQueries({ queryKey: chaveLog(lojaEstavel) });
+          }}
+        />
+      )}
+    </AbrirCardContext.Provider>
     </GuardaIntegracaoContext.Provider>
   );
 }

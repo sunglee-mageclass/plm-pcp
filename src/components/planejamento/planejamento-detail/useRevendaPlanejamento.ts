@@ -24,7 +24,7 @@ export type UseRevendaPlanejamentoArgs = {
   categorias: CatOpt[];
   qc: QueryClient;
   navigate: ReturnType<typeof useNavigate>;
-  contexto: "planejamento" | "produto-acabado";
+  contexto: "planejamento" | "produto-acabado" | "integracao";
   onClose: () => void;
 };
 
@@ -201,8 +201,9 @@ export function useRevendaPlanejamento({
       // No contexto "produto-acabado" o detalhe já está aberto DENTRO do planejador Produto
       // Acabado — navegar levaria pra tela onde já se está; em vez disso fecha o sheet e deixa
       // o container recarregar os cards via onSaved/invalidate. Em "planejamento" segue
-      // navegando pro planejador (comportamento original).
-      if (contexto === "produto-acabado") {
+      // navegando pro planejador (comportamento original). "integracao" (R14, P-199 A) idem ao
+      // "produto-acabado": o Sheet está por cima da Integração — fecha em vez de tirar o usuário da tela.
+      if (contexto !== "planejamento") {
         onClose();
       } else {
         navigate({ to: "/criacao/produto-acabado", search: colecaoId ? ({ colecao: colecaoId } as any) : ({} as any) });
