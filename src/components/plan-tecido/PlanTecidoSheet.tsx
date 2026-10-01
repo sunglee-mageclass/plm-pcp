@@ -30,7 +30,7 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
@@ -79,21 +79,6 @@ const dndCollision: CollisionDetection = (args) => {
   const byPointer = pointerWithin(args);
   return byPointer.length > 0 ? byPointer : rectIntersection(args);
 };
-
-// limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) — extraído do effect de seed p/
-// ser reutilizável também pelo merge colab (mesma regra, 3 chamadores).
-function limparSlotsOrfaos(arv: PtArvore, validIds: Set<string>): PtArvore {
-  return {
-    ...arv,
-    subcolecoes: arv.subcolecoes.map((s) => ({
-      ...s,
-      linhas: s.linhas.map((l) => ({
-        ...l,
-        slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null } : sl)),
-      })),
-    })),
-  };
-}
 
 // Árvore "fresca" = a semeadura (OTB/BOM vivos) mesclada com o que está salvo no servidor —
 // MESMO pipeline usado pelo carregamento normal (engine intocado, só consumido).
@@ -490,7 +475,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         // Plan.Tecido (nem card no canvas, nem faixa "Sem tecido" no Modo Plano). Traz só fabricados:
         // interno E origem NULL (modelos antigos sem a coluna preenchida = interno por semântica).
         // `.not(in)` sozinho descartaria os NULL (NULL not-in → UNKNOWN); por isso o OR explícito.
-        .or("origem.is.null,origem.eq.interno")).data ?? []) as any[],
+        .or("origem.is.null,origem.eq.interno")
+        // D-3 (L7): ordem FIXA — é a ordem das vagas dos cards na linha (seed) e o `slot_index` gravado no Salvar.
+        // Sem ORDER BY vinha a ordem física da tabela, que muda quando o modelo é atualizado (o próprio Salvar
+        // atualiza modelos): salvar de novo renumerava as vagas.
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })).data ?? []) as any[],
   });
 
   // tamanhos da grade cadastrados na loja (tenant_config.tamanhos_grade, formato "34|PPP")
@@ -1174,7 +1164,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         toast.warning(textoTamanhoRevertido(marca.revertidos));
       }
       arvoreSalvaRef.current = semPrecoNasVagasComCard(marca.local);
-      const arvorePayload = semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null));
+      // D-3 (L7): `slot_index` = a posição na tela (a ordem do cliente, sem renumerar por outra regra).
+      const arvorePayload = comOrdemDasVagas(semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null)));
       const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
         _colecao_id: colecaoId, _arvore: arvorePayload, _rev_base: revRef.current,
       });

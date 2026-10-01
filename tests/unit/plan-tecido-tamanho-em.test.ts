@@ -282,7 +282,7 @@ describe("fonte: fiação do Plan. Tecido", () => {
     // N-2: nº de SKUs na mesma consulta dos modelos vivos + aviso no card
     expect(sheet).toContain("modelo_skus(count)");
     expect(sheet).toContain("avisoSkuTamanho={avisoSkuTamanhoDe(slot)}");
-    expect(sheet).toContain("const arvorePayload = semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore,");
+    expect(sheet).toContain("const arvorePayload = comOrdemDasVagas(semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore,"); // L7 D-3: slot_index = posição
     expect(sheet).toContain("invalidarEstadoSeTravado(qc, e);");
     expect(sheet).toContain("tamanho_tipo: slot.tamanho_tipo ?? null,");
     expect(sheet).toContain("planBaseRef.current = arvoreSalvaRef.current ?? arvore;");

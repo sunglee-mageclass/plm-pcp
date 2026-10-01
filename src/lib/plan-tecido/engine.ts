@@ -792,3 +792,47 @@ export function semPrecoNasVagasComCard(arvore: PtArvore): PtArvore {
     })),
   };
 }
+
+/**
+ * est #14 (L7, P-135 B): modelo_id ÓRFÃO (o card saiu da coleção, virou comprado ou foi excluído) — a vaga fica SEM
+ * card, mas os materiais (BOM congelado do card) ficam: nada some sozinho. Marca `card_saiu` (só de tela) para o card
+ * mostrar o selo âmbar + o atalho "limpar materiais" (que só muda o rascunho; grava no Salvar). Pura.
+ */
+export function limparSlotsOrfaos(arv: PtArvore, validIds: Set<string>): PtArvore {
+  return {
+    ...arv,
+    subcolecoes: arv.subcolecoes.map((s) => ({
+      ...s,
+      linhas: s.linhas.map((l) => ({
+        ...l,
+        slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null, card_saiu: true } : sl)),
+      })),
+    })),
+  };
+}
+
+/** est #14: a vaga cujo card saiu ainda guarda materiais (o selo âmbar aparece). */
+export const vagaComMateriaisDeCardQueSaiu = (s: PtSlot): boolean => !!s.card_saiu && !s.modelo_id && (s.materiais?.length ?? 0) > 0;
+
+/** est #14: o atalho "limpar materiais" — tira SÓ os materiais da vaga (o resto do rascunho fica). Estado local; grava
+ *  no Salvar (regra do staging). Pura. */
+export const limparMateriaisDaVaga = (s: PtSlot): PtSlot => ({ ...s, materiais: [] });
+
+/**
+ * D-3 (L7): grava a ORDEM DA TELA — `slot_index` = posição da vaga na linha (0..n-1) no payload do Salvar. A árvore
+ * lida do banco não devolve `slot_index` (vem só ordenada por ele); as vagas que o merge acrescenta (órfãs/sobra)
+ * iam sem índice (0 no banco, empatando com a 1ª). Com a ordem dos modelos fixa (`created_at, id` na consulta), salvar
+ * de novo grava os MESMOS índices. Pura.
+ */
+export function comOrdemDasVagas(arvore: PtArvore): PtArvore {
+  return {
+    ...arvore,
+    subcolecoes: arvore.subcolecoes.map((sub) => ({
+      ...sub,
+      linhas: sub.linhas.map((ln) => ({
+        ...ln,
+        slots: ln.slots.map((sl, i) => (sl.slot_index === i ? sl : { ...sl, slot_index: i })),
+      })),
+    })),
+  };
+}

@@ -243,6 +243,74 @@ export function sobraOc(ocId: string, linhas: readonly SobraOcLinha[], det: Deta
   return total;
 }
 
+/** PT gaveta "oc" (L7) — a conta de UMA cor (artigo × variante) somada sobre TODAS as OCs da coleção, OC a OC
+ *  (`contabilizarOc` por OC e depois Σ — o mesmo `max`/clamp por cor do `sobraOc`), para Entregue − Demanda = Sobra
+ *  fechar na linha e o total bater com a Σ da "Situação por OC" do Resumo. */
+export type ContaCorColecao = { reservada: number; comprometida: number; usada: number; reservadaLivre: number; demanda: number; sobra: number; baixaDomina: boolean };
+
+const contaVazia = (): ContaCorColecao & { baixa: number } => ({ reservada: 0, comprometida: 0, usada: 0, reservadaLivre: 0, demanda: 0, sobra: 0, baixaDomina: false, baixa: 0 });
+function somarConta(acc: ContaCorColecao & { baixa: number }, reservada: number, comprometida: number, baixa: number, entregue: number): void {
+  const c = contabilizarOc(reservada, comprometida, baixa, entregue);
+  acc.reservada += reservada;
+  acc.comprometida += comprometida;
+  acc.baixa += baixa;
+  acc.usada += c.usada;
+  acc.reservadaLivre += c.reservadaLivre;
+  acc.demanda += Math.max(reservada, c.usada);
+  acc.sobra += c.sobra;
+  acc.baixaDomina = acc.baixa > 0 && acc.baixa >= acc.comprometida;
+}
+
+/** Visão "oc" da gaveta (coleção inteira) pela MESMA fonte do Resumo e da gaveta por OC: as parcelas da `detalheOc`
+ *  (repartição D5, sem reprovados, só os artigos/cores de cada OC) + a demanda SEM COR (`demandaSemCor`, só-artigo),
+ *  que também abate. `porCor` key = `${artigo_id}|${variante_tecido_id}`; `sobraTotal` = Σ `sobraOc` de cada OC
+ *  (= Σ das Sobras da Situação por OC) = Σ `porCor.sobra` + `semCor.sobra`. */
+export function contaOcColecao(linhas: readonly SobraOcLinha[], det: DetalheOcSobra): {
+  porCor: Map<string, ContaCorColecao>;
+  semCor: ContaCorColecao;
+  sobraTotal: number;
+} {
+  // OC × cor: entregue/baixa da Situação (como o `sobraOc`)
+  const porOcCor = new Map<string, { oc: string; artigo: string; vid: string | null; entregue: number; usada: number }>();
+  const ocIds: string[] = [];
+  for (const r of linhas) {
+    if (!ocIds.includes(r.oc_tecido_id)) ocIds.push(r.oc_tecido_id);
+    const k = `${r.oc_tecido_id}|${r.artigo_id}|${r.variante_tecido_id}`;
+    const cur = porOcCor.get(k) ?? { oc: r.oc_tecido_id, artigo: r.artigo_id, vid: r.variante_tecido_id, entregue: 0, usada: 0 };
+    cur.entregue += Number(r.entregue_m) || 0;
+    cur.usada += Number(r.usada_m) || 0;
+    porOcCor.set(k, cur);
+  }
+  const porCor = new Map<string, ContaCorColecao & { baixa: number }>();
+  for (const c of porOcCor.values()) {
+    const chave = `${c.oc}|${c.vid}`;
+    const k = `${c.artigo}|${c.vid}`;
+    const acc = porCor.get(k) ?? contaVazia();
+    somarConta(acc, det.reservPorOcVar.get(chave) ?? 0, det.comprometidoPorOcVar.get(chave) ?? 0, c.usada, c.entregue);
+    porCor.set(k, acc);
+  }
+  const semCor = contaVazia();
+  let sobraTotal = 0;
+  for (const oc of ocIds) {
+    const sc = demandaSemCor(oc, det);
+    if (sc.reservada > 0 || sc.comprometida > 0) somarConta(semCor, sc.reservada, sc.comprometida, 0, 0);
+    sobraTotal += sobraOc(oc, linhas, det);
+  }
+  return { porCor, semCor, sobraTotal };
+}
+
+/** prod #9 (L7): o pç da cor (`grade_total`) não bate com a soma dos tamanhos (`grades`)? Devolve a soma dos tamanhos
+ *  quando o mapa NÃO está vazio e diverge do pç; senão `null` (mapa vazio = o pç é distribuído pela proporção). Só
+ *  avisa — nunca redistribui. */
+export function somaTamanhosDivergente(v: { grade_total?: number | null; grades?: Record<string, number> | null }): number | null {
+  const g = v.grades;
+  if (!g || typeof g !== "object") return null;
+  const vals = Object.values(g);
+  if (vals.length === 0) return null;
+  const soma = vals.reduce((s, x) => s + (Number(x) || 0), 0);
+  return soma === (Number(v.grade_total) || 0) ? null : soma;
+}
+
 /** Vínculo OC↔modelo com prioridade e quantidade (RPC `plan_tecido_vinculos_detalhe`, 1 linha por
  *  vínculo modelo×tipo×numero×variante×item da OC). */
 export type VinculoDetalhe = {
@@ -296,7 +364,7 @@ export function repartirDemanda(
  *  ainda sem cor) é dividida ENTRE as OCs vinculadas, em sequência, como o corte consome
  *  (`repartirDemanda`): ordem por prioridade/oc_tecido_item_id, limite min(restante, livre,
  *  quantidade_m>0), sobra na ÚLTIMA OC. Σ por OC = demanda elegível (nunca N×). Cards: enviados à
- *  Explosão primeiro, depois a ordem da vaga. Sem `vinculos` (detalhe não carregado/hint do plano):
+ *  Explosão primeiro, depois `ordemD5` (modelo_id — D-3). Sem `vinculos` (detalhe não carregado/hint do plano):
  *  ordem do array, sem limite quantidade_m, mas sempre em sequência.
  *  ⚠️ Parcela sem variante_tecido_id conta no total por-OC mas não no por-variante.
  *  (O split "do estoque" — parcela de cards "usar estoque existente" — foi REMOVIDO com a
@@ -321,6 +389,16 @@ export type DetalheOcOpts = {
    *  deixar a 1ª OC levar tudo de forma visível. */
   aguardando?: boolean;
 };
+
+/** D-3 (L7): desempate da repartição D5 entre cards da MESMA leva (enviados ou não) — pelo `modelo_id`, nunca pela
+ *  posição da vaga na linha. A posição vinha da ordem em que os modelos chegam do banco (sem ORDER BY) e o Salvar a
+ *  regravava (`slot_index`), então salvar podia trocar quem leva a capacidade de uma OC disputada. Card antes de vaga
+ *  sem card; vaga sem card desempata pelo `id` da vaga. O D5 só é calculado aqui (o banco não reparte). */
+export function ordemD5(a: PtSlot, b: PtSlot): number {
+  const ka = a.modelo_id ? `0|${a.modelo_id}` : `1|${a.id ?? ""}`;
+  const kb = b.modelo_id ? `0|${b.modelo_id}` : `1|${b.id ?? ""}`;
+  return ka < kb ? -1 : ka > kb ? 1 : 0;
+}
 
 export function detalheOc(
   arvore: PtArvore,
@@ -378,8 +456,8 @@ export function detalheOc(
     if (!ocIds.length) continue;
     slotsInfo.push({ slot, ocIds, enviado: !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id) });
   }
-  // enviados à Explosão primeiro (já consumiram), depois a ordem da vaga (sort estável)
-  slotsInfo.sort((a, b) => Number(b.enviado) - Number(a.enviado));
+  // enviados à Explosão primeiro (já consumiram), depois o desempate ESTÁVEL de `ordemD5` (D-3: nunca a posição da vaga)
+  slotsInfo.sort((a, b) => Number(b.enviado) - Number(a.enviado) || ordemD5(a.slot, b.slot));
 
   type ParcelaPlano = { vid: string | null; artigoId: string | null; tipo: string; numero: number; metros: number };
   const plano: { slot: PtSlot; ocIds: string[]; enviado: boolean; usaDetalhe: boolean; parcelas: ParcelaPlano[] }[] = [];

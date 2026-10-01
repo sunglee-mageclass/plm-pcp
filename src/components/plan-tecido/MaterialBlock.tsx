@@ -15,7 +15,7 @@ import { corApelidoLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
-import { varKey, fmtMetros, dedupVariantes } from "@/lib/plan-tecido/calc";
+import { varKey, fmtMetros, dedupVariantes, somaTamanhosDivergente } from "@/lib/plan-tecido/calc";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { AtendeAPopover } from "./AtendeAPopover";
@@ -363,6 +363,8 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
           const linha = ({ v, fantasma }: { v: PtVariante; fantasma: boolean }, vi: number) => {
             const div = !fantasma && divergente(v);
             const planejada = !fantasma && !v.variante_tecido_id;
+            // prod #9 (L7): pç ≠ soma dos tamanhos (mapa não vazio) — só avisa; o texto completo vai abaixo da lista.
+            const somaTam = fantasma ? null : somaTamanhosDivergente(v);
             const { cor, apelido } = corEApelido(v);
             return (
               // key com índice de exibição: uma cor pode aparecer DUPLICADA no material (anomalia de
@@ -388,6 +390,11 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                 ) : planejada ? (
                   <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700" title="Cor planejada — vira variante quando o tecido tiver essa cor">planejada</span>
                 ) : null}
+                {somaTam !== null && (
+                  <span role="img" className="shrink-0 text-amber-600" title={`Os tamanhos somam ${somaTam} — ajuste no Planejamento`} aria-label={`Os tamanhos somam ${somaTam} — ajuste no Planejamento`}>
+                    <AlertTriangle className="h-3 w-3" />
+                  </span>
+                )}
                 {(() => {
                   // Distribuição por produto: cor do T1 distribuída OU cor de bloco amarrada = pç SÓ LEITURA (derivado).
                   // Tudo na MESMA linha e sem aumentar a altura (Modo Plano alinha pela altura da linha — estudo R9).
@@ -451,6 +458,24 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                 {rows.map((row) => linha(row, ordenadas.indexOf(row)))}
               </div>
             ));
+        })()}
+
+        {/* prod #9 (L7): pç da cor ≠ soma dos tamanhos gravados (mapa não vazio). Não redistribui — o ajuste é no
+            Planejamento (a grade por tamanho do card). Texto fora da linha p/ não mudar a altura (Modo Plano). */}
+        {(() => {
+          const dif = material.variantes
+            .map((v) => ({ v, soma: somaTamanhosDivergente(v) }))
+            .filter((x): x is { v: PtVariante; soma: number } => x.soma !== null);
+          return dif.length > 0 ? (
+            <div className="mt-1 space-y-0.5">
+              {dif.map(({ v, soma }) => (
+                <p key={varKey(v)} className="flex items-start gap-1 text-[10px] font-medium text-amber-700">
+                  <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
+                  <span>{nomeCorCurto(v)}: {v.grade_total ?? 0} pç, mas os tamanhos somam {soma} — ajuste no Planejamento</span>
+                </p>
+              ))}
+            </div>
+          ) : null;
         })()}
 
         {/* Distribuição por produto (R14): cor do Tecido 1 sem nenhuma cor deste bloco → aviso âmbar (fica fora do "a comprar"). */}
