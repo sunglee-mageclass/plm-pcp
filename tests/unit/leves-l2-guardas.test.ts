@@ -25,7 +25,7 @@ describe("LEVES L2", () => {
   });
   it("N6: os 4 onError do CQ Pré relêem o CQ", () => {
     const s = ler("src/routes/_authenticated/expedicao.cq.$modeloId.tsx");
-    expect(s.match(/deveReaplicarStatusAposErro\(e\)/g)?.length).toBe(4);
+    expect(s.match(/reaplicarStatusCqAposErro\(e, qc, \["cq", cad\?\.id\]\)/g)?.length).toBe(4);
   });
   it("M2: todo host que já tem guarda de rota própria passa hostGuardaNavegacao", () => {
     expect(ler("src/components/produto-acabado/ProdutoAcabadoSheet.tsx")).toContain("hostGuardaNavegacao={dirty}");

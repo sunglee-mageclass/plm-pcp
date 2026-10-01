@@ -68,3 +68,15 @@ export function mensagemToastPosSavePcp(antes: string | null, depois: string | n
   if (antes === "confirmado" && depois === "pendente") return { rebaixou: true, texto: "O CQ voltou a pendente: a grade real zerou" };
   return { rebaixou: false, texto: "Salvo com sucesso" };
 }
+
+/** N6: no `onError` de uma ação local do CQ, relê a query do CQ quando o erro não é P0409 (reaplica o status remoto ignorado em voo). */
+export function reaplicarStatusCqAposErro(e: unknown, qc: { invalidateQueries: (o: { queryKey: unknown[] }) => unknown }, queryKey: unknown[]): void {
+  if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey });
+}
+
+/** Flag de 1 leitura: devolve o valor e zera (nunca vira bypass permanente — B6). */
+export function consumirFlag(ref: { current: boolean }): boolean {
+  const v = ref.current;
+  ref.current = false;
+  return v;
+}

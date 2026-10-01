@@ -1021,7 +1021,7 @@ export function TerceirizadosDetail({
             for (const queryKey of [["cq", cadId], ["cqpos-cq", cadId], ["producao-cq-list"], ["dir-list"], ["lancamentos-cards"], ["plan-cq"]])
               qc.invalidateQueries({ queryKey });
           } else toast.success(msg.texto);
-        });
+        }).catch(() => toast.success("Salvo com sucesso"));
       }
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".

@@ -6,15 +6,21 @@ import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider, createRouter, createRootRoute, createRoute, createMemoryHistory } from "@tanstack/react-router";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { consumirFlag } from "@/lib/cq-status-tela";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
 let container: HTMLElement | null = null;
 
-async function montar(opts: { dirty: boolean; permitir?: () => boolean }) {
+async function montar(opts: { dirty: boolean; permitir?: () => boolean; filhoSujo?: boolean; hostGuarda?: boolean }) {
+  function Filho() {
+    // Sheet dentro da página: bloqueia a rota só se a página (host) não tem guarda própria
+    const { confirm } = useUnsavedGuard({ dirty: !!opts.filhoSujo, blockNav: !opts.hostGuarda });
+    return createElement(UnsavedChangesGuard, { confirm });
+  }
   function Tela() {
     const { confirm } = useUnsavedGuard({ dirty: opts.dirty, blockNav: true, navPermitida: opts.permitir ? () => opts.permitir!() : undefined });
-    return createElement(UnsavedChangesGuard, { confirm });
+    return createElement("div", null, createElement(UnsavedChangesGuard, { confirm }), opts.filhoSujo !== undefined ? createElement(Filho) : null);
   }
   const rootRoute = createRootRoute({ component: Tela });
   const a = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => null });
@@ -53,5 +59,22 @@ describe("useUnsavedGuard blockNav (L3)", () => {
     await act(async () => { await router.navigate({ to: "/b" }); });
     expect(dialogos()).toBe(0);
     expect(router.state.location.pathname).toBe("/b");
+  });
+});
+
+describe("useUnsavedGuard — página + Sheet (M2)", () => {
+  it("página suja (blockNav) + Sheet sujo com blockNav: !paginaSuja => exatamente 1 diálogo", async () => {
+    const router = await montar({ dirty: true, filhoSujo: true, hostGuarda: true });
+    await act(async () => { void router.navigate({ to: "/b" }); await new Promise((r) => setTimeout(r, 50)); });
+    expect(dialogos()).toBe(1);
+  });
+});
+
+describe("consumirFlag (B6)", () => {
+  it("devolve true na 1ª leitura e zera; a 2ª leitura é false", () => {
+    const ref = { current: true };
+    expect(consumirFlag(ref)).toBe(true);
+    expect(ref.current).toBe(false);
+    expect(consumirFlag(ref)).toBe(false);
   });
 });

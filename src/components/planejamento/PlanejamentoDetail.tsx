@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CONTEXTO_PADRAO, type ContextoDetalhe } from "@/components/planejamento/planejamento-detail/contexto";
+import { consumirFlag } from "@/lib/cq-status-tela";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
@@ -162,11 +163,7 @@ function PlanejamentoDetailConteudo({
   const fechandoRef = useRef(false);
   const onClose = useCallback(() => { fechandoRef.current = true; onCloseProp(); }, [onCloseProp]);
   // Consome-se sozinho (1 leitura, como o `justClosingRef` do ProdutoAcabadoSheet): nunca vira bypass permanente (B6).
-  const navPermitida = useCallback(() => {
-    const v = fechandoRef.current;
-    fechandoRef.current = false;
-    return v;
-  }, []);
+  const navPermitida = useCallback(() => consumirFlag(fechandoRef), []);
   // "Criar produto acabado" fecha pelo MESMO caminho do Voltar/X (pede confirmação se sujo) — o hook é chamado antes do guarda.
   const requestCloseRef = useRef<() => void>(() => {});
   // As 7 listas de opção vêm do hook (cache compartilhado com a página, sem refetch duplo).

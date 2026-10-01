@@ -48,7 +48,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
-import { baselineAposMerge, decidirStatusServidor, deveReaplicarStatusAposErro, statusCqDe } from "@/lib/cq-status-tela";
+import { baselineAposMerge, decidirStatusServidor, reaplicarStatusCqAposErro, statusCqDe } from "@/lib/cq-status-tela";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -1103,7 +1103,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         return;
       }
       // N6: erro que não é P0409 — o status remoto chegado durante a ação em voo foi ignorado; relê p/ reaplicar.
-      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
+      reaplicarStatusCqAposErro(e, qc, ["cq", cad?.id]);
       toast.error(mensagemErro(e, "Erro ao salvar"));
     },
   });
@@ -1146,7 +1146,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         return;
       }
       // N6: erro que não é P0409 — o status remoto chegado durante a ação em voo foi ignorado; relê p/ reaplicar.
-      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
+      reaplicarStatusCqAposErro(e, qc, ["cq", cad?.id]);
       toast.error(mensagemErro(e, "Erro ao confirmar"));
     },
   });
@@ -1166,7 +1166,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       await refetchCq();
     },
     onError: (e: any) => {
-      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] }); // N6
+      reaplicarStatusCqAposErro(e, qc, ["cq", cad?.id]); // N6
       toast.error(mensagemErro(e, "Erro ao desmarcar"));
     },
   });
@@ -1195,7 +1195,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       (onForceClose ?? onClose)?.();
     },
     onError: (e: any) => {
-      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cq", cad?.id] }); // N6
+      reaplicarStatusCqAposErro(e, qc, ["cq", cad?.id]); // N6
       toast.error(mensagemErro(e, "Erro ao voltar para Serviços"));
     },
   });
