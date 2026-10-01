@@ -133,6 +133,33 @@ export function contabilizarOc(total: number, comprometido: number, baixa: numbe
   return { reservadaLivre: Math.max(0, t - usada), usada, sobra: e - Math.max(t, usada), baixaDomina: b > 0 && b >= c };
 }
 
+/** D-1 (R9) — SOBRA de UMA OC como o Drawer a calcula: Σ POR COR (artigo × variante) de `contabilizarOc`
+ *  (reservada/comprometida da `detalheOc` por OC×variante; entregue/baixa da Situação). Antes o Resumo aplicava
+ *  `contabilizarOc` ao total da OC e o `max`/clamp por cor sumia — Resumo e Drawer discordavam quando uma cor
+ *  estoura e outra sobra. O Resumo usa ESTE helper; o Drawer mostra as mesmas parcelas, cor a cor. */
+export type SobraOcLinha = { oc_tecido_id: string; artigo_id: string; variante_tecido_id: string | null; entregue_m: number; usada_m: number };
+export function sobraOc(
+  ocId: string,
+  linhas: readonly SobraOcLinha[],
+  det: { reservPorOcVar: Map<string, number>; comprometidoPorOcVar: Map<string, number> },
+): number {
+  const cores = new Map<string, { vid: string | null; entregue: number; usada: number }>();
+  for (const r of linhas) {
+    if (r.oc_tecido_id !== ocId) continue;
+    const k = `${r.artigo_id}|${r.variante_tecido_id}`;
+    const cur = cores.get(k) ?? { vid: r.variante_tecido_id, entregue: 0, usada: 0 };
+    cur.entregue += Number(r.entregue_m) || 0;
+    cur.usada += Number(r.usada_m) || 0;
+    cores.set(k, cur);
+  }
+  let total = 0;
+  for (const c of cores.values()) {
+    const chave = `${ocId}|${c.vid}`;
+    total += contabilizarOc(det.reservPorOcVar.get(chave) ?? 0, det.comprometidoPorOcVar.get(chave) ?? 0, c.usada, c.entregue).sobra;
+  }
+  return total;
+}
+
 /** Vínculo OC↔modelo com prioridade e quantidade (RPC `plan_tecido_vinculos_detalhe`, 1 linha por
  *  vínculo modelo×tipo×numero×variante×item da OC). */
 export type VinculoDetalhe = {

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, sobraOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { termoPoderDeVenda, poderVendaCalculando, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
@@ -285,7 +285,7 @@ export function ResumoPanel({
     if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
     if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade });
+  const { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade });
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
@@ -448,7 +448,9 @@ export function ResumoPanel({
               const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
               const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
               // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
-              const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
+              const { reservadaLivre: reservada, usada, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
+              // D-1: a Sobra é a do Drawer — Σ por cor (helper `sobraOc`), não a conta sobre o total da OC.
+              const sobra = sobraOc(o.oc_tecido_id, situacao, { reservPorOcVar, comprometidoPorOcVar });
               return (
                 <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
                   <div className="mb-0.5 flex items-center gap-2">
