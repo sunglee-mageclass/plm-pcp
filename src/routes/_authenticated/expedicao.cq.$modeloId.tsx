@@ -48,7 +48,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
-import { statusCqAposServidor, statusCqDe } from "@/lib/cq-status-tela";
+import { decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -481,6 +481,22 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ form, grades, fotografado });
   // Só marca sujo depois de hidratar e enquanto editável (readOnly não altera nada).
   const dirty = hydrated && !readOnly && changed;
+  // R14 (M-A/M-C): espelhos para o efeito de merge decidir, sem entrar nas deps, se há edição não salva e qual status a tela mostra.
+  const changedLiveRef = useRef(changed); changedLiveRef.current = changed;
+  const statusLiveRef = useRef(status); statusLiveRef.current = status;
+  const fotografadoLiveRef = useRef(fotografado); fotografadoLiveRef.current = fotografado;
+  const temEdicaoNaoSalva = () => touchedFormRef.current.size > 0 || touchedGradeRef.current.size > 0 || changedLiveRef.current;
+  // Aplica a decisão do helper (status adotado + edição mantida + aviso). Devolve se há edição a preservar.
+  const aplicarDecisaoStatus = (fresco: string, temEdicao: boolean) => {
+    const dec = decidirStatusServidor({ atual: statusLiveRef.current, fresco, temEdicao });
+    if (dec.status !== statusLiveRef.current) {
+      statusLiveRef.current = dec.status;
+      setStatus(dec.status);
+      if (dec.manterEdicao) setEditing(true);
+      if (dec.aviso) toast.info(dec.aviso);
+    }
+    return dec;
+  };
   // Full-page (rota /expedicao/cq/$modeloId): bloqueia navegação. Modal (Sheet no index):
   // o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui fica inerte.
   const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
@@ -639,7 +655,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           pecas_sem_etiqueta: Number(cqRow.pecas_sem_etiqueta ?? 0),
         };
         setForm(nextForm);
-        setStatus(statusCqDe(cqRow as any));
+        setStatus(statusCqDe(cqRow as { status?: string | null } | null));
         const fv = (cqRow as any).fotografado_variantes ?? {};
         const fmap: Record<number, boolean> = {};
         Object.entries(fv).forEach(([k, v]) => { fmap[Number(k)] = Boolean(v); });
@@ -695,8 +711,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     if (!baseFormRef.current) return;                 // antes da 1ª captura de base (o seed effect cuida)
     const freshForm = freshFormDe(cqRow);
     const freshGrade = gradeDetalheDeFonte(fonteGrade);
-    // M1 (R14): o servidor pode ter REBAIXADO o CQ (P-192 A / prod #5) — o status não é rascunho, adota o fresco.
-    setStatus((atual) => statusCqAposServidor(atual, cqRow as any));
+    // M1/M-A/M-C (R14): o servidor pode ter REBAIXADO/CONFIRMADO o CQ em outra tela — adota o status fresco, mas
+    // com edição não salva mantém a edição aberta + aviso; sem edição, re-baselina (sem falso "não salvo") + aviso.
+    const temEdicao = temEdicaoNaoSalva();
+    aplicarDecisaoStatus(statusCqDe(cqRow as { status?: string | null } | null), temEdicao);
     const meuGrade = meuGradeAtual();
     const md = mergeDraft({ base: baseFormRef.current, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
     const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -710,6 +728,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     }
     if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
     if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+    // M-C: nada era meu (sem edição) e adotei o servidor => o baseline do "não salvo" acompanha (senão sobra falso selo âmbar).
+    if (!temEdicao) resetBaseline({ form: md.valor, grades: aplicarGradeNoState(gradesLiveRef.current, mg.valor), fotografado: fotografadoLiveRef.current });
     conflitosRef.current = todos; setConflitos(todos);
     setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
     baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
@@ -955,7 +975,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
       const freshForm = freshFormDe(freshCq);
       const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
-      setStatus((atual) => statusCqAposServidor(atual, freshCq)); // M1 (R14)
+      aplicarDecisaoStatus(statusCqDe(freshCq), temEdicaoNaoSalva()); // M1/M-A (R14)
       const meuGrade = meuGradeAtual();
       const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
       const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });

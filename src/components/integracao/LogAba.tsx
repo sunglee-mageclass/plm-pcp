@@ -63,7 +63,7 @@ export function LogAba() {
                   <td className="px-3 py-2">
                     {l.modeloId ? (
                       podeAbrir ? (
-                        <button type="button" onClick={() => abrirCard?.(l.modeloId!)} className="text-left text-primary hover:underline">{l.modeloNome ?? "produto"}</button>
+                        <button type="button" onClick={() => abrirCard?.(l.modeloId!)} aria-label={`Abrir card de ${l.modeloNome ?? "produto"}`} className="cursor-pointer text-left text-primary hover:underline">{l.modeloNome ?? "produto"}</button>
                       ) : (
                         <span>{l.modeloNome ?? "produto"}</span>
                       )

@@ -29,7 +29,7 @@ import { ApiAba } from "./ApiAba";
 import { ManualAba } from "./ManualAba";
 import { LogAba } from "./LogAba";
 import { AbrirCardContext } from "./abrir-card";
-import { chaveLista, chaveLog } from "./useIntegracao";
+import { chaveLista, chaveLog, invalidarIntegracao } from "./useIntegracao";
 import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 
 // Cada task da tela troca a sua entrada (Tasks 12b, 14, 15, 16 e 17).
@@ -50,6 +50,7 @@ export function IntegracaoPage() {
   const qc = useQueryClient();
   const abas = abasVisiveis(isSuperAdmin);
   const [aba, setAba] = useState<Aba>("produtos");
+  const [cardAberto, setCardAberto] = useState<{ id: string; tenantId: string } | null>(null);
   const [sujas, setSujas] = useState<Partial<Record<Aba, boolean>>>({});
   const informarSujo = useCallback(
     (a: Aba, s: boolean) => setSujas((x) => (Boolean(x[a]) === s ? x : { ...x, [a]: s })),
@@ -90,6 +91,7 @@ export function IntegracaoPage() {
       // bloqueando por um estado que já não existe mais.
       setSujas({});
       setChaveVisivel(false);
+      setCardAberto(null); // L1: o Sheet não reabre sozinho ao voltar para a loja anterior (X→Y→X)
     }
   }
   // Fix round 3 T15 (n2-R, code-review "Re-check round 2"): extraído pra função nomeada — chamado de DOIS lugares
@@ -161,7 +163,6 @@ export function IntegracaoPage() {
   // células e a aba Log chamam `abrirCard`). Guarda a loja junto do id: o Sheet só vale na loja em que abriu —
   // trocar de loja o fecha (derivado no render, sem efeito). O Sheet tem a PRÓPRIA guarda de "não salvo"
   // (`useUnsavedGuard` interno do PlanejamentoDetail), separada da `dirty` desta página.
-  const [cardAberto, setCardAberto] = useState<{ id: string; tenantId: string } | null>(null);
   const abrirCard = useCallback((id: string) => setCardAberto({ id, tenantId: lojaEstavel }), [lojaEstavel]);
   const cardVisivel = cardAberto && cardAberto.tenantId === lojaEstavel ? cardAberto.id : null;
   return (
@@ -199,7 +200,13 @@ export function IntegracaoPage() {
         <PlanejamentoDetail
           modeloId={cardVisivel}
           contexto="integracao"
-          onClose={() => setCardAberto(null)}
+          onClose={() => {
+            // M-B: o que o Sheet grava DEPOIS do `onSaved` (SKUs via aplicar/gerar_skus_modelo, que não fazem UPDATE em
+            // `modelos` e portanto nem o Realtime avisa) e o "Criar produto acabado" (que só fecha) só chegam à linha
+            // se a Integração relistar aqui. Aceita o refetch em dobro com o `onSaved` (L2).
+            invalidarIntegracao(qc, lojaEstavel, [cardVisivel]);
+            setCardAberto(null);
+          }}
           onSaved={() => {
             // A linha da Integração refresca (lista + log). A lista nova passa pelo efeito de merge 3-vias do
             // ProdutosAba (rev maior → `mesclar`), então um rascunho não salvo da MESMA linha é preservado/avisado.

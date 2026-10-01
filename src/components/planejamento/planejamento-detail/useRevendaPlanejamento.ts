@@ -12,6 +12,7 @@ import { markupDePreco } from "@/lib/preco-revenda";
 import { supabase } from "@/integrations/supabase/client";
 import { erroValidacao, limparEnviadoSeServidorMudou, type MarkupEnviado } from "@/components/produto-acabado/shared";
 import { type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
+import { abertoPorCima, type ContextoDetalhe } from "./contexto";
 
 export type UseRevendaPlanejamentoArgs = {
   modeloId: string | null;
@@ -24,7 +25,7 @@ export type UseRevendaPlanejamentoArgs = {
   categorias: CatOpt[];
   qc: QueryClient;
   navigate: ReturnType<typeof useNavigate>;
-  contexto: "planejamento" | "produto-acabado" | "integracao";
+  contexto: ContextoDetalhe;
   onClose: () => void;
 };
 
@@ -203,7 +204,7 @@ export function useRevendaPlanejamento({
       // o container recarregar os cards via onSaved/invalidate. Em "planejamento" segue
       // navegando pro planejador (comportamento original). "integracao" (R14, P-199 A) idem ao
       // "produto-acabado": o Sheet está por cima da Integração — fecha em vez de tirar o usuário da tela.
-      if (contexto !== "planejamento") {
+      if (abertoPorCima(contexto)) {
         onClose();
       } else {
         navigate({ to: "/criacao/produto-acabado", search: colecaoId ? ({ colecao: colecaoId } as any) : ({} as any) });

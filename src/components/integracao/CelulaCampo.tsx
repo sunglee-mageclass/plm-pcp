@@ -96,19 +96,19 @@ type Props = {
 
 const TEXTO_SALVANDO = "Salvando…";
 
-function AbrirCard({ id }: { id: string }) {
+function AbrirCard({ id, nome }: { id: string; nome?: string }) {
   // N6 (G-plano do plano): quem só tem a permissão "Integração" não abre o Planejamento — o link some
   const { canView } = useAuth();
   const abrirCard = useAbrirCard();
   if (!canView("criacao_planejamento") || !abrirCard) return null;
   return (
-    <button type="button" onClick={() => abrirCard(id)} className="shrink-0 text-xs text-primary underline-offset-2 hover:underline">
+    <button type="button" onClick={() => abrirCard(id)} aria-label={`Abrir card${nome ? ` de ${nome}` : ""}`} className="shrink-0 cursor-pointer text-xs text-primary underline-offset-2 hover:underline">
       abrir card
     </button>
   );
 }
-function Leitura({ texto, info, aviso, travado, cardId, selo }: {
-  texto: string; info?: string | null; aviso?: string | null; travado?: boolean; cardId?: string; selo?: ReactNode;
+function Leitura({ texto, info, aviso, travado, cardId, cardNome, selo }: {
+  texto: string; info?: string | null; aviso?: string | null; travado?: boolean; cardId?: string; cardNome?: string; selo?: ReactNode;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-1">
@@ -117,7 +117,7 @@ function Leitura({ texto, info, aviso, travado, cardId, selo }: {
       {selo}
       {info && <InfoHover ariaLabel="Informação do campo">{info}</InfoHover>}
       {aviso && <InfoHover ariaLabel="Mudou depois do retrato" className="text-[var(--tone-warning-fg)]">{aviso}</InfoHover>}
-      {cardId && <AbrirCard id={cardId} />}
+      {cardId && <AbrirCard id={cardId} nome={cardNome} />}
     </div>
   );
 }
@@ -125,15 +125,15 @@ function Leitura({ texto, info, aviso, travado, cardId, selo }: {
  *  `travaOuGate` em celula.ts). Quando a coluna tem uma edição pendente no rascunho (`colunasAlteradas`) mas um
  *  gate FECHOU depois da edição (ex.: REF travada pelo envio à Explosão), mostra o valor do RASCUNHO — formatado
  *  como o CAMPO exige (dinheiro/peso/fotos), nunca o texto cru — com realce âmbar + "descartar alteração". */
-function LeituraComPendencia({ texto, motivo, cardId, onDescartar }: {
-  texto: string; motivo: string | null; cardId?: string; onDescartar: () => void;
+function LeituraComPendencia({ texto, motivo, cardId, cardNome, onDescartar }: {
+  texto: string; motivo: string | null; cardId?: string; cardNome?: string; onDescartar: () => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex min-w-0 items-center gap-1 rounded bg-[var(--tone-warning-bg)] px-1">
         <span className="max-w-[16rem] truncate" title={texto}>{texto}</span>
         {motivo && <InfoHover ariaLabel="Sua alteração não pode ser salva">{`Sua alteração não pode ser salva: ${motivo}`}</InfoHover>}
-        {cardId && <AbrirCard id={cardId} />}
+        {cardId && <AbrirCard id={cardId} nome={cardNome} />}
       </div>
       <Button type="button" variant="link" size="sm" className="h-auto w-fit p-0 text-xs" onClick={onDescartar}>
         descartar alteração
@@ -326,7 +326,7 @@ function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: 
   if (campo.soVariante) {
     const sub = sublinhaDe(p, indice);
     const semApelido = campo.key === "cor_apelido" && !sub?.apelidoNome && !!sub?.corNome;
-    return <Leitura texto={texto} info={semApelido ? "sem apelido — não bloqueia" : (campo.info ?? null)} cardId={p.modeloId} />;
+    return <Leitura texto={texto} info={semApelido ? "sem apelido — não bloqueia" : (campo.info ?? null)} cardId={p.modeloId} cardNome={p.raw.nome} />;
   }
   return <span className="text-muted-foreground">{texto}</span>;
 }
@@ -470,7 +470,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   const travado = trava.tipo === "leitura" && trava.travado;
   if (campo.tipo === "somente_leitura") {
     const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : (campo.info ?? null);
-    return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} />;
+    return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} cardNome={p.raw.nome} />;
   }
   if (campo.key === "metatag") {
     const texto = p.estado === "nao_integravel" ? (String(r.valores.descricao_produto ?? "").trim() || "—") : valorCelula(p, "metatag", null);
@@ -502,7 +502,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
     // Isto NUNCA olha `salvando` (round 2) — só a trava/gate real.
     if (pendente) {
       return (
-        <LeituraComPendencia texto={valorRascunhoFormatado(campo, col, r)} motivo={trava.motivo} cardId={p.modeloId}
+        <LeituraComPendencia texto={valorRascunhoFormatado(campo, col, r)} motivo={trava.motivo} cardId={p.modeloId} cardNome={p.raw.nome}
           onDescartar={() => onAtualizar((x) => usarNovo(x, col))} />
       );
     }

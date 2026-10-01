@@ -29,6 +29,7 @@ import { type GradeComprado } from "@/components/planejamento/planejamento-detai
 import { tamanhosVisiveis } from "@/lib/tamanho-exibicao";
 import type { TamanhoTipo } from "@/lib/tamanho";
 import type { ReactNode } from "react";
+import { mostraVerNoProdutoAcabado, type ContextoDetalhe } from "./contexto";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
 export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior }: {
@@ -227,7 +228,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
 
 /** Seção "Produto Acabado" do card revenda: vínculo (atalho ⧉) ou "Criar produto acabado". */
 export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero, podeAcoesPlanejamento }: {
-  rv: RevendaPlanejamento; contexto: "planejamento" | "produto-acabado" | "integracao"; modeloId: string | null;
+  rv: RevendaPlanejamento; contexto: ContextoDetalhe; modeloId: string | null;
   navigate: ReturnType<typeof useNavigate>; numero?: number;
   /** P-53 A (fix 1, I-1d) — criar o espelho Produto Acabado é ação de ciclo do Planejamento (mesma família de
    *  Excluir/Duplicar/Lançar); sem a permissão, o botão nem aparece (como as demais ações escondidas). */
@@ -241,7 +242,7 @@ export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero, 
               ) : produtoRevenda ? (
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-sm text-muted-foreground">Este modelo está vinculado a um produto de revenda.</p>
-                  {contexto !== "produto-acabado" && (
+                  {mostraVerNoProdutoAcabado(contexto) && (
                     <Button
                       type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
                       onClick={() => navigate({ to: "/criacao/produto-acabado", search: produtoRevenda.colecao_id ? ({ colecao: produtoRevenda.colecao_id } as any) : ({} as any) })}
