@@ -377,6 +377,13 @@ e verifique** — o repo muda rápido.
    `COALESCE(data_entrega|data_pedido, hoje)` (provisório). `fn_oc_nota_entrada_valida` só
    bloqueia data **FUTURA** — a trava "anterior à data do pedido" foi **revogada pelo dono em
    25/set** (`20261004100000_nota_entrada_sem_trava_pedido.sql`, produção 25/set 13h08).
+   **Total da OC de tecido pelo preço da COMPRA** (release 9, fin #4, `20261020100000`):
+   `_aplicar_resolucao_alerta_tecido_core` (resolver alerta) e `_receber_reposicao_troca_core` (troca) refazem o total da
+   OC com `COALESCE(ocs_tecido_itens.preco, artigos.preco, 0)` (= o `precoItem` do front), NUNCA o preço do catálogo —
+   senão o alerta trocava o valor negociado e as parcelas. **Prazo da OC de Produto Acabado** (fin #9, `20261020120000`):
+   parseado por `regexp_split_to_table(prazo, '[^0-9]+')` em `gerar_parcelas_oc_p_acabado` E no ramo p_acabado de
+   `parcela_voltar_vencimento_automatico`, espelhado no TS `contarParcelasPrazo` (`oc-p-acabado/shared.ts`,
+   `split(/[^0-9]+/)`): "30, 60" e "30-60" = 2 parcelas, como nas outras OCs.
    ⚠️ O cliente (`authenticated`) só tem
    UPDATE em `parcelas(data_vencimento,status,data_pagamento,comprovante_url)` — `valor`/
    `numero_parcela` são só-derivados das geradoras (DEFINER, owner=postgres). Vencimento de
@@ -505,6 +512,21 @@ e verifique** — o repo muda rápido.
    antiga. Parcela paga aparece SEMPRE na lista (mesmo de bloco inativo/interno). Saldo novo com TODAS pagas não vira
    parcela "complemento" (RA1 → MÉDIA). Pagar parcela fora da faixa 1..n_eff (tela velha depois de o prazo encurtar) =
    P0001 `parcela_fora_do_prazo` (recarregar) — nunca grava 0,00 pago; parcela de outra loja no bloco = P0001.
+   **Vencimento ajustado À MÃO também em serviços** (release 9, achados médios R10 fin #6, P-165 A estendida;
+   `20261020110000_servico_vencimento_manual.sql`): `parcelas_servico.vencimento_manual boolean NOT NULL DEFAULT false`,
+   mantida SÓ pelo gatilho `trg_servico_parcela_vencimento_manual` (BEFORE INSERT/UPDATE; `authenticated` tem UPDATE em todas
+   as colunas, então o valor mandado pelo cliente é ignorado): **pessoa muda data de parcela NÃO paga → `true`**; pessoa
+   apaga a data (NULL) → `false` e o sistema repõe a calculada; **INSERT nasce sempre `false`**. ⚠️ **Toda função do
+   servidor que faz UPDATE em `parcelas_servico` TEM de ligar `app.parcelas_servico_sistema='on'` e RESTAURAR o valor
+   anterior** — senão a parcela vira "à mão" calada (teste anti-drift `tests/integration/servicos-vencimento-manual.test.ts`,
+   espelho de `parcelas-vencimento-manual.test.ts`). O loop de `servicos_financeiro` só move parcela **não paga, não manual
+   e com data ≠ calculada** (liga/restaura a GUC) e **nunca grava NULL**. RPC
+   `parcela_servico_voltar_vencimento_automatico(_id)` (DEFINER; `user_can_edit('financeiro_servicos')`; recusa paga;
+   REVOKE de PUBLIC/anon; P0001 `parcela_paga:`/`parcela_nao_encontrada:`/`servico_nao_encontrado:`/`servico_sem_data_base:`,
+   42501) limpa a marca e recalcula. Front (Financeiro › Serviços): selo **"ajustado à mão"** + botão **"Voltar ao
+   automático"**. **P-191 A: SEM correção única** — nenhuma parcela é marcada manual; as 4 da Loja Teste
+   (`0b040678`, `53865b07`, `9a77fc69`, `c575f73d`) só andam na 1ª leitura real de `servicos_financeiro`. Total de serviços
+   no Financeiro separa **Pago** e **A pagar** (R9 fin #7).
    **MO por serviço (ago/2026):** o antigo flag único virou **agregado DERIVADO**.
    `modelo_servico_mo` guarda 1 linha por **modelo×serviço** (`categoria_terceirizado_id`;
    `NULL` = "Geral (legado)", do backfill) com `valor` + `aprovado` (`null`=pendente/true/false)
@@ -584,6 +606,8 @@ e verifique** — o repo muda rápido.
     front `refCampoVisivel` (`src/lib/kanban-status.ts`, delega a `podeEnviarExplosao`) que gate a
     exibição; Config da Loja tem o 2º marcador (ícone Tag) por linha no bloco "Status do Kanban".
     TODO o resto da invariante segue: nº fixo, sigla re-sincroniza, REF manual nunca sobrescrita.
+    **Release 9 (R9 kanban #8/#19):** REF JÁ gravada (`modelos.ref`, via `refSalva`) aparece sempre no Sheet, mas só é
+    EDITÁVEL a partir da etapa configurada; a lista do Planejamento passa ao card só a `ref` oficial, nunca a `ref_auto`.
     Ver memória `project_modelo_ref_auto`.
 12. **Permissão por SEÇÃO** (camada abaixo de "página"; jul/2026) — `PageDef.sections[]` no
     `permissions-catalog.ts` (as keys entram em `ALL_PAGE_KEYS`; o `PermissoesModal` renderiza
@@ -930,7 +954,8 @@ Revenda/comprado usa fluxo e requisitos PRÓPRIOS (`revenda_kanban_colunas`/
 configurado nela) — a derivação nunca avança além da entrada, então REF/Enviar à Explosão nunca
 liberam por derivação, nem "Mover para…" ajuda (o motor ainda governa o gate por posição).
 **Configurar os requisitos da revenda ANTES de ligar a chave numa loja que usa Produto
-Acabado/Importado.**
+Acabado/Importado.** (Release 9, kanban #9: o dialog de ligar o Kanban automático e o do Salvar avisam em âmbar quando
+`produto_acabado` está ligado e `revenda_kanban_requisitos` está vazio; atalho rola até `#fluxo-revenda-card`.)
 
 **Filtro "Etapa do kanban" no Planejamento (release 4/API, `09fa206c`):** multi-select junto
 dos demais filtros (`useFilterState`); opções = colunas do board da loja na ordem + "Lançado";
@@ -1167,6 +1192,28 @@ Rodada #2 regerada; o kit roda os passos seguidos porque R-CD7(c) aborta se algu
 `20261019400000` (RPC de leitura do Plan. Tecido). Volta **LIFO pela ordem de APLICAÇÃO**: `400000_down` → (restaurar custos
 só se o dono mandar) → `310000_down` → `300000_down_neutraliza` → `300000_down` → `300000_down_drop` (separado, horário
 calmo). Os inversos da release 7 continuam valendo depois de reverter a release 8.
+
+**Release 9, front (R9, achados médios):** (1) **Revenda/importado — blur do markup** manda o valor do SERVIDOR/último enviado
+para o canal NÃO tocado (`markupCanalIntocado`, substitui `markupVarejoParaBlurAtacado`): nunca apaga o preço fixo do outro
+canal (A2). (2) **Importado** — base do markup = (`real` ‖ `previsto`) + M.O. AO VIVO (helper `baseMarkupComMO`, M6); o
+`real`/`previsto` do importado NÃO incluem a M.O. (3) **Plan. Tecido, Sobra da OC** = Σ por cor menos a demanda "Sem cor
+definida" (`sobraOc`/`demandaSemCor`), o MESMO helper no Resumo e no Drawer por-OC (D-1; a visão "oc" da gaveta, coleção
+inteira, ainda não abate a demanda sem cor — backlog leve). (4) Financeiro › Serviços: totais Pago / A pagar (fin #7).
+
+**Deploy da release 9** (código `9562dacd`; no ar 01/out 13:15, worker `0f3d1d97`; kits `savepoints/pre-release9/` banco e
+`pre-deploy-2026-10-02/` site): banco ANTES do site (o site novo lê `vencimento_manual` e chama a RPC nova; o roteiro do site
+confere os 3 passos e PARA se faltar). Ordem de ida: `20261020100000` → `20261020110000` (ADD COLUMN pega AccessExclusive por um
+instante em `parcelas_servico`: `lock_timeout`, 3 tentativas, horário calmo; CREATE TRIGGER não trava auth/storage) →
+`20261020120000`, por `ida-release9.sh` (guarda por md5; PRÉ-VOO exige as 4 parcelas da Loja Teste). **Sem correção única**
+(P-191 A: a `20261020110100` NÃO existe) e nenhuma migration muda valor gravado. Volta **LIFO**: **SITE primeiro** (o botão
+"Voltar ao automático" usa a RPC que a volta apaga), depois `120000_down` → `110000_down` → `100000_down`
+(`volta-release9.sh`), **ANTES dos inversos das releases 7/8**: a volta da release 7 PARA ("estado inesperado") e
+`20261002100000_down` recusa (P0001, `gerar_parcelas_oc_p_acabado`) enquanto a release 9 estiver no banco; a volta da 8 é
+independente. O `_down` NEUTRALIZA a função do gatilho (CREATE OR REPLACE, sem trava de tabela) — a coluna e o gatilho ficam
+(inertes); `110000_down_drop` (DROP TRIGGER, trava auth/storage) é SEPARADO, em horário calmo e opcional. **Freio de
+emergência** (`freio-release9.sh`): só troca a função do gatilho pela neutra (sem trava de tabela, qualquer hora; valores e
+marcas ficam; nada novo é marcado); a volta completa depois do freio usa `volta-pos-freio-release9.sql` (= o `_down` com a
+guarda aceitando a função neutra, md5 `d88bb1ed`). Nenhum valor gravado volta sozinho.
 
 ## O que NÃO fazer
 
