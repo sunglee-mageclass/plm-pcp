@@ -12,31 +12,43 @@
 --           oc_tecido_item_id; teto quantidade_m > 0; o ULTIMO vinculo leva o resto = repartirDemanda / Situacao por OC,
 --           P-168 A). "Reserva sem OC" (front, EstoqueTecidosTab.tsx) = reservado do core - Sigma das linhas, >= 0 por
 --           construcao. Formato da resposta (chaves) igual: o front nao muda.
+--   P-213 A (dono 01/out; fix round 1) card "reprovado" = lower(coalesce(status_desenvolvimento,''))='reprovado' OU
+--           lower(coalesce(status_planejamento,''))='reprovado': NAO reserva tecido (reserva_mod do core e as parcelas do
+--           painel). Antes so o status do Desenvolvimento contava. (O aviamento recebe a mesma regra na 20261025150000.)
 -- PRE-CONDICAO DENTRO DA MIGRATION (plan.md R15; Passo 0 de producao 01/out 11:06): recalcula TODAS as variantes de
--- TODAS as lojas com o texto de antes e o de depois e ABORTA (P0001) se:
---   (a) a_receber (prev_receb_m) ou reservado mudar em qualquer variante;
---   (b) fisico/previsto mudar numa variante FORA da lista _r15_esperados (abaixo), ou o delta do fisico de uma
---       variante da lista sair do esperado (tolerancia 0,001 m), ou previsto mudar diferente do fisico;
+-- TODAS as lojas com o texto de antes e o de depois (fix round 1, L5: a transacao e REPEATABLE READ - os 2 retratos
+-- e a reserva esperada leem o MESMO snapshot) e ABORTA (P0001) se:
+--   (a) a_receber (prev_receb_m) mudar em qualquer variante;
+--   (r) reservado mudar DIFERENTE da reducao esperada pela P-213 (_r15_reserva_esperada: soma, pela formula da
+--       reserva_mod, das parcelas dos cards reprovados SO no Planejamento, nao enviados ao corte - calculada na hora,
+--       variante a variante; tolerancia 0,0001 m). Variante sem card desses = reservado tem de ficar igual. Reaplicar (o core
+--       ja esta com o texto deste arquivo) = reducao esperada 0;
+--   (b) fisico mudar numa variante FORA da lista _r15_esperados (abaixo), ou o delta do fisico de uma variante da lista
+--       sair do esperado (tolerancia 0,001 m); previsto tem de mudar exatamente delta_fisico - delta_reservado;
 --   (c) recebido/baixa mudarem numa variante SEM item de origem de rolo (so a origem de rolo pode mexer nessas colunas).
--- LISTA ESPERADA (constante; o kit confere): producao = Ave Rara:9cc99d86 (delta 0) + French:28e180c5 (-1 m, 1024 -> 1023).
--- Na copia 54422 so a French muda o fisico (-1); Loja Teste:caf20841 muda recebido e baixa (+80,54 cada, fisico igual).
+-- LISTA ESPERADA do fisico (constante; o kit confere): producao = Ave Rara:9cc99d86 (delta 0) + French:28e180c5 (-1 m,
+-- 1024 -> 1023). A lista da RESERVA (P-213) e de producao sai da consulta so-leitura
+-- supabase/consultas/r15_p213_reserva_previa.sql (o kit roda antes e o dono confere); a migration recalcula a mesma conta.
+-- Na copia 54422: fisico so French -1; Loja Teste:caf20841 recebido e baixa +80,54 cada (fisico igual); reserva -12,08 m em
+-- 3 variantes da Ave Rara (44b85a70, 46d448df, a1cd74ba - TOP ALICIA, reprovado so no Planejamento; 7 cards nesse estado na
+-- copia, so 2 com tecido e so o TOP ALICIA com grade > 0). Uma variante da lista do fisico que NAO muda nao aborta.
 -- Cada variante que muda sai num NOTICE (loja:variante8 campos antes>depois).
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06) - md5 "antes" da copia 54422 = producao.
 --   public._estoque_tecido_core(uuid)
 --     ANTES  ffae03c900aa9335e2c6827a8e26cfe7  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS 7e48c553b050eb47f9eff694f9a5d8cf  (este arquivo; reaplicar = no-op)
+--     DEPOIS 9140c253a8b62fa143de052d84a1c329  (este arquivo, fix round 1; reaplicar = no-op)
 --   public.detalhe_estoque_variante(uuid)
 --     ANTES  25acef268f8837c6476b042e6ca1cfa1  -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
---     DEPOIS effb1f49e05a384621203f42d4c6552f  (este arquivo; reaplicar = no-op)
+--     DEPOIS 283d2364de1c71d75711ac90c97cd313  (este arquivo, fix round 1; reaplicar = no-op)
 --   Leitores SEM mudanca (so guarda; rolam o core):
 --     public.estoque_tecido()                    15ae9401fc1c6901ed4070be1bab3f9f  -- CONFIRMADO: Passo 0 (01/out 11:06)
 --     public.estoque_tecido_por_artigo()         4bda9bbbd94b9315a72b1e36d44184ba  -- CONFIRMADO: Passo 0 (01/out 11:06)
 --     public.dashboard_estoque()                 6f51a812f2b074aa3051c87d08ce7072  -- CONFIRMADO: Passo 0 (01/out 11:06)
 --     public._dashboard_estoque_parado_core()    bcc701390b3f2d2c71e61d730cd3ec3f  -- CONFIRMADO: Passo 0 (01/out 11:06)
 --     public._grade_soma_pares(uuid,uuid[])      0366b1458fe23e1cca1be244433a93f8  -- CONFIRMADO: Passo 0 (01/out 11:06) (usada)
---   Qualquer outro texto -> P0001 e nada muda.
+--   Qualquer outro texto (inclusive o do round 0, 7e48c553/effb1f49 - desfazer com o _down antes) -> P0001 e nada muda.
 -- =====================================================================================================================
 -- Travas: so CREATE OR REPLACE FUNCTION (trava do objeto funcao; nada em tabela, nada em auth/storage). A pre-condicao so
 -- LE (2 x o core por loja; copia: 408 variantes em < 1 s). Sem DDL de tabela, sem DROP, sem funcao nova. ACL: CREATE OR
@@ -49,6 +61,7 @@
 
 SET client_encoding = 'UTF8';
 BEGIN;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;   -- fix round 1, L5: os retratos antes/depois no MESMO snapshot
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL statement_timeout = '5s';
 SET LOCAL transaction_timeout = '10s';
@@ -62,9 +75,9 @@ INSERT INTO _r15_esperados VALUES
 CREATE TEMP TABLE _r15a_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _r15a_md5_aceitos VALUES
   ('public._estoque_tecido_core(uuid)',               'ffae03c900aa9335e2c6827a8e26cfe7', 'antes'),     -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public._estoque_tecido_core(uuid)',               '7e48c553b050eb47f9eff694f9a5d8cf', 'depois'),
+  ('public._estoque_tecido_core(uuid)',               '9140c253a8b62fa143de052d84a1c329', 'depois'),
   ('public.detalhe_estoque_variante(uuid)',           '25acef268f8837c6476b042e6ca1cfa1', 'antes'),     -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
-  ('public.detalhe_estoque_variante(uuid)',           'effb1f49e05a384621203f42d4c6552f', 'depois'),
+  ('public.detalhe_estoque_variante(uuid)',           '283d2364de1c71d75711ac90c97cd313', 'depois'),
   ('public.estoque_tecido()',                         '15ae9401fc1c6901ed4070be1bab3f9f', 'leitor'),    -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public.estoque_tecido_por_artigo()',              '4bda9bbbd94b9315a72b1e36d44184ba', 'leitor'),    -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
   ('public.dashboard_estoque()',                      '6f51a812f2b074aa3051c87d08ce7072', 'leitor'),    -- CONFIRMADO: Passo 0 dos MEDIOS em producao (01/out 11:06)
@@ -88,10 +101,42 @@ BEGIN
   END LOOP;
 END $guarda$;
 
+-- reaplicar (o core ja esta com o texto deste arquivo) = nada muda: a reducao esperada da reserva vira 0
+CREATE TEMP TABLE _r15_estado ON COMMIT DROP AS
+  SELECT md5(pg_get_functiondef(to_regprocedure('public._estoque_tecido_core(uuid)'))) = '9140c253a8b62fa143de052d84a1c329' AS ja_aplicada;
+
 -- retrato do core com o texto ATUAL (antes), todas as lojas
 CREATE TEMP TABLE _r15_core_antes ON COMMIT DROP AS
   SELECT t.id AS tenant_id, t.nome::text AS loja, c.*
     FROM public.tenants t CROSS JOIN LATERAL public._estoque_tecido_core(t.id) c;
+
+-- P-213 A: reducao ESPERADA da reserva por (loja, variante) = a reserva_mod (mesma formula) so dos cards reprovados no
+-- PLANEJAMENTO e nao no Desenvolvimento, ainda nao enviados ao corte (os que a regra nova tira da reserva)
+CREATE TEMP TABLE _r15_reserva_esperada ON COMMIT DROP AS
+  WITH grade AS (
+    SELECT modelo_id, variante_numero, SUM(COALESCE(grade_total, 0)) AS gt
+      FROM public.modelo_grades WHERE variante_numero IS NOT NULL
+     GROUP BY modelo_id, variante_numero
+  )
+  SELECT m.tenant_id, mv.variante_tecido_id,
+         SUM(COALESCE(mt.consumo,0) * (1 + COALESCE(mt.loss_percent,0)/100.0)
+             * CASE
+                 WHEN mt.tipo = 'tecido' AND mt.numero = 1 THEN COALESCE(g.gt,0)
+                 WHEN mv.complementa_variante_ids IS NOT NULL AND cardinality(mv.complementa_variante_ids) > 0
+                   THEN public._grade_soma_pares(mt.modelo_id, mv.complementa_variante_ids)
+                 ELSE COALESCE(g.gt,0)
+               END
+             * COALESCE(mv.multiplicador,1)) AS m,
+         count(DISTINCT m.id) AS cards
+    FROM public.modelo_tecido_variantes mv
+    JOIN public.modelo_tecidos mt ON mt.id = mv.modelo_tecido_id
+    JOIN public.modelos m ON m.id = mt.modelo_id
+     AND lower(COALESCE(m.status_desenvolvimento,'')) <> 'reprovado'
+     AND lower(COALESCE(m.status_planejamento,'')) = 'reprovado'
+     AND NOT EXISTS (SELECT 1 FROM public.cad c WHERE c.modelo_id = m.id AND c.enviado_corte)
+    LEFT JOIN grade g ON g.modelo_id = mt.modelo_id AND g.variante_numero = mv.ordem
+   WHERE mv.variante_tecido_id IS NOT NULL
+   GROUP BY m.tenant_id, mv.variante_tecido_id;
 
 CREATE OR REPLACE FUNCTION public._estoque_tecido_core(_tenant uuid)
  RETURNS TABLE(variante_tecido_id uuid, artigo_id uuid, prev_receb_m numeric, recebido_m numeric, baixa numeric, reservado numeric, fisico numeric, previsto numeric)
@@ -103,7 +148,9 @@ AS $function$
   -- NAO separada e as baixas dela). Agora todo item conta; a separacao de rolo e TRANSFERENCIA (sai da origem, entra no
   -- item do rolo): a baixa 'separacao_rolo' sai do recebido do item de origem e NAO entra na baixa - assim a origem conta
   -- recebido - separacao - (cortes/ajustes dela) e o "Recebido" da variante nao conta 2x o que foi separado. Fisico da
-  -- variante = recebido - baixas, clamp >= 0 POR VARIANTE (inv. #4). Resto do texto igual ao de antes.
+  -- variante = recebido - baixas, clamp >= 0 POR VARIANTE (inv. #4).
+  -- [P-213 A, dono 01/out] card "reprovado" = status_desenvolvimento OU status_planejamento 'reprovado' (lower/coalesce):
+  -- nao reserva. Resto do texto igual ao de antes.
   WITH
   itens AS (
     SELECT it.id, it.variante_tecido_id, it.artigo_id, it.quantidade_pedida, it.quantidade_recebida,
@@ -177,6 +224,7 @@ AS $function$
     JOIN modelo_tecidos mt ON mt.id = mv.modelo_tecido_id
     JOIN modelos m ON m.id = mt.modelo_id AND m.tenant_id = _tenant
       AND lower(COALESCE(m.status_desenvolvimento,'')) <> 'reprovado'
+      AND lower(COALESCE(m.status_planejamento,'')) <> 'reprovado'   -- [medios R15a P-213 A] reprovado no Planejamento tambem nao reserva
       AND NOT EXISTS (SELECT 1 FROM cad c WHERE c.modelo_id = m.id AND c.enviado_corte)
     LEFT JOIN grade g ON g.modelo_id = mt.modelo_id AND g.variante_numero = mv.ordem
     WHERE mv.variante_tecido_id IS NOT NULL
@@ -204,7 +252,7 @@ AS $function$
   FROM agg
 $function$;
 
--- PRE-CONDICAO: texto novo x texto de antes, variante a variante (todas as lojas)
+-- PRE-CONDICAO: texto novo x texto de antes, variante a variante (todas as lojas), no mesmo snapshot (REPEATABLE READ)
 CREATE TEMP TABLE _r15_core_depois ON COMMIT DROP AS
   SELECT t.id AS tenant_id, t.nome::text AS loja, c.*
     FROM public.tenants t CROSS JOIN LATERAL public._estoque_tecido_core(t.id) c;
@@ -214,33 +262,51 @@ DECLARE
   r record;
   v_n int;
   v_dif int := 0;
+  v_res int := 0;
+  v_res_m numeric := 0;
   v_esp record;
 BEGIN
   SELECT count(*) INTO v_n FROM _r15_core_antes;
-  IF v_n <> (SELECT count(*) FROM _r15_core_depois) THEN
-    RAISE EXCEPTION 'medios_r15a: pre-condicao - numero de variantes mudou (% x %)', v_n, (SELECT count(*) FROM _r15_core_depois)
+  IF v_n <> (SELECT count(*) FROM _r15_core_depois)
+     OR EXISTS (SELECT 1 FROM _r15_core_antes a FULL JOIN _r15_core_depois d
+                    ON d.tenant_id = a.tenant_id AND d.variante_tecido_id = a.variante_tecido_id
+                 WHERE a.variante_tecido_id IS NULL OR d.variante_tecido_id IS NULL) THEN
+    RAISE EXCEPTION 'medios_r15a: pre-condicao - o conjunto de variantes mudou (% x %)', v_n, (SELECT count(*) FROM _r15_core_depois)
       USING ERRCODE = 'P0001';
   END IF;
   FOR r IN
-    SELECT COALESCE(a.loja, d.loja) AS loja, COALESCE(a.variante_tecido_id, d.variante_tecido_id) AS vid,
+    SELECT a.loja, a.variante_tecido_id AS vid,
            a.prev_receb_m AS prev_a, d.prev_receb_m AS prev_d, a.reservado AS res_a, d.reservado AS res_d,
            a.recebido_m AS rec_a, d.recebido_m AS rec_d, a.baixa AS bx_a, d.baixa AS bx_d,
-           a.fisico AS fis_a, d.fisico AS fis_d, a.previsto AS pv_a, d.previsto AS pv_d
+           a.fisico AS fis_a, d.fisico AS fis_d, a.previsto AS pv_a, d.previsto AS pv_d,
+           CASE WHEN (SELECT ja_aplicada FROM _r15_estado) THEN 0 ELSE COALESCE(x.m, 0) END AS res_esperada,
+           COALESCE(x.cards, 0) AS res_cards
       FROM _r15_core_antes a
-      FULL JOIN _r15_core_depois d ON d.tenant_id = a.tenant_id AND d.variante_tecido_id = a.variante_tecido_id
-     WHERE (a.prev_receb_m, a.reservado, a.recebido_m, a.baixa, a.fisico, a.previsto)
-           IS DISTINCT FROM (d.prev_receb_m, d.reservado, d.recebido_m, d.baixa, d.fisico, d.previsto)
+      JOIN _r15_core_depois d ON d.tenant_id = a.tenant_id AND d.variante_tecido_id = a.variante_tecido_id
+      LEFT JOIN _r15_reserva_esperada x ON x.tenant_id = a.tenant_id AND x.variante_tecido_id = a.variante_tecido_id
      ORDER BY 1, 2
   LOOP
-    v_dif := v_dif + 1;
-    RAISE NOTICE 'medios_r15a: % : % recebido %>% baixa %>% fisico %>% previsto %>%', r.loja, left(r.vid::text, 8),
-      round(r.rec_a, 4), round(r.rec_d, 4), round(r.bx_a, 4), round(r.bx_d, 4), round(r.fis_a, 4), round(r.fis_d, 4),
-      round(r.pv_a, 4), round(r.pv_d, 4);
-    IF r.prev_a IS DISTINCT FROM r.prev_d OR r.res_a IS DISTINCT FROM r.res_d THEN
-      RAISE EXCEPTION 'medios_r15a: pre-condicao - a receber/reservado mudou em %:% (nao devia)', r.loja, left(r.vid::text, 8)
+    -- (a) a receber nunca muda
+    IF r.prev_a IS DISTINCT FROM r.prev_d THEN
+      RAISE EXCEPTION 'medios_r15a: pre-condicao - a receber mudou em %:% (nao devia)', r.loja, left(r.vid::text, 8)
         USING ERRCODE = 'P0001';
     END IF;
-    IF r.fis_a IS DISTINCT FROM r.fis_d OR r.pv_a IS DISTINCT FROM r.pv_d THEN
+    -- (r) reserva: so a reducao esperada da P-213 (cards reprovados so no Planejamento)
+    IF abs((r.res_a - r.res_d) - r.res_esperada) > 0.0001 THEN
+      RAISE EXCEPTION 'medios_r15a: pre-condicao - reservado de %:% mudou % (esperado -% pela P-213, % card(s))',
+        r.loja, left(r.vid::text, 8), round(r.res_d - r.res_a, 4), round(r.res_esperada, 4), r.res_cards USING ERRCODE = 'P0001';
+    END IF;
+    CONTINUE WHEN (r.res_a, r.rec_a, r.bx_a, r.fis_a, r.pv_a) IS NOT DISTINCT FROM (r.res_d, r.rec_d, r.bx_d, r.fis_d, r.pv_d);
+    v_dif := v_dif + 1;
+    IF r.res_a IS DISTINCT FROM r.res_d THEN
+      v_res := v_res + 1;
+      v_res_m := v_res_m + (r.res_a - r.res_d);
+    END IF;
+    RAISE NOTICE 'medios_r15a: % : % recebido %>% baixa %>% fisico %>% reservado %>% previsto %>%', r.loja, left(r.vid::text, 8),
+      round(r.rec_a, 4), round(r.rec_d, 4), round(r.bx_a, 4), round(r.bx_d, 4), round(r.fis_a, 4), round(r.fis_d, 4),
+      round(r.res_a, 4), round(r.res_d, 4), round(r.pv_a, 4), round(r.pv_d, 4);
+    -- (b) fisico so muda nas variantes da lista, com o delta esperado; previsto = delta fisico - delta reserva
+    IF r.fis_a IS DISTINCT FROM r.fis_d THEN
       SELECT * INTO v_esp FROM _r15_esperados e WHERE e.loja = r.loja AND e.variante8 = left(r.vid::text, 8);
       IF NOT FOUND THEN
         RAISE EXCEPTION 'medios_r15a: pre-condicao - fisico de %:% mudou (% > %) e a variante nao esta na lista esperada',
@@ -250,11 +316,12 @@ BEGIN
         RAISE EXCEPTION 'medios_r15a: pre-condicao - delta do fisico de %:% = % (esperado %)',
           r.loja, left(r.vid::text, 8), round(r.fis_d - r.fis_a, 4), v_esp.delta_fisico USING ERRCODE = 'P0001';
       END IF;
-      IF abs((r.pv_d - r.pv_a) - (r.fis_d - r.fis_a)) > 0.001 THEN
-        RAISE EXCEPTION 'medios_r15a: pre-condicao - previsto de %:% mudou diferente do fisico', r.loja, left(r.vid::text, 8)
-          USING ERRCODE = 'P0001';
-      END IF;
     END IF;
+    IF abs((r.pv_d - r.pv_a) - ((r.fis_d - r.fis_a) - (r.res_d - r.res_a))) > 0.001 THEN
+      RAISE EXCEPTION 'medios_r15a: pre-condicao - previsto de %:% mudou diferente de fisico - reservado', r.loja, left(r.vid::text, 8)
+        USING ERRCODE = 'P0001';
+    END IF;
+    -- (c) recebido/baixa so mudam onde ha item de origem de rolo
     IF (r.rec_a IS DISTINCT FROM r.rec_d OR r.bx_a IS DISTINCT FROM r.bx_d)
        AND NOT EXISTS (SELECT 1 FROM public.ocs_tecido_itens it
                         WHERE it.variante_tecido_id = r.vid
@@ -265,7 +332,8 @@ BEGIN
         USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
-  RAISE NOTICE 'medios_r15a: pre-condicao OK - % variantes conferidas, % mudaram (lista acima)', v_n, v_dif;
+  RAISE NOTICE 'medios_r15a: pre-condicao OK - % variantes conferidas, % mudaram (lista acima); reserva P-213: % variante(s), -% m',
+    v_n, v_dif, v_res, round(v_res_m, 4);
 END $precondicao$;
 
 CREATE OR REPLACE FUNCTION public.detalhe_estoque_variante(_variante_id uuid)
@@ -280,7 +348,8 @@ AS $function$
 --     (transferencia para o rolo); baixado_m = (OC recebida) baixas do ledger do item fora a separacao; prev_receb_m =
 --     (OC encomendada) pedida kg->m. Sigma das linhas = recebido/baixa/a receber do core (fora as baixas de OS, que
 --     nao tem item);
---   * reservado_m = a reserva do core (cards nao reprovados e ainda nao enviados ao corte - libera com enviado_corte)
+--   * reservado_m = a reserva do core (cards nao reprovados - no Desenvolvimento NEM no Planejamento, P-213 A - e ainda
+--     nao enviados ao corte - libera com enviado_corte)
 --     REPARTIDA entre os vinculos do card (modelo_tecido_oc_links) na ordem do corte: prioridade, depois
 --     oc_tecido_item_id; cada vinculo leva min(restante, quantidade_m se > 0) e o ULTIMO leva o resto (mesma regua de
 --     repartirDemanda / Situacao por OC, P-168 A). Card sem vinculo nesta variante nao entra em linha nenhuma: o front
@@ -335,6 +404,7 @@ BEGIN
     JOIN public.modelo_tecidos mt ON mt.id = mv.modelo_tecido_id
     JOIN public.modelos m ON m.id = mt.modelo_id AND m.tenant_id = v_tenant
       AND lower(COALESCE(m.status_desenvolvimento,'')) <> 'reprovado'
+      AND lower(COALESCE(m.status_planejamento,'')) <> 'reprovado'   -- [P-213 A] mesmo predicado do core
       AND NOT EXISTS (SELECT 1 FROM public.cad c WHERE c.modelo_id = m.id AND c.enviado_corte)
     LEFT JOIN grade g ON g.modelo_id = mt.modelo_id AND g.variante_numero = mv.ordem
     WHERE mv.variante_tecido_id = _variante_id

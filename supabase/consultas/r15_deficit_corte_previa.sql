@@ -3,6 +3,9 @@
 -- roda nenhuma correcao unica (o dono nao pediu): o efeito so vale quando um item de OC passar a contar (gatilho). Esta
 -- consulta serve para o kit/dono saberem o que esta "parado" hoje.
 -- Nao chama funcao do sistema, nao grava nada: rodar em REPEATABLE READ, READ ONLY e ROLLBACK, como o Passo 0.
+-- [fix round 1, M1] tipo/numero/ordem comparados como TEXTO e deficit so se numerico (entrada malformada nao derruba a
+-- consulta; ela e contada em r15_deficit_corte_malformadas.sql). Rodar de novo no pos-deploy (L8): cad com deficit E saldo
+-- disponivel > 0 = completacao que falhou ou ficou para o proximo evento.
 -- ESTIMATIVA: considera so o FIFO (ignora o teto quantidade_m dos vinculos do modo por_oc e a exclusao dos itens vinculados
 -- da linha no FIFO); a ordem e a do helper (corte mais antigo primeiro). Saldo do item = regra do core/saldo_oc_item_m
 -- (OC recebida, item nao cancelado, recebida senao pedida - 0 se troca -, kg->m, menos as baixas do item); item com
@@ -14,13 +17,15 @@ BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
 
 WITH def AS (
   SELECT cd.tenant_id, cd.id AS cad_id, cd.modelo_id, cd.data_enviado_corte,
-         ctv.variante_tecido_id AS vid, (e->>'deficit')::numeric AS deficit,
+         ctv.variante_tecido_id AS vid, (CASE WHEN COALESCE(e->>'deficit', '') ~ '^\s*[0-9]+(\.[0-9]+)?\s*$' THEN (e->>'deficit')::numeric END) AS deficit,
          row_number() OVER () AS k
     FROM public.cad cd
     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(cd.deficit_corte) = 'array' THEN cd.deficit_corte ELSE '[]'::jsonb END) e
-    JOIN public.cad_tecidos ct ON ct.cad_id = cd.id AND ct.tipo = (e->>'tipo') AND ct.numero = (e->>'numero')::int
-    JOIN public.cad_tecido_variantes ctv ON ctv.cad_tecido_id = ct.id AND ctv.ordem = (e->>'ordem')::int
-   WHERE cd.enviado_corte AND COALESCE((e->>'deficit')::numeric, 0) > 0.0001 AND ctv.variante_tecido_id IS NOT NULL
+    JOIN public.cad_tecidos ct ON ct.cad_id = cd.id AND ct.tipo::text = (e->>'tipo') AND ct.numero::text = (e->>'numero')
+    JOIN public.cad_tecido_variantes ctv ON ctv.cad_tecido_id = ct.id AND ctv.ordem::text = (e->>'ordem')
+   WHERE cd.enviado_corte AND jsonb_typeof(e) = 'object' AND COALESCE(e->>'deficit', '') ~ '^\s*[0-9]+(\.[0-9]+)?\s*$'
+     AND (CASE WHEN COALESCE(e->>'deficit', '') ~ '^\s*[0-9]+(\.[0-9]+)?\s*$' THEN (e->>'deficit')::numeric ELSE 0 END) > 0.0001
+     AND ctv.variante_tecido_id IS NOT NULL
 ), saldo AS (
   SELECT oc.tenant_id, it.variante_tecido_id AS vid,
          SUM(GREATEST(0,
@@ -57,12 +62,14 @@ SELECT COALESCE(tn.nome::text, '?') AS loja,
 
 WITH def AS (
   SELECT cd.tenant_id, cd.id AS cad_id, cd.modelo_id, cd.data_enviado_corte,
-         ctv.variante_tecido_id AS vid, (e->>'deficit')::numeric AS deficit
+         ctv.variante_tecido_id AS vid, (CASE WHEN COALESCE(e->>'deficit', '') ~ '^\s*[0-9]+(\.[0-9]+)?\s*$' THEN (e->>'deficit')::numeric END) AS deficit
     FROM public.cad cd
     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(cd.deficit_corte) = 'array' THEN cd.deficit_corte ELSE '[]'::jsonb END) e
-    JOIN public.cad_tecidos ct ON ct.cad_id = cd.id AND ct.tipo = (e->>'tipo') AND ct.numero = (e->>'numero')::int
-    JOIN public.cad_tecido_variantes ctv ON ctv.cad_tecido_id = ct.id AND ctv.ordem = (e->>'ordem')::int
-   WHERE cd.enviado_corte AND COALESCE((e->>'deficit')::numeric, 0) > 0.0001 AND ctv.variante_tecido_id IS NOT NULL
+    JOIN public.cad_tecidos ct ON ct.cad_id = cd.id AND ct.tipo::text = (e->>'tipo') AND ct.numero::text = (e->>'numero')
+    JOIN public.cad_tecido_variantes ctv ON ctv.cad_tecido_id = ct.id AND ctv.ordem::text = (e->>'ordem')
+   WHERE cd.enviado_corte AND jsonb_typeof(e) = 'object' AND COALESCE(e->>'deficit', '') ~ '^\s*[0-9]+(\.[0-9]+)?\s*$'
+     AND (CASE WHEN COALESCE(e->>'deficit', '') ~ '^\s*[0-9]+(\.[0-9]+)?\s*$' THEN (e->>'deficit')::numeric ELSE 0 END) > 0.0001
+     AND ctv.variante_tecido_id IS NOT NULL
 )
 SELECT COALESCE(tn.nome::text, '?') AS loja, left(d.cad_id::text, 8) AS cad8, m.nome AS modelo, left(d.vid::text, 8) AS variante8,
        d.data_enviado_corte, round(d.deficit, 2) AS deficit_m

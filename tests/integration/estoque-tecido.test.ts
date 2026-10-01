@@ -306,3 +306,40 @@ describe.skipIf(!hasDb)("R15a B1 — picker de vínculo (ocs_disponiveis_variant
     });
   });
 });
+
+// ─── R15a fix round 1 — P-213 A (dono 01/out): reprovado = Desenvolvimento OU Planejamento ───────────────────────────
+describe.skipIf(!hasDb)("R15a P-213 A — card reprovado só no Planejamento não reserva (tecido e aviamento)", () => {
+  it("tecido: core e painel deixam de reservar; voltar do reprovado volta a reservar", async () => {
+    await withTx(async (c) => {
+      const f = await r15Fixture(c);
+      const oc = await r15Oc(c, "recebido", "ITEST-R15A-P213");
+      const it = await r15Item(c, oc, f.art, f.vari, 100, 100);
+      const m = await r15Card(c, f.art, f.vari, 30, "ITEST-R15A-P213");
+      await r15Link(c, m, f.vari, it, 0, 1);
+      expect((await r15Core(c, f.vari)).reservado).toBe(30);
+      await c.query(`update modelos set status_planejamento='Reprovado', status_desenvolvimento='ficha_tecnica' where id=$1`, [m]);
+      expect((await r15Core(c, f.vari)).reservado).toBe(0);              // antes do fix round 1: 30
+      expect(somaPainel(await r15Painel(c, f.vari), "reservado_m")).toBe(0);
+      await c.query(`update modelos set status_planejamento='aprovado' where id=$1`, [m]);
+      expect((await r15Core(c, f.vari)).reservado).toBe(30);
+    });
+  });
+
+  it("aviamento: _estoque_aviamento_core aplica a mesma regra", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const av = (await um<{ id: string }>(c,
+        `insert into aviamentos (tenant_id,codigo_nome) values ($1,'ITEST-R15A-AV') returning id`, [TENANT_TESTE])).id;
+      const va = (await um<{ id: string }>(c,
+        `insert into variantes_aviamento (tenant_id,aviamento_id,nome_variante) values ($1,$2,'ITEST') returning id`, [TENANT_TESTE, av])).id;
+      const m = (await um<{ id: string }>(c, `insert into modelos (tenant_id,nome) values ($1,'ITEST-R15A-AVM') returning id`, [TENANT_TESTE])).id;
+      await c.query(`insert into modelo_grades (modelo_id,variante_numero,grades,grade_total) values ($1,1,'{}'::jsonb,10)`, [m]);
+      await c.query(`insert into modelo_aviamentos (modelo_id,numero,aviamento_id,variante_aviamento_id,consumo) values ($1,1,$2,$3,2)`, [m, av, va]);
+      const res = async () => Number((await um<{ r: string }>(c,
+        `select reservado r from public._estoque_aviamento_core($1) where id=$2 and variante_id=$3`, [TENANT_TESTE, av, va])).r);
+      expect(await res()).toBe(20);
+      await c.query(`update modelos set status_planejamento='reprovado' where id=$1`, [m]);
+      expect(await res()).toBe(0); // antes do fix round 1: 20
+    });
+  });
+});

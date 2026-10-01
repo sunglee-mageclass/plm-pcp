@@ -1,9 +1,9 @@
 -- INVERSO (passo 2 de 2, SEPARADO e OPCIONAL) de supabase/migrations/20261025300000_completar_deficit_corte.sql (achados
--- MEDIOS R15a, P-203 A): DROP TRIGGER trg_deficit_corte_item (ocs_tecido_itens) e trg_deficit_corte_oc (ocs_tecido) +
+-- MEDIOS R15a, P-203 A): DROP TRIGGER trg_deficit_corte_item_ins/_item_upd (ocs_tecido_itens) e trg_deficit_corte_oc (ocs_tecido) +
 -- DROP FUNCTION fn_completar_deficit_corte e _completar_deficit_corte_variante.
 -- ATENCAO: DROP TRIGGER pega AccessExclusive nas 2 tabelas de OC de tecido e prende ~23 tabelas auth/storage/realtime
 -- (supautils.policy_grants) ate o COMMIT: HORARIO CALMO, transacao curtissima. Rodar SO depois do _down (exige a funcao do
--- gatilho NEUTRA, md5 0cd9774ed5290d3d9cf57000d33d935a). Volta os gatilhos das 2 tabelas ao conjunto de antes (9 + 2).
+-- gatilho NEUTRA, md5 c09fc3f1f011918ea5eb7f11fc8b45e9). Volta os gatilhos das 2 tabelas ao conjunto de antes (9 + 2).
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>.
 
 SET client_encoding = 'UTF8';
@@ -15,12 +15,14 @@ SET LOCAL transaction_timeout = '10s';
 DO $guarda$
 BEGIN
   IF to_regprocedure('public.fn_completar_deficit_corte()') IS NOT NULL
-     AND md5(pg_get_functiondef(to_regprocedure('public.fn_completar_deficit_corte()'))) IS DISTINCT FROM '0cd9774ed5290d3d9cf57000d33d935a' THEN
+     AND md5(pg_get_functiondef(to_regprocedure('public.fn_completar_deficit_corte()'))) IS DISTINCT FROM 'c09fc3f1f011918ea5eb7f11fc8b45e9' THEN
     RAISE EXCEPTION 'medios_r15a_p203 (volta drop): a funcao do gatilho nao esta NEUTRA - rodar o _down antes' USING ERRCODE = 'P0001';
   END IF;
 END $guarda$;
 
-DROP TRIGGER IF EXISTS trg_deficit_corte_item ON public.ocs_tecido_itens;
+DROP TRIGGER IF EXISTS trg_deficit_corte_item_ins ON public.ocs_tecido_itens;
+DROP TRIGGER IF EXISTS trg_deficit_corte_item_upd ON public.ocs_tecido_itens;
+DROP TRIGGER IF EXISTS trg_deficit_corte_item ON public.ocs_tecido_itens;   -- nome do round 0 (so existiu na copia)
 DROP TRIGGER IF EXISTS trg_deficit_corte_oc ON public.ocs_tecido;
 DROP FUNCTION IF EXISTS public.fn_completar_deficit_corte();
 DROP FUNCTION IF EXISTS public._completar_deficit_corte_variante(uuid,uuid);
@@ -30,7 +32,7 @@ DECLARE
   r record;
   v_set text;
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN ('trg_deficit_corte_item', 'trg_deficit_corte_oc'))
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN ('trg_deficit_corte_item', 'trg_deficit_corte_item_ins', 'trg_deficit_corte_item_upd', 'trg_deficit_corte_oc'))
      OR to_regprocedure('public.fn_completar_deficit_corte()') IS NOT NULL
      OR to_regprocedure('public._completar_deficit_corte_variante(uuid,uuid)') IS NOT NULL THEN
     RAISE EXCEPTION 'medios_r15a_p203 (volta drop): gatilho ou funcao ainda existe' USING ERRCODE = 'P0001';

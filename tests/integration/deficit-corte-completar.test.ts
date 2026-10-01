@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { Client } from "pg";
+import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, dbUrl, ehBancoLocal } from "./db";
 
 // Achados MEDIOS R15a, P-203 A (dono 01/out) — migration 20261025300000_completar_deficit_corte.
 // Quando um item de OC de tecido PASSA A CONTAR (OC vira 'recebido', recebida gravada num item de OC recebida, rolo
@@ -13,7 +13,7 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 const AVE_RARA_NOME = "Ave Rara";
 
 async function flush(c: Client) {
-  await c.query(`SET CONSTRAINTS trg_deficit_corte_item, trg_deficit_corte_oc IMMEDIATE`);
+  await c.query(`SET CONSTRAINTS trg_deficit_corte_item_ins, trg_deficit_corte_item_upd, trg_deficit_corte_oc IMMEDIATE`);
 }
 
 async function preparar(c: Client, modo: "por_oc" | "automatico" = "por_oc", unidade: "metro" | "kg" = "metro", rendimento = 0) {
@@ -114,7 +114,7 @@ describe.skipIf(!hasDb)("P-203 A — completar o 'Faltou estoque' do corte quand
       // idempotente: rodar de novo (helper direto e novo evento no item) não baixa nada
       const n0 = Number((await um<{ n: string }>(c, `select count(*) n from estoque_tecido_baixas where variante_tecido_id=$1`, [f.vari])).n);
       const r = (await um<{ r: any }>(c, `select public._completar_deficit_corte_variante($1,$2) r`, [TENANT_TESTE, f.vari])).r;
-      expect(r).toEqual({ cads: 0, metros: 0 });
+      expect(r).toMatchObject({ cads: 0, metros: 0 });
       await c.query(`update ocs_tecido_itens set quantidade_recebida=quantidade_recebida where oc_tecido_id=$1`, [oc]);
       await flush(c);
       expect(Number((await um<{ n: string }>(c, `select count(*) n from estoque_tecido_baixas where variante_tecido_id=$1`, [f.vari])).n)).toBe(n0);
@@ -230,8 +230,8 @@ describe.skipIf(!hasDb)("P-203 A — completar o 'Faltou estoque' do corte quand
       await novoItem(c, ocO, f.art, f.vari, 500, 500);
       await c.query(`update ocs_tecido set status='recebido' where id=$1`, [ocO]);
       await flush(c);
-      expect((await um<{ r: any }>(c, `select public._completar_deficit_corte_variante($1,$2) r`, [outra.id, f.vari])).r).toEqual({ cads: 0, metros: 0 });
-      expect((await um<{ r: any }>(c, `select public._completar_deficit_corte_variante($1,$2) r`, [TENANT_TESTE, f.vari])).r).toEqual({ cads: 0, metros: 0 });
+      expect((await um<{ r: any }>(c, `select public._completar_deficit_corte_variante($1,$2) r`, [outra.id, f.vari])).r).toMatchObject({ cads: 0, metros: 0 });
+      expect((await um<{ r: any }>(c, `select public._completar_deficit_corte_variante($1,$2) r`, [TENANT_TESTE, f.vari])).r).toMatchObject({ cads: 0, metros: 0 });
       expect((await baixasDoCad(c, cad)).total).toBe(0);
       expect(Number((await deficit(c, cad))![0].deficit)).toBe(70);
     });
@@ -244,10 +244,126 @@ describe.skipIf(!hasDb)("P-203 A — completar o 'Faltou estoque' do corte quand
         has_function_privilege('authenticated','public._completar_deficit_corte_variante(uuid,uuid)','EXECUTE') a2,
         has_function_privilege('anon','public.fn_completar_deficit_corte()','EXECUTE') a3,
         has_function_privilege('authenticated','public.fn_completar_deficit_corte()','EXECUTE') a4,
-        (select count(*) from pg_trigger where tgname in ('trg_deficit_corte_item','trg_deficit_corte_oc')
+        (select count(*) from pg_trigger where tgname in ('trg_deficit_corte_item_ins','trg_deficit_corte_item_upd','trg_deficit_corte_oc')
             and tgenabled='O' and tgdeferrable and tginitdeferred) n`);
       expect(r).toMatchObject({ a1: false, a2: false, a3: false, a4: false });
-      expect(Number(r.n)).toBe(2);
+      expect(Number(r.n)).toBe(3);
+    });
+  });
+});
+
+// ─── Fix round 1 (G-MIGRATION R15a): M1, M2, L4, WARNING, reenvio ───────────────────────────────────────────────────
+describe.skipIf(!hasDb)("P-203 A fix round 1 — robustez do completar", () => {
+  it("M1: entrada malformada de deficit_corte (cad de OUTRA variante e do mesmo cad) não bloqueia; é mantida e contada", async () => {
+    await withTx(async (c) => {
+      const f = await preparar(c, "automatico");
+      const outra = await preparar(c, "automatico"); // outra variante (outro artigo) da mesma loja
+      // cad da OUTRA variante com entrada malformada (numero "1a")
+      const cadRuim = await cardComCad(c, outra.art, outra.vari, 10, "2026-01-01");
+      await c.query(`update cad set enviado_corte=true, deficit_corte=$2::jsonb where id=$1`,
+        [cadRuim, JSON.stringify([{ tipo: "tecido", numero: "1a", ordem: 1, deficit: 10, baixada: 0, enviada: 10 }])]);
+      // cad certo, com uma entrada boa e uma lixo (string)
+      const cad = await cardComCad(c, f.art, f.vari, 60, "2026-02-01");
+      await cortar(c, cad);
+      await c.query(`update cad set deficit_corte = deficit_corte || '["lixo"]'::jsonb where id=$1`, [cad]);
+      const oc = await novaOc(c, "recebido", "ITEST-P203-M1");
+      await novoItem(c, oc, f.art, f.vari, 100, 100);
+      const r = (await um<{ r: any }>(c, `select public._completar_deficit_corte_variante($1,$2) r`, [TENANT_TESTE, f.vari])).r;
+      expect(r).toMatchObject({ cads: 1, malformadas: 1 }); // antes (round 0): erro 22P02 e nada completava na loja
+      expect(Number(r.metros)).toBe(60);
+      expect(await deficit(c, cad)).toEqual(["lixo"]);          // a entrada ruim fica como estava
+      expect((await baixasDoCad(c, cad)).total).toBe(60);
+      expect((await deficit(c, cadRuim))![0].numero).toBe("1a"); // a outra variante não é tocada
+    });
+  });
+
+  it("completar e depois REENVIAR o corte: o corte refaz do zero, sem baixa a mais", async () => {
+    await withTx(async (c) => {
+      const f = await preparar(c, "automatico");
+      const cad = await cardComCad(c, f.art, f.vari, 100, "2026-02-01");
+      await cortar(c, cad);
+      const oc = await novaOc(c, "recebido", "ITEST-P203-RE");
+      const it = await novoItem(c, oc, f.art, f.vari, 70, 70);
+      await flush(c);
+      expect((await baixasDoCad(c, cad)).total).toBe(70);
+      expect(Number((await deficit(c, cad))![0].deficit)).toBe(30);
+      const rr = await cortar(c, cad); // reenvio
+      expect(Number(rr.deficit_total)).toBe(30);
+      expect((await baixasDoCad(c, cad)).total).toBe(70); // nunca passa da enviada nem duplica
+      await c.query(`update ocs_tecido_itens set quantidade_recebida=100 where id=$1`, [it]);
+      await flush(c);
+      expect((await baixasDoCad(c, cad)).total).toBe(100);
+      expect(await deficit(c, cad)).toBeNull();
+    });
+  });
+});
+
+// Testes com 2ª conexão / DDL em txn revertida: SÓ na cópia local (nunca DDL em txn de teste contra produção).
+describe.skipIf(!hasDb || !ehBancoLocal())("P-203 A fix round 1 — sem espera no COMMIT e caminho do WARNING (cópia local)", () => {
+  it("M2: trava da loja ocupada (corte em curso) → o COMMIT não espera; o próximo evento completa", async () => {
+    const outro = new Client({ connectionString: dbUrl()!, ssl: false });
+    await outro.connect();
+    try {
+      await withTx(async (c) => {
+        // outra sessão segura a MESMA trava do corte da loja (um corte em curso) ANTES de tudo
+        await outro.query(`select pg_advisory_lock(hashtext('corte_tenant:' || $1::text))`, [TENANT_TESTE]);
+        const f = await preparar(c, "automatico");
+        const cad = await cardComCad(c, f.art, f.vari, 50, "2026-02-01");
+        // déficit gravado direto (cortar aqui esperaria a trava da outra sessão)
+        await c.query(`update cad set enviado_corte=true, deficit_corte=$2::jsonb where id=$1`,
+          [cad, JSON.stringify([{ tipo: "tecido", numero: 1, ordem: 1, deficit: 50, baixada: 0, enviada: 50, variante: "ITEST-P203" }])]);
+        const oc = await novaOc(c, "recebido", "ITEST-P203-M2");
+        const it = await novoItem(c, oc, f.art, f.vari, 80, 80);
+        const t0 = Date.now();
+        await flush(c);
+        expect(Date.now() - t0).toBeLessThan(1500); // antes (round 0): pg_advisory_xact_lock esperava sem limite
+        expect(Number((await deficit(c, cad))![0].deficit)).toBe(50);
+        const r = (await um<{ r: any }>(c, `select public._completar_deficit_corte_variante($1,$2) r`, [TENANT_TESTE, f.vari])).r;
+        expect(r).toMatchObject({ cads: 0, ocupado: true });
+        await outro.query(`select pg_advisory_unlock(hashtext('corte_tenant:' || $1::text))`, [TENANT_TESTE]);
+        await c.query(`update ocs_tecido_itens set quantidade_recebida=81 where id=$1`, [it]);
+        await flush(c);
+        expect(await deficit(c, cad)).toBeNull();
+      });
+    } finally {
+      await outro.query(`select pg_advisory_unlock_all()`).catch(() => {});
+      await outro.end();
+    }
+  });
+
+  it("erro no helper (inclusive 57014/statement_timeout) vira WARNING e não derruba o comando; UPDATE sem mudança não dispara (L4)", async () => {
+    await withTx(async (c) => {
+      const avisos: string[] = [];
+      c.on("notice", (n: any) => avisos.push(String(n.message)));
+      const f = await preparar(c, "automatico");
+      const oc = await novaOc(c, "recebido", "ITEST-P203-W");
+      const it = await novoItem(c, oc, f.art, f.vari, 10, 10);
+      await flush(c);
+      // helper trocado (só nesta txn revertida) por um que falha
+      await c.query(`create or replace function public._completar_deficit_corte_variante(_tenant uuid, _variante uuid)
+        returns jsonb language plpgsql security definer set search_path to 'public' as $f$
+        begin raise exception 'boom_teste'; end $f$`);
+      // UPDATE sem mudança (o _salvar_oc_tecido_core regrava todos os itens): o gatilho NÃO dispara
+      await c.query(`update ocs_tecido_itens set quantidade_recebida=quantidade_recebida, cancelado=cancelado where id=$1`, [it]);
+      await flush(c);
+      expect(avisos.filter((a) => a.includes("completar_deficit_corte"))).toEqual([]);
+      // mudança de verdade: dispara, o erro vira WARNING e o comando segue
+      await c.query(`update ocs_tecido_itens set quantidade_recebida=11 where id=$1`, [it]);
+      await flush(c);
+      expect(avisos.some((a) => a.includes("completar_deficit_corte") && a.includes("boom_teste"))).toBe(true);
+      expect(Number((await um<{ q: string }>(c, `select quantidade_recebida q from ocs_tecido_itens where id=$1`, [it])).q)).toBe(11);
+      // 57014: statement_timeout estourando DENTRO do helper (que o WHEN OTHERS não pega) também vira WARNING
+      await c.query(`create or replace function public._completar_deficit_corte_variante(_tenant uuid, _variante uuid)
+        returns jsonb language plpgsql security definer set search_path to 'public' as $f$
+        begin perform pg_sleep(2); return '{}'::jsonb; end $f$`);
+      // (depois do 1o SET CONSTRAINTS ... IMMEDIATE os gatilhos rodam no fim de cada comando - o UPDATE e o comando)
+      await c.query(`set local statement_timeout = '300ms'`);
+      const t0 = Date.now();
+      await c.query(`update ocs_tecido_itens set quantidade_recebida=12 where id=$1`, [it]); // não lança
+      expect(Date.now() - t0).toBeLessThan(1500);
+      await c.query(`set local statement_timeout = 0`);
+      expect(Number((await um<{ q: string }>(c, `select quantidade_recebida q from ocs_tecido_itens where id=$1`, [it])).q)).toBe(12);
+      expect(avisos.some((a) => a.includes("completar_deficit_corte") && /57014|cancel/i.test(a))).toBe(true);
     });
   });
 });

@@ -1,6 +1,7 @@
 -- INVERSO de supabase/migrations/20261025100000_estoque_rolo_parcial_e_painel.sql (achados MEDIOS R15a, est #4 + est #2).
--- Devolve o texto de ANTES de _estoque_tecido_core (item de origem de rolo excluido inteiro, CTE origem_rolos) e de
--- detalhe_estoque_variante (reserva cheia por vinculo, libera so com baixa no ledger, sem excluir reprovado).
+-- Devolve o texto de ANTES de _estoque_tecido_core (item de origem de rolo excluido inteiro, CTE origem_rolos; reprovado =
+-- so status_desenvolvimento) e de detalhe_estoque_variante (reserva cheia por vinculo, libera so com baixa no ledger, sem
+-- excluir reprovado). Guarda = textos do fix round 1 (P-213 A incluida).
 -- Guarda: so roda se as 2 estao EXATAMENTE com o texto da ida (md5 de depois) e os leitores seguem com o texto conferido;
 -- outro -> P0001 e nada muda (rodar 2x = a 2a recusa). Nada gravado muda (so leitura).
 -- Ordem geral: LIFO da APLICACAO (este inverso roda ANTES dos inversos da R11/release 10 e anteriores).
@@ -18,8 +19,8 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._estoque_tecido_core(uuid)',            '7e48c553b050eb47f9eff694f9a5d8cf'),
-      ('public.detalhe_estoque_variante(uuid)',        'effb1f49e05a384621203f42d4c6552f'),
+      ('public._estoque_tecido_core(uuid)',            '9140c253a8b62fa143de052d84a1c329'),
+      ('public.detalhe_estoque_variante(uuid)',        '283d2364de1c71d75711ac90c97cd313'),
       ('public.estoque_tecido()',                      '15ae9401fc1c6901ed4070be1bab3f9f'),
       ('public.estoque_tecido_por_artigo()',           '4bda9bbbd94b9315a72b1e36d44184ba'),
       ('public.dashboard_estoque()',                   '6f51a812f2b074aa3051c87d08ce7072'),
