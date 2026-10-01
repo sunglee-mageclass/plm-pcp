@@ -19,8 +19,8 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._otb_orcamento_core(uuid,uuid)', 'af6bfa201af761ffe6a155c866acf81e'),
-      ('public._otb_colecao_totais(uuid)', 'fd5414a318f3f16c3236eb421d9d48aa'),
+      ('public._otb_orcamento_core(uuid,uuid)', '33137a0e34808d098f084f3891a61913'),
+      ('public._otb_colecao_totais(uuid)', '4e27b6098b2197ec5239118278341f12'),
       ('public.otb_orcamento(uuid)', 'c6084650c6351917c4b2a7e471acc916')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL THEN
       RAISE EXCEPTION 'leves_l4 (volta): % nao existe', r.s USING ERRCODE = 'P0001';

@@ -152,6 +152,38 @@ describe("computeColecaoResumo sem reprovado (L4 P-209 A)", () => {
     expect(volta.poder).toBe(100 + 240);
   });
 
+  it("P-213 A: reprovado SÓ no Planejamento também sai; saindo de Reprovado volta a contar", () => {
+    const base = [
+      {
+        id: "a",
+        linha_id: null,
+        preco_venda: 50,
+        status_desenvolvimento: "em_modelagem",
+        status_planejamento: "planejado",
+      },
+      {
+        id: "b",
+        linha_id: null,
+        preco_venda: 80,
+        status_desenvolvimento: "ficha_tecnica",
+        status_planejamento: "reprovado",
+      },
+    ];
+    const r = computeColecaoResumo(base, custo, grade, {});
+    expect(r.qtdModelos).toBe(1);
+    expect(r.previsto).toBe(20);
+    expect(r.real).toBe(24);
+    expect(r.poder).toBe(100);
+    const volta = computeColecaoResumo(
+      base.map((m) => (m.id === "b" ? { ...m, status_planejamento: "planejado" } : m)),
+      custo,
+      grade,
+      {},
+    );
+    expect(volta.qtdModelos).toBe(2);
+    expect(volta.poder).toBe(100 + 240);
+  });
+
   it("as telas do OTB leem status_desenvolvimento para o resumo", () => {
     const idx = readFileSync(
       resolve(__dirname, "../../src/routes/_authenticated/otb.index.tsx"),

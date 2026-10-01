@@ -1,23 +1,23 @@
 -- Achados LEVES, release L4 (Dashboards e OTB; banco ANTES do site) - parte 2: Realizado do OTB sem reprovado.
 --   est #15 / P-209 A (dono 01/out): card REPROVADO nao conta no Realizado do OTB; saindo de Reprovado volta a contar
---             (contagem viva, nada gravado). Predicado = o do _estoque_tecido_core e do Plan. Tecido (P-198 A, R15b):
---             lower(COALESCE(modelos.status_desenvolvimento,'')) <> 'reprovado'.
+--             (contagem viva, nada gravado). Fix round 1, P-213 A (dono): reprovado = status_desenvolvimento OU
+--             status_planejamento 'reprovado' (a mesma regra da Integracao):
+--             NOT (lower(COALESCE(status_desenvolvimento,''))='reprovado' OR lower(COALESCE(status_planejamento,''))='reprovado').
 --             _otb_colecao_totais: Realizado da COLECAO (lista do OTB, dropdown de colecao, Plan. Tecido, e o
 --               sidebar_badges.otb_divergencia, que le esta funcao e passa a seguir a mesma regra sem mudar de texto).
 --             _otb_orcamento_core: Realizado da SUBCOLECAO e do NIVEL 3 (linha/categoria); a coluna 'colecoes' ja vem
 --               de _otb_colecao_totais. Nada mais muda (total, ordem, shape).
---   Copia 54422 (antes -> depois): Ave Rara "Resort 27 Novo" 242/199 -> 235/199 (os 7 reprovados saem; segue
---   divergente, badge 1 -> 1); soma das subcolecoes Ave Rara 242 -> 235, nivel 3 (linha) 181 -> 174; demais lojas
---   iguais (0 reprovados nas colecoes confirmadas).
+--   Copia 54422 (antes -> depois): Ave Rara "Resort 27 Novo" 242/199 -> 232/199 (saem 7 reprovados no Dev + 3 so no
+--   Planejamento; segue divergente, badge 1 -> 1); demais lojas iguais (0 reprovados nas colecoes confirmadas).
 -- Funcoes STABLE, so leitura; nada gravado muda.
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public._otb_orcamento_core(uuid,uuid)
 --     ANTES  90459d3b52b7d107b14bc6ab0e7ed6ce  -- PROVISORIO (copia 54422): nao consta do Passo 0 dos MEDIOS; conferir no Passo 0 dos LEVES (plan.md §4)
---     DEPOIS af6bfa201af761ffe6a155c866acf81e  (este arquivo; reaplicar = no-op)
+--     DEPOIS 33137a0e34808d098f084f3891a61913  (este arquivo; reaplicar = no-op)
 --   public._otb_colecao_totais(uuid)
 --     ANTES  efe66ab77932cfcc7ad5e14d6881a963  -- PROVISORIO (copia 54422): FORA da lista do Passo 0 dos LEVES (plan.md §4) - ACRESCENTAR
---     DEPOIS fd5414a318f3f16c3236eb421d9d48aa  (este arquivo; reaplicar = no-op)
+--     DEPOIS 4e27b6098b2197ec5239118278341f12  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda):
 --     public.otb_orcamento(uuid)  c6084650c6351917c4b2a7e471acc916  chamador  -- PROVISORIO (copia): conferir no Passo 0 dos LEVES
 --   Qualquer outro texto -> P0001 e nada muda.
@@ -42,9 +42,9 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _l4b_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l4b_md5_aceitos VALUES
   ('public._otb_orcamento_core(uuid,uuid)', '90459d3b52b7d107b14bc6ab0e7ed6ce', 'antes'),  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
-  ('public._otb_orcamento_core(uuid,uuid)', 'af6bfa201af761ffe6a155c866acf81e', 'depois'),
+  ('public._otb_orcamento_core(uuid,uuid)', '33137a0e34808d098f084f3891a61913', 'depois'),
   ('public._otb_colecao_totais(uuid)', 'efe66ab77932cfcc7ad5e14d6881a963', 'antes'),  -- PROVISORIO (copia 54422): acrescentar ao Passo 0 dos LEVES
-  ('public._otb_colecao_totais(uuid)', 'fd5414a318f3f16c3236eb421d9d48aa', 'depois'),
+  ('public._otb_colecao_totais(uuid)', '4e27b6098b2197ec5239118278341f12', 'depois'),
   ('public.otb_orcamento(uuid)', 'c6084650c6351917c4b2a7e471acc916', 'dep');  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
 
 DO $guarda$
@@ -83,10 +83,11 @@ AS $function$
      ELSE
        COALESCE((SELECT sum(cs.qtd_planejada) FROM colecao_semanas cs WHERE cs.colecao_id = cols.id AND cs.tenant_id = _tenant),0)
      END)::int AS total,
-    -- [leves L4, est #15 / P-209 A] card REPROVADO (status_desenvolvimento) nao conta no Realizado; saindo de
-    -- Reprovado volta a contar. Mesmo predicado do _estoque_tecido_core e do Plan. Tecido (P-198 A).
+    -- [leves L4, est #15 / P-209 A + P-213 A] card REPROVADO nao conta no Realizado; saindo de Reprovado volta a
+    -- contar. Reprovado = status_desenvolvimento OU status_planejamento 'reprovado' (mesma regra da Integracao).
     COALESCE((SELECT count(*) FROM modelos m WHERE m.colecao_id = cols.id AND m.tenant_id = _tenant
-              AND lower(COALESCE(m.status_desenvolvimento,'')) <> 'reprovado'),0)::int AS realizado
+              AND NOT (lower(COALESCE(m.status_desenvolvimento,'')) = 'reprovado'
+                       OR lower(COALESCE(m.status_planejamento,'')) = 'reprovado')),0)::int AS realizado
   FROM cols;
 $function$
 
@@ -118,10 +119,11 @@ begin
        ELSE
          COALESCE((SELECT sum(cs.qtd_planejada) FROM colecao_semanas cs WHERE cs.subcolecao_id = sc.sub_id AND cs.tenant_id = _tenant),0)
        END)::int AS total,
-      -- [leves L4, est #15 / P-209 A] reprovado fora do Realizado (mesmo predicado de _otb_colecao_totais).
+      -- [leves L4, est #15 / P-209 A + P-213 A] reprovado fora do Realizado (mesmo predicado de _otb_colecao_totais).
       COALESCE((SELECT count(*) FROM modelos m WHERE m.colecao_id = sc.colecao_id
                 AND m.tenant_id = _tenant AND m.subcolecao = sc.sub_nome
-                AND lower(COALESCE(m.status_desenvolvimento,'')) <> 'reprovado'),0)::int AS realizado
+                AND NOT (lower(COALESCE(m.status_desenvolvimento,'')) = 'reprovado'
+                         OR lower(COALESCE(m.status_planejamento,'')) = 'reprovado')),0)::int AS realizado
     FROM sc
   ),
   n3 AS (
@@ -142,7 +144,8 @@ begin
   n3r AS (
     SELECT n3.*, COALESCE((SELECT count(*) FROM modelos m
       WHERE m.colecao_id = n3.colecao_id AND m.tenant_id = _tenant AND m.subcolecao = n3.sub_nome
-        AND lower(COALESCE(m.status_desenvolvimento,'')) <> 'reprovado'  -- [leves L4, P-209 A]
+        AND NOT (lower(COALESCE(m.status_desenvolvimento,'')) = 'reprovado'
+                 OR lower(COALESCE(m.status_planejamento,'')) = 'reprovado')  -- [leves L4, P-209 A + P-213 A]
         AND ((n3.tipo3='linha' AND m.linha_id = n3.ref_id)
           OR (n3.tipo3='categoria' AND m.categoria_principal_id = n3.ref_id))),0)::int AS realizado
     FROM n3

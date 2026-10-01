@@ -13,8 +13,8 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
 const MD5_DEPOIS: Record<string, string> = {
   "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "656f77cd21612d1ab4c6498fac6e3b6e",
   "public._dashboard_producao_core(date,date,text,uuid)": "2997a4b27f4426cdd125b76c794c7a87",
-  "public._otb_orcamento_core(uuid,uuid)": "af6bfa201af761ffe6a155c866acf81e",
-  "public._otb_colecao_totais(uuid)": "fd5414a318f3f16c3236eb421d9d48aa",
+  "public._otb_orcamento_core(uuid,uuid)": "33137a0e34808d098f084f3891a61913",
+  "public._otb_colecao_totais(uuid)": "4e27b6098b2197ec5239118278341f12",
 };
 
 /** Troca a loja ativa do usuário de teste (só na txn revertida). */
@@ -61,6 +61,10 @@ const ESPERADO_SQL = `
          count(*) filter (where oce and sp is distinct from 'planejado')::int oce_sp_nao_planejado,
          count(*) filter (where oce and sp is distinct from 'planejado' and not ec and not lanc)::int oce_sp_nao_planejado_dev
     from m`;
+
+// P-209 A + P-213 A: reprovado = status_desenvolvimento OU status_planejamento 'reprovado' (regra da Integração).
+const NAO_REPROVADO = `not (lower(coalesce(m.status_desenvolvimento,'')) = 'reprovado'
+                     or lower(coalesce(m.status_planejamento,'')) = 'reprovado')`;
 
 describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", () => {
   it("md5 de depois nas 4 funções; STABLE SECURITY DEFINER; internas sem EXECUTE (inv. #9); wrappers chamáveis", async () => {
@@ -220,7 +224,7 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
           const e = await um<{ n: number }>(
             c,
             `select count(*)::int n from modelos m where m.tenant_id = $1 and m.colecao_id = $2
-               and lower(coalesce(m.status_desenvolvimento,'')) <> 'reprovado'`,
+               and ${NAO_REPROVADO}`,
             [loja.id, col.colecao_id],
           );
           expect(col.realizado, `colecao ${col.nome}`).toBe(e.n);
@@ -230,7 +234,7 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
           const e = await um<{ n: number }>(
             c,
             `select count(*)::int n from modelos m where m.tenant_id = $1 and m.colecao_id = $2 and m.subcolecao = $3
-               and lower(coalesce(m.status_desenvolvimento,'')) <> 'reprovado'`,
+               and ${NAO_REPROVADO}`,
             [loja.id, s.colecao_id, s.subcolecao],
           );
           expect(s.realizado, `sub ${s.subcolecao}`).toBe(e.n);
@@ -240,31 +244,35 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
             c,
             `select count(*)::int n from modelos m where m.tenant_id = $1 and m.colecao_id = $2 and m.subcolecao = $3
                and (case when $4 = 'linha' then m.linha_id = $5::uuid else m.categoria_principal_id = $5::uuid end)
-               and lower(coalesce(m.status_desenvolvimento,'')) <> 'reprovado'`,
+               and ${NAO_REPROVADO}`,
             [loja.id, n.colecao_id, n.subcolecao, n.tipo3, n.ref_id],
           );
           expect(n.realizado, `n3 ${n.subcolecao}/${n.label}`).toBe(e.n);
         }
       }
       expect(comparados).toBeGreaterThan(0);
-      // Âncora do plano: Ave Rara "Resort 27 Novo" — 242 cards, 7 reprovados → Realizado 235
+      // Âncora do plano: Ave Rara "Resort 27 Novo" — 242 cards; 7 reprovados no Dev + 3 só no Planejamento (P-213 A)
+      // → Realizado 232
       const ancora = await um<
-        { id: string; tenant_id: string; n: number; rep: number } | undefined
+        { id: string; tenant_id: string; n: number; rep: number; rep_sp: number } | undefined
       >(
         c,
         `select c.id, c.tenant_id, count(m.*)::int n,
-                count(*) filter (where lower(coalesce(m.status_desenvolvimento,'')) = 'reprovado')::int rep
+                count(*) filter (where lower(coalesce(m.status_desenvolvimento,'')) = 'reprovado')::int rep,
+                count(*) filter (where lower(coalesce(m.status_planejamento,'')) = 'reprovado'
+                                   and lower(coalesce(m.status_desenvolvimento,'')) <> 'reprovado')::int rep_sp
            from colecoes c join modelos m on m.colecao_id = c.id
           where c.nome = 'Resort 27 Novo' and c.status = 'confirmada' group by 1,2`,
       );
       if (!ancora) throw new Error("fixture ausente: coleção Resort 27 Novo (Ave Rara)");
       expect(ancora.rep).toBe(7);
+      expect(ancora.rep_sp).toBe(3);
       const t = await um<{ realizado: number }>(
         c,
         `select realizado from public._otb_colecao_totais($1::uuid) where colecao_id = $2`,
         [ancora.tenant_id, ancora.id],
       );
-      expect(t.realizado).toBe(ancora.n - 7);
+      expect(t.realizado).toBe(ancora.n - 10);
     });
   });
 
@@ -278,12 +286,13 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       const rep = await um<{ id: string; subcolecao: string | null } | undefined>(
         c,
         `select id, subcolecao from modelos where colecao_id = $1 and lower(coalesce(status_desenvolvimento,'')) = 'reprovado'
+          and lower(coalesce(status_planejamento,'')) <> 'reprovado'
           and subcolecao is not null order by id limit 1`,
         [ancora.id],
       );
       const vivo = await um<{ id: string; subcolecao: string | null } | undefined>(
         c,
-        `select id, subcolecao from modelos where colecao_id = $1 and lower(coalesce(status_desenvolvimento,'')) <> 'reprovado'
+        `select id, subcolecao from modelos m where colecao_id = $1 and ${NAO_REPROVADO}
           and subcolecao is not null order by id limit 1`,
         [ancora.id],
       );
@@ -331,12 +340,63 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       expect(b0).toBeGreaterThanOrEqual(1);
       await c.query(
         `update modelos set status_desenvolvimento = 'reprovado'
-          where id in (select id from modelos where colecao_id = $1 and lower(coalesce(status_desenvolvimento,'')) <> 'reprovado'
+          where id in (select id from modelos m where colecao_id = $1 and ${NAO_REPROVADO}
                         order by id limit $2)`,
         [ancora.id, tot.realizado - tot.total],
       );
       const b1 = Number((await rpc(c, `public.sidebar_badges()`)).otb_divergencia);
       expect(b1).toBe(b0 - 1);
+    });
+  });
+  it("P-213 A: reprovado SÓ no Planejamento sai do Realizado; volta a contar ao sair de Reprovado", async () => {
+    await withTx(async (c) => {
+      const alvo = await um<
+        { id: string; tenant_id: string; colecao_id: string; subcolecao: string | null } | undefined
+      >(
+        c,
+        `select m.id, m.tenant_id, m.colecao_id, m.subcolecao from modelos m join colecoes c on c.id = m.colecao_id
+          where c.nome = 'Resort 27 Novo' and c.status = 'confirmada'
+            and lower(coalesce(m.status_planejamento,'')) = 'reprovado'
+            and lower(coalesce(m.status_desenvolvimento,'')) <> 'reprovado'
+            and m.subcolecao is not null
+          order by m.id limit 1`,
+      );
+      if (!alvo)
+        throw new Error("fixture ausente: card reprovado só no Planejamento no Resort 27 Novo");
+      const ler = async () => {
+        const o = await rpc(c, `public._otb_orcamento_core($1::uuid, $2::uuid)`, [
+          alvo.tenant_id,
+          alvo.colecao_id,
+        ]);
+        const tot = await um<{ realizado: number }>(
+          c,
+          `select realizado from public._otb_colecao_totais($1::uuid) where colecao_id = $2`,
+          [alvo.tenant_id, alvo.colecao_id],
+        );
+        return {
+          col: Number(o.colecoes[0].realizado),
+          tot: Number(tot.realizado),
+          sub: Number(
+            (o.subcolecoes as any[]).find((x) => x.subcolecao === alvo.subcolecao)?.realizado,
+          ),
+        };
+      };
+      const r0 = await ler();
+      expect(r0.col).toBe(r0.tot);
+      // sai de Reprovado (Planejamento) → volta a contar
+      await c.query(`update modelos set status_planejamento = 'planejado' where id = $1`, [
+        alvo.id,
+      ]);
+      const r1 = await ler();
+      expect(r1.col).toBe(r0.col + 1);
+      expect(r1.tot).toBe(r0.tot + 1);
+      expect(r1.sub).toBe(r0.sub + 1);
+      // entra em Reprovado de novo (só no Planejamento) → sai
+      await c.query(`update modelos set status_planejamento = 'reprovado' where id = $1`, [
+        alvo.id,
+      ]);
+      const r2 = await ler();
+      expect(r2).toEqual(r0);
     });
   });
 });

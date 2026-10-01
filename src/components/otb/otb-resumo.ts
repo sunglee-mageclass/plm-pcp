@@ -5,21 +5,30 @@ export type ModelForResumo = {
   linha_id: string | null;
   preco_venda: number | null;
   markup_editado?: number | null;
-  /** [leves L4, P-209 A] card em 'reprovado' fica fora do resumo (mesma regra do Realizado do OTB no banco) */
+  /** [leves L4, P-209 A + P-213 A] card reprovado (Dev OU Planejamento) fica fora do resumo — mesma regra do
+   *  Realizado do OTB no banco */
   status_desenvolvimento?: string | null;
+  status_planejamento?: string | null;
 };
 
-/** P-209 A: card reprovado não conta no Realizado do OTB; saindo de Reprovado volta a contar. Mesmo predicado do
- *  banco (`lower(coalesce(status_desenvolvimento,'')) <> 'reprovado'` em `_otb_colecao_totais`/`_otb_orcamento_core`). */
-export function contaNoOtb(m: { status_desenvolvimento?: string | null }): boolean {
-  return (m.status_desenvolvimento ?? "").toLowerCase() !== "reprovado";
+/** P-209 A + P-213 A: card reprovado não conta no Realizado do OTB; saindo de Reprovado volta a contar. Reprovado =
+ *  `status_desenvolvimento` OU `status_planejamento` = 'reprovado' (mesma regra da Integração e do banco:
+ *  `_otb_colecao_totais`/`_otb_orcamento_core`). */
+export function contaNoOtb(m: {
+  status_desenvolvimento?: string | null;
+  status_planejamento?: string | null;
+}): boolean {
+  return (
+    (m.status_desenvolvimento ?? "").toLowerCase() !== "reprovado" &&
+    (m.status_planejamento ?? "").toLowerCase() !== "reprovado"
+  );
 }
 export type Custo = { previsto: number; real: number; confirmado: boolean };
 
 export type ColecaoResumo = {
   previsto: number; // Σ custo previsto por peça × grade
-  real: number;     // Σ custo real por peça × grade
-  poder: number;    // Σ preço efetivo × grade
+  real: number; // Σ custo real por peça × grade
+  poder: number; // Σ preço efetivo × grade
   qtdModelos: number;
   qtdPecas: number;
 };
@@ -33,13 +42,22 @@ export function computeColecaoResumo(
   gradeMap: Record<string, number>,
   linhaMarkupMap: Record<string, number | null>,
 ): ColecaoResumo {
-  let previsto = 0, real = 0, poder = 0, qtdPecas = 0, qtdModelos = 0;
+  let previsto = 0,
+    real = 0,
+    poder = 0,
+    qtdPecas = 0,
+    qtdModelos = 0;
   for (const m of models) {
     if (!contaNoOtb(m)) continue;
     qtdModelos++;
     const grade = Number(gradeMap[m.id]) || 0;
     const custo = custoMap[m.id];
-    const pi = precoInfo(custo?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda, m.markup_editado);
+    const pi = precoInfo(
+      custo?.real,
+      m.linha_id ? linhaMarkupMap[m.linha_id] : 0,
+      m.preco_venda,
+      m.markup_editado,
+    );
     previsto += (Number(custo?.previsto) || 0) * grade;
     real += (Number(custo?.real) || 0) * grade;
     poder += pi.efetivo * grade;
