@@ -17,6 +17,7 @@ import type { Client } from "pg";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { md5OuSucessorI3 } from "./integracao-helpers";
 import { CAMPOS, LAYOUT_KEYS } from "@/lib/integracao/campos";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -38,6 +39,9 @@ const T = TENANT_TESTE;
 const T2 = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // outra loja (Ave Rara) na cópia local
 const LOCAL = ehBancoLocal();
 const TAXONOMIA = /(categoria|subcategoria|grupo)/i;
+// Release I3 (20261030110000): "categoria_tecido" (Categoria do Tecido Principal) é campo NÃO obrigatório e INFORMATIVO da
+// Integração — não é a categoria do PRODUTO e não trava nada (P-219 A; a trava é por nome de campo e ele não tem coluna).
+const INFORMATIVOS_I3 = new Set(["colecao", "categoria_tecido", "linha"]);
 const ler = (rel: string) => readFileSync(ROOT + rel, "utf8");
 
 // ─────────────────────────────── estático (sem banco) ───────────────────────────────
@@ -133,7 +137,7 @@ describe("P-137 categoria card → produto — arquivos (estático, sem banco)",
   });
 
   it("ANTI-DRIFT: categoria/subcategoria/grupo NÃO são campos da Integração (catálogo TS) — se virarem, a trava do CARD tem de travar a categoria antes", () => {
-    for (const k of LAYOUT_KEYS) expect(TAXONOMIA.test(k), `campo da Integração: ${k}`).toBe(false);
+    for (const k of LAYOUT_KEYS) if (!INFORMATIVOS_I3.has(k)) expect(TAXONOMIA.test(k), `campo da Integração: ${k}`).toBe(false);
     for (const c of CAMPOS) expect(TAXONOMIA.test(String(c.coluna ?? "")), `coluna da Integração: ${String(c.coluna)}`).toBe(false);
   });
 });
@@ -229,7 +233,9 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
           md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_rodar()'))) AS rodar,
           md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_desfazer()'))) AS desfazer,
           md5(pg_get_functiondef('public._salvar_produto_acabado_core(uuid,jsonb,jsonb)'::regprocedure)) AS core`);
-      expect([MD5_CORE_P136, MD5_CORE_L8]).toContain(r.core);
+      // Release I3a (20261030100000) redefine o core POR CIMA da L8 (só Categoria do tecido / Material do aviamento; o trecho da
+      // P-136 fica) — sucessor aceito.
+      expect([MD5_CORE_P136, ...md5OuSucessorI3("_salvar_produto_acabado_core(uuid,jsonb,jsonb)", MD5_CORE_L8)]).toContain(r.core);
       expect({ ...r, core: null }).toEqual({ fn: MD5_FN, trg: MD5_TRG, ntrg: 1, rodar: MD5_RODAR, desfazer: MD5_DESFAZER, core: null });
       for (const f of ["public.fn_modelo_espelho_categoria()", "public._p137_backfill_rodar()", "public._p137_backfill_desfazer()"]) {
         const a = await um<any>(c, `SELECT has_function_privilege('public', $1, 'EXECUTE') AS p,
@@ -250,7 +256,7 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
     await withTx(async (c) => {
       const { rows } = await c.query<{ campo: string }>("SELECT unnest(public._integracao_layout()) AS campo");
       expect(rows.length).toBeGreaterThan(0);
-      for (const { campo } of rows) expect(TAXONOMIA.test(campo), campo).toBe(false);
+      for (const { campo } of rows) if (!INFORMATIVOS_I3.has(campo)) expect(TAXONOMIA.test(campo), campo).toBe(false);
       const fs = await c.query<{ n: string; d: string }>(`SELECT proname AS n, pg_get_functiondef(oid) AS d FROM pg_proc
           WHERE proname IN ('fn_integracao_trava_modelos', 'fn_integracao_trava_espelho')`);
       for (const f of fs.rows) expect(/categoria|subcategoria/i.test(f.d), f.n).toBe(false);

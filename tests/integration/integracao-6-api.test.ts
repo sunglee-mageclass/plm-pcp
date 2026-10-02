@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { createHash } from "node:crypto";
 import { hasDb, withTx, comoUsuario, um } from "./db";
-import { CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, comoUsuarioCom, keywordsLoja, modeloInterno, prepara } from "./integracao-helpers";
+import { DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, comoUsuarioCom, keywordsLoja, modeloInterno, prepara, padraoVivo } from "./integracao-helpers";
 
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 async function marcar(c: Client, id: string): Promise<void> {
@@ -27,10 +27,16 @@ async function msg(c: Client, sql: string, params: unknown[]): Promise<string> {
   catch (e: any) { await c.query("ROLLBACK TO SAVEPOINT m"); return `${e.code} ${e.message}`; }
 }
 
+/** Release I3c (P-217 A) sobe o rev da config de toda loja: estas provas partem de "rev 1" — fixa na txn (revertida). */
+async function revConfigUm(c: Client): Promise<void> {
+  await c.query(`UPDATE public.integracao_config SET rev = 1 WHERE tenant_id = $1`, [T]);
+}
+
 describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e chaves (SÓ super admin)", () => {
   it("campos: só super admin; ordem normalizada; rev (P0409 ASCII); desconhecido/vazio = P0001; log 'campos'", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
+      await revConfigUm(c);
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce31", [["integracao", true, true]], { tenantAdmin: true });
       expect(await msg(c, `SELECT public.integracao_salvar_config($1::text[], 1)`, [["nome"]])).toBe("42501 Só o super admin pode fazer isto.");
       await comoUsuario(c, U);
@@ -40,14 +46,17 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
       expect(await msg(c, `SELECT public.integracao_salvar_config($1::text[], 1)`, [["nome"]])).toBe("P0409 conflito_versao: a configuracao foi salva por outra pessoa");
       expect(await msg(c, `SELECT public.integracao_salvar_config($1::text[], 2)`, [["xyz"]])).toMatch(/^P0001 /);
       expect(await msg(c, `SELECT public.integracao_salvar_config($1::text[], 2)`, [[]])).toMatch(/^P0001 /);
-      const log = await um<{ d: any }>(c, `SELECT detalhe AS d FROM public.integracao_log WHERE tenant_id = $1 AND acao = 'campos' ORDER BY criado_em DESC LIMIT 1`, [T]);
-      expect(log.d).toEqual({ antes: [...CAMPOS_PADRAO], depois: ["nome", "ref_sku", "foto"] });
+      // (o registro 'campos' da correção única I3c — "Sistema (campos informativos)" — pode ter o MESMO now() desta txn)
+      const log = await um<{ d: any }>(c, `SELECT detalhe AS d FROM public.integracao_log WHERE tenant_id = $1 AND acao = 'campos'
+          AND quem NOT LIKE 'Sistema%' ORDER BY criado_em DESC LIMIT 1`, [T]);
+      expect(log.d).toEqual({ antes: [...(await padraoVivo(c))], depois: ["nome", "ref_sku", "foto"] });
     });
   });
 
   it("configurações da API: faixas (fora = P0001), log config_api antes/depois", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
+      await revConfigUm(c);
       await comoUsuario(c, U);
       expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 601}'::jsonb, 1)`, [])).toMatch(/^P0001 .*1–600/);
       const r = (await um<{ r: any }>(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 300, "validade_foto_dias": 30}'::jsonb, 1) AS r`)).r;
@@ -87,6 +96,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
   it("revisão T6 #6 (Minor #6): config da API recusa tipo errado (P0001 PT) e chave desconhecida (typo)", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
+      await revConfigUm(c);
       await comoUsuario(c, U);
       expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": "abc"}'::jsonb, 1)`, [])).toMatch(/^P0001 .*numero inteiro/);
       expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 1.5}'::jsonb, 1)`, [])).toMatch(/^P0001 .*numero inteiro/);
@@ -102,6 +112,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
   it("re-review round 1 (#6 nit): inteiro fora do range de 32 bits e _valores não-objeto viram P0001 PT (não 22003/22023 cru)", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
+      await revConfigUm(c);
       await comoUsuario(c, U);
       expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 3000000000}'::jsonb, 1)`, []))
         .toMatch(/^P0001 .*numero inteiro/);
@@ -133,11 +144,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
       const k = await chave(c);
       const r1 = await ler(c, k.chave);
       expect(r1).toMatchObject({ status: "ok", modo: "normal", loja: { id: T }, proximo_cursor: null, validade_foto_dias: 7 });
-      expect(r1.chaves_colunas).toEqual([...CAMPOS_PADRAO]);
+      const padrao = await padraoVivo(c); // Release I3: 20 colunas (as 3 não obrigatórias no fim) com a I3 na cópia
+      expect(r1.chaves_colunas).toEqual([...padrao]);
       expect(r1.colunas[0]).toBe("Nome");
       const p = r1.produtos.find((x: any) => x.modelo_id === m.id);
       expect(p.linhas.map((l: any) => l.tipo)).toEqual(["produto", "variante", "variante"]);
-      expect(p.linhas[0].valores).toHaveLength(17);
+      expect(p.linhas[0].valores).toHaveLength(padrao.length);
       expect(p.linhas[1].valores[1]).toBe(`${m.ref}-P`);
       expect((await um<{ s: string }>(c, `SELECT status AS s FROM public.integracao_acessos WHERE id = $1`, [r1.acesso_id])).s).toBe("reservado");
       const cf = await confirmar(c, r1);

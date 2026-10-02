@@ -4,7 +4,7 @@ import { Client } from "pg";
 import type { Client as ClientType } from "pg";
 import { hasDb, withTx, comoUsuario, um, dbUrl } from "./db";
 import { aplicarSql } from "./mig-txn";
-import { CAMPOS_PADRAO, INVERSOS, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, keywordsLoja, ler, modeloInterno, prepara, revenda, semTravas } from "./integracao-helpers";
+import { CAMPOS_PADRAO, INVERSOS, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, keywordsLoja, ler, modeloInterno, prepara, revenda, semTravas, padraoVivo } from "./integracao-helpers";
 
 const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // loja com mais modelos na cópia (mesmo id da suíte 2)
 const SSL = false; // cópia local, sem SSL — mesmo padrão de kanban-auto.test.ts/sku-previa.test.ts
@@ -34,20 +34,21 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
       await comoUsuario(c, U);
       await keywordsLoja(c, "k");
       const m = await modeloInterno(c);
+      const padrao = await padraoVivo(c); // Release I3: a I3c marca os 3 não obrigatórios em toda config (20)
       expect(await marcar(c, m.id)).toEqual({ marcados: 1 });
       const ip = await um<{ estado: string; campos: string[]; ass: string; marcado: boolean }>(c,
         `SELECT estado, campos, assinatura AS ass, marcado_em IS NOT NULL AS marcado FROM public.integracao_produtos WHERE modelo_id = $1`, [m.id]);
-      expect(ip).toMatchObject({ estado: "integravel", campos: [...CAMPOS_PADRAO], marcado: true });
+      expect(ip).toMatchObject({ estado: "integravel", campos: [...padrao], marcado: true });
       const esp = await c.query(`SELECT tipo, ordem, ref_sku, tamanho, preco_venda, integrado_em FROM public.integracao_linhas WHERE modelo_id = $1 ORDER BY ordem`, [m.id]);
       expect(esp.rows.map((r) => [r.tipo, r.ordem, r.tamanho])).toEqual([["produto", 0, null], ["variante", 1, "P"], ["variante", 2, "M"]]);
       expect(esp.rows[1].ref_sku).toBe(`${m.ref}-P`);
       expect(esp.rows[0].preco_venda).toBe("159.90");
       const log = await um<{ acao: string; quem: string; d: any }>(c,
         `SELECT acao, quem, detalhe AS d FROM public.integracao_log WHERE modelo_id = $1`, [m.id]);
-      expect(log).toMatchObject({ acao: "integrar", d: { campos: 17, sublinhas: 2 } });
+      expect(log).toMatchObject({ acao: "integrar", d: { campos: padrao.length, sublinhas: 2 } });
       expect(log.quem).toMatch(/\(super admin\)$/);
       const est = (await um<{ r: any }>(c, `SELECT public.integracao_estado_modelos(ARRAY[$1::uuid]) AS r`, [m.id])).r;
-      expect(est[m.id]).toMatchObject({ estado: "integravel", campos: [...CAMPOS_PADRAO] });
+      expect(est[m.id]).toMatchObject({ estado: "integravel", campos: [...padrao] });
       const todos = (await um<{ r: any }>(c, `SELECT public.integracao_estado_modelos(NULL) AS r`)).r;
       expect(todos[m.id]).toMatchObject({ estado: "integravel" });
       expect(Object.values(todos).every((x: any) => ["integravel", "integrado"].includes(x.estado))).toBe(true);

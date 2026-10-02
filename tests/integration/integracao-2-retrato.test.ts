@@ -2,10 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um } from "./db";
 import { aplicarSql } from "./mig-txn";
-import {
-  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoCustoSistema, comoUsuarioCom, cor, keywordsLoja, ler, modeloInterno, prepara,
-  revenda, semTravas,
-} from "./integracao-helpers";
+import { CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoCustoSistema, comoUsuarioCom, cor, keywordsLoja, ler, modeloInterno, prepara, revenda, semTravas, layoutVivo, padraoVivo } from "./integracao-helpers";
 
 const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // loja com mais modelos na cópia (medição)
 type Ret = { retrato: { v: number; campos: string[]; linhas: Array<{ tipo: string; ordem: number; valores: Record<string, string | null>; fotos: string[] }> };
@@ -447,8 +444,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura",
       await prepara(c, 2);
       await comoUsuario(c, U);
       const s = (await um<{ r: any }>(c, `SELECT public.integracao_config_ler() AS r`)).r;
-      expect(s.campos).toEqual([...CAMPOS_PADRAO]);
-      expect(s.layout).toEqual([...LAYOUT]);
+      expect(s.campos).toEqual([...(await padraoVivo(c))]); // Release I3: 20 / layout 21 com a I3 na cópia
+      expect(s.layout).toEqual([...(await layoutVivo(c))]);
       expect(s.api).toEqual({ limite_por_minuto: 60, max_por_pagina: 50, validade_foto_dias: 7, bloqueio_tentativas: 10 });
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce05", [["integracao", true, false]]);
       expect((await um<{ r: any }>(c, `SELECT public.integracao_config_ler() AS r`)).r.api).toBeNull();

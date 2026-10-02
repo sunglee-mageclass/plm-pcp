@@ -65,6 +65,13 @@ export async function withTx(fn: TxFn): Promise<void> {
   await client.connect();
   try {
     await client.query("BEGIN");
+    // Release I3 (ensaio do estado "depois" sem tocar a cópia): com I3_TXN=1 a I3a/I3b/I3c é aplicada DENTRO desta txn
+    // (mig-txn: sem BEGIN/COMMIT, nunca \i) antes do teste. Só na cópia local (exigeBancoLocal dentro de aplicaI3).
+    if (process.env.I3_TXN === "1") {
+      const { aplicaI3 } = await import("./integracao-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaI3(client);
+    }
     await fn(client);
   } finally {
     try {

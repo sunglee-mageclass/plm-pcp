@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import { hasDb, withTx, comoUsuario, um } from "./db";
-import { CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIGRACOES, MIG_TXN, ROOT, T, U, aplica, ler, prepara } from "./integracao-helpers";
+import { CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIGRACOES, MIG_TXN, ROOT, T, U, aplica, i3bViva, layoutVivo, ler, padraoVivo, prepara } from "./integracao-helpers";
 
 const TABELAS = ["integracao_config", "integracao_segredo", "integracao_produtos", "integracao_linhas",
   "integracao_chaves", "integracao_acessos", "integracao_log"] as const;
@@ -134,12 +134,15 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
   it("layout = 18 chaves na ordem; config de TODAS as lojas nasce com os 17 do layout e 60/50/7/10 (P-89 A)", async () => {
     await withTx(async (c) => {
       await prepara(c, 1);
-      expect((await um<{ l: string[] }>(c, "SELECT public._integracao_layout() AS l")).l).toEqual([...LAYOUT]);
+      // Release I3 (20261030110000/120000): layout 21 e padrão 20 (+ Coleção / Categoria do Tecido Principal / Linha); a I3c
+      // marca os 3 em toda config (rev + 1) — com a I3 na cópia o esperado é o sucessor.
+      const i3 = await i3bViva(c);
+      expect((await um<{ l: string[] }>(c, "SELECT public._integracao_layout() AS l")).l).toEqual([...(await layoutVivo(c))]);
       const r = await um<{ faltam: string; campos: string[]; lim: number; pag: number; foto: number; blq: number; rev: number }>(c,
         `SELECT (SELECT count(*) FROM public.tenants t WHERE NOT EXISTS (SELECT 1 FROM public.integracao_config x WHERE x.tenant_id = t.id)) AS faltam,
                 c.campos, c.limite_por_minuto AS lim, c.max_por_pagina AS pag, c.validade_foto_dias AS foto, c.bloqueio_tentativas AS blq, c.rev
            FROM public.integracao_config c WHERE c.tenant_id = $1`, [T]);
-      expect(r).toEqual({ faltam: "0", campos: [...CAMPOS_PADRAO], lim: 60, pag: 50, foto: 7, blq: 10, rev: 1 });
+      expect(r).toEqual({ faltam: "0", campos: [...(await padraoVivo(c))], lim: 60, pag: 50, foto: 7, blq: 10, rev: i3 ? 2 : 1 });
       await c.query("SAVEPOINT a");
       await expect(c.query(`UPDATE public.integracao_config SET limite_por_minuto = 601 WHERE tenant_id = $1`, [T]))
         .rejects.toThrow(/integracao_config_limite_chk/);
@@ -201,13 +204,14 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
     await withTx(async (c) => {
       await prepara(c, 1);
       await comoUsuario(c, U);
+      const padrao = await padraoVivo(c); // Release I3: DEFAULT = _integracao_padrao() (20) quando a I3b está na cópia
       const nova = (await um<{ id: string }>(c, `INSERT INTO public.tenants (nome) VALUES ('Loja Integracao Teste') RETURNING id`)).id;
       expect((await um<{ campos: string[] }>(c, `SELECT campos FROM public.integracao_config WHERE tenant_id = $1`, [nova])).campos)
-        .toEqual([...CAMPOS_PADRAO]);
+        .toEqual([...padrao]);
       await c.query(`UPDATE public.integracao_config SET campos = '{nome}' WHERE tenant_id = $1`, [nova]);
       await c.query(`SELECT public.reset_loja($1)`, [nova]);
       expect((await um<{ campos: string[] }>(c, `SELECT campos FROM public.integracao_config WHERE tenant_id = $1`, [nova])).campos)
-        .toEqual([...CAMPOS_PADRAO]);
+        .toEqual([...padrao]);
     });
   });
 

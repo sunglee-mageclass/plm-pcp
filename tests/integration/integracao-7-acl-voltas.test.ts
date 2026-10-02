@@ -52,7 +52,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
       // "Versão de produto já integrado" (20261018110000, T5) soma +1 RPC `integracao_versoes_integradas` (casa `integracao\_%`;
       // authenticated, anon sem EXECUTE — a suíte integracao-versao-integrada prova a ACL dela).
       const temVersaoIntegrada = await versaoIntegradaViva(c);
-      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0) + (temVersaoIntegrada ? 1 : 0));
+      // Release I3 (20261030110000) soma +3 `_integracao_*` (_integracao_padrao/_opcionais/_extras, internas com EXECUTE revogado
+      // dos TRÊS); o inverso NÃO as derruba (sem DROP — só o _down_drop), então conta pela existência.
+      const temI3 = (await um<{ ok: boolean }>(c, `SELECT to_regprocedure('public._integracao_extras(uuid)') IS NOT NULL AS ok`)).ok;
+      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0) + (temVersaoIntegrada ? 1 : 0) + (temI3 ? 3 : 0));
       const r = await um<{ internas: string; rpc_anon: string; rpc_auth: string; rota: string; total: string }>(c,
         `SELECT
            (SELECT count(*) FROM pg_proc p CROSS JOIN (VALUES ('public'), ('anon'), ('authenticated')) r(y)
