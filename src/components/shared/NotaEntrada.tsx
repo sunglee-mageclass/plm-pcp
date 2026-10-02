@@ -45,6 +45,7 @@ export function CampoDataNotaEntrada({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         max={hoje}
+        mensagemForaDoLimite="Data no futuro não é permitida"
         data-colab-path={colabPath}
         inputClassName={inputClassName}
         aria-label={ROTULO_DATA_NOTA}

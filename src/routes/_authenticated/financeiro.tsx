@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/tooltip";
 import { mostraAjustadoMaoServico, mostraVoltarAutomaticoServico } from "@/lib/servico-vencimento-manual";
 import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, Hand, RotateCcw, type LucideIcon } from "lucide-react";
-import { InfoHover } from "@/components/shared/InfoHover";
 import { totaisServicos } from "@/lib/servicos-totais";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -52,6 +51,10 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
 import { FilterButton, filtroAtivoClass } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
+import { VencimentoCell as VencimentoCellBase } from "@/components/financeiro/VencimentoCell";
+import { buscarTodas } from "@/lib/buscar-todas";
+import { aplicarOcCancelada, ocTecidoCancelada, podeDesmarcarPagamento, MOTIVO_NAO_DESMARCAR_OC_CANCELADA } from "@/lib/financeiro-oc-cancelada";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { AlertTriangle } from "lucide-react";
 export const Route = createFileRoute("/_authenticated/financeiro")({
@@ -97,6 +100,8 @@ type Parcela = {
   ocs_p_acabado?: { numero_pedido: string | null } | null;
   ocs_importado?: { numero_pedido: string | null } | null;
   ocBadge?: { label: string; tone: StatusTone } | null;
+  /** fin #16b: parcela PAGA de OC de tecido cancelada (não se desmarca o pagamento). */
+  ocCancelada?: boolean;
   // Data da Nota de Entrada (spec 2026-09-24): parcela NÃO paga de OC recebida sem a data — vencimento provisório.
   provisoria?: boolean;
   // Contas certas A1 (P-165 A): vencimento ajustado À MÃO — o recálculo/Nota/prazo preservam esta data (gatilho no banco).
@@ -281,12 +286,14 @@ function FinanceiroPage() {
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
-      const { data: rows, error } = await supabase
-        .from("parcelas")
-        .select("*")
-        .order("data_vencimento", { ascending: true });
-      if (error) throw error;
-      const list = (rows ?? []) as unknown as Parcela[];
+      // Sem .range o PostgREST corta em 1.000 linhas sem avisar (fin #16a) → busca em blocos.
+      // Ordem estável (vencimento + id) p/ a paginação não repetir/perder linha.
+      const rows = await buscarTodas<unknown>((de, ate) =>
+        supabase.from("parcelas").select("*")
+          .order("data_vencimento", { ascending: true }).order("id", { ascending: true })
+          .range(de, ate),
+      );
+      const list = rows as unknown as Parcela[];
 
       const empresaIds = Array.from(new Set(list.map((p) => p.empresa_id).filter(Boolean))) as string[];
       const tecidoIds = Array.from(new Set(list.map((p) => p.oc_tecido_id).filter(Boolean))) as string[];
@@ -354,12 +361,9 @@ function FinanceiroPage() {
       const tecBadge = new Map(
         (tecidoRes.data ?? []).map((o: any) => [o.id, alertaBadge((o.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status))]),
       );
-      // OC de tecido "cancelada" = todos os itens cancelados (valor real 0). Some do Financeiro.
+      // OC de tecido "cancelada" = todos os itens cancelados (valor real 0). Some do Financeiro (só as parcelas não pagas).
       const ocCancelada = new Set(
-        (tecidoRes.data ?? []).filter((o: any) => {
-          const its = o.ocs_tecido_itens ?? [];
-          return its.length > 0 && its.every((it: any) => it.cancelado) ;
-        }).map((o: any) => o.id),
+        (tecidoRes.data ?? []).filter((o: any) => ocTecidoCancelada(o.ocs_tecido_itens)).map((o: any) => o.id),
       );
       // Data da Nota de Entrada: status + data de cada OC → parcela provisória (regra única em nota-entrada.ts).
       // Um Map POR FAMÍLIA (não um único casado pela cadeia `??`): a chave é o UUID da respectiva
@@ -374,8 +378,8 @@ function FinanceiroPage() {
         tecido: notaPorOcTecido, aviamento: notaPorOcAviamento, etiqueta: notaPorOcEtiqueta, p_acabado: notaPorOcPAcabado,
       };
 
-      return list
-        .filter((p) => !(p.oc_tecido_id && ocCancelada.has(p.oc_tecido_id)))
+      // fin #16b: só some a parcela NÃO paga de OC cancelada; a paga fica, com o selo "OC cancelada".
+      return aplicarOcCancelada(list, ocCancelada)
         .map((p) => {
         const empNome = p.empresa_id ? (empMap.get(p.empresa_id) ?? "—") : null;
         const empCnpj = p.empresa_id ? (empCnpjMap.get(p.empresa_id) ?? null) : null;
@@ -395,7 +399,10 @@ function FinanceiroPage() {
         ocs_etiqueta: p.oc_etiqueta_id ? { numero_pedido: etqMap.get(p.oc_etiqueta_id) ?? null } : null,
         ocs_p_acabado: p.oc_p_acabado_id ? { numero_pedido: pAcMap.get(p.oc_p_acabado_id) ?? null } : null,
         ocs_importado: p.oc_importado_id ? { numero_pedido: pImpMap.get(p.oc_importado_id) ?? null } : null,
-        ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
+        ocCancelada: p.ocCancelada,
+        ocBadge: p.ocCancelada
+          ? { label: "OC cancelada", tone: "danger" as StatusTone }
+          : p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
         provisoria: parcelaProvisoria(p, (() => {
           const coluna = p.tipo_oc ? COLUNA_PARCELA_POR_FAMILIA[p.tipo_oc] : undefined;
           const mapa = p.tipo_oc ? notaPorOcPorFamilia[p.tipo_oc] : undefined;
@@ -1057,9 +1064,9 @@ function ParcelaDetailDialog({
             </UiTooltipProvider>
           ))}
           {podeEditar && (st === "pago" ? (
-            <Button size="sm" variant="destructive" onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
+            <DesmarcarPagoBtn parcela={parcela} onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
               Desmarcar pago
-            </Button>
+            </DesmarcarPagoBtn>
           ) : (
             <Button size="sm" onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
           ))}
@@ -1139,6 +1146,25 @@ function parcelaOrigemLabel(p: Parcela): string {
 // payee, origem, valor). Cada linha chama `onPick` (abre o detalhe = TODAS as ações da tela:
 // marcar/desmarcar pago, abrir OC, comprovante). Compartilhada: popover do dia (desktop) e
 // sheet do dia (mobile).
+/** "Desmarcar pago" — desabilitado (com o porquê) na parcela PAGA de OC cancelada: desmarcar a faria sumir da lista. */
+function DesmarcarPagoBtn({ parcela, onClick, disabled, children }: { parcela: Parcela; onClick: () => void; disabled?: boolean; children: ReactNode }) {
+  if (podeDesmarcarPagamento(parcela)) {
+    return <Button size="sm" variant="destructive" onClick={onClick} disabled={disabled}>{children}</Button>;
+  }
+  return (
+    <UiTooltipProvider delayDuration={0}>
+      <UiTooltip>
+        <UiTooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex">
+            <Button size="sm" variant="destructive" disabled className="pointer-events-none">{children}</Button>
+          </span>
+        </UiTooltipTrigger>
+        <UiTooltipContent>{MOTIVO_NAO_DESMARCAR_OC_CANCELADA}</UiTooltipContent>
+      </UiTooltip>
+    </UiTooltipProvider>
+  );
+}
+
 function DiaParcelasList({
   day, items, hoje, today, onPick,
 }: {
@@ -1170,6 +1196,7 @@ function DiaParcelasList({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{nome}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span><TagParcelaProvisoria show={!!p.provisoria} />
+                {p.ocBadge && <StatusBadge tone={p.ocBadge.tone} className="ml-1">{p.ocBadge.label}</StatusBadge>}
               </span>
               <span className="shrink-0 text-sm font-bold tabular-nums">{brl(Number(p.valor))}</span>
             </button>
@@ -1182,26 +1209,10 @@ function DiaParcelasList({
 
 /* ============================== LISTA ============================== */
 
-// Célula de vencimento com estado local. Salva no onChange do DateField — que só
-// EMITE quando o ISO está completo/válido (ou vazio), nunca a cada tecla. Antes salvava
-// no blur do input, mas ESCOLHER no calendário não dispara blur (o foco fica no popover),
-// então a data mudava na tela mas NÃO persistia e voltava ao antigo no próximo refetch.
-function VencimentoCell({ value, onSave, disabled }: { value: string; onSave: (v: string) => void; disabled?: boolean }) {
+// Célula de vencimento (lógica em `VencimentoCell`): só liga a permissão do Financeiro.
+function VencimentoCell(props: { value: string; onSave: (v: string, h?: { onError: () => void }) => void; disabled?: boolean }) {
   const podeEditar = usePodeEditarFinanceiro();
-  const [v, setV] = useState(value);
-  useEffect(() => { setV(value); }, [value]);
-  return (
-    <DateField
-      value={v}
-      onChange={(e) => {
-        const iso = e.target.value;
-        setV(iso);
-        if (iso && iso !== value) onSave(iso);
-      }}
-      className="w-36 shrink-0 max-lg:w-40"
-      disabled={!podeEditar || disabled}
-    />
-  );
+  return <VencimentoCellBase podeEditar={podeEditar} {...props} />;
 }
 
 // Sufixo discreto "+Nd" ao lado da data de vencimento quando a parcela foi gerada
@@ -1446,7 +1457,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                     <td className="py-2 pr-3 max-lg:flex-wrap" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell
                         value={p.data_vencimento}
-                        onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
+                        onSave={(v, h) => updateVencimentoMut.mutate({ id: p.id, data: v }, h)}
                         disabled={st === "pago"}
                       />
                       <OffsetTag dias={(p as any).dias_offset} />
@@ -1461,7 +1472,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                         {podeEditar && (st !== "pago" ? (
                           <Button size="sm" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                         ) : (
-                          <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
+                          <DesmarcarPagoBtn parcela={p} onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</DesmarcarPagoBtn>
                         ))}
                         {p.comprovante_url && (
                           <ComprovanteLink value={p.comprovante_url} label="Ver comprovante" icone />
@@ -1729,7 +1740,7 @@ function ServicosView() {
                     <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
                     <td className="py-2 pr-3 text-right font-medium tabular-nums" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3 max-lg:flex-wrap" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
-                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} disabled={st === "pago"} />
+                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data, h) => updVenc.mutate({ id: r.parcela_id, data }, h)} disabled={st === "pago"} />
                       <OffsetTag dias={(r as any).dias_offset} />
                       {mostraAjustadoMaoServico(manualIds.has(r.parcela_id), st) && (
                         <span data-testid="srv-venc-ajustado-mao" className="ml-1 inline-flex items-center gap-1 text-xs text-muted-foreground max-lg:ml-0 max-lg:basis-full max-lg:justify-end">
@@ -2303,6 +2314,9 @@ function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = [
 
 /* ============================== RESUMO ============================== */
 
+/** fin #16d: o Resumo filtra por VENCIMENTO; o Dashboard conta o "pago" pela data do PAGAMENTO — os totais podem diferir. */
+const HINT_PAGO_POR_VENCIMENTO = "Soma as parcelas pagas cujo VENCIMENTO cai no período filtrado. O Dashboard conta o pago pela data do pagamento, por isso os totais podem diferir.";
+
 type StatusSel = "a_pagar" | "pago" | "vencido";
 
 function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Parcela[] }) {
@@ -2399,15 +2413,15 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
             </Select>
           </div>
           <div className="grid gap-1">
-            <Label className="text-xs">Mês</Label>
+            <Label className="text-xs">Mês de vencimento</Label>
             <Input type="month" className={`h-8 text-sm ${filtroAtivoClass(!!fMes)}`} value={fMes} onChange={(e) => setFMes(e.target.value)} />
           </div>
           <div className="grid gap-1">
-            <Label className="text-xs">De</Label>
+            <Label className="text-xs">Vencimento de</Label>
             <DateField value={fDe} onChange={(e) => setFDe(e.target.value)} />
           </div>
           <div className="grid gap-1">
-            <Label className="text-xs">Até</Label>
+            <Label className="text-xs">Vencimento até</Label>
             <DateField value={fAte} onChange={(e) => setFAte(e.target.value)} />
           </div>
         </FilterButton>
@@ -2424,7 +2438,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Mês</Label>
+            <Label className="text-xs">Mês de vencimento</Label>
             <Input type="month" className={`h-11 text-sm ${filtroAtivoClass(!!fMes)}`} value={fMes} onChange={(e) => setFMes(e.target.value)} />
           </div>
           <div className="space-y-1.5">
@@ -2461,7 +2475,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
           </div>
         </div>
         <div className="rounded-xl border bg-card p-3">
-          <div className="text-xs text-muted-foreground">Total pago</div>
+          <div className="text-xs text-muted-foreground">Total pago (por vencimento)</div>
           <div className="mt-0.5 text-xl font-bold tabular-nums text-[var(--tone-success-fg)]">{brl(totalPago)}</div>
         </div>
         {proximas.length > 0 && (
@@ -2491,7 +2505,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
       <div className="hidden gap-4 sm:grid-cols-3 md:grid">
         <SummaryCard title="Total a pagar" value={brl(totalAPagar)} accent="text-[var(--tone-warning-fg)]"
           active={selected === "a_pagar"} onClick={() => toggle("a_pagar")} />
-        <SummaryCard title="Total pago" value={brl(totalPago)} accent="text-[var(--tone-success-fg)]"
+        <SummaryCard title="Total pago (por vencimento)" hint={HINT_PAGO_POR_VENCIMENTO} value={brl(totalPago)} accent="text-[var(--tone-success-fg)]"
           active={selected === "pago"} onClick={() => toggle("pago")} />
         <SummaryCard title="Total vencido" value={brl(totalVencido)} accent="text-[var(--tone-danger-fg)]"
           active={selected === "vencido"} onClick={() => toggle("vencido")} />
@@ -2528,13 +2542,13 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
   );
 }
 
-function SummaryCard({ title, value, accent, active, onClick }: { title: string; value: string; accent: string; active?: boolean; onClick?: () => void }) {
+function SummaryCard({ title, value, accent, active, onClick, hint }: { title: string; value: string; accent: string; active?: boolean; onClick?: () => void; hint?: string }) {
   return (
     <Card
       className={cn("p-5", onClick && "cursor-pointer transition-shadow hover:shadow-md", active && "ring-2 ring-primary")}
       onClick={onClick}
     >
-      <p className="text-sm text-muted-foreground">{title}</p>
+      <p className="flex items-center gap-1 text-sm text-muted-foreground">{title}{hint && <InfoHover ariaLabel="Como o Total pago é contado">{hint}</InfoHover>}</p>
       <p className={cn("text-2xl font-bold mt-1 tabular-nums", accent)}>{value}</p>
     </Card>
   );

@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -57,11 +58,22 @@ function CardFoto({ card }: { card: EtapaCard }) {
 function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
   const salvar = useSalvarEtapaRapida();
 
+  // Último valor mandado gravar por campo: Enter seguido de blur (ao desabilitar o input) não grava
+  // duas vezes; ao terminar (ok ou erro) libera — no erro, redigitar a mesma data tenta de novo.
+  const ultimo = useRef<Partial<Record<CampoRapido, string>>>({});
   const onChange = (campo: CampoRapido, valor: string | null) => {
+    ultimo.current[campo] = valor ?? "";
     salvar.mutate(
       { card, campo, valor },
-      { onError: (e) => toast.error(mensagemErro(e, "Erro ao salvar")) },
+      {
+        onSettled: () => { delete ultimo.current[campo]; }, // sucesso: o valor do card já é o novo; erro: libera a nova tentativa
+        onError: (e) => toast.error(mensagemErro(e, "Erro ao salvar")),
+      },
     );
+  };
+  const commitData = (campo: "pt_data_saida" | "pt_data_entrada" | "data_enviado", atual: string | null, iso: string) => {
+    if (iso === (atual ?? "") || ultimo.current[campo] === iso) return;
+    onChange(campo, iso || null);
   };
 
   const { bloco, etapa } = card;
@@ -73,7 +85,7 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
           <Label className="text-[11px] text-muted-foreground">Peça Teste — Saída</Label>
           <DateField
             value={bloco.pt_data_saida ?? ""}
-            onChange={(e) => onChange("pt_data_saida", e.target.value || null)}
+            onCommit={(iso) => commitData("pt_data_saida", bloco.pt_data_saida, iso)}
             disabled={salvar.isPending}
           />
         </div>
@@ -81,7 +93,7 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
           <Label className="text-[11px] text-muted-foreground">Peça Teste — Entrada</Label>
           <DateField
             value={bloco.pt_data_entrada ?? ""}
-            onChange={(e) => onChange("pt_data_entrada", e.target.value || null)}
+            onCommit={(iso) => commitData("pt_data_entrada", bloco.pt_data_entrada, iso)}
             disabled={salvar.isPending}
           />
         </div>
@@ -111,7 +123,7 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
         <Label className="text-[11px] text-muted-foreground">Data Enviado</Label>
         <DateField
           value={bloco.data_enviado ?? ""}
-          onChange={(e) => onChange("data_enviado", e.target.value || null)}
+          onCommit={(iso) => commitData("data_enviado", bloco.data_enviado, iso)}
           disabled={salvar.isPending}
         />
       </div>
