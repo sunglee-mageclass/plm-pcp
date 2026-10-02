@@ -288,6 +288,13 @@ describe.skipIf(!hasDb)("L6 prod #11 — producao_terceirizados.ativo NOT NULL",
         `select a.attnotnull n from pg_attribute a where a.attrelid='public.producao_terceirizados'::regclass and a.attname='ativo'`,
       );
       expect(col.n).toBe(true);
+      // (fix round 1, L5) a ida grava o marcador que a volta exige (a volta só desfaz o NOT NULL que a L6 aplicou)
+      const com = await um<{ d: string | null }>(
+        c,
+        `select col_description('public.producao_terceirizados'::regclass,
+                (select attnum from pg_attribute where attrelid='public.producao_terceirizados'::regclass and attname='ativo')) d`,
+      );
+      expect(com.d ?? "").toMatch(/^leves_l6:not_null/);
       const bloco = await um<{ id: string } | undefined>(
         c,
         `select id from producao_terceirizados limit 1`,
@@ -456,9 +463,9 @@ describe.skipIf(!hasDb)(
 
 // ═══ 20261028110000 — Reverter corte devolve tecido → completa a falta de OUTRO card ═════════════════════════════════
 describe.skipIf(!hasDb)(
-  "L6 — Reverter corte devolve o tecido e completa o 'Faltou estoque' de outro card",
+  "L6 — Reverter corte devolve o tecido mas NÃO completa a falta de outro card (fix round 1, M1); Reprocessar completa",
   () => {
-    it("A (100 de 120, falta 20) e B (falta 60); reverter A → A sem baixa e sem falta; B completa 60", async () => {
+    it("A (100 de 120, falta 20) e B (falta 60); reverter A → A sem baixa e sem falta; B SEGUE em falta; Reprocessar completa B", async () => {
       await withTx(async (c) => {
         const f = await preparar(c, "automatico");
         const oc = await novaOc(c, "recebido", "ITEST-L6-REV");
@@ -482,7 +489,19 @@ describe.skipIf(!hasDb)(
         );
         expect(a.e).toBe(false);
         expect(a.d).toBeNull(); // o "Faltou estoque" do corte desfeito não sobra
-        expect(await deficit(c, cadB)).toBeNull(); // o tecido devolvido completou o outro card
+        // M1: voltar → corrigir → reenviar não entrega o tecido do card a cortes mais antigos
+        expect(Number((await deficit(c, cadB))![0].deficit)).toBe(60);
+        expect(await baixado(c, cadB)).toBe(0);
+        // completar é explícito: Reprocessar faltas
+        const r = (
+          await um<{ r: Record<string, number> }>(
+            c,
+            `select public.reprocessar_faltas_corte($1) r`,
+            [f.vari],
+          )
+        ).r;
+        expect(r).toMatchObject({ cads: 1 });
+        expect(await deficit(c, cadB)).toBeNull();
         expect(await baixado(c, cadB)).toBe(60);
       });
     });
@@ -679,33 +698,37 @@ describe.skipIf(!hasDb)("L6 B-R1 — reprocessar_faltas_corte (só admin, por lo
     });
   });
 
-  it("isolamento por loja: admin de OUTRA loja não alcança a variante nem os cortes da Loja Teste", async () => {
-    await withTx(async (c) => {
-      const f = await preparar(c, "automatico");
-      const outra = await um<{ id: string } | undefined>(
-        c,
-        `select id from tenants where nome=$1`,
-        [AVE_RARA_NOME],
-      );
-      if (!outra) throw new Error("fixture ausente: loja Ave Rara");
-      await c.query(
-        `insert into tenant_config (tenant_id, modules) values ($1, '{"criacao":true}'::jsonb)
+  // (fix round 1, L8) faz upsert em tenant_config de uma loja REAL (Ave Rara) dentro da txn: só na cópia local
+  it.skipIf(!ehBancoLocal())(
+    "isolamento por loja: admin de OUTRA loja não alcança a variante nem os cortes da Loja Teste",
+    async () => {
+      await withTx(async (c) => {
+        const f = await preparar(c, "automatico");
+        const outra = await um<{ id: string } | undefined>(
+          c,
+          `select id from tenants where nome=$1`,
+          [AVE_RARA_NOME],
+        );
+        if (!outra) throw new Error("fixture ausente: loja Ave Rara");
+        await c.query(
+          `insert into tenant_config (tenant_id, modules) values ($1, '{"criacao":true}'::jsonb)
          on conflict (tenant_id) do update set modules = coalesce(tenant_config.modules,'{}'::jsonb) || '{"criacao":true}'::jsonb`,
-        [outra.id],
-      );
-      const cad = await cardComCad(c, f.art, f.vari, 20, "2026-02-01");
-      await cortar(c, cad);
-      const oc = await novaOc(c, "recebido", "ITEST-L6-RPISO");
-      await novoItem(c, oc, f.art, f.vari, 20, 20);
-      await usuarioLoja(c, "11111111-1111-4111-8111-0000000006a3", outra.id, true);
-      const e = await erroDe(c, `select public.reprocessar_faltas_corte($1)`, [f.vari]);
-      expect(e.code).toBe("P0001");
-      expect(e.message).toBe("Variante de tecido não encontrada nesta loja.");
-      await um(c, `select public.reprocessar_faltas_corte() r`);
-      expect(Number((await deficit(c, cad))![0].deficit)).toBe(20); // a falta da Loja Teste não foi tocada
-      expect(await baixado(c, cad)).toBe(0);
-    });
-  });
+          [outra.id],
+        );
+        const cad = await cardComCad(c, f.art, f.vari, 20, "2026-02-01");
+        await cortar(c, cad);
+        const oc = await novaOc(c, "recebido", "ITEST-L6-RPISO");
+        await novoItem(c, oc, f.art, f.vari, 20, 20);
+        await usuarioLoja(c, "11111111-1111-4111-8111-0000000006a3", outra.id, true);
+        const e = await erroDe(c, `select public.reprocessar_faltas_corte($1)`, [f.vari]);
+        expect(e.code).toBe("P0001");
+        expect(e.message).toBe("Variante de tecido não encontrada nesta loja.");
+        await um(c, `select public.reprocessar_faltas_corte() r`);
+        expect(Number((await deficit(c, cad))![0].deficit)).toBe(20); // a falta da Loja Teste não foi tocada
+        expect(await baixado(c, cad)).toBe(0);
+      });
+    },
+  );
 
   it("ACL: reprocessar_faltas_corte só authenticated (sem anon/PUBLIC); função de gatilho e _cores sem EXECUTE", async () => {
     await withTx(async (c) => {
@@ -860,6 +883,64 @@ describe.skipIf(!hasDb || !ehBancoLocal())(
         await b.query("ROLLBACK").catch(() => undefined);
         await a.end();
         await b.end();
+      }
+    });
+  },
+);
+
+// ═══ fix round 1, L1 — "- Metragem" desfeito com o corte da loja ocupado: WARNING (só cópia local, 2ª conexão) ══════
+describe.skipIf(!hasDb || !ehBancoLocal())(
+  "L6 fix round 1 L1 — '- Metragem' desfeito com a trava do corte ocupada avisa (WARNING)",
+  () => {
+    it("outra sessão segura a trava do corte da loja → o ajuste é desfeito, a falta fica e sai WARNING 'nao completada agora'", async () => {
+      const outro = new Client({ connectionString: dbUrl()!, ssl: false });
+      await outro.connect();
+      try {
+        await withTx(async (c) => {
+          const avisos: string[] = [];
+          c.on("notice", (n: { message?: string }) => avisos.push(String(n.message)));
+          // outra sessão = um corte da loja em curso (trava pega ANTES de tudo)
+          await outro.query(`select pg_advisory_lock(hashtext('corte_tenant:' || $1::text))`, [
+            TENANT_TESTE,
+          ]);
+          const f = await preparar(c, "automatico");
+          const oc = await novaOc(c, "recebido", "ITEST-L6-AJW");
+          const it = await novoItem(c, oc, f.art, f.vari, 100, 100);
+          const aj = (
+            await um<{ id: string }>(
+              c,
+              `select public._remover_metragem_oc_core($1, 60, 'teste L6') id`,
+              [it],
+            )
+          ).id;
+          const cad = await cardComCad(c, f.art, f.vari, 100, "2026-02-01");
+          // déficit gravado direto: cortar aqui pegaria a trava do corte da loja NESTA txn (esperaria a outra sessão)
+          await c.query(`update cad set enviado_corte=true, deficit_corte=$2::jsonb where id=$1`, [
+            cad,
+            JSON.stringify([
+              { tipo: "tecido", numero: 1, ordem: 1, deficit: 60, baixada: 40, enviada: 100 },
+            ]),
+          ]);
+          await c.query(`select public._reverter_ajuste_estoque_core($1)`, [aj]);
+          expect(
+            Number(
+              (
+                await um<{ n: string }>(
+                  c,
+                  `select count(*) n from estoque_tecido_baixas where id=$1`,
+                  [aj],
+                )
+              ).n,
+            ),
+          ).toBe(0);
+          expect(Number((await deficit(c, cad))![0].deficit)).toBe(60);
+          expect(
+            avisos.some((a) => a.includes("reverter_ajuste") && a.includes("nao completada agora")),
+          ).toBe(true);
+        });
+      } finally {
+        await outro.query(`select pg_advisory_unlock_all()`).catch(() => {});
+        await outro.end();
       }
     });
   },

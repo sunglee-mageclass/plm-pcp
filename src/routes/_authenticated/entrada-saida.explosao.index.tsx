@@ -93,17 +93,19 @@ function ExplosaoListPage() {
     },
     onSuccess: (r) => {
       setConfirmReproc(false);
+      // mesmas chaves que o "Voltar para a Explosão" do PCP invalida (baixa de estoque nova)
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-estoque"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
       const resto = r.cads_com_falta > 0 ? ` Ainda com falta: ${r.cads_com_falta}.` : "";
       const depois = r.adiadas > 0 ? " Parte ficou para depois — clique de novo." : "";
       if (r.cads > 0)
         toast.success(
           `${r.cads} corte(s) completado(s) — ${fmtNum(r.metros)} m baixados.${resto}${depois}`,
         );
-      else
-        toast.info(
-          `Nada a completar agora: não há tecido em estoque para as faltas.${resto}${depois}`,
-        );
+      else if (r.adiadas > 0) toast.info("Ocupado agora — clique de novo em instantes.");
+      else toast.info(`Nada a completar agora: não há tecido em estoque para as faltas.${resto}`);
       if (r.erros > 0) toast.warning(`${r.erros} variante(s) não puderam ser reprocessadas.`);
     },
     onError: (e) => toast.error(mensagemErro(e, "Erro ao reprocessar as faltas.")),

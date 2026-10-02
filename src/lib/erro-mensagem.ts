@@ -56,6 +56,8 @@ const MENSAGENS_42501_PROPRIAS = new Set([
   "Loja inativa ou sem loja — operação não permitida.",
   // Config da Loja colaborativa (RPC `salvar_config_loja`, T1/T3)
   "Apenas o administrador da loja pode salvar a Configuração da Loja.",
+  // Reprocessar faltas do corte (RPC `reprocessar_faltas_corte`, leves L6)
+  "Apenas o administrador da loja pode reprocessar as faltas do corte.",
 ]);
 
 // Integração + API: as recusas do banco chegam em ASCII com prefixo (lição P-58/P-59 — 5xx só ASCII); a tela traduz aqui.

@@ -16,6 +16,9 @@
 --   instante, a migration FALHA INTEIRA (nada fica) - e so rodar de novo (idempotente); HORARIO CALMO, ate 3 tentativas
 --   com alguns segundos entre elas. Nao passa pelo supautils.policy_grants (nao e DDL de policy/trigger): nao prende
 --   auth/storage. Sem DROP. Sem funcao nova.
+-- MARCA (fix round 1, L5): so quando ESTA ida aplica o NOT NULL, ela grava um marcador no COMMENT da coluna
+--   ('leves_l6:not_null' + o comentario anterior, se houver). A volta so faz DROP NOT NULL se o marcador estiver la -
+--   se a coluna ja era NOT NULL antes da L6 (ida no-op), a volta recusa e nao cria um estado que a L6 nao criou.
 -- Volta: supabase/rollback/20261028100000_terceirizados_ativo_not_null_down.sql (DROP NOT NULL; mesma trava, instantanea -
 --   so catalogo, sem varredura). LIFO: o inverso desta roda DEPOIS dos inversos 20261028120000 e 20261028110000 (e de
 --   qualquer outra LEVES posterior), ANTES dos inversos da R15a e da R13.
@@ -31,11 +34,13 @@ DO $ida$
 DECLARE
   v_notnull boolean;
   v_nulos bigint;
+  v_attnum int2;
+  v_coment text;
 BEGIN
   IF to_regclass('public.producao_terceirizados') IS NULL THEN
     RAISE EXCEPTION 'leves_l6_ativo: tabela producao_terceirizados ausente' USING ERRCODE = 'P0001';
   END IF;
-  SELECT a.attnotnull INTO v_notnull
+  SELECT a.attnotnull, a.attnum INTO v_notnull, v_attnum
     FROM pg_attribute a
    WHERE a.attrelid = to_regclass('public.producao_terceirizados') AND a.attname = 'ativo' AND NOT a.attisdropped;
   IF v_notnull IS NULL THEN
@@ -50,7 +55,11 @@ BEGIN
     RAISE EXCEPTION 'leves_l6_ativo: % linha(s) de producao_terceirizados com ativo NULL - corrigir antes (decisao do dono); nada mudou', v_nulos
       USING ERRCODE = 'P0001';
   END IF;
+  v_coment := col_description(to_regclass('public.producao_terceirizados'), v_attnum);
   EXECUTE 'ALTER TABLE public.producao_terceirizados ALTER COLUMN ativo SET NOT NULL';
+  -- marcador da L6 (a volta so desfaz o que esta ida fez); preserva o comentario anterior depois de ' | '
+  EXECUTE format('COMMENT ON COLUMN public.producao_terceirizados.ativo IS %L',
+                 'leves_l6:not_null' || COALESCE(' | ' || v_coment, ''));
   RAISE NOTICE 'leves_l6_ativo: producao_terceirizados.ativo agora e NOT NULL (0 linhas NULL)';
 END $ida$;
 

@@ -2,15 +2,16 @@
 -- (P-203 A da R15a; backlogs da R15a que vieram para a L6).
 --   (a) "- Metragem" desfeito: _reverter_ajuste_estoque_core (Estoque > Rolos/OC "reverter ajuste") apaga a baixa
 --       origem='ajuste' e agora, com a variante devolvida pelo DELETE, chama _completar_deficit_corte_variante (o tecido
---       que voltou completa o "Faltou estoque" de cortes da loja nessa variante). Nunca espera trava; erro vira WARNING.
---       (Reverter o corte de OUTRO card ja e coberto pela 20261028110000.)
+--       que voltou completa o "Faltou estoque" de cortes da loja nessa variante). Nunca espera trava; erro e
+--       'ocupado'/'adiado' viram WARNING (fix round 1, L1). Reverter o corte NAO completa (fix round 1, M1).
 --   (b) B-R2: o gatilho de item da R15a nao olhava artigo_id, e trocar o rendimento/unidade do artigo (kg x rendimento)
 --       muda o saldo em metros dos itens sem evento de item. Gatilho de constraint nao aceita CREATE OR REPLACE e esta
 --       release nao usa DROP: em vez de recriar o trg_deficit_corte_item_upd, entram 2 CONSTRAINT TRIGGERs NOVOS ADIADOS
 --       (rodam no COMMIT) com funcao NOVA fn_completar_deficit_corte_artigo():
 --         trg_deficit_corte_item_artigo  ocs_tecido_itens AFTER UPDATE OF artigo_id WHEN mudou
 --         trg_deficit_corte_artigo_rend  artigos AFTER UPDATE OF rendimento, unidade_medida WHEN mudou (LIMITADO: so as
---                                        variantes de itens de OC recebida do artigo que tem cad em falta, ate 50 por evento)
+--                                        variantes de itens de OC recebida do artigo que tem cad em falta, ate 50 por evento;
+--                                        a busca fica dentro do bloco EXCEPTION - fix round 1, L7)
 --       A funcao da R15a (fn_completar_deficit_corte) NAO muda.
 --   (c) B-R1: RPC NOVA reprocessar_faltas_corte(_variante uuid DEFAULT NULL) - so tenant_admin/super admin, loja do
 --       usuario, modulo criacao; roda o helper para uma variante ou todas as com cad em falta; devolve contagens
@@ -20,8 +21,8 @@
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public._reverter_ajuste_estoque_core(uuid)
 --     ANTES  f8390723d3c71be34a43e1d19209e480  -- PROVISORIO (copia 54422; fora do Passo 0): conferir no Passo 0 dos LEVES
---     DEPOIS 09119cbb6fc8e61eb3b0aec4ff733837  (este arquivo; reaplicar = no-op)
---   public.fn_completar_deficit_corte_artigo()   NOVA: ausente, af51f60dffd8efa23dbce971a0c8d422 (este arquivo) ou
+--     DEPOIS d732a419263536851d1dad1063c191aa  (este arquivo; reaplicar = no-op)
+--   public.fn_completar_deficit_corte_artigo()   NOVA: ausente, fa3bc71ce0c4e0944de464df19d46f96 (este arquivo) ou
 --                                                7e4b933c428ae140c239b7ad6c798019 (NEUTRALIZADA pelo _down -> esta ida restaura)
 --   public.reprocessar_faltas_corte(uuid)        NOVA: ausente, efb67823cc9961bd7b107debb4cd8b66 (este arquivo) ou
 --                                                cc00b41f5ad93b4e3ba03a5cdb4e6edf (NEUTRALIZADA pelo _down -> esta ida restaura)
@@ -80,7 +81,7 @@ BEGIN
   END LOOP;
   IF to_regprocedure('public._reverter_ajuste_estoque_core(uuid)') IS NULL
      OR md5(pg_get_functiondef(to_regprocedure('public._reverter_ajuste_estoque_core(uuid)')))
-        NOT IN ('f8390723d3c71be34a43e1d19209e480', '09119cbb6fc8e61eb3b0aec4ff733837') THEN
+        NOT IN ('f8390723d3c71be34a43e1d19209e480', 'd732a419263536851d1dad1063c191aa') THEN
     RAISE EXCEPTION 'leves_l6_falta: _reverter_ajuste_estoque_core ausente ou com outro texto - outra frente mexeu; conferir o Passo 0'
       USING ERRCODE = 'P0001';
   END IF;
@@ -89,7 +90,7 @@ BEGIN
   END IF;
   IF to_regprocedure('public.fn_completar_deficit_corte_artigo()') IS NOT NULL
      AND md5(pg_get_functiondef(to_regprocedure('public.fn_completar_deficit_corte_artigo()')))
-         NOT IN ('af51f60dffd8efa23dbce971a0c8d422', '7e4b933c428ae140c239b7ad6c798019') THEN
+         NOT IN ('fa3bc71ce0c4e0944de464df19d46f96', '7e4b933c428ae140c239b7ad6c798019') THEN
     RAISE EXCEPTION 'leves_l6_falta: fn_completar_deficit_corte_artigo existe com outro texto - outra frente mexeu' USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public.reprocessar_faltas_corte(uuid)') IS NOT NULL
@@ -118,7 +119,7 @@ CREATE OR REPLACE FUNCTION public._reverter_ajuste_estoque_core(_baixa_id uuid)
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-DECLARE v_tenant uuid := public.get_user_tenant_id(); v_var uuid;
+DECLARE v_tenant uuid := public.get_user_tenant_id(); v_var uuid; v_r jsonb;
 BEGIN
   IF v_tenant IS NULL THEN RAISE EXCEPTION 'Sem tenant'; END IF;
   DELETE FROM public.estoque_tecido_baixas
@@ -129,7 +130,11 @@ BEGIN
   -- curso = fica para o próximo evento ou reprocessar_faltas_corte); erro/tempo vira só WARNING.
   IF v_var IS NOT NULL THEN
     BEGIN
-      PERFORM public._completar_deficit_corte_variante(v_tenant, v_var);
+      v_r := public._completar_deficit_corte_variante(v_tenant, v_var);
+      IF COALESCE((v_r->>'ocupado')::boolean, false) OR COALESCE((v_r->>'adiado')::boolean, false) THEN
+        RAISE WARNING 'reverter_ajuste: falta de corte da variante % nao completada agora (%) - usar Reprocessar faltas', v_var,
+          CASE WHEN COALESCE((v_r->>'ocupado')::boolean, false) THEN 'corte da loja em curso' ELSE 'orcamento de tempo' END;
+      END IF;
     EXCEPTION WHEN query_canceled OR OTHERS THEN
       RAISE WARNING 'reverter_ajuste: falta de corte da variante % nao completada (%: %)', v_var, SQLSTATE, SQLERRM;
     END;
@@ -174,35 +179,42 @@ BEGIN
       RAISE WARNING 'completar_deficit_corte: variante % nao completada (%: %)', NEW.variante_tecido_id, SQLSTATE, SQLERRM;
     END;
   ELSIF TG_TABLE_NAME = 'artigos' THEN
-    FOR v_tenant, v_var IN
-      SELECT DISTINCT oc.tenant_id, it.variante_tecido_id
-        FROM public.ocs_tecido_itens it
-        JOIN public.ocs_tecido oc ON oc.id = it.oc_tecido_id
-       WHERE it.artigo_id = NEW.id
-         AND oc.status = 'recebido'
-         AND COALESCE(it.cancelado, false) = false
-         AND it.variante_tecido_id IS NOT NULL
-         AND EXISTS (SELECT 1 FROM public.cad cd
-                       JOIN public.cad_tecidos ct ON ct.cad_id = cd.id
-                       JOIN public.cad_tecido_variantes ctv ON ctv.cad_tecido_id = ct.id
-                      WHERE cd.tenant_id = oc.tenant_id AND cd.enviado_corte
-                        AND (CASE WHEN jsonb_typeof(cd.deficit_corte) = 'array'
-                                  THEN jsonb_array_length(cd.deficit_corte) > 0 ELSE false END)
-                        AND ctv.variante_tecido_id = it.variante_tecido_id)
-       ORDER BY 1, 2
-       LIMIT c_max + 1
-    LOOP
-      v_n := v_n + 1;
-      IF v_n > c_max THEN
-        RAISE WARNING 'completar_deficit_corte: artigo % tem mais de % variantes com falta - o resto fica para o proximo evento ou reprocessar_faltas_corte', NEW.id, c_max;
-        EXIT;
-      END IF;
-      BEGIN
-        PERFORM public._completar_deficit_corte_variante(v_tenant, v_var);
-      EXCEPTION WHEN query_canceled OR OTHERS THEN
-        RAISE WARNING 'completar_deficit_corte: variante % nao completada (%: %)', v_var, SQLSTATE, SQLERRM;
-      END;
-    END LOOP;
+    -- (fix round 1, L7) a busca das variantes também fica protegida: erro aqui (inclusive 57014) vira WARNING e nunca
+    -- derruba o COMMIT de quem salvou o artigo. (Sem índice em ocs_tecido_itens.artigo_id - backlog; só roda quando o
+    -- rendimento/unidade MUDA.)
+    BEGIN
+      FOR v_tenant, v_var IN
+        SELECT DISTINCT oc.tenant_id, it.variante_tecido_id
+          FROM public.ocs_tecido_itens it
+          JOIN public.ocs_tecido oc ON oc.id = it.oc_tecido_id
+         WHERE it.artigo_id = NEW.id
+           AND oc.status = 'recebido'
+           AND COALESCE(it.cancelado, false) = false
+           AND it.variante_tecido_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM public.cad cd
+                         JOIN public.cad_tecidos ct ON ct.cad_id = cd.id
+                         JOIN public.cad_tecido_variantes ctv ON ctv.cad_tecido_id = ct.id
+                        WHERE cd.tenant_id = oc.tenant_id AND cd.enviado_corte
+                          AND (CASE WHEN jsonb_typeof(cd.deficit_corte) = 'array'
+                                    THEN jsonb_array_length(cd.deficit_corte) > 0 ELSE false END)
+                          AND ctv.variante_tecido_id = it.variante_tecido_id)
+         ORDER BY 1, 2
+         LIMIT c_max + 1
+      LOOP
+        v_n := v_n + 1;
+        IF v_n > c_max THEN
+          RAISE WARNING 'completar_deficit_corte: artigo % tem mais de % variantes com falta - o resto fica para o proximo evento ou reprocessar_faltas_corte', NEW.id, c_max;
+          EXIT;
+        END IF;
+        BEGIN
+          PERFORM public._completar_deficit_corte_variante(v_tenant, v_var);
+        EXCEPTION WHEN query_canceled OR OTHERS THEN
+          RAISE WARNING 'completar_deficit_corte: variante % nao completada (%: %)', v_var, SQLSTATE, SQLERRM;
+        END;
+      END LOOP;
+    EXCEPTION WHEN query_canceled OR OTHERS THEN
+      RAISE WARNING 'completar_deficit_corte: artigo % nao processado (%: %)', NEW.id, SQLSTATE, SQLERRM;
+    END;
   END IF;
   RETURN NULL;
 END
@@ -331,8 +343,8 @@ DECLARE
   v_set text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._reverter_ajuste_estoque_core(uuid)',            '09119cbb6fc8e61eb3b0aec4ff733837'),
-      ('public.fn_completar_deficit_corte_artigo()',            'af51f60dffd8efa23dbce971a0c8d422'),
+      ('public._reverter_ajuste_estoque_core(uuid)',            'd732a419263536851d1dad1063c191aa'),
+      ('public.fn_completar_deficit_corte_artigo()',            'fa3bc71ce0c4e0944de464df19d46f96'),
       ('public.reprocessar_faltas_corte(uuid)',                 'efb67823cc9961bd7b107debb4cd8b66'),
       ('public._completar_deficit_corte_variante(uuid,uuid)',   '70a91eef1ac40cce86ff7da8e6b14c7f'),
       ('public.fn_completar_deficit_corte()',                   '8432f313e038796f8776922d604be205')) v(s, m) LOOP

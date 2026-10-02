@@ -15,9 +15,9 @@
 --                 e o CQ (FOR UPDATE): ordem global corte da loja -> cad do PCP -> CQ -> blocos -> cad -> cad_grades
 --                 (antes: blocos ANTES do CQ = 40P01 raro com o PCP; e a baixa de completar podia sobrar num cad
 --                 revertido). Limpa tambem cad.direcionamento_confirmado_at e cad.deficit_corte do corte desfeito.
---   backlog R15a  Depois do reverter, o tecido devolvido completa o "Faltou estoque" de OUTROS cortes da loja nas
---                 variantes das baixas apagadas: _completar_deficit_corte_variante (R15a, P-203 A) por variante; erro
---                 ou tempo vira WARNING (o reverter nunca falha por isso).
+--                 [fix round 1, M1] o reverter NAO completa o "Faltou estoque" de outros cortes com o tecido devolvido
+--                 (voltar -> corrigir -> reenviar nao pode entregar o tecido do card a cortes mais antigos); completar
+--                 so pelo botao "Reprocessar faltas" (reprocessar_faltas_corte, 20261028120000).
 -- Nada gravado muda na ida (as funcoes so agem no proximo save/clique).
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
@@ -29,9 +29,9 @@
 --     DEPOIS 263d1d86801f8d281776a8f50ad21f81
 --   public._reverter_corte_tecido_core(uuid)
 --     ANTES  aa5b0e56aea76d11a815c064e2cb1b0c  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
---     DEPOIS 8d2b71c1ab1ce46581e7c3a9c36105d6
+--     DEPOIS c3ca9c2102f75b085f92380f24f371c0
 --   Sem mudanca (so guarda - dependencias):
---     public._completar_deficit_corte_variante(uuid,uuid)       70a91eef1ac40cce86ff7da8e6b14c7f  -- R15a "depois" (20261025300000 fix round 1)
+--     public._completar_deficit_corte_variante(uuid,uuid)       70a91eef1ac40cce86ff7da8e6b14c7f  -- R15a "depois" (so ACL; o reverter nao o chama mais)
 --     public.salvar_terceirizados(uuid,jsonb,text,jsonb)          e5a6f830516e463911529664a4940883  -- R13 "depois" (mesma ordem de travas)
 --     public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb) 3e8dc987ed35806afbad8cece86562f0  -- R13 "depois" (mesma ordem de travas)
 --   Qualquer outro texto -> P0001 e nada muda.
@@ -58,7 +58,7 @@ INSERT INTO _l6b_md5_aceitos VALUES
   ('public._voltar_cq_para_servico_core(uuid)', '15105995fa5aeac934f29808721917f4', 'antes'),  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
   ('public._voltar_cq_para_servico_core(uuid)', '263d1d86801f8d281776a8f50ad21f81', 'depois'),
   ('public._reverter_corte_tecido_core(uuid)', 'aa5b0e56aea76d11a815c064e2cb1b0c', 'antes'),  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
-  ('public._reverter_corte_tecido_core(uuid)', '8d2b71c1ab1ce46581e7c3a9c36105d6', 'depois'),
+  ('public._reverter_corte_tecido_core(uuid)', 'c3ca9c2102f75b085f92380f24f371c0', 'depois'),
   ('public._completar_deficit_corte_variante(uuid,uuid)', '70a91eef1ac40cce86ff7da8e6b14c7f', 'dep'),  -- R15a depois
   ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'e5a6f830516e463911529664a4940883', 'dep'),  -- R13 depois
   ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '3e8dc987ed35806afbad8cece86562f0', 'dep');  -- R13 depois
@@ -262,8 +262,6 @@ AS $function$
 DECLARE
   v_tenant uuid;
   v_modelo uuid;
-  v_vars uuid[];
-  v_var uuid;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Não autenticado';
@@ -280,7 +278,9 @@ BEGIN
   -- (leves L6) ordem GLOBAL das travas, ANTES de tocar qualquer linha:
   --   1. trava do corte da loja (R15a L2: a mesma do _baixar_estoque_tecido_corte_core e do completar o "Faltou
   --      estoque" - nenhum corte/completar da loja corre no meio do reverter, e a baixa de completar nunca sobra
-  --      num cad revertido);
+  --      num cad revertido). O tecido devolvido NÃO completa a falta de outros cortes aqui (fix round 1, M1: voltar →
+  --      corrigir → reenviar não pode entregar o tecido do card a cortes mais antigos); completar = botão
+  --      "Reprocessar faltas" (reprocessar_faltas_corte);
   --   2. trava do cad do PCP (a mesma do salvar_terceirizados);
   --   3. CQ do cad (R13 N1: antes dos blocos, como o PCP e as RPCs do CQ) -> blocos -> cad -> cad_grades.
   PERFORM pg_advisory_xact_lock(hashtext('corte_tenant:' || v_tenant::text));
@@ -303,11 +303,7 @@ BEGIN
   DELETE FROM public.controle_qualidade      WHERE cad_id = _cad_id;
   DELETE FROM public.direcionamento          WHERE cad_id = _cad_id;
   DELETE FROM public.direcionamento_lojas    WHERE cad_id = _cad_id;
-  -- as variantes cujo tecido volta ao estoque (completar o "Faltou estoque" de OUTROS cortes, abaixo)
-  WITH d AS (
-    DELETE FROM public.estoque_tecido_baixas WHERE cad_id = _cad_id RETURNING variante_tecido_id
-  )
-  SELECT array_agg(DISTINCT d.variante_tecido_id) FILTER (WHERE d.variante_tecido_id IS NOT NULL) INTO v_vars FROM d;
+  DELETE FROM public.estoque_tecido_baixas   WHERE cad_id = _cad_id;
 
   -- Volta o CAD pro estado pré-corte ANTES de mexer na grade — com direcionamento_status
   -- já 'pendente', o trg_rebaixa_direcionamento_grade não re-acende #Erro no UPDATE de cad_grades.
@@ -335,17 +331,6 @@ BEGIN
          lancado = false
    WHERE id = v_modelo;
 
-  -- (leves L6, backlog da R15a) o tecido devolvido completa o "Faltou estoque" de OUTROS cortes da loja nestas
-  -- variantes (corte mais antigo primeiro; mesma regra do P-203). A trava do corte da loja já é desta transação
-  -- (o try-lock do helper passa). Erro/tempo vira só WARNING: o reverter nunca falha por causa disto (o próximo
-  -- evento de item da variante, ou reprocessar_faltas_corte, completa).
-  FOREACH v_var IN ARRAY COALESCE(v_vars, ARRAY[]::uuid[]) LOOP
-    BEGIN
-      PERFORM public._completar_deficit_corte_variante(v_tenant, v_var);
-    EXCEPTION WHEN query_canceled OR OTHERS THEN
-      RAISE WARNING 'reverter_corte: falta de corte da variante % nao completada (%: %)', v_var, SQLSTATE, SQLERRM;
-    END;
-  END LOOP;
 END;
 $function$;
 

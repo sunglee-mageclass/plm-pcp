@@ -21,8 +21,8 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._reverter_ajuste_estoque_core(uuid)',            '09119cbb6fc8e61eb3b0aec4ff733837'),
-      ('public.fn_completar_deficit_corte_artigo()',            'af51f60dffd8efa23dbce971a0c8d422'),
+      ('public._reverter_ajuste_estoque_core(uuid)',            'd732a419263536851d1dad1063c191aa'),
+      ('public.fn_completar_deficit_corte_artigo()',            'fa3bc71ce0c4e0944de464df19d46f96'),
       ('public.reprocessar_faltas_corte(uuid)',                 'efb67823cc9961bd7b107debb4cd8b66'),
       ('public._completar_deficit_corte_variante(uuid,uuid)',   '70a91eef1ac40cce86ff7da8e6b14c7f')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL THEN

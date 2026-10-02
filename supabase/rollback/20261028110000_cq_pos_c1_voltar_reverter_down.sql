@@ -2,8 +2,8 @@
 -- R13 N1 + R15a L2 e completar o "Faltou estoque" ao reverter corte).
 -- Devolve o texto de ANTES das 3 funcoes: _salvar_cq_pos_core ([C1] so no clique "Confirmar"), _voltar_cq_para_servico_core
 -- (sem zerar o grade_detalhe, sem repor a Grade Real, sem limpar direcionamento_confirmado_at, sem travar cedo) e
--- _reverter_corte_tecido_core (blocos antes do CQ, sem advisory, sem completar). Nada gravado muda (o que ja foi zerado/
--- completado fica como esta - baixas de completar ficam no ledger, como as de um corte).
+-- _reverter_corte_tecido_core (blocos antes do CQ, sem advisory). Nada gravado muda (o que ja foi zerado/
+-- completado fica como esta).
 -- Guarda: so roda se as 3 estao EXATAMENTE com o texto da ida (md5 de depois) e o helper da R15a segue com o texto
 -- conferido; outro -> P0001 e nada muda (rodar 2x = a 2a recusa).
 -- LIFO: roda DEPOIS do inverso 20261028120000 e ANTES do 20261028100000_down e dos inversos da R15a e da R13.
@@ -23,7 +23,7 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._salvar_cq_pos_core(uuid,jsonb,jsonb,boolean)', '677a4272cdb2232e06c953af7d073b33'),
       ('public._voltar_cq_para_servico_core(uuid)', '263d1d86801f8d281776a8f50ad21f81'),
-      ('public._reverter_corte_tecido_core(uuid)', '8d2b71c1ab1ce46581e7c3a9c36105d6'),
+      ('public._reverter_corte_tecido_core(uuid)', 'c3ca9c2102f75b085f92380f24f371c0'),
       ('public._completar_deficit_corte_variante(uuid,uuid)', '70a91eef1ac40cce86ff7da8e6b14c7f')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL THEN
       RAISE EXCEPTION 'leves_l6_cq (volta): % nao existe', r.s USING ERRCODE = 'P0001';
