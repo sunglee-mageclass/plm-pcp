@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { CAMPO_BY_KEY } from "@/lib/integracao/campos";
-import { lerLista, type ProdutoLista } from "@/lib/integracao/produtos";
+import { avisoSublinhas, lerLista, type ProdutoLista } from "@/lib/integracao/produtos";
 import { TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL, infoEdicao, modoCelula } from "@/lib/integracao/celula";
 import { novoRascunho, type Rascunho } from "@/lib/integracao/rascunho";
 import { chaveEntradaPrevia } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
@@ -16,20 +16,14 @@ import { chaveEntradaPrevia } from "@/components/planejamento/planejamento-detai
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 // `AbrirCard` (dentro de CelulaCampo.tsx) chama useAuth() (precisa de AuthProvider real, que dispara sessão do
-// Supabase) e renderiza <Link> do @tanstack/react-router (precisa de RouterProvider). Nenhum dos dois é prático
-// de montar de verdade num teste unitário puro, e nenhum arquivo (useAuth.tsx nem o router) está em
-// permitidos.txt. O mock de módulo é a forma padrão e menos invasiva de isolar o componente SOB TESTE: nenhum
-// arquivo de produção muda, só o que ESTE arquivo de teste importa. `canView` sempre true (mesma suposição
-// implícita do resto da suíte: "vê o Planejamento"); `Link` vira um `<a>` comum, suficiente pra confirmar que
-// "abrir card" aparece no texto sem precisar navegar de verdade.
-vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => true }) }));
-vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, className }: { children: React.ReactNode; className?: string }) =>
-    createElement("a", { className }, children),
-}));
+// Supabase). R14/P-199 A: "abrir card" não é mais <Link> — é um botão que chama o `abrirCard` do contexto da página
+// (`AbrirCardContext`); sem Provider nada aparece. `canView` fica em `auth.ver` para os testes de permissão.
+const auth = vi.hoisted(() => ({ ver: true }));
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => auth.ver }) }));
 // P-155 B (Título herdado): a célula do Título lê o nome da loja de `useTenantBranding` (query do Supabase) — aqui fixo.
 vi.mock("@/hooks/useTenantBranding", () => ({ useTenantBranding: () => ({ nome: "Loja Teste" }) }));
 const { CelulaCampo } = await import("@/components/integracao/CelulaCampo");
+const { AbrirCardContext } = await import("@/components/integracao/abrir-card");
 
 const g = (ok: boolean, motivo: string | null = null) => ({ ok, motivo });
 const p = (o: Record<string, unknown> = {}) => lerLista({ campos: [], produtos: [{ modelo_id: "m1", origem: "interno",
@@ -620,6 +614,66 @@ describe("P-155 B + R4 — Título herdado na célula", () => {
       onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {}, versaoAnterior: { info: null, carregando: true } as never,
     }));
     expect((view.container.querySelector("input") as HTMLInputElement).disabled).toBe(true);
+    view.unmount();
+  });
+});
+
+// R14 / P-199 A (L9) — "abrir card" renderizado: botão que chama o `abrirCard` do contexto, gated por canView.
+describe("AbrirCard (R14, P-199 A)", () => {
+  const celulaLeitura = (abrir: ((id: string) => void) | null) => {
+    const pr = p();
+    const filho = createElement(CelulaCampo, {
+      campo: c("preco_custo"), produto: pr, indice: null, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {},
+    });
+    return abrir ? createElement(AbrirCardContext.Provider, { value: abrir }, filho) : filho;
+  };
+  it("com Provider e permissão: botão com aria-label do produto; o clique chama abrirCard(id)", () => {
+    auth.ver = true;
+    const abrir = vi.fn();
+    const view = montar(celulaLeitura(abrir));
+    const btn = view.container.querySelector("button[aria-label='Abrir card de X']") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.className).toContain("cursor-pointer");
+    act(() => { btn.click(); });
+    expect(abrir).toHaveBeenCalledWith("m1");
+    view.unmount();
+  });
+  it("sem permissão (canView false): nenhum botão", () => {
+    auth.ver = false;
+    const view = montar(celulaLeitura(vi.fn()));
+    expect(view.container.querySelector("button[aria-label^='Abrir card']")).toBeNull();
+    view.unmount();
+    auth.ver = true;
+  });
+  it("sem Provider: nenhum botão", () => {
+    auth.ver = true;
+    const view = montar(celulaLeitura(null));
+    expect(view.container.querySelector("button[aria-label^='Abrir card']")).toBeNull();
+    view.unmount();
+  });
+});
+
+// medios R14 sku #10 — aviso "as sublinhas mudaram depois do retrato" na coluna SKU.
+describe("aviso das sublinhas (sku #10)", () => {
+  const retrato = { campos: ["ref_sku"], linhas: [{ tipo: "variante", ordem: 1, variante_key: "v1", tamanho_key: "P", valores: { ref_sku: "BLTS0001-AZ-P" } }] };
+  const celula = (difere: string[]) => {
+    const pr = produtoComSublinha({ estado: "integrado", retrato, retrato_difere: difere });
+    return createElement(CelulaCampo, {
+      campo: c("ref_sku"), produto: pr, indice: 0, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
+      onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {},
+    });
+  };
+  it("retrato_difere com 'sublinhas': mostra o 'i' com o texto em PT-BR", () => {
+    const view = montar(celula(["sublinhas"]));
+    const i = view.container.querySelector("[aria-label='Sublinhas mudaram depois do retrato']");
+    expect(i).not.toBeNull();
+    expect(avisoSublinhas(produtoComSublinha({ estado: "integrado", retrato, retrato_difere: ["sublinhas"] }))).toContain("sublinhas");
+    view.unmount();
+  });
+  it("sem 'sublinhas' em retrato_difere: nenhum aviso", () => {
+    const view = montar(celula([]));
+    expect(view.container.querySelector("[aria-label='Sublinhas mudaram depois do retrato']")).toBeNull();
     view.unmount();
   });
 });

@@ -48,6 +48,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
+import { baselineAposMerge, decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -444,6 +445,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const cqRevRef = useRef<number | null>(null);
   const fonteRevRef = useRef<number | null>(null);
   const retryRef = useRef(false);
+  // QA cenário 19: estado MESCLADO (form + grades) que o re-envio automático do P0409 precisa mandar. O `setForm` do
+  // reconcile só aparece no state no PRÓXIMO render, mas o `mutate()` do retry roda antes dele — então o retry lê daqui
+  // (nunca do state) e não reenvia o form VELHO com o rev novo (apagaria a edição do outro). Limpo no onSettled/saída.
+  const retryEstadoRef = useRef<{ form: typeof form; grades: GradesByEtapa } | null>(null);
   const savingRef = useRef(false);
   // Colab (fix round 1): enquanto verdadeiro, o merge effect fica de fora — uma re-baseline
   // MANUAL (pós-save / reconcile P0409) está lendo um snapshot consistente das DUAS queries do
@@ -480,6 +485,23 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ form, grades, fotografado });
   // Só marca sujo depois de hidratar e enquanto editável (readOnly não altera nada).
   const dirty = hydrated && !readOnly && changed;
+  // R14 (M-A/M-C): espelhos para o efeito de merge decidir, sem entrar nas deps, se há edição não salva e qual status a tela mostra.
+  const changedLiveRef = useRef(changed); changedLiveRef.current = changed;
+  const statusLiveRef = useRef(status); statusLiveRef.current = status;
+  const fotografadoLiveRef = useRef(fotografado); fotografadoLiveRef.current = fotografado;
+  const acaoLocalEmVooRef = useRef(false); // espelha saveMut/confirmMut/desmarcarMut.isPending (atribuído após as mutations)
+  const temEdicaoNaoSalva = () => touchedFormRef.current.size > 0 || touchedGradeRef.current.size > 0 || changedLiveRef.current;
+  // Aplica a decisão do helper (status adotado + edição mantida + aviso). Devolve se há edição a preservar.
+  const aplicarDecisaoStatus = (fresco: string, temEdicao: boolean) => {
+    const dec = decidirStatusServidor({ atual: statusLiveRef.current, fresco, temEdicao });
+    if (dec.status !== statusLiveRef.current) {
+      statusLiveRef.current = dec.status;
+      setStatus(dec.status);
+      if (dec.manterEdicao) setEditing(true);
+      if (dec.aviso) toast.info(dec.aviso);
+    }
+    return dec;
+  };
   // Full-page (rota /expedicao/cq/$modeloId): bloqueia navegação. Modal (Sheet no index):
   // o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui fica inerte.
   const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
@@ -638,7 +660,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           pecas_sem_etiqueta: Number(cqRow.pecas_sem_etiqueta ?? 0),
         };
         setForm(nextForm);
-        setStatus((cqRow as any).status ?? "pendente");
+        setStatus(statusCqDe(cqRow as { status?: string | null } | null));
         const fv = (cqRow as any).fotografado_variantes ?? {};
         const fmap: Record<number, boolean> = {};
         Object.entries(fv).forEach(([k, v]) => { fmap[Number(k)] = Boolean(v); });
@@ -694,6 +716,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     if (!baseFormRef.current) return;                 // antes da 1ª captura de base (o seed effect cuida)
     const freshForm = freshFormDe(cqRow);
     const freshGrade = gradeDetalheDeFonte(fonteGrade);
+    // M1/M-A/M-C (R14): o servidor pode ter REBAIXADO/CONFIRMADO o CQ em outra tela — adota o status fresco, mas
+    // com edição não salva mantém a edição aberta + aviso; sem edição, re-baselina (sem falso "não salvo") + aviso.
+    const temEdicao = temEdicaoNaoSalva();
+    // N2: com Confirmar/Desmarcar/Salvar LOCAL em voo o status novo é o da própria ação (o onSuccess cuida) — não é "outra tela".
+    if (!acaoLocalEmVooRef.current) aplicarDecisaoStatus(statusCqDe(cqRow as { status?: string | null } | null), temEdicao);
     const meuGrade = meuGradeAtual();
     const md = mergeDraft({ base: baseFormRef.current, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
     const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -707,6 +734,13 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     }
     if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
     if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+    // M-C: nada era meu (sem edição) e adotei o servidor => o baseline do "não salvo" acompanha (senão sobra falso selo âmbar).
+    if (!temEdicao) {
+      const formMexeu = md.atualizados.length > 0 || md.conflitos.length > 0;
+      const gradeMexeu = mg.atualizados.length > 0 || mg.conflitos.length > 0;
+      const b = baselineAposMerge({ formMexeu, gradeMexeu, formMesclado: md.valor, formAtual: formLiveRef.current, gradesAtuais: gradesLiveRef.current, aplicarGrade: () => aplicarGradeNoState(gradesLiveRef.current, mg.valor) });
+      resetBaseline({ form: b.form, grades: b.grades, fotografado: fotografadoLiveRef.current });
+    }
     conflitosRef.current = todos; setConflitos(todos);
     setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
     baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
@@ -834,11 +868,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   }, [grades, variantList, tamanhos, refByNum]);
 
   // Grade Real = Recebimento − Defeito (por variante, por tamanho; mínimo 0).
-  const realByNum = useMemo(() => {
+  const realDeGrades = (gr: GradesByEtapa) => {
     const out: Record<number, { grades: Record<string, number>; total: number }> = {};
     variantList.forEach(({ num }) => {
-      const receb = grades.recebimento[num]?.grades ?? {};
-      const def = grades.defeito[num]?.grades ?? {};
+      const receb = gr.recebimento[num]?.grades ?? {};
+      const def = gr.defeito[num]?.grades ?? {};
       const g: Record<string, number> = {};
       let total = 0;
       tamanhos.forEach((t) => {
@@ -849,7 +883,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       out[num] = { grades: g, total };
     });
     return out;
-  }, [grades, variantList, tamanhos]);
+  };
+  const realByNum = useMemo(() => realDeGrades(grades), [grades, variantList, tamanhos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A Grade Real (Recebimento − Defeito) é o que segue p/ o Direcionamento. Alerta
   // quando ela diverge da grade planejada no CAD — pega inclusive o caso em que o
@@ -865,27 +900,31 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
 
   // Monta os dados do CQ (controle_qualidade + cq_variantes + grade real) para o RPC.
   const buildCqData = () => {
+    // Retry do P0409: usa o estado mesclado do reconcile (ver `retryEstadoRef`); fora dele, o state normal.
+    const f = retryEstadoRef.current?.form ?? form;
+    const gr = retryEstadoRef.current?.grades ?? grades;
+    const real = retryEstadoRef.current ? realDeGrades(gr) : realByNum;
     const cq = {
       // Datas de oficina vêm de Serviços (read-only no CQ) — gravadas como snapshot.
       data_recebimento_enviado_oficina: oficina.enviado || null,
       data_recebimento_prevista: oficina.prevista || null,
       data_recebimento_entregue: oficina.entregue || null,
-      data_conserto_enviado: form.data_conserto_enviado || null,
-      data_conserto_prevista: form.data_conserto_prevista || null,
-      data_conserto_entregue: form.data_conserto_entregue || null,
-      data_lavagem_enviado: form.data_lavagem_enviado || null,
-      data_lavagem_entregue: form.data_lavagem_entregue || null,
-      observacoes_cq: form.observacoes_cq,
-      pecas_incompletas: form.pecas_incompletas,
-      pecas_faltantes: form.pecas_faltantes,
-      pecas_sem_etiqueta: form.pecas_sem_etiqueta,
+      data_conserto_enviado: f.data_conserto_enviado || null,
+      data_conserto_prevista: f.data_conserto_prevista || null,
+      data_conserto_entregue: f.data_conserto_entregue || null,
+      data_lavagem_enviado: f.data_lavagem_enviado || null,
+      data_lavagem_entregue: f.data_lavagem_entregue || null,
+      observacoes_cq: f.observacoes_cq,
+      pecas_incompletas: f.pecas_incompletas,
+      pecas_faltantes: f.pecas_faltantes,
+      pecas_sem_etiqueta: f.pecas_sem_etiqueta,
       fotografado_variantes: Object.fromEntries(
         variantList.filter((v) => fotografado[v.num]).map((v) => [String(v.num), true]),
       ),
     };
     const variantes: any[] = [];
     ETAPAS.forEach((et) => {
-      Object.values(grades[et]).forEach((r) => {
+      Object.values(gr[et]).forEach((r) => {
         // Caminho fonte-única: Recebimento/Defeito vão com a grade COMPLETA (zeros explícitos) e a
         // linha NÃO é descartada mesmo com total 0 — senão a zeragem líquida não persiste no
         // grade_detalhe da fonte (o jsonb_set do backend só toca size-keys presentes) e o refetch
@@ -907,8 +946,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     });
     const reais = variantList.map((v) => ({
       variante_numero: v.num,
-      grades: realByNum[v.num]?.grades ?? {},
-      grade_total: realByNum[v.num]?.total ?? 0,
+      grades: real[v.num]?.grades ?? {},
+      grade_total: real[v.num]?.total ?? 0,
     }));
     return { cq, variantes, reais };
   };
@@ -952,11 +991,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
       const freshForm = freshFormDe(freshCq);
       const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
+      aplicarDecisaoStatus(statusCqDe(freshCq), temEdicaoNaoSalva()); // M1/M-A (R14)
       const meuGrade = meuGradeAtual();
       const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
       const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
-      if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
-      if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+      const formMexeu = md.atualizados.length > 0 || md.conflitos.length > 0;
+      const gradeMexeu = mg.atualizados.length > 0 || mg.conflitos.length > 0;
+      if (formMexeu) setForm(md.valor);
+      if (gradeMexeu) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+      // QA 19: o retry (mutate síncrono logo abaixo) NÃO vê o setForm acima — entrega o mesclado por ref.
+      const b = baselineAposMerge({ formMexeu, gradeMexeu, formMesclado: md.valor, formAtual: formLiveRef.current, gradesAtuais: gradesLiveRef.current, aplicarGrade: () => aplicarGradeNoState(gradesLiveRef.current, mg.valor) });
+      retryEstadoRef.current = { form: b.form, grades: b.grades };
       const todos = [...md.conflitos, ...mg.conflitos];
       conflitosRef.current = todos; setConflitos(todos);
       setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
@@ -1014,6 +1059,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     const freshForm = freshFormDe(freshCq);
     const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
     setForm(freshForm);
+    setStatus(statusCqDe(freshCq)); // M1 (R14): re-adota o status do servidor (rebaixe em outra tela/aba)
     if (temFonte) setGrades((prev) => aplicarGradeNoState(prev, freshGrade));
     baseFormRef.current = freshForm;
     baseGradeRef.current = freshGrade;
@@ -1061,10 +1107,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         retryRef.current = true; savingRef.current = true;
         const restantes = await reconciliarCq();
         if (restantes.length === 0) {
-          saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+          saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null; } });
           return;
         }
-        savingRef.current = false; retryRef.current = false;
+        savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null;
         toast.error(mensagemErro(e, "Erro ao salvar"));
         return;
       }
@@ -1077,6 +1123,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
+      setEditing(false); // N3: volta ao modo travado (um manterEdicao anterior não pode ficar preso)
       posSaveReset(); // reseedingRef=true (merge effect fora até a re-baseline manual)
       // Colab (fix round 2): try/finally — espelha o saveMut acima (mesmo risco de flag presa).
       try {
@@ -1101,10 +1148,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         retryRef.current = true; savingRef.current = true;
         const restantes = await reconciliarCq();
         if (restantes.length === 0) {
-          confirmMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+          confirmMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null; } });
           return;
         }
-        savingRef.current = false; retryRef.current = false;
+        savingRef.current = false; retryRef.current = false; retryEstadoRef.current = null;
         toast.error(mensagemErro(e, "Erro ao confirmar"));
         return;
       }
@@ -1121,6 +1168,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Confirmação desmarcada — CQ voltou a editável");
       setStatus("pendente");
+      setEditing(false); // N3
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       await invalidateDownstream();
       await refetchCq();
@@ -1139,6 +1187,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
     onSuccess: async () => {
       toast.success("Modelo voltou para Serviços");
+      setStatus("pendente"); // N5: ação própria — o refetch seguinte não é "outra tela" (sem toast de causa errada)
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
         qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
@@ -1152,6 +1201,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar para Serviços")),
   });
+  acaoLocalEmVooRef.current = saveMut.isPending || confirmMut.isPending || desmarcarMut.isPending || voltarMut.isPending; // N2/N5
 
   // Botões de ação (Pré/Pós) — renderizados na barra STICKY do rodapé (todos os tamanhos):
   // rodapé do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.

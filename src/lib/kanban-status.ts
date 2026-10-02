@@ -69,7 +69,10 @@ export type ExplosaoEnvioGate = { ok: boolean; reqKey: string; reqLabel: string 
 /** Opções dos gates por posição (Kanban automático, decisão 10): quando `statusGate` vem preenchido, a
  *  régua usa ELE (posição DERIVADA do card) em vez de `statusDesenvolvimento` (coluna onde está gravado).
  *  Calcule com `statusParaGate(cfg.kanban_automatico, derivacao, status)` de `kanban-auto.ts`
- *  (≡ `_kanban_status_gate` no SQL). Ausente/vazio ⇒ comportamento histórico. */
+ *  (≡ `_kanban_status_gate` no SQL). Ausente/undefined/vazio ⇒ comportamento histórico.
+ *  `statusGate: null` EXPLÍCITO = card SEM posição para os gates (P-190 A: reprovado com a chave ligada) ⇒ nada passa
+ *  (≡ `_ref_exibir_gate`/`_explosao_envio_gate` com NULL no SQL). Quem passa `statusParaGate(...)` com o status gravado
+ *  nulo também recebe `null` — dá o mesmo resultado do fallback (status nulo nunca passa). */
 export type GateOpts = { statusGate?: string | null };
 
 export function podeEnviarExplosao(
@@ -92,8 +95,9 @@ export function podeEnviarExplosao(
     cfgIdx = keys.indexOf(APROVADO_KEY);
   }
   const reqLabel = labelOf(reqKey);
+  const semPosicao = opts !== undefined && opts.statusGate === null; // P-190 A (ver GateOpts)
   const gate = String(opts?.statusGate ?? "").trim();
-  const status = (gate !== "" ? gate : String(statusDesenvolvimento ?? "").trim()).toLowerCase();
+  const status = semPosicao ? "" : (gate !== "" ? gate : String(statusDesenvolvimento ?? "").trim()).toLowerCase();
   const curIdx = keys.indexOf(status);
 
   let ok: boolean;

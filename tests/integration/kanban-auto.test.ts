@@ -1479,7 +1479,9 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
     });
   });
 
-  it("decisão 10: fixado ADIANTE da etapa não revela REF nem libera Explosão; quando a posição derivada chega, libera", async () => {
+  // medios R14 kanban #7 (P-190 A, dono 01/out): Reprovado é EXCEÇÃO à decisão 10 — fixado em 'reprovado' NUNCA revela
+  // a REF nem libera a Explosão, nem quando a posição derivada chega (antes: liberava). Chave desligada → status gravado.
+  it("decisão 10 + P-190 A: fixado em REPROVADO (adiante da etapa) não revela REF nem libera Explosão, nem quando a posição derivada chega", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);
       await comoUsuario(c);
@@ -1491,7 +1493,7 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
       await setar(c, M, { status_desenvolvimento: "reprovado" }); // manual ADIANTE de etapa_c no board
       let m = await lerModelo(c, M);
       expect([m.status, m.ref ?? ""]).toEqual(["reprovado", ""]); // sem a decisão 10 a REF abriria aqui
-      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("etapa_a");
+      expect((await um<{ g: string | null }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBeNull();
       await c.query("SAVEPOINT sp");
       await expect(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [M])).rejects.toMatchObject({ code: "P0001" });
       await c.query("ROLLBACK TO SAVEPOINT sp");
@@ -1499,8 +1501,11 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
       await imediato(c);
       m = await lerModelo(c, M);
       expect(m.status).toBe("reprovado"); // continua fixado
-      expect(m.ref).toBe(m.ref_auto); // REF revelada pelo motor (posição derivada = etapa_c)
-      expect((await um<{ id: string }>(c, `SELECT public.enviar_modelo_para_cad($1) AS id`, [M])).id).toBeTruthy();
+      expect(m.ref ?? "").toBe(""); // P-190 A: a posição derivada (etapa_c) NÃO revela a REF de reprovado
+      expect((await um<{ g: string | null }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBeNull();
+      await c.query("SAVEPOINT sp2");
+      await expect(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [M])).rejects.toMatchObject({ code: "P0001" });
+      await c.query("ROLLBACK TO SAVEPOINT sp2");
       await chave(c, false);
       expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("reprovado");
     });
@@ -1536,7 +1541,10 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
   // UPDATE que fixa o card numa coluna manual ADIANTE da etapa de revelar a REF e, junto, limpa um campo
   // exigido, fn_modelo_ref_auto vê a posição derivada ANTIGA (etapa_c) e revela a REF; depois do COMMIT
   // (drenagem) a posição derivada recua (etapa_b) — e a REF revelada não volta.
-  it("risco 4 (limitação conhecida — decisão do dono antes de ligar a chave): 1 UPDATE que fixa adiante da etapa da REF E limpa um campo exigido revela a REF pela posição PRÉ-UPDATE; no COMMIT a posição derivada recua", async () => {
+  // medios R14 (P-190 A): a única coluna manual ADIANTE de etapa_c neste board é 'reprovado', que deixou de revelar — o
+  // risco 4 fica FECHADO para reprovado (a REF não abre). Para outras colunas manuais adiante da etapa a limitação segue
+  // (decisão 10 intacta para elas); este board não tem outra, então o caso agora afirma o fechamento.
+  it("risco 4 (P-190 A: fechado p/ reprovado): 1 UPDATE que fixa em reprovado adiante da etapa da REF E limpa um campo exigido NÃO revela a REF; no COMMIT a posição derivada recua", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);
       await configurarBoard(c, { ref: "etapa_c" });
@@ -1547,17 +1555,18 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
       let m = await lerModelo(c, M);
       expect([m.status, m.ref ?? ""]).toEqual(["entrada", ""]);
       expect(m.ref_auto ?? "").not.toBe("");
-      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("etapa_c");
+      expect((await um<{ g: string | null }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBeNull();
+      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'stand_by') AS g`, [T, M])).g).toBe("etapa_c");
       // UM único UPDATE: fixa em 'reprovado' (manual, adiante de etapa_c) E limpa data_piloto2 (exigido em etapa_c)
       await setar(c, M, { status_desenvolvimento: "reprovado", data_piloto2: null });
       m = await lerModelo(c, M);
       expect(m.status).toBe("reprovado");
-      expect(m.ref).toBe(m.ref_auto); // REF revelada pela posição derivada da linha PRÉ-UPDATE (etapa_c)
+      expect(m.ref ?? "").toBe(""); // P-190 A: reprovado não revela (antes: revelava pela posição PRÉ-UPDATE)
       await imediato(c); // COMMIT/drenagem
       m = await lerModelo(c, M);
       expect(m.status).toBe("reprovado"); // continua fixado
-      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("etapa_b"); // recuou (< etapa_c)
-      expect(m.ref).toBe(m.ref_auto); // …e a REF revelada NÃO volta
+      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'stand_by') AS g`, [T, M])).g).toBe("etapa_b"); // recuou (< etapa_c)
+      expect(m.ref ?? "").toBe("");
     });
   });
 });

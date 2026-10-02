@@ -53,7 +53,6 @@
 // anterior, o preço de venda do RASCUNHO (n2) — vazio = "aguardando preço de venda" (M4). Leitura: o valor já vem do
 // vivo/retrato; só o selo ganha a versão/"aguardando" quando a linha mostra o VIVO.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 import { Lock, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -63,13 +62,14 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useAuth } from "@/hooks/useAuth";
+import { useAbrirCard } from "./abrir-card";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { cn } from "@/lib/utils";
 import { filtrarNcm, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
 import { infoEdicao, travaOuGate, TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL } from "@/lib/integracao/celula";
 import {
-  avisoRetrato, formatarValor, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
+  avisoRetrato, avisoSublinhas, formatarValor, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
 } from "@/lib/integracao/produtos";
 import {
   colunasAlteradas, comSkus, editar, editarTitulo, linhaSkuDaSublinha, manterMeu, sairTitulo,
@@ -96,18 +96,19 @@ type Props = {
 
 const TEXTO_SALVANDO = "Salvando…";
 
-function AbrirCard({ id }: { id: string }) {
+function AbrirCard({ id, nome }: { id: string; nome?: string }) {
   // N6 (G-plano do plano): quem só tem a permissão "Integração" não abre o Planejamento — o link some
   const { canView } = useAuth();
-  if (!canView("criacao_planejamento")) return null;
+  const abrirCard = useAbrirCard();
+  if (!canView("criacao_planejamento") || !abrirCard) return null;
   return (
-    <Link to="/criacao/planejamento" search={{ modelo: id }} className="shrink-0 text-xs text-primary underline-offset-2 hover:underline">
+    <button type="button" onClick={() => abrirCard(id)} aria-label={`Abrir card${nome ? ` de ${nome}` : ""}`} className="shrink-0 cursor-pointer text-xs text-primary underline-offset-2 hover:underline">
       abrir card
-    </Link>
+    </button>
   );
 }
-function Leitura({ texto, info, aviso, travado, cardId, selo }: {
-  texto: string; info?: string | null; aviso?: string | null; travado?: boolean; cardId?: string; selo?: ReactNode;
+function Leitura({ texto, info, aviso, travado, cardId, cardNome, selo }: {
+  texto: string; info?: string | null; aviso?: string | null; travado?: boolean; cardId?: string; cardNome?: string; selo?: ReactNode;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-1">
@@ -116,7 +117,7 @@ function Leitura({ texto, info, aviso, travado, cardId, selo }: {
       {selo}
       {info && <InfoHover ariaLabel="Informação do campo">{info}</InfoHover>}
       {aviso && <InfoHover ariaLabel="Mudou depois do retrato" className="text-[var(--tone-warning-fg)]">{aviso}</InfoHover>}
-      {cardId && <AbrirCard id={cardId} />}
+      {cardId && <AbrirCard id={cardId} nome={cardNome} />}
     </div>
   );
 }
@@ -124,15 +125,15 @@ function Leitura({ texto, info, aviso, travado, cardId, selo }: {
  *  `travaOuGate` em celula.ts). Quando a coluna tem uma edição pendente no rascunho (`colunasAlteradas`) mas um
  *  gate FECHOU depois da edição (ex.: REF travada pelo envio à Explosão), mostra o valor do RASCUNHO — formatado
  *  como o CAMPO exige (dinheiro/peso/fotos), nunca o texto cru — com realce âmbar + "descartar alteração". */
-function LeituraComPendencia({ texto, motivo, cardId, onDescartar }: {
-  texto: string; motivo: string | null; cardId?: string; onDescartar: () => void;
+function LeituraComPendencia({ texto, motivo, cardId, cardNome, onDescartar }: {
+  texto: string; motivo: string | null; cardId?: string; cardNome?: string; onDescartar: () => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex min-w-0 items-center gap-1 rounded bg-[var(--tone-warning-bg)] px-1">
         <span className="max-w-[16rem] truncate" title={texto}>{texto}</span>
         {motivo && <InfoHover ariaLabel="Sua alteração não pode ser salva">{`Sua alteração não pode ser salva: ${motivo}`}</InfoHover>}
-        {cardId && <AbrirCard id={cardId} />}
+        {cardId && <AbrirCard id={cardId} nome={cardNome} />}
       </div>
       <Button type="button" variant="link" size="sm" className="h-auto w-fit p-0 text-xs" onClick={onDescartar}>
         descartar alteração
@@ -320,12 +321,23 @@ function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: 
   campo: CampoDef; p: ProdutoLista; indice: number; r: Rascunho; previa: PreviaSkus | undefined; salvando: boolean;
   onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
 }) {
-  if (campo.key === "ref_sku") return <SkuCelula p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
+  if (campo.key === "ref_sku") {
+    const sku = <SkuCelula p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
+    // sku #10 (medios R14): as sublinhas mudaram depois do retrato — o "i" fica na coluna SKU (a API recebe as do retrato).
+    const avisoSub = avisoSublinhas(p);
+    if (!avisoSub) return sku;
+    return (
+      <div className="flex min-w-0 items-center gap-1">
+        {sku}
+        <InfoHover ariaLabel="Sublinhas mudaram depois do retrato" className="text-[var(--tone-warning-fg)]">{avisoSub}</InfoHover>
+      </div>
+    );
+  }
   const texto = valorCelula(p, campo.key, indice);
   if (campo.soVariante) {
     const sub = sublinhaDe(p, indice);
     const semApelido = campo.key === "cor_apelido" && !sub?.apelidoNome && !!sub?.corNome;
-    return <Leitura texto={texto} info={semApelido ? "sem apelido — não bloqueia" : (campo.info ?? null)} cardId={p.modeloId} />;
+    return <Leitura texto={texto} info={semApelido ? "sem apelido — não bloqueia" : (campo.info ?? null)} cardId={p.modeloId} cardNome={p.raw.nome} />;
   }
   return <span className="text-muted-foreground">{texto}</span>;
 }
@@ -469,7 +481,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   const travado = trava.tipo === "leitura" && trava.travado;
   if (campo.tipo === "somente_leitura") {
     const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : (campo.info ?? null);
-    return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} />;
+    return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} cardNome={p.raw.nome} />;
   }
   if (campo.key === "metatag") {
     const texto = p.estado === "nao_integravel" ? (String(r.valores.descricao_produto ?? "").trim() || "—") : valorCelula(p, "metatag", null);
@@ -501,7 +513,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
     // Isto NUNCA olha `salvando` (round 2) — só a trava/gate real.
     if (pendente) {
       return (
-        <LeituraComPendencia texto={valorRascunhoFormatado(campo, col, r)} motivo={trava.motivo} cardId={p.modeloId}
+        <LeituraComPendencia texto={valorRascunhoFormatado(campo, col, r)} motivo={trava.motivo} cardId={p.modeloId} cardNome={p.raw.nome}
           onDescartar={() => onAtualizar((x) => usarNovo(x, col))} />
       );
     }

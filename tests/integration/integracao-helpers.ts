@@ -120,7 +120,25 @@ export async function precoVersaoViva(c: Client): Promise<boolean> {
 export async function versaoIntegradaViva(c: Client): Promise<boolean> {
   return (await um<{ ok: boolean }>(c, "SELECT to_regprocedure('public.integracao_versoes_integradas(uuid[])') IS NOT NULL AS ok")).ok;
 }
+/**
+ * LIFO — achados MÉDIOS R14 (20261024200000: sku #3/#10/#12) redefine _integracao_retrato_core e integracao_listar POR CIMA da
+ * 20261018100000 e da 20261013100000; as guardas dos inversos delas exigem os textos de ANTES (1cfaed33…/33e492d1…). Com a R14 na
+ * cópia, as suítes que voltam/reaplicam aquelas migrations na txn voltam a R14 ANTES, DENTRO da txn (as 2 travas SET LOCAL do
+ * arquivo saem; o statement_timeout de 5 s do arquivo é devolvido ao valor da txn). Sem efeito quando a R14 não está aplicada.
+ */
+export const INV_R14_INTEGRACAO = "supabase/rollback/20261024200000_integracao_sku_sublinhas_voltar_down.sql";
+const R14_RETRATO_DEPOIS = "bfcd6aba0a2f0ebd1a5908888f9c0568";
+export async function voltaR14IntegracaoSePreciso(c: Client): Promise<void> {
+  const m = (await um<{ m: string | null }>(c,
+    "SELECT md5(pg_get_functiondef(to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)'))) AS m")).m;
+  if (m !== R14_RETRATO_DEPOIS) return;
+  exigeBancoLocal();
+  const st = (await um<{ v: string }>(c, "SELECT current_setting('statement_timeout') AS v")).v;
+  await aplica(c, INV_R14_INTEGRACAO);
+  await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
+}
 export async function voltaPrecoVersaoSePreciso(c: Client): Promise<void> {
+  await voltaR14IntegracaoSePreciso(c); // LIFO: a R14 (20261024200000) volta antes da 20261018
   if (await versaoIntegradaViva(c)) {
     exigeBancoLocal();
     await aplica(c, INV_VERSAO_INTEGRADA);

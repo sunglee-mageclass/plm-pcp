@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { CONTEXTO_PADRAO, type ContextoDetalhe } from "@/components/planejamento/planejamento-detail/contexto";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
@@ -135,7 +136,7 @@ export function PlanejamentoDetail(props: {
   modeloId: string | null;
   onClose: () => void;
   onSaved: () => void;
-  contexto?: "planejamento" | "produto-acabado";
+  contexto?: ContextoDetalhe;
 }) {
   const [idCriado, setIdCriado] = useState<string | null>(null);
   const id = props.modeloId ?? idCriado;
@@ -143,12 +144,12 @@ export function PlanejamentoDetail(props: {
 }
 
 function PlanejamentoDetailConteudo({
-  modeloId, onClose, onSaved, contexto = "planejamento", onCreated,
+  modeloId, onClose, onSaved, contexto = CONTEXTO_PADRAO, onCreated,
 }: {
   modeloId: string | null;
   onClose: () => void;
   onSaved: () => void;
-  contexto?: "planejamento" | "produto-acabado";
+  contexto?: ContextoDetalhe;
   /** Card NOVO: chamado com o id depois do INSERT (o wrapper remonta como Sheet desse id). */
   onCreated?: (id: string) => void;
 }) {
@@ -383,7 +384,8 @@ function PlanejamentoDetailConteudo({
     queryFn: async () => {
       const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: [modeloId] });
       if (error) throw error;
-      return ((data ?? {}) as any)[modeloId as string] as { previsto: number; real: number; confirmado: boolean } | undefined;
+      // null (não undefined): o TanStack recusa `undefined` ("Query data cannot be undefined") — vem sem permissão de custos / modelo apagado.
+      return (((data ?? {}) as any)[modeloId as string] ?? null) as { previsto: number; real: number; confirmado: boolean } | null;
     },
   });
 

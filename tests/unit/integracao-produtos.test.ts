@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { brl } from "@/lib/format";
 import {
+  AVISO_SUBLINHAS,
   TEXTO_PRECISA_CUSTO,
   acoesEmMassa,
   avisoRetrato,
+  avisoSublinhas,
   faixaPagina,
   filtrosParaRpc,
   fmtDataHora,
@@ -187,6 +189,25 @@ describe("formatação e retrato (N10)", () => {
       `O custo mudou depois do retrato (hoje ${brl(101.2)}) — a API recebe o valor do retrato (${brl(97)}).`,
     );
     expect(avisoRetrato(p, "nome")).toBeNull();
+  });
+  it("medios R14 sku #10: 'sublinhas' em retrato_difere vira retratoDifereSublinhas (fora dos CampoKey) + aviso só com retrato", () => {
+    const integravel = lista([
+      cru({
+        estado: "integravel",
+        retrato: { v: 2, campos: ["ncm"], linhas: [linha({ ncm: "1" })] },
+        vivo: { v: 2, campos: ["ncm"], linhas: [linha({ ncm: "2" })] },
+        retrato_difere: ["ncm", "sublinhas"],
+      }),
+    ]).produtos[0];
+    expect(integravel.retratoDifere).toEqual(["ncm"]);
+    expect(integravel.retratoDifereSublinhas).toBe(true);
+    expect(avisoSublinhas(integravel)).toBe(AVISO_SUBLINHAS);
+    const semSub = lista([cru({ estado: "integravel", retrato_difere: ["ncm"] })]).produtos[0];
+    expect(semSub.retratoDifereSublinhas).toBe(false);
+    expect(avisoSublinhas(semSub)).toBeNull();
+    const naoIntegravel = lista([cru({ retrato_difere: ["sublinhas"] })]).produtos[0];
+    expect(avisoSublinhas(naoIntegravel)).toBeNull(); // mostra o vivo: nada a avisar
+    expect(lista([cru({ retrato_difere: "lixo" })]).produtos[0].retratoDifereSublinhas).toBe(false);
   });
   it("estado com data no fuso da loja", () => {
     expect(fmtDataHora("2026-09-26T17:35:00Z", "America/Sao_Paulo")).toBe("26/09 14:35");

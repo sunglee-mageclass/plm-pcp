@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { hasDb, withTx, comoUsuario, dbUrl, um } from "./db";
 import { exigeBancoLocal } from "./mig-txn";
 import {
-  CAMPOS_PADRAO, LOCAL, T, U, aplica, camposLoja, comoUsuarioCom, imediato, ler, modeloInterno, voltaPrecoVersaoSePreciso,
+  CAMPOS_PADRAO, LOCAL, T, U, aplica, camposLoja, comoUsuarioCom, imediato, ler, modeloInterno, voltaPrecoVersaoSePreciso, voltaR14IntegracaoSePreciso,
   MIG_PRECO_VERSAO, INV_PRECO_VERSAO,
 } from "./integracao-helpers";
 import { CASOS_VERSAO, LOJA_CASOS, type LinhaFamilia } from "../fixtures/versao-anterior-casos";
@@ -563,6 +563,8 @@ describe.skipIf(!PRONTO)("preço/título por versão — (h) ida → volta → i
       await c.query("DELETE FROM public.modelos WHERE id = $1", [ids.a]);
       await imediato(c);
       await c.query("RESET ROLE");
+      // medios R14 (20261024200000, se viva) volta antes — LIFO (redefine o retrato por cima desta)
+      await voltaR14IntegracaoSePreciso(c);
       // T5 (se viva) volta antes — LIFO
       if ((await um<{ ok: boolean }>(c, "SELECT to_regprocedure('public.integracao_versoes_integradas(uuid[])') IS NOT NULL AS ok")).ok) {
         await aplica(c, "supabase/rollback/20261018110000_integracao_versao_integrada_down.sql");

@@ -3,7 +3,8 @@ import {
   boardDaLoja, colunaManual, derivarModelo, destinoDrop, entradaParaDerivacao, faltandoPara, fluxoDoModelo,
   lerKanbanAutoConfig, mensagemDrop, reqsDoModelo, statusDerivado, statusParaGate,
 } from "@/lib/kanban-auto";
-import { CASOS, FLUXO_A, REQS_A } from "../fixtures/kanban-auto-casos";
+import { CASOS, FLUXO_A, FLUXO_GATE, GATE_CASOS, REQS_A, REQS_GATE } from "../fixtures/kanban-auto-casos";
+import { podeEnviarExplosao, refCampoVisivel } from "@/lib/kanban-status";
 
 describe("kanban-auto — statusDerivado (fixtures compartilhadas com o SQL)", () => {
   for (const c of CASOS) {
@@ -133,5 +134,47 @@ describe("kanban-auto — statusParaGate (≡ _kanban_status_gate)", () => {
     expect(statusParaGate(true, { ...d, derivavel: false, alvo: null }, "stand_by")).toBe("stand_by");
     expect(statusParaGate(true, null, "stand_by")).toBe("stand_by");
     expect(statusParaGate(true, null, undefined)).toBeNull();
+  });
+  // medios R14 kanban #7 (P-190 A): Reprovado é exceção à decisão 10 — com a chave ligada, sem posição para os gates.
+  it("chave ligada + reprovado → null (sem posição), mesmo derivável com alvo adiante; normaliza maiúsculas/espaços", () => {
+    expect(statusParaGate(true, d, "reprovado")).toBeNull();
+    expect(statusParaGate(true, d, " Reprovado ")).toBeNull();
+    expect(statusParaGate(true, { ...d, derivavel: false, alvo: null }, "reprovado")).toBeNull();
+    expect(statusParaGate(true, null, "REPROVADO")).toBeNull();
+    expect(statusParaGate(false, d, "reprovado")).toBe("reprovado");
+  });
+});
+
+describe("kanban-auto — GATE_CASOS (fixtures compartilhadas com o SQL _kanban_status_gate)", () => {
+  for (const g of GATE_CASOS) {
+    it(g.nome, () => {
+      const der = statusDerivado({ fluxo: FLUXO_GATE, reqs: REQS_GATE, exc: {}, cond: g.cond, status: g.status, derivavel: true });
+      expect(statusParaGate(g.ligado, der, g.status)).toBe(g.esperado);
+    });
+  }
+  it("fixture não está vazia e cobre reprovado com alvo ≥ etapa (anti-calado)", () => {
+    expect(GATE_CASOS.length).toBeGreaterThanOrEqual(7);
+    expect(GATE_CASOS.some((g) => g.ligado && g.status === "reprovado" && g.esperado === null)).toBe(true);
+  });
+});
+
+describe("kanban-status — statusGate null = sem posição (P-190 A)", () => {
+  // board com 'reprovado' DEPOIS da etapa exigida: pelo status gravado a régua passaria
+  const board = ["Entrada", "Etapa A", "Etapa C", "Reprovado", "Aprovado"];
+  it("podeEnviarExplosao/refCampoVisivel: statusGate null → nada passa; undefined → status gravado (histórico)", () => {
+    expect(podeEnviarExplosao(board, "etapa_c", "reprovado").ok).toBe(true);
+    expect(podeEnviarExplosao(board, "etapa_c", "reprovado", { statusGate: undefined }).ok).toBe(true);
+    expect(podeEnviarExplosao(board, "etapa_c", "reprovado", { statusGate: null }).ok).toBe(false);
+    expect(refCampoVisivel(board, "etapa_c", "reprovado", { statusGate: null })).toBe(false);
+    expect(podeEnviarExplosao(board, "etapa_c", "reprovado", { statusGate: "aprovado" }).ok).toBe(true);
+  });
+  it("cadeia statusParaGate → gate: reprovado com chave ligada nunca libera; desligada segue a régua do status", () => {
+    const der = statusDerivado({ fluxo: FLUXO_GATE, reqs: REQS_GATE, exc: {}, cond: { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true, data_aprovacao: true }, status: "reprovado", derivavel: true });
+    expect(der.fixado).toBe(true);
+    expect(der.alvo).toBe("aprovado");
+    const fluxoLabels = ["Entrada", "Etapa A", "Etapa B", "Stand By", "Etapa C", "Reprovado", "Aprovado"];
+    expect(podeEnviarExplosao(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(true, der, "reprovado") }).ok).toBe(false);
+    expect(refCampoVisivel(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(true, der, "reprovado") })).toBe(false);
+    expect(podeEnviarExplosao(fluxoLabels, "etapa_c", "reprovado", { statusGate: statusParaGate(false, der, "reprovado") }).ok).toBe(true);
   });
 });

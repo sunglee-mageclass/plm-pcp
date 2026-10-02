@@ -169,3 +169,28 @@ export const CASOS: CasoKanban[] = [
     { derivavel: true, entrada: "entrada", alvo: "c", resultado: "stand_by", fixado: true, primeiraFalha: "d", faltando: ["w"] },
   ),
 ];
+
+// ─────────────── Gates por posição (≡ _kanban_status_gate × statusParaGate) — medios R14 kanban #7, P-190 A ───────────────
+// Board da Loja Teste reescrito pela integração (tests/integration/kanban-reprovado-gate.test.ts): as keys de
+// normalizeKanbanStatuses(["Entrada","Etapa A","Etapa B","Stand By","Etapa C","Reprovado","Aprovado"]) e os requisitos
+// com condições REAIS (a integração preenche o campo de cada condição marcada em `cond`). 'reprovado' fica DEPOIS de
+// 'etapa_c' (a etapa da REF/Explosão dos testes): sem a exceção do P-190 A, o próprio status passaria pela régua.
+// O lado TS deriva com statusDerivado e chama statusParaGate; o lado SQL cria o card e chama _kanban_status_gate.
+// `esperado` null = SEM posição para os gates (nada passa: nem REF nem Explosão).
+export const FLUXO_GATE = ["entrada", "etapa_a", "etapa_b", "stand_by", "etapa_c", "reprovado", "aprovado"];
+export const BOARD_GATE = ["Entrada", "Etapa A", "Etapa B", "Stand By", "Etapa C", "Reprovado", "Aprovado"];
+export const REQS_GATE: Record<string, string[]> = {
+  etapa_a: ["data_desenho_tecnico"], etapa_b: ["data_piloto1"], etapa_c: ["data_piloto2"], aprovado: ["data_aprovacao"],
+};
+export type CasoGate = { nome: string; ligado: boolean; status: string; cond: Record<string, boolean>; esperado: string | null };
+const TUDO_GATE = { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true, data_aprovacao: true };
+const ATE_C_GATE = { data_desenho_tecnico: true, data_piloto1: true, data_piloto2: true };
+export const GATE_CASOS: CasoGate[] = [
+  { nome: "G1. chave DESLIGADA + reprovado → status gravado (nada muda)", ligado: false, status: "reprovado", cond: TUDO_GATE, esperado: "reprovado" },
+  { nome: "G2. chave ligada + reprovado com posição derivada = aprovado → SEM posição (P-190 A)", ligado: true, status: "reprovado", cond: TUDO_GATE, esperado: null },
+  { nome: "G3. chave ligada + reprovado com posição derivada = etapa_c (≥ etapa da REF/Explosão) → SEM posição", ligado: true, status: "reprovado", cond: ATE_C_GATE, esperado: null },
+  { nome: "G4. chave ligada + reprovado sem nada satisfeito → SEM posição", ligado: true, status: "reprovado", cond: {}, esperado: null },
+  { nome: "G5. chave ligada + stand_by fixado → posição DERIVADA (outras manuais seguem a decisão 10)", ligado: true, status: "stand_by", cond: ATE_C_GATE, esperado: "etapa_c" },
+  { nome: "G6. chave ligada + card em coluna automática → posição derivada", ligado: true, status: "etapa_a", cond: { data_desenho_tecnico: true }, esperado: "etapa_a" },
+  { nome: "G7. chave DESLIGADA + stand_by → status gravado", ligado: false, status: "stand_by", cond: ATE_C_GATE, esperado: "stand_by" },
+];
