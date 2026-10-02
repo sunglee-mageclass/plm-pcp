@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { md5OuSucessorI3 } from "./integracao-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261016100000_pa_sync_card_so_mudou.sql";
@@ -189,7 +190,7 @@ describe.skipIf(!(hasDb && LOCAL))("PA sync só-mudou — banco (cópia local)",
           has_function_privilege('public', to_regprocedure($1), 'EXECUTE') AS p,
           has_function_privilege('anon', to_regprocedure($1), 'EXECUTE') AS a,
           has_function_privilege('authenticated', to_regprocedure($1), 'EXECUTE') AS u`, [`public.${SIG}`]);
-      expect([MD5_DEPOIS, MD5_L8]).toContain(r.m);
+      expect([MD5_DEPOIS, ...md5OuSucessorI3(SIG, MD5_L8)]).toContain(r.m); // Release I3a por cima da L8 (sucessor)
       expect({ ...r, m: undefined }).toEqual({ m: undefined, p: false, a: false, u: false });
     });
   });

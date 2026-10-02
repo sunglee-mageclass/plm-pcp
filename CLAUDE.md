@@ -772,6 +772,20 @@ e verifique** — o repo muda rápido.
     login/storage: é o freio de emergência) e depois o `_down` completo (LIFO: backfill antes do gatilho; o DROP TRIGGER dele
     pega AccessExclusive em `modelos` E em ~23 tabelas auth/storage/realtime até o COMMIT → horário calmo). Plano/relatórios:
     `.claude/worktrees/p137/.superpowers/sdd/2026-09-30-p137/` (plan.md, report.md, G-MIGRATION.md, review-front.md).
+    **Categoria do tecido / Material do aviamento no produto comprado (Release I3a, out/2026, `20261030100000`; P-218 A +
+    correção do dono):** `produtos_acabados` e `produtos_importados` ganham `categoria_tecido_id` (FK `categorias_tecido`) e
+    `material_aviamento_id` (FK `materiais_aviamento`) — nullable, FK **NO ACTION**, índices parciais `WHERE … IS NOT NULL`, sem
+    backfill. **Regra do GRUPO:** o card de grupo Acessórios (`_grupo_eh_acessorio`/`ehGrupoAcessorio`) mostra "Material do
+    aviamento"; os demais, "Categoria do tecido" — as 2 colunas existem sempre; quem lê (a Integração, I3b) escolhe pelo grupo
+    ATUAL do produto. `_salvar_produto_acabado_core`/`_salvar_produto_importado_core` gravam as 2 SÓ quando a chave vem em
+    `_dados` (padrão `tamanho_tipo`; vazio LIMPA; id de outra loja = P0001 PT) e ficam FORA da trava de identidade com OC e da
+    trava da Integração (campo informativo, P-219 A; `fn_integracao_trava_espelho` não olha). Gatilho de loja
+    `trg_pa_cat_material_tenant`/`trg_pi_cat_material_tenant` (`fn_produto_cat_material_tenant`, BEFORE INSERT OR UPDATE OF as 2,
+    EXECUTE revogado dos 3) recusa id de outra loja (P0001). `_replicar_produtos_*_core` COPIA as 2 (ruling); `_limpar_produto_*_core`
+    ("Limpar produto") ZERA as 2 (ruling). Checagem de uso do Cadastro › Atributos (`cat_tecido`/`mat_aviamento`) passa a contar os
+    2 produtos — excluir categoria/material em uso é bloqueado pela FK. Volta: `_down` devolve os 6 textos e NEUTRALIZA o gatilho
+    (colunas e valores ficam); `_down_drop` separado (DROP TRIGGER prende auth/storage — horário calmo; exige o `_down_drop` da
+    I3b antes, porque `_integracao_extras` lê as colunas).
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
     super admin + quem ELE deu a permissão `integracao` no próprio usuário — admin da loja NÃO passa sozinho, P-107 A; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
@@ -848,6 +862,35 @@ e verifique** — o repo muda rápido.
     variantes** (iguais/novas/saíram) e filtro **local** "Versão" (sobre a lista carregada, até 500; não é estado do servidor).
     Só aviso — não bloqueia. Plano (rulings no fim PREVALECEM) e revisões:
     `.claude/worktrees/preco-anterior/.superpowers/sdd/2026-09-30-preco-anterior/`.
+    **Release I3 — campos informativos (out/2026, P-217..P-221; `20261030100000` I3a + `20261030110000` I3b + `20261030120000`
+    I3c; plano `.superpowers/sdd/2026-10-02-integracao-3-campos/plan.md`, RULINGS no fim; migrations GERADAS por `mig/gerar.mjs`
+    do mesmo diretório — troca de texto exata sobre o `pg_get_functiondef` vivo, guarda md5 antes/depois):** o layout passa a 21
+    — 19 Coleção (`colecao`), 20 Categoria do Tecido Principal (`categoria_tecido`), 21 Linha (`linha`), DEPOIS da Foto — e são
+    **NÃO obrigatórios** (`_integracao_opcionais()`): vazio NÃO é falta e NÃO travam nada (a trava é por nome de campo e eles não
+    têm coluna). **Padrão marcado = 20** (`_integracao_padrao()` = layout[1:17] ‖ layout[19:21]; Foto segue desmarcada):
+    DEFAULT de `integracao_config.campos`, `_integracao_cfg` (linha ausente), loja nova e `reset_loja`; `integracao_config_ler`
+    devolve `padrao` e `opcionais` (espelho TS `CAMPOS_PADRAO`/`CAMPOS_OPCIONAIS` em `src/lib/integracao/campos.ts`, anti-drift
+    `tests/unit/integracao-campos-i3.test.ts`). **Fonte ÚNICA dos valores = `_integracao_extras(modelo)`** (DEFINER, EXECUTE
+    revogado dos 3; usada pelo retrato E pelo reprocesso): Coleção = a MESMA regra do filtro Coleção (`_integracao_base`: nome da
+    coleção, senão o texto livre); Linha = nome da linha do card (mesma loja); Categoria do Tecido Principal = interno (inclusive
+    Acessórios) → categoria PRINCIPAL do artigo do **Tecido 1** (`modelo_tecidos` tipo 'tecido' numero 1, o mais antigo;
+    `artigos.categoria_tecido_id`, vazia = a 1ª por nome de `artigo_categorias_tecido`); revenda/importado → o campo do produto
+    (invariante 13): Acessórios = Material do aviamento, senão Categoria do tecido. `_integracao_retrato_core` lê os 3 numa só
+    chamada (só se algum marcado), as sublinhas HERDAM do produto e o marcador do retrato vai a **`v=3`** (único leitor de `v` é
+    `integracao_listar`, `<> 1`); `integracao_linhas` ganhou as colunas `colecao`/`categoria_tecido`/`linha` (gravadas por
+    `integracao_marcar`, lidas por `_integracao_valores`) — integrados ANTES da mudança vêm `null` na API; modo teste =
+    "Coleção Exemplo"/"Malha"/"Casual". Mudar coleção/linha/Tecido 1 de um integrável é ACEITO (o "i" `retrato_difere` aponta).
+    **I3c = correção única** (P-217 A + P-220 A): toda config ganha os 3 (rev + 1, Log 'campos' "Sistema (campos informativos)") e
+    todo INTEGRÁVEL sem eles ganha os 3 valores no retrato (produto + sublinhas; o resto byte a byte igual), assinatura refeita,
+    rev + 1, linhas da API e 1 Log 'editar' (`reprocesso: 'campos_informativos'`) por produto; backup `_bkp_i3c_reprocesso` (RLS
+    sem policy + REVOKE ALL); INTEGRADOS INTOCADOS; teto 1000 (Passo 0 conta os integráveis); idempotente. **Volta LIFO:** SITE →
+    `120000_down` (devolve só quem segue integrável com a assinatura do reprocesso; integrado depois fica e é RELATADO; config volta
+    onde a diferença é exatamente a da ida) → `110000_down` (tira as 3 chaves de TODA config, DEFAULT de volta, 8 textos de antes;
+    recusa enquanto a I3c estiver aplicada) → `100000_down` (recusa enquanto a I3b estiver) — tudo ANTES dos inversos da L9/L8/R14
+    (`20261024200000_down` exige o retrato bfcd6aba; `20261013100000_down` exige `_integracao_exemplo` a7b0687f; o `_down` da L8
+    exige os `_salvar_produto_*_core` dela). Os inversos NÃO têm DROP (as 3 auxiliares e as colunas ficam inertes); os
+    `_down_drop` são separados e opcionais. ⚠️ Site velho + banco novo: salvar a aba Campos com o site velho APAGA as 3 chaves —
+    publicar o site logo depois do banco.
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**

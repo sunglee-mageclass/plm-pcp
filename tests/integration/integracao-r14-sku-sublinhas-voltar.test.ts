@@ -15,6 +15,7 @@ import {
   camposLoja,
   importado,
   keywordsLoja,
+  md5OuSucessorI3,
   modeloInterno,
   prepara,
   revenda,
@@ -142,7 +143,7 @@ describe.skipIf(!hasDb)("R14 Integração — md5 e ACL (20261024200000)", () =>
           `SELECT CASE WHEN to_regprocedure($1) IS NULL THEN NULL ELSE md5(pg_get_functiondef(to_regprocedure($1))) END AS m`,
           ["public." + sig],
         );
-        expect(r.m, sig).toBe(md5);
+        expect(md5OuSucessorI3(sig, md5), sig).toContain(r.m); // Release I3b redefine o retrato POR CIMA desta (sucessor)
       }
     });
   });
@@ -198,7 +199,7 @@ describe.skipIf(!hasDb || !LOCAL)(
         expect(f[0].texto).toMatch(/^1 SKU desatualizado — Regerar \(/);
         expect(f[0].texto).toContain(`X${p1.sku} -> ${p1.sku}`);
         // o retrato NÃO muda de forma: marcador v=2 e a sublinha leva o SKU GRAVADO (o previsto só alimenta a falta)
-        expect(r.retrato.v).toBe(2);
+        expect([2, 3]).toContain(r.retrato.v); // Release I3 (20261030110000) passa o marcador a 3; a forma é a mesma
         expect(r.retrato.linhas.map((l) => l.tipo)).toEqual(ok.retrato.linhas.map((l) => l.tipo));
         expect(r.retrato.linhas.find((l) => l.tamanho_key === p1.tk)?.valores.ref_sku).toBe(
           `X${p1.sku}`,

@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { md5OuSucessorI3 } from "./integracao-helpers";
 import { totaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import {
   recomputeEtiqueta,
@@ -120,7 +121,9 @@ describe.skipIf(!RODA)("L8 — migration aplicada (cópia local)", () => {
                   has_function_privilege('anon', to_regprocedure($1), 'EXECUTE') a, has_function_privilege('authenticated', to_regprocedure($1), 'EXECUTE') u`,
           [s],
         );
-        expect(r, s).toEqual({ m, p: false, a: false, u: false });
+        // Release I3a (20261030100000) redefine os 2 _salvar_produto_*_core POR CIMA desta (sucessor aceito)
+        expect(md5OuSucessorI3(s, m), s).toContain(r.m);
+        expect({ ...r, m: null }, s).toEqual({ m: null, p: false, a: false, u: false });
       }
       const t = await um<{ n: number }>(
         c,
