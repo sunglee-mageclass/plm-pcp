@@ -48,6 +48,10 @@ export const LAYOUT = [
   "tamanho", "titulo", "descricao", "keywords", "metatag", "comprimento", "largura", "altura", "foto",
 ] as const;
 export const CAMPOS_PADRAO = LAYOUT.slice(0, 17);
+/** Release I3 (20261030110000): o layout ganha 19–21 (não obrigatórios) e o padrão marcado passa a 20 (1–17 + 19–21). */
+export const OPCIONAIS_I3 = ["colecao", "categoria_tecido", "linha"] as const;
+export const LAYOUT_I3 = [...LAYOUT, ...OPCIONAIS_I3] as const;
+export const CAMPOS_PADRAO_I3 = [...LAYOUT.slice(0, 17), ...OPCIONAIS_I3] as const;
 export const MD5_ANTES = {
   seed: "01bd241680e24fdb665ca8ae81a6a1a3",
   pa: "72c96c624de8f4530c862d8abb6a1283",
@@ -138,6 +142,7 @@ const R14_RETRATO_DEPOIS = "bfcd6aba0a2f0ebd1a5908888f9c0568";
 export const INV_L8 = "supabase/rollback/20261028200000_revenda_insumo_preco_down.sql";
 const L8_GATILHO_DEPOIS = "ccd231e45d1e9a379b252e574c5cda5e"; // fn_preco_comprado_por_insumo() da ida
 export async function voltaL8SePreciso(c: Client): Promise<void> {
+  await voltaI3SePreciso(c); // LIFO: a I3a (20261030100000) redefine _salvar_produto_acabado/importado_core, que a volta da L8 confere
   const m = (await um<{ m: string | null }>(c,
     "SELECT md5(pg_get_functiondef(to_regprocedure('public.fn_preco_comprado_por_insumo()'))) AS m")).m;
   if (m !== L8_GATILHO_DEPOIS) return;
@@ -147,6 +152,7 @@ export async function voltaL8SePreciso(c: Client): Promise<void> {
   await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
 }
 export async function voltaR14IntegracaoSePreciso(c: Client): Promise<void> {
+  await voltaI3SePreciso(c); // LIFO: a I3b (20261030110000) redefine _integracao_retrato_core POR CIMA da R14
   const m = (await um<{ m: string | null }>(c,
     "SELECT md5(pg_get_functiondef(to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)'))) AS m")).m;
   if (m !== R14_RETRATO_DEPOIS) return;
@@ -174,6 +180,7 @@ export async function voltaL3SkuSePreciso(c: Client): Promise<void> {
   await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
 }
 export async function voltaPrecoVersaoSePreciso(c: Client): Promise<void> {
+  await voltaI3SePreciso(c); // LIFO: a Release I3 (20261030100000..120000) é a mais nova de todas
   await voltaL3SkuSePreciso(c); // LIFO: a L3 sku (20261027120000) volta antes de tudo (a mais nova)
   await voltaR14IntegracaoSePreciso(c); // LIFO: a R14 (20261024200000) volta antes da 20261018
   if (await versaoIntegradaViva(c)) {
@@ -185,6 +192,90 @@ export async function voltaPrecoVersaoSePreciso(c: Client): Promise<void> {
   await c.query("SET LOCAL app.confirmo_voltar_preco_versao = 'sim'");
   await aplica(c, INV_PRECO_VERSAO);
   await c.query("SET LOCAL app.confirmo_voltar_preco_versao = ''");
+}
+/**
+ * LIFO — Release I3 (Integração: Coleção / Categoria do Tecido Principal / Linha + Categoria do tecido / Material do aviamento
+ * nos produtos PA/PI; plano .superpowers/sdd/2026-10-02-integracao-3-campos/plan.md). I3a (20261030100000) redefine
+ * _salvar_produto_*_core, _replicar_produtos_*_core e _limpar_produto_*_core POR CIMA da L8 / Tamanho em nos cards; I3b
+ * (20261030110000) redefine _integracao_retrato_core (R14), _integracao_exemplo (release 4) e mais 6 da Integração; I3c
+ * (20261030120000) é a correção única (configs + integráveis). Com elas na cópia, as suítes que voltam/reaplicam migrations
+ * anteriores na txn voltam a I3 ANTES (C → B → A), DENTRO da txn (as 2 travas SET LOCAL do arquivo saem). Sem efeito quando
+ * não estão aplicadas. Com I3_TXN=1, `withTx` (db.ts) APLICA a I3 na txn de todo teste (ensaio do estado "depois" sem tocar a cópia).
+ */
+export const MIG_I3A = "supabase/migrations/20261030100000_produto_categoria_tecido_material.sql";
+export const INV_I3A = "supabase/rollback/20261030100000_produto_categoria_tecido_material_down.sql";
+export const MIG_I3B = "supabase/migrations/20261030110000_integracao_3_campos.sql";
+export const INV_I3B = "supabase/rollback/20261030110000_integracao_3_campos_down.sql";
+export const MIG_I3C = "supabase/migrations/20261030120000_integracao_3_campos_reprocesso.sql";
+export const INV_I3C = "supabase/rollback/20261030120000_integracao_3_campos_reprocesso_down.sql";
+/** md5 "depois" que marcam cada etapa viva (gerados por .superpowers/sdd/2026-10-02-integracao-3-campos/mig/gerar.mjs). */
+export const I3A_TENANT_DEPOIS = "b868561c6e3f04574589e6ad49b03fb4"; // fn_produto_cat_material_tenant() da ida
+export const I3A_TENANT_NEUTRA = "9484dc06ee6aaf871308dc2745a7068a"; // a mesma, neutralizada pelo inverso
+export const I3B_RETRATO_DEPOIS = "8a5275cf8c145f88e23c5158c22fdfc6"; // _integracao_retrato_core da I3b
+/** Sucessores aceitos pelos pins de md5 das suítes antigas: o "depois" da I3 de cada função que ela redefine. */
+export const I3_SUCESSOR: Record<string, string> = {
+  "_salvar_produto_acabado_core(uuid,jsonb,jsonb)": "9299a1d71336c2126435dec903de4952",
+  "_salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)": "f28985c19fe5efa4f08011137e20f51f",
+  "_replicar_produtos_acabados_core(uuid,uuid,uuid,uuid[])": "9fcdf99eb192cd938809dd159fc6d446",
+  "_replicar_produtos_importados_core(uuid,uuid,uuid,uuid[])": "a2bd975c6a8c8b65e37b057911845639",
+  "_limpar_produto_acabado_core(uuid)": "153ebd8d87b1050479e73d9c93a826f1",
+  "_limpar_produto_importado_core(uuid)": "466d486e4e7503a0cf437713372f2d22",
+  "_integracao_layout()": "480106c786ff534affe98e2374c8ce49",
+  "_integracao_rotulos()": "53453ee707edde3b1c41b81386149ec5",
+  "_integracao_cfg(uuid)": "db865044a6b9f875c8c920b82f6b9974",
+  "_integracao_retrato_core(uuid,text[],jsonb)": I3B_RETRATO_DEPOIS,
+  "_integracao_valores(integracao_linhas,text[],text[])": "7d094ada6982728a4dfdc96077d51367",
+  "_integracao_exemplo(text[],integer)": "8882ce651fe5f13a44c60751692da40e",
+  "integracao_marcar(jsonb)": "b4400251395251b80a458eb11524d172",
+  "integracao_config_ler()": "62b81b3853de66118baef1748866b0dd",
+};
+/** Aceita o md5 pinado OU o sucessor da I3 (assinatura com ou sem "public."). */
+export function md5OuSucessorI3(sig: string, pinado: string): string[] {
+  const s = I3_SUCESSOR[sig.replace(/^public\./, "")];
+  return s ? [pinado, s] : [pinado];
+}
+async function md5De(c: Client, sig: string): Promise<string | null> {
+  return (await um<{ m: string | null }>(c, "SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [sig])).m;
+}
+export async function i3aViva(c: Client): Promise<boolean> {
+  return (await md5De(c, "public.fn_produto_cat_material_tenant()")) === I3A_TENANT_DEPOIS;
+}
+export async function i3bViva(c: Client): Promise<boolean> {
+  return (await md5De(c, "public._integracao_retrato_core(uuid,text[],jsonb)")) === I3B_RETRATO_DEPOIS;
+}
+/** Layout / padrão VIVOS (com ou sem a I3b na cópia). */
+export async function layoutVivo(c: Client): Promise<readonly string[]> {
+  return (await i3bViva(c)) ? LAYOUT_I3 : LAYOUT;
+}
+export async function padraoVivo(c: Client): Promise<readonly string[]> {
+  return (await i3bViva(c)) ? CAMPOS_PADRAO_I3 : CAMPOS_PADRAO;
+}
+async function comTimeoutPreservado(c: Client, fn: () => Promise<void>): Promise<void> {
+  const st = (await um<{ v: string }>(c, "SELECT current_setting('statement_timeout') AS v")).v;
+  await fn();
+  await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
+}
+export async function voltaI3SePreciso(c: Client): Promise<void> {
+  if (await i3bViva(c)) {
+    exigeBancoLocal();
+    await comTimeoutPreservado(c, async () => {
+      if ((await um<{ ok: boolean }>(c, "SELECT to_regclass('public._bkp_i3c_reprocesso') IS NOT NULL AS ok")).ok) await aplica(c, INV_I3C);
+      await aplica(c, INV_I3B);
+    });
+  }
+  if (await i3aViva(c)) {
+    exigeBancoLocal();
+    await comTimeoutPreservado(c, () => aplica(c, INV_I3A));
+  }
+}
+/** Aplica a I3 inteira (A → B → C) na txn, pulando o que já está vivo (a C é idempotente). */
+export async function aplicaI3(c: Client): Promise<void> {
+  exigeBancoLocal();
+  await comTimeoutPreservado(c, async () => {
+    if (!(await i3aViva(c))) await aplica(c, MIG_I3A);
+    if (!(await i3bViva(c))) await aplica(c, MIG_I3B);
+    await aplica(c, MIG_I3C);
+  });
 }
 /** Dispara os gatilhos ADIADOS (a txn do teste nunca faz COMMIT) e volta ao modo adiado. */
 export async function imediato(c: Client): Promise<void> {
