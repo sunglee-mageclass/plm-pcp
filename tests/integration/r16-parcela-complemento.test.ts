@@ -13,7 +13,7 @@ const RODA = hasDb && ehBancoLocal();
 const MD5_DEPOIS: Record<string, string | string[]> = {
   "public._recalcular_parcelas_core(uuid,text)": [
     "3dcb59e6958c89d2d06901c50af390d7",
-    "f883a888dc174b2247a419951c321471",
+    "2d4acf9c67287ceb6dd8ff611b94164a",
   ],
   "public.gerar_parcelas_oc_p_acabado()": "bb1519aaaa70259aaa222be67045377b",
   "public.recalcular_parcelas_etiqueta(uuid)": "2127d43b976ab54a4490abae27fd4fd8",

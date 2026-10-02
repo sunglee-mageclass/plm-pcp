@@ -31,13 +31,13 @@
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public.gerar_parcelas_oc_aviamento()
 --     ANTES  e98640190802afd6de9f82ac4ecb39c3  -- PROVISORIO: = DEPOIS da 20261002100000 (Nota de Entrada, no ar desde 26/set; copia 54422) - conferir no kit
---     DEPOIS 7d38cadbcc08e0c31dfeadf8ea427d4b  (este arquivo; reaplicar = no-op)
+--     DEPOIS 61cf61365bb33c3a7d2749a51f28e62a  (este arquivo; reaplicar = no-op)
 --   public._recalcular_parcelas_core(uuid,text)
 --     ANTES  3dcb59e6958c89d2d06901c50af390d7  -- = DEPOIS da R16 20261026100000 (antes dela: 1b03dbd6 CONFIRMADO no Passo 0 dos MEDIOS)
---     DEPOIS f883a888dc174b2247a419951c321471  (este arquivo; reaplicar = no-op)
+--     DEPOIS 2d4acf9c67287ceb6dd8ff611b94164a  (este arquivo; reaplicar = no-op)
 --   public._dashboard_financeiro_core(date,date)
 --     ANTES  49b55c7be514483ced274ed05178a430  -- PROVISORIO: copia 54422 (20260717130000; fora do Passo 0) - conferir no kit
---     DEPOIS 1c7ce42949cc882d71e96bc8854458fc  (este arquivo; reaplicar = no-op)
+--     DEPOIS dd54979d4b24bdfde47c802b46a28024  (este arquivo; reaplicar = no-op)
 --   public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)
 --     ANTES  3c5a3d108d7f6e5a37319ceccb4406e2  -- PROVISORIO: = DEPOIS da 20261002100000 (no ar desde 26/set; copia 54422) - conferir no kit
 --     DEPOIS e71a9eb27389d429f9aeb3ac112e913b  (este arquivo; reaplicar = no-op)
@@ -69,11 +69,11 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _l9a_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l9a_md5_aceitos VALUES
   ('public.gerar_parcelas_oc_aviamento()', 'e98640190802afd6de9f82ac4ecb39c3', 'antes'),  -- PROVISORIO: = DEPOIS da 20261002100000 (Nota de Entrada, no ar desde 26/set; copia 54422) - conferir no kit
-  ('public.gerar_parcelas_oc_aviamento()', '7d38cadbcc08e0c31dfeadf8ea427d4b', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public.gerar_parcelas_oc_aviamento()', '61cf61365bb33c3a7d2749a51f28e62a', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public._recalcular_parcelas_core(uuid,text)', '3dcb59e6958c89d2d06901c50af390d7', 'antes'),  -- = DEPOIS da R16 20261026100000 (antes dela: 1b03dbd6 CONFIRMADO no Passo 0 dos MEDIOS)
-  ('public._recalcular_parcelas_core(uuid,text)', 'f883a888dc174b2247a419951c321471', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public._recalcular_parcelas_core(uuid,text)', '2d4acf9c67287ceb6dd8ff611b94164a', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public._dashboard_financeiro_core(date,date)', '49b55c7be514483ced274ed05178a430', 'antes'),  -- PROVISORIO: copia 54422 (20260717130000; fora do Passo 0) - conferir no kit
-  ('public._dashboard_financeiro_core(date,date)', '1c7ce42949cc882d71e96bc8854458fc', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public._dashboard_financeiro_core(date,date)', 'dd54979d4b24bdfde47c802b46a28024', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', '3c5a3d108d7f6e5a37319ceccb4406e2', 'antes'),  -- PROVISORIO: = DEPOIS da 20261002100000 (no ar desde 26/set; copia 54422) - conferir no kit
   ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'e71a9eb27389d429f9aeb3ac112e913b', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public.recalc_parcelas_aviamento_on_item()', 'a91921832ee054076b87954ef0daec35', 'dep'),  -- PROVISORIO: copia 54422 (gatilho do item que chama o core)
@@ -142,7 +142,7 @@ BEGIN
       INTO v_valor_total
     FROM public.ocs_aviamento_itens it
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
-    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id AND va.aviamento_id = it.aviamento_id
     WHERE it.oc_aviamento_id = NEW.id
       AND COALESCE(it.cancelado, false) = false;
 
@@ -244,7 +244,7 @@ BEGIN
       INTO v_valor_total
     FROM public.ocs_aviamento_itens it
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
-    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id AND va.aviamento_id = it.aviamento_id
     WHERE it.oc_aviamento_id = _oc_id
       AND COALESCE(it.cancelado, false) = false;
   ELSE
@@ -385,7 +385,7 @@ BEGIN
       AND (p_inicio IS NULL OR COALESCE(oc.data_entrega, oc.data_pedido) >= p_inicio)
       AND (p_fim    IS NULL OR COALESCE(oc.data_entrega, oc.data_pedido) <= p_fim)
     LEFT JOIN aviamentos a ON a.id = i.aviamento_id
-    LEFT JOIN variantes_aviamento va ON va.id = i.variante_aviamento_id
+    LEFT JOIN variantes_aviamento va ON va.id = i.variante_aviamento_id AND va.aviamento_id = i.aviamento_id
     WHERE COALESCE(i.cancelado, false) = false
   ), 0);
 

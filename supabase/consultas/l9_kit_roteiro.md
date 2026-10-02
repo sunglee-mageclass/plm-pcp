@@ -1,4 +1,4 @@
-# L9: roteiro do kit (OC de aviamento, P-206 A e P-208 A)
+# L9: roteiro do kit (OC de aviamento, P-206 A, P-208 A e P-216 A)
 
 Ordem no kit combinado: banco ANTES do site. A L9 entra depois da L8; a volta é LIFO.
 
@@ -17,6 +17,16 @@ Regras gerais:
    - `fn_colab_bump_oc_avi` `acab05e5`.
 
    Confere também `_recalcular_parcelas_core` = `3dcb59e6` (o "depois" da R16).
+
+   Roda também (fix round 3, R1) `supabase/consultas/l9_passo0_pre_ida.sql` e `supabase/consultas/l9_preco_previa.sql`,
+   as duas ANTES da ida (funcionam sem a coluna `preco`).
+   - Motivo: com a P-216 A, a ida SOZINHA já muda o valor de itens antigos sem preço cuja cor tem preço próprio > 0
+     diferente do geral. O "investido" do Dashboard Financeiro muda na hora, e as parcelas não pagas das OCs recebidas
+     mudam no próximo recálculo.
+   - **PARA ANTES da ida e pergunta ao dono** se qualquer um destes for > 0:
+     - em `l9_passo0_pre_ida.sql`: `itens_receb_cor_dif` ou `ocs_parcelas_mudam` (mostrar também `dif_total_reais`);
+     - em `l9_preco_previa.sql`: `avi_cor_dif_geral` ou `avi_ocs_parc_mudam`.
+   - Na cópia 54422 (02/out) tudo dá 0: nenhum item de OC tem cor escolhida.
 2. **Ida da L9:** `supabase/migrations/20261029100000_oc_aviamento_preco.sql`.
    - O ADD COLUMN pega uma AccessExclusive curta em `ocs_aviamento_itens`; o arquivo usa `lock_timeout` de 500 ms.
    - Em `55P03`, tentar até 3 vezes.
@@ -48,7 +58,7 @@ Regras gerais:
 2. **Retrato antes da volta da L9**, para o caso de reaplicar depois (L1):
 
    ```
-   \copy (select id, aviamento_id from ocs_aviamento_itens where preco is not null) to 'l9-itens-pre-down.csv' csv header
+   \copy (select id, aviamento_id, variante_aviamento_id from ocs_aviamento_itens where preco is not null) to 'l9-itens-pre-down.csv' csv header
    ```
 3. **Volta da correção:** `supabase/rollback/20261029110000_oc_preco_congelar_correcao_unica_down.sql`.
    - Devolve NULL só onde o preço ainda é o congelado.
@@ -64,13 +74,13 @@ Regras gerais:
 
 ## Reaplicar a ida depois de uma volta (L1)
 
-Com o core antigo no ar, um save pode trocar o aviamento de um item sem tocar o preço. Antes de reaplicar a
+Com o core antigo no ar, um save pode trocar o aviamento ou a cor de um item sem tocar o preço (R2). Antes de reaplicar a
 `20261029100000`:
 
-1. Carregar o retrato e listar os itens cujo aviamento mudou:
+1. Carregar o retrato e listar os itens cujo aviamento ou cor mudou:
 
    ```
-   CREATE TEMP TABLE _l9_pre_down (id uuid, aviamento_id uuid);
+   CREATE TEMP TABLE _l9_pre_down (id uuid, aviamento_id uuid, variante_aviamento_id uuid);
    \copy _l9_pre_down from 'l9-itens-pre-down.csv' csv header
    ```
 
@@ -81,6 +91,6 @@ Com o core antigo no ar, um save pode trocar o aviamento de um item sem tocar o 
    UPDATE public.ocs_aviamento_itens SET preco = NULL WHERE id IN (<ids>)
    ```
 
-   Com NULL, o item vale o preço do cadastro do aviamento atual.
-3. Sem o CSV: usar a consulta alternativa do cabeçalho do mesmo arquivo (preço ≠ cadastro atual) e conferir item a item.
+   Com NULL, o item vale o preço do cadastro da seleção atual: a cor com preço > 0, senão o geral do aviamento.
+3. Sem o CSV: usar a consulta alternativa do cabeçalho do mesmo arquivo (preço ≠ cadastro atual pela regra cor > 0, senão geral) e conferir item a item.
 4. Só então reaplicar a ida. Depois, prévia e correção, como nos passos 3 e 4 da ida.

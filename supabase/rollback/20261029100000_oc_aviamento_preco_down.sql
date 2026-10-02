@@ -3,9 +3,10 @@
 -- _dashboard_financeiro_core e _salvar_oc_aviamento_core de 4 args (sem preco da compra, sem cor obrigatoria).
 -- A COLUNA ocs_aviamento_itens.preco FICA (inerte: nenhuma funcao a le depois da volta; os precos digitados ficam guardados).
 -- [fix round 1, L1] CUIDADO ao REAPLICAR a ida depois desta volta: com o core antigo no ar, um save pode TROCAR o
--- aviamento_id de um item sem tocar o preco - reaplicada a ida, esse item passaria a valer o preco do aviamento ANTIGO.
--- Por isso o kit: (1) ANTES desta volta guarda (id, aviamento_id) dos itens com preco
--- (\copy (select id, aviamento_id from ocs_aviamento_itens where preco is not null) to 'l9-itens-pre-down.csv' csv header);
+-- aviamento_id OU a cor (variante_aviamento_id) de um item sem tocar o preco - reaplicada a ida, esse item passaria a valer o
+-- preco da selecao ANTIGA (P-216 A: o cadastro depende da cor). Por isso o kit: (1) ANTES desta volta guarda
+-- (id, aviamento_id, variante_aviamento_id) dos itens com preco (\copy (select id, aviamento_id, variante_aviamento_id from
+-- ocs_aviamento_itens where preco is not null) to 'l9-itens-pre-down.csv' csv header);
 -- (2) ANTES de reaplicar a ida roda supabase/consultas/l9_reaplicar_checagem.sql e anula (preco = NULL, vale o cadastro)
 -- os itens listados, com OK do dono. Roteiro: supabase/consultas/l9_kit_roteiro.md. Efeito: o valor das OCs de aviamento volta a seguir o preco do CADASTRO (o
 -- proximo recalculo de uma OC recebida refaz as parcelas nao pagas pelo cadastro). Apagar a coluna e o
@@ -29,9 +30,9 @@ DECLARE
   v_md5 text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.gerar_parcelas_oc_aviamento()', '7d38cadbcc08e0c31dfeadf8ea427d4b'),
-      ('public._recalcular_parcelas_core(uuid,text)', 'f883a888dc174b2247a419951c321471'),
-      ('public._dashboard_financeiro_core(date,date)', '1c7ce42949cc882d71e96bc8854458fc'),
+      ('public.gerar_parcelas_oc_aviamento()', '61cf61365bb33c3a7d2749a51f28e62a'),
+      ('public._recalcular_parcelas_core(uuid,text)', '2d4acf9c67287ceb6dd8ff611b94164a'),
+      ('public._dashboard_financeiro_core(date,date)', 'dd54979d4b24bdfde47c802b46a28024'),
       ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'e71a9eb27389d429f9aeb3ac112e913b'),
       ('public.recalc_parcelas_aviamento_on_item()', 'a91921832ee054076b87954ef0daec35'),
       ('public.fn_colab_bump_oc_avi()', 'acab05e51f702c0912d0138d49a4c555')) v(s, m) LOOP

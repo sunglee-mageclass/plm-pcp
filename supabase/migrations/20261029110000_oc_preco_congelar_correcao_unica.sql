@@ -55,9 +55,9 @@ BEGIN
     RAISE EXCEPTION 'leves_l9 (correcao): a 20261029100000 nao esta aplicada (falta ocs_aviamento_itens.preco)' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public.gerar_parcelas_oc_aviamento()', '7d38cadbcc08e0c31dfeadf8ea427d4b'),
-      ('public._recalcular_parcelas_core(uuid,text)', 'f883a888dc174b2247a419951c321471'),
-      ('public._dashboard_financeiro_core(date,date)', '1c7ce42949cc882d71e96bc8854458fc'),
+      ('public.gerar_parcelas_oc_aviamento()', '61cf61365bb33c3a7d2749a51f28e62a'),
+      ('public._recalcular_parcelas_core(uuid,text)', '2d4acf9c67287ceb6dd8ff611b94164a'),
+      ('public._dashboard_financeiro_core(date,date)', 'dd54979d4b24bdfde47c802b46a28024'),
       ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'e71a9eb27389d429f9aeb3ac112e913b')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL OR md5(pg_get_functiondef(to_regprocedure(r.s))) IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'leves_l9 (correcao): % nao esta com o texto da 20261029100000 - aplicar a ida antes', r.s USING ERRCODE = 'P0001';
@@ -108,7 +108,7 @@ BEGIN
     FROM public.ocs_aviamento_itens it
     JOIN public.ocs_aviamento o ON o.id = it.oc_aviamento_id
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
-    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id AND va.aviamento_id = it.aviamento_id
    WHERE it.preco IS NULL
   UNION ALL
   SELECT 'ocs_tecido_itens', it.id, o.id, o.tenant_id, o.status::text, COALESCE(vt.preco, ar.preco)
@@ -181,7 +181,7 @@ END $corrige$;
 DO $pos$
 BEGIN
   IF EXISTS (SELECT 1 FROM public.ocs_aviamento_itens it LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
-              LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
+              LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id AND va.aviamento_id = it.aviamento_id
               WHERE it.preco IS NULL AND COALESCE(CASE WHEN va.preco > 0 THEN va.preco END, a.preco) IS NOT NULL) THEN
     RAISE EXCEPTION 'leves_l9 (correcao): pos-condicao falhou - ainda ha item de aviamento vazio com preco no cadastro' USING ERRCODE = 'P0001';
   END IF;

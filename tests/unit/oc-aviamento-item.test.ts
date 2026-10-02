@@ -134,6 +134,16 @@ describe("anti-drift banco × tela (L9)", () => {
     expect(MIG).toContain(
       "COALESCE(i.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0))",
     ); // _dashboard_financeiro_core
+    // [fix round 3, R3] a cor só vale se for DA MESMA família do aviamento (leitores = prefill do save = tela)
+    expect(
+      MIG.match(
+        /LEFT JOIN public\.variantes_aviamento va ON va\.id = it\.variante_aviamento_id AND va\.aviamento_id = it\.aviamento_id/g,
+      )?.length,
+    ).toBe(2);
+    expect(MIG).toContain(
+      "LEFT JOIN variantes_aviamento va ON va.id = i.variante_aviamento_id AND va.aviamento_id = i.aviamento_id",
+    );
+    expect(MIG.match(/AND va\.aviamento_id = a\.id/g)?.length).toBe(3);
     // prefill do save core: cor > 0 senão geral (INSERT x2 + UPDATE)
     expect(
       MIG.match(/COALESCE\(CASE WHEN va\.preco > 0 THEN va\.preco END, a\.preco\)/g)?.length,

@@ -19,9 +19,9 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const T = TENANT_TESTE;
 
 const MD5_DEPOIS: Record<string, string> = {
-  "public.gerar_parcelas_oc_aviamento()": "7d38cadbcc08e0c31dfeadf8ea427d4b",
-  "public._recalcular_parcelas_core(uuid,text)": "f883a888dc174b2247a419951c321471",
-  "public._dashboard_financeiro_core(date,date)": "1c7ce42949cc882d71e96bc8854458fc",
+  "public.gerar_parcelas_oc_aviamento()": "61cf61365bb33c3a7d2749a51f28e62a",
+  "public._recalcular_parcelas_core(uuid,text)": "2d4acf9c67287ceb6dd8ff611b94164a",
+  "public._dashboard_financeiro_core(date,date)": "dd54979d4b24bdfde47c802b46a28024",
   "public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)": "e71a9eb27389d429f9aeb3ac112e913b",
 };
 
@@ -853,6 +853,131 @@ describe.skipIf(!RODA)(
         );
         expect((await itens(c, ocR))[0].preco).toBe(7);
         expect(soma(await parcelas(c, ocR))).toBe(70);
+      });
+    });
+
+    it("[fix round 3, R4] L2 preso a uma mudança REAL: tecido congelado pela variante (10) muda o custo do modelo vinculado em −8,00", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const PREVIA = readFileSync(ROOT + "supabase/consultas/l9_preco_previa.sql", "utf8");
+        type Pv = {
+          avi_congelar: string;
+          tec_congelar: string;
+          tec_ocs_total_muda: string;
+          tec_modelos_custo_muda: string;
+          tec_custo_dif_max: string;
+        };
+        const previa = async () => um<Pv>(c, PREVIA);
+        const p0 = await previa();
+        const emp = await um<{ id: string }>(
+          c,
+          `select id from empresas where tenant_id = $1 order by id limit 1`,
+          [T],
+        );
+        const cores = (
+          await c.query(`select id from cores where tenant_id = $1 order by id limit 2`, [T])
+        ).rows as { id: string }[];
+        if (!emp || cores.length < 2)
+          throw new Error("fixture ausente: empresa / 2 cores na Loja Teste");
+        // artigo em METRO com 2 cores: A = 10,00, B = 14,00 → o artigo fica 14,00 (sincronizado pelo MAIOR preço das cores)
+        const art = (
+          await um<{ id: string }>(
+            c,
+            `insert into artigos (tenant_id, nome, unidade_medida, preco) values ($1, 'L9 R4 tecido', 'metro', 14) returning id`,
+            [T],
+          )
+        ).id;
+        const vA = (
+          await um<{ id: string }>(
+            c,
+            `insert into variantes_tecido (tenant_id, artigo_id, cor_id, preco) values ($1, $2, $3, 10) returning id`,
+            [T, art, cores[0].id],
+          )
+        ).id;
+        await c.query(
+          `insert into variantes_tecido (tenant_id, artigo_id, cor_id, preco) values ($1, $2, $3, 14)`,
+          [T, art, cores[1].id],
+        );
+        // OC de tecido RECEBIDA (não rolo), item da cor A SEM preço; cabeçalho = 5 m × 10,00 (o total pelo preço congelado)
+        const oc = (
+          await um<{ id: string }>(
+            c,
+            `insert into ocs_tecido (tenant_id, empresa_id, status, numero_pedido, data_pedido, data_entrega, prazo_pagamento, valor_real_total)
+           values ($1, $2, 'recebido', 'L9-R4-TEC', '2026-09-01', '2026-09-10', '30', 50) returning id`,
+            [T, emp.id],
+          )
+        ).id;
+        const item = (
+          await um<{ id: string }>(
+            c,
+            `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, preco)
+           values ($1, $2, $3, 5, 5, null) returning id`,
+            [oc, art, vA],
+          )
+        ).id;
+        // modelo INTERNO não cortado: Tecido 1 = este artigo, cor A, consumo 2 m, perda 0; vinculado ao item da OC
+        const m = (
+          await um<{ id: string }>(
+            c,
+            `insert into modelos (tenant_id, nome, origem) values ($1, 'L9 R4 modelo', 'interno') returning id`,
+            [T],
+          )
+        ).id;
+        const mt = (
+          await um<{ id: string }>(
+            c,
+            `insert into modelo_tecidos (modelo_id, tipo, numero, artigo_id, consumo, loss_percent) values ($1, 'tecido', 1, $2, 2, 0) returning id`,
+            [m, art],
+          )
+        ).id;
+        await c.query(
+          `insert into modelo_tecido_variantes (modelo_tecido_id, variante_tecido_id, ordem) values ($1, $2, 1)`,
+          [mt, vA],
+        );
+        await c.query(
+          `insert into modelo_tecido_oc_links (tenant_id, modelo_id, tipo, numero, ordem, variante_tecido_id, oc_tecido_item_id)
+           values ($1, $2, 'tecido', 1, 1, $3, $4)`,
+          [T, m, vA, item],
+        );
+        const custo = async () =>
+          Number(
+            (
+              await um<{ v: string }>(
+                c,
+                `select c.custo::text v from public._custo_calcular($1, array[$2]::uuid[]) c where c.tabela = 'modelos'`,
+                [T, m],
+              )
+            ).v,
+          );
+        expect(await custo()).toBe(28); // hoje: item sem preço → cadastro do artigo 14,00 × 2 m
+
+        const p1 = await previa();
+        expect(Number(p1.tec_modelos_custo_muda)).toBe(Number(p0.tec_modelos_custo_muda) + 1);
+        expect(Number(p1.tec_custo_dif_max)).toBe(8); // |20 − 28|
+        expect(Number(p1.tec_ocs_total_muda)).toBe(Number(p0.tec_ocs_total_muda)); // cabeçalho 50 = 5 × 10
+
+        // a correção congela 10,00 (preço da cor A) e o custo do modelo cai exatamente 8,00, como a prévia disse
+        await c.query(
+          `select set_config('app.l9_esperado_avi', $1, true), set_config('app.l9_esperado_tec', $2, true),
+                  set_config('app.l9_esperado_tec_ocs_total_muda', $3, true)`,
+          [p1.avi_congelar, p1.tec_congelar, p1.tec_ocs_total_muda],
+        );
+        await aplicarArquivo(
+          c,
+          "supabase/migrations/20261029110000_oc_preco_congelar_correcao_unica.sql",
+        );
+        expect(
+          Number(
+            (
+              await um<{ p: string }>(
+                c,
+                `select preco::text p from ocs_tecido_itens where id = $1`,
+                [item],
+              )
+            ).p,
+          ),
+        ).toBe(10);
+        expect(await custo()).toBe(20);
       });
     });
   },

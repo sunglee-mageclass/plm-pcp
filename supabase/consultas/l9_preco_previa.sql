@@ -49,7 +49,7 @@ WITH avi AS (
     FROM public.ocs_aviamento_itens it
     JOIN public.ocs_aviamento o ON o.id = it.oc_aviamento_id
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
-    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id AND va.aviamento_id = it.aviamento_id
    WHERE (to_jsonb(it)->>'preco') IS NULL
 ), avi_oc AS (
   SELECT DISTINCT v.oc_id FROM avi v WHERE v.status = 'recebido' AND v.p_cad IS NOT NULL
@@ -59,7 +59,7 @@ WITH avi AS (
                                     * COALESCE((to_jsonb(it)->>'preco')::numeric, CASE WHEN va.preco > 0 THEN va.preco END,
                                                a.preco, 0)), 0), 2)
             FROM public.ocs_aviamento_itens it LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
-            LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
+            LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id AND va.aviamento_id = it.aviamento_id
            WHERE it.oc_aviamento_id = x.oc_id AND NOT COALESCE(it.cancelado, false)) AS total_hoje,
          (SELECT round(COALESCE(SUM(p.valor), 0), 2) FROM public.parcelas p WHERE p.oc_aviamento_id = x.oc_id) AS soma_parc,
          EXISTS (SELECT 1 FROM public.parcelas p WHERE p.oc_aviamento_id = x.oc_id) AS tem_parc
