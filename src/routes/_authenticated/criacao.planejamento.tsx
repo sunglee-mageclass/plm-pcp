@@ -1530,14 +1530,16 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
                   <span className="truncate text-right shrink-0 max-w-[50%]">{modelo.subcolecao || "—"}</span>
                 </div>
               </td></tr>
-              {/* Lançamento — data editável + foguete (mesma lógica de antes) */}
+              {/* Lançamento — data editável + foguete (mesma lógica de antes). DateField compacto: desde a L1 a altura
+                  mora no div DE DENTRO ([&>div]); 28px no desktop, 40px no celular (= foguete), input e botão do
+                  calendário preenchem essa altura. */}
               <tr>
                 <td className="text-muted-foreground whitespace-nowrap">Lançamento</td>
                 <td className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1.5 min-w-0">
                     <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
                       data-colab-path={`card-data-lanc:${modelo.id}`}
-                      className="h-7 w-[7.75rem] shrink-0 [&_input]:h-7 [&_input]:pl-2 [&_input]:pr-7 [&_input]:text-xs [&_button]:w-7 [&_svg]:h-3.5 [&_svg]:w-3.5" />
+                      className="w-[7.75rem] shrink-0 [&>div]:h-7 max-md:[&>div]:h-10 [&_input]:h-full [&_input]:pl-2 [&_input]:pr-7 max-md:[&_input]:pr-9 [&_input]:text-xs [&_button]:w-7 max-md:[&_button]:w-9 [&_svg]:h-3.5 [&_svg]:w-3.5" />
                     <button type="button" disabled={lancStatus == null}
                       aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
                       title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : "Disponível só com CQ liberado e mão de obra aprovada"}
