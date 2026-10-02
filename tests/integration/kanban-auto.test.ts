@@ -1487,7 +1487,8 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
   });
 
   // medios R14 kanban #7 (P-190 A, dono 01/out): Reprovado é EXCEÇÃO à decisão 10 — fixado em 'reprovado' NUNCA revela
-  // a REF nem libera a Explosão, nem quando a posição derivada chega (antes: liberava). Chave desligada → status gravado.
+  // a REF nem libera a Explosão, nem quando a posição derivada chega (antes: liberava). Chave desligada → também sem posição
+  // (leves L3 fix round 2).
   it("decisão 10 + P-190 A: fixado em REPROVADO (adiante da etapa) não revela REF nem libera Explosão, nem quando a posição derivada chega", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);
@@ -1514,7 +1515,9 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
       await expect(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [M])).rejects.toMatchObject({ code: "P0001" });
       await c.query("ROLLBACK TO SAVEPOINT sp2");
       await chave(c, false);
-      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("reprovado");
+      // leves L3 fix round 2 (P-213 A + P-190 A): reprovado fica SEM posição em QUALQUER estado da chave (antes, na R14,
+      // a chave desligada devolvia o status gravado 'reprovado').
+      expect((await um<{ g: string | null }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBeNull();
     });
   });
 
