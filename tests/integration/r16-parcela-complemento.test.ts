@@ -8,8 +8,13 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal, dbUrl } fro
 
 const RODA = hasDb && ehBancoLocal();
 
-const MD5_DEPOIS: Record<string, string> = {
-  "public._recalcular_parcelas_core(uuid,text)": "3dcb59e6958c89d2d06901c50af390d7",
+// L9 (20261029100000, P-206 A) troca _recalcular_parcelas_core por cima da R16 (ramo aviamento lê o preço da compra do
+// item); o complemento é o mesmo — aceita o "depois" da R16 OU o da L9.
+const MD5_DEPOIS: Record<string, string | string[]> = {
+  "public._recalcular_parcelas_core(uuid,text)": [
+    "3dcb59e6958c89d2d06901c50af390d7",
+    "2d4acf9c67287ceb6dd8ff611b94164a",
+  ],
   "public.gerar_parcelas_oc_p_acabado()": "bb1519aaaa70259aaa222be67045377b",
   "public.recalcular_parcelas_etiqueta(uuid)": "2127d43b976ab54a4490abae27fd4fd8",
   "public.parcela_voltar_vencimento_automatico(uuid)": "05f05e87411e9dcb6be9aeee9602cf70",
@@ -259,7 +264,7 @@ describe.skipIf(!RODA)("R16 RA1 — parcela complemento (P-187 A)", () => {
                           where p.oid = to_regprocedure($1) and x.grantee = 0 and x.privilege_type = 'EXECUTE') pub`,
           [sig],
         );
-        expect(r.m, sig).toBe(md5);
+        expect([md5].flat(), sig).toContain(r.m);
         if (sig.includes("._")) expect([r.anon, r.auth, r.pub], sig).toEqual([false, false, false]);
         if (/servicos_financeiro|voltar_vencimento/.test(sig))
           expect([r.anon, r.auth, r.pub], sig).toEqual([false, true, false]);

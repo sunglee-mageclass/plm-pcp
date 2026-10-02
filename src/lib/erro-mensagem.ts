@@ -180,6 +180,25 @@ export function mensagemLevesL3(code: string, msg: string): string | null {
   return null;
 }
 
+// OC de Aviamento (release L9, `_salvar_oc_aviamento_core`): recusas P0001 em ASCII com prefixo → texto PT.
+// `oc_aviamento_cor_obrigatoria: <aviamento>` (P-208 A: 2+ cores exigem a cor no item novo/editado) e
+// `oc_aviamento_preco_invalido:` (P-206 A: preço da compra negativo). O nome vem em ASCII (acento vira "?") — só é mostrado
+// quando não perdeu letra.
+export const TEXTO_OC_AVIAMENTO_PRECO_INVALIDO = "O preço do aviamento não pode ser negativo.";
+export function textoOcAviamentoCorObrigatoria(nome?: string): string {
+  const n = (nome ?? "").trim();
+  const quem = n && !n.includes("?") ? ` "${n}"` : "";
+  return `Escolha a cor do aviamento${quem}: ele tem 2 ou mais cores cadastradas e a cor é obrigatória no item novo ou editado.`;
+}
+function mensagemOcAviamento(code: string, msg: string): string | null {
+  if (code !== "P0001") return null;
+  if (msg.startsWith("oc_aviamento_cor_obrigatoria:")) {
+    return textoOcAviamentoCorObrigatoria(msg.slice("oc_aviamento_cor_obrigatoria:".length));
+  }
+  if (msg.startsWith("oc_aviamento_preco_invalido:")) return TEXTO_OC_AVIAMENTO_PRECO_INVALIDO;
+  return null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -233,6 +252,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // P-137 A (20261017100000): produto com pedido não troca entre Acessórios e outro grupo pela Categoria do card —
   // recusa ASCII com prefixo (do gatilho fn_modelo_espelho_categoria OU da pré-checagem do front) → texto PT.
   if (code === "P0001" && msg.startsWith(PREFIXO_CATEGORIA_ACESSORIO_PEDIDO)) return TEXTO_CATEGORIA_ACESSORIO_PEDIDO;
+
+  // OC de Aviamento (L9): cor obrigatória / preço negativo — prefixos ASCII (P0001) → texto PT.
+  const ocAviamento = mensagemOcAviamento(code, msg);
+  if (ocAviamento) return ocAviamento;
 
   // Contas certas: prefixos ASCII (P0001) e 42501 sem acento das RPCs novas → texto PT.
   const contasCertas = mensagemContasCertas(code, msg);
