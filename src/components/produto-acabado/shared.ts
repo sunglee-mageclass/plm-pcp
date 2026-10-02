@@ -115,6 +115,15 @@ export type ProdutoDraft = {
   oc: OcVinculadaInfo | null;
 };
 
+/** sku #22 (L8) — ordem da variante NOVA: maior ordem entre as do rascunho E as já GRAVADAS no servidor (`ordensServidor`,
+ *  a última leitura confiável), + 1. Nunca reusa a ordem de uma variante apagada nesta edição: a grade cor × tamanho do
+ *  card espelho mora em `modelo_grades` com `variante_numero = ordem`, e a cor nova herdaria a grade da apagada (o
+ *  servidor, `_salvar_produto_acabado_core`, apaga a grade das ordens que saem no save). */
+export function proximaOrdemVariante(variantes: Pick<VarianteDraft, "ordem">[], ordensServidor: readonly number[] = []): number {
+  const todas = [...variantes.map((v) => Number(v.ordem) || 0), ...ordensServidor.map((o) => Number(o) || 0)];
+  return todas.length ? Math.max(0, ...todas) + 1 : 1;
+}
+
 /** Σ peças = Σ qtd de todas as variantes do produto. */
 export function somaPecas(p: Pick<ProdutoDraft, "variantes">): number {
   return p.variantes.reduce((s, v) => s + (Number(v.qtd) || 0), 0);

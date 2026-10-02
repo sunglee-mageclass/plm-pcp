@@ -128,11 +128,30 @@ export async function versaoIntegradaViva(c: Client): Promise<boolean> {
  */
 export const INV_R14_INTEGRACAO = "supabase/rollback/20261024200000_integracao_sku_sublinhas_voltar_down.sql";
 const R14_RETRATO_DEPOIS = "bfcd6aba0a2f0ebd1a5908888f9c0568";
+/**
+ * LIFO — LEVES L8 (20261028200000_revenda_insumo_preco) redefine _pa_recomputar_precos_modelo (que a volta da R14 confere,
+ * 3782da3c), _salvar_produto_acabado_core (20261016/20261017 conferem e5473bb2) e _salvar_produto_importado_core (20261014,
+ * 2f3a81d1). Com ela viva na cópia, as suítes que voltam aquelas migrations na txn voltam a L8 ANTES, DENTRO da txn, pelo
+ * _down (neutraliza o gatilho e devolve os 3 textos; as 2 travas SET LOCAL saem; o statement_timeout do arquivo é
+ * devolvido). Sem efeito quando a L8 não está aplicada.
+ */
+export const INV_L8 = "supabase/rollback/20261028200000_revenda_insumo_preco_down.sql";
+const L8_GATILHO_DEPOIS = "ccd231e45d1e9a379b252e574c5cda5e"; // fn_preco_comprado_por_insumo() da ida
+export async function voltaL8SePreciso(c: Client): Promise<void> {
+  const m = (await um<{ m: string | null }>(c,
+    "SELECT md5(pg_get_functiondef(to_regprocedure('public.fn_preco_comprado_por_insumo()'))) AS m")).m;
+  if (m !== L8_GATILHO_DEPOIS) return;
+  exigeBancoLocal();
+  const st = (await um<{ v: string }>(c, "SELECT current_setting('statement_timeout') AS v")).v;
+  await aplica(c, INV_L8);
+  await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
+}
 export async function voltaR14IntegracaoSePreciso(c: Client): Promise<void> {
   const m = (await um<{ m: string | null }>(c,
     "SELECT md5(pg_get_functiondef(to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)'))) AS m")).m;
   if (m !== R14_RETRATO_DEPOIS) return;
   exigeBancoLocal();
+  await voltaL8SePreciso(c); // LIFO: a L8 (20261028200000) redefine _pa_recomputar_precos_modelo, que a volta da R14 confere
   const st = (await um<{ v: string }>(c, "SELECT current_setting('statement_timeout') AS v")).v;
   await aplica(c, INV_R14_INTEGRACAO);
   await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);

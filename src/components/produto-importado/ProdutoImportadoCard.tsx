@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { erroValidacao, gradePedidaDeVariantes, variantesBatemComTotal } from "@/components/produto-acabado/shared";
+import { erroValidacao, gradePedidaDeVariantes, variantesBatemComTotal, proximaOrdemVariante } from "@/components/produto-acabado/shared";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,7 +39,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
   custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
-  markupVarejoExibido, markupAtacadoExibido,
+  markupVarejoExibido, markupAtacadoExibido, novaEtapaImportado, etapasComCotacaoRef, etapaSemCotacao, patchTrocaBase,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
@@ -114,6 +114,7 @@ export function ProdutoImportadoCard({
   onSalvarProduto,
   conflitoPendente,
   onPedidoCriado,
+  ordensVariantesServidor,
 }: {
   draft: ProdutoImportadoDraft;
   onChange: (patch: Partial<ProdutoImportadoDraft>) => void;
@@ -146,6 +147,9 @@ export function ProdutoImportadoCard({
   /** Chamado depois que a OC é criada com sucesso — o id do produto (já persistido) e o id da
    *  OC recém-criada. O chamador decide navegar (`/entrada-saida/oc-p-importado?oc=<id>`). */
   onPedidoCriado?: (produtoId: string, ocId: string) => void;
+  /** sku #22 (L8) — ordens das variantes GRAVADAS (última leitura do servidor, `baseServidorRef` do Sheet): a variante
+   *  nova nunca reusa a ordem de uma apagada nesta edição (senão herdaria a grade dela). Ausente = só o rascunho. */
+  ordensVariantesServidor?: readonly number[];
 }) {
   const navigate = useNavigate();
   const { canView, canEdit } = useAuth();
@@ -271,7 +275,7 @@ export function ProdutoImportadoCard({
     }
   };
   const addVariante = () => {
-    const proximaOrdem = draft.variantes.length ? Math.max(...draft.variantes.map((v) => v.ordem)) + 1 : 1;
+    const proximaOrdem = proximaOrdemVariante(draft.variantes, ordensVariantesServidor); // sku #22 (L8)
     const variantes = [...draft.variantes, { ordem: proximaOrdem, cor_id: null, cor_apelido_id: null, peso: 1, qtd: 0, _touched: false }];
     onChange({ variantes: recalcVariantesPorPeso({ variantes, qtd_total: draft.qtd_total }) });
   };
@@ -288,10 +292,10 @@ export function ProdutoImportadoCard({
   // ── 6 · Pagamentos — etapas (até 5) ──
   const setEtapa = (ordem: number, patch: Partial<EtapaImportadoDraft>) =>
     onChange({ etapas: draft.etapas.map((e) => (e.ordem === ordem ? { ...e, ...patch } : e)) });
+  // P-207 A (L8): a etapa nova nasce com a cotação de referência (antes: 0 — a mercadoria não convertia).
   const addEtapa = () => {
-    if (draft.etapas.length >= 5) return;
-    const proximaOrdem = draft.etapas.length ? Math.max(...draft.etapas.map((e) => e.ordem)) + 1 : 1;
-    onChange({ etapas: [...draft.etapas, { ordem: proximaOrdem, rotulo: "", base: "mercadoria", percentual: 0, data_vencimento: null, cotacao: 0 }] });
+    const nova = novaEtapaImportado(draft.etapas, draft.cotacao_ref);
+    if (nova) onChange({ etapas: [...draft.etapas, nova] });
   };
   const removeEtapa = (ordem: number) => onChange({ etapas: draft.etapas.filter((e) => e.ordem !== ordem) });
 
@@ -716,7 +720,13 @@ export function ProdutoImportadoCard({
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Cotação de ref.</Label>
-                    <NumberInput blankZero data-colab-path={cp("cotacao-ref")} className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero data-colab-path={cp("cotacao-ref")} className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })}
+                      onBlur={() => {
+                        // P-207 A (L8): ao sair do campo (valor FINAL, não a cada tecla), as etapas de mercadoria ainda
+                        // SEM cotação (0) recebem a referência; etapa com cotação própria não muda.
+                        const etapas = etapasComCotacaoRef(draft.etapas, draft.cotacao_ref);
+                        if (etapas !== draft.etapas) onChange({ etapas });
+                      }} />
                   </div>
                 </div>
                 <InfoStrip className="mt-3" itens={[
@@ -779,7 +789,7 @@ export function ProdutoImportadoCard({
                     {draft.etapas.map((e) => (
                       <div key={e.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
                         <Input className="w-32 max-md:w-full" data-colab-path={cp(`etapa-rotulo:${e.ordem}`)} placeholder="Rótulo" value={e.rotulo} onChange={(ev) => setEtapa(e.ordem, { rotulo: ev.target.value })} />
-                        <Select value={e.base} onValueChange={(v) => setEtapa(e.ordem, { base: v as "mercadoria" | "frete" })}>
+                        <Select value={e.base} onValueChange={(v) => setEtapa(e.ordem, patchTrocaBase(e, v as "mercadoria" | "frete", draft.cotacao_ref))}>
                           <SelectTrigger className="w-32 max-md:w-full" data-colab-path={cp(`etapa-base:${e.ordem}`)}><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="mercadoria">Mercadoria</SelectItem>
@@ -791,9 +801,19 @@ export function ProdutoImportadoCard({
                           <span className="text-xs text-muted-foreground">%</span>
                         </div>
                         <DateField className="w-36 max-md:w-full" data-colab-path={cp(`etapa-venc:${e.ordem}`)} value={e.data_vencimento ?? ""} onChange={(ev) => setEtapa(e.ordem, { data_vencimento: ev.target.value || null })} />
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
                           <span className="text-xs text-muted-foreground">cotação</span>
-                          <NumberInput blankZero placeholder="0,00" data-colab-path={cp(`etapa-cot:${e.ordem}`)} className="h-8 w-20 text-center" value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
+                          <NumberInput
+                            blankZero
+                            placeholder="0,00"
+                            data-colab-path={cp(`etapa-cot:${e.ordem}`)}
+                            className={`h-8 w-20 text-center ${etapaSemCotacao(e, draft.valor_unitario_m1) ? "border-destructive" : ""}`}
+                            title={e.base === "frete" ? "Deixe 1 se o frete já está em R$" : undefined}
+                            value={e.cotacao}
+                            onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })}
+                          />
+                          {/* P-207 A (L8): dica do dono no campo cotação do FRETE */}
+                          {e.base === "frete" && <span className="basis-full text-[11px] text-muted-foreground md:basis-auto">deixe 1 se o frete já está em R$</span>}
                         </div>
                         <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive max-md:ml-0" onClick={() => removeEtapa(e.ordem)}>
                           <Trash2 className="h-4 w-4" />

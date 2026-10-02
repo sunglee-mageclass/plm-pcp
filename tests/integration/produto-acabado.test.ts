@@ -390,7 +390,8 @@ describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço deri
       ]);
       const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
 
-      // insumos_por_peça = 2 × 1,5 = 3 (mesma base do ramo revenda do custo_unitario_modelos)
+      // insumos_por_peça = Σ custo_previsto = 1,5 (L8, preço M1: a linha JÁ é preço × consumo × (1+perda) — antes 2 × 1,5 = 3;
+      // mesma base do ramo revenda do custo_unitario_modelos, R16)
       await c.query(
         `insert into modelo_etiquetas (tenant_id, modelo_id, consumo, custo_previsto) values ('${TENANT_TESTE}', $1, 2, 1.5)`,
         [modelo.id],
@@ -399,10 +400,11 @@ describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço deri
       const dados2 = { ...dados, markup_atacado: 2.2, markup_varejo: 1.5 };
       await c.query(`select salvar_produto_acabado($1, $2::jsonb, $3::jsonb)`, [prod.id, JSON.stringify(dados2), JSON.stringify(variantes)]);
 
-      // custo = 50×(1−10%) + 3 = 48; atacado = 48×2.2 = 105,60; varejo = 105,60×1.5 = 158,40
+      // custo = 50×(1−10%) + 1,5 = 46,5; atacado = 46,5×2.2 = 102,30; varejo = 46,5×1.5 = 69,75 (INDEPENDENTE do atacado
+      // desde set/2026 — o 158,40 encadeado era a regra velha; L8 conserta junto o insumo)
       const m = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
-      expect(Number(m.preco_atacado)).toBeCloseTo(105.6, 2);
-      expect(Number(m.preco_venda)).toBeCloseTo(158.4, 2);
+      expect(Number(m.preco_atacado)).toBeCloseTo(102.3, 2);
+      expect(Number(m.preco_venda)).toBeCloseTo(69.75, 2);
 
       const p = await um<any>(c, `select markup_atacado, markup_varejo from produtos_acabados where id = $1`, [prod.id]);
       expect(Number(p.markup_atacado)).toBe(2.2);

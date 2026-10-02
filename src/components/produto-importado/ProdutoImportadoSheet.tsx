@@ -28,7 +28,7 @@ import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import {
-  chaveDirty, emptyDraft, montarPayload, validarDraft, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
+  chaveDirty, emptyDraft, montarPayload, validarDraft, etapasComCotacaoRef, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
   acoplarParVarejo, acoplarParAtacado,
   aplicarResolucaoConflito,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
@@ -191,7 +191,9 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     tamanho_tipo_base: tamanhoTipo,
     modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
     variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
-    etapas: etapas.length > 0 ? etapas : base.etapas,
+    // B2 (L8, P-207 A): produto sem etapas no banco (criado pelo Planejamento com `_etapas: []`, "Limpar", novo) recebe
+    // as etapas PADRÃO — as de mercadoria já com a cotação de referência gravada (se houver), como uma etapa nova.
+    etapas: etapas.length > 0 ? etapas : etapasComCotacaoRef(base.etapas, Number(r.cotacao_ref) || 0),
   };
 }
 
@@ -991,6 +993,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         >
           <ProdutoImportadoCard
             draft={d}
+            ordensVariantesServidor={baseServidorRef.current[d.id!]?.variantes.map((v) => v.ordem)}
             onChange={(patch) => patchDraft(d.id!, patch)}
             open={openCards.has(d.id!) || conflitosDoCard.length > 0}
             onToggleOpen={() => toggleCard(d.id!)}

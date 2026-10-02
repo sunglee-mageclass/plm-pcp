@@ -22,6 +22,9 @@ const MIG_ANTERIOR = "supabase/migrations/20261014100000_tamanho_em_cards.sql";
 const SIG = "_salvar_produto_acabado_core(uuid,jsonb,jsonb)";
 const MD5_ANTES = "20f8e442b95f8bb02bc8201b431c21b1"; // texto da 20261014100000
 const MD5_DEPOIS = "e5473bb29fa559408093d1a82c6ac11f"; // texto da 20261016100000
+// LEVES L8 (20261028200000, preço M1 + sku #22) redefine o core POR CIMA desta: com a L8 viva na cópia o md5 vivo é o dela
+// (o _down da L8 roda ANTES do inverso desta — LIFO).
+const MD5_L8 = "77076d81637354d530ee38a03e8f77e7";
 const T = TENANT_TESTE;
 const LOCAL = ehBancoLocal();
 
@@ -186,7 +189,8 @@ describe.skipIf(!(hasDb && LOCAL))("PA sync só-mudou — banco (cópia local)",
           has_function_privilege('public', to_regprocedure($1), 'EXECUTE') AS p,
           has_function_privilege('anon', to_regprocedure($1), 'EXECUTE') AS a,
           has_function_privilege('authenticated', to_regprocedure($1), 'EXECUTE') AS u`, [`public.${SIG}`]);
-      expect(r).toEqual({ m: MD5_DEPOIS, p: false, a: false, u: false });
+      expect([MD5_DEPOIS, MD5_L8]).toContain(r.m);
+      expect({ ...r, m: undefined }).toEqual({ m: undefined, p: false, a: false, u: false });
     });
   });
 

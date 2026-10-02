@@ -9,6 +9,7 @@
 import { ratearPorPeso, custoLanded, cadeiaMarkup, type EntradaLanded, type EtapaPagamento, type ResultadoLanded } from "@/lib/moeda";
 import type { Conflito } from "@/lib/colab/merge";
 import type { TamanhoTipo } from "@/lib/tamanho";
+import { erroCotacaoEtapas } from "@/lib/importado-etapas";
 
 export type VarianteImportadoDraft = {
   ordem: number;
@@ -109,8 +110,9 @@ export type ProdutoImportadoDraft = {
 };
 
 /** Draft novo com os defaults do design spec: RMB→USD, 1 variante vazia, 3 etapas
- *  (sinal 30% mercadoria, saldo 70% mercadoria, frete 100% frete) — cada Σ% já fecha
- *  100 por base, então `validarDraft` passa de cara num produto recém-criado. */
+ *  (sinal 30% mercadoria, saldo 70% mercadoria, frete 100% frete) — cada Σ% já fecha 100 por base. P-207 A (L8):
+ *  Sinal/Saldo nascem com cotação 0 (a referência ainda não existe); `validarDraft` só os recusa quando a compra tem
+ *  valor (M1 > 0) — e ao sair do campo Cotação de ref. eles a recebem (`etapasComCotacaoRef`). */
 export function emptyDraft(colecaoId: string | null, subcolecao: string | null): ProdutoImportadoDraft {
   return {
     id: null,
@@ -156,10 +158,15 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
     etapas: [
       { ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 30, data_vencimento: null, cotacao: 0 },
       { ordem: 2, rotulo: "Saldo", base: "mercadoria", percentual: 70, data_vencimento: null, cotacao: 0 },
-      { ordem: 3, rotulo: "Frete", base: "frete", percentual: 100, data_vencimento: null, cotacao: 0 },
+      // P-207 A (L8): frete nasce com 1 (identidade — "deixe 1 se o frete já está em R$"); as de mercadoria nascem com a
+      // cotação de referência (0 aqui, ainda não digitada) e a recebem quando ela é digitada (`etapasComCotacaoRef`).
+      { ordem: 3, rotulo: "Frete", base: "frete", percentual: 100, data_vencimento: null, cotacao: 1 },
     ],
   };
 }
+
+// P-207 A (L8) — helpers das etapas: fonte única em `@/lib/importado-etapas` (card do Produto Importado E OC de importado).
+export { novaEtapaImportado, etapasComCotacaoRef, erroCotacaoEtapas, etapaSemCotacao, patchTrocaBase } from "@/lib/importado-etapas";
 
 /** Só os campos que a TELA edita — usado como snapshot do dirty-guard/merge colab, espelha
  *  `chaveDirty` de `produto-acabado/shared.ts`. NÃO inclui `rev` (read-only, bumpa sozinho no
@@ -348,7 +355,7 @@ export function validarDraft(draft: ProdutoImportadoDraft): string | null {
   if (draft.etapas.some((e) => e.base === "frete") && somaFrete !== 100) {
     return `Σ% das etapas de frete (${somaFrete}%) precisa fechar 100%.`;
   }
-  return null;
+  return erroCotacaoEtapas(draft.etapas, draft.valor_unitario_m1); // P-207 A (L8): o servidor recusa igual (só com valor M1 > 0)
 }
 
 /** Validação ESTRITA para "Fazer pedido" (gerar a OC) — tudo do `validarDraft` + exige qtd_total > 0

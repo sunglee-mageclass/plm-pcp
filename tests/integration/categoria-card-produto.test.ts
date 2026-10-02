@@ -31,6 +31,9 @@ const MD5_TRG = "871039e642390c357188b6b2a1134d64";
 const MD5_RODAR = "01191f62b141827f5f747fc5b44552fe";
 const MD5_DESFAZER = "ead14b02eab972e833596fd6f2cf9702";
 const MD5_CORE_P136 = "e5473bb29fa559408093d1a82c6ac11f";
+// LEVES L8 (20261028200000) redefine _salvar_produto_acabado_core POR CIMA da P-136 (só preço M1 + sku #22; o trecho da P-136
+// fica): com a L8 viva na cópia o md5 vivo é o dela (LIFO: o _down da L8 roda antes dos inversos da 20261017/20261016).
+const MD5_CORE_L8 = "77076d81637354d530ee38a03e8f77e7";
 const T = TENANT_TESTE;
 const T2 = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // outra loja (Ave Rara) na cópia local
 const LOCAL = ehBancoLocal();
@@ -226,7 +229,8 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
           md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_rodar()'))) AS rodar,
           md5(pg_get_functiondef(to_regprocedure('public._p137_backfill_desfazer()'))) AS desfazer,
           md5(pg_get_functiondef('public._salvar_produto_acabado_core(uuid,jsonb,jsonb)'::regprocedure)) AS core`);
-      expect(r).toEqual({ fn: MD5_FN, trg: MD5_TRG, ntrg: 1, rodar: MD5_RODAR, desfazer: MD5_DESFAZER, core: MD5_CORE_P136 });
+      expect([MD5_CORE_P136, MD5_CORE_L8]).toContain(r.core);
+      expect({ ...r, core: null }).toEqual({ fn: MD5_FN, trg: MD5_TRG, ntrg: 1, rodar: MD5_RODAR, desfazer: MD5_DESFAZER, core: null });
       for (const f of ["public.fn_modelo_espelho_categoria()", "public._p137_backfill_rodar()", "public._p137_backfill_desfazer()"]) {
         const a = await um<any>(c, `SELECT has_function_privilege('public', $1, 'EXECUTE') AS p,
             has_function_privilege('anon', $1, 'EXECUTE') AS a, has_function_privilege('authenticated', $1, 'EXECUTE') AS u`, [f]);

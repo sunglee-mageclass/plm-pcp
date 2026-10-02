@@ -1550,3 +1550,57 @@ describe("F4 — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx relê
     expect(src).toContain("const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d.tamanho_tipo };");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// L8 — P-207 A no card REAL: "Adicionar etapa" nasce com a cotação de referência; digitar a referência preenche as
+// etapas de mercadoria sem cotação; dica no campo cotação do frete.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("RENDER real — ProdutoImportadoCard: P-207 A (L8)", () => {
+  it("'Adicionar etapa' manda a etapa nova com cotação = cotação de referência (5); frete mostra a dica", () => {
+    mockEstado.current = null;
+    const mudancas: Partial<ProdutoImportadoDraft>[] = [];
+    const { container, unmount } = montarCard({ onChange: (p: Partial<ProdutoImportadoDraft>) => { mudancas.push(p); } });
+    abrirSecao(container, "6 · Pagamentos");
+    const add = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Adicionar etapa"));
+    expect(add).toBeTruthy();
+    act(() => { add!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); });
+    const etapas = mudancas.at(-1)?.etapas;
+    expect(etapas?.length).toBe(4);
+    expect(etapas?.[3]).toMatchObject({ ordem: 4, base: "mercadoria", percentual: 0, cotacao: 5 });
+    expect(container.textContent).toContain("deixe 1 se o frete já está em R$");
+    unmount();
+  });
+});
+
+describe("RENDER real — ProdutoImportadoCard: P-207 A, cotação de referência preenche as etapas no BLUR (L8)", () => {
+  it("sair do campo Cotação de ref. manda as etapas de mercadoria sem cotação com a referência (5); frete fica", () => {
+    mockEstado.current = null;
+    const mudancas: Partial<ProdutoImportadoDraft>[] = [];
+    const { container, unmount } = montarCard({ onChange: (p: Partial<ProdutoImportadoDraft>) => { mudancas.push(p); } });
+    abrirSecao(container, "4 · Moedas");
+    const ref = container.querySelector('[data-colab-path="card:p1:cotacao-ref"]') as HTMLInputElement | null;
+    expect(ref).not.toBeNull();
+    act(() => { ref!.focus(); });
+    act(() => { ref!.blur(); });
+    const etapas = mudancas.find((m) => m.etapas)?.etapas;
+    expect(etapas?.map((e) => [e.base, e.cotacao])).toEqual([["mercadoria", 5], ["mercadoria", 5], ["frete", 1]]);
+    unmount();
+  });
+});
+
+describe("RENDER real — ProdutoImportadoCard: sku #22 (L8 fix round 1, M2)", () => {
+  it("'Adicionar variante' com a ordem 2 já gravada (e apagada do rascunho) cria a ordem 3, não reusa a 2", () => {
+    mockEstado.current = null;
+    const mudancas: Partial<ProdutoImportadoDraft>[] = [];
+    const { container, unmount } = montarCard({
+      onChange: (p: Partial<ProdutoImportadoDraft>) => { mudancas.push(p); },
+      ordensVariantesServidor: [1, 2],
+    });
+    abrirSecao(container, "3 · Variantes");
+    const add = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Adicionar variante"));
+    act(() => { add!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); });
+    const variantes = mudancas.find((m) => m.variantes)?.variantes;
+    expect(variantes?.map((v) => v.ordem)).toEqual([1, 3]);
+    unmount();
+  });
+});

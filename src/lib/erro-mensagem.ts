@@ -97,6 +97,13 @@ function mensagemIntegracao(code: string, msg: string): string | null {
 const PREFIXO_TAMANHO_INVALIDO = "tamanho_tipo invalido:";
 export const TEXTO_TAMANHO_INVALIDO = 'O "Tamanho em" precisa ser Letra ou Número.';
 
+// P-207 A (L8, 20261028200000): `_salvar_produto_importado_core` e `_salvar_oc_importado_core` recusam (P0001, ASCII)
+// etapa de MERCADORIA com % > 0 e cotação 0 quando a compra tem valor — a tela recusa antes; isto cobre aba com JS
+// antigo / outro caminho de gravação.
+const PREFIXO_ETAPA_SEM_COTACAO = "Informe a cotacao da etapa de mercadoria";
+export const TEXTO_ETAPA_SEM_COTACAO =
+  "Há etapa de mercadoria com percentual e sem cotação — informe a cotação da etapa (a de referência é o padrão).";
+
 // Preço anterior e Título por versão (20261018100000): recusas P0001 em ASCII com prefixo → texto PT.
 // `versao_congelar: <SQLSTATE>` = a exclusão INTEIRA foi desfeita (falha fechada do congelamento — P-154 A);
 // `versao_anterior: limite` / `versoes_integradas: limite` = teto de 500 ids das RPCs de leitura.
@@ -219,6 +226,7 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   // "Tamanho em" nos cards (20261014100000): recusa em ASCII (padrão das mensagens novas) → texto PT.
   if (code === "P0001" && msg.startsWith(PREFIXO_TAMANHO_INVALIDO)) return TEXTO_TAMANHO_INVALIDO;
+  if (code === "P0001" && msg.startsWith(PREFIXO_ETAPA_SEM_COTACAO)) return TEXTO_ETAPA_SEM_COTACAO; // P-207 A (L8)
   const versao = mensagemVersao(code, msg);
   if (versao) return versao;
 

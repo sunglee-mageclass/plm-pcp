@@ -14,6 +14,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ehGrupoAcessorio, previewNumeroOc } from "@/lib/produto-acabado";
 import { varianteLabel } from "@/lib/variante";
 import { MOEDAS, fmtMoeda, m1ParaM2, simboloMoeda, custoLanded, type EntradaLanded, type EtapaPagamento } from "@/lib/moeda";
+import { novaEtapaImportado, etapaSemCotacao, erroCotacaoEtapas, patchTrocaBase } from "@/lib/importado-etapas";
 import { GradeDestrinchada } from "./GradeDestrinchada";
 import { ProdutoImportadoPicker, type ProdutoImportadoSelecionado } from "./ProdutoImportadoPicker";
 import {
@@ -216,10 +217,11 @@ export function OcImpForm({
   // ── Etapas de pagamento (seção 5) ──
   const setEtapa = (ordem: number, patch: Partial<EtapaDraft>) =>
     setDraft((d) => ({ ...d, etapas: d.etapas.map((e) => (e.ordem === ordem ? { ...e, ...patch } : e)) }));
+  // P-207 A (L8, M1 do review): a etapa nova da OC nasce com a cotação de referência (antes: 0 — a parcela da etapa de
+  // mercadoria saía 0 e era pulada em silêncio por `_gerar_parcelas_importado`).
   const addEtapa = () => {
-    if (draft.etapas.length >= 5) return;
-    const proximaOrdem = draft.etapas.length ? Math.max(...draft.etapas.map((e) => e.ordem)) + 1 : 1;
-    setDraft((d) => ({ ...d, etapas: [...d.etapas, { ordem: proximaOrdem, rotulo: "", base: "mercadoria", percentual: 0, data_vencimento: null, cotacao: 0 }] }));
+    const nova = novaEtapaImportado(draft.etapas, draft.cotacao_ref);
+    if (nova) setDraft((d) => ({ ...d, etapas: [...d.etapas, nova] }));
   };
   const removeEtapa = (ordem: number) => setDraft((d) => ({ ...d, etapas: d.etapas.filter((e) => e.ordem !== ordem) }));
   const somaPercMerc = somaPercentualPorBase(draft.etapas, "mercadoria");
@@ -527,7 +529,7 @@ export function OcImpForm({
             {draft.etapas.map((e) => (
               <div key={e.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
                 <Input className="w-32 max-md:w-full" placeholder="Rótulo" disabled={disabled} data-colab-path={`etapa-rotulo:${e.ordem}`} value={e.rotulo} onChange={(ev) => setEtapa(e.ordem, { rotulo: ev.target.value })} />
-                <Select value={e.base} onValueChange={(v) => setEtapa(e.ordem, { base: v as "mercadoria" | "frete" })} disabled={disabled}>
+                <Select value={e.base} onValueChange={(v) => setEtapa(e.ordem, patchTrocaBase(e, v as "mercadoria" | "frete", draft.cotacao_ref))} disabled={disabled}>
                   <SelectTrigger className="w-32 max-md:w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="mercadoria">Mercadoria</SelectItem>
@@ -541,7 +543,7 @@ export function OcImpForm({
                 <DateField className="w-36 max-md:w-full" disabled={disabled} data-colab-path={`etapa-venc:${e.ordem}`} value={e.data_vencimento ?? ""} onChange={(ev) => setEtapa(e.ordem, { data_vencimento: ev.target.value || null })} />
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-muted-foreground">cotação</span>
-                  <NumberInput blankZero placeholder="0,00" disabled={disabled} className="h-8 w-20 text-center" data-colab-path={`etapa-cot:${e.ordem}`} value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
+                  <NumberInput blankZero placeholder="0,00" disabled={disabled} className={`h-8 w-20 text-center ${etapaSemCotacao(e, draft.valor_unitario_m1) ? "border-destructive" : ""}`} data-colab-path={`etapa-cot:${e.ordem}`} value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
                 </div>
                 {!disabled && (
                   <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive max-md:ml-0" onClick={() => removeEtapa(e.ordem)}>
@@ -557,6 +559,9 @@ export function OcImpForm({
         )}
         {somaPercFrete !== 100 && draft.etapas.some((e) => e.base === "frete") && (
           <p className="text-xs text-amber-600 dark:text-amber-400">Σ% frete = {somaPercFrete}% — precisa fechar 100%.</p>
+        )}
+        {erroCotacaoEtapas(draft.etapas, draft.valor_unitario_m1) && (
+          <p className="text-xs text-destructive">{erroCotacaoEtapas(draft.etapas, draft.valor_unitario_m1)}</p>
         )}
         <p className="text-xs text-muted-foreground">
           As parcelas a pagar são geradas automaticamente a partir destas etapas ao salvar (uma por etapa).
