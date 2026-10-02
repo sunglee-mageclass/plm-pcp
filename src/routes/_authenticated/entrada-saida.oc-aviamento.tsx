@@ -5,6 +5,7 @@ import { Sparkles, Plus, Upload, Trash2, ArrowLeft, Printer } from "lucide-react
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { RecusaEsperadaError } from "@/lib/categoria-card-produto";
 import { faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
 import { AvisoFaltaNota, BolinhaFaltaNota, CampoDataNotaEntrada, useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { brl } from "@/lib/format";
@@ -895,20 +896,20 @@ function OcDialog({
       // já avançou p/ o rev fresco, então um save escapado bateria a trava e sobrescreveria em
       // silêncio a edição do outro no campo em conflito (achado do QA da OC Tecido, espelhado aqui).
       if (conflitosRef.current.length > 0)
-        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
-      if (!draft.empresa_id) throw new Error("Informe o Fornecedor.");
-      if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
-      if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
-      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw new Error(erroNota); } // D7
+        throw new RecusaEsperadaError("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      if (!draft.empresa_id) throw new RecusaEsperadaError("Informe o Fornecedor.");
+      if (!draft.data_prevista_entrega) throw new RecusaEsperadaError("Informe a Data Prevista de Entrega.");
+      if (!draft.prazo_pagamento?.trim()) throw new RecusaEsperadaError("Informe o Prazo de Pagamento.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw new RecusaEsperadaError(erroNota); } // D7
       const selecionados = items.filter((i) => i.aviamento_id);
       if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
-        throw new Error("Informe a quantidade (maior que zero) de cada aviamento.");
+        throw new RecusaEsperadaError("Informe a quantidade (maior que zero) de cada aviamento.");
       if (selecionados.some((i) => i.preco != null && !(Number(i.preco) >= 0)))
-        throw new Error("O preço do aviamento não pode ser negativo.");
+        throw new RecusaEsperadaError("O preço do aviamento não pode ser negativo.");
       { // L9 (P-208 A): o servidor recusa igual (oc_aviamento_cor_obrigatoria) — aqui a mensagem já diz quais.
         const semCor = selecionados.filter((i) => situacaoCor(i) === "bloqueia");
         if (semCor.length > 0)
-          throw new Error(`Escolha a cor de: ${semCor.map((i) => aviMap[i.aviamento_id]?.codigo_nome ?? "aviamento").join(", ")} — o aviamento tem 2 ou mais cores cadastradas.`);
+          throw new RecusaEsperadaError(`Escolha a cor de: ${semCor.map((i) => aviMap[i.aviamento_id]?.codigo_nome ?? "aviamento").join(", ")} — o aviamento tem 2 ou mais cores cadastradas.`);
       }
       const parcelas = draft.parcelas_recebimento ?? [];
       // Data de entrega = data da última parcela de recebimento (igual à OC Tecido).

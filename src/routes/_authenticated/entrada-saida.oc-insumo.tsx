@@ -5,6 +5,7 @@ import { Plus, Trash2, ArrowLeft, Package, X, Printer } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { RecusaEsperadaError } from "@/lib/categoria-card-produto";
 import { faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
 import { AvisoFaltaNota, BolinhaFaltaNota, CampoDataNotaEntrada, useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { empresaTemCategoria, ETIQUETA_TOKENS } from "@/lib/fornecedor-categoria";
@@ -789,8 +790,8 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       // avançou p/ o rev fresco, então um save escapado bateria a trava e sobrescreveria em silêncio a
       // edição do outro no campo em conflito (lição da Onda 2, espelhada da OC Aviamento).
       if (conflitosRef.current.length > 0)
-        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
-      { const erroNota = validarNota(dataNota, dataPedido); if (erroNota) throw new Error(erroNota); } // D7
+        throw new RecusaEsperadaError("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      { const erroNota = validarNota(dataNota, dataPedido); if (erroNota) throw new RecusaEsperadaError(erroNota); } // D7
 
       // OC Insumo RECEBIDA: caminho ESTREITO — grava SÓ a Data da Nota, sem remontar a OC a
       // partir da tela (ruling do controlador, 2026-09-25). O save completo (`salvar_oc_etiqueta`)

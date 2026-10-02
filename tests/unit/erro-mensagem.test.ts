@@ -72,6 +72,13 @@ describe("mensagemErro — recusas esperadas do P-137 não vão pro console como
     expect(s).not.toHaveBeenCalled();
     s.mockRestore();
   });
+  it("RecusaEsperadaError SEM acento (validação do front da OC) aparece como está; Error comum sem acento segue no fallback", () => {
+    const s = spy();
+    expect(mensagemErro(new RecusaEsperadaError("Informe o Fornecedor."), "Erro ao salvar")).toBe("Informe o Fornecedor.");
+    expect(mensagemErro(new RecusaEsperadaError("Escolha a cor de: X - o aviamento tem 2 ou mais cores."), "fb")).toBe("Escolha a cor de: X - o aviamento tem 2 ou mais cores.");
+    expect(mensagemErro(new Error("Informe o Fornecedor."), "Erro ao salvar")).toBe("Erro ao salvar");
+    s.mockRestore();
+  });
   it("P0001 categoria_acessorio_com_pedido (gatilho do banco): texto PT e NÃO loga", () => {
     const s = spy();
     expect(mensagemErro({ code: "P0001", message: "categoria_acessorio_com_pedido: x" }, "fb")).toBe(TEXTO_CATEGORIA_ACESSORIO_PEDIDO);

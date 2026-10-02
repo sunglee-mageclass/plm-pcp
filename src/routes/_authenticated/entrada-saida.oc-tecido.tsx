@@ -7,6 +7,7 @@ import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, Check, AlertTriangle
 import { addDays, format as formatDate, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { RecusaEsperadaError } from "@/lib/categoria-card-produto";
 import { baseVencimento, faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
 import { AvisoFaltaNota, useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
@@ -1178,13 +1179,13 @@ function OcDialog({
       // sobrescreveria a versão da outra pessoa em silêncio — o usuário tem que resolver
       // ("manter meu"/"usar o novo") em cada campo destacado antes de salvar de novo.
       if (conflitosRef.current.length > 0)
-        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
-      if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
-      if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
-      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw new Error(erroNota); } // D7
+        throw new RecusaEsperadaError("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      if (!draft.data_prevista_entrega) throw new RecusaEsperadaError("Informe a Data Prevista de Entrega.");
+      if (!draft.prazo_pagamento?.trim()) throw new RecusaEsperadaError("Informe o Prazo de Pagamento.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw new RecusaEsperadaError(erroNota); } // D7
       const selecionados = items.filter((i) => i.variante_tecido_id && i.artigo_id);
       if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
-        throw new Error("Informe a quantidade (maior que zero) de cada variante selecionada.");
+        throw new RecusaEsperadaError("Informe a quantidade (maior que zero) de cada variante selecionada.");
       const parcelas = draft.parcelas_recebimento ?? [];
       // Regra única (também usada pelo preview de parcelas do confirmar-recebimento).
       const lastDate = ultimaDataEntrega(draft);

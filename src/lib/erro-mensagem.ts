@@ -236,6 +236,9 @@ const PARECE_PT =
   /[áàâãéêíóôõúüç]|\b(n[aã]o|j[aá]|usu[aá]rio|loja|rolo|estoque|parcela|tecido|erro|inv[aá]lid|obrigat[oó]ri|permiss|registro|excluir|salvar|nenhum|quantidade|metragem)\b/i;
 
 export function mensagemErro(e: unknown, fallback?: string): string {
+  // Validação do próprio front (RecusaEsperadaError): o texto já é o final em PT — devolve direto,
+  // mesmo sem acento (PARECE_PT não pode engoli-lo). Não afrouxa PARECE_PT para o resto.
+  if (e instanceof RecusaEsperadaError && e.message) return e.message;
   const code = getCode(e);
   const msg = getMessage(e);
   // Recusas ESPERADAS (P-137: pré-checagem do front ou P0001 do gatilho) não são erro do sistema: não vão pro console.

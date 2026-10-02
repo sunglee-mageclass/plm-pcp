@@ -2475,7 +2475,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
           </div>
         </div>
         <div className="rounded-xl border bg-card p-3">
-          <div className="text-xs text-muted-foreground">Total pago (por vencimento)</div>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">Total pago (por vencimento)<InfoHover ariaLabel="Como o Total pago é contado">{HINT_PAGO_POR_VENCIMENTO}</InfoHover></div>
           <div className="mt-0.5 text-xl font-bold tabular-nums text-[var(--tone-success-fg)]">{brl(totalPago)}</div>
         </div>
         {proximas.length > 0 && (
