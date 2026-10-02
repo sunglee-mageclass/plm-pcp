@@ -1,8 +1,9 @@
 -- l9_preco_previa.sql — PRÉVIA SÓ-LEITURA da correção única da L9 (achados LEVES, fin #8, P-206 A):
 --   supabase/migrations/20261029110000_oc_preco_congelar_correcao_unica.sql.
 -- O MESMO critério de alvos da correção:
---   • item de OC de AVIAMENTO com preço vazio (NULL) — qualquer status (recebida OU encomendada) — e preço no cadastro
---     (aviamentos.preco) → recebe o preço do cadastro de hoje;
+--   • item de OC de AVIAMENTO com preço vazio (NULL) — qualquer status (recebida OU encomendada) — e preço no cadastro →
+--     recebe o preço do cadastro de hoje: o da COR do item (variantes_aviamento.preco) quando > 0, senão o geral
+--     (aviamentos.preco) — fix round 2, P-216 A;
 --   • item de OC de TECIDO com preço vazio numa OC RECEBIDA (inclui rolos e itens cancelados) e com preço no cadastro →
 --     recebe COALESCE(variantes_tecido.preco, artigos.preco) — o mesmo que a tela da OC Tecido pré-preenche ao abrir.
 -- Uso no kit: rodar em transação READ ONLY (+ ROLLBACK) DEPOIS da 20261029100000 e ANTES da correção; mostrar ao dono; a
@@ -10,6 +11,10 @@
 -- tec_congelar). Funciona também ANTES da 20261029100000 (lê o preço do item por to_jsonb, a coluna pode não existir).
 -- Colunas:
 --   avi_congelar          itens de aviamento que a correção vai preencher (= GUC app.l9_esperado_avi)
+--   avi_preco_cor         [P-216 A] desses, quantos recebem o preço da COR (variante com preço > 0)
+--   avi_preco_geral       desses, quantos recebem o preço GERAL do aviamento (sem cor, ou cor sem preço / preço 0)
+--   avi_cor_dif_geral     dos que recebem o preço da cor, quantos têm preço da cor ≠ geral (o valor da OC muda em relação
+--                         à regra antiga só-geral; nas recebidas, as parcelas não pagas acompanham — ver avi_ocs_parc_mudam)
 --   avi_receb / avi_enc   desses, em OC recebida / encomendada
 --   avi_sem_cadastro      itens de aviamento vazios cujo aviamento não tem preço no cadastro (ficam vazios; valem 0)
 --   avi_ocs_receb         OCs de aviamento RECEBIDAS tocadas (cada uma tem as parcelas não pagas recalculadas pelo gatilho)
@@ -38,18 +43,23 @@
 -- Regras do arquivo (embutível pelo psql): um único SELECT, SEM ponto e vírgula, sem meta-comando do psql.
 -- Cópia 54422 (01/out, antes da correção): avi_congelar 4 (1 receb + 3 enc), tec_congelar 41 (18 rolo, 2 cancelados).
 WITH avi AS (
-  SELECT it.id, it.oc_aviamento_id AS oc_id, o.status, a.preco AS p_cad
+  SELECT it.id, it.oc_aviamento_id AS oc_id, o.status,
+         COALESCE(CASE WHEN va.preco > 0 THEN va.preco END, a.preco) AS p_cad,
+         (va.preco > 0) IS TRUE AS da_cor, a.preco AS p_geral, va.preco AS p_cor
     FROM public.ocs_aviamento_itens it
     JOIN public.ocs_aviamento o ON o.id = it.oc_aviamento_id
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
    WHERE (to_jsonb(it)->>'preco') IS NULL
 ), avi_oc AS (
   SELECT DISTINCT v.oc_id FROM avi v WHERE v.status = 'recebido' AND v.p_cad IS NOT NULL
 ), avi_oc_tot AS (
   SELECT x.oc_id,
          (SELECT round(COALESCE(SUM(COALESCE(it.quantidade_recebida, it.quantidade_pedida, 0)
-                                    * COALESCE((to_jsonb(it)->>'preco')::numeric, a.preco, 0)), 0), 2)
+                                    * COALESCE((to_jsonb(it)->>'preco')::numeric, CASE WHEN va.preco > 0 THEN va.preco END,
+                                               a.preco, 0)), 0), 2)
             FROM public.ocs_aviamento_itens it LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
+            LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
            WHERE it.oc_aviamento_id = x.oc_id AND NOT COALESCE(it.cancelado, false)) AS total_hoje,
          (SELECT round(COALESCE(SUM(p.valor), 0), 2) FROM public.parcelas p WHERE p.oc_aviamento_id = x.oc_id) AS soma_parc,
          EXISTS (SELECT 1 FROM public.parcelas p WHERE p.oc_aviamento_id = x.oc_id) AS tem_parc
@@ -105,6 +115,9 @@ WITH avi AS (
 )
 SELECT
   (SELECT count(*) FROM avi WHERE p_cad IS NOT NULL) AS avi_congelar,
+  (SELECT count(*) FROM avi WHERE p_cad IS NOT NULL AND da_cor) AS avi_preco_cor,
+  (SELECT count(*) FROM avi WHERE p_cad IS NOT NULL AND NOT da_cor) AS avi_preco_geral,
+  (SELECT count(*) FROM avi WHERE da_cor AND p_cor IS DISTINCT FROM p_geral) AS avi_cor_dif_geral,
   (SELECT count(*) FROM avi WHERE p_cad IS NOT NULL AND status = 'recebido') AS avi_receb,
   (SELECT count(*) FROM avi WHERE p_cad IS NOT NULL AND status IS DISTINCT FROM 'recebido') AS avi_enc,
   (SELECT count(*) FROM avi WHERE p_cad IS NULL) AS avi_sem_cadastro,

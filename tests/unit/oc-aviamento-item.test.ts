@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
+  precoCadastroAviamento,
   precoEfetivoItem,
   itemSemCorObrigatoria,
   itemEditado,
@@ -34,6 +35,22 @@ describe("precoEfetivoItem (P-206 A)", () => {
     expect(precoEfetivoItem({ preco: null }, 2.5)).toBe(2.5);
     expect(precoEfetivoItem({ preco: null }, null)).toBe(0);
     expect(precoEfetivoItem({ preco: null }, undefined)).toBe(0);
+  });
+});
+
+describe("precoCadastroAviamento (P-216 A: cor > 0, senão geral)", () => {
+  it("cor com preço > 0 vale; cor sem preço, 0 ou negativo cai no geral; sem nenhum = null", () => {
+    expect(precoCadastroAviamento(2.5, 3.1)).toBe(3.1);
+    expect(precoCadastroAviamento(2.5, "3.10")).toBe(3.1);
+    expect(precoCadastroAviamento(2.5, null)).toBe(2.5);
+    expect(precoCadastroAviamento(2.5, undefined)).toBe(2.5);
+    expect(precoCadastroAviamento(2.5, 0)).toBe(2.5);
+    expect(precoCadastroAviamento(2.5, -1)).toBe(2.5);
+    expect(precoCadastroAviamento(null, null)).toBeNull();
+    expect(precoCadastroAviamento(null, 4)).toBe(4);
+    // a cadeia completa da tela: preço da compra → cor → geral
+    expect(precoEfetivoItem({ preco: null }, precoCadastroAviamento(2.5, 3.1))).toBe(3.1);
+    expect(precoEfetivoItem({ preco: 1.2 }, precoCadastroAviamento(2.5, 3.1))).toBe(1.2);
   });
 });
 
@@ -107,9 +124,20 @@ describe("anti-drift banco × tela (L9)", () => {
   it("os prefixos traduzidos existem no SQL; os 3 leitores usam o preço da compra do item", () => {
     expect(MIG).toContain("'oc_aviamento_cor_obrigatoria: %'");
     expect(MIG).toContain("'oc_aviamento_preco_invalido: o preco do item nao pode ser negativo'");
-    expect(MIG).toContain("COALESCE(it.preco, a.preco, 0)), 0)"); // gerar_parcelas_oc_aviamento
-    expect(MIG).toContain("COALESCE(it.preco, a.preco, 0)),0)"); // _recalcular_parcelas_core
-    expect(MIG).toContain("COALESCE(i.preco, a.preco, 0))"); // _dashboard_financeiro_core
+    // P-216 A: preço da compra → cor (> 0) → geral, nos 3 leitores
+    expect(MIG).toContain(
+      "COALESCE(it.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0)), 0)",
+    ); // gerar_parcelas
+    expect(MIG).toContain(
+      "COALESCE(it.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0)),0)",
+    ); // _recalcular_parcelas_core
+    expect(MIG).toContain(
+      "COALESCE(i.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0))",
+    ); // _dashboard_financeiro_core
+    // prefill do save core: cor > 0 senão geral (INSERT x2 + UPDATE)
+    expect(
+      MIG.match(/COALESCE\(CASE WHEN va\.preco > 0 THEN va\.preco END, a\.preco\)/g)?.length,
+    ).toBe(3);
     // o servidor compara o preço EFETIVO (vazio = cadastro), como itemEditado
     expect(MIG).toContain(
       "COALESCE(NULLIF(e.j->>'preco','')::numeric, a.preco) IS DISTINCT FROM COALESCE(s.preco, a.preco)",
@@ -120,9 +148,10 @@ describe("anti-drift banco × tela (L9)", () => {
     expect(TELA).toMatch(/preco: i\.preco, \/\/ L9/); // payload do salvar
     expect(TELA).toContain("preco: i.preco == null ? null : Number(i.preco)"); // itemDoServidor
     expect(TELA).toContain(
-      '"oc_aviamento_id, quantidade_pedida, quantidade_recebida, aviamento_id, preco, cancelado, aviamentos(preco)"',
+      '"oc_aviamento_id, quantidade_pedida, quantidade_recebida, aviamento_id, preco, cancelado, aviamentos(preco), variante:variante_aviamento_id(preco)"',
     );
-    expect(TELA).toContain("precoEfetivoItem(i, aviMap[i.aviamento_id]?.preco)");
+    expect(TELA).toContain("precoEfetivoItem(i, cadastroDe(i))");
+    expect(TELA).toContain("return precoCadastroAviamento(a.preco, v?.preco);"); // P-216 A
     expect(TELA).toContain("situacaoCorItem(");
     expect(TELA).not.toMatch(/const valorPrev = \(i: ItemDraft\) => Number\(aviMap/); // conta antiga (só cadastro)
   });

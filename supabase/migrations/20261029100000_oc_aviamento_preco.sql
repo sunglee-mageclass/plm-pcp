@@ -3,7 +3,9 @@
 --   1) Coluna nova ocs_aviamento_itens.preco numeric (NULL = legado: vale o preco do cadastro, como hoje). ADD COLUMN sem
 --      DEFAULT = so catalogo (AccessExclusive por um instante em ocs_aviamento_itens): lock_timeout 500ms; o kit tenta ate 3
 --      vezes em horario calmo. Medido na copia 54422: ver l9-report.md.
---   2) Todo leitor do valor do item de OC de aviamento passa a usar COALESCE(it.preco, aviamentos.preco, 0):
+--   2) Todo leitor do valor do item de OC de aviamento passa a usar COALESCE(it.preco, <preco da COR se > 0>,
+--      aviamentos.preco, 0) - fix round 2, P-216 A (dono 02/out): a cor (variantes_aviamento.preco) com preco proprio > 0
+--      vale antes do geral do aviamento, como no tecido COALESCE(variante, artigo):
 --        gerar_parcelas_oc_aviamento      gatilho ao virar 'recebido' (1a geracao das parcelas)
 --        _recalcular_parcelas_core        ramo aviamento (recalculo, saves, Nota, itens; o complemento da R16 segue igual)
 --        _dashboard_financeiro_core       "investido" do Dashboard Financeiro (OCs de aviamento recebidas)
@@ -12,7 +14,8 @@
 --      (_custo_calcular / _custo_unitario_modelos_core) le o preco do CADASTRO do aviamento no BOM, nunca o da OC (nao ha
 --      "custo congelado pela OC" para aviamento); alerta/troca so existem para tecido (ja usam o preco da compra, release 9).
 --      Site (mesma release): lista (totais), dialogo (valor previsto/real), documento impresso.
---   3) _salvar_oc_aviamento_core (4 args, o da tela): grava o preco do item (numero >= 0; vazio/ausente = cadastro de hoje;
+--   3) _salvar_oc_aviamento_core (4 args, o da tela): grava o preco do item (numero >= 0; vazio/ausente = cadastro de hoje,
+--      o da cor > 0 senao o geral;
 --      chave AUSENTE = tela antiga -> mantem o gravado, salvo se o aviamento do item mudou), recusa preco negativo
 --      (P0001 oc_aviamento_preco_invalido:) e exige a cor do item NOVO ou EDITADO quando o aviamento tem 2+ variantes
 --      (P0001 oc_aviamento_cor_obrigatoria: <aviamento em ASCII>). Item antigo sem cor e nao mexido = so aviso na tela.
@@ -21,22 +24,23 @@
 --      "function ... is not unique" (pre-existente; a tela usa so a de 4). Remover = backlog de faxina.
 --      Colaboracao (rev/P0409): igual - a trava do _rev_base nao mudou; editar o preco do item sobe o rev da OC pelo gatilho
 --      de sempre (fn_colab_bump_oc_avi) e o merge 3-vias da tela trata o preco como mais um campo da linha.
--- Nada gravado muda na ida (a coluna nasce NULL = mesmo valor de hoje). Congelar o preco de hoje nas OCs existentes e a
+-- Ida: a coluna nasce NULL. ATENCAO (P-216 A): para item legado (preco NULL) COM cor que tem preco proprio > 0 diferente do
+-- geral, o valor passa a ser o da cor no proximo recalculo (a previa l9_preco_previa.sql conta: avi_preco_cor). Congelar o preco de hoje nas OCs existentes e a
 -- correcao unica SEPARADA 20261029110000_oc_preco_congelar_correcao_unica.sql (com previa supabase/consultas/l9_preco_previa.sql).
 --
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public.gerar_parcelas_oc_aviamento()
 --     ANTES  e98640190802afd6de9f82ac4ecb39c3  -- PROVISORIO: = DEPOIS da 20261002100000 (Nota de Entrada, no ar desde 26/set; copia 54422) - conferir no kit
---     DEPOIS 11f384d54071402055205fd2ad66f2c6  (este arquivo; reaplicar = no-op)
+--     DEPOIS 7d38cadbcc08e0c31dfeadf8ea427d4b  (este arquivo; reaplicar = no-op)
 --   public._recalcular_parcelas_core(uuid,text)
 --     ANTES  3dcb59e6958c89d2d06901c50af390d7  -- = DEPOIS da R16 20261026100000 (antes dela: 1b03dbd6 CONFIRMADO no Passo 0 dos MEDIOS)
---     DEPOIS cdd88638886087b9fd71a631be1035f1  (este arquivo; reaplicar = no-op)
+--     DEPOIS f883a888dc174b2247a419951c321471  (este arquivo; reaplicar = no-op)
 --   public._dashboard_financeiro_core(date,date)
 --     ANTES  49b55c7be514483ced274ed05178a430  -- PROVISORIO: copia 54422 (20260717130000; fora do Passo 0) - conferir no kit
---     DEPOIS c6069728c11a900047531eb4e1f5e920  (este arquivo; reaplicar = no-op)
+--     DEPOIS 1c7ce42949cc882d71e96bc8854458fc  (este arquivo; reaplicar = no-op)
 --   public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)
 --     ANTES  3c5a3d108d7f6e5a37319ceccb4406e2  -- PROVISORIO: = DEPOIS da 20261002100000 (no ar desde 26/set; copia 54422) - conferir no kit
---     DEPOIS cd78ec5bb7e2570db19f41c84584bfcc  (este arquivo; reaplicar = no-op)
+--     DEPOIS e71a9eb27389d429f9aeb3ac112e913b  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda; o desenho depende deles):
 --     public.recalc_parcelas_aviamento_on_item()  a91921832ee054076b87954ef0daec35  -- PROVISORIO: copia 54422 (gatilho do item que chama o core)
 --     public.fn_colab_bump_oc_avi()  acab05e51f702c0912d0138d49a4c555  -- PROVISORIO: copia 54422 (rev da OC no save do item)
@@ -65,13 +69,13 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _l9a_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l9a_md5_aceitos VALUES
   ('public.gerar_parcelas_oc_aviamento()', 'e98640190802afd6de9f82ac4ecb39c3', 'antes'),  -- PROVISORIO: = DEPOIS da 20261002100000 (Nota de Entrada, no ar desde 26/set; copia 54422) - conferir no kit
-  ('public.gerar_parcelas_oc_aviamento()', '11f384d54071402055205fd2ad66f2c6', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public.gerar_parcelas_oc_aviamento()', '7d38cadbcc08e0c31dfeadf8ea427d4b', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public._recalcular_parcelas_core(uuid,text)', '3dcb59e6958c89d2d06901c50af390d7', 'antes'),  -- = DEPOIS da R16 20261026100000 (antes dela: 1b03dbd6 CONFIRMADO no Passo 0 dos MEDIOS)
-  ('public._recalcular_parcelas_core(uuid,text)', 'cdd88638886087b9fd71a631be1035f1', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public._recalcular_parcelas_core(uuid,text)', 'f883a888dc174b2247a419951c321471', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public._dashboard_financeiro_core(date,date)', '49b55c7be514483ced274ed05178a430', 'antes'),  -- PROVISORIO: copia 54422 (20260717130000; fora do Passo 0) - conferir no kit
-  ('public._dashboard_financeiro_core(date,date)', 'c6069728c11a900047531eb4e1f5e920', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public._dashboard_financeiro_core(date,date)', '1c7ce42949cc882d71e96bc8854458fc', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', '3c5a3d108d7f6e5a37319ceccb4406e2', 'antes'),  -- PROVISORIO: = DEPOIS da 20261002100000 (no ar desde 26/set; copia 54422) - conferir no kit
-  ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'cd78ec5bb7e2570db19f41c84584bfcc', 'depois'),  -- este arquivo; reaplicar = no-op
+  ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'e71a9eb27389d429f9aeb3ac112e913b', 'depois'),  -- este arquivo; reaplicar = no-op
   ('public.recalc_parcelas_aviamento_on_item()', 'a91921832ee054076b87954ef0daec35', 'dep'),  -- PROVISORIO: copia 54422 (gatilho do item que chama o core)
   ('public.fn_colab_bump_oc_avi()', 'acab05e51f702c0912d0138d49a4c555', 'dep');  -- PROVISORIO: copia 54422 (rev da OC no save do item)
 
@@ -132,11 +136,13 @@ BEGIN
       RETURN NEW;
     END IF;
 
-    -- [leves L9 fin #8, P-206 A] preco da COMPRA gravado no item; NULL (legado) = preco do cadastro.
-    SELECT COALESCE(SUM(COALESCE(it.quantidade_recebida, it.quantidade_pedida, 0) * COALESCE(it.preco, a.preco, 0)), 0)
+    -- [leves L9 fin #8, P-206 A] preco da COMPRA gravado no item; NULL (legado) = preco do cadastro: o da COR
+    -- (variantes_aviamento.preco > 0) senao o geral do aviamento (P-216 A, como tecido COALESCE(variante, artigo)).
+    SELECT COALESCE(SUM(COALESCE(it.quantidade_recebida, it.quantidade_pedida, 0) * COALESCE(it.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0)), 0)
       INTO v_valor_total
     FROM public.ocs_aviamento_itens it
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
     WHERE it.oc_aviamento_id = NEW.id
       AND COALESCE(it.cancelado, false) = false;
 
@@ -232,11 +238,13 @@ BEGIN
       INTO v_tenant, v_empresa, v_data_entrega, v_quantidade_prazos, v_prazo_pagamento, v_data_nota
     FROM public.ocs_aviamento WHERE id = _oc_id;
 
-    -- [leves L9 fin #8, P-206 A] preco da COMPRA gravado no item; NULL (legado) = preco do cadastro.
-    SELECT COALESCE(SUM(COALESCE(it.quantidade_recebida, it.quantidade_pedida, 0) * COALESCE(it.preco, a.preco, 0)),0)
+    -- [leves L9 fin #8, P-206 A] preco da COMPRA gravado no item; NULL (legado) = preco do cadastro: o da COR
+    -- (variantes_aviamento.preco > 0) senao o geral do aviamento (P-216 A, como tecido COALESCE(variante, artigo)).
+    SELECT COALESCE(SUM(COALESCE(it.quantidade_recebida, it.quantidade_pedida, 0) * COALESCE(it.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0)),0)
       INTO v_valor_total
     FROM public.ocs_aviamento_itens it
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
     WHERE it.oc_aviamento_id = _oc_id
       AND COALESCE(it.cancelado, false) = false;
   ELSE
@@ -369,13 +377,15 @@ BEGIN
     AND (p_fim    IS NULL OR COALESCE(data_entrega, data_pedido) <= p_fim);
 
   v_investido := v_investido + COALESCE((
-    -- [leves L9 fin #8, P-206 A] preco da COMPRA gravado no item; NULL (legado) = preco do cadastro.
-    SELECT SUM(COALESCE(i.quantidade_recebida,0) * COALESCE(i.preco, a.preco, 0))
+    -- [leves L9 fin #8, P-206 A] preco da COMPRA gravado no item; NULL (legado) = preco do cadastro: o da COR
+    -- (variantes_aviamento.preco > 0) senao o geral do aviamento (P-216 A, como tecido COALESCE(variante, artigo)).
+    SELECT SUM(COALESCE(i.quantidade_recebida,0) * COALESCE(i.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0))
     FROM ocs_aviamento_itens i
     JOIN ocs_aviamento oc ON oc.id = i.oc_aviamento_id AND oc.tenant_id = v_tenant AND oc.status = 'recebido'
       AND (p_inicio IS NULL OR COALESCE(oc.data_entrega, oc.data_pedido) >= p_inicio)
       AND (p_fim    IS NULL OR COALESCE(oc.data_entrega, oc.data_pedido) <= p_fim)
     LEFT JOIN aviamentos a ON a.id = i.aviamento_id
+    LEFT JOIN variantes_aviamento va ON va.id = i.variante_aviamento_id
     WHERE COALESCE(i.cancelado, false) = false
   ), 0);
 
@@ -556,7 +566,8 @@ BEGIN
   -- [leves L9 est #5, P-208 A] aviamento com 2+ cores (variantes) exige a cor no item. Vale para item NOVO e para item
   -- EDITADO neste save (aviamento, cor, quantidades, cancelado ou preco efetivo diferentes do gravado); item antigo sem cor
   -- e NAO mexido (legado, ex.: FRANJA 00003118 da Ave Rara) so ganha aviso na tela e nao trava o save do resto da OC.
-  -- Item cancelado nao exige (nao entra no estoque). Mesma regra no front (src/lib/oc-aviamento-item.ts).
+  -- Item cancelado nao exige (nao entra no estoque). Mesma regra no front (src/lib/oc-aviamento-item.ts). Aqui o item nao
+  -- tem cor no payload; se o gravado tinha cor, ja conta como editado - por isso o preco efetivo dos 2 lados e o geral.
   SELECT regexp_replace(COALESCE(a.codigo_nome, a.codigo, '?'), '[^ -~]', '?', 'g') INTO v_sem_cor
     FROM jsonb_array_elements(COALESCE(_itens, '[]'::jsonb)) WITH ORDINALITY AS e(j, n)
     JOIN public.aviamentos a ON a.id = (e.j->>'aviamento_id')::uuid
@@ -598,14 +609,19 @@ BEGIN
        COALESCE(_oc->'parcelas_recebimento', '[]'::jsonb), 'encomendado', NULLIF(_oc->>'data_nota_entrada', '')::date)
     RETURNING id INTO v_oc_id;
 
-    -- [leves L9] preco: o da compra (payload) ou, vazio/ausente, o do cadastro de hoje (congelado no item).
+    -- [leves L9] preco: o da compra (payload) ou, vazio/ausente, o do cadastro de hoje (congelado no item): o da COR
+    -- (variantes_aviamento.preco > 0) senao o geral do aviamento (P-216 A).
     INSERT INTO public.ocs_aviamento_itens
       (oc_aviamento_id, aviamento_id, variante_aviamento_id, quantidade_pedida, quantidade_recebida, cancelado, preco)
     SELECT v_oc_id, (e->>'aviamento_id')::uuid, NULLIF(e->>'variante_aviamento_id','')::uuid,
            (e->>'quantidade_pedida')::numeric,
            (e->>'quantidade_recebida')::numeric, COALESCE((e->>'cancelado')::boolean, false),
            COALESCE(NULLIF(e->>'preco','')::numeric,
-                    (SELECT a.preco FROM public.aviamentos a WHERE a.id = (e->>'aviamento_id')::uuid))
+                    (SELECT COALESCE(CASE WHEN va.preco > 0 THEN va.preco END, a.preco)
+                       FROM public.aviamentos a
+                       LEFT JOIN public.variantes_aviamento va
+                         ON va.id = NULLIF(e->>'variante_aviamento_id','')::uuid AND va.aviamento_id = a.id
+                      WHERE a.id = (e->>'aviamento_id')::uuid))
     FROM jsonb_array_elements(COALESCE(_itens, '[]'::jsonb)) e
     WHERE e->>'aviamento_id' IS NOT NULL;
 
@@ -625,7 +641,7 @@ BEGIN
       WHERE oc_aviamento_id = v_oc_id AND NOT (id = ANY(v_keep));
 
     -- [leves L9] preco: numero no payload = grava; chave presente vazia/nula OU aviamento trocado = preco do cadastro de
-    -- hoje; chave AUSENTE (tela antiga) com o mesmo aviamento = mantem o gravado.
+    -- hoje (o da COR > 0, senao o geral - P-216 A); chave AUSENTE (tela antiga) com o mesmo aviamento = mantem o gravado.
     FOR r IN SELECT e FROM jsonb_array_elements(COALESCE(_itens,'[]'::jsonb)) e
              WHERE e->>'id' IS NOT NULL AND e->>'aviamento_id' IS NOT NULL
     LOOP
@@ -638,7 +654,11 @@ BEGIN
         preco = CASE
                   WHEN NULLIF(r->>'preco','') IS NOT NULL THEN (r->>'preco')::numeric
                   WHEN r ? 'preco' OR it.aviamento_id IS DISTINCT FROM (r->>'aviamento_id')::uuid
-                    THEN (SELECT a.preco FROM public.aviamentos a WHERE a.id = (r->>'aviamento_id')::uuid)
+                    THEN (SELECT COALESCE(CASE WHEN va.preco > 0 THEN va.preco END, a.preco)
+                            FROM public.aviamentos a
+                            LEFT JOIN public.variantes_aviamento va
+                              ON va.id = NULLIF(r->>'variante_aviamento_id','')::uuid AND va.aviamento_id = a.id
+                           WHERE a.id = (r->>'aviamento_id')::uuid)
                   ELSE it.preco
                 END
       WHERE it.id = (r->>'id')::uuid AND it.oc_aviamento_id = v_oc_id;
@@ -650,7 +670,11 @@ BEGIN
            (e->>'quantidade_pedida')::numeric,
            (e->>'quantidade_recebida')::numeric, COALESCE((e->>'cancelado')::boolean, false),
            COALESCE(NULLIF(e->>'preco','')::numeric,
-                    (SELECT a.preco FROM public.aviamentos a WHERE a.id = (e->>'aviamento_id')::uuid))
+                    (SELECT COALESCE(CASE WHEN va.preco > 0 THEN va.preco END, a.preco)
+                       FROM public.aviamentos a
+                       LEFT JOIN public.variantes_aviamento va
+                         ON va.id = NULLIF(e->>'variante_aviamento_id','')::uuid AND va.aviamento_id = a.id
+                      WHERE a.id = (e->>'aviamento_id')::uuid))
     FROM jsonb_array_elements(COALESCE(_itens,'[]'::jsonb)) e
     WHERE e->>'id' IS NULL AND e->>'aviamento_id' IS NOT NULL;
 

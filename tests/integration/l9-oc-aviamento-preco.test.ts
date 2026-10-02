@@ -19,10 +19,10 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const T = TENANT_TESTE;
 
 const MD5_DEPOIS: Record<string, string> = {
-  "public.gerar_parcelas_oc_aviamento()": "11f384d54071402055205fd2ad66f2c6",
-  "public._recalcular_parcelas_core(uuid,text)": "cdd88638886087b9fd71a631be1035f1",
-  "public._dashboard_financeiro_core(date,date)": "c6069728c11a900047531eb4e1f5e920",
-  "public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)": "cd78ec5bb7e2570db19f41c84584bfcc",
+  "public.gerar_parcelas_oc_aviamento()": "7d38cadbcc08e0c31dfeadf8ea427d4b",
+  "public._recalcular_parcelas_core(uuid,text)": "f883a888dc174b2247a419951c321471",
+  "public._dashboard_financeiro_core(date,date)": "1c7ce42949cc882d71e96bc8854458fc",
+  "public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)": "e71a9eb27389d429f9aeb3ac112e913b",
 };
 
 type Fx = {
@@ -736,6 +736,123 @@ describe.skipIf(!RODA)(
             )
           ).p,
         ).not.toBeNull();
+      });
+    });
+
+    it("[fix round 2, P-216 A] preço da COR (> 0) antes do geral: prefill do save, leitores com item vazio e correção única", async () => {
+      await withTx(async (c) => {
+        const fx = await prepara(c); // avi2: geral 4,00; cores var2a e var2b sem preço
+        await c.query(`update variantes_aviamento set preco = 6 where id = $1`, [fx.var2b]); // var2b tem preço próprio
+        // 1) prefill: cor com preço → 6; cor sem preço → geral 4; cor com preço 0 → geral 4
+        const oc = await salvar(c, null, ocPayload(fx, "L9-COR-PRECO-1", "encomendado"), [
+          {
+            id: null,
+            aviamento_id: fx.avi2,
+            variante_aviamento_id: fx.var2b,
+            quantidade_pedida: 1,
+            quantidade_recebida: null,
+            cancelado: false,
+          },
+          {
+            id: null,
+            aviamento_id: fx.avi2,
+            variante_aviamento_id: fx.var2a,
+            quantidade_pedida: 2,
+            quantidade_recebida: null,
+            cancelado: false,
+          },
+        ]);
+        const precos = async (ocId: string) =>
+          (await itens(c, ocId))
+            .map((i) => [i.variante_aviamento_id, i.preco])
+            .sort((x, y) => String(x[0]).localeCompare(String(y[0])));
+        const esperado = (pb: number, pa: number) =>
+          [
+            [fx.var2a, pa],
+            [fx.var2b, pb],
+          ].sort((x, y) => String(x[0]).localeCompare(String(y[0])));
+        expect(await precos(oc)).toEqual(esperado(6, 4));
+        await c.query(`update variantes_aviamento set preco = 0 where id = $1`, [fx.var2a]);
+        const oc0 = await salvar(c, null, ocPayload(fx, "L9-COR-PRECO-0", "encomendado"), [
+          {
+            id: null,
+            aviamento_id: fx.avi2,
+            variante_aviamento_id: fx.var2a,
+            quantidade_pedida: 1,
+            quantidade_recebida: null,
+            cancelado: false,
+          },
+        ]);
+        expect((await itens(c, oc0))[0].preco).toBe(4);
+        // UPDATE com a chave preco vazia → cadastro da cor do payload
+        const [i0] = await itens(c, oc0);
+        await salvar(c, oc0, ocPayload(fx, "L9-COR-PRECO-0", "encomendado"), [
+          {
+            id: i0.id,
+            aviamento_id: fx.avi2,
+            variante_aviamento_id: fx.var2b,
+            quantidade_pedida: 1,
+            quantidade_recebida: null,
+            cancelado: false,
+            preco: null,
+          },
+        ]);
+        expect((await itens(c, oc0))[0].preco).toBe(6);
+
+        // 2) leitores com item VAZIO: 1a geração (gatilho ao receber), recálculo e dashboard → cor; sem preço da cor → geral
+        const ocR = await salvar(c, null, ocPayload(fx, "L9-COR-PRECO-R", "encomendado"), [
+          {
+            id: null,
+            aviamento_id: fx.avi2,
+            variante_aviamento_id: fx.var2b,
+            quantidade_pedida: 10,
+            quantidade_recebida: 10,
+            cancelado: false,
+            preco: 5,
+          },
+        ]);
+        await c.query(`update ocs_aviamento_itens set preco = null where oc_aviamento_id = $1`, [
+          ocR,
+        ]);
+        await c.query(
+          `update ocs_aviamento set status = 'recebido', data_entrega = '2026-09-10' where id = $1`,
+          [ocR],
+        ); // gerar_parcelas_oc_aviamento
+        expect(soma(await parcelas(c, ocR))).toBe(60); // 10 × 6,00 da cor
+        const dash1 = await um<{ v: number }>(
+          c,
+          `select (public._dashboard_financeiro_core(null, null)->>'investido')::float8 v`,
+        );
+        await c.query(`update variantes_aviamento set preco = null where id = $1`, [fx.var2b]);
+        await c.query(`select public._recalcular_parcelas_core($1, 'aviamento')`, [ocR]);
+        expect(soma(await parcelas(c, ocR))).toBe(40); // cor sem preço → 10 × 4,00 geral
+        const dash2 = await um<{ v: number }>(
+          c,
+          `select (public._dashboard_financeiro_core(null, null)->>'investido')::float8 v`,
+        );
+        expect(dash1.v - dash2.v).toBeCloseTo(20, 2); // o dashboard acompanha a mesma cadeia
+
+        // 3) correção única congela o preço da COR
+        await c.query(`update variantes_aviamento set preco = 7 where id = $1`, [fx.var2b]);
+        const PREVIA = readFileSync(ROOT + "supabase/consultas/l9_preco_previa.sql", "utf8");
+        const p = await um<{
+          avi_congelar: string;
+          tec_congelar: string;
+          tec_ocs_total_muda: string;
+          avi_preco_cor: string;
+        }>(c, PREVIA);
+        expect(Number(p.avi_preco_cor)).toBeGreaterThanOrEqual(1);
+        await c.query(
+          `select set_config('app.l9_esperado_avi', $1, true), set_config('app.l9_esperado_tec', $2, true),
+                  set_config('app.l9_esperado_tec_ocs_total_muda', $3, true)`,
+          [p.avi_congelar, p.tec_congelar, p.tec_ocs_total_muda],
+        );
+        await aplicarArquivo(
+          c,
+          "supabase/migrations/20261029110000_oc_preco_congelar_correcao_unica.sql",
+        );
+        expect((await itens(c, ocR))[0].preco).toBe(7);
+        expect(soma(await parcelas(c, ocR))).toBe(70);
       });
     });
   },

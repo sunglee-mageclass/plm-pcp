@@ -1,6 +1,8 @@
 -- Achados LEVES, release L9 - CORRECAO UNICA (SEPARADA) do fin #8, P-206 A (dono 01/out): congela o PRECO DE HOJE nos itens
 -- de OC que estao sem preco (NULL), para o valor da OC deixar de seguir o cadastro:
---   * OC de AVIAMENTO: TODO item com preco vazio (recebida E encomendada) recebe aviamentos.preco de hoje. Por que tambem as
+--   * OC de AVIAMENTO: TODO item com preco vazio (recebida E encomendada) recebe o preco de hoje do cadastro: o da COR do
+--     item (variantes_aviamento.preco) quando > 0, senao o geral (aviamentos.preco) - fix round 2, P-216 A (dono 02/out),
+--     a mesma regra dos leitores da 20261029100000 (e do tecido, COALESCE(variante, artigo)). Por que tambem as
 --     encomendadas: depois da 20261029100000 todo save grava o preco do item; um item vazio numa OC aberta seguiria o
 --     cadastro so ate o proximo save (valor "flutuante" por tempo indeterminado, sem ninguem ver). Congelar agora da o
 --     MESMO numero que a tela ja mostra hoje e tira a dupla semantica. Encomendada nao tem parcela (o gatilho so gera ao
@@ -53,10 +55,10 @@ BEGIN
     RAISE EXCEPTION 'leves_l9 (correcao): a 20261029100000 nao esta aplicada (falta ocs_aviamento_itens.preco)' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public.gerar_parcelas_oc_aviamento()', '11f384d54071402055205fd2ad66f2c6'),
-      ('public._recalcular_parcelas_core(uuid,text)', 'cdd88638886087b9fd71a631be1035f1'),
-      ('public._dashboard_financeiro_core(date,date)', 'c6069728c11a900047531eb4e1f5e920'),
-      ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'cd78ec5bb7e2570db19f41c84584bfcc')) v(s, m) LOOP
+      ('public.gerar_parcelas_oc_aviamento()', '7d38cadbcc08e0c31dfeadf8ea427d4b'),
+      ('public._recalcular_parcelas_core(uuid,text)', 'f883a888dc174b2247a419951c321471'),
+      ('public._dashboard_financeiro_core(date,date)', '1c7ce42949cc882d71e96bc8854458fc'),
+      ('public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'e71a9eb27389d429f9aeb3ac112e913b')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NULL OR md5(pg_get_functiondef(to_regprocedure(r.s))) IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'leves_l9 (correcao): % nao esta com o texto da 20261029100000 - aplicar a ida antes', r.s USING ERRCODE = 'P0001';
     END IF;
@@ -102,10 +104,11 @@ BEGIN
     ON COMMIT DROP;
   DELETE FROM _l9_alvo;
   INSERT INTO _l9_alvo
-  SELECT 'ocs_aviamento_itens', it.id, o.id, o.tenant_id, o.status::text, a.preco
+  SELECT 'ocs_aviamento_itens', it.id, o.id, o.tenant_id, o.status::text, COALESCE(CASE WHEN va.preco > 0 THEN va.preco END, a.preco)
     FROM public.ocs_aviamento_itens it
     JOIN public.ocs_aviamento o ON o.id = it.oc_aviamento_id
     LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
+    LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
    WHERE it.preco IS NULL
   UNION ALL
   SELECT 'ocs_tecido_itens', it.id, o.id, o.tenant_id, o.status::text, COALESCE(vt.preco, ar.preco)
@@ -177,8 +180,9 @@ END $corrige$;
 
 DO $pos$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.ocs_aviamento_itens it JOIN public.aviamentos a ON a.id = it.aviamento_id
-              WHERE it.preco IS NULL AND a.preco IS NOT NULL) THEN
+  IF EXISTS (SELECT 1 FROM public.ocs_aviamento_itens it LEFT JOIN public.aviamentos a ON a.id = it.aviamento_id
+              LEFT JOIN public.variantes_aviamento va ON va.id = it.variante_aviamento_id
+              WHERE it.preco IS NULL AND COALESCE(CASE WHEN va.preco > 0 THEN va.preco END, a.preco) IS NOT NULL) THEN
     RAISE EXCEPTION 'leves_l9 (correcao): pos-condicao falhou - ainda ha item de aviamento vazio com preco no cadastro' USING ERRCODE = 'P0001';
   END IF;
   IF EXISTS (SELECT 1 FROM public.ocs_tecido_itens it JOIN public.ocs_tecido o ON o.id = it.oc_tecido_id AND o.status = 'recebido'

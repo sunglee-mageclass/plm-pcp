@@ -17,6 +17,21 @@ export type ItemOcAviamento = {
   preco: number | null;
 };
 
+/**
+ * Preço do CADASTRO para o item (P-216 A, dono 02/out): o da COR (`variantes_aviamento.preco`) quando existe e é > 0,
+ * senão o geral do aviamento (`aviamentos.preco`) — espelha o tecido (COALESCE(variante, artigo)) e o banco
+ * (`COALESCE(it.preco, CASE WHEN va.preco > 0 THEN va.preco END, a.preco, 0)`).
+ */
+export function precoCadastroAviamento(
+  precoGeral: number | string | null | undefined,
+  precoCor: number | string | null | undefined,
+): number | null {
+  const cor = precoCor == null ? null : Number(precoCor);
+  if (cor != null && Number.isFinite(cor) && cor > 0) return cor;
+  const geral = precoGeral == null ? null : Number(precoGeral);
+  return geral != null && Number.isFinite(geral) ? geral : null;
+}
+
 /** Preço unitário que vale para o item: o da compra; sem ele (legado), o do cadastro; sem nenhum, 0. */
 export function precoEfetivoItem(
   it: Pick<ItemOcAviamento, "preco">,

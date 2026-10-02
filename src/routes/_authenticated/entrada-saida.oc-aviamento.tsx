@@ -10,7 +10,7 @@ import { AvisoFaltaNota, BolinhaFaltaNota, CampoDataNotaEntrada, useValidarDataN
 import { brl } from "@/lib/format";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { corApelidoLabel } from "@/lib/variante";
-import { precoEfetivoItem, situacaoCorItem, type ItemOcAviamento } from "@/lib/oc-aviamento-item";
+import { precoCadastroAviamento, precoEfetivoItem, situacaoCorItem, type ItemOcAviamento } from "@/lib/oc-aviamento-item";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -93,6 +93,7 @@ type AviamentoVariante = {
   id: string;
   nome_variante: string | null;
   codigo_variante: string | null;
+  preco?: number | null; // P-216 A: preço próprio da cor (> 0 vale antes do geral do aviamento)
   cor: { nome: string | null } | null;
   apelido: { nome: string | null } | null;
 };
@@ -216,7 +217,7 @@ function OcAviamentoPage() {
     if (e1) throw e1;
     const { data: rows, error: e2 } = await supabase
       .from("ocs_aviamento_itens")
-      .select("aviamento_id, variante_aviamento_id, quantidade_pedida, cancelado, preco, aviamentos:aviamento_id(codigo_nome, preco), variante:variante_aviamento_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+      .select("aviamento_id, variante_aviamento_id, quantidade_pedida, cancelado, preco, aviamentos:aviamento_id(codigo_nome, preco), variante:variante_aviamento_id(nome_variante, preco, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
       .eq("oc_aviamento_id", ocId);
     if (e2) throw e2;
     const its = (rows ?? []).filter((r: any) => !r.cancelado);
@@ -225,7 +226,10 @@ function OcAviamentoPage() {
     const rep = empresa?.representantes?.find((r) => r.id === o?.representante_id)?.nome ?? null;
     let total = 0;
     const itens: OcDocItem[] = (its as any[]).map((r) => {
-      const preco = precoEfetivoItem({ preco: r.preco == null ? null : Number(r.preco) }, r.aviamentos?.preco); // L9: preço da compra
+      const preco = precoEfetivoItem(
+        { preco: r.preco == null ? null : Number(r.preco) },
+        precoCadastroAviamento(r.aviamentos?.preco, r.variante?.preco),
+      ); // L9: preço da compra; vazio = cadastro (cor > 0, senão geral — P-216 A)
       const sub = preco * Number(r.quantidade_pedida ?? 0);
       total += sub;
       const cor = [r.variante?.cor?.nome, r.variante?.apelido?.nome].filter(Boolean).join(" · ");
@@ -273,13 +277,16 @@ function OcAviamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_aviamento_itens")
-        .select("oc_aviamento_id, quantidade_pedida, quantidade_recebida, aviamento_id, preco, cancelado, aviamentos(preco)")
+        .select("oc_aviamento_id, quantidade_pedida, quantidade_recebida, aviamento_id, preco, cancelado, aviamentos(preco), variante:variante_aviamento_id(preco)")
         .in("oc_aviamento_id", ocIds);
       if (error) throw error;
       const map: Record<string, { previsto: number; real: number }> = {};
       (data ?? []).forEach((r: any) => {
         if (r.cancelado) return; // item cancelado não entra no valor (igual ao diálogo e às parcelas)
-        const preco = precoEfetivoItem({ preco: r.preco == null ? null : Number(r.preco) }, r.aviamentos?.preco); // L9
+        const preco = precoEfetivoItem(
+          { preco: r.preco == null ? null : Number(r.preco) },
+          precoCadastroAviamento(r.aviamentos?.preco, r.variante?.preco),
+        ); // L9 + P-216 A
         const ocid = r.oc_aviamento_id;
         map[ocid] ||= { previsto: 0, real: 0 };
         map[ocid].previsto += Number(r.quantidade_pedida ?? 0) * preco;
@@ -750,7 +757,7 @@ function OcDialog({
       let q = supabase
         .from("aviamentos")
         .select(
-          "id, codigo_nome, empresa_id, preco, variantes:variantes_aviamento(id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))",
+          "id, codigo_nome, empresa_id, preco, variantes:variantes_aviamento(id, nome_variante, codigo_variante, preco, cor:cor_id(nome), apelido:cor_apelido_id(nome))",
         )
         .order("codigo_nome");
       if (draft.empresa_id) q = q.eq("empresa_id", draft.empresa_id);
@@ -761,11 +768,21 @@ function OcDialog({
         codigo_nome: a.codigo_nome as string,
         empresa_id: a.empresa_id as string | null,
         preco: a.preco as number | null,
-        variantes: (a.variantes ?? []) as AviamentoVariante[],
+        variantes: ((a.variantes ?? []) as AviamentoVariante[]).map((v) => ({
+          ...v,
+          preco: v.preco == null ? null : Number(v.preco),
+        })),
       })) as Aviamento[];
     },
   });
   const aviMap = useMemo(() => Object.fromEntries(aviamentos.map((a) => [a.id, a])), [aviamentos]);
+  // P-216 A: preço do CADASTRO do item = o da cor escolhida quando > 0, senão o geral do aviamento (como no tecido).
+  const cadastroDe = (i: Pick<ItemDraft, "aviamento_id" | "variante_aviamento_id">): number | null => {
+    const a = aviMap[i.aviamento_id];
+    if (!a) return null;
+    const v = i.variante_aviamento_id ? a.variantes?.find((x) => x.id === i.variante_aviamento_id) : null;
+    return precoCadastroAviamento(a.preco, v?.preco);
+  };
 
   // Documento imprimível da OC (pedido pro fornecedor). Preço = o da COMPRA do item (L9; vazio = cadastro).
   const docModelo: OcDocModelo = useMemo(() => {
@@ -773,7 +790,7 @@ function OcDialog({
     let total = 0;
     for (const it of items.filter((i) => !i.cancelado && i.aviamento_id)) {
       const a = aviMap[it.aviamento_id];
-      const preco = precoEfetivoItem(it, a?.preco);
+      const preco = precoEfetivoItem(it, cadastroDe(it));
       const sub = preco * it.quantidade_pedida;
       total += sub;
       const vari = it.variante_aviamento_id ? a?.variantes?.find((v) => v.id === it.variante_aviamento_id) : null;
@@ -852,7 +869,7 @@ function OcDialog({
     setItemsTracked((p) => p.map((i) => i.tempId === tempId ? { ...i, ...patch } : i));
 
   // L9 (P-206 A): preço da COMPRA do item; vazio (legado) = cadastro — a mesma conta das parcelas no banco.
-  const precoDe = (i: ItemDraft) => precoEfetivoItem(i, aviMap[i.aviamento_id]?.preco);
+  const precoDe = (i: ItemDraft) => precoEfetivoItem(i, cadastroDe(i));
   const valorPrev = (i: ItemDraft) => precoDe(i) * i.quantidade_pedida;
   const valorReal = (i: ItemDraft) => precoDe(i) * (i.quantidade_recebida ?? 0);
   // L9 (P-208 A): cor obrigatória com 2+ cores — "bloqueia" (item novo/editado) ou "aviso" (legado não mexido).
@@ -861,7 +878,7 @@ function OcDialog({
       i,
       aviMap[i.aviamento_id]?.variantes?.length ?? 0,
       i.id ? baseRef.current?.items.find((b) => b.id === i.id) : undefined,
-      aviMap[i.aviamento_id]?.preco,
+      cadastroDe(i),
     );
   // Itens cancelados não entram nos totais exibidos.
   const totalPrev = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
@@ -1255,7 +1272,16 @@ function OcDialog({
                             <>
                               <Select
                                 value={i.variante_aviamento_id ?? ""}
-                                onValueChange={(v) => updateItem(i.tempId, { variante_aviamento_id: v || null })}
+                                onValueChange={(v) => {
+                                  // P-216 A: trocar a cor leva o preço do cadastro da cor nova (cor > 0, senão o geral),
+                                  // a menos que o preço já tenha sido digitado à mão (≠ cadastro da seleção anterior).
+                                  const novaVar = v || null;
+                                  const naoDigitado = i.preco == null || i.preco === cadastroDe(i);
+                                  updateItem(i.tempId, {
+                                    variante_aviamento_id: novaVar,
+                                    ...(naoDigitado ? { preco: cadastroDe({ ...i, variante_aviamento_id: novaVar }) } : {}),
+                                  });
+                                }}
                               >
                                 <SelectTrigger className={`h-8 text-xs${corSit !== "ok" ? " border-amber-500" : ""}`}>
                                   <SelectValue placeholder={vars.length >= 2 ? "Escolha a cor…" : "Variante (cor)…"} />
@@ -1297,7 +1323,7 @@ function OcDialog({
                       <MoneyInput
                         fixedDecimals
                         placeholder="0,00"
-                        value={i.aviamento_id ? (i.preco ?? aviMap[i.aviamento_id]?.preco ?? null) : null}
+                        value={i.aviamento_id ? (i.preco ?? cadastroDe(i)) : null}
                         disabled={i.cancelado || !i.aviamento_id}
                         aria-label="Preço unitário da compra"
                         data-colab-path={`avi-preco:${i.aviamento_id ?? "x"}:${i.variante_aviamento_id ?? "x"}`}
