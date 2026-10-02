@@ -82,17 +82,31 @@ describe.skipIf(!hasDb || !ehBancoLocal())("P-214 B — correção única dos 'F
       expect(bkp.map((x: any) => x.cad_id).sort()).toEqual([f.cadA, f.cadB].sort());
 
       // Auditoria: as linhas das baixas criadas e dos cad tocados = 'Sistema' (P-214), + resumo por loja
-      const aud = (await c.query(
-        `select tabela, user_nome, descricao from audit_log
-          where created_at = now() and ((tabela='cad' and registro_id = any($1::uuid[]))
-             or (tabela='estoque_tecido_baixas' and registro_id = any($2::uuid[])))`,
-        [[f.cadA, f.cadB], bkp.flatMap((x: any) => x.baixa_ids)])).rows;
-      expect(aud.length).toBeGreaterThan(0);
-      expect(aud.every((a: any) => a.user_nome === "Sistema" && String(a.descricao).startsWith("Sistema: correcao do sistema (P-214)"))).toBe(true);
+      // todas as linhas das baixas CRIADAS pela correção = Sistema (P-214)
+      const audBx = (await c.query(
+        `select user_nome, descricao from audit_log
+          where created_at = now() and tabela='estoque_tecido_baixas' and registro_id = any($1::uuid[])`,
+        [bkp.flatMap((x: any) => x.baixa_ids)])).rows;
+      expect(audBx.length).toBe(bkp.flatMap((x: any) => x.baixa_ids).length);
+      expect(audBx.every((a: any) => a.user_nome === "Sistema" && String(a.descricao).startsWith("Sistema: correcao do sistema (P-214)"))).toBe(true);
+      // cada cad tocado tem a sua linha de edição (deficit_corte) marcada
+      for (const cad of [f.cadA, f.cadB]) {
+        const n = await um<{ n: string }>(c,
+          `select count(*) n from audit_log where created_at = now() and tabela='cad' and registro_id=$1
+              and user_nome='Sistema' and descricao like 'Sistema: correcao do sistema (P-214)%'`, [cad]);
+        expect(Number(n.n)).toBeGreaterThanOrEqual(1);
+      }
       const resumo = await um<{ n: string }>(c,
         `select count(*) n from audit_log where created_at = now() and tenant_id=$1 and user_nome='Sistema'
             and dados ? 'p214' and descricao like 'Sistema: correcao do sistema (P-214) - faltas do corte completadas%'`, [TENANT_TESTE]);
       expect(Number(resumo.n)).toBe(1);
+      // (B-P3) a linha de usuário da MESMA transação ("Criou CAD", gravada pelo fn_audit antes da correção) NÃO é reescrita
+      const doUsuario = (await c.query(
+        `select user_nome, descricao from audit_log where created_at = now() and tabela='cad' and registro_id = $1 and acao='criar'`,
+        [f.cadA])).rows;
+      expect(doUsuario.length).toBe(1);
+      expect(doUsuario[0].user_nome).not.toBe("Sistema");
+      expect(String(doUsuario[0].descricao)).not.toMatch(/P-214/);
 
       // 2ª vez com a mesma lista aprovada = nada (idempotente)
       const r2 = await rodar(c, p.esperado, p.hash);
@@ -100,7 +114,14 @@ describe.skipIf(!hasDb || !ehBancoLocal())("P-214 B — correção única dos 'F
       expect(await baixas(c, f.cadA)).toBe(100);
 
       // _down: apaga SÓ as baixas do lote e devolve o deficit_corte de antes, exatamente
+      const idsLote = bkp.flatMap((x: any) => x.baixa_ids);
       await aplicarArquivo(c, "supabase/rollback/20261025310000_completar_faltas_existentes_down.sql");
+      // (B-P6) as linhas de auditoria da volta = Sistema (volta P-214)
+      const audVolta = (await c.query(
+        `select user_nome, descricao from audit_log where created_at = now() and tabela='estoque_tecido_baixas'
+            and acao='excluir' and registro_id = any($1::uuid[])`, [idsLote])).rows;
+      expect(audVolta.length).toBe(idsLote.length);
+      expect(audVolta.every((a: any) => a.user_nome === "Sistema" && String(a.descricao).startsWith("Sistema: volta da correcao (P-214)"))).toBe(true);
       expect(await deficit(c, f.cadA)).toEqual(antesA);
       expect(await deficit(c, f.cadB)).toEqual(antesB);
       expect(await baixas(c, f.cadA)).toBe(0);
@@ -132,11 +153,30 @@ describe.skipIf(!hasDb || !ehBancoLocal())("P-214 B — correção única dos 'F
   it("ACL (inv. #9): as 3 funções sem EXECUTE para PUBLIC/anon/authenticated/service_role; backup ilegível", async () => {
     await withTx(async (c) => {
       const r = await um<any>(c, `select
-        has_function_privilege('authenticated','public._p214_completar_faltas(jsonb,text)','EXECUTE') a,
-        has_function_privilege('anon','public._p214_previa()','EXECUTE') b,
-        has_function_privilege('service_role','public._p214_executar()','EXECUTE') d,
-        has_table_privilege('authenticated','public._bkp_p214_deficit','SELECT') e`);
-      expect(r).toEqual({ a: false, b: false, d: false, e: false });
+        has_function_privilege('authenticated','public._p214_completar_faltas(jsonb,text,uuid)','EXECUTE') a,
+        has_function_privilege('anon','public._p214_previa(uuid)','EXECUTE') b,
+        has_function_privilege('service_role','public._p214_executar(uuid)','EXECUTE') d,
+        has_table_privilege('authenticated','public._bkp_p214_deficit','SELECT') e,
+        has_sequence_privilege('authenticated','public._bkp_p214_deficit_id_seq','USAGE,SELECT,UPDATE') f,
+        has_sequence_privilege('anon','public._bkp_p214_deficit_id_seq','USAGE,SELECT,UPDATE') g`);
+      expect(r).toEqual({ a: false, b: false, d: false, e: false, f: false, g: false });
+    });
+  });
+
+  it("loja a loja (_tenant): a prévia/correção de OUTRA loja não vê os déficits desta", async () => {
+    await withTx(async (c) => {
+      const f = await fixture(c);
+      const outra = await um<{ id: string } | undefined>(c, `select id from tenants where id <> $1 order by nome limit 1`, [TENANT_TESTE]);
+      if (!outra) throw new Error("fixture ausente: outra loja");
+      const p = (await um<{ p: any }>(c, `select public._p214_previa($1::uuid) p`, [outra.id])).p;
+      expect((p.linhas as string[]).some((l) => l.startsWith(f.cadA) || l.startsWith(f.cadB))).toBe(false);
+      const pt = (await um<{ p: any }>(c, `select public._p214_previa($1::uuid) p`, [TENANT_TESTE])).p;
+      expect((pt.linhas as string[]).filter((l) => l.startsWith(f.cadA) || l.startsWith(f.cadB)).length).toBe(2);
+      await c.query(`select set_config('app.confirmo_completar_faltas','sim',true)`);
+      const r = (await um<{ r: any }>(c, `select public._p214_completar_faltas($1::jsonb,$2,$3::uuid) r`,
+        [JSON.stringify(pt.esperado), pt.hash, TENANT_TESTE])).r;
+      expect(r.cads).toBe(pt.linhas.length);
+      expect(await deficit(c, f.cadA)).toBeNull();
     });
   });
 });

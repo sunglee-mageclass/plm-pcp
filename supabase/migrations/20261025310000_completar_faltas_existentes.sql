@@ -16,7 +16,7 @@
 --     (round 4, ordem cad, variante), hash = md5 das linhas unidas por quebra de linha (lista vazia = md5('') =
 --     d41d8cd98f00b204e9800998ecf8427e), esperado = {tenant_id: {cads, metros}}. Helper ocupado/adiado = P0001.
 --   _p214_previa(): a MESMA conta num sub-bloco SEMPRE desfeito - previa exata (o helper de verdade, sem drift), nada fica.
---   _p214_completar_faltas(_esperado jsonb, _hash text): exige SET LOCAL app.confirmo_completar_faltas='sim'; mesmo hash ja
+--   _p214_completar_faltas(_esperado jsonb, _hash text, _tenant uuid DEFAULT NULL): exige SET LOCAL app.confirmo_completar_faltas='sim'; mesmo hash ja
 --     aplicado (lote nao desfeito) = nada (idempotente); confere hash E contagens por loja de AGORA com os aprovados
 --     (diferente = P0001 ASCII, nada fica); grava o backup; Auditoria: as linhas de audit_log das baixas e dos cad tocados
 --     (gravadas pelo fn_audit com o autor da sessao do kit, sem JWT = vazio) ficam com user_nome 'Sistema' e descricao
@@ -25,11 +25,37 @@
 --   As 3 funcoes: SECURITY DEFINER, EXECUTE revogado de PUBLIC, anon, authenticated e service_role (so o kit, como postgres).
 -- Copia 54422 (01/out): 0 cad em deficit -> lista vazia, hash d41d8cd98f00b204e9800998ecf8427e, esperado {} (rodar = nada).
 --
+-- FIX ROUND 1 (revisao da P-214 B, 02/out): B-P1 a previa (consultas/r15_deficit_corte_previa.sql) chama _p214_previa UMA
+--   vez (tabela temporaria) - lista e hash da MESMA rodada; B-P2 o _down pega a trava do corte da loja e FOR UPDATE no cad
+--   antes de conferir; B-P3 a marca 'Sistema' so reescreve linhas de audit_log NASCIDAS na chamada (ids que nao existiam antes
+--   dela) das baixas criadas / cad tocados - linha de usuario na mesma transacao fica; B-P4 REVOKE ALL na sequencia
+--   _bkp_p214_deficit_id_seq (o REVOKE da tabela nao alcanca a sequencia da identidade; _bkp_custo_previsto nao tem
+--   sequencia - nada a fazer na release 8); B-P6 o _down marca as linhas dele como 'Sistema: volta da correcao (P-214)';
+--   B-P5 parametro opcional _tenant nas 3 funcoes (rodar loja a loja).
+-- ORCAMENTO (B-P5): o helper P-203 tem orcamento de 4 s contados do inicio do comando (statement_timestamp()); na correcao o
+--   comando e o SELECT do kit inteiro (esperas da trava de cada loja + todas as variantes). Lista grande em producao =
+--   P0001 p214_helper_nao_rodou (adiado) - falha segura, nada fica. A previa de producao (mesma conta) mostra isso antes.
+--   Saida: rodar previa + aprovacao + correcao LOJA A LOJA (_p214_previa(<tenant>) / _p214_completar_faltas(.., .., <tenant>)).
+-- ROTEIRO / LIFO DO KIT (K1, K2, INFO da revisao):
+--   IDA: 20261025100000 -> 20261025150000 -> 20261025200000 -> 20261025300000 -> 20261025310000 -> [previa -> aprovacao do
+--     dono -> correcao P-214, LOGO depois da ida da 300000 e ANTES de liberar o site: senao o proprio P-203 completa parte dos
+--     deficits no meio, com o autor = quem salvou a OC, e nao 'Sistema'] -> ... -> LEVES 20261028120000 (L6).
+--     A correcao roda SOZINHA na transacao, sem JWT: BEGIN; SET LOCAL app.confirmo_completar_faltas='sim';
+--     SELECT public._p214_completar_faltas('<esperado>'::jsonb, '<hash>'[, '<tenant>']); COMMIT;
+--   Previa e execucao podem dar hash diferente sem ninguem mexer (FIFO desempata por created_at, igual para os itens da mesma
+--     OC): o hash recusa (falha segura) - gerar a previa de novo.
+--   VOLTA (LIFO): L6 _down (+ _down_drop se a volta da R15a for ate o drop: o _down_drop da 300000 exige os gatilhos de
+--     ocs_tecido_itens sem os da L6) -> 310000 _down (dados) -> 310000 _down_drop (opcional) -> 300000 _down -> 300000
+--     _down_drop -> 200000 _down -> 150000 _down -> 100000 _down.
+--   FREIO DE EMERGENCIA: o _down da 300000 so neutraliza fn_completar_deficit_corte; com a L6 no ar,
+--     fn_completar_deficit_corte_artigo e _reverter_ajuste_estoque_core continuam chamando o helper - o freio do kit TEM de
+--     incluir o _down da L6 (ou neutralizar o helper).
+--
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public._completar_deficit_corte_variante(uuid,uuid)  70a91eef1ac40cce86ff7da8e6b14c7f  INTOCADA (20261025300000, fix round 1)
---   public._p214_executar()                         NOVA: ausente ou c7ae75fe5948bfc836382fa8053cf7bc (este arquivo)
---   public._p214_previa()                           NOVA: ausente ou 5d89af84d88ac72c4b794eb462725746 (este arquivo)
---   public._p214_completar_faltas(jsonb,text)       NOVA: ausente ou 10edfd49a9b4e59f40ca8e50663573bf (este arquivo)
+--   public._p214_executar(uuid)                         NOVA: ausente ou e4210696604d2988ddd014ebd1bea61e (este arquivo)
+--   public._p214_previa(uuid)                           NOVA: ausente ou d3afed7c86501dfcc77c2b3281e09d22 (este arquivo)
+--   public._p214_completar_faltas(jsonb,text,uuid)       NOVA: ausente ou 727d640a3e3cfc4fafcd385aeb5fe583 (este arquivo)
 -- =====================================================================================================================
 -- Travas: CREATE TABLE + CREATE FUNCTION (nada em tabela existente). Volta: supabase/rollback/20261025310000_..._down.sql
 -- (desfaz os lotes aplicados: apaga SO as baixas criadas por eles e devolve o deficit_corte) e _down_drop (DROP das 3
@@ -50,10 +76,14 @@ BEGIN
      OR md5(pg_get_functiondef(to_regprocedure('public._completar_deficit_corte_variante(uuid,uuid)'))) <> '70a91eef1ac40cce86ff7da8e6b14c7f' THEN
     RAISE EXCEPTION 'medios_r15a_p214: o helper P-203 nao esta com o texto da 20261025300000 (fix round 1) - aplicar a R15a antes' USING ERRCODE = 'P0001';
   END IF;
+  IF to_regprocedure('public._p214_executar()') IS NOT NULL OR to_regprocedure('public._p214_previa()') IS NOT NULL
+     OR to_regprocedure('public._p214_completar_faltas(jsonb,text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'medios_r15a_p214: texto do round 0 (sem _tenant) no banco - rodar o _down + _down_drop da 20261025310000 antes' USING ERRCODE = 'P0001';
+  END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public._p214_executar()', 'c7ae75fe5948bfc836382fa8053cf7bc'),
-      ('public._p214_previa()', '5d89af84d88ac72c4b794eb462725746'),
-      ('public._p214_completar_faltas(jsonb,text)', '10edfd49a9b4e59f40ca8e50663573bf')) v(s, m) LOOP
+      ('public._p214_executar(uuid)', 'e4210696604d2988ddd014ebd1bea61e'),
+      ('public._p214_previa(uuid)', 'd3afed7c86501dfcc77c2b3281e09d22'),
+      ('public._p214_completar_faltas(jsonb,text,uuid)', '727d640a3e3cfc4fafcd385aeb5fe583')) v(s, m) LOOP
     IF to_regprocedure(r.s) IS NOT NULL AND md5(pg_get_functiondef(to_regprocedure(r.s))) <> r.m THEN
       RAISE EXCEPTION 'medios_r15a_p214: % existe com outro texto - outra frente mexeu', r.s USING ERRCODE = 'P0001';
     END IF;
@@ -74,8 +104,9 @@ CREATE TABLE IF NOT EXISTS public._bkp_p214_deficit (
 );
 ALTER TABLE public._bkp_p214_deficit ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public._bkp_p214_deficit FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public._bkp_p214_deficit_id_seq FROM PUBLIC, anon, authenticated, service_role;   -- B-P4
 
-CREATE OR REPLACE FUNCTION public._p214_executar()
+CREATE OR REPLACE FUNCTION public._p214_executar(_tenant uuid DEFAULT NULL)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -90,6 +121,7 @@ AS $function$
 -- Pega antes a trava do corte de cada loja envolvida (pg_advisory_xact_lock, ESPERA ate lock_timeout 3 s): ninguem corta no
 -- meio e o helper (que usa a versao try) nunca acha a loja ocupada. Helper ocupado/adiado = P0001 (nada fica).
 -- NAO e chamada direto: _p214_previa() desfaz tudo; _p214_completar_faltas() confere e grava.
+-- _tenant (opcional, fix round 1 B-P5): so essa loja (lista grande demais para o orcamento do helper = rodar loja a loja).
 DECLARE
   r record;
   v jsonb;
@@ -105,6 +137,7 @@ BEGIN
     INTO v_cads, v_antes
     FROM public.cad cd
    WHERE cd.enviado_corte
+     AND (_tenant IS NULL OR cd.tenant_id = _tenant)
      AND (CASE WHEN jsonb_typeof(cd.deficit_corte) = 'array' THEN jsonb_array_length(cd.deficit_corte) > 0 ELSE false END);
   SELECT COALESCE(array_agg(b.id), ARRAY[]::uuid[]) INTO v_baixas_antes
     FROM public.estoque_tecido_baixas b WHERE b.cad_id = ANY (v_cads);
@@ -151,7 +184,7 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public._p214_previa()
+CREATE OR REPLACE FUNCTION public._p214_previa(_tenant uuid DEFAULT NULL)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -164,7 +197,7 @@ DECLARE
   v jsonb;
 BEGIN
   BEGIN
-    v := public._p214_executar();
+    v := public._p214_executar(_tenant);
     RAISE EXCEPTION 'p214_previa_desfaz' USING ERRCODE = 'P0R14';
   EXCEPTION WHEN SQLSTATE 'P0R14' THEN
     NULL;  -- tudo o que o helper gravou foi desfeito; v ficou
@@ -173,7 +206,7 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public._p214_completar_faltas(_esperado jsonb, _hash text)
+CREATE OR REPLACE FUNCTION public._p214_completar_faltas(_esperado jsonb, _hash text, _tenant uuid DEFAULT NULL)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -185,12 +218,16 @@ AS $function$
 -- desfeito) = nada a fazer (idempotente). Grava o lote em _bkp_p214_deficit (deficit antes/depois por cad + ids das baixas
 -- criadas) e marca a Auditoria: as linhas de audit_log das baixas e dos cad tocados ficam com user_nome 'Sistema' e a
 -- descricao prefixada 'Sistema: correcao do sistema (P-214) - ', + 1 linha-resumo por loja.
+-- [fix round 1] B-P3: so as linhas de audit_log NASCIDAS nesta chamada (ids de audit_log que nao existiam antes dela) e
+-- das baixas criadas / cad tocados - uma linha de usuario na mesma transacao NAO e reescrita. B-P5: _tenant opcional
+-- (rodar loja a loja quando a lista e grande demais para o orcamento de 4 s do helper).
 DECLARE
   v jsonb;
   v_lote uuid := gen_random_uuid();
   v_cads uuid[];
   v_ids uuid[];
   v_n int;
+  v_aud_antes uuid[];
   r record;
 BEGIN
   IF current_setting('app.confirmo_completar_faltas', true) IS DISTINCT FROM 'sim' THEN
@@ -199,13 +236,18 @@ BEGIN
   IF _hash IS NULL OR _esperado IS NULL OR jsonb_typeof(_esperado) <> 'object' THEN
     RAISE EXCEPTION 'p214_parametros: informe o esperado (objeto) e o hash aprovados' USING ERRCODE = 'P0001';
   END IF;
-  IF EXISTS (SELECT 1 FROM public._bkp_p214_deficit k WHERE k.hash = _hash AND k.revertido_at IS NULL)
+  IF EXISTS (SELECT 1 FROM public._bkp_p214_deficit k WHERE k.hash = _hash AND k.revertido_at IS NULL
+              AND (_tenant IS NULL OR k.tenant_id = _tenant))
      AND _hash <> md5('') THEN
     RAISE NOTICE 'p214: lista % ja aplicada (lote nao desfeito) - nada a fazer', _hash;
     RETURN jsonb_build_object('ja_aplicado', true, 'cads', 0, 'metros', 0);
   END IF;
 
-  v := public._p214_executar();
+  -- (B-P3) linhas de audit_log desta transacao que ja existiam ANTES desta chamada: nunca sao reescritas
+  SELECT COALESCE(array_agg(a.id), ARRAY[]::uuid[]) INTO v_aud_antes
+    FROM public.audit_log a WHERE a.created_at = now() AND a.tabela IN ('cad', 'estoque_tecido_baixas');
+
+  v := public._p214_executar(_tenant);
   IF v->>'hash' IS DISTINCT FROM _hash OR (v->'esperado') IS DISTINCT FROM _esperado THEN
     RAISE EXCEPTION 'p214_lista_mudou: hash de agora % (aprovado %), contagens de agora % (aprovadas %) - regerar a previa e aprovar de novo',
       v->>'hash', _hash, v->'esperado', _esperado USING ERRCODE = 'P0001';
@@ -226,6 +268,7 @@ BEGIN
      SET user_nome = 'Sistema',
          descricao = 'Sistema: correcao do sistema (P-214) - ' || COALESCE(a.descricao, '')
    WHERE a.created_at = now()
+     AND NOT (a.id = ANY (v_aud_antes))
      AND ((a.tabela = 'estoque_tecido_baixas' AND a.registro_id = ANY (v_ids))
           OR (a.tabela = 'cad' AND a.registro_id = ANY (v_cads)));
   FOR r IN SELECT key AS tenant_id, value FROM jsonb_each(v->'esperado') LOOP
@@ -241,18 +284,18 @@ BEGIN
   RETURN jsonb_build_object('lote', v_lote, 'cads', v_n, 'baixas', cardinality(v_ids), 'hash', _hash, 'esperado', v->'esperado');
 END;
 $function$;
-REVOKE EXECUTE ON FUNCTION public._p214_executar() FROM PUBLIC, anon, authenticated, service_role;
-REVOKE EXECUTE ON FUNCTION public._p214_previa() FROM PUBLIC, anon, authenticated, service_role;
-REVOKE EXECUTE ON FUNCTION public._p214_completar_faltas(jsonb,text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public._p214_executar(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public._p214_previa(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public._p214_completar_faltas(jsonb,text,uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 DO $pos$
 DECLARE
   r record;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._p214_executar()', 'c7ae75fe5948bfc836382fa8053cf7bc'),
-      ('public._p214_previa()', '5d89af84d88ac72c4b794eb462725746'),
-      ('public._p214_completar_faltas(jsonb,text)', '10edfd49a9b4e59f40ca8e50663573bf')) v(s, m) LOOP
+      ('public._p214_executar(uuid)', 'e4210696604d2988ddd014ebd1bea61e'),
+      ('public._p214_previa(uuid)', 'd3afed7c86501dfcc77c2b3281e09d22'),
+      ('public._p214_completar_faltas(jsonb,text,uuid)', '727d640a3e3cfc4fafcd385aeb5fe583')) v(s, m) LOOP
     IF md5(pg_get_functiondef(to_regprocedure(r.s))) IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'medios_r15a_p214: pos-condicao falhou - % nao ficou com o texto deste arquivo', r.s USING ERRCODE = 'P0001';
     END IF;
@@ -265,6 +308,11 @@ BEGIN
   END LOOP;
   IF has_table_privilege('authenticated', 'public._bkp_p214_deficit', 'SELECT') OR has_table_privilege('anon', 'public._bkp_p214_deficit', 'SELECT') THEN
     RAISE EXCEPTION 'medios_r15a_p214: _bkp_p214_deficit legivel por anon/authenticated' USING ERRCODE = 'P0001';
+  END IF;
+  IF has_sequence_privilege('anon', 'public._bkp_p214_deficit_id_seq', 'USAGE,SELECT,UPDATE')
+     OR has_sequence_privilege('authenticated', 'public._bkp_p214_deficit_id_seq', 'USAGE,SELECT,UPDATE')
+     OR has_sequence_privilege('service_role', 'public._bkp_p214_deficit_id_seq', 'USAGE,SELECT,UPDATE') THEN
+    RAISE EXCEPTION 'medios_r15a_p214: sequencia _bkp_p214_deficit_id_seq com privilegio para anon/authenticated/service_role (B-P4)' USING ERRCODE = 'P0001';
   END IF;
 END $pos$;
 
