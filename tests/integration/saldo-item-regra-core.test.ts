@@ -343,13 +343,14 @@ describe.skipIf(!hasDb)("R11 — rolo: saldo do PRÓPRIO item (est #10)", () => 
 });
 
 describe.skipIf(!hasDb)("R11 — equivalência com _estoque_tecido_core em TODOS os itens da cópia", () => {
-  it("Σ saldo_oc_item_m por variante = recebido_m − baixa do ledger do core (fora a origem de rolo — est #4/R15)", async () => {
+  it("Σ saldo_oc_item_m por variante = recebido_m − baixa do ledger do core (TODOS os itens, inclusive a origem de rolo — R15a est #4)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c); // usuário de teste = super admin → saldo_oc_item_m enxerga todas as lojas
       const sa = await um<{ ok: boolean }>(c, `select public.is_super_admin() ok`);
       expect(sa.ok, "o usuario de teste precisa ser super admin para ver todas as lojas").toBe(true);
       // Diferenças DELIBERADAS (documentadas na migration e no relatório da R11):
-      //  * item de ORIGEM de rolo: o core o exclui inteiro (est #4, corrigido na R15) → fora dos dois lados;
+      //  * item de ORIGEM de rolo: desde a R15a (est #4, 20261025100000) o core o conta (recebido − separação − baixas) →
+      //    entra dos DOIS lados (antes da R15a ficava fora dos dois);
       //  * baixa de ordem de saída (os_baixa) é por variante no core, sem item → somada de volta ao lado do core;
       //  * o clamp >= 0 do core é no físico por variante; aqui comparamos recebido − baixa SEM clamp.
       const r = await um<{ n_var: string; n_dif: string; detalhe: any }>(c, `
@@ -359,7 +360,6 @@ describe.skipIf(!hasDb)("R11 — equivalência com _estoque_tecido_core em TODOS
             join ocs_tecido oc on oc.id = i.oc_tecido_id
             cross join lateral public.saldo_oc_item_m(i.id) s
            where i.variante_tecido_id is not null
-             and not exists (select 1 from ocs_tecido r where r.is_rolo and r.rolo_origem_item_id = i.id)
         ),
         soma as (select tenant_id, variante_tecido_id, sum(saldo_m) m from por_item group by 1,2),
         os_bx as (
