@@ -231,3 +231,74 @@ describe("L4 fix round 2 (B2/B3/B4)", () => {
     );
   });
 });
+
+// Fix round 3 (P-215 A): reprovado (Dev OU Planejamento) sai do Comercial; o funil desenha "Reprovados" à parte.
+describe("L4 fix round 3 (P-215 A)", () => {
+  const linha = { nome: "Vestidos", markup: 2.5, markup_min: 2, markup_max: 3 };
+  const base = { colecao: "Verão", linha_id: "L1", preco_venda: 100, markup_editado: null, linha };
+  const custoMap = {
+    a: { previsto: 40, real: 40, confirmado: true },
+    b: { previsto: 40, real: 40, confirmado: true },
+    c: { previsto: 40, real: 40, confirmado: true },
+  };
+  const g = { a: 10, b: 10, c: 10 };
+
+  it("Comercial: reprovado no Dev OU no Planejamento sai do poder de venda/lucro; sair de Reprovado volta", () => {
+    const modelos = [
+      {
+        id: "a",
+        ...base,
+        status_desenvolvimento: "em_modelagem",
+        status_planejamento: "planejado",
+      },
+      { id: "b", ...base, status_desenvolvimento: "Reprovado", status_planejamento: "planejado" },
+      {
+        id: "c",
+        ...base,
+        status_desenvolvimento: "ficha_tecnica",
+        status_planejamento: "reprovado",
+      },
+    ];
+    const { tot } = agregarComercial(modelos, custoMap, g, g);
+    expect(tot.reprovados).toBe(2);
+    expect(tot.pvPlan).toBe(1000);
+    expect(tot.lucroPlan).toBe(600);
+    expect(tot.ticket).toBe(100);
+    const volta = agregarComercial(
+      modelos.map((m) => ({
+        ...m,
+        status_desenvolvimento: "em_modelagem",
+        status_planejamento: "planejado",
+      })),
+      custoMap,
+      g,
+      g,
+    );
+    expect(volta.tot.reprovados).toBe(0);
+    expect(volta.tot.pvPlan).toBe(3000);
+  });
+
+  it("ehReprovado é a fonte única (OTB e Comercial)", async () => {
+    const { ehReprovado } = await import("@/lib/reprovado");
+    expect(ehReprovado({ status_desenvolvimento: "REPROVADO" })).toBe(true);
+    expect(ehReprovado({ status_planejamento: "reprovado" })).toBe(true);
+    expect(ehReprovado({ status_desenvolvimento: null, status_planejamento: null })).toBe(false);
+    const resumo = readFileSync(
+      resolve(__dirname, "../../src/components/otb/otb-resumo.ts"),
+      "utf8",
+    );
+    const comercial = readFileSync(
+      resolve(__dirname, "../../src/lib/dashboard-comercial.ts"),
+      "utf8",
+    );
+    expect(resumo).toMatch(/ehReprovado\(/);
+    expect(comercial).toMatch(/ehReprovado\(m\)/);
+  });
+
+  it("dashboard.tsx: a query do Comercial lê os 2 status e o funil desenha 'Reprovados' à parte com token de gráfico", () => {
+    const src = dashboardSrc();
+    expect(src).toMatch(/status_desenvolvimento, status_planejamento, linha:linha_id/);
+    expect(src).toMatch(/funnelAll\.filter\(\(f\) => f\.name !== "Reprovados"\)/);
+    expect(src).toMatch(/background: CHART_DIVERGE_POS/);
+  });
+});

@@ -1,4 +1,5 @@
 import { precoInfo } from "@/lib/preco";
+import { ehReprovado } from "@/lib/reprovado";
 
 export type ModelForResumo = {
   id: string;
@@ -18,10 +19,7 @@ export function contaNoOtb(m: {
   status_desenvolvimento?: string | null;
   status_planejamento?: string | null;
 }): boolean {
-  return (
-    (m.status_desenvolvimento ?? "").toLowerCase() !== "reprovado" &&
-    (m.status_planejamento ?? "").toLowerCase() !== "reprovado"
-  );
+  return !ehReprovado(m);
 }
 export type Custo = { previsto: number; real: number; confirmado: boolean };
 

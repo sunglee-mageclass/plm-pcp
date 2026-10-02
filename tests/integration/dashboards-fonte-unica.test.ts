@@ -19,8 +19,8 @@ const MD5_DEPOIS: Record<string, string> = {
 // [leves L4] 20261027200000_dashboards_funil_dev muda _dashboard_colecao_core e _dashboard_producao_core por cima da R12
 // (prod #10: Desenvolvimento = ordem_criacao_enviada). Com a L4 aplicada vale o md5 da L4; o resto da R12 segue igual.
 const MD5_DEPOIS_L4: Record<string, string> = {
-  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "57e0d5ca84dab8c969169e25165a5df3",
-  "public._dashboard_producao_core(date,date,text,uuid)": "f94982d5d369222d0a4b3330b67a204a",
+  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "9435f724d61227a7014d95a95cf7fac5",
+  "public._dashboard_producao_core(date,date,text,uuid)": "36380897191bbdbae954f85a2afd4914",
 };
 const MD5_INTOCADA = "d26c7c9afb636f6ed26e66daf76e92ae"; // _custo_unitario_modelos_core
 
@@ -213,7 +213,7 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
       // invariante de partição: os 4 baldes somam o total
       for (const x of [k0, k1, k2, k3, k4, k5]) {
         expect(
-          x.kpis.planejamento + x.kpis.desenvolvimento + x.kpis.producao + x.kpis.lancados,
+          x.kpis.planejamento + x.kpis.desenvolvimento + x.kpis.producao + x.kpis.lancados + (x.kpis.reprovados ?? 0), // [leves L4 P-215 A] 5º balde
         ).toBe(x.kpis.total);
       }
     });

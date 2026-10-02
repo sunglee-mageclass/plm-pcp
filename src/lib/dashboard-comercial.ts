@@ -6,6 +6,7 @@
 // venda e o ticket continuam com todos os cards (não dependem do custo). `semCusto` conta os cards que ficaram de
 // fora e que pesariam na conta (têm grade planejada ou real) — a tela mostra "N sem custo".
 import { precoInfo } from "@/lib/preco";
+import { ehReprovado } from "@/lib/reprovado";
 
 export type ModeloComercial = {
   id: string;
@@ -19,6 +20,9 @@ export type ModeloComercial = {
     markup_min?: unknown;
     markup_max?: unknown;
   } | null;
+  /** [leves L4 round 3, P-215 A] card reprovado (Dev OU Planejamento) sai do Comercial (poder de venda, lucro, margem) */
+  status_desenvolvimento?: string | null;
+  status_planejamento?: string | null;
 };
 
 export type CustoComercial = { previsto?: unknown; real?: unknown; confirmado?: unknown };
@@ -52,6 +56,8 @@ export type TotalComercial = {
   markupReal: number;
   ticket: number;
   semCusto: number;
+  /** cards reprovados deixados de fora (P-215 A) */
+  reprovados: number;
 };
 
 const num = (v: unknown): number => Number(v) || 0;
@@ -90,6 +96,7 @@ export function agregarComercial(
     gp: 0,
     gr: 0,
     semCusto: 0,
+    reprovados: 0,
   };
   const acc = (
     map: Map<string, LinhaComercial>,
@@ -138,6 +145,11 @@ export function agregarComercial(
     r.semCusto += v.sem;
   };
   for (const m of modelos) {
+    // P-215 A: reprovado (Dev OU Planejamento) não entra no poder de venda nem no lucro/margem/ticket.
+    if (ehReprovado(m)) {
+      t.reprovados++;
+      continue;
+    }
     const cu = custoMap?.[m.id];
     const custo = num(cu?.real) || num(cu?.previsto) || 0;
     const pi = precoInfo(custo, m.linha?.markup, m.preco_venda, m.markup_editado);
@@ -187,6 +199,7 @@ export function agregarComercial(
     // ticket = poder de venda ÷ peças (real quando há grade real; senão planejado) — todos os cards.
     ticket: t.gr > 0 ? t.pvReal / t.gr : t.gp > 0 ? t.pvPlan / t.gp : 0,
     semCusto: t.semCusto,
+    reprovados: t.reprovados,
   };
   return { porLinha, porColecao, tot };
 }

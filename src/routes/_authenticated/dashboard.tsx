@@ -24,7 +24,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { Button } from "@/components/ui/button";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
-  CHART_SERIE, CHART_SEQ, CHART_AGE,
+  CHART_SERIE, CHART_SEQ, CHART_AGE, CHART_DIVERGE_POS,
   TONE_BG, TONE_FG, type Tone,
 } from "@/lib/chart-colors";
 import {
@@ -500,7 +500,7 @@ function ComercialColecaoTab() {
     queryKey: ["comercial-col-modelos", fColecao, fSubcolecao],
     queryFn: async () => {
       // embed estende a ComercialTab com markup_min/markup_max (faixa da linha) p/ o status por faixa.
-      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, linha:linha_id(nome, markup, markup_min, markup_max)");
+      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, status_desenvolvimento, status_planejamento, linha:linha_id(nome, markup, markup_min, markup_max)");
       if (fColecao !== "all") q = q.eq("colecao", fColecao);
       if (fSubcolecao !== "all") q = q.eq("subcolecao", fSubcolecao);
       const { data, error } = await q;
@@ -572,7 +572,7 @@ function ComercialColecaoTab() {
 
   const kpis = (
     <>
-      <Kpi label="Poder de venda" value={brl(tot.pvPlan)} icon={Tag} sub={`realizado ${brl(tot.pvReal)} · ${pctMeta}% da meta`} tone={pctMeta >= 80 ? "success" : pctMeta >= 50 ? "warning" : "danger"} />
+      <Kpi label="Poder de venda" value={brl(tot.pvPlan)} icon={Tag} sub={`realizado ${brl(tot.pvReal)} · ${pctMeta}% da meta${tot.reprovados > 0 ? ` · ${tot.reprovados} reprovado(s) fora` : ""}`} tone={pctMeta >= 80 ? "success" : pctMeta >= 50 ? "warning" : "danger"} />
       <Kpi label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} icon={Sparkles} sub={comSemCusto(tot.margemReal > 0 ? `markup real ${fmtMkp(tot.markupReal)}` : "planejado (sem realizado ainda)")} />
       <Kpi label="Lucro bruto" value={brl(tot.lucroPlan)} icon={DollarSign} sub={comSemCusto(`realizado ${brl(tot.lucroReal)}`)} />
       <Kpi label="Ticket médio" value={brl(tot.ticket)} icon={Layers} sub="preço médio por peça" />
@@ -626,7 +626,7 @@ function ComercialColecaoTab() {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2"><MobileFilterBar filters={filtros} /></div>
         <div className="grid grid-cols-2 gap-2.5">
-          <KpiCardMobile compact label="Poder de venda" value={brlAbrev(tot.pvPlan)} valueTitle={brl(tot.pvPlan)} sub={`${pctMeta}% da meta`} />
+          <KpiCardMobile compact label="Poder de venda" value={brlAbrev(tot.pvPlan)} valueTitle={brl(tot.pvPlan)} sub={`${pctMeta}% da meta${tot.reprovados > 0 ? ` · ${tot.reprovados} reprov.` : ""}`} />
           <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} sub={`${tot.margemReal > 0 ? `markup ${fmtMkp(tot.markupReal)}` : "planejado"}${tot.semCusto > 0 ? ` · ${tot.semCusto} sem custo` : ""}`} />
           <KpiCardMobile compact label="Lucro bruto" value={brlAbrev(tot.lucroPlan)} valueTitle={brl(tot.lucroPlan)} sub={`real. ${brlAbrev(tot.lucroReal)}`} />
           <KpiCardMobile compact label="Ticket médio" value={brl(tot.ticket)} sub="preço médio/peça" />
@@ -980,7 +980,10 @@ function DesenvolvimentoTab() {
     .sort((a, b) => b.excesso - a.excesso)
     .slice(0, 4);
 
-  const funnel: any[] = col.data?.funnel ?? [];
+  // [leves L4 round 3, P-215 A] "Reprovados" é um balde à parte (fora do funil), desenhado em separado.
+  const funnelAll: { name: string; value: number }[] = col.data?.funnel ?? [];
+  const funnel = funnelAll.filter((f) => f.name !== "Reprovados");
+  const funnelReprov = funnelAll.find((f) => f.name === "Reprovados");
   const funnelTopo = Number(funnel[0]?.value ?? 0) || 1;
 
   const isLoading = det.isLoading || skel.isLoading || prod.isLoading;
@@ -1059,6 +1062,28 @@ function DesenvolvimentoTab() {
               </div>
             );
           })}
+          {funnelReprov && (
+            <div className="border-t pt-2">
+              <div className="flex justify-between text-sm">
+                <span>
+                  Reprovados <span className="text-xs text-muted-foreground">· fora do funil</span>
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {fmtNum(funnelReprov.value)} ·{" "}
+                  {Math.round((Number(funnelReprov.value ?? 0) / funnelTopo) * 100)}%
+                </span>
+              </div>
+              <div className="mt-1 h-2 overflow-hidden rounded bg-muted">
+                <div
+                  className="h-full rounded"
+                  style={{
+                    width: `${Math.round((Number(funnelReprov.value ?? 0) / funnelTopo) * 100)}%`,
+                    background: CHART_DIVERGE_POS,
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Card>

@@ -11,8 +11,8 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
 // Tudo em txn revertida (nada grava). Sem fixture o teste FALHA alto (nunca passa vazio).
 
 const MD5_DEPOIS: Record<string, string> = {
-  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "57e0d5ca84dab8c969169e25165a5df3",
-  "public._dashboard_producao_core(date,date,text,uuid)": "f94982d5d369222d0a4b3330b67a204a",
+  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "9435f724d61227a7014d95a95cf7fac5",
+  "public._dashboard_producao_core(date,date,text,uuid)": "36380897191bbdbae954f85a2afd4914",
   "public._otb_orcamento_core(uuid,uuid)": "33137a0e34808d098f084f3891a61913",
   "public._otb_colecao_totais(uuid)": "4e27b6098b2197ec5239118278341f12",
 };
@@ -49,17 +49,22 @@ const ESPERADO_SQL = `
            (coalesce(mo.enviado_cad,false) or (mo.origem in ('revenda','importado')
              and exists (select 1 from cad c where c.modelo_id = mo.id))) ec,
            coalesce(mo.lancado,false) lanc,
-           (mo.ordem_criacao_enviada or (mo.origem in ('revenda','importado') and mo.status_planejamento is not distinct from 'planejado')) dev
+           (mo.ordem_criacao_enviada or (mo.origem in ('revenda','importado') and mo.status_planejamento is not distinct from 'planejado')) dev,
+           (lower(coalesce(mo.status_desenvolvimento,'')) = 'reprovado'
+             or lower(coalesce(mo.status_planejamento,'')) = 'reprovado') rep
       from modelos mo where mo.tenant_id = $1)
   select count(*)::int total,
-         count(*) filter (where not ec and not lanc and not dev)::int planejamento,
-         count(*) filter (where not ec and not lanc and dev)::int desenvolvimento,
-         count(*) filter (where ec and not lanc)::int producao,
+         count(*) filter (where not ec and not lanc and not rep and not dev)::int planejamento,
+         count(*) filter (where not ec and not lanc and not rep and dev)::int desenvolvimento,
+         count(*) filter (where ec and not lanc and not rep)::int producao,
          count(*) filter (where lanc)::int lancados,
-         count(*) filter (where ec or lanc or dev)::int funil_dev,
+         count(*) filter (where rep and not lanc)::int reprovados,
+         count(*) filter (where (ec or lanc or dev) and not (rep and not lanc))::int funil_dev,
+         count(*) filter (where (ec or lanc) and not (rep and not lanc))::int funil_prod,
          count(*) filter (where dev)::int kanban_dev,
          count(*) filter (where oce and sp is distinct from 'planejado')::int oce_sp_nao_planejado,
-         count(*) filter (where oce and sp is distinct from 'planejado' and not ec and not lanc)::int oce_sp_nao_planejado_dev
+         count(*) filter (where oce and sp is distinct from 'planejado' and not ec and not lanc and not rep)::int oce_sp_nao_planejado_dev,
+         count(*) filter (where oce and sp is distinct from 'planejado' and rep and not lanc)::int oce_sp_nao_planejado_rep
     from m`;
 
 // P-209 A + P-213 A: reprovado = status_desenvolvimento OU status_planejamento 'reprovado' (regra da Integração).
@@ -119,6 +124,8 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       if (lojas.length === 0) throw new Error("fixture ausente: nenhuma loja com modelos");
       let oceSpNaoPlanejado = 0;
       let oceSpNaoPlanejadoDev = 0;
+      let oceSpNaoPlanejadoRep = 0;
+      let reprovadosTotal = 0;
       for (const loja of lojas) {
         await naLoja(c, loja.id);
         const e = await um<any>(c, ESPERADO_SQL, [loja.id]);
@@ -127,15 +134,18 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
         const k = col.kpis;
         expect(k.total, `${loja.nome} total`).toBe(e.total);
         expect(
-          k.planejamento + k.desenvolvimento + k.producao + k.lancados,
+          k.planejamento + k.desenvolvimento + k.producao + k.lancados + k.reprovados,
           `${loja.nome} particao`,
         ).toBe(k.total);
         expect(k.planejamento, `${loja.nome} planejamento`).toBe(e.planejamento);
         expect(k.desenvolvimento, `${loja.nome} desenvolvimento`).toBe(e.desenvolvimento);
         expect(k.producao, `${loja.nome} producao`).toBe(e.producao);
         expect(k.lancados, `${loja.nome} lancados`).toBe(e.lancados);
+        expect(k.reprovados, `${loja.nome} reprovados`).toBe(e.reprovados);
         const fun = (n: string) => Number((col.funnel as any[]).find((f) => f.name === n)?.value);
         expect(fun("Desenvolvimento"), `${loja.nome} funil Dev`).toBe(e.funil_dev);
+        expect(fun("Produção"), `${loja.nome} funil Prod`).toBe(e.funil_prod);
+        expect(fun("Reprovados"), `${loja.nome} funil Reprovados`).toBe(e.reprovados);
         // porLinha: a mesma partição por linha
         const pl = col.porLinha as any[];
         expect(
@@ -151,7 +161,8 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
             Number(l.planejamento) +
               Number(l.desenvolvimento) +
               Number(l.producao) +
-              Number(l.lancados),
+              Number(l.lancados) +
+              Number(l.reprovados),
             `${loja.nome} ${l.nome}`,
           ).toBe(Number(l.total));
         // kanbanDev: mesmo conjunto (todo modelo do conjunto cai numa coluna — a 1ª quando o status não casa)
@@ -159,13 +170,19 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
         expect(kb, `${loja.nome} kanbanDev`).toBe(e.kanban_dev);
         oceSpNaoPlanejado += e.oce_sp_nao_planejado;
         oceSpNaoPlanejadoDev += e.oce_sp_nao_planejado_dev;
+        oceSpNaoPlanejadoRep += e.oce_sp_nao_planejado_rep;
+        reprovadosTotal += e.reprovados;
       }
       // Âncora do plano (cópia): 15 modelos com a ordem enviada e status_planejamento <> 'planejado' (13 Ave Rara, 2
       // Loja Teste), nenhum em Produção/Lançados — todos contam em Desenvolvimento (antes: Planejamento).
       if (oceSpNaoPlanejado === 0)
         throw new Error("fixture ausente: nenhum modelo com oce e sp<>planejado");
       expect(oceSpNaoPlanejado).toBe(15);
-      expect(oceSpNaoPlanejadoDev).toBe(15);
+      // P-215 A (round 3): dos 15, os 13 com status_planejamento 'reprovado' (Ave Rara) vão a "Reprovados"; os 2 da
+      // Loja Teste ('em_planejamento') ficam em Desenvolvimento.
+      expect(oceSpNaoPlanejadoDev).toBe(2);
+      expect(oceSpNaoPlanejadoRep).toBe(13);
+      expect(reprovadosTotal).toBe(14); // Ave Rara: 14 reprovados (Dev OU Planejamento), nenhum lançado
     });
   });
 
@@ -180,11 +197,12 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
         );
       const k0 = await k();
       const kb0 = await kb();
-      // 1) interno com a ordem e status_planejamento 'reprovado' → Desenvolvimento (antes: Planejamento) e no kanbanDev
+      // 1) interno com a ordem e status_planejamento 'em_planejamento' → Desenvolvimento (antes: Planejamento) e no
+      //    kanbanDev. (Com 'reprovado' iria a "Reprovados" — P-215 A, teste próprio abaixo.)
       await novoModelo(c, {
         origem: "interno",
         ordem_criacao_enviada: true,
-        status_planejamento: "reprovado",
+        status_planejamento: "em_planejamento",
       });
       const k1 = await k();
       expect(k1.desenvolvimento).toBe(k0.desenvolvimento + 1);
@@ -216,7 +234,9 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       expect(k5.desenvolvimento).toBe(k4.desenvolvimento);
       expect(await kb()).toBe(kb0 + 2);
       for (const x of [k0, k1, k2, k3, k4, k5])
-        expect(x.planejamento + x.desenvolvimento + x.producao + x.lancados).toBe(x.total);
+        expect(x.planejamento + x.desenvolvimento + x.producao + x.lancados + x.reprovados).toBe(
+          x.total,
+        );
     });
   });
 
@@ -406,6 +426,74 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       ]);
       const r2 = await ler();
       expect(r2).toEqual(r0);
+    });
+  });
+  it("P-215 A: reprovado (Dev OU Planejamento) vai a 'Reprovados'; sair de Reprovado volta ao balde; lançado fica Lançado", async () => {
+    await withTx(async (c) => {
+      await naLoja(c, TENANT_TESTE);
+      await c.query(`select set_config('app.kanban_sistema', 'itest-l4', true)`);
+      const ler = async () => {
+        const col = await rpc(c, `public._dashboard_colecao_core()`);
+        const prod = await rpc(c, `public._dashboard_producao_core()`);
+        const kb = (prod.kanbanDev as any[]).reduce((s, x) => s + Number(x.modelos), 0);
+        const kbRep = Number(
+          (prod.kanbanDev as any[]).find((x) => x.key === "reprovado")?.modelos ?? 0,
+        );
+        const fun = (n: string) => Number((col.funnel as any[]).find((f) => f.name === n)?.value);
+        return {
+          k: col.kpis,
+          kb,
+          kbRep,
+          funDev: fun("Desenvolvimento"),
+          funRep: fun("Reprovados"),
+        };
+      };
+      const soma = (k: any) =>
+        k.planejamento + k.desenvolvimento + k.producao + k.lancados + k.reprovados;
+      const r0 = await ler();
+      expect(soma(r0.k)).toBe(r0.k.total);
+      // 1) interno no Dev, reprovado SÓ no Planejamento → Reprovados (sai de Desenvolvimento e do funil Dev)
+      const a = await novoModelo(c, {
+        ordem_criacao_enviada: true,
+        status_planejamento: "reprovado",
+        status_desenvolvimento: "em_modelagem",
+      });
+      const r1 = await ler();
+      expect(r1.k.reprovados).toBe(r0.k.reprovados + 1);
+      expect(r1.k.desenvolvimento).toBe(r0.k.desenvolvimento);
+      expect(r1.funDev).toBe(r0.funDev);
+      expect(r1.funRep).toBe(r0.funRep + 1);
+      expect(r1.kb).toBe(r0.kb + 1);
+      expect(r1.kbRep).toBe(r0.kbRep + 1); // no gráfico, na coluna Reprovado
+      // 2) reprovado SÓ no Dev → Reprovados
+      const b = await novoModelo(c, {
+        ordem_criacao_enviada: true,
+        status_planejamento: "planejado",
+        status_desenvolvimento: "reprovado",
+      });
+      const r2 = await ler();
+      expect(r2.k.reprovados).toBe(r1.k.reprovados + 1);
+      expect(r2.k.desenvolvimento).toBe(r1.k.desenvolvimento);
+      // 3) sair de Reprovado volta ao balde (Desenvolvimento)
+      await c.query(`update modelos set status_planejamento = 'planejado' where id = $1`, [a]);
+      await c.query(`update modelos set status_desenvolvimento = 'em_modelagem' where id = $1`, [
+        b,
+      ]);
+      const r3 = await ler();
+      expect(r3.k.reprovados).toBe(r0.k.reprovados);
+      expect(r3.k.desenvolvimento).toBe(r0.k.desenvolvimento + 2);
+      expect(r3.funDev).toBe(r0.funDev + 2);
+      expect(r3.kbRep).toBe(r0.kbRep);
+      // 4) lançado + reprovado conta UMA vez, em Lançados
+      await novoModelo(c, {
+        ordem_criacao_enviada: true,
+        status_planejamento: "reprovado",
+        lancado: true,
+      });
+      const r4 = await ler();
+      expect(r4.k.lancados).toBe(r3.k.lancados + 1);
+      expect(r4.k.reprovados).toBe(r3.k.reprovados);
+      for (const r of [r0, r1, r2, r3, r4]) expect(soma(r.k)).toBe(r.k.total);
     });
   });
 });

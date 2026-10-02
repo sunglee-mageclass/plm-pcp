@@ -10,6 +10,11 @@
 --             MESMO criterio. O resto da funcao: igual a R12.
 --             Fix round 2 (M1 da revisao): o termo do comprado usa status_planejamento IS NOT DISTINCT FROM 'planejado'
 --             (NULL-safe) - comprado com status_planejamento NULL cai em Planejamento e a particao fecha (como na R12).
+--   P-215 A   (fix round 3, dono): balde proprio "Reprovados" nos KPIs/funil/porLinha de _dashboard_colecao_core -
+--             reprovado no Dev OU no Planejamento (predicado da P-213 A) e NAO lancado sai de Planejamento/
+--             Desenvolvimento/Producao (e do funil); lancado + reprovado fica em Lancados (lancado e final). Os 5 baldes
+--             somam o total. kanbanDev: o reprovado nao lancado vai para a coluna Reprovado do quadro (fora de
+--             "Aprovado"); total do grafico igual. Comercial (poder de venda) e calculado no site (dashboard-comercial.ts).
 --   Copia 54422 (antes -> depois): Ave Rara Planejamento 15 -> 4, Desenvolvimento 184 -> 195, funil Dev 235 -> 246,
 --   kanbanDev 235 -> 246; Loja Teste Planejamento 7 -> 5, Desenvolvimento 5 -> 7, funil Dev 11 -> 13, kanbanDev 11 -> 13;
 --   Ark Store e French iguais.
@@ -19,10 +24,10 @@
 -- "antes" = o "depois" da R12 (20261022100000_dashboards_fonte_unica.sql), que roda ANTES desta no kit combinado.
 --   public._dashboard_colecao_core(date,date,text,uuid,uuid)
 --     ANTES  5dbe4d89fcaf1c1b77860cb3a8e132c8  -- "depois" da R12 (o "antes" da R12, 07aa235a, CONFIRMADO no Passo 0 dos MEDIOS)
---     DEPOIS 57e0d5ca84dab8c969169e25165a5df3  (este arquivo; reaplicar = no-op)
+--     DEPOIS 9435f724d61227a7014d95a95cf7fac5  (este arquivo; reaplicar = no-op)
 --   public._dashboard_producao_core(date,date,text,uuid)
 --     ANTES  17424a059ae47674e244701f5a0fbfe4  -- "depois" da R12 (o "antes" da R12, 5437c394, CONFIRMADO no Passo 0 dos MEDIOS)
---     DEPOIS f94982d5d369222d0a4b3330b67a204a  (este arquivo; reaplicar = no-op)
+--     DEPOIS 36380897191bbdbae954f85a2afd4914  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda):
 --     public.dashboard_colecao(date,date,text,uuid,uuid)  4e351a33a919a60139518606b50729c3  chamador  -- PROVISORIO (copia): conferir no Passo 0 dos LEVES
 --     public.dashboard_producao(date,date,text,uuid)      8280bd12907d89522a215512a03821b4  chamador  -- PROVISORIO (copia): conferir no Passo 0 dos LEVES
@@ -48,9 +53,9 @@ SET LOCAL transaction_timeout = '10s';
 CREATE TEMP TABLE _l4a_md5_aceitos (assinatura text, md5 text, papel text) ON COMMIT DROP;
 INSERT INTO _l4a_md5_aceitos VALUES
   ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '5dbe4d89fcaf1c1b77860cb3a8e132c8', 'antes'),  -- "depois" da R12
-  ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '57e0d5ca84dab8c969169e25165a5df3', 'depois'),
+  ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '9435f724d61227a7014d95a95cf7fac5', 'depois'),
   ('public._dashboard_producao_core(date,date,text,uuid)', '17424a059ae47674e244701f5a0fbfe4', 'antes'),  -- "depois" da R12
-  ('public._dashboard_producao_core(date,date,text,uuid)', 'f94982d5d369222d0a4b3330b67a204a', 'depois'),
+  ('public._dashboard_producao_core(date,date,text,uuid)', '36380897191bbdbae954f85a2afd4914', 'depois'),
   ('public.dashboard_colecao(date,date,text,uuid,uuid)', '4e351a33a919a60139518606b50729c3', 'dep'),  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
   ('public.dashboard_producao(date,date,text,uuid)', '8280bd12907d89522a215512a03821b4', 'dep');  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
 
@@ -79,7 +84,7 @@ CREATE OR REPLACE FUNCTION public._dashboard_colecao_core(p_inicio date DEFAULT 
 AS $function$
 DECLARE
   v_tenant uuid := public.get_user_tenant_id();
-  v_total int := 0; v_planej int := 0; v_desenv int := 0; v_prod int := 0; v_lanc int := 0;
+  v_total int := 0; v_planej int := 0; v_desenv int := 0; v_prod int := 0; v_lanc int := 0; v_reprov int := 0;
   v_reach_dev int := 0; v_reach_prod int := 0; v_pie jsonb;
   v_por_linha jsonb;
 BEGIN
@@ -89,8 +94,12 @@ BEGIN
   -- nunca vai a Explosao por enviado_cad: conta como "Em Producao" quando ja tem CAD (o receber materializa o CAD) e,
   -- lancado, sai de Planejamento/Desenvolvimento/Producao e entra em Lancados (ruling do controlador, plan.md).
   -- [leves L4, prod #10] "chegou ao Desenvolvimento" (inv. #11) = ordem_criacao_enviada, em qualquer origem. O
-  -- comprado (revenda/importado) SEM a ordem segue pelo status_planejamento, como antes. Os 4 baldes
-  -- (Planejamento/Desenvolvimento/Producao/Lancados) seguem uma particao: somam o total.
+  -- comprado (revenda/importado) SEM a ordem segue pelo status_planejamento, como antes.
+  -- [leves L4 round 3, P-215 A] balde proprio "Reprovados": card reprovado no Dev OU no Planejamento (predicado da
+  -- P-213 A) e NAO lancado sai de Planejamento/Desenvolvimento/Producao. Lancado + reprovado fica em Lancados
+  -- (lancado e final - modelos.lancado, inv. #6 - e so acontece com CQ liberado). Os 5 baldes
+  -- (Planejamento/Desenvolvimento/Producao/Lancados/Reprovados) sao uma particao: somam o total. O funil
+  -- (Desenvolvimento/Producao) tambem tira o reprovado nao lancado e ganha a linha "Reprovados".
   WITH mods AS (
     SELECT mo.id, mo.status_planejamento AS sp,
            (COALESCE(mo.enviado_cad, false)
@@ -98,6 +107,8 @@ BEGIN
            (mo.ordem_criacao_enviada
              OR (mo.origem IN ('revenda','importado') AND mo.status_planejamento IS NOT DISTINCT FROM 'planejado')) AS dev,
            mo.categoria_principal_id AS cat,
+           (lower(COALESCE(mo.status_desenvolvimento,'')) = 'reprovado'
+             OR lower(COALESCE(mo.status_planejamento,'')) = 'reprovado') AS rep,
            COALESCE(mo.lancado, false) AS lanc
     FROM modelos mo
     WHERE mo.tenant_id = v_tenant
@@ -108,16 +119,17 @@ BEGIN
   )
   SELECT
     count(*),
-    count(*) FILTER (WHERE NOT ec AND NOT lanc AND NOT dev),
-    count(*) FILTER (WHERE NOT ec AND NOT lanc AND dev),
-    count(*) FILTER (WHERE ec AND NOT lanc),
+    count(*) FILTER (WHERE NOT ec AND NOT lanc AND NOT rep AND NOT dev),
+    count(*) FILTER (WHERE NOT ec AND NOT lanc AND NOT rep AND dev),
+    count(*) FILTER (WHERE ec AND NOT lanc AND NOT rep),
     count(*) FILTER (WHERE lanc),
-    count(*) FILTER (WHERE ec OR lanc OR dev),
-    count(*) FILTER (WHERE ec OR lanc),
+    count(*) FILTER (WHERE rep AND NOT lanc),
+    count(*) FILTER (WHERE (ec OR lanc OR dev) AND NOT (rep AND NOT lanc)),
+    count(*) FILTER (WHERE (ec OR lanc) AND NOT (rep AND NOT lanc)),
     COALESCE((SELECT jsonb_agg(jsonb_build_object('name', nome, 'value', total))
               FROM (SELECT COALESCE(cp.nome,'Sem categoria') AS nome, count(*) AS total
                     FROM mods LEFT JOIN categorias_produto cp ON cp.id = mods.cat GROUP BY 1) x), '[]'::jsonb)
-  INTO v_total, v_planej, v_desenv, v_prod, v_lanc, v_reach_dev, v_reach_prod, v_pie
+  INTO v_total, v_planej, v_desenv, v_prod, v_lanc, v_reprov, v_reach_dev, v_reach_prod, v_pie
   FROM mods;
 
   -- Destrinche por LINHA — MESMAS 5 métricas dos KPIs, por linha_id (NULL => "Sem linha").
@@ -127,6 +139,8 @@ BEGIN
              OR (mo.origem IN ('revenda','importado') AND EXISTS (SELECT 1 FROM cad c WHERE c.modelo_id = mo.id))) AS ec,
            (mo.ordem_criacao_enviada
              OR (mo.origem IN ('revenda','importado') AND mo.status_planejamento IS NOT DISTINCT FROM 'planejado')) AS dev,
+           (lower(COALESCE(mo.status_desenvolvimento,'')) = 'reprovado'
+             OR lower(COALESCE(mo.status_planejamento,'')) = 'reprovado') AS rep,
            COALESCE(mo.lancado, false) AS lanc
     FROM modelos mo
     WHERE mo.tenant_id = v_tenant
@@ -138,27 +152,29 @@ BEGIN
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'linha_id', linha_id, 'nome', nome,
            'total', total, 'planejamento', planejamento, 'desenvolvimento', desenvolvimento,
-           'producao', producao, 'lancados', lancados
+           'producao', producao, 'lancados', lancados, 'reprovados', reprovados
          ) ORDER BY (linha_id IS NULL), nome), '[]'::jsonb)
   INTO v_por_linha
   FROM (
     SELECT mods.linha_id AS linha_id, COALESCE(l.nome,'Sem linha') AS nome,
       count(*) AS total,
-      count(*) FILTER (WHERE NOT mods.ec AND NOT mods.lanc AND NOT mods.dev) AS planejamento,
-      count(*) FILTER (WHERE NOT mods.ec AND NOT mods.lanc AND mods.dev) AS desenvolvimento,
-      count(*) FILTER (WHERE mods.ec AND NOT mods.lanc) AS producao,
-      count(*) FILTER (WHERE mods.lanc) AS lancados
+      count(*) FILTER (WHERE NOT mods.ec AND NOT mods.lanc AND NOT mods.rep AND NOT mods.dev) AS planejamento,
+      count(*) FILTER (WHERE NOT mods.ec AND NOT mods.lanc AND NOT mods.rep AND mods.dev) AS desenvolvimento,
+      count(*) FILTER (WHERE mods.ec AND NOT mods.lanc AND NOT mods.rep) AS producao,
+      count(*) FILTER (WHERE mods.lanc) AS lancados,
+      count(*) FILTER (WHERE mods.rep AND NOT mods.lanc) AS reprovados
     FROM mods LEFT JOIN linhas l ON l.id = mods.linha_id
     GROUP BY mods.linha_id, COALESCE(l.nome,'Sem linha')
   ) x;
 
   RETURN jsonb_build_object(
-    'kpis', jsonb_build_object('total', v_total, 'planejamento', v_planej, 'desenvolvimento', v_desenv, 'producao', v_prod, 'lancados', v_lanc),
+    'kpis', jsonb_build_object('total', v_total, 'planejamento', v_planej, 'desenvolvimento', v_desenv, 'producao', v_prod, 'lancados', v_lanc, 'reprovados', v_reprov),
     'funnel', jsonb_build_array(
       jsonb_build_object('name','Total','value', v_total),
       jsonb_build_object('name','Desenvolvimento','value', v_reach_dev),
       jsonb_build_object('name','Produção','value', v_reach_prod),
-      jsonb_build_object('name','Lançados','value', v_lanc)
+      jsonb_build_object('name','Lançados','value', v_lanc),
+      jsonb_build_object('name','Reprovados','value', v_reprov)
     ),
     'pie', v_pie,
     'porLinha', v_por_linha,
@@ -250,9 +266,17 @@ BEGIN
     SELECT c.ord, c.key, c.label, (SELECT d.dkey FROM defmap d WHERE d.dlabel = c.label LIMIT 1) AS alias_key FROM cols c
   ),
   firstcol AS (SELECT key FROM cols2 ORDER BY ord LIMIT 1),
+  -- [leves L4 round 3, P-215 A] card reprovado (Dev OU Planejamento, predicado da P-213 A) e nao lancado vai para a
+  -- coluna Reprovado do quadro (a mesma do balde "Reprovados" de _dashboard_colecao_core); sem essa coluna no quadro,
+  -- fica onde esta. Assim nao conta em "Aprovado" (aprovadoNaoLancado). O total do grafico nao muda.
+  repcol AS (SELECT c.key FROM cols2 c WHERE c.key = 'reprovado' OR c.alias_key = 'reprovado' ORDER BY c.ord LIMIT 1),
   mods AS (
     SELECT m.id,
-      COALESCE((SELECT c.key FROM cols2 c WHERE c.key = m.status_desenvolvimento OR c.alias_key = m.status_desenvolvimento ORDER BY c.ord LIMIT 1),
+      COALESCE(CASE WHEN (lower(COALESCE(m.status_desenvolvimento,'')) = 'reprovado'
+                          OR lower(COALESCE(m.status_planejamento,'')) = 'reprovado')
+                     AND NOT COALESCE(m.lancado, false)
+                    THEN (SELECT key FROM repcol) END,
+               (SELECT c.key FROM cols2 c WHERE c.key = m.status_desenvolvimento OR c.alias_key = m.status_desenvolvimento ORDER BY c.ord LIMIT 1),
                (SELECT key FROM firstcol)) AS bucket,
       COALESCE((SELECT SUM(COALESCE(mg.grade_total,0)) FROM modelo_grades mg WHERE mg.modelo_id = m.id), 0) AS grade,
       COALESCE(m.lancado, false) AS lanc
