@@ -9,6 +9,7 @@ import type { GradeRow, TecidoBlock } from "@/components/desenvolvimento/modelo-
 import type { Draft } from "@/components/planejamento/modelo-shared";
 import type { SecaoSheetKey } from "./selos-secoes";
 import { TEXTO_REPROVADO_EXPLOSAO } from "@/lib/erro-mensagem";
+import { ehReprovadoNoGate } from "@/lib/reprovado";
 
 /**
  * `reprovado` (leves L3, R14 msg reprovado): com a chave LIGADA, card em Reprovado não tem posição para os gates (P-190 A,
@@ -36,8 +37,7 @@ export function gateEnvioExplosao(i: {
   const g = podeEnviarExplosao(i.cfg.status_kanban, i.explosaoEnvioStatus, i.statusCru, { statusGate });
   // ≡ SQL _enviar_modelo_para_cad_core (leves L3 + fix round 1 A1): reprovado no Planejamento, ou gate NULL + Dev em
   // 'reprovado' (normalizado) → recusa própria.
-  const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
-  const reprovado = !g.ok && statusGate === null && (norm(i.statusPlanejamento) === "reprovado" || norm(i.statusCru) === "reprovado");
+  const reprovado = !g.ok && statusGate === null && ehReprovadoNoGate(i.statusCru, i.statusPlanejamento);
   const motivo = g.ok ? "" : reprovado ? TEXTO_REPROVADO_EXPLOSAO : `Disponível a partir da etapa "${g.reqLabel}".`;
   return { ok: g.ok, carregando: false, reqLabel: g.reqLabel, reprovado, motivo };
 }

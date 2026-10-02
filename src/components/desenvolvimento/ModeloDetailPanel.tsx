@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
 import { statusParaGate } from "@/lib/kanban-auto";
+import { ehReprovadoNoGate, ehReprovadoStatus } from "@/lib/reprovado";
 import { modeloEnviadoAoKanban } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -1444,9 +1445,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
   // Junção L2+L3 (B10, P-213 A): reprovado = Dev OU Planejamento (status do Planejamento SALVO) ⇒ sem posição em qualquer
   // estado da chave — REF não aparece e Explosão não libera (≡ `_kanban_status_gate` da 20261027140000).
   const statusGate = statusParaGate(kanbanFicha.kanbanCfg.kanban_automatico, kanbanFicha.derivacao, curStatus, kanbanFicha.statusPlanejamento);
-  const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
+  // Revisão final B2: predicados de src/lib/reprovado.ts. `isReprovado` (selo/aviso do Dev) = `ehReprovadoStatus` (sem trim,
+  // como antes); o par com o gate usa `ehReprovadoNoGate` (com trim ≡ `_kanban_norm`/`statusParaGate`), como antes.
+  const isReprovado = ehReprovadoStatus(draft?.status_desenvolvimento);
   const reprovadoSemPosicao = statusGate === null
-    && (isReprovado || (kanbanFicha.statusPlanejamento ?? "").trim().toLowerCase() === "reprovado");
+    && (isReprovado || ehReprovadoNoGate(null, kanbanFicha.statusPlanejamento));
   // Gate de "Enviar à Explosão" (materializa CAD, `enviado_cad=true`) configurável por
   // loja: o modelo pode ser enviado A PARTIR da etapa `tenant_config.explosao_envio_status`
   // (ou de qualquer etapa POSTERIOR na ordem do board). Ausente ⇒ 'aprovado'. Espelha o

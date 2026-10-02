@@ -12,6 +12,7 @@ import { CONDICAO_BY_KEY, requisitosEfetivos } from "./kanban-condicoes";
 import { normalizeKanbanStatuses, type KanbanStatus } from "./kanban-status";
 import { ehOrigemComprada } from "./origem";
 import { lerRevendaConfig } from "./revenda-config";
+import { ehReprovadoNoGate } from "./reprovado";
 
 export type KanbanAutoConfig = {
   kanban_automatico: boolean;
@@ -237,7 +238,7 @@ export function statusParaGate(
 ): string | null {
   // Leves L3 fix round 2 (ruling do controlador, P-213 A + P-190 A): reprovado (Dev OU Planejamento) ⇒ SEM posição em
   // QUALQUER estado da chave (≡ `_kanban_status_gate` da 20261027140000).
-  if (normKey(statusPlanejamento) === "reprovado" || normKey(statusAtual) === "reprovado") return null;
+  if (ehReprovadoNoGate(statusAtual, statusPlanejamento)) return null;
   if (!ligado) return statusAtual ?? null;
   if (!derivacao || !derivacao.derivavel || !derivacao.alvo) return statusAtual ?? null;
   return derivacao.alvo;

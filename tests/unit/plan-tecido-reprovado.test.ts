@@ -10,6 +10,7 @@ import {
   ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, pendenciasResumo, cadEnviadoCorte, statusFornecedorCategoria, arvoreDaDemanda, necessidadePorTecido, necVivoPorVariante, detalheOc, detalheOcColecao,
   ocItensDaSituacao, resumoOcsColecao, contabilizarOc, sobraOc, aComprarVivoPorArtigo, type VinculoDetalhe, type CoberturaVarRow,
 } from "@/lib/plan-tecido/calc";
+import { ehReprovadoStatus, ehReprovadoNoGate } from "@/lib/reprovado";
 import { agruparPorOc, type SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import { linhasOcsPaleta } from "@/components/plan-tecido/PaletaColecao";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
@@ -355,5 +356,20 @@ describe("R15b fix round 3 — cad to-many (inv. #7) e bolinha de fornecedor da 
     const resumo = ler("src/components/plan-tecido/ResumoPanel.tsx");
     expect(resumo).toContain("const slotsCat = (cid: string | null) => venda.filter(");
     expect(resumo).toContain("statusFornecedorCategoria(slotsCat(cid), (aid) => fornecSet.has(aid))");
+  });
+});
+
+describe("Revisão final B2 — as 2 grafias do predicado reprovado em src/lib/reprovado.ts", () => {
+  it("ehReprovadoStatus = lower(coalesce) sem trim (OTB/dashboards/estoque)", () => {
+    expect(ehReprovadoStatus("Reprovado")).toBe(true);
+    expect(ehReprovadoStatus(null, "REPROVADO")).toBe(true);
+    expect(ehReprovadoStatus(" reprovado ")).toBe(false);
+    expect(ehReprovadoStatus("aprovado", null)).toBe(false);
+  });
+  it("ehReprovadoNoGate = lower(btrim(coalesce)) ≡ _kanban_norm (gates/Explosão/REF)", () => {
+    expect(ehReprovadoNoGate(" Reprovado ")).toBe(true);
+    expect(ehReprovadoNoGate(null, " reprovado")).toBe(true);
+    expect(ehReprovadoNoGate(undefined, undefined)).toBe(false);
+    expect(ehReprovadoNoGate("piloto", "aprovado")).toBe(false);
   });
 });
