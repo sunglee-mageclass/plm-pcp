@@ -895,9 +895,10 @@ ganhou campo `aviso?` (armadilha em âmbar no RequisitosStatusDialog) + descriç
 **`separar_enviar_preenchido`** (módulo `cad`; metragem tecido OU qtd a separar aviamento OU qtd a
 enviar etiqueta `cad_etiquetas.quantidade_enviar` > 0). Ver [[project_revenda_explosao_servicos]].
 Candidatas descartadas: preço de venda já existe como
-`preco_venda_preenchido`; "produto acabado vinculado" (revenda) não faz sentido — modelos
-`origem='revenda'` nunca setam `ordem_criacao_enviada=true` (verificado no banco, 0 linhas), não
-entram no kanban de Desenvolvimento. **`cad_confirmado` APOSENTADA → `cad_preenchido` (ago/2026,
+`preco_venda_preenchido`; "produto acabado vinculado" (revenda) não faz sentido — a revenda segue
+fluxo/requisitos PRÓPRIOS (`revenda_kanban_*`). ⚠️ A antiga nota "`origem='revenda'` nunca seta
+`ordem_criacao_enviada=true` (0 linhas)" CAIU: a L4 (out/2026) achou 53 revendas COM ordem enviada na Ave
+Rara (54 na cópia), e o funil do Dashboard usa `ordem_criacao_enviada` para QUALQUER origem (ruling L4 1). **`cad_confirmado` APOSENTADA → `cad_preenchido` (ago/2026,
 `20260812150000_kanban_cad_preenchido.sql`):** 1ª rodada só trocou o LABEL de `cad_confirmado`
 ("CAD confirmado (enviado ao corte)" → "CAD — enviado ao corte"); o dono then decidiu que a
 SEMÂNTICA em si estava errada — o marco correto não é "enviado ao corte" (isso é Serviços/CQ
@@ -950,7 +951,9 @@ rastro (D13/D14 do plano F1). **Com a chave ligada, o recuo automático NUNCA ac
 pré-existente não é apagado pelo motor (só por ação manual, como hoje). **Gates por POSIÇÃO** (REF
 automática — invariante #11 — e Enviar à Explosão/`enviar_modelo_para_cad`) usam, com a chave
 ligada, a posição **DERIVADA** (`alvo`), não o status gravado — `statusParaGate` em
-`kanban-auto.ts` / `_kanban_status_gate` no SQL (G-inicial #6, decisão 10). Desligar restaura via
+`kanban-auto.ts` / `_kanban_status_gate` no SQL (G-inicial #6, decisão 10). **EXCEÇÃO: Reprovado (Dev OU
+Planejamento) NÃO tem posição** — o gate é NULL e nada passa (REF não revela, Explosão não libera), com a chave
+LIGADA OU DESLIGADA (P-190 A + L3 round 2; ver "Achados MÉDIOS + LEVES"). Desligar restaura via
 `kanban_previa_restauracao`/`kanban_restaurar` (lê `kanban_snapshot`, guardado ao ligar/mudar
 config); ambas as tabelas novas (`kanban_snapshot`, `kanban_recalculo_fila`) são
 RLS-ligada-sem-policy + `REVOKE ALL` de PUBLIC/anon/authenticated — só RPC `SECURITY DEFINER` lê.
@@ -1230,10 +1233,16 @@ hora). Volta **LIFO**: `20261021100000_down` ANTES dos inversos da release 9 e a
 funções). Efeito: 8 itens de 5 OCs ainda "encomendadas" com recebida digitada deixam de contar no corte até a loja marcar a OC
 como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a contar a pedida.
 
-## Achados MÉDIOS + LEVES (out/2026, R12–R16 + L1–L8; planos em `.superpowers/sdd/2026-10-01-achados-medios/` e `2026-10-02-leves/`)
+## Achados MÉDIOS + LEVES (out/2026, R12–R16 + L1–L9; planos em `.superpowers/sdd/2026-10-01-achados-medios/` e `2026-10-02-leves/`)
 
 - **Reprovado = UM predicado** (P-213 A): Dev OU Planejamento, `ehReprovadoStatus` em `src/lib/reprovado.ts` (`ehReprovado` de
-  `plan-tecido/calc.ts` delega a ele; não reimplementar). Efeitos: sai da necessidade de tecido do Plan. Tecido e da Demanda
+  `plan-tecido/calc.ts` delega a ele; não reimplementar; os gates por posição — `statusParaGate`, Enviar à Explosão, par do gate no
+  Dev — usam `ehReprovadoNoGate`, do MESMO arquivo, com `trim` ≡ `_kanban_norm`). **SQL canônico:**
+  `lower(coalesce(status_desenvolvimento,''))='reprovado' OR lower(coalesce(status_planejamento,''))='reprovado'` (OTB, dashboards,
+  estoque, Plan. Tecido). Grafias que AINDA divergem (backlog Modularidade: predicado único SQL; hoje sem efeito, os status vêm de
+  selects em minúsculas): kanban/gates/REF = `_kanban_norm` (lower+btrim); Integração compara o lado do Planejamento case-sensitive
+  (`coalesce(status_planejamento,'')='reprovado'` em `_integracao_base`/`_integracao_ler`/`integracao_marcar`/`integracao_previa`/
+  `integracao_listar`). SQL novo usa o canônico (ou `_kanban_norm` se for gate por posição). Efeitos: sai da necessidade de tecido do Plan. Tecido e da Demanda
   (P-198), EXCETO o já enviado ao corte, que continua contando tecido; sai do Poder de venda e das Pendências (P-212) mesmo
   cortado; sai do Realizado, custo e contagem da OTB (P-209); sai da reserva de estoque (tecido e aviamento); no Dashboard vira o
   balde "Reprovados" e sai do Comercial (P-215); NUNCA revela a REF nem passa o gate da Explosão, com a chave do kanban
@@ -1241,10 +1250,15 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
 - **Estoque (R15a):** o item de origem de um rolo conta recebido − baixas e separar é TRANSFERÊNCIA. O painel "Estoque por OC" =
   core (Σ por OC + sem OC); a reserva se reparte por prioridade de vínculo, o último vínculo leva o resto. Picker e
   `ocs_para_rolo` seguem a regra do core. P-203 A: quando um item de OC passa a contar, o banco completa o "Faltou estoque" dos
-  cortes — só o déficit, do mais antigo, com try-lock + SKIP LOCKED + orçamento de 4 s, NUNCA abortando o COMMIT. L6: o
-  REVERTER do corte NÃO completa outros; o estorno "- Metragem" completa; há o botão admin "Reprocessar faltas". P-214 B:
+  cortes — só o déficit, do mais antigo, com try-lock + SKIP LOCKED + orçamento de 4 s, NUNCA abortando o COMMIT. L6: também
+  completa ao trocar o ARTIGO do item da OC ou o RENDIMENTO/unidade do artigo (2 gatilhos adiados `trg_deficit_corte_item_artigo`/
+  `trg_deficit_corte_artigo_rend`, até 50 variantes por evento), no estorno de "- Metragem" (`_reverter_ajuste_estoque_core`) e no
+  botão admin "Reprocessar faltas" (`reprocessar_faltas_corte`); o REVERTER do corte NÃO completa outros. P-214 B:
   correção única dos déficits existentes no deploy, auditada como "Sistema".
-- **Custo e preço:** R16 / P-186 A, custo real: lançado com bruto > 0, senão M.O. prevista; interno = previsto. P-187 A:
+- **Custo e preço:** R16 / P-186 A, custo REAL do modelo interno CORTADO, M.O. POR SERVIÇO: serviço com bloco EXTERNO ativo de
+  bruto (preço × qtd enviada) > 0 conta o LANÇADO, somando o LÍQUIDO (bruto − desconto + multa; pode ser 0); serviço sem esse bloco
+  (inclusive costura/oficina INTERNA) conta a M.O. PREVISTA; "Geral (legado)" sai só se um lançado sem linha própria a substitui;
+  bloco inativo/vazio não conta. Modelo interno NÃO cortado: real = previsto. P-187 A:
   parcela de complemento. P-188 A: insumo por tamanho. L8: insumo somado UMA vez; o preço de revenda/importado segue a BOM de
   insumo; P-207 A: regras de cotação, no produto e na OC de importado, só quando há valor de compra. L9: a OC de aviamento
   guarda o preço, pré-preenchido da cor e depois do preço geral (P-206 A / P-216 A); cor obrigatória com 2+ cores quando a
@@ -1255,14 +1269,25 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   acompanha. L6: Pós [C1]; Voltar CQ limpa; `producao_terceirizados.ativo` NOT NULL. Ordem de trava: CQ → fonte → `cad_grades`.
 - **Kanban/REF/SKU (L3):** DELETE da fila dentro do bloco protegido. Siglas só letras; formato da REF exige "numero". Réplica de
   SKU só dentro da mesma família. P-210 A: exceções ocultas. P-211 A: prévia + revelar no salvar da Config. Salvar a etapa da
-  REF junto com o kanban é RECUSADO.
+  REF junto com o kanban é RECUSADO. Card que SAI de Reprovado no Planejamento só revela a REF na PRÓXIMA mudança
+  relevante do card: `fn_modelo_ref_auto` (BEFORE UPDATE) consulta `_kanban_status_gate`, que lê a linha GRAVADA (ainda
+  reprovada) — nada revela "sozinho" na hora (aceito na re-review L3, preocupação 2).
 - **Integração (R14):** SKU desatualizado é falta; sublinhas são comparadas; Voltar/Desfazer recalculam o preço; vincular
   produto traz a REF ao card. P-199: "abrir card" abre o Sheet no lugar.
 - **Front (L1/L2/L7):** DateField: ano 1900–2100, estouro rejeitado, `onCommit`. Financeiro pagina além de 1000 linhas; parcela
   paga de OC cancelada permanece. `PlanejamentoDetail` usa o guard `hostGuardaNavegacao`. Plan. Tecido: desempate D5 por
   `created_at`, depois `modelo_id`; a visão "oc" da gaveta usa `sobraOc`.
-- **Volta LIFO (só as chaves):** os downs da L6 ANTES do `_down_drop` da R15a; L5 antes da release 8; L3 antes da R14; L4
-  antes da R12; R16 antes da R12; R15b antes da R11.
+- **Volta LIFO (só as chaves; desfaz na ordem INVERSA da aplicação):** L9 antes da R16 (`20261026100000_down` exige
+  `_recalcular_parcelas_core` 3dcb59e6); L8 antes da R14 (`20261024200000_down` exige `_pa_recomputar_precos_modelo` 3782da3c); L5
+  antes da release 8; L3 antes da R14; L4 antes da R12; R16 antes da R12; R15b antes da R11. **R15a × L6:** os downs da L6 vêm
+  ANTES do `_down` e do `_down_drop` da R15a, e o `_down` da P-214 (`20261025310000`) entre eles. **Freio de P-203 = `_down` da L6
+  (`20261028120000`) e DEPOIS o `_down` da R15a (`20261025300000`)** — este RECUSA (P0001) enquanto
+  `fn_completar_deficit_corte_artigo`/`reprocessar_faltas_corte` não estiverem com o texto NEUTRO do `_down` da L6 (md5
+  7e4b933c/cc00b41f; a L6 chama o mesmo helper `_completar_deficit_corte_variante` por 3 caminhos — sem isso o freio seria parcial
+  e calado). **Inversos ANTIGOS que recusam (md5) enquanto o kit está no banco** — desfazer antes a release do kit indicada: R13
+  antes de `20261006120000`; R14 antes de `20261013100000` e `20261018100000`; L3 antes de `20261008100000` (Integração delta 7) e
+  `20261013100000`; R16, L8 e L9 antes de `20261002100000`; L8 antes de `20261014100000`, `20261016100000` e `20261017100000`; R16
+  antes de `20261019100000`, `20261020110000` e `20261020120000` (a recusa é a proteção; a ordem certa sai da LIFO).
 
 ## O que NÃO fazer
 
