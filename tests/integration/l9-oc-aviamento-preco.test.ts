@@ -517,7 +517,24 @@ describe.skipIf(!RODA)(
       await withTx(async (c) => {
         const fx = await prepara(c);
         const PREVIA = readFileSync(ROOT + "supabase/consultas/l9_preco_previa.sql", "utf8");
-        const previa = async () => um<{ avi_congelar: string; tec_congelar: string }>(c, PREVIA);
+        const previa = async () =>
+          um<{
+            avi_congelar: string;
+            tec_congelar: string;
+            tec_ocs_total_muda: string;
+            tec_modelos_custo_muda: string;
+            tec_custo_dif_max: string;
+          }>(c, PREVIA);
+        // [fix round 1] as 3 contagens aprovadas da prévia viram as GUCs da correção
+        const gucs = async (
+          p: { avi_congelar: string; tec_congelar: string; tec_ocs_total_muda: string },
+          extraAvi = 0,
+        ) =>
+          c.query(
+            `select set_config('app.l9_esperado_avi', $1, true), set_config('app.l9_esperado_tec', $2, true),
+                    set_config('app.l9_esperado_tec_ocs_total_muda', $3, true)`,
+            [String(Number(p.avi_congelar) + extraAvi), p.tec_congelar, p.tec_ocs_total_muda],
+          );
         // fixtures com preço vazio: OC de aviamento recebida + encomendada; item de tecido de OC recebida
         const ocR = await salvar(c, null, ocPayload(fx, "L9-FIX-R", "recebido"), [
           {
@@ -574,10 +591,8 @@ describe.skipIf(!RODA)(
           ),
         );
         expect(semGuc.message).toContain("falta SET app.l9_esperado_avi");
-        await c.query(
-          `select set_config('app.l9_esperado_avi', $1, true), set_config('app.l9_esperado_tec', $2, true)`,
-          [String(Number(p1.avi_congelar) + 1), p1.tec_congelar],
-        );
+        expect(Number(p1.tec_ocs_total_muda)).toBe(0); // o item de tecido vazio vale o mesmo que o cabeçalho já tem
+        await gucs(p1, 1);
         const errada = await erroDe(c, () =>
           aplicarArquivo(
             c,
@@ -586,10 +601,7 @@ describe.skipIf(!RODA)(
         );
         expect(errada.message).toContain("contagem diferente da previa");
 
-        await c.query(
-          `select set_config('app.l9_esperado_avi', $1, true), set_config('app.l9_esperado_tec', $2, true)`,
-          [p1.avi_congelar, p1.tec_congelar],
-        );
+        await gucs(p1);
         await aplicarArquivo(
           c,
           "supabase/migrations/20261029110000_oc_preco_congelar_correcao_unica.sql",
@@ -651,10 +663,7 @@ describe.skipIf(!RODA)(
         );
         // recongela pelo preço de hoje
         const p3 = await previa();
-        await c.query(
-          `select set_config('app.l9_esperado_avi', $1, true), set_config('app.l9_esperado_tec', $2, true)`,
-          [p3.avi_congelar, p3.tec_congelar],
-        );
+        await gucs(p3);
         await aplicarArquivo(
           c,
           "supabase/migrations/20261029110000_oc_preco_congelar_correcao_unica.sql",
@@ -662,6 +671,71 @@ describe.skipIf(!RODA)(
         expect((await congelados()).filter((r) => r.id !== editado).map((r) => r.preco)).toEqual([
           5, 5,
         ]);
+      });
+    });
+
+    it("[fix round 1, M1/L2] OC de tecido recebida com cabeçalho ≠ total pelo preço congelado: a prévia conta e a correção recusa sem o OK; custo dos modelos aparece na prévia", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const PREVIA = readFileSync(ROOT + "supabase/consultas/l9_preco_previa.sql", "utf8");
+        const previa = async () =>
+          um<{
+            avi_congelar: string;
+            tec_congelar: string;
+            tec_ocs_total_muda: string;
+            tec_modelos_custo_muda: string;
+            tec_custo_dif_max: string;
+          }>(c, PREVIA);
+        // item de tecido de OC NÃO rolo recebida: vira vazio e o cabeçalho da OC fica "do preço antigo" (+ 1,00)
+        const alvo = await um<{ item: string; oc: string } | undefined>(
+          c,
+          `select it.id item, o.id oc from ocs_tecido_itens it join ocs_tecido o on o.id = it.oc_tecido_id
+             left join artigos a on a.id = it.artigo_id left join variantes_tecido vt on vt.id = it.variante_tecido_id
+            where o.status = 'recebido' and not coalesce(o.is_rolo, false) and o.tenant_id = $1
+              and coalesce(vt.preco, a.preco) is not null and not coalesce(it.cancelado, false)
+            order by it.id limit 1`,
+          [T],
+        );
+        if (!alvo)
+          throw new Error(
+            "fixture ausente: item de OC de tecido (não rolo) recebida com preço no cadastro",
+          );
+        await c.query(`update ocs_tecido_itens set preco = null where id = $1`, [alvo.item]);
+        const p0 = await previa();
+        expect(Number(p0.tec_ocs_total_muda)).toBe(0);
+        await c.query(
+          `update ocs_tecido set valor_real_total = coalesce(valor_real_total, 0) + 1 where id = $1`,
+          [alvo.oc],
+        );
+        const p1 = await previa();
+        expect(Number(p1.tec_ocs_total_muda)).toBe(1);
+        expect(Number(p1.tec_modelos_custo_muda)).toBeGreaterThanOrEqual(0);
+        expect(Number(p1.tec_custo_dif_max)).toBeGreaterThanOrEqual(0);
+        const corr = "supabase/migrations/20261029110000_oc_preco_congelar_correcao_unica.sql";
+        // só as 2 contagens antigas: recusa (falta a 3ª); com a 3ª errada (0): recusa
+        await c.query(
+          `select set_config('app.l9_esperado_avi', $1, true), set_config('app.l9_esperado_tec', $2, true)`,
+          [p1.avi_congelar, p1.tec_congelar],
+        );
+        const falta = await erroDe(c, () => aplicarArquivo(c, corr));
+        expect(falta.message).toContain("app.l9_esperado_tec_ocs_total_muda");
+        await c.query(`select set_config('app.l9_esperado_tec_ocs_total_muda', '0', true)`);
+        const recusa = await erroDe(c, () => aplicarArquivo(c, corr));
+        expect(recusa.message).toContain(
+          "OCs de tecido com total diferente do preco congelado: 1 x esperado 0",
+        );
+        // com o OK do dono (1): congela
+        await c.query(`select set_config('app.l9_esperado_tec_ocs_total_muda', '1', true)`);
+        await aplicarArquivo(c, corr);
+        expect(
+          (
+            await um<{ p: string | null }>(
+              c,
+              `select preco::text p from ocs_tecido_itens where id = $1`,
+              [alvo.item],
+            )
+          ).p,
+        ).not.toBeNull();
       });
     });
   },

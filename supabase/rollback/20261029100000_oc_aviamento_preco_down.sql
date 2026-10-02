@@ -1,8 +1,13 @@
 -- INVERSO de supabase/migrations/20261029100000_oc_aviamento_preco.sql (achados LEVES L9: fin #8 P-206 A + est #5 P-208 A).
 -- Devolve o texto de ANTES das 4 funcoes: gerar_parcelas_oc_aviamento, _recalcular_parcelas_core (= DEPOIS da R16),
 -- _dashboard_financeiro_core e _salvar_oc_aviamento_core de 4 args (sem preco da compra, sem cor obrigatoria).
--- A COLUNA ocs_aviamento_itens.preco FICA (inerte: nenhuma funcao a le depois da volta; os precos digitados ficam guardados
--- e voltam a valer se a ida for reaplicada). Efeito: o valor das OCs de aviamento volta a seguir o preco do CADASTRO (o
+-- A COLUNA ocs_aviamento_itens.preco FICA (inerte: nenhuma funcao a le depois da volta; os precos digitados ficam guardados).
+-- [fix round 1, L1] CUIDADO ao REAPLICAR a ida depois desta volta: com o core antigo no ar, um save pode TROCAR o
+-- aviamento_id de um item sem tocar o preco - reaplicada a ida, esse item passaria a valer o preco do aviamento ANTIGO.
+-- Por isso o kit: (1) ANTES desta volta guarda (id, aviamento_id) dos itens com preco
+-- (\copy (select id, aviamento_id from ocs_aviamento_itens where preco is not null) to 'l9-itens-pre-down.csv' csv header);
+-- (2) ANTES de reaplicar a ida roda supabase/consultas/l9_reaplicar_checagem.sql e anula (preco = NULL, vale o cadastro)
+-- os itens listados, com OK do dono. Roteiro: supabase/consultas/l9_kit_roteiro.md. Efeito: o valor das OCs de aviamento volta a seguir o preco do CADASTRO (o
 -- proximo recalculo de uma OC recebida refaz as parcelas nao pagas pelo cadastro). Apagar a coluna e o
 -- 20261029100000_oc_aviamento_preco_down_drop.sql, separado (PERDE os precos digitados).
 -- Guarda: so roda se as 4 estao EXATAMENTE com o texto da ida (md5 de depois) e as dependencias seguem com o texto

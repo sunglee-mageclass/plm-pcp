@@ -18,8 +18,17 @@
 --     copia: 14 modelos, 1 muda R$ 0,01 por arredondamento kg->m). Cortados nao mudam (P-169 A).
 --   * rev das OCs tocadas sobe (fn_colab_bump_*): tela aberta faz o merge de sempre. Rodar em horario calmo.
 -- PREVIA OBRIGATORIA NO KIT: supabase/consultas/l9_preco_previa.sql (READ ONLY + ROLLBACK), DEPOIS da 20261029100000.
+-- Roteiro do kit: supabase/consultas/l9_kit_roteiro.md. PARA e pergunta ao dono se, em producao:
+--   * avi_ocs_parc_mudam > 0 (parcelas de OC de aviamento recebida iriam para o preco de hoje), ou
+--   * tec_ocs_total_muda > 0 [fix round 1, M1]: OC de tecido (nao rolo) recebida cujo valor_real_total NAO bate com o total
+--     pelo preco congelado. Depois da correcao, o proximo alerta/troca (release 9: _aplicar_resolucao_alerta_tecido_core /
+--     _receber_reposicao_troca_core refazem o cabecalho pelos itens) ou re-save da OC Tecido moveria as parcelas nao pagas
+--     para o preco de hoje, calado. Copia: 0 de 10;
+--   * tec_modelos_custo_muda / tec_custo_dif_max [L2] diferentes do que o dono aprovou (custo da peca de modelos nao
+--     cortados recalculado no COMMIT; copia: 1 modelo, R$ 0,01).
 -- Guarda por contagem: com algo a congelar, a sessao TEM de trazer as contagens aprovadas da previa -
---   psql -v ON_ERROR_STOP=1 -c "SET app.l9_esperado_avi='<avi_congelar>'" -c "SET app.l9_esperado_tec='<tec_congelar>'" -f <arquivo>
+--   psql -v ON_ERROR_STOP=1 -c "SET app.l9_esperado_avi='<avi_congelar>'" -c "SET app.l9_esperado_tec='<tec_congelar>'" \
+--     -c "SET app.l9_esperado_tec_ocs_total_muda='<tec_ocs_total_muda>'" -f <arquivo>
 --   (o arquivo reconta COM as linhas travadas e recusa P0001 se mudou). Nada a congelar = no-op (idempotente; sem GUC).
 -- Backup p/ a volta: public._bkp_l9_preco_congelado (tabela, item_id, oc_id, ..., preco_depois); RLS ligada SEM policy +
 -- REVOKE ALL de PUBLIC/anon/authenticated (so o dono do banco le). Reaplicar = recongela so o que estiver vazio (upsert).
@@ -81,6 +90,8 @@ DECLARE
   v_n_avi integer := 0;
   v_n_tec integer := 0;
   v_ocs_receb integer;
+  v_tec_ocs_muda integer;
+  v_esp_tec_ocs text := NULLIF(current_setting('app.l9_esperado_tec_ocs_total_muda', true), '');
 BEGIN
   -- trava os itens candidatos (ordem por id) ANTES de contar: a contagem guardada e a que sera gravada.
   PERFORM 1 FROM public.ocs_aviamento_itens it WHERE it.preco IS NULL ORDER BY it.id FOR UPDATE OF it;
@@ -116,8 +127,25 @@ BEGIN
     RAISE NOTICE 'leves_l9 (correcao): nada a congelar (aviamento 0, tecido 0; sem preco no cadastro: % / %) - no-op', v_avi_sem, v_tec_sem;
     RETURN;
   END IF;
-  IF v_esp_avi IS NULL OR v_esp_tec IS NULL THEN
-    RAISE EXCEPTION 'leves_l9 (correcao): falta SET app.l9_esperado_avi / app.l9_esperado_tec com as contagens da previa (agora: aviamento %, tecido %)', v_avi, v_tec
+  -- [fix round 1, M1] OCs de tecido NAO rolo recebidas tocadas cujo cabecalho nao bate com o total pelo preco congelado
+  -- (mesma conta de tec_ocs_total_muda da previa e do alerta/troca da release 9).
+  SELECT count(*) INTO v_tec_ocs_muda
+    FROM public.ocs_tecido o
+   WHERE o.id IN (SELECT t.oc_id FROM _l9_alvo t WHERE t.tabela = 'ocs_tecido_itens' AND t.p IS NOT NULL)
+     AND NOT COALESCE(o.is_rolo, false)
+     AND round(COALESCE(o.valor_real_total, 0), 2) IS DISTINCT FROM
+         (SELECT round(COALESCE(SUM(COALESCE(i2.quantidade_recebida, 0) * COALESCE(i2.preco, v2.preco, a2.preco, 0)), 0), 2)
+            FROM public.ocs_tecido_itens i2
+            LEFT JOIN public.variantes_tecido v2 ON v2.id = i2.variante_tecido_id
+            LEFT JOIN public.artigos a2 ON a2.id = i2.artigo_id
+           WHERE i2.oc_tecido_id = o.id AND NOT COALESCE(i2.cancelado, false));
+
+  IF v_esp_avi IS NULL OR v_esp_tec IS NULL OR v_esp_tec_ocs IS NULL THEN
+    RAISE EXCEPTION 'leves_l9 (correcao): falta SET app.l9_esperado_avi / app.l9_esperado_tec / app.l9_esperado_tec_ocs_total_muda com as contagens da previa (agora: aviamento %, tecido %, OCs de tecido com total diferente %)', v_avi, v_tec, v_tec_ocs_muda
+      USING ERRCODE = 'P0001';
+  END IF;
+  IF v_esp_tec_ocs IS DISTINCT FROM v_tec_ocs_muda::text THEN
+    RAISE EXCEPTION 'leves_l9 (correcao): OCs de tecido com total diferente do preco congelado: % x esperado % - rodar a previa de novo e conferir com o dono', v_tec_ocs_muda, v_esp_tec_ocs
       USING ERRCODE = 'P0001';
   END IF;
   IF v_esp_avi IS DISTINCT FROM v_avi::text OR v_esp_tec IS DISTINCT FROM v_tec::text THEN
@@ -143,8 +171,8 @@ BEGIN
   IF v_n_avi <> v_avi OR v_n_tec <> v_tec THEN
     RAISE EXCEPTION 'leves_l9 (correcao): gravou % / % (esperado % / %) - nada muda', v_n_avi, v_n_tec, v_avi, v_tec USING ERRCODE = 'P0001';
   END IF;
-  RAISE NOTICE 'leves_l9 (correcao): aviamento % item(ns) congelado(s) (% OC(s) recebida(s) com parcelas recalculadas); tecido % item(ns); sem preco no cadastro (ficam vazios): aviamento %, tecido %',
-    v_n_avi, v_ocs_receb, v_n_tec, v_avi_sem, v_tec_sem;
+  RAISE NOTICE 'leves_l9 (correcao): aviamento % item(ns) congelado(s) (% OC(s) recebida(s) com parcelas recalculadas); tecido % item(ns) (% OC(s) com total diferente, aprovadas); sem preco no cadastro (ficam vazios): aviamento %, tecido %',
+    v_n_avi, v_ocs_receb, v_n_tec, v_tec_ocs_muda, v_avi_sem, v_tec_sem;
 END $corrige$;
 
 DO $pos$
