@@ -1,5 +1,5 @@
 // Integração — aba "Campos da API" (mockup 6/6b/6-confirm; SÓ super admin — v4/P-81 A: o servidor recusa os outros).
-// Lista os 18 campos na ordem FIXA; desmarcar um do layout (1–17) pede "Tem certeza?"; Salvar pede "Confirmar mudança de
+// Lista os 21 campos na ordem FIXA; desmarcar um do layout (1–17) pede "Tem certeza?"; Salvar pede "Confirmar mudança de
 // campos". Grava por integracao_salvar_config com o rev CONGELADO na 1ª edição (P0409 se outra pessoa salvou).
 //
 // Adaptações do controlador sobre o brief da Task 14 (ver task-14-report.md):

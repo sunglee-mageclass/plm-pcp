@@ -993,6 +993,8 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 semana: null, empresa_id: null, representante_id: null, ref_fornecedor: "", composicao: "",
                 grade_proporcao: {}, qtd_total: 0, valor_unitario: 0, desconto_pct: 0, insumos_total: 0,
                 markup_atacado: null, markup_varejo: null, variantes: [],
+                // Release I3: `_limpar_produto_acabado_core` também zera as 2 colunas novas (regra do dono).
+                categoria_tecido_id: null, material_aviamento_id: null,
                 // Fix round (L-2): `_limpar_produto_acabado_core` também zera `tamanho_tipo` no banco
                 // (task-1-2-report.md) — espelha aqui os dois lados (tipo + base) senão o draft local
                 // ficaria "sujo" pra um estado já persistido (mesmo motivo do rebaseline acima).

@@ -56,16 +56,18 @@ export function textoDetalhe(l: LinhaLog): string {
         const k = obj(d.keywords);
         return `Keywords da loja: "${txt(k.antes) ?? ""}" → "${txt(k.depois) ?? ""}" (salvo)`;
       }
+      // Release I3 (P-220 A): reprocesso dos 3 campos informativos nos Integráveis (texto próprio).
+      if (d.reprocesso === "campos_informativos") return "Retrato atualizado com Coleção, Categoria do Tecido Principal e Linha (valores de hoje)";
       // P-126 (reprocessamento cirúrgico do nome das sublinhas ao trocar a cor no nome / mudar cor no cadastro):
       // `Sistema (cor no nome das sublinhas)` grava {reprocesso:'nome_sublinhas_cor', exemplo:{antes,depois}, sublinhas}.
       // Follow-up do controlador: o banco loga TODO integrável reprocessado, mesmo sem mudança de nome
       // (sublinhas:0, nomes_antes:[], exemplo:null) — texto próprio, sem "→ (0 sublinhas)".
-      if (d.reprocesso === "campos_informativos") return "Retrato atualizado com Coleção, Categoria do Tecido Principal e Linha (valores de hoje)";
-      if (d.reprocesso) {
+      if (d.reprocesso === "nome_sublinhas_cor") {
         if (Number(d.sublinhas ?? 0) === 0) return "Retrato atualizado com a regra nova do nome (sem mudança de nome)";
         const ex = obj(d.exemplo);
         return `Nome das sublinhas atualizado com a cor: "${txt(ex.antes) ?? ""}" → "${txt(ex.depois) ?? ""}" (${Number(d.sublinhas ?? 0)} sublinhas)`;
       }
+      if (d.reprocesso) return "Retrato reprocessado pelo sistema";
       const partes = Object.entries(obj(d.campos)).map(([col, x]) => {
         const ad = obj(x);
         return `${ROTULO_COLUNA[col] ?? col}: ${valorColuna(col, ad.antes)} → ${valorColuna(col, ad.depois)}`;

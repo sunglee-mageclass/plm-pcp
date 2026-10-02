@@ -481,7 +481,13 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   const travado = trava.tipo === "leitura" && trava.travado;
   if (campo.tipo === "somente_leitura") {
     const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : campo.key === "categoria_tecido" ? infoCategoriaTecido(p.origem) : (campo.info ?? null);
-    return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} cardNome={p.raw.nome} />;
+    const textoLeitura = valorCelula(p, campo.key, null);
+    if (!campo.obrigatorio) {
+      // Release I3 (P-219 A): Coleção / Categoria do Tecido Principal / Linha NÃO travam — sem cadeado nem "travado".
+      const partes = [infoNatural, textoLeitura === "—" ? "vazio — não bloqueia" : null, usaRetrato(p) ? "o retrato guarda o valor de quando ficou Integrável" : null].filter(Boolean);
+      return <Leitura texto={textoLeitura} info={partes.join(" · ")} aviso={aviso} travado={false} cardId={p.modeloId} cardNome={p.raw.nome} />;
+    }
+    return <Leitura texto={textoLeitura} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} cardNome={p.raw.nome} />;
   }
   if (campo.key === "metatag") {
     const texto = p.estado === "nao_integravel" ? (String(r.valores.descricao_produto ?? "").trim() || "—") : valorCelula(p, "metatag", null);

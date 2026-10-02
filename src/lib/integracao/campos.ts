@@ -15,7 +15,9 @@ export type CampoDef = {
   key: CampoKey; rotulo: string; rotuloCurto: string; layout: boolean; soVariante: boolean; tipo: TipoCampo;
   /** Vem marcado numa loja NOVA (_integracao_padrao()): 1–17 + 19–21; Foto nasce desmarcada. */
   padrao: boolean;
-  /** false = a falta NÃO bloqueia integrar (_integracao_opcionais(): Coleção, Categoria do Tecido Principal, Linha). */
+  /** true = o campo conta como FALTA quando está vazio E marcado na seleção da loja (bloqueia integrar). false = a falta
+   *  NÃO bloqueia (_integracao_opcionais(): Coleção, Categoria do Tecido Principal, Linha). Foto é obrigatória SE
+   *  marcada; por isso o selo dela é "opcional" (= nasce desmarcada, `padrao:false`), não "não obrigatório". */
   obrigatorio: boolean;
   coluna: ColunaEditavel | null; gate: GateKey | null; info?: string;
 };
@@ -40,9 +42,9 @@ export const CAMPOS: readonly CampoDef[] = [
   { key: "largura", rotulo: "Largura", rotuloCurto: "Larg.", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "medida", coluna: "largura_cm", gate: "planejamento" },
   { key: "altura", rotulo: "Altura", rotuloCurto: "Alt.", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "medida", coluna: "altura_cm", gate: "planejamento" },
   { key: "foto", rotulo: "Foto", rotuloCurto: "Foto", layout: false, padrao: false, obrigatorio: true, soVariante: false, tipo: "fotos", coluna: "fotos_modelo", gate: "compartilhado" },
-  { key: "colecao", rotulo: "Coleção", rotuloCurto: "Coleção", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da coleção do produto. Não obrigatório: vazio não bloqueia." },
-  { key: "categoria_tecido", rotulo: "Categoria do Tecido Principal", rotuloCurto: "Cat. do tecido", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — categoria do Tecido 1 do produto. Não obrigatório: vazio não bloqueia." },
-  { key: "linha", rotulo: "Linha", rotuloCurto: "Linha", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da linha do produto. Não obrigatório: vazio não bloqueia." },
+  { key: "colecao", rotulo: "Coleção", rotuloCurto: "Coleção", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da coleção do produto." },
+  { key: "categoria_tecido", rotulo: "Categoria do Tecido Principal", rotuloCurto: "Cat. do tecido", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — categoria do Tecido 1 do produto." },
+  { key: "linha", rotulo: "Linha", rotuloCurto: "Linha", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da linha do produto." },
 ];
 export const CAMPO_BY_KEY: Map<CampoKey, CampoDef> = new Map(CAMPOS.map((c) => [c.key, c]));
 export const LAYOUT_KEYS: CampoKey[] = CAMPOS.map((c) => c.key);
@@ -75,9 +77,9 @@ export function rotuloDaColuna(coluna: ColunaEditavel): string {
 }
 // Release I3: de onde vem a "Categoria do Tecido Principal" conforme a origem do produto.
 export function infoCategoriaTecido(origem: string): string {
-  if (origem === "revenda") return "Só leitura — revenda: vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", se for Acessórios) do card do Produto Acabado. Vazio não bloqueia.";
-  if (origem === "importado") return "Só leitura — importado: vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", se for Acessórios) do card do Produto Importado. Vazio não bloqueia.";
-  return "Só leitura — categoria principal do Tecido 1 do produto. Vazio não bloqueia.";
+  if (origem === "revenda") return "Só leitura — revenda: vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", se for Acessórios) do card do Produto Acabado.";
+  if (origem === "importado") return "Só leitura — importado: vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", se for Acessórios) do card do Produto Importado.";
+  return "Só leitura — categoria principal do Tecido 1 do produto.";
 }
 export function infoCusto(origem: string): string {
   if (origem === "revenda") return "Só leitura — revenda: valor da OC (bruto − desconto) + insumos.";

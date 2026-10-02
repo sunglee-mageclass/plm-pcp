@@ -22,6 +22,11 @@ describe("Log — detalhe legível (mockup 8)", () => {
     expect(textoDetalhe(l("editar", { reprocesso: "nome_sublinhas_cor", cor_no_nome: "cor_base", sublinhas: 0, nomes_antes: [], exemplo: null })))
       .toBe("Retrato atualizado com a regra nova do nome (sem mudança de nome)");
   });
+  it("Release I3: reprocesso dos campos informativos tem texto próprio; reprocesso desconhecido = texto genérico", () => {
+    expect(textoDetalhe(l("editar", { reprocesso: "campos_informativos", valores: {} })))
+      .toBe("Retrato atualizado com Coleção, Categoria do Tecido Principal e Linha (valores de hoje)");
+    expect(textoDetalhe(l("editar", { reprocesso: "volta_campos_informativos" }))).toBe("Retrato reprocessado pelo sistema");
+  });
   it("ações do super admin", () => {
     expect(textoDetalhe(l("campos", { antes: ["nome"], depois: ["nome", "foto"] }))).toBe('Adicionado "Foto do Modelo" à seleção');
     expect(textoDetalhe(l("campos", { antes: ["nome", "ncm"], depois: ["nome"] }))).toBe('Removido "NCM" da seleção');

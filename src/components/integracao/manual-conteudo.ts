@@ -58,7 +58,7 @@ export const TEXTO_NOME_SUBLINHA =
 
 /** Release I3: Coleção, Categoria do Tecido Principal e Linha (colunas 19–21) são informativas e NÃO obrigatórias. */
 export const TEXTO_COLUNAS_INFORMATIVAS =
-  "As colunas Coleção, Categoria do Tecido Principal e Linha são INFORMATIVAS e não obrigatórias: podem vir null (vazio) quando o produto não tem esse dado. Produtos integrados antes dessa mudança também vêm com essas 3 colunas vazias (null) — o retrato deles não é reescrito. Em revenda/importado, a Categoria do Tecido Principal vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", em Acessórios) do card do produto.";
+  "As colunas Coleção, Categoria do Tecido Principal e Linha são INFORMATIVAS e não obrigatórias: podem vir vazias (null) quando o produto não tem esse dado. Os produtos integrados antes dessa mudança não têm o retrato reescrito: numa página só com produtos integrados antes da mudança, essas colunas podem nem aparecer. Em revenda/importado, a Categoria do Tecido Principal vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", em Acessórios) do card do produto.";
 
 const CHAVES = CAMPOS.map((c) => c.key);
 const linhaDe = (tipo: "produto" | "variante", v: Record<string, unknown>) => ({ tipo, valores: CHAVES.map((k) => (k in v ? v[k] : null)) });

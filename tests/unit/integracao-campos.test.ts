@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  CAMPOS, CAMPOS_OPCIONAIS, CAMPOS_PADRAO, CAMPO_BY_KEY, CONFIG_API, LAYOUT_KEYS, TEXTO_ALERTA_INTEGRAR, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO,
+  CAMPOS, CAMPOS_OPCIONAIS, infoCategoriaTecido, CAMPOS_PADRAO, CAMPO_BY_KEY, CONFIG_API, LAYOUT_KEYS, TEXTO_ALERTA_INTEGRAR, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO,
   alertaPaginaPlanoGratuito, infoCusto, ordenarCampos, rotuloDoCampoTravado, validarConfigApi,
 } from "@/lib/integracao/campos";
 import { modoCelula } from "@/lib/integracao/celula";
@@ -61,6 +61,12 @@ describe("integracao/campos — regras", () => {
     }
     expect(CAMPO_BY_KEY.get("foto")!.padrao).toBe(false);
     expect(CAMPO_BY_KEY.get("metatag")!.coluna).toBe("descricao_produto"); // Metatag = Descrição
+  });
+  it("infoCategoriaTecido: texto por origem (interno = Tecido 1; revenda/importado = card do produto)", () => {
+    expect(infoCategoriaTecido("interno")).toMatch(/Tecido 1/);
+    expect(infoCategoriaTecido("revenda")).toMatch(/Produto Acabado/);
+    expect(infoCategoriaTecido("importado")).toMatch(/Produto Importado/);
+    expect(infoCategoriaTecido("revenda")).toMatch(/Material do aviamento/);
   });
   it("ordenarCampos: ordem fixa, descarta desconhecidos", () => {
     expect(ordenarCampos(["foto", "xyz", "nome", "ncm"])).toEqual(["nome", "ncm", "foto"]);
