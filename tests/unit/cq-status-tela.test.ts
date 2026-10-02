@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
+import { decidirStatusServidor, deveReaplicarStatusAposErro, mensagemToastPosSavePcp, statusCqDe } from "@/lib/cq-status-tela";
 
 describe("cq-status-tela (R14 M1 / M-A / M-C)", () => {
   it("statusCqDe: sem linha/sem status = pendente", () => {
@@ -80,5 +80,26 @@ describe("retry do P0409 (QA cenário 19)", () => {
     const src = readFileSync("src/routes/_authenticated/expedicao.cq.$modeloId.tsx", "utf8");
     expect(src).toContain("retryEstadoRef.current = { form: b.form, grades: b.grades }");
     expect(src).toContain("const f = retryEstadoRef.current?.form ?? form;");
+  });
+});
+
+describe("deveReaplicarStatusAposErro (R14 N6)", () => {
+  it("erro que não é P0409 relê o CQ", () => {
+    expect(deveReaplicarStatusAposErro({ code: "42501" })).toBe(true);
+    expect(deveReaplicarStatusAposErro(new Error("rede"))).toBe(true);
+    expect(deveReaplicarStatusAposErro(null)).toBe(true);
+  });
+  it("P0409 segue pelo reconcile próprio", () => {
+    expect(deveReaplicarStatusAposErro({ code: "P0409" })).toBe(false);
+  });
+});
+
+describe("mensagemToastPosSavePcp (R13)", () => {
+  it("confirmado -> pendente é o rebaixamento", () => {
+    expect(mensagemToastPosSavePcp("confirmado", "pendente")).toEqual({ rebaixou: true, texto: "O CQ voltou a pendente: a grade real zerou" });
+  });
+  it("confirmado -> confirmado, antes null/pendente e leitura que falhou => neutro", () => {
+    for (const [a, d] of [["confirmado", "confirmado"], [null, "pendente"], ["pendente", "pendente"], ["confirmado", null]] as const)
+      expect(mensagemToastPosSavePcp(a, d)).toEqual({ rebaixou: false, texto: "Salvo com sucesso" });
   });
 });

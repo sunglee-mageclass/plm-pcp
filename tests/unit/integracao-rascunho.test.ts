@@ -612,7 +612,7 @@ describe("Fix round 1 T12b (A-I4/B-I7 a) — validarRascunho espelha as recusas 
 
 // Fix round 1 T12b — revisão B-Minor 12: `mesclar` normaliza (trim/nullif) igual ao servidor antes de decidir se um
 // campo TOCADO virou conflito de verdade — sem isso, o PRÓPRIO save do usuário (texto com espaço a mais, que o
-// servidor grava aparado) reaparecia como "Outra pessoa mudou este campo" contra si mesmo na relista seguinte.
+// servidor grava aparado) reaparecia como "Este campo mudou no servidor" contra si mesmo na relista seguinte.
 describe("Fix round 1 T12b (B-Minor 12) — mesclar normaliza antes de marcar conflito (nunca falso conflito contra o PRÓPRIO save)", () => {
   it("nome com espaço a mais no rascunho X nome aparado que voltou do servidor: NÃO é conflito (mesmo valor normalizado)", () => {
     const r = editar(rascunho(7), "nome", "Blusa Brisa Nova "); // com espaço no fim

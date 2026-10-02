@@ -54,3 +54,29 @@ export function baselineAposMerge<F, G>(p: {
     grades: p.gradeMexeu ? p.aplicarGrade() : p.gradesAtuais,
   };
 }
+
+/** R14 N6: a decisão de status do servidor é PULADA enquanto há ação local em voo. Se a ação falha com algo que não seja
+ *  conflito de versão (P0409 — esse reconcilia por conta própria), o status remoto que chegou nesse meio-tempo ficou
+ *  sem ser aplicado: precisa reler o CQ para o efeito reaplicá-lo. */
+export function deveReaplicarStatusAposErro(e: unknown): boolean {
+  return (e as { code?: string } | null | undefined)?.code !== "P0409";
+}
+
+/** R13: toast do Salvar do PCP. `antes`/`depois` = `controle_qualidade.status` lido ao redor da RPC (void). Só confirmado ->
+ *  pendente é o rebaixamento (grade real zerada); leitura que falhou (null) cai no toast neutro. */
+export function mensagemToastPosSavePcp(antes: string | null, depois: string | null): { rebaixou: boolean; texto: string } {
+  if (antes === "confirmado" && depois === "pendente") return { rebaixou: true, texto: "O CQ voltou a pendente: a grade real zerou" };
+  return { rebaixou: false, texto: "Salvo com sucesso" };
+}
+
+/** N6: no `onError` de uma ação local do CQ, relê a query do CQ quando o erro não é P0409 (reaplica o status remoto ignorado em voo). */
+export function reaplicarStatusCqAposErro(e: unknown, qc: { invalidateQueries: (o: { queryKey: unknown[] }) => unknown }, queryKey: unknown[]): void {
+  if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey });
+}
+
+/** Flag de 1 leitura: devolve o valor e zera (nunca vira bypass permanente — B6). */
+export function consumirFlag(ref: { current: boolean }): boolean {
+  const v = ref.current;
+  ref.current = false;
+  return v;
+}

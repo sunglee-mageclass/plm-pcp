@@ -1136,7 +1136,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     const listaNova = listaRaw([produtoRaw({ rev: 2, raw: { nome: "Nome Do Servidor", ref: "REF0001", tamanho_tipo: "letra" } })]);
     await act(async () => { view.atualizarLista(listaNova); });
     expect(input()!.value).toBe("Meu Nome Editado"); // o meu não some
-    expect(view.container.textContent).toContain("Outra pessoa mudou este campo.");
+    expect(view.container.textContent).toContain("Este campo mudou no servidor (outra tela ou pessoa).");
     await view.desmontar();
   });
 
@@ -1349,7 +1349,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       view.atualizarLista(listaRaw([produtoRaw({ rev: 3, raw: { nome: "Nome De Outra Pessoa", ref: "REF0001", tamanho_tipo: "letra" } })]));
     });
     expect(input()!.value).toBe("Nome Editado Na Janela"); // o meu não some
-    expect(view.container.textContent).toContain("Outra pessoa mudou este campo.");
+    expect(view.container.textContent).toContain("Este campo mudou no servidor (outra tela ou pessoa).");
     await view.desmontar();
   });
 

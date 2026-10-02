@@ -200,6 +200,7 @@ export function IntegracaoPage() {
         <PlanejamentoDetail
           modeloId={cardVisivel}
           contexto="integracao"
+          hostGuardaNavegacao={dirty}
           onClose={() => {
             // M-B: o que o Sheet grava DEPOIS do `onSaved` (SKUs via aplicar/gerar_skus_modelo, que não fazem UPDATE em
             // `modelos` e portanto nem o Realtime avisa) e o "Criar produto acabado" (que só fecha) só chegam à linha

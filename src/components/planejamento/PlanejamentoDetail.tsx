@@ -8,7 +8,7 @@
 //
 // O componente é AUTOSSUFICIENTE quanto às 7 listas de opção: chama
 // `usePlanejamentoOpts()` internamente (o caller passa só modeloId/onClose/onSaved/contexto).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, ArrowLeft, Save, Pencil, Send, Loader2 } from "lucide-react";
@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CONTEXTO_PADRAO, type ContextoDetalhe } from "@/components/planejamento/planejamento-detail/contexto";
+import { consumirFlag } from "@/lib/cq-status-tela";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
@@ -137,6 +138,9 @@ export function PlanejamentoDetail(props: {
   onClose: () => void;
   onSaved: () => void;
   contexto?: ContextoDetalhe;
+  /** R14 L3: o host já tem guarda de navegação suja própria (ex.: Integração com campos sujos)? Então o Sheet NÃO
+   *  bloqueia a navegação de rota (evita prompt em dobro). Default false: o Sheet bloqueia (`blockNav: dirty`). */
+  hostGuardaNavegacao?: boolean;
 }) {
   const [idCriado, setIdCriado] = useState<string | null>(null);
   const id = props.modeloId ?? idCriado;
@@ -144,15 +148,24 @@ export function PlanejamentoDetail(props: {
 }
 
 function PlanejamentoDetailConteudo({
-  modeloId, onClose, onSaved, contexto = CONTEXTO_PADRAO, onCreated,
+  modeloId, onClose: onCloseProp, onSaved, contexto = CONTEXTO_PADRAO, onCreated, hostGuardaNavegacao = false,
 }: {
   modeloId: string | null;
   onClose: () => void;
   onSaved: () => void;
   contexto?: ContextoDetalhe;
+  hostGuardaNavegacao?: boolean;
   /** Card NOVO: chamado com o id depois do INSERT (o wrapper remonta como Sheet desse id). */
   onCreated?: (id: string) => void;
 }) {
+  // R14 L3: com `blockNav`, o `onClose` do host pode NAVEGAR (ex.: limpa ?modelo= da URL) enquanto `dirty` ainda é true
+  // (Descartar, ou fechar após salvar/excluir) — o blocker pediria confirmação DE NOVO. Ao fechar, a navegação passa.
+  const fechandoRef = useRef(false);
+  const onClose = useCallback(() => { fechandoRef.current = true; onCloseProp(); }, [onCloseProp]);
+  // Consome-se sozinho (1 leitura, como o `justClosingRef` do ProdutoAcabadoSheet): nunca vira bypass permanente (B6).
+  const navPermitida = useCallback(() => consumirFlag(fechandoRef), []);
+  // "Criar produto acabado" fecha pelo MESMO caminho do Voltar/X (pede confirmação se sujo) — o hook é chamado antes do guarda.
+  const requestCloseRef = useRef<() => void>(() => {});
   // As 7 listas de opção vêm do hook (cache compartilhado com a página, sem refetch duplo).
   // `artigos` do hook traz a forma completa (com categoria_tecido_id/categorias_tecido, campos
   // que este detalhe não usa) — o antigo `ModeloDialog` recebia `ArtigoOpt[]` na prop, então
@@ -619,7 +632,7 @@ function PlanejamentoDetailConteudo({
   // de seed de MO e de merge do colab, como antes (o seed da grade lê `revRef.current`).
   const revenda = useRevendaPlanejamento({
     modeloId, isEdit, isRevenda, paOn, draft, baseRevendaMarkup, categorias,
-    qc, navigate, contexto, onClose,
+    qc, navigate, contexto, onClose: () => requestCloseRef.current(),
   });
   const { produtoRevenda } = revenda;
   // F3.4 — grade cor × tamanho do COMPRADO (revenda E importado), fonte ÚNICA da grade do comprado (decisão F3 #4). Lê o
@@ -691,7 +704,8 @@ function PlanejamentoDetailConteudo({
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
   const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar);
-  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: !hostGuardaNavegacao, navPermitida });
+  requestCloseRef.current = requestClose;
   const setSim = (patch: Partial<CustoSimInput>) =>
     setDraftTracked((d) => ({ ...d, custo_simulado: { ...d.custo_simulado, ...patch } }));
 

@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { decidirStatusServidor, statusCqDe } from "@/lib/cq-status-tela";
+import { decidirStatusServidor, deveReaplicarStatusAposErro, statusCqDe } from "@/lib/cq-status-tela";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -244,7 +244,11 @@ export const CqPosView = forwardRef<CqPosHandle, {
       await qc.invalidateQueries({ queryKey: ["lancamentos-cards"] });
       await qc.invalidateQueries({ queryKey: ["plan-cq"] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: (e: any) => {
+      // N6 (espelho, B8): a decisão de status do servidor é pulada com ação local em voo; relê p/ reaplicar.
+      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cqpos-cq", cadId] });
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
 
   const desmarcar = useMutation({
@@ -262,7 +266,11 @@ export const CqPosView = forwardRef<CqPosHandle, {
       await qc.invalidateQueries({ queryKey: ["lancamentos-cards"] });
       await qc.invalidateQueries({ queryKey: ["plan-cq"] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
+    onError: (e: any) => {
+      // N6 (espelho, B8): a decisão de status do servidor é pulada com ação local em voo; relê p/ reaplicar.
+      if (deveReaplicarStatusAposErro(e)) qc.invalidateQueries({ queryKey: ["cqpos-cq", cadId] });
+      toast.error(mensagemErro(e, "Erro ao desmarcar"));
+    },
   });
 
   const variantes = variantList.map((v) => ({ num: v.num, label: labelByNumero[v.num] ?? `Variante ${v.num}` }));

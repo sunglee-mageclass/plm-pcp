@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { mensagemToastPosSavePcp } from "@/lib/cq-status-tela";
 import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -926,9 +927,17 @@ export function TerceirizadosDetail({
   const moEstado = moResumo?.estado ?? null;
   const moLinhas = moResumo?.linhas ?? [];
 
+  const cqStatusAntesRef = useRef<string | null>(null);
+  const lerStatusCq = async (cadId: string): Promise<string | null> => {
+    const { data, error } = await supabase.from("controle_qualidade").select("status").eq("cad_id", cadId).maybeSingle();
+    return error ? null : ((data as { status?: string | null } | null)?.status ?? "pendente");
+  };
+
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado para este modelo. Abra o CAD primeiro.");
+      // R13: a RPC devolve void — lê o status do CQ ANTES p/ saber, depois, se o save o rebaixou (grade real zerada).
+      cqStatusAntesRef.current = await lerStatusCq(cad.id);
       // RPC transacional com diff-por-id: preserva ids, atualiza/insere/deleta numa
       // transação (a lógica de `interno` fica aqui; o resto é genérico no banco).
       const _blocos = blocos.map((b) => ({
@@ -983,7 +992,11 @@ export function TerceirizadosDetail({
       if (error) throw error;
     },
     onSuccess: async () => {
-      toast.success("Salvo com sucesso");
+      const antes = cqStatusAntesRef.current;
+      cqStatusAntesRef.current = null;
+      // R13: só com o CQ confirmado antes vale reler o status depois (o toast espera essa leitura, DEPOIS do reset do colab
+      // abaixo — o `await` não pode adiar `baseBlocosRef=null`, senão o eco Realtime do próprio save cai no merge).
+      if (antes !== "confirmado") toast.success("Salvo com sucesso");
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       setEditing(false); // salvar re-trava ambas as abas que já estão finalizadas
       // Colab: limpa o touched/conflitos. Diferente do piloto (OC Tecido FECHA no save), esta
@@ -998,6 +1011,18 @@ export function TerceirizadosDetail({
       conflitosRef.current = [];
       setConflitos([]);
       setUltimoMerge(null);
+      if (antes === "confirmado" && cad?.id) {
+        const cadId = cad.id;
+        void lerStatusCq(cadId).then((depois) => {
+          const msg = mensagemToastPosSavePcp(antes, depois);
+          if (msg.rebaixou) {
+            toast.warning(msg.texto);
+            // O servidor rebaixou em cascata CQ/Pós/Lançado/Direcionamento: as telas abaixo ficam velhas se não invalidar.
+            for (const queryKey of [["cq", cadId], ["cqpos-cq", cadId], ["producao-cq-list"], ["dir-list"], ["lancamentos-cards"], ["plan-cq"]])
+              qc.invalidateQueries({ queryKey });
+          } else toast.success(msg.texto);
+        }).catch(() => toast.success("Salvo com sucesso"));
+      }
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });

@@ -261,7 +261,7 @@ export function mesclar(r: Rascunho, p: ProdutoLista): Rascunho {
   // Fix round 1 T12b (m12/B-Minor 12): `mergeDraft` (`@/lib/colab/merge`, compartilhado por 6 outras telas — NUNCA
   // editado aqui) compara com `igual` CRU, mas o servidor apara/normaliza (`btrim`, `nullif`) antes de gravar
   // (`integracao_salvar`, `_integracao_retrato_core`). Sem normalizar aqui, o PRÓPRIO save do usuário (ex.: digitou
-  // "Blusa " com espaço, o servidor gravou "Blusa" trimado) reaparecia como "Outra pessoa mudou este campo" na
+  // "Blusa " com espaço, o servidor gravou "Blusa" trimado) reaparecia como "Este campo mudou no servidor" na
   // relista seguinte — um falso conflito contra si mesmo. Filtra os conflitos NOVOS cujo texto do rascunho e do
   // fresco são o MESMO valor depois de normalizado pela MESMA régua de `colunasAlteradas`/`normalizado()`.
   const conflitosNovosDeVerdade = m.conflitos.filter((c) => {
@@ -409,7 +409,7 @@ export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | n
  *  arredondado/`<=0`→NULL). Sem isso, a espera guardava os valores CRUS do rascunho ("Blusa " em vez de "Blusa",
  *  preço `0` em vez de `NULL`) — como a espera fica sob a MESMA chave de cache `${id}:${rev}` até o próximo bump
  *  de rev (m-S2), um merge futuro comparando o valor CRU da espera contra o valor NORMALIZADO que o servidor de
- *  fato gravou podia acender um falso "Outra pessoa mudou este campo" (o filtro de convergência do m12 só cobre
+ *  fato gravou podia acender um falso "Este campo mudou no servidor" (o filtro de convergência do m12 só cobre
  *  quando o rascunho NORMALIZADO bate com o fresco — aqui o valor da espera nunca passava por normalização
  *  nenhuma). `fotosFinais` substitui `fotos_modelo` quando o upload terminou (mesmo parâmetro de `payloadItem`);
  *  sem ele, mantém os caminhos já reais do rascunho (nunca os marcadores `novo:`, que só existem ANTES do Salvar).
@@ -426,7 +426,7 @@ export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | n
  *  Normalizar aqui (a v1) gravava na "espera" um valor DIFERENTE do banco (`null` em vez de `0`/`""`, "Blusa" sem
  *  espaço) — na relista seguinte, `mergeDraft`/`igual(base,fresh)` (comparação CRUA, `colab/merge.ts`) via
  *  `mesclar()` comparava esse `base` normalizado contra o `fresh` CRU da lista e via uma diferença que não existe de
- *  verdade no servidor: um falso "Outra pessoa mudou este campo" contra ninguém. O filtro de convergência de
+ *  verdade no servidor: um falso "Este campo mudou no servidor" contra ninguém. O filtro de convergência de
  *  `mesclar` (m12, mais abaixo) normaliza `meu × dele` (o CONFLITO reportado por `mergeDraft`), não `base × fresh`
  *  (a entrada CRUA de `mergeDraft`) — não protege este caso. */
 export function valoresPosSalvar(r: Rascunho, fotosFinais?: string[]): Valores {
