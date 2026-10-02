@@ -60,6 +60,7 @@ export function textoDetalhe(l: LinhaLog): string {
       // `Sistema (cor no nome das sublinhas)` grava {reprocesso:'nome_sublinhas_cor', exemplo:{antes,depois}, sublinhas}.
       // Follow-up do controlador: o banco loga TODO integrável reprocessado, mesmo sem mudança de nome
       // (sublinhas:0, nomes_antes:[], exemplo:null) — texto próprio, sem "→ (0 sublinhas)".
+      if (d.reprocesso === "campos_informativos") return "Retrato atualizado com Coleção, Categoria do Tecido Principal e Linha (valores de hoje)";
       if (d.reprocesso) {
         if (Number(d.sublinhas ?? 0) === 0) return "Retrato atualizado com a regra nova do nome (sem mudança de nome)";
         const ex = obj(d.exemplo);

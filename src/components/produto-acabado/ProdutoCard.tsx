@@ -13,6 +13,7 @@ import { MoneyInput } from "@/components/shared/MoneyInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
+import { CategoriaTecidoField } from "./CategoriaTecidoField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useAuth } from "@/hooks/useAuth";
@@ -70,6 +71,8 @@ export function ProdutoCard({
   categorias,
   subcats1,
   subcats2,
+  categoriasTecido,
+  materiaisAviamento,
   cores,
   coresApelido,
   empresas,
@@ -99,6 +102,8 @@ export function ProdutoCard({
   categorias: CatOpt[];
   subcats1: SubOpt[];
   subcats2: SubOpt[];
+  categoriasTecido: Opt[];
+  materiaisAviamento: Opt[];
   cores: Opt[];
   coresApelido: CorApelidoOpt[];
   empresas: EmpresaFornecedor[];
@@ -788,6 +793,17 @@ export function ProdutoCard({
                         </div>
                       </>
                     )}
+                    {/* Release I3 — informativo p/ a Integração; NÃO usa identidadeTravada (não é identidade do pedido). */}
+                    <CategoriaTecidoField
+                      acessorio={acessorio}
+                      categoriaTecidoId={produto.categoria_tecido_id}
+                      materialAviamentoId={produto.material_aviamento_id}
+                      categoriasTecido={categoriasTecido}
+                      materiaisAviamento={materiaisAviamento}
+                      onChange={(patch) => onChange({ ...produto, ...patch })}
+                      labelClass="w-[150px] shrink-0 text-sm"
+                      colabPath={`card:${produto.id}`}
+                    />
                     {identidadeTravada && (
                       <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
                         Produto com pedido{" "}

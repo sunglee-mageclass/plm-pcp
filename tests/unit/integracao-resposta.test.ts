@@ -114,10 +114,12 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
     const iVariante = n.colunas.indexOf("Nome");
     expect(n.linhas[1].valores[iVariante]).toBe("Saia Marola Preto P");
   });
-  it("exemplo TESTE: produtos fictícios, 18 colunas, foto pública de exemplo, cursor da 2ª página, nome com a cor (P-126)", () => {
+  it("exemplo TESTE: produtos fictícios, 21 colunas, foto pública de exemplo, cursor da 2ª página, nome com a cor (P-126)", () => {
     const t = respostaExemplo("teste", "https://site");
     expect(t.modo).toBe("teste");
-    expect(t.colunas).toHaveLength(18);
+    expect(t.colunas).toHaveLength(21);
+    expect(t.colunas.slice(18)).toEqual(["Coleção", "Categoria do Tecido Principal", "Linha"]);
+    expect(t.linhas[0].valores.slice(18)).toEqual(["Coleção Exemplo", "Malha", "Casual"]);
     expect(t.linhas[0].produto_id).toBe("exemplo-0001");
     expect(t.linhas[0].valores[17]).toEqual([`https://site${CAMINHO_FOTO_EXEMPLO}`]);
     expect(t.linhas[1].valores[17]).toEqual([]);

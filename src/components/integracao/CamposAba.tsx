@@ -284,7 +284,7 @@ export function CamposAba() {
                       onCheckedChange={(v) => alternar(c.key, v === true)}
                     />
                     <label htmlFor={`campo-${c.key}`} className="flex-1 text-sm">{rotuloNaLista(c.key)}</label>
-                    <StatusBadge tone={c.layout ? "neutral" : "info"}>{c.layout ? "layout" : "opcional"}</StatusBadge>
+                    <StatusBadge tone={c.layout ? "neutral" : c.obrigatorio ? "info" : "warning"}>{c.layout ? "layout" : c.obrigatorio ? "opcional" : "não obrigatório"}</StatusBadge>
                   </li>
                 );
               })}

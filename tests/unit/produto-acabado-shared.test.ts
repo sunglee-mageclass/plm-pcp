@@ -123,6 +123,22 @@ describe("Tarefa 5 — montarDadosProduto manda tamanho_tipo SÓ quando difere d
   });
 });
 
+describe("Release I3 — categoria do tecido / material do aviamento no PA", () => {
+  it("montarDadosProduto manda SEMPRE as 2 chaves (a do outro grupo segue como está no rascunho)", () => {
+    const d = montarDadosProduto(draftBase({ categoria_tecido_id: "ct1", material_aviamento_id: "ma1" }));
+    expect(d.categoria_tecido_id).toBe("ct1");
+    expect(d.material_aviamento_id).toBe("ma1");
+    const v = montarDadosProduto(draftBase({}));
+    expect(v).toHaveProperty("categoria_tecido_id", null);
+    expect(v).toHaveProperty("material_aviamento_id", null);
+  });
+  it("as 2 chaves entram em chaveDirty (editar acende o Salvar)", () => {
+    const a = JSON.stringify(chaveDirty(draftBase({ categoria_tecido_id: null })));
+    expect(JSON.stringify(chaveDirty(draftBase({ categoria_tecido_id: "ct1" })))).not.toBe(a);
+    expect(JSON.stringify(chaveDirty(draftBase({ material_aviamento_id: "ma1" })))).not.toBe(a);
+  });
+});
+
 describe("Tarefa 5 — CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo", () => {
   it("mapeia a própria chave 'tamanho_tipo' (SEMPRE_TRAVADO guarda o literal, não um CampoKey da API)", () => {
     expect(CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo).toEqual(["tamanho_tipo"]);

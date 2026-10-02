@@ -1681,7 +1681,7 @@ describe("Fix round L-4 — RENDER real: ProdutoCard (Produto Acabado) — toggl
       createElement(ProdutoCard, {
         produto: produtoBase(),
         onChange: () => {}, open: true, onToggleOpen: () => {},
-        grupos: [{ id: "g1", nome: "Camisas" }], categorias: [], subcats1: [], subcats2: [],
+        grupos: [{ id: "g1", nome: "Camisas" }], categorias: [], subcats1: [], subcats2: [], categoriasTecido: [], materiaisAviamento: [],
         cores: [], coresApelido: [], empresas: [], tamanhos: ["P", "M", "G"], colecaoNome: null,
         linhasMarkup: {}, onSalvarProduto: async () => {}, onCardCriado: () => {}, onOcVinculada: () => {},
         onExcluido: () => {}, onLimpo: () => {},

@@ -57,6 +57,9 @@ export type ProdutoDraft = {
   categoria_id: string | null;
   subcategoria1_id: string | null;
   subcategoria2_id: string | null;
+  // Release I3: "Categoria do tecido" (grupo não Acessórios) / "Material do aviamento" (Acessórios) — informativos p/ a Integração.
+  categoria_tecido_id: string | null;
+  material_aviamento_id: string | null;
   colecao_id: string | null;
   subcolecao: string | null;
   semana: string | null;
@@ -147,6 +150,8 @@ export function chaveDirty(p: ProdutoDraft) {
     categoria_id: p.categoria_id,
     subcategoria1_id: p.subcategoria1_id,
     subcategoria2_id: p.subcategoria2_id,
+    categoria_tecido_id: p.categoria_tecido_id,
+    material_aviamento_id: p.material_aviamento_id,
     empresa_id: p.empresa_id,
     representante_id: p.representante_id,
     ref_fornecedor: p.ref_fornecedor,
@@ -223,6 +228,10 @@ export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
     categoria_id: p.categoria_id,
     subcategoria1_id: p.subcategoria1_id,
     subcategoria2_id: p.subcategoria2_id,
+    // Release I3: o servidor só grava estas 2 chaves quando VÊM em `_dados`; mandamos sempre as duas (o valor do
+    // grupo que não se aplica segue como está no rascunho — nunca apagamos o do outro grupo).
+    categoria_tecido_id: p.categoria_tecido_id ?? null,
+    material_aviamento_id: p.material_aviamento_id ?? null,
     colecao_id: p.colecao_id,
     subcolecao: p.subcolecao,
     semana: p.semana,

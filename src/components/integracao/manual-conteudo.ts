@@ -56,20 +56,26 @@ export const TEXTO_TESTE_IGNORA_LIMITE =
 export const TEXTO_NOME_SUBLINHA =
   "O nome de cada sublinha (variante × tamanho) é Nome do produto + cor + tamanho (ex.: Saia Marola Preto P). A cor é a Cor base ou o Apelido, conforme a escolha da loja em Config da Loja › Formato do SKU › Cor no nome da sublinha (Integração); variante sem apelido usa a cor base, e sem cor fica só o nome + tamanho.";
 
+/** Release I3: Coleção, Categoria do Tecido Principal e Linha (colunas 19–21) são informativas e NÃO obrigatórias. */
+export const TEXTO_COLUNAS_INFORMATIVAS =
+  "As colunas Coleção, Categoria do Tecido Principal e Linha são INFORMATIVAS e não obrigatórias: podem vir null (vazio) quando o produto não tem esse dado. Produtos integrados antes dessa mudança também vêm com essas 3 colunas vazias (null) — o retrato deles não é reescrito. Em revenda/importado, a Categoria do Tecido Principal vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", em Acessórios) do card do produto.";
+
 const CHAVES = CAMPOS.map((c) => c.key);
 const linhaDe = (tipo: "produto" | "variante", v: Record<string, unknown>) => ({ tipo, valores: CHAVES.map((k) => (k in v ? v[k] : null)) });
 
-/** Resposta de exemplo no formato REAL (18 colunas do layout + Foto). Normal = Saia Marola (a única "Integrado em" do mockup);
+/** Resposta de exemplo no formato REAL (17 colunas do layout + Foto + Coleção, Categoria do Tecido Principal e Linha). Normal = Saia Marola (a única "Integrado em" do mockup);
  *  teste = produtos FICTÍCIOS "Produto Exemplo N" (P-82 A), foto = endereço público de exemplo (n3). */
 export function respostaExemplo(modo: "normal" | "teste", origem: string): RespostaApi {
   const loja = { id: "a91f0c2d-0000-4000-8000-000000000001", nome: "WISH360 Demo" };
   const base = modo === "normal"
     ? { nome: "Saia Marola", ref_sku: "SAMA0019", preco_anterior: "199.90", preco_venda: "179.90", peso: "0.310", ncm: "6204.52.00",
         preco_custo: "71.30", titulo: "Saia Marola Godê", descricao: "Saia godê em crepe, comprimento midi.", keywords: "moda feminina, roupas",
-        metatag: "Saia godê em crepe, comprimento midi.", comprimento: "90", largura: "36", altura: "2" }
+        metatag: "Saia godê em crepe, comprimento midi.", comprimento: "90", largura: "36", altura: "2",
+        colecao: "Verão 2027", categoria_tecido: "Crepe", linha: "Feminina" }
     : { nome: "Produto Exemplo 1", ref_sku: "EXPL0001", preco_anterior: "109.90", preco_venda: "99.90", peso: "0.300", ncm: "6109.10.00",
         preco_custo: "42.00", titulo: "Produto Exemplo 1 - exemplo", descricao: "Descrição de exemplo do produto 1.", keywords: "exemplo, teste",
-        metatag: "Descrição de exemplo do produto 1.", comprimento: "60", largura: "40", altura: "2" };
+        metatag: "Descrição de exemplo do produto 1.", comprimento: "60", largura: "40", altura: "2",
+        colecao: "Coleção Exemplo", categoria_tecido: "Malha", linha: "Casual" };
   // P-126: o nome da sublinha leva a COR (Nome do produto + cor + tamanho) — normal usa a Cor base "Preto";
   // teste usa a Cor base "Cor Exemplo" (mesmo texto do exemplo do modo teste, `_integracao_exemplo`).
   const variante = modo === "normal"
@@ -150,6 +156,7 @@ export function montarManual(origem: string): SecaoManual[] {
       { tipo: "p", texto: TEXTO_LOJA_NOME_RETRATO },
       { tipo: "p", texto: TEXTO_PRECO_DIGITADO },
       { tipo: "p", texto: TEXTO_NOME_SUBLINHA },
+      { tipo: "p", texto: TEXTO_COLUNAS_INFORMATIVAS },
       { tipo: "exemplo" },
       { tipo: "codigo", titulo: "JSON de exemplo — modo NORMAL (dados reais da loja; só produtos JÁ INTEGRÁVEIS são levados)", codigo: JSON.stringify(respostaExemplo("normal", origem), null, 2) },
       { tipo: "codigo", titulo: "JSON de exemplo — modo TESTE (resumido: 1 produto de exemplo; a chamada de verdade sempre traz 2 por página)", codigo: JSON.stringify(respostaExemplo("teste", origem), null, 2) },

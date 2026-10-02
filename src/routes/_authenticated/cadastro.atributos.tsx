@@ -150,6 +150,8 @@ const ATTRIBUTES: AttributeItem[] = [
       usage: [
         { table: "artigo_categorias_tecido", column: "categoria_tecido_id" },
         { table: "artigos", column: "categoria_tecido_id" },
+        { table: "produtos_acabados", column: "categoria_tecido_id" },
+        { table: "produtos_importados", column: "categoria_tecido_id" },
       ],
     },
   },
@@ -197,7 +199,11 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Material de Aviamento",
       plural: "Materiais de Aviamento",
-      usage: [{ table: "aviamentos", column: "material_aviamento_id" }],
+      usage: [
+        { table: "aviamentos", column: "material_aviamento_id" },
+        { table: "produtos_acabados", column: "material_aviamento_id" },
+        { table: "produtos_importados", column: "material_aviamento_id" },
+      ],
     },
   },
   {

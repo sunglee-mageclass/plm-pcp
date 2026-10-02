@@ -66,7 +66,7 @@ import { useAbrirCard } from "./abrir-card";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { cn } from "@/lib/utils";
 import { filtrarNcm, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
-import { infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
+import { infoCategoriaTecido, infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
 import { infoEdicao, travaOuGate, TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL } from "@/lib/integracao/celula";
 import {
   avisoRetrato, avisoSublinhas, formatarValor, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
@@ -480,7 +480,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   const motivoTrava = trava.tipo === "leitura" && trava.travado ? trava.motivo : null;
   const travado = trava.tipo === "leitura" && trava.travado;
   if (campo.tipo === "somente_leitura") {
-    const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : (campo.info ?? null);
+    const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : campo.key === "categoria_tecido" ? infoCategoriaTecido(p.origem) : (campo.info ?? null);
     return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} cardNome={p.raw.nome} />;
   }
   if (campo.key === "metatag") {

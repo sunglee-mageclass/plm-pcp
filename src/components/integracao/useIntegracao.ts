@@ -14,6 +14,7 @@
 // (mesmo padrão de `useChaveAtrasada` do Sheet, `useSkusModelo.ts`), e `usePreviasSkus` atrasa `JSON.stringify(
 // entradas)` — uma string igual a si mesma entre renders enquanto nada muda de verdade — e reconstrói o mapa via
 // `useMemo(() => JSON.parse(...))`.
+import { CAMPOS_OPCIONAIS, CAMPOS_PADRAO } from "@/lib/integracao/campos";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -313,6 +314,8 @@ export function useVersoesIntegradas(ids: readonly string[]): {
 
 export type ConfigIntegracao = {
   campos: string[]; layout: string[]; rev: number;
+  /** Release I3: keys marcadas numa loja nova / keys não obrigatórias (banco; fallback = catálogo TS). */
+  padrao: string[]; opcionais: string[];
   api: { limite_por_minuto: number; max_por_pagina: number; validade_foto_dias: number; bloqueio_tentativas: number } | null;
 };
 export function useIntegracaoConfig() {
@@ -324,7 +327,7 @@ export function useIntegracaoConfig() {
       const { data, error } = await supabase.rpc("integracao_config_ler" as any);
       if (error) throw error;
       const o = (data ?? {}) as Partial<ConfigIntegracao>;
-      return { campos: o.campos ?? [], layout: o.layout ?? [], rev: Number(o.rev ?? 0), api: o.api ?? null };
+      return { campos: o.campos ?? [], layout: o.layout ?? [], rev: Number(o.rev ?? 0), api: o.api ?? null, padrao: o.padrao ?? CAMPOS_PADRAO, opcionais: o.opcionais ?? CAMPOS_OPCIONAIS };
     },
   });
 }

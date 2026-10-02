@@ -8,6 +8,7 @@ import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { erroValidacao, gradePedidaDeVariantes, variantesBatemComTotal, proximaOrdemVariante } from "@/components/produto-acabado/shared";
+import { CategoriaTecidoField } from "@/components/produto-acabado/CategoriaTecidoField";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -105,6 +106,8 @@ export function ProdutoImportadoCard({
   categorias,
   subcats1,
   subcats2,
+  categoriasTecido,
+  materiaisAviamento,
   cores,
   coresApelido,
   empresas,
@@ -127,6 +130,8 @@ export function ProdutoImportadoCard({
   categorias: CatOpt[];
   subcats1: SubOpt[];
   subcats2: SubOpt[];
+  categoriasTecido: Opt[];
+  materiaisAviamento: Opt[];
   cores: Opt[];
   coresApelido: CorApelidoOpt[];
   empresas: EmpresaFornecedor[];
@@ -526,6 +531,17 @@ export function ProdutoImportadoCard({
                       <Label className="w-[130px] shrink-0 text-sm">Composição</Label>
                       <Input className="flex-1" data-colab-path={cp("composicao")} value={draft.composicao} onChange={(e) => onChange({ composicao: e.target.value })} />
                     </div>
+                    {/* Release I3 — informativo p/ a Integração (opcional, não trava nada). */}
+                    <CategoriaTecidoField
+                      acessorio={acessorio}
+                      categoriaTecidoId={draft.categoria_tecido_id}
+                      materialAviamentoId={draft.material_aviamento_id}
+                      categoriasTecido={categoriasTecido}
+                      materiaisAviamento={materiaisAviamento}
+                      onChange={(patch) => onChange(patch)}
+                      labelClass="w-[130px] shrink-0 text-sm"
+                      colabPath={`card:${draft.id ?? "?"}`}
+                    />
                   </div>
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <div className="flex items-center gap-3">
