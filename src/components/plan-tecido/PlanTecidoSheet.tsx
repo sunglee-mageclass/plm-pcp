@@ -30,7 +30,7 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
@@ -79,21 +79,6 @@ const dndCollision: CollisionDetection = (args) => {
   const byPointer = pointerWithin(args);
   return byPointer.length > 0 ? byPointer : rectIntersection(args);
 };
-
-// limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) — extraído do effect de seed p/
-// ser reutilizável também pelo merge colab (mesma regra, 3 chamadores).
-function limparSlotsOrfaos(arv: PtArvore, validIds: Set<string>): PtArvore {
-  return {
-    ...arv,
-    subcolecoes: arv.subcolecoes.map((s) => ({
-      ...s,
-      linhas: s.linhas.map((l) => ({
-        ...l,
-        slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null } : sl)),
-      })),
-    })),
-  };
-}
 
 // Árvore "fresca" = a semeadura (OTB/BOM vivos) mesclada com o que está salvo no servidor —
 // MESMO pipeline usado pelo carregamento normal (engine intocado, só consumido).
@@ -483,14 +468,19 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, status_desenvolvimento, status_planejamento, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(enviado_corte, cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
+          "id, created_at, ref, nome, versao, origem, status_desenvolvimento, status_planejamento, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(enviado_corte, cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
         // Plan.Tecido (nem card no canvas, nem faixa "Sem tecido" no Modo Plano). Traz só fabricados:
         // interno E origem NULL (modelos antigos sem a coluna preenchida = interno por semântica).
         // `.not(in)` sozinho descartaria os NULL (NULL not-in → UNKNOWN); por isso o OR explícito.
-        .or("origem.is.null,origem.eq.interno")).data ?? []) as any[],
+        .or("origem.is.null,origem.eq.interno")
+        // D-3 (L7): ordem FIXA — é a ordem das vagas dos cards na linha (seed) e o `slot_index` gravado no Salvar.
+        // Sem ORDER BY vinha a ordem física da tabela, que muda quando o modelo é atualizado (o próprio Salvar
+        // atualiza modelos): salvar de novo renumerava as vagas.
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })).data ?? []) as any[],
   });
 
   // tamanhos da grade cadastrados na loja (tenant_config.tamanhos_grade, formato "34|PPP")
@@ -734,6 +724,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       const categoria_tecido_id = (tec1?.artigo?.categoria_tecido_id ?? null) as string | null;
       return {
         id: m.id,
+        created_at: (m.created_at ?? null) as string | null,
         ref: m.ref ?? null,
         nome: m.nome ?? null,
         categoria_tecido_id,
@@ -1174,7 +1165,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         toast.warning(textoTamanhoRevertido(marca.revertidos));
       }
       arvoreSalvaRef.current = semPrecoNasVagasComCard(marca.local);
-      const arvorePayload = semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null));
+      // D-3 (L7): `slot_index` = a posição na tela (a ordem do cliente, sem renumerar por outra regra).
+      const arvorePayload = comOrdemDasVagas(semPrecoNasVagasComCard(normalizarCategoriasAuto(marca.arvore, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null)));
       const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
         _colecao_id: colecaoId, _arvore: arvorePayload, _rev_base: revRef.current,
       });
@@ -1219,6 +1211,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       setRecalculadas(0);
       setRecalculadasT1(0);
       toast.success("Planejamento de tecido salvo.");
+      // est #14 (L7, fix round 1, M2 opção b): a marca `card_saiu` é só desta sessão — depois deste Salvar a vaga vira uma
+      // vaga comum. Avisa (sem bloquear) que os materiais do card que saiu continuam contando.
+      const nCardSaiu = contarVagasCardSaiuComMateriais(arvoreSalvaRef.current ?? arvore);
+      if (nCardSaiu > 0) toast.warning(textoAvisoCardSaiu(nCardSaiu), { duration: 10000 });
       const refetchArvore = qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] }); // plan_rev novo p/ o próximo save
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" exato do Resumo

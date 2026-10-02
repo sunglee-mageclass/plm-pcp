@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, necessidadePorTecido, detalheOcColecao, arvoreDaDemanda, fmtMetros, contabilizarOc, demandaSemCor, sobraOc, coberturaVar, aComprarVivoVar, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, type ContaCorColecao, necessidadePorTecido, detalheOcColecao, contaOcColecao, arvoreDaDemanda, fmtMetros, contabilizarOc, demandaSemCor, sobraOc, coberturaVar, aComprarVivoVar, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 
@@ -14,7 +14,8 @@ const nMet = fmtMetros;
 const cmpPt = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }); // ordem alfabética pt-BR (dono)
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-700");
 
-type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number; comprometida: number; aComprar: number };
+/** `conta` (só na visão "oc"): a conta da cor JÁ somada OC a OC (`contaOcColecao`) — vence o `contabilizarOc` da linha. */
+type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number; comprometida: number; aComprar: number; conta?: ContaCorColecao };
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
@@ -42,7 +43,6 @@ export function PlanTecidoDrawer({
   temRascunho?: boolean;
 }) {
   const { kind, arg } = state;
-  const enviadoCad = (s: PtSlot) => !!s.modelo_id && !!enviadoCadSet?.has(s.modelo_id);
   // Vínculo REAL de OC do slot: Dev (por modelo) vence o hint do plano (por slot). "físico" = a
   // demanda do card CONSOME o tecido que já existe/foi comprado — abate a Sobra do Entregue.
   const vinculado = (s: PtSlot): boolean => {
@@ -56,29 +56,27 @@ export function PlanTecidoDrawer({
   // compra futura com uso do estoque.
   const fisico = (s: PtSlot) => vinculado(s);
 
-  // Somatórios por variante — usados SÓ no painel colecao-wide 'oc' (o 'ocnum' vem da fonte única
-  // detalheOc; o 'comprar' tem conta própria via RPC).
   // P-198 A: as contas usam a árvore SEM os cards reprovados (o servidor faz o mesmo).
   const colecaoDem = arvoreDaDemanda(colecaoArvore, reprovadoSet);
+  // Parcela "a comprar" por variante (cards SEM vínculo) — só o painel 'oc'; NÃO abate a Sobra, só informa.
   const somaPorVar = (filtro?: (s: PtSlot) => boolean) => {
     const m = new Map<string, number>();
     for (const t of necessidadePorTecido(colecaoDem, filtro))
       for (const v of t.variantes) if (v.variante_tecido_id) m.set(v.variante_tecido_id, (m.get(v.variante_tecido_id) ?? 0) + v.metros);
     return m;
   };
-  const necByVar = kind === "oc" ? somaPorVar(fisico) : new Map<string, number>();                                 // Demanda FÍSICA (abate a Sobra)
-  const comprometidoByVar = kind === "oc" ? somaPorVar((s) => enviadoCad(s) && fisico(s)) : new Map<string, number>(); // enviado à explosão (laranja) ⊆ física
-  const aComprarByVar = kind === "oc" ? somaPorVar((s) => !fisico(s)) : new Map<string, number>();                     // à parte: NÃO abate — só informa
+  const aComprarByVar = kind === "oc" ? somaPorVar((s) => !fisico(s)) : new Map<string, number>();
 
-  // Por OC (kind='ocnum') a reservada/comprometida vêm da FONTE ÚNICA detalheOc — a MESMA fn do Resumo
-  // por OC×variante — pra nunca divergir (antes o "detalhar da OC" mostrava 0 enquanto o Resumo mostrava
-  // o comprometido). 'oc'/'comprar' seguem colecao-wide (necByVar/comprometidoByVar).
+  // 'ocnum' (UMA OC) e 'oc' (todas) usam a FONTE ÚNICA do Resumo: a repartição `detalheOcColecao` (D5, sem
+  // reprovados, só os artigos/cores de cada OC). PT gaveta "oc" (L7): antes a visão da coleção somava a
+  // necessidade dos cards vinculados por variante — ignorava a demanda SEM COR (só-artigo) e a
+  // repartição por OC, e o total não batia com a Σ das Sobras da "Situação por OC". Agora é `contaOcColecao`.
   const det = detalheOcColecao(colecaoArvore, situacao, vinculoOcMap, slotOcMap, enviadoCadSet, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade, reprovados: reprovadoSet });
+  const contaCol = kind === "oc" ? contaOcColecao(situacao, det) : null;
   const reservaVar = (vid: string): number =>
-    kind === "ocnum" && arg ? (det.reservPorOcVar.get(`${arg}|${vid}`) ?? 0) : (necByVar.get(vid) ?? 0);
+    kind === "ocnum" && arg ? (det.reservPorOcVar.get(`${arg}|${vid}`) ?? 0) : 0;
   const comprometidaVar = (vid: string): number =>
-    kind === "comprar" ? 0
-      : kind === "ocnum" && arg ? (det.comprometidoPorOcVar.get(`${arg}|${vid}`) ?? 0) : (comprometidoByVar.get(vid) ?? 0);
+    kind === "ocnum" && arg ? (det.comprometidoPorOcVar.get(`${arg}|${vid}`) ?? 0) : 0;
   // Parcela "a comprar" (cards sem vínculo) — FORA da Demanda física; só o 'oc'
   // agregado mostra (o 'ocnum' por-OC só tem cards vinculados, todos físicos → 0).
   const aComprarVar = (vid: string): number => (kind === "oc" ? (aComprarByVar.get(vid) ?? 0) : 0);
@@ -135,7 +133,7 @@ export function PlanTecidoDrawer({
     for (const r of situRows) {
       let g = porArtigo.get(r.artigo_id);
       if (!g) { g = { nome: r.artigo_nome, vm: new Map() }; porArtigo.set(r.artigo_id, g); }
-      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: reservaVar(r.variante_tecido_id), pedida: 0, entregue: 0, usada: 0, comprometida: comprometidaVar(r.variante_tecido_id), aComprar: aComprarVar(r.variante_tecido_id) };
+      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: reservaVar(r.variante_tecido_id), pedida: 0, entregue: 0, usada: 0, comprometida: comprometidaVar(r.variante_tecido_id), aComprar: aComprarVar(r.variante_tecido_id), conta: contaCol?.porCor.get(`${r.artigo_id}|${r.variante_tecido_id}`) };
       cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; // reservada/comprometida vêm do front (detalheOc), não da RPC
       g.vm.set(r.variante_tecido_id, cur);
     }
@@ -252,8 +250,10 @@ export function PlanTecidoDrawer({
                   <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
                 )}
                 {(!colapsavel || tecidosAbertos.has(g.artigo_id)) && g.variantes.map((v) => {
-                  // Contabilidade via fonte única (mesma fn do Resumo): usado sai da reservada.
-                  const { reservadaLivre, usada, sobra, baixaDomina } = contabilizarOc(v.reservada, v.comprometida, v.usada, v.entregue);
+                  // Contabilidade via fonte única (mesma fn do Resumo): usado sai da reservada. Na visão 'oc' a conta
+                  // já vem somada OC a OC (`contaOcColecao`), senão o max/clamp por OC sumia na soma.
+                  const { reservadaLivre, usada, sobra, baixaDomina } = v.conta ?? contabilizarOc(v.reservada, v.comprometida, v.usada, v.entregue);
+                  const demanda = v.conta ? v.conta.demanda : Math.max(v.reservada, usada);
                   return (
                     <tr key={v.key} className="border-t">
                       {/* Rótulo da variante (cor base + cor apelido, `src/lib/variante.ts`) NÃO trunca
@@ -310,7 +310,7 @@ export function PlanTecidoDrawer({
                             className="whitespace-nowrap p-1.5 text-right align-top"
                             title={`Demanda física (consome o entregue): ${nMet(usada)} em produção + ${nMet(reservadaLivre)} reservada (livre)${v.aComprar > 0 ? ` — além disso ${nMet(v.aComprar)} m são intenção de COMPRA (não abate o físico; ver A comprar)` : ""}`}
                           >
-                            <div>{nMet(Math.max(v.reservada, usada))}</div>
+                            <div>{nMet(demanda)}</div>
                             {usada > 0 && (
                               <div className={`text-[10px] font-medium ${baixaDomina ? "text-red-700" : "text-amber-700"}`}>
                                 {nMet(usada)} em produção
@@ -330,10 +330,11 @@ export function PlanTecidoDrawer({
                 })}
               </Fragment>
             ))}
-            {kind === "ocnum" && arg && grupos.length > 0 && (() => {
-              // D-1: demanda sem cor (só-artigo) abate a Sobra; o total é o MESMO `sobraOc` do Resumo.
-              const sc = demandaSemCor(arg, det);
-              const sobraTotal = sobraOc(arg, situacao, det);
+            {((kind === "ocnum" && arg) || contaCol) && grupos.length > 0 && (() => {
+              // D-1: demanda sem cor (só-artigo) abate a Sobra; o total é o MESMO `sobraOc` do Resumo. Na visão 'oc'
+              // (L7): Σ por OC — a Sobra total = Σ das Sobras da "Situação por OC".
+              const sc = contaCol ? contaCol.semCor : demandaSemCor(arg!, det);
+              const sobraTotal = contaCol ? contaCol.sobraTotal : sobraOc(arg!, situacao, det);
               return (
                 <>
                   {sc.reservada > 0 && (
@@ -345,7 +346,7 @@ export function PlanTecidoDrawer({
                     </tr>
                   )}
                   <tr className="border-t bg-muted/40 font-semibold">
-                    <td className="p-1.5" colSpan={3}>Sobra da OC</td>
+                    <td className="p-1.5" colSpan={3}>{contaCol ? "Sobra das OCs (= Situação por OC)" : "Sobra da OC"}</td>
                     <td className={`whitespace-nowrap p-1.5 text-right ${sobraCls(sobraTotal)}`}>{sobraTotal > 0 ? "+" : ""}{nMet(sobraTotal)}</td>
                   </tr>
                 </>
@@ -370,8 +371,9 @@ export function PlanTecidoDrawer({
             de compra, fica <b className="font-semibold">à parte</b>, NÃO abate a Sobra (o líquido está no
             painel "A comprar"). A <b className="font-semibold">Sobra</b> = Entregue − Demanda física (o que
             sobra de fato) — negativa = falta chegar.
-            {kind === "oc" && <> Painel da <b className="font-semibold">coleção inteira</b> (a cor × tudo que as
-            OCs entregaram); para o recorte de UMA OC, abra "Situação por OC".</>}
+            {kind === "oc" && <> Painel da <b className="font-semibold">coleção inteira</b>: cada cor somada OC a OC,
+            com a mesma conta da "Situação por OC" (a demanda <b className="font-semibold">sem cor definida</b> também
+            abate) — a Sobra total é a soma das Sobras de lá. Para o recorte de UMA OC, abra a OC na "Situação por OC".</>}
           </p>
         )}
       </div>

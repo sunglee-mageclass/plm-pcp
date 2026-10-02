@@ -112,9 +112,10 @@ describe("distribuicao-produto — tamanhos, proporção legada, tipo, abreviaç
     expect(tamanhosDoTipo(["UN"], "numero")).toEqual(["UN"]);
     expect(tamanhosDoTipo(GRADE, "letra")).toEqual(GRADE);
   });
-  it("proporção com chave legada só-letra; chave legada SÓ-NÚMERO NÃO resolve (Lote A fix1 · M4: igual ao GradeSection.valorDe)", () => {
+  it("proporção com chave legada só-letra; a SÓ-NÚMERO também resolve, depois da letra (est #13, L7 — o GradeSection.valorDe usa a mesma função)", () => {
     expect(proporcaoDoTamanho({ P: 2 }, "38|P")).toBe(2);
-    expect(proporcaoDoTamanho({ "38": 3 }, "38|P")).toBe(0);
+    expect(proporcaoDoTamanho({ "38": 3 }, "38|P")).toBe(3);
+    expect(proporcaoDoTamanho({ P: 2, "38": 3 }, "38|P")).toBe(2);
     expect(proporcaoDoTamanho({ "38|P": 1, P: 9 }, "38|P")).toBe(1);
     expect(proporcaoDoTamanho(null, "38|P")).toBe(0);
   });

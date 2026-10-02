@@ -4,13 +4,14 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser, Store } from "lucide-react";
+import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser, Store, AlertTriangle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { OcHoverResumo } from "./OcHoverResumo";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { DragHandle } from "./dnd";
 import { necessidadePorTecido, fmtMetros } from "@/lib/plan-tecido/calc";
 import { ehTecido1, materiaisParaAplicar } from "@/lib/plan-tecido/atendimento";
+import { vagaComMateriaisDeCardQueSaiu, limparMateriaisDaVaga } from "@/lib/plan-tecido/engine";
 import type { PresencaColab } from "@/hooks/useColabRegistro";
 import { fmtInt } from "@/lib/format";
 import { ehOrigemComprada, rotuloOrigem } from "@/lib/origem";
@@ -653,6 +654,7 @@ export function ModelCard({
                       <MaterialBlock
                         key={m.id ?? i}
                         material={m}
+                        comCard={!!slot.modelo_id}
                         readOnly={!!travado}
                         laneCategoriaId={slot.categoria_tecido_id ?? null}
                         paleta={paleta}
@@ -740,6 +742,24 @@ export function ModelCard({
               </AccordionItem>
             </Accordion>
           </>
+        )}
+        {/* est #14 (L7, P-135 B): o card saiu da coleção (ou foi excluído) e a vaga ficou com os materiais dele — nada
+            some sozinho. O atalho tira só os materiais do RASCUNHO; grava no Salvar (Descartar volta). No FIM do card
+            (fix round 1, B8): no topo ele empurrava as variantes e desalinhava o Modo Plano (linhas de altura fixa). */}
+        {vagaComMateriaisDeCardQueSaiu(slot) && (
+          <div className="flex flex-wrap items-center gap-1.5 border-t px-2 py-1.5">
+            <StatusBadge tone="warning" className="min-w-0 gap-1 whitespace-normal px-1.5 normal-case tracking-normal"
+              title="Esta vaga era de um card que saiu desta coleção (ou foi excluído). Os materiais dele continuam aqui e contam na necessidade até você limpar.">
+              <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+              <span>o card saiu desta coleção — vaga com materiais</span>
+            </StatusBadge>
+            {!paginaSoLeitura && (
+              <Button type="button" variant="outline" size="sm" className="h-7 gap-1 px-2 text-[11px] max-md:h-11 max-md:text-sm"
+                onClick={() => { onChange(limparMateriaisDaVaga(slot)); toast.info("Materiais tirados da vaga — grava ao Salvar."); }}>
+                <Eraser className="h-3 w-3" /> limpar materiais
+              </Button>
+            )}
+          </div>
         )}
       </div>
 

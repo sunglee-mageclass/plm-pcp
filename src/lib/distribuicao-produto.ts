@@ -31,15 +31,16 @@ function inteiro(v: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** Proporção de UM tamanho pela chave cheia ("34|PPP"); aceita a chave legada SÓ-LETRA ("PPP"). Lote A fix1 · M4:
- *  alinhado ao `GradeSection.valorDe` (fonte única do que o card mostra) — o card só cai pro lado LETRA do par
- *  ("34|PPP".split("|")[1]), nunca pro lado número; sem esta regra, o dialog (que tentava também a chave legada
- *  só-número) e o card divergiam pra grade com legado só-número. */
+/** Proporção de UM tamanho pela chave cheia ("34|PPP"); aceita as chaves legadas do par: a SÓ-LETRA ("PPP") e, se
+ *  ela não existir, a SÓ-NÚMERO ("34") — est #13 (L7): proporção legada só numérica (1 vaga na Ark Store) dava 0 em
+ *  todos os tamanhos. Ordem: chave cheia → letra → número. É a FONTE ÚNICA do card (`GradeSection.valorDe`) e do dialog
+ *  "Distribuir por loja" (Lote A fix1 · M4), então os dois continuam iguais. */
 export function proporcaoDoTamanho(prop: Proporcoes, t: string): number {
   if (!prop) return 0;
   if (tem(prop, t)) return Math.max(0, Number(prop[t]) || 0);
   const l = parseTamanho(t);
   if (l.letra && tem(prop, l.letra)) return Math.max(0, Number(prop[l.letra]) || 0);
+  if (l.numero && tem(prop, l.numero)) return Math.max(0, Number(prop[l.numero]) || 0);
   return 0;
 }
 
