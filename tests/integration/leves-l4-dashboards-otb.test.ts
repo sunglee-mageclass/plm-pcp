@@ -12,7 +12,7 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
 
 const MD5_DEPOIS: Record<string, string> = {
   "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "9435f724d61227a7014d95a95cf7fac5",
-  "public._dashboard_producao_core(date,date,text,uuid)": "36380897191bbdbae954f85a2afd4914",
+  "public._dashboard_producao_core(date,date,text,uuid)": "2662bae65ab7fb9c1c7cb012273481be",
   "public._otb_orcamento_core(uuid,uuid)": "33137a0e34808d098f084f3891a61913",
   "public._otb_colecao_totais(uuid)": "4e27b6098b2197ec5239118278341f12",
 };
@@ -494,6 +494,37 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       expect(r4.k.lancados).toBe(r3.k.lancados + 1);
       expect(r4.k.reprovados).toBe(r3.k.reprovados);
       for (const r of [r0, r1, r2, r3, r4]) expect(soma(r.k)).toBe(r.k.total);
+    });
+  });
+  it("round 4 (B1): quadro SEM coluna Reprovado — reprovado no Planejamento com status Aprovado não conta em aprovadoNaoLancado", async () => {
+    await withTx(async (c) => {
+      await naLoja(c, TENANT_TESTE);
+      // quadro da loja sem a coluna Reprovado (só na txn revertida)
+      await c.query(
+        `update tenant_config set status_kanban = (
+           select jsonb_agg(elem) from jsonb_array_elements(status_kanban) elem
+            where lower(elem #>> '{}') <> 'reprovado' and lower(coalesce(elem->>'key','')) <> 'reprovado')
+          where tenant_id = $1`,
+        [TENANT_TESTE],
+      );
+      const p0 = await rpc(c, `public._dashboard_producao_core()`);
+      if ((p0.kanbanDev as any[]).some((x) => x.key === "reprovado"))
+        throw new Error("fixture inesperada: o quadro ainda tem a coluna Reprovado");
+      const colAp = (p: any) =>
+        Number((p.kanbanDev as any[]).find((x) => x.key === "aprovado")?.modelos ?? 0);
+      await novoModelo(c, {
+        ordem_criacao_enviada: true,
+        status_planejamento: "reprovado",
+        status_desenvolvimento: "aprovado",
+      });
+      const p1 = await rpc(c, `public._dashboard_producao_core()`);
+      expect(colAp(p1)).toBe(colAp(p0) + 1); // sem coluna Reprovado, fica na coluna dele
+      expect(p1.aprovadoNaoLancado).toBe(p0.aprovadoNaoLancado); // mas não conta como "aprovado, não lançado"
+      // e o balde Reprovados da coleção o conta uma vez só
+      const k = (await rpc(c, `public._dashboard_colecao_core()`)).kpis;
+      expect(k.planejamento + k.desenvolvimento + k.producao + k.lancados + k.reprovados).toBe(
+        k.total,
+      );
     });
   });
 });

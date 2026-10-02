@@ -1062,7 +1062,7 @@ function DesenvolvimentoTab() {
               </div>
             );
           })}
-          {funnelReprov && (
+          {funnelReprov && Number(funnelReprov.value) > 0 && (
             <div className="border-t pt-2">
               <div className="flex justify-between text-sm">
                 <span>

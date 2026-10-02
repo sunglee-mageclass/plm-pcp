@@ -15,6 +15,8 @@
 --             Desenvolvimento/Producao (e do funil); lancado + reprovado fica em Lancados (lancado e final). Os 5 baldes
 --             somam o total. kanbanDev: o reprovado nao lancado vai para a coluna Reprovado do quadro (fora de
 --             "Aprovado"); total do grafico igual. Comercial (poder de venda) e calculado no site (dashboard-comercial.ts).
+--             Fix round 4 (B1): aprovadoNaoLancado tambem exclui o reprovado (quadro SEM coluna Reprovado: o card fica na
+--             coluna dele e nao pode contar como "aprovado, nao lancado").
 --   Copia 54422 (antes -> depois): Ave Rara Planejamento 15 -> 4, Desenvolvimento 184 -> 195, funil Dev 235 -> 246,
 --   kanbanDev 235 -> 246; Loja Teste Planejamento 7 -> 5, Desenvolvimento 5 -> 7, funil Dev 11 -> 13, kanbanDev 11 -> 13;
 --   Ark Store e French iguais.
@@ -27,7 +29,7 @@
 --     DEPOIS 9435f724d61227a7014d95a95cf7fac5  (este arquivo; reaplicar = no-op)
 --   public._dashboard_producao_core(date,date,text,uuid)
 --     ANTES  17424a059ae47674e244701f5a0fbfe4  -- "depois" da R12 (o "antes" da R12, 5437c394, CONFIRMADO no Passo 0 dos MEDIOS)
---     DEPOIS 36380897191bbdbae954f85a2afd4914  (este arquivo; reaplicar = no-op)
+--     DEPOIS 2662bae65ab7fb9c1c7cb012273481be  (este arquivo; reaplicar = no-op)
 --   Sem mudanca (so guarda):
 --     public.dashboard_colecao(date,date,text,uuid,uuid)  4e351a33a919a60139518606b50729c3  chamador  -- PROVISORIO (copia): conferir no Passo 0 dos LEVES
 --     public.dashboard_producao(date,date,text,uuid)      8280bd12907d89522a215512a03821b4  chamador  -- PROVISORIO (copia): conferir no Passo 0 dos LEVES
@@ -55,7 +57,7 @@ INSERT INTO _l4a_md5_aceitos VALUES
   ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '5dbe4d89fcaf1c1b77860cb3a8e132c8', 'antes'),  -- "depois" da R12
   ('public._dashboard_colecao_core(date,date,text,uuid,uuid)', '9435f724d61227a7014d95a95cf7fac5', 'depois'),
   ('public._dashboard_producao_core(date,date,text,uuid)', '17424a059ae47674e244701f5a0fbfe4', 'antes'),  -- "depois" da R12
-  ('public._dashboard_producao_core(date,date,text,uuid)', '36380897191bbdbae954f85a2afd4914', 'depois'),
+  ('public._dashboard_producao_core(date,date,text,uuid)', '2662bae65ab7fb9c1c7cb012273481be', 'depois'),
   ('public.dashboard_colecao(date,date,text,uuid,uuid)', '4e351a33a919a60139518606b50729c3', 'dep'),  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
   ('public.dashboard_producao(date,date,text,uuid)', '8280bd12907d89522a215512a03821b4', 'dep');  -- PROVISORIO (copia 54422): conferir no Passo 0 dos LEVES
 
@@ -279,7 +281,9 @@ BEGIN
                (SELECT c.key FROM cols2 c WHERE c.key = m.status_desenvolvimento OR c.alias_key = m.status_desenvolvimento ORDER BY c.ord LIMIT 1),
                (SELECT key FROM firstcol)) AS bucket,
       COALESCE((SELECT SUM(COALESCE(mg.grade_total,0)) FROM modelo_grades mg WHERE mg.modelo_id = m.id), 0) AS grade,
-      COALESCE(m.lancado, false) AS lanc
+      COALESCE(m.lancado, false) AS lanc,
+      (lower(COALESCE(m.status_desenvolvimento,'')) = 'reprovado'
+       OR lower(COALESCE(m.status_planejamento,'')) = 'reprovado') AS rep
     FROM modelos m
     -- [leves L4, prod #10] mesmo criterio do KPI Desenvolvimento de _dashboard_colecao_core: chega ao Dev pela
     -- ordem_criacao_enviada (inv. #11); comprado (revenda/importado) sem a ordem segue pelo status_planejamento.
@@ -296,7 +300,8 @@ BEGIN
   ap AS (SELECT c.key FROM cols2 c WHERE c.key = 'aprovado' OR c.label ~* 'aprovad'
           ORDER BY (c.key = 'aprovado') DESC, c.ord LIMIT 1)
   SELECT COALESCE(jsonb_agg(jsonb_build_object('key', c.key, 'label', c.label, 'modelos', COALESCE(a.modelos,0), 'grade', COALESCE(a.grade,0)) ORDER BY c.ord), '[]'::jsonb),
-         (SELECT count(*) FROM mods WHERE mods.bucket = (SELECT ap.key FROM ap) AND NOT mods.lanc)
+         -- [leves L4 round 4, B1] reprovado nunca conta como "aprovado, nao lancado" (quadro sem coluna Reprovado).
+         (SELECT count(*) FROM mods WHERE mods.bucket = (SELECT ap.key FROM ap) AND NOT mods.lanc AND NOT mods.rep)
   INTO v_kanban, v_aprov_nao_lanc
   FROM cols2 c LEFT JOIN agg a ON a.bucket = c.key;
 

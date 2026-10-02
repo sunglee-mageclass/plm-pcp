@@ -20,7 +20,7 @@ const MD5_DEPOIS: Record<string, string> = {
 // (prod #10: Desenvolvimento = ordem_criacao_enviada). Com a L4 aplicada vale o md5 da L4; o resto da R12 segue igual.
 const MD5_DEPOIS_L4: Record<string, string> = {
   "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "9435f724d61227a7014d95a95cf7fac5",
-  "public._dashboard_producao_core(date,date,text,uuid)": "36380897191bbdbae954f85a2afd4914",
+  "public._dashboard_producao_core(date,date,text,uuid)": "2662bae65ab7fb9c1c7cb012273481be",
 };
 const MD5_INTOCADA = "d26c7c9afb636f6ed26e66daf76e92ae"; // _custo_unitario_modelos_core
 

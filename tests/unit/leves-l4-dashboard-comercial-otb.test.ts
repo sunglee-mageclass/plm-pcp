@@ -300,5 +300,7 @@ describe("L4 fix round 3 (P-215 A)", () => {
     expect(src).toMatch(/status_desenvolvimento, status_planejamento, linha:linha_id/);
     expect(src).toMatch(/funnelAll\.filter\(\(f\) => f\.name !== "Reprovados"\)/);
     expect(src).toMatch(/background: CHART_DIVERGE_POS/);
+    // round 4 (B2): a linha só aparece com contagem > 0
+    expect(src).toMatch(/\{funnelReprov && Number\(funnelReprov\.value\) > 0 && \(/);
   });
 });
