@@ -52,6 +52,9 @@ export type ProdutoImportadoDraft = {
   categoria_id: string | null;
   subcategoria1_id: string | null;
   subcategoria2_id: string | null;
+  // Release I3: "Categoria do tecido" (não Acessórios) / "Material do aviamento" (Acessórios) — informativos p/ a Integração.
+  categoria_tecido_id: string | null;
+  material_aviamento_id: string | null;
   colecao_id: string | null;
   subcolecao: string | null;
   semana: string | null;
@@ -124,6 +127,8 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
     categoria_id: null,
     subcategoria1_id: null,
     subcategoria2_id: null,
+    categoria_tecido_id: null,
+    material_aviamento_id: null,
     colecao_id: colecaoId,
     subcolecao,
     semana: null,
@@ -183,6 +188,8 @@ export function chaveDirty(d: ProdutoImportadoDraft) {
     categoria_id: d.categoria_id,
     subcategoria1_id: d.subcategoria1_id,
     subcategoria2_id: d.subcategoria2_id,
+    categoria_tecido_id: d.categoria_tecido_id,
+    material_aviamento_id: d.material_aviamento_id,
     empresa_id: d.empresa_id,
     representante_id: d.representante_id,
     ref_fornecedor: d.ref_fornecedor,
@@ -300,6 +307,10 @@ export function montarPayload(draft: ProdutoImportadoDraft): {
     categoria_id: draft.categoria_id,
     subcategoria1_id: draft.subcategoria1_id,
     subcategoria2_id: draft.subcategoria2_id,
+    // Release I3: o servidor só grava estas 2 chaves quando VÊM no `_dados`; mandamos sempre as duas (a do outro
+    // grupo segue como está no rascunho — nunca apagamos).
+    categoria_tecido_id: draft.categoria_tecido_id ?? null,
+    material_aviamento_id: draft.material_aviamento_id ?? null,
     colecao_id: draft.colecao_id,
     subcolecao: draft.subcolecao,
     semana: draft.semana,

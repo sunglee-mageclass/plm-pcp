@@ -101,6 +101,8 @@ type ProdutoImportadoRow = {
   categoria_id: string | null;
   subcategoria1_id: string | null;
   subcategoria2_id: string | null;
+  categoria_tecido_id?: string | null;
+  material_aviamento_id?: string | null;
   colecao_id: string | null;
   subcolecao: string | null;
   semana: string | null;
@@ -160,6 +162,8 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     categoria_id: r.categoria_id,
     subcategoria1_id: r.subcategoria1_id,
     subcategoria2_id: r.subcategoria2_id,
+    categoria_tecido_id: r.categoria_tecido_id ?? null,
+    material_aviamento_id: r.material_aviamento_id ?? null,
     colecao_id: r.colecao_id,
     subcolecao: r.subcolecao,
     semana: r.semana,
@@ -206,7 +210,7 @@ const novoIdLocal = () => `novo-${Date.now()}-${idSeq++}`;
 // cotação/frete/etapas em vez de valor_unitario/desconto/insumos).
 const ROTULO_CAMPO_PI: Record<string, string> = {
   nome: "Nome", grupo_id: "Grupo", categoria_id: "Categoria", subcategoria1_id: "Subcategoria 1",
-  subcategoria2_id: "Subcategoria 2", empresa_id: "Fornecedor", representante_id: "Representante",
+  subcategoria2_id: "Subcategoria 2", categoria_tecido_id: "Categoria do tecido", material_aviamento_id: "Material do aviamento", empresa_id: "Fornecedor", representante_id: "Representante",
   ref_fornecedor: "Ref. Fornecedor", ref: "REF", composicao: "Composição", foto_url: "Foto",
   data_pedido: "Data do pedido", data_prevista: "Data prevista", data_entrega: "Data de entrega",
   grade_proporcao: "Proporção da grade", qtd_total: "Quantidade total",
@@ -465,6 +469,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const { data: categorias = [] } = useOptCat("categorias_produto", "grupo_id") as { data: CatOpt[] };
   const { data: subcats1 = [] } = useOptCat("subcategorias1_produto", "categoria_id") as { data: SubOpt[] };
   const { data: subcats2 = [] } = useOptCat("subcategorias2_produto", "categoria_id") as { data: SubOpt[] };
+  const { data: categoriasTecido = [] } = useOpt("categorias_tecido");
+  const { data: materiaisAviamento = [] } = useOpt("materiais_aviamento");
   const { data: cores = [] } = useOpt("cores");
   const { data: coresApelido = [] } = useOptCat("cores_apelido", "cor_base_id") as { data: CorApelidoOpt[] };
   const { data: empresas = [] } = useQuery({
@@ -1003,6 +1009,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             categorias={categorias}
             subcats1={subcats1}
             subcats2={subcats2}
+            categoriasTecido={categoriasTecido}
+            materiaisAviamento={materiaisAviamento}
             cores={cores}
             coresApelido={coresApelido}
             empresas={empresas}

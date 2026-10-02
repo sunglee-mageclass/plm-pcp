@@ -133,6 +133,24 @@ describe("Tarefa 6 — montarPayload manda tamanho_tipo SÓ quando difere da bas
   });
 });
 
+describe("Release I3 — categoria do tecido / material do aviamento no PI", () => {
+  it("montarPayload manda SEMPRE as 2 chaves", () => {
+    const { dados } = montarPayload(base({ categoria_tecido_id: "ct1", material_aviamento_id: "ma1" }));
+    expect(dados.categoria_tecido_id).toBe("ct1");
+    expect(dados.material_aviamento_id).toBe("ma1");
+    expect(montarPayload(base({})).dados).toHaveProperty("categoria_tecido_id", null);
+    expect(montarPayload(base({})).dados).toHaveProperty("material_aviamento_id", null);
+  });
+  it("emptyDraft nasce com as 2 nulas e as 2 entram em chaveDirty", () => {
+    const e = emptyDraft("c", null);
+    expect(e.categoria_tecido_id).toBeNull();
+    expect(e.material_aviamento_id).toBeNull();
+    const a = JSON.stringify(chaveDirty(base({})));
+    expect(JSON.stringify(chaveDirty(base({ categoria_tecido_id: "ct1" })))).not.toBe(a);
+    expect(JSON.stringify(chaveDirty(base({ material_aviamento_id: "ma1" })))).not.toBe(a);
+  });
+});
+
 describe("Tarefa 6 — CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo (espelha o Produto Acabado)", () => {
   it("mapeia a própria chave 'tamanho_tipo'", () => {
     expect(CAMPOS_TRAVAVEIS_POR_COLUNA.tamanho_tipo).toEqual(["tamanho_tipo"]);
@@ -556,6 +574,8 @@ function montarCard(props: Partial<Parameters<typeof ProdutoImportadoCard>[0]> =
       categorias: [],
       subcats1: [],
       subcats2: [],
+      categoriasTecido: [],
+      materiaisAviamento: [],
       cores: [{ id: "c-azul", nome: "Azul" }],
       coresApelido: [],
       empresas: [],

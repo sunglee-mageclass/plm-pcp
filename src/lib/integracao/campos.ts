@@ -1,10 +1,11 @@
-// Integração + API — catálogo dos 18 campos da API (ordem FIXA do layout do pedido — P-60 B) e das configurações da API.
-// Fonte do banco: _integracao_layout() (migration 1) e _integracao_rotulos() (migration 2); o teste anti-drift compara os dois.
+// Integração + API — catálogo dos 21 campos da API (ordem FIXA: 1–17 layout do pedido — P-60 B; 18 Foto; 19–21 informativos, Release I3) e das configurações da API.
+// Fonte do banco: _integracao_layout() (migration 1 + I3b) e _integracao_rotulos() (migration 2); o teste anti-drift compara os dois.
 // "coluna" = onde o CARD grava o campo (mão dupla — a tela nunca tem cópia própria); "gate" = a regra do card (servidor:
 // _integracao_gates — D24). Custo, cor base, cor apelido e tamanho = só leitura com "i" + "abrir card" (P-80 A).
 export type CampoKey =
   | "nome" | "ref_sku" | "preco_anterior" | "preco_venda" | "peso" | "ncm" | "preco_custo" | "cor_base" | "cor_apelido"
-  | "tamanho" | "titulo" | "descricao" | "keywords" | "metatag" | "comprimento" | "largura" | "altura" | "foto";
+  | "tamanho" | "titulo" | "descricao" | "keywords" | "metatag" | "comprimento" | "largura" | "altura" | "foto"
+  | "colecao" | "categoria_tecido" | "linha";
 export type ColunaEditavel =
   | "nome" | "ref" | "preco_anterior" | "preco_venda" | "peso_kg" | "ncm" | "titulo_pagina" | "descricao_produto"
   | "comprimento_cm" | "largura_cm" | "altura_cm" | "fotos_modelo";
@@ -12,33 +13,44 @@ export type GateKey = "compartilhado" | "planejamento" | "preco" | "ref" | "sku"
 export type TipoCampo = "texto" | "texto_longo" | "dinheiro" | "peso" | "medida" | "fotos" | "keywords" | "somente_leitura";
 export type CampoDef = {
   key: CampoKey; rotulo: string; rotuloCurto: string; layout: boolean; soVariante: boolean; tipo: TipoCampo;
+  /** Vem marcado numa loja NOVA (_integracao_padrao()): 1–17 + 19–21; Foto nasce desmarcada. */
+  padrao: boolean;
+  /** true = o campo conta como FALTA quando está vazio E marcado na seleção da loja (bloqueia integrar). false = a falta
+   *  NÃO bloqueia (_integracao_opcionais(): Coleção, Categoria do Tecido Principal, Linha). Foto é obrigatória SE
+   *  marcada; por isso o selo dela é "opcional" (= nasce desmarcada, `padrao:false`), não "não obrigatório". */
+  obrigatorio: boolean;
   coluna: ColunaEditavel | null; gate: GateKey | null; info?: string;
 };
 
 const INFO_COR = "Só leitura — vem da cor do tecido/variante, usada por outros produtos.";
 export const CAMPOS: readonly CampoDef[] = [
-  { key: "nome", rotulo: "Nome", rotuloCurto: "Nome", layout: true, soVariante: false, tipo: "texto", coluna: "nome", gate: "compartilhado" },
-  { key: "ref_sku", rotulo: "REF / SKU", rotuloCurto: "REF / SKU", layout: true, soVariante: false, tipo: "texto", coluna: "ref", gate: "ref" },
-  { key: "preco_anterior", rotulo: "Preço anterior", rotuloCurto: "Preço anterior", layout: true, soVariante: false, tipo: "dinheiro", coluna: "preco_anterior", gate: "preco" },
-  { key: "preco_venda", rotulo: "Preço de venda", rotuloCurto: "Preço de venda", layout: true, soVariante: false, tipo: "dinheiro", coluna: "preco_venda", gate: "preco" },
-  { key: "peso", rotulo: "Peso", rotuloCurto: "Peso", layout: true, soVariante: false, tipo: "peso", coluna: "peso_kg", gate: "planejamento" },
-  { key: "ncm", rotulo: "NCM", rotuloCurto: "NCM", layout: true, soVariante: false, tipo: "texto", coluna: "ncm", gate: "planejamento" },
-  { key: "preco_custo", rotulo: "Preço de custo", rotuloCurto: "Preço de custo", layout: true, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null },
-  { key: "cor_base", rotulo: "Cor base", rotuloCurto: "Cor base", layout: true, soVariante: true, tipo: "somente_leitura", coluna: null, gate: null, info: INFO_COR },
-  { key: "cor_apelido", rotulo: "Cor apelido", rotuloCurto: "Cor apelido", layout: true, soVariante: true, tipo: "somente_leitura", coluna: null, gate: null, info: INFO_COR },
-  { key: "tamanho", rotulo: "Tamanho", rotuloCurto: "Tamanho", layout: true, soVariante: true, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da grade." },
-  { key: "titulo", rotulo: "Título para a página", rotuloCurto: "Título", layout: true, soVariante: false, tipo: "texto", coluna: "titulo_pagina", gate: "planejamento" },
-  { key: "descricao", rotulo: "Descrição", rotuloCurto: "Descrição", layout: true, soVariante: false, tipo: "texto_longo", coluna: "descricao_produto", gate: "planejamento" },
-  { key: "keywords", rotulo: "Keywords", rotuloCurto: "Keywords", layout: true, soVariante: false, tipo: "keywords", coluna: null, gate: "keywords" },
-  { key: "metatag", rotulo: "Metatag Description", rotuloCurto: "Metatag Description", layout: true, soVariante: false, tipo: "texto_longo", coluna: "descricao_produto", gate: "planejamento", info: "= Descrição (é o mesmo texto)." },
-  { key: "comprimento", rotulo: "Comprimento", rotuloCurto: "Compr.", layout: true, soVariante: false, tipo: "medida", coluna: "comprimento_cm", gate: "planejamento" },
-  { key: "largura", rotulo: "Largura", rotuloCurto: "Larg.", layout: true, soVariante: false, tipo: "medida", coluna: "largura_cm", gate: "planejamento" },
-  { key: "altura", rotulo: "Altura", rotuloCurto: "Alt.", layout: true, soVariante: false, tipo: "medida", coluna: "altura_cm", gate: "planejamento" },
-  { key: "foto", rotulo: "Foto", rotuloCurto: "Foto", layout: false, soVariante: false, tipo: "fotos", coluna: "fotos_modelo", gate: "compartilhado" },
+  { key: "nome", rotulo: "Nome", rotuloCurto: "Nome", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "texto", coluna: "nome", gate: "compartilhado" },
+  { key: "ref_sku", rotulo: "REF / SKU", rotuloCurto: "REF / SKU", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "texto", coluna: "ref", gate: "ref" },
+  { key: "preco_anterior", rotulo: "Preço anterior", rotuloCurto: "Preço anterior", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "dinheiro", coluna: "preco_anterior", gate: "preco" },
+  { key: "preco_venda", rotulo: "Preço de venda", rotuloCurto: "Preço de venda", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "dinheiro", coluna: "preco_venda", gate: "preco" },
+  { key: "peso", rotulo: "Peso", rotuloCurto: "Peso", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "peso", coluna: "peso_kg", gate: "planejamento" },
+  { key: "ncm", rotulo: "NCM", rotuloCurto: "NCM", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "texto", coluna: "ncm", gate: "planejamento" },
+  { key: "preco_custo", rotulo: "Preço de custo", rotuloCurto: "Preço de custo", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null },
+  { key: "cor_base", rotulo: "Cor base", rotuloCurto: "Cor base", layout: true, padrao: true, obrigatorio: true, soVariante: true, tipo: "somente_leitura", coluna: null, gate: null, info: INFO_COR },
+  { key: "cor_apelido", rotulo: "Cor apelido", rotuloCurto: "Cor apelido", layout: true, padrao: true, obrigatorio: true, soVariante: true, tipo: "somente_leitura", coluna: null, gate: null, info: INFO_COR },
+  { key: "tamanho", rotulo: "Tamanho", rotuloCurto: "Tamanho", layout: true, padrao: true, obrigatorio: true, soVariante: true, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da grade." },
+  { key: "titulo", rotulo: "Título para a página", rotuloCurto: "Título", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "texto", coluna: "titulo_pagina", gate: "planejamento" },
+  { key: "descricao", rotulo: "Descrição", rotuloCurto: "Descrição", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "texto_longo", coluna: "descricao_produto", gate: "planejamento" },
+  { key: "keywords", rotulo: "Keywords", rotuloCurto: "Keywords", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "keywords", coluna: null, gate: "keywords" },
+  { key: "metatag", rotulo: "Metatag Description", rotuloCurto: "Metatag Description", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "texto_longo", coluna: "descricao_produto", gate: "planejamento", info: "= Descrição (é o mesmo texto)." },
+  { key: "comprimento", rotulo: "Comprimento", rotuloCurto: "Compr.", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "medida", coluna: "comprimento_cm", gate: "planejamento" },
+  { key: "largura", rotulo: "Largura", rotuloCurto: "Larg.", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "medida", coluna: "largura_cm", gate: "planejamento" },
+  { key: "altura", rotulo: "Altura", rotuloCurto: "Alt.", layout: true, padrao: true, obrigatorio: true, soVariante: false, tipo: "medida", coluna: "altura_cm", gate: "planejamento" },
+  { key: "foto", rotulo: "Foto", rotuloCurto: "Foto", layout: false, padrao: false, obrigatorio: true, soVariante: false, tipo: "fotos", coluna: "fotos_modelo", gate: "compartilhado" },
+  { key: "colecao", rotulo: "Coleção", rotuloCurto: "Coleção", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da coleção do produto." },
+  { key: "categoria_tecido", rotulo: "Categoria do Tecido Principal", rotuloCurto: "Cat. do tecido", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — categoria do Tecido 1 do produto." },
+  { key: "linha", rotulo: "Linha", rotuloCurto: "Linha", layout: false, padrao: true, obrigatorio: false, soVariante: false, tipo: "somente_leitura", coluna: null, gate: null, info: "Só leitura — vem da linha do produto." },
 ];
 export const CAMPO_BY_KEY: Map<CampoKey, CampoDef> = new Map(CAMPOS.map((c) => [c.key, c]));
 export const LAYOUT_KEYS: CampoKey[] = CAMPOS.map((c) => c.key);
-export const CAMPOS_PADRAO: CampoKey[] = CAMPOS.filter((c) => c.layout).map((c) => c.key);
+export const CAMPOS_PADRAO: CampoKey[] = CAMPOS.filter((c) => c.padrao).map((c) => c.key);
+/** Campos cuja falta não bloqueia a integração (= _integracao_opcionais() do banco). */
+export const CAMPOS_OPCIONAIS: CampoKey[] = CAMPOS.filter((c) => !c.obrigatorio).map((c) => c.key);
 export function ordenarCampos(keys: readonly string[]): CampoKey[] {
   const set = new Set(keys);
   return LAYOUT_KEYS.filter((k) => set.has(k));
@@ -62,6 +74,12 @@ for (const c of CAMPOS) {
 }
 export function rotuloDaColuna(coluna: ColunaEditavel): string {
   return CAMPO_POR_COLUNA.get(coluna) ?? coluna;
+}
+// Release I3: de onde vem a "Categoria do Tecido Principal" conforme a origem do produto.
+export function infoCategoriaTecido(origem: string): string {
+  if (origem === "revenda") return "Só leitura — revenda: vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", se for Acessórios) do card do Produto Acabado.";
+  if (origem === "importado") return "Só leitura — importado: vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", se for Acessórios) do card do Produto Importado.";
+  return "Só leitura — categoria principal do Tecido 1 do produto.";
 }
 export function infoCusto(origem: string): string {
   if (origem === "revenda") return "Só leitura — revenda: valor da OC (bruto − desconto) + insumos.";
@@ -108,8 +126,8 @@ export const TEXTO_MAO_DUPLA =
 // ── Aba "Campos da API" (Task 14) ──────────────────────────────────────────────────────────────────────────────────────
 export const TEXTO_SO_SUPER = "Esta aba é só do super admin. Admin da loja e usuários com permissão veem só Produtos e Log.";
 export const TEXTO_CAMPOS_REGRA =
-  'Marcado = entra na API e é obrigatório para integrar. A ordem é sempre esta (layout fixo do pedido). Os campos do layout (1–17) vêm marcados por padrão numa loja NOVA; "Foto do Modelo" nasce DESMARCADA (opcional). Mudar a seleção vale só para as PRÓXIMAS integrações — retratos já gravados não mudam.';
-export const TEXTO_TRAVA_SEMPRE = 'Travam sempre, marcados ou não: SKUs, cores e tamanhos das sublinhas e o "Tamanho em".';
+  'Marcado = entra na API e é obrigatório para integrar (exceto os 3 não obrigatórios). A ordem é sempre esta (layout fixo do pedido). Os campos do layout (1–17) vêm marcados por padrão numa loja NOVA, junto com Coleção, Categoria do Tecido Principal e Linha (19–21, não obrigatórios: vazios não bloqueiam a integração); "Foto do Modelo" nasce DESMARCADA (opcional). Mudar a seleção vale só para as PRÓXIMAS integrações — retratos já gravados não mudam.';
+export const TEXTO_TRAVA_SEMPRE = 'Travam sempre, marcados ou não: SKUs, cores e tamanhos das sublinhas e o "Tamanho em". Coleção, Categoria do Tecido Principal e Linha são só informativos: não travam nada.';
 export const TEXTO_CONFIRMAR_CAMPOS =
   "Esta mudança vale para as próximas integrações. Produtos já integrados mantêm o retrato gravado no momento da integração deles.";
 // Fix round 1 T14 (revisão T14 #2, task-14-review.md Important I1): banner do P0409 — as suas mudanças (a

@@ -99,6 +99,8 @@ function rowToDraft(row: any): ProdutoDraft {
     categoria_id: row.categoria_id,
     subcategoria1_id: row.subcategoria1_id,
     subcategoria2_id: row.subcategoria2_id,
+    categoria_tecido_id: row.categoria_tecido_id ?? null,
+    material_aviamento_id: row.material_aviamento_id ?? null,
     colecao_id: row.colecao_id,
     subcolecao: row.subcolecao,
     semana: row.semana,
@@ -148,7 +150,7 @@ function rowToDraft(row: any): ProdutoDraft {
 }
 
 const SELECT_PRODUTO = `
-  id, rev, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
+  id, rev, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id, categoria_tecido_id, material_aviamento_id,
   colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
   markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo,
@@ -161,7 +163,7 @@ const SELECT_PRODUTO = `
 // 3) pra formatar "Nome do produto · Campo" em cada linha de conflito pendente.
 const ROTULO_CAMPO_PA: Record<string, string> = {
   nome: "Nome", grupo_id: "Grupo", categoria_id: "Categoria", subcategoria1_id: "Subcategoria 1",
-  subcategoria2_id: "Subcategoria 2", empresa_id: "Fornecedor", representante_id: "Representante",
+  subcategoria2_id: "Subcategoria 2", categoria_tecido_id: "Categoria do tecido", material_aviamento_id: "Material do aviamento", empresa_id: "Fornecedor", representante_id: "Representante",
   ref_fornecedor: "Ref. Fornecedor", composicao: "Composição", grade_proporcao: "Proporção da grade",
   qtd_total: "Quantidade total", valor_unitario: "Valor unitário", desconto_pct: "Desconto (%)",
   markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo", variantes: "Variantes",
@@ -311,6 +313,8 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const { data: categorias = [] } = useOptCat("categorias_produto", "grupo_id") as { data: CatOpt[] };
   const { data: subcats1 = [] } = useOptCat("subcategorias1_produto", "categoria_id") as { data: SubOpt[] };
   const { data: subcats2 = [] } = useOptCat("subcategorias2_produto", "categoria_id") as { data: SubOpt[] };
+  const { data: categoriasTecido = [] } = useOpt("categorias_tecido");
+  const { data: materiaisAviamento = [] } = useOpt("materiais_aviamento");
   const { data: cores = [] } = useOpt("cores");
   const { data: coresApelido = [] } = useOptCat("cores_apelido", "cor_base_id") as { data: CorApelidoOpt[] };
   const { data: empresas = [] } = useQuery({
@@ -947,6 +951,8 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             categorias={categorias}
             subcats1={subcats1}
             subcats2={subcats2}
+            categoriasTecido={categoriasTecido}
+            materiaisAviamento={materiaisAviamento}
             cores={cores}
             coresApelido={coresApelido}
             empresas={empresas}
@@ -987,6 +993,8 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 semana: null, empresa_id: null, representante_id: null, ref_fornecedor: "", composicao: "",
                 grade_proporcao: {}, qtd_total: 0, valor_unitario: 0, desconto_pct: 0, insumos_total: 0,
                 markup_atacado: null, markup_varejo: null, variantes: [],
+                // Release I3: `_limpar_produto_acabado_core` também zera as 2 colunas novas (regra do dono).
+                categoria_tecido_id: null, material_aviamento_id: null,
                 // Fix round (L-2): `_limpar_produto_acabado_core` também zera `tamanho_tipo` no banco
                 // (task-1-2-report.md) — espelha aqui os dois lados (tipo + base) senão o draft local
                 // ficaria "sujo" pra um estado já persistido (mesmo motivo do rebaseline acima).

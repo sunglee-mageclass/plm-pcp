@@ -66,7 +66,7 @@ import { useAbrirCard } from "./abrir-card";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { cn } from "@/lib/utils";
 import { filtrarNcm, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
-import { infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
+import { infoCategoriaTecido, infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
 import { infoEdicao, travaOuGate, TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL } from "@/lib/integracao/celula";
 import {
   avisoRetrato, avisoSublinhas, formatarValor, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
@@ -480,8 +480,14 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   const motivoTrava = trava.tipo === "leitura" && trava.travado ? trava.motivo : null;
   const travado = trava.tipo === "leitura" && trava.travado;
   if (campo.tipo === "somente_leitura") {
-    const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : (campo.info ?? null);
-    return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} cardNome={p.raw.nome} />;
+    const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : campo.key === "categoria_tecido" ? infoCategoriaTecido(p.origem) : (campo.info ?? null);
+    const textoLeitura = valorCelula(p, campo.key, null);
+    if (!campo.obrigatorio) {
+      // Release I3 (P-219 A): Coleção / Categoria do Tecido Principal / Linha NÃO travam — sem cadeado nem "travado".
+      const partes = [infoNatural, textoLeitura === "—" ? "vazio — não bloqueia" : null, usaRetrato(p) ? "o retrato guarda o valor de quando ficou Integrável" : null].filter(Boolean);
+      return <Leitura texto={textoLeitura} info={partes.join(" · ")} aviso={aviso} travado={false} cardId={p.modeloId} cardNome={p.raw.nome} />;
+    }
+    return <Leitura texto={textoLeitura} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} cardNome={p.raw.nome} />;
   }
   if (campo.key === "metatag") {
     const texto = p.estado === "nao_integravel" ? (String(r.valores.descricao_produto ?? "").trim() || "—") : valorCelula(p, "metatag", null);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  CAMPOS, CAMPOS_PADRAO, CAMPO_BY_KEY, CONFIG_API, LAYOUT_KEYS, TEXTO_ALERTA_INTEGRAR, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO,
+  CAMPOS, CAMPOS_OPCIONAIS, infoCategoriaTecido, CAMPOS_PADRAO, CAMPO_BY_KEY, CONFIG_API, LAYOUT_KEYS, TEXTO_ALERTA_INTEGRAR, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO,
   alertaPaginaPlanoGratuito, infoCusto, ordenarCampos, rotuloDoCampoTravado, validarConfigApi,
 } from "@/lib/integracao/campos";
 import { modoCelula } from "@/lib/integracao/celula";
@@ -12,18 +12,25 @@ const SQL2 = readFileSync("supabase/migrations/20261007110000_integracao_2_retra
 const SQL5 = readFileSync("supabase/migrations/20261007140000_integracao_5_salvar.sql", "utf8");
 
 describe("integracao/campos — catálogo × SQL (anti-drift)", () => {
-  it("as 18 chaves na MESMA ordem do _integracao_layout() da migration 1", () => {
+  // Release I3: as 18 primeiras = migration 1 (original); 19–21 vêm da I3b (`20261030110000_integracao_3_campos.sql`, outra
+  // branch) — aqui ficam fixas no TS e o teste da I3b (banco) compara com `_integracao_layout()`.
+  it("as 18 primeiras chaves na MESMA ordem do _integracao_layout() da migration 1; 19–21 = colecao, categoria_tecido, linha", () => {
     const arr = SQL1.match(/SELECT ARRAY\[([\s\S]*?)\]::text\[\]/)![1];
     const sql = [...arr.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-    expect(LAYOUT_KEYS).toEqual(sql);
-    expect(CAMPOS_PADRAO).toEqual(sql.slice(0, 17));
+    expect(LAYOUT_KEYS.slice(0, 18)).toEqual(sql);
+    expect(LAYOUT_KEYS.slice(18)).toEqual(["colecao", "categoria_tecido", "linha"]);
+    expect(LAYOUT_KEYS).toHaveLength(21);
+    // _integracao_padrao() = layout[1:17] || layout[19:21]; _integracao_opcionais() = os 3 não obrigatórios
+    expect(CAMPOS_PADRAO).toEqual([...sql.slice(0, 17), "colecao", "categoria_tecido", "linha"]);
+    expect(CAMPOS_OPCIONAIS).toEqual(["colecao", "categoria_tecido", "linha"]);
   });
   it("os rótulos = _integracao_rotulos() da migration 2", () => {
     const ini = SQL2.indexOf("FUNCTION public._integracao_rotulos()");
     expect(ini).toBeGreaterThan(-1);
     const bloco = SQL2.slice(ini, SQL2.indexOf("$function$;", ini));
     const pares = Object.fromEntries([...bloco.matchAll(/'([a-z_]+)', '([^']+)'/g)].map((m) => [m[1], m[2]]));
-    for (const c of CAMPOS) expect(pares[c.key], c.key).toBe(c.rotulo);
+    for (const c of CAMPOS.slice(0, 18)) expect(pares[c.key], c.key).toBe(c.rotulo);
+    expect(CAMPOS.slice(18).map((c) => c.rotulo)).toEqual(["Coleção", "Categoria do Tecido Principal", "Linha"]); // rótulos da I3b
   });
   // G-migration fix 5, item L2: garante que CampoDef.gate (TS) e o CASE de integracao_salvar (SQL, migration 5)
   // nunca driftem — cada CampoDef.coluna vira uma chave do CASE (v_k = jsonb_object_keys dos campos enviados no
@@ -46,8 +53,20 @@ describe("integracao/campos — regras", () => {
   it("Foto fora do layout (P-83 A); cor/tamanho só variante; custo/cor/tamanho só leitura (P-80 A)", () => {
     expect(CAMPO_BY_KEY.get("foto")!.layout).toBe(false);
     expect(CAMPOS.filter((c) => c.soVariante).map((c) => c.key)).toEqual(["cor_base", "cor_apelido", "tamanho"]);
-    expect(CAMPOS.filter((c) => c.tipo === "somente_leitura").map((c) => c.key)).toEqual(["preco_custo", "cor_base", "cor_apelido", "tamanho"]);
+    expect(CAMPOS.filter((c) => c.tipo === "somente_leitura").map((c) => c.key)).toEqual(["preco_custo", "cor_base", "cor_apelido", "tamanho", "colecao", "categoria_tecido", "linha"]);
+    // Release I3: os 3 informativos não são layout, vêm marcados por padrão, não são obrigatórios e não têm coluna/gate.
+    for (const k of ["colecao", "categoria_tecido", "linha"] as const) {
+      const c = CAMPO_BY_KEY.get(k)!;
+      expect([c.layout, c.padrao, c.obrigatorio, c.coluna, c.gate]).toEqual([false, true, false, null, null]);
+    }
+    expect(CAMPO_BY_KEY.get("foto")!.padrao).toBe(false);
     expect(CAMPO_BY_KEY.get("metatag")!.coluna).toBe("descricao_produto"); // Metatag = Descrição
+  });
+  it("infoCategoriaTecido: texto por origem (interno = Tecido 1; revenda/importado = card do produto)", () => {
+    expect(infoCategoriaTecido("interno")).toMatch(/Tecido 1/);
+    expect(infoCategoriaTecido("revenda")).toMatch(/Produto Acabado/);
+    expect(infoCategoriaTecido("importado")).toMatch(/Produto Importado/);
+    expect(infoCategoriaTecido("revenda")).toMatch(/Material do aviamento/);
   });
   it("ordenarCampos: ordem fixa, descarta desconhecidos", () => {
     expect(ordenarCampos(["foto", "xyz", "nome", "ncm"])).toEqual(["nome", "ncm", "foto"]);

@@ -56,6 +56,9 @@ describe("Campos da API — seleção (P-60 B, P-83 A)", () => {
     expect(precisaAlertaLayout("nome", true)).toBe(false);
     expect(precisaAlertaLayout("foto", false)).toBe(false);
   });
+  it("Release I3: desmarcar Coleção / Categoria do Tecido Principal / Linha NÃO mostra o alerta de layout", () => {
+    for (const k of ["colecao", "categoria_tecido", "linha"] as const) expect(precisaAlertaLayout(k, false)).toBe(false);
+  });
   it("rótulo na lista: 'Foto do Modelo' (a coluna da API continua 'Foto')", () => {
     expect(rotuloNaLista("foto")).toBe("Foto do Modelo");
     expect(rotuloNaLista("titulo")).toBe("Título para a página");
@@ -173,11 +176,26 @@ describe("CamposAba — render", () => {
   it("carrega os 17 campos do layout marcados e 'Foto do Modelo' desmarcada (P-79/P-83 A)", async () => {
     const view = await montar();
     const checks = view.container.querySelectorAll('button[role="checkbox"]');
-    // 18 campos no total (17 layout + foto).
-    expect(checks.length).toBe(18);
+    // 21 campos no total (17 layout + foto + 3 informativos da Release I3).
+    expect(checks.length).toBe(21);
     expect(checkboxDe(view.container, "Foto do Modelo").getAttribute("data-state")).toBe("unchecked");
     const nomeRow = Array.from(view.container.querySelectorAll("li")).find((li) => li.textContent?.startsWith("1Nome"));
     expect(nomeRow!.querySelector('button[role="checkbox"]')?.getAttribute("data-state")).toBe("checked");
+    await view.desmontar();
+  });
+
+  it("Release I3: os 3 informativos aparecem marcados (quando a loja os tem) com o selo 'não obrigatório'; Foto segue 'opcional'", async () => {
+    const view = await montar({ campos: [...CAMPOS_17, "colecao", "categoria_tecido", "linha"] });
+    for (const t of ["Coleção", "Categoria do Tecido Principal", "Linha"]) {
+      const li = acharLinha(view.container, t);
+      expect(li.textContent, t).toContain("não obrigatório");
+      expect(li.querySelector('button[role="checkbox"]')?.getAttribute("data-state"), t).toBe("checked");
+    }
+    expect(acharLinha(view.container, "Foto do Modelo").textContent).toContain("opcional");
+    // desmarcar um deles não abre o alerta "layout obrigatório"
+    await act(async () => { checkboxDe(view.container, "Linha").click(); });
+    expect(document.body.textContent).not.toMatch(/Tem certeza\?/);
+    expect(checkboxDe(view.container, "Linha").getAttribute("data-state")).toBe("unchecked");
     await view.desmontar();
   });
 
@@ -462,7 +480,7 @@ describe("CamposAba — render", () => {
       },
     });
     // Carga inicial ok: a lista está visível.
-    expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(18);
+    expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(21);
     // Um refetch em BACKGROUND que falha (ex.: reabrir a aba) não pode esconder a lista já carregada.
     // p3 (task-14-review.md): `refetchQueries` NÃO rejeita quando a query falha — no query-core 5.101 a própria
     // promise ENGOLE o erro internamente (a menos que `throwOnError` seja passado), então o `.catch(() => {})`
@@ -470,7 +488,7 @@ describe("CamposAba — render", () => {
     // query, `isError`, checado logo abaixo — não a promise desta chamada).
     await act(async () => { await view.qc.refetchQueries({ queryKey: ["integracao-config", "t1"] }).catch(() => {}); });
     await view.esperar();
-    expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(18);
+    expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(21);
     expect(view.container.textContent).toMatch(/Não foi possível atualizar os campos/);
     const tentar = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Tentar de novo");
     expect(tentar).toBeDefined();
