@@ -1,11 +1,23 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layers, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Layers, RefreshCw, Search } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { FilterButton } from "@/components/shared/filters";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -19,6 +31,9 @@ import { ModeloFotoHoverRow, ModeloResumoLinhaMobile } from "@/components/shared
 import { cn } from "@/lib/utils";
 import { situacaoExplosao, type ExplosaoSituacao } from "@/lib/explosao";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useAuth } from "@/hooks/useAuth";
+import { mensagemErro } from "@/lib/erro-mensagem";
+import { fmtNum } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/explosao/")({
   component: ExplosaoListPage,
@@ -59,6 +74,42 @@ function ExplosaoListPage() {
   const [fOrigem, setFOrigem] = useFilterState("explosao", "Origem", []);
   // Segmento Situação — Todos é o default (não esconde nada ao abrir a tela).
   const [fSituacao, setFSituacao] = useState<"todos" | "aguardando" | "enviados">("todos");
+  // (leves L6, B-R1) "Reprocessar faltas": só o admin da loja/super admin. Completa, com o tecido que já está em
+  // estoque, o "Faltou estoque" de cortes enviados que a baixa automática não completou (RPC reprocessar_faltas_corte).
+  const { isTenantAdmin, isSuperAdmin } = useAuth();
+  const podeReprocessar = isTenantAdmin || isSuperAdmin;
+  const [confirmReproc, setConfirmReproc] = useState(false);
+  const reprocMut = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("reprocessar_faltas_corte" as any, {});
+      if (error) throw error;
+      return data as unknown as {
+        cads: number;
+        metros: number;
+        adiadas: number;
+        erros: number;
+        cads_com_falta: number;
+      };
+    },
+    onSuccess: (r) => {
+      setConfirmReproc(false);
+      // mesmas chaves que o "Voltar para a Explosão" do PCP invalida (baixa de estoque nova)
+      qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-estoque"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      const resto = r.cads_com_falta > 0 ? ` Ainda com falta: ${r.cads_com_falta}.` : "";
+      const depois = r.adiadas > 0 ? " Parte ficou para depois — clique de novo." : "";
+      if (r.cads > 0)
+        toast.success(
+          `${r.cads} corte(s) completado(s) — ${fmtNum(r.metros)} m baixados.${resto}${depois}`,
+        );
+      else if (r.adiadas > 0) toast.info("Ocupado agora — clique de novo em instantes.");
+      else toast.info(`Nada a completar agora: não há tecido em estoque para as faltas.${resto}`);
+      if (r.erros > 0) toast.warning(`${r.erros} variante(s) não puderam ser reprocessadas.`);
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Erro ao reprocessar as faltas.")),
+  });
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-explosao-list"],
@@ -146,6 +197,8 @@ function ExplosaoListPage() {
     return true;
   });
 
+  const nFaltou = (rows as Row[]).filter((r) => r.situacao === "faltou_estoque").length;
+
   const s = useSort(filtered, { key: "ref" });
   const { sorted } = s;
 
@@ -207,7 +260,47 @@ function ExplosaoListPage() {
         <span className="text-xs text-muted-foreground sm:ml-auto">
           <b className="text-foreground">{counts.aguardando} aguardando</b> baixa · o acionável em destaque, enviados esmaecidos
         </span>
+        {podeReprocessar && nFaltou > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmReproc(true)}
+            disabled={reprocMut.isPending}
+          >
+            <RefreshCw className="h-4 w-4" /> Reprocessar faltas ({nFaltou})
+          </Button>
+        )}
       </div>
+
+      <AlertDialog
+        open={confirmReproc}
+        onOpenChange={(o) => {
+          if (!o && !reprocMut.isPending) setConfirmReproc(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reprocessar as faltas do corte?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O sistema baixa do estoque o tecido que faltou nos cortes já enviados ({nFaltou} com
+              &quot;Faltou estoque&quot;), do corte mais antigo para o mais novo, só com o que já
+              está em estoque. Não refaz os cortes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reprocMut.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                reprocMut.mutate();
+              }}
+              disabled={reprocMut.isPending}
+            >
+              Reprocessar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card className="overflow-x-auto">
         <table className="w-full text-sm card-table card-table-foto">
