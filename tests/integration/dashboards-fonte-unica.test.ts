@@ -16,6 +16,12 @@ const MD5_DEPOIS: Record<string, string> = {
   "public._dashboard_leadtime_core()": "520312bb84b32f35b63f056e93d51c54",
   "public._dashboard_leadtime_itens_core(uuid,text,text)": "e90d44175464c66e6576f0f8a4bea1dd",
 };
+// [leves L4] 20261027200000_dashboards_funil_dev muda _dashboard_colecao_core e _dashboard_producao_core por cima da R12
+// (prod #10: Desenvolvimento = ordem_criacao_enviada). Com a L4 aplicada vale o md5 da L4; o resto da R12 segue igual.
+const MD5_DEPOIS_L4: Record<string, string> = {
+  "public._dashboard_colecao_core(date,date,text,uuid,uuid)": "9435f724d61227a7014d95a95cf7fac5",
+  "public._dashboard_producao_core(date,date,text,uuid)": "2662bae65ab7fb9c1c7cb012273481be",
+};
 // _custo_unitario_modelos_core: a R12 não mexe nela; a R16 (20261026200000, P-186 A + R12 INFO 6 + preço M1) troca
 // d26c7c9a… → 4bf2770e… (o inverso da R16 roda antes do da R12).
 const MD5_INTOCADA = "4bf2770e4932d00914d5209a71ca6312";
@@ -64,7 +70,7 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
           [sig],
         );
         expect(r, sig).toBeTruthy();
-        expect(r.md5, sig).toBe(md5);
+        expect([md5, MD5_DEPOIS_L4[sig]].filter(Boolean), sig).toContain(r.md5);
         expect(r.vol, sig).toBe("s");
         expect(r.anon || r.auth || r.pub, sig).toBe(false);
       }
@@ -174,8 +180,13 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
       const k2 = await k();
       expect(k2.kpis.producao).toBe(k1.kpis.producao + 1); // antes: +0 (ia para Desenvolvimento)
       expect(k2.kpis.desenvolvimento).toBe(k1.kpis.desenvolvimento);
-      // 3) interno com CAD mas SEM enviado_cad → continua fora de Produção (como antes)
-      const int = await novoModelo(c, { origem: "interno", status_planejamento: "planejado" });
+      // 3) interno com CAD mas SEM enviado_cad → continua fora de Produção (como antes). [leves L4] interno chega ao
+      //    Desenvolvimento pela ordem_criacao_enviada (prod #10), por isso a ordem vai junto.
+      const int = await novoModelo(c, {
+        origem: "interno",
+        status_planejamento: "planejado",
+        ordem_criacao_enviada: true,
+      });
       await c.query(`insert into cad (tenant_id, modelo_id) values ($1,$2)`, [TENANT_TESTE, int]);
       const k3 = await k();
       expect(k3.kpis.producao).toBe(k2.kpis.producao);
@@ -204,7 +215,7 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
       // invariante de partição: os 4 baldes somam o total
       for (const x of [k0, k1, k2, k3, k4, k5]) {
         expect(
-          x.kpis.planejamento + x.kpis.desenvolvimento + x.kpis.producao + x.kpis.lancados,
+          x.kpis.planejamento + x.kpis.desenvolvimento + x.kpis.producao + x.kpis.lancados + (x.kpis.reprovados ?? 0), // [leves L4 P-215 A] 5º balde
         ).toBe(x.kpis.total);
       }
     });
@@ -237,8 +248,14 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
       expect(typeof p0.aprovadoNaoLancado).toBe("number"); // antes: chave ausente
       expect(p0.aprovadoNaoLancado).toBe(Number(col.modelos) - lancAprov);
       // novo aprovado NÃO lançado entra; aprovado lançado não
-      await novoModelo(c, { status_planejamento: "planejado", status_desenvolvimento: "aprovado" });
+      // [leves L4] interno entra no kanbanDev pela ordem_criacao_enviada (prod #10)
       await novoModelo(c, {
+        status_planejamento: "planejado",
+        status_desenvolvimento: "aprovado",
+        ordem_criacao_enviada: true,
+      });
+      await novoModelo(c, {
+        ordem_criacao_enviada: true,
         status_planejamento: "planejado",
         status_desenvolvimento: "aprovado",
         lancado: true,

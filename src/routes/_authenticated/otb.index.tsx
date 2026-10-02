@@ -98,9 +98,9 @@ function OtbPage() {
     queryKey: ["otb-modelos-link"],
     queryFn: async () => {
       // "as any" no builder: markup_editado ainda não está no types.ts gerado (regen pendente).
-      const { data, error } = await (supabase.from("modelos") as any).select("id, colecao_id, linha_id, preco_venda, markup_editado, status_planejamento").not("colecao_id", "is", null);
+      const { data, error } = await (supabase.from("modelos") as any).select("id, colecao_id, linha_id, preco_venda, markup_editado, status_planejamento, status_desenvolvimento").not("colecao_id", "is", null);
       if (error) throw error;
-      return (data ?? []) as { id: string; colecao_id: string; linha_id: string | null; preco_venda: number | null; markup_editado: number | null; status_planejamento: string | null }[];
+      return (data ?? []) as { id: string; colecao_id: string; linha_id: string | null; preco_venda: number | null; markup_editado: number | null; status_planejamento: string | null; status_desenvolvimento: string | null }[];
     },
   });
   const modeloIds = modelosLink.map((m) => m.id).sort();
