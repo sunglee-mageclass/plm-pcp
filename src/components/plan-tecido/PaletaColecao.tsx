@@ -7,16 +7,25 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Button } from "@/components/ui/button";
 import { ChevronRight, X, Clock, Home } from "lucide-react";
 import { useArtigosTecido, type ArtigoTec } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtInt } from "@/lib/format";
+import { fmtMetros, type OcSituacaoResumo } from "@/lib/plan-tecido/calc";
 import { OcAplicadaPicker } from "./OcAplicadaPicker";
 
 type PaletaRow = { artigo_id: string; papel: string };
 
+/** Linha "OCs que cobrem" da Paleta = a MESMA conta da "Situação por OC" (est #12 / P-189 A). */
+export function linhasOcsPaleta(ocs: readonly OcSituacaoResumo[]) {
+  return ocs.map((o) => ({ oc_tecido_id: o.oc_tecido_id, numero_pedido: o.numero, status: o.status, pedida: o.pedida, demanda: o.demanda }));
+}
+
 /**
  * "Insumos da coleção": tecidos e forros da coleção (adicionados à mão OU já usados pelos cards) +
- * as OCs (aplicadas manualmente OU geradas pelo Fazer pedido), com status (encomendado × em casa).
+ * as OCs da coleção, com status (encomendado × em casa).
+ * ⚠️ Aposentada da tela desde a Fase 3.1 (9e4dd648, jul/2026) — o componente não é montado. Se voltar: est #12 /
+ * P-189 A (dono 01/out) — as OCs NÃO vêm mais de `plan_tecido_cobertura_ocs` (2 fontes, pedida cheia): o pai passa
+ * `ocs` = `resumoOcsColecao(...)` (calc.ts), a MESMA lista (união das 4 fontes da Situação) e os MESMOS metros
+ * (Pedida e Demanda repartida pela prioridade do vínculo, D5; sem cards reprovados, P-198 A) da "Situação por OC".
  */
-export function PaletaColecao({ colecaoId, emUso = [] }: { colecaoId: string; emUso?: PaletaRow[] }) {
+export function PaletaColecao({ colecaoId, emUso = [], ocs }: { colecaoId: string; emUso?: PaletaRow[]; ocs: readonly OcSituacaoResumo[] }) {
   const qc = useQueryClient();
   const { artigoMap, tecidoArtigos, forroArtigos } = useArtigosTecido();
   const [addTec, setAddTec] = useState("");
@@ -28,21 +37,8 @@ export function PaletaColecao({ colecaoId, emUso = [] }: { colecaoId: string; em
       (((await supabase.from("plan_tecido_paleta" as any).select("artigo_id, papel").eq("colecao_id", colecaoId)).data ?? []) as unknown as PaletaRow[]),
   });
 
-  // OCs que cobrem a coleção (aplicadas + geradas) agregadas por OC, com status
-  const { data: ocsCobertura = [] } = useQuery({
-    queryKey: ["plan-tecido-cobertura-ocs", colecaoId],
-    enabled: !!colecaoId,
-    queryFn: async () => {
-      const { data } = await supabase.rpc("plan_tecido_cobertura_ocs" as any, { _colecao_id: colecaoId });
-      const byOc = new Map<string, { numero_pedido: string | null; status: string | null; m: number }>();
-      for (const r of (data ?? []) as { oc_tecido_id: string; numero_pedido: string | null; status: string | null; coberto_m: number }[]) {
-        const cur = byOc.get(r.oc_tecido_id) ?? { numero_pedido: r.numero_pedido, status: r.status, m: 0 };
-        cur.m += Number(r.coberto_m) || 0;
-        byOc.set(r.oc_tecido_id, cur);
-      }
-      return [...byOc.values()];
-    },
-  });
+  // OCs da coleção = a MESMA lista/metros da "Situação por OC" (P-189 A) — vêm prontas do pai.
+  const ocsCobertura = linhasOcsPaleta(ocs);
 
   const salvar = useMutation({
     mutationFn: async (itens: PaletaRow[]) => {
@@ -121,15 +117,18 @@ export function PaletaColecao({ colecaoId, emUso = [] }: { colecaoId: string; em
         {linhaAdd("Forros", "forro", forroArtigos, addFor, setAddFor)}
         <div className="border-t pt-2">
           <div className="mb-1 text-[11px] font-medium text-muted-foreground">OCs</div>
-          {/* OCs vinculadas à coleção (acompanhamento), com status (encomendado × em casa).
-              Cobrem o "a comprar" só com card vinculado ou se geradas pelo Fazer pedido (opção B). */}
+          {/* OCs da coleção (acompanhamento), com status (encomendado × em casa) — Pedida e Demanda desta coleção,
+              os mesmos números da "Situação por OC". */}
+          {ocsCobertura.length === 0 && (
+            <p className="mb-2 text-[11px] text-muted-foreground">Nenhuma OC na Situação por OC desta coleção.</p>
+          )}
           {ocsCobertura.length > 0 && (
             <div className="mb-2 space-y-0.5">
-              {ocsCobertura.map((o, i) => (
-                <div key={i} className="flex items-center gap-1 text-[11px]" title={o.status === "recebido" ? "Em casa (recebido)" : "Encomendado"}>
+              {ocsCobertura.map((o) => (
+                <div key={o.oc_tecido_id} className="flex items-center gap-1 text-[11px]" title={`${o.status === "recebido" ? "Em casa (recebido)" : "Encomendado"} — Pedida ${fmtMetros(o.pedida)} m · Demanda desta coleção ${fmtMetros(o.demanda)} m`}>
                   {o.status === "recebido" ? <Home className="h-3 w-3 text-emerald-600" /> : <Clock className="h-3 w-3 text-amber-600" />}
                   <span className="flex-1 truncate">{o.numero_pedido || "OC"}</span>
-                  <span className="text-muted-foreground">{fmtInt(o.m)} m · {o.status === "recebido" ? "em casa" : "encomendado"}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">dem. {fmtMetros(o.demanda)} de {fmtMetros(o.pedida)} m · {o.status === "recebido" ? "em casa" : "encomendado"}</span>
                 </div>
               ))}
             </div>

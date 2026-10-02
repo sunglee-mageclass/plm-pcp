@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, sobraOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo, statusFornecedorCategoria } from "@/lib/plan-tecido/calc";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -73,7 +73,7 @@ function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: st
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe, custoCardsPendente = false,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, vinculosDetalhe, capacidade, aguardandoCapacidade = false, enviadoCadSet, reprovadoSet, reprovadoStatusSet, catTecidoNome, onDetalhar, temRascunho = false, precoCardDe, custoCardsPendente = false,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -90,6 +90,11 @@ export function ResumoPanel({
   aguardandoCapacidade?: boolean;
   /** modelos já ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) AO VIVO. */
   enviadoCadSet?: Set<string>;
+  /** P-198 A: modelos em `reprovado` — o card fica na vaga mas SAI da necessidade e da Demanda das OCs. */
+  reprovadoSet?: ReadonlySet<string>;
+  /** P-212 A (fix round 2): TODO card reprovado (Dev OU Planejamento), cortado ou não — sai do Poder de venda e das
+   *  Pendências (a exceção M2 do corte vale só para o consumo de tecido, não para a venda). */
+  reprovadoStatusSet?: ReadonlySet<string>;
   catTecidoNome: (id: string) => string | null | undefined;
   onDetalhar: (kind: "comprar" | "oc" | "ocnum", arg?: string) => void;
   /** Há edição de rascunho não salva influenciando os números vivos (necessidade/"a comprar")? Só
@@ -219,14 +224,15 @@ export function ResumoPanel({
   // Régua única (dono 17/ago/2026, flag usar_estoque APOSENTADO): TODO card entra na necessidade;
   // a cobertura por vínculo é quem abate o "a comprar" (no servidor). Espelha o
   // _plan_tecido_nec_variante_core (que também deixou de filtrar usar_estoque).
-  const enc = slots;
-  const slotsCat = (cid: string | null) => enc.filter((s) => (s.categoria_tecido_id ?? null) === cid);
-  const catTecMetros = (cid: string | null) => slotsCat(cid).reduce((a, s) => a + slotMetros(s, "tecido"), 0);
-  const catStatus = (cid: string | null): "g" | "a" | "n" => {
-    const ss = slotsCat(cid);
-    const comF = ss.filter((s) => { const t = firstTec(s); return !!t?.artigo_id && fornecSet.has(t.artigo_id); });
-    return comF.length === 0 ? "n" : comF.length === ss.length ? "g" : "a";
-  };
+  // P-198 A: card REPROVADO (não cortado) fica na vaga mas SAI da necessidade (`enc`). P-212 A (fix round 2): TODO
+  // reprovado, cortado ou não, sai do Poder de venda e das Pendências (`venda`) — a exceção M2 é só do tecido.
+  const enc = slots.filter((s) => slotContaNaDemanda(s, reprovadoSet));
+  const nReprovados = slots.length - enc.length;
+  const venda = slots.filter((s) => slotContaNaDemanda(s, reprovadoStatusSet));
+  // P-212 A (fix round 3): a bolinha de fornecedor da categoria também ignora o card reprovado (cortado ou não) — `venda`.
+  const slotsCat = (cid: string | null) => venda.filter((s) => (s.categoria_tecido_id ?? null) === cid);
+  const catTecMetros = (cid: string | null) => enc.filter((s) => (s.categoria_tecido_id ?? null) === cid).reduce((a, s) => a + slotMetros(s, "tecido"), 0);
+  const catStatus = (cid: string | null): "g" | "a" | "n" => statusFornecedorCategoria(slotsCat(cid), (aid) => fornecSet.has(aid));
   const totTec = enc.reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const totForro = enc.reduce((a, s) => a + slotMetros(s, "forro"), 0);
   const semCatMetros = catTecMetros(null);
@@ -243,7 +249,10 @@ export function ResumoPanel({
   // 'comprar' (usa `cobertura`, TODAS as variantes reais — inclusive as com fornecedor pendente).
   const catDeArtigo = new Map<string, string>();
   for (const s of slots) { if (!s.categoria_tecido_id) continue; for (const m of s.materiais) if (m.tipo === "tecido" && m.artigo_id) catDeArtigo.set(m.artigo_id, s.categoria_tecido_id); }
-  const necVivoColByVar = necVivoPorVariante(colecaoArvore); // nec viva do rascunho por variante_tecido_id
+  // P-198 A: as contas usam a árvore SEM os cards reprovados (o servidor faz o mesmo em _plan_tecido_nec_variante_core).
+  const arvoreDem = arvoreDaDemanda(arvore, reprovadoSet);
+  const colecaoDem = arvoreDaDemanda(colecaoArvore, reprovadoSet);
+  const necVivoColByVar = necVivoPorVariante(colecaoDem); // nec viva do rascunho por variante_tecido_id
   const deficitVivoPorArtigo = aComprarVivoPorArtigo(previa?.cobertura ?? [], necVivoColByVar);
   const necPorArtigo = (arv: PtArvore) => {
     const m = new Map<string, number>();
@@ -251,8 +260,8 @@ export function ResumoPanel({
     for (const t of necessidadePorTecido(arv)) m.set(t.artigo_id, t.totalMetros);
     return m;
   };
-  const necSubArt = necPorArtigo(arvore);
-  const necColArt = necPorArtigo(colecaoArvore);
+  const necSubArt = necPorArtigo(arvoreDem);
+  const necColArt = necPorArtigo(colecaoDem);
   const aComprarArtigo = (aid: string) =>
     rateioDeficitSub(deficitVivoPorArtigo.get(aid) ?? 0, necSubArt.get(aid) ?? 0, necColArt.get(aid) ?? 0);
   const deficitPorCat = new Map<string, number>();
@@ -276,22 +285,14 @@ export function ResumoPanel({
   // OC → artigos E variantes dos itens dela (da RPC): a reserva por OC conta SÓ os metros desses
   // artigos, e parcela com COR definida só se a cor existe na OC (senão o total por OC divergia da
   // soma por variante do Drawer — 576 vs 567,04 na auditoria).
-  const ocArtigos = new Map<string, Set<string>>();
-  const ocVariantes = new Map<string, Set<string>>();
-  for (const r of situacao) {
-    let s = ocArtigos.get(r.oc_tecido_id);
-    if (!s) { s = new Set(); ocArtigos.set(r.oc_tecido_id, s); }
-    s.add(r.artigo_id);
-    let v = ocVariantes.get(r.oc_tecido_id);
-    if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
-    if (r.variante_tecido_id) v.add(r.variante_tecido_id);
-  }
-  const { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade });
+  // P-198 A: card reprovado fora da Demanda (detalheOcColecao usa a árvore sem eles). P-189 A: a conta de cada OC
+  // vem de `resumoOcsColecao` — a MESMA da Paleta.
+  const det = detalheOcColecao(colecaoArvore, situacao, vinculoOcMap, slotOcMap, enviadoCadSet, { vinculos: vinculosDetalhe, capacidade, aguardando: aguardandoCapacidade, reprovados: reprovadoSet });
+  const contaOc = new Map(resumoOcsColecao(ocs, situacao, det).map((r) => [r.oc_tecido_id, r]));
 
   // ---- Pendências (subcoleção) ----
-  const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
-  const semTecFornec = slots.filter((s) => { const t = firstTec(s); return !t?.artigo_id || !fornecSet.has(t.artigo_id); }).length;
-  const semCard = slots.filter((s) => !s.modelo_id).length;
+  // P-212 A: card reprovado (cortado ou não) não cobra pendência.
+  const { semCategoria, semTecFornec, semCard } = pendenciasResumo(venda, (aid) => fornecSet.has(aid));
   const pendAll: [number, string][] = [
     [semCategoria, "sem categoria de tecido"],
     [semTecFornec, "sem tecido / fornecedor"],
@@ -302,7 +303,7 @@ export function ResumoPanel({
   // ---- Poder de venda (subcoleção), gated por fornecedor ----
   const comFornec = (slot: PtSlot) => { const t = firstTec(slot); return !!t?.artigo_id && fornecSet.has(t.artigo_id); };
   let pv = 0; let nComFornec = 0; let nComCard = 0;
-  for (const slot of slots) {
+  for (const slot of venda) { // P-212 A: card reprovado (cortado ou não) não entra no poder de venda
     if (!comFornec(slot)) continue;
     nComFornec++;
     if (slot.modelo_id) nComCard++;
@@ -370,6 +371,9 @@ export function ResumoPanel({
               </div>
             </div>
             <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">a comprar</b> = parte DESTA subcoleção do déficit da coleção (necessidade − OCs vinculadas; plano salvo). O <b className="font-semibold">Fazer pedido</b> sai da seleção de cards.</div>
+            {nReprovados > 0 && (
+              <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground">{nReprovados} card{nReprovados === 1 ? "" : "s"} <b className="font-semibold">reprovado{nReprovados === 1 ? "" : "s"}</b> fora da necessidade e da Demanda das OCs — volta{nReprovados === 1 ? "" : "m"} a contar ao sair de Reprovado.</div>
+            )}
           </>
         )}
       </Secao>
@@ -381,7 +385,7 @@ export function ResumoPanel({
             <div className="flex justify-between text-xs"><span>Σ preço × grade</span>{poderVendaCalculando(custoCardsPendente, nComCard > 0)
               ? <span className="text-muted-foreground">calculando…</span>
               : <b>{brl(pv)}</b>}</div>
-            <div className="mt-0.5 text-[10px] text-muted-foreground">{nComFornec} de {slots.length} modelos com fornecedor</div>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">{nComFornec} de {venda.length} modelos com fornecedor</div>
           </div>
         ) : (
           <div className="flex items-start gap-1.5 p-2 text-[11px] text-amber-700">
@@ -446,17 +450,15 @@ export function ResumoPanel({
         {ocs.length ? gruposTecidoOc.map((g) => (
           <GrupoTecidoOc key={g.tecido} tecido={g.tecido} count={g.itens.length} open={tecidosAbertos.has(g.tecido)} onToggle={() => toggleTecidoOc(g.tecido)}>
             {g.itens.map((o) => {
-              const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
-              const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
-              // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
-              const { reservadaLivre: reservada, usada, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
-              // D-1: a Sobra é a do Drawer — Σ por cor (helper `sobraOc`), não a conta sobre o total da OC.
-              const sobra = sobraOc(o.oc_tecido_id, situacao, { reservPorOc, comprometidoPorOc, reservPorOcVar, comprometidoPorOcVar });
+              // Contabilidade via fonte única (`resumoOcsColecao` → contabilizarOc + sobraOc, mesma do Drawer e da Paleta):
+              // usado (comprometido OU baixa) sai da reservada; a Sobra é Σ por cor (D-1).
+              const c = contaOc.get(o.oc_tecido_id)!;
+              const { reservadaLivre: reservada, usadaEfetiva: usada, baixaDomina, sobra } = c;
               return (
                 <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
                   <div className="mb-0.5 flex items-center gap-2">
                     <b>{o.numero ?? "OC"}</b>
-                    <span className="text-[10px] text-muted-foreground">{nPorOc.get(o.oc_tecido_id) ?? 0} modelo(s)</span>
+                    <span className="text-[10px] text-muted-foreground">{c.nModelos} modelo(s)</span>
                     <Detalhar onClick={() => onDetalhar("ocnum", o.oc_tecido_id)} />
                   </div>
                   {o.tecidos.length > 0 && <div className="mb-1 truncate text-[10px] text-muted-foreground" title={o.tecidos.join(" · ")}>{o.tecidos.join(" · ")}</div>}
@@ -471,7 +473,7 @@ export function ResumoPanel({
                       <span className="font-medium text-amber-700" title={`Falta chegar ${nMet(Math.max(0, o.pedida - o.entregue))} m`}>{nMet(o.entregue)} de {nMet(o.pedida)} m</span>
                     )}
                   </div>
-                  <div className="flex justify-between text-muted-foreground" title="O que os modelos vinculados planejam usar desta OC"><span>Demanda</span><span className="font-medium text-foreground">{nMet(Math.max(reservadaTotal, usada))} m</span></div>
+                  <div className="flex justify-between text-muted-foreground" title="O que os modelos vinculados planejam usar desta OC"><span>Demanda</span><span className="font-medium text-foreground">{nMet(c.demanda)} m</span></div>
                   <div className="flex justify-between pl-2.5 text-muted-foreground">
                     <span>em produção</span>
                     <span className={usada <= 0 ? "" : baixaDomina ? "font-medium text-red-700" : "font-medium text-amber-700"}

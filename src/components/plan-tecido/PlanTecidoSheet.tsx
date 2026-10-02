@@ -41,7 +41,7 @@ import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -483,7 +483,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
+          "id, ref, nome, versao, origem, status_desenvolvimento, status_planejamento, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(enviado_corte, cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -768,6 +768,19 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // modelos já enviados ao CAD (Explosão) = TRAVADOS p/ edição no Dev → "Aplicar ao modelo" não deve
   // alterar o BOM (o CAD já explodiu o BOM antigo); o card avisa e desabilita (pedido do dono).
   const enviadoCadSet = useMemo(() => new Set(((modelosDb ?? []) as any[]).filter((m) => m.enviado_cad).map((m) => m.id as string)), [modelosDb]);
+  // P-198 A + P-213 A (R15b): cards reprovados (no Dev OU no Planejamento) — ficam na vaga com o selo "Reprovado" (`reprovadoStatusSet`), mas SAEM da
+  // necessidade e da Demanda/Sobra das OCs (`reprovadoSet`: Resumo, Drawer, lanes; o servidor faz o mesmo na prévia/
+  // Situação) — SALVO o já enviado ao corte (fix1 M2: consumo físico real, segue contando). Status muda fora do plano
+  // (Planejamento/Dev) → a query de modelos refetcha no foco e a conta volta sozinha ao sair de Reprovado.
+  type ModeloStatus = { id: string; status_desenvolvimento: string | null; status_planejamento: string | null; cad?: { enviado_corte: boolean | null }[] | null };
+  const reprovadoStatusSet = useMemo(
+    () => new Set(((modelosDb ?? []) as ModeloStatus[]).filter((m) => ehReprovado(m.status_desenvolvimento, m.status_planejamento)).map((m) => m.id)),
+    [modelosDb],
+  );
+  const reprovadoSet = useMemo(
+    () => new Set(((modelosDb ?? []) as ModeloStatus[]).filter((m) => reprovadoSaiDaDemanda(m.status_desenvolvimento, m.status_planejamento, cadEnviadoCorte(m.cad))).map((m) => m.id)),
+    [modelosDb],
+  );
 
   // IDs dos modelos reais do plano → base das buscas por-modelo (MO por serviço etc.).
   const modeloIdsDb = useMemo(() => [...new Set(((modelosDb ?? []) as any[]).map((m) => m.id as string))].sort(), [modelosDb]);
@@ -2096,13 +2109,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
               lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
               travado={slot.modelo_id ? enviadoCadSet.has(slot.modelo_id) : false}
+              reprovado={slot.modelo_id ? reprovadoStatusSet.has(slot.modelo_id) : false}
+              reprovadoContando={slot.modelo_id ? reprovadoStatusSet.has(slot.modelo_id) && !reprovadoSet.has(slot.modelo_id) : false}
               maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
               maoObraServico={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
               precoCard={slot.modelo_id ? precoCardDe(slot.modelo_id) : null}
               custoCardDetalhe={slot.modelo_id ? custoDetalheCardDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
-              fase={slot.modelo_id ? faseInfo(slot.modelo_id) : null}
+              // reprovado na fase 'dev' = o rótulo da fase JÁ é a coluna Reprovado → só o selo "Reprovado" (sem repetir)
+              fase={slot.modelo_id && !(reprovadoStatusSet.has(slot.modelo_id) && fasesMap[slot.modelo_id]?.fase === "dev") ? faseInfo(slot.modelo_id) : null}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => {
                 const next = structuredClone(arvore) as PtArvore;
@@ -2170,7 +2186,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     // qualquer lane; aceito por design (é o mesmo nome de tecido — comportamento coerente).
                     const nomeKey = `${subAtiva}:nome:${nome}`;
                     const nomeRecolhido = lanesRecolhidas.has(nomeKey);
-                    const nomeMetros = items.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
+                    const nomeMetros = items.reduce((a, { slot }) => a + (slotContaNaDemanda(slot, reprovadoSet) ? slotMetros(slot, "tecido") : 0), 0);
                     return (
                       <div key={nome}>
                         <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -2219,7 +2235,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
                   </div>
                 </aside>
               )}
@@ -2227,18 +2243,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                   em tablet os botões do trilho acendiam e NADA abria — ação sem feedback (laudo). */}
               {!modoPlano && drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r md:flex">
-                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
                 </aside>
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">
                   <PlanTecidoDrawer
                     state={drawer && (mobileTab === "comprar" ? drawer.kind === "comprar" : drawer.kind !== "comprar") ? drawer : { kind: mobileTab === "comprar" ? "comprar" : "oc", arg: null }}
-                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
+                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} ocNumeroDe={ocNumeroDe}
                     onClose={() => setMobileTab("canvas")} temRascunho={dirty} />
                 </div>
               )}
@@ -2398,7 +2414,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                       const slots = slotsOf(cid);
                       const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
                       const laneRecolhida = lanesRecolhidas.has(laneKey);
-                      const laneMetros = slots.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
+                      const laneMetros = slots.reduce((a, { slot }) => a + (slotContaNaDemanda(slot, reprovadoSet) ? slotMetros(slot, "tecido") : 0), 0);
                       return (
                         <section key={cid ?? "__sem__"}>
                           {/* Header droppable (id próprio, derivado do corpo) → aceita soltar card na lane mesmo RECOLHIDA. */}

@@ -669,16 +669,17 @@ describe("plan-tecido/calc — D5b repartição da demanda entre OCs vinculadas 
     expect(r[1]).toBeCloseTo(55, 5);
   });
 
-  it("Resumo e Drawer passam o MESMO 7º parâmetro a detalheOc (asserção de fonte)", async () => {
+  it("Resumo e Drawer passam os MESMOS parâmetros a detalheOcColecao (asserção de fonte)", async () => {
     const { readFileSync } = await import("node:fs");
+    // R15b: Resumo e Drawer chamam detalheOcColecao (detalheOc sobre a árvore sem reprovados, P-198 A)
     const chamada = (f: string) => {
       const src = readFileSync(f, "utf8");
-      const m = src.match(/detalheOc\(([^;]*)\);/);
+      const m = src.match(/detalheOcColecao\(([^;]*)\);/);
       return (m?.[1] ?? "").replace(/\s+/g, "");
     };
     const r = chamada("src/components/plan-tecido/ResumoPanel.tsx");
     const d = chamada("src/components/plan-tecido/PlanTecidoDrawer.tsx");
-    expect(r).toContain("{vinculos:vinculosDetalhe,capacidade,aguardando:aguardandoCapacidade}");
+    expect(r).toContain("{vinculos:vinculosDetalhe,capacidade,aguardando:aguardandoCapacidade,reprovados:reprovadoSet}");
     expect(d).toBe(r);
   });
 });

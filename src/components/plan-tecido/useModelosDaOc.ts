@@ -12,6 +12,9 @@ export type ModeloDaOc = {
   colecao_nome: string | null;
   subcolecao_id: string | null; // uuid p/ o deep-link (?sub= casa contra subcolecao_id, não o nome)
   subcolecao: string | null;    // nome p/ exibir
+  /** Status do card (R15b L5): o dialog mostra o selo "Reprovado". Lido à parte (a RPC não devolve). */
+  status_desenvolvimento?: string | null;
+  status_planejamento?: string | null;
 };
 
 /**
@@ -26,7 +29,18 @@ export function useModelosDaOc(ocId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("plan_tecido_modelos_da_oc" as any, { _oc_id: ocId });
       if (error) throw error;
-      return (data ?? []) as ModeloDaOc[];
+      const lista = (data ?? []) as ModeloDaOc[];
+      // R15b L5: status do card p/ o selo "Reprovado" (a RPC só lista). Falha aqui não derruba a lista.
+      const ids = lista.map((m) => m.modelo_id);
+      if (!ids.length) return lista;
+      const { data: st } = await supabase.from("modelos").select("id, status_desenvolvimento, status_planejamento").in("id", ids);
+      type St = { id: string; status_desenvolvimento: string | null; status_planejamento: string | null };
+      const porId = new Map(((st ?? []) as St[]).map((r) => [r.id, r]));
+      return lista.map((m) => ({
+        ...m,
+        status_desenvolvimento: porId.get(m.modelo_id)?.status_desenvolvimento ?? null,
+        status_planejamento: porId.get(m.modelo_id)?.status_planejamento ?? null,
+      }));
     },
   });
 }

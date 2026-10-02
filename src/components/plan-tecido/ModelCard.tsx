@@ -80,6 +80,8 @@ export function ModelCard({
   vinculos,
   lancado,
   travado,
+  reprovado,
+  reprovadoContando,
   maoObraEstado,
   maoObraServico,
   precoCard,
@@ -116,6 +118,11 @@ export function ModelCard({
   lancado?: boolean;
   /** Modelo já enviado ao CAD (travado p/ edição no Dev): "Aplicar ao modelo" fica desabilitado. */
   travado?: boolean;
+  /** P-198 A: card em `reprovado` — fica na vaga com o selo "Reprovado", mas NÃO entra na necessidade da coleção
+   *  nem na Demanda/Sobra das OCs (os metros do card aparecem riscados). Saindo de Reprovado volta a contar. */
+  reprovado?: boolean;
+  /** Reprovado JÁ enviado ao corte (fix1 M2): o selo aparece, mas os metros CONTINUAM contando (consumo físico real). */
+  reprovadoContando?: boolean;
   /** Estado da MO por serviço (aprovada|pendente|reprovada|sem_servico) — READ-ONLY; undefined = sem custo/mascarado. */
   maoObraEstado?: string;
   maoObraServico?: number | null;
@@ -410,7 +417,7 @@ export function ModelCard({
               <div className="flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
                 <span><span className="num">{pieces}</span> pç</span>
                 <span aria-hidden className="opacity-60">·</span>
-                <span><span className="num">{total ? fmtInt(total) : "0"}</span> m</span>
+                <span className={reprovado && !reprovadoContando ? "line-through" : undefined} title={reprovado ? (reprovadoContando ? "Card reprovado já enviado ao corte — o consumo é real e continua contando" : "Card reprovado — estes metros não entram na necessidade da coleção nem na Demanda das OCs") : undefined}><span className="num">{total ? fmtInt(total) : "0"}</span> m</span>
               </div>
             )}
             {/* Badges numa ÚNICA linha (fase + fornecedor + sem peças) — SEM flex-wrap: quebrar a
@@ -424,6 +431,11 @@ export function ModelCard({
                   comunica o estado, e os ~24px poupados são o que deixa a FASE caber INTEIRA no card
                   estreito do Modo Plano. O truncate da fase fica só como última defesa (fase longa
                   em card muito apertado), com o rótulo completo no tooltip. */}
+              {slot.modelo_id && reprovado && (
+                <StatusBadge tone="danger" title={reprovadoContando ? "Reprovado depois do corte — o tecido já foi consumido, então o card continua contando na Demanda das OCs." : "Reprovado — o card fica na vaga, mas não entra na necessidade da coleção nem na Demanda das OCs. Volta a contar ao sair de Reprovado."} className="shrink-0 px-1 normal-case tracking-normal">
+                  Reprovado
+                </StatusBadge>
+              )}
               {slot.modelo_id && fase && (
                 <StatusBadge tone={fase.tone} title={`Etapa atual: ${fase.label}`} className="min-w-0 px-1 normal-case tracking-normal">
                   <span className="min-w-0 truncate">{fase.label}</span>

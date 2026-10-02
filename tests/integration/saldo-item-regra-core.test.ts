@@ -397,10 +397,12 @@ describe.skipIf(!hasDb)("R11 — equivalência com _estoque_tecido_core em TODOS
   it("guarda da R11: as 3 funções com o texto de depois e os 3 chamadores intocados", async () => {
     await withTx(async (c) => {
       const r = await c.query(`
-        select v.s, md5(pg_get_functiondef(to_regprocedure(v.s))) = v.m ok from (values
+        select v.s, md5(pg_get_functiondef(to_regprocedure(v.s))) = any(string_to_array(v.m, ',')) ok from (values
           ('public.saldo_oc_item_m(uuid)',                             '873789084182322f0b28b315d06b0dbc'),
-          ('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])', 'deefee4cadec3e5434aea0de970acc5f'),
-          ('public._plan_tecido_situacao_ocs_core(uuid,uuid)',         '29d4953a5ea039b9d995db12c511c8ae'),
+          -- R11 depois OU R15b (20261025400000, P-198 A + fix1: so tira o card reprovado nao cortado do oc_link/comprometida_m;
+          -- rolo_supply e entregue_m da R11 intactos)
+          ('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])', 'deefee4cadec3e5434aea0de970acc5f,b62ef170570b2444ad3f5727760cd411'),
+          ('public._plan_tecido_situacao_ocs_core(uuid,uuid)',         '29d4953a5ea039b9d995db12c511c8ae,368bc7530510b934a0ca33e8efa69116'),
           ('public._baixar_estoque_tecido_corte_core(uuid)',           '2a6f0ef24da6f9e8b9c68f63e3863577'),
           ('public._remover_metragem_oc_core(uuid,numeric,text)',      '635774e13418a33af6880f16728575c5'),
           ('public._criar_rolo_core(text,uuid,jsonb,uuid,text,text)',  'ae0815c3f887ab909af6b5c83fdd6e27')) v(s,m)`);

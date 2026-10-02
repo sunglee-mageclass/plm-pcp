@@ -40,7 +40,9 @@ describe("sobraOc (D-1)", () => {
     const resumo = readFileSync("src/components/plan-tecido/ResumoPanel.tsx", "utf8");
     const drawer = readFileSync("src/components/plan-tecido/PlanTecidoDrawer.tsx", "utf8");
     const calc = readFileSync("src/lib/plan-tecido/calc.ts", "utf8");
-    expect(resumo).toMatch(/sobraOc\(o\.oc_tecido_id, situacao,/);
+    // R15b (P-189 A): o Resumo lê a Sobra de `resumoOcsColecao` (calc.ts), que chama sobraOc por OC
+    expect(resumo).toMatch(/resumoOcsColecao\(ocs, situacao, det\)/);
+    expect(calc).toMatch(/sobra: sobraOc\(o\.oc_tecido_id, linhas, det\)/);
     expect(drawer).toMatch(/contabilizarOc\(v\.reservada, v\.comprometida, v\.usada, v\.entregue\)/);
     expect(calc).toMatch(/total \+= contabilizarOc\(/);
   });
@@ -61,7 +63,10 @@ describe("sobraOc (D-1)", () => {
     const resumo = readFileSync("src/components/plan-tecido/ResumoPanel.tsx", "utf8");
     expect(drawer).toMatch(/sobraOc\(/);
     expect(drawer).toMatch(/demandaSemCor\(/);
-    expect(resumo).toMatch(/sobraOc\(o\.oc_tecido_id, situacao, \{[^}]*reservPorOc[^}]*\}\)/);
+    // R15b: Resumo e Drawer repartem pela MESMA detalheOcColecao (det com reservPorOc/…Var) → sobraOc em calc.ts
+    expect(resumo).toMatch(/resumoOcsColecao\(ocs, situacao, det\)/);
+    expect(resumo).toMatch(/const det = detalheOcColecao\(/);
+    expect(drawer).toMatch(/const det = detalheOcColecao\(/);
     expect(resumo).toMatch(/uma cor não usa o tecido de outra/);
   });
 });
