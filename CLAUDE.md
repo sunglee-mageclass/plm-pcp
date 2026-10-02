@@ -1203,8 +1203,9 @@ calmo). Os inversos da release 7 continuam valendo depois de reverter a release 
 para o canal NÃO tocado (`markupCanalIntocado`, substitui `markupVarejoParaBlurAtacado`): nunca apaga o preço fixo do outro
 canal (A2). (2) **Importado** — base do markup = (`real` ‖ `previsto`) + M.O. AO VIVO (helper `baseMarkupComMO`, M6); o
 `real`/`previsto` do importado NÃO incluem a M.O. (3) **Plan. Tecido, Sobra da OC** = Σ por cor menos a demanda "Sem cor
-definida" (`sobraOc`/`demandaSemCor`), o MESMO helper no Resumo e no Drawer por-OC (D-1; a visão "oc" da gaveta, coleção
-inteira, ainda não abate a demanda sem cor — backlog leve). (4) Financeiro › Serviços: totais Pago / A pagar (fin #7).
+definida" (`sobraOc`/`demandaSemCor`), o MESMO helper no Resumo e no Drawer por-OC (D-1; desde a leves L7 a visão "oc" da
+gaveta, coleção inteira, também abate: `contaOcColecao` sobre o mesmo `detalheOcColecao`, linha "Sem cor definida", total =
+Σ `sobraOc` = Resumo). (4) Financeiro › Serviços: totais Pago / A pagar (fin #7).
 
 **Deploy da release 9** (código `9562dacd`; no ar 01/out 13:15, worker `0f3d1d97`; kits `savepoints/pre-release9/` banco e
 `pre-deploy-2026-10-02/` site): banco ANTES do site (o site novo lê `vencimento_manual` e chama a RPC nova; o roteiro do site

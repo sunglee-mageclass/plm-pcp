@@ -1,4 +1,5 @@
 import type { PtArvore, PtSlot, PtVariante } from "./types";
+import { ehReprovadoStatus } from "@/lib/reprovado";
 
 /** Tecidos/forros já usados pelos cards da coleção (distinct artigo_id + papel), p/ a paleta. */
 export function tecidosDaArvore(arvore: PtArvore): { artigo_id: string; papel: string }[] {
@@ -92,9 +93,9 @@ export function dedupVariantes(vs: PtVariante[]): PtVariante[] {
 // Vaga SEM card sempre conta. No Resumo, o card que sai também sai do Poder de venda e das Pendências (P-212 A).
 
 /** Mesmo predicado do servidor (é o que acende o selo): `lower(coalesce(status_desenvolvimento,'')) = 'reprovado' OR
- *  lower(coalesce(status_planejamento,'')) = 'reprovado'` (P-213 A). */
+ *  lower(coalesce(status_planejamento,'')) = 'reprovado'` (P-213 A). Fonte única: `@/lib/reprovado` (delega). */
 export const ehReprovado = (statusDesenvolvimento: string | null | undefined, statusPlanejamento?: string | null): boolean =>
-  (statusDesenvolvimento ?? "").toLowerCase() === "reprovado" || (statusPlanejamento ?? "").toLowerCase() === "reprovado";
+  ehReprovadoStatus(statusDesenvolvimento, statusPlanejamento);
 
 /** O card SAI da necessidade/Demanda? Reprovado (Dev OU Planejamento) e AINDA NÃO enviado ao corte (o cortado já
  *  consumiu de verdade). */

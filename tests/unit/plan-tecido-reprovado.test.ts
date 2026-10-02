@@ -188,7 +188,9 @@ describe("R15b — fonte única (anti-drift de código)", () => {
     // espelho TS: mesma regra (status reprovado E sem cad.enviado_corte)
     const calc = ler("src/lib/plan-tecido/calc.ts");
     expect(calc).toContain("ehReprovado(statusDesenvolvimento, statusPlanejamento) && !enviadoCorte");
-    expect(calc).toContain(`(statusDesenvolvimento ?? "").toLowerCase() === "reprovado" || (statusPlanejamento ?? "").toLowerCase() === "reprovado"`);
+    // junção L4 I1: o predicado mora só em @/lib/reprovado; calc.ts delega
+    expect(calc).toContain("ehReprovadoStatus(statusDesenvolvimento, statusPlanejamento)");
+    expect(ler("src/lib/reprovado.ts")).toContain(`(statusDesenvolvimento ?? "").toLowerCase() === "reprovado" || (statusPlanejamento ?? "").toLowerCase() === "reprovado"`);
   });
 
   it("Resumo e Drawer usam a árvore sem reprovados + detalheOcColecao; a Paleta não chama mais a RPC de 2 fontes", () => {

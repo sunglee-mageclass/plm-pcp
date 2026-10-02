@@ -1380,6 +1380,8 @@ function PlanejamentoDetailConteudo({
   const gateEnvio = gateEnvioExplosao({
     cfg: kanbanCard.kanbanCfg, explosaoEnvioStatus: kanbanCard.explosaoEnvioStatus,
     statusCru: enviada ? kanbanCard.statusSalvo : null, derivacao: kanbanCard.derivacao, condProntas: kanbanCard.condProntas,
+    // Junção L2+L3 (B10, P-213 A): reprovado no Planejamento também não vai à Explosão (≡ SQL _enviar_modelo_para_cad_core).
+    statusPlanejamento: kanbanCard.statusPlanejamento,
   });
   // F3.4 — D2 (A): comprado também envia à Explosão, como no Desenvolvimento (ModeloDetailPanel.tsx:1577-1598): a lista
   // "Para enviar, falta" só exige o que a loja deixou VISÍVEL p/ comprado, e a grade é a cor × tamanho.
@@ -1429,7 +1431,7 @@ function PlanejamentoDetailConteudo({
       : !ficha.carregado || !gradeCompradoPronta ? "Carregando a ficha…"
         : !podeEditarDev ? "Sem permissão para editar o Desenvolvimento."
           : gateEnvio.carregando ? "Conferindo a etapa do card…"
-            : !gateEnvio.ok ? `Disponível a partir da etapa "${gateEnvio.reqLabel}".`
+            : !gateEnvio.ok ? gateEnvio.motivo
               : mostraFaltas ? "Preencha os itens pendentes para enviar."
                 : null;
   const podeEnviarExplosaoAgora = mostraEnviarExplosao && motivoEnvioBloqueado === null && ficha.podeEditar

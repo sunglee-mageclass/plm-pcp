@@ -39,7 +39,9 @@ describe("LEVES L2", () => {
   });
   it("kanban #14: Dev mostra REF gravada sempre e passa statusGate via statusParaGate", () => {
     const s = ler("src/components/desenvolvimento/ModeloDetailPanel.tsx");
-    expect(s).toContain("statusParaGate(kanbanFicha.kanbanCfg.kanban_automatico, kanbanFicha.derivacao, curStatus)");
+    // junção L2+L3 (B10): o Dev também passa o status do Planejamento salvo (reprovado = Dev OU Planejamento)
+    expect(s).toContain("statusParaGate(kanbanFicha.kanbanCfg.kanban_automatico, kanbanFicha.derivacao, curStatus, kanbanFicha.statusPlanejamento)");
+    expect(s).toContain("reprovadoSemPosicao ? TEXTO_REPROVADO_EXPLOSAO");
     expect(s).toContain("enviada: modeloEnviadoAoKanban(modelo)");
     expect(s).not.toContain("enviada: !!draft?.enviado_cad");
     expect(s).toMatch(/\(modelo as any\)\?\.ref \?\? ""\)\.trim\(\) !== ""/);

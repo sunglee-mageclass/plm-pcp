@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { mensagemErro } from "@/lib/erro-mensagem";
+import { mensagemErro, TEXTO_REPROVADO_EXPLOSAO } from "@/lib/erro-mensagem";
 import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
 import { brl } from "@/lib/format";
@@ -1441,8 +1441,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
   // com a chave do kanban automático ligada, a posição é a DERIVADA e Reprovado => null (nada passa — P-190 A); desligada =>
   // o status gravado (comportamento antigo). `enviada` = `ordem_criacao_enviada` do servidor (NÃO `enviado_cad`).
   const kanbanFicha = useFichaKanban({ modeloId, modeloData: modelo, enviada: modeloEnviadoAoKanban(modelo), lancado: !!(modelo as any)?.lancado });
-  const statusGate = statusParaGate(kanbanFicha.kanbanCfg.kanban_automatico, kanbanFicha.derivacao, curStatus);
+  // Junção L2+L3 (B10, P-213 A): reprovado = Dev OU Planejamento (status do Planejamento SALVO) ⇒ sem posição em qualquer
+  // estado da chave — REF não aparece e Explosão não libera (≡ `_kanban_status_gate` da 20261027140000).
+  const statusGate = statusParaGate(kanbanFicha.kanbanCfg.kanban_automatico, kanbanFicha.derivacao, curStatus, kanbanFicha.statusPlanejamento);
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
+  const reprovadoSemPosicao = statusGate === null
+    && (isReprovado || (kanbanFicha.statusPlanejamento ?? "").trim().toLowerCase() === "reprovado");
   // Gate de "Enviar à Explosão" (materializa CAD, `enviado_cad=true`) configurável por
   // loja: o modelo pode ser enviado A PARTIR da etapa `tenant_config.explosao_envio_status`
   // (ou de qualquer etapa POSTERIOR na ordem do board). Ausente ⇒ 'aprovado'. Espelha o
@@ -3314,7 +3318,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
               {!canEnviarCad && (
                 <TooltipContent>
                   {!podeEnviarEtapa
-                    ? `Disponível a partir da etapa "${envioGate.reqLabel}".`
+                    ? reprovadoSemPosicao ? TEXTO_REPROVADO_EXPLOSAO : `Disponível a partir da etapa "${envioGate.reqLabel}".`
                     : "Preencha os itens pendentes para enviar."}
                 </TooltipContent>
               )}

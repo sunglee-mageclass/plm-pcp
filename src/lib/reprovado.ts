@@ -7,9 +7,15 @@ export type ComStatus = {
   status_planejamento?: string | null;
 };
 
+/** Forma posicional (status do Dev, status do Planejamento) — a ÚNICA implementação do predicado no TS.
+ *  `plan-tecido/calc.ts` reexporta como `ehReprovado(dev, plan)` (junção L4 I1). */
+export function ehReprovadoStatus(
+  statusDesenvolvimento: string | null | undefined,
+  statusPlanejamento?: string | null,
+): boolean {
+  return (statusDesenvolvimento ?? "").toLowerCase() === "reprovado" || (statusPlanejamento ?? "").toLowerCase() === "reprovado";
+}
+
 export function ehReprovado(m: ComStatus | null | undefined): boolean {
-  return (
-    (m?.status_desenvolvimento ?? "").toLowerCase() === "reprovado" ||
-    (m?.status_planejamento ?? "").toLowerCase() === "reprovado"
-  );
+  return ehReprovadoStatus(m?.status_desenvolvimento, m?.status_planejamento);
 }
