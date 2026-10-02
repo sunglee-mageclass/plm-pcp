@@ -7,7 +7,8 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db
 const RODA = hasDb && ehBancoLocal();
 // texto de servicos_financeiro depois da R10 fin #6 (20261020110000; era daec320c… na 20261019210000) — o valor das
 // parcelas (este arquivo) não mudou; só o UPDATE do vencimento no loop (servicos-vencimento-manual.test.ts).
-const MD5_SF = "da903333e753e75c8a6e033226b0a78c";
+// R16 RA1 (20261026100000, P-187 A): parcela complemento → texto novo (era da903333… na R10)
+const MD5_SF = "a06f4cc32646cc41ed249d91a68dcd51";
 // chaves de cada linha da saída de servicos_financeiro() — o formato NÃO muda (HomeLogado, Calendário e Lista)
 const CHAVES = [
   "custo_bruto",
@@ -227,7 +228,9 @@ describe.skipIf(!RODA)(
       });
     });
 
-    it("todas pagas + multa: sem parcela 'complemento' (RA1 → MÉDIA); as pagas não mudam", async () => {
+    // R16 RA1 (P-187 A) mudou a regra: a diferença com tudo pago vira a parcela "complemento" nº n+1
+    // (detalhe em r16-parcela-complemento.test.ts).
+    it("todas pagas + multa: parcela 'complemento' nº 2 com a diferença (R16 RA1, P-187 A); as pagas não mudam", async () => {
       await withTx(async (c) => {
         const pt = await bloco(c, { preco: 9, qtd: 192, n: 1 });
         await tela(c, pt);
@@ -235,7 +238,11 @@ describe.skipIf(!RODA)(
         expect(await valorPago(c, pt, 1)).toBe(1728);
         await c.query(`update producao_terceirizados set multa_total = 100 where id = $1`, [pt]);
         const ls = await tela(c, pt);
-        expect(ls.map((l) => [l.numero_parcela, l.valor_parcela])).toEqual([[1, 1728]]);
+        expect(ls.map((l) => [l.numero_parcela, l.valor_parcela])).toEqual([
+          [1, 1728],
+          [2, 100],
+        ]);
+        expect(await valorPago(c, pt, 1)).toBe(1728);
       });
     });
 

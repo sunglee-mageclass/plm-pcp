@@ -10,7 +10,8 @@ import type { Client } from "pg";
 const RODA = hasDb && ehBancoLocal();
 
 const MD5 = {
-  estoqueEtiqueta: "82840be36eb6cd8bc0c18e8219841d5d",
+  // R16 est #7 (20261026300000, P-188 A): baixa por tamanho pela grade + carona do importado (era 82840be3…)
+  estoqueEtiqueta: "28aa308d297cc18b653c6290a5b3b958",
   enforceMo: "a2115ce0538b76b7cbe1740a6227bd2e",
   modeloRef: "0752dc9de192a431b7a241e10d00d58a",
   acabadoRef: "83041c58e76389cab40f3f12ff5a81d0",

@@ -57,8 +57,9 @@ describe.skipIf(!RODA)("medios R10 fin #9 — prazo da OC P. Acabado com o parse
                 has_function_privilege('authenticated','public.parcela_voltar_vencimento_automatico(uuid)','EXECUTE') vu`,
       );
       expect(r).toEqual({
-        g: "4b90865ad77d4f68a71c41959a283d62",
-        v: "ef80c3c810c22bb32d04d818ebbc6e9c",
+        // R16 RA1 (20261026100000, P-187 A) trocou os 2 textos de novo (parcela complemento): 4b90865a/ef80c3c8 → abaixo
+        g: "bb1519aaaa70259aaa222be67045377b",
+        v: "05f05e87411e9dcb6be9aeee9602cf70",
         va: false,
         vu: true,
       });
