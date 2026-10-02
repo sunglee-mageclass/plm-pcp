@@ -21,12 +21,14 @@ const CAMPOS_COND = [
   "data_aprovacao",
 ] as const;
 
-const MD5_DEPOIS = {
-  "_kanban_status_gate(uuid,uuid,text)": "635c7bbad3a3db2779f68fd1c5c8a954",
-  "_kanban_aplicar(uuid,uuid[],text,uuid)": "9c50c6700d5bedc22b53ee95466d43f4",
-  "kanban_previa_recalculo(jsonb)": "1ed117822a5dc7b5a3f54559ba68b89b",
-  "_kanban_derivar_lote(uuid,uuid[],jsonb)": "0755d9ad499379295ba24c7a669daa76",
-} as const;
+// [leves L3 fix round 1] a 20261027140000 (reprovado no PLANEJAMENTO, P-213 A) redefine as 3 por cima desta — aceita o texto
+// da R14 OU o da L3 (a L3 só ACRESCENTA a regra do Planejamento; o resto é o da R14).
+const MD5_DEPOIS: Record<string, string[]> = {
+  "_kanban_status_gate(uuid,uuid,text)": ["635c7bbad3a3db2779f68fd1c5c8a954", "44a0ebe16970322eefa949dce8c2f38f"],
+  "_kanban_aplicar(uuid,uuid[],text,uuid)": ["9c50c6700d5bedc22b53ee95466d43f4", "d20c6f9404028c20f8336799743f234a"],
+  "kanban_previa_recalculo(jsonb)": ["1ed117822a5dc7b5a3f54559ba68b89b", "fdbc2039870d90a0277c20f859084259"],
+  "_kanban_derivar_lote(uuid,uuid[],jsonb)": ["0755d9ad499379295ba24c7a669daa76"],
+};
 
 async function chave(c: Client, ligada: boolean) {
   await c.query(`SELECT set_config('app.kanban_chave', 'rpc', true)`);
@@ -165,7 +167,7 @@ describe.skipIf(!hasDb)("R14 kanban #7 — md5 e ACL (20261024100000)", () => {
           `SELECT CASE WHEN to_regprocedure($1) IS NULL THEN NULL ELSE md5(pg_get_functiondef(to_regprocedure($1))) END AS m`,
           ["public." + sig],
         );
-        expect(r.m, sig).toBe(md5);
+        expect(md5, sig).toContain(r.m);
       }
     });
   });
@@ -211,6 +213,7 @@ describe.skipIf(!LOCAL)(
           await c.query("SET LOCAL lock_timeout = '3s'");
           await configurarBoard(c);
           const M = await cardFixado(c, g.cond, g.status);
+          if (g.plan) await comoSistema(c, () => c.query(`UPDATE public.modelos SET status_planejamento = $2 WHERE id = $1`, [M, g.plan]));
           await chave(c, g.ligado);
           const sql = await gate(c, M, g.status);
           // a derivação vem do SQL (mesma que o card recebe na tela); o TS decide o gate em cima dela
@@ -237,7 +240,7 @@ describe.skipIf(!LOCAL)(
             faltando: d.faltando,
           };
           expect(sql).toBe(g.esperado);
-          expect(statusParaGate(g.ligado, der, g.status)).toBe(sql);
+          expect(statusParaGate(g.ligado, der, g.status, g.plan)).toBe(sql);
         });
       });
     }
@@ -271,7 +274,8 @@ describe.skipIf(!LOCAL)(
         await c.query("SAVEPOINT sp");
         const err = await erroDe(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [R]));
         expect(err.code).toBe("P0001");
-        expect(err.message).toMatch(/Etapa C/);
+        // Leves L3 (R14 msg reprovado, 20261027100000): o motivo é o reprovado, não a etapa (que o card já passou)
+        expect(err.message).toBe("reprovado_explosao: Card reprovado nao vai a Explosao");
         await c.query("ROLLBACK TO SAVEPOINT sp");
         expect(
           (await um<{ id: string }>(c, `SELECT public.enviar_modelo_para_cad($1) AS id`, [S])).id,
@@ -318,13 +322,15 @@ describe.skipIf(!LOCAL)(
       });
     });
 
-    it("chave DESLIGADA: nada muda — o gate segue o status gravado ('reprovado' depois de etapa_c passa, como antes)", async () => {
+    // Leves L3 fix round 2 (ruling do controlador, P-213/P-190): reprovado não tem posição em QUALQUER chave — com a chave
+    // desligada também (era "nada muda" na R14).
+    it("chave DESLIGADA: reprovado também SEM posição ('reprovado' depois de etapa_c NÃO passa — L3 fix 2)", async () => {
       await withTx(async (c) => {
         await c.query("SET LOCAL lock_timeout = '3s'");
         await comoUsuario(c);
         await configurarBoard(c);
         const R = await cardFixado(c, {}, "reprovado");
-        expect(await gate(c, R, "reprovado")).toBe("reprovado");
+        expect(await gate(c, R, "reprovado")).toBeNull();
         expect(
           (
             await um<{ ok: boolean }>(
@@ -333,7 +339,7 @@ describe.skipIf(!LOCAL)(
               [T, R],
             )
           ).ok,
-        ).toBe(true);
+        ).toBe(false);
       });
     });
   },

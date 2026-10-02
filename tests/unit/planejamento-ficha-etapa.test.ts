@@ -161,7 +161,8 @@ describe("M5(a), fix round 1 — anti-drift: etapaDoModelo(...).key ≡ statusEf
 describe("kanban #8 (fix round) — editável segue a ETAPA; só a visibilidade usa a REF gravada", () => {
   it("o hook expõe refNaEtapa (sem refSalva) separado de refVisivel (com refSalva)", () => {
     const h = readFileSync("src/components/planejamento/planejamento-detail/ficha/useFichaKanban.ts", "utf8");
-    expect(h).toMatch(/refNaEtapa: refVisivelFicha\(\{ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao \}\)/);
+    // leves L3 fix round 1 (A1): + statusPlanejamento (reprovado no Planejamento não libera a REF); continua SEM refSalva
+    expect(h).toMatch(/refNaEtapa: refVisivelFicha\(\{ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, statusPlanejamento \}\)/);
     expect(h).toMatch(/refVisivel: refVisivelFicha\(\{[^}]*refSalva: row\?\.ref/);
   });
   it("refEditavel usa a etapa, não a visibilidade", () => {

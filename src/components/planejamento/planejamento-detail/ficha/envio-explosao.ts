@@ -8,8 +8,14 @@ import { statusParaGate, type Derivacao, type KanbanAutoConfig } from "@/lib/kan
 import type { GradeRow, TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import type { Draft } from "@/components/planejamento/modelo-shared";
 import type { SecaoSheetKey } from "./selos-secoes";
+import { TEXTO_REPROVADO_EXPLOSAO } from "@/lib/erro-mensagem";
 
-export type GateEnvio = { ok: boolean; carregando: boolean; reqLabel: string };
+/**
+ * `reprovado` (leves L3, R14 msg reprovado): com a chave LIGADA, card em Reprovado não tem posição para os gates (P-190 A,
+ * `statusParaGate` = null) — o motivo é o reprovado, não a etapa. `motivo` = o texto pronto para a tela (o mesmo do servidor,
+ * `reprovado_explosao:` traduzido em erro-mensagem.ts); vazio quando `ok` ou `carregando`.
+ */
+export type GateEnvio = { ok: boolean; carregando: boolean; reqLabel: string; reprovado: boolean; motivo: string };
 
 /** Pode enviar pela ETAPA? `statusCru` = status gravado com a Ordem de Criação enviada (null antes dela). */
 export function gateEnvioExplosao(i: {
@@ -19,14 +25,21 @@ export function gateEnvioExplosao(i: {
   derivacao: Derivacao | null;
   /** Condições do card E config da loja carregadas (`useFichaKanban.condProntas`). */
   condProntas: boolean;
+  /** Leves L3 fix round 1 (A1, P-213 A): `status_planejamento` SALVO (`useFichaKanban.statusPlanejamento`) — reprovado no
+   *  Planejamento nunca vai à Explosão (≡ SQL `_enviar_modelo_para_cad_core`). Ausente = regra de antes. */
+  statusPlanejamento?: string | null;
 }): GateEnvio {
   // Chave ligada sem as condições: a posição derivada ainda não é conhecida — não libera "no escuro" (o servidor
   // recusaria, mas o botão não pode prometer).
-  if (i.cfg.kanban_automatico && !i.condProntas) return { ok: false, carregando: true, reqLabel: "" };
-  const g = podeEnviarExplosao(i.cfg.status_kanban, i.explosaoEnvioStatus, i.statusCru, {
-    statusGate: statusParaGate(i.cfg.kanban_automatico, i.derivacao, i.statusCru),
-  });
-  return { ok: g.ok, carregando: false, reqLabel: g.reqLabel };
+  if (i.cfg.kanban_automatico && !i.condProntas) return { ok: false, carregando: true, reqLabel: "", reprovado: false, motivo: "" };
+  const statusGate = statusParaGate(i.cfg.kanban_automatico, i.derivacao, i.statusCru, i.statusPlanejamento);
+  const g = podeEnviarExplosao(i.cfg.status_kanban, i.explosaoEnvioStatus, i.statusCru, { statusGate });
+  // ≡ SQL _enviar_modelo_para_cad_core (leves L3 + fix round 1 A1): reprovado no Planejamento, ou gate NULL + Dev em
+  // 'reprovado' (normalizado) → recusa própria.
+  const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+  const reprovado = !g.ok && statusGate === null && (norm(i.statusPlanejamento) === "reprovado" || norm(i.statusCru) === "reprovado");
+  const motivo = g.ok ? "" : reprovado ? TEXTO_REPROVADO_EXPLOSAO : `Disponível a partir da etapa "${g.reqLabel}".`;
+  return { ok: g.ok, carregando: false, reqLabel: g.reqLabel, reprovado, motivo };
 }
 
 /**

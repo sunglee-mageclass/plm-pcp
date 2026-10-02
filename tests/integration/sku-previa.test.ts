@@ -288,10 +288,11 @@ async function siglas(c: Client, k: Cen, a: string | null, b: string | null): Pr
   if (a !== null) await c.query("UPDATE public.cores SET sigla_sku = $2 WHERE id = $1", [k.corA, a]);
   if (b !== null) await c.query("UPDATE public.cores SET sigla_sku = $2 WHERE id = $1", [k.corB, b]);
 }
-/** Outro card da loja com 1 SKU gravado (REF igual = réplica — D5; diferente = conflito). */
-async function outroCom(c: Client, ref: string, vk: string, tk: string, sku: string): Promise<string> {
+/** Outro card da loja com 1 SKU gravado (REF igual = réplica — D5; diferente = conflito). Leves L3 sku #5: réplica só na
+ *  MESMA família de versões — `base` = o card de quem este é versão (modelo_base_id); sem `base` = outra família. */
+async function outroCom(c: Client, ref: string, vk: string, tk: string, sku: string, base: string | null = null): Promise<string> {
   const o = await novoId(c,
-    "INSERT INTO public.modelos (tenant_id, nome, ref, origem, tamanho_tipo) VALUES ($1, 'PV-T Outro', $2, 'interno', 'numero') RETURNING id", [T, ref]);
+    "INSERT INTO public.modelos (tenant_id, nome, ref, origem, tamanho_tipo, modelo_base_id) VALUES ($1, 'PV-T Outro', $2, 'interno', 'numero', $3) RETURNING id", [T, ref, base]);
   await c.query("INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, manual) VALUES ($1, $2, $3, $4, $5, true)",
     [T, o, vk, tk, sku]);
   return o;
@@ -318,7 +319,7 @@ const CENARIOS: Cenario[] = [
     nome: "conflito com outro card (REF diferente) e réplica (mesma REF) que divide o SKU",
     antes: async (c, k) => {  // R1 — os "outros" nascem ANTES do savepoint: com_modelo_id/conflito_com.modelo_id estáveis
       await outroCom(c, "PV-X", k.kA, "34|PPP", "AA34");
-      await outroCom(c, "PV-T1", k.kB, "34|PPP", "BB34");
+      await outroCom(c, "PV-T1", k.kB, "34|PPP", "BB34", k.m); // réplica = versão do card (L3 sku #5)
     },
     passos: async (c, k) => [await gerar(c, k.m), await matriz(c, k.m)],
   },
@@ -371,7 +372,7 @@ const CENARIOS: Cenario[] = [
     nome: "Formato com REF + réplica (mesma REF divide o SKU) + outro card (REF diferente) em conflito",
     cfg: FMT_REF,
     antes: async (c, k) => {
-      await outroCom(c, "PV-T1", k.kB, "34|PPP", "PV-T1-BB34"); // réplica: divide
+      await outroCom(c, "PV-T1", k.kB, "34|PPP", "PV-T1-BB34", k.m); // réplica (versão do card — L3 sku #5): divide
       await outroCom(c, "PV-X", k.kA, "34|PPP", "PV-T1-AA34");  // outro: conflito
     },
     passos: async (c, k) => [await gerar(c, k.m), await gerar(c, k.m, true), await matriz(c, k.m)],
@@ -859,7 +860,11 @@ describe.skipIf(!PRONTO)("SKU em prévia — executor (ramos estritos/não-estri
       await comoUsuario(c);
       await gerar(c, k.m);
       // Réplica: outro card com a MESMA REF pode usar o mesmo SKU na mesma chave (D5) — o digitado não conflita.
-      await outroCom(c, "PV-T1", k.kB, "34|PPP", "PV-T1-BB34");
+      // Leves L3 sku #5: só se for da MESMA família de versões (modelo_base_id); de OUTRA família o gatilho recusa.
+      await c.query("SAVEPOINT l3_fam");
+      await expect(outroCom(c, "PV-T1", k.kB, "34|PPP", "PV-T1-BB34")).rejects.toMatchObject({ code: "23505" });
+      await c.query("ROLLBACK TO SAVEPOINT l3_fam");
+      await outroCom(c, "PV-T1", k.kB, "34|PPP", "PV-T1-BB34", k.m);
       const replica = [{ variante_key: k.kB, tamanho_key: "34|PPP", sku: "PV-T1-BB34", rev: (await idRev(c, k.m, k.kB, "34|PPP")).rev }];
       const pRep = await previa(c, k.m, "PV-T1", "numero", replica, "manuais");
       expect(pRep.erros).toEqual([]);

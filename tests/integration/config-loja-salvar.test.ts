@@ -32,6 +32,13 @@ const FUNCOES_INTOCADAS = [
   "fn_audit",
 ];
 const SO_ASCII = /^[\x20-\x7E]*$/;
+// md5 ACEITOS de salvar_config_loja no bloco de concorrência (leves L3 fix round 1, M3): o da release 5 (este arquivo) e os da
+// L3 por cima dela (20261027110000 "depois" e 20261027130000 "depois") — todos com o mesmo contrato para keywords/timezone.
+const SALVAR_CONFIG_ACEITOS = [
+  "14dd20b65d6e94c71658abdf11c7969b", // 20261015100000 (release 5)
+  "39b44a2e9067a4d45f40fb24af1d61fd", // 20261027110000 (L3)
+  "2d43c259135119b345a09a894091c2b5", // 20261027130000 (L3)
+];
 
 const ler = (rel: string) => readFileSync(ROOT + rel, "utf8");
 const RE_TRAVAS = /^SET LOCAL (lock_timeout|transaction_timeout) = '[^']*';$/gm;
@@ -584,13 +591,14 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — RPC (cópia l
 
 // ───────────────── concorrência: 2 conexões, COMMIT REAL na cópia (restaurado no fim) ─────────────────
 // A 1ª conexão salva e segura a linha (FOR UPDATE); a 2ª espera; quando a 1ª dá COMMIT, a 2ª relê a versão nova:
-// mesma coluna → P0409; coluna diferente → grava. Precisa da função visível às 2 conexões, então a migration é aplicada DE
-// VERDADE na cópia (SEMPRE reaplicada — N3) e o inverso roda no fim só se esta rodada a criou. Os valores de keywords são restaurados e as linhas de
-// audit_log criadas aqui (marcador 'conc-t1-') são apagadas. SÓ na cópia local (exigeBancoLocal).
+// mesma coluna → P0409; coluna diferente → grava. Precisa da função visível às 2 conexões: usa a função VIVA da cópia, que tem
+// de existir com um md5 ACEITO (SALVAR_CONFIG_ACEITOS) — senão FALHA ("aplique a migration antes"). [leves L3 fix round 1, M3]
+// NUNCA aplica migration aqui: a aplicação DE VERDADE (COMMIT na cópia compartilhada) derrubava em silêncio quem redefine a
+// função por cima (a L3), porque a ida da release 5 não tem guarda de md5. Os valores de keywords são restaurados e as linhas
+// de audit_log criadas aqui (marcador 'conc-t1-') são apagadas. SÓ na cópia local (exigeBancoLocal).
 describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência real (2 conexões, cópia local)", () => {
   const MARCA = "conc-t1-";
   let admin: Client;
-  let criouFuncao = false;
   let orig: { id: string; keywords: string | null; timezone: string };
 
   async function conectar(): Promise<Client> {
@@ -638,9 +646,11 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência
     if ((orig.keywords ?? "").startsWith(MARCA)) throw new Error("keywords da Loja Teste já têm o marcador de uma rodada anterior interrompida");
     // N3 (re-review): SEMPRE reaplica a versão DESTE arquivo (uma função velha já na cópia não pode mascarar o teste);
     // o inverso no fim só roda se esta rodada é que criou a função (se ela já existia, fica — na versão deste arquivo).
-    const existia = (await um<{ r: string | null }>(admin, "SELECT to_regprocedure($1)::text AS r", [SIG])).r;
-    await admin.query(ler(MIG)); // aplicação REAL (com o BEGIN/COMMIT e as travas do próprio arquivo)
-    criouFuncao = !existia;
+    const vivo = (await um<{ m: string | null }>(admin,
+      "SELECT CASE WHEN to_regprocedure($1) IS NULL THEN NULL ELSE md5(pg_get_functiondef(to_regprocedure($1))) END AS m", [SIG])).m;
+    if (!vivo || !SALVAR_CONFIG_ACEITOS.includes(vivo)) {
+      throw new Error(`salvar_config_loja ausente ou com texto não aceito na cópia (md5 ${vivo ?? "ausente"}) — aplique a migration antes (o teste nunca aplica)`);
+    }
   });
 
   afterAll(async () => {
@@ -655,7 +665,6 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência
         `DELETE FROM public.audit_log WHERE tabela = 'tenant_config' AND registro_id = $1 AND dados::text LIKE $2`,
         [orig.id, `%${MARCA}%`],
       );
-      if (criouFuncao) await admin.query(ler(INV));
     } finally {
       await admin.end();
     }
@@ -705,7 +714,9 @@ describe.skipIf(!hasDb || !ehBancoLocal())("salvar_config_loja — concorrência
       await a.query("COMMIT");
       const rb = await pb;
       expect(rb.erro).toBeNull();
-      expect(rb.r).toEqual({ gravadas: ["timezone"], valores: { timezone: fuso } });
+      // L3 (P-211 A): com a L3 viva a resposta ganha `refs_reveladas` (0 aqui) — o resto do contrato é o mesmo.
+      expect({ gravadas: rb.r.gravadas, valores: rb.r.valores }).toEqual({ gravadas: ["timezone"], valores: { timezone: fuso } });
+      expect(rb.r.refs_reveladas ?? 0).toBe(0);
       const visto = await um<{ keywords: string; timezone: string }>(b, "SELECT keywords, timezone FROM public.tenant_config WHERE tenant_id = $1", [T]);
       expect(visto).toEqual({ keywords: `${MARCA}A2`, timezone: fuso }); // a da 1ª ficou
       await b.query("ROLLBACK"); // a 2ª não precisa gravar de verdade

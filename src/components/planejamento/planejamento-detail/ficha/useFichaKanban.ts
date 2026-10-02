@@ -29,6 +29,8 @@ export type FichaKanban = {
   condProntas: boolean;
   modeloKanban: ModeloKanban;
   statusSalvo: string | null;
+  /** Leves L3 fix round 1 (A1, P-213 A): `status_planejamento` SALVO (reprovado no Planejamento = sem posição p/ os gates). */
+  statusPlanejamento: string | null;
   statusEfetivo: string | null;
   /** Só com a chave ligada e as condições carregadas; senão null. */
   derivacao: Derivacao | null;
@@ -80,8 +82,11 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   // prontas (condições E config da loja), não só das condições.
   const condProntas = condProntasFicha({ noKanban, condOk, cfgOk: cfgPronta });
 
-  const row = (modeloData ?? null) as { origem?: string | null; status_desenvolvimento?: string | null; ref?: string | null } | null;
+  const row = (modeloData ?? null) as {
+    origem?: string | null; status_desenvolvimento?: string | null; status_planejamento?: string | null; ref?: string | null;
+  } | null;
   const statusSalvo = row?.status_desenvolvimento ?? null;
+  const statusPlanejamento = row?.status_planejamento ?? null;
   const modeloKanban: ModeloKanban = { origem: row?.origem ?? null, status_desenvolvimento: statusSalvo, ordem_criacao_enviada: enviada, lancado };
   const derivacao = kanbanCfg.kanban_automatico && condProntas ? derivarModelo(modeloKanban, kanbanCfg, cond) : null;
   const statusEfetivo = statusEfetivoFicha(statusSalvo, enviada, kanbanCfg);
@@ -93,9 +98,9 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   // posição DERIVADA quando a chave está ligada (decisão 10) — aqui só trocamos a ENTRADA dele.
   const statusCru = enviada ? statusSalvo : null;
   return {
-    kanbanCfg, revendaCfg, refExibirStatus, explosaoEnvioStatus, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusEfetivo, derivacao,
-    refNaEtapa: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao }),
-    refVisivel: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, refSalva: row?.ref ?? null }),
+    kanbanCfg, revendaCfg, refExibirStatus, explosaoEnvioStatus, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusPlanejamento, statusEfetivo, derivacao,
+    refNaEtapa: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, statusPlanejamento }),
+    refVisivel: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, refSalva: row?.ref ?? null, statusPlanejamento }),
     // M2 (fix round 1): modelo LANÇADO sai do fluxo normal (vai só pra coluna terminal
     // "Lançado" no board, criacao.desenvolvimento.tsx:538) — nunca é "Reprovado" mesmo que o
     // status salvo/efetivo tenha ficado nessa coluna antes de lançar.

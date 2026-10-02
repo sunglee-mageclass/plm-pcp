@@ -222,13 +222,23 @@ export function mensagemDrop(d: DestinoDrop, para: string, fluxo: KanbanStatus[]
 }
 
 /** ≡ `_kanban_status_gate`: status a usar nos gates por posição (Enviar à Explosão, revelar REF — decisão 10).
- *  Chave desligada ⇒ o status gravado. Chave ligada: card em `reprovado` ⇒ `null` = SEM posição para os gates (P-190 A,
+ *  Reprovado (Dev OU Planejamento, QUALQUER chave — leves L3 fix round 2) ⇒ `null`. Chave desligada ⇒ o status gravado.
+ *  Chave ligada: card em `reprovado` ⇒ `null` = SEM posição para os gates (P-190 A,
  *  medios R14 kanban #7: Reprovado é exceção à decisão 10 — nunca revela a REF nem libera a Explosão, qualquer que seja a
  *  ordem do board; `podeEnviarExplosao`/`refCampoVisivel` tratam `statusGate: null` como "nada passa"); card não
  *  derivável ⇒ o status gravado; senão a posição DERIVADA (`alvo`). Fixture anti-drift TS×SQL: `GATE_CASOS`. */
-export function statusParaGate(ligado: boolean, derivacao: Derivacao | null | undefined, statusAtual: string | null | undefined): string | null {
+export function statusParaGate(
+  ligado: boolean,
+  derivacao: Derivacao | null | undefined,
+  statusAtual: string | null | undefined,
+  /** Leves L3 fix round 1 (A1, P-213 A): reprovado = Dev OU Planejamento. Card REPROVADO NO PLANEJAMENTO ⇒ `null` (sem
+   *  posição) em QUALQUER estado da chave (≡ `_kanban_status_gate` da 20261027140000). Ausente = regra de antes. */
+  statusPlanejamento?: string | null,
+): string | null {
+  // Leves L3 fix round 2 (ruling do controlador, P-213 A + P-190 A): reprovado (Dev OU Planejamento) ⇒ SEM posição em
+  // QUALQUER estado da chave (≡ `_kanban_status_gate` da 20261027140000).
+  if (normKey(statusPlanejamento) === "reprovado" || normKey(statusAtual) === "reprovado") return null;
   if (!ligado) return statusAtual ?? null;
-  if (normKey(statusAtual) === "reprovado") return null;
   if (!derivacao || !derivacao.derivavel || !derivacao.alvo) return statusAtual ?? null;
   return derivacao.alvo;
 }
