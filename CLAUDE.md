@@ -417,8 +417,8 @@ e verifique** — o repo muda rápido.
    rolo), o `rolo_supply` da prévia do Plan. Tecido e o `entregue_m` da Situação por OC só contam item **não cancelado** de OC
    com `status='recebido'`; recebido = `quantidade_recebida`, senão a **pedida** (0 se é reposição de troca); kg→m; menos as baixas
    DO PRÓPRIO item. OC encomendada = 0 no corte (continua previsão/reserva no `previsto` e no Plan. Tecido, que usa a pedida). Rolo
-   separado não conta 2× na prévia quando a OC de origem já credita a coleção. Ainda divergem (backlog R15):
-   `ocs_disponiveis_variante` e `ocs_para_rolo`.
+   separado não conta 2× na prévia quando a OC de origem já credita a coleção. R15a (out/2026) fechou o backlog: picker e
+   `ocs_para_rolo` seguem a regra do core (ver "Achados MÉDIOS + LEVES" abaixo).
    ⚠️ **Estoque de AVIAMENTO é POR VARIANTE (cor base + apelido)** (ago/2026, `20260820140000`),
    espelhando o tecido: **fonte única `_estoque_aviamento_core`** reagrupa por
    `aviamento_id × variante_aviamento_id` (recebido/prev ← `ocs_aviamento_itens.variante_aviamento_id`;
@@ -1229,6 +1229,40 @@ container, ≤30 min, conferido) antes da ida e da volta. Nenhum valor gravado m
 hora). Volta **LIFO**: `20261021100000_down` ANTES dos inversos da release 9 e anteriores (por convenção — nenhum confere estas
 funções). Efeito: 8 itens de 5 OCs ainda "encomendadas" com recebida digitada deixam de contar no corte até a loja marcar a OC
 como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a contar a pedida.
+
+## Achados MÉDIOS + LEVES (out/2026, R12–R16 + L1–L8; planos em `.superpowers/sdd/2026-10-01-achados-medios/` e `2026-10-02-leves/`)
+
+- **Reprovado = UM predicado** (P-213 A): Dev OU Planejamento, `ehReprovadoStatus` em `src/lib/reprovado.ts` (`ehReprovado` de
+  `plan-tecido/calc.ts` delega a ele; não reimplementar). Efeitos: sai da necessidade de tecido do Plan. Tecido e da Demanda
+  (P-198), EXCETO o já enviado ao corte, que continua contando tecido; sai do Poder de venda e das Pendências (P-212) mesmo
+  cortado; sai do Realizado, custo e contagem da OTB (P-209); sai da reserva de estoque (tecido e aviamento); no Dashboard vira o
+  balde "Reprovados" e sai do Comercial (P-215); NUNCA revela a REF nem passa o gate da Explosão, com a chave do kanban
+  automático ligada ou desligada (P-190 A + L3).
+- **Estoque (R15a):** o item de origem de um rolo conta recebido − baixas e separar é TRANSFERÊNCIA. O painel "Estoque por OC" =
+  core (Σ por OC + sem OC); a reserva se reparte por prioridade de vínculo, o último vínculo leva o resto. Picker e
+  `ocs_para_rolo` seguem a regra do core. P-203 A: quando um item de OC passa a contar, o banco completa o "Faltou estoque" dos
+  cortes — só o déficit, do mais antigo, com try-lock + SKIP LOCKED + orçamento de 4 s, NUNCA abortando o COMMIT. L6: o
+  REVERTER do corte NÃO completa outros; o estorno "- Metragem" completa; há o botão admin "Reprocessar faltas". P-214 B:
+  correção única dos déficits existentes no deploy, auditada como "Sistema".
+- **Custo e preço:** R16 / P-186 A, custo real: lançado com bruto > 0, senão M.O. prevista; interno = previsto. P-187 A:
+  parcela de complemento. P-188 A: insumo por tamanho. L8: insumo somado UMA vez; o preço de revenda/importado segue a BOM de
+  insumo; P-207 A: regras de cotação, no produto e na OC de importado, só quando há valor de compra. L9: a OC de aviamento
+  guarda o preço, pré-preenchido da cor e depois do preço geral (P-206 A / P-216 A); cor obrigatória com 2+ cores quando a
+  linha é editada (P-208 A).
+- **Dashboards:** R12: custo = custo do card; a última coluna do kanban NUNCA conta tempo (P-185 A); comprado lançado. L4: funil
+  por `ordem_criacao_enviada`; balde "Reprovados".
+- **CQ:** R13 [C1] pelo status final; o PCP zerar a grade manda o CQ de volta a pendente + #Erro (P-192 A) e o Direcionamento
+  acompanha. L6: Pós [C1]; Voltar CQ limpa; `producao_terceirizados.ativo` NOT NULL. Ordem de trava: CQ → fonte → `cad_grades`.
+- **Kanban/REF/SKU (L3):** DELETE da fila dentro do bloco protegido. Siglas só letras; formato da REF exige "numero". Réplica de
+  SKU só dentro da mesma família. P-210 A: exceções ocultas. P-211 A: prévia + revelar no salvar da Config. Salvar a etapa da
+  REF junto com o kanban é RECUSADO.
+- **Integração (R14):** SKU desatualizado é falta; sublinhas são comparadas; Voltar/Desfazer recalculam o preço; vincular
+  produto traz a REF ao card. P-199: "abrir card" abre o Sheet no lugar.
+- **Front (L1/L2/L7):** DateField: ano 1900–2100, estouro rejeitado, `onCommit`. Financeiro pagina além de 1000 linhas; parcela
+  paga de OC cancelada permanece. `PlanejamentoDetail` usa o guard `hostGuardaNavegacao`. Plan. Tecido: desempate D5 por
+  `created_at`, depois `modelo_id`; a visão "oc" da gaveta usa `sobraOc`.
+- **Volta LIFO (só as chaves):** os downs da L6 ANTES do `_down_drop` da R15a; L5 antes da release 8; L3 antes da R14; L4
+  antes da R12; R16 antes da R12; R15b antes da R11.
 
 ## O que NÃO fazer
 
