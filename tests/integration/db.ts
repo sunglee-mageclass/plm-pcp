@@ -90,6 +90,12 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaS3a(client);
     }
+    // Reforço de segurança S3b (mesmo ensaio; aplica a S3a antes se ainda não estiver viva).
+    if (process.env.S3B_TXN === "1") {
+      const { aplicaS3b } = await import("./seg-s3b-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaS3b(client);
+    }
     await fn(client);
   } finally {
     try {

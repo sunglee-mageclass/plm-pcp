@@ -6,6 +6,7 @@
 import type { Client } from "pg";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 import { voltaS2SePreciso } from "./seg-s2-helpers";
+import { voltaS3bSePreciso } from "./seg-s3b-helpers";
 
 export const S1_MIGS = [
   "supabase/migrations/20261031100000_seg_s1_usuario_proprio.sql",
@@ -48,12 +49,14 @@ async function zeraTimeouts(c: Client): Promise<void> {
 
 export async function aplicaS1(c: Client): Promise<void> {
   exigeBancoLocal();
+  await voltaS3bSePreciso(c); // LIFO: a S3b (20261101130000) redefine voltar_modelo_desenvolvimento/confirmar_direcionamento por cima da S1 — sai antes
   for (const m of S1_MIGS) await aplicarArquivo(c, m);
   await zeraTimeouts(c);
 }
 
 export async function voltaS1(c: Client): Promise<void> {
   exigeBancoLocal();
+  await voltaS3bSePreciso(c); // LIFO: a S3b sai antes da S1
   for (const m of S1_DOWNS) await aplicarArquivo(c, m);
   await zeraTimeouts(c);
 }

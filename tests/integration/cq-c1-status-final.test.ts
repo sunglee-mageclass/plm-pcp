@@ -11,6 +11,7 @@ import type { Client } from "pg";
 import { Client as PgClient } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, dbUrl, ehBancoLocal } from "./db";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { md5OuSucessorS3b } from "./seg-s3b-helpers";
 
 const TAM = "38";
 const MSG_C1 = "Conte ao menos uma peça no Recebimento antes de confirmar o Controle de Qualidade.";
@@ -572,7 +573,8 @@ describe.skipIf(!hasDb)("R13 — md5 + ACL (guarda da migration 20261023100000)"
           [sig],
         );
         expect(r, `${sig} existe`).toBeDefined();
-        expect(r.m, `${sig} md5`).toBe(e.md5);
+        // Reforço de segurança S3b (20261101130000): salvar_terceirizados ganha o portão de página (texto da S3b quando aplicada)
+        expect(md5OuSucessorS3b(sig, e.md5), `${sig} md5`).toContain(r.m);
         // ACL como CONJUNTO (a ordem dos aclitems difere entre a cópia e a produção; o conteúdo é o mesmo)
         const conj = (x: string) =>
           x

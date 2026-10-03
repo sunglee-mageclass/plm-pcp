@@ -11,6 +11,7 @@ import { aplicaS2, voltaS2, S2_MD5, S2_PERM, S2_ACL, S2_DOWN_DROP, aclTabela } f
 import { aplicarArquivo } from "./mig-txn";
 import { voltaS3aSePreciso } from "./seg-s3a-helpers";
 
+import { S3B_TABELAS_TRAVA } from "./seg-s3b-helpers";
 const S3A_TABELAS_TRAVA = ["public.ocs_aviamento", "public.ocs_etiqueta", "public.ocs_tecido", "public.ocs_tecido_itens"];
 
 const RODA = hasDb && ehBancoLocal();
@@ -262,7 +263,7 @@ describe.skipIf(!RODA)("seg S2 — trava medida (pg_locks na txn revertida)", ()
           WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND n.nspname NOT IN ('pg_catalog', 'pg_toast')
             AND l.mode <> 'AccessShareLock' ORDER BY 1, 2`)).rows
         // S3A_TXN=1: o CREATE TRIGGER da S3a (4 tabelas de OC) já pegou trava no começo da txn — não é da S2
-        .filter((r) => !S3A_TABELAS_TRAVA.includes(r.rel));
+        .filter((r) => !S3A_TABELAS_TRAVA.includes(r.rel) && !S3B_TABELAS_TRAVA.includes(r.rel)); // idem S3B_TXN=1 (cad, CQ, Oficina)
       await voltaS3aSePreciso(c); // LIFO: a S3a redefine recalcular_parcelas por cima da S2 (a 220000 recusaria)
       const jaTinha = await travas(); // S2_TXN=1 já aplicou no começo da txn
       // Com a S2 aplicada DE VERDADE na cópia (o controlador aplicou), o gatilho já existe: o CREATE TRIGGER é pulado

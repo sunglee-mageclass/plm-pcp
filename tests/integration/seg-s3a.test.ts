@@ -11,6 +11,7 @@ import { aplicaS3a, voltaS3a, s3aViva, S3A_MIGS, S3A_DOWNS, S3A_DOWN_DROPS } fro
 import { S3A_MD5, S3A_PAGINAS, S3A_HELPER, S3A_GATILHOS, S3A_ACL, S3A_COLUNAS } from "./seg-s3a-dados";
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { S3B_TABELAS_TRAVA } from "./seg-s3b-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -177,7 +178,8 @@ describe.skipIf(!RODA)("seg S3a — md5, ACL, idempotência e volta (LIFO)", () 
       for (const d of S3A_DOWN_DROPS) await aplicarArquivo(c, d);
       expect((await um<{ f: string | null }>(c, `select to_regprocedure($1)::text f`, [S3A_HELPER.fn])).f).toBeNull();
       for (const g of S3A_GATILHOS) expect((await um<{ f: string | null }>(c, `select to_regprocedure($1)::text f`, [g.fn])).f).toBeNull();
-      expect((await um<{ n: number }>(c, `select count(*)::int n from pg_trigger where tgname = 'trg_aaa_seg_pagina'`)).n).toBe(0);
+      expect((await um<{ n: number }>(c, `select count(*)::int n from pg_trigger where tgname = 'trg_aaa_seg_pagina'
+          and tgrelid = any (select to_regclass('public.' || x) from unnest($1::text[]) x)`, [S3A_GATILHOS.map((g) => g.tabela)])).n).toBe(0);
       for (const d of S3A_DOWN_DROPS) await aplicarArquivo(c, d); // idempotente
       await aplicaS3a(c); // ida de novo depois da volta completa
       await confereIda();
@@ -234,17 +236,19 @@ describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", (
             AND l.mode <> 'AccessShareLock' ORDER BY 1, 2`)).rows as { rel: string; mode: string }[];
       const QUATRO = ["public.ocs_aviamento", "public.ocs_etiqueta", "public.ocs_tecido", "public.ocs_tecido_itens"]
         .map((rel) => ({ rel, mode: "ShareRowExclusiveLock" }));
-      const antes = await travas(); // S2_TXN=1 (parcelas) / S3A_TXN=1 (as 4) já aplicados no começo da txn
+      // S3B_TXN=1: o CREATE TRIGGER da S3b (cad, controle_qualidade, producao_oficina) já pegou trava no começo da txn — não é da S3a
+      const foraS3b = (t: { rel: string }) => !S3B_TABELAS_TRAVA.includes(t.rel);
+      const antes = (await travas()).filter(foraS3b); // S2_TXN=1 (parcelas) / S3A_TXN=1 (as 4) já aplicados no começo da txn
       if (!(await s3aViva(c)) && antes.length === 0) {
         await aplicarArquivo(c, S3A_MIGS[0]);
-        expect(await travas()).toEqual([]);
+        expect((await travas()).filter(foraS3b)).toEqual([]);
         await aplicarArquivo(c, S3A_MIGS[1]);
-        expect(await travas()).toEqual([]);
+        expect((await travas()).filter(foraS3b)).toEqual([]);
         await aplicarArquivo(c, S3A_MIGS[2]);
-        expect(await travas()).toEqual(QUATRO);
+        expect((await travas()).filter(foraS3b)).toEqual(QUATRO);
       } else {
         await aplicaS3a(c); // idempotente: não pega trava nova
-        const depois = (await travas()).filter((t) => t.rel !== "public.parcelas"); // parcelas = o CREATE TRIGGER da S2_TXN
+        const depois = (await travas()).filter((t) => t.rel !== "public.parcelas" && foraS3b(t)); // parcelas = o CREATE TRIGGER da S2_TXN
         expect(depois).toEqual(QUATRO);
       }
       const auth = await c.query(
@@ -587,10 +591,14 @@ describe.skipIf(!RODA)("seg S3a — ponta a ponta como o PAPEL authenticated, us
         await c.query(`insert into cad_tecido_variantes (cad_tecido_id, variante_tecido_id, ordem, metragem_enviada) values ($1, $2, 1, 20)`, [ct, fx.vari]);
         return cadId;
       });
+      // (a S3b exige EDITAR a Explosão para o corte e PCP Serviços OU Explosão para o estorno — dá as duas a este usuário)
+      await perms(c, U_COMUM, edita("entrada_oc_tecido", "producao_explosao"));
       await ok(c, `select public.baixar_estoque_tecido_corte($1, null)`, [cad]);
       expect(await baixas("cad_id = $1", [cad])).toBe(20);
+      await perms(c, U_COMUM, edita("entrada_oc_tecido", "producao_terceirizados"));
       await ok(c, `select public.reverter_corte_tecido($1)`, [cad]);
       expect(await baixas("cad_id = $1", [cad])).toBe(0);
+      await perms(c, U_COMUM, edita("entrada_oc_tecido"));
       // desmarcar → encomendada (parcelas não pagas saem) → excluir
       await ok(c, `select public.desmarcar_recebimento_oc('tecido', $1)`, [oc]);
       expect((await um<{ s: string }>(c, `select status s from ocs_tecido where id = $1`, [oc])).s).not.toBe("recebido");
