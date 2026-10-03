@@ -1,7 +1,7 @@
 /** Integração + API — migration 5 (mão dupla + integracao_salvar). Plano Task 5. Só na cópia (N3), txn revertida. */
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um } from "./db";
+import { hasDb, withTx, comoUsuario, um, semJwt } from "./db";
 import { aplicarSql } from "./mig-txn";
 import { DEF, INVERSOS, LOCAL, MD5_ANTES, MIG_TXN, MIGRACOES, T, U, aplica, comoUsuarioCom, importado, keywordsLoja, ler, modeloInterno, prepara, revenda, semTravas } from "./integracao-helpers";
 
@@ -270,7 +270,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       await c.query(`UPDATE public.modelos SET ordem_criacao_enviada = true, status_desenvolvimento = 'aprovado' WHERE id = $1`, [m.id]);
       await salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { ref: "REFNOVA1" } }]);
       expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [m.id])).r).toBe("REFNOVA1");
+      // Reforço de segurança S1 (M2): enviado_cad só muda com a GUC da Explosão — a fixture simula o envio
+      await c.query(`SELECT set_config('app.explosao_sistema', 'on', true)`);
       await c.query(`UPDATE public.modelos SET enviado_cad = true WHERE id = $1`, [m.id]);
+      await c.query(`SELECT set_config('app.explosao_sistema', '', true)`);
       expect((await erro(c, async () => salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { ref: "REFNOVA2" } }]))).message)
         .toBe("integracao_sem_permissao: ref");
     });
@@ -310,7 +313,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       await c.query(`UPDATE public.produtos_acabados SET nome = 'Bolsa da tela PA' WHERE id = $1`, [m.produtoId]);
       expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("Bolsa da tela PA");
       // R2: depois do envio à Explosão, a REF do espelho NÃO chega ao card (o nome continua chegando)
+      // Reforço de segurança S1 (M2): enviado_cad só muda com a GUC da Explosão — a fixture simula o envio
+      await c.query(`SELECT set_config('app.explosao_sistema', 'on', true)`);
       await c.query(`UPDATE public.modelos SET enviado_cad = true WHERE id = $1`, [m.id]);
+      await c.query(`SELECT set_config('app.explosao_sistema', '', true)`);
       await c.query(`UPDATE public.produtos_acabados SET ref = 'RVDDEPOIS', nome = 'Bolsa pós-Explosão' WHERE id = $1`, [m.produtoId]);
       expect(await um(c, `SELECT ref, nome FROM public.modelos WHERE id = $1`, [m.id])).toEqual({ ref: "RVDNOVA1", nome: "Bolsa pós-Explosão" });
     });
@@ -631,7 +637,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       await keywordsLoja(c, "antes");
       const m = await revenda(c);
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce24", PERM_TUDO);
-      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T]);
+      await semJwt(c, () => c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T])); // S1 MOD-1
       expect((await erro(c, async () => salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { nome: "x" } }]))).message)
         .toBe("integracao_sem_permissao: nome");
       expect((await erro(c, () => salvar(c, [], { valor: "novo", esperado: "antes" }))).message).toBe("integracao_sem_permissao: keywords");

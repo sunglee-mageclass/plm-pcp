@@ -507,6 +507,8 @@ describe.skipIf(!hasDb)("Multi-lojas fase 5 — fix wave: delete defensivo + pod
       const modelo = await um<{ id: string }>(
         c, `insert into modelos (nome) values ($1) returning id`, ["FIXWAVE PODA VARIANTE TESTE"],
       );
+      // Reforço de segurança S1 (M2): CAD só nasce depois da Ordem de Criação (cad_sem_ordem) — a fixture envia a Ordem
+      await c.query(`UPDATE public.modelos SET ordem_criacao_enviada = true WHERE id = $1`, [modelo.id]);
 
       // 1º save: Tecido 1 com 2 variantes (ordem 1 e 2) + grade pra cada uma → cria o cad.
       const tecidosFull = [{

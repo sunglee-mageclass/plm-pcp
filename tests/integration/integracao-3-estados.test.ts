@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import type { Client as ClientType } from "pg";
-import { hasDb, withTx, comoUsuario, um, dbUrl } from "./db";
+import { hasDb, withTx, comoUsuario, um, dbUrl, semJwt } from "./db";
 import { aplicarSql } from "./mig-txn";
 import { CAMPOS_PADRAO, INVERSOS, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, keywordsLoja, ler, modeloInterno, prepara, revenda, semTravas, padraoVivo } from "./integracao-helpers";
 
@@ -141,16 +141,16 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
         ["criacao_planejamento:custos", true, true]];
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce41", PERM);
       // dentro da txn: desliga o modulo produto_acabado (mesma tecnica da suite 5, n5)
-      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T]);
+      await semJwt(c, () => c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T])); // S1 MOD-1
       const e = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
         [m.id, await assinatura(c, m.id)]);
       expect(e.code).toBe("42501");
       expect(e.message).toMatch(/^integracao_sem_permissao: /);
       // religa o modulo: volta a marcar normalmente (mesma msg/ERRCODE do salvar via _integracao_gates)
-      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": true}'::jsonb WHERE tenant_id = $1`, [T]);
+      await semJwt(c, () => c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": true}'::jsonb WHERE tenant_id = $1`, [T])); // S1 MOD-1
       expect(await marcar(c, m.id)).toEqual({ marcados: 1 });
       // modulo criacao desligado tambem recusa (mesmo gate v_criacao de _integracao_gates)
-      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"criacao": false}'::jsonb WHERE tenant_id = $1`, [T]);
+      await semJwt(c, () => c.query(`UPDATE public.tenant_config SET modules = modules || '{"criacao": false}'::jsonb WHERE tenant_id = $1`, [T])); // S1 MOD-1
       const e2 = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
         [m2.id, await assinatura(c, m2.id)]);
       expect(e2.code).toBe("42501");
@@ -173,7 +173,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
       const gatesOn = (await um<{ r: any }>(c, `SELECT public._integracao_gates($1::uuid) AS r`, [m.id])).r;
       expect(gatesOn.modulo_bloqueado).toBe(false);
 
-      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T]);
+      await semJwt(c, () => c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T])); // S1 MOD-1
       const gatesOff = (await um<{ r: any }>(c, `SELECT public._integracao_gates($1::uuid) AS r`, [m.id])).r;
       expect(gatesOff.modulo_bloqueado).toBe(true);
 
@@ -196,7 +196,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
       expect(e).toEqual({ code: "42501", message: "integracao_sem_permissao: compartilhado" });
 
       // religa: modulo_bloqueado volta a false, marcar volta a funcionar
-      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": true}'::jsonb WHERE tenant_id = $1`, [T]);
+      await semJwt(c, () => c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": true}'::jsonb WHERE tenant_id = $1`, [T])); // S1 MOD-1
       const gatesBack = (await um<{ r: any }>(c, `SELECT public._integracao_gates($1::uuid) AS r`, [m.id])).r;
       expect(gatesBack.modulo_bloqueado).toBe(false);
       expect(await marcar(c, m.id)).toEqual({ marcados: 1 });

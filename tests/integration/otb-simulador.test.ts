@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { withTx, comoUsuario, um, hasDb, TENANT_TESTE, USER_TESTE } from "./db";
+import { withTx, comoUsuario, um, hasDb, TENANT_TESTE, USER_TESTE, semJwt } from "./db";
 
 const ligarOtb = (c: any) =>
   c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
@@ -58,7 +58,7 @@ describe.skipIf(!hasDb)("OTB Simulador — salvar_simulacao", () => {
       // super_admin faz tenant_module_enabled retornar true incondicionalmente — removê-lo
       // do USUÁRIO QUE AGE (USER_TESTE, não um arbitrário) p/ o gate de módulo ser avaliado.
       await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
-      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      await semJwt(c, () => c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE])); // S1 MOD-1: sem JWT
       const col = await um<{ id: string }>(c, `insert into colecoes (nome) values ('C-OFF') returning id`, []);
       await expect(c.query(`select public.salvar_simulacao(null, $1::jsonb, '[]'::jsonb)`,
         [JSON.stringify({ colecao_id: col.id, nome: "X" })])).rejects.toThrow();

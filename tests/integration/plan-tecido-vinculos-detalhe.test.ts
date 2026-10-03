@@ -5,7 +5,7 @@
 // prioridade/quantidade_m e em tenant_config dentro da transação revertida).
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal, semJwt } from "./db";
 
 const RODA = hasDb && ehBancoLocal();
 const CORE = "public._plan_tecido_vinculos_detalhe_core(uuid,uuid)";
@@ -186,11 +186,11 @@ describe.skipIf(!RODA)("plan_tecido_vinculos_detalhe (D5a)", () => {
       if (!a) throw new Error("cópia sem vínculo fora da Loja Teste (fixture)");
       await comoUsuario(c, a.user);
       expect((await rpcComoAuthenticated(c, a.colecao)).length).toBe(a.n);
-      await c.query(
+      await semJwt(c, () => c.query( // S1 MOD-1: módulo só muda sem JWT (ou super admin)
         `insert into tenant_config (tenant_id, modules) values ($1, '{"criacao":false}'::jsonb)
          on conflict (tenant_id) do update set modules = tenant_config.modules || '{"criacao":false}'::jsonb`,
         [a.tenant],
-      );
+      ));
       expect(await rpcComoAuthenticated(c, a.colecao)).toEqual([]);
     });
   });

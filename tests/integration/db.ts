@@ -72,6 +72,12 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaI3(client);
     }
+    // Reforço de segurança S1 (mesmo ensaio): com S1_TXN=1 as 6 migrations da S1 são aplicadas DENTRO desta txn antes do teste.
+    if (process.env.S1_TXN === "1") {
+      const { aplicaS1 } = await import("./seg-s1-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaS1(client);
+    }
     await fn(client);
   } finally {
     try {
@@ -107,4 +113,19 @@ export async function semUsuario(c: Client): Promise<void> {
 export async function um<T = any>(c: Client, sql: string, params: any[] = []): Promise<T> {
   const { rows } = await c.query(sql, params);
   return rows[0] as T;
+}
+
+/**
+ * Roda `fn` SEM JWT (como migration/manutenção) e devolve os claims de antes. Reforço de segurança S1 (MOD-1, P-233 A):
+ * com JWT, só o super admin muda `tenant_config.modules` (o gatilho devolve o valor de antes, sem erro) — teste que
+ * liga/desliga módulo DENTRO da txn usa isto. Só para escrita de PREPARAÇÃO feita como `postgres` (sem SET ROLE).
+ */
+export async function semJwt<R>(c: Client, fn: () => Promise<R>): Promise<R> {
+  const ant = (await um<{ v: string | null }>(c, "SELECT current_setting('request.jwt.claims', true) AS v")).v ?? "";
+  await c.query("SELECT set_config('request.jwt.claims', '', true)");
+  try {
+    return await fn();
+  } finally {
+    await c.query("SELECT set_config('request.jwt.claims', $1, true)", [ant]);
+  }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { withTx, comoUsuario, um, hasDb, TENANT_TESTE, USER_TESTE } from "./db";
+import { withTx, comoUsuario, um, hasDb, TENANT_TESTE, USER_TESTE, semJwt } from "./db";
 
 describe.skipIf(!hasDb)("OTB — coleções", () => {
   it("insere coleção e semana no tenant e lê de volta (RLS)", async () => {
@@ -66,7 +66,7 @@ describe.skipIf(!hasDb)("OTB — otb_confirmar (marca confirmada, sem gerar/remo
       // temporariamente removemos o papel super_admin do usuário de teste (dentro da txn, revertido no ROLLBACK)
       // para que a verificação de módulo seja avaliada normalmente.
       await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
-      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      await semJwt(c, () => c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE])); // S1 MOD-1: sem JWT
       const col = await um<{ id: string }>(c, `insert into colecoes (nome) values ('C-OTB-OFF') returning id`, []);
       await expect(c.query(`select public.otb_confirmar($1)`, [col.id])).rejects.toThrow();
     });
@@ -93,7 +93,7 @@ describe.skipIf(!hasDb)("OTB — importar coleções existentes", () => {
       // temporariamente removemos o papel super_admin do usuário de teste (dentro da txn, revertido no ROLLBACK)
       // para que a verificação de módulo seja avaliada normalmente.
       await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
-      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      await semJwt(c, () => c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE])); // S1 MOD-1: sem JWT
       await expect(c.query(`select public.otb_importar_colecoes()`)).rejects.toThrow();
     });
   });
@@ -171,7 +171,7 @@ describe.skipIf(!hasDb)("OTB — otb_salvar_colecao (persistência atômica)", (
     await withTx(async (c) => {
       await comoUsuario(c);
       await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
-      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      await semJwt(c, () => c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE])); // S1 MOD-1: sem JWT
       await expect(c.query(`select public.otb_salvar_colecao($1::jsonb)`, [JSON.stringify({ nome: "X" })])).rejects.toThrow();
     });
   });

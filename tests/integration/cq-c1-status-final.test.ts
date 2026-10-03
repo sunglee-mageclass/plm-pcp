@@ -580,7 +580,9 @@ describe.skipIf(!hasDb)("R13 — md5 + ACL (guarda da migration 20261023100000)"
             .split(",")
             .sort()
             .join(",");
-        expect([...(r.acl ?? [])].sort().join(","), `${sig} acl`).toBe(conj(e.acl));
+        // Reforço de segurança S1 (20261031130000, ANON-2): funções de GATILHO DEFINER perderam o EXECUTE de PUBLIC/anon/authenticated
+        const aclS1 = sig === "public.fn_rebaixa_lancado_cq()" ? "{postgres=X/postgres,service_role=X/postgres}" : null;
+        expect([conj(e.acl), ...(aclS1 ? [conj(aclS1)] : [])], `${sig} acl`).toContain([...(r.acl ?? [])].sort().join(","));
         if (sig.startsWith("public._")) {
           expect(r.anon || r.auth || r.pub, `${sig} sem PUBLIC/anon/authenticated (inv. #9)`).toBe(
             false,

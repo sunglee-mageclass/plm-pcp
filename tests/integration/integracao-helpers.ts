@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { ehBancoLocal, um, TENANT_TESTE, USER_TESTE } from "./db";
+import { voltaS1SePreciso } from "./seg-s1-helpers";
 
 export const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const MIG_TXN = process.env.INTEGRACAO_MIG_TXN === "1";
@@ -256,6 +257,7 @@ async function comTimeoutPreservado(c: Client, fn: () => Promise<void>): Promise
   await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
 }
 export async function voltaI3SePreciso(c: Client): Promise<void> {
+  await voltaS1SePreciso(c); // LIFO: a S1 (20261031*) redefine funções que as voltas mais antigas conferem — sai primeiro
   if (await i3bViva(c)) {
     exigeBancoLocal();
     await comTimeoutPreservado(c, async () => {
@@ -359,6 +361,10 @@ export async function comoCustoSistema<R>(c: Client, fn: () => Promise<R>): Prom
 }
 
 async function colunasCompletas(c: Client, id: string, o: ModeloOpts): Promise<void> {
+  // Reforço de segurança S1 (B1b): preco_venda de COMPRADO só muda pelo recálculo do servidor — a fixture escreve direto,
+  // então liga a GUC do recálculo (sem efeito sem a S1) e devolve o valor de antes.
+  const antPreco = (await um<{ v: string | null }>(c, "SELECT current_setting('app.preco_comprado_sistema', true) AS v")).v ?? "";
+  await c.query("SELECT set_config('app.preco_comprado_sistema', 'on', true)");
   await c.query(
     `UPDATE public.modelos SET preco_anterior = 179.90, preco_venda = 159.90, peso_kg = 0.220, ncm = '6109.10.00',
             titulo_pagina = 'Blusa Brisa Manga Longa', descricao_produto = 'Blusa em viscose, manga longa.',
@@ -367,6 +373,7 @@ async function colunasCompletas(c: Client, id: string, o: ModeloOpts): Promise<v
       WHERE id = $1`,
     [id, o.fotos ?? [`${T}/fotos_modelo/integracao-teste.jpg`]],
   );
+  await c.query("SELECT set_config('app.preco_comprado_sistema', $1, true)", [antPreco]);
 }
 async function gradeESkus(c: Client, id: string, ref: string, corId: string, apelidoId: string | null, o: ModeloOpts): Promise<void> {
   await c.query(`INSERT INTO public.modelo_grades (modelo_id, variante_numero, grades, grade_total) VALUES ($1, 1, '{"38|P": 2, "40|M": 3}', 5)`, [id]);

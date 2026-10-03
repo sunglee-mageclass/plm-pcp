@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { md5OuSucessorI3 } from "./integracao-helpers";
+import { md5OuSucessorS1 } from "./seg-s1-helpers";
 import { totaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import {
   recomputeEtiqueta,
@@ -122,7 +123,8 @@ describe.skipIf(!RODA)("L8 — migration aplicada (cópia local)", () => {
           [s],
         );
         // Release I3a (20261030100000) redefine os 2 _salvar_produto_*_core POR CIMA desta (sucessor aceito)
-        expect(md5OuSucessorI3(s, m), s).toContain(r.m);
+        // Reforço de segurança S1 (20261031120000) redefine _pa_recomputar_precos_modelo por cima (B1b; sucessor aceito)
+        expect([...md5OuSucessorI3(s, m), ...md5OuSucessorS1(s, m)], s).toContain(r.m);
         expect({ ...r, m: null }, s).toEqual({ m: null, p: false, a: false, u: false });
       }
       const t = await um<{ n: number }>(
@@ -285,9 +287,12 @@ describe.skipIf(!RODA)("L8 preço M2 — editar o insumo recalcula o preço do c
         (await um<{ l: string }>(c, `select public._imp_custo_landed($1)::text l`, [pi.id])).l,
       );
       expect(landed).toBeCloseTo(50, 6); // 50 M1 ÷ 5 × 5
+      // Reforço de segurança S1 (B1b): preço de comprado só muda pelo recálculo — a fixture liga a GUC dele
+      await c.query(`select set_config('app.preco_comprado_sistema', 'on', true)`);
       await c.query(`update modelos set preco_atacado = 1, preco_venda = 1 where id = $1`, [
         modelo.id,
       ]);
+      await c.query(`select set_config('app.preco_comprado_sistema', '', true)`);
       await insumo(c, modelo.id, 1, 10);
       expect(await precos(c, modelo.id)).toEqual({ a: 100, v: 150 }); // antes da L8: 1 / 1
     });

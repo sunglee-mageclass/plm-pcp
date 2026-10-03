@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
-import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal, semJwt } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { voltaNomeCorSePreciso } from "./integracao-helpers";
 
@@ -760,7 +760,7 @@ describe.skipIf(!PRONTO)("SKU em prévia — permissões e ACL (#9)", () => {
       await c.query("UPDATE public.user_permissions SET pode_editar = true WHERE user_id = $1 AND pagina = 'criacao_planejamento'", [comum.id]);
       await jwt();
       expect((await v(c, Q_PREVIA, args)).status).toBe("ok");
-      await c.query("UPDATE public.tenant_config SET modules = coalesce(modules, '{}'::jsonb) || '{\"criacao\": false}'::jsonb WHERE tenant_id = $1", [T]);
+      await semJwt(c, () => c.query("UPDATE public.tenant_config SET modules = coalesce(modules, '{}'::jsonb) || '{\"criacao\": false}'::jsonb WHERE tenant_id = $1", [T])); // S1 MOD-1
       expect(await falha(c, Q_PREVIA, args)).toEqual({ code: "42501", message: "Módulo Estilo & Engenharia não habilitado para esta loja." });
       await c.query("SET LOCAL ROLE authenticated");
       for (const q of ["SELECT public._skus_plano($1::uuid, 'X', 'letra', '[]'::jsonb, 'regerar')", "SELECT public._skus_previa_core($1::uuid, 'X', 'letra', '[]'::jsonb, 'regerar')",

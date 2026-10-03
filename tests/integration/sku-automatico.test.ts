@@ -26,7 +26,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { Client } from "pg";
 type PgClient = Client;
-import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal, semJwt } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { voltaNomeCorSePreciso, voltaPrecoVersaoSePreciso } from "./integracao-helpers";
 import {
@@ -1023,7 +1023,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — permissões e ACL", () => {
       expect((await um<any>(c, q, [k.interno])).v.criados).toBe(3);
       const idSku = (await um<{ id: string }>(c, "SELECT id FROM public.modelo_skus WHERE modelo_id = $1 LIMIT 1", [k.interno])).id;
       expect((await um<any>(c, "SELECT public.salvar_sku_manual($1, 'P-1') AS v", [idSku])).v.manual).toBe(true);
-      await c.query("UPDATE public.tenant_config SET modules = coalesce(modules, '{}'::jsonb) || '{\"criacao\": false}'::jsonb WHERE tenant_id = $1", [T]);
+      await semJwt(c, () => c.query("UPDATE public.tenant_config SET modules = coalesce(modules, '{}'::jsonb) || '{\"criacao\": false}'::jsonb WHERE tenant_id = $1", [T])); // S1 MOD-1
       const modOff = { code: "42501", message: "Módulo Estilo & Engenharia não habilitado para esta loja." };
       expect(await falha(c, q, [k.interno])).toEqual(modOff);
       expect(await falha(c, ler, [k.interno])).toEqual(modOff);

@@ -16,7 +16,8 @@ import { Client } from "pg";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal } from "./db";
+import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal, semJwt } from "./db";
+import { S1_MD5 } from "./seg-s1-helpers";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { voltaPrecoVersaoSePreciso } from "./integracao-helpers";
 
@@ -311,11 +312,11 @@ async function falha(c: Client, sql: string, params: unknown[] = []): Promise<{ 
 async function lojaComModulos(c: Client, distribuicao: boolean): Promise<void> {
   await comoUsuario(c);
   await c.query("delete from public.user_roles where user_id = $1 and role = 'super_admin'", [USER_TESTE]);
-  await c.query(
+  await semJwt(c, () => c.query( // S1 MOD-1: módulo só muda sem JWT (ou super admin)
     `insert into tenant_config (tenant_id, modules) values ($1, $2::jsonb)
      on conflict (tenant_id) do update set modules = tenant_config.modules || $2::jsonb`,
     [TENANT_TESTE, JSON.stringify({ criacao: true, producao: true, otb: true, distribuicao })],
-  );
+  ));
 }
 type Cena = { col: string; artigo: string; vtMarrom: string; vtPreto: string; corMarrom: string; corPreto: string; corVinho: string; lojas: string[] };
 async function cena(c: Client): Promise<Cena> {
@@ -372,6 +373,8 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       for (const [i, f] of REDEF.entries()) {
         const d = (await def(c, f.fn))!;
         if (TAMANHO_EM[f.arq] && md5(d) === TAMANHO_EM[f.arq]) continue;
+        // Reforço de segurança S1 (20261031150000, OPT-1) redefine tenant_module_enabled por cima ('etapas_pl') — sucessor aceito
+        if (f.fn === "public.tenant_module_enabled(text)" && md5(d) === S1_MD5["public.tenant_module_enabled(text)"].depois) continue;
         expect(d, f.arq).toBe(corpo(MIG, f.cria) + "\n");
         expect(md5(d), f.arq).toBe(g[i].depois);
       }
@@ -389,9 +392,9 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       await lojaComModulos(c, false);
       const ve = async (m: string) => (await um<{ v: boolean }>(c, "select public.tenant_module_enabled($1) v", [m])).v;
       expect(await ve("distribuicao")).toBe(false);
-      await c.query("update tenant_config set modules = modules - 'distribuicao' - 'producao' - 'otb' where tenant_id = $1", [TENANT_TESTE]);
+      await semJwt(c, () => c.query("update tenant_config set modules = modules - 'distribuicao' - 'producao' - 'otb' where tenant_id = $1", [TENANT_TESTE]));
       expect([await ve("distribuicao"), await ve("producao"), await ve("otb")]).toEqual([false, true, false]);
-      await c.query("update tenant_config set modules = modules || '{\"distribuicao\":true}'::jsonb where tenant_id = $1", [TENANT_TESTE]);
+      await semJwt(c, () => c.query("update tenant_config set modules = modules || '{\"distribuicao\":true}'::jsonb where tenant_id = $1", [TENANT_TESTE]));
       expect(await ve("distribuicao")).toBe(true);
     });
   });
@@ -532,7 +535,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       expect((await um<{ r: any }>(c, "select public.direcionamento_plano_modelo($1) r", [mo.id])).r.motivo_sem_plano).toBe("comprado");
       await c.query("update modelos set origem = 'interno' where id = $1", [mo.id]);
       expect((await um<{ r: any }>(c, "select public.direcionamento_plano_modelo($1) r", [irmao.id])).r).toMatchObject({ plano: null, motivo_sem_plano: "sem_plano_tecido", direcionados: 1 });
-      await c.query("update tenant_config set modules = modules || '{\"distribuicao\":false}'::jsonb where tenant_id = $1", [TENANT_TESTE]);
+      await semJwt(c, () => c.query("update tenant_config set modules = modules || '{\"distribuicao\":false}'::jsonb where tenant_id = $1", [TENANT_TESTE]));
       expect((await um<{ r: any }>(c, "select public.direcionamento_plano_modelo($1) r", [mo.id])).r).toMatchObject({ plano: null, motivo_sem_plano: "modulo_desligado", direcionados: 1 });
     });
   });

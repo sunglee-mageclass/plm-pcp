@@ -117,6 +117,8 @@ describe.skipIf(!hasDb)("Item 2 — variante propaga ao CAD (salvar_cad_completo
       await comoUsuario(c);
       await ligarCriacao(c);
       const modelo = await novoModelo(c);
+      // Reforço de segurança S1 (M2): CAD só nasce depois da Ordem de Criação (cad_sem_ordem) — a fixture envia a Ordem
+      await c.query(`UPDATE public.modelos SET ordem_criacao_enviada = true WHERE id = $1`, [modelo]);
       const avi = await novoAviamento(c, "AV-A");
       const vari = await novaVariante(c, avi);
 
