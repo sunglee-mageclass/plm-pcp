@@ -135,7 +135,6 @@ export function montarManual(origem: string, lojaId: string | null = null): Seca
     ] },
     { id: "s3", titulo: "Endereço e comandos", blocos: [
       { tipo: "p", texto: "Endereço: GET /api/integracao/v1/produtos — exemplos prontos (chave fictícia abaixo — troque pela sua):" },
-      { tipo: "p", texto: TEXTO_LOJA_OBRIGATORIA },
       { tipo: "codigo", titulo: "Terminal (curl)", codigo: `# Consulta normal\ncurl "${url}?${lj}&limite=50" \\\n  ${h}` },
       { tipo: "codigo", titulo: "JavaScript", codigo: `// Consulta normal\nconst r = await fetch(\n  "${url}?${lj}&limite=50",\n  { headers: { Authorization: "Bearer ${CHAVE_FICTICIA}" } }\n);\nconst dados = await r.json();\nfor (const produto of dados.produtos) {\n  console.log(produto.produto_id, produto.nome);\n  for (const variante of produto.variantes) console.log("  ", variante.ref_sku, variante.tamanho);\n}` },
       { tipo: "codigo", titulo: "Python", codigo: `import requests\nr = requests.get(\n    "${url}",\n    params={"loja": "${lojaId || LOJA_FICTICIA}", "limite": 50},\n    headers={"Authorization": "Bearer ${CHAVE_FICTICIA}"},\n)\ndados = r.json()\nfor produto in dados["produtos"]:\n    print(produto["produto_id"], produto.get("nome"))\n    for variante in produto["variantes"]:\n        print("  ", variante.get("ref_sku"), variante.get("tamanho"))` },

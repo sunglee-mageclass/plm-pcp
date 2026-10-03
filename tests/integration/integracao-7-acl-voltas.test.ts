@@ -9,6 +9,7 @@ const RPCS = ["integracao_previa", "integracao_listar", "integracao_estado_model
   "integracao_voltar", "integracao_desfazer", "integracao_log_listar", "salvar_precos_fixo_produto_importado", "integracao_salvar",
   "integracao_salvar_config", "integracao_salvar_config_api", "integracao_chaves_listar", "integracao_chave_criar",
   "integracao_chave_revogar", "integracao_acessos_listar", "integracao_exemplo"];
+// Release A2 (fix round 1, B3): com a 20261030130000 viva, `_integracao_ler_loja` entra na rota (esperado "4").
 const ROTA = ["_integracao_ler", "_integracao_confirmar", "_integracao_limpar"];
 async function retratoBanco(c: Client) {
   return um<{ f: string; g: string; t: string; md5: string; tgmd5: string }>(c,
@@ -74,8 +75,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
            (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND (p.proname LIKE '\\_integracao\\_%'
                OR p.proname LIKE 'integracao\\_%' OR p.proname LIKE 'fn\\_integracao\\_%' OR p.proname IN ('fn_modelo_espelho_nome_ref',
                'fn_espelho_modelo_nome_ref', 'salvar_precos_fixo_produto_importado', '_salvar_precos_fixo_produto_importado_core'))) AS total`,
-        [RPCS, ROTA]);
-      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(RPCS.length), rota: "3", total: totalEsperado });
+        [RPCS, temA2 ? [...ROTA, "_integracao_ler_loja"] : ROTA]);
+      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(RPCS.length), rota: temA2 ? "4" : "3", total: totalEsperado });
     });
   });
 

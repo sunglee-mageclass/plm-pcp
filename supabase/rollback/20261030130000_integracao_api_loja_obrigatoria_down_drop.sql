@@ -6,7 +6,12 @@
 -- acessos SÃO APAGADOS (só recusas de chamada com a loja errada) — com algum, exige SET app.confirmo_apagar_acessos_loja = 'sim'.
 -- ALTER TABLE pega AccessExclusive em integracao_acessos por um instante (lock_timeout 500 ms; horário calmo). Sem DROP
 -- TRIGGER/POLICY (não prende auth/storage). Idempotente (função ausente + CHECK de antes = nada a fazer).
--- Aplicar fora de transação: psql -v ON_ERROR_STOP=1 -f <arquivo>.
+-- Aplicar fora de transação. SEM registros 'loja_nao_autorizada': psql "$DB" -v ON_ERROR_STOP=1 -f <arquivo>.
+-- COM registros (confirmação de que podem ser apagados), passe a GUC na SESSÃO — um destes dois jeitos:
+--   PGOPTIONS='-c app.confirmo_apagar_acessos_loja=sim' psql "$DB" -v ON_ERROR_STOP=1 -f <arquivo>
+--   psql "$DB" -v ON_ERROR_STOP=1 -c "SET app.confirmo_apagar_acessos_loja = 'sim'" -f <arquivo>
+-- (o SET de sessão vale para o -f seguinte na MESMA conexão; SET LOCAL não serve — o arquivo abre a própria transação).
+-- Contar antes (só leitura): SELECT count(*) FROM public.integracao_acessos WHERE status = 'loja_nao_autorizada';
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';

@@ -15,6 +15,8 @@
 --     instante: lock_timeout 500 ms, o kit tenta 3×; a tabela é pequena — limpeza de 90 dias).
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public._integracao_ler_loja(text,uuid,boolean,text,integer,text,text)  NOVA d5bf36c5c1cefa550414e11db002efa7
+--     (a guarda aceita tambem ccfa5fa7d3867203259c5dcc8039ca31 = neutralizada pelo _down: reaplicar a ida por cima da volta
+--      parcial volta ao texto da ida, sem precisar do _down_drop)
 --   dep (intocada): public._integracao_ler(text,boolean,text,integer,text,text) 1ac58b343e992fefe0062dac512e11eb
 -- ====================================================================================
 -- Sem DROP, sem gatilho, sem policy (não prende auth/storage). Idempotente (guarda aceita antes OU depois).
@@ -44,7 +46,9 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public._integracao_ler_loja(text,uuid,boolean,text,integer,text,text)')));
-  IF v IS NOT NULL AND v <> 'd5bf36c5c1cefa550414e11db002efa7' THEN
+  -- fix round 1 (B1): aceita tambem o texto NEUTRALIZADO pelo _down (ccfa5fa7) - reaplicar a ida depois de uma volta
+  -- parcial (site + _down) nao exige o _down_drop (que apaga registros do Log de acessos)
+  IF v IS NOT NULL AND v NOT IN ('d5bf36c5c1cefa550414e11db002efa7', 'ccfa5fa7d3867203259c5dcc8039ca31') THEN
     RAISE EXCEPTION 'a2_loja: public._integracao_ler_loja ja existe com outro texto (md5 %)', v USING ERRCODE = 'P0001';
   END IF;
   SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c

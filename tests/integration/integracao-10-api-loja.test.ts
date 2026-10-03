@@ -181,16 +181,13 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — A2: loja obrigatória na API (
     });
   });
 
-  it("guarda: função já existente com outro texto => recusa (P0001 ASCII), nada muda", async () => {
+  it("guarda: função já existente com outro texto (nem a da ida nem a neutra do _down) => recusa (P0001 ASCII), nada muda", async () => {
     await withTx(async (c) => {
       exigeBancoLocal();
       await c.query("SET LOCAL lock_timeout = '3s'");
-      // A2 já na cópia: neutraliza (a ida só aceita o texto DEPOIS); sem ela: cria uma função com outro corpo
-      if (await md5Vivo(c, FN)) await aplica(c, INV);
-      else {
-        await c.query(`CREATE FUNCTION public._integracao_ler_loja(_chave_hash text, _loja uuid, _incluir_integrados boolean, _cursor text,
-          _limite integer, _modo text, _ip text) RETURNS jsonb LANGUAGE sql AS $$ SELECT '{}'::jsonb $$`);
-      }
+      // ausente ou presente: troca por um corpo estranho (CREATE OR REPLACE mantém a assinatura)
+      await c.query(`CREATE OR REPLACE FUNCTION public._integracao_ler_loja(_chave_hash text, _loja uuid, _incluir_integrados boolean, _cursor text,
+        _limite integer, _modo text, _ip text) RETURNS jsonb LANGUAGE sql AS $$ SELECT '{}'::jsonb $$`);
       const e = await falha(c, () => aplica(c, MIG));
       expect(e).toMatch(/^P0001 a2_loja: public\._integracao_ler_loja ja existe com outro texto/);
     });
@@ -206,6 +203,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — A2: loja obrigatória na API (
       expect((await lerLoja(c, k.chave, { loja: OUTRA_LOJA })).status).toBe("ok");
       expect(await md5Vivo(c, LER)).toBe(MD5_LER);
       await aplica(c, INV); // idempotente
+      // fix round 1 (B1): reaplicar a ida por cima da volta parcial (função neutra) é aceito e volta ao texto da ida
+      await aplica(c, MIG);
+      expect(await md5Vivo(c, FN)).toBe(MD5_DEPOIS);
+      expect((await lerLoja(c, k.chave, { loja: OUTRA_LOJA, ip: ipNovo() })).status).toBe("loja_nao_autorizada");
+      await aplica(c, INV);
+      expect(await md5Vivo(c, FN)).toBe(MD5_NEUTRA);
       const acl = await um<{ anon: boolean; auth: boolean; svc: boolean }>(c, `SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon,
         has_function_privilege('authenticated', $1, 'EXECUTE') AS auth, has_function_privilege('service_role', $1, 'EXECUTE') AS svc`, [FN]);
       expect(acl).toEqual({ anon: false, auth: false, svc: true });
