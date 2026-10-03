@@ -9,6 +9,9 @@ import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicaS2, voltaS2, S2_MD5, S2_PERM, S2_ACL, S2_DOWN_DROP, aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { voltaS3aSePreciso } from "./seg-s3a-helpers";
+
+const S3A_TABELAS_TRAVA = ["public.ocs_aviamento", "public.ocs_etiqueta", "public.ocs_tecido", "public.ocs_tecido_itens"];
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -257,16 +260,24 @@ describe.skipIf(!RODA)("seg S2 — trava medida (pg_locks na txn revertida)", ()
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
           WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND n.nspname NOT IN ('pg_catalog', 'pg_toast')
-            AND l.mode <> 'AccessShareLock' ORDER BY 1, 2`)).rows;
+            AND l.mode <> 'AccessShareLock' ORDER BY 1, 2`)).rows
+        // S3A_TXN=1: o CREATE TRIGGER da S3a (4 tabelas de OC) já pegou trava no começo da txn — não é da S2
+        .filter((r) => !S3A_TABELAS_TRAVA.includes(r.rel));
+      await voltaS3aSePreciso(c); // LIFO: a S3a redefine recalcular_parcelas por cima da S2 (a 220000 recusaria)
       const jaTinha = await travas(); // S2_TXN=1 já aplicou no começo da txn
+      // Com a S2 aplicada DE VERDADE na cópia (o controlador aplicou), o gatilho já existe: o CREATE TRIGGER é pulado
+      // (IF NOT EXISTS) e a 210000 não pega trava nenhuma — a trava medida só existe quando a txn cria o gatilho.
+      const gatilhoNaCopia = jaTinha.length === 0 && (await um<{ n: number }>(c,
+        `select count(*)::int n from pg_trigger where tgrelid = 'public.parcelas'::regclass and tgname = 'trg_parcela_permissao'`)).n > 0;
+      const esperado = gatilhoNaCopia ? [] : [{ rel: "public.parcelas", mode: "ShareRowExclusiveLock" }];
       if (jaTinha.length === 0) {
         await aplicarArquivo(c, "supabase/migrations/20261031200000_seg_s2_grants_dinheiro.sql");
         expect(await travas()).toEqual([]);
         await aplicarArquivo(c, "supabase/migrations/20261031210000_seg_s2_financeiro_aba.sql");
-        expect(await travas()).toEqual([{ rel: "public.parcelas", mode: "ShareRowExclusiveLock" }]);
+        expect(await travas()).toEqual(esperado);
         await aplicarArquivo(c, "supabase/migrations/20261031220000_seg_s2_gate_financeiro.sql");
       }
-      expect(await travas()).toEqual([{ rel: "public.parcelas", mode: "ShareRowExclusiveLock" }]);
+      expect(await travas()).toEqual(esperado);
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
            JOIN pg_namespace n ON n.oid = k.relnamespace

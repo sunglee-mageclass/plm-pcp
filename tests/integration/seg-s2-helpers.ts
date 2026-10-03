@@ -5,6 +5,7 @@
  */
 import type { Client } from "pg";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
+import { voltaS3aSePreciso } from "./seg-s3a-helpers";
 
 export const S2_MIGS = [
   "supabase/migrations/20261031200000_seg_s2_grants_dinheiro.sql",
@@ -64,12 +65,14 @@ async function zeraTimeouts(c: Client): Promise<void> {
 
 export async function aplicaS2(c: Client): Promise<void> {
   exigeBancoLocal();
+  await voltaS3aSePreciso(c); // LIFO: a S3a (20261101100000..120000) redefine recalcular_parcelas por cima da S2 — sai antes
   for (const m of S2_MIGS) await aplicarArquivo(c, m);
   await zeraTimeouts(c);
 }
 
 export async function voltaS2(c: Client, comDrop = false): Promise<void> {
   exigeBancoLocal();
+  await voltaS3aSePreciso(c); // LIFO: a S3a sai antes da S2
   for (const m of S2_DOWNS) await aplicarArquivo(c, m);
   if (comDrop) await aplicarArquivo(c, S2_DOWN_DROP);
   await zeraTimeouts(c);
@@ -87,6 +90,7 @@ export function md5OuSucessorS2(sig: string, md5Antes: string): string[] {
 
 /** Volta a S2 dentro da txn quando ela estiver aplicada (suítes que voltam releases ANTIGAS na txn — a cadeia é LIFO). */
 export async function voltaS2SePreciso(c: Client): Promise<void> {
+  await voltaS3aSePreciso(c); // LIFO: a S3a (mais nova) sai antes
   const { rows } = await c.query("SELECT md5(pg_get_functiondef(to_regprocedure('public.servicos_financeiro()'))) AS m");
   if (rows[0]?.m === S2_MD5["public.servicos_financeiro()"].depois) await voltaS2(c);
 }

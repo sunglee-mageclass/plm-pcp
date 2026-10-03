@@ -22,6 +22,7 @@ import type { Client } from "pg";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { s3aViva } from "./seg-s3a-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261002100000_oc_data_nota_entrada.sql";
@@ -424,9 +425,24 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       await pagar(c, (await parcelas(c, "etiqueta", ins))[0].id);
       const pagaIns = (await parcelas(c, "etiqueta", ins))[0];
 
+      // Reforço de segurança S3a (N8, 20261101110000): a Nota de TECIDO e de AVIAMENTO deixou de ser gravável pelo cliente por
+      // UPDATE direto (a tela grava pela RPC salvar_oc_*); só a de INSUMO segue direta (oc-insumo.tsx), com a página. Com a S3a
+      // viva o cliente recebe 42501 nas 2 primeiras e a mudança é feita como o servidor — o recálculo conferido abaixo é o mesmo.
+      const s3a = await s3aViva(c);
       await c.query("SET LOCAL ROLE authenticated"); // papel REAL do cliente — não só a superusuária postgres do harness
-      await c.query(`update public.ocs_tecido set data_nota_entrada = '2026-09-15' where id = $1`, [tec]);
-      await c.query(`update public.ocs_aviamento set data_nota_entrada = '2026-09-15' where id = $1`, [avi]);
+      for (const [t, id] of [["ocs_tecido", tec], ["ocs_aviamento", avi]] as const) {
+        if (!s3a) {
+          await c.query(`update public.${t} set data_nota_entrada = '2026-09-15' where id = $1`, [id]);
+          continue;
+        }
+        await c.query("SAVEPOINT n4");
+        await expect(c.query(`update public.${t} set data_nota_entrada = '2026-09-15' where id = $1`, [id]))
+          .rejects.toMatchObject({ code: "42501" });
+        await c.query("ROLLBACK TO SAVEPOINT n4");
+        await c.query("RESET ROLE");
+        await c.query(`update public.${t} set data_nota_entrada = '2026-09-15' where id = $1`, [id]);
+        await c.query("SET LOCAL ROLE authenticated");
+      }
       await c.query(`update public.ocs_etiqueta set data_nota_entrada = '2026-09-15' where id = $1`, [ins]);
       await c.query("RESET ROLE"); // volta a postgres para as leituras/asserções seguintes na mesma txn
 
