@@ -1431,10 +1431,8 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     `parcelas` perdeu INSERT/DELETE/TRUNCATE (o UPDATE já era só nas 4 colunas); em `parcelas_servico` ficou SÓ UPDATE em
     `data_vencimento/status/data_pagamento/comprovante_url` (igual a `parcelas`). SELECT segue. Toda escrita do servidor nessas
     tabelas é DEFINER (owner postgres) e CASCADE de FK roda como o dono — nada depende do grant do cliente. ⚠️ **Tabela nova
-    de dinheiro/ledger: nasce com `arwd` para authenticated pelo default ACL — dê o REVOKE na mesma migration.** ⚠️
-    **`ocs_tecido_itens` FICOU ABERTA** (o front ainda faz UPDATE direto: CQ de tecido `cq_ok/cq_alerta_status/cq_observacao` em
-    `CqTecido.tsx`/`oc-tecido.tsx`, alerta de rolo `cancelado`) — item da S3; idem as colunas derivadas do cabeçalho das OCs
-    (`valor_real_total`/`data_nota_entrada`: `oc-insumo.tsx` grava a Nota direto).
+    de dinheiro/ledger: nasce com `arwd` para authenticated pelo default ACL — dê o REVOKE na mesma migration.**
+    (`ocs_tecido_itens` e as colunas derivadas do cabeçalho das OCs ficaram para a S3a — ver abaixo.)
   - **FIN-ABA (P-232 = D3 A):** parcela de OC — gatilho NOVO `trg_parcela_permissao` (BEFORE UPDATE, `fn_parcela_permissao`)
     exige `user_can_edit('financeiro_parcelas')` OU `('financeiro_calendario')`; parcela de serviço — `fn_servico_parcela_valor_pago`
     exige no UPDATE `user_can_edit('financeiro_servicos')`. Caminho do SISTEMA = as GUCs de sempre (`app.parcelas_sistema`,
@@ -1453,6 +1451,35 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     ANTES da S1 e ANTES dos inversos da release 9 (`20261020100000_down` exige `_aplicar_resolucao_alerta_tecido_core` e16c604d /
     `_receber_reposicao_troca_core` 95fa0b06) e da R16 (`20261026100000_down` exige `servicos_financeiro` a06f4cc3 e
     `fn_servico_parcela_valor_pago` de9914b3).
+
+- **S3a "Dinheiro, OCs e estoque de OC" (permissão de PÁGINA no servidor, P-231 = D2 A; migrations `20261101100000..120000`,
+  inversos `_down` + `_down_drop` separados (120000: DROP dos gatilhos; 100000: DROP do helper), gerador
+  `.superpowers/sdd/2026-10-03-reforco-seguranca/mig/gerar-s3a.mjs`, desenho `s3-desenho.md`):**
+  - **Helper `_seg_exige_pagina(VARIADIC text[])`** (DEFINER; EXECUTE só authenticated/service_role): passa quem EDITA pelo menos
+    uma das páginas (`user_can_edit` — admins furam), senão 42501 `sem_permissao_pagina: <chave>|<chave>` (ASCII; a tela traduz
+    em `mensagemSegS3` com o rótulo "Módulo › Página" do `permissions-catalog`). Sem JWT NÃO passa: **o servidor chama o `_core`,
+    nunca o wrapper** (inv. 9). Cruzamento entre telas = OU, nunca bloqueio.
+  - **34 wrappers** ganharam o portão logo depois da checagem de login/módulo: `recalcular_parcelas` (`financeiro_parcelas` OU
+    `financeiro_calendario`); OC Tecido/Aviamento/Insumo/P. Acabado/P. Importado (salvar/excluir/receber/desmarcar/rolos do
+    recebimento/vincular — `entrada_oc_*`; a OC de P. Acabado/Importado também pelo card do produto, `criacao_produto_*`);
+    Alertas (resolver, reposição, cancelar/reabrir/trocar rolo: `entrada_alertas_tecido` OU `entrada_oc_tecido`); rolos e
+    "- Metragem" (`entrada_oc_tecido`); `proximo_codigo_rolo` (OC Tecido OU Alertas — roda também por dentro do gerar/trocar
+    rolo); OS do modo só-estoque pela página do `_tipo` (`entrada_os_*`). ⚠️ A sobrecarga de 3 args de `salvar_oc_etiqueta` é
+    inalcançável por chamada (ambígua com a de 4 args, que tem DEFAULT) — portão conferido pelo texto.
+  - **Escrita DIRETA da tela** nas OCs: grant por coluna + gatilho `trg_aaa_seg_pagina` (BEFORE I/U/D, função **SECURITY
+    INVOKER** que só morde `current_user` authenticated/anon — RPC DEFINER, CASCADE de FK, migration e `service_role` passam; SEM
+    GUC nova). `ocs_tecido`: UPDATE só em `nfs`, `recebimento_responsavel_id/_nome`, `rolo_codigo`, `numero_pedido`, `rolo_rua`,
+    `rolo_prateleira` (página OC Tecido; só o endereço do rolo: OC Tecido OU `cadastro_tecidos`). `ocs_tecido_itens`: UPDATE só em
+    `cq_ok/cq_observacao/cq_alerta_status/cancelado` (OC Tecido OU Alertas). `ocs_aviamento`: UPDATE `nfs` + DELETE (OC
+    Aviamento). `ocs_etiqueta`: UPDATE `data_nota_entrada` + DELETE (OC Insumo). **N8:** `valor_real_total`/`status`/a Nota de
+    tecido e aviamento só pelas RPCs. `ocs_p_acabado`, `ocs_importado`, `ocs_importado_etapas` e as 4 `ordens_saida_*`: o cliente
+    só lê. anon sem escrita nas 11. ⚠️ **Coluna NOVA que a tela grave direto nessas tabelas precisa de `GRANT UPDATE (col)`**
+    (senão 42501 "permission denied for column").
+  - Ensaio: `S3A_TXN=1` (gancho em `db.ts`); `voltaS3aSePreciso` (LIFO) roda dentro de `aplicaS2`/`voltaS2`/`voltaS2SePreciso`.
+    Testes `tests/integration/seg-s3a.test.ts` (como o PAPEL authenticated com JWT de usuário comum). Volta **LIFO**: `120000_down`
+    (neutraliza as 4 funções de gatilho) → `110000_down` (GRANT de volta) → `100000_down` (34 textos de antes; o helper fica
+    inerte) → `_down_drop`s opcionais (horário calmo), ANTES da S2 (`20261031220000_down` exige `recalcular_parcelas` aa6df472),
+    de `20261002100000_down` (`salvar_oc_etiqueta` 4 args) e de `20261025150000_down` (`baixar_os`).
 
 ## O que NÃO fazer
 
