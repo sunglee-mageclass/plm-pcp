@@ -244,8 +244,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   qualquer uma; aba padrão = 1ª permitida; `?tab=` só se permitido; atalho do Calendário p/
   Serviços só com a permissão. Calendário/Resumo continuam mostrando/somando serviços (P-114 A).
   Backfill `20261009100000_financeiro_servicos_backfill.sql` roda LOGO DEPOIS do deploy (o front
-  antigo apaga a linha nova ao salvar permissões). ⚠️ Gates só na TELA (RLS de `parcelas`/
-  `parcelas_servico` = loja+módulo) — backlog do Reforço de segurança.
+  antigo apaga a linha nova ao salvar permissões). **Por aba também NO SERVIDOR** (Reforço de segurança S2, P-232 = D3 A,
+  `20261031210000`): mudar parcela de OC exige editar `financeiro_parcelas` OU `financeiro_calendario` (gatilho
+  `trg_parcela_permissao`) e parcela de serviço exige editar `financeiro_servicos` (`fn_servico_parcela_valor_pago`) — 42501
+  `financeiro_sem_permissao:`/`financeiro_servicos_sem_permissao:` (ver seção "Reforço de segurança").
 - **dashboard**: 7 abas (coleção, estoque, produção, financeiro, custos, **comercial**,
   **leadtime**). *Comercial* = poder de venda/margem (Planejado vs Realizado, colunas
   agrupadas). *Leadtime* = tempo por etapa vs ideal, em ordem de FLUXO **Planejamento →
@@ -393,8 +395,8 @@ e verifique** — o repo muda rápido.
    `numero_parcela` são só-derivados das geradoras (DEFINER, owner=postgres). Vencimento de
    parcela PAGA é bloqueado no front (não muta conta quitada). **Vencimento ajustado À MÃO sobrevive ao recálculo**
    (contas certas A1, P-165 A, migration `20261019200000`): `parcelas.vencimento_manual` (o cliente NÃO ALTERA a coluna
-   por UPDATE — permissão por coluna; o INSERT de cliente em `parcelas` segue aberto, item fin #11 do Reforço de
-   Segurança; o gatilho `trg_parcela_vencimento_manual` marca quando a PESSOA muda a data de parcela não paga — função do
+   por UPDATE — permissão por coluna; INSERT/DELETE do cliente em `parcelas` FECHADOS desde a S2 do Reforço de
+   Segurança, fin #11; o gatilho `trg_parcela_vencimento_manual` marca quando a PESSOA muda a data de parcela não paga — função do
    servidor que fizer UPDATE em `parcelas` TEM de ligar a GUC `app.parcelas_sistema='on'`, conferido por teste anti-drift
    em `parcelas-vencimento-manual.test.ts`). **Volta (P-171 A, `20261019220000`):** RPC
    `parcela_voltar_vencimento_automatico(_parcela_id)` (DEFINER; só quem edita o Financeiro — `user_can_edit` de
@@ -524,8 +526,9 @@ e verifique** — o repo muda rápido.
    P0001 `parcela_fora_do_prazo` (recarregar) — nunca grava 0,00 pago; parcela de outra loja no bloco = P0001.
    **Vencimento ajustado À MÃO também em serviços** (release 9, achados médios R10 fin #6, P-165 A estendida;
    `20261020110000_servico_vencimento_manual.sql`): `parcelas_servico.vencimento_manual boolean NOT NULL DEFAULT false`,
-   mantida SÓ pelo gatilho `trg_servico_parcela_vencimento_manual` (BEFORE INSERT/UPDATE; `authenticated` tem UPDATE em todas
-   as colunas, então o valor mandado pelo cliente é ignorado): **pessoa muda data de parcela NÃO paga → `true`**; pessoa
+   mantida SÓ pelo gatilho `trg_servico_parcela_vencimento_manual` (BEFORE INSERT/UPDATE; desde a S2 do Reforço de segurança o
+   `authenticated` só tem UPDATE em `data_vencimento/status/data_pagamento/comprovante_url`, igual a `parcelas` — o gatilho
+   segue ignorando o que vier nas outras): **pessoa muda data de parcela NÃO paga → `true`**; pessoa
    apaga a data (NULL) → `false` e o sistema repõe a calculada; **INSERT nasce sempre `false`**. ⚠️ **Toda função do
    servidor que faz UPDATE em `parcelas_servico` TEM de ligar `app.parcelas_servico_sistema='on'` e RESTAURAR o valor
    anterior** — senão a parcela vira "à mão" calada (teste anti-drift `tests/integration/servicos-vencimento-manual.test.ts`,
@@ -1421,6 +1424,35 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     `_enviar_modelo_para_cad_core` 14179bce), da L8 (`20261028200000_down` exige `_pa_recomputar_precos_modelo` 3f0c4d88; a IDA
     da L8 também confere `_imp_recomputar_precos_modelo` bbda77c4 como dependência), da R14 (`20261024200000_down` exige
     `_imp_recomputar_precos_modelo` bbda77c4) e da distribuição (`20261006100000_down` exige `tenant_module_enabled` 843163cc).
+- **S2 "Dinheiro e estoque" (migrations `20261031200000..220000`, inversos `_down` + `20261031210000_..._down_drop` separado,
+  gerador `.superpowers/sdd/2026-10-03-reforco-seguranca/mig/gerar-s2.mjs`):**
+  - **fin #11 / EST-1 / AVI-1 (grants):** o cliente (`authenticated`/`anon`) NÃO tem mais INSERT/UPDATE/DELETE/TRUNCATE em
+    `estoque_tecido_baixas` (ledger — invariante 4), `ocs_aviamento_itens` e `ocs_etiqueta_itens` (OC grava pelas RPCs); em
+    `parcelas` perdeu INSERT/DELETE/TRUNCATE (o UPDATE já era só nas 4 colunas); em `parcelas_servico` ficou SÓ UPDATE em
+    `data_vencimento/status/data_pagamento/comprovante_url` (igual a `parcelas`). SELECT segue. Toda escrita do servidor nessas
+    tabelas é DEFINER (owner postgres) e CASCADE de FK roda como o dono — nada depende do grant do cliente. ⚠️ **Tabela nova
+    de dinheiro/ledger: nasce com `arwd` para authenticated pelo default ACL — dê o REVOKE na mesma migration.** ⚠️
+    **`ocs_tecido_itens` FICOU ABERTA** (o front ainda faz UPDATE direto: CQ de tecido `cq_ok/cq_alerta_status/cq_observacao` em
+    `CqTecido.tsx`/`oc-tecido.tsx`, alerta de rolo `cancelado`) — item da S3; idem as colunas derivadas do cabeçalho das OCs
+    (`valor_real_total`/`data_nota_entrada`: `oc-insumo.tsx` grava a Nota direto).
+  - **FIN-ABA (P-232 = D3 A):** parcela de OC — gatilho NOVO `trg_parcela_permissao` (BEFORE UPDATE, `fn_parcela_permissao`)
+    exige `user_can_edit('financeiro_parcelas')` OU `('financeiro_calendario')`; parcela de serviço — `fn_servico_parcela_valor_pago`
+    exige no UPDATE `user_can_edit('financeiro_servicos')`. Caminho do SISTEMA = as GUCs de sempre (`app.parcelas_sistema`,
+    `app.parcelas_servico_sistema`, a correção `app.servico_valor_pago_correcao`) ou sem JWT/`service_role`. ⚠️ Por isso
+    **função do servidor que fizer UPDATE em `parcelas`/`parcelas_servico` SEM ligar a GUC passa a falhar 42501 para quem não
+    tem a aba** (além de virar "à mão") — os testes anti-drift já exigem a GUC. O INSERT do servidor (`servicos_financeiro` na
+    LEITURA de qualquer aba) não é conferido. Nada muda para quem já tem a aba (a tela usa a mesma regra).
+  - **C6:** `servicos_financeiro` com o módulo `financeiro` desligado devolve `[]` sem gravar; `recalcular_parcelas` exige o
+    módulo (42501 `modulo_financeiro_desligado:`). `_aplicar_resolucao_alerta_tecido_core`/`_receber_reposicao_troca_core`
+    chamam o `_recalcular_parcelas_core` direto (loja só-estoque segue resolvendo alerta de tecido).
+  - Mensagens PT em `mensagemSegS2` (`erro-mensagem.ts`). Ensaio da suíte inteira: `S2_TXN=1` (gancho em `db.ts`);
+    `voltaS1SePreciso` volta a S2 antes. Testes `tests/integration/seg-s2.test.ts` (rodam como o PAPEL `authenticated`/`anon`
+    com `SET LOCAL ROLE` — o resto da suíte roda como postgres e não enxerga grant de tabela).
+  - Volta **LIFO**: `220000_down` → `210000_down` (NEUTRALIZA `fn_parcela_permissao`; o gatilho fica inerte) → `200000_down`
+    (GRANT de volta); `210000_down_drop` separado e opcional (DROP TRIGGER → prende auth/storage: horário calmo). A S2 desfaz
+    ANTES da S1 e ANTES dos inversos da release 9 (`20261020100000_down` exige `_aplicar_resolucao_alerta_tecido_core` e16c604d /
+    `_receber_reposicao_troca_core` 95fa0b06) e da R16 (`20261026100000_down` exige `servicos_financeiro` a06f4cc3 e
+    `fn_servico_parcela_valor_pago` de9914b3).
 
 ## O que NÃO fazer
 
