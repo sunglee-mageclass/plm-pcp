@@ -259,6 +259,20 @@ vale também para o Sheet do Dev, sem tocar `src/components/desenvolvimento/**`)
 
 ## 7. API (Parte 3; P-66 A; P-67 A; P-69 A)
 
+> **Atualização Release A2 (03/out/2026 — P-222 B, P-223 A, P-224 B+, P-225 A; plano
+> `.superpowers/sdd/2026-10-03-api-objetos/plan.md`; migration `20261030130000`). PREVALECE sobre o texto abaixo onde diverge:**
+> (1) **`loja=<uuid>` OBRIGATÓRIO** em toda chamada (normal e teste): ausente/vazio/malformado/repetido ⇒ 400
+> `parametro_invalido` (sem tocar no banco); uuid de outra loja (≠ loja da chave) ⇒ **403 `loja_nao_autorizada`** — nada
+> entregue nem confirmado, registrado em `integracao_acessos` (agregado por chave×minuto, não conta no bloqueio de IP nem no
+> limite por minuto). A fase 1 é `_integracao_ler_loja` (DEFINER, só `service_role`), que delega a `_integracao_ler` (intocada).
+> (2) **Resposta em objetos chave-valor**, mesmo endereço, `versao` segue 1: `{ versao, modo, loja:{id,nome}, gerado_em,
+> pagina:{limite,maximo}, produtos:[{ produto_id, loja_id, loja_nome, integrado_em, <chave>: valor…, variantes:[{ produto_id,
+> loja_id, loja_nome, integrado_em, <chave>: valor… }] }], proximo_cursor }` — saem `colunas` e `linhas`; chaves = as chaves
+> fixas do layout (nome, ref_sku, preco_anterior, preco_venda, peso, ncm, preco_custo, cor_base, cor_apelido, tamanho, titulo,
+> descricao, keywords, metatag, comprimento, largura, altura, foto, colecao, categoria_tecido, linha); presentes = união da
+> página (fora do retrato daquele produto = `null`); produto sem variantes ⇒ `variantes: []`. A rota agora chama 3 funções
+> `_integracao_*` (`_ler_loja`, `_confirmar`, `_limpar`).
+
 - **Onde:** rota de servidor do PRÓPRIO site (TanStack Start no Cloudflare Workers), no molde já existente
   `src/routes/sitemap[.]xml.ts` (`server.handlers.GET`); publicada no `npm run deploy`; usa
   `src/integrations/supabase/client.server.ts` (service role).

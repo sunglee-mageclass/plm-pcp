@@ -3074,7 +3074,8 @@ describe("Integração — rota real da API (F3)", () => {
   it("o servidor chama SÓ as 3 funções da rota e o storage de fotos", () => {
     const s = ler("src/lib/integracao/api/rota.server.ts");
     const rpcs = [...s.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(rpcs).toEqual(["_integracao_confirmar", "_integracao_ler", "_integracao_limpar"]);
+    // Release A2 (P-224 B+): a fase 1 passa a ser `_integracao_ler_loja` (que delega a `_integracao_ler` no banco)
+    expect(rpcs).toEqual(["_integracao_confirmar", "_integracao_ler_loja", "_integracao_limpar"]);
     expect(s).toMatch(/storage\.from\("modelos"\)\.createSignedUrls/);
     expect(s).not.toMatch(/console\.(log|error|warn)\(.*chave/i);
   });
@@ -3101,7 +3102,7 @@ describe("Integração — fix round 1 (CR-I1, Opus-I1, M2, Opus-M4)", () => {
     const usos = [...s.matchAll(/supabaseAdmin\.(?:rpc\("[a-z_]+"|storage\.from\("[^"]*"\)\.createSignedUrls\()/g)].map((m) => m[0]);
     expect(usos.length).toBe(4); // 3 rpc(...) + 1 storage.from(...).createSignedUrls(
     for (const u of usos) {
-      expect(u).toMatch(/^supabaseAdmin\.(rpc\("_integracao_(ler|confirmar|limpar)"|storage\.from\("modelos"\)\.createSignedUrls\()/);
+      expect(u).toMatch(/^supabaseAdmin\.(rpc\("_integracao_(ler_loja|confirmar|limpar)"|storage\.from\("modelos"\)\.createSignedUrls\()/);
     }
     expect(s).not.toMatch(/supabaseAdmin\.from\(/);
     expect(s).not.toMatch(/supabaseAdmin\.auth/);

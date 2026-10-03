@@ -51,6 +51,8 @@ export function statusAcesso(a: Acesso): { texto: string; tom: StatusTone } {
     case "ip_bloqueado": return { texto: `IP bloqueado ×${a.tentativas}`, tom: "danger" };
     case "limite_excedido": return { texto: `Limite excedido ×${a.tentativas}`, tom: "warning" };
     case "loja_inativa": return { texto: "Loja inativa", tom: "danger" };
+    // Release A2 (P-224 B+): chave válida chamando com `loja=` de OUTRA loja — nada entregue (agregado por chave×minuto)
+    case "loja_nao_autorizada": return { texto: `Loja não autorizada ×${a.tentativas}`, tom: "danger" };
     case "reservado": return { texto: "Em andamento", tom: "neutral" };
     default: return { texto: a.status || "—", tom: "neutral" };
   }
@@ -72,6 +74,13 @@ export const TEXTO_REVOGAR = "O ERP perde o acesso na hora. Esta ação não pod
 export const TEXTO_CONFIG_API =
   "Só o super admin edita. Valor fora da faixa permitida: erro na hora, Salvar desabilitado. Valor dentro da faixa mas fora do recomendado: alerta antes de salvar (com opção de voltar ao recomendado). Toda mudança fica no Log.";
 export const TEXTO_FECHAR_SEM_COPIAR = "Você copiou a chave? Ela não pode ser mostrada de novo depois de fechar.";
+// Release A2 (P-224 B+): toda chamada da API leva `loja=<código da loja>` — o dev precisa da chave E deste código.
+export const TEXTO_CODIGO_LOJA =
+  "Toda chamada da API precisa do parâmetro loja com este código (o da loja dona da chave). Sem ele: 400. Com o código de outra loja: 403 (loja_nao_autorizada) — nada é entregue e a chamada aparece em Acessos recentes. Entregue ao dev a chave E este código.";
+/** Exemplo de chamada mostrado na aba API › Chaves (chave nunca aparece — vai um marcador). */
+export function exemploChamadaApi(endereco: string, lojaId: string): string {
+  return `curl "${endereco}/api/integracao/v1/produtos?loja=${lojaId}&limite=50" \\\n  -H "Authorization: Bearer <sua chave>"`;
+}
 
 // revisão T15 #3/m1 (task review I1 + code review m5): o banner de conflito da config da API ganha o MESMO padrão
 // de 3 variantes de `CamposAba.tsx` (`TEXTO_CAMPOS_CONFLITO*`), mas com texto próprio — "os campos"/"a seleção" lá

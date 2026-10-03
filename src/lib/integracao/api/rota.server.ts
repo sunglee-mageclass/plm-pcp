@@ -1,4 +1,4 @@
-// Integração — dependências REAIS da rota da API (só no servidor/Worker). Service role SÓ para as 3 funções `_integracao_*`
+// Integração — dependências REAIS da rota da API (só no servidor/Worker). Service role SÓ para as funções `_integracao_*` da rota
 // (EXECUTE só de service_role — Task 6) e para assinar as fotos do bucket "modelos". O teto por IP é o binding `ratelimits`
 // do Workers (INTEGRACAO_TETO_IP, 600/60 s — D23); vite.config.ts carrega @cloudflare/vite-plugin tanto em dev quanto
 // em build, então tanto o dev local quanto a produção rodam dentro de workerd/Miniflare (CR-M4) — a única forma
@@ -42,8 +42,9 @@ export async function tratarGet(request: Request): Promise<Response> {
   const deps: DepsRota = {
     hashChave: async (chave) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(chave))),
     ler: async (a) => {
-      const { data, error } = await supabaseAdmin.rpc("_integracao_ler" as any, {
-        _chave_hash: a.hash, _incluir_integrados: a.incluir, _cursor: a.cursor, _limite: a.limite, _modo: a.modo, _ip: a.ip,
+      // Release A2 (P-224 B+): a fase 1 passa pela checagem da loja (`_integracao_ler_loja` delega a `_integracao_ler`)
+      const { data, error } = await supabaseAdmin.rpc("_integracao_ler_loja" as any, {
+        _chave_hash: a.hash, _loja: a.loja, _incluir_integrados: a.incluir, _cursor: a.cursor, _limite: a.limite, _modo: a.modo, _ip: a.ip,
       });
       if (error) throw error;
       return data as RespostaLer;

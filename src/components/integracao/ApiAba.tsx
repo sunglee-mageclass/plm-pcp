@@ -23,12 +23,13 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { ArrowLeft, KeyRound, Save } from "lucide-react";
+import { ArrowLeft, Copy, KeyRound, Save } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -39,8 +40,8 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
-  TEXTO_CONFIG_API, TEXTO_CONFIG_API_CONFLITO, TEXTO_CONFIG_API_CONFLITO_NADA_A_SALVAR, TEXTO_CONFIG_API_CONFLITO_SO_REV,
-  TEXTO_REVOGAR, diffConfigApi, entregaAcesso, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso,
+  TEXTO_CODIGO_LOJA, TEXTO_CONFIG_API, TEXTO_CONFIG_API_CONFLITO, TEXTO_CONFIG_API_CONFLITO_NADA_A_SALVAR, TEXTO_CONFIG_API_CONFLITO_SO_REV,
+  TEXTO_REVOGAR, diffConfigApi, entregaAcesso, exemploChamadaApi, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso,
   textoForaRecomendado, type Chave,
 } from "@/lib/integracao/api-tela";
 import {
@@ -58,6 +59,35 @@ import {
   useIntegracaoConfig,
 } from "./useIntegracao";
 import { NovaChaveDialog } from "./NovaChaveDialog";
+import { enderecoDoManual } from "./ManualAba";
+
+// Release A2 (P-224 B+): o parâmetro `loja` é obrigatório em toda chamada — mostra o código da loja ATIVA (a dona das
+// chaves listadas acima) com Copiar e um exemplo de chamada pronto (endereço do próprio site, como o Manual).
+function CodigoLoja({ tenantId }: { tenantId: string }) {
+  const endereco = enderecoDoManual(typeof window === "undefined" ? "" : window.location.origin);
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(tenantId);
+      toast.success("Código da loja copiado.");
+    } catch {
+      const el = document.getElementById("integracao-codigo-loja") as HTMLInputElement | null;
+      el?.focus();
+      el?.select();
+      toast.error("Não foi possível copiar — selecione o texto e copie à mão.");
+    }
+  };
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <Label htmlFor="integracao-codigo-loja">Código da loja (parâmetro loja)</Label>
+      <div className="flex items-center gap-2">
+        <Input id="integracao-codigo-loja" readOnly value={tenantId} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+        <Button type="button" variant="outline" onClick={() => void copiar()}><Copy className="h-4 w-4" />Copiar código</Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{TEXTO_CODIGO_LOJA}</p>
+      <pre className="max-w-full overflow-x-auto rounded-md bg-muted p-3 text-xs">{exemploChamadaApi(endereco, tenantId)}</pre>
+    </div>
+  );
+}
 
 type Valores = Record<ChaveConfigApi, number>;
 
@@ -134,6 +164,7 @@ function Chaves({ onVisibilidadeChave }: { onVisibilidadeChave: (visivel: boolea
         </div>
       )}
       <p className="text-xs text-muted-foreground">Chaves: só o super admin cria/revoga. Guia completo de uso em Manual da API.</p>
+      {tenantId && <CodigoLoja tenantId={tenantId} />}
       {nova && <NovaChaveDialog onFechar={() => setNova(false)} onVisibilidadeChave={onVisibilidadeChave} />}
       <AlertDialog open={revogar !== null} onOpenChange={(o) => { if (!o && !rev.isPending) setRevogar(null); }}>
         <AlertDialogContent>
