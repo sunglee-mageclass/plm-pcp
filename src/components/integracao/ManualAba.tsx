@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { TEXTO_SO_SUPER } from "@/lib/integracao/campos";
 import { montarManual, type Bloco, type SecaoManual } from "./manual-conteudo";
 import { ExemploDialog } from "./ExemploDialog";
@@ -70,9 +71,11 @@ export function enderecoDoManual(origem: string): string {
 }
 
 export function ManualAba() {
+  // Release A2 (P-224 B+): os comandos levam loja=<código da loja ATIVA> (a dona das chaves da aba API)
+  const tenantId = useActiveTenantId();
   const secoes: SecaoManual[] = useMemo(
-    () => montarManual(enderecoDoManual(typeof window === "undefined" ? "" : window.location.origin)),
-    [],
+    () => montarManual(enderecoDoManual(typeof window === "undefined" ? "" : window.location.origin), tenantId || null),
+    [tenantId],
   );
   const [exemplo, setExemplo] = useState(false);
   return (

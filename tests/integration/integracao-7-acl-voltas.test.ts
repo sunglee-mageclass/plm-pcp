@@ -9,6 +9,7 @@ const RPCS = ["integracao_previa", "integracao_listar", "integracao_estado_model
   "integracao_voltar", "integracao_desfazer", "integracao_log_listar", "salvar_precos_fixo_produto_importado", "integracao_salvar",
   "integracao_salvar_config", "integracao_salvar_config_api", "integracao_chaves_listar", "integracao_chave_criar",
   "integracao_chave_revogar", "integracao_acessos_listar", "integracao_exemplo"];
+// Release A2 (fix round 1, B3): com a 20261030130000 viva, `_integracao_ler_loja` entra na rota (esperado "4").
 const ROTA = ["_integracao_ler", "_integracao_confirmar", "_integracao_limpar"];
 async function retratoBanco(c: Client) {
   return um<{ f: string; g: string; t: string; md5: string; tgmd5: string }>(c,
@@ -55,7 +56,11 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
       // Release I3 (20261030110000) soma +3 `_integracao_*` (_integracao_padrao/_opcionais/_extras, internas com EXECUTE revogado
       // dos TRÊS); o inverso NÃO as derruba (sem DROP — só o _down_drop), então conta pela existência.
       const temI3 = (await um<{ ok: boolean }>(c, `SELECT to_regprocedure('public._integracao_extras(uuid)') IS NOT NULL AS ok`)).ok;
-      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0) + (temVersaoIntegrada ? 1 : 0) + (temI3 ? 3 : 0));
+      // Release A2 (20261030130000) soma +1 `_integracao_*` (_integracao_ler_loja: EXECUTE só service_role, revogado dos TRÊS —
+      // entra em `internas` = 0); o _down só a neutraliza (o DROP é do _down_drop), então conta pela existência.
+      const temA2 = (await um<{ ok: boolean }>(c,
+        `SELECT to_regprocedure('public._integracao_ler_loja(text,uuid,boolean,text,integer,text,text)') IS NOT NULL AS ok`)).ok;
+      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0) + (temVersaoIntegrada ? 1 : 0) + (temI3 ? 3 : 0) + (temA2 ? 1 : 0));
       const r = await um<{ internas: string; rpc_anon: string; rpc_auth: string; rota: string; total: string }>(c,
         `SELECT
            (SELECT count(*) FROM pg_proc p CROSS JOIN (VALUES ('public'), ('anon'), ('authenticated')) r(y)
@@ -70,8 +75,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
            (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND (p.proname LIKE '\\_integracao\\_%'
                OR p.proname LIKE 'integracao\\_%' OR p.proname LIKE 'fn\\_integracao\\_%' OR p.proname IN ('fn_modelo_espelho_nome_ref',
                'fn_espelho_modelo_nome_ref', 'salvar_precos_fixo_produto_importado', '_salvar_precos_fixo_produto_importado_core'))) AS total`,
-        [RPCS, ROTA]);
-      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(RPCS.length), rota: "3", total: totalEsperado });
+        [RPCS, temA2 ? [...ROTA, "_integracao_ler_loja"] : ROTA]);
+      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(RPCS.length), rota: temA2 ? "4" : "3", total: totalEsperado });
     });
   });
 

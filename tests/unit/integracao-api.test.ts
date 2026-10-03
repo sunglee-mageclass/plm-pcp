@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { lerParametros } from "@/lib/integracao/api/parametros";
 import { tratarRequisicao, type DepsRota } from "@/lib/integracao/api/rota";
-import type { RespostaLer } from "@/lib/integracao/api/resposta";
+import type { ProdutoLer, RespostaLer } from "@/lib/integracao/api/resposta";
 
 const CHAVE = "wish_live_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
 const T = "11111111-1111-4111-8111-111111111111";
@@ -31,53 +31,58 @@ function deps(o: Partial<DepsRota> = {}) {
   };
   return { d };
 }
-const req = (q = "", auth: string | null = `Bearer ${CHAVE}`, headers: Record<string, string> = {}) =>
-  new Request(`https://site/api/integracao/v1/produtos${q}`, { headers: { ...(auth ? { authorization: auth } : {}), "cf-connecting-ip": "203.0.113.5", ...headers } });
+// Release A2 (P-224 B+): `loja` é obrigatório — o helper acrescenta `loja=T` (a loja da chave) quando a query não traz `loja`;
+// `semLoja: true` manda a requisição SEM o parâmetro (400).
+const req = (q = "", auth: string | null = `Bearer ${CHAVE}`, headers: Record<string, string> = {}, o: { semLoja?: boolean } = {}) => {
+  const u = new URL(`https://site/api/integracao/v1/produtos${q}`);
+  if (!o.semLoja && !u.searchParams.has("loja")) u.searchParams.set("loja", T);
+  return new Request(u, { headers: { ...(auth ? { authorization: auth } : {}), "cf-connecting-ip": "203.0.113.5", ...headers } });
+};
 const corpo = async (r: Response) => JSON.parse(await r.text());
 // small helper for a promise that never settles (used to prove non-blocking cleanup)
 const pendente = () => new Promise<void>(() => {});
 
 describe("parâmetros", () => {
   it("padrões e validação", () => {
-    expect(lerParametros(new URL("https://s/x"))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
-    expect(lerParametros(new URL("https://s/x?modo=teste&incluir_integrados=1&limite=100&cursor=eyJkZXBvaXMiOiJ4In0="))).toEqual(
-      { modo: "teste", incluir: true, limite: 100, cursor: "eyJkZXBvaXMiOiJ4In0=" });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}`))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null, loja: T });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&modo=teste&incluir_integrados=1&limite=100&cursor=eyJkZXBvaXMiOiJ4In0=`))).toEqual(
+      { modo: "teste", incluir: true, limite: 100, cursor: "eyJkZXBvaXMiOiJ4In0=", loja: T });
     for (const q of ["modo=xpto", "incluir_integrados=talvez", "limite=0", "limite=abc", "limite=99999", "cursor=%3Cscript%3E"]) {
-      expect(lerParametros(new URL(`https://s/x?${q}`)), q).toBeNull();
+      expect(lerParametros(new URL(`https://s/x?loja=${T}&${q}`)), q).toBeNull();
     }
   });
   it("I3 (ruling): parâmetro desconhecido ou repetido => null; m5: valor vazio = ausente nos 4", () => {
     for (const q of ["MODO=teste", "mode=teste", "modo=teste&modo=xpto", "limite=1&limite=abc", "_=123", "cursor=x&cursor=y", "incluir_integrados=1&incluir_integrados=1"]) {
-      expect(lerParametros(new URL(`https://s/x?${q}`)), q).toBeNull();
+      expect(lerParametros(new URL(`https://s/x?loja=${T}&${q}`)), q).toBeNull();
     }
     // m5: empty value = absent, for all 4 known params (não mais 400 pra modo=/incluir_integrados=)
-    expect(lerParametros(new URL("https://s/x?limite="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
-    expect(lerParametros(new URL("https://s/x?cursor="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
-    expect(lerParametros(new URL("https://s/x?modo="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
-    expect(lerParametros(new URL("https://s/x?incluir_integrados="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&limite=`))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null, loja: T });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&cursor=`))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null, loja: T });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&modo=`))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null, loja: T });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&incluir_integrados=`))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null, loja: T });
   });
   it("edge cases adicionais: negativo, 0, não-numérico, acima do máximo", () => {
     for (const q of ["limite=-1", "limite=0", "limite=abc", "limite=99999"]) {
-      expect(lerParametros(new URL(`https://s/x?${q}`)), q).toBeNull();
+      expect(lerParametros(new URL(`https://s/x?loja=${T}&${q}`)), q).toBeNull();
     }
     // dentro do range de dígitos mas acima do "razoável" ainda é aceito localmente (o banco aplica least());
     // só o formato é validado aqui.
-    expect(lerParametros(new URL("https://s/x?limite=999"))).toEqual({ modo: "normal", incluir: false, limite: 999, cursor: null });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&limite=999`))).toEqual({ modo: "normal", incluir: false, limite: 999, cursor: null, loja: T });
   });
   it("m6 gap: cursor com mais de 200 caracteres => 400", () => {
     const cursorGigante = "a".repeat(201);
-    expect(lerParametros(new URL(`https://s/x?cursor=${cursorGigante}`))).toBeNull();
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&cursor=${cursorGigante}`))).toBeNull();
     // exatamente 200 (limite) ainda é válido
     const cursorNoLimite = "a".repeat(200);
-    expect(lerParametros(new URL(`https://s/x?cursor=${cursorNoLimite}`))).toEqual(
-      { modo: "normal", incluir: false, limite: null, cursor: cursorNoLimite });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&cursor=${cursorNoLimite}`))).toEqual(
+      { modo: "normal", incluir: false, limite: null, cursor: cursorNoLimite, loja: T });
   });
   it("m6 gap: incluir_integrados=true|false são ACEITOS pela regra atual do parser (não é 400)", () => {
     // A regra atual de lerParametros aceita literalmente "0"/"1"/"false"/"true"; só "true" vira incluir=true.
-    expect(lerParametros(new URL("https://s/x?incluir_integrados=true"))).toEqual(
-      { modo: "normal", incluir: true, limite: null, cursor: null });
-    expect(lerParametros(new URL("https://s/x?incluir_integrados=false"))).toEqual(
-      { modo: "normal", incluir: false, limite: null, cursor: null });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&incluir_integrados=true`))).toEqual(
+      { modo: "normal", incluir: true, limite: null, cursor: null, loja: T });
+    expect(lerParametros(new URL(`https://s/x?loja=${T}&incluir_integrados=false`))).toEqual(
+      { modo: "normal", incluir: false, limite: null, cursor: null, loja: T });
   });
 });
 
@@ -142,20 +147,20 @@ describe("rota — códigos HTTP e corpo mínimo ASCII", () => {
   });
   it("m4 (ruling): ip = cf-connecting-ip trim/slice(64) || 'desconhecido'; X-Forwarded-For nunca é usado", async () => {
     const { d } = deps();
-    await tratarRequisicao(new Request("https://site/api/integracao/v1/produtos", {
+    await tratarRequisicao(new Request(`https://site/api/integracao/v1/produtos?loja=${T}`, {
       headers: { authorization: `Bearer ${CHAVE}`, "cf-connecting-ip": "  203.0.113.9  ", "x-forwarded-for": "9.9.9.9" },
     }), d);
     expect(vi.mocked(d.tetoIp).mock.calls[0][0]).toBe("203.0.113.9");
     expect(vi.mocked(d.ler).mock.calls[0][0]).toMatchObject({ ip: "203.0.113.9" });
 
     const { d: d2 } = deps();
-    await tratarRequisicao(new Request("https://site/api/integracao/v1/produtos", {
+    await tratarRequisicao(new Request(`https://site/api/integracao/v1/produtos?loja=${T}`, {
       headers: { authorization: `Bearer ${CHAVE}`, "x-forwarded-for": "9.9.9.9" },
     }), d2);
     expect(vi.mocked(d2.tetoIp).mock.calls[0][0]).toBe("desconhecido");
 
     const { d: d3 } = deps();
-    await tratarRequisicao(new Request("https://site/api/integracao/v1/produtos", {
+    await tratarRequisicao(new Request(`https://site/api/integracao/v1/produtos?loja=${T}`, {
       headers: { authorization: `Bearer ${CHAVE}`, "cf-connecting-ip": "" },
     }), d3);
     expect(vi.mocked(d3.tetoIp).mock.calls[0][0]).toBe("desconhecido");
@@ -173,7 +178,7 @@ describe("rota — códigos HTTP e corpo mínimo ASCII", () => {
     expect(r.status).toBe(500);
     const j = await corpo(r);
     expect(j).toEqual({ erro: "erro_interno" });
-    expect(j.linhas).toBeUndefined();
+    expect(j.produtos).toBeUndefined();
     expect(d.confirmar).not.toHaveBeenCalled();
   });
   it("m10/M9: headers de segurança sempre presentes; WWW-Authenticate só no 401", async () => {
@@ -198,7 +203,7 @@ describe("rota — I1/m1: guarda de caminho de foto (fail closed, sem travessia)
     expect(r.status).toBe(200);
     expect(d.assinarFotos).not.toHaveBeenCalled();
     const j = await corpo(r);
-    expect(j.linhas[0].valores[1]).toEqual([null, null, null]);
+    expect(j.produtos[0].foto).toEqual([null, null, null]);
     expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 3 });
   });
   it("N3: tenant_id ausente/inválido -- caminho LITERAL que o código antigo (startsWith cru) TERIA assinado", async () => {
@@ -242,7 +247,7 @@ describe("rota — I1/m1: guarda de caminho de foto (fail closed, sem travessia)
     // só o caminho canônico (sem .. , sem //, sem \) é assinado
     expect(vi.mocked(d.assinarFotos).mock.calls[0][0]).toEqual([`${T}/fotos_modelo/ok.jpg`]);
     const j = await corpo(r);
-    expect(j.linhas[0].valores[1]).toEqual([null, null, null, `https://s/${T}/fotos_modelo/ok.jpg?t=1`]);
+    expect(j.produtos[0].foto).toEqual([null, null, null, `https://s/${T}/fotos_modelo/ok.jpg?t=1`]);
     expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 3 });
   });
   it("N6: caractere DEL (\\u007f) no caminho também é rejeitado", async () => {
@@ -267,7 +272,7 @@ describe("rota — I2/M3: limpeza isolada da resposta", () => {
     const r = await tratarRequisicao(req(), d);
     expect(r.status).toBe(200);
     const j = await corpo(r);
-    expect(j.linhas.length).toBeGreaterThan(0);
+    expect(j.produtos.length).toBeGreaterThan(0);
   });
   it("N2: limpar rejeita (função PLAIN, não vi.fn) -- 200 E nenhum unhandledRejection escapa", async () => {
     // vi.fn() por si só já anexa um .then/.catch interno para rastrear settledResults, o que faz a promise
@@ -300,7 +305,7 @@ describe("rota — I2/M3: limpeza isolada da resposta", () => {
     const r = await tratarRequisicao(req(), d);
     expect(r.status).toBe(200);
     const j = await corpo(r);
-    expect(j.linhas.length).toBeGreaterThan(0);
+    expect(j.produtos.length).toBeGreaterThan(0);
   });
   it("prova de não-bloqueio: limpar NUNCA é aguardado pela resposta (mesmo pendente para sempre)", async () => {
     let chamou = false;
@@ -387,6 +392,79 @@ describe("rota — m3: Retry-After sempre sano em 429", () => {
   });
 });
 
+describe("Release A2 (P-224 B+): loja obrigatória", () => {
+  it("parâmetro: ausente, vazio, fora do formato uuid ou repetido => null; maiúsculas viram minúsculas", () => {
+    for (const q of ["", "loja=", "loja=abc", `loja=${T.replace(/-/g, "")}`, `loja=${T}x`, `loja=${T}&loja=${T}`, `LOJA=${T}`,
+      "loja=11111111-1111-4111-8111-11111111111g", `modo=teste`]) {
+      expect(lerParametros(new URL(`https://s/x?${q}`)), q).toBeNull();
+    }
+    expect(lerParametros(new URL(`https://s/x?loja=${T.toUpperCase()}`))?.loja).toBe(T);
+  });
+  it("sem loja (normal OU teste) => 400 parametro_invalido SEM tocar no banco nem no hash", async () => {
+    for (const q of ["", "?modo=teste", "?loja=", "?loja=nao-e-uuid"]) {
+      const { d } = deps();
+      const r = await tratarRequisicao(req(q, `Bearer ${CHAVE}`, {}, { semLoja: true }), d);
+      expect(r.status, q).toBe(400);
+      expect(await corpo(r), q).toEqual({ erro: "parametro_invalido" });
+      expect(d.ler, q).not.toHaveBeenCalled();
+      expect(d.hashChave, q).not.toHaveBeenCalled();
+      expect(d.confirmar, q).not.toHaveBeenCalled();
+    }
+  });
+  it("a loja pedida vai ao banco (ler) junto do hash", async () => {
+    const { d } = deps();
+    await tratarRequisicao(req(`?loja=${T.toUpperCase()}`), d);
+    expect(vi.mocked(d.ler).mock.calls[0][0]).toMatchObject({ loja: T, hash: `h(${CHAVE.length})`, modo: "normal" });
+  });
+  it("banco diz loja_nao_autorizada => 403, corpo exato, NADA assinado nem confirmado (normal e teste); limpeza agendada", async () => {
+    for (const q of ["", "?modo=teste"]) {
+      const { d } = deps({ ler: vi.fn(async () => ({ status: "loja_nao_autorizada", tenant_id: T }) as RespostaLer) });
+      const r = await tratarRequisicao(req(q), d);
+      expect(r.status, q).toBe(403);
+      expect(await r.text(), q).toBe('{"erro":"loja_nao_autorizada"}');
+      expect(r.headers.get("www-authenticate"), q).toBeNull();
+      expect(d.assinarFotos, q).not.toHaveBeenCalled();
+      expect(d.confirmar, q).not.toHaveBeenCalled();
+      expect(d.depois, q).toHaveBeenCalledTimes(1);
+    }
+  });
+  it("produto sem variantes => variantes: []; chave fora do retrato do produto => null (união da página)", async () => {
+    const r2: RespostaLer = { ...OK, chaves_colunas: ["nome", "ncm", "foto"], colunas: ["Nome", "NCM", "Foto"], produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", null, null] }] },
+    ] };
+    const { d } = deps({ ler: vi.fn(async () => r2) });
+    const j = await corpo(await tratarRequisicao(req(), d));
+    expect(j.produtos).toEqual([{ produto_id: "m1", loja_id: T, loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z",
+      nome: "Saia", ncm: null, foto: null, variantes: [] }]);
+  });
+  it("contrato estrito do aninhamento: sem linha 'produto', 2 linhas 'produto' ou tipo desconhecido => 500 sem confirmar", async () => {
+    const casos: ProdutoLer["linhas"][] = [
+      [{ tipo: "variante", valores: ["Saia P", []] }],
+      [{ tipo: "produto", valores: ["Saia", []] }, { tipo: "produto", valores: ["Saia 2", []] }],
+      [{ tipo: "produto", valores: ["Saia", []] }, { tipo: "sublinha" as any, valores: ["Saia P", []] }],
+      [],
+    ];
+    for (const linhas of casos) {
+      const { d } = deps({ ler: vi.fn(async () => ({ ...OK, produtos: [
+        { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas }] }) as RespostaLer) });
+      const r = await tratarRequisicao(req(), d);
+      expect(r.status, JSON.stringify(linhas)).toBe(500);
+      expect(await corpo(r)).toEqual({ erro: "erro_interno" });
+      expect(d.confirmar).not.toHaveBeenCalled();
+    }
+  });
+  it("chaves reservadas/fora do formato/repetidas em chaves_colunas => 500 (nunca sobrescreve a identificação)", async () => {
+    for (const chaves of [["produto_id", "foto"], ["nome", "variantes"], ["__proto__", "foto"], ["constructor", "foto"],
+      ["Nome", "foto"], ["nome", "nome"], ["nome-x", "foto"], [1 as any, "foto"]]) {
+      const { d } = deps({ ler: vi.fn(async () => ({ ...OK, chaves_colunas: chaves }) as RespostaLer) });
+      const r = await tratarRequisicao(req(), d);
+      expect(r.status, JSON.stringify(chaves)).toBe(500);
+      expect(d.confirmar).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirmados", () => {
   it("normal: foto de outra loja descartada, inexistente = null, contagens vão ao confirmar; só m1 sai", async () => {
     const { d } = deps();
@@ -397,12 +475,19 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
     expect(vi.mocked(d.confirmar).mock.calls[0]).toEqual(["k1", "ac1", {
       produtos: [{ modelo_id: "m1", assinatura: "s1" }, { modelo_id: "m2", assinatura: "s2" }], fotos_descartadas: 1, fotos_ausentes: 1 }]);
     const j = await corpo(r);
-    expect(j).toMatchObject({ versao: 1, modo: "normal", loja: { id: T, nome: "Loja X" }, colunas: ["Nome", "Foto"],
-      gerado_em: "2026-09-26T20:48:00.000Z", pagina: { limite: 50, maximo: 50 }, proximo_cursor: null }); // D39
-    expect(j.linhas.map((l: any) => l.produto_id)).toEqual(["m1", "m1"]);
-    expect(j.linhas[0].valores[1]).toEqual([`https://s/${T}/fotos_modelo/a.jpg?t=1`, null, null]);
-    expect(j.linhas[0].integrado_em).toBe("2026-09-26T17:35:00.000Z");
-    expect(j.linhas[1].valores[1]).toEqual([]);
+    // Release A2: objetos chave-valor + variantes aninhadas; só m1 (confirmado) sai; sem `colunas`/`linhas`
+    expect(j).toEqual({
+      versao: 1, modo: "normal", loja: { id: T, nome: "Loja X" }, gerado_em: "2026-09-26T20:48:00.000Z",
+      pagina: { limite: 50, maximo: 50 }, // D39
+      produtos: [{
+        produto_id: "m1", loja_id: T, loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z",
+        nome: "Saia", foto: [`https://s/${T}/fotos_modelo/a.jpg?t=1`, null, null],
+        variantes: [{ produto_id: "m1", loja_id: T, loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z", nome: "Saia P", foto: [] }],
+      }],
+      proximo_cursor: null,
+    });
+    expect(Object.keys(j)).toEqual(["versao", "modo", "loja", "gerado_em", "pagina", "produtos", "proximo_cursor"]);
+    expect(Object.keys(j.produtos[0])).toEqual(["produto_id", "loja_id", "loja_nome", "integrado_em", "nome", "foto", "variantes"]);
     expect(d.depois).toHaveBeenCalledTimes(1);
   });
   it("teste: nunca confirma; foto = endereço público de exemplo", async () => {
@@ -413,7 +498,8 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
     expect(d.confirmar).not.toHaveBeenCalled();
     expect(d.assinarFotos).not.toHaveBeenCalled();
     expect(j.modo).toBe("teste");
-    expect(j.linhas[0].valores[1]).toEqual(["https://site/integracao/exemplo-produto.svg"]);
+    expect(j.produtos[0].foto).toEqual(["https://site/integracao/exemplo-produto.svg"]);
+    expect(j.produtos[0].variantes).toEqual([]);
   });
   it("confirmar diz chave inválida (revogada no meio) = 401, corpo exato e sem linhas", async () => {
     const { d } = deps({ confirmar: vi.fn(async () => ({ status: "chave_invalida", confirmados: [] })) });
@@ -421,7 +507,7 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
     expect(r.status).toBe(401);
     const j = await corpo(r);
     expect(j).toEqual({ erro: "chave_invalida" });
-    expect(j.linhas).toBeUndefined();
+    expect(j.produtos).toBeUndefined();
   });
   it("m6/M8: ler recebe o HASH (nunca a chave crua)", async () => {
     const { d } = deps();
@@ -463,7 +549,7 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
     expect(r.status).toBe(200);
     expect(d.assinarFotos).not.toHaveBeenCalled();
     const j = await corpo(r);
-    expect(j.linhas[0].valores[1]).toBeNull();
+    expect(j.produtos[0].foto).toBeNull();
   });
   it("validade_foto_dias ausente: default de 7 dias é usado na assinatura", async () => {
     const semValidade: RespostaLer = { ...OK, validade_foto_dias: undefined };

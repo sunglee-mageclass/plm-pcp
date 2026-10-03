@@ -55,7 +55,7 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
   const lojaNomeHint = useTenantBranding().nome;
   const qc = useQueryClient();
   const [nome, setNome] = useState("");
-  const [criada, setCriada] = useState<{ nome: string; chave: string; lojaNome: string | null } | null>(null);
+  const [criada, setCriada] = useState<{ nome: string; chave: string; lojaNome: string | null; lojaId: string } | null>(null);
   const [criando, setCriando] = useState(false);
   const [copiada, setCopiada] = useState(false);
   const [pedirConfirmacao, setPedirConfirmacao] = useState(false);
@@ -71,7 +71,7 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
       // antes de criar — a defesa de `ApiAba`/`key={tenantId}` não pega uma 2ª aba/janela que trocou de loja no
       // servidor sem que esta aba jamais reobservasse a query cacheada. Nada é enviado se divergir. O nome da
       // loja mostrado no passo 2 vem do MESMO retorno (m-R2) — nunca do `useTenantBranding` cacheado.
-      const { nome: lojaNomeFresco } = await confirmarLojaAtiva(tenantId);
+      const { nome: lojaNomeFresco, tenantId: lojaIdFresco } = await confirmarLojaAtiva(tenantId);
       const { data, error } = await supabase.rpc("integracao_chave_criar" as any, { _nome: nome.trim() });
       if (error) throw error;
       // m2 (code review): valida a resposta ANTES de aceitar — uma resposta sem `chave` (ou vazia) nunca deve
@@ -84,7 +84,7 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
         invalidarIntegracao(qc, tenantId);
         return;
       }
-      setCriada({ nome: typeof o.nome === "string" ? o.nome : nome.trim(), chave: o.chave, lojaNome: lojaNomeFresco });
+      setCriada({ nome: typeof o.nome === "string" ? o.nome : nome.trim(), chave: o.chave, lojaNome: lojaNomeFresco, lojaId: lojaIdFresco });
       void qc.invalidateQueries({ queryKey: ["integracao-chaves", tenantId] });
       invalidarIntegracao(qc, tenantId);
     } catch (e) {
@@ -167,6 +167,11 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
                   <Input id="integracao-chave-gerada" readOnly value={criada.chave} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
                   <Button type="button" variant="outline" onClick={() => void copiar()}><Copy className="h-4 w-4" />Copiar</Button>
                 </div>
+              </div>
+              {/* Release A2 (P-224 B+): toda chamada leva loja=<código>; o código não é segredo (fica sempre em API › Chaves) */}
+              <div className="grid gap-1">
+                <Label htmlFor="integracao-chave-loja">Código da loja (parâmetro loja — obrigatório em toda chamada)</Label>
+                <Input id="integracao-chave-loja" readOnly value={criada.lojaId} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
               </div>
               <p className="rounded-md bg-[var(--tone-warning-bg)] p-3 text-sm text-[var(--tone-warning-fg)]">{TEXTO_NOVA_CHAVE_GUARDE}</p>
               <DialogFooter>

@@ -9,7 +9,8 @@ import { CAMINHO_FOTO_EXEMPLO, montarResposta, type RespostaLer } from "@/lib/in
 import {
   CHAVE_FICTICIA, TEXTO_PAGINA_PODE_MUDAR, montarManual, respostaExemplo,
   TEXTO_IDENTIFICACAO, TEXTO_UNIAO_COLUNAS, TEXTO_ENTREGUE_UMA_VEZ, TEXTO_SEM_WEBHOOK, TEXTO_UMA_LOJA_POR_CHAVE,
-  TEXTO_REPROVADO_NAO_ENTREGA, TEXTO_PRECO_DIGITADO, TEXTO_LIMITE_POR_CHAVE, TEXTO_NOME_SUBLINHA,
+  TEXTO_REPROVADO_NAO_ENTREGA, TEXTO_PRECO_DIGITADO, TEXTO_LIMITE_POR_CHAVE, TEXTO_NOME_SUBLINHA, TEXTO_LOJA_OBRIGATORIA,
+  TEXTO_FORMATO_OBJETOS,
 } from "@/components/integracao/manual-conteudo";
 
 // n6 (mesma razão de integracao-celula.test.ts/integracao-api-tela.test.ts): silencia o aviso de act() do React
@@ -28,8 +29,8 @@ const R: RespostaLer = {
   ],
 };
 
-describe("montarResposta — formato público (spec §7, D5)", () => {
-  it("só os confirmados; Foto = lista de links SÓ na linha do produto; integrado_em do confirmar", () => {
+describe("montarResposta — formato público em OBJETOS chave-valor + variantes aninhadas (Release A2, P-222 B/P-223 A)", () => {
+  it("só os confirmados; produto = objeto com as chaves; variantes dentro; Foto = lista de links SÓ no produto ([] na variante)", () => {
     const out = montarResposta(R, {
       geradoEm: "2026-09-26T20:48:00.000Z",
       foto: (c) => c.map((p) => `https://x/${p}`),
@@ -37,29 +38,30 @@ describe("montarResposta — formato público (spec §7, D5)", () => {
       integradoEm: () => "2026-09-26T17:35:00.000Z",
     });
     expect(out).toEqual({
-      versao: 1, modo: "normal", loja: { id: "t1", nome: "Loja X" }, colunas: ["Nome", "Foto"], gerado_em: "2026-09-26T20:48:00.000Z",
+      versao: 1, modo: "normal", loja: { id: "t1", nome: "Loja X" }, gerado_em: "2026-09-26T20:48:00.000Z",
       pagina: { limite: 2, maximo: 50 }, // D39 (P-89 A)
+      produtos: [{
+        produto_id: "m1", loja_id: "t1", loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z",
+        nome: "Saia", foto: ["https://x/t1/fotos_modelo/a.jpg", "https://x/t1/fotos_modelo/b.jpg"],
+        variantes: [{ produto_id: "m1", loja_id: "t1", loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z", nome: "Saia P", foto: [] }],
+      }],
       proximo_cursor: null,
-      linhas: [
-        { tipo: "produto", produto_id: "m1", loja_id: "t1", loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z",
-          valores: ["Saia", ["https://x/t1/fotos_modelo/a.jpg", "https://x/t1/fotos_modelo/b.jpg"]] },
-        { tipo: "variante", produto_id: "m1", loja_id: "t1", loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z", valores: ["Saia P", []] },
-      ],
     });
+    // sem `colunas`/`linhas`; ordem das chaves: identificação → campos (ordem do layout) → variantes
+    expect(Object.keys(out)).toEqual(["versao", "modo", "loja", "gerado_em", "pagina", "produtos", "proximo_cursor"]);
+    expect(Object.keys(out.produtos[0])).toEqual(["produto_id", "loja_id", "loja_nome", "integrado_em", "nome", "foto", "variantes"]);
+    expect(Object.keys(out.produtos[0].variantes[0])).toEqual(["produto_id", "loja_id", "loja_nome", "integrado_em", "nome", "foto"]);
   });
-  it("sem incluir = todos; loja_nome cai no nome da loja", () => {
+  it("sem incluir = todos; loja_nome cai no nome da loja; produto sem variantes => variantes: []; pagina ausente => null", () => {
     const out = montarResposta(R, { geradoEm: "g", foto: () => null });
-    expect(out.linhas.map((l) => l.produto_id)).toEqual(["m1", "m1", "m2"]);
+    expect(out.produtos.map((p) => p.produto_id)).toEqual(["m1", "m2"]);
     expect(montarResposta({ ...R, pagina: undefined }, { geradoEm: "g", foto: () => null }).pagina).toBeNull();
-    expect(out.linhas[2]).toMatchObject({ loja_nome: "Loja X", valores: ["Blusa", null] });
+    expect(out.produtos[1]).toEqual({ produto_id: "m2", loja_id: "t1", loja_nome: "Loja X", integrado_em: null, nome: "Blusa", foto: null,
+      variantes: [] });
   });
-  // m2/m2-R (revisão code review "fix round 1"/"Re-review round 1"): quando o retrato do produto não tinha a
-  // coluna Foto marcada (P-93 A — colunas de uma página são a união; produto fora da união manda null nessa
-  // posição, D6), o valor cru já chega `null` em TODAS as linhas do produto (`_integracao_valores` aplica esse
-  // null a toda linha, m6:95, não só à do produto) — `montarResposta` PRECISA preservar esse `null` na linha do
-  // produto E na sublinha, consistente com o resto das colunas novas e com TEXTO_UNIAO_COLUNAS ("numa coluna
-  // nova, eles vêm com o valor vazio (null)"). Nunca finge "lista vazia" onde a coluna nem existia no retrato.
-  it("Foto null no retrato do produto (P-93 A, coluna fora da união) fica null na linha E na sublinha", () => {
+  // m2/m2-R (mantido no formato novo): retrato do produto SEM a coluna Foto (P-93 A, fora da união) => o valor cru já chega
+  // `null` em TODAS as linhas do produto — `montarResposta` preserva `null` no produto E na variante (nunca finge "lista vazia").
+  it("Foto null no retrato do produto (P-93 A, campo fora da união) fica null no produto E na variante", () => {
     const semFoto: RespostaLer = {
       ...R,
       produtos: [
@@ -71,9 +73,46 @@ describe("montarResposta — formato público (spec §7, D5)", () => {
     };
     let chamouFoto = false;
     const out = montarResposta(semFoto, { geradoEm: "g", foto: () => { chamouFoto = true; return ["nunca"]; } });
-    expect(out.linhas[0].valores[1]).toBeNull(); // produto: null preservado
-    expect(out.linhas[1].valores[1]).toBeNull(); // sublinha: null TAMBÉM preservado (m2-R)
+    expect(out.produtos[0].foto).toBeNull(); // produto: null preservado
+    expect(out.produtos[0].variantes[0].foto).toBeNull(); // variante: null TAMBÉM preservado (m2-R)
     expect(chamouFoto).toBe(false); // `foto()` nem é chamada quando o valor cru já é null
+  });
+  it("união de chaves da página: campo fora do retrato de UM produto vem null nele (e nas variantes dele), presente nos outros", () => {
+    const uniao: RespostaLer = {
+      ...R, chaves_colunas: ["nome", "ncm", "colecao"], colunas: ["Nome", "NCM", "Coleção"],
+      produtos: [
+        { modelo_id: "novo", estado: "integravel", assinatura: "a", integrado_em: null, linhas: [
+          { tipo: "produto", valores: ["Saia", "6204.52.00", "Verão"] }, { tipo: "variante", valores: ["Saia P", "6204.52.00", "Verão"] }] },
+        { modelo_id: "antigo", estado: "integrado", assinatura: "b", integrado_em: "2026-09-01T00:00:00.000Z", linhas: [
+          { tipo: "produto", valores: ["Blusa", "6106.10.00", null] }, { tipo: "variante", valores: ["Blusa M", "6106.10.00", null] }] },
+      ],
+    };
+    const out = montarResposta(uniao, { geradoEm: "g", foto: () => null });
+    for (const p of out.produtos) {
+      expect(Object.keys(p)).toEqual(["produto_id", "loja_id", "loja_nome", "integrado_em", "nome", "ncm", "colecao", "variantes"]);
+      for (const v of p.variantes) expect(Object.keys(v)).toEqual(["produto_id", "loja_id", "loja_nome", "integrado_em", "nome", "ncm", "colecao"]);
+    }
+    expect(out.produtos[1]).toMatchObject({ produto_id: "antigo", integrado_em: "2026-09-01T00:00:00.000Z", colecao: null });
+    expect(out.produtos[1].variantes[0]).toMatchObject({ nome: "Blusa M", colecao: null, integrado_em: "2026-09-01T00:00:00.000Z" });
+    expect(out.produtos[0].variantes[0]).toMatchObject({ colecao: "Verão" });
+  });
+  it("as 21 chaves fixas do sistema (P-223 A) viram as chaves do objeto, na ordem do layout", () => {
+    const chaves = ["nome", "ref_sku", "preco_anterior", "preco_venda", "peso", "ncm", "preco_custo", "cor_base", "cor_apelido", "tamanho",
+      "titulo", "descricao", "keywords", "metatag", "comprimento", "largura", "altura", "foto", "colecao", "categoria_tecido", "linha"];
+    const r21: RespostaLer = { ...R, chaves_colunas: chaves, colunas: chaves, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "a", integrado_em: null, linhas: [
+        { tipo: "produto", valores: chaves.map((k) => (k === "foto" ? ["t1/x.jpg"] : `${k}-v`)) }] }] };
+    const p = montarResposta(r21, { geradoEm: "g", foto: (c) => c }).produtos[0];
+    expect(Object.keys(p)).toEqual(["produto_id", "loja_id", "loja_nome", "integrado_em", ...chaves, "variantes"]);
+    expect(p.ref_sku).toBe("ref_sku-v");
+    expect(p.foto).toEqual(["t1/x.jpg"]);
+  });
+  it("chave reservada no chaves_colunas nunca sobrescreve a identificação (a rota já recusa com 500)", () => {
+    const mal: RespostaLer = { ...R, chaves_colunas: ["produto_id", "nome"], colunas: ["X", "Nome"], produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "a", integrado_em: null, linhas: [{ tipo: "produto", valores: ["HACK", "Saia"] }] }] };
+    const p = montarResposta(mal, { geradoEm: "g", foto: () => null }).produtos[0];
+    expect(p.produto_id).toBe("m1");
+    expect(p.nome).toBe("Saia");
   });
 });
 
@@ -85,7 +124,8 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
       "Códigos de resposta", "Boas práticas", "Perguntas frequentes", "Checklist antes de ligar de verdade",
     ]);
     const cmds = JSON.stringify(m[2]);
-    expect(cmds).toContain("https://sistrama.sung-lee.workers.dev/api/integracao/v1/produtos?limite=50");
+    // Release A2 (P-224 B+): todo comando leva loja= (sem loja ativa: o marcador)
+    expect(cmds).toContain("https://sistrama.sung-lee.workers.dev/api/integracao/v1/produtos?loja=<codigo-da-loja>&limite=50");
     // P-89 A: o tamanho da página pode mudar — o texto aparece em Parâmetros, Boas práticas e FAQ
     for (const i of [3, 6, 7]) expect(JSON.stringify(m[i]), m[i].titulo).toContain(TEXTO_PAGINA_PODE_MUDAR);
     expect(JSON.stringify(m[4])).toContain("pagina.maximo");
@@ -109,25 +149,40 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
     expect(tudo, "I8 limite por chave por minuto, teste conta").toContain(TEXTO_LIMITE_POR_CHAVE);
     expect(tudo, "I9 P-126: nome da sublinha leva a cor").toContain(TEXTO_NOME_SUBLINHA);
   });
-  it("exemplo NORMAL: o nome da sublinha leva Nome do produto + cor + tamanho (P-126)", () => {
+  it("exemplo NORMAL: o nome da variante leva Nome do produto + cor + tamanho (P-126); variante DENTRO do produto", () => {
     const n = respostaExemplo("normal", "https://site");
-    const iVariante = n.colunas.indexOf("Nome");
-    expect(n.linhas[1].valores[iVariante]).toBe("Saia Marola Preto P");
+    expect(n.produtos).toHaveLength(1);
+    expect(n.produtos[0].nome).toBe("Saia Marola");
+    expect(n.produtos[0].variantes[0].nome).toBe("Saia Marola Preto P");
+    expect(n.produtos[0].variantes[0].ref_sku).toBe("SAMA0019-PRT-P");
   });
-  it("exemplo TESTE: produtos fictícios, 21 colunas, foto pública de exemplo, cursor da 2ª página, nome com a cor (P-126)", () => {
+  it("exemplo TESTE: produtos fictícios, 21 chaves, foto pública de exemplo, cursor da 2ª página, nome com a cor (P-126)", () => {
     const t = respostaExemplo("teste", "https://site");
     expect(t.modo).toBe("teste");
-    expect(t.colunas).toHaveLength(21);
-    expect(t.colunas.slice(18)).toEqual(["Coleção", "Categoria do Tecido Principal", "Linha"]);
-    expect(t.linhas[0].valores.slice(18)).toEqual(["Coleção Exemplo", "Malha", "Casual"]);
-    expect(t.linhas[0].produto_id).toBe("exemplo-0001");
-    expect(t.linhas[0].valores[17]).toEqual([`https://site${CAMINHO_FOTO_EXEMPLO}`]);
-    expect(t.linhas[1].valores[17]).toEqual([]);
-    expect(t.linhas.every((l) => l.integrado_em === null)).toBe(true);
+    const p = t.produtos[0];
+    expect(Object.keys(p)).toHaveLength(4 + 21 + 1); // identificação + 21 chaves + variantes
+    expect([p.colecao, p.categoria_tecido, p.linha]).toEqual(["Coleção Exemplo", "Malha", "Casual"]);
+    expect(p.produto_id).toBe("exemplo-0001");
+    expect(p.foto).toEqual([`https://site${CAMINHO_FOTO_EXEMPLO}`]);
+    expect(p.variantes[0].foto).toEqual([]);
+    expect([p.integrado_em, ...p.variantes.map((v) => v.integrado_em)].every((x) => x === null)).toBe(true);
     expect(t.proximo_cursor).toBe("eyJleGVtcGxvIjogMn0=");
     expect(t.pagina).toEqual({ limite: 2, maximo: 50 });
-    const iNome = t.colunas.indexOf("Nome");
-    expect(t.linhas[1].valores[iNome]).toBe("Produto Exemplo 1 Cor Exemplo P");
+    expect(p.variantes[0].nome).toBe("Produto Exemplo 1 Cor Exemplo P");
+  });
+  it("Release A2: comandos com o código da loja ativa; loja obrigatória e formato em objetos no texto do Manual", () => {
+    const m = montarManual("https://site", "37889b78-fffb-404b-8c75-18b7e50a1d9b");
+    const cmds = JSON.stringify(m[2]);
+    expect(cmds).toContain("https://site/api/integracao/v1/produtos?loja=37889b78-fffb-404b-8c75-18b7e50a1d9b&limite=50");
+    expect(cmds).toContain("loja=37889b78-fffb-404b-8c75-18b7e50a1d9b&modo=teste");
+    expect(cmds).toContain('\\"loja\\": \\"37889b78-fffb-404b-8c75-18b7e50a1d9b\\"'); // Python params
+    const tudo = JSON.stringify(m);
+    expect(tudo).toContain(TEXTO_LOJA_OBRIGATORIA);
+    expect(tudo).toContain(TEXTO_FORMATO_OBJETOS);
+    expect(JSON.stringify(m[3])).toContain('"loja"'); // linha da tabela de parâmetros
+    expect(JSON.stringify(m[5])).toContain("loja_nao_autorizada"); // códigos de resposta
+    expect(JSON.stringify(m[4])).toContain('["categoria_tecido","Categoria do Tecido Principal"]'); // tabela de chaves
+    expect(JSON.stringify(m[4])).not.toContain('"colunas"');
   });
 });
 
@@ -258,7 +313,10 @@ describe("ExemploDialog — isolado (foto=null de propósito, N12)", () => {
     const pre = document.body.querySelector("pre");
     expect(pre).toBeTruthy();
     const json = JSON.parse(pre!.textContent ?? "{}");
-    expect(json.linhas[0].valores[1]).toBeNull(); // foto = null (sem link) de propósito
+    expect(json.produtos[0].foto).toBeNull(); // foto = null (sem link) de propósito
+    expect(json.produtos[0].variantes).toEqual([]);
+    expect(json.linhas).toBeUndefined(); // Release A2: formato em objetos
+    expect(json.colunas).toBeUndefined();
     // Fechar chama o callback do chamador.
     const fechar = Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Fechar") as HTMLButtonElement;
     await act(async () => { fechar.click(); });

@@ -58,7 +58,7 @@ function deps({ banco, assinadas }: { banco: string; assinadas: string }): DepsR
 
 async function medir(n: number) {
   const d = deps(pagina(n));
-  const req = () => new Request("https://site/api/integracao/v1/produtos?limite=500", {
+  const req = () => new Request(`https://site/api/integracao/v1/produtos?limite=500&loja=${T}`, {
     headers: { authorization: "Bearer wish_live_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345", "cf-connecting-ip": "203.0.113.5" },
   });
   for (let i = 0; i < 3; i++) await (await tratarRequisicao(req(), d)).text(); // aquecimento (JIT)
@@ -72,7 +72,9 @@ async function medir(n: number) {
     ms.push(performance.now() - t0);
     expect(r.status).toBe(200);
     bytes = corpo.length;
-    linhas = (JSON.parse(corpo) as { linhas: unknown[] }).linhas.length;
+    // Release A2: produtos com variantes aninhadas — conta produto + variantes (= as linhas de antes)
+    const prods = (JSON.parse(corpo) as { produtos: { variantes: unknown[] }[] }).produtos;
+    linhas = prods.reduce((n, p) => n + 1 + p.variantes.length, 0);
   }
   ms.sort((a, b) => a - b);
   const p50 = ms[9];

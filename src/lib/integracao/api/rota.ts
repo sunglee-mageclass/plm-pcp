@@ -11,13 +11,19 @@
 // Object.hasOwn, imune à cadeia do protótipo (m8/M8); modo devolvido pelo banco tem que bater com o pedido, senão 500
 // sem chamar confirmar (m9); headers x-content-type-options sempre, www-authenticate só no 401 (m10/M9). Nenhum log foi
 // adicionado (ruling M10): um 500 nunca despeja detalhe algum, para a chave jamais vazar por essa via.
+// Release A2 (P-222 B/P-223 A/P-224 B+, dono 03/out): `loja=<uuid>` obrigatório (parametros.ts: ausente/malformado = 400 sem
+// tocar no banco); a fase 1 chama `_integracao_ler_loja` (loja ≠ loja da chave ⇒ 403 loja_nao_autorizada: nada entregue,
+// nada confirmado, registrado no Log de acessos, sem contar no bloqueio de IP nem no limite por minuto); a resposta sai em
+// objetos chave-valor com as variantes aninhadas (resposta.ts). A confirmação (fase 2) não mudou.
 import { lerParametros } from "./parametros";
-import { CAMINHO_FOTO_EXEMPLO, caminhosFoto, montarResposta, type RespostaLer } from "./resposta";
+import { CAMINHO_FOTO_EXEMPLO, CHAVES_RESERVADAS, caminhosFoto, montarResposta, type RespostaLer } from "./resposta";
 
 export type Confirmacao = { status: string; confirmados: { modelo_id: string; integrado_em: string }[] };
 export type DepsRota = {
   hashChave: (chave: string) => Promise<string>;
-  ler: (a: { hash: string; incluir: boolean; cursor: string | null; limite: number | null; modo: "normal" | "teste"; ip: string }) => Promise<RespostaLer>;
+  ler: (a: {
+    hash: string; loja: string; incluir: boolean; cursor: string | null; limite: number | null; modo: "normal" | "teste"; ip: string;
+  }) => Promise<RespostaLer>;
   assinarFotos: (caminhos: string[], validadeSegundos: number) => Promise<Map<string, string | null>>;
   confirmar: (chaveId: string, acessoId: string, entrega: { produtos: { modelo_id: string; assinatura: string | null }[]; fotos_descartadas: number; fotos_ausentes: number }) => Promise<Confirmacao>;
   limpar: (tenantId: string | null) => Promise<void>;
@@ -43,7 +49,7 @@ function clampRetry(x: number | null): number {
   return Math.min(3600, Math.max(1, Math.ceil(x)));
 }
 const HTTP: Record<string, number> = {
-  parametro_invalido: 400, chave_invalida: 401, loja_inativa: 403, ip_bloqueado: 429, limite_excedido: 429,
+  parametro_invalido: 400, chave_invalida: 401, loja_inativa: 403, loja_nao_autorizada: 403, ip_bloqueado: 429, limite_excedido: 429,
 };
 function httpDe(status: string): { codigo: number; erro: string } {
   if (Object.hasOwn(HTTP, status)) return { codigo: HTTP[status], erro: status };
@@ -94,13 +100,28 @@ function agendarLimpeza(deps: DepsRota, tenantId: string | null): void {
 // (uma string É iterável — percorre caractere a caractere sem lançar), então sem esta checagem o handler
 // produziria um corpo corrompido em vez de falhar fechado. Falha aqui SEMPRE cai no catch-all (500 erro_interno)
 // — nunca tenta "consertar" ou seguir com um formato inesperado.
+// Release A2: como a resposta agora é objeto chave-valor com variantes aninhadas, o contrato fica mais estrito — cada
+// produto tem EXATAMENTE 1 linha "produto" e o resto "variante" (senão o aninhamento perderia/inventaria dados), e as
+// chaves (`chaves_colunas`) são textos simples [a-z0-9_] fora dos nomes reservados da identificação (produto_id, loja_id,
+// loja_nome, integrado_em, variantes) e do protótipo — fora disso, 500 fail-closed.
 function validarFormato(r: RespostaLer): void {
+  if (r.chaves_colunas !== undefined) {
+    if (!Array.isArray(r.chaves_colunas)) throw new Error("formato invalido: chaves");
+    for (const k of r.chaves_colunas) {
+      if (typeof k !== "string" || !/^[a-z][a-z0-9_]*$/.test(k) || CHAVES_RESERVADAS.has(k)) throw new Error("formato invalido: chave");
+    }
+    if (new Set(r.chaves_colunas).size !== r.chaves_colunas.length) throw new Error("formato invalido: chave repetida");
+  }
   if (r.produtos !== undefined && !Array.isArray(r.produtos)) throw new Error("formato invalido: produtos");
   for (const pr of r.produtos ?? []) {
     if (!Array.isArray(pr.linhas)) throw new Error("formato invalido: linhas");
+    let nProduto = 0;
     for (const l of pr.linhas) {
       if (!Array.isArray(l.valores)) throw new Error("formato invalido: valores");
+      if (l.tipo === "produto") nProduto += 1;
+      else if (l.tipo !== "variante") throw new Error("formato invalido: tipo");
     }
+    if (nProduto !== 1) throw new Error("formato invalido: linha do produto");
   }
 }
 
@@ -118,7 +139,9 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
     const chave = m ? m[1] : "";
     const p = lerParametros(new URL(req.url));
     if (!p) return respostaErro(400, "parametro_invalido");
-    const r = await deps.ler({ hash: await deps.hashChave(chave), incluir: p.incluir, cursor: p.cursor, limite: p.limite, modo: p.modo, ip });
+    const r = await deps.ler({
+      hash: await deps.hashChave(chave), loja: p.loja, incluir: p.incluir, cursor: p.cursor, limite: p.limite, modo: p.modo, ip,
+    });
     if (r.status !== "ok") {
       agendarLimpeza(deps, r.tenant_id ?? null);
       const { codigo, erro } = httpDe(r.status);

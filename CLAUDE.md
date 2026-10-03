@@ -789,8 +789,9 @@ e verifique** — o repo muda rápido.
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
     super admin + quem ELE deu a permissão `integracao` no próprio usuário — admin da loja NÃO passa sozinho, P-107 A; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
-    `GET /api/integracao/v1/produtos` (rota de servidor no Worker, `Authorization: Bearer`, 2 fases: `_integracao_ler` →
-    links assinados das fotos → `_integracao_confirmar`; só as 3 `_integracao_*` da rota têm EXECUTE p/ `service_role`; teto
+    `GET /api/integracao/v1/produtos` (rota de servidor no Worker, `Authorization: Bearer`, `loja=<uuid>` OBRIGATÓRIO — Release
+    A2; 2 fases: `_integracao_ler_loja` (→ `_integracao_ler`) → links assinados das fotos → `_integracao_confirmar`; só as
+    `_integracao_*` da rota (`_ler_loja`, `_ler`, `_confirmar`, `_limpar`) têm EXECUTE p/ `service_role`; teto
     por IP no binding `ratelimits` `INTEGRACAO_TETO_IP`; página padrão 50 produtos — P-89 A, faixa 1–500, acima de 100 só com
     Workers Paid; a resposta traz `pagina: {limite, maximo}`). Estados `nao_integravel → integravel` (marcar, com a assinatura
     HMAC do retrato do resumo) `→ integrado` (a API confirmou a entrega) `→ nao_integravel` (voltar SÓ de integrável;
@@ -891,6 +892,31 @@ e verifique** — o repo muda rápido.
     exige os `_salvar_produto_*_core` dela). Os inversos NÃO têm DROP (as 3 auxiliares e as colunas ficam inertes); os
     `_down_drop` são separados e opcionais. ⚠️ Site velho + banco novo: salvar a aba Campos com o site velho APAGA as 3 chaves —
     publicar o site logo depois do banco.
+    **Release A2 — resposta em OBJETOS + `loja` obrigatório (out/2026, P-222 B/P-223 A/P-224 B+/P-225 A; `20261030130000`;
+    plano `.superpowers/sdd/2026-10-03-api-objetos/plan.md`):** a v1 (MESMO endereço, `versao` segue 1) TROCOU de formato: saem
+    `colunas`/`linhas`; a resposta é `{versao, modo, loja{id,nome}, gerado_em, pagina{limite,maximo}, produtos[…],
+    proximo_cursor}` e cada produto é UM objeto `{produto_id, loja_id, loja_nome, integrado_em, <chave>: valor…, variantes[…]}`
+    com TODAS as variantes aninhadas no mesmo formato (a variante não tem `variantes`; produto sem variantes ⇒ `[]`). Chaves = as
+    chaves FIXAS do layout (`_integracao_layout`, minúsculas sem acento: nome, ref_sku, preco_anterior, preco_venda, peso, ncm,
+    preco_custo, cor_base, cor_apelido, tamanho, titulo, descricao, keywords, metatag, comprimento, largura, altura, foto,
+    colecao, categoria_tecido, linha); presentes = UNIÃO da página (fora do retrato daquele produto = `null`, inclusive Foto
+    `null` × `[]`). Montagem PURA em `src/lib/integracao/api/resposta.ts` (`montarResposta`, usada pela rota, pelo "Ver resposta
+    de exemplo" e pelo Manual); a rota (`rota.ts`) falha fechado (500) se um produto não tem EXATAMENTE 1 linha `produto` ou se
+    `chaves_colunas` traz chave reservada (`produto_id/loja_id/loja_nome/integrado_em/variantes`/protótipo), fora de
+    `[a-z0-9_]` ou repetida. **`loja=<uuid>` obrigatório em toda chamada (normal E teste)**: ausente/vazio/malformado/repetido ⇒
+    400 `parametro_invalido` SEM tocar no banco (`parametros.ts`); a fase 1 chama a função NOVA `_integracao_ler_loja(_chave_hash,
+    _loja uuid, …)` (DEFINER, search_path=public, EXECUTE SÓ service_role — REVOKE dos 3, inv. 9; `_integracao_ler` NÃO foi
+    redefinida, md5 1ac58b34): chave inválida ⇒ delega (conta no bloqueio de IP como hoje); chave válida de OUTRA loja ⇒ grava
+    em `integracao_acessos` status **`loja_nao_autorizada`** AGREGADO por chave×minuto (`lna:<chave_id>`: NÃO conta no bloqueio de
+    IP nem consome o limite por minuto) e a rota responde **403 `{"erro":"loja_nao_autorizada"}`** sem assinar foto nem confirmar;
+    senão delega a `_integracao_ler` tal qual. CHECK `integracao_acessos_status_chk` ampliado. Tela: Integração › API › Chaves
+    mostra o **Código da loja** (Copiar código + exemplo de chamada) e a Nova chave também o mostra; Acessos recentes rotula
+    "Loja não autorizada ×N"; Manual (comandos com `loja=` da loja ativa, tabela de parâmetros/chaves/códigos, FAQ, checklist).
+    Banco ANTES do site (site novo + banco velho = 500; site velho + banco novo = ok). **Volta LIFO:** SITE → `130000_down`
+    (NEUTRALIZA: a função só delega, sem checar a loja — CREATE OR REPLACE, sem trava) → `130000_down_drop` separado/opcional
+    (apaga os registros `loja_nao_autorizada` com `SET app.confirmo_apagar_acessos_loja='sim'`, volta o CHECK, DROP da função) —
+    tudo ANTES dos inversos da I3. Testes: `tests/integration/integracao-10-api-loja.test.ts` (txn revertida) +
+    `tests/unit/integracao-api.test.ts`/`integracao-resposta.test.ts`.
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**

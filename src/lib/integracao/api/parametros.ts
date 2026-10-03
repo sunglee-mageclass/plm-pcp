@@ -1,17 +1,23 @@
 // Integração — API: parâmetros da consulta (spec §7). Inválido ⇒ null ⇒ 400 SEM tocar no banco. O teto real do `limite` é
 // o max_por_pagina da loja (o banco aplica least()); aqui só formato. Cursor = base64 (D21), até 200 caracteres.
-// Fix round 1 (I3 ruling): qualquer parâmetro fora dos 4 conhecidos, ou repetido, invalida a requisição inteira — evita
+// Fix round 1 (I3 ruling): qualquer parâmetro fora dos conhecidos, ou repetido, invalida a requisição inteira — evita
 // que um `modo` com typo (ex. `Modo=teste` ou `modo=teste&modo=xpto`) rode silenciosamente em modo normal (que CONFIRMA
-// produtos de verdade). m5 (ruling): valor vazio conta como parâmetro ausente, para os 4 — regra única, sem exceção.
-export type Parametros = { modo: "normal" | "teste"; incluir: boolean; limite: number | null; cursor: string | null };
+// produtos de verdade). m5 (ruling): valor vazio conta como parâmetro ausente — regra única, sem exceção.
+// Release A2 (P-224 B+, dono 03/out): `loja=<uuid>` é OBRIGATÓRIO em toda chamada (normal E teste). Ausente, vazio ou fora
+// do formato uuid ⇒ null ⇒ 400 parametro_invalido (sem tocar no banco). Uuid de OUTRA loja (≠ loja da chave) é o banco que
+// recusa (_integracao_ler_loja ⇒ 403 loja_nao_autorizada, registrado no Log de acessos). Devolvido em minúsculas.
+export type Parametros = { modo: "normal" | "teste"; incluir: boolean; limite: number | null; cursor: string | null; loja: string };
 
-const PERMITIDOS = new Set(["modo", "incluir_integrados", "limite", "cursor"]);
+const PERMITIDOS = new Set(["modo", "incluir_integrados", "limite", "cursor", "loja"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function lerParametros(url: URL): Parametros | null {
   const sp = url.searchParams;
   for (const k of new Set(sp.keys())) {
     if (!PERMITIDOS.has(k) || sp.getAll(k).length > 1) return null;
   }
+  const loja = sp.get("loja") || null;
+  if (loja === null || !UUID.test(loja)) return null;
   const modo = sp.get("modo") || "normal";
   if (modo !== "normal" && modo !== "teste") return null;
   const inc = sp.get("incluir_integrados") || "0";
@@ -24,5 +30,5 @@ export function lerParametros(url: URL): Parametros | null {
   }
   const cur = sp.get("cursor") || null;
   if (cur !== null && (cur.length > 200 || !/^[A-Za-z0-9+/=_-]+$/.test(cur))) return null;
-  return { modo, incluir: inc === "1" || inc === "true", limite, cursor: cur };
+  return { modo, incluir: inc === "1" || inc === "true", limite, cursor: cur, loja: loja.toLowerCase() };
 }

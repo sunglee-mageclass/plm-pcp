@@ -17,7 +17,8 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  TEXTO_REVOGAR, entregaAcesso, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso, textoForaRecomendado,
+  TEXTO_CODIGO_LOJA, TEXTO_REVOGAR, entregaAcesso, exemploChamadaApi, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso,
+  textoForaRecomendado,
 } from "@/lib/integracao/api-tela";
 
 // n6 (mesma razão de integracao-celula.test.ts / integracao-campos-config.test.ts): silencia o aviso de act() do
@@ -57,6 +58,14 @@ describe("aba API — leitura e textos (mockup 7)", () => {
     expect(statusAcesso(acesso({ status: "reservado" }))).toEqual({ texto: "Em andamento", tom: "neutral" });
     expect(entregaAcesso(acesso({ status: "loja_inativa", produtos: 0, linhas: null }))).toEqual({ produtos: "—", linhas: "—" });
     expect(rotuloChaveAcesso(acesso({ chave: null, final: null, status: "ip_bloqueado", ip: "203.0.113.9" }))).toBe("IP bloqueado (203.0.113.9)");
+  });
+  it("Release A2 (P-224 B+): status loja_nao_autorizada (agregado ×N, perigo, sem entrega) + exemplo de chamada com loja=", () => {
+    const a = acesso({ status: "loja_nao_autorizada", tentativas: 3, produtos: 0, linhas: 0 });
+    expect(statusAcesso(a)).toEqual({ texto: "Loja não autorizada ×3", tom: "danger" });
+    expect(entregaAcesso(a)).toEqual({ produtos: "—", linhas: "—" });
+    expect(rotuloChaveAcesso(a)).toBe("ERP Principal ····a1b2");
+    expect(exemploChamadaApi("https://site", "t-1")).toBe(
+      'curl "https://site/api/integracao/v1/produtos?loja=t-1&limite=50" \\\n  -H "Authorization: Bearer <sua chave>"');
   });
   it("fora do recomendado e revogar (textos do mockup)", () => {
     expect(textoForaRecomendado("limite_por_minuto"))
@@ -183,6 +192,35 @@ const clicarAba = (container: HTMLElement, texto: string) => {
 };
 
 describe("ApiAba — Chaves (criar 1x, revogar)", () => {
+  it("Release A2: mostra o Código da loja ativa (parâmetro loja) com Copiar código e o exemplo de chamada; a Nova chave também o mostra", async () => {
+    const view = await montar({
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") return { data: { campos: [], layout: [], rev: 1, api: null }, error: null };
+        if (nome === "integracao_chaves_listar") return { data: [], error: null };
+        if (nome === "integracao_chave_criar") return { data: { id: "k1", nome: "ERP", chave: "wish_live_X", final: "0000" }, error: null };
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await view.esperar();
+    const cod = document.getElementById("integracao-codigo-loja") as HTMLInputElement;
+    expect(cod.value).toBe("t1");
+    expect(view.container.textContent).toContain(TEXTO_CODIGO_LOJA);
+    expect(view.container.textContent).toContain("/api/integracao/v1/produtos?loja=t1&limite=50");
+    await act(async () => { botaoDoc("Copiar código").click(); });
+    await view.esperar();
+    expect((navigator.clipboard.writeText as any).mock.calls.at(-1)[0]).toBe("t1");
+    await act(async () => { botaoDoc("Nova chave").click(); });
+    const inputNome = document.getElementById("integracao-nome-chave") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputNome, "ERP");
+      inputNome.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { botaoDoc("Criar").click(); });
+    await view.esperar();
+    expect((document.getElementById("integracao-chave-loja") as HTMLInputElement).value).toBe("t1");
+    await view.desmontar();
+  });
   it("Nova chave: a chave aparece 1x com Copiar; fechar sem confirmar pede 'você copiou?'; a chave nunca fica na query nem em log depois", async () => {
     let chamadasCriar = 0;
     const view = await montar({
