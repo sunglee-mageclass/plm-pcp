@@ -38,7 +38,7 @@ BEGIN
       ('public._integracao_retrato_core(uuid,text[],jsonb)', '8a5275cf8c145f88e23c5158c22fdfc6'),
       ('public._integracao_layout()', '480106c786ff534affe98e2374c8ce49'),
       ('public._integracao_opcionais()', 'd70ec700a5689dc2d76cf71ce30f5a12'),
-      ('public._integracao_extras(uuid)', 'b8c04fffcc1e757b9dc525bd4eda526b'),
+      ('public._integracao_extras(uuid)', '2de51abd64e618d40454daf45bd5135a'),
       ('public._integracao_assinar(jsonb)', 'bbe03c7d24dc3a470387c0164073146b'),
       ('public._integracao_logar(uuid,text,uuid,jsonb,text)', '52b347ee02742906c19765c46e8cfec4')
     ) AS x(f, md5) LOOP
@@ -57,6 +57,19 @@ END
 $guarda$;
 
 LOCK TABLE public.integracao_config, public.integracao_produtos, public.integracao_linhas IN EXCLUSIVE MODE;
+
+-- G-MIGRATION L2: o teto é reconferido DEPOIS do LOCK (a contagem da guarda é só pré-checagem)
+DO $teto$
+DECLARE
+  v_n integer;
+BEGIN
+  SELECT count(*) INTO v_n FROM public.integracao_produtos p
+   WHERE p.estado = 'integravel' AND NOT (p.campos @> ARRAY['colecao', 'categoria_tecido', 'linha']::text[]);
+  IF v_n > 1000 THEN
+    RAISE EXCEPTION 'i3c: % integraveis a reprocessar sob o LOCK (teto 1000) - dividir a janela', v_n USING ERRCODE = 'P0001';
+  END IF;
+END
+$teto$;
 
 CREATE TABLE IF NOT EXISTS public._bkp_i3c_reprocesso (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
