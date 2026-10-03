@@ -78,18 +78,22 @@ function UsuariosLojaPage() {
     onError: (e: Error) => toast.error(mensagemErro(e)),
   });
 
+  // Reforço de segurança S1 (USR-1): só os usuários da LOJA ATIVA, com a loja na queryKey — sem o filtro o super admin via
+  // os usuários de TODAS as lojas (a RLS dele vê tudo) e, ao trocar de loja, a lista velha da loja anterior.
+  // As invalidações seguem por PREFIXO (["loja", "users"]).
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ["loja", "users"],
+    queryKey: ["loja", "users", tenantId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("users")
         .select("id,nome,email,role,ativo,papel_id")
+        .eq("tenant_id", tenantId)
         .neq("role", "super_admin")
         .order("nome");
       if (error) throw error;
       return data as LojaUser[];
     },
-    enabled: isTenantAdmin || isSuperAdmin,
+    enabled: (isTenantAdmin || isSuperAdmin) && !!tenantId,
   });
 
   const { sorted, sortKey, sortDir, toggle } = useSort(users, { key: "nome" });

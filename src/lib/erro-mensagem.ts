@@ -199,6 +199,37 @@ function mensagemOcAviamento(code: string, msg: string): string | null {
   return null;
 }
 
+// Reforço de segurança S1 (out/2026, migrations 20261031100000..150000): recusas novas do banco em ASCII com prefixo (regra
+// "RAISE só ASCII") → texto PT. 42501 = sem permissão (403); P0001 = regra de negócio (400).
+export const MENSAGENS_SEG_S1 = {
+  usuario_proprio: "Você não pode alterar o seu próprio papel, status ou e-mail. Peça ao administrador da loja.",
+  explosao_protegida:
+    "O envio à Explosão só muda pelos botões \"Enviar à Explosão\" e \"Voltar ao Desenvolvimento\". Recarregue o card e tente de novo.",
+  ordem_com_explosao: "Este card já foi enviado à Explosão — a Ordem de Criação não pode ser cancelada.",
+  cad_sem_ordem: "Envie a Ordem de Criação antes de gravar o CAD.",
+  preco_comprado_derivado:
+    "O preço de venda do produto comprado vem do markup ou do preço fixo do produto — edite por lá.",
+  preco_anterior_sem_permissao: "Você não tem permissão para editar o Preço anterior (a mesma do preço de venda).",
+  modulo_producao_desligado: "O módulo Produção não está habilitado para esta loja.",
+  sem_permissao_cq: "Você não tem permissão para editar o Controle de Qualidade.",
+  cad_nao_encontrado: "CAD não encontrado nesta loja. Recarregue a tela.",
+} as const;
+export function mensagemSegS1(code: string, msg: string): string | null {
+  if (code === "42501") {
+    for (const prefixo of ["usuario_proprio", "explosao_protegida", "preco_comprado_derivado", "preco_anterior_sem_permissao",
+      "modulo_producao_desligado", "sem_permissao_cq"] as const) {
+      if (msg.startsWith(prefixo + ":")) return MENSAGENS_SEG_S1[prefixo];
+    }
+    if (msg.startsWith("nao_autenticado:")) return TEXTO_SESSAO_EXPIRADA;
+  }
+  if (code === "P0001") {
+    for (const prefixo of ["ordem_com_explosao", "cad_sem_ordem", "cad_nao_encontrado"] as const) {
+      if (msg.startsWith(prefixo + ":")) return MENSAGENS_SEG_S1[prefixo];
+    }
+  }
+  return null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -267,6 +298,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Leves L3: prefixos ASCII (P0001) do reprovado na Explosão e do Formato da REF → texto PT.
   const levesL3 = mensagemLevesL3(code, msg);
   if (levesL3) return levesL3;
+
+  // Reforço de segurança S1: prefixos ASCII (42501/P0001) das guardas novas → texto PT.
+  const segS1 = mensagemSegS1(code, msg);
+  if (segS1) return segS1;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;

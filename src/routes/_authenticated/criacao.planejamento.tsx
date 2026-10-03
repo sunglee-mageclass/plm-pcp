@@ -18,6 +18,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { MoListaSection } from "@/components/planejamento/MoListaSection";
 import { type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
@@ -161,10 +162,13 @@ function PlanejamentoPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   // Presença por campo NO CANVAS (ring nos campos inline dos cards — preço/data de lançamento).
   // Canal único por página (barato); o campoFocado codifica `<campo>:<modeloId>` do card focado.
+  // Reforço de segurança S1 (achado S1): o canal leva a LOJA ATIVA no nome — presença/broadcast não passam por RLS, e o
+  // canal fixo antigo mostrava nomes e o card/campo em edição de OUTRAS lojas. Sem loja resolvida = canal desligado.
+  const tenantIdCanvas = useActiveTenantId();
   const [campoFocadoCanvas, setCampoFocadoCanvas] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
   const { presentes: presentesCanvas } = useColabPresencaPagina({
-    canal: "colab-canvas:planejamento",
+    canal: tenantIdCanvas ? `colab-canvas:planejamento:${tenantIdCanvas}` : null,
     campoFocado: campoFocadoCanvas,
   });
   // Deep-link `?modelo=<id>` (ver Route.validateSearch acima) — abre o card uma vez ao montar;

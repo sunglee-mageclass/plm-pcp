@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 
 /**
@@ -84,10 +85,12 @@ export function LinhasCard({ onChanged, readOnly }: { onChanged?: () => void; re
   // vale avisar "alguém está editando", conflito editor×editor é raro). Linhas é uma GRADE de N
   // linhas, não 1 registro — sem id único de âncora — então usa `useColabPresencaPagina` (canal
   // fixo por-página, mesmo padrão do canvas do Planejamento/Explosão), não `useColabRegistro`.
+  // Reforço de segurança S1 (achado S1): canal com a LOJA ATIVA no nome (o fixo vazava nomes entre lojas).
+  const tenantIdColab = useActiveTenantId();
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
   const { presentes: presentesColab } = useColabPresencaPagina({
-    canal: "colab-canvas:linhas",
+    canal: tenantIdColab ? `colab-canvas:linhas:${tenantIdColab}` : null,
     campoFocado: campoFocadoColab,
   });
 
