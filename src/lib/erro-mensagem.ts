@@ -230,6 +230,23 @@ export function mensagemSegS1(code: string, msg: string): string | null {
   return null;
 }
 
+// Reforço de segurança S2 (out/2026, migrations 20261031200000..220000): Financeiro por aba NO SERVIDOR (P-232 = D3 A) e o
+// módulo Financeiro nas RPCs (C6) — recusas 42501 ASCII com prefixo → texto PT.
+export const MENSAGENS_SEG_S2 = {
+  financeiro_sem_permissao:
+    "Você não tem permissão para editar parcelas de OC (Financeiro › OCs ou Calendário). Peça ao administrador da loja.",
+  financeiro_servicos_sem_permissao:
+    "Você não tem permissão para editar parcelas de Serviços (Financeiro › Serviços). Peça ao administrador da loja.",
+  modulo_financeiro_desligado: "O módulo Financeiro não está habilitado para esta loja.",
+} as const;
+export function mensagemSegS2(code: string, msg: string): string | null {
+  if (code !== "42501") return null;
+  for (const prefixo of ["financeiro_servicos_sem_permissao", "financeiro_sem_permissao", "modulo_financeiro_desligado"] as const) {
+    if (msg.startsWith(prefixo + ":")) return MENSAGENS_SEG_S2[prefixo];
+  }
+  return null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -302,6 +319,9 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Reforço de segurança S1: prefixos ASCII (42501/P0001) das guardas novas → texto PT.
   const segS1 = mensagemSegS1(code, msg);
   if (segS1) return segS1;
+  // Reforço de segurança S2: Financeiro por aba / módulo Financeiro (42501 ASCII) → texto PT.
+  const segS2 = mensagemSegS2(code, msg);
+  if (segS2) return segS2;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;
