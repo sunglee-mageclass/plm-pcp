@@ -1469,12 +1469,19 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   - **Escrita DIRETA da tela** nas OCs: grant por coluna + gatilho `trg_aaa_seg_pagina` (BEFORE I/U/D, função **SECURITY
     INVOKER** que só morde `current_user` authenticated/anon — RPC DEFINER, CASCADE de FK, migration e `service_role` passam; SEM
     GUC nova). `ocs_tecido`: UPDATE só em `nfs`, `recebimento_responsavel_id/_nome`, `rolo_codigo`, `numero_pedido`, `rolo_rua`,
-    `rolo_prateleira` (página OC Tecido; só o endereço do rolo: OC Tecido OU `cadastro_tecidos`). `ocs_tecido_itens`: UPDATE só em
+    `rolo_prateleira` (página OC Tecido; só o endereço do rolo: OC Tecido OU `cadastro_tecidos`; `numero_pedido`/`rolo_codigo`
+    direto SÓ em rolo — OC comum = 42501 `oc_numero_so_pela_rpc:`, muda pelo `salvar_oc_tecido`). `ocs_tecido_itens`: UPDATE só em
     `cq_ok/cq_observacao/cq_alerta_status/cancelado` (OC Tecido OU Alertas). `ocs_aviamento`: UPDATE `nfs` + DELETE (OC
     Aviamento). `ocs_etiqueta`: UPDATE `data_nota_entrada` + DELETE (OC Insumo). **N8:** `valor_real_total`/`status`/a Nota de
     tecido e aviamento só pelas RPCs. `ocs_p_acabado`, `ocs_importado`, `ocs_importado_etapas` e as 4 `ordens_saida_*`: o cliente
     só lê. anon sem escrita nas 11. ⚠️ **Coluna NOVA que a tela grave direto nessas tabelas precisa de `GRANT UPDATE (col)`**
     (senão 42501 "permission denied for column").
+  - **Alertas de Tecido (P-245 A):** os botões que gravam (Estilo OK, observação, troca, cancelar/reabrir rolo ou variante,
+    receber reposição/desfazer troca) exigem EDITAR Alertas OU OC Tecido no servidor E **SOMEM da tela** para quem só vê
+    (`AlertaCard`/`podeEditarAlertas`/`PAGINAS_EDITAR_ALERTAS` em `CqTecido.tsx` = o MESMO OU do servidor, anti-drift em
+    `tests/unit/alertas-tecido-somente-leitura.test.ts`); a observação vira texto. A rota usa `RequirePermission
+    editarCom={PAGINAS_EDITAR_ALERTAS}` (prop nova: páginas que também dão edição, sem abrir a tela) e a lista aplica
+    `ReadOnlyScope` pelo mesmo OU. Aba antiga que ainda clicar recebe a mensagem PT do servidor.
   - Ensaio: `S3A_TXN=1` (gancho em `db.ts`); `voltaS3aSePreciso` (LIFO) roda dentro de `aplicaS2`/`voltaS2`/`voltaS2SePreciso`.
     Testes `tests/integration/seg-s3a.test.ts` (como o PAPEL authenticated com JWT de usuário comum). Volta **LIFO**: `120000_down`
     (neutraliza as 4 funções de gatilho) → `110000_down` (GRANT de volta) → `100000_down` (34 textos de antes; o helper fica
