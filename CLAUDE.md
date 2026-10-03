@@ -1357,6 +1357,11 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   antes de `20261006120000`; R14 antes de `20261013100000` e `20261018100000`; L3 antes de `20261008100000` (Integração delta 7) e
   `20261013100000`; R16, L8 e L9 antes de `20261002100000`; L8 antes de `20261014100000`, `20261016100000` e `20261017100000`; R16
   antes de `20261019100000`, `20261020110000` e `20261020120000` (a recusa é a proteção; a ordem certa sai da LIFO).
+  **Soltar o freio da R15a ou REFAZER a ida depois de uma volta** com a L6 no banco exige ANTES o `_down_drop` da L6 (DROP TRIGGER →
+  prende auth/storage até o COMMIT: horário calmo); o kit `savepoints/pre-deploy-combinado-2026-10-03/` faz isso em
+  `soltar-freio.sh R15a` e a ida PARA indicando `volta-drops.sh L6`. Com a I3 no banco: o freio da L8 recusa (usar a volta da L8) e
+  o da R14 só sai pela volta (I3 → drops da I3 → R14). **I3 e A2 (out/2026)** desfazem PRIMEIRO, nesta ordem: SITE → A2
+  (`20261030130000_down`) → I3c → I3b → I3a — antes dos inversos da L9/L8/R14.
 
 ## O que NÃO fazer
 
