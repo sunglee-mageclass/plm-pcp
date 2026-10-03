@@ -8,6 +8,9 @@ import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
 interface Props {
   page?: string;
   anyOf?: string[];
+  /** Páginas que TAMBÉM dão edição nesta tela (o OU que o servidor aceita; ex.: Alertas de Tecido = Alertas OU OC Tecido).
+   *  Não abrem a tela (ver continua exigindo `page`/`anyOf`) — só evitam o selo "somente leitura" para quem edita pelo OU. */
+  editarCom?: readonly string[];
   children: ReactNode;
 }
 
@@ -30,7 +33,7 @@ export function ReadOnlyScope({ value, children }: { value: boolean; children: R
   return <ReadOnlyContext.Provider value={value}>{children}</ReadOnlyContext.Provider>;
 }
 
-export function RequirePermission({ page, anyOf, children }: Props) {
+export function RequirePermission({ page, anyOf, editarCom, children }: Props) {
   const { canView, canEdit, loading } = useAuth();
   const { isStockOnly, firstActiveModulePath, isLoading: modulesLoading } = useTenantModules();
   if (loading || modulesLoading) {
@@ -64,7 +67,8 @@ export function RequirePermission({ page, anyOf, children }: Props) {
 
   const editable =
     (page ? canEdit(page) : false) ||
-    (anyOf ? anyOf.some((p) => canEdit(p)) : false);
+    (anyOf ? anyOf.some((p) => canEdit(p)) : false) ||
+    (editarCom ? editarCom.some((p) => canEdit(p)) : false);
   if (editable) return <>{children}</>;
 
   return (

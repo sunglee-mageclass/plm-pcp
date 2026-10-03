@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useAuth } from "@/hooks/useAuth";
+import { ReadOnlyScope } from "@/components/RequirePermission";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -316,9 +318,105 @@ export function OcCqSection({ ocId }: { ocId: string }) {
   );
 }
 
+// P-245 A (Reforço de segurança S3a, fix round 1): os botões dos Alertas GRAVAM — exigem EDITAR Alertas de Tecido OU OC Tecido
+// (o MESMO OU do servidor: aplicar_resolucao_alerta_tecido, receber_reposicao_troca, cancelar/reabrir/trocar_rolo e o gatilho de
+// ocs_tecido_itens) e SOMEM da tela para quem só vê. Se uma aba antiga ainda clicar, o servidor recusa com a mensagem PT.
+export const PAGINAS_EDITAR_ALERTAS = ["entrada_alertas_tecido", "entrada_oc_tecido"] as const;
+export function podeEditarAlertas(canEdit: (pagina: string) => boolean): boolean {
+  return PAGINAS_EDITAR_ALERTAS.some((p) => canEdit(p));
+}
+
+type AlertaAcoes = {
+  ocupado: { resol: boolean; resolRolo: boolean; reabrirRolo: boolean };
+  onEstiloOk: (it: CqItem) => void;
+  onTroca: (it: CqItem) => void;
+  onCancelar: (it: CqItem) => void;
+  onReabrir: (it: CqItem) => void;
+  onReceber: (it: CqItem) => void;
+};
+
+/** Cartão de um alerta. Sem `podeEditar` (só VÊ a página): nenhum botão e a observação só como texto (P-245 A). */
+export function AlertaCard({ it, podeEditar, update, acoes }: {
+  it: CqItem; podeEditar: boolean; update: ReturnType<typeof useCqUpdate>; acoes: AlertaAcoes;
+}) {
+  const badge = STATUS_BADGE[it.cq_alerta_status];
+  const resolvido = RESOLVIDOS.includes(it.cq_alerta_status);
+  return (
+            <Card className="p-3 border-amber-500/40 bg-amber-500/5 space-y-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{it.artigo}</span>
+                    <span className="text-muted-foreground">· {it.variante}</span>
+                    <Badge variant="outline">{it.is_rolo ? "Rolo" : "OC"} {it.oc_numero ?? "—"}</Badge>
+                    {badge && <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}
+                  </div>
+                  {podeEditar ? (
+                    <ObsField item={it} update={update} />
+                  ) : it.cq_observacao ? (
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap" data-testid="alerta-obs-leitura">{it.cq_observacao}</p>
+                  ) : null}
+                </div>
+              </div>
+
+              {podeEditar && (
+              <div className="flex flex-wrap items-center gap-2 pl-6">
+                {resolvido ? (
+                  !it.is_rolo && it.cq_alerta_status === "trocado" ? (
+                    // Troca concluída (reposição recebida): não dá p/ reabrir sem estornar
+                    // o recebimento — o botão erraria. Mostra o estado final.
+                    <span className="text-xs text-muted-foreground">Troca concluída (reposição recebida).</span>
+                  ) : (
+                    <Button size="sm" variant="outline" disabled={acoes.ocupado.resol || acoes.ocupado.reabrirRolo} onClick={() => acoes.onReabrir(it)}>
+                      <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
+                    </Button>
+                  )
+                ) : it.cq_alerta_status === "troca_pendente" ? (
+                  <>
+                    <Button size="sm" onClick={() => acoes.onReceber(it)}>
+                      <Check className="h-4 w-4 mr-1" /> Receber reposição
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={acoes.ocupado.resol} onClick={() => acoes.onReabrir(it)}>
+                      <RotateCcw className="h-4 w-4 mr-1" /> Desfazer troca
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" disabled={acoes.ocupado.resol || acoes.ocupado.resolRolo} onClick={() => acoes.onEstiloOk(it)}>
+                      <Check className="h-4 w-4 mr-1" /> Estilo OK
+                    </Button>
+                    {/* Rolo: troca/cancelar próprios (sem financeiro). OC: fluxo normal.
+                        Rolo já em uso (consumido ou selecionado no Dev) não troca/cancela. */}
+                    <Button size="sm" variant="outline"
+                      disabled={!!it.is_rolo && !!it.usado}
+                      title={it.is_rolo && it.usado ? "Rolo em uso (consumido ou selecionado em Desenvolvimento) — não pode ser trocado." : undefined}
+                      onClick={() => acoes.onTroca(it)}>
+                      <Repeat className="h-4 w-4 mr-1" /> Troca
+                    </Button>
+                    <Button size="sm" variant="outline"
+                      className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                      disabled={!!it.is_rolo && !!it.usado}
+                      title={it.is_rolo && it.usado ? "Rolo em uso (consumido ou selecionado em Desenvolvimento) — não pode ser cancelado." : undefined}
+                      onClick={() => acoes.onCancelar(it)}>
+                      <Ban className="h-4 w-4 mr-1" /> {it.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
+                    </Button>
+                    {it.is_rolo && it.usado && (
+                      <span className="text-xs text-muted-foreground">Rolo em uso — bloqueado.</span>
+                    )}
+                  </>
+                )}
+              </div>
+              )}
+            </Card>
+  );
+}
+
 // ───────────────────────── Alertas (página do estilo) ─────────────────────────
 export function AlertasList() {
   const qc = useQueryClient();
+  const { canEdit } = useAuth();
+  const podeEditar = podeEditarAlertas(canEdit);
   const { items, isLoading } = useFlatCqItems();
   const update = useCqUpdate();   // observação
   const resol = useResolucao();   // ações (recalculam valor + parcelas) — só p/ OC
@@ -384,6 +482,7 @@ export function AlertasList() {
   if (isLoading) return <p className="text-sm text-muted-foreground py-12 text-center">Carregando…</p>;
 
   return (
+    <ReadOnlyScope value={!podeEditar}>
     <div className="space-y-4">
       <div className="flex rounded-md border p-0.5 w-fit">
         <Button size="sm" variant={aba === "pendentes" ? "secondary" : "ghost"} onClick={() => setAba("pendentes")}>Pendentes</Button>
@@ -395,73 +494,22 @@ export function AlertasList() {
           {aba === "pendentes" ? "Nenhum alerta de estilo pendente." : "Nenhum alerta resolvido."}
         </p>
       ) : (
-        lista.map((it) => {
-          const badge = STATUS_BADGE[it.cq_alerta_status];
-          const resolvido = RESOLVIDOS.includes(it.cq_alerta_status);
-          return (
-            <Card key={it.id} className="p-3 border-amber-500/40 bg-amber-500/5 space-y-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{it.artigo}</span>
-                    <span className="text-muted-foreground">· {it.variante}</span>
-                    <Badge variant="outline">{it.is_rolo ? "Rolo" : "OC"} {it.oc_numero ?? "—"}</Badge>
-                    {badge && <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}
-                  </div>
-                  <ObsField item={it} update={update} />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 pl-6">
-                {resolvido ? (
-                  !it.is_rolo && it.cq_alerta_status === "trocado" ? (
-                    // Troca concluída (reposição recebida): não dá p/ reabrir sem estornar
-                    // o recebimento — o botão erraria. Mostra o estado final.
-                    <span className="text-xs text-muted-foreground">Troca concluída (reposição recebida).</span>
-                  ) : (
-                    <Button size="sm" variant="outline" disabled={resol.isPending || reabrirRoloMut.isPending} onClick={() => setConfirmReabrir(it)}>
-                      <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
-                    </Button>
-                  )
-                ) : it.cq_alerta_status === "troca_pendente" ? (
-                  <>
-                    <Button size="sm" onClick={() => setReceber(it)}>
-                      <Check className="h-4 w-4 mr-1" /> Receber reposição
-                    </Button>
-                    <Button size="sm" variant="outline" disabled={resol.isPending} onClick={() => setConfirmReabrir(it)}>
-                      <RotateCcw className="h-4 w-4 mr-1" /> Desfazer troca
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button size="sm" variant="outline" disabled={resol.isPending || resolRolo.isPending} onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "estilo_ok" }) : resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
-                      <Check className="h-4 w-4 mr-1" /> Estilo OK
-                    </Button>
-                    {/* Rolo: troca/cancelar próprios (sem financeiro). OC: fluxo normal.
-                        Rolo já em uso (consumido ou selecionado no Dev) não troca/cancela. */}
-                    <Button size="sm" variant="outline"
-                      disabled={!!it.is_rolo && !!it.usado}
-                      title={it.is_rolo && it.usado ? "Rolo em uso (consumido ou selecionado em Desenvolvimento) — não pode ser trocado." : undefined}
-                      onClick={() => it.is_rolo ? setTrocaRolo(it) : setTroca(it)}>
-                      <Repeat className="h-4 w-4 mr-1" /> Troca
-                    </Button>
-                    <Button size="sm" variant="outline"
-                      className="text-destructive border-destructive/40 hover:bg-destructive/10"
-                      disabled={!!it.is_rolo && !!it.usado}
-                      title={it.is_rolo && it.usado ? "Rolo em uso (consumido ou selecionado em Desenvolvimento) — não pode ser cancelado." : undefined}
-                      onClick={() => setConfirmCancel(it)}>
-                      <Ban className="h-4 w-4 mr-1" /> {it.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
-                    </Button>
-                    {it.is_rolo && it.usado && (
-                      <span className="text-xs text-muted-foreground">Rolo em uso — bloqueado.</span>
-                    )}
-                  </>
-                )}
-              </div>
-            </Card>
-          );
-        })
+        lista.map((it) => (
+          <AlertaCard
+            key={it.id}
+            it={it}
+            podeEditar={podeEditar}
+            update={update}
+            acoes={{
+              ocupado: { resol: resol.isPending, resolRolo: resolRolo.isPending, reabrirRolo: reabrirRoloMut.isPending },
+              onEstiloOk: (x) => (x.is_rolo ? resolRolo.mutate({ id: x.id, status: "estilo_ok" }) : resol.mutate({ item_id: x.id, acao: "estilo_ok" })),
+              onTroca: (x) => (x.is_rolo ? setTrocaRolo(x) : setTroca(x)),
+              onCancelar: (x) => setConfirmCancel(x),
+              onReabrir: (x) => setConfirmReabrir(x),
+              onReceber: (x) => setReceber(x),
+            }}
+          />
+        ))
       )}
 
       <AlertDialog open={!!confirmCancel} onOpenChange={(o) => !o && setConfirmCancel(null)}>
@@ -549,6 +597,7 @@ export function AlertasList() {
         </Dialog>
       )}
     </div>
+    </ReadOnlyScope>
   );
 }
 

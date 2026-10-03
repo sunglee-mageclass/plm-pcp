@@ -2,11 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
 
 import { RequirePermission } from "@/components/RequirePermission";
-import { AlertasList } from "@/components/oc-tecido/CqTecido";
+import { AlertasList, PAGINAS_EDITAR_ALERTAS } from "@/components/oc-tecido/CqTecido";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/alertas-tecido")({
   component: () => (
-    <RequirePermission page="entrada_alertas_tecido">
+    <RequirePermission page="entrada_alertas_tecido" editarCom={PAGINAS_EDITAR_ALERTAS}>
       <div className="container mx-auto p-3 sm:p-6 space-y-6">
         <header className="flex items-start gap-3">
           <AlertTriangle className="h-7 w-7 text-primary mt-0.5 shrink-0" />
