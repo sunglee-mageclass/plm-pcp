@@ -11,6 +11,7 @@ import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
 import { MENSAGEM_CHAVE_KANBAN_MUDOU } from "@/lib/kanban-auto-config";
 import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "@/lib/categoria-card-produto";
 import { TEXTO_REF_FORMATO_SEM_NUMERO, textoRefSiglaComDigito } from "@/lib/ref-montar";
+import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 
 /** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
  *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
@@ -247,6 +248,43 @@ export function mensagemSegS2(code: string, msg: string): string | null {
   return null;
 }
 
+// Reforço de segurança S3 (out/2026, S3a = migrations 20261101100000..120000): permissão de PÁGINA no servidor (P-231 = D2 A).
+// O banco recusa com 42501 'sem_permissao_pagina: <chave>|<chave>' (ASCII; chaves do permissions-catalog, OU entre elas) — a tela
+// mostra o rótulo da página ("Módulo › Página", várias do mesmo módulo juntas: "Entrada e Saída › Alertas de Tecido ou OC Tecido").
+export const PREFIXO_SEM_PERMISSAO_PAGINA = "sem_permissao_pagina:";
+export const MENSAGENS_SEG_S3 = {
+  sem_permissao_pagina: (paginas: string) => `Você não tem permissão para editar ${paginas}. Peça ao administrador da loja.`,
+  sem_permissao_pagina_generica: "Você não tem permissão para editar esta tela. Peça ao administrador da loja.",
+} as const;
+/** "Módulo › Página" de uma chave do catálogo (seção: "Módulo › Página › Seção"); chave desconhecida = a própria chave. */
+export function rotuloPaginaPermissao(chave: string): { modulo: string; pagina: string } {
+  for (const m of PAGES_CATALOG) {
+    for (const p of m.pages) {
+      if (p.key === chave) return { modulo: m.label, pagina: p.label };
+      const sec = p.sections?.find((x) => x.key === chave);
+      if (sec) return { modulo: m.label, pagina: `${p.label} › ${sec.label}` };
+    }
+  }
+  return { modulo: "", pagina: chave };
+}
+export function textoSemPermissaoPagina(chaves: string[]): string {
+  const limpas = chaves.map((k) => k.trim()).filter(Boolean);
+  if (!limpas.length) return MENSAGENS_SEG_S3.sem_permissao_pagina_generica;
+  const porModulo = new Map<string, string[]>();
+  for (const k of limpas) {
+    const { modulo, pagina } = rotuloPaginaPermissao(k);
+    const lista = porModulo.get(modulo) ?? [];
+    if (!lista.includes(pagina)) lista.push(pagina);
+    porModulo.set(modulo, lista);
+  }
+  const partes = [...porModulo.entries()].map(([modulo, paginas]) => (modulo ? `${modulo} › ` : "") + paginas.join(" ou "));
+  return MENSAGENS_SEG_S3.sem_permissao_pagina(partes.join(" ou "));
+}
+export function mensagemSegS3(code: string, msg: string): string | null {
+  if (code !== "42501" || !msg.startsWith(PREFIXO_SEM_PERMISSAO_PAGINA)) return null;
+  return textoSemPermissaoPagina(msg.slice(PREFIXO_SEM_PERMISSAO_PAGINA.length).split("|"));
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -322,6 +360,9 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Reforço de segurança S2: Financeiro por aba / módulo Financeiro (42501 ASCII) → texto PT.
   const segS2 = mensagemSegS2(code, msg);
   if (segS2) return segS2;
+  // Reforço de segurança S3: permissão de página no servidor (42501 ASCII 'sem_permissao_pagina: <chaves>') → texto PT.
+  const segS3 = mensagemSegS3(code, msg);
+  if (segS3) return segS3;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;
