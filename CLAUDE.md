@@ -580,6 +580,9 @@ e verifique** — o repo muda rápido.
    com X pela entrada de `public`). Consequências: RPC nova já nasce sem anon (o REVOKE dos 3 do `_core` continua obrigatório —
    authenticated ainda ganha X); pós-condição de migration que compare `proacl` de função NOVA não vê mais `=X/` nem `anon=X/`;
    helper novo usado em policy lida pelo anon (hoje só `system_settings`) precisa de `GRANT EXECUTE … TO anon` explícito.
+   ⚠️ O `ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` é GLOBAL (vale para TODOS os
+   schemas): função/extensão nova criada pelo `postgres` FORA de `public` também nasce sem EXECUTE para PUBLIC (dê o GRANT
+   explícito se precisar).
    Anti-drift: `tests/integration/seg-s1.test.ts` (nenhuma DEFINER executável pelo anon além dos 4).
 10. **Direcionamento MULTI-LOJAS (ago/2026)** — a Grade Real é distribuída em **N linhas
     digitáveis, uma por loja** do cadastro `lojas_direcionamento` (Cadastro > Lojas;
@@ -1398,13 +1401,16 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     `enviado_cad` tem de fazer o mesmo** (senão 42501 `explosao_protegida:`); Ordem de Criação true→false com o card na
     Explosão = P0001 `ordem_com_explosao:`; `_salvar_cad_completo_core` não CRIA CAD sem a Ordem (P0001 `cad_sem_ordem:`).
   - **S5:** `modelos.preco_anterior` exige a seção `criacao_planejamento:preco_venda` (42501 `preco_anterior_sem_permissao:`);
-    escrita feita de DENTRO de outro gatilho (`pg_trigger_depth() > 1`, ex.: congelar ao excluir versão) passa.
+    escrita feita de DENTRO de outro gatilho (`pg_trigger_depth() > 1`, ex.: congelar ao excluir versão) passa. ⚠️ Por isso
+    **gatilho NOVO que copie valor vindo do cliente para `preco_anterior` FURA a S5** (roda com `pg_trigger_depth() > 1`) — ele
+    mesmo tem de conferir `user_can_edit('criacao_planejamento:preco_venda')`.
   - **B1b:** `preco_venda` de comprado (revenda/importado) só muda com a GUC **`app.preco_comprado_sistema='on'`** (ligada e
     RESTAURADA por `_pa_recomputar_precos_modelo`/`_imp_recomputar_precos_modelo`) — PATCH direto = 42501 `preco_comprado_derivado:`.
   - As regras novas da guarda de `modelos` (`fn_modelo_preco_venda_gate`) e do MOD-1 NÃO mordem sem JWT (migration/psql) nem
     `service_role` (manutenção). A regra antiga do preço de venda interno segue igual.
   - **C5:** `cq_set_oficina_desconto_multa` exige módulo Produção + `user_can_edit('producao_cq')`. **DIR-1:**
-    `confirmar_direcionamento` confere login + loja do CAD ANTES do `_cq_liberado` (fim do oráculo; P0001 `cad_nao_encontrado:`).
+    `confirmar_direcionamento` (as DUAS sobrecargas — 3 args da tela e a antiga de 2 args, que segue com EXECUTE p/ authenticated
+    por causa de aba antiga) confere login + loja do CAD ANTES do `_cq_liberado` (fim do oráculo; P0001 `cad_nao_encontrado:`).
   - **OPT-1:** `etapas_pl` é opt-in também no servidor (`tenant_module_enabled`). **PI-r:** `_sync_foto_modelo_do_produto` só
     toca o card da mesma loja. ANON-1/ANON-2/PRIV-2: ver invariante 9.
   - Front: canais de presença do canvas com a loja no nome (`colab-canvas:planejamento:<tenant>`, `colab-canvas:linhas:<tenant>`

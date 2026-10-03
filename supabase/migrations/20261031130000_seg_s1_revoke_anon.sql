@@ -6,7 +6,8 @@
 -- ANON-2: REVOKE EXECUTE FROM PUBLIC, anon, authenticated nas funcoes de GATILHO SECURITY DEFINER (o gatilho continua
 -- disparando: EXECUTE so e conferido no CREATE TRIGGER).
 -- C5: cq_set_oficina_desconto_multa exige modulo Producao + user_can_edit('producao_cq').
--- DIR-1: confirmar_direcionamento confere login + loja do CAD antes do _cq_liberado (fim do oraculo).
+-- DIR-1: confirmar_direcionamento (as 2 sobrecargas: 3 args da tela e 2 args antiga) confere login + loja do CAD antes
+-- do _cq_liberado (fim do oraculo).
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.cq_set_oficina_desconto_multa(uuid,numeric,numeric)
 --     ANTES  47b8d71b87c932628d3246b34b735af2
@@ -14,6 +15,9 @@
 --   public.confirmar_direcionamento(uuid,jsonb,jsonb)
 --     ANTES  8ffed432a737ff2694b20176e8460166
 --     DEPOIS eabcf06adce7b406982d69299c116d49
+--   public.confirmar_direcionamento(uuid,jsonb)
+--     ANTES  7ac742b325e289b8c2e069c2cea9216c
+--     DEPOIS f77843db2651601c490bd3c64f4f8030
 -- ====================================================================================
 -- Trava: só catálogo (CREATE OR REPLACE FUNCTION / REVOKE-GRANT EXECUTE / ALTER DEFAULT PRIVILEGES): nenhuma tabela de
 -- negócio, nada de auth/storage. Sem DROP, sem CREATE TRIGGER/POLICY. Idempotente (guarda aceita antes OU depois).
@@ -32,7 +36,8 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.cq_set_oficina_desconto_multa(uuid,numeric,numeric)', '47b8d71b87c932628d3246b34b735af2', '04fcd75c8d467ab07476a43395d27eee'),
-      ('public.confirmar_direcionamento(uuid,jsonb,jsonb)', '8ffed432a737ff2694b20176e8460166', 'eabcf06adce7b406982d69299c116d49')
+      ('public.confirmar_direcionamento(uuid,jsonb,jsonb)', '8ffed432a737ff2694b20176e8460166', 'eabcf06adce7b406982d69299c116d49'),
+      ('public.confirmar_direcionamento(uuid,jsonb)', '7ac742b325e289b8c2e069c2cea9216c', 'f77843db2651601c490bd3c64f4f8030')
     ) AS x(f, antes, depois) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.antes, r.depois) THEN
@@ -104,6 +109,32 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
   PERFORM public._salvar_direcionamento_core(_cad_id, _rows, true, true, _rev_base);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.confirmar_direcionamento(_cad_id uuid, _rows jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid;  -- [seg s1 DIR-1]
+BEGIN
+  -- [seg s1 DIR-1] login + loja do CAD ANTES do _cq_liberado: sem isto, com um UUID, quem nao esta logado (ou outra loja)
+  -- descobria se o CQ do CAD esta liberado. Nao encontrado = outra loja (mesma resposta: sem oraculo). ASCII.
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'nao_autenticado: faca login de novo' USING ERRCODE = '42501';
+  END IF;
+  SELECT c.tenant_id INTO v_tenant FROM public.cad c WHERE c.id = _cad_id;
+  IF v_tenant IS NULL OR (v_tenant <> public.get_user_tenant_id() AND NOT public.is_super_admin()) THEN
+    RAISE EXCEPTION 'cad_nao_encontrado: CAD nao encontrado nesta loja' USING ERRCODE = 'P0001';
+  END IF;
+  IF NOT public._cq_liberado(_cad_id) THEN
+    RAISE EXCEPTION 'O Controle de Qualidade deste modelo não está liberado — confirme o CQ (Pré e, se houver acabamento, o Pós) antes de confirmar o Direcionamento.'
+      USING ERRCODE = '42501';
+  END IF;
+  PERFORM public._salvar_direcionamento_core(_cad_id, _rows, true, true);
 END;
 $function$;
 
@@ -344,7 +375,8 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.cq_set_oficina_desconto_multa(uuid,numeric,numeric)', '04fcd75c8d467ab07476a43395d27eee'),
-      ('public.confirmar_direcionamento(uuid,jsonb,jsonb)', 'eabcf06adce7b406982d69299c116d49')
+      ('public.confirmar_direcionamento(uuid,jsonb,jsonb)', 'eabcf06adce7b406982d69299c116d49'),
+      ('public.confirmar_direcionamento(uuid,jsonb)', 'f77843db2651601c490bd3c64f4f8030')
     ) AS x(f, m) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.m THEN

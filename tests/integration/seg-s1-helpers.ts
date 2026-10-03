@@ -33,6 +33,8 @@ export const S1_MD5: Record<string, { antes: string; depois: string }> = {
   "public._imp_recomputar_precos_modelo(uuid)": { antes: "bbda77c40c515686a4307a563749b3dc", depois: "1c525cb7ab309240c6fec182f59d58a8" },
   "public.cq_set_oficina_desconto_multa(uuid,numeric,numeric)": { antes: "47b8d71b87c932628d3246b34b735af2", depois: "04fcd75c8d467ab07476a43395d27eee" },
   "public.confirmar_direcionamento(uuid,jsonb,jsonb)": { antes: "8ffed432a737ff2694b20176e8460166", depois: "eabcf06adce7b406982d69299c116d49" },
+  // fix round 1 (BAIXO-1): a sobrecarga antiga de 2 argumentos também confere login + loja antes do _cq_liberado
+  "public.confirmar_direcionamento(uuid,jsonb)": { antes: "7ac742b325e289b8c2e069c2cea9216c", depois: "f77843db2651601c490bd3c64f4f8030" },
   "public.tenant_module_enabled(text)": { antes: "843163ccc128c53753ed08d3e4041cb3", depois: "ddd46592f2ff7cdb352778c605ecd8a4" },
   "public._sync_foto_modelo_do_produto()": { antes: "c0892e7c9fed1d47b9256fc8fb61deaf", depois: "59e8a2f84660aad1dc89fabaa3f30735" },
 };

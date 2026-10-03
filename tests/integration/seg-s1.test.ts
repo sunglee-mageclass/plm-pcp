@@ -293,6 +293,39 @@ describe.skipIf(!RODA)("seg S1 — C5 e DIR-1", () => {
   });
 });
 
+describe.skipIf(!RODA)("seg S1 — DIR-1 fix round 1: sobrecarga antiga confirmar_direcionamento(uuid,jsonb)", () => {
+  it("usuário de OUTRA loja com o UUID de um CAD → P0001 cad_nao_encontrado (mesma resposta do inexistente, sem oráculo do CQ); sem login → 42501; authenticated segue com EXECUTE", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const m = await modelo(c, { nome: "S1 DIR1 2ARGS", ordem: true, status: "aprovado" });
+      await jwt(c, SUPER);
+      expect(txt(await como(c, "authenticated", "SELECT public.enviar_modelo_para_cad($1, NULL, NULL)", [m]))).toBe("PASSOU");
+      const cad = (await um<{ id: string }>(c, "SELECT id FROM public.cad WHERE modelo_id = $1", [m])).id;
+      const fake = "00000000-0000-4000-8000-00000000d1d2";
+      const q = "SELECT public.confirmar_direcionamento($1, '[]'::jsonb)";
+      // usuário comum de OUTRA loja (criado na txn)
+      const outraLoja = (await um<{ id: string }>(c, "SELECT id FROM public.tenants WHERE id <> $1 ORDER BY id LIMIT 1", [T])).id;
+      const uOutra = "5e9a0051-0000-4000-8000-0000000000d2";
+      await c.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [uOutra, `${uOutra}@teste`]);
+      await c.query(`INSERT INTO public.users (id, tenant_id, email, nome, role) VALUES ($1, $2, $3, 'S1 outra loja', 'user')
+                     ON CONFLICT (id) DO UPDATE SET tenant_id = excluded.tenant_id`, [uOutra, outraLoja, `${uOutra}@teste`]);
+      await jwt(c, uOutra);
+      const real = txt(await como(c, "authenticated", q, [cad]));
+      const inexistente = txt(await como(c, "authenticated", q, [fake]));
+      expect(real).toBe("P0001 cad_nao_encontrado: CAD nao encontrado nesta loja");
+      expect(inexistente).toBe(real); // sem oráculo: CAD real de outra loja ≡ UUID inexistente
+      await jwt(c, null);
+      expect(txt(await como(c, null, q, [cad]))).toBe("42501 nao_autenticado: faca login de novo");
+      expect(txt(await como(c, "anon", q, [cad]))).toMatch(/^42501 permission denied for function confirmar_direcionamento/);
+      expect((await um<{ p: boolean }>(c,
+        "SELECT has_function_privilege('authenticated', 'public.confirmar_direcionamento(uuid,jsonb)', 'EXECUTE') AS p")).p).toBe(true);
+      // mesma loja: passa das 2 checagens e chega ao _cq_liberado (CQ não liberado = recusa de antes, inalterada)
+      await jwt(c, SUPER);
+      expect(txt(await como(c, "authenticated", q, [cad]))).toMatch(/^42501 O Controle de Qualidade deste modelo/);
+    });
+  });
+});
+
 describe.skipIf(!RODA)("seg S1 — ANON-1/ANON-2/PRIV-2/OPT-1", () => {
   it("has_function_privilege: anon=false nas 52 e nos gatilhos; authenticated=true nas 52 e false nos gatilhos; 4 auxiliares de RLS intocados", async () => {
     await withTx(async (c) => {
