@@ -4,6 +4,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { md5OuSucessorS2 } from "./seg-s2-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const MD5 = {
@@ -125,7 +126,9 @@ describe.skipIf(!RODA)("medios R10 fin #6 — parcelas_servico.vencimento_manual
                 has_function_privilege('anon','public.servicos_financeiro()','EXECUTE') sf_anon,
                 has_function_privilege('authenticated','public.servicos_financeiro()','EXECUTE') sf_auth`,
       );
-      expect(r).toEqual({
+      // Reforço de segurança S2 (C6) redefine servicos_financeiro: aceita o sucessor
+      expect(md5OuSucessorS2("public.servicos_financeiro()", MD5.servicos_financeiro)).toContain(r.sf);
+      expect({ ...r, sf: MD5.servicos_financeiro }).toEqual({
         sf: MD5.servicos_financeiro,
         g: MD5.gatilho,
         rpc: MD5.rpc,
@@ -203,6 +206,28 @@ describe.skipIf(!RODA)("medios R10 fin #6 — parcelas_servico.vencimento_manual
       await tela(c);
       const [p1, p2] = await parcelas(c, pt);
       await ajustarAMao(c, p2.id, "2026-12-25"); // p2 manual
+      // Reforço de segurança S2 (fin #11): o cliente só tem UPDATE em data_vencimento/status/data_pagamento/comprovante_url —
+      // mandar vencimento_manual (ou INSERT) passa a ser RECUSADO (42501) em vez de ignorado; o estado fica igual.
+      const s2 = !(await um<{ v: boolean }>(c,
+        `select has_column_privilege('authenticated', 'public.parcelas_servico', 'vencimento_manual', 'UPDATE') v`)).v;
+      if (s2) {
+        for (const [sql, p] of [
+          [`update parcelas_servico set vencimento_manual = true where id = $1`, [p1.id]],
+          [`update parcelas_servico set vencimento_manual = false where id = $1`, [p2.id]],
+          [`insert into parcelas_servico (tenant_id, producao_terceirizado_id, numero_parcela, data_vencimento, vencimento_manual)
+            values ($1,$2,3,'2027-01-01',true)`, [TENANT_TESTE, pt]],
+        ] as [string, unknown[]][]) {
+          await c.query("SAVEPOINT cli");
+          await c.query("SET LOCAL ROLE authenticated");
+          await expect(c.query(sql, p)).rejects.toMatchObject({ code: "42501" });
+          await c.query("ROLLBACK TO SAVEPOINT cli");
+        }
+        expect((await parcelas(c, pt)).map((p) => [p.n, p.manual])).toEqual([
+          [1, false],
+          [2, true],
+        ]);
+        return;
+      }
       // como o cliente (role authenticated + JWT da Loja Teste)
       await c.query("SAVEPOINT cli");
       await c.query("SET LOCAL ROLE authenticated");

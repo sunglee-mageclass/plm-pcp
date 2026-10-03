@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { withTx, comoUsuario, um, hasDb, TENANT_TESTE, ehBancoLocal } from "./db";
+import { md5OuSucessorS2 } from "./seg-s2-helpers";
 
 // "Desfazer troca" (aplicar_resolucao_alerta_tecido ação 'reabrir' numa troca PENDENTE) tem que
 // desfazer a troca de verdade: remover o item substituto órfão + a entrada vazia do cronograma
@@ -134,7 +135,11 @@ describe.skipIf(!(hasDb && ehBancoLocal()))("Alerta de tecido — preço da comp
                   or has_function_privilege('anon','public._receber_reposicao_troca_core(uuid,date,numeric)','EXECUTE')
                   or has_function_privilege('authenticated','public._receber_reposicao_troca_core(uuid,date,numeric)','EXECUTE') x`,
       );
-      expect(r).toEqual({ a: "e16c604d1ce06fe77151118870c1257c", r: "95fa0b06c2a5835789c8d0c3d10a8eb5", x: false });
+      // Reforço de segurança S2 (C6): as 2 passam a chamar o _recalcular_parcelas_core direto — aceita o sucessor
+      expect(md5OuSucessorS2("public._aplicar_resolucao_alerta_tecido_core(uuid,text,uuid,uuid,numeric)", "e16c604d1ce06fe77151118870c1257c"))
+        .toContain(r.a);
+      expect(md5OuSucessorS2("public._receber_reposicao_troca_core(uuid,date,numeric)", "95fa0b06c2a5835789c8d0c3d10a8eb5")).toContain(r.r);
+      expect(r.x).toBe(false);
     });
   });
 

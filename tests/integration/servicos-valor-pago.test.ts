@@ -3,6 +3,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { md5OuSucessorS2 } from "./seg-s2-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 // texto de servicos_financeiro depois da R10 fin #6 (20261020110000; era daec320c… na 20261019210000) — o valor das
@@ -117,7 +118,10 @@ describe.skipIf(!RODA)(
                 has_function_privilege('authenticated','public.servicos_financeiro()','EXECUTE') sau,
                 (select tgenabled::text from pg_trigger where tgname='trg_servico_parcela_valor_pago') t`,
         );
-        expect(r).toEqual({ m: MD5_SF, h1: false, h2: false, sa: false, sau: true, t: "O" });
+        // Reforço de segurança S2 (C6) redefine servicos_financeiro: aceita o sucessor
+        const { m, ...resto } = r as Record<string, unknown>;
+        expect(md5OuSucessorS2("public.servicos_financeiro()", MD5_SF)).toContain(m);
+        expect(resto).toEqual({ h1: false, h2: false, sa: false, sau: true, t: "O" });
       });
     });
 

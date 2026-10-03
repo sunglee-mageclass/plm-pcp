@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal, dbUrl } from "./db";
+import { md5OuSucessorS2 } from "./seg-s2-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 
@@ -264,7 +265,8 @@ describe.skipIf(!RODA)("R16 RA1 — parcela complemento (P-187 A)", () => {
                           where p.oid = to_regprocedure($1) and x.grantee = 0 and x.privilege_type = 'EXECUTE') pub`,
           [sig],
         );
-        expect([md5].flat(), sig).toContain(r.m);
+        // Reforço de segurança S2 (C6/FIN-ABA) redefine servicos_financeiro e fn_servico_parcela_valor_pago: aceita o sucessor
+        expect([md5].flat().flatMap((m) => md5OuSucessorS2(sig, m)), sig).toContain(r.m);
         if (sig.includes("._")) expect([r.anon, r.auth, r.pub], sig).toEqual([false, false, false]);
         if (/servicos_financeiro|voltar_vencimento/.test(sig))
           expect([r.anon, r.auth, r.pub], sig).toEqual([false, true, false]);

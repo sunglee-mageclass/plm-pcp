@@ -5,6 +5,7 @@
  */
 import type { Client } from "pg";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
+import { voltaS2SePreciso } from "./seg-s2-helpers";
 
 export const S1_MIGS = [
   "supabase/migrations/20261031100000_seg_s1_usuario_proprio.sql",
@@ -188,6 +189,7 @@ export async function s1Viva(c: Client): Promise<boolean> {
 }
 /** LIFO para as suítes que VOLTAM releases anteriores dentro da txn (L8, R14, distribuição, L3…): a S1 sai primeiro. */
 export async function voltaS1SePreciso(c: Client): Promise<void> {
+  await voltaS2SePreciso(c); // LIFO: a S2 (20261031200000..220000) é mais nova que a S1 — sai antes
   if (!(await s1Viva(c))) return;
   const st = (await c.query("SELECT current_setting('statement_timeout') AS v")).rows[0].v as string;
   await voltaS1(c);

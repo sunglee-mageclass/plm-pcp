@@ -78,6 +78,12 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaS1(client);
     }
+    // Reforço de segurança S2 (mesmo ensaio): com S2_TXN=1 as 3 migrations da S2 são aplicadas DENTRO desta txn antes do teste.
+    if (process.env.S2_TXN === "1") {
+      const { aplicaS2 } = await import("./seg-s2-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaS2(client);
+    }
     await fn(client);
   } finally {
     try {

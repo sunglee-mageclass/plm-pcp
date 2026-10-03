@@ -102,13 +102,16 @@ describe.skipIf(!RODA)("seg S1 — trava: só catálogo", () => {
   // (lê users/tenant_config) no CREATE OR REPLACE — mesmo nível de um SELECT. Nada acima disso.
   it("aplicar as 6 não prende tabela fora do pg_catalog acima de AccessShare (nem negócio, nem auth/storage/realtime)", async () => {
     await withTx(async (c) => {
-      await aplicaS1(c);
-      const { rows } = await c.query(
+      const travas = async () => (await c.query(
         `SELECT l.relation::regclass::text AS rel, l.mode, n.nspname
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
           WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND n.nspname NOT IN ('pg_catalog', 'pg_toast')
             AND l.mode <> 'AccessShareLock'`,
-      );
+      )).rows;
+      // o que a txn já segurava ANTES (ex.: gancho S2_TXN=1 — CREATE TRIGGER da S2 em parcelas) não é da S1
+      const antes = new Set((await travas()).map((r) => JSON.stringify(r)));
+      await aplicaS1(c);
+      const rows = (await travas()).filter((r) => !antes.has(JSON.stringify(r)));
       expect(rows).toEqual([]);
     });
   });
