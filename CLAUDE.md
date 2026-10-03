@@ -1487,6 +1487,30 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     (neutraliza as 4 funções de gatilho) → `110000_down` (GRANT de volta) → `100000_down` (34 textos de antes; o helper fica
     inerte) → `_down_drop`s opcionais (horário calmo), ANTES da S2 (`20261031220000_down` exige `recalcular_parcelas` aa6df472),
     de `20261002100000_down` (`salvar_oc_etiqueta` 4 args) e de `20261025150000_down` (`baixar_os`).
+- **S3b "Produção, Expedição e Explosão" (mesmo mecanismo da S3a, por cima dela; migrations `20261101130000..150000`, inversos
+  `_down` + `_down_drop` separado (150000: DROP dos 3 gatilhos), gerador `.../mig/gerar-s3b.mjs`):**
+  - **17 RPCs** com o portão: Explosão (`baixar_estoque_tecido_corte`, `salvar_explosao_metragem/_aviamento_separar/
+    _etiqueta_enviar`, `voltar_modelo_desenvolvimento` — a única INVOKER, grava `modelos` com a GUC `app.explosao_sistema` da S1)
+    = `producao_explosao`; `reverter_corte_tecido` = PCP Serviços OU Explosão; `salvar_terceirizados` = `producao_terceirizados` OU
+    `producao_etapas` (portão logo depois do login, antes da loja do CAD); CQ Pré/Pós (salvar/desmarcar/voltar ao serviço) =
+    `producao_cq`; `salvar_direcionamento`/`confirmar_direcionamento` (2 sobrecargas cada; confirmar: logo depois do login, antes
+    do `_cq_liberado`) = `producao_direcionamento`. `lancar_modelo` NÃO entrou (S3d). ⚠️ As sobrecargas de 2 args de
+    salvar/confirmar_direcionamento já davam 42725 (`_salvar_direcionamento_core` ambígua) ANTES da S3b — a tela usa as de 3.
+  - **Verificar #Erro (P-245 A):** `marcar_etapa_verificada` virou plpgsql: exige módulo Criação OU Produção e EDITAR a página da
+    etapa (`kanban` = Desenvolvimento OU Planejamento; `terceirizados`/`cq`/`direcionamento`/`lancamentos`/`oficina` = a página
+    do setor; outra etapa = qualquer uma das 7). O botão "Marcar verificado" SOME para quem só vê (`VerificarRevisaoBanner` +
+    `podeVerificarEtapa`/`PAGINAS_POR_ETAPA` em `RevisaoErro.tsx` = o mesmo mapa do servidor; anti-drift em
+    `tests/unit/verificar-revisao-somente-leitura.test.ts`); o aviso do #Erro continua.
+  - **Escrita direta:** `cad` só UPDATE em `direcionamento_status/_confirmado_at` (Direcionamento), `sem_acabamento` (PCP
+    Serviços), `observacoes_molde` (Oficina OU PCP Serviços) — gatilho por COLUNA; `controle_qualidade` só UPDATE em
+    `fotografado_variantes` (Lançamentos); `producao_oficina` INSERT/UPDATE com a página Oficina, sem DELETE; `cq_variantes`,
+    `cq_pos_variantes`, `direcionamento_controle`, `lancamentos`, `producao_terceirizados`: o cliente só lê. anon sem escrita
+    nas 8. ⚠️ Coluna NOVA que a tela grave direto em `cad`/`controle_qualidade` precisa de `GRANT UPDATE (col)`.
+  - Ensaio: `S3B_TXN=1` (aplica a S3a antes se faltar); `voltaS3bSePreciso` (LIFO) roda dentro de `voltaS3a*` e de
+    `aplicaS1`/`voltaS1`. Volta **LIFO**: `150000_down` → `140000_down` → `130000_down` (sem validar corpo: a volta do
+    `marcar_etapa_verificada` sql não trava `modelos`) → `_down_drop` opcional, ANTES da S3a e da S1 (`20261031130000_down` /
+    `20261031120000_down` guardam `confirmar_direcionamento`/`voltar_modelo_desenvolvimento`) e de `20261023100000_down`
+    (`salvar_terceirizados`).
 
 ## O que NÃO fazer
 
