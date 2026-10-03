@@ -45,7 +45,7 @@
 --     DEPOIS 62b81b3853de66118baef1748866b0dd
 --   public._integracao_padrao()  NOVA 7fb5e26f7a5ad402f71d8c887968d584
 --   public._integracao_opcionais()  NOVA d70ec700a5689dc2d76cf71ce30f5a12
---   public._integracao_extras(uuid)  NOVA b8c04fffcc1e757b9dc525bd4eda526b
+--   public._integracao_extras(uuid)  NOVA 2de51abd64e618d40454daf45bd5135a
 --   dep (intocadas): public._integracao_ler(text,boolean,text,integer,text,text) 1ac58b34; public._integracao_colunas(text[]) 6bc153aa; public.integracao_listar(text,jsonb,integer,integer) d2d3c9c5; public.integracao_previa(uuid[]) 66f0b018; public.integracao_salvar_config(text[],integer) e71312f8; public.integracao_versoes_integradas(uuid[]) 8576ce53; public._integracao_gates(uuid) 3170d391; public._integracao_campo_travado(uuid,text) 798bcba3; public.fn_integracao_trava_modelos() 6e98c10d; public.fn_integracao_trava_espelho() e239279e; public._integracao_assinar(jsonb) bbe03c7d; public._seed_tenant_defaults(uuid) 68fa8c35; public.fn_modelo_espelho_categoria() ea9edd59; public._grupo_eh_acessorio(uuid) 359584ce
 -- ====================================================================================
 -- Travas: ADD COLUMN em integracao_linhas e SET DEFAULT em integracao_config (AccessExclusive por um instante; lock_timeout
@@ -114,7 +114,7 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._integracao_padrao()', '7fb5e26f7a5ad402f71d8c887968d584'),
       ('public._integracao_opcionais()', 'd70ec700a5689dc2d76cf71ce30f5a12'),
-      ('public._integracao_extras(uuid)', 'b8c04fffcc1e757b9dc525bd4eda526b')
+      ('public._integracao_extras(uuid)', '2de51abd64e618d40454daf45bd5135a')
     ) AS x(f, depois) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v <> r.depois THEN
@@ -190,7 +190,9 @@ CREATE OR REPLACE FUNCTION public._integracao_extras(_modelo_id uuid)
  SET search_path TO 'public'
 AS $function$
   -- Release I3 (P-217..P-221): os 3 NÃO obrigatórios da Integração, fonte ÚNICA do retrato (_integracao_retrato_core) e do
-  -- reprocesso (20261030120000). Vazio = null (nunca vira falta). Modelo inexistente = NULL.
+  -- reprocesso (20261030120000). Vazio = null (nunca vira falta). Modelo inexistente = NULL. Todo cadastro lido é filtrado pela
+  -- LOJA do modelo (defesa em profundidade: vale mesmo com o gatilho de loja da I3a neutralizado — G-MIGRATION L3); id de outra
+  -- loja = vazio.
   --   colecao: a MESMA regra do filtro Coleção da Integração (_integracao_base) e do OTB — nome da coleção, senão o texto livre.
   --   linha: nome da linha do card (da MESMA loja).
   --   categoria_tecido: interno (inclusive grupo Acessórios) = categoria PRINCIPAL do artigo do Tecido 1 (tipo 'tecido',
@@ -202,35 +204,35 @@ AS $function$
       WHEN coalesce(m.origem, 'interno') = 'revenda' THEN (
         SELECT CASE WHEN public._grupo_eh_acessorio(pa.grupo_id) THEN ma.nome::text ELSE ct.nome::text END
           FROM public.produtos_acabados pa
-          LEFT JOIN public.categorias_tecido ct ON ct.id = pa.categoria_tecido_id
-          LEFT JOIN public.materiais_aviamento ma ON ma.id = pa.material_aviamento_id
+          LEFT JOIN public.categorias_tecido ct ON ct.id = pa.categoria_tecido_id AND ct.tenant_id = m.tenant_id
+          LEFT JOIN public.materiais_aviamento ma ON ma.id = pa.material_aviamento_id AND ma.tenant_id = m.tenant_id
          WHERE pa.modelo_id = m.id AND pa.tenant_id = m.tenant_id
          LIMIT 1)
       WHEN m.origem = 'importado' THEN (
         SELECT CASE WHEN public._grupo_eh_acessorio(pi.grupo_id) THEN ma.nome::text ELSE ct.nome::text END
           FROM public.produtos_importados pi
-          LEFT JOIN public.categorias_tecido ct ON ct.id = pi.categoria_tecido_id
-          LEFT JOIN public.materiais_aviamento ma ON ma.id = pi.material_aviamento_id
+          LEFT JOIN public.categorias_tecido ct ON ct.id = pi.categoria_tecido_id AND ct.tenant_id = m.tenant_id
+          LEFT JOIN public.materiais_aviamento ma ON ma.id = pi.material_aviamento_id AND ma.tenant_id = m.tenant_id
          WHERE pi.modelo_id = m.id AND pi.tenant_id = m.tenant_id
          LIMIT 1)
       ELSE (
         SELECT coalesce(ctp.nome::text,
                  (SELECT c2.nome::text
                     FROM public.artigo_categorias_tecido act
-                    JOIN public.categorias_tecido c2 ON c2.id = act.categoria_tecido_id
+                    JOIN public.categorias_tecido c2 ON c2.id = act.categoria_tecido_id AND c2.tenant_id = m.tenant_id
                    WHERE act.artigo_id = a.id
                    ORDER BY c2.nome, c2.id
                    LIMIT 1))
           FROM public.modelo_tecidos mt
-          JOIN public.artigos a ON a.id = mt.artigo_id
-          LEFT JOIN public.categorias_tecido ctp ON ctp.id = a.categoria_tecido_id
+          JOIN public.artigos a ON a.id = mt.artigo_id AND a.tenant_id = m.tenant_id
+          LEFT JOIN public.categorias_tecido ctp ON ctp.id = a.categoria_tecido_id AND ctp.tenant_id = m.tenant_id
          WHERE mt.modelo_id = m.id AND mt.tipo = 'tecido' AND mt.numero = 1
          ORDER BY mt.created_at, mt.id
          LIMIT 1)
     END,
     'linha', (SELECT nullif(btrim(l.nome::text), '') FROM public.linhas l WHERE l.id = m.linha_id AND l.tenant_id = m.tenant_id))
     FROM public.modelos m
-    LEFT JOIN public.colecoes co ON co.id = m.colecao_id
+    LEFT JOIN public.colecoes co ON co.id = m.colecao_id AND co.tenant_id = m.tenant_id
    WHERE m.id = _modelo_id
 $function$;
 
@@ -810,7 +812,7 @@ BEGIN
       ('public.integracao_config_ler()', '62b81b3853de66118baef1748866b0dd'),
       ('public._integracao_padrao()', '7fb5e26f7a5ad402f71d8c887968d584'),
       ('public._integracao_opcionais()', 'd70ec700a5689dc2d76cf71ce30f5a12'),
-      ('public._integracao_extras(uuid)', 'b8c04fffcc1e757b9dc525bd4eda526b')
+      ('public._integracao_extras(uuid)', '2de51abd64e618d40454daf45bd5135a')
     ) AS x(f, md5) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.md5 THEN

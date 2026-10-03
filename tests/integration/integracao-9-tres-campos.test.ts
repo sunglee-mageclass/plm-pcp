@@ -38,7 +38,7 @@ const GB = guardas(MIG_I3B);
 const NOVAS_B: Record<string, string> = {
   "public._integracao_padrao()": "7fb5e26f7a5ad402f71d8c887968d584",
   "public._integracao_opcionais()": "d70ec700a5689dc2d76cf71ce30f5a12",
-  "public._integracao_extras(uuid)": "b8c04fffcc1e757b9dc525bd4eda526b",
+  "public._integracao_extras(uuid)": "2de51abd64e618d40454daf45bd5135a",
 };
 const TENANT_FN = "public.fn_produto_cat_material_tenant()";
 
@@ -369,6 +369,15 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 9 — 3 campos não obrigatórios 
       expect((await extras(c, i.id)).categoria_tecido).toBe(`Tricô ${s}`);
       await c.query("UPDATE public.produtos_importados SET grupo_id = $2 WHERE id = $1", [i.produtoId, ace]);
       expect((await extras(c, i.id)).categoria_tecido).toBe(`Couro ${s}`);
+      // G-MIGRATION L3: id de OUTRA loja gravado com o gatilho de loja fora do caminho (ex.: neutralizado pelo _down da I3a)
+      // NÃO vaza o nome — _integracao_extras filtra todo cadastro pela loja do modelo
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query("UPDATE public.produtos_importados SET material_aviamento_id = $2 WHERE id = $1", [i.produtoId, await material(c, `Fora ${s}`, OUTRA_LOJA)]);
+      await c.query("UPDATE public.produtos_acabados SET grupo_id = $2, categoria_tecido_id = $3 WHERE id = $1",
+        [r.produtoId, vest, await catTecido(c, `Fora C ${s}`, OUTRA_LOJA)]);
+      await c.query("SET LOCAL session_replication_role = origin");
+      expect((await extras(c, i.id)).categoria_tecido).toBeNull();
+      expect((await extras(c, r.id)).categoria_tecido).toBeNull();
     });
   });
 

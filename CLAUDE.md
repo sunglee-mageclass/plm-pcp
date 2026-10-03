@@ -871,7 +871,7 @@ e verifique** — o repo muda rápido.
     DEFAULT de `integracao_config.campos`, `_integracao_cfg` (linha ausente), loja nova e `reset_loja`; `integracao_config_ler`
     devolve `padrao` e `opcionais` (espelho TS `CAMPOS_PADRAO`/`CAMPOS_OPCIONAIS` em `src/lib/integracao/campos.ts`, anti-drift
     `tests/unit/integracao-campos-i3.test.ts`). **Fonte ÚNICA dos valores = `_integracao_extras(modelo)`** (DEFINER, EXECUTE
-    revogado dos 3; usada pelo retrato E pelo reprocesso): Coleção = a MESMA regra do filtro Coleção (`_integracao_base`: nome da
+    revogado dos 3; usada pelo retrato E pelo reprocesso; todo cadastro lido filtrado pela LOJA do modelo — id de outra loja = vazio): Coleção = a MESMA regra do filtro Coleção (`_integracao_base`: nome da
     coleção, senão o texto livre); Linha = nome da linha do card (mesma loja); Categoria do Tecido Principal = interno (inclusive
     Acessórios) → categoria PRINCIPAL do artigo do **Tecido 1** (`modelo_tecidos` tipo 'tecido' numero 1, o mais antigo;
     `artigos.categoria_tecido_id`, vazia = a 1ª por nome de `artigo_categorias_tecido`); revenda/importado → o campo do produto
