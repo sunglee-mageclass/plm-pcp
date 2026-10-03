@@ -93,7 +93,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   (admins furam). Papéis GLOBAIS ficaram fora de escopo (são por-loja).
 - **Modularização**: 7 módulos liga/desliga por loja em `tenant_config.modules` (jsonb):
   `cadastro, entrada_saida, criacao, producao, financeiro, dashboard` + **`otb`** (hook
-  `useTenantModules`). ⚠️ **`otb` é OPT-IN (default OFF)** — sobrescrito p/ `false` em
+  `useTenantModules`). **Só o SUPER ADMIN muda `modules`** (Reforço de segurança S1, MOD-1, P-233 = D4 A, `20261031110000`):
+  `fn_kanban_chave_protegida` (BEFORE INSERT/UPDATE de `tenant_config`) devolve o valor de antes quando quem grava tem JWT e
+  não é super admin (ignorado, SEM erro — o resto da linha grava; INSERT nasce com o padrão da coluna); sem JWT (migration/psql)
+  e `service_role` passam. ⚠️ Teste que desliga módulo dentro da txn tem de fazê-lo SEM claims (ou como super admin).
+  ⚠️ **`otb` é OPT-IN (default OFF)** — sobrescrito p/ `false` em
   `useTenantModules.DEFAULTS` E `admin/lojas.tsx MODULE_DEFAULTS` (o fallback genérico é
   `?? true`; sem isso, chave ausente ligaria por engano). Loja sem `otb` = Coleção é texto
   livre (como antes); com `otb` = Coleção vira dropdown das `colecoes`. **Modos da loja** em `tenant_config`: `modo_oc_rolo ∈ {oc,rolo,ambos}`,
@@ -567,6 +571,16 @@ e verifique** — o repo muda rápido.
    (sentinela nil → RLS bloqueia + RPCs dão RAISE). `reset_loja`/`excluir_loja` são
    super_admin-only; `_wipe_tenant_core` usa `session_replication_role=replica` (FKs p/
    `tenants` são NO ACTION); super_admins nunca são apagados.
+   **Reforço de segurança S1 (out/2026, `20261031130000`/`20261031140000`):** as 52 RPCs DEFINER que o `anon` executava
+   perderam o EXECUTE de PUBLIC/anon (authenticated/service_role mantêm o grant explícito) e as funções de GATILHO DEFINER
+   perderam o de PUBLIC/anon/authenticated (gatilho segue disparando — EXECUTE só é conferido no CREATE TRIGGER). Só os 4
+   auxiliares de RLS (`tenant_module_enabled`, `user_can_edit`, `user_can_view`, `meu_tenant_ativo`) seguem com anon (S5).
+   **Default ACL mudou (PRIV-2):** objeto NOVO criado pelo `postgres` em `public` nasce SEM anon (tabela/sequência/função),
+   `authenticated` sem TRUNCATE/REFERENCES/TRIGGER e FUNÇÃO NOVA SEM EXECUTE para PUBLIC (authenticated e service_role seguem
+   com X pela entrada de `public`). Consequências: RPC nova já nasce sem anon (o REVOKE dos 3 do `_core` continua obrigatório —
+   authenticated ainda ganha X); pós-condição de migration que compare `proacl` de função NOVA não vê mais `=X/` nem `anon=X/`;
+   helper novo usado em policy lida pelo anon (hoje só `system_settings`) precisa de `GRANT EXECUTE … TO anon` explícito.
+   Anti-drift: `tests/integration/seg-s1.test.ts` (nenhuma DEFINER executável pelo anon além dos 4).
 10. **Direcionamento MULTI-LOJAS (ago/2026)** — a Grade Real é distribuída em **N linhas
     digitáveis, uma por loja** do cadastro `lojas_direcionamento` (Cadastro > Lojas;
     seed "E-commerce" default + "Loja Física"; default não-excluível; RLS de escrita e
@@ -1027,7 +1041,10 @@ LIGADA OU DESLIGADA (P-190 A + L3 round 2; ver "Achados MÉDIOS + LEVES"). Desli
 config); ambas as tabelas novas (`kanban_snapshot`, `kanban_recalculo_fila`) são
 RLS-ligada-sem-policy + `REVOKE ALL` de PUBLIC/anon/authenticated — só RPC `SECURITY DEFINER` lê.
 Revenda/comprado usa fluxo e requisitos PRÓPRIOS (`revenda_kanban_colunas`/
-`revenda_kanban_requisitos`, sem exceções). ⚠️ **ARMADILHA:** com a chave ligada e
+`revenda_kanban_requisitos`, sem exceções). **REGRA (P-234 = D5 B, Reforço de segurança, 03/out): com a chave
+DESLIGADA (modo manual) quem decide a coluna é a PESSOA** — os requisitos de entrada valem só na tela (Select/arraste);
+`fn_kanban_status_guard` sai cedo de propósito e o servidor NÃO exige requisito no modo manual (não é furo; quem quer a
+regra no servidor liga a chave). ⚠️ **ARMADILHA:** com a chave ligada e
 `revenda_kanban_requisitos` **vazio**, TODA coluna do fluxo da revenda vira manual (sem requisito
 configurado nela) — a derivação nunca avança além da entrada, então REF/Enviar à Explosão nunca
 liberam por derivação, nem "Mover para…" ajuda (o motor ainda governa o gate por posição).
@@ -1362,6 +1379,42 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   `soltar-freio.sh R15a` e a ida PARA indicando `volta-drops.sh L6`. Com a I3 no banco: o freio da L8 recusa (usar a volta da L8) e
   o da R14 só sai pela volta (I3 → drops da I3 → R14). **I3 e A2 (out/2026)** desfazem PRIMEIRO, nesta ordem: SITE → A2
   (`20261030130000_down`) → I3c → I3b → I3a — antes dos inversos da L9/L8/R14.
+
+## Reforço de segurança (out/2026; plano `.superpowers/sdd/2026-10-03-reforco-seguranca/plan.md`, releases S1–S6)
+
+- **Custo/preço é ESCONDIDO na tela, NÃO trancado no banco** (P-230 = D1 A, aceito pelo dono): quem não tem "ver custos"
+  não vê custo/preço nas telas (`custo_unitario_modelos`/`modelo_mo_resumo` mascaram), mas as colunas de custo e preço
+  (`modelos.custo_peca_previsto`/`preco_venda`, `modelo_tecidos.custo_previsto`, `cad_tecidos.custo_cad`, `artigos.preco`,
+  `ocs_tecido_itens.preco`, `aviamentos.preco`…) seguem legíveis pela API para qualquer usuário da loja. Gap DOCUMENTADO, não
+  regressão; trancar por coluna seria frente própria (M3 opção B).
+- **Kanban manual = a pessoa decide** (P-234 = D5 B) — ver o bloco "Kanban AUTOMÁTICO".
+- **S1 "Fechar portas sem travar nada" (só catálogo; migrations `20261031100000..150000`, inversos `_down` em
+  `supabase/rollback/`, gerador `.superpowers/sdd/2026-10-03-reforco-seguranca/mig/gerar.mjs`):**
+  - **N1:** o próprio usuário NÃO muda o próprio `papel_id`/`ativo`/`email`/`id` (`prevent_users_self_role_change` → 42501
+    `usuario_proprio:`), salvo super admin/admin da loja; o papel muda só pela RPC `definir_papel_usuario`; `nome` segue livre.
+  - **MOD-1:** só o super admin muda `tenant_config.modules` (ver "Modularização").
+  - **M2:** `modelos.enviado_cad` só muda com a GUC **`app.explosao_sistema='on'`**, ligada e RESTAURADA por
+    `_enviar_modelo_para_cad_core`, `excluir_cad` e `voltar_modelo_desenvolvimento` — **toda função NOVA que gravar
+    `enviado_cad` tem de fazer o mesmo** (senão 42501 `explosao_protegida:`); Ordem de Criação true→false com o card na
+    Explosão = P0001 `ordem_com_explosao:`; `_salvar_cad_completo_core` não CRIA CAD sem a Ordem (P0001 `cad_sem_ordem:`).
+  - **S5:** `modelos.preco_anterior` exige a seção `criacao_planejamento:preco_venda` (42501 `preco_anterior_sem_permissao:`);
+    escrita feita de DENTRO de outro gatilho (`pg_trigger_depth() > 1`, ex.: congelar ao excluir versão) passa.
+  - **B1b:** `preco_venda` de comprado (revenda/importado) só muda com a GUC **`app.preco_comprado_sistema='on'`** (ligada e
+    RESTAURADA por `_pa_recomputar_precos_modelo`/`_imp_recomputar_precos_modelo`) — PATCH direto = 42501 `preco_comprado_derivado:`.
+  - As regras novas da guarda de `modelos` (`fn_modelo_preco_venda_gate`) e do MOD-1 NÃO mordem sem JWT (migration/psql) nem
+    `service_role` (manutenção). A regra antiga do preço de venda interno segue igual.
+  - **C5:** `cq_set_oficina_desconto_multa` exige módulo Produção + `user_can_edit('producao_cq')`. **DIR-1:**
+    `confirmar_direcionamento` confere login + loja do CAD ANTES do `_cq_liberado` (fim do oráculo; P0001 `cad_nao_encontrado:`).
+  - **OPT-1:** `etapas_pl` é opt-in também no servidor (`tenant_module_enabled`). **PI-r:** `_sync_foto_modelo_do_produto` só
+    toca o card da mesma loja. ANON-1/ANON-2/PRIV-2: ver invariante 9.
+  - Front: canais de presença do canvas com a loja no nome (`colab-canvas:planejamento:<tenant>`, `colab-canvas:linhas:<tenant>`
+    — presença/broadcast NÃO passam por RLS: canal de página SEMPRE leva a loja); Usuários da Loja filtra pela loja ativa
+    (queryKey com a loja); prefixos novos traduzidos em `mensagemSegS1` (`erro-mensagem.ts`).
+  - Ensaio da suíte inteira com a S1 aplicada sem tocar a cópia: `S1_TXN=1` (gancho em `tests/integration/db.ts`, como o
+    `I3_TXN`). Volta **LIFO**: `150000_down` → … → `100000_down`, ANTES dos inversos da L3 (`20261027100000_down` exige
+    `_enviar_modelo_para_cad_core` 14179bce), da L8 (`20261028200000_down` exige `_pa_recomputar_precos_modelo` 3f0c4d88; a IDA
+    da L8 também confere `_imp_recomputar_precos_modelo` bbda77c4 como dependência), da R14 (`20261024200000_down` exige
+    `_imp_recomputar_precos_modelo` bbda77c4) e da distribuição (`20261006100000_down` exige `tenant_module_enabled` 843163cc).
 
 ## O que NÃO fazer
 
