@@ -75,7 +75,7 @@ export const S3A_PAGINAS: Record<string, string[]> = {
 };
 export const S3A_HELPER = { fn: "public._seg_exige_pagina(text[])", depois: "85eff0037e61fdecefb46154ac9479d2" };
 export const S3A_GATILHOS: { tabela: string; fn: string; depois: string; neutra: string }[] = [
-  { tabela: "ocs_tecido", fn: "public.fn_seg_pagina_ocs_tecido()", depois: "da433617f6ded5c358788c659b639b03", neutra: "7d5383af4740bc09ae81bc01b5bf292d" },
+  { tabela: "ocs_tecido", fn: "public.fn_seg_pagina_ocs_tecido()", depois: "dde073565041107e74b3f3e968827239", neutra: "7d5383af4740bc09ae81bc01b5bf292d" },
   { tabela: "ocs_tecido_itens", fn: "public.fn_seg_pagina_ocs_tecido_itens()", depois: "985617196668735f319e0e3ca27fc403", neutra: "edf9eb7e9540238ea69dd079b8c537f2" },
   { tabela: "ocs_aviamento", fn: "public.fn_seg_pagina_ocs_aviamento()", depois: "6d17c1dc03677fa49e2c84a8098bed22", neutra: "11e5cc2eca4e53770eaa4868fa5f8cb7" },
   { tabela: "ocs_etiqueta", fn: "public.fn_seg_pagina_ocs_etiqueta()", depois: "2419afb8e1b27625f0714657b5b77fc8", neutra: "32deaa83367e28390f3f2ecd77fd6cbb" },

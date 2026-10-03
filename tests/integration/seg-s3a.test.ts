@@ -408,7 +408,26 @@ describe.skipIf(!RODA)("seg S3a — escrita direta da tela (grant por coluna + g
       // OC Tecido: as 7 colunas da tela
       await perms(c, U_COMUM, edita("entrada_oc_tecido"));
       expect(txt(await upd(`nfs = '[{"numero":"1"}]'::jsonb, recebimento_responsavel_id = null, recebimento_responsavel_nome = 'S3a'`))).toBe("PASSOU");
-      expect(txt(await upd(`rolo_codigo = 'R1', numero_pedido = 'ITEST-S3A-X', rolo_rua = 'C', rolo_prateleira = '3'`))).toBe("PASSOU");
+      expect(txt(await upd(`rolo_rua = 'C', rolo_prateleira = '3'`))).toBe("PASSOU");
+      // B3 (fix round 1): nº do pedido / código direto só em ROLO — OC comum muda o número só pelo salvar_oc_tecido
+      const NUM = "42501 oc_numero_so_pela_rpc: numero_pedido/rolo_codigo de OC que nao e rolo so mudam pelo salvar da OC Tecido";
+      expect(txt(await upd(`numero_pedido = 'ITEST-S3A-X'`))).toBe(NUM);
+      expect(txt(await upd(`rolo_codigo = 'R1'`))).toBe(NUM);
+      expect(txt(await upd(`numero_pedido = numero_pedido, rolo_codigo = rolo_codigo, nfs = '[]'::jsonb`))).toBe("PASSOU"); // sem mudar o nº
+      const rolo = await semJwt(c, async () => {
+        await jwt(c, SUPER);
+        const item = (await um<{ id: string }>(c, `select id from ocs_tecido_itens where oc_tecido_id = $1`, [oc])).id;
+        const r = (await um<{ id: string }>(c, `select public.criar_rolo('ITEST-S3A-R', $1, $2::jsonb, $3) id`,
+          [fx.art, JSON.stringify([{ variante_tecido_id: fx.vari, metragem: 10 }]), item])).id;
+        return r;
+      });
+      await jwt(c, U_COMUM);
+      expect(txt(await como(c, "authenticated", `update ocs_tecido set rolo_codigo = 'R-NOVO', numero_pedido = 'R-NOVO' where id = $1`, [rolo])))
+        .toBe("PASSOU"); // diálogo do rolo (Rolos.tsx)
+      await perms(c, U_COMUM, edita("cadastro_tecidos"));
+      expect(txt(await como(c, "authenticated", `update ocs_tecido set rolo_codigo = 'R-X' where id = $1`, [rolo])))
+        .toBe(NEG(["entrada_oc_tecido"])); // o Cadastro › Tecidos só mexe no endereço
+      await perms(c, U_COMUM, edita("entrada_oc_tecido"));
       expect(txt(await upd(`valor_real_total = 1`))).toMatch(NEGADO_GRANT); // derivada segue fechada mesmo com a página
       // só VER a página não basta; admin da loja passa
       await perms(c, U_COMUM, [["entrada_oc_tecido", false]]);

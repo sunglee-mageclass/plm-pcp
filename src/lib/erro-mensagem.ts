@@ -255,6 +255,8 @@ export const PREFIXO_SEM_PERMISSAO_PAGINA = "sem_permissao_pagina:";
 export const MENSAGENS_SEG_S3 = {
   sem_permissao_pagina: (paginas: string) => `Você não tem permissão para editar ${paginas}. Peça ao administrador da loja.`,
   sem_permissao_pagina_generica: "Você não tem permissão para editar esta tela. Peça ao administrador da loja.",
+  // fix round 1 (B3): nº do pedido / código direto só no rolo; OC comum muda pelo Salvar da OC Tecido
+  oc_numero_so_pela_rpc: "O número do pedido de uma OC só muda pelo Salvar da OC Tecido. Recarregue a tela e tente de novo.",
 } as const;
 /** "Módulo › Página" de uma chave do catálogo (seção: "Módulo › Página › Seção"); chave desconhecida = a própria chave. */
 export function rotuloPaginaPermissao(chave: string): { modulo: string; pagina: string } {
@@ -281,6 +283,7 @@ export function textoSemPermissaoPagina(chaves: string[]): string {
   return MENSAGENS_SEG_S3.sem_permissao_pagina(partes.join(" ou "));
 }
 export function mensagemSegS3(code: string, msg: string): string | null {
+  if (code === "42501" && msg.startsWith("oc_numero_so_pela_rpc:")) return MENSAGENS_SEG_S3.oc_numero_so_pela_rpc;
   if (code !== "42501" || !msg.startsWith(PREFIXO_SEM_PERMISSAO_PAGINA)) return null;
   return textoSemPermissaoPagina(msg.slice(PREFIXO_SEM_PERMISSAO_PAGINA.length).split("|"));
 }

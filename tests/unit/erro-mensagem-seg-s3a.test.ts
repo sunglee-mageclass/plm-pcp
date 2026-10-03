@@ -49,7 +49,10 @@ describe("erro-mensagem — Reforço de segurança S3a (permissão de página no
     expect(IDA.length).toBeGreaterThan(0);
     const antes = prefixos(VOLTA);
     const novos = [...prefixos(IDA)].filter((p) => !antes.has(p)).filter((p) => !p.startsWith("s3a_"));
-    expect(novos).toEqual(["sem_permissao_pagina"]);
+    expect(novos.sort()).toEqual(["oc_numero_so_pela_rpc", "sem_permissao_pagina"]);
+    expect(mensagemErro({ code: "42501", message: "oc_numero_so_pela_rpc: numero_pedido/rolo_codigo de OC que nao e rolo so mudam pelo salvar da OC Tecido" }, "fb"))
+      .toBe(MENSAGENS_SEG_S3.oc_numero_so_pela_rpc);
+    expect(IDA).toContain("RAISE EXCEPTION 'oc_numero_so_pela_rpc: numero_pedido/rolo_codigo de OC que nao e rolo so mudam pelo salvar da OC Tecido'");
     expect(IDA).toContain(`RAISE EXCEPTION '${"sem_permissao_pagina"}: %', array_to_string(_paginas, '|') USING ERRCODE = '42501'`);
   });
 

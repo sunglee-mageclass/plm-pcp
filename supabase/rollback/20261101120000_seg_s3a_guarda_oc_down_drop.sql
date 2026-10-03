@@ -4,7 +4,7 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.fn_seg_pagina_ocs_tecido() (NOVA)
 --     ANTES  ausente
---     DEPOIS da433617f6ded5c358788c659b639b03
+--     DEPOIS dde073565041107e74b3f3e968827239
 --     NEUTRA 7d5383af4740bc09ae81bc01b5bf292d (o _down)
 --   public.fn_seg_pagina_ocs_tecido_itens() (NOVA)
 --     ANTES  ausente
@@ -34,7 +34,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.fn_seg_pagina_ocs_tecido()', 'da433617f6ded5c358788c659b639b03', '7d5383af4740bc09ae81bc01b5bf292d', 'ocs_tecido'),
+      ('public.fn_seg_pagina_ocs_tecido()', 'dde073565041107e74b3f3e968827239', '7d5383af4740bc09ae81bc01b5bf292d', 'ocs_tecido'),
       ('public.fn_seg_pagina_ocs_tecido_itens()', '985617196668735f319e0e3ca27fc403', 'edf9eb7e9540238ea69dd079b8c537f2', 'ocs_tecido_itens'),
       ('public.fn_seg_pagina_ocs_aviamento()', '6d17c1dc03677fa49e2c84a8098bed22', '11e5cc2eca4e53770eaa4868fa5f8cb7', 'ocs_aviamento'),
       ('public.fn_seg_pagina_ocs_etiqueta()', '2419afb8e1b27625f0714657b5b77fc8', '32deaa83367e28390f3f2ecd77fd6cbb', 'ocs_etiqueta')

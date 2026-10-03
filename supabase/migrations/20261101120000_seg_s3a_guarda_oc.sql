@@ -7,7 +7,7 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.fn_seg_pagina_ocs_tecido() (NOVA)
 --     ANTES  ausente
---     DEPOIS da433617f6ded5c358788c659b639b03
+--     DEPOIS dde073565041107e74b3f3e968827239
 --     NEUTRA 7d5383af4740bc09ae81bc01b5bf292d (o _down)
 --   public.fn_seg_pagina_ocs_tecido_itens() (NOVA)
 --     ANTES  ausente
@@ -44,7 +44,7 @@ BEGIN
     RAISE EXCEPTION 's3a_guarda: rode antes a 20261101100000 (_seg_exige_pagina ausente ou com texto inesperado)' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public.fn_seg_pagina_ocs_tecido()', 'da433617f6ded5c358788c659b639b03', '7d5383af4740bc09ae81bc01b5bf292d', 'ocs_tecido'),
+      ('public.fn_seg_pagina_ocs_tecido()', 'dde073565041107e74b3f3e968827239', '7d5383af4740bc09ae81bc01b5bf292d', 'ocs_tecido'),
       ('public.fn_seg_pagina_ocs_tecido_itens()', '985617196668735f319e0e3ca27fc403', 'edf9eb7e9540238ea69dd079b8c537f2', 'ocs_tecido_itens'),
       ('public.fn_seg_pagina_ocs_aviamento()', '6d17c1dc03677fa49e2c84a8098bed22', '11e5cc2eca4e53770eaa4868fa5f8cb7', 'ocs_aviamento'),
       ('public.fn_seg_pagina_ocs_etiqueta()', '2419afb8e1b27625f0714657b5b77fc8', '32deaa83367e28390f3f2ecd77fd6cbb', 'ocs_etiqueta')
@@ -71,7 +71,8 @@ AS $function$
 -- servidor (SECURITY DEFINER, dono postgres - cada RPC ja confere a propria pagina), CASCADE de FK (roda como o dono),
 -- migrations/psql e service_role (Worker) passam. Gatilho trg_aaa_seg_pagina: o prefixo aaa roda ANTES dos outros BEFORE.
 -- O cliente so tem UPDATE em nfs, recebimento_responsavel_id, recebimento_responsavel_nome, rolo_codigo, numero_pedido,
--- rolo_rua e rolo_prateleira (grant por coluna, 20261101110000; N8: valor_real_total/status/data_nota_entrada so pela RPC).
+-- rolo_rua e rolo_prateleira (grant por coluna, 20261101110000; N8: valor_real_total/status/data_nota_entrada so pela RPC);
+-- numero_pedido/rolo_codigo direto so em rolo (is_rolo).
 BEGIN
   IF current_user NOT IN ('authenticated', 'anon') THEN
     RETURN COALESCE(NEW, OLD);
@@ -82,6 +83,13 @@ BEGIN
     PERFORM public._seg_exige_pagina('entrada_oc_tecido', 'cadastro_tecidos');
   ELSE
     PERFORM public._seg_exige_pagina('entrada_oc_tecido');
+  END IF;
+  -- [fix round 1, B3] numero_pedido/rolo_codigo direto da tela so no ROLO (dialogo do rolo, Rolos.tsx); OC comum muda o numero
+  -- so pelo Salvar da OC (salvar_oc_tecido, com _rev_base).
+  IF TG_OP = 'UPDATE' AND NOT COALESCE(OLD.is_rolo, false)
+     AND (NEW.numero_pedido IS DISTINCT FROM OLD.numero_pedido OR NEW.rolo_codigo IS DISTINCT FROM OLD.rolo_codigo) THEN
+    RAISE EXCEPTION 'oc_numero_so_pela_rpc: numero_pedido/rolo_codigo de OC que nao e rolo so mudam pelo salvar da OC Tecido'
+      USING ERRCODE = '42501';
   END IF;
   RETURN COALESCE(NEW, OLD);
 END
@@ -187,7 +195,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.fn_seg_pagina_ocs_tecido()', 'da433617f6ded5c358788c659b639b03', '7d5383af4740bc09ae81bc01b5bf292d', 'ocs_tecido'),
+      ('public.fn_seg_pagina_ocs_tecido()', 'dde073565041107e74b3f3e968827239', '7d5383af4740bc09ae81bc01b5bf292d', 'ocs_tecido'),
       ('public.fn_seg_pagina_ocs_tecido_itens()', '985617196668735f319e0e3ca27fc403', 'edf9eb7e9540238ea69dd079b8c537f2', 'ocs_tecido_itens'),
       ('public.fn_seg_pagina_ocs_aviamento()', '6d17c1dc03677fa49e2c84a8098bed22', '11e5cc2eca4e53770eaa4868fa5f8cb7', 'ocs_aviamento'),
       ('public.fn_seg_pagina_ocs_etiqueta()', '2419afb8e1b27625f0714657b5b77fc8', '32deaa83367e28390f3f2ecd77fd6cbb', 'ocs_etiqueta')
