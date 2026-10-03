@@ -7,8 +7,9 @@ import { doLogin } from "./_helpers";
 // que grava `users.tenant_id` e, sem a Loja Teste, cairia na 1ª loja da lista). Se o usuário de teste não estiver
 // na Loja Teste, o teste FALHA. Escrita aceita pelo dono: as preferências de filtro/agrupamento do PRÓPRIO usuário
 // de teste (`user_ui_prefs`, seed idempotente no load). Nenhuma outra escrita antes da G-chave.
-// Rodar SEMPRE com E2E_BASE_URL=http://localhost:5173 (ou :5199 se o QA subiu o próprio vite) — o default do
-// Playwright é PRODUÇÃO; sem E2E_BASE_URL local a spec nem começa.
+// Roda contra o app LOCAL: é o padrão do playwright.config.ts (P-238 A — sem E2E_BASE_URL = http://localhost:5173; use
+// E2E_BASE_URL=http://localhost:5199 se o QA subiu o próprio vite). PRODUÇÃO só com E2E_PRODUCAO=sim no shell — e mesmo
+// assim esta spec é pulada (só roda com endereço local).
 // Bloco "chave LIGADA" só com E2E_KANBAN_LIGADO=1, DEPOIS que o dono ligar a chave na Loja Teste (G-chave).
 //
 // Nota de revisão M5 (Task 5, aplicada aqui na Task 8): o board Desktop (`div.hidden.md:flex`) e o board
@@ -19,7 +20,9 @@ import { doLogin } from "./_helpers";
 // (`.hidden.md\\:flex`) e, quando é só coluna de fluxo (exclui "Lançado"), a `[data-testid^="kanban-coluna-"]`.
 // O que a spec VERIFICA não mudou — só o ESCOPO do seletor.
 const LIGADO = process.env.E2E_KANBAN_LIGADO === "1";
-const BASE_LOCAL = /^http:\/\/(localhost|127\.0\.0\.1):\d+\/?$/.test(process.env.E2E_BASE_URL ?? "");
+// Mesmo endereço efetivo do playwright.config.ts (sem E2E_BASE_URL = local).
+const BASE_EFETIVA = process.env.E2E_BASE_URL || "http://localhost:5173";
+const BASE_LOCAL = /^http:\/\/(localhost|127\.0\.0\.1):\d+\/?$/.test(BASE_EFETIVA);
 const LOJA_TESTE = "Loja Teste";
 const TENANT_LOJA_TESTE = "37889b78-fffb-404b-8c75-18b7e50a1d9b";
 
@@ -175,7 +178,7 @@ async function conferirSelosSemEstouro(page: Page): Promise<number> {
   return compactos;
 }
 
-test.skip(!BASE_LOCAL, "defina E2E_BASE_URL=http://localhost:5173 (ou :5199) — o default do Playwright é PRODUÇÃO");
+test.skip(!BASE_LOCAL, "só roda contra o app local (padrão http://localhost:5173 ou E2E_BASE_URL=http://localhost:5199)");
 
 test.describe.configure({ mode: "serial" });
 

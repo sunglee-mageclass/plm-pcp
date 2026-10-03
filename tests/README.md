@@ -8,6 +8,7 @@ Primeira suíte automatizada do projeto (Vitest). Dois níveis:
 | `npm run test:unit` | só os puros (sem banco) — rodam em qualquer lugar |
 | `npm run test:int` | só integração (precisa de credencial de banco) |
 | `npm run test:watch` | modo watch |
+| `npm run test:e2e` | E2E Playwright no navegador (padrão = app local; ver seção E2E) |
 
 ## Unit (`tests/unit/`) — funções TS puras
 Sem banco. Cobrem os helpers reais: `format` (moeda/número pt-BR), `artigo-label`,
@@ -39,3 +40,16 @@ a integração se auto-pula** (o `npm test` continua passando só com os unit).
 - A âncora é a **Loja Teste** (`37889b78…`). Se ela for resetada/repopulada, os testes
   de integração que dependem de dado (parcelas, estoque) se auto-pulam quando não acham
   linha adequada — não falham à toa.
+
+## E2E (`tests/e2e/`, Playwright) — `npm run test:e2e`
+O robô abre o app no navegador e confere as telas. **O padrão é o app LOCAL** (P-238 A, out/2026):
+sem `E2E_BASE_URL`, roda contra `http://localhost:5173` (o `npm run dev`, que aponta para a cópia do banco
+quando servido pelo banco-local); para outro vite local, `E2E_BASE_URL=http://localhost:5199`.
+- **Produção só de propósito, no SHELL:** `E2E_PRODUCAO=sim npm run test:e2e`. O `playwright.config.ts`
+  lê essa variável ANTES do `.env`, então um `.env` não consegue liberar sozinho.
+- ⚠️ Se o `.env` tiver um `E2E_BASE_URL` de produção (fora de `localhost`/`127.0.0.1`), o `npm run test:e2e`
+  agora **para no carregamento do config** com a mensagem "E2E apontando para … (fora do computador)":
+  exporte `E2E_BASE_URL=http://localhost:5173` (ou tire a linha do `.env`) para rodar local, ou use
+  `E2E_PRODUCAO=sim` se quiser mesmo produção. `[::1]`/`0.0.0.0` também contam como "fora do computador".
+- `kanban-auto.spec.ts` só roda contra endereço local (é pulada com `E2E_PRODUCAO=sim` + produção).
+- Credenciais `E2E_EMAIL`/`E2E_PASSWORD` no `.env` (usuário dedicado da Loja Teste).
