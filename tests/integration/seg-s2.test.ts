@@ -87,7 +87,10 @@ async function guc(c: Client, nome: string): Promise<string> {
 }
 
 // ───────────── fixtures (como postgres, sem JWT) ─────────────
-type Fx = { emp: string; art: string; vari: string; aviId: string; aviEmp: string; etqId: string; etqVar: string | null };
+type Fx = {
+  emp: string; art: string; vari: string; aviId: string; aviId2: string; aviEmp: string;
+  etqId: string; etqVar: string | null; etqId2: string; etqVar2: string | null;
+};
 async function fixtures(c: Client): Promise<Fx> {
   return semJwt(c, async () => {
     const emp = await um<{ id: string }>(c, `select id from empresas where tenant_id = $1 order by id limit 1`, [T]);
@@ -98,11 +101,19 @@ async function fixtures(c: Client): Promise<Fx> {
     const avi = await um<{ id: string; emp: string }>(c,
       `select id, empresa_id emp from aviamentos where tenant_id = $1 and coalesce(preco,0) > 0 and empresa_id is not null
           and (select count(*) from variantes_aviamento v where v.aviamento_id = aviamentos.id) <= 1 order by id limit 1`, [T]);
-    const etq = await um<{ id: string; var: string | null }>(c,
+    const etqs = (await c.query(
       `select e.id, (select v.id from variantes_etiqueta v where v.etiqueta_id = e.id order by v.id limit 1) var
-         from etiquetas e where e.tenant_id = $1 order by e.id limit 1`, [T]);
-    if (!emp || !avi || !etq) throw new Error("Loja Teste sem fixture (empresa / aviamento com preço / insumo)");
-    return { emp: emp.id, art, vari, aviId: avi.id, aviEmp: avi.emp, etqId: etq.id, etqVar: etq.var };
+         from etiquetas e where e.tenant_id = $1 order by e.id limit 2`, [T])).rows as { id: string; var: string | null }[];
+    // 2º aviamento do MESMO fornecedor, também com no máximo 1 cor (L9: com 2+ cores a cor é obrigatória na linha editada)
+    const avi2 = avi && await um<{ id: string }>(c,
+      `select id from aviamentos where tenant_id = $1 and coalesce(preco,0) > 0 and empresa_id = $2 and id <> $3
+          and (select count(*) from variantes_aviamento v where v.aviamento_id = aviamentos.id) <= 1 order by id limit 1`,
+      [T, avi.emp, avi.id]);
+    if (!emp || !avi || !avi2 || etqs.length < 2) throw new Error("Loja Teste sem fixture (empresa / 2 aviamentos com preço / 2 insumos)");
+    return {
+      emp: emp.id, art, vari, aviId: avi.id, aviId2: avi2.id, aviEmp: avi.emp,
+      etqId: etqs[0].id, etqVar: etqs[0].var, etqId2: etqs[1].id, etqVar2: etqs[1].var,
+    };
   });
 }
 const OC_TECIDO = (fx: Fx, status = "recebido") => ({
@@ -202,6 +213,39 @@ describe.skipIf(!RODA)("seg S2 — md5, ACL, idempotência e volta (LIFO)", () =
       await c.query("SAVEPOINT d");
       await expect(aplicarArquivo(c, S2_DOWN_DROP)).rejects.toThrow(/s2_finaba_down_drop: rode antes o _down/);
       await c.query("ROLLBACK TO SAVEPOINT d");
+    });
+  });
+});
+
+describe.skipIf(!RODA)("seg S2 — B1 (fix round 1): grants só sobre a ACL medida (antes ou depois)", () => {
+  const IDA = "supabase/migrations/20261031200000_seg_s2_grants_dinheiro.sql";
+  const VOLTA = "supabase/rollback/20261031200000_seg_s2_grants_dinheiro_down.sql";
+  it("ACL diferente do antes/depois (a produção difere da cópia) → ida E volta recusam P0001 antes de mudar qualquer coisa", async () => {
+    await withTx(async (c) => {
+      await aplicaS2(c); // estado DEPOIS
+      // 1) depois + um grant a mais (ex.: alguém deu INSERT ao anon) → nem ida nem volta mexem
+      await c.query("GRANT INSERT ON public.ocs_etiqueta_itens TO anon");
+      await expect(aplicarArquivo(c, IDA)).rejects.toMatchObject({
+        code: "P0001", message: expect.stringMatching(/^s2_grants: ACL inesperada em ocs_etiqueta_itens/) });
+      await expect(aplicarArquivo(c, VOLTA)).rejects.toMatchObject({
+        code: "P0001", message: expect.stringMatching(/^s2_grants_down: ACL inesperada em ocs_etiqueta_itens/) });
+      for (const t of TABELAS.filter((x) => x !== "ocs_etiqueta_itens")) expect(await aclTabela(c, t), t).toEqual(S2_ACL[t].depois);
+      await c.query("REVOKE INSERT ON public.ocs_etiqueta_itens FROM anon");
+      expect(await aclTabela(c, "ocs_etiqueta_itens")).toEqual(S2_ACL.ocs_etiqueta_itens.depois);
+      // 2) antes, mas com MENOS privilégio que a cópia (ex.: anon sem TRUNCATE em parcelas) → a ida recusa (a volta daria a mais)
+      await voltaS2(c);
+      await c.query("REVOKE TRUNCATE ON public.parcelas FROM anon");
+      await expect(aplicarArquivo(c, IDA)).rejects.toMatchObject({
+        code: "P0001", message: expect.stringMatching(/^s2_grants: ACL inesperada em parcelas \(relacl .*anon=arwdxtm/) });
+      for (const t of TABELAS.filter((x) => x !== "parcelas")) expect(await aclTabela(c, t), t).toEqual(S2_ACL[t].antes);
+      // 3) estados exatos seguem passando (ida e volta idempotentes)
+      await c.query("GRANT TRUNCATE ON public.parcelas TO anon");
+      await aplicarArquivo(c, IDA);
+      await aplicarArquivo(c, IDA);
+      for (const t of TABELAS) expect(await aclTabela(c, t), t).toEqual(S2_ACL[t].depois);
+      await aplicarArquivo(c, VOLTA);
+      await aplicarArquivo(c, VOLTA);
+      for (const t of TABELAS) expect(await aclTabela(c, t), t).toEqual(S2_ACL[t].antes);
     });
   });
 });
@@ -498,6 +542,51 @@ describe.skipIf(!RODA)("seg S2 — ponta a ponta como o PAPEL authenticated (usu
       const v = await um<{ d: string }>(c, `select to_char(min(data_vencimento), 'YYYY-MM-DD') d from parcelas where oc_etiqueta_id = $1`, [ins]);
       expect(v.d).toBe("2026-10-12");
       await ok(c, `select public.desmarcar_recebimento_oc_etiqueta($1)`, [ins]);
+    });
+  });
+
+  it("B5 (fix round 1): EDITAR OC de aviamento e de insumo já salvas (alterar 1 item, incluir 1, remover 1) — diff incremental, ids preservados", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const fx = await fixtures(c);
+      await jwt(c, U_COMUM);
+      type It = { id: string; q: number };
+      const itens = async (tab: string, fk: string, oc: string, col: string) =>
+        (await c.query(`select id, ${col} c, quantidade_pedida::int q from ${tab} where ${fk} = $1 order by quantidade_pedida`, [oc])).rows as
+          (It & { c: string })[];
+      // ── aviamento: OC recebida com 2 itens (A 100, B 50) → edita: A 120, remove B, inclui A2 30
+      const linhaAvi = (aviamento_id: string, q: number, id: string | null = null) => ({
+        id, aviamento_id, variante_aviamento_id: null, quantidade_pedida: q, quantidade_recebida: q, cancelado: false,
+      });
+      const avi = (await ok(c, `select public.salvar_oc_aviamento(null, $1::jsonb, $2::jsonb, null::int) as id`,
+        [JSON.stringify(OC_AVI(fx)), JSON.stringify([linhaAvi(fx.aviId, 100), linhaAvi(fx.aviId2, 50)])]))[0].id as string;
+      const antes = await itens("ocs_aviamento_itens", "oc_aviamento_id", avi, "aviamento_id");
+      expect(antes.map((i) => [i.c, i.q])).toEqual([[fx.aviId2, 50], [fx.aviId, 100]]);
+      const a = antes.find((i) => i.c === fx.aviId)!;
+      await ok(c, `select public.salvar_oc_aviamento($1, $2::jsonb, $3::jsonb, null::int)`,
+        [avi, JSON.stringify(OC_AVI(fx)), JSON.stringify([linhaAvi(fx.aviId, 120, a.id), linhaAvi(fx.aviId2, 30)])]);
+      const depois = await itens("ocs_aviamento_itens", "oc_aviamento_id", avi, "aviamento_id");
+      expect(depois.map((i) => [i.c, i.q])).toEqual([[fx.aviId2, 30], [fx.aviId, 120]]);
+      expect(depois.find((i) => i.q === 120)!.id).toBe(a.id); // id do item alterado preservado (invariante 3)
+      expect(depois.some((i) => antes.some((x) => x.id === i.id && x.q === 50))).toBe(false); // B removido
+      expect((await um<{ n: number }>(c, `select count(*)::int n from parcelas where oc_aviamento_id = $1`, [avi])).n).toBe(3);
+      // ── insumo: OC recebida com 2 itens (E1 100, E2 50) → edita: E1 120, remove E2, inclui E2 30
+      const linhaIns = (etiqueta_id: string, variante_etiqueta_id: string | null, q: number, id: string | null = null) => ({
+        id, etiqueta_id, variante_etiqueta_id, quantidade_pedida: q, quantidade_recebida: q, preco: 2.5, cancelado: false,
+      });
+      const ins = (await ok(c, `select public.salvar_oc_etiqueta(null, $1::jsonb, $2::jsonb, null::int) as id`,
+        [JSON.stringify(OC_INS(fx)), JSON.stringify([linhaIns(fx.etqId, fx.etqVar, 100), linhaIns(fx.etqId2, fx.etqVar2, 50)])]))[0].id as string;
+      const antesI = await itens("ocs_etiqueta_itens", "oc_etiqueta_id", ins, "etiqueta_id");
+      const e1 = antesI.find((i) => i.c === fx.etqId)!;
+      await ok(c, `select public.salvar_oc_etiqueta($1, $2::jsonb, $3::jsonb, null::int)`,
+        [ins, JSON.stringify(OC_INS(fx)), JSON.stringify([linhaIns(fx.etqId, fx.etqVar, 120, e1.id), linhaIns(fx.etqId2, fx.etqVar2, 30)])]);
+      const depoisI = await itens("ocs_etiqueta_itens", "oc_etiqueta_id", ins, "etiqueta_id");
+      expect(depoisI.map((i) => [i.c, i.q])).toEqual([[fx.etqId2, 30], [fx.etqId, 120]]);
+      expect(depoisI.find((i) => i.q === 120)!.id).toBe(e1.id);
+      expect(depoisI.some((i) => antesI.some((x) => x.id === i.id && x.q === 50))).toBe(false);
+      // total refeito pelo servidor: Σ parcelas = (120 + 30) × 2,50
+      const tot = await um<{ t: string }>(c, `select coalesce(sum(valor), 0)::numeric(12,2)::text t from parcelas where oc_etiqueta_id = $1`, [ins]);
+      expect(Number(tot.t)).toBeCloseTo(375, 2);
     });
   });
 

@@ -11,6 +11,10 @@ SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '30s';
 
 DO $guarda$
+DECLARE
+  r record;
+  v_acl text;
+  v_cols text;
 BEGIN
   IF to_regrole('anon') IS NULL OR to_regrole('authenticated') IS NULL OR to_regrole('service_role') IS NULL THEN
     RAISE EXCEPTION 's2_grants_down: papeis anon/authenticated/service_role ausentes' USING ERRCODE = 'P0001';
@@ -26,6 +30,23 @@ BEGIN
         AND a.attname IN ('data_vencimento', 'status', 'data_pagamento', 'comprovante_url')) <> 4 THEN
     RAISE EXCEPTION 's2_grants_down: colunas de parcelas_servico mudaram' USING ERRCODE = 'P0001';
   END IF;
+  FOR r IN SELECT * FROM (VALUES
+      ('parcelas', '{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=ardDxtm/postgres,service_role=arwdDxtm/postgres}', 'data_vencimento={authenticated=w/postgres} data_pagamento={authenticated=w/postgres} status={authenticated=w/postgres} comprovante_url={authenticated=w/postgres}', '{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=rxtm/postgres,service_role=arwdDxtm/postgres}', 'data_vencimento={authenticated=w/postgres} data_pagamento={authenticated=w/postgres} status={authenticated=w/postgres} comprovante_url={authenticated=w/postgres}'),
+      ('parcelas_servico', '{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}', '', '{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=rxtm/postgres,service_role=arwdDxtm/postgres}', 'data_vencimento={authenticated=w/postgres} status={authenticated=w/postgres} data_pagamento={authenticated=w/postgres} comprovante_url={authenticated=w/postgres}'),
+      ('estoque_tecido_baixas', '{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}', '', '{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=rxtm/postgres,service_role=arwdDxtm/postgres}', ''),
+      ('ocs_aviamento_itens', '{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}', '', '{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=rxtm/postgres,service_role=arwdDxtm/postgres}', ''),
+      ('ocs_etiqueta_itens', '{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}', '', '{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=rxtm/postgres,service_role=arwdDxtm/postgres}', '')
+    ) AS x(t, a_acl, a_cols, d_acl, d_cols) LOOP
+    SELECT coalesce(c.relacl::text, ''),
+           coalesce((SELECT string_agg(a.attname || '=' || a.attacl::text, ' ' ORDER BY a.attnum) FROM pg_attribute a
+                      WHERE a.attrelid = c.oid AND a.attacl IS NOT NULL AND NOT a.attisdropped), '')
+      INTO v_acl, v_cols
+      FROM pg_class c WHERE c.oid = to_regclass('public.' || r.t);
+    IF NOT ((v_acl = r.a_acl AND v_cols = r.a_cols) OR (v_acl = r.d_acl AND v_cols = r.d_cols)) THEN
+      RAISE EXCEPTION 's2_grants_down: ACL inesperada em % (relacl %, colunas %) - confira o Passo 0; nada foi mudado', r.t, v_acl, v_cols
+        USING ERRCODE = 'P0001';
+    END IF;
+  END LOOP;
 END
 $guarda$;
 
