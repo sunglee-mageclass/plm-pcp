@@ -60,7 +60,13 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
       // entra em `internas` = 0); o _down só a neutraliza (o DROP é do _down_drop), então conta pela existência.
       const temA2 = (await um<{ ok: boolean }>(c,
         `SELECT to_regprocedure('public._integracao_ler_loja(text,uuid,boolean,text,integer,text,text)') IS NOT NULL AS ok`)).ok;
-      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0) + (temVersaoIntegrada ? 1 : 0) + (temI3 ? 3 : 0) + (temA2 ? 1 : 0));
+      // Gerar JSON (20261102100000) soma +2 RPCs `integracao_gerar_json_ler`/`_confirmar` (casam `integracao\_%`; authenticated sim,
+      // anon/PUBLIC não — a suíte integracao-11-gerar-json prova a ACL); o _down só as neutraliza, então contam pela existência.
+      const temGerarJson = (await um<{ ok: boolean }>(c,
+        `SELECT to_regprocedure('public.integracao_gerar_json_ler(uuid[],uuid)') IS NOT NULL AS ok`)).ok;
+      const rpcs = temGerarJson ? [...RPCS, "integracao_gerar_json_ler", "integracao_gerar_json_confirmar"] : RPCS;
+      const totalEsperado = String(46 + (temD7 ? 3 : 0) + (temNomeCor ? 2 : 0) + (temVersaoIntegrada ? 1 : 0) + (temI3 ? 3 : 0) + (temA2 ? 1 : 0)
+        + (temGerarJson ? 2 : 0));
       const r = await um<{ internas: string; rpc_anon: string; rpc_auth: string; rota: string; total: string }>(c,
         `SELECT
            (SELECT count(*) FROM pg_proc p CROSS JOIN (VALUES ('public'), ('anon'), ('authenticated')) r(y)
@@ -75,8 +81,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
            (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND (p.proname LIKE '\\_integracao\\_%'
                OR p.proname LIKE 'integracao\\_%' OR p.proname LIKE 'fn\\_integracao\\_%' OR p.proname IN ('fn_modelo_espelho_nome_ref',
                'fn_espelho_modelo_nome_ref', 'salvar_precos_fixo_produto_importado', '_salvar_precos_fixo_produto_importado_core'))) AS total`,
-        [RPCS, temA2 ? [...ROTA, "_integracao_ler_loja"] : ROTA]);
-      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(RPCS.length), rota: temA2 ? "4" : "3", total: totalEsperado });
+        [rpcs, temA2 ? [...ROTA, "_integracao_ler_loja"] : ROTA]);
+      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(rpcs.length), rota: temA2 ? "4" : "3", total: totalEsperado });
     });
   });
 
