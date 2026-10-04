@@ -42,7 +42,8 @@ import { ModuleGuard } from "@/components/ModuleGuard";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { abasVisiveis, blocosCustoFinanceiro } from "@/lib/dashboard-abas";
-import { rotuloColecao } from "@/lib/colecao-rotulo";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
+import { buscarTodas } from "@/lib/buscar-todas";
 import { EmptyState } from "@/components/shared/EmptyState";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
@@ -521,15 +522,8 @@ const fmtMkp = (v: number) => (v > 0 ? `${v.toLocaleString("pt-BR", { maximumFra
 // margem por linha vs a faixa cadastrada (markup_min/ideal). Mesma matemática da ComercialTab
 // (preco.ts, fonte única) — reusa o padrão de agregação por linha; ZERO RPC nova (só
 // custo_unitario_modelos + grade, já usados). Detalhe completo abre na aba "Comercial" (tabelas).
-// [modularidade F3 · Parte 12] Coleção do card = o NOME da coleção do OTB (`colecao_id` → `colecoes.nome`) e, sem ela, o texto
-// `modelos.colecao` (`rotuloColecao`, espelho de `_modelo_colecao_rotulo` do servidor): card só com `colecao_id` entra no
-// filtro e no agrupamento. O embed `colecoes(nome)` traz o nome da coleção da mesma loja (RLS).
-const nomeColecaoEmbed = (m: any): string | null => {
-  const c = m?.colecoes;
-  return (Array.isArray(c) ? c[0]?.nome : c?.nome) ?? null;
-};
-const rotuloColecaoDoCard = (m: any): string | null => rotuloColecao({ colecao: m?.colecao, colecaoNome: nomeColecaoEmbed(m) });
-
+// [modularidade F3 · Parte 12] Coleção do card = `rotuloColecaoDoModelo` (nome da coleção do OTB via embed `colecoes(nome)`, senão o
+// texto `modelos.colecao`; espelho de `_modelo_colecao_rotulo` do servidor): card só com `colecao_id` entra no filtro e no agrupamento.
 function ComercialColecaoTab() {
   const isMobile = useIsMobile();
   const [fColecao, setFColecao] = useState("all");
@@ -538,9 +532,12 @@ function ComercialColecaoTab() {
   const { data: opts = { colecoes: [] as string[], subcolecoes: [] as string[] } } = useQuery({
     queryKey: ["comercial-opts"],
     queryFn: async () => {
-      const { data } = await supabase.from("modelos").select("colecao, subcolecao, colecoes(nome)");
+      // buscarTodas: sem `.range` o PostgREST corta em 1.000 linhas sem avisar; ordem estável por id. Erro NÃO esvazia o filtro em silêncio.
+      const data = await buscarTodas<any>((de, ate) =>
+        supabase.from("modelos").select("id, colecao, subcolecao, colecoes(nome)").order("id", { ascending: true }).range(de, ate),
+      );
       return {
-        colecoes: Array.from(new Set((data ?? []).map((m: any) => rotuloColecaoDoCard(m)).filter(Boolean))).sort() as string[],
+        colecoes: Array.from(new Set((data ?? []).map((m: any) => rotuloColecaoDoModelo(m)).filter(Boolean))).sort() as string[],
         subcolecoes: Array.from(new Set((data ?? []).map((m: any) => m.subcolecao).filter(Boolean))).sort() as string[],
       };
     },
@@ -550,13 +547,16 @@ function ComercialColecaoTab() {
     queryKey: ["comercial-col-modelos", fColecao, fSubcolecao],
     queryFn: async () => {
       // embed estende a ComercialTab com markup_min/markup_max (faixa da linha) p/ o status por faixa.
-      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, status_desenvolvimento, status_planejamento, linha:linha_id(nome, markup, markup_min, markup_max), colecoes(nome)");
-      if (fSubcolecao !== "all") q = q.eq("subcolecao", fSubcolecao);
-      const { data, error } = await q;
-      if (error) throw error;
+      // Filtro de coleção NO CLIENTE (pelo rótulo), então traz TODOS os cards em blocos (buscarTodas, ordem estável por id):
+      // o teto de 1.000 linhas do PostgREST não pode cortar cards de forma não determinística.
+      const data = await buscarTodas<any>((de, ate) => {
+        let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, status_desenvolvimento, status_planejamento, linha:linha_id(nome, markup, markup_min, markup_max), colecoes(nome)");
+        if (fSubcolecao !== "all") q = q.eq("subcolecao", fSubcolecao);
+        return q.order("id", { ascending: true }).range(de, ate);
+      });
       // Filtro de coleção NO CLIENTE pelo rótulo (o texto `modelos.colecao` sozinho deixaria de fora o card só com `colecao_id`);
       // `colecao` da linha vira o rótulo (agrupamento "Por coleção").
-      const rows = ((data ?? []) as any[]).map((m) => ({ ...m, colecao: rotuloColecaoDoCard(m) }));
+      const rows = ((data ?? []) as any[]).map((m) => ({ ...m, colecao: rotuloColecaoDoModelo(m) }));
       return fColecao === "all" ? rows : rows.filter((m) => m.colecao === fColecao);
     },
   });

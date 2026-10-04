@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Wrench, Search } from "lucide-react";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
@@ -32,7 +33,7 @@ function OficinaListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)",
+          "id, ref, versao, nome, colecao, colecoes(nome), mes_id, ano_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -43,7 +44,7 @@ function OficinaListPage() {
         ref: m.ref,
         versao: m.versao,
         nome: m.nome,
-        colecao: m.colecao,
+        colecao: rotuloColecaoDoModelo(m),
         mes_id: m.mes_id,
         ano_id: m.ano_id,
         categoria_nome: m.categorias_produto?.nome ?? null,

@@ -6,6 +6,7 @@ import {
   bloqueiosLancar, prontoParaLancar, textoLancarExige,
   TEXTO_LANCAR_CQ, TEXTO_LANCAR_MO, TEXTO_LANCAR_MO_REABRE, TEXTO_LANCAR_DATA,
 } from "@/lib/lancar";
+import { mensagemErro, textoColecaoComCards } from "@/lib/erro-mensagem";
 import { avisoExclusaoColecao, rotuloCardDaColecao, LIMITE_LISTA_CARDS, type CardDaColecao } from "@/lib/colecao-excluir";
 
 const TODAS = [
@@ -120,5 +121,37 @@ describe("avisoExclusaoColecao (P-255 A)", () => {
     expect(rotuloCardDaColecao({ ref: null, nome: "Vestido" })).toBe("Vestido");
     expect(rotuloCardDaColecao({ ref: "10000001", nome: " " })).toBe("10000001");
     expect(rotuloCardDaColecao({ ref: null, nome: null })).toBe("Card sem nome");
+  });
+});
+
+describe("avisoExclusaoColecao — texto único e produtos (m3/m5)", () => {
+  it("o texto de 'coleção com cards' é o MESMO do erro do servidor (fonte única)", () => {
+    expect(avisoExclusaoColecao(3, [], 20).mensagem).toBe(textoColecaoComCards(3));
+    expect(avisoExclusaoColecao(1, [], 20).mensagem).toBe(textoColecaoComCards(1));
+    expect(mensagemErro({ code: "P0001", message: "colecao_com_cards: 3" }, "fb")).toBe(textoColecaoComCards(3));
+  });
+  it("sem cards mas com produto acabado/importado: bloqueia de antemão, sem lista", () => {
+    const a = avisoExclusaoColecao(0, [], 20, 2);
+    expect(a.bloqueada).toBe(true);
+    expect(a.itens).toEqual([]);
+    expect(a.mensagem).toContain("em uso por produto(s) acabado(s) ou importado(s)");
+    expect(a.mensagem).toContain("(2 produtos)");
+  });
+  it("com cards E produtos: a frase dos produtos vem à parte", () => {
+    const a = avisoExclusaoColecao(1, [{ id: "1", nome: "A", ref: null }], 20, 1);
+    expect(a.bloqueada).toBe(true);
+    expect(a.produtosTexto).toContain("(1 produto)");
+  });
+  it("sem cards e sem produtos: segue liberando", () => {
+    expect(avisoExclusaoColecao(0, [], 20, 0).bloqueada).toBe(false);
+  });
+});
+
+describe("mensagemErro — recusas do lancar_modelo (I1)", () => {
+  it("as 3 recusas 42501 em PT mostram o motivo real, não 'sem permissão'", () => {
+    for (const msg of ["Confirme o Controle de Qualidade antes de lançar.", "Aprove a mão de obra antes de lançar.", "Informe a Data de Lançamento."]) {
+      expect(mensagemErro({ code: "42501", message: msg }, "fb")).toBe(msg);
+    }
+    expect(mensagemErro({ code: "42501", message: "permission denied for table x" }, "fb")).toBe("Você não tem permissão para esta ação.");
   });
 });

@@ -10,6 +10,7 @@ import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -120,7 +121,7 @@ function LancamentosPage() {
       // aqui como HISTÓRICO. Mesmo escape de CQ/Direcionamento (`origem.eq.revenda/importado`).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, conjunto_id, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, markup_editado, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, origem, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
+        .select("id, ref, nome, conjunto_id, colecao, colecoes(nome), subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, markup_editado, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, origem, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
         .or("enviado_cad.eq.true,origem.eq.revenda,origem.eq.importado")
         .eq("lancado", true);
       if (error) throw error;
@@ -184,7 +185,7 @@ function LancamentosPage() {
           cad_id: cadId,
           ref: m.ref,
           nome: m.nome,
-          colecao: m.colecao,
+          colecao: rotuloColecaoDoModelo(m),
           subcolecao: m.subcolecao ?? null,
           semana: m.semana ?? null,
           data_lancamento: m.data_lancamento ?? null,

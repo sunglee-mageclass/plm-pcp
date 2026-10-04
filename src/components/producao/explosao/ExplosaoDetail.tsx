@@ -20,6 +20,7 @@ import { varianteLabel } from "@/lib/variante";
 import { fmtNum } from "@/lib/format";
 import { situacaoExplosao } from "@/lib/explosao";
 import { cn } from "@/lib/utils";
+import { comRotuloColecao } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,12 +142,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "*, estilista:estilista_id(nome), linha:linha_id(nome), cat_p:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome), mes:mes_id(mes), ano:ano_id(ano)",
+          "*, colecoes(nome), estilista:estilista_id(nome), linha:linha_id(nome), cat_p:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome), mes:mes_id(mes), ano:ano_id(ano)",
         )
         .eq("id", modeloId)
         .single();
       if (error) throw error;
-      return data as any;
+      return comRotuloColecao(data as any) as any; // [modularidade R11] `colecao` = rótulo (só exibição)
     },
   });
 

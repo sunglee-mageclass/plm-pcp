@@ -61,6 +61,10 @@ const MENSAGENS_42501_PROPRIAS = new Set([
   "Apenas o administrador da loja pode salvar a Configuração da Loja.",
   // Reprocessar faltas do corte (RPC `reprocessar_faltas_corte`, leves L6)
   "Apenas o administrador da loja pode reprocessar as faltas do corte.",
+  // Lançar (RPC `lancar_modelo`, modularidade F3 I1): o motivo real da recusa, não o genérico (ex.: M.O. reaberta por outra pessoa)
+  "Confirme o Controle de Qualidade antes de lançar.",
+  "Aprove a mão de obra antes de lançar.",
+  "Informe a Data de Lançamento.",
 ]);
 
 // Integração › Gerar JSON (20261102100000): recusas P0001 em ASCII com prefixo `gerar_json_*:` (do banco) e `gerar_json_falhou`
@@ -331,7 +335,7 @@ export function mensagemSegS3(code: string, msg: string): string | null {
 //   as de outras RPCs): a mesma frase PT, com o rótulo do módulo (chave interna ou nome já em PT, como veio).
 // - P0001 `colecao_com_cards: N` (otb_excluir_colecao) → quantos cards seguram a coleção.
 // - 23503 ao excluir coleção ligada só por produto acabado/importado (a contagem do servidor olha os cards): a FK barra, texto PT.
-const TEXTO_COLECAO_EM_USO_POR_PRODUTO =
+export const TEXTO_COLECAO_EM_USO_POR_PRODUTO =
   "Esta coleção está em uso por produto(s) acabado(s) ou importado(s) — mova ou exclua esses produtos antes de excluir a coleção.";
 const TEXTO_COLECAO_COM_CARDS_GENERICO = "Esta coleção tem cards no Planejamento — mova ou exclua os cards antes de excluir a coleção.";
 export function textoColecaoComCards(n: number): string {

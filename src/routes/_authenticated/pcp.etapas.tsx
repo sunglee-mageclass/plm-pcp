@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { Input } from "@/components/ui/input";
@@ -94,12 +95,12 @@ function EtapasPlPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("colecao")
-        .not("colecao", "is", null);
+        .select("colecao, colecoes(nome)");
       if (error) throw error;
+      // [modularidade R11] opções = rótulos (nome do OTB, senão o texto), os mesmos que o filtro de `useEtapasCards` compara.
       return Array.from(
-        new Set((data ?? []).map((r: { colecao: string | null }) => r.colecao).filter(Boolean)),
-      ) as string[];
+        new Set((data ?? []).map((r) => rotuloColecaoDoModelo(r as { colecao?: string | null; colecoes?: unknown })).filter(Boolean)),
+      ).sort() as string[];
     },
   });
 

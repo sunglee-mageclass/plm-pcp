@@ -33,7 +33,8 @@ import { precoDoCard } from "@/lib/preco";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado, pecasReaisLiberadas } from "@/lib/cq-status";
-import { prontoParaLancar, textoLancarExige } from "@/lib/lancar";
+import { prontoParaLancar, textoLancarExige, TEXTO_LANCAR_DATA } from "@/lib/lancar";
+import { comRotuloColecaoLista } from "@/lib/colecao-rotulo";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -417,10 +418,11 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, mix_id, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra, status_desenvolvimento, ordem_criacao_enviada")
+        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, colecoes(nome), subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, mix_id, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra, status_desenvolvimento, ordem_criacao_enviada")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as Modelo[];
+      // [modularidade R11] `colecao` = rótulo (nome do OTB, senão o texto): filtro, opções e card veem o que só tem `colecao_id`.
+      return comRotuloColecaoLista((data ?? []) as unknown as Modelo[]);
     },
   });
 
@@ -646,10 +648,6 @@ function PlanejamentoPage() {
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
   const sub1Map = Object.fromEntries(sub1Opts.map((s) => [s.id, s.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
-  // Nome da coleção por id — p/ resolver o rótulo do card quando o texto `colecao` está vazio.
-  // Revenda só grava `colecao_id` (o espelho não copia o texto livre), então sem isto a coleção
-  // sumia no card. Manufaturado usa o texto direto; este mapa é fallback.
-  const colecaoNomeMap = Object.fromEntries(colecoesList.map((c) => [c.id, c.nome]));
   const artigoMap = Object.fromEntries(artigos.map((a) => [a.id, a.nome]));
   // artigo → categoria de tecido (id + nome), p/ o agrupamento "Categoria de tecido".
   const artigoCatTecMap = Object.fromEntries(artigos.map((a) => [a.id, (a as any).categoria_tecido_id ?? null]));
@@ -723,7 +721,7 @@ function PlanejamentoPage() {
         estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
         categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
         linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
-        colecaoNome={m.colecao || (m.colecao_id ? colecaoNomeMap[m.colecao_id] : null) || null}
+        colecaoNome={m.colecao || null}
         custo={(() => { const p = piFor(m); return p.custo > 0 ? p.custo : null; })()}
         custoReal={!!(custoMap as any)[m.id]?.confirmado}
         markup={(() => {
@@ -1548,13 +1546,14 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
                     <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
                       data-colab-path={`card-data-lanc:${modelo.id}`}
                       className="w-[7.75rem] shrink-0 [&>div]:h-7 max-md:[&>div]:h-10 [&_input]:h-full [&_input]:pl-2 [&_input]:pr-7 max-md:[&_input]:pr-9 [&_input]:text-xs [&_button]:w-7 max-md:[&_button]:w-9 [&_svg]:h-3.5 [&_svg]:w-3.5" />
-                    <button type="button" disabled={lancStatus == null}
+                    {/* [modularidade F3 I1] "pronto" sem Data de Lançamento não lança (o servidor recusa): foguete travado com o motivo. */}
+                    <button type="button" disabled={lancStatus == null || (lancStatus === "pronto" && !dtLanc)}
                       aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
-                      title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : textoLancarExige(cqExigido)}
+                      title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? (dtLanc ? "Lançar este modelo" : TEXTO_LANCAR_DATA) : textoLancarExige(cqExigido)}
                       onClick={() => onLancar(dtLanc || null, lancStatus !== "lancado")}
                       className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border max-md:h-10 max-md:w-10 ${
                         lancStatus === "lancado" ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
-                        : lancStatus === "pronto" ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                        : lancStatus === "pronto" && dtLanc ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
                         : "cursor-not-allowed border-input text-muted-foreground/60"}`}>
                       <Rocket className="h-3.5 w-3.5" />
                     </button>

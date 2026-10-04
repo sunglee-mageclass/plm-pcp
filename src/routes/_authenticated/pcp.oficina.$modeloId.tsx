@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Wrench, Save, Printer, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { comRotuloColecao } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,11 +63,11 @@ function OficinaDetailPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, fotos_modelo, observacoes_tecnicas, categorias_produto:categoria_principal_id(nome)")
+        .select("id, ref, nome, colecao, colecoes(nome), fotos_modelo, observacoes_tecnicas, categorias_produto:categoria_principal_id(nome)")
         .eq("id", modeloId)
         .single();
       if (error) throw error;
-      return data;
+      return comRotuloColecao(data); // [modularidade R11] `colecao` = rótulo
     },
   });
 

@@ -6,6 +6,7 @@ import { Users, Search, Printer, Camera } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$modeloId";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
@@ -58,7 +59,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, origem, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, colecoes(nome), mes_id, ano_id, categoria_principal_id, origem, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
         )
         // Manufaturado entra por enviado_cad; REVENDA por origem (não seta enviado_cad). O gate
         // enviado_corte abaixo garante que ambos só aparecem DEPOIS da Explosão (Enviar para PCP)
@@ -102,7 +103,7 @@ function TercListPage() {
           desenho_tecnico_url: m.desenho_tecnico_url,
           croqui_url: m.croqui_url,
           nome: m.nome,
-          colecao: m.colecao,
+          colecao: rotuloColecaoDoModelo(m),
           mes_id: m.mes_id,
           ano_id: m.ano_id,
           categoria_nome: m.categorias_produto?.nome ?? null,

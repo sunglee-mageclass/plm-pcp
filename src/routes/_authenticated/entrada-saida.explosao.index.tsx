@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layers, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -118,7 +119,7 @@ function ExplosaoListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, origem, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte), fotos_modelo, desenho_tecnico_url, croqui_url",
+          "id, ref, nome, versao, colecao, colecoes(nome), mes_id, ano_id, categoria_principal_id, origem, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte), fotos_modelo, desenho_tecnico_url, croqui_url",
         )
         // Manufaturado entra por enviado_cad; REVENDA entra por origem (não seta enviado_cad —
         // materializa o cad ao receber a OC). O .filter(!!cad) abaixo garante que a revenda só
@@ -136,7 +137,7 @@ function ExplosaoListPage() {
             ref: m.ref,
             nome: m.nome,
             versao: m.versao,
-            colecao: m.colecao,
+            colecao: rotuloColecaoDoModelo(m),
             mes_id: m.mes_id,
             ano_id: m.ano_id,
             categoria_nome: (m.categorias_produto as any)?.nome ?? null,

@@ -5,6 +5,7 @@ import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsU
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { comRotuloColecaoLista } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -288,11 +289,12 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, lancado, origem, revisao_pendente, cad(enviado_corte), created_at")
+        .select("id, nome, ref, ref_auto, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, lancado, origem, revisao_pendente, cad(enviado_corte), created_at, colecoes(nome)")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as Modelo[];
+      // [modularidade R11] `colecao` = rótulo (nome do OTB, senão o texto): filtro/opções/exibição veem o card só-id.
+      return comRotuloColecaoLista((data ?? []) as unknown as Modelo[]);
     },
   });
 

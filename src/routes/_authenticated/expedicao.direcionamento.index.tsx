@@ -6,6 +6,7 @@ import { Compass, Search } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { DirecionamentoDetail } from "@/routes/_authenticated/expedicao.direcionamento.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { cqLiberado } from "@/lib/cq-status";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -51,7 +52,7 @@ function DirListPage() {
       // a linha). `cqLiberado` no filtro abaixo segue igual pros dois casos.
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
+        .select("id, ref, versao, nome, colecao, colecoes(nome), mes_id, ano_id, linha_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .or("enviado_cad.eq.true,origem.eq.revenda,origem.eq.importado")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -60,7 +61,7 @@ function DirListPage() {
       return (data ?? [])
         .filter((m: any) => cqLiberado(m.cad?.[0]))
         .map((m: any) => ({
-          modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
+          modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: rotuloColecaoDoModelo(m),
           mes_id: m.mes_id, ano_id: m.ano_id, linha_id: m.linha_id, revisao_pendente: m.revisao_pendente,
           fotos_modelo: m.fotos_modelo, desenho_tecnico_url: m.desenho_tecnico_url, croqui_url: m.croqui_url,
           linha_nome: m.linha?.nome ?? null,

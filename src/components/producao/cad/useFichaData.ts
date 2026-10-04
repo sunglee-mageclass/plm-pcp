@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { comRotuloColecao } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { varianteLabel, corApelidoLabel } from "@/lib/variante";
 import { roundTo } from "@/lib/num";
@@ -43,10 +44,10 @@ export function useFichaData(modeloId: string): FichaData {
     queryFn: async () => {
       const { data } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, versao, fotos_modelo, linha:linha_id(nome), cat_p:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome), estilista:estilista_id(nome), modelista:modelista_id(nome), piloteiro:piloteiro1_id(nome)")
+        .select("id, ref, nome, colecao, colecoes(nome), versao, fotos_modelo, linha:linha_id(nome), cat_p:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome), estilista:estilista_id(nome), modelista:modelista_id(nome), piloteiro:piloteiro1_id(nome)")
         .eq("id", modeloId)
         .maybeSingle();
-      return data;
+      return data ? comRotuloColecao(data) : data; // [modularidade R11] `colecao` = rótulo (Ficha Técnica impressa)
     },
   });
 

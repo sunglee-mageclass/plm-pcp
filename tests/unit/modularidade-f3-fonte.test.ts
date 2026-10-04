@@ -26,12 +26,15 @@ describe("Dashboard — abas e blocos por módulo (M7, T1 M4)", () => {
   });
   it("Comercial & Coleção: opções e filtro pelo rótulo (`rotuloColecao`), sem `.eq(\"colecao\", …)` cru", () => {
     const i = f.indexOf("function ComercialColecaoTab()");
-    const corpo = f.slice(i, i + 4000);
-    expect(f).toContain('import { rotuloColecao } from "@/lib/colecao-rotulo";');
-    expect(corpo).toContain('select("colecao, subcolecao, colecoes(nome)")');
-    expect(corpo).toContain("rotuloColecaoDoCard(m)");
+    const corpo = f.slice(i, i + 5000);
+    expect(f).toContain('import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";');
+    expect(corpo).toContain('select("id, colecao, subcolecao, colecoes(nome)")');
+    expect(corpo).toContain("rotuloColecaoDoModelo(m)");
     expect(corpo).not.toContain('q.eq("colecao"');
     expect(corpo).toContain("rows.filter((m) => m.colecao === fColecao)");
+    // m2: o filtro no cliente nunca corta em 1.000 linhas (buscarTodas, ordem estável) e a lista de opções também
+    expect(corpo.match(/buscarTodas<any>/g)?.length).toBe(2);
+    expect(corpo).toContain('order("id", { ascending: true })');
   });
 });
 
@@ -64,5 +67,40 @@ describe("Excluir coleção com cards (P-255 A)", () => {
     expect(dlg).toContain(".eq(\"colecao_id\", colecaoId!)");
     expect(dlg).toContain(".limit(LIMITE_LISTA_CARDS)");
     expect(dlg).toContain("{!aviso?.bloqueada && (");
+  });  it("m4/m5: o resultado só aparece com a conferência terminada, e produtos acabados/importados entram na contagem", () => {
+    expect(dlg).toContain("const aviso = !conferindo && !cards.isError && cards.data ?");
+    expect(dlg).toContain('"produtos_acabados", "produtos_importados"');
+    expect(dlg).toContain("retry: 1");
+  });
+});
+
+describe("Lançar — foguete do card sem data (I1) e texto sem Produção (m1)", () => {
+  const lista = ler("src/routes/_authenticated/criacao.planejamento.tsx");
+  const det = ler("src/components/planejamento/PlanejamentoDetail.tsx");
+  it("o foguete 'pronto' sem Data de Lançamento fica desabilitado e o título é o motivo", () => {
+    expect(lista).toContain('disabled={lancStatus == null || (lancStatus === "pronto" && !dtLanc)}');
+    expect(lista).toContain("(dtLanc ? \"Lançar este modelo\" : TEXTO_LANCAR_DATA)");
+  });
+  it("sem Produção o '✓ Lançado' não promete 'aparece em Lançamentos'", () => {
+    expect(det).toContain('{cqExigido ? "✓ Lançado — aparece em Lançamentos." : "✓ Lançado."}');
+  });
+});
+
+describe("Parte 12 (R11) — telas que mostram/filtram coleção usam o rótulo", () => {
+  it("detalhes/Explosão/Etapas PL trazem colecoes(nome) e passam por comRotuloColecao/rotuloColecaoDoModelo", () => {
+    const comRotulo = [
+      "src/components/producao/explosao/ExplosaoDetail.tsx",
+      "src/components/producao/etapas/useEtapasCards.ts",
+      "src/routes/_authenticated/pcp.etapas.tsx",
+      "src/components/producao/cad/useFichaData.ts",
+      "src/routes/_authenticated/criacao.desenvolvimento.tsx",
+      "src/routes/_authenticated/criacao.planejamento.tsx",
+    ];
+    for (const f of comRotulo) {
+      const t = ler(f);
+      expect(t, f).toContain("colecoes(nome)");
+      expect(t, f).toMatch(/comRotuloColecao(Lista)?\(|rotuloColecaoDoModelo\(/);
+    }
+    expect(ler("src/components/planejamento/PlanejamentoDetail.tsx")).toContain("rotuloColecao({ colecao: draft.colecao, colecaoNome:");
   });
 });

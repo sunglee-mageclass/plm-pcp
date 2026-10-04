@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
 import { diffPorTamanho, motivoNaoConfere } from "@/lib/direcionamento-diff";
+import { comRotuloColecao } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -98,7 +99,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
-    queryFn: async () => (await (supabase.from("modelos") as any).select("id, ref, nome, colecao, subcolecao, semana, origem, tamanho_tipo, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data,
+    queryFn: async () => comRotuloColecao((await (supabase.from("modelos") as any).select("id, ref, nome, colecao, colecoes(nome), subcolecao, semana, origem, tamanho_tipo, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data), // [modularidade R11] `colecao` = rótulo
   });
 
   const { data: cad } = useQuery({

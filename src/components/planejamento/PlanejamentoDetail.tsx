@@ -48,6 +48,7 @@ import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { bloqueiosLancar } from "@/lib/lancar";
+import { rotuloColecao } from "@/lib/colecao-rotulo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -1349,7 +1350,8 @@ function PlanejamentoDetailConteudo({
     // Brief 25/set — "vazia" (nome, estilista E categoria vazios) ≠ "incompleta" (`infoCompleta` já usa AND).
     infoVazia: !draft.nome.trim() && !draft.estilista_id && !draft.categoria_principal_id,
     colecaoResumo: resumoColecao({
-      colecao: draft.colecao || null,
+      // [modularidade R11] rótulo da coleção (nome do OTB pelo id, senão o texto): card só-id não mostra a seção "vazia".
+      colecao: rotuloColecao({ colecao: draft.colecao, colecaoNome: colecoes.find((c) => c.id === draft.colecao_id)?.nome }),
       subcolecao: draft.subcolecao || null,
       linha: linhas.find((l) => l.id === draft.linha_id)?.nome ?? null,
       semana: draft.semana || null,
@@ -1995,7 +1997,8 @@ function PlanejamentoDetailConteudo({
                   </TooltipProvider>
                 ))}
               </div>
-              {lancado && <p className="mt-2 text-xs text-emerald-600">✓ Lançado — aparece em Lançamentos.</p>}
+              {/* A página Lançamentos é do módulo Produção e só lista card com CQ liberado: sem Produção não promete que aparece lá. */}
+              {lancado && <p className="mt-2 text-xs text-emerald-600">{cqExigido ? "✓ Lançado — aparece em Lançamentos." : "✓ Lançado."}</p>}
             </Secao>
           )}
           {vis.relacionado && modeloId && (

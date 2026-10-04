@@ -10,6 +10,7 @@ import { corApelidoLabelServico } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
 import type { MoLinha, EstadoMO } from "@/lib/mao-obra";
 import { type CelulaGrade, type GradeDetalhe, CELULA_ZERO, somaCampo as somaGrade, saldoCelula, recebidaExcedeCortada, celulasRecebidaAcimaCortada } from "@/lib/grade-cortada";
+import { comRotuloColecao } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -245,7 +246,7 @@ export function TerceirizadosDetail({
     queryKey: ["terc-modelo", modeloId],
     queryFn: async () => {
       const { data, error } = await (supabase.from("modelos") as any)
-        .select("id, ref, nome, colecao, subcolecao, semana, categoria_principal_id, custos_adicionais, custo_terceirizados_aprovado, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
+        .select("id, ref, nome, colecao, colecoes(nome), subcolecao, semana, categoria_principal_id, custos_adicionais, custo_terceirizados_aprovado, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
         .eq("id", modeloId)
         .maybeSingle();
       if (error) throw error;
@@ -259,7 +260,7 @@ export function TerceirizadosDetail({
           .maybeSingle();
         categoria_nome = cat?.nome ?? null;
       }
-      return { ...data, categoria_nome };
+      return { ...comRotuloColecao(data), categoria_nome }; // [modularidade R11] `colecao` = rótulo
     },
   });
 

@@ -9,6 +9,7 @@ import { brl } from "@/lib/format";
 import { varianteLabel } from "@/lib/variante";
 import { resolverFonteConfeccao } from "@/lib/confeccao-fonte";
 import { celulasRecebidaAcimaCortada, completarGradeFonte, type GradeDetalhe } from "@/lib/grade-cortada";
+import { comRotuloColecao } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -135,11 +136,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, subcolecao, semana, origem, categorias_produto:categoria_principal_id(nome), fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
+        .select("id, ref, nome, colecao, colecoes(nome), subcolecao, semana, origem, categorias_produto:categoria_principal_id(nome), fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
         .eq("id", modeloId)
         .single();
       if (error) throw error;
-      return data;
+      return comRotuloColecao(data); // [modularidade R11] `colecao` = rótulo (nome do OTB, senão o texto)
     },
   });
 

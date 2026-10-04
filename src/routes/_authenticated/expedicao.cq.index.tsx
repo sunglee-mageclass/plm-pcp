@@ -6,6 +6,7 @@ import { ClipboardCheck, Search } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CqDetail } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
 import { ehOrigemComprada } from "@/lib/origem";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -50,7 +51,7 @@ function CqListPage() {
       // pela Explosão p/ trocar etiqueta — ver o filtro).
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
+        .select("id, ref, versao, nome, colecao, colecoes(nome), mes_id, ano_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .or("enviado_cad.eq.true,origem.eq.revenda,origem.eq.importado")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -76,7 +77,7 @@ function CqListPage() {
           else if (!temPos || statusPos === "confirmado") statusGeral = "confirmado";
           else statusGeral = "pre_confirmado";
           return {
-            modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
+            modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: rotuloColecaoDoModelo(m),
             mes_id: m.mes_id, ano_id: m.ano_id, revisao_pendente: m.revisao_pendente,
             categoria_nome: m.categorias_produto?.nome ?? null,
             origem: m.origem,
