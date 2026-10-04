@@ -18,10 +18,11 @@
 -- Idempotente (a guarda aceita o estado de antes OU o de depois).
 -- Volta: supabase/rollback/20261101180000_seg_s3c_guarda_ficha_down.sql (LIFO: 20261101180000_down → 170000_down → 160000_down, ANTES dos inversos da S3a/S2/S1 e
 -- de releases anteriores que guardam por md5 as mesmas funções — ver s3c-report.md, seção "Cadeia md5").
+-- lock_timeout 1500ms (> deadlock_timeout: cancela autovacuum). 55P03 = nada mudou; rodar o arquivo de novo (até 3x, horário calmo).
 -- Aplicar fora de transação: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 SET client_encoding = 'UTF8';
 BEGIN;
-SET LOCAL lock_timeout = '500ms';
+SET LOCAL lock_timeout = '1500ms';
 SET LOCAL transaction_timeout = '30s';
 
 DO $guarda$
