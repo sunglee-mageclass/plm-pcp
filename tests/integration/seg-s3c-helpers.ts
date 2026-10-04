@@ -26,6 +26,8 @@ async function zeraTimeouts(c: Client): Promise<void> {
 /** Aplica a S3c (e a S3a antes, se ainda não estiver viva — a S3c exige o helper dela). */
 export async function aplicaS3c(c: Client): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   const { aplicaS3a, s3aViva } = await import("./seg-s3a-helpers"); // import dinâmico: a S3a importa voltaS3cSePreciso daqui
   if (!(await s3aViva(c))) await aplicaS3a(c);
   for (const m of S3C_MIGS) await aplicarArquivo(c, m);
@@ -34,6 +36,8 @@ export async function aplicaS3c(c: Client): Promise<void> {
 
 export async function voltaS3c(c: Client, comDrop = false): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (20261101240000, grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   for (const m of S3C_DOWNS) await aplicarArquivo(c, m);
   if (comDrop) await aplicarArquivo(c, S3C_DOWN_DROP);
   await zeraTimeouts(c);

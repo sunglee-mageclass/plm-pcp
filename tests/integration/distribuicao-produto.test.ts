@@ -394,7 +394,10 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       for (const fn of ["public._salvar_plan_tecido_core(uuid,jsonb,integer)", "public._plan_tecido_gravar_bom_core(uuid,jsonb)", "public._plan_tecido_snapshot(uuid)", "public._plan_tecido_arvore_core(uuid)", "public._direcionamento_plano_modelo_core(uuid,uuid)"])
         expect(await privs(c, fn), fn).toEqual({ pub: false, anon: false, auth: false, srv: true });
       expect(await privs(c, "public.direcionamento_plano_modelo(uuid)")).toEqual({ pub: false, anon: false, auth: true, srv: true });
-      expect(await privs(c, "public.tenant_module_enabled(text)")).toEqual({ pub: true, anon: true, auth: true, srv: true });
+      // Reforço de segurança S5 (20261101240000): os 4 auxiliares de RLS perdem o EXECUTE de PUBLIC/anon (authenticated/service_role ficam)
+      const { s5Viva } = await import("./seg-s5-helpers");
+      expect(await privs(c, "public.tenant_module_enabled(text)")).toEqual(
+        (await s5Viva(c)) ? { pub: false, anon: false, auth: true, srv: true } : { pub: true, anon: true, auth: true, srv: true });
     });
   });
 

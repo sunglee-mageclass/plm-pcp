@@ -65,6 +65,8 @@ async function zeraTimeouts(c: Client): Promise<void> {
 
 export async function aplicaS2(c: Client): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   await voltaS3aSePreciso(c); // LIFO: a S3a (20261101100000..120000) redefine recalcular_parcelas por cima da S2 — sai antes
   for (const m of S2_MIGS) await aplicarArquivo(c, m);
   await zeraTimeouts(c);
@@ -72,6 +74,8 @@ export async function aplicaS2(c: Client): Promise<void> {
 
 export async function voltaS2(c: Client, comDrop = false): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   await voltaS3aSePreciso(c); // LIFO: a S3a sai antes da S2
   for (const m of S2_DOWNS) await aplicarArquivo(c, m);
   if (comDrop) await aplicarArquivo(c, S2_DOWN_DROP);

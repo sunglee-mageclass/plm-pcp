@@ -51,6 +51,8 @@ async function zeraTimeouts(c: Client): Promise<void> {
 
 export async function aplicaS1(c: Client): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   await voltaS3dSePreciso(c); // LIFO: a S3d (20261101190000) redefine RPCs que a S1 (20261031130000) guarda — sai antes
   await voltaS3cSePreciso(c); // LIFO: a S3c (20261101160000) redefine excluir_cad por cima da S1 (20261031120000) — sai antes
   await voltaS3bSePreciso(c); // LIFO: a S3b (20261101130000) redefine voltar_modelo_desenvolvimento/confirmar_direcionamento por cima da S1 — sai antes
@@ -60,6 +62,8 @@ export async function aplicaS1(c: Client): Promise<void> {
 
 export async function voltaS1(c: Client): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   await voltaS3dSePreciso(c); // LIFO: a S3d sai antes da S1
   await voltaS3cSePreciso(c); // LIFO: a S3c sai antes da S1
   await voltaS3bSePreciso(c); // LIFO: a S3b sai antes da S1

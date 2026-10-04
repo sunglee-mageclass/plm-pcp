@@ -24,6 +24,8 @@ async function zeraTimeouts(c: Client): Promise<void> {
 /** Aplica a S4 (e a S3d antes, se ainda não estiver viva — a S4 exige o estado dela nas plan_tecido_*). */
 export async function aplicaS4(c: Client): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   const { aplicaS3d, s3dViva } = await import("./seg-s3d-helpers");
   if (!(await s3dViva(c))) await aplicaS3d(c);
   for (const m of S4_MIGS) await aplicarArquivo(c, m);
@@ -32,6 +34,8 @@ export async function aplicaS4(c: Client): Promise<void> {
 
 export async function voltaS4(c: Client, comDrop = false): Promise<void> {
   exigeBancoLocal();
+  const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (20261101240000, grants por cima de tudo) sai antes
+  await voltaS5SePreciso(c);
   for (const m of S4_DOWNS) await aplicarArquivo(c, m);
   if (comDrop) await aplicarArquivo(c, S4_DOWN_DROP);
   await zeraTimeouts(c);
