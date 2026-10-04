@@ -237,10 +237,33 @@ describe.skipIf(!RODA)("seg S3d — trava medida (pg_locks na txn revertida)", (
     });
   });
 
-  it("o CREATE TRIGGER de modelos espera até 1500ms (acima do deadlock_timeout: cancela autovacuum) e tenta 3× — com uma escrita aberta noutra sessão recusa 55P03 sem pendurar", async () => {
+  // fix round (M1): as 3 travas vêm JUNTAS (LOCK TABLE produtos_acabados, produtos_importados, modelos) numa tentativa atômica.
+  // Mede, com sessões REAIS segurando escrita: (a) quanto tempo uma escrita de usuário fica na fila; (b) que a migration solta tudo
+  // entre as tentativas; (c) num deadlock de verdade, quem cai é a migration (40P01 tratado), nunca o usuário.
+  const novaSessao = async () => {
     const { Client: PgClient } = await import("pg");
-    const outro = new PgClient({ connectionString: process.env.DATABASE_URL, ssl: false });
-    await outro.connect();
+    const s = new PgClient({ connectionString: process.env.DATABASE_URL, ssl: false });
+    await s.connect();
+    return s;
+  };
+  const esperaMigrationNaFila = async (obs: { query: (q: string, p?: any[]) => Promise<any> }, pid: number) => {
+    for (let i = 0; i < 100; i++) {
+      const r = await obs.query("select count(*)::int n from pg_locks where pid = $1 and not granted", [pid]);
+      if (r.rows[0].n > 0) return;
+      await new Promise((ok) => setTimeout(ok, 50));
+    }
+    throw new Error("a migration não chegou a esperar trava");
+  };
+  const cronometra = async (s: { query: (q: string) => Promise<any> }, sql: string) => {
+    const t0 = Date.now();
+    await s.query(sql);
+    return Date.now() - t0;
+  };
+
+  it("(a)+(b) escrita aberta em modelos noutra sessão: 3 tentativas atômicas e 55P03 (~6,5s); escritas de usuário em produtos/modelos esperam no máximo ~1,5s cada", async () => {
+    const segura = await novaSessao();
+    const usuario = await novaSessao();
+    const obs = await novaSessao();
     try {
       await withTx(async (c) => {
         const { aplicaS3a, s3aViva } = await import("./seg-s3a-helpers");
@@ -248,20 +271,91 @@ describe.skipIf(!RODA)("seg S3d — trava medida (pg_locks na txn revertida)", (
         if (!(await s3aViva(c))) await aplicaS3a(c);
         await aplicarArquivo(c, S3D_MIGS[0]);
         await aplicarArquivo(c, S3D_MIGS[1]);
-        // outra sessão segura RowExclusive em modelos (um UPDATE sem COMMIT)
-        await outro.query("BEGIN");
-        await outro.query("SELECT 1 FROM public.modelos WHERE false FOR UPDATE"); // RowShare
-        await outro.query("LOCK TABLE public.modelos IN ROW EXCLUSIVE MODE");
+        const pid = (await um<{ p: number }>(c, "select pg_backend_pid() p")).p;
+        await segura.query("BEGIN");
+        await segura.query("UPDATE public.modelos SET nome = nome WHERE false"); // RowExclusive em modelos até o fim
         const t0 = Date.now();
-        await expect(aplicarArquivo(c, S3D_MIGS[2])).rejects.toMatchObject({ code: "55P03" });
+        const mig = aplicarArquivo(c, S3D_MIGS[2]).then(() => "PASSOU", (e) => String(e.code));
+        await esperaMigrationNaFila(obs, pid);
+        const esperas: number[] = [];
+        while (Date.now() - t0 < 6000) {
+          esperas.push(await cronometra(usuario, "UPDATE public.produtos_acabados SET nome = nome WHERE false"));
+          esperas.push(await cronometra(usuario, "UPDATE public.modelos SET nome = nome WHERE false"));
+        }
+        expect(await mig).toBe("55P03");
         const ms = Date.now() - t0;
-        expect(ms).toBeGreaterThanOrEqual(3 * 1500 + 2 * 1000 - 300); // 3 tentativas × 1500ms + 2 pausas de 1s
+        expect(ms).toBeGreaterThanOrEqual(3 * 1500 + 2 * 1000 - 300);
         expect(ms).toBeLessThan(15_000);
-        await outro.query("ROLLBACK");
+        // nenhuma escrita de usuário ficou na fila mais que uma janela de tentativa (1,5s + folga)
+        expect(Math.max(...esperas)).toBeLessThan(1800);
+        // entre as tentativas a migration não segura nada: pelo menos uma escrita passou na hora
+        expect(Math.min(...esperas)).toBeLessThan(200);
+        console.log(`[S3d trava] 55P03 em ${ms}ms; espera máx. de escrita do usuário ${Math.max(...esperas)}ms (${esperas.length} escritas)`);
+        await segura.query("ROLLBACK");
       });
     } finally {
-      await outro.query("ROLLBACK").catch(() => {});
-      await outro.end();
+      for (const s of [segura, usuario, obs]) { await s.query("ROLLBACK").catch(() => {}); await s.end(); }
+    }
+  });
+
+  it("(a') escrita aberta num PRODUTO noutra sessão: a migration espera o produto sem segurar modelos — escrita em modelos passa na hora; 55P03 no fim", async () => {
+    const segura = await novaSessao();
+    const usuario = await novaSessao();
+    const obs = await novaSessao();
+    try {
+      await withTx(async (c) => {
+        const { aplicaS3a, s3aViva } = await import("./seg-s3a-helpers");
+        if (await s3dViva(c)) return;
+        if (!(await s3aViva(c))) await aplicaS3a(c);
+        await aplicarArquivo(c, S3D_MIGS[0]);
+        await aplicarArquivo(c, S3D_MIGS[1]);
+        const pid = (await um<{ p: number }>(c, "select pg_backend_pid() p")).p;
+        await segura.query("BEGIN");
+        await segura.query("UPDATE public.produtos_acabados SET nome = nome WHERE false"); // o produto está sendo salvo
+        const t0 = Date.now();
+        const mig = aplicarArquivo(c, S3D_MIGS[2]).then(() => "PASSOU", (e) => String(e.code));
+        await esperaMigrationNaFila(obs, pid);
+        const emModelos: number[] = [];
+        while (Date.now() - t0 < 6000) emModelos.push(await cronometra(usuario, "UPDATE public.modelos SET nome = nome WHERE false"));
+        expect(await mig).toBe("55P03");
+        expect(Math.max(...emModelos)).toBeLessThan(200); // modelos nunca entrou na fila: a migration não a pediu sem ter os produtos
+        console.log(`[S3d trava] produto segurado: 55P03 em ${Date.now() - t0}ms; espera máx. em modelos ${Math.max(...emModelos)}ms (${emModelos.length} escritas)`);
+        await segura.query("ROLLBACK");
+      });
+    } finally {
+      for (const s of [segura, usuario, obs]) { await s.query("ROLLBACK").catch(() => {}); await s.end(); }
+    }
+  });
+
+  it("(c) deadlock de verdade (usuário segura modelos e pede produto): a migration cai (40P01 tratado), solta tudo, e passa na tentativa seguinte; o usuário NÃO vê 40P01", async () => {
+    const usuario = await novaSessao();
+    const obs = await novaSessao();
+    try {
+      await withTx(async (c) => {
+        const { aplicaS3a, s3aViva } = await import("./seg-s3a-helpers");
+        if (await s3dViva(c)) return;
+        if (!(await s3aViva(c))) await aplicaS3a(c);
+        await aplicarArquivo(c, S3D_MIGS[0]);
+        await aplicarArquivo(c, S3D_MIGS[1]);
+        const pid = (await um<{ p: number }>(c, "select pg_backend_pid() p")).p;
+        await usuario.query("BEGIN");
+        await usuario.query("UPDATE public.modelos SET nome = nome WHERE false");            // o Salvar do Sheet já gravou o card...
+        const t0 = Date.now();
+        const mig = aplicarArquivo(c, S3D_MIGS[2]).then(() => "PASSOU", (e) => String(e.code));
+        await esperaMigrationNaFila(obs, pid);                                               // migration: produtos ok, esperando modelos
+        const passo = await usuario.query("UPDATE public.produtos_acabados SET nome = nome WHERE false") // ...e o espelho pede o produto
+          .then(() => "PASSOU", (e) => String(e.code));
+        expect(passo).toBe("PASSOU");                                                        // quem caiu no ciclo foi a migration
+        await usuario.query("ROLLBACK");
+        expect(await mig).toBe("PASSOU");                                                    // e ela passou na tentativa seguinte
+        const ms = Date.now() - t0;
+        expect(ms).toBeLessThan(6000);
+        console.log(`[S3d trava] deadlock: usuário passou; migration aplicada em ${ms}ms`);
+        expect((await um<{ n: number }>(c, `select count(*)::int n from pg_trigger where tgname = 'trg_aaa_seg_pagina'
+            and tgrelid in ('public.modelos'::regclass, 'public.produtos_acabados'::regclass, 'public.produtos_importados'::regclass)`)).n).toBe(3);
+      });
+    } finally {
+      for (const s of [usuario, obs]) { await s.query("ROLLBACK").catch(() => {}); await s.end(); }
     }
   });
 });

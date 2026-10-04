@@ -3,8 +3,8 @@
 -- Gatilho trg_aaa_seg_pagina em modelos (BEFORE INSERT/UPDATE/DELETE: INSERT/DELETE = Planejamento; UPDATE = Planejamento OU
 -- Desenvolvimento; UPDATE so de mix_id = tambem Plan. Tecido/Produto Acabado/Produto Importado; a GUC app.explosao_sistema
 -- da S1 passa) e em produtos_acabados/produtos_importados (BEFORE UPDATE: a pagina do produto OU o Planejamento). Funcoes
--- SECURITY INVOKER que so mordem current_user authenticated/anon. modelos e a tabela mais quente: CREATE TRIGGER com
--- lock_timeout curto e ate 3 tentativas; HORARIO CALMO. Exige o helper da S3a.
+-- SECURITY INVOKER que so mordem current_user authenticated/anon. modelos e a tabela mais quente: as 3 travas vem juntas
+-- (LOCK TABLE, produtos antes de modelos) em ate 1500ms, ate 3 tentativas atomicas; HORARIO CALMO. Exige o helper da S3a.
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.fn_seg_pagina_modelos() (NOVA)
 --     ANTES  ausente
@@ -20,8 +20,9 @@
 --     NEUTRA 151187e6ad8c8c6ea168602b103185db (o _down)
 -- ====================================================================================
 -- ⚠️ Trava: CREATE TRIGGER = ShareRowExclusive em modelos (a tabela mais QUENTE: bloqueia escrita, não leitura, até o
--- COMMIT), produtos_acabados e produtos_importados — medido em seg-s3d.test.ts; nada em auth/storage. Cada CREATE TRIGGER
--- espera até 1500ms (cancela autovacuum) e tenta 3×; o resto é catálogo. HORÁRIO CALMO (madrugada). Sem DROP.
+-- COMMIT), produtos_acabados e produtos_importados — medido em seg-s3d.test.ts; nada em auth/storage. As 3 travas vêm
+-- JUNTAS (LOCK TABLE, produtos antes de modelos) em até 1500ms (cancela autovacuum); falhou = solta tudo, espera 1s e tenta
+-- de novo (até 3×). O resto é catálogo. HORÁRIO CALMO (madrugada). Sem DROP.
 -- Idempotente (a guarda aceita o estado de antes OU o de depois).
 -- Volta: supabase/rollback/20261101210000_seg_s3d_guarda_modelos_down.sql (LIFO: 20261101210000_down → 200000_down → 190000_down, ANTES dos inversos da S3c/S3b/S3a/S2/S1 e
 -- de releases anteriores que guardam por md5 as mesmas funções — ver s3d-report.md, seção "Cadeia md5").
@@ -138,49 +139,35 @@ $function$;
 -- função de gatilho: ninguém a chama direto (EXECUTE só é conferido no CREATE TRIGGER; ANON-2 da S1)
 REVOKE EXECUTE ON FUNCTION public.fn_seg_pagina_produtos_importados() FROM PUBLIC, anon, authenticated;
 
--- modelos é a tabela mais quente: até 3 tentativas (cada uma num sub-bloco; a trava só fica na que der certo). Cada espera vai
--- até 1500ms — acima do deadlock_timeout (1s), que é quando o Postgres CANCELA um autovacuum/analyze que segura modelos (medido
--- na cópia: com 500ms o autovacuum de modelos nunca era cancelado e o CREATE TRIGGER falhava 3×). Depois volta aos 500ms.
+-- fix round (M1 da revisão): UMA tentativa ATÔMICA por vez — num sub-bloco, LOCK TABLE das 3 de uma vez (produtos ANTES de
+-- modelos: a mesma ordem do caminho produto → card do app, _salvar_produto_acabado_core/espelhos) e os 3 CREATE TRIGGER. Se a
+-- trava não vier em até 1500ms (> deadlock_timeout: cancela autovacuum) ou houver deadlock, o sub-bloco falha e LIBERA TUDO antes
+-- da pausa de 1s — nunca se segura modelos esperando outra tabela. Até 3 tentativas; depois, 55P03 aborta (nada mudou).
 DO $trg$
 DECLARE
   i int;
 BEGIN
-  PERFORM set_config('lock_timeout', '1500ms', true);
   FOR i IN 1..3 LOOP
     BEGIN
+      PERFORM set_config('lock_timeout', '1500ms', true);
+      LOCK TABLE public.produtos_acabados, public.produtos_importados, public.modelos IN SHARE ROW EXCLUSIVE MODE;
       IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.modelos'::regclass AND t.tgname = 'trg_aaa_seg_pagina'
                       AND NOT t.tgisinternal) THEN
         CREATE TRIGGER trg_aaa_seg_pagina BEFORE INSERT OR UPDATE OR DELETE ON public.modelos
           FOR EACH ROW EXECUTE FUNCTION public.fn_seg_pagina_modelos();
       END IF;
-      EXIT;
-    EXCEPTION WHEN lock_not_available THEN
-      IF i = 3 THEN RAISE; END IF;
-      PERFORM pg_sleep(1);
-    END;
-  END LOOP;
-  FOR i IN 1..3 LOOP
-    BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.produtos_acabados'::regclass AND t.tgname = 'trg_aaa_seg_pagina'
                       AND NOT t.tgisinternal) THEN
         CREATE TRIGGER trg_aaa_seg_pagina BEFORE UPDATE ON public.produtos_acabados
           FOR EACH ROW EXECUTE FUNCTION public.fn_seg_pagina_produtos_acabados();
       END IF;
-      EXIT;
-    EXCEPTION WHEN lock_not_available THEN
-      IF i = 3 THEN RAISE; END IF;
-      PERFORM pg_sleep(1);
-    END;
-  END LOOP;
-  FOR i IN 1..3 LOOP
-    BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.produtos_importados'::regclass AND t.tgname = 'trg_aaa_seg_pagina'
                       AND NOT t.tgisinternal) THEN
         CREATE TRIGGER trg_aaa_seg_pagina BEFORE UPDATE ON public.produtos_importados
           FOR EACH ROW EXECUTE FUNCTION public.fn_seg_pagina_produtos_importados();
       END IF;
       EXIT;
-    EXCEPTION WHEN lock_not_available THEN
+    EXCEPTION WHEN lock_not_available OR deadlock_detected THEN
       IF i = 3 THEN RAISE; END IF;
       PERFORM pg_sleep(1);
     END;
