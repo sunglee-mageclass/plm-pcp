@@ -1581,10 +1581,14 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   - **anon** não tem mais NENHUM privilégio de tabela em `public`, exceto **SELECT em `system_settings`** (identidade da tela de
     login/Home deslogada; a imagem vem do bucket público `system-identity`, fora do `public`). ⚠️ Tela deslogada NOVA que leia outra
     tabela precisa de `GRANT SELECT … TO anon` (e policy de anon) — senão "permission denied".
-  - **authenticated** sem TRUNCATE/REFERENCES/TRIGGER em todas as tabelas de `public` (pula RLS e gatilhos).
+  - **authenticated** sem TRUNCATE/REFERENCES/TRIGGER/**MAINTAIN** (PG17: VACUUM/ANALYZE/CLUSTER/REINDEX/LOCK) em todas as tabelas
+    de `public`; o default ACL do `postgres` em `public` também perde o MAINTAIN de authenticated (tabela nova nasce `arwd`).
   - Os 4 auxiliares de RLS sem EXECUTE de PUBLIC/anon (nenhuma policy que o anon avalia os usa — conferido por teste).
-  - Guarda: ACL NORMALIZADA (aclitems em ordem alfabética — um GRANT de volta recoloca o papel no fim) = o antes (estado de depois da
-    S3a..S4) ou o depois, nas 116 tabelas e nas 4 funções; pós-condição pega tabela nova com grant de anon (aí, gere de novo).
+  - Guarda: ACL NORMALIZADA (aclitems em ordem alfabética) = o antes (estado de depois da S3a..S4) ou o depois, nas 116 tabelas, nas
+    4 funções e no default ACL; pós-condição pega tabela nova com grant de anon (aí, gere de novo). O `_down` RECONSTRÓI a ACL CRUA de
+    antes (REVOKE ALL dos não-donos + GRANT na MESMA ORDEM, tabela e colunas) — um GRANT simples recolocaria o papel no fim e as
+    guardas EXATAS da S2..S4 recusariam. Os inversos da S4 (230000/220000) e o dos grants da S3d (200000) RECUSAM com a S5 no banco;
+    o 200000_down da S3d também recusa com o gatilho de módulo da S4 ativo (C2).
   - Trava: só catálogo (medido). Ensaio `S5_TXN=1` (traz a cadeia S3a..S4 em ORDEM SEGURA — funções/gatilhos antes dos grants — se
     faltar); `voltaS5SePreciso` roda dentro de TODO `aplica*`/`volta*` da S1..S4 (LIFO). Volta: `240000_down` ANTES de qualquer
     inverso da S4/S3/S2/S1. Os reaplicar de S3d (210000) e S4 (230000) não pegam trava se os gatilhos já existem.

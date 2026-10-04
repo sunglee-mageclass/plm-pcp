@@ -5,11 +5,11 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicaS5, voltaS5, s5Viva, S5_MIG, S5_DOWN } from "./seg-s5-helpers";
-import { S5_ACL, S5_AUX, S5_ANON_LE } from "./seg-s5-dados";
+import { S5_ACL, S5_AUX, S5_ANON_LE, S5_DEFAULT_ACL } from "./seg-s5-dados";
 import { aplicarArquivo } from "./mig-txn";
 
 const RODA = hasDb && ehBancoLocal();
-const PRIVS = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"];
+const PRIVS = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"]; // os 8 do PG17
 
 type Res = { ok: true; rows: any[] } | { ok: false; code: string; msg: string };
 async function como(c: Client, role: "authenticated" | "anon" | "service_role" | null, sql: string, params: any[] = []): Promise<Res> {
@@ -54,6 +54,9 @@ describe.skipIf(!RODA)("seg S5 — ACL exata, idempotência, volta (lista exata)
       const confere = async (lado: "antes" | "depois") => {
         for (const [t, a] of Object.entries(S5_ACL)) expect(await aclTabela(c, t), `${t} ${lado}`).toEqual([a[lado][0], a[lado][1]]);
         for (const [f, a] of Object.entries(S5_AUX)) expect(await faclDe(c, f), `${f} ${lado}`).toBe(a[lado]);
+        const d = await um<{ d: string }>(c, `select coalesce((select string_agg(x::text, ',' order by x::text) from unnest(d.defaclacl) x), '') d
+            from pg_default_acl d where d.defaclrole = 'postgres'::regrole and d.defaclnamespace = 'public'::regnamespace and d.defaclobjtype = 'r'`);
+        expect(d.d, `default ACL ${lado}`).toBe(S5_DEFAULT_ACL[lado]);
       };
       await aplicaS5(c);
       await confere("depois");
@@ -66,6 +69,28 @@ describe.skipIf(!RODA)("seg S5 — ACL exata, idempotência, volta (lista exata)
       await aplicarArquivo(c, S5_MIG);
       await confere("depois");
       expect(Object.keys(S5_ACL).length).toBe(116);
+    });
+  });
+
+  it("fix round: o inverso reconstrói a ACL CRUA (ordem dos aclitems, colunas e as 4 funções) — as guardas exatas da S2..S4 seguem batendo", async () => {
+    await withTx(async (c) => {
+      await c.query("SET LOCAL statement_timeout = '180s'");
+      const crua = async () => (await c.query(
+        `select c.relname, c.relacl::text acl, (select json_agg(json_build_object(a.attname, a.attacl::text) order by a.attnum)::text
+           from pg_attribute a where a.attrelid = c.oid and a.attacl is not null and not a.attisdropped) cols
+           from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind in ('r','p','v','m','f')
+         union all select p.oid::regprocedure::text, p.proacl::text, null from pg_proc p where p.oid = any ($1::regprocedure[]) order by 1`,
+        [Object.keys(S5_AUX)])).rows;
+      await aplicaS5(c);
+      await voltaS5(c);
+      const antes = await crua();
+      await aplicarArquivo(c, S5_MIG);
+      await voltaS5(c);
+      expect(await crua()).toEqual(antes);
+      // e a S4 (guarda exata, sem normalizar) volta e reaplica depois da volta da S5
+      const { voltaS4, aplicaS4 } = await import("./seg-s4-helpers");
+      await voltaS4(c);
+      await aplicaS4(c);
     });
   });
 
@@ -128,12 +153,12 @@ describe.skipIf(!RODA)("seg S5 — anon só lê a identidade; authenticated sem 
     await withTx(async (c) => {
       await prepara(c);
       const sobrou = (await c.query(
-        `select c.relname, p from pg_class c cross join unnest(array['TRUNCATE','REFERENCES','TRIGGER']) p
+        `select c.relname, p from pg_class c cross join unnest(array['TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) p
           where c.relnamespace = 'public'::regnamespace and c.relkind in ('r','p','v','m','f') and has_table_privilege('authenticated', c.oid, p)`)).rows;
       expect(sobrou).toEqual([]);
       // nada de SELECT/INSERT/UPDATE/DELETE de authenticated mudou na S5
       for (const [t, a] of Object.entries(S5_ACL)) {
-        const sem = (acl: string) => (acl.match(/authenticated=([a-zA-Z]*)\//)?.[1] ?? "").replace(/[Dxt]/g, "");
+        const sem = (acl: string) => (acl.match(/authenticated=([a-zA-Z]*)\//)?.[1] ?? "").replace(/[Dxtm]/g, "");
         expect(sem(a.depois[0]), t).toBe(sem(a.antes[0]));
       }
     });
@@ -181,13 +206,16 @@ describe.skipIf(!RODA)("seg S5 — anon só lê a identidade; authenticated sem 
     });
   });
 
-  it("PRIV-2 (da S1) segue: tabela nova do postgres nasce sem anon e sem TRUNCATE/REFERENCES/TRIGGER para authenticated", async () => {
+  it("PRIV-2 (da S1) segue + MAINTAIN: tabela nova do postgres nasce sem anon e sem TRUNCATE/MAINTAIN para authenticated", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await c.query(`create table public.zz_s5_nova (id int)`);
-      const r = await um<{ a: boolean; t: boolean }>(c, `select has_table_privilege('anon', 'public.zz_s5_nova', 'SELECT') a,
-          has_table_privilege('authenticated', 'public.zz_s5_nova', 'TRUNCATE') t`);
-      expect(r).toEqual({ a: false, t: false });
+      const r = await um<{ a: boolean; t: boolean; m: boolean; d: string }>(c, `select has_table_privilege('anon', 'public.zz_s5_nova', 'SELECT') a,
+          has_table_privilege('authenticated', 'public.zz_s5_nova', 'TRUNCATE') t, has_table_privilege('authenticated', 'public.zz_s5_nova', 'MAINTAIN') m,
+          (select coalesce((select string_agg(x::text, ',' order by x::text) from unnest(d.defaclacl) x), '') from pg_default_acl d
+            where d.defaclrole = 'postgres'::regrole and d.defaclnamespace = 'public'::regnamespace and d.defaclobjtype = 'r') d`);
+      // fix round (B1): tabela NOVA também nasce sem MAINTAIN para authenticated (o default ACL do postgres em public perdeu o m)
+      expect(r).toEqual({ a: false, t: false, m: false, d: S5_DEFAULT_ACL.depois });
     });
   });
 });
