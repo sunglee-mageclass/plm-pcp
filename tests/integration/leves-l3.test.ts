@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { aplicarSql } from "./mig-txn";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal, dbUrl } from "./db";
 import { md5OuSucessorS1 } from "./seg-s1-helpers";
+import { md5ModSucessor } from "./mod-helpers";
 import { BOARD_GATE, REQS_GATE } from "../fixtures/kanban-auto-casos";
 import {
   mensagemErro,
@@ -305,7 +306,12 @@ describe.skipIf(!hasDb)("L3 — md5 e ACL (20261027100000..130000 aplicadas)", (
           ["public." + sig],
         );
         // Reforço de segurança S1 (20261031120000) redefine _enviar_modelo_para_cad_core por cima (GUC da Explosão; sucessor aceito)
-        expect(md5OuSucessorS1(sig, md5), sig).toContain(r.m);
+        // [modularidade T3] 20261103120000 redefine _avaliar_condicoes_kanban_core por cima (P-254 A + coleção pelo id): aceita
+        // também o sucessor da frente (md5ModSucessor).
+        expect(
+          md5OuSucessorS1(sig, md5).flatMap((m) => md5ModSucessor(sig, m)),
+          sig,
+        ).toContain(r.m);
       }
       const g = await um<{ n: number }>(
         c,

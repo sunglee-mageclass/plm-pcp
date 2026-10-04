@@ -5,9 +5,11 @@
 // claims (MOD-1 ignora a mudança feita com JWT de não-super). Fixtures semeadas como postgres, sem JWT, dentro da txn.
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicarArquivo } from "./mig-txn";
-import { aplicaMod, voltaMod, modViva } from "./mod-helpers";
+import { aplicaMod, voltaMod, modViva, MOD_MIGS } from "./mod-helpers";
 import { MOD_MD5, MOD2_ACL, MOD2_DEPS, MOD_MIG, MOD_DOWN } from "./mod-2-dados";
 import { MOD_DOWN as MOD1_DOWN, MOD_DOWN_DROP as MOD1_DOWN_DROP } from "./mod-1-dados";
 
@@ -471,6 +473,15 @@ describe.skipIf(!RODA)(
     it("LIFO: com a T2 viva, o _down_drop da T1 recusa (lancar_modelo cita _tenant_modulo_ligado); depois do _down da T2, passa", async () => {
       await withTx(async (c) => {
         await c.query("SET LOCAL statement_timeout = '180s'");
+        // [modularidade T3] blocos MAIS NOVOS que a T2 (T3: _kanban_cond_na também cita _tenant_modulo_ligado) saem antes,
+        // pelo _down e pelo _down_drop deles (LIFO) — senão o _down_drop da T1 recusaria por causa deles, não da T2.
+        await voltaMod(c);
+        const raiz = fileURLToPath(new URL("../../", import.meta.url));
+        for (const b of [...MOD_MIGS].reverse()) {
+          if (b.n <= 2 || b.n === 4) continue;
+          const drop = b.downs[0]?.replace(/_down\.sql$/, "_down_drop.sql");
+          if (drop && existsSync(raiz + drop)) await aplicarArquivo(c, drop);
+        }
         await aplicaMod(c, 2);
         await aplicarArquivo(c, MOD1_DOWN); // T1 volta (37 wrappers), auxiliares ficam
         await expect(aplicarArquivo(c, MOD1_DOWN_DROP)).rejects.toThrow(

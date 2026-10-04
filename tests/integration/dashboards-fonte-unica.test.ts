@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
+import { md5ModSucessor } from "./mod-helpers";
 
 // Achados MEDIOS R12 (Dashboards) — migration 20261022100000_dashboards_fonte_unica.
 //   preço M3  custo do dashboard = custo_unitario_modelos (fonte única: revenda/importado pela compra/landed);
@@ -70,7 +71,12 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
           [sig],
         );
         expect(r, sig).toBeTruthy();
-        expect([md5, MD5_DEPOIS_L4[sig]].filter(Boolean), sig).toContain(r.md5);
+        // [modularidade T3, Ruling R4] 20261103120000 redefine os _core de colecao/custos/producao por cima (coleção pelo rótulo,
+        // P12): aceita o sucessor da frente (md5ModSucessor) além do pinado da R12/L4.
+        expect(
+          [md5, MD5_DEPOIS_L4[sig]].filter(Boolean).flatMap((m) => md5ModSucessor(sig, m)),
+          sig,
+        ).toContain(r.md5);
         expect(r.vol, sig).toBe("s");
         expect(r.anon || r.auth || r.pub, sig).toBe(false);
       }

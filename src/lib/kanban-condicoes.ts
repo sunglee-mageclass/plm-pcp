@@ -16,6 +16,8 @@
  * Mantenha CLAUDE.md e a memória do projeto em dia ao mexer aqui.
  */
 
+import type { ModuleKey } from "@/hooks/useTenantModules";
+
 export type CondicaoModulo = "planejamento" | "desenvolvimento" | "cad" | "explosao" | "servicos" | "cq" | "direcionamento";
 
 // Seção do Sheet de detalhe (Desenvolvimento) a que a condição pertence — usada para os SELOS
@@ -35,6 +37,11 @@ export type Condicao = {
    *  requer estrutura opt-in que nem todo modelo tem). Ajuda o admin a não exigir algo que
    *  travaria o card pra sempre. Só apresentação — não afeta a avaliação. */
   aviso?: string;
+  /** Módulos da LOJA (`tenant_config.modules`) que a condição exige — TODOS. Com algum desligado a condição "não se aplica"
+   *  e conta como SATISFEITA (Modularidade P-254 A): o servidor já devolve `true` no mapa de `avaliar_condicoes_kanban`
+   *  (`_avaliar_condicoes_kanban_core` + `_kanban_cond_na`). ESPELHO de `_kanban_cond_modulos()` no SQL — anti-drift em
+   *  `tests/integration/mod-3-kanban-colecao.test.ts`. Ausente = vale sempre (ex.: `lancado`, P-252 A). */
+  requer?: ModuleKey[];
 };
 
 export const MODULOS: { key: CondicaoModulo; label: string }[] = [
@@ -54,7 +61,7 @@ export const CONDICOES: Condicao[] = [
   { key: "subcategoria2_definida", label: "Subcategoria 2 definida", modulo: "planejamento", secao: "s1", descricao: "Tem Subcategoria 2 escolhida.", aviso: "Nem toda categoria usa a Subcategoria 2 — exigir aqui trava as que só usam a 1." },
   { key: "estilista_definido", label: "Estilista definido", modulo: "planejamento", secao: "s1", descricao: "Tem Estilista escolhido." },
   { key: "linha_definida", label: "Linha definida", modulo: "planejamento", secao: "s1", descricao: "Tem Linha escolhida (é a Linha que define o markup)." },
-  { key: "colecao_preenchida", label: "Coleção preenchida", modulo: "planejamento", secao: "s1", descricao: "Tem Coleção preenchida." },
+  { key: "colecao_preenchida", label: "Coleção preenchida", modulo: "planejamento", secao: "s1", descricao: "Tem Coleção (escolhida no OTB ou digitada)." },
   { key: "tecido_planejado", label: "Tecido planejado (≥ 1)", modulo: "planejamento", descricao: "Tem ao menos 1 tecido no Tecido Planejado.", aviso: "Produto de revenda não tem tecido — não exija em fluxo de revenda." },
   { key: "ordem_criacao_enviada", label: "Ordem de Criação enviada", modulo: "planejamento", descricao: "A Ordem de Criação foi enviada (o modelo passou para o Desenvolvimento)." },
   { key: "preco_venda_preenchido", label: "Preço para venda preenchido", modulo: "planejamento", descricao: "Tem Preço para venda maior que zero." },
@@ -84,7 +91,7 @@ export const CONDICOES: Condicao[] = [
   { key: "desenho_tecnico_anexado", label: "Anexo: Desenho Técnico", modulo: "desenvolvimento", secao: "s6", descricao: "Tem o Desenho Técnico anexado." },
   { key: "anexo_modelo", label: "Anexo: Foto do Modelo", modulo: "desenvolvimento", secao: "s6", descricao: "Tem ao menos uma Foto do Modelo anexada." },
   { key: "ficha_medida_anexada", label: "Anexo: Ficha de Medida", modulo: "desenvolvimento", secao: "s6", descricao: "Tem a Ficha de Medida anexada." },
-  { key: "enviado_cad", label: "Enviado à Explosão", modulo: "desenvolvimento", descricao: "O modelo foi enviado à Explosão.", aviso: "Revenda não passa pela Explosão — não exija em fluxo de revenda." },
+  { key: "enviado_cad", label: "Enviado à Explosão", modulo: "desenvolvimento", descricao: "O modelo foi enviado à Explosão.", aviso: "Revenda não passa pela Explosão — não exija em fluxo de revenda.", requer: ["criacao", "entrada_saida"] },
 
   // ── CAD ───────────────────────────────────────────────────────
   // `cad_confirmado` (semântica "enviado ao corte") foi APOSENTADA (ago/2026, decisão do dono):
@@ -97,7 +104,7 @@ export const CONDICOES: Condicao[] = [
   // deixa ZERADOS até entrada manual são `cad_tecidos.tamanho_folha` e
   // `cad_tecido_variantes.quantidade_folhas`/`metragem_planejada` — exatamente os campos que
   // `CadTecidosSection.tsx` deixa editar. `cad_preenchido` = ≥1 desses > 0.
-  { key: "cad_preenchido", label: "CAD (Desenvolvimento) preenchido", modulo: "cad", descricao: "A seção CAD do card tem folhas ou metragem planejada preenchidas." },
+  { key: "cad_preenchido", label: "CAD (Desenvolvimento) preenchido", modulo: "cad", descricao: "A seção CAD do card tem folhas ou metragem planejada preenchidas.", requer: ["criacao", "entrada_saida"] },
 
   // ── Explosão ──────────────────────────────────────────────────
   // As duas condições abaixo são a SAÍDA da Explosão (não do CAD) — por isso vivem no módulo
@@ -105,31 +112,31 @@ export const CONDICOES: Condicao[] = [
   // "Saiu da Explosão" (set/2026): o botão "Enviar para PCP" da Explosão setou `cad.enviado_corte`.
   // É o marco DEPOIS de "Enviado à Explosão" (enviado_cad) — o modelo saiu da Explosão rumo aos
   // Serviços. Revenda SATISFAZ ao clicar Enviar para PCP (por isso NÃO entra em REVENDA_COND_NA).
-  { key: "enviado_para_pcp", label: "Enviado para PCP", modulo: "explosao", descricao: "O CAD foi enviado ao corte/PCP (saiu da Explosão).", aviso: "Revenda satisfaz ao clicar Enviar para PCP na Explosão." },
+  { key: "enviado_para_pcp", label: "Enviado para PCP", modulo: "explosao", descricao: "O CAD foi enviado ao corte/PCP (saiu da Explosão).", aviso: "Revenda satisfaz ao clicar Enviar para PCP na Explosão.", requer: ["criacao", "entrada_saida"] },
   // Metragem/qtd a separar preenchida na Explosão: tecido (metragem_enviada), aviamento
   // (quantidade_separar) OU etiqueta/insumo (cad_etiquetas.quantidade_enviar). ≥1 > 0.
-  { key: "separar_enviar_preenchido", label: "Separar/Enviar preenchido", modulo: "explosao", descricao: "Há metragem (tecido), qtd a separar (aviamento) ou qtd a enviar (etiqueta) preenchida na Explosão." },
+  { key: "separar_enviar_preenchido", label: "Separar/Enviar preenchido", modulo: "explosao", descricao: "Há metragem (tecido), qtd a separar (aviamento) ou qtd a enviar (etiqueta) preenchida na Explosão.", requer: ["criacao", "entrada_saida"] },
 
   // ── Serviços ──────────────────────────────────────────────────
-  { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos", descricao: "Todos os serviços foram finalizados (entregues, com quantidade recebida ou defeito).", aviso: "Modelo sem serviço nunca satisfaz — use só depois do envio ao corte/Serviços." },
+  { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos", descricao: "Todos os serviços foram finalizados (entregues, com quantidade recebida ou defeito).", aviso: "Modelo sem serviço nunca satisfaz — use só depois do envio ao corte/Serviços.", requer: ["producao"] },
   // Grade Cortada (ago/2026): bloco-fonte de confecção (PL/Oficina, destrinchado) reportou
   // CORTADA > 0 em alguma célula do grade_detalhe. Opt-in: só faz sentido pra loja que usa a
   // quantidade detalhada por tamanho×variante — modelo sem bloco-fonte nunca satisfaz.
-  { key: "grade_cortada_lancada", label: "Grade Cortada lançada", modulo: "servicos", descricao: "A confecção lançou quantidade cortada na grade.", aviso: "Só para quem usa quantidade detalhada por tamanho×cor — modelo sem grade detalhada nunca satisfaz." },
+  { key: "grade_cortada_lancada", label: "Grade Cortada lançada", modulo: "servicos", descricao: "A confecção lançou quantidade cortada na grade.", aviso: "Só para quem usa quantidade detalhada por tamanho×cor — modelo sem grade detalhada nunca satisfaz.", requer: ["producao"] },
 
   // ── Controle de Qualidade ─────────────────────────────────────
-  { key: "cq_confirmado", label: "CQ (Pré) confirmado", modulo: "cq", descricao: "O CQ Pré (até a costura) foi confirmado." },
-  { key: "cq_pos_confirmado", label: "CQ Pós confirmado", modulo: "cq", descricao: "O CQ Pós (acabamento) foi confirmado.", aviso: "Modelo sem pós-costura nunca confirma o Pós — prefira 'CQ liberado (Pré + Pós)'." },
+  { key: "cq_confirmado", label: "CQ (Pré) confirmado", modulo: "cq", descricao: "O CQ Pré (até a costura) foi confirmado.", requer: ["producao"] },
+  { key: "cq_pos_confirmado", label: "CQ Pós confirmado", modulo: "cq", descricao: "O CQ Pós (acabamento) foi confirmado.", aviso: "Modelo sem pós-costura nunca confirma o Pós — prefira 'CQ liberado (Pré + Pós)'.", requer: ["producao"] },
   // Espelha o gate único `cqLiberado()` (src/lib/cq-status.ts) já usado por Direcionamento/
   // Lançar/Lançamentos: Pré confirmado E (só se há serviço pós-costura ATIVO) Pós confirmado.
   // Preferir esta condição a `cq_pos_confirmado` sozinha — aquela nunca libera modelo sem
   // pós-costura (status_pos fica 'pendente' pra sempre nesse caso).
-  { key: "cq_liberado", label: "CQ liberado (Pré + Pós)", modulo: "cq", descricao: "CQ Pré confirmado e, se houver acabamento, o Pós também. É o CQ seguro — não trava quem não tem acabamento." },
+  { key: "cq_liberado", label: "CQ liberado (Pré + Pós)", modulo: "cq", descricao: "CQ Pré confirmado e, se houver acabamento, o Pós também. É o CQ seguro — não trava quem não tem acabamento.", requer: ["producao"] },
 
   // ── Direcionamento ────────────────────────────────────────────
   // Label alinhado ao badge "Separado"/toast "Direcionamento confirmado — Separado" da tela
   // (expedicao.direcionamento.$modeloId.tsx) — key `direcionamento_feito` MANTIDA, só rótulo.
-  { key: "direcionamento_feito", label: "Direcionamento — separado", modulo: "direcionamento", descricao: "O Direcionamento foi confirmado — a peça foi separada por loja." },
+  { key: "direcionamento_feito", label: "Direcionamento — separado", modulo: "direcionamento", descricao: "O Direcionamento foi confirmado — a peça foi separada por loja.", requer: ["producao"] },
 ];
 
 /** Condições que alimentam o selo de uma seção do Sheet (mapa secao → condições). */

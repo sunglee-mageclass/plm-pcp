@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
+import { md5ModSucessor } from "./mod-helpers";
 
 // Achados LEVES L4 (Dashboards e OTB):
 //   20261027200000_dashboards_funil_dev       prod #10  Desenvolvimento = ordem_criacao_enviada (inv. #11); comprado sem a
@@ -93,7 +94,9 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
           [sig],
         );
         expect(r, sig).toBeTruthy();
-        expect(r.md5, sig).toBe(md5);
+        // [modularidade T3, Ruling R4] 20261103120000 redefine _dashboard_colecao_core/_dashboard_producao_core por cima (coleção
+        // pelo rótulo, P12): aceita o sucessor da frente (md5ModSucessor) além do pinado da L4.
+        expect(md5ModSucessor(sig, md5), sig).toContain(r.md5);
         expect(r.vol, sig).toBe("s");
         expect(r.sd, sig).toBe(true);
         expect(r.anon || r.auth || r.pub, sig).toBe(false);
