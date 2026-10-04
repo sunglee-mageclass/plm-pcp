@@ -11,9 +11,10 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const ler = (p: string) => readFileSync(ROOT + p, "utf8");
 
 const TELAS = [
-  { arq: "src/routes/_authenticated/entrada-saida.oc-aviamento.tsx", chave: '["oc-avi", ocId]', merge: "ocQueryData.oc.status", p0409: "oc.status" },
-  { arq: "src/routes/_authenticated/entrada-saida.oc-insumo.tsx", chave: '["oc-insumo", ocId]', merge: "oc.status", p0409: "oc.status" },
-  { arq: "src/routes/_authenticated/entrada-saida.oc-tecido.tsx", chave: '["oc-tecido", ocId]', merge: "ocQueryData.oc.status", p0409: "fresh.oc.status" },
+  { arq: "src/routes/_authenticated/entrada-saida.oc-aviamento.tsx", chave: '["oc-avi", ocId]', merge: "ocQueryData.oc.status", p0409: 'setStatus((oc.status as OCStatus) ?? "encomendado"); // [seg s6]' },
+  { arq: "src/routes/_authenticated/entrada-saida.oc-insumo.tsx", chave: '["oc-insumo", ocId]', merge: "oc.status", p0409: 'setStatus((oc.status as OCStatus) ?? "encomendado"); // [seg s6]' },
+  // OC Tecido: o retry automático usa o merge puro (fix round B1) — ver oc-tecido-retry-p0409.test.ts
+  { arq: "src/routes/_authenticated/entrada-saida.oc-tecido.tsx", chave: '["oc-tecido", ocId]', merge: "ocQueryData.oc.status", p0409: "setStatus(r.estado.status); // [seg s6]" },
 ];
 
 describe("S6 / S4 — o status da OC segue o servidor (P-236 = D7 A)", () => {
@@ -26,7 +27,7 @@ describe("S6 / S4 — o status da OC segue o servidor (P-236 = D7 A)", () => {
       const antesMerge = src.slice(Math.max(0, iMerge - 600), iMerge);
       expect(antesMerge).toContain(`setStatus((${t.merge} as OCStatus) ?? "encomendado");`);
       // no onError P0409 (merge com o servidor)
-      expect(src).toContain(`setStatus((${t.p0409} as OCStatus) ?? "encomendado"); // [seg s6]`);
+      expect(src).toContain(t.p0409);
       // na recusa do servidor, relê a OC
       expect(src).toContain(`startsWith("oc_recebida_so_desmarcar:")) qc.invalidateQueries({ queryKey: ${t.chave} })`);
     });

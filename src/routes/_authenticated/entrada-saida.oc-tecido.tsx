@@ -33,6 +33,7 @@ import { presencaDoCampo } from "@/lib/colab/presenca-cor";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
+import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
@@ -712,6 +713,12 @@ function OcDialog({
   draftLiveRef.current = draft;
   const itemsLiveRef = useRef(items);
   itemsLiveRef.current = items;
+  // [seg s6, fix B1] idem para o status: o `mutationFn` lê os 3 refs (nunca a closure do render do clique) — o retry do
+  // P0409 grava neles o estado MESCLADO antes de chamar `mutate` (sem re-render no meio).
+  const statusLiveRef = useRef(status);
+  statusLiveRef.current = status;
+  // o que o ÚLTIMO ciclo do save mandou (base do merge no onSuccess — não a closure)
+  const enviadoRef = useRef<{ draft: Draft; items: ItemDraft[] } | null>(null);
 
   // Wrappers que DIFEREM prev→next e marcam o que mudou — os filhos continuam recebendo
   // a mesma assinatura (`typeof setDraft`/`typeof setItems`), zero mudança neles.
@@ -1174,6 +1181,15 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      // [seg s6, fix B1 — receita 2419d0f] estado AO VIVO (refs), NUNCA a closure do render do clique: no retry do P0409
+      // o merge acabou de rodar e gravou o estado mesclado nos refs (setDraft/setItems/setStatus ainda não re-renderizaram)
+      // — ler a closure mandaria o status velho e os campos que só o outro usuário mudou com o valor antigo.
+      const draft = draftLiveRef.current;
+      const items = itemsLiveRef.current;
+      const status = statusLiveRef.current;
+      enviadoRef.current = { draft, items };
+      const totalPrevisto = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
+      const totalReal = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorReal(i), 0);
       // Colab (spec 2026-08-03, achado QA Task 7): com conflitos pendentes na tela, o save
       // NÃO pode passar — mesmo que `_rev_base` já esteja atualizado (o `onError` do P0409
       // avança `revRef` pra qualquer resultado de merge, inclusive quando sobra conflito, pra
@@ -1331,7 +1347,7 @@ function OcDialog({
       toast.success("OC salva");
       // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime
       // (nosso próprio UPDATE) apareça como "alguém atualizou N campos" no banner.
-      baseRef.current = { draft, items };
+      baseRef.current = enviadoRef.current ?? { draft, items }; // [seg s6, fix B1] o que foi ENVIADO, não a closure
       touchedRef.current = new Set();
       touchedItemIdsRef.current = new Set();
       conflitosRef.current = [];
@@ -1378,20 +1394,27 @@ function OcDialog({
         await qc.refetchQueries({ queryKey: ["oc-tecido", ocId] });
         const fresh = qc.getQueryData<typeof ocQueryData>(["oc-tecido", ocId]);
         if (fresh?.oc) {
-          setStatus((fresh.oc.status as OCStatus) ?? "encomendado"); // [seg s6] status sempre o do servidor
           const freshDraft = draftFromOc(fresh.oc);
           const freshItems = fresh.items;
-          const liveDraft = draftLiveRef.current;
-          const liveItems = itemsLiveRef.current;
           const base = baseRef.current ?? { draft: freshDraft, items: freshItems };
-          const md = mergeDraft({ base: base.draft, draft: liveDraft, fresh: freshDraft, touched: touchedRef.current });
-          const ml = mergeLinhas({ base: base.items, draft: liveItems, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
-          if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
-          if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setItems(ml.linhas);
-          const todosConflitos = [...md.conflitos, ...ml.conflitos];
+          const r = mesclarParaRetryP0409({
+            base,
+            live: { draft: draftLiveRef.current, items: itemsLiveRef.current },
+            fresh: { draft: freshDraft, items: freshItems, status: ((fresh.oc.status as OCStatus) ?? "encomendado") as OCStatus },
+            touched: touchedRef.current,
+            touchedIds: touchedItemIdsRef.current,
+          });
+          // [seg s6, fix B1] o retry abaixo roda ANTES do re-render: grava o estado MESCLADO nos refs que o mutationFn lê
+          draftLiveRef.current = r.estado.draft;
+          itemsLiveRef.current = r.estado.items;
+          statusLiveRef.current = r.estado.status;
+          setStatus(r.estado.status); // [seg s6] status sempre o do servidor
+          if (r.mudouDraft) setDraft(r.estado.draft);
+          if (r.mudouItens) setItems(r.estado.items);
+          const todosConflitos = r.conflitos;
           conflitosRef.current = todosConflitos;
           setConflitos(todosConflitos);
-          setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todosConflitos });
+          setUltimoMerge({ atualizados: r.atualizados, conflitos: todosConflitos });
           // Avança base/rev AQUI — quando o useEffect rodar em seguida (o refetch acima
           // também atualiza `ocQueryData`), ele vai ver base===fresh (mesmo dado) e o
           // merge dele vira no-op: nada é reaplicado em dobro.
