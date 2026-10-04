@@ -11,6 +11,8 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { MODULOS, CONDICOES } from "@/lib/kanban-condicoes";
+import type { ModuleKey } from "@/hooks/useTenantModules";
+import { motivoCondicaoNaoSeAplica, seloCondicaoNaoSeAplica } from "@/lib/modulos-texto";
 import { CondicaoInfo } from "@/components/shared/CondicaoInfo";
 
 /**
@@ -28,6 +30,7 @@ export function RequisitosStatusButton({
   requisitos,
   onChange,
   condsIndisponiveis,
+  condsModuloOff,
   herdados,
   excecoes,
   onExcecoesChange,
@@ -42,6 +45,11 @@ export function RequisitosStatusButton({
   // de Revenda) — ficam esmaecidas, com tag "n/a revenda" e NÃO togglam. Ausente (uso
   // normal do kanban_requisitos) = todas selecionáveis, comportamento intocado.
   condsIndisponiveis?: string[];
+  // [modularidade F4, P-254 A] condições que NÃO SE APLICAM à loja por módulo desligado (`condicoesForaDoModulo(modules)`),
+  // `chave → módulos que faltam`. Valem em QUALQUER fluxo (interno e revenda). Não dá para ADICIONAR (esmaecida, com o motivo);
+  // uma já gravada continua marcada, com selo âmbar (fica gravada e volta a valer ao religar o módulo) e pode ser removida.
+  // O servidor já trata a condição como cumprida (mapa da RPC) — aqui é só apresentação. Ausente = nenhuma.
+  condsModuloOff?: Map<string, ModuleKey[]>;
   // CASCATA: requisitos herdados das etapas anteriores {key, origem: statusKey da etapa fonte}.
   // Ausente = sem cascata (revenda ou 1ª etapa) → comportamento clássico.
   herdados?: { key: string; origem: string }[];
@@ -71,11 +79,13 @@ export function RequisitosStatusButton({
   }
   const set = new Set(requisitos);
   const naSet = new Set(condsIndisponiveis ?? []);
+  const modOff = condsModuloOff ?? new Map<string, ModuleKey[]>();
   const herdMap = new Map((herdados ?? []).map((h) => [h.key, h.origem]));
   const excSet = new Set(excecoes ?? []);
 
   const toggle = (key: string, v: boolean) => {
     if (naSet.has(key)) return; // condição n/a — não togglável
+    if (v && modOff.has(key)) return; // módulo desligado: não dá para ADICIONAR (remover uma já gravada pode)
     const n = new Set(requisitos);
     if (v) n.add(key); else n.delete(key);
     onChange(Array.from(n));
@@ -101,7 +111,10 @@ export function RequisitosStatusButton({
 
   // total selecionado por módulo (próprios + herdados ativos) — p/ o contador do accordion.
   const contaSel = (keys: string[]) =>
-    keys.filter((k) => !naSet.has(k) && ((set.has(k)) || (herdMap.has(k) && !excSet.has(k)))).length;
+    keys.filter((k) => !naSet.has(k) && !modOff.has(k) && ((set.has(k)) || (herdMap.has(k) && !excSet.has(k)))).length;
+
+  // contador do botão: só o que se aplica à loja (condição de módulo desligado não conta, mas continua gravada)
+  const nAplicaveis = requisitos.filter((k) => !modOff.has(k)).length;
 
   return (
     <>
@@ -109,7 +122,7 @@ export function RequisitosStatusButton({
       <DialogTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 max-md:h-11 max-md:w-11 max-md:p-0">
           <ListChecks className="h-4 w-4 sm:mr-1" />
-          <span className="max-sm:sr-only">Requisitos{requisitos.length ? ` (${requisitos.length})` : ""}</span>
+          <span className="max-sm:sr-only">Requisitos{nAplicaveis ? ` (${nAplicaveis})` : ""}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" data-colab-path={colabPath}>
@@ -143,6 +156,11 @@ export function RequisitosStatusButton({
                 <AccordionContent className="space-y-2 pb-3">
                   {conds.map((c) => {
                     const na = naSet.has(c.key);
+                    // módulo desligado (o "n/a revenda" tem precedência: já esmaece e não toggla)
+                    const faltamMod = na ? undefined : modOff.get(c.key);
+                    const gravadaPropria = set.has(c.key);
+                    // fora de módulo e NÃO gravada como PRÓPRIA aqui (inclui o herdado: abrir exceção p/ o que não se aplica não faz sentido) → travada
+                    const semModulo = !!faltamMod && !gravadaPropria;
                     const origem = herdMap.get(c.key);
                     const ehHerdado = origem != null && !set.has(c.key); // herdado e não próprio
                     // Leves L3 kanban #3 (P-210 A): sem `onExcecoesChange` (exceções ocultas) o herdado fica travado.
@@ -152,14 +170,15 @@ export function RequisitosStatusButton({
                     return (
                       <label
                         key={c.key}
+                        title={faltamMod ? motivoCondicaoNaoSeAplica(faltamMod) : undefined}
                         className={
                           "flex items-start gap-2" +
-                          (na ? " cursor-not-allowed opacity-50" : herdadoTravado ? " cursor-not-allowed" : " cursor-pointer")
+                          (na || semModulo ? " cursor-not-allowed opacity-50" : herdadoTravado ? " cursor-not-allowed" : " cursor-pointer")
                         }
                       >
                         <Checkbox
                           checked={marcado}
-                          disabled={na || herdadoTravado}
+                          disabled={na || herdadoTravado || semModulo}
                           onCheckedChange={(v) => (ehHerdado ? toggleHerdado(c.key, !!v, c.label) : toggle(c.key, !!v))}
                           className="mt-0.5"
                         />
@@ -171,6 +190,19 @@ export function RequisitosStatusButton({
                           {na && (
                             <span className="rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">
                               n/a revenda
+                            </span>
+                          )}
+                          {faltamMod && (
+                            <span
+                              data-testid="cond-nao-se-aplica"
+                              className={
+                                "rounded px-1.5 py-0.5 align-middle text-[10px] font-medium " +
+                                (gravadaPropria || (ehHerdado && !excSet.has(c.key))
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-muted text-muted-foreground")
+                              }
+                            >
+                              {seloCondicaoNaoSeAplica(faltamMod)}
                             </span>
                           )}
                           {ehHerdado && (

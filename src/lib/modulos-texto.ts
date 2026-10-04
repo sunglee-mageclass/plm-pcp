@@ -43,3 +43,15 @@ export function chavesDoModuloDesligado(msg: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+/** Selo curto da condição do kanban que não se aplica à loja (Config da Loja › Requisitos): "não se aplica (módulo Produção desligado)". */
+export function seloCondicaoNaoSeAplica(faltam: readonly (ModuleKey | string)[]): string {
+  const plural = faltam.length > 1;
+  return `não se aplica (${plural ? "módulos" : "módulo"} ${listaDeRotulos(faltam)} ${plural ? "desligados" : "desligado"})`;
+}
+
+/** Dica (hover) do selo acima. O card segue (a condição conta como cumprida). Religar o módulo faz a condição valer de novo,
+ *  mas NÃO desfaz o que o avanço já revelou (ex.: a REF) — o texto não promete o contrário (T3 review I1). */
+export function motivoCondicaoNaoSeAplica(faltam: readonly (ModuleKey | string)[]): string {
+  return `Não se aplica: a loja não tem ${modulosComArtigo(faltam, "o")}. A condição conta como cumprida e o card segue. Religar o módulo faz a condição valer de novo, mas não desfaz o que o avanço já liberou (como a REF).`;
+}

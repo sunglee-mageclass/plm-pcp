@@ -267,3 +267,23 @@ export const REVENDA_COND_NA: string[] = [
   // (a troca de etiqueta é um bloco `producao_terceirizados`), então PODE satisfazê-la.
   "grade_cortada_lancada",
 ];
+
+/**
+ * Condições do catálogo que NÃO SE APLICAM à loja por falta de módulo (Modularidade P-254 A, 8a) — `requer` com algum módulo
+ * DESLIGADO. Devolve `chave → módulos que faltam` (só as que têm falta). ESPELHO de `_kanban_cond_na(loja)` no SQL: ali a
+ * condição vira `true` no mapa de `avaliar_condicoes_kanban` (derivação, cascata, arraste, "faltando" e prévia leem esse mapa,
+ * então NENHUM consumidor do mapa precisa filtrar de novo); aqui o resultado serve só à CONFIG (esmaecer a condição no diálogo de
+ * requisitos). Mesma regra do SQL `_tenant_modulo_ligado`: só `false` explícito desliga (chave ausente = padrão, ligado para
+ * Criação/Entrada e Saída/Produção). `modules` = o mapa de `useTenantModules()` (nunca o do super admin: não há atalho aqui,
+ * como no SQL — M2). Anti-drift: `tests/integration/mod-4-kanban-front.test.ts`.
+ */
+export function condicoesForaDoModulo(
+  modules: Partial<Record<ModuleKey, boolean>> | null | undefined,
+): Map<string, ModuleKey[]> {
+  const out = new Map<string, ModuleKey[]>();
+  for (const c of CONDICOES) {
+    const faltam = (c.requer ?? []).filter((m) => modules?.[m] === false);
+    if (faltam.length > 0) out.set(c.key, faltam);
+  }
+  return out;
+}

@@ -160,7 +160,8 @@ describe("L3 kanban #3 (P-210 A) — exceções de requisito OCULTAS (código gu
     expect(src).toContain("onExcecoesChange={EXCECOES_REQUISITO_OCULTAS ? undefined : (next) =>");
     const dlg = ler("src/components/admin/RequisitosStatusDialog.tsx");
     expect(dlg).toContain("const herdadoTravado = ehHerdado && !onExcecoesChange;");
-    expect(dlg).toContain("disabled={na || herdadoTravado}");
+    // [modularidade F4] o diálogo também trava a condição de módulo desligado (`semModulo`)
+    expect(dlg).toContain("disabled={na || herdadoTravado || semModulo}");
   });
 });
 

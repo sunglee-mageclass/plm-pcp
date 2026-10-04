@@ -30,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { useTenantModules } from "@/hooks/useTenantModules";
+import { useTenantModules, type ModuleKey } from "@/hooks/useTenantModules";
 import { blocosConfigVisiveis } from "@/lib/config-loja-blocos";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
@@ -56,7 +56,7 @@ import { matchesTable } from "@/lib/realtime-invalidation-map";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
-import { REVENDA_COND_NA, requisitosHerdados } from "@/lib/kanban-condicoes";
+import { REVENDA_COND_NA, requisitosHerdados, condicoesForaDoModulo } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
 import { problemaFormatoRef, type RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
@@ -997,6 +997,11 @@ function ConfiguracoesLojaPage() {
   // [modularidade F2, m3] a página não está sob RequirePermission: sem esperar `pronto`, os blocos por módulo/perfil piscam com os DEFAULTS.
   if (isLoading || modulosCarregando) return <div className="p-6 text-muted-foreground">Carregando…</div>;
 
+  // [modularidade F4, P-254 A] condições do kanban que NÃO SE APLICAM a esta loja (módulo desligado): o servidor já as trata
+  // como cumpridas; aqui só esmaecem no diálogo de Requisitos (não dá para adicionar; as já gravadas ganham selo âmbar).
+  // Depois do `pronto` (o guard acima): com os DEFAULTS de antes da carga nenhuma condição apareceria como "não se aplica".
+  const condsModuloOff = condicoesForaDoModulo(modules);
+
   // Envio à Explosão: derivado do próprio status_kanban (marcador POR LINHA no bloco do
   // kanban, não mais um card separado — feedback do dono, ago/2026). Espelha a mesma
   // regra "" ⇒ 'aprovado' (histórico) + coluna órfã de `podeEnviarExplosao`/`_explosao_envio_gate`.
@@ -1186,6 +1191,7 @@ function ConfiguracoesLojaPage() {
                   })
                 }
                 nomeEtapa={nomeDaEtapa}
+                condsModuloOff={condsModuloOff}
                 colabPath="cfg:kanban_requisitos"
               />
               {blocos.envioExplosao && (
@@ -1311,6 +1317,7 @@ function ConfiguracoesLojaPage() {
           requisitos={cfg.revenda_kanban_requisitos}
           campos={cfg.revenda_campos}
           chaveLigada={kanbanChaveLigada}
+          condsModuloOff={condsModuloOff}
           onColunasChange={(revenda_kanban_colunas) => setCfg((c) => ({ ...c, revenda_kanban_colunas }))}
           onRequisitosChange={(revenda_kanban_requisitos) => setCfg((c) => ({ ...c, revenda_kanban_requisitos }))}
           onCamposChange={(revenda_campos) => setCfg((c) => ({ ...c, revenda_campos }))}
@@ -2068,6 +2075,7 @@ function FluxoRevendaCard({
   requisitos,
   campos,
   chaveLigada,
+  condsModuloOff,
   onColunasChange,
   onRequisitosChange,
   onCamposChange,
@@ -2082,6 +2090,8 @@ function FluxoRevendaCard({
   // Baixo 3: chave `kanban_automatico` LIGADA no banco — sem ela as etiquetas Entrada/Automática/Manual
   // e o Reprovado travado mentiriam (nenhuma coluna anda sozinha de verdade).
   chaveLigada: boolean;
+  // [modularidade F4] condições de módulo desligado (mesmo mapa do bloco interno) — esmaecem no diálogo da revenda também.
+  condsModuloOff: Map<string, ModuleKey[]>;
   onColunasChange: (next: string[]) => void;
   onRequisitosChange: (next: Record<string, string[]>) => void;
   onCamposChange: (next: Record<string, boolean>) => void;
@@ -2156,6 +2166,7 @@ function FluxoRevendaCard({
                       requisitos={requisitos[key] ?? []}
                       onChange={(next) => setRequisitos(key, next)}
                       condsIndisponiveis={REVENDA_COND_NA}
+                      condsModuloOff={condsModuloOff}
                       colabPath="cfg:revenda_kanban_requisitos"
                       bloqueadoMotivo={chaveLigada && key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
                     />
