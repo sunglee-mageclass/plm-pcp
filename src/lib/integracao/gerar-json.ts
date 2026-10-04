@@ -56,6 +56,19 @@ export function motivoGerarJson(sel: ProdutoLista[], c: ClasseGerarJson, podeEdi
   return null;
 }
 
+/** Key do teto por arquivo (com a loja) — aqui (e não em `useIntegracao`) para as abas Campos/API invalidarem sem depender do hook. */
+export const chaveTetoGerarJson = (tenantId: string) => ["integracao-gerar-json-teto", tenantId] as const;
+
+/** Concordância de número (1 / N) dos textos do diálogo. */
+export function resumoResultadoGerarJson(novos: number, relidos: number, fora: number): string {
+  const a = novos === 1 ? "1 passou a Integrado" : `${novos} passaram a Integrado`;
+  const b = relidos === 1 ? "1 reexportado" : `${relidos} reexportados`;
+  return `${a} · ${b} · ${fora} fora`;
+}
+export const entramGerarJson = (n: number): string => (n === 1 ? "Entra" : "Entram");
+export const passamAIntegrado = (n: number): string => (n === 1 ? "passa a Integrado" : "passam a Integrado");
+export const reexportacaoGerarJson = (n: number): string => (n === 1 ? "reexportação (já integrado)" : "reexportações (já integrados)");
+
 export const MOTIVO_FORA_GERAR_JSON: Record<ForaGerarJson["motivo"], string> = {
   nao_integravel: "ainda não está Integrável (marque Integrável antes)",
   reprovado: "está reprovado",

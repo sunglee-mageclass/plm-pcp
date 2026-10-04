@@ -21,7 +21,8 @@ import { TEXTO_ALERTA_INTEGRAR } from "@/lib/integracao/campos";
 import { gerarJsonIntegracao } from "@/lib/integracao/gerar-json.functions";
 import {
   MOTIVO_FORA_GERAR_JSON, TEXTO_GERAR_JSON_EXPLICA, TEXTO_GERAR_JSON_FECHAR_SEM_SALVAR, TEXTO_GERAR_JSON_FOTOS,
-  TEXTO_GERAR_JSON_REEXPORTA, classificarGerarJson, completarFora, nomeArquivoJson,
+  TEXTO_GERAR_JSON_REEXPORTA, classificarGerarJson, completarFora, entramGerarJson, nomeArquivoJson, passamAIntegrado,
+  reexportacaoGerarJson, resumoResultadoGerarJson,
 } from "@/lib/integracao/gerar-json";
 import type { ProdutoLista } from "@/lib/integracao/produtos";
 import { confirmarLojaAtiva, invalidarIntegracao } from "./useIntegracao";
@@ -151,7 +152,7 @@ export function GerarJsonDialog({ produtos, podeVerCustos, onFechar, onFeito }: 
             <DialogHeader>
               <DialogTitle>JSON gerado</DialogTitle>
               <DialogDescription>
-                {resultado.novos} passaram a Integrado · {resultado.relidos} reexportado(s) · {resultado.fora.length} fora
+                {resumoResultadoGerarJson(resultado.novos, resultado.relidos, resultado.fora.length)}
               </DialogDescription>
             </DialogHeader>
             <ListaFora itens={foraLista} />
@@ -191,8 +192,9 @@ export function GerarJsonDialog({ produtos, podeVerCustos, onFechar, onFeito }: 
         <div className="space-y-3 text-sm">
           <p>{TEXTO_GERAR_JSON_EXPLICA}</p>
           <p>
-            Entram <strong className="tabular-nums">{elegiveis}</strong> — <strong className="tabular-nums">{classe.novos.length}</strong>{" "}
-            passa(m) a Integrado, <strong className="tabular-nums">{classe.reexportar.length}</strong> reexportação (já integrados).
+            {entramGerarJson(elegiveis)} <strong className="tabular-nums">{elegiveis}</strong> — <strong className="tabular-nums">{classe.novos.length}</strong>{" "}
+            {passamAIntegrado(classe.novos.length)}, <strong className="tabular-nums">{classe.reexportar.length}</strong>{" "}
+            {reexportacaoGerarJson(classe.reexportar.length)}.
           </p>
           {classe.reexportar.length > 0 && <p className="text-muted-foreground">{TEXTO_GERAR_JSON_REEXPORTA}</p>}
           <ListaFora itens={foraLista} />

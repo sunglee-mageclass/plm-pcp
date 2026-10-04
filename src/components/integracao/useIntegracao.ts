@@ -15,6 +15,7 @@
 // entradas)` — uma string igual a si mesma entre renders enquanto nada muda de verdade — e reconstrói o mapa via
 // `useMemo(() => JSON.parse(...))`.
 import { CAMPOS_OPCIONAIS, CAMPOS_PADRAO } from "@/lib/integracao/campos";
+import { chaveTetoGerarJson } from "@/lib/integracao/gerar-json";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -59,7 +60,6 @@ function useValorAtrasado(valor: string, ms: number): string {
 export const LIMITE_PRODUTOS = 500;
 export const chaveLista = (tenantId: string) => ["integracao-lista", tenantId] as const;
 export const chaveConfig = (tenantId: string) => ["integracao-config", tenantId] as const;
-export const chaveTetoGerarJson = (tenantId: string) => ["integracao-gerar-json-teto", tenantId] as const;
 export const chaveEstado = (tenantId: string) => ["integracao-estado", tenantId] as const;
 export const chaveLog = (tenantId: string) => ["integracao-log", tenantId] as const;
 
@@ -321,6 +321,7 @@ export function useTetoGerarJson() {
     queryKey: chaveTetoGerarJson(tenantId),
     enabled: !!tenantId,
     staleTime: 30_000,
+    retry: 1,
     queryFn: async (): Promise<number> => {
       const { data, error } = await supabase.rpc("integracao_gerar_json_teto" as any);
       if (error) throw error;

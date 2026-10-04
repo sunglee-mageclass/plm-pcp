@@ -48,6 +48,7 @@ import {
   CHAVES_CONFIG_API, CONFIG_API, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO, TEXTO_SO_SUPER, alertaPaginaPlanoGratuito, validarConfigApi,
   type ChaveConfigApi,
 } from "@/lib/integracao/campos";
+import { chaveTetoGerarJson } from "@/lib/integracao/gerar-json";
 import { fmtDataHora } from "@/lib/integracao/produtos";
 import { GuardaIntegracaoContext, useAbaSuja } from "./guard";
 import {
@@ -318,6 +319,8 @@ function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: 
       // Espera o config fresco chegar ANTES de limpar `ed` — mesma lição do m2 de `CamposAba.tsx`: sem isso os
       // campos piscariam de volta pro estado pré-Salvar por um instante.
       await qc.refetchQueries({ queryKey: chaveConfig(tenantId) });
+      // o teto por arquivo do Gerar JSON depende de `max_por_pagina` (RPC própria, key própria)
+      void qc.invalidateQueries({ queryKey: chaveTetoGerarJson(tenantId) });
       definirEd(null);
       toast.success("Configurações da API salvas.");
       invalidarIntegracao(qc, tenantId);

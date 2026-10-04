@@ -54,6 +54,7 @@ import {
   TEXTO_CAMPOS_REGRA, TEXTO_CAMPOS_VAZIO, TEXTO_CONFIRMAR_CAMPOS, TEXTO_SO_SUPER, TEXTO_TRAVA_SEMPRE, alternarCampo,
   diffCampos, mesmaSelecao, ordenarCampos, precisaAlertaLayout, rotuloNaLista, type CampoKey,
 } from "@/lib/integracao/campos";
+import { chaveTetoGerarJson } from "@/lib/integracao/gerar-json";
 import { useAbaSuja } from "./guard";
 import {
   TEXTO_LOJA_INDISPONIVEL,
@@ -160,6 +161,8 @@ export function CamposAba() {
       // piscavam de volta pro estado pré-Salvar por um instante (a invalidação não é aguardada) até o refetch
       // trazer o valor salvo.
       await qc.refetchQueries({ queryKey: chaveConfig(tenantId) });
+      // o teto por arquivo do Gerar JSON depende de `max_por_pagina` (RPC própria, key própria)
+      void qc.invalidateQueries({ queryKey: chaveTetoGerarJson(tenantId) });
       definirEd(null);
       toast.success("Campos da API salvos. Valem para as próximas integrações.");
       invalidarIntegracao(qc, tenantId);

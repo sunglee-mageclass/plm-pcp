@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { MAX_GERAR_JSON, gerarJson, resultadoParaRede, type DepsGerarJson } from "@/lib/integracao/api/gerar-json";
 import type { RespostaLer } from "@/lib/integracao/api/resposta";
 import {
-  MOTIVO_FORA_GERAR_JSON, classificarGerarJson, completarFora, motivoGerarJson, nomeArquivoJson, tetoDaTela, tetoGerarJson,
+  MOTIVO_FORA_GERAR_JSON, classificarGerarJson, completarFora, entramGerarJson, motivoGerarJson, passamAIntegrado, reexportacaoGerarJson, resumoResultadoGerarJson, nomeArquivoJson, tetoDaTela, tetoGerarJson,
 } from "@/lib/integracao/gerar-json";
 import type { ProdutoLista } from "@/lib/integracao/produtos";
 
@@ -288,5 +288,22 @@ describe("Gerar JSON — fronteira servidor/navegador (fonte)", () => {
     expect(pa).toMatch(/useTetoGerarJson\(\)/);
     expect(pa).not.toMatch(/useIntegracaoConfig|max_por_pagina/);
     expect(ler("src/components/integracao/useIntegracao.ts")).toMatch(/rpc\("integracao_gerar_json_teto"/);
+  });
+});
+
+describe("concordância de número nos textos do diálogo", () => {
+  it("singular e plural", () => {
+    expect(resumoResultadoGerarJson(1, 1, 0)).toBe("1 passou a Integrado · 1 reexportado · 0 fora");
+    expect(resumoResultadoGerarJson(0, 2, 3)).toBe("0 passaram a Integrado · 2 reexportados · 3 fora");
+    expect(resumoResultadoGerarJson(5, 0, 1)).toBe("5 passaram a Integrado · 0 reexportados · 1 fora");
+    expect([1, 2].map(entramGerarJson)).toEqual(["Entra", "Entram"]);
+    expect([1, 2].map(passamAIntegrado)).toEqual(["passa a Integrado", "passam a Integrado"]);
+    expect([1, 2].map(reexportacaoGerarJson)).toEqual(["reexportação (já integrado)", "reexportações (já integrados)"]);
+  });
+  it("a key do teto é invalidada ao salvar Campos/API e a query tem retry: 1 (fonte)", () => {
+    const ler = (f: string) => readFileSync(f, "utf8");
+    for (const f of ["ApiAba", "CamposAba"]) expect(ler(`src/components/integracao/${f}.tsx`)).toMatch(/invalidateQueries\(\{ queryKey: chaveTetoGerarJson\(tenantId\) \}\)/);
+    const u = ler("src/components/integracao/useIntegracao.ts");
+    expect(u.slice(u.indexOf("function useTetoGerarJson"), u.indexOf("export type ConfigIntegracao"))).toMatch(/retry: 1/);
   });
 });
