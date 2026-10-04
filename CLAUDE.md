@@ -563,7 +563,11 @@ e verifique** — o repo muda rápido.
    (permissão por linha) e memória `project_mo_por_servico`.
 9. **Segurança / RPC** — padrão **wrapper + `_core`**: o wrapper checa
    `user_can_view(_pagina)` (dashboards) ou `tenant_module_enabled(_module)` (módulos
-   desligáveis) e o `_core` tem EXECUTE revogado. ⚠️ **Revogue dos TRÊS: `REVOKE EXECUTE ON FUNCTION
+   desligáveis) e o `_core` tem EXECUTE revogado. **RPC de ESCRITA em área sensível (Reforço S3, P-231 = D2 A):** o wrapper
+   chama `_seg_exige_pagina(<páginas do OU>)` logo depois da checagem de login/módulo e ANTES de qualquer busca (sem oráculo:
+   id inexistente e sem permissão dão o MESMO 42501 `sem_permissao_pagina:`); cruzamento entre telas = OU, nunca bloqueio.
+   **O servidor chama o `_core`, NUNCA o wrapper** (sem JWT o portão recusa) — função nova que reusa uma RPC por dentro chama o
+   `_core` dela. Alcance da D2 A: ver "Reforço de segurança › Alcance". ⚠️ **Revogue dos TRÊS: `REVOKE EXECUTE ON FUNCTION
    public._xxx_core(...) FROM PUBLIC, anon, authenticated;`**. O default ACL do Postgres concede EXECUTE a
    **PUBLIC** (`proacl = {=X/…}`), e `anon`/`authenticated` **HERDAM de PUBLIC** — revogar só de
    anon/authenticated é INÓCUO (o PUBLIC continua). Confira sempre com
@@ -587,7 +591,9 @@ e verifique** — o repo muda rápido.
    ⚠️ O `ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` é GLOBAL (vale para TODOS os
    schemas): função/extensão nova criada pelo `postgres` FORA de `public` também nasce sem EXECUTE para PUBLIC (dê o GRANT
    explícito se precisar).
-   Anti-drift: `tests/integration/seg-s1.test.ts` (nenhuma DEFINER executável pelo anon além dos 4).
+   Anti-drift: `tests/integration/seg-s1.test.ts` (nenhuma DEFINER executável pelo anon além dos 4 auxiliares de RLS) e, desde a
+   S5, `tests/integration/seg-s5.test.ts` (nem os 4: o anon não executa NENHUMA função de `public` nem tem privilégio de tabela
+   além de SELECT em `system_settings`; authenticated sem TRUNCATE/REFERENCES/TRIGGER/MAINTAIN).
 10. **Direcionamento MULTI-LOJAS (ago/2026)** — a Grade Real é distribuída em **N linhas
     digitáveis, uma por loja** do cadastro `lojas_direcionamento` (Cadastro > Lojas;
     seed "E-commerce" default + "Loja Física"; default não-excluível; RLS de escrita e
@@ -665,7 +671,9 @@ e verifique** — o repo muda rápido.
     user_can_edit('producao_servico_aprovacao')` (espelha a superfície do editor/badge — um
     aprovador sem visão de custo não perde a tela) e **mascara `valor`/`total`/`total_aprovado`**
     (`NULL`) quando não pode ver custos. O front só ESCONDE (`canView`/`canEdit`); o banco
-    garante. Rollout com backfill não-quebra (concede aos que já viam/aprovavam). Ver
+    garante a APROVAÇÃO e o RESUMO mascarado — mas a COLUNA `modelo_servico_mo.valor` (como as outras colunas de custo/preço)
+    segue legível pela API para qualquer usuário da loja: custo é escondido na tela, não trancado (P-230 = D1 A, ver "Reforço de
+    segurança"). Rollout com backfill não-quebra (concede aos que já viam/aprovavam). Ver
     memória `project_permissao_secoes` e `project_mo_por_servico`.
 13. **Produto Acabado / Revenda (ago/2026)** — segunda "família" de aquisição além de tecido/
     aviamento: compra peça PRONTA de terceiro pra revender (não fabrica). Entidade
@@ -1395,6 +1403,34 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   `ocs_tecido_itens.preco`, `aviamentos.preco`…) seguem legíveis pela API para qualquer usuário da loja. Gap DOCUMENTADO, não
   regressão; trancar por coluna seria frente própria (M3 opção B).
 - **Kanban manual = a pessoa decide** (P-234 = D5 B) — ver o bloco "Kanban AUTOMÁTICO".
+- **Alcance (P-231 = D2 A): permissão de PÁGINA no servidor SÓ nas áreas sensíveis** — dinheiro/Financeiro (S2), OCs e estoque
+  de OC (S3a), Produção/Expedição/Explosão (S3b), ficha técnica/CAD/M.O. (S3c), Planejamento, produtos comprados, Plan. Tecido e
+  Importar (S3d). **Fora delas a permissão de página segue SÓ NA TELA (decisão, não furo)** — o servidor confere só login, loja e
+  módulo:
+  - **Cadastros** (artigos/tecidos, aviamentos, insumos, fornecedores, linhas, atributos, Lojas do Direcionamento, endereçamento —
+    inclusive `importar_tecido/aviamento/insumo_linha` — só `importar_modelo_linha`/`importar_produto_linha` ganharam o portão
+    `importar`, na S3d); só a correção B3 (`set_artigo_categorias` ignora categoria de outra loja).
+  - **OTB** (coleções, PV, Padrão do mix, simulador): com o módulo `otb` LIGADO qualquer login da loja grava (S4 só exige o
+    módulo; `otb_*` gravam `modelos` como DEFINER). Backlog: portão de página no mesmo `trg_aaa_seg_modulo`, se o dono quiser.
+  - **Config da Loja e Admin** (admin da loja/super pelas RPCs próprias: `salvar_config_loja`, `set_user_permissions`, papéis,
+    `kanban_*`), **Dashboards** (leitura; gate de dado por `user_can_view` nas RPCs `dashboard_*`), e a **Distribuição por loja**
+    (sem página própria desde a F5b: o dialog grava pelo Salvar do Plan. Tecido, portão `criacao_plan_tecido`).
+  - **Leitura** em geral (SELECT por RLS de loja/módulo) e as colunas de custo (D1 A acima).
+  ⚠️ Frente nova não deve supor "o servidor confere a página" fora desta lista.
+- **Volta do deploy combinado S2..S6 — ordem ÚNICA (LIFO pela aplicação):** `20261101250000_down` (S6) → `240000_down` (S5) →
+  `230000_down` → `220000_down` (S4) → `210000_down` → `200000_down` → `190000_down` (S3d) → `180000_down` → `170000_down` →
+  `160000_down` (S3c) → `150000_down` → `140000_down` → `130000_down` (S3b) → `120000_down` → `110000_down` → `100000_down` (S3a)
+  → `20261031220000_down` → `210000_down` → `200000_down` (S2); os `_down_drop` (DROP de gatilho/helper → prendem auth/storage)
+  são opcionais, DEPOIS, em horário calmo. **Só parte da ordem é imposta pelo banco:** recusam fora de ordem (P0001) o
+  `100000_down` da S3a (com a S6), os inversos da S4 (230000/220000), o `200000_down` da S3d (com a S4 ativa ou a S5) e os de grants
+  da S3c/S3b/S3a/S2 (170000/140000/110000/`20261031200000`) com a S5 no banco, o `20261031220000_down` (com a S3a) e os `_down_drop`
+  (função não neutra; o do helper também enquanto alguém chama `_seg_exige_pagina`). **NÃO recusam** (a guarda confere só os
+  próprios objetos): os que neutralizam gatilhos de página (`210000_down`, `180000_down`, `150000_down`, `120000_down`), os que
+  devolvem funções (`190000_down`, `160000_down`, `130000_down`) e o `20261031210000_down` da S2 — fora de ordem o ÚNICO efeito é
+  AFROUXAR o portão (ex.: `210000_down` com S4/S5 vivas tira a página de `modelos`), sem mudar dado nem md5 de ninguém; reaplicar
+  a ida restaura. Repetir no roteiro: **volte a S3d ANTES da volta de emergência da Integração** (`20261007140000_down`) e
+  **55P03 ou 40P01 = rodar o arquivo de novo**. Os inversos da L9 (`20261029100000_down`) e da Nota (`20261002100000_down`)
+  recusam enquanto a S6 estiver no banco.
 - **S1 "Fechar portas sem travar nada" (só catálogo; migrations `20261031100000..150000`, inversos `_down` em
   `supabase/rollback/`, gerador `.superpowers/sdd/2026-10-03-reforco-seguranca/mig/gerar.mjs`):**
   - **N1:** o próprio usuário NÃO muda o próprio `papel_id`/`ativo`/`email`/`id` (`prevent_users_self_role_change` → 42501
@@ -1565,8 +1601,8 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
 
 - **S4 "Brechas de módulo" (C1 OTB, C2 Plan. Tecido) — SEM CREATE POLICY (reavaliada sobre a S3; migrations `20261101220000..230000`,
   inversos `_down` + `_down_drop` separado (230000: DROP dos 13 gatilhos), gerador `.../mig/gerar-s4.mjs`):**
-  - **C2:** já fechado pela S3d (as 12 `plan_tecido_*` graváveis sem escrita do cliente + todas as RPCs de entrada conferem
-    `criacao`); a 220000 RECUSA rodar sem esse estado.
+  - **C2:** já fechado pela S3d (as 13 `plan_tecido_*` só leitura para o cliente — 12 pela S3d + `plan_tecido_snapshots`, que já
+    era — + todas as RPCs de entrada conferem `criacao`); a 220000 RECUSA rodar sem esse estado.
   - **C1:** gatilho `trg_aaa_seg_modulo` (BEFORE I/U/D, INVOKER, só `authenticated`/`anon`; super passa por `tenant_module_enabled`)
     nas 12 tabelas do OTB (`colecoes`, `colecao_subcolecoes/_semanas/_semana_categorias/_pv_itens`, `mix_padroes/_linhas`,
     `otb_simulac*`) = módulo `otb`; em `colecao_mixes` (famílias do Plan. Tecido/Plan. Produto/PA/PI) = módulo `criacao`. Pega
@@ -1602,7 +1638,11 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     (editar a OC recebida) e encomendada → recebida passam; OC NOVA nasce como vier. P. Acabado/Importado não têm o furo (o
     Salvar não grava status; recebem pela RPC própria). ⚠️ Função NOVA que salve OC com `status` do cliente: mesma recusa.
   - **Tela (OC Tecido/Aviamento/Insumo):** o `status` NÃO é campo do rascunho — segue SEMPRE o do servidor (re-semeado no merge
-    do refetch e no P0409); na recusa a tela relê a OC (`invalidateQueries` da key da OC).
+    do refetch e no P0409); na recusa a tela relê a OC (`invalidateQueries` da key da OC). **OC Tecido, retry automático do
+    P0409 (fix B1, receita 2419d0f):** o `mutationFn` lê `draftLiveRef`/`itemsLiveRef`/`statusLiveRef` (nunca a closure do
+    clique) e o `onError` faz o merge por `mesclarParaRetryP0409` (`src/components/oc-tecido/retry-p0409.ts`) e grava o estado
+    mesclado nos refs ANTES do `mutate`; o `onSuccess` re-baseia no ENVIADO. (Plan. Produto já seguia a receita; Aviamento/Insumo
+    não têm retry automático.)
   - ⚠️ As sobrecargas de 3 args estão MORTAS: `salvar_oc_etiqueta(3)` e `_salvar_oc_aviamento_core(3)` são ambíguas com as de 4
     args (que têm DEFAULT), e a wrapper `salvar_oc_aviamento(3)` chama o `_core` ambíguo (42725 sempre). Levaram a checagem
     mesmo assim (conferida pelo texto); aposentar = backlog.
