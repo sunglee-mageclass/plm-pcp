@@ -51,6 +51,8 @@ export async function s5Viva(c: Client): Promise<boolean> {
 
 /** LIFO: quem volta (ou reaplica) qualquer grant da S1..S4 dentro da txn tira a S5 antes. */
 export async function voltaS5SePreciso(c: Client): Promise<void> {
+  // LIFO: a S6 (20261101250000, por cima de tudo) sai antes de qualquer volta/reaplicação da S1..S5 — todos os aplica*/volta* passam aqui
+  await (await import("./seg-s6-helpers")).voltaS6SePreciso(c);
   if (!(await s5Viva(c))) return;
   const st = (await c.query("SELECT current_setting('statement_timeout') AS v")).rows[0].v as string;
   await voltaS5(c);

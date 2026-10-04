@@ -11,10 +11,17 @@ import type { Client } from "pg";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
-import { aplicarArquivo } from "./mig-txn";
+import { aplicarArquivo as aplicarArquivoBruto } from "./mig-txn";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { md5OuSucessorS6, voltaS6SePreciso } from "./seg-s6-helpers";
 
 const RODA = hasDb && ehBancoLocal();
+/** A S6 (20261101250000) redefine `_salvar_oc_aviamento_core` por cima da L9 e a correção única/inversos da L9 exigem o texto
+ *  da L9 (guarda md5) — LIFO: tira a S6 antes (só faz algo com S6_TXN=1). */
+async function aplicarArquivo(c: Client, arq: string) {
+  if (arq.includes("20261029")) await voltaS6SePreciso(c);
+  return aplicarArquivoBruto(c, arq);
+}
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const T = TENANT_TESTE;
 
@@ -166,7 +173,7 @@ describe.skipIf(!RODA)(
                           where p.oid = to_regprocedure($1) and x.grantee = 0 and x.privilege_type = 'EXECUTE') pub`,
             [sig],
           );
-          expect(r.m, sig).toBe(md5);
+          expect(md5OuSucessorS6(sig, md5), sig).toContain(r.m); // S6 (20261101250000) redefine _salvar_oc_aviamento_core por cima
           expect([r.anon, r.auth, r.pub], sig).toEqual([false, false, false]);
         }
       });

@@ -120,6 +120,12 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaS5(client);
     }
+    // Reforço de segurança S6 (só CREATE OR REPLACE; sem a S3a viva traz a cadeia S3a..S5 pela ordem segura do aplicaS5).
+    if (process.env.S6_TXN === "1") {
+      const { aplicaS6 } = await import("./seg-s6-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaS6(client);
+    }
     await fn(client);
   } finally {
     try {
