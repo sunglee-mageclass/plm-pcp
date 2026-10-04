@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { brl } from "@/lib/format";
 import { useAuth } from "@/hooks/useAuth";
 import { useSidebarBadges } from "@/hooks/useSidebarBadges";
-import { useTenantModules } from "@/hooks/useTenantModules";
+import { useTenantModules, type ModuleKey } from "@/hooks/useTenantModules";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { todayISOInStoreTZ } from "@/lib/timezone";
@@ -60,7 +60,10 @@ type CardAtencao = {
  */
 export function HomeLogado() {
   const { user, canView, isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
-  const { modules } = useTenantModules();
+  const { modules: modulosLoja, pronto } = useTenantModules();
+  // [modularidade F2, m8] até a loja e a config chegarem os módulos são os DEFAULTS: nenhum conta como ligado (cards, atalhos e
+  // queries esperam), senão o card pisca e uma query de módulo desligado pode sair (42501 na rede).
+  const modules: Partial<Record<ModuleKey, boolean>> = pronto ? modulosLoja : {};
   const branding = useTenantBranding();
   const tz = useStoreTimezone();
   // Mesma regra de visibilidade da sidebar (admins furam; senão canView da página).

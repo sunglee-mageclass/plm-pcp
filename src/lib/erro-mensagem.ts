@@ -347,9 +347,14 @@ export function mensagemModularidade(code: string, msg: string): string | null {
     const legado = /^Módulo (.+?) não habilitado/.exec(msg);
     if (legado) {
       // chave interna ("criacao", "entrada_saida", "otb"…) → rótulo do catálogo; nome já em PT ("Produto Acabado (Revenda)") fica como veio.
-      const bruto = legado[1].trim();
-      const chave = bruto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      return textoAcaoPrecisaDeModulos([(MODULE_ROTULO as Record<string, string>)[chave] ?? bruto]);
+      // "criacao/producao" (marcar_etapa_verificada) = DOIS módulos; "Estilo & Engenharia" = nome antigo de Criação (sku-previa).
+      const rotulos = legado[1].split("/").map((parte) => {
+        const bruto = parte.trim();
+        const norm = bruto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const chave = norm === "estilo & engenharia" ? "criacao" : norm;
+        return (MODULE_ROTULO as Record<string, string>)[chave] ?? bruto;
+      }).filter(Boolean);
+      return rotulos.length ? textoAcaoPrecisaDeModulos(rotulos) : null;
     }
   }
   if (code === "P0001" && msg.startsWith("colecao_com_cards:")) {

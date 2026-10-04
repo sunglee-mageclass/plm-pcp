@@ -75,6 +75,8 @@ describe("RequirePermission — módulo e perfil", () => {
     h.mods.modules = { ...COMPLETO, criacao: false };
     const off = await html("producao_explosao");
     expect(off).toContain("módulo Criação");
+    // [F2 m5] diz tudo o que a área precisa e o que falta ligar
+    expect(off).toContain("precisa dos módulos Criação e Entrada e Saída; falta ligar o módulo Criação");
     expect(off).not.toContain("CONTEUDO");
     h.mods.modules = { ...COMPLETO };
     expect(await html("producao_explosao")).toContain("CONTEUDO");

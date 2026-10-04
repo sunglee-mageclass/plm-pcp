@@ -1,11 +1,10 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Globe } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { useAuth } from "@/hooks/useAuth";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";

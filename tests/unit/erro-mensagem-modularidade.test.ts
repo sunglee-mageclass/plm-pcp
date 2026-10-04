@@ -36,6 +36,13 @@ describe("erro-mensagem — Modularidade", () => {
     );
   });
 
+  it("texto LEGADO com 2 módulos ('criacao/producao') e com o nome antigo 'Estilo & Engenharia' [F2 m3]", () => {
+    expect(mensagemErro({ code: "42501", message: "Módulo criacao/producao não habilitado para esta loja" }, "fb")).toBe(
+      `Esta ação precisa dos módulos Criação e Produção — ${FALE}`,
+    );
+    expect(mensagemErro({ code: "42501", message: "Módulo Estilo & Engenharia não habilitado" }, "fb")).toBe(`Esta ação precisa do módulo Criação — ${FALE}`);
+  });
+
   it("o texto legado só vale em 42501 (outro código não é traduzido por aqui)", () => {
     expect(mensagemErro({ code: "P0001", message: "Módulo criacao não habilitado para esta loja" }, "fb")).toBe("Módulo criacao não habilitado para esta loja");
   });

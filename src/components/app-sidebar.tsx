@@ -114,8 +114,8 @@ export function AppSidebar() {
   };
 
   const visibleMainItems = PAGES_CATALOG
-    // Config da loja ainda não chegou: só o que não depende de módulo (Integração) — o resto aparece quando `pronto`.
-    .filter((m) => pronto || m.module === "integracao")
+    // Config da loja não chegou: nada aparece (a Integração também depende do perfil da loja).
+    .filter(() => pronto)
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
     .filter((m) => isModuleEnabled(m.gate ?? m.module))
     .filter((m) =>

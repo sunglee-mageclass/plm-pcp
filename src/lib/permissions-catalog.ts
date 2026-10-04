@@ -294,6 +294,12 @@ const MODULOS_DA_PAGINA: ReadonlyMap<string, string[]> = new Map(
   ),
 );
 
+/** Chaves de contratação que a página exige, a da PRÓPRIA página (`gate`) primeiro e depois a do bloco/módulo dela
+ *  (ex.: Explosão → ["criacao", "entrada_saida"]; Plan. Tecido → ["otb", "criacao"]). Para o texto "esta área precisa de…". */
+export function modulosExigidosDaPagina(pageKey: PageKey): string[] {
+  return [...(MODULOS_DA_PAGINA.get(pageKey) ?? [])].reverse();
+}
+
 /** Chaves de módulo que a página exige e a loja tem DESLIGADAS. `modules` = mapa JÁ RESOLVIDO da loja (com os padrões:
  *  `useTenantModules().modules` / `resolverModulos`); chave fora de `ModuleKey` (ex.: `importar`) nunca conta como desligada.
  *  `null` (ainda não carregou / erro) = nada desligado (não esmaece o que não se sabe). */

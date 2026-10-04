@@ -57,3 +57,30 @@ describe("F11 — Receber OC de Tecido", () => {
     expect(f).toMatch(/\{financeiroOn \? \(\s*\n\s*<>\s*\n\s*Isto registra a entrada e gera as contas a pagar no Financeiro/);
   });
 });
+
+describe("Extras do review F1", () => {
+  it("m2 — sidebar espera `pronto` para TODOS os itens (a Integração também depende do perfil da loja)", () => {
+    expect(ler("src/components/app-sidebar.tsx")).toContain(".filter(() => pronto)");
+  });
+  it("m5 — o aviso é montado sobre o EmptyState padrão", () => {
+    expect(ler("src/components/shared/ModuloDesligadoAviso.tsx")).toContain('from "@/components/shared/EmptyState"');
+  });
+  it("m6 — Receber de OC P. Acabado/Importado pede Criação e Produção (botão + mutationFn)", () => {
+    for (const f of ["entrada-saida.oc-p-acabado", "entrada-saida.oc-p-importado"]) {
+      const t = ler(`src/routes/_authenticated/${f}.tsx`);
+      expect(t, f).toContain('useRequerModulo("criacao", "producao")');
+      expect(t, f).toContain("if (!requerRecebimento.ok) throw erroValidacao(requerRecebimento.motivo);");
+      expect(t, f).toContain("|| !requerRecebimento.ok}");
+    }
+  });
+  it("m8 — HomeLogado não decide por módulo antes de `pronto`", () => {
+    expect(ler("src/components/home/HomeLogado.tsx")).toContain("const modules: Partial<Record<ModuleKey, boolean>> = pronto ? modulosLoja : {};");
+  });
+  it("m4 — sem imports mortos (Link/useAuth) em Produto Acabado/Importado", () => {
+    for (const f of ["criacao.produto-acabado", "criacao.produto-importado"]) {
+      const t = ler(`src/routes/_authenticated/${f}.tsx`);
+      expect(t, f).not.toMatch(/import \{[^}]*\bLink\b[^}]*\} from "@tanstack\/react-router"/);
+      expect(t, f).not.toContain('import { useAuth }');
+    }
+  });
+});

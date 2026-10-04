@@ -3,7 +3,7 @@ import { Navigate } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { PAGES_CATALOG, paginaNoPerfil } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, modulosExigidosDaPagina, paginaNoPerfil } from "@/lib/permissions-catalog";
 import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
 
 interface Props {
@@ -56,7 +56,7 @@ export function RequirePermission({ page, anyOf, editarCom, children }: Props) {
     // Rota guardada pelo módulo da PRÓPRIA página (PageDef.gate: Plan. Tecido → otb, Explosão → criacao, PA/PI, Etapas PL):
     // a tela não renderiza (nem pisca) e explica, em vez de redirecionar sem dizer por quê. (P-253 A)
     if (def?.gate && !isModuleEnabled(def.gate)) {
-      return <ModuloDesligadoAviso modulos={[def.gate]} />;
+      return <ModuloDesligadoAviso modulos={[def.gate]} exige={modulosExigidosDaPagina(page)} />;
     }
   }
   const allowed =

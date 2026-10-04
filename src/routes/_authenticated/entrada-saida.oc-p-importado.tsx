@@ -36,6 +36,8 @@ import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { fmtMoeda, custoLanded, type EntradaLanded, type EtapaPagamento } from "@/lib/moeda";
 import { erroValidacao } from "@/components/produto-acabado/shared";
+import { useRequerModulo } from "@/hooks/useRequerModulo";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { erroCotacaoEtapas } from "@/lib/importado-etapas";
 import { OcImpForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-importado/OcImpForm";
 import { OcImpRecebimento, type ColaboradorOpt } from "@/components/oc-p-importado/OcImpRecebimento";
@@ -912,8 +914,12 @@ function OcImpDialog({
     },
   });
 
+  // [modularidade F2, m6] receber (T1/P9) exige Criação E Produção no servidor (card + CQ): sem elas o botão fica desabilitado com o motivo
+  // (e o InfoHover cobre o celular) em vez de salvar e falhar na transição.
+  const requerRecebimento = useRequerModulo("criacao", "producao");
   const receberMutation = useMutation({
     mutationFn: async () => {
+      if (!requerRecebimento.ok) throw erroValidacao(requerRecebimento.motivo);
       // Guard SÍNCRONO: não receber com conflito pendente (senão o save intermediário sobrescreveria).
       if (conflitosRef.current.length > 0)
         throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de receber.");
@@ -1100,11 +1106,16 @@ function OcImpDialog({
               <span className="max-md:sr-only">Excluir</span>
             </Button>
           )}
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex items-center gap-2">
             {canMarkReceived && (
-              <Button variant="outline" onClick={() => setConfirmReceber(true)} disabled={receberMutation.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de receber" : undefined}>
-                Marcar Recebido
-              </Button>
+              <>
+                {!requerRecebimento.ok && requerRecebimento.faltam.length > 0 && (
+                  <InfoHover ariaLabel="Por que não recebe">{requerRecebimento.motivo}</InfoHover>
+                )}
+                <Button variant="outline" onClick={() => setConfirmReceber(true)} disabled={receberMutation.isPending || temConflito || !requerRecebimento.ok} title={!requerRecebimento.ok ? requerRecebimento.motivo : temConflito ? "Resolva os conflitos antes de receber" : undefined}>
+                  Marcar Recebido
+                </Button>
+              </>
             )}
             <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>
               <Check className="h-4 w-4 mr-1" />
