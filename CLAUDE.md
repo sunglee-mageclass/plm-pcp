@@ -1552,11 +1552,15 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     `tamanho_tipo` só pelas RPCs); as 3 filhas e as 13 `plan_tecido_*`: o cliente só lê (o C2 da S4 fica dispensável p/ escrita).
   - **Tela:** markup e preço fixo do comprado no Sheet (`PrecoRevendaBloco`) travam também sem `podeEditarPrecoComprado`
     (PA OU seção de preço — o OU do servidor).
-  - **Trava:** CREATE TRIGGER = ShareRowExclusive em `modelos` (bloqueia escrita, não leitura) e nos 2 produtos; cada tentativa
-    espera até 1500ms (acima do `deadlock_timeout`: cancela autovacuum) e tenta 3× — HORÁRIO CALMO.
+  - **Trava:** ShareRowExclusive em `modelos` (bloqueia escrita, não leitura) e nos 2 produtos, pegas JUNTAS numa tentativa
+    atômica (`LOCK TABLE` produtos antes de `modelos`, até 1500ms — acima do `deadlock_timeout`: cancela autovacuum); falhou ou
+    deadlock = solta tudo, 1s, de novo (até 3×). Medido: escrita de usuário espera no máx. ~1,5s; num deadlock quem cai é a
+    migration. HORÁRIO CALMO. (S3a/S3b/S3c: `lock_timeout` 1500ms no arquivo do gatilho, sem laço; repetir = rodar o arquivo de novo.)
   - Ensaio: `S3D_TXN=1`; `voltaS3dSePreciso` (LIFO) roda dentro de `voltaS3a*` e de `aplicaS1`/`voltaS1`. Volta **LIFO**:
     `210000_down` → `200000_down` → `190000_down` (sem validar corpo) → `_down_drop` opcional, ANTES da S3a/S1, de
     `20261007140000/150000_down` (`integracao_salvar`) e de `20261014100000_down`/`20261006100000_down` (`_salvar_plan_tecido_core`).
+    ⚠️ A volta de EMERGÊNCIA da Integração (`20261007140000_down`) faz `DROP FUNCTION integracao_salvar` SEM guarda de md5: com a
+    S3d no banco ela passa, e depois o `190000_down` da S3d recusa (função sumiu) — **volte a S3d ANTES** da volta da Integração.
 
 ## O que NÃO fazer
 
