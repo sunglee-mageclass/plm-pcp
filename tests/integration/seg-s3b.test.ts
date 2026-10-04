@@ -11,6 +11,7 @@ import { aplicaS3b, voltaS3b, s3bViva, S3B_MIGS, S3B_DOWNS, S3B_DOWN_DROP } from
 import { S3B_MD5, S3B_PAGINAS, S3B_ETAPAS, S3B_ETAPA_OUTRA, S3B_GATILHOS, S3B_ACL, S3B_COLUNAS } from "./seg-s3b-dados";
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { S4_TABELAS_TRAVA } from "./seg-s4-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -239,7 +240,8 @@ describe.skipIf(!RODA)("seg S3b — trava medida (pg_locks na txn revertida)", (
       const outras = (await travas()).filter((t) => !s3b(t)).map((t) => t.rel);
       // (+ S3C_TXN=1: modelo_etiquetas/modelo_observacoes, gatilhos da S3c)
       expect(outras.every((r) => ["public.ocs_tecido", "public.ocs_tecido_itens", "public.ocs_aviamento", "public.ocs_etiqueta", "public.parcelas",
-        "public.modelo_etiquetas", "public.modelo_observacoes", "public.modelos", "public.produtos_acabados", "public.produtos_importados"].includes(r)), outras.join(",")).toBe(true);
+        "public.modelo_etiquetas", "public.modelo_observacoes", "public.modelos", "public.produtos_acabados", "public.produtos_importados",
+        ...S4_TABELAS_TRAVA].includes(r)), outras.join(",")).toBe(true); // (+ S4_TXN=1: as 13 do OTB/mix)
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
            JOIN pg_namespace n ON n.oid = k.relnamespace

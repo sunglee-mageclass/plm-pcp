@@ -34,6 +34,8 @@ export async function aplicaS3d(c: Client): Promise<void> {
 
 export async function voltaS3d(c: Client, comDrop = false): Promise<void> {
   exigeBancoLocal();
+  const { voltaS4SePreciso } = await import("./seg-s4-helpers"); // LIFO: a S4 (20261101220000..230000) sai antes
+  await voltaS4SePreciso(c);
   for (const m of S3D_DOWNS) await aplicarArquivo(c, m);
   if (comDrop) await aplicarArquivo(c, S3D_DOWN_DROP);
   await zeraTimeouts(c);
