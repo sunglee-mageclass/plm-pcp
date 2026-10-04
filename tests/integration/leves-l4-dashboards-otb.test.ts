@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
-import { md5ModSucessor } from "./mod-helpers";
+import { md5ModSucessor, modViva } from "./mod-helpers";
 
 // Achados LEVES L4 (Dashboards e OTB):
 //   20261027200000_dashboards_funil_dev       prod #10  Desenvolvimento = ordem_criacao_enviada (inv. #11); comprado sem a
@@ -354,9 +354,10 @@ describe.skipIf(!hasDb)("L4 — funil do Desenvolvimento e Realizado do OTB", ()
       const r1 = await ler();
       expect(r1.col).toBe(r0.col + 1);
       expect(r1.subRep).toBe(r0.subRep + 1);
-      await c.query(`update modelos set status_desenvolvimento = 'Reprovado' where id = $1`, [
-        vivo.id,
-      ]);
+      // [modularidade T4] com o CHECK de minúsculas vivo (20261103130000) maiúscula/espaço é recusado (23514); a regra de caixa
+      // fica em mod-4-reprovado; sem o CHECK, segue provando a caixa diferente.
+      const stRep = (await modViva(c, 4)) ? "reprovado" : "Reprovado";
+      await c.query(`update modelos set status_desenvolvimento = $2 where id = $1`, [vivo.id, stRep]);
       const r2 = await ler();
       expect(r2.col).toBe(r1.col - 1);
       // sidebar_badges (divergência) lê _otb_colecao_totais: com mais 300 reprovados a coleção deixa de estourar

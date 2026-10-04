@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
+import { modViva } from "./mod-helpers";
 
 // #1: fonte única _estoque_tecido_core (consumida pela tela de Estoque e pelo dashboard).
 // Cenário controlado (BEGIN…ROLLBACK): OC recebida 100 → físico 100; OS baixada 30 → 70;
@@ -317,7 +318,10 @@ describe.skipIf(!hasDb)("R15a P-213 A — card reprovado só no Planejamento nã
       const m = await r15Card(c, f.art, f.vari, 30, "ITEST-R15A-P213");
       await r15Link(c, m, f.vari, it, 0, 1);
       expect((await r15Core(c, f.vari)).reservado).toBe(30);
-      await c.query(`update modelos set status_planejamento='Reprovado', status_desenvolvimento='ficha_tecnica' where id=$1`, [m]);
+      // [modularidade T4] com o CHECK de minúsculas vivo (20261103130000) maiúscula/espaço é recusado (23514); a regra de caixa
+      // fica em mod-4-reprovado; sem o CHECK, segue provando a caixa diferente.
+      const stRep = (await modViva(c, 4)) ? "reprovado" : "Reprovado";
+      await c.query(`update modelos set status_planejamento=$2, status_desenvolvimento='ficha_tecnica' where id=$1`, [m, stRep]);
       expect((await r15Core(c, f.vari)).reservado).toBe(0);              // antes do fix round 1: 30
       expect(somaPainel(await r15Painel(c, f.vari), "reservado_m")).toBe(0);
       await c.query(`update modelos set status_planejamento='aprovado' where id=$1`, [m]);

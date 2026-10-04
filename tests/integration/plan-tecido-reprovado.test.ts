@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, um, ehBancoLocal } from "./db";
+import { modViva } from "./mod-helpers";
 import { arvoreDaDemanda, necVivoPorVariante, aComprarVivoPorArtigo, reprovadoSaiDaDemanda, type CoberturaVarRow } from "@/lib/plan-tecido/calc";
 import type { PtArvore } from "@/lib/plan-tecido/types";
 
@@ -138,7 +139,10 @@ describe.skipIf(!RODA)("P-198 A no servidor — card reprovado fora da necessida
       const a = await alvo(c);
       const doSlot = await somaSlot(c, a.slot);
       // 1) reprovado (caixa diferente: o predicado é lower(...))
-      await setStatus(c, a.modelo, "Reprovado");
+      // [modularidade T4] com o CHECK de minúsculas vivo (20261103130000) maiúscula/espaço é recusado (23514); a regra de caixa
+      // fica em mod-4-reprovado; sem o CHECK, segue provando a caixa diferente.
+      const t4 = await modViva(c, 4);
+      await setStatus(c, a.modelo, t4 ? "reprovado" : "Reprovado");
       const comRep = await necServidor(c, a.tenant, a.colecao);
       mapaIgual(comRep, await necEsperada(c, a.tenant, a.colecao));
       // 2) sai de Reprovado → volta a contar exatamente a necessidade da vaga (status NULL = 1a coluna; sempre aceito)
@@ -147,7 +151,7 @@ describe.skipIf(!RODA)("P-198 A no servidor — card reprovado fora da necessida
       mapaIgual(semRep, await necEsperada(c, a.tenant, a.colecao));
       for (const [vid, m] of doSlot) expect((semRep.get(vid) ?? 0) - (comRep.get(vid) ?? 0), vid).toBeCloseTo(m, 4);
       // e o predicado é o do servidor: lower('REPROVADO') também sai
-      await setStatus(c, a.modelo, "REPROVADO");
+      await setStatus(c, a.modelo, t4 ? "reprovado" : "REPROVADO");
       mapaIgual(await necServidor(c, a.tenant, a.colecao), comRep);
     });
   });

@@ -12,6 +12,7 @@ import type { Client } from "pg";
 import { createHash, randomUUID } from "node:crypto";
 import { hasDb, withTx, comoUsuario, semJwt, um } from "./db";
 import { exigeBancoLocal } from "./mig-txn";
+import { modViva } from "./mod-helpers";
 import { LOCAL, MARCAS, T, U, aplica, camposLoja, comoUsuarioCom, keywordsLoja, layoutVivo, modeloInterno, padraoVivo } from "./integracao-helpers";
 
 const MIG = "supabase/migrations/20261102100000_integracao_gerar_json.sql";
@@ -296,9 +297,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       const rep2 = await modeloInterno(c);
       await marcar(c, rep1.id);
       await marcar(c, rep2.id);
+      // [modularidade T4] com o CHECK de minúsculas vivo (20261103130000) maiúscula/espaço é recusado (23514); a regra de caixa
+      // fica em mod-4-reprovado; sem o CHECK, segue provando caixa/espaço.
+      const stRep = (await modViva(c, 4)) ? "reprovado" : " Reprovado ";
       await semJwt(c, async () => {
         await c.query(`UPDATE public.modelos SET status_planejamento = 'reprovado' WHERE id = $1`, [rep1.id]);
-        await c.query(`UPDATE public.modelos SET status_desenvolvimento = ' Reprovado ' WHERE id = $1`, [rep2.id]);
+        await c.query(`UPDATE public.modelos SET status_desenvolvimento = $2 WHERE id = $1`, [rep2.id, stRep]);
       });
       const rr = await gerarLer(c, [rep1.id, rep2.id]);
       expect(rr.acesso_id).toBeNull();

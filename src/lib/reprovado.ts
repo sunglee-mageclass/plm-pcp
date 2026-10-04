@@ -2,6 +2,8 @@
 // `status_planejamento` = 'reprovado' (sem diferenciar maiúsculas). Espelha o predicado do banco
 // `lower(COALESCE(status_desenvolvimento,''))='reprovado' OR lower(COALESCE(status_planejamento,''))='reprovado'`
 // (`_otb_colecao_totais`, `_otb_orcamento_core`, `_dashboard_colecao_core`, `_dashboard_producao_core`).
+// Modularidade T4 (Parte 13): SQL NOVO usa o helper `_modelo_eh_reprovado(sd, sp)` (= `ehReprovadoNoGate`); os CHECK
+// `modelos_status_dev/plan_normalizado_chk` (status = lower(btrim(status))) tornam as grafias antigas do SQL equivalentes.
 export type ComStatus = {
   status_desenvolvimento?: string | null;
   status_planejamento?: string | null;
