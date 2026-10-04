@@ -11,7 +11,8 @@ import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
 import { MENSAGEM_CHAVE_KANBAN_MUDOU } from "@/lib/kanban-auto-config";
 import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "@/lib/categoria-card-produto";
 import { TEXTO_REF_FORMATO_SEM_NUMERO, textoRefSiglaComDigito } from "@/lib/ref-montar";
-import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, MODULE_ROTULO } from "@/lib/permissions-catalog";
+import { chavesDoModuloDesligado, textoAcaoPrecisaDeModulos } from "@/lib/modulos-texto";
 
 /** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
  *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
@@ -324,6 +325,44 @@ export function mensagemSegS3(code: string, msg: string): string | null {
   return textoSemPermissaoPagina(msg.slice(PREFIXO_SEM_PERMISSAO_PAGINA.length).split("|"));
 }
 
+// Modularidade (out/2026, migrations 20261103100000..120000): recusas do servidor por MÓDULO desligado e por coleção com cards.
+// - 42501 `modulo_desligado: a,b` (ASCII, `_exige_modulos`) → "Esta ação precisa do módulo A (e dos módulos A e B)…".
+// - 42501 com o texto LEGADO "Módulo criacao não habilitado para esta loja" (checagens antigas que rodam antes do portão novo, e
+//   as de outras RPCs): a mesma frase PT, com o rótulo do módulo (chave interna ou nome já em PT, como veio).
+// - P0001 `colecao_com_cards: N` (otb_excluir_colecao) → quantos cards seguram a coleção.
+// - 23503 ao excluir coleção ligada só por produto acabado/importado (a contagem do servidor olha os cards): a FK barra, texto PT.
+const TEXTO_COLECAO_EM_USO_POR_PRODUTO =
+  "Esta coleção está em uso por produto(s) acabado(s) ou importado(s) — mova ou exclua esses produtos antes de excluir a coleção.";
+const TEXTO_COLECAO_COM_CARDS_GENERICO = "Esta coleção tem cards no Planejamento — mova ou exclua os cards antes de excluir a coleção.";
+export function textoColecaoComCards(n: number): string {
+  const cards = n === 1 ? "1 card" : `${n} cards`;
+  return `Esta coleção tem ${cards} no Planejamento — mova ou exclua os cards antes de excluir a coleção.`;
+}
+export function mensagemModularidade(code: string, msg: string): string | null {
+  if (code === "42501" && msg.startsWith("modulo_desligado:")) {
+    const chaves = chavesDoModuloDesligado(msg);
+    return chaves.length ? textoAcaoPrecisaDeModulos(chaves) : null;
+  }
+  if (code === "42501") {
+    const legado = /^Módulo (.+?) não habilitado/.exec(msg);
+    if (legado) {
+      // chave interna ("criacao", "entrada_saida", "otb"…) → rótulo do catálogo; nome já em PT ("Produto Acabado (Revenda)") fica como veio.
+      const bruto = legado[1].trim();
+      const chave = bruto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      return textoAcaoPrecisaDeModulos([(MODULE_ROTULO as Record<string, string>)[chave] ?? bruto]);
+    }
+  }
+  if (code === "P0001" && msg.startsWith("colecao_com_cards:")) {
+    const n = Number(/colecao_com_cards:\s*(\d+)/.exec(msg)?.[1]);
+    return Number.isFinite(n) && n > 0 ? textoColecaoComCards(n) : TEXTO_COLECAO_COM_CARDS_GENERICO;
+  }
+  if (code === "23503") {
+    const fk = /delete on table "colecoes" violates foreign key constraint "(produtos_acabados|produtos_importados|modelos)_colecao_id_fkey"/.exec(msg);
+    if (fk) return fk[1] === "modelos" ? TEXTO_COLECAO_COM_CARDS_GENERICO : TEXTO_COLECAO_EM_USO_POR_PRODUTO;
+  }
+  return null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -402,6 +441,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Reforço de segurança S3: permissão de página no servidor (42501 ASCII 'sem_permissao_pagina: <chaves>') → texto PT.
   const segS3 = mensagemSegS3(code, msg);
   if (segS3) return segS3;
+
+  // Modularidade: módulo desligado (portão novo + texto legado), coleção com cards e a FK da coleção → texto PT.
+  const modularidade = mensagemModularidade(code, msg);
+  if (modularidade) return modularidade;
 
   // Integração › Gerar JSON: ASCII com prefixo (P0001) → texto PT (antes do ramo genérico abaixo).
   const gerarJson = mensagemGerarJson(code, msg);

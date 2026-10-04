@@ -20,7 +20,7 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     expect(sheet).toContain("if (!tamanhosProntos || !modulosProntos) return;");
     expect(sheet).toContain("srcRef.current.dist !== distOpts");
     expect(sheet).not.toContain("modulosCarregando");
-    expect(ler("src/hooks/useTenantModules.ts")).toContain("return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched };");
+    expect(ler("src/hooks/useTenantModules.ts")).toContain("return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched, pronto };");
   });
   it("PR12 (G-plano R3 + P-31): carga que recalcula ⇒ 'não salvo' + aviso no topo; base = árvore CRUA; descartar re-deriva", () => {
     expect(sheet).toContain("const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura, {");

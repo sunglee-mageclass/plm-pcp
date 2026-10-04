@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useSidebarBadges } from "@/hooks/useSidebarBadges";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useTabLabels } from "@/hooks/useTabLabels";
-import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, paginaNoPerfil } from "@/lib/permissions-catalog";
 import { PAGE_URLS, PAGE_ICONS, MODULE_META, BADGE_CLS, pageBadgeCounts, badgeViva } from "@/lib/nav";
 import { NavBadge } from "@/components/shared/NavBadge";
 
@@ -19,7 +19,6 @@ import { NavBadge } from "@/components/shared/NavBadge";
 export function SectionHub({ module, subtitle }: { module: string; subtitle?: string }) {
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView } = useAuth();
   const { isStockOnly, isModuleEnabled, isLoading } = useTenantModules();
-  const profile = isStockOnly ? "stock" : "full";
   const tabLabels = useTabLabels();
   const badges = useSidebarBadges();
   const counts = pageBadgeCounts(badges.data);
@@ -34,7 +33,7 @@ export function SectionHub({ module, subtitle }: { module: string; subtitle?: st
   const blocks = moduleOff ? [] : (mod?.pages ?? [])
     .filter((p) => !p.soEdicao && PAGE_URLS[p.key])                        // páginas com tela de verdade
     .filter((p) => !p.gate || isModuleEnabled(p.gate))                    // gate da PRÓPRIA página (ex.: produto_acabado)
-    .filter((p) => pageInProfile(p, profile))                             // perfil da loja (full/estoque)
+    .filter((p) => paginaNoPerfil(p, { isStockOnly, criacaoLigada: isModuleEnabled("criacao") })) // perfil da loja (full/estoque; P-256 A)
     .filter((p) => isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)) // permissão do usuário
     .map((p) => ({
       key: p.key,
@@ -45,7 +44,7 @@ export function SectionHub({ module, subtitle }: { module: string; subtitle?: st
       n: counts[p.key] ?? 0,
     }));
 
-  // Evita o flash "blocos → módulo desligado" enquanto tenant_config carrega (o default é true).
+  // Evita o flash "blocos → módulo desligado" enquanto a loja e a config carregam (`isLoading` = !pronto; o default é true).
   if (isLoading) return null;
 
   return (

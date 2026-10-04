@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useAuth } from "@/hooks/useAuth";
 import { RequirePermission } from "@/components/RequirePermission";
@@ -23,10 +24,8 @@ export const Route = createFileRoute("/_authenticated/criacao/produto-acabado")(
     colecao: typeof s.colecao === "string" && s.colecao ? s.colecao : undefined,
     sub: typeof s.sub === "string" && s.sub ? s.sub : undefined,
   }),
-  // Sem ModuleGuard aqui de propósito — mesmo padrão do OTB/OC P. Acabado (Task 5): o gate de
-  // módulo é aplicado na sidebar/hub (PageDef.gate) + nas RPCs (tenant_module_enabled); a
-  // página em si é protegida por permissão + o check de módulo abaixo (empty-state, evita
-  // mostrar a tela quando dá pra saber que está desligado).
+  // O gate de módulo (PageDef.gate = produto_acabado) é aplicado pelo `RequirePermission` (rota guardada, com `pronto`),
+  // pela sidebar/hub e pelas RPCs (tenant_module_enabled) — [modularidade F1] a corrida da URL direta acabou.
   component: () => (
     <RequirePermission page="criacao_produto_acabado">
       <ProdutoAcabadoListPage />
@@ -55,7 +54,6 @@ const TIPO_LABEL: Record<string, string> = { orcamento: "Orçamento", poder_vend
 
 function ProdutoAcabadoListPage() {
   const { isModuleEnabled, isLoading } = useTenantModules();
-  const { isSuperAdmin } = useAuth();
   const navigate = useNavigate({ from: Route.fullPath });
   const { colecao: openColecaoId, sub: subAberta } = Route.useSearch();
 
@@ -95,48 +93,10 @@ function ProdutoAcabadoListPage() {
   const sort = useSort(filtered, { key: "nome" });
   const nomeDe = (opts: Opt[], id: string | null) => opts.find((o) => o.id === id)?.nome ?? null;
 
-  // Mitigação de UI (mesmo padrão de entrada-saida.oc-p-acabado.tsx / OC P. Acabado): módulo
-  // OFF ainda é alcançável por URL direta — evita mostrar a lista quando dá pra saber que está
-  // desligado. `isLoading` pode ler `false` numa render intermediária antes do tenantId
-  // resolver (bug pré-existente documentado na Task 5) — o `if (isLoading) return null` evita
-  // flashear a tela errada no primeiro paint.
+  // O módulo Produto Acabado é guardado pelo `RequirePermission` (PageDef.gate, com `pronto` — sem corrida na URL direta).
+  // O planejador também é organizado pelas coleções do OTB (MODULE_DEPS): sem OTB, o mesmo aviso padrão.
   if (isLoading) return null;
-  if (!isModuleEnabled("produto_acabado")) {
-    return (
-      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
-        <Package className="h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Módulo Produto Acabado desativado</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Ative em <Link to="/admin/configuracoes" className="underline underline-offset-2">Config da Loja</Link> para usar o planejador Produto Acabado.
-        </p>
-      </div>
-    );
-  }
-  // Achado EXTRA do review (fix round 1): loja com produto_acabado ON e otb OFF caía num
-  // texto cinza discreto (fácil de confundir com "tela vazia") — o planejador é 100% organizado
-  // por coleção do OTB (§2 do design), então merece o MESMO tratamento visual do módulo OFF
-  // acima. ⚠️ Sem link pra "Config da Loja" aqui de propósito: diferente de `produto_acabado`
-  // (Task 5, `ProdutoAcabadoToggleCard` — Switch de verdade), `otb` é um dos 7 módulos de
-  // CONTRATAÇÃO (badge só-leitura em `admin/configuracoes.tsx`, editável só por super_admin em
-  // `admin/lojas.tsx`) — um `tenant_admin` clicando num link pra Config da Loja só veria o
-  // mesmo badge "Inativo", sem ação nenhuma (achado ao conferir o código de `configuracoes.tsx`
-  // durante o fix). `isSuperAdmin` ganha o link de verdade; os demais veem o pedido pra loja.
-  if (!isModuleEnabled("otb")) {
-    return (
-      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
-        <Package className="h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Módulo OTB desativado</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          O Produto Acabado usa as coleções do OTB.{" "}
-          {isSuperAdmin ? (
-            <>Ative o módulo OTB em <Link to="/admin/lojas" className="underline underline-offset-2">Gerenciar Lojas</Link>.</>
-          ) : (
-            "Peça a um administrador da loja para ativar o módulo OTB."
-          )}
-        </p>
-      </div>
-    );
-  }
+  if (!isModuleEnabled("otb")) return <ModuloDesligadoAviso modulos={["otb"]} />;
 
   return (
     <div className="p-4 sm:p-6">

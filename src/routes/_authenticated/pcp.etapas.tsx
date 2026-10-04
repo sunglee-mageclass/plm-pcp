@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
-import { useTenantModules } from "@/hooks/useTenantModules";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { supabase } from "@/integrations/supabase/client";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
@@ -30,9 +29,8 @@ import { ETAPA_FINALIZADO, type EtapaKey } from "@/lib/pcp-etapas";
 
 // Etapas PL (Fase 2, Task 1) — página ÚNICA (sem sub-rota de detalhe ainda), então o
 // componente renderiza direto (sem <Outlet/>), diferente de pcp.servicos.tsx que envolve
-// as sub-rotas $modeloId/index. Sem ModuleGuard aqui de propósito — mesmo precedente do
-// produto_acabado/otb (CLAUDE.md, corrida de render do useTenantModules().isLoading antes
-// do tenantId resolver): renderiza um empty-state próprio quando `etapas_pl` está OFF.
+// as sub-rotas $modeloId/index. O módulo `etapas_pl` (opt-in) é guardado pelo `RequirePermission` (PageDef.gate, com
+// `pronto` — [modularidade F1] a corrida da URL direta acabou), que mostra o <ModuloDesligadoAviso> quando está OFF.
 export const Route = createFileRoute("/_authenticated/pcp/etapas")({
   component: () => (
     <RequirePermission page="producao_etapas">
@@ -51,7 +49,6 @@ const SORT_OPTS = [
 ];
 
 function EtapasPlPage() {
-  const { isModuleEnabled, isLoading } = useTenantModules();
   const fl = useFieldLabels();
   const qc = useQueryClient();
 
@@ -160,25 +157,7 @@ function EtapasPlPage() {
     setOverlayModeloId(modeloId);
   };
 
-  // Evita flashear a tela errada no primeiro paint (mesmo padrão de criacao.produto-acabado.tsx).
-  if (isLoading) return null;
-
-  if (!isModuleEnabled("etapas_pl")) {
-    return (
-      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
-        <ListChecks className="h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Módulo Etapas PL desativado</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Ative em{" "}
-          <Link to="/admin/configuracoes" className="underline underline-offset-2">
-            Config da Loja
-          </Link>{" "}
-          para usar o quadro de Etapas.
-        </p>
-      </div>
-    );
-  }
-
+  // Módulo Etapas PL (opt-in): guardado pelo `RequirePermission` (PageDef.gate) — a tela só monta com o módulo ligado.
   return (
     <div className="container mx-auto space-y-4 p-3 sm:p-6">
       <Breadcrumb items={[{ label: "PCP", to: "/pcp" }, { label: "Etapas" }]} />

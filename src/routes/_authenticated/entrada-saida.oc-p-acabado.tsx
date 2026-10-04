@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShoppingCart, Plus, ArrowLeft, Trash2, Check, Printer } from "lucide-react";
 import { printWithImages } from "@/lib/print";
@@ -35,7 +35,6 @@ const CAMPOS_GRADE_PA = ["pedida", "recebida", "defeito"] as const;
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
-import { useTenantModules } from "@/hooks/useTenantModules";
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { erroValidacao } from "@/components/produto-acabado/shared";
@@ -55,14 +54,9 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-acabado
     // Produto Acabado (Task 6, revenda), que cria/aponta pra uma OC específica.
     oc: typeof s.oc === "string" && s.oc ? s.oc : undefined,
   }),
-  // Sem ModuleGuard aqui de propósito — espelha o padrão real do OTB (outro módulo
-  // opt-in, `otb.index.tsx`): o gate de módulo é aplicado na SIDEBAR/HUB (PageDef.gate,
-  // ver app-sidebar.tsx/SectionHub.tsx) e nas RPCs (`tenant_module_enabled`); a página
-  // em si é protegida só por permissão. `ModuleGuard` tem um race real (achado em QA):
-  // `useTenantModules().isLoading` é `false` numa render intermediária ANTES do
-  // `tenantId` resolver (query fica `enabled:false` → `isPending && isFetching` dá
-  // `false` mesmo sem dado), lendo os DEFAULTS (produto_acabado:false) e redirecionando
-  // por engano numa navegação direta/F5 — reproduzido com o módulo já ligado no banco.
+  // O gate de módulo (PageDef.gate = produto_acabado) é aplicado pelo `RequirePermission` (rota guardada, com `pronto`), pela
+  // SIDEBAR/HUB e pelas RPCs (`tenant_module_enabled`) — [modularidade F1] a corrida da URL direta (isLoading `false` antes do
+  // tenantId resolver) acabou.
   component: () => (
     <RequirePermission page="entrada_oc_p_acabado">
       <OcPaPage />
@@ -74,13 +68,6 @@ function OcPaPage() {
   const qc = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  // Mitigação parcial de UI (achado IMPORTANT do review, decisão do controller): módulo OFF
-  // ainda é alcançável por URL direta com a permissão de página concedida — RequirePermission
-  // não checa gate de módulo (mesmo padrão do OTB) e as RPCs por trás são a guarda de verdade
-  // (tenant_module_enabled). O gap de RLS/modgate nas 3 tabelas fica registrado pro review
-  // final, NÃO resolvido aqui — isto só evita mostrar a lista/form quando dá pra saber que
-  // está desligado.
-  const { isModuleEnabled, isLoading: modulesLoading } = useTenantModules();
   // Item 5 (refino onda 2): default "recebido" — espelha OC Aviamento/OC Insumo
   // (`entrada-saida.oc-aviamento.tsx`/`entrada-saida.oc-insumo.tsx`, ambas abrem em
   // "recebido"); a ordem das abas na UI abaixo também virou Recebidas · Encomendadas ·
@@ -215,19 +202,7 @@ function OcPaPage() {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
-  if (modulesLoading) return null; // evita flash de conteúdo antes de carregar a config (padrão ModuleGuard)
-  if (!isModuleEnabled("produto_acabado")) {
-    return (
-      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
-        <ShoppingCart className="h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Módulo Produto Acabado desativado</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Ative em <Link to="/admin/configuracoes" className="underline underline-offset-2">Config da Loja</Link> para usar OC P. Acabado.
-        </p>
-      </div>
-    );
-  }
-
+  // Módulo Produto Acabado: guardado pelo `RequirePermission` (PageDef.gate) — a tela só monta com o módulo ligado.
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">

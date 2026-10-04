@@ -47,7 +47,7 @@ import { useSidebarBadges } from "@/hooks/useSidebarBadges";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
-import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, paginaNoPerfil } from "@/lib/permissions-catalog";
 import { PAGE_URLS, MODULE_META, BADGE_CLS, pageBadgeCounts } from "@/lib/nav";
 import { NavBadge } from "@/components/shared/NavBadge";
 import { supabase } from "@/integrations/supabase/client";
@@ -79,8 +79,12 @@ export function AppSidebar() {
   const userInitials = (fullName
     ? fullName.split(/\s+/).map((w) => w[0]).slice(0, 2).join("")
     : (user?.email ?? "?").slice(0, 2)).toUpperCase();
-  const { isModuleEnabled, isStockOnly } = useTenantModules();
-  const profile = isStockOnly ? "stock" : "full";
+  // `pronto` [modularidade F1]: até a loja e a config chegarem, `isModuleEnabled` lê os DEFAULTS — o menu não renderiza os grupos
+  // que dependem de módulo/perfil (senão item de módulo desligado pisca e some, ou o contrário).
+  const { isModuleEnabled, isStockOnly, pronto } = useTenantModules();
+  // Perfil da loja (P-256 A): a página só-estoque (OS/Destinos) vale enquanto a loja não tem Criação.
+  const noPerfil = (p: (typeof PAGES_CATALOG)[number]["pages"][number]) =>
+    paginaNoPerfil(p, { isStockOnly, criacaoLigada: isModuleEnabled("criacao") });
   const tabLabels = useTabLabels();
   // "Planejamento de Produto" é longo demais na sidebar → encurta p/ "Plan. Produto"
   // (o nome por extenso segue no catálogo/permissões e no título da tela).
@@ -110,6 +114,8 @@ export function AppSidebar() {
   };
 
   const visibleMainItems = PAGES_CATALOG
+    // Config da loja ainda não chegou: só o que não depende de módulo (Integração) — o resto aparece quando `pronto`.
+    .filter((m) => pronto || m.module === "integracao")
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
     .filter((m) => isModuleEnabled(m.gate ?? m.module))
     .filter((m) =>
@@ -117,17 +123,17 @@ export function AppSidebar() {
       // precisa da permissão explícita (canView já reflete a regra: só super admin passa
       // direto). Os demais módulos seguem o bypass de sempre.
       m.module === "integracao"
-        ? m.pages.some((p) => !p.soEdicao && (!p.gate || isModuleEnabled(p.gate)) && pageInProfile(p, profile) && canView(p.key))
+        ? m.pages.some((p) => !p.soEdicao && (!p.gate || isModuleEnabled(p.gate)) && noPerfil(p) && canView(p.key))
         : isAdmin || isSuperAdmin || isTenantAdmin
         ? true
         // Espelha o filtro dos BLOCOS do hub: página real (não-soEdicao), gate de página
         // ligado, no perfil da loja — senão o link pousa num hub vazio (ex.: usuário só
         // com "Aprovar mão de obra", ou módulo cujas páginas visíveis estão todas gateadas).
-        : m.pages.some((p) => !p.soEdicao && (!p.gate || isModuleEnabled(p.gate)) && pageInProfile(p, profile) && canView(p.key)),
+        : m.pages.some((p) => !p.soEdicao && (!p.gate || isModuleEnabled(p.gate)) && noPerfil(p) && canView(p.key)),
     )
     .map((m) => {
       const subs = m.pages
-        .filter((p) => pageInProfile(p, profile))
+        .filter((p) => noPerfil(p))
         // Gate de PÁGINA (ex.: produto_acabado dentro de criacao/entrada_saida): além do
         // gate do módulo (já filtrado acima), a própria página pode exigir outra flag.
         .filter((p) => !p.gate || isModuleEnabled(p.gate))

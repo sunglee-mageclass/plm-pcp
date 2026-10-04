@@ -161,7 +161,7 @@ describe("RequirePermission — bloqueia /integracao sem canView, libera com", (
       useAuth: () => ({ canView: () => opts.canView, canEdit: () => opts.canEdit, loading: false }),
     }));
     vi.doMock("@/hooks/useTenantModules", () => ({
-      useTenantModules: () => ({ isStockOnly: false, firstActiveModulePath: "/home", isLoading: false }),
+      useTenantModules: () => ({ isStockOnly: false, isModuleEnabled: () => true, firstActiveModulePath: "/home", isLoading: false }),
     }));
     const { createElement } = await import("react");
     const { RequirePermission } = await import("@/components/RequirePermission");
@@ -614,7 +614,7 @@ describe("RequirePermission + AuthProvider REAL — bloqueia /integracao sem moc
     }));
     vi.doMock("@/lib/storage-tenant", () => ({ clearTenantPrefixCache: () => {} }));
     vi.doMock("@/hooks/useTenantModules", () => ({
-      useTenantModules: () => ({ isStockOnly: false, firstActiveModulePath: "/home", isLoading: false }),
+      useTenantModules: () => ({ isStockOnly: false, isModuleEnabled: () => true, firstActiveModulePath: "/home", isLoading: false }),
     }));
     const { createElement } = await import("react");
     const { AuthProvider } = await import("@/hooks/useAuth");

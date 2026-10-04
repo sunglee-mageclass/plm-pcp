@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useActiveTenant } from "@/hooks/useActiveTenantId";
 
 /**
  * Módulos habilitáveis por loja (tenant_config.modules, jsonb).
@@ -66,8 +66,8 @@ const LANDING_ORDER: ModuleKey[] = [
 ];
 
 export function useTenantModules() {
-  const tenantId = useActiveTenantId();
-  const { data, isLoading, isFetched } = useQuery({
+  const { tenantId, resolvido } = useActiveTenant();
+  const { data, status, isFetched } = useQuery({
     // tenantId na key: troca de loja => key nova => refaz o fetch da loja nova.
     queryKey: ["tenant_config", "modules", tenantId],
     enabled: !!tenantId,
@@ -77,6 +77,11 @@ export function useTenantModules() {
     },
     staleTime: 5 * 60 * 1000,
   });
+
+  // `pronto` [modularidade F1, parte 1]: a loja E a config dela já chegaram (sucesso OU erro). Antes disso `modules`
+  // são os DEFAULTS e quem decide por eles pisca/redireciona errado numa URL direta. Erro conta como pronto (cai nos
+  // DEFAULTS, comportamento de sempre) — nunca "Carregando" eterno. Sem loja (sem usuário) também é pronto.
+  const pronto = resolvido && (tenantId === "" || status !== "pending");
 
   const modules: Record<ModuleKey, boolean> = { ...DEFAULTS, ...(data ?? {}) };
 
@@ -95,5 +100,8 @@ export function useTenantModules() {
   const firstActiveModulePath =
     MODULE_BASE_PATH[LANDING_ORDER.find((k) => modules[k]) ?? "cadastro"];
 
-  return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched };
+  // `isLoading` = `!pronto` (M9): os consumidores antigos ganham o conserto da corrida sem mudar de código.
+  const isLoading = !pronto;
+
+  return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched, pronto };
 }

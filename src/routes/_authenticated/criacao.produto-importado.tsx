@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Globe } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useAuth } from "@/hooks/useAuth";
 import { RequirePermission } from "@/components/RequirePermission";
@@ -23,9 +24,8 @@ export const Route = createFileRoute("/_authenticated/criacao/produto-importado"
     colecao: typeof s.colecao === "string" && s.colecao ? s.colecao : undefined,
     sub: typeof s.sub === "string" && s.sub ? s.sub : undefined,
   }),
-  // Sem ModuleGuard de propósito — mesmo padrão de Produto Acabado/OTB: o gate de módulo é
-  // aplicado na sidebar (PageDef.gate) + nas RPCs (tenant_module_enabled) + no empty-state abaixo
-  // (a corrida de render do useTenantModules().isLoading redirecionaria por engano numa URL direta).
+  // O gate de módulo (PageDef.gate = produto_importado) é aplicado pelo `RequirePermission` (rota guardada, com `pronto`),
+  // pela sidebar/hub e pelas RPCs (tenant_module_enabled) — [modularidade F1] a corrida da URL direta acabou.
   component: () => (
     <RequirePermission page="criacao_produto_importado">
       <ProdutoImportadoListPage />
@@ -54,7 +54,6 @@ const TIPO_LABEL: Record<string, string> = { orcamento: "Orçamento", poder_vend
 
 function ProdutoImportadoListPage() {
   const { isModuleEnabled, isLoading } = useTenantModules();
-  const { isSuperAdmin } = useAuth();
   const navigate = useNavigate({ from: Route.fullPath });
   const { colecao: openColecaoId, sub: subAberta } = Route.useSearch();
 
@@ -94,41 +93,10 @@ function ProdutoImportadoListPage() {
   const sort = useSort(filtered, { key: "nome" });
   const nomeDe = (opts: Opt[], id: string | null) => opts.find((o) => o.id === id)?.nome ?? null;
 
+  // O módulo Produto Importado é guardado pelo `RequirePermission` (PageDef.gate). O planejador também é organizado pelas
+  // coleções do OTB (MODULE_DEPS): sem OTB, o aviso padrão.
   if (isLoading) return null;
-  if (!isModuleEnabled("produto_importado")) {
-    return (
-      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
-        <Globe className="h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Módulo Produto Importado desativado</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Ative em{" "}
-          {isSuperAdmin ? (
-            <Link to="/admin/lojas" className="underline underline-offset-2">Gerenciar Lojas</Link>
-          ) : (
-            "Gerenciar Lojas (peça a um administrador)"
-          )}{" "}
-          para planejar produtos importados.
-        </p>
-      </div>
-    );
-  }
-  // Assim como Produto Acabado, o planejador é organizado por coleção do OTB.
-  if (!isModuleEnabled("otb")) {
-    return (
-      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
-        <Globe className="h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Módulo OTB desativado</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          O Produto Importado usa as coleções do OTB.{" "}
-          {isSuperAdmin ? (
-            <>Ative o módulo OTB em <Link to="/admin/lojas" className="underline underline-offset-2">Gerenciar Lojas</Link>.</>
-          ) : (
-            "Peça a um administrador da loja para ativar o módulo OTB."
-          )}
-        </p>
-      </div>
-    );
-  }
+  if (!isModuleEnabled("otb")) return <ModuloDesligadoAviso modulos={["otb"]} />;
 
   return (
     <div className="p-4 sm:p-6">

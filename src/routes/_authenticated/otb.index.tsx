@@ -21,6 +21,7 @@ import { computeColecaoResumo } from "@/components/otb/otb-resumo";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { brl, mesLimpo } from "@/lib/format";
 import { RequirePermission } from "@/components/RequirePermission";
+import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useBuscaColecaoSub } from "@/hooks/useBuscaColecaoSub";
 
@@ -184,7 +185,7 @@ function OtbPage() {
   );
 
   if (!isModuleEnabled("otb")) {
-    return <div className="container mx-auto p-6"><EmptyState icon={Target} title="OTB não habilitado" description="Ative o módulo OTB nas configurações da loja." /></div>;
+    return <ModuloDesligadoAviso modulos={["otb"]} />;
   }
 
   return (

@@ -10,9 +10,9 @@ import { useAuth } from "@/hooks/useAuth";
  * sem reaproveitar o cache da loja anterior (era o motivo da sidebar não
  * respeitar as toggles ao trocar de loja).
  */
-export function useActiveTenantId(): string {
-  const { user } = useAuth();
-  const { data } = useQuery({
+export function useActiveTenant(): { tenantId: string; resolvido: boolean } {
+  const { user, loading } = useAuth();
+  const { data, status } = useQuery({
     queryKey: ["active-tenant-id", user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
@@ -23,5 +23,14 @@ export function useActiveTenantId(): string {
   // Sentinela "" quando sem usuário/tenant — todas as queries usam `enabled: !!tenantId`,
   // então o `.eq("tenant_id", "")` nunca chega a executar. Mantemos tipo `string` para
   // satisfazer as assinaturas tipadas do Supabase (que não aceitam null em .eq()).
-  return (data as string | undefined) ?? "";
+  const tenantId = (data as string | undefined) ?? "";
+  // `resolvido` [modularidade F1, parte 1]: a auth terminou E (não há usuário OU a query do tenant já saiu de
+  // "pending" — sucesso ou erro). Antes desse ponto `tenantId === ""` NÃO significa "sem loja", significa "ainda não
+  // sei" — quem decidia por ele (módulos nos DEFAULTS) redirecionava por engano numa URL direta.
+  const resolvido = !loading && (!user?.id || status !== "pending");
+  return { tenantId, resolvido };
+}
+
+export function useActiveTenantId(): string {
+  return useActiveTenant().tenantId;
 }

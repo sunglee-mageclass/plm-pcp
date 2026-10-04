@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useFilterState } from "@/hooks/useFilterState";
-import { useTenantModules } from "@/hooks/useTenantModules";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -83,7 +82,6 @@ function AComprarChip({ colecaoId }: { colecaoId: string }) {
 }
 
 function PlanTecidoListPage() {
-  const { isModuleEnabled } = useTenantModules();
   const navigate = useNavigate({ from: Route.fullPath });
   const { colecao: openColecaoId, sub: subAberta, modo, focoModelo } = Route.useSearch();
 
@@ -118,9 +116,7 @@ function PlanTecidoListPage() {
   const sort = useSort(filtered, { key: "nome" });
   const nomeDe = (opts: Opt[], id: string | null) => opts.find((o) => o.id === id)?.nome ?? null;
 
-  if (!isModuleEnabled("otb")) {
-    return <div className="p-6 text-sm text-muted-foreground">Ative o módulo OTB para planejar tecido por coleção.</div>;
-  }
+  // Módulo OTB: guardado pelo `RequirePermission` (PageDef.gate = otb, P-253 A — rota guardada, sem piscar).
 
   return (
     <div className="p-4 sm:p-6">

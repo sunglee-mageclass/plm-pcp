@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShoppingCart, Plus, ArrowLeft, Trash2, Check, Printer } from "lucide-react";
 import { printWithImages } from "@/lib/print";
@@ -32,7 +32,6 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
-import { useTenantModules } from "@/hooks/useTenantModules";
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { fmtMoeda, custoLanded, type EntradaLanded, type EtapaPagamento } from "@/lib/moeda";
@@ -72,7 +71,6 @@ function OcImpPage() {
   const qc = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  const { isModuleEnabled, isLoading: modulesLoading } = useTenantModules();
   const [tab, setTab] = useState<OcImportadoTab>(search.tab ?? "recebido");
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -200,19 +198,7 @@ function OcImpPage() {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
-  if (modulesLoading) return null; // evita flash de conteúdo antes de carregar a config (padrão ModuleGuard)
-  if (!isModuleEnabled("produto_importado")) {
-    return (
-      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
-        <ShoppingCart className="h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Módulo Produto Importado desativado</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Ative em <Link to="/admin/configuracoes" className="underline underline-offset-2">Config da Loja</Link> para usar OC P. Importado.
-        </p>
-      </div>
-    );
-  }
-
+  // Módulo Produto Importado: guardado pelo `RequirePermission` (PageDef.gate) — a tela só monta com o módulo ligado.
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">

@@ -3,7 +3,8 @@ import { Navigate } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, paginaNoPerfil } from "@/lib/permissions-catalog";
+import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
 
 interface Props {
   page?: string;
@@ -35,7 +36,8 @@ export function ReadOnlyScope({ value, children }: { value: boolean; children: R
 
 export function RequirePermission({ page, anyOf, editarCom, children }: Props) {
   const { canView, canEdit, loading } = useAuth();
-  const { isStockOnly, firstActiveModulePath, isLoading: modulesLoading } = useTenantModules();
+  // `isLoading` = `!pronto` (loja e config chegaram): a decisão por módulo/perfil NUNCA roda sobre os DEFAULTS.
+  const { isStockOnly, isModuleEnabled, firstActiveModulePath, isLoading: modulesLoading } = useTenantModules();
   if (loading || modulesLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -45,10 +47,16 @@ export function RequirePermission({ page, anyOf, editarCom, children }: Props) {
   }
   // Gate de PERFIL (modo da loja): página com modes incompatíveis com o perfil
   // atual (full × só-estoque) não é acessível nem por URL direta → redireciona.
+  // P-256 A: a página só-estoque (OS Tecido/OS Aviamento/Destinos) vale enquanto a loja não tem Criação.
   if (page) {
     const def = PAGE_BY_KEY.get(page);
-    if (def && !pageInProfile(def, isStockOnly ? "stock" : "full")) {
+    if (def && !paginaNoPerfil(def, { isStockOnly, criacaoLigada: isModuleEnabled("criacao") })) {
       return <Navigate to={firstActiveModulePath as any} replace />;
+    }
+    // Rota guardada pelo módulo da PRÓPRIA página (PageDef.gate: Plan. Tecido → otb, Explosão → criacao, PA/PI, Etapas PL):
+    // a tela não renderiza (nem pisca) e explica, em vez de redirecionar sem dizer por quê. (P-253 A)
+    if (def?.gate && !isModuleEnabled(def.gate)) {
+      return <ModuloDesligadoAviso modulos={[def.gate]} />;
     }
   }
   const allowed =

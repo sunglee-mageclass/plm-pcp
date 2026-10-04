@@ -1,4 +1,6 @@
 // Catalog of permission pages used by the per-store Admin to restrict access.
+import type { ModuleKey } from "@/hooks/useTenantModules";
+
 export type PageKey = string;
 // modes: em quais perfis a página aparece. Ausente = ambos. ["full"] = só PLM
 // completo; ["stock"] = só modo só-estoque. (Não substitui permissão por usuário.)
@@ -23,6 +25,54 @@ export type ModuleDef = { module: string; label: string; basePath: string; pages
 /** Página visível no perfil atual da loja (full vs só-estoque)? */
 export function pageInProfile(p: PageDef, profile: StoreProfile): boolean {
   return !p.modes || p.modes.includes(profile);
+}
+
+/**
+ * Página visível no perfil da loja, com a regra do P-256 A [modularidade F1]: a página só-estoque (`modes` = só
+ * `["stock"]`: OS Tecido, OS Aviamento, Destinos) aparece sempre que a loja NÃO tem Criação — mesmo com Financeiro/
+ * Dashboard ligados (antes sumia assim que a loja deixava de ser "só estoque" estrito e a saída de material ficava sem
+ * tela). As demais seguem `pageInProfile` como sempre. `pageInProfile` fica (compat).
+ */
+export function paginaNoPerfil(p: PageDef, ctx: { isStockOnly: boolean; criacaoLigada: boolean }): boolean {
+  const soEstoque = !!p.modes && p.modes.includes("stock") && !p.modes.includes("full");
+  if (soEstoque) return !ctx.criacaoLigada;
+  return pageInProfile(p, ctx.isStockOnly ? "stock" : "full");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mapa de DEPENDÊNCIAS entre módulos [modularidade F1, parte 2, P-251 C]. FONTE ÚNICA, SÓ EM CÓDIGO: NÃO é usado no
+// Gerenciar Lojas (o dono decidiu: dar módulo é do super admin, sem aviso nem bloqueio na tela). Quem lê: os avisos de
+// "precisa do módulo X" (useRequerModulo), o editor de permissões e o anti-drift (tests/integration/mod-antidrift.test.ts,
+// que compara com os portões `_exige_modulos` do banco). Página que depende de módulo fora desta tabela declara no `gate`
+// da PageDef (Plan. Tecido → otb; Explosão → criacao).
+// ─────────────────────────────────────────────────────────────────────────────
+export const MODULE_ROTULO: Record<ModuleKey, string> = {
+  cadastro: "Cadastro",
+  entrada_saida: "Entrada e Saída",
+  criacao: "Criação",
+  producao: "Produção",
+  financeiro: "Financeiro",
+  dashboard: "Dashboard",
+  otb: "OTB",
+  distribuicao: "Distribuição",
+  produto_acabado: "Produto Acabado",
+  produto_importado: "Produto Importado",
+  etapas_pl: "Etapas PL",
+};
+
+export const MODULE_DEPS: Partial<Record<ModuleKey, { exige: ModuleKey[]; motivo: string }>> = {
+  producao: { exige: ["criacao", "entrada_saida"], motivo: "A produção parte dos cards da Criação e do material da Entrada e Saída." },
+  produto_acabado: { exige: ["criacao", "entrada_saida", "producao", "otb"], motivo: "A revenda nasce de card (Criação) e coleção (OTB), recebe pela Entrada e Saída e passa pelo CQ (Produção)." },
+  produto_importado: { exige: ["criacao", "entrada_saida", "producao", "otb"], motivo: "O importado nasce de card (Criação) e coleção (OTB), recebe pela Entrada e Saída e passa pelo CQ (Produção)." },
+  otb: { exige: ["criacao"], motivo: "A coleção do OTB organiza os cards da Criação." },
+  distribuicao: { exige: ["otb", "criacao"], motivo: "A distribuição por loja mora no Plan. Tecido (OTB) e nos cards (Criação)." },
+  etapas_pl: { exige: ["producao"], motivo: "As etapas de PL ficam no PCP (Produção)." },
+};
+
+/** Módulos que `chave` exige e a loja NÃO tem ligados (ordem do mapa). `modules` = o mapa já resolvido da loja
+ *  (`useTenantModules().modules`); chave ausente = desligado. Módulo sem dependência declarada = []. */
+export function faltasDeModulo(modules: Partial<Record<ModuleKey, boolean>>, chave: ModuleKey): ModuleKey[] {
+  return (MODULE_DEPS[chave]?.exige ?? []).filter((m) => !modules[m]);
 }
 
 export const PAGES_CATALOG: ModuleDef[] = [
@@ -84,7 +134,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     pages: [
       // Explosão (baixa de estoque/corte) — realocada de Estilo & Engenharia; 1ª da lista.
       // `modes: ["full"]` preserva o comportamento de ficar oculta no modo só-estoque.
-      { key: "producao_explosao", label: "Explosão", description: "Baixa de estoque / envio ao corte.", modes: ["full"] },
+      { key: "producao_explosao", label: "Explosão", description: "Baixa de estoque / envio ao corte.", modes: ["full"], gate: "criacao" },
       { key: "entrada_oc_tecido", label: "OC Tecido", description: "Ordens de compra de tecidos e recebimento." },
       { key: "entrada_alertas_tecido", label: "Alertas de Tecido", description: "CQ de tecido reprovado: trocar ou cancelar.", modes: ["full"] },
       { key: "entrada_oc_p_acabado", label: "OC P. Acabado", description: "Ordens de compra de produto acabado (revenda) e recebimento.", modes: ["full"], gate: "produto_acabado" },
@@ -108,7 +158,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Estilo & Engenharia",
     basePath: "/criacao",
     pages: [
-      { key: "criacao_plan_tecido", label: "Planejamento de Tecido", shortLabel: "Plan. Tecido", description: "Necessidade de tecido × estoque × OCs por coleção — antes de comprar." },
+      { key: "criacao_plan_tecido", label: "Planejamento de Tecido", shortLabel: "Plan. Tecido", description: "Necessidade de tecido × estoque × OCs por coleção — antes de comprar.", gate: "otb" },
       { key: "criacao_produto_acabado", label: "Produto Acabado", description: "Planeje produtos de revenda (comprar pronto) por coleção.", gate: "produto_acabado" },
       { key: "criacao_produto_importado", label: "Produto Importado", description: "Planeje produtos importados (comprar do exterior, com cotação de moeda) por coleção.", gate: "produto_importado" },
       { key: "criacao_planejamento", label: "Planejamento de Produto", shortLabel: "Plan. Produto", description: "Cards em planejamento; lança quando CQ e custo estão aprovados.",
