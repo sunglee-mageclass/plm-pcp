@@ -43,7 +43,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { TEXTO_SKU_TRAVADO, TEXTO_TRAVA_SHEET, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
-import { estadoMO, moLinhasEqual, moLinhaVaiReabrir, type MoLinha } from "@/lib/mao-obra";
+import { estadoMO, moLinhasEqual, moLinhaVaiReabrir, podeEditarValorMO, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
@@ -177,6 +177,8 @@ function PlanejamentoDetailConteudo({
   const qc = useQueryClient();
   const fl = useFieldLabels();
   const { canView, canEdit } = useAuth();
+  // Reforço de segurança S3c (P-244 = B): VALOR de M.O. só quem EDITA o Planejamento E vê custos (a mesma regra do servidor).
+  const podeEditarMO = podeEditarValorMO(canEdit, canView);
   const podeVerCustos = canView("criacao_planejamento:custos");
   const podeEditarCustos = canEdit("criacao_planejamento:custos");
   // Permissão à parte SÓ p/ editar o preço de venda (banco enforça via trigger fn_modelo_preco_venda_gate).
@@ -938,7 +940,7 @@ function PlanejamentoDetailConteudo({
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave, salvarAntes } = usePlanejamentoSave({
-    modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, podeEditarPlanejamento, categorias,
+    modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, categorias,
     refEditavel, travaIntegracao,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
@@ -1458,6 +1460,7 @@ function PlanejamentoDetailConteudo({
         pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
         linhasPersistidas={moLinhasPersistidas}
         linhasBase={moLinhasBase}
+        podeEditarValor={podeEditarMO}
       />
     </fieldset>
   );

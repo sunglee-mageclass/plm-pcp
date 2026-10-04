@@ -22,7 +22,7 @@ import { MoReprovarDialog } from "./MoReprovarDialog";
  */
 export function MaoObraCardMini({
   linhas, categorias, podeVerCustos, podeAprovar,
-  onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase,
+  onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase, podeEditarValor,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -36,6 +36,9 @@ export function MaoObraCardMini({
   /** Contas certas item 8 (P-163 A): linhas como estão no SERVIDOR — linha aprovada/reprovada com valor mudado mostra a
    * dica âmbar "volta para pendente" e trava Aprovar/Reprovar até salvar (mesma regra do MaoObraEditor). */
   linhasBase?: MaoObraEditorLinha[];
+  /** Reforço de segurança S3c (P-244 = B): mudar o VALOR — só quem EDITA o Planejamento E vê custos (`podeEditarValorMO`).
+   * `false` = valor em texto, sem "+" e sem "Remover"; aprovar/reprovar segue (inv. 12). */
+  podeEditarValor: boolean;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [addSel, setAddSel] = useState<string>("");
@@ -61,13 +64,15 @@ export function MaoObraCardMini({
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">Serviços de mão de obra</span>
-        <Button type="button" variant="outline" size="iconSm" aria-label="Adicionar serviço" title="Adicionar serviço"
-          disabled={disponiveis.length === 0} onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4" />
-        </Button>
+        {podeEditarValor && (
+          <Button type="button" variant="outline" size="iconSm" aria-label="Adicionar serviço" title="Adicionar serviço"
+            disabled={disponiveis.length === 0} onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
-      {linhas.length === 0 && <p className="text-xs text-muted-foreground">Nenhum serviço. Use o + para adicionar.</p>}
+      {linhas.length === 0 && <p className="text-xs text-muted-foreground">{podeEditarValor ? "Nenhum serviço. Use o + para adicionar." : "Nenhum serviço."}</p>}
 
       {linhas.map((l, idx) => {
         const linhaId = l.id ?? null;
@@ -81,7 +86,9 @@ export function MaoObraCardMini({
             <span className="min-w-[6rem] flex-1 truncate text-xs font-medium">{nomeCat(l.categoria_terceirizado_id)}</span>
             {podeVerCustos && (
               <div className="w-24">
-                <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValorAt(idx, v === "" ? null : Number(v)); }} placeholder="0,00" className="h-7 text-xs" />
+                {podeEditarValor
+                  ? <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValorAt(idx, v === "" ? null : Number(v)); }} placeholder="0,00" className="h-7 text-xs" />
+                  : <span className="block text-right text-xs tabular-nums" data-testid="mo-valor-leitura">{brl(Number(l.valor) || 0)}</span>}
               </div>
             )}
             <StatusBadge
@@ -97,7 +104,7 @@ export function MaoObraCardMini({
                 <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={tituloBloq ?? (persistida ? "Reprovar" : "Salve antes de reprovar")} className="text-red-700" disabled={rowPending || !persistida || vaiReabrir} onClick={() => linhaId && setRepro({ linhaId })}><X className="h-3.5 w-3.5" /></Button>
               </span>
             )}
-            {podeVerCustos && (podeAprovar || l.aprovado === true) && (
+            {podeEditarValor && podeVerCustos && (podeAprovar || l.aprovado === true) && (
               <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" onClick={() => removerAt(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
             )}
             {vaiReabrir && (

@@ -24,6 +24,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { useAuth } from "@/hooks/useAuth";
 import { useMaoObraModelo } from "@/hooks/useMaoObraModelo";
 import { MaoObraCardMini } from "@/components/planejamento/MaoObraCardMini";
+import { podeEditarValorMO, podeVerCustosServidor } from "@/lib/mao-obra";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -160,7 +161,10 @@ export function ProdutoImportadoCard({
   const { canView, canEdit } = useAuth();
   // Mão de obra POR SERVIÇO — mesma fonte `modelo_servico_mo` do card do Planejamento (editar aqui
   // reflete lá). Só quando o produto já tem espelho (`modelo_id`). Ver `useMaoObraModelo`.
-  const podeVerCustosMO = canView("criacao_planejamento:custos") || canView("criacao_planejamento");
+  // Reforço de segurança S3c (P-244 = B): VER os valores = ver custos (`_pode_ver_custos` do servidor, que também mascara o resumo);
+  // MUDAR o valor = EDITAR o Planejamento E ver custos (quem só edita este card perde). Aprovar segue com a permissão própria.
+  const podeVerCustosMO = podeVerCustosServidor(canView);
+  const podeEditarMO = podeEditarValorMO(canEdit, canView);
   const podeAprovarMO = canEdit("producao_servico_aprovacao");
   const mo = useMaoObraModelo(draft.modelo_id, podeVerCustosMO);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
@@ -985,8 +989,9 @@ export function ProdutoImportadoCard({
                     pendingLinhaId={mo.aprovar.isPending ? mo.aprovar.variables?.linhaId : undefined}
                     linhasPersistidas={mo.linhasPersistidas}
                     linhasBase={mo.linhasBase}
+                    podeEditarValor={podeEditarMO}
                   />
-                  {podeVerCustosMO && mo.dirty && (
+                  {podeEditarMO && mo.dirty && (
                     <div className="flex justify-end">
                       <Button type="button" size="sm" disabled={mo.salvar.isPending} onClick={() => mo.salvar.mutate()}>
                         {mo.salvar.isPending ? "Salvando…" : "Salvar mão de obra"}

@@ -79,7 +79,7 @@ import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
-import { moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
+import { moLinhasEqual, podeEditarValorMO, type MoLinha } from "@/lib/mao-obra";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
@@ -3138,6 +3138,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
                     pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
                     linhasPersistidas={moLinhasPersistidas}
                     readOnly={somenteLeitura}
+                    podeEditarValor={podeEditarValorMO(canEdit, canView)}
                   />
                 </Card>
               )}

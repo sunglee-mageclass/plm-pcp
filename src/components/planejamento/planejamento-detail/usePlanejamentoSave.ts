@@ -139,6 +139,8 @@ export type UsePlanejamentoSaveArgs = {
   piOn: boolean;
   podeEditarPreco: boolean;
   podeVerCustos: boolean;
+  /** Reforço de segurança S3c (P-244 = B): pode mudar o VALOR de M.O. (EDITA o Planejamento E vê custos — `podeEditarValorMO`). */
+  podeEditarMO: boolean;
   /** F3.1: pode editar o Desenvolvimento? Sem isso os campos do Dev saem do payload (decisão F3 #8). */
   podeEditarDev: boolean;
   /** P-53 A: pode editar o Planejamento? Sem isso os campos SÓ do Planejamento saem do payload
@@ -188,7 +190,7 @@ export type UsePlanejamentoSaveArgs = {
 };
 
 export function usePlanejamentoSave({
-  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, podeEditarPlanejamento, refEditavel, travaIntegracao, categorias,
+  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, refEditavel, travaIntegracao, categorias,
   draft, setDraft, draftLiveRef,
   touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
   setEnviada, setLancado,
@@ -650,7 +652,8 @@ export function usePlanejamentoSave({
       // `podeVerCustos` (page-level, `criacao_planejamento:custos`) OU `fichaRef.current.podeVerCustos` (a união com
       // `criacao_desenvolvimento:custos`, useFichaTecnica.ts). Quem tem só a do Dev vê os valores DESMASCARADOS
       // (`modelo_mo_resumo` usa `_pode_ver_custos()`, que a inclui) e a RPC não checa permissão de custos — seguro regravar.
-      if ((podeVerCustos || fichaRef.current.podeVerCustos) && savedId && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
+      // S3c (P-244 = B): e só quem pode mudar o VALOR (o servidor recusa com 42501 mao_obra_sem_permissao; o editor já fica só leitura).
+      if (podeEditarMO && (podeVerCustos || fichaRef.current.podeVerCustos) && savedId && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: savedId,
           _linhas: moLinhasEnviadas.map((l) => ({

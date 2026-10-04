@@ -85,3 +85,24 @@ export function somaAprovadaVigente(linhas: MoLinha[], base: MoLinha[] | null | 
     return s + (Number(l.valor) || 0);
   }, 0);
 }
+
+// ───────────── Reforço de segurança S3c (P-244 = B): quem muda os VALORES de M.O. ─────────────
+// O servidor (salvar_modelo_servico_mo, migration 20261101160000) só aceita quem EDITA o Planejamento E vê custos
+// (`_pode_ver_custos()`); quem só edita o Desenvolvimento ou o card do Produto Acabado/Importado perde (os preços são dados
+// sensíveis). Aprovar/reprovar NÃO é editar valor (aprovar_servico_mo, `producao_servico_aprovacao`, inv. 12).
+/** Espelho de public._pode_ver_custos() — VER qualquer uma destas. Anti-drift contra o SQL em tests/unit. */
+export const CHAVES_VER_CUSTOS = [
+  "criacao_planejamento:custos",
+  "criacao_desenvolvimento:custos",
+  "producao_terceirizados:precos",
+  "dashboard_custos",
+  "dashboard_comercial",
+] as const;
+export const PAGINA_EDITAR_VALOR_MO = "criacao_planejamento";
+export function podeVerCustosServidor(canView: (k: string) => boolean): boolean {
+  return CHAVES_VER_CUSTOS.some((k) => canView(k));
+}
+/** Pode mudar o VALOR (digitar, adicionar, remover serviço) — a mesma regra do servidor. */
+export function podeEditarValorMO(canEdit: (k: string) => boolean, canView: (k: string) => boolean): boolean {
+  return canEdit(PAGINA_EDITAR_VALOR_MO) && podeVerCustosServidor(canView);
+}

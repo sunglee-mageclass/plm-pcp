@@ -257,6 +257,11 @@ export const MENSAGENS_SEG_S3 = {
   sem_permissao_pagina_generica: "Você não tem permissão para editar esta tela. Peça ao administrador da loja.",
   // fix round 1 (B3): nº do pedido / código direto só no rolo; OC comum muda pelo Salvar da OC Tecido
   oc_numero_so_pela_rpc: "O número do pedido de uma OC só muda pelo Salvar da OC Tecido. Recarregue a tela e tente de novo.",
+  // S3c (P-244 = B): valores de mão de obra só quem EDITA o Planejamento E vê custos
+  mao_obra_sem_permissao:
+    "Só quem edita o Planejamento e vê custos pode mudar os valores de mão de obra. Peça ao administrador da loja.",
+  // S3c (B3): etiqueta/insumo, cor ou modelo de OUTRA loja numa linha desta loja
+  loja_diferente: "Esse item é de outra loja e não pode ser usado aqui. Recarregue a tela e escolha de novo.",
 } as const;
 /** "Módulo › Página" de uma chave do catálogo (seção: "Módulo › Página › Seção"); chave desconhecida = a própria chave. */
 export function rotuloPaginaPermissao(chave: string): { modulo: string; pagina: string } {
@@ -284,6 +289,8 @@ export function textoSemPermissaoPagina(chaves: string[]): string {
 }
 export function mensagemSegS3(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("oc_numero_so_pela_rpc:")) return MENSAGENS_SEG_S3.oc_numero_so_pela_rpc;
+  if (code === "42501" && msg.startsWith("mao_obra_sem_permissao:")) return MENSAGENS_SEG_S3.mao_obra_sem_permissao;
+  if (code === "P0001" && msg.startsWith("loja_diferente:")) return MENSAGENS_SEG_S3.loja_diferente;
   if (code !== "42501" || !msg.startsWith(PREFIXO_SEM_PERMISSAO_PAGINA)) return null;
   return textoSemPermissaoPagina(msg.slice(PREFIXO_SEM_PERMISSAO_PAGINA.length).split("|"));
 }

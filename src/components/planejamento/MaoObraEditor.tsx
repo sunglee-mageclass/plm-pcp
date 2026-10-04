@@ -24,7 +24,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; v
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
   onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase,
-  readOnly = false,
+  readOnly = false, podeEditarValor,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -51,7 +51,12 @@ export function MaoObraEditor({
    * (o fieldset do pai já bloqueia o clique; isto some com a afordância que parecia clicável).
    * `false` (padrão) = comportamento de hoje, usado pelo Planejamento — byte a byte igual. */
   readOnly?: boolean;
+  /** Reforço de segurança S3c (P-244 = B): mudar o VALOR (digitar, adicionar, remover) — só quem EDITA o Planejamento E vê
+   * custos (`podeEditarValorMO`, a mesma regra do servidor). `false` = o valor vira texto e somem "Adicionar"/"Remover";
+   * aprovar/reprovar continua (é outra permissão, inv. 12). */
+  podeEditarValor: boolean;
 }) {
+  const editaValor = podeEditarValor && !readOnly;
   const [addSel, setAddSel] = useState<string>("");
   const [repro, setRepro] = useState<{ linhaId: string } | null>(null);
 
@@ -75,7 +80,7 @@ export function MaoObraEditor({
 
   return (
     <div className="grid gap-2">
-      {linhas.length === 0 && <p className="text-xs text-muted-foreground">Nenhum serviço de mão de obra. Adicione abaixo.</p>}
+      {linhas.length === 0 && <p className="text-xs text-muted-foreground">{editaValor ? "Nenhum serviço de mão de obra. Adicione abaixo." : "Nenhum serviço de mão de obra."}</p>}
       {linhas.map((l, idx) => {
         const linhaId = l.id ?? null;
         const estado = l.aprovado === true ? "aprovada" : l.aprovado === false ? "reprovada" : "pendente";
@@ -91,7 +96,9 @@ export function MaoObraEditor({
                     linha recém-adicionada (`valor: null`) OU já persistida com 0 nascem/permanecem
                     com o campo VAZIO + placeholder "0,00". `moLinhasEqual` espelha essa equivalência
                     na comparação de dirty. */}
-                <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValorAt(idx, v === "" ? null : Number(v)); }} placeholder="0,00" data-colab-path={`mo:${linhaId ?? `nova-${idx}`}`} />
+                {editaValor
+                  ? <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValorAt(idx, v === "" ? null : Number(v)); }} placeholder="0,00" data-colab-path={`mo:${linhaId ?? `nova-${idx}`}`} />
+                  : <span className="block text-right text-sm tabular-nums" data-testid="mo-valor-leitura">{brl(Number(l.valor) || 0)}</span>}
               </div>
             )}
             <StatusBadge
@@ -128,11 +135,11 @@ export function MaoObraEditor({
                 E só onde o servidor DEIXA remover: linha já APROVADA (livre) OU quem tem a permissão
                 de aprovar (o BEFORE DELETE gate barra remover linha pendente/reprovada sem
                 `producao_servico_aprovacao`). */}
-            {!readOnly && podeVerCustos && (podeAprovar || l.aprovado === true) && <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" className={podeAprovar ? "" : "ml-auto"} onClick={() => removerAt(idx)}><Trash2 className="h-4 w-4" /></Button>}
+            {editaValor && podeVerCustos && (podeAprovar || l.aprovado === true) && <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" className={podeAprovar ? "" : "ml-auto"} onClick={() => removerAt(idx)}><Trash2 className="h-4 w-4" /></Button>}
           </div>
         );
       })}
-      {!readOnly && podeVerCustos && disponiveis.length > 0 && (
+      {editaValor && podeVerCustos && disponiveis.length > 0 && (
         <div className="flex items-end gap-2">
           <div className="grid flex-1 gap-1">
             <Label className="text-xs">Adicionar serviço</Label>
