@@ -9,6 +9,9 @@ describe("Log — detalhe legível (mockup 8)", () => {
   it("ações de produto", () => {
     expect(textoDetalhe(l("integrar", { campos: 18, sublinhas: 6 }))).toBe("Retrato com 18 campos + 6 sublinhas");
     expect(textoDetalhe(l("integrado", { chave: "ERP Principal", final: "a1b2" }))).toBe("A API confirmou a entrega");
+    // Gerar JSON (entrega manual): 3 textos de `integrado`
+    expect(textoDetalhe(l("integrado", { manual: true, acesso_id: "a", novo: true }))).toBe("Entregue manualmente (Gerar JSON)");
+    expect(textoDetalhe(l("integrado", { manual: true, acesso_id: "a", reexportacao: true }))).toBe("Reexportado no Gerar JSON (já estava integrado)");
     expect(textoDetalhe(l("voltar", {}))).toBe("Voltou para não integrável");
     expect(textoDetalhe(l("desfazer", { motivo: "NCM errado" }))).toBe('Motivo: "NCM errado"');
     expect(textoDetalhe(l("editar", { campos: { peso_kg: { antes: 0.65, depois: 0.68 }, preco_venda: { antes: 100, depois: 120 } } })))

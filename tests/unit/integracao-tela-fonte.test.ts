@@ -987,6 +987,8 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
         return { data: listaRef.current, isError: false, error: null, refetch: () => {}, dataUpdatedAt: dataUpdatedAtRef.current };
       },
       useIntegracaoAoVivo: () => {},
+      // Gerar JSON: `ProdutosAba` lê a config só para o teto por arquivo (sem dado neste harness = teto absoluto)
+      useIntegracaoConfig: () => ({ data: undefined }),
       usePreviasSkus: () => ({}),
       // P-146/P-156 C: versão anterior (Preço anterior/Título) e "versão já integrada" — sem dado neste harness
       // (objetos ESTÁVEIS por identidade, pra não derrotar o React.memo das linhas que este arquivo mede).

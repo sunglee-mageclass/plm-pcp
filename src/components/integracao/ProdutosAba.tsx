@@ -36,6 +36,7 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_MAO_DUPLA } from "@/lib/integracao/campos";
+import { classificarGerarJson, motivoGerarJson, tetoGerarJson } from "@/lib/integracao/gerar-json";
 import {
   FILTROS_VAZIOS, OPCOES_ESTADO_NIVEL, ROTULO_ESTADO_NIVEL, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar,
   motivoVoltar, produtoPassaFiltroEstado, produtoPassaFiltroVersao, totalPaginas, textoFiltroVersao,
@@ -44,7 +45,7 @@ import {
 import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
 import { useAbaSuja } from "./guard";
 import {
-  LIMITE_PRODUTOS, chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao,
+  LIMITE_PRODUTOS, chaveLista, useIntegracaoAoVivo, useIntegracaoConfig, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao,
   useVersaoAnteriorIntegracao, useVersoesIntegradas,
 } from "./useIntegracao";
 import { ProdutosTabela } from "./ProdutosTabela";
@@ -52,6 +53,7 @@ import { FalhaVersaoAnterior } from "@/components/shared/FalhaVersaoAnterior";
 import { FotosDialog } from "./FotosDialog";
 import { KeywordsDialog } from "./KeywordsDialog";
 import { EstadoCelula, IntegravelCelula } from "./EstadoLinha";
+import { GerarJsonDialog } from "./GerarJsonDialog";
 import { IntegrarDialog } from "./IntegrarDialog";
 import { VoltarDialog } from "./VoltarDialog";
 import { DesfazerDialog } from "./DesfazerDialog";
@@ -144,6 +146,8 @@ export function ProdutosAba() {
   const [keywordsAberto, setKeywordsAberto] = useState(false);
   const [selecionados, setSelecionados] = useState<ReadonlySet<string>>(new Set());
   const [integrarIds, setIntegrarIds] = useState<string[] | null>(null);
+  // Gerar JSON (entrega manual): só os IDS; os produtos são derivados da lista ATUAL (mesma lição do `voltarProdutosAtuais`).
+  const [gerarJsonIds, setGerarJsonIds] = useState<string[] | null>(null);
   // Fix round 1 T13 (revisão T13 #5, code-review Important I1 — "Voltar entra em laço no P0409"): guarda só os IDS
   // (não mais `{id,nome}` capturado no clique) — os PRODUTOS são derivados da lista ATUAL a cada render (o mesmo
   // padrão de `pFotos`/`fotosDeId`, ver abaixo). Antes, `VoltarDialog` recebia um snapshot fixo de produtos; se o
@@ -364,6 +368,7 @@ export function ProdutosAba() {
     // aberto na loja ANTERIOR sobrevivia à troca, misturando ids de tenants diferentes na próxima ação em massa.
     setSelecionados(new Set());
     setIntegrarIds(null);
+    setGerarJsonIds(null);
     setVoltarIds(null);
     setDesfazerDe(null);
   }, [tenantId]);
@@ -543,6 +548,12 @@ export function ProdutosAba() {
     () => acoesEmMassa(selecionadosLista, { ...ctxIntegrar, rascunhos: idsSujos }),
     [selecionadosLista, ctxIntegrar, idsSujos],
   );
+  // Gerar JSON: pré-classificação LOCAL (o banco decide com autoridade) + teto por arquivo = o do banco, min(teto absoluto,
+  // máx. por página da loja) — a config da API só vem para o super admin; sem ela vale o absoluto e o banco recusa com o número certo.
+  const cfgApi = useIntegracaoConfig();
+  const tetoJson = tetoGerarJson(cfgApi.data?.api?.max_por_pagina);
+  const classeJson = useMemo(() => classificarGerarJson(selecionadosLista, { podeVerCustos }), [selecionadosLista, podeVerCustos]);
+  const motivoJson = motivoGerarJson(selecionadosLista, classeJson, podeEditar, tetoJson);
   // "seleção e memo" (achado carregado da revisão da Task 12b, corrigido de verdade na T13 fix round 1 — ver o
   // comentário grande acima de `integravelCelula`): `selecao` (o objeto) só é lido pelo CABEÇALHO da tabela
   // (`todos`/`alguns`/`onTodos`) — cada LINHA recebe só `marcado` (boolean) + `onMarcar` (`useCallback` estável),
@@ -591,6 +602,7 @@ export function ProdutosAba() {
   // esse caso (o id da linha pode nem estar selecionado).
   const aposEstado = useCallback((idsAfetados?: string[]) => {
     setIntegrarIds(null);
+    setGerarJsonIds(null);
     setVoltarIds(null);
     setDesfazerDe(null);
     if (idsAfetados === undefined) { setSelecionados(new Set()); return; }
@@ -620,6 +632,12 @@ export function ProdutosAba() {
         Voltar selecionados
       </Button>
       {selecionadosLista.length > 0 && massa.motivoVoltar && <span className="text-xs text-muted-foreground">{massa.motivoVoltar}</span>}
+      {/* Gerar JSON = entrega manual (gerar É integrar): os Integráveis viram Integrado; os já Integrados saem como reexportação. */}
+      <Button type="button" size="sm" variant="outline" disabled={motivoJson !== null}
+        onClick={() => setGerarJsonIds(selecionadosLista.map((p) => p.modeloId))}>
+        Gerar JSON
+      </Button>
+      {selecionadosLista.length > 0 && motivoJson && <span className="text-xs text-muted-foreground">{motivoJson}</span>}
     </div>
   );
   const onFotos = useCallback((p: ProdutoLista) => setFotosDeId(p.modeloId), []);
@@ -656,6 +674,12 @@ export function ProdutosAba() {
   useEffect(() => {
     if (voltarIds && lista && voltarProdutosAtuais.length === 0) setVoltarIds(null);
   }, [voltarIds, lista, voltarProdutosAtuais]);
+  // Gerar JSON: derivado da lista ATUAL a cada render (se um produto sair da página, o passo 1 encolhe/fecha). O passo 2 (JSON
+  // gerado) vive no estado do próprio diálogo e NÃO depende desta lista (a relista tira os integrados de "Não integrados").
+  const gerarJsonProdutos = useMemo(
+    () => (gerarJsonIds && lista ? lista.produtos.filter((p) => gerarJsonIds.includes(p.modeloId)) : []),
+    [gerarJsonIds, lista],
+  );
 
   // `listaExibida` = a mesma `lista` do servidor, só com `produtos` estreitado pro nível de Estado escolhido —
   // usada SÓ na hora de passar pra `ProdutosTabela` (que não sabe nada de filtro de nível; recebe a lista pronta).
@@ -876,6 +900,10 @@ export function ProdutosAba() {
           afetou — `aposEstado` some só esses da seleção em massa (uma ação de linha isolada nem costuma estar na
           seleção; uma ação de massa some exatamente os que acabaram de ser integrados/voltados). */}
       {integrarIds && <IntegrarDialog ids={integrarIds} onFechar={() => setIntegrarIds(null)} onFeito={() => aposEstado(integrarIds)} />}
+      {gerarJsonIds && (
+        <GerarJsonDialog produtos={gerarJsonProdutos} podeVerCustos={podeVerCustos} onFechar={() => setGerarJsonIds(null)}
+          onFeito={(ids) => aposEstado(ids)} />
+      )}
       {voltarIds && voltarProdutosAtuais.length > 0 && (
         <VoltarDialog produtos={voltarProdutosAtuais} onFechar={() => setVoltarIds(null)} onFeito={() => aposEstado(voltarIds)} />
       )}

@@ -62,6 +62,30 @@ const MENSAGENS_42501_PROPRIAS = new Set([
   "Apenas o administrador da loja pode reprocessar as faltas do corte.",
 ]);
 
+// Integração › Gerar JSON (20261102100000): recusas P0001 em ASCII com prefixo `gerar_json_*:` (do banco) e `gerar_json_falhou`
+// (da server function, qualquer code) → texto PT. Roda ANTES do ramo genérico "P0001 = mensagem já em PT" (senão o ASCII
+// cru apareceria). O teto de produtos vem NA mensagem do banco (`min(100, máx. por página da loja)`) — nunca fixo aqui.
+const TEXTO_GERAR_JSON_LOJA_MUDOU = "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.";
+function mensagemGerarJson(code: string, msg: string): string | null {
+  if (msg.startsWith("gerar_json_falhou")) {
+    return "Não foi possível concluir a geração. Nenhum arquivo foi entregue; confira a lista e tente de novo.";
+  }
+  if (code === "PGRST202" && msg.includes("integracao_gerar_json")) {
+    return "O Gerar JSON ainda não está disponível nesta loja (atualização pendente). Nada foi integrado.";
+  }
+  if (code !== "P0001") return null;
+  if (msg.startsWith("gerar_json_loja_mudou:")) return TEXTO_GERAR_JSON_LOJA_MUDOU;
+  if (msg.startsWith("gerar_json_itens:")) {
+    const m = /envie de 1 a (\d+) produtos/.exec(msg);
+    if (msg.includes("repetido")) return "Selecione os produtos sem repetir.";
+    return m ? `Selecione de 1 a ${m[1]} produtos.` : "Quantidade de produtos inválida para gerar o arquivo. Selecione menos produtos e tente de novo.";
+  }
+  if (msg.startsWith("gerar_json_loja:")) return "Algum produto selecionado não é desta loja. Recarregue a página.";
+  if (msg.startsWith("gerar_json_limite:")) return "Muitas gerações em pouco tempo. Espere um minuto e tente de novo.";
+  if (msg.startsWith("gerar_json_desligado:")) return "O Gerar JSON está desligado no momento.";
+  return null;
+}
+
 // Integração + API: as recusas do banco chegam em ASCII com prefixo (lição P-58/P-59 — 5xx só ASCII); a tela traduz aqui.
 function mensagemIntegracao(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("integracao_travado:")) {
@@ -377,6 +401,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Reforço de segurança S3: permissão de página no servidor (42501 ASCII 'sem_permissao_pagina: <chaves>') → texto PT.
   const segS3 = mensagemSegS3(code, msg);
   if (segS3) return segS3;
+
+  // Integração › Gerar JSON: ASCII com prefixo (P0001) → texto PT (antes do ramo genérico abaixo).
+  const gerarJson = mensagemGerarJson(code, msg);
+  if (gerarJson) return gerarJson;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;

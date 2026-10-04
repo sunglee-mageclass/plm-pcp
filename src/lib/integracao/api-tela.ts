@@ -40,6 +40,8 @@ export function fmtData(iso: string | null, tz: string): string {
 export function rotuloChaveAcesso(a: Acesso): string {
   if (a.status === "chave_invalida") return `Chave inválida (IP ${a.ip ?? "desconhecido"})`;
   if (a.status === "ip_bloqueado") return `IP bloqueado (${a.ip ?? "desconhecido"})`;
+  // Gerar JSON (entrega manual): sem chave (`chave_id` NULL) — quem gerou está no detalhe/Log, aqui só o rótulo.
+  if (a.modo === "manual") return "Gerar JSON (manual)";
   const nome = a.chave ? (a.final ? `${a.chave} ····${a.final}` : a.chave) : "—";
   return a.modo === "teste" ? `${nome} (modo teste)` : nome;
 }

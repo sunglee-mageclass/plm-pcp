@@ -41,6 +41,8 @@ describe("aba API — leitura e textos (mockup 7)", () => {
   it("acessos: rótulos da chave, status e entrega", () => {
     expect(rotuloChaveAcesso(acesso({}))).toBe("ERP Principal ····a1b2");
     expect(rotuloChaveAcesso(acesso({ modo: "teste", status: "teste" }))).toBe("ERP Principal ····a1b2 (modo teste)");
+    // Gerar JSON (entrega manual): sem chave — rótulo próprio
+    expect(rotuloChaveAcesso(acesso({ modo: "manual", chave: null, final: null, status: "ok" }))).toBe("Gerar JSON (manual)");
     expect(rotuloChaveAcesso(acesso({ chave: null, final: null, status: "chave_invalida", ip: "203.0.113.9" }))).toBe("Chave inválida (IP 203.0.113.9)");
     expect(statusAcesso(acesso({}))).toEqual({ texto: "OK", tom: "success" });
     expect(statusAcesso(acesso({ status: "chave_invalida", tentativas: 4 }))).toEqual({ texto: "Rejeitada ×4", tom: "danger" });

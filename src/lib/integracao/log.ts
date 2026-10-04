@@ -48,7 +48,11 @@ export function textoDetalhe(l: LinhaLog): string {
   const d = l.detalhe;
   switch (l.acao) {
     case "integrar": return `Retrato com ${Number(d.campos ?? 0)} campos + ${Number(d.sublinhas ?? 0)} sublinhas`;
-    case "integrado": return "A API confirmou a entrega";
+    // Gerar JSON (entrega manual): `manual: true` no detalhe; `reexportacao: true` = já estava integrado (nada mudou)
+    case "integrado":
+      return d.manual === true
+        ? (d.reexportacao === true ? "Reexportado no Gerar JSON (já estava integrado)" : "Entregue manualmente (Gerar JSON)")
+        : "A API confirmou a entrega";
     case "voltar": return "Voltou para não integrável";
     case "desfazer": return `Motivo: "${txt(d.motivo) ?? ""}"`;
     case "editar": {

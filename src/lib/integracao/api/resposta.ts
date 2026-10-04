@@ -21,11 +21,18 @@ export type ProdutoLer = {
   modelo_id: string; estado: string; assinatura: string | null; integrado_em: string | null;
   linhas: { tipo: "produto" | "variante"; loja_nome?: string | null; valores: unknown[] }[];
 };
+/** Gerar JSON: quem ficou de fora de uma geração e por quê (nao_integravel/reprovado/sem_custo vêm do banco; mudou = o
+ *  produto voltou/foi desfeito entre a leitura e a confirmação). */
+export type ForaGerarJson = {
+  modelo_id: string; nome: string | null; ref: string | null; motivo: "nao_integravel" | "reprovado" | "sem_custo" | "mudou";
+};
 export type PaginaApi = { limite: number; maximo: number };
 export type RespostaLer = {
-  status: StatusLer; retry_after?: number | null; tenant_id?: string | null; modo?: "normal" | "teste"; acesso_id?: string;
+  status: StatusLer; retry_after?: number | null; tenant_id?: string | null; modo?: "normal" | "teste" | "manual"; acesso_id?: string;
   chave_id?: string; loja?: { id: string; nome: string }; colunas?: string[]; chaves_colunas?: string[]; produtos?: ProdutoLer[];
   proximo_cursor?: string | null; validade_foto_dias?: number; pagina?: PaginaApi;
+  /** Gerar JSON (modo manual): selecionados que NÃO entraram (a API nunca devolve). NUNCA vai para o arquivo/JSON público. */
+  fora?: ForaGerarJson[];
 };
 /** Um item da resposta (produto ou variante): 4 campos de identificação + os campos chave-valor da página. */
 export type ItemApi = {
@@ -33,7 +40,7 @@ export type ItemApi = {
 };
 export type ProdutoApi = ItemApi & { variantes: ItemApi[] };
 export type RespostaApi = {
-  versao: 1; modo: "normal" | "teste"; loja: { id: string; nome: string }; gerado_em: string;
+  versao: 1; modo: "normal" | "teste" | "manual"; loja: { id: string; nome: string }; gerado_em: string;
   pagina: PaginaApi | null; produtos: ProdutoApi[]; proximo_cursor: string | null;
 };
 export type OpcoesMontar = {

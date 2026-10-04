@@ -49,3 +49,32 @@ describe("mensagemErro — 40P01 (deadlock, ruling T5 Minor 4)", () => {
     expect(m).not.toMatch(/deadlock/i);
   });
 });
+
+describe("mensagemErro — Gerar JSON (prefixos ASCII P0001 traduzidos; teto vem da mensagem)", () => {
+  it("os 6 prefixos", () => {
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_loja_mudou: loja ativa diferente" }))
+      .toBe("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_itens: envie de 1 a 50 produtos" })).toBe("Selecione de 1 a 50 produtos.");
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_itens: produto repetido" })).toBe("Selecione os produtos sem repetir.");
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_loja: produto nao encontrado nesta loja" }))
+      .toBe("Algum produto selecionado não é desta loja. Recarregue a página.");
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_limite: aguarde 12 s" }))
+      .toBe("Muitas gerações em pouco tempo. Espere um minuto e tente de novo.");
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_desligado: recurso desligado" })).toBe("O Gerar JSON está desligado no momento.");
+  });
+  it("nota 1 do revisor: sem 100 fixo — o número vem da mensagem; sem número, texto genérico", () => {
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_itens: envie de 1 a 20 produtos" })).toBe("Selecione de 1 a 20 produtos.");
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_itens: algo novo" })).not.toMatch(/\d/);
+  });
+  it("gerar_json_falhou (qualquer code, vindo da server function) e função ausente (banco velho)", () => {
+    const falhou = "Não foi possível concluir a geração. Nenhum arquivo foi entregue; confira a lista e tente de novo.";
+    expect(mensagemErro({ code: "ERRO_INTERNO", message: "gerar_json_falhou" })).toBe(falhou);
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_falhou: confirmacao" })).toBe(falhou);
+    expect(mensagemErro({ code: "PGRST202", message: "Could not find the function public.integracao_gerar_json_ler(_loja, _modelo_ids) in the schema cache" }))
+      .toMatch(/ainda não está disponível/);
+  });
+  it("o texto de loja mudou é o MESMO de useIntegracao (anti-drift)", async () => {
+    const { TEXTO_LOJA_MUDOU } = await import("@/components/integracao/useIntegracao");
+    expect(mensagemErro({ code: "P0001", message: "gerar_json_loja_mudou: x" })).toBe(TEXTO_LOJA_MUDOU);
+  });
+});

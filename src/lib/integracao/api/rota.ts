@@ -16,16 +16,20 @@
 // nada confirmado, registrado no Log de acessos, sem contar no bloqueio de IP nem no limite por minuto); a resposta sai em
 // objetos chave-valor com as variantes aninhadas (resposta.ts). A confirmação (fase 2) não mudou.
 import { lerParametros } from "./parametros";
-import { CAMINHO_FOTO_EXEMPLO, CHAVES_RESERVADAS, caminhosFoto, montarResposta, type RespostaLer } from "./resposta";
+import {
+  CAMINHO_FOTO_EXEMPLO, CHAVES_RESERVADAS, caminhosFoto, montarResposta, type RespostaApi, type RespostaLer,
+} from "./resposta";
 
-export type Confirmacao = { status: string; confirmados: { modelo_id: string; integrado_em: string }[] };
+export type Confirmacao = {
+  status: string; confirmados: { modelo_id: string; integrado_em: string }[]; novos?: number; relidos?: number;
+};
 export type DepsRota = {
   hashChave: (chave: string) => Promise<string>;
   ler: (a: {
     hash: string; loja: string; incluir: boolean; cursor: string | null; limite: number | null; modo: "normal" | "teste"; ip: string;
   }) => Promise<RespostaLer>;
   assinarFotos: (caminhos: string[], validadeSegundos: number) => Promise<Map<string, string | null>>;
-  confirmar: (chaveId: string, acessoId: string, entrega: { produtos: { modelo_id: string; assinatura: string | null }[]; fotos_descartadas: number; fotos_ausentes: number }) => Promise<Confirmacao>;
+  confirmar: (chaveId: string, acessoId: string, entrega: Entrega) => Promise<Confirmacao>;
   limpar: (tenantId: string | null) => Promise<void>;
   depois: (p: Promise<unknown>) => void;
   tetoIp: (ip: string) => Promise<boolean>;
@@ -125,6 +129,55 @@ function validarFormato(r: RespostaLer): void {
   }
 }
 
+export type Entrega = {
+  produtos: { modelo_id: string; assinatura: string | null }[]; fotos_descartadas: number; fotos_ausentes: number;
+};
+export type DepsEntrega = {
+  assinarFotos: (caminhos: string[], validadeSegundos: number) => Promise<Map<string, string | null>>;
+  confirmar: (entrega: Entrega) => Promise<Confirmacao>;
+};
+/** Fase 1½ (fotos SÓ da própria loja + links assinados) + fase 2 (confirmar) + montagem — ÚNICA para a API (modo normal)
+ *  e o Gerar JSON (modo manual). `corpo` só existe com conf.status === "ok". Lança em formato inválido. */
+export async function entregar(
+  r: RespostaLer, deps: DepsEntrega, geradoEm: string,
+): Promise<{ conf: Confirmacao; corpo: RespostaApi | null }> {
+  validarFormato(r);
+  // Fase 1½ — fotos: só caminhos CANÔNICOS da PRÓPRIA loja (inv. #2); o resto é descartado e contado (fail closed).
+  const idxFoto = (r.chaves_colunas ?? []).indexOf("foto");
+  const validosBrutos: string[] = [];
+  const invalidosBrutos: string[] = [];
+  if (idxFoto >= 0) {
+    for (const pr of r.produtos ?? []) {
+      for (const l of pr.linhas) {
+        if (l.tipo !== "produto") continue;
+        for (const c of caminhosFoto(l.valores, idxFoto)) {
+          (daLoja(c, r.tenant_id) ? validosBrutos : invalidosBrutos).push(c);
+        }
+      }
+    }
+  }
+  // m7/N5 (fix round 2): descartadas e ausentes contam sobre o MESMO conjunto -- caminhos ÚNICOS, não ocorrência
+  // bruta. Um caminho inválido repetido (ex.: mesma foto de outra loja citada 2x) só descarta 1 vez.
+  const unicos = [...new Set(validosBrutos)];
+  const descartadas = new Set(invalidosBrutos).size;
+  const links = unicos.length > 0 ? await deps.assinarFotos(unicos, (r.validade_foto_dias ?? 7) * 86400) : new Map<string, string | null>();
+  const ausentes = unicos.filter((c) => !links.get(c)).length;
+  // Fase 2 — confirmar: marca integrado SÓ o que ainda está integrável com a MESMA assinatura.
+  const conf = await deps.confirmar({
+    produtos: (r.produtos ?? []).map((pr) => ({ modelo_id: pr.modelo_id, assinatura: pr.assinatura })),
+    fotos_descartadas: descartadas, fotos_ausentes: ausentes,
+  });
+  if (conf.status !== "ok") return { conf, corpo: null };
+  const ok = new Map(conf.confirmados.map((c) => [c.modelo_id, c.integrado_em]));
+  const corpo = montarResposta(r, {
+    geradoEm,
+    foto: (c) => c.map((x) => (daLoja(x, r.tenant_id) ? (links.get(x) ?? null) : null)),
+    incluir: (id) => ok.has(id),
+    integradoEm: (id) => ok.get(id) ?? null,
+  });
+  return { conf, corpo };
+}
+
 export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Response> {
   try {
     // CR-I1 (fix round 1): método diferente de GET vira 405 ANTES de qualquer hash/dep — a rota já bloqueia
@@ -158,32 +211,13 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
       agendarLimpeza(deps, r.tenant_id ?? null);
       return new Response(JSON.stringify(corpo), { status: 200, headers: CABECALHOS_JSON });
     }
-    // Fase 1½ — fotos: só caminhos CANÔNICOS da PRÓPRIA loja (inv. #2); o resto é descartado e contado (fail closed).
-    const idxFoto = (r.chaves_colunas ?? []).indexOf("foto");
-    const validosBrutos: string[] = [];
-    const invalidosBrutos: string[] = [];
-    if (idxFoto >= 0) {
-      for (const pr of r.produtos ?? []) {
-        for (const l of pr.linhas) {
-          if (l.tipo !== "produto") continue;
-          for (const c of caminhosFoto(l.valores, idxFoto)) {
-            (daLoja(c, r.tenant_id) ? validosBrutos : invalidosBrutos).push(c);
-          }
-        }
-      }
-    }
-    // m7/N5 (fix round 2): descartadas e ausentes contam sobre o MESMO conjunto -- caminhos ÚNICOS, não ocorrência
-    // bruta. Um caminho inválido repetido (ex.: mesma foto de outra loja citada 2x) só descarta 1 vez.
-    const unicos = [...new Set(validosBrutos)];
-    const descartadas = new Set(invalidosBrutos).size;
-    const links = unicos.length > 0 ? await deps.assinarFotos(unicos, (r.validade_foto_dias ?? 7) * 86400) : new Map<string, string | null>();
-    const ausentes = unicos.filter((c) => !links.get(c)).length;
-    // Fase 2 — confirmar: marca integrado SÓ o que ainda está integrável com a MESMA assinatura.
-    const conf = await deps.confirmar(r.chave_id ?? "", r.acesso_id ?? "", {
-      produtos: (r.produtos ?? []).map((pr) => ({ modelo_id: pr.modelo_id, assinatura: pr.assinatura })),
-      fotos_descartadas: descartadas, fotos_ausentes: ausentes,
-    });
-    if (conf.status !== "ok") {
+    // Fase 1½ (fotos) + fase 2 (confirmar) + montagem: `entregar` é a fonte ÚNICA (a API e o Gerar JSON — modo manual).
+    const { conf, corpo } = await entregar(
+      r,
+      { assinarFotos: deps.assinarFotos, confirmar: (e) => deps.confirmar(r.chave_id ?? "", r.acesso_id ?? "", e) },
+      geradoEm,
+    );
+    if (conf.status !== "ok" || !corpo) {
       // m2 (ruling): só chave_invalida/loja_inativa são erro de CLIENTE; qualquer outro status de confirmar é uma
       // inconsistência interna de protocolo (a rota monta o payload a partir do que ela mesma recebeu do banco) —
       // nunca deve virar um 400 que manda o dev conferir parâmetros que já foram validados.
@@ -193,13 +227,6 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
       }
       return respostaErro(500, "erro_interno");
     }
-    const ok = new Map(conf.confirmados.map((c) => [c.modelo_id, c.integrado_em]));
-    const corpo = montarResposta(r, {
-      geradoEm,
-      foto: (c) => c.map((x) => (daLoja(x, r.tenant_id) ? (links.get(x) ?? null) : null)),
-      incluir: (id) => ok.has(id),
-      integradoEm: (id) => ok.get(id) ?? null,
-    });
     agendarLimpeza(deps, r.tenant_id ?? null);
     return new Response(JSON.stringify(corpo), { status: 200, headers: CABECALHOS_JSON });
   } catch {
