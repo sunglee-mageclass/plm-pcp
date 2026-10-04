@@ -18,13 +18,23 @@
 --     reservados; mesma assinatura. Integrável → integrado (integrado_chave_id NULL = manual; Log 'integrado' com a PESSOA,
 --     detalhe {manual, acesso_id, novo}); integrado → reexportação (nada muda; Log 'integrado' {manual, acesso_id,
 --     reexportacao}); P-75 A conferida de novo. Nenhuma escrita em `modelos` (nenhuma GUC da S1/S2 em jogo).
---   • ACL: EXECUTE só para authenticated (REVOKE de PUBLIC/anon — inv. 9; risco residual aceito no plano §0).
+--   • public._integracao_gerar_json_teto(_tenant uuid) — NOVA, auxiliar INTERNA (sql STABLE, search_path=public, EXECUTE
+--     revogado dos 3 — inv. 9): FONTE ÚNICA do teto = least(100, `_integracao_cfg(_tenant).max_por_pagina`) (Ruling Q4). O
+--     `integracao_gerar_json_ler` e a RPC abaixo chamam ESTA função (não podem divergir).
+--   • public.integracao_gerar_json_teto() — NOVA (fix round 2 / review T2 I1): o teto da loja ATIVA para a tela de TODOS que
+--     VEEM a Integração (`_integracao_exige(false)`: super admin ou quem ELE deu `integracao` ver/editar — P-107 A; admin da loja
+--     não passa sozinho). STABLE, SECURITY DEFINER, search_path=public. Não é dado sensível. `integracao_config_ler` NÃO muda.
+--   • ACL: EXECUTE das 3 RPCs só para authenticated (REVOKE de PUBLIC/anon — inv. 9; risco residual aceito no plano §0).
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
---   public.integracao_gerar_json_ler(uuid[],uuid)          NOVA 4cb3ccc80a10701e66d0ce9fb1e585ad
---     (aceita tambem 4b96da8c8d2b529d4fbcf99e52c1dc9f = neutralizada pelo _down, e 7a76ace85f5620dbec943c34a3890e4c = texto da
---      rodada 0 da T1, que so existiu na copia local - reaplicar a ida por cima dele o substitui)
+--   public.integracao_gerar_json_ler(uuid[],uuid)          NOVA 5ba46a17792ddaba7a6e13e1cb1a101d
+--     (aceita tambem 4b96da8c8d2b529d4fbcf99e52c1dc9f = neutralizada pelo _down, e 7a76ace85f5620dbec943c34a3890e4c /
+--      4cb3ccc80a10701e66d0ce9fb1e585ad = textos das rodadas 0/1 da T1, que so existiram na copia local - reaplicar a ida por
+--      cima deles os substitui)
 --   public.integracao_gerar_json_confirmar(uuid,jsonb)     NOVA e53973ef946a10dded322143f036508d
 --     (aceita tambem 78ccc308fdfc2456b2fee148d0c61287 = neutralizada pelo _down)
+--   public.integracao_gerar_json_teto()                    NOVA 30f17a039fe5bbfba9b23752e5946adf
+--     (aceita tambem 70f3950776d0c28f0dbf7c59b2240a21 = neutralizada pelo _down)
+--   public._integracao_gerar_json_teto(uuid)               NOVA ee92e7f38ba221f774f70a1addc2ad23 (o _down nao a toca; inerte)
 --   dep (intocadas — o corpo novo espelha/chama estas):
 --     public._integracao_ler(text,boolean,text,integer,text,text)      1ac58b343e992fefe0062dac512e11eb
 --     public._integracao_confirmar(uuid,uuid,jsonb)                     ede617dcdca6fb562a63ed06c31b9914
@@ -39,10 +49,10 @@
 -- Sem DROP, sem gatilho, sem policy, sem tocar auth/storage. Idempotente (a guarda aceita antes OU depois OU a volta parcial).
 -- Banco ANTES do site: site velho + banco novo = ok (ninguém chama as RPCs novas); site novo + banco velho = o botão falha com
 -- mensagem (PGRST202) e nada é integrado (a fase 1 não roda).
--- Volta (LIFO): SITE primeiro; depois supabase/rollback/20261102100000_integracao_gerar_json_down.sql (NEUTRALIZA as 2 — CREATE
+-- Volta (LIFO): SITE primeiro; depois supabase/rollback/20261102100000_integracao_gerar_json_down.sql (NEUTRALIZA as 3 RPCs — CREATE
 -- OR REPLACE, sem trava de tabela; o CHECK ampliado fica, inerte) e, opcional/separado/horário calmo,
 -- supabase/rollback/20261102100000_integracao_gerar_json_down_drop.sql (apaga os acessos 'manual' com confirmação, volta o
--- CHECK, DROP das 2). É o 1º da LIFO: este _down roda PRIMEIRO, antes de toda a cadeia S2..S6 (20261101250000_down → …) —
+-- CHECK, DROP das 4 funções). É o 1º da LIFO: este _down roda PRIMEIRO, antes de toda a cadeia S2..S6 (20261101250000_down → …) —
 -- não há dependência técnica com ela (nenhuma S redefine as 9 dependências), é só a ordem inversa da aplicação; e ANTES dos
 -- inversos da A2 (20261030130000) e da volta de emergência da Integração (volta-producao.sh: incluir este _down/_down_drop
 -- no início; sem eles o DROP TABLE de integracao_acessos deixa as 2 RPCs órfãs, 42883 ao chamar). Produto
@@ -86,13 +96,22 @@ BEGIN
     END IF;
   END LOOP;
   v := md5(pg_get_functiondef(to_regprocedure('public.integracao_gerar_json_ler(uuid[],uuid)')));
-  -- 7a76ace8 = texto da rodada 0 da T1 (so na copia local; fix round 1 M1 trocou o texto)
-  IF v IS NOT NULL AND v NOT IN ('4cb3ccc80a10701e66d0ce9fb1e585ad', '4b96da8c8d2b529d4fbcf99e52c1dc9f', '7a76ace85f5620dbec943c34a3890e4c') THEN
+  -- 7a76ace8/4cb3ccc8 = textos das rodadas 0/1 da T1 (so na copia local; fix rounds 1 e 2 trocaram o texto)
+  IF v IS NOT NULL AND v NOT IN ('5ba46a17792ddaba7a6e13e1cb1a101d', '4b96da8c8d2b529d4fbcf99e52c1dc9f', '7a76ace85f5620dbec943c34a3890e4c',
+                                  '4cb3ccc80a10701e66d0ce9fb1e585ad') THEN
     RAISE EXCEPTION 'gerar_json: public.integracao_gerar_json_ler ja existe com outro texto (md5 %)', v USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.integracao_gerar_json_confirmar(uuid,jsonb)')));
   IF v IS NOT NULL AND v NOT IN ('e53973ef946a10dded322143f036508d', '78ccc308fdfc2456b2fee148d0c61287') THEN
     RAISE EXCEPTION 'gerar_json: public.integracao_gerar_json_confirmar ja existe com outro texto (md5 %)', v USING ERRCODE = 'P0001';
+  END IF;
+  v := md5(pg_get_functiondef(to_regprocedure('public.integracao_gerar_json_teto()')));
+  IF v IS NOT NULL AND v NOT IN ('30f17a039fe5bbfba9b23752e5946adf', '70f3950776d0c28f0dbf7c59b2240a21') THEN
+    RAISE EXCEPTION 'gerar_json: public.integracao_gerar_json_teto ja existe com outro texto (md5 %)', v USING ERRCODE = 'P0001';
+  END IF;
+  v := md5(pg_get_functiondef(to_regprocedure('public._integracao_gerar_json_teto(uuid)')));
+  IF v IS NOT NULL AND v <> 'ee92e7f38ba221f774f70a1addc2ad23' THEN
+    RAISE EXCEPTION 'gerar_json: public._integracao_gerar_json_teto ja existe com outro texto (md5 %)', v USING ERRCODE = 'P0001';
   END IF;
   SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
    WHERE c.conrelid = 'public.integracao_acessos'::regclass AND c.conname = 'integracao_acessos_modo_chk';
@@ -105,6 +124,17 @@ $guarda$;
 
 ALTER TABLE public.integracao_acessos DROP CONSTRAINT IF EXISTS integracao_acessos_modo_chk;
 ALTER TABLE public.integracao_acessos ADD CONSTRAINT integracao_acessos_modo_chk CHECK (modo IN ('normal', 'teste', 'manual'));
+
+CREATE OR REPLACE FUNCTION public._integracao_gerar_json_teto(_tenant uuid)
+ RETURNS integer
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  -- FONTE UNICA do teto do Gerar JSON (Ruling Q4): menor entre 100 e o maximo de produtos por pagina da loja (P-89 A).
+  -- Usada por integracao_gerar_json_ler (recusa acima) e por integracao_gerar_json_teto (tela) - nao podem divergir.
+  SELECT least(100, (public._integracao_cfg(_tenant)).max_por_pagina)
+$function$;
 
 CREATE OR REPLACE FUNCTION public.integracao_gerar_json_ler(_modelo_ids uuid[], _loja uuid)
  RETURNS jsonb
@@ -134,8 +164,8 @@ BEGIN
     RAISE EXCEPTION 'gerar_json_loja_mudou: loja ativa diferente' USING ERRCODE = 'P0001';
   END IF;
   v_cfg := public._integracao_cfg(v_tenant);
-  -- Ruling Q4: teto = MENOR entre 100 e o maximo de produtos por pagina da loja (P-89 A)
-  v_teto := least(100, v_cfg.max_por_pagina);
+  -- Ruling Q4: teto = MENOR entre 100 e o maximo de produtos por pagina da loja (P-89 A) - fonte unica compartilhada
+  v_teto := public._integracao_gerar_json_teto(v_tenant);
   IF _modelo_ids IS NULL OR coalesce(array_ndims(_modelo_ids), 0) <> 1 THEN
     RAISE EXCEPTION 'gerar_json_itens: envie de 1 a % produtos', v_teto USING ERRCODE = 'P0001';
   END IF;
@@ -350,6 +380,22 @@ BEGIN
 END
 $function$;
 
+CREATE OR REPLACE FUNCTION public.integracao_gerar_json_teto()
+ RETURNS integer
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  -- Teto do Gerar JSON da loja ATIVA para a tela (fix round 2 / review T2 I1). Quem VE a Integracao (_integracao_exige(false):
+  -- P-107 A). Mesma fonte do integracao_gerar_json_ler (_integracao_gerar_json_teto) - a tela nunca promete mais que o banco aceita.
+  RETURN public._integracao_gerar_json_teto(public._integracao_exige(false));
+END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public._integracao_gerar_json_teto(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.integracao_gerar_json_teto() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.integracao_gerar_json_teto() TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.integracao_gerar_json_ler(uuid[], uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.integracao_gerar_json_confirmar(uuid, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.integracao_gerar_json_ler(uuid[], uuid) TO authenticated;
@@ -362,8 +408,9 @@ DECLARE
 BEGIN
   FOR d IN
     SELECT * FROM (VALUES
-      ('public.integracao_gerar_json_ler(uuid[],uuid)', '4cb3ccc80a10701e66d0ce9fb1e585ad'),
-      ('public.integracao_gerar_json_confirmar(uuid,jsonb)', 'e53973ef946a10dded322143f036508d')) AS t(f, m)
+      ('public.integracao_gerar_json_ler(uuid[],uuid)', '5ba46a17792ddaba7a6e13e1cb1a101d'),
+      ('public.integracao_gerar_json_confirmar(uuid,jsonb)', 'e53973ef946a10dded322143f036508d'),
+      ('public.integracao_gerar_json_teto()', '30f17a039fe5bbfba9b23752e5946adf')) AS t(f, m)
   LOOP
     v := md5(pg_get_functiondef(to_regprocedure(d.f)));
     IF v IS DISTINCT FROM d.m THEN
@@ -380,6 +427,18 @@ BEGIN
       RAISE EXCEPTION 'gerar_json: ACL inesperada em % (authenticated sim; PUBLIC/anon nao - inv. 9)', d.f USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
+  -- auxiliar interna do teto: md5, sem EXECUTE para PUBLIC/anon/authenticated (inv. 9)
+  IF md5(pg_get_functiondef(to_regprocedure('public._integracao_gerar_json_teto(uuid)'))) IS DISTINCT FROM 'ee92e7f38ba221f774f70a1addc2ad23' THEN
+    RAISE EXCEPTION 'gerar_json: pos-condicao falhou em public._integracao_gerar_json_teto' USING ERRCODE = 'P0001';
+  END IF;
+  IF has_function_privilege('anon', 'public._integracao_gerar_json_teto(uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public._integracao_gerar_json_teto(uuid)', 'EXECUTE')
+     OR EXISTS (SELECT 1 FROM aclexplode((SELECT p.proacl FROM pg_proc p
+                 WHERE p.oid = to_regprocedure('public._integracao_gerar_json_teto(uuid)'))) a
+                 WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE')
+     OR (SELECT p.proacl FROM pg_proc p WHERE p.oid = to_regprocedure('public._integracao_gerar_json_teto(uuid)')) IS NULL THEN
+    RAISE EXCEPTION 'gerar_json: ACL inesperada em public._integracao_gerar_json_teto (revogado dos 3 - inv. 9)' USING ERRCODE = 'P0001';
+  END IF;
   IF (SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c
        WHERE c.conrelid = 'public.integracao_acessos'::regclass AND c.conname = 'integracao_acessos_modo_chk')
      IS DISTINCT FROM 'CHECK ((modo = ANY (ARRAY[''normal''::text, ''teste''::text, ''manual''::text])))' THEN

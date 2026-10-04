@@ -19,11 +19,16 @@ const INV = "supabase/rollback/20261102100000_integracao_gerar_json_down.sql";
 const INV_DROP = "supabase/rollback/20261102100000_integracao_gerar_json_down_drop.sql";
 const FN_LER = "public.integracao_gerar_json_ler(uuid[],uuid)";
 const FN_CONF = "public.integracao_gerar_json_confirmar(uuid,jsonb)";
+const FN_TETO = "public.integracao_gerar_json_teto()";
+const FN_TETO_AUX = "public._integracao_gerar_json_teto(uuid)";
 const MD5 = {
-  lerIda: "4cb3ccc80a10701e66d0ce9fb1e585ad",
+  lerIda: "5ba46a17792ddaba7a6e13e1cb1a101d",
   confIda: "e53973ef946a10dded322143f036508d",
   lerNeutra: "4b96da8c8d2b529d4fbcf99e52c1dc9f",
   confNeutra: "78ccc308fdfc2456b2fee148d0c61287",
+  tetoIda: "30f17a039fe5bbfba9b23752e5946adf",
+  tetoNeutra: "70f3950776d0c28f0dbf7c59b2240a21",
+  tetoAux: "ee92e7f38ba221f774f70a1addc2ad23",
 } as const;
 /** Dependências que a migration fixa (nenhuma pode mudar). */
 const DEPS: Record<string, string> = {
@@ -41,6 +46,7 @@ const CHK_ANTES = "CHECK ((modo = ANY (ARRAY['normal'::text, 'teste'::text])))";
 const CHK_DEPOIS = "CHECK ((modo = ANY (ARRAY['normal'::text, 'teste'::text, 'manual'::text])))";
 const OUTRA_LOJA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // uuid de outra loja (só como parâmetro _loja)
 const SEM_EDITAR = "42501 Sem permissão para editar a Integração.";
+const SEM_VER = "42501 Sem permissão para ver a Integração.";
 const PARAM_INVALIDO = { status: "parametro_invalido", confirmados: [] };
 // usuários de teste (criados na txn)
 const U_VER = "00000000-0000-4000-8000-00000000a501"; // integracao só VER
@@ -145,6 +151,9 @@ async function outraLojaId(c: Client): Promise<string> {
 async function cfgLoja(c: Client, set: string): Promise<void> {
   await c.query(`INSERT INTO public.integracao_config (tenant_id) VALUES ($1) ON CONFLICT (tenant_id) DO NOTHING`, [T]);
   await c.query(`UPDATE public.integracao_config SET ${set} WHERE tenant_id = $1`, [T]);
+}
+async function gerarTeto(c: Client): Promise<number> {
+  return (await um<{ t: number }>(c, `SELECT public.integracao_gerar_json_teto() AS t`)).t;
 }
 async function teto(c: Client): Promise<number> {
   return Math.min(100, (await um<{ m: number }>(c, `SELECT (public._integracao_cfg($1)).max_por_pagina AS m`, [T])).m);
@@ -574,7 +583,17 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       await prepara(c);
       expect(await md5Vivo(c, FN_LER)).toBe(MD5.lerIda);
       expect(await md5Vivo(c, FN_CONF)).toBe(MD5.confIda);
-      for (const fn of [FN_LER, FN_CONF]) {
+      expect(await md5Vivo(c, FN_TETO)).toBe(MD5.tetoIda);
+      expect(await md5Vivo(c, FN_TETO_AUX)).toBe(MD5.tetoAux);
+      const aux = await um<{ a: boolean; u: boolean; pub: boolean; v: string }>(c, `
+        SELECT has_function_privilege('anon', $1, 'EXECUTE') AS a, has_function_privilege('authenticated', $1, 'EXECUTE') AS u,
+               EXISTS (SELECT 1 FROM aclexplode((SELECT p.proacl FROM pg_proc p WHERE p.oid = to_regprocedure($1))) x
+                        WHERE x.grantee = 0 AND x.privilege_type = 'EXECUTE') AS pub,
+               (SELECT p.provolatile::text FROM pg_proc p WHERE p.oid = to_regprocedure($1)) AS v`, [FN_TETO_AUX]);
+      expect(aux).toEqual({ a: false, u: false, pub: false, v: "s" }); // auxiliar interna: revogada dos 3 (inv. 9), STABLE
+      expect((await um<{ v: string }>(c, `SELECT p.provolatile::text AS v FROM pg_proc p WHERE p.oid = to_regprocedure($1)`, [FN_TETO])).v)
+        .toBe("s");
+      for (const fn of [FN_LER, FN_CONF, FN_TETO]) {
         const acl = await um<{ anon: boolean; auth: boolean; pub: boolean; definer: boolean; sp: string[] }>(c, `
           SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon, has_function_privilege('authenticated', $1, 'EXECUTE') AS auth,
                  EXISTS (SELECT 1 FROM aclexplode((SELECT p.proacl FROM pg_proc p WHERE p.oid = to_regprocedure($1))) a
@@ -593,6 +612,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       await aplica(c, MIG); // idempotente
       expect(await md5Vivo(c, FN_LER)).toBe(MD5.lerIda);
       expect(await md5Vivo(c, FN_CONF)).toBe(MD5.confIda);
+      expect(await md5Vivo(c, FN_TETO)).toBe(MD5.tetoIda);
       // guarda: texto estranho na função nova
       await c.query(`CREATE OR REPLACE FUNCTION public.integracao_gerar_json_ler(_modelo_ids uuid[], _loja uuid) RETURNS jsonb
                        LANGUAGE sql AS $$ SELECT '{}'::jsonb $$`);
@@ -626,6 +646,49 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
     });
   });
 
+  it("16. teto (fix round 2): integracao_gerar_json_teto() = least(100, máx. por página) da loja ativa, para quem VÊ a Integração; = o teto que o ler aplica", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      // super admin (U)
+      for (const [max, esperado] of [[50, 50], [500, 100], [100, 100], [3, 3], [1, 1]] as const) {
+        await cfgLoja(c, `max_por_pagina = ${max}`);
+        expect(await gerarTeto(c), `max=${max}`).toBe(esperado);
+        expect(await teto(c)).toBe(esperado);
+      }
+      // = o teto que o ler aplica: teto+1 recusa com o MESMO número; teto ids passam no corte de itens (caem na checagem de loja)
+      await cfgLoja(c, "max_por_pagina = 3");
+      const t = await gerarTeto(c);
+      expect(t).toBe(3);
+      const ids = (n: number) => Array.from({ length: n }, () => randomUUID());
+      expect(await falha(c, () => gerarLer(c, ids(t + 1)))).toBe(`P0001 gerar_json_itens: envie de 1 a ${t} produtos`);
+      expect(await falha(c, () => gerarLer(c, ids(t)))).toBe("P0001 gerar_json_loja: produto nao encontrado nesta loja");
+      const m = await modeloInterno(c);
+      await marcar(c, m.id);
+      expect((await gerarLer(c, [m.id])).pagina).toEqual({ limite: 1, maximo: t });
+      // usuário NÃO super com Integração só VER e com editar: recebem o mesmo teto
+      await comoUsuarioCom(c, U_VER, [["integracao", true, false]]);
+      expect(await gerarTeto(c)).toBe(3);
+      await comoUsuarioCom(c, U_Y, [["integracao", true, true]]);
+      expect(await gerarTeto(c)).toBe(3);
+      // sem permissão: tenant_admin sem a permissão própria (P-107 A) = 42501; anon sem EXECUTE
+      await comoUsuarioCom(c, U_TA, [], { tenantAdmin: true });
+      expect(await falha(c, () => gerarTeto(c))).toBe(SEM_VER);
+      await comoUsuario(c, U);
+      expect(await falha(c, async () => {
+        await c.query("SET LOCAL ROLE anon");
+        await gerarTeto(c);
+      })).toMatch(/^42501 permission denied for function integracao_gerar_json_teto/);
+      // a auxiliar interna não é chamável pelo cliente
+      expect(await falha(c, async () => {
+        await c.query("SET LOCAL ROLE authenticated");
+        await um(c, `SELECT public._integracao_gerar_json_teto($1::uuid)`, [T]);
+      })).toMatch(/^42501 permission denied for function _integracao_gerar_json_teto/);
+      // loja sem linha em integracao_config: padrão de _integracao_cfg (50) -> 50
+      await c.query(`DELETE FROM public.integracao_config WHERE tenant_id = $1`, [T]);
+      expect(await gerarTeto(c)).toBe(50);
+    });
+  });
+
   it("14. volta: _down neutraliza (permissão antes, depois gerar_json_desligado) e a ida reaplica por cima; _down_drop exige o _down e a confirmação, apaga os acessos manuais, volta o CHECK e derruba as 2", async () => {
     await withTx(async (c) => {
       await prepara(c);
@@ -638,10 +701,16 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       expect(await md5Vivo(c, FN_CONF)).toBe(MD5.confNeutra);
       expect(await falha(c, () => gerarLer(c, [m.id]))).toBe("P0001 gerar_json_desligado: recurso desligado");
       expect(await falha(c, () => gerarConf(c, r.acesso_id, entregaDe(r)))).toBe("P0001 gerar_json_desligado: recurso desligado");
+      expect(await md5Vivo(c, FN_TETO)).toBe(MD5.tetoNeutra);
+      expect(await md5Vivo(c, FN_TETO_AUX)).toBe(MD5.tetoAux); // auxiliar fica (inerte)
+      expect(await falha(c, () => gerarTeto(c))).toBe("P0001 gerar_json_desligado: recurso desligado");
       await comoUsuarioCom(c, U_VER, [["integracao", true, false]]);
       expect(await falha(c, () => gerarLer(c, [m.id]))).toBe(SEM_EDITAR);
+      expect(await falha(c, () => gerarTeto(c))).toBe("P0001 gerar_json_desligado: recurso desligado"); // quem VÊ passa no 42501
+      await comoUsuarioCom(c, U_TA, [], { tenantAdmin: true });
+      expect(await falha(c, () => gerarTeto(c))).toBe(SEM_VER); // permissão antes do desligado
       await comoUsuario(c, U);
-      for (const fn of [FN_LER, FN_CONF]) {
+      for (const fn of [FN_LER, FN_CONF, FN_TETO]) {
         const acl = await um<{ anon: boolean; auth: boolean }>(c,
           `SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon, has_function_privilege('authenticated', $1, 'EXECUTE') AS auth`, [fn]);
         expect(acl).toEqual({ anon: false, auth: true });
@@ -661,6 +730,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       await aplica(c, INV_DROP);
       expect(await md5Vivo(c, FN_LER)).toBeNull();
       expect(await md5Vivo(c, FN_CONF)).toBeNull();
+      expect(await md5Vivo(c, FN_TETO)).toBeNull();
+      expect(await md5Vivo(c, FN_TETO_AUX)).toBeNull();
       expect(await nManuais(c)).toBe(0);
       expect((await um<{ d: string }>(c, `SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'integracao_acessos_modo_chk'`)).d)
         .toBe(CHK_ANTES);

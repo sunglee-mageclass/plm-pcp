@@ -1,7 +1,7 @@
 -- INVERSO (passo 2 de 2, SEPARADO e OPCIONAL) de supabase/migrations/20261102100000_integracao_gerar_json.sql ("Gerar JSON"):
--- DROP das 2 RPCs (integracao_gerar_json_ler / integracao_gerar_json_confirmar) e CHECK integracao_acessos_modo_chk de volta
+-- DROP das 3 RPCs (integracao_gerar_json_ler / _confirmar / _teto) + a auxiliar interna _integracao_gerar_json_teto(uuid) e CHECK integracao_acessos_modo_chk de volta
 -- ao de antes ('normal','teste'). Rodar SÓ depois do site velho no ar e do passo 1
--- (supabase/rollback/20261102100000_integracao_gerar_json_down.sql — exige as 2 funções NEUTRALIZADAS, md5
+-- (supabase/rollback/20261102100000_integracao_gerar_json_down.sql — exige as 3 RPCs NEUTRALIZADAS (teto: 70f3950776d0c28f0dbf7c59b2240a21), md5
 -- 4b96da8c8d2b529d4fbcf99e52c1dc9f / 78ccc308fdfc2456b2fee148d0c61287). O CHECK antigo não aceita o modo novo: os acessos 'manual' (registro de cada
 -- geração do Gerar JSON) SÃO APAGADOS — com algum, exige SET app.confirmo_apagar_acessos_manuais = 'sim'.
 -- NÃO mexe em integracao_log (as linhas 'integrado' das gerações manuais ficam: a ação segue válida e é a prova) nem em
@@ -34,6 +34,10 @@ BEGIN
   IF v IS NOT NULL AND v <> '78ccc308fdfc2456b2fee148d0c61287' THEN
     RAISE EXCEPTION 'gerar_json_drop: rode o _down antes (integracao_gerar_json_confirmar md5 %)', v USING ERRCODE = 'P0001';
   END IF;
+  v := md5(pg_get_functiondef(to_regprocedure('public.integracao_gerar_json_teto()')));
+  IF v IS NOT NULL AND v <> '70f3950776d0c28f0dbf7c59b2240a21' THEN
+    RAISE EXCEPTION 'gerar_json_drop: rode o _down antes (integracao_gerar_json_teto md5 %)', v USING ERRCODE = 'P0001';
+  END IF;
   SELECT count(*) INTO v_n FROM public.integracao_acessos WHERE modo = 'manual';
   IF v_n > 0 AND coalesce(current_setting('app.confirmo_apagar_acessos_manuais', true), '') <> 'sim' THEN
     RAISE EXCEPTION 'gerar_json_drop: % acesso(s) manual(is) no Log de acessos; o CHECK antigo exige apaga-los - confirme com SET app.confirmo_apagar_acessos_manuais = ''sim''', v_n
@@ -45,6 +49,8 @@ $guarda$;
 DELETE FROM public.integracao_acessos WHERE modo = 'manual';
 DROP FUNCTION IF EXISTS public.integracao_gerar_json_ler(uuid[], uuid);
 DROP FUNCTION IF EXISTS public.integracao_gerar_json_confirmar(uuid, jsonb);
+DROP FUNCTION IF EXISTS public.integracao_gerar_json_teto();
+DROP FUNCTION IF EXISTS public._integracao_gerar_json_teto(uuid);
 ALTER TABLE public.integracao_acessos DROP CONSTRAINT IF EXISTS integracao_acessos_modo_chk;
 ALTER TABLE public.integracao_acessos ADD CONSTRAINT integracao_acessos_modo_chk CHECK (modo IN ('normal', 'teste'));
 
@@ -52,6 +58,8 @@ DO $pos$
 BEGIN
   IF to_regprocedure('public.integracao_gerar_json_ler(uuid[],uuid)') IS NOT NULL
      OR to_regprocedure('public.integracao_gerar_json_confirmar(uuid,jsonb)') IS NOT NULL
+     OR to_regprocedure('public.integracao_gerar_json_teto()') IS NOT NULL
+     OR to_regprocedure('public._integracao_gerar_json_teto(uuid)') IS NOT NULL
      OR (SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c
           WHERE c.conrelid = 'public.integracao_acessos'::regclass AND c.conname = 'integracao_acessos_modo_chk')
         IS DISTINCT FROM 'CHECK ((modo = ANY (ARRAY[''normal''::text, ''teste''::text])))' THEN
