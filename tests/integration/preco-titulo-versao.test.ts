@@ -264,6 +264,19 @@ describe.skipIf(!PRONTO)("preço/título por versão — (c) congelar ao excluir
         await prepara(c);
         await comoUsuario(c, U);
         const ids = await montaFamilia(c, caso.familia);
+        // Modularidade T2 (P-255 A): coleção com cards NÃO é mais excluída (otb_excluir_colecao nunca apaga card) — com a T2
+        // viva o caminho "otb" não congela nada: confere a recusa e a família intacta.
+        if (caso.via === "otb" && (await (await import("./mod-helpers")).modViva(c, 2))) {
+          await c.query("SAVEPOINT t2_otb");
+          await expect(c.query("SELECT public.otb_excluir_colecao($1)", [ids["colecao:X"]])).rejects.toThrow(
+            /^colecao_com_cards: \d+$/,
+          );
+          await c.query("ROLLBACK TO SAVEPOINT t2_otb");
+          const vivos = caso.familia.map((l) => ids[l.k]);
+          const { rows } = await c.query("SELECT id FROM public.modelos WHERE id = ANY($1::uuid[])", [vivos]);
+          expect(rows.length, "família intacta").toBe(vivos.length);
+          return;
+        }
         for (const grupo of caso.excluir) {
           const alvos = grupo.map((k) => ids[k]);
           if (caso.via === "sql") {

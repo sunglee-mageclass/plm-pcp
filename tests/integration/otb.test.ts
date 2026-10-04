@@ -203,13 +203,23 @@ describe.skipIf(!hasDb)("OTB — otb_salvar_colecao (persistência atômica)", (
 });
 
 describe.skipIf(!hasDb)("OTB — otb_excluir_colecao", () => {
-  it("exclui a coleção + modelos em planejamento/reprovado", async () => {
+  it("exclui a coleção + modelos em planejamento/reprovado (com a Modularidade T2: recusa, nada apagado)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
       const a = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-DEL-A','confirmada') returning id`, []);
       await c.query(`insert into colecao_semanas (colecao_id, semana, qtd_planejada) values ($1,'1',0)`, [a.id]);
       await c.query(`insert into modelos (colecao_id, nome, status_planejamento, versao) values ($1,'M1','em_planejamento',1),($1,'M2','reprovado',1)`, [a.id]);
+      // Modularidade T2 (P-255 A): coleção com QUALQUER card é recusada (P0001 colecao_com_cards: N) e nada é apagado.
+      const { modViva } = await import("./mod-helpers");
+      if (await modViva(c, 2)) {
+        await c.query(`savepoint t2`);
+        await expect(c.query(`select public.otb_excluir_colecao($1)`, [a.id])).rejects.toThrow(/^colecao_com_cards: 2$/);
+        await c.query(`rollback to savepoint t2`);
+        expect((await um<{ n: string }>(c, `select count(*)::text n from colecoes where id=$1`, [a.id])).n).toBe("1");
+        expect((await um<{ n: string }>(c, `select count(*)::text n from modelos where colecao_id=$1`, [a.id])).n).toBe("2");
+        return;
+      }
       await c.query(`select public.otb_excluir_colecao($1)`, [a.id]);
       const col = await um<{ n: string }>(c, `select count(*)::text n from colecoes where id=$1`, [a.id]);
       expect(col.n).toBe("0");

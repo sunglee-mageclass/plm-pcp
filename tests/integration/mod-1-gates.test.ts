@@ -26,6 +26,7 @@ const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979";
 const SUPER = USER_TESTE;
 const U_COMUM = "0d0e1000-0000-4000-8000-0000000000c1";
 const U_COMUM_AVE = "0d0e1000-0000-4000-8000-0000000000c2";
+const U_SEM_PAGINA = "0d0e1000-0000-4000-8000-0000000000c3";
 const RAND = "00000000-0d0e-4000-8000-00000000dead";
 const R = `'${RAND}'::uuid`;
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -125,8 +126,13 @@ async function jwt(c: Client, uid: string | null): Promise<void> {
     uid ? JSON.stringify({ sub: uid, role: "authenticated" }) : "",
   ]);
 }
-/** Usuário COMUM (role user) da loja `t` com TODAS as páginas ver+editar (como postgres, sem JWT). */
-async function usuarioComum(c: Client, uid: string, t: string): Promise<void> {
+/** Usuário COMUM (role user) da loja `t` com as páginas `paginas` ver+editar (padrão: TODAS; como postgres, sem JWT). */
+async function usuarioComum(
+  c: Client,
+  uid: string,
+  t: string,
+  paginas: string[] = PAGINAS,
+): Promise<void> {
   await semJwt(c, async () => {
     await c.query(
       `INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
@@ -141,7 +147,7 @@ async function usuarioComum(c: Client, uid: string, t: string): Promise<void> {
     await c.query(
       `INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
        SELECT $1, $2, p, true, true FROM unnest($3::text[]) p`,
-      [uid, t, PAGINAS],
+      [uid, t, paginas],
     );
   });
 }
@@ -227,6 +233,34 @@ describe.skipIf(!RODA)(
           const r1 = txt(await como(c, "authenticated", CHAMADA[sig]));
           if (/modulo_desligado|sem_permissao_pagina|permission denied for function/.test(r1))
             falhas.push(`${sig} on: ${r1}`);
+        }
+        expect(falhas).toEqual([]);
+      });
+    });
+
+    // Ressalva M6 da G-migration T1 (feita na T2): usuário SEM a página + módulo desligado → modulo_desligado (o portão de
+    // MÓDULO vem ANTES do de PÁGINA); com o módulo ligado o mesmo usuário cai no portão de página (prova que ele existe ali).
+    it("sem a página + módulo desligado → modulo_desligado (portão de módulo antes do de página); ligado → recusa de página", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        await usuarioComum(c, U_SEM_PAGINA, T, []);
+        const falhas: string[] = [];
+        for (const [sig, { grupo, modulos: mods }] of Object.entries(MOD1_MODULOS)) {
+          await jwt(c, null);
+          await modulos(c, T, {
+            ...todos(true),
+            ...Object.fromEntries(mods.map((m) => [m, false])),
+          });
+          await jwt(c, U_SEM_PAGINA);
+          const r0 = txt(await como(c, "authenticated", CHAMADA[sig]));
+          if (r0 !== NEG(mods)) falhas.push(`${sig} off: ${r0}`);
+          await jwt(c, null);
+          await modulos(c, T, todos(true));
+          await jwt(c, U_SEM_PAGINA);
+          const r1 = txt(await como(c, "authenticated", CHAMADA[sig]));
+          // P4 (Dashboards): user_can_view logo depois do portão; P5/P7/P9: _seg_exige_pagina logo depois do portão.
+          const pagina = grupo === "P4" ? /^42501 Sem permiss/ : /^42501 sem_permissao_pagina: /;
+          if (!pagina.test(r1)) falhas.push(`${sig} on (sem página): ${r1}`);
         }
         expect(falhas).toEqual([]);
       });

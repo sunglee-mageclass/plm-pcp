@@ -45,11 +45,15 @@ export async function voltaS3d(c: Client, comDrop = false): Promise<void> {
   await zeraTimeouts(c);
 }
 
-/** A S3d está viva NESTA txn? Pelo wrapper-sentinela lancar_modelo. */
+/**
+ * A S3d está viva NESTA txn? Pelo wrapper-sentinela lancar_modelo — o texto da S3d OU o de um sucessor da frente Modularidade
+ * (a T2 redefine lancar_modelo POR CIMA da S3d; voltaS3d tira a frente antes, via voltaS5SePreciso → voltaS6SePreciso).
+ */
 export async function s3dViva(c: Client): Promise<boolean> {
   const sig = "public.lancar_modelo(uuid,date,boolean)";
   const r = await c.query("SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [sig]);
-  return r.rows[0]?.m === S3D_MD5[sig].depois;
+  const { md5ModSucessor } = await import("./mod-helpers");
+  return md5ModSucessor(sig, S3D_MD5[sig].depois).includes(r.rows[0]?.m);
 }
 
 /** LIFO: quem volta/reaplica a S3a, a S1 (ou algo mais antigo que guarde as mesmas funções) dentro da txn tira a S3d antes. */
