@@ -59,6 +59,7 @@ function useValorAtrasado(valor: string, ms: number): string {
 export const LIMITE_PRODUTOS = 500;
 export const chaveLista = (tenantId: string) => ["integracao-lista", tenantId] as const;
 export const chaveConfig = (tenantId: string) => ["integracao-config", tenantId] as const;
+export const chaveTetoGerarJson = (tenantId: string) => ["integracao-gerar-json-teto", tenantId] as const;
 export const chaveEstado = (tenantId: string) => ["integracao-estado", tenantId] as const;
 export const chaveLog = (tenantId: string) => ["integracao-log", tenantId] as const;
 
@@ -312,6 +313,22 @@ export function useVersoesIntegradas(ids: readonly string[]): {
   };
 }
 
+/** Teto de produtos por arquivo do Gerar JSON = `least(100, máx. por página da loja)` (RPC `integracao_gerar_json_teto`, dado não
+ *  sensível: vale para TODOS que veem a Integração — a config da API só vem para o super admin). Key com a loja. */
+export function useTetoGerarJson() {
+  const tenantId = useActiveTenantId();
+  return useQuery({
+    queryKey: chaveTetoGerarJson(tenantId),
+    enabled: !!tenantId,
+    staleTime: 30_000,
+    queryFn: async (): Promise<number> => {
+      const { data, error } = await supabase.rpc("integracao_gerar_json_teto" as any);
+      if (error) throw error;
+      return Number(data);
+    },
+  });
+}
+
 export type ConfigIntegracao = {
   campos: string[]; layout: string[]; rev: number;
   /** Release I3: keys marcadas numa loja nova / keys não obrigatórias (banco; fallback = catálogo TS). */
@@ -494,7 +511,7 @@ export const depsSupabase: DepsSalvar = {
  *  modeloIdsAll]`, casadas por prefixo do 1º elemento) e `pa-produto-modelo` (o bloco de revenda do Sheet do
  *  Planejamento, key `["pa-produto-modelo", modeloId]` — POR id, não em bulk; entra no loop de `ids` abaixo). */
 export function invalidarIntegracao(qc: QueryClient, tenantId: string, ids: string[] = []): void {
-  for (const k of [chaveLista(tenantId), chaveEstado(tenantId), chaveLog(tenantId), chaveVersoesIntegradas(tenantId)]) {
+  for (const k of [chaveLista(tenantId), chaveEstado(tenantId), chaveLog(tenantId), chaveVersoesIntegradas(tenantId), chaveTetoGerarJson(tenantId)]) {
     void qc.invalidateQueries({ queryKey: k });
   }
   // P-146/P-155 B: o Salvar pode ter repreçado/renomeado uma versão que outra herda.

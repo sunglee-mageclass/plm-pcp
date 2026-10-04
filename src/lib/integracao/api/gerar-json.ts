@@ -43,6 +43,9 @@ export async function gerarJson(e: EntradaGerarJson, deps: DepsGerarJson): Promi
     const r = await deps.ler(e);
     // falha FECHADA: só o status ok do MODO manual segue (um drift de contrato nunca confirma por engano)
     if (!r || r.status !== "ok" || r.modo !== "manual") return { ok: false, erro: { ...FALHOU } };
+    // cinto extra (o banco já garante `_loja` = loja ativa e devolve `tenant_id = v_tenant`): o service role assina fotos pelo
+    // prefixo de `r.tenant_id`, então a fronteira fica fechada mesmo se o contrato mudar um dia
+    if (r.tenant_id !== e.loja) return { ok: false, erro: { ...FALHOU } };
     const lidos = r.produtos ?? [];
     const foraBanco = Array.isArray(r.fora) ? r.fora : [];
     if (lidos.length === 0) return { ok: true, vazio: true, fora: foraBanco };
@@ -54,6 +57,8 @@ export async function gerarJson(e: EntradaGerarJson, deps: DepsGerarJson): Promi
     );
     // `parametro_invalido` (reserva inexistente/velha/de outro usuário) chega com HTTP 200 — é falha, nada foi entregue
     if (conf.status !== "ok" || !corpo) return { ok: false, erro: { code: "P0001", message: "gerar_json_falhou: confirmacao" } };
+    // corrida "todos mudaram" (voltaram/foram desfeitos entre a leitura e a confirmação): nada foi integrado nem há o que
+    // baixar — cai no "nenhum produto entrou" da tela, nunca num arquivo vazio com o texto "já constam como Integrado"
     const confirmados = new Set(conf.confirmados.map((c) => c.modelo_id));
     const chaves = r.chaves_colunas ?? [];
     const iNome = chaves.indexOf("nome");
@@ -70,6 +75,7 @@ export async function gerarJson(e: EntradaGerarJson, deps: DepsGerarJson): Promi
           motivo: "mudou" as const,
         };
       });
+    if (confirmados.size === 0) return { ok: true, vazio: true, fora: [...foraBanco, ...mudou] };
     return {
       ok: true, vazio: false, json: corpo, novos: conf.novos ?? 0, relidos: conf.relidos ?? 0,
       fora: [...foraBanco, ...mudou], validadeFotoDias: r.validade_foto_dias ?? 7,

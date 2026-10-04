@@ -36,7 +36,7 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_MAO_DUPLA } from "@/lib/integracao/campos";
-import { classificarGerarJson, motivoGerarJson, tetoGerarJson } from "@/lib/integracao/gerar-json";
+import { classificarGerarJson, motivoGerarJson, tetoDaTela } from "@/lib/integracao/gerar-json";
 import {
   FILTROS_VAZIOS, OPCOES_ESTADO_NIVEL, ROTULO_ESTADO_NIVEL, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar,
   motivoVoltar, produtoPassaFiltroEstado, produtoPassaFiltroVersao, totalPaginas, textoFiltroVersao,
@@ -45,7 +45,7 @@ import {
 import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
 import { useAbaSuja } from "./guard";
 import {
-  LIMITE_PRODUTOS, chaveLista, useIntegracaoAoVivo, useIntegracaoConfig, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao,
+  LIMITE_PRODUTOS, chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao, useTetoGerarJson,
   useVersaoAnteriorIntegracao, useVersoesIntegradas,
 } from "./useIntegracao";
 import { ProdutosTabela } from "./ProdutosTabela";
@@ -548,10 +548,11 @@ export function ProdutosAba() {
     () => acoesEmMassa(selecionadosLista, { ...ctxIntegrar, rascunhos: idsSujos }),
     [selecionadosLista, ctxIntegrar, idsSujos],
   );
-  // Gerar JSON: pré-classificação LOCAL (o banco decide com autoridade) + teto por arquivo = o do banco, min(teto absoluto,
-  // máx. por página da loja) — a config da API só vem para o super admin; sem ela vale o absoluto e o banco recusa com o número certo.
-  const cfgApi = useIntegracaoConfig();
-  const tetoJson = tetoGerarJson(cfgApi.data?.api?.max_por_pagina);
+  // Gerar JSON: pré-classificação LOCAL (o banco decide com autoridade) + teto por arquivo = o do banco (RPC
+  // `integracao_gerar_json_teto`, para todos que veem a Integração). Carregando: botão desabilitado; erro: teto absoluto
+  // (a recusa traduzida do servidor é a rede de segurança).
+  const tetoQ = useTetoGerarJson();
+  const tetoJson = tetoDaTela(tetoQ.data, tetoQ.isError);
   const classeJson = useMemo(() => classificarGerarJson(selecionadosLista, { podeVerCustos }), [selecionadosLista, podeVerCustos]);
   const motivoJson = motivoGerarJson(selecionadosLista, classeJson, podeEditar, tetoJson);
   // "seleção e memo" (achado carregado da revisão da Task 12b, corrigido de verdade na T13 fix round 1 — ver o

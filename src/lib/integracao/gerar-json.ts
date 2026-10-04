@@ -25,17 +25,32 @@ export function classificarGerarJson(sel: ProdutoLista[], ctx: { podeVerCustos: 
   return c;
 }
 
-/** Teto por arquivo = o do banco: MENOR entre o teto absoluto e o "máximo por página" da loja (só o super admin lê a config
- *  da API; sem ela, vale o absoluto e o banco recusa com o número certo se a loja tiver menos). */
-export function tetoGerarJson(maxPorPagina: number | null | undefined): number {
-  const m = typeof maxPorPagina === "number" && Number.isFinite(maxPorPagina) && maxPorPagina >= 1 ? Math.floor(maxPorPagina) : MAX_GERAR_JSON;
+/** Teto por arquivo = o do banco (RPC `integracao_gerar_json_teto`, para TODOS que veem a Integração): MENOR entre o teto
+ *  absoluto e o "máximo por página" da loja. Valor inválido cai no absoluto (o banco recusa com o número certo). */
+export function tetoGerarJson(valor: number | null | undefined): number {
+  const m = typeof valor === "number" && Number.isFinite(valor) && valor >= 1 ? Math.floor(valor) : MAX_GERAR_JSON;
   return Math.min(MAX_GERAR_JSON, m);
+}
+/** O teto que a TELA usa: `null` enquanto carrega (botão desabilitado — nunca deixa passar pela confirmação séria um lote que o
+ *  banco vai recusar); erro na consulta cai no absoluto (a recusa do servidor, traduzida, é a rede de segurança). */
+export function tetoDaTela(valor: number | null | undefined, erro: boolean): number | null {
+  if (valor !== null && valor !== undefined) return tetoGerarJson(valor);
+  return erro ? MAX_GERAR_JSON : null;
+}
+/** `fora` do servidor sem nome/REF (layout da loja sem esses campos) → completa pelos produtos carregados na tela (por modelo_id). */
+export function completarFora(fora: ForaGerarJson[], produtos: ProdutoLista[]): ForaGerarJson[] {
+  const porId = new Map(produtos.map((p) => [p.modeloId, p]));
+  return fora.map((f) => {
+    const p = porId.get(f.modelo_id);
+    return p ? { ...f, nome: f.nome ?? p.raw.nome, ref: f.ref ?? p.raw.ref } : f;
+  });
 }
 
 /** Por que o botão está desabilitado (null = habilitado). */
-export function motivoGerarJson(sel: ProdutoLista[], c: ClasseGerarJson, podeEditar: boolean, teto: number = MAX_GERAR_JSON): string | null {
+export function motivoGerarJson(sel: ProdutoLista[], c: ClasseGerarJson, podeEditar: boolean, teto: number | null = MAX_GERAR_JSON): string | null {
   if (sel.length === 0) return "Selecione produtos.";
   if (!podeEditar) return "Precisa da permissão de editar a Integração.";
+  if (teto === null) return "Carregando o limite por arquivo…";
   if (sel.length > teto) return `Máximo de ${teto} produtos por arquivo.`;
   if (c.novos.length + c.reexportar.length === 0) return "Nenhum selecionado está Integrável ou Integrado.";
   return null;

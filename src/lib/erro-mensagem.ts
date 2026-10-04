@@ -82,6 +82,7 @@ function mensagemGerarJson(code: string, msg: string): string | null {
   }
   if (msg.startsWith("gerar_json_loja:")) return "Algum produto selecionado não é desta loja. Recarregue a página.";
   if (msg.startsWith("gerar_json_limite:")) return "Muitas gerações em pouco tempo. Espere um minuto e tente de novo.";
+  // estado de VOLTA: o `_down` da migration neutraliza as RPCs e elas passam a levantar este P0001 (recurso desligado)
   if (msg.startsWith("gerar_json_desligado:")) return "O Gerar JSON está desligado no momento.";
   return null;
 }

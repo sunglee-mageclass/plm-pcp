@@ -21,7 +21,7 @@ import { TEXTO_ALERTA_INTEGRAR } from "@/lib/integracao/campos";
 import { gerarJsonIntegracao } from "@/lib/integracao/gerar-json.functions";
 import {
   MOTIVO_FORA_GERAR_JSON, TEXTO_GERAR_JSON_EXPLICA, TEXTO_GERAR_JSON_FECHAR_SEM_SALVAR, TEXTO_GERAR_JSON_FOTOS,
-  TEXTO_GERAR_JSON_REEXPORTA, classificarGerarJson, nomeArquivoJson,
+  TEXTO_GERAR_JSON_REEXPORTA, classificarGerarJson, completarFora, nomeArquivoJson,
 } from "@/lib/integracao/gerar-json";
 import type { ProdutoLista } from "@/lib/integracao/produtos";
 import { confirmarLojaAtiva, invalidarIntegracao } from "./useIntegracao";
@@ -58,6 +58,11 @@ export function GerarJsonDialog({ produtos, podeVerCustos, onFechar, onFeito }: 
   const classe = useMemo(() => classificarGerarJson(produtos, { podeVerCustos }), [produtos, podeVerCustos]);
   const elegiveis = classe.novos.length + classe.reexportar.length;
 
+  // a geração grava um acesso `manual` (aparece em API › Acessos recentes) além de mexer na lista/estado
+  const invalidar = (ids: string[]) => {
+    invalidarIntegracao(qc, tenantId, ids);
+    void qc.invalidateQueries({ queryKey: ["integracao-acessos", tenantId] });
+  };
   const gerar = useMutation({
     mutationFn: async (ids: string[]) => {
       // a MESMA defesa dos outros pontos de escrita da Integração: relê a loja ativa DIRETO do servidor (o banco ainda
@@ -69,24 +74,26 @@ export function GerarJsonDialog({ produtos, podeVerCustos, onFechar, onFeito }: 
       return { res, loja };
     },
     onSuccess: ({ res, loja }, ids) => {
+      // nome/REF que o layout da loja não trouxe: completa pelos produtos carregados (agora, antes de a relista mudar a lista)
+      const fora = completarFora(res.fora, produtos);
       if (res.vazio) {
-        invalidarIntegracao(qc, tenantId, ids);
-        const motivos = res.fora.map((f) => `${f.nome ?? "Produto"}${f.ref ? ` (${f.ref})` : ""} — ${MOTIVO_FORA_GERAR_JSON[f.motivo]}`);
+        invalidar(ids);
+        const motivos = fora.map((f) => `${f.nome ?? "Produto"}${f.ref ? ` (${f.ref})` : ""} — ${MOTIVO_FORA_GERAR_JSON[f.motivo]}`);
         toast.info("Nenhum produto entrou no arquivo.", { description: motivos.join(" · ") });
         onFechar();
         return;
       }
       setIdsEnviados(ids);
       setResultado({
-        texto: res.texto, novos: res.novos, relidos: res.relidos, fora: res.fora,
+        texto: res.texto, novos: res.novos, relidos: res.relidos, fora,
         validadeFotoDias: res.validadeFotoDias, nomeArquivo: nomeArquivoJson(loja.nome, new Date(res.geradoEm), tz),
       });
       // os produtos já constam como Integrado no banco: relê a lista (o resultado fica no estado, não depende dela)
-      invalidarIntegracao(qc, tenantId, ids);
+      invalidar(ids);
     },
     onError: (e, ids) => {
       toast.error(mensagemErro(e, "Não foi possível gerar o JSON."));
-      invalidarIntegracao(qc, tenantId, ids);
+      invalidar(ids);
     },
   });
 
@@ -104,7 +111,8 @@ export function GerarJsonDialog({ produtos, podeVerCustos, onFechar, onFeito }: 
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    // revogar no MESMO tick pode abortar o download em alguns navegadores (Safari): adia
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     setSalvo(true);
   };
   const copiar = async () => {
@@ -114,8 +122,9 @@ export function GerarJsonDialog({ produtos, podeVerCustos, onFechar, onFeito }: 
       toast.success("JSON copiado.");
       setSalvo(true);
     } catch {
-      // sem `navigator.clipboard` (contexto não seguro/permissão negada): seleciona o texto e tenta `execCommand`
-      // (ainda síncrono, dentro do clique); se ISSO também falhar, orienta a copiar à mão.
+      // `navigator.clipboard` falhou (contexto não seguro/permissão negada): seleciona o texto e tenta `execCommand("copy")`
+      // (roda depois de um await, mas a ativação do clique costuma seguir válida); se ISSO também falhar, o texto fica
+      // selecionado e o aviso orienta a copiar à mão.
       const el = preRef.current;
       let copiou = false;
       if (el) {

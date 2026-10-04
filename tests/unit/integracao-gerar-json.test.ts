@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { MAX_GERAR_JSON, gerarJson, resultadoParaRede, type DepsGerarJson } from "@/lib/integracao/api/gerar-json";
 import type { RespostaLer } from "@/lib/integracao/api/resposta";
 import {
-  MOTIVO_FORA_GERAR_JSON, classificarGerarJson, motivoGerarJson, nomeArquivoJson, tetoGerarJson,
+  MOTIVO_FORA_GERAR_JSON, classificarGerarJson, completarFora, motivoGerarJson, nomeArquivoJson, tetoDaTela, tetoGerarJson,
 } from "@/lib/integracao/gerar-json";
 import type { ProdutoLista } from "@/lib/integracao/produtos";
 
@@ -79,6 +79,21 @@ describe("gerarJson — orquestração (deps falsas)", () => {
       { modelo_id: "m9", nome: "Calça", ref: "CAL9", motivo: "nao_integravel" },
       { modelo_id: "m2", nome: "Blusa", ref: "BLU002", motivo: "mudou" },
     ]);
+  });
+  it("M1: confirmou 0 (todos voltaram/foram desfeitos entre as fases) => vazio, com os `mudou` no fora — nunca um arquivo vazio", async () => {
+    const d = deps({ confirmar: vi.fn(async () => ({ status: "ok", confirmados: [], novos: 0, relidos: 0 })) });
+    const r = await gerarJson(ENTRADA, d);
+    expect(r).toEqual({ ok: true, vazio: true, fora: [
+      { modelo_id: "m9", nome: "Calça", ref: "CAL9", motivo: "nao_integravel" },
+      { modelo_id: "m1", nome: "Saia", ref: "SAI001", motivo: "mudou" },
+      { modelo_id: "m2", nome: "Blusa", ref: "BLU002", motivo: "mudou" },
+    ] });
+  });
+  it("M5: `tenant_id` da leitura diferente da loja pedida => falha fechado ANTES de assinar fotos ou confirmar", async () => {
+    const d = deps({ ler: vi.fn(async () => ({ ...LER, tenant_id: "22222222-2222-4222-8222-222222222222" })) });
+    expect(await gerarJson(ENTRADA, d)).toEqual({ ok: false, erro: { code: "ERRO_INTERNO", message: "gerar_json_falhou" } });
+    expect(d.assinarFotos).not.toHaveBeenCalled();
+    expect(d.confirmar).not.toHaveBeenCalled();
   });
   it("vazio: sem produtos elegíveis => vazio:true com o fora do banco, sem assinar nem confirmar", async () => {
     const d = deps({ ler: vi.fn(async () => ({ ...LER, acesso_id: undefined, produtos: [], pagina: { limite: 0, maximo: 50 } })) });
@@ -188,6 +203,34 @@ describe("classificarGerarJson / motivoGerarJson / tetoGerarJson", () => {
     expect(tetoGerarJson(500)).toBe(MAX_GERAR_JSON);
     expect(tetoGerarJson(0)).toBe(MAX_GERAR_JSON);
   });
+  it("I1: o teto da tela vem da RPC para todos — carregando = null (botão desabilitado com motivo); erro = absoluto", () => {
+    expect(tetoDaTela(undefined, false)).toBeNull();
+    expect(tetoDaTela(null, false)).toBeNull();
+    expect(tetoDaTela(undefined, true)).toBe(MAX_GERAR_JSON);
+    expect(tetoDaTela(50, false)).toBe(50);
+    expect(tetoDaTela(500, false)).toBe(MAX_GERAR_JSON);
+    const um = [prod({ id: "a" })];
+    const c = classificarGerarJson(um, { podeVerCustos: true });
+    expect(motivoGerarJson(um, c, true, null)).toBe("Carregando o limite por arquivo…");
+    expect(motivoGerarJson([], classificarGerarJson([], { podeVerCustos: true }), true, null)).toBe("Selecione produtos.");
+    expect(motivoGerarJson(um, c, false, null)).toBe("Precisa da permissão de editar a Integração.");
+    const tres = Array.from({ length: 3 }, (_, i) => prod({ id: `t${i}` }));
+    expect(motivoGerarJson(tres, classificarGerarJson(tres, { podeVerCustos: true }), true, 50)).toBeNull();
+    const cinquentaUm = Array.from({ length: 51 }, (_, i) => prod({ id: `u${i}` }));
+    expect(motivoGerarJson(cinquentaUm, classificarGerarJson(cinquentaUm, { podeVerCustos: true }), true, 50)).toBe("Máximo de 50 produtos por arquivo.");
+  });
+  it("M4: completarFora preenche nome/REF ausentes pelos produtos da tela (por modelo_id) e não toca no que já veio", () => {
+    const fora = [
+      { modelo_id: "a", nome: null, ref: null, motivo: "mudou" as const },
+      { modelo_id: "b", nome: "Do banco", ref: "RB", motivo: "mudou" as const },
+      { modelo_id: "zz", nome: null, ref: null, motivo: "mudou" as const },
+    ];
+    expect(completarFora(fora, [prod({ id: "a" }), prod({ id: "b" })])).toEqual([
+      { modelo_id: "a", nome: "P a", ref: "Ra", motivo: "mudou" },
+      { modelo_id: "b", nome: "Do banco", ref: "RB", motivo: "mudou" },
+      { modelo_id: "zz", nome: null, ref: null, motivo: "mudou" },
+    ]);
+  });
   it("MOTIVO_FORA_GERAR_JSON cobre os 4 motivos", () => {
     expect(Object.keys(MOTIVO_FORA_GERAR_JSON).sort()).toEqual(["mudou", "nao_integravel", "reprovado", "sem_custo"]);
   });
@@ -231,5 +274,19 @@ describe("Gerar JSON — fronteira servidor/navegador (fonte)", () => {
     const g = ler("src/lib/integracao/api/gerar-json.ts");
     expect(g).toMatch(/await entregar\(/);
     expect(g).not.toMatch(/createSignedUrls|daLoja|caminhosFoto/);
+  });
+  it("M3: o bloco `createSignedUrls` de fotos.server.ts é equivalente ao de rota.server.ts (bucket + mapeamento path → link)", () => {
+    const bloco = (f: string) => {
+      const m = /supabaseAdmin\.storage\.from\("modelos"\)\.createSignedUrls\(caminhos, validade\);\s*if \(error\) throw error;\s*return new Map\(\(data \?\? \[\]\)\.map\(\(d\) => \[d\.path \?\? "", d\.error \? null : \(d\.signedUrl \?\? null\)\]\)\);/.exec(ler(f));
+      expect(m, f).not.toBeNull();
+      return m![0].replace(/\s+/g, " ");
+    };
+    expect(bloco("src/lib/integracao/api/fotos.server.ts")).toBe(bloco("src/lib/integracao/api/rota.server.ts"));
+  });
+  it("I1: a tela lê o teto pela RPC `integracao_gerar_json_teto` (todos), nunca pela config da API (`api` só vem para o super admin)", () => {
+    const pa = ler("src/components/integracao/ProdutosAba.tsx");
+    expect(pa).toMatch(/useTetoGerarJson\(\)/);
+    expect(pa).not.toMatch(/useIntegracaoConfig|max_por_pagina/);
+    expect(ler("src/components/integracao/useIntegracao.ts")).toMatch(/rpc\("integracao_gerar_json_teto"/);
   });
 });
