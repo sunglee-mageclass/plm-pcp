@@ -19,15 +19,18 @@ async function zeraTimeouts(c: Client): Promise<void> {
 
 export async function aplicaS5(c: Client): Promise<void> {
   exigeBancoLocal();
-  const { s4Viva } = await import("./seg-s4-helpers");
-  if (!(await s4Viva(c))) {
-    const { s3aViva } = await import("./seg-s3a-helpers");
-    if (await s3aViva(c)) {
-      const { aplicaS4 } = await import("./seg-s4-helpers"); // parte da cadeia já viva (outro gancho): segue o caminho normal
-      await aplicaS4(c);
-    } else {
-      for (const m of S5_CADEIA_ORDEM_SEGURA) await aplicarArquivo(c, m);
-    }
+  // traz o que faltar da cadeia S3a..S4 (outros ganchos podem ter aplicado só parte dela), em ORDEM SEGURA: os arquivos de funções/
+  // gatilhos das sub-releases que faltam primeiro, depois os de grants
+  const vivas: Record<string, boolean> = {
+    s3a: await (await import("./seg-s3a-helpers")).s3aViva(c),
+    s3b: await (await import("./seg-s3b-helpers")).s3bViva(c),
+    s3c: await (await import("./seg-s3c-helpers")).s3cViva(c),
+    s3d: await (await import("./seg-s3d-helpers")).s3dViva(c),
+    s4: await (await import("./seg-s4-helpers")).s4Viva(c),
+  };
+  for (const m of S5_CADEIA_ORDEM_SEGURA) {
+    const tag = m.match(/_seg_(s3[a-d]|s4)_/)?.[1];
+    if (tag && !vivas[tag]) await aplicarArquivo(c, m);
   }
   await aplicarArquivo(c, S5_MIG);
   await zeraTimeouts(c);

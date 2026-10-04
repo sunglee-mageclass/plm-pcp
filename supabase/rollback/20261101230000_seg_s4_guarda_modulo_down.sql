@@ -24,6 +24,11 @@ DECLARE
   r record;
   v text;
 BEGIN
+  -- LIFO (fix round S4): a S5 (20261101240000) guarda a ACL destas tabelas; com ela no banco, PARE (volte a S5 antes).
+  IF to_regprocedure('public.tenant_module_enabled(text)') IS NOT NULL
+     AND NOT has_function_privilege('anon', 'public.tenant_module_enabled(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 's4_guarda_down: rode antes a volta da S5 20261101240000_down (a faxina de privilegios ainda esta no banco)' USING ERRCODE = 'P0001';
+  END IF;
   FOR r IN SELECT * FROM (VALUES
       ('public.fn_seg_modulo_otb()', '8fda935ba8d7703f03a1d093a00dcbdb', 'acec019a691a4dc33686b00af0770d07'),
       ('public.fn_seg_modulo_criacao()', 'a14a25c3e585a175174b73b6dc06a561', 'a9dc63bec99c49d8f7fb785757c3aa94')

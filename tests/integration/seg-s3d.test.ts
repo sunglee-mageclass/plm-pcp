@@ -181,6 +181,9 @@ describe.skipIf(!RODA)("seg S3d — md5, ACL, idempotência e volta (LIFO)", () 
       const IDA = S3D_MIGS[1];
       const VOLTA = S3D_DOWNS[1];
       await aplicaS3d(c);
+      // (S4_TXN: a volta da S3d recusa enquanto a S4 confere o módulo — fix round da S4, B1; tira a S4 antes, LIFO)
+      const { voltaS4SePreciso } = await import("./seg-s4-helpers");
+      await voltaS4SePreciso(c);
       await c.query("GRANT INSERT ON public.plan_tecido_slots TO anon");
       await expect(aplicarArquivo(c, IDA)).rejects.toMatchObject({ code: "P0001", message: expect.stringMatching(/^s3d_grants: ACL inesperada em plan_tecido_slots/) });
       await expect(aplicarArquivo(c, VOLTA)).rejects.toMatchObject({ code: "P0001", message: expect.stringMatching(/^s3d_grants_down: ACL inesperada em plan_tecido_slots/) });

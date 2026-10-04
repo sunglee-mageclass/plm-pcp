@@ -18,6 +18,11 @@ BEGIN
   IF to_regrole('anon') IS NULL OR to_regrole('authenticated') IS NULL OR to_regrole('service_role') IS NULL THEN
     RAISE EXCEPTION 's4_grants_down: papeis anon/authenticated/service_role ausentes' USING ERRCODE = 'P0001';
   END IF;
+  -- LIFO (fix round S4): a S5 (20261101240000) guarda a ACL destas tabelas; com ela no banco, PARE (volte a S5 antes).
+  IF to_regprocedure('public.tenant_module_enabled(text)') IS NOT NULL
+     AND NOT has_function_privilege('anon', 'public.tenant_module_enabled(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 's4_grants_down: rode antes a volta da S5 20261101240000_down (a faxina de privilegios ainda esta no banco)' USING ERRCODE = 'P0001';
+  END IF;
   FOR r IN SELECT * FROM (VALUES
       ('colecao_mixes', '{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}', '', '{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=arwdxtm/postgres,service_role=arwdDxtm/postgres}', ''),
       ('colecao_pv_itens', '{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}', '', '{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=arwdxtm/postgres,service_role=arwdDxtm/postgres}', ''),

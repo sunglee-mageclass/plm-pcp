@@ -190,6 +190,52 @@ describe.skipIf(!RODA)("seg S4 — md5, ACL, idempotência e volta (LIFO); NENHU
   });
 });
 
+describe.skipIf(!RODA)("seg S4 — fix round: ordem de volta (S5 → S4 → S3d) e policies antes = depois", () => {
+  const S3D_200_DOWN = "supabase/rollback/20261101200000_seg_s3d_grants_planejamento_down.sql";
+
+  it("B1: a volta dos grants da S3d RECUSA com o gatilho de módulo da S4 ativo; passa depois do 230000_down (funções neutras)", async () => {
+    await withTx(async (c) => {
+      await aplicaS4(c);
+      await expect(aplicarArquivo(c, S3D_200_DOWN)).rejects.toMatchObject({
+        code: "P0001", message: expect.stringMatching(/^s3d_grants_down: rode antes a volta da S4 20261101230000_down\/220000_down/) });
+      await aplicarArquivo(c, S4_DOWNS[0]); // 230000_down: gatilhos de módulo neutros
+      await aplicarArquivo(c, S3D_200_DOWN); // agora passa (C2 já não é exigido por ninguém)
+      expect((await um<{ v: boolean }>(c, `select has_table_privilege('authenticated', 'public.plan_tecido_slots', 'INSERT') v`)).v).toBe(true);
+    });
+  });
+
+  it("B2: a pós-condição da 220000 compara a contagem de policies ANTES × DEPOIS da própria execução (sem número fixo)", async () => {
+    await withTx(async (c) => {
+      await aplicaS4(c);
+      await c.query(`create policy zz_s4_fix_round on public.colecoes for select to authenticated using (false)`); // outra frente
+      await aplicarArquivo(c, S4_MIGS[0]); // antes: 97 fixas recusaria; agora passa
+      const src = (await import("node:fs")).readFileSync(S4_MIGS[0], "utf8");
+      expect(src).toContain("current_setting('seg_s4.policies_antes')");
+      expect(src).not.toMatch(/\) <> \d+ THEN/);
+    });
+  });
+
+  it("LIFO S5: com a S5 no banco, os inversos da S4 (230000/220000) e o dos grants da S3d RECUSAM; sem ela, passam", async () => {
+    await withTx(async (c) => {
+      const { aplicaS5, voltaS5 } = await import("./seg-s5-helpers");
+      await aplicaS5(c);
+      await expect(aplicarArquivo(c, S4_DOWNS[0])).rejects.toMatchObject({
+        code: "P0001", message: expect.stringMatching(/^s4_guarda_down: rode antes a volta da S5 20261101240000_down/) });
+      await expect(aplicarArquivo(c, S4_DOWNS[1])).rejects.toMatchObject({
+        code: "P0001", message: expect.stringMatching(/^s4_grants_down: rode antes a volta da S5 20261101240000_down/) });
+      // a da S3d: sem o gatilho de módulo da S4 no caminho (renomeado só aqui, na txn), quem barra é a S5
+      await c.query(`alter function public.fn_seg_modulo_otb() rename to fn_seg_modulo_otb_fora`);
+      await expect(aplicarArquivo(c, S3D_200_DOWN)).rejects.toMatchObject({
+        code: "P0001", message: expect.stringMatching(/^s3d_grants_down: rode antes a volta da S5 20261101240000_down/) });
+      await c.query(`alter function public.fn_seg_modulo_otb_fora() rename to fn_seg_modulo_otb`);
+      await voltaS5(c);
+      await aplicarArquivo(c, S4_DOWNS[0]);
+      await aplicarArquivo(c, S4_DOWNS[1]);
+      for (const t of TABELAS) expect(await aclTabela(c, t), t).toEqual(S4_ACL[t].antes);
+    });
+  });
+});
+
 describe.skipIf(!RODA)("seg S4 — trava medida (pg_locks na txn revertida) e Realtime", () => {
   it("grants: catálogo; gatilhos: ShareRowExclusive SÓ nas 13 tabelas; nada em auth/storage/realtime; nenhuma AccessExclusive", async () => {
     await withTx(async (c) => {

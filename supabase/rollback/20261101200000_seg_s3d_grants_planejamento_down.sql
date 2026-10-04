@@ -19,6 +19,17 @@ BEGIN
   IF to_regrole('anon') IS NULL OR to_regrole('authenticated') IS NULL OR to_regrole('service_role') IS NULL THEN
     RAISE EXCEPTION 's3d_grants_down: papeis anon/authenticated/service_role ausentes' USING ERRCODE = 'P0001';
   END IF;
+  -- LIFO (fix round S4, B1): a S4 (20261101220000..230000) EXIGE este estado das plan_tecido_* (C2). Com o gatilho de modulo da S4
+  -- ainda conferindo (funcao nao neutra), devolver a escrita aqui reabriria o C2 em silencio: PARE (volte a S4 antes).
+  IF to_regprocedure('public.fn_seg_modulo_otb()') IS NOT NULL
+     AND pg_get_functiondef(to_regprocedure('public.fn_seg_modulo_otb()')) ~ 'tenant_module_enabled' THEN
+    RAISE EXCEPTION 's3d_grants_down: rode antes a volta da S4 20261101230000_down/220000_down (gatilho de modulo ainda ativo)' USING ERRCODE = 'P0001';
+  END IF;
+  -- LIFO (fix round S4): a S5 (20261101240000) guarda a ACL destas tabelas; com ela no banco, PARE (volte a S5 antes).
+  IF to_regprocedure('public.tenant_module_enabled(text)') IS NOT NULL
+     AND NOT has_function_privilege('anon', 'public.tenant_module_enabled(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 's3d_grants_down: rode antes a volta da S5 20261101240000_down (a faxina de privilegios ainda esta no banco)' USING ERRCODE = 'P0001';
+  END IF;
   IF to_regclass('public.modelos') IS NULL
      OR to_regclass('public.produtos_acabados') IS NULL
      OR to_regclass('public.produtos_importados') IS NULL
