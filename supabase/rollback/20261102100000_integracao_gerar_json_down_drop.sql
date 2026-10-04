@@ -53,8 +53,9 @@ BEGIN
   IF to_regprocedure('public.integracao_gerar_json_ler(uuid[],uuid)') IS NOT NULL
      OR to_regprocedure('public.integracao_gerar_json_confirmar(uuid,jsonb)') IS NOT NULL
      OR (SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c
-          WHERE c.conrelid = 'public.integracao_acessos'::regclass AND c.conname = 'integracao_acessos_modo_chk') LIKE '%manual%' THEN
-    RAISE EXCEPTION 'gerar_json_drop: funcao ou CHECK novo ainda existe' USING ERRCODE = 'P0001';
+          WHERE c.conrelid = 'public.integracao_acessos'::regclass AND c.conname = 'integracao_acessos_modo_chk')
+        IS DISTINCT FROM 'CHECK ((modo = ANY (ARRAY[''normal''::text, ''teste''::text])))' THEN
+    RAISE EXCEPTION 'gerar_json_drop: funcao ainda existe ou CHECK diferente do antigo' USING ERRCODE = 'P0001';
   END IF;
 END
 $pos$;

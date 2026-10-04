@@ -20,7 +20,7 @@ const INV_DROP = "supabase/rollback/20261102100000_integracao_gerar_json_down_dr
 const FN_LER = "public.integracao_gerar_json_ler(uuid[],uuid)";
 const FN_CONF = "public.integracao_gerar_json_confirmar(uuid,jsonb)";
 const MD5 = {
-  lerIda: "7a76ace85f5620dbec943c34a3890e4c",
+  lerIda: "4cb3ccc80a10701e66d0ce9fb1e585ad",
   confIda: "e53973ef946a10dded322143f036508d",
   lerNeutra: "4b96da8c8d2b529d4fbcf99e52c1dc9f",
   confNeutra: "78ccc308fdfc2456b2fee148d0c61287",
@@ -216,6 +216,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
         const gp = g.produtos.find((x: any) => x.modelo_id === id);
         const campos = (await ip(c, id)).campos as string[];
         expect(linhasPorChave(g, gp, campos)).toEqual(linhasPorChave(api!.r, api!.p, campos));
+        // formato dos objetos (M3): chaves do produto e de cada linha (produto/variante) = as da API
+        expect(Object.keys(gp).sort()).toEqual(Object.keys(api!.p).sort());
+        expect(gp.linhas.length).toBe(api!.p.linhas.length);
+        gp.linhas.forEach((l: any, i: number) => expect(Object.keys(l).sort()).toEqual(Object.keys(api!.p.linhas[i]).sort()));
+        // chaves de topo = as da API, mais `fora`
+        expect(Object.keys(g).filter((k2) => k2 !== "fora").sort()).toEqual(Object.keys(api!.r).sort());
         expect({ e: gp.estado, a: gp.assinatura, i: gp.integrado_em }).toEqual({ e: api!.p.estado, a: api!.p.assinatura, i: api!.p.integrado_em });
         // fora do retrato do produto = null (D6), como na API
         for (const [i, k2] of (g.chaves_colunas as string[]).entries()) {
@@ -302,6 +308,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
   it("5. permissão: só VER a Integração = 42501; tenant_admin SEM a permissão própria = 42501 (P-107 A); anon sem EXECUTE", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      const n0 = await nManuais(c); // base: a cópia é compartilhada (a T3 deixa acessos manuais)
       const m = await modeloInterno(c);
       await marcar(c, m.id);
       await comoUsuarioCom(c, U_VER, [["integracao", true, false]]);
@@ -321,7 +328,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
         await gerarLer(c, [m.id]);
       });
       expect(e).toMatch(/^42501 permission denied for function integracao_gerar_json_ler/);
-      expect(await nManuais(c)).toBe(0);
+      expect(await nManuais(c)).toBe(n0);
       expect((await ip(c, m.id)).estado).toBe("integravel");
     });
   });
@@ -392,9 +399,14 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       const pc = await modeloInterno(c);
       const pc2 = await modeloInterno(c);
       const pc3 = await modeloInterno(c);
+      const pc4 = await modeloInterno(c);
       await marcar(c, pc.id);
       await marcar(c, pc2.id);
       await marcar(c, pc3.id);
+      await marcar(c, pc4.id);
+      // pc4 já INTEGRADO (por quem vê custos) — reexportar com preco_custo também exige ver custos
+      const r4 = await gerarLer(c, [pc4.id]);
+      expect((await gerarConf(c, r4.acesso_id, entregaDe(r4))).novos).toBe(1);
       await camposLoja(c, padrao.filter((x) => x !== "preco_custo"));
       const sc = await modeloInterno(c);
       await marcar(c, sc.id);
@@ -411,6 +423,9 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       expect(cy.confirmados.map((x: any) => x.modelo_id)).toEqual([sc.id]);
       expect((await ip(c, sc.id)).estado).toBe("integrado");
       expect((await ip(c, pc.id)).estado).toBe("integravel");
+      const ri = await gerarLer(c, [pc4.id]);
+      expect(ri).toMatchObject({ acesso_id: null, produtos: [], fora: [{ modelo_id: pc4.id, motivo: "sem_custo" }] });
+      expect((await ip(c, pc4.id)).estado).toBe("integrado");
       // quem vê custos (super): o valor = integracao_linhas.preco_custo
       await comoUsuario(c, U);
       const ru = await gerarLer(c, [pc2.id]);
@@ -468,6 +483,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       const a = await modeloInterno(c);
       await marcar(c, a.id);
       const nao = await modeloInterno(c);
+      const n0 = await nManuais(c); // base: a cópia é compartilhada (a T3 deixa acessos manuais)
       await cfgLoja(c, "max_por_pagina = 500");
       const ids = (n: number) => Array.from({ length: n }, () => randomUUID());
       expect(await falha(c, () => gerarLer(c, ids(101)))).toBe("P0001 gerar_json_itens: envie de 1 a 100 produtos");
@@ -480,9 +496,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       expect(await falha(c, () => gerarLer(c, [a.id, a.id]))).toBe("P0001 gerar_json_itens: produto repetido");
       expect(await falha(c, () => um(c, `SELECT public.integracao_gerar_json_ler(ARRAY[ARRAY[$1::uuid]], $2::uuid)`, [a.id, T])))
         .toBe("P0001 gerar_json_itens: envie de 1 a 2 produtos");
-      expect(await nManuais(c)).toBe(0);
-      // limite por minuto: 1; geração sem elegível NÃO conta (não reserva)
-      await cfgLoja(c, "limite_por_minuto = 1");
+      expect(await nManuais(c)).toBe(n0);
+      // limite por minuto = (gerações manuais da loja nos últimos 60 s) + 1: sobra exatamente 1 vaga; geração sem elegível NÃO
+      // conta (não reserva). Relativo ao que já existe na cópia compartilhada.
+      const recentes = Number((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_acessos WHERE tenant_id = $1
+        AND modo = 'manual' AND agregado IS NULL AND criado_em > now() - interval '60 seconds'`, [T])).n);
+      await cfgLoja(c, `limite_por_minuto = ${recentes + 1}`);
       expect((await gerarLer(c, [nao.id])).acesso_id).toBeNull();
       const r = await gerarLer(c, [a.id]);
       expect(r.acesso_id).not.toBeNull();
@@ -578,6 +597,32 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — Gerar JSON (entrega manual = i
       await c.query(`CREATE OR REPLACE FUNCTION public.integracao_gerar_json_ler(_modelo_ids uuid[], _loja uuid) RETURNS jsonb
                        LANGUAGE sql AS $$ SELECT '{}'::jsonb $$`);
       expect(await falha(c, () => aplica(c, MIG))).toMatch(/^P0001 gerar_json: public\.integracao_gerar_json_ler ja existe com outro texto/);
+    });
+  });
+
+  it("15. guarda recusa dependência com texto diferente e CHECK de modo inesperado (P0001 ASCII); o ramo 'mudou' fica sem teste (corrida entre 2 comandos)", async () => {
+    await withTx(async (c) => {
+      exigeBancoLocal();
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await c.query("SET LOCAL statement_timeout = '120s'");
+      // dependência com texto diferente (mesmo comportamento, só um comentário a mais) — simulada na txn
+      await c.query("SAVEPOINT gj_dep");
+      const def = (await um<{ d: string }>(c, `SELECT pg_get_functiondef('public._integracao_colunas(text[])'::regprocedure) AS d`)).d;
+      expect(def).toContain("SELECT jsonb_build_object(");
+      await c.query(def.replace("SELECT jsonb_build_object(", "SELECT /* gj teste */ jsonb_build_object("));
+      expect(await md5Vivo(c, "public._integracao_colunas(text[])")).not.toBe(DEPS["public._integracao_colunas(text[])"]);
+      expect(await falha(c, () => aplica(c, MIG)))
+        .toMatch(/^P0001 gerar_json: dependencia public\._integracao_colunas\(text\[\]\) com texto inesperado \(md5 [0-9a-f]{32}\) - refazer o plano$/);
+      await c.query("ROLLBACK TO SAVEPOINT gj_dep");
+      expect(await md5Vivo(c, "public._integracao_colunas(text[])")).toBe(DEPS["public._integracao_colunas(text[])"]);
+      // CHECK de modo inesperado (NOT VALID: não depende das linhas que a cópia já tem)
+      await c.query(`ALTER TABLE public.integracao_acessos DROP CONSTRAINT IF EXISTS integracao_acessos_modo_chk`);
+      await c.query(`ALTER TABLE public.integracao_acessos ADD CONSTRAINT integracao_acessos_modo_chk
+                       CHECK (modo IN ('normal', 'teste', 'manual', 'outro')) NOT VALID`);
+      expect(await falha(c, () => aplica(c, MIG))).toMatch(/^P0001 gerar_json: CHECK integracao_acessos_modo_chk inesperado: /);
+      // sem o CHECK (ausente) também recusa
+      await c.query(`ALTER TABLE public.integracao_acessos DROP CONSTRAINT integracao_acessos_modo_chk`);
+      expect(await falha(c, () => aplica(c, MIG))).toBe("P0001 gerar_json: CHECK integracao_acessos_modo_chk inesperado: ausente");
     });
   });
 

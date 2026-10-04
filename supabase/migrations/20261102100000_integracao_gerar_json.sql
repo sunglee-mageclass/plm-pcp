@@ -20,8 +20,9 @@
 --     reexportacao}); P-75 A conferida de novo. Nenhuma escrita em `modelos` (nenhuma GUC da S1/S2 em jogo).
 --   • ACL: EXECUTE só para authenticated (REVOKE de PUBLIC/anon — inv. 9; risco residual aceito no plano §0).
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
---   public.integracao_gerar_json_ler(uuid[],uuid)          NOVA 7a76ace85f5620dbec943c34a3890e4c
---     (aceita tambem 4b96da8c8d2b529d4fbcf99e52c1dc9f = neutralizada pelo _down)
+--   public.integracao_gerar_json_ler(uuid[],uuid)          NOVA 4cb3ccc80a10701e66d0ce9fb1e585ad
+--     (aceita tambem 4b96da8c8d2b529d4fbcf99e52c1dc9f = neutralizada pelo _down, e 7a76ace85f5620dbec943c34a3890e4c = texto da
+--      rodada 0 da T1, que so existiu na copia local - reaplicar a ida por cima dele o substitui)
 --   public.integracao_gerar_json_confirmar(uuid,jsonb)     NOVA e53973ef946a10dded322143f036508d
 --     (aceita tambem 78ccc308fdfc2456b2fee148d0c61287 = neutralizada pelo _down)
 --   dep (intocadas — o corpo novo espelha/chama estas):
@@ -41,7 +42,10 @@
 -- Volta (LIFO): SITE primeiro; depois supabase/rollback/20261102100000_integracao_gerar_json_down.sql (NEUTRALIZA as 2 — CREATE
 -- OR REPLACE, sem trava de tabela; o CHECK ampliado fica, inerte) e, opcional/separado/horário calmo,
 -- supabase/rollback/20261102100000_integracao_gerar_json_down_drop.sql (apaga os acessos 'manual' com confirmação, volta o
--- CHECK, DROP das 2). Rodar ANTES dos inversos da A2 (20261030130000) e da volta de emergência da Integração. Produto
+-- CHECK, DROP das 2). É o 1º da LIFO: este _down roda PRIMEIRO, antes de toda a cadeia S2..S6 (20261101250000_down → …) —
+-- não há dependência técnica com ela (nenhuma S redefine as 9 dependências), é só a ordem inversa da aplicação; e ANTES dos
+-- inversos da A2 (20261030130000) e da volta de emergência da Integração (volta-producao.sh: incluir este _down/_down_drop
+-- no início; sem eles o DROP TABLE de integracao_acessos deixa as 2 RPCs órfãs, 42883 ao chamar). Produto
 -- integrado manualmente SEGUE integrado depois da volta (o Desfazer do super admin é o caminho por produto).
 -- Aplicar fora de transação: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 -- 55P03/40P01 = rodar o arquivo de novo.
@@ -82,7 +86,8 @@ BEGIN
     END IF;
   END LOOP;
   v := md5(pg_get_functiondef(to_regprocedure('public.integracao_gerar_json_ler(uuid[],uuid)')));
-  IF v IS NOT NULL AND v NOT IN ('7a76ace85f5620dbec943c34a3890e4c', '4b96da8c8d2b529d4fbcf99e52c1dc9f') THEN
+  -- 7a76ace8 = texto da rodada 0 da T1 (so na copia local; fix round 1 M1 trocou o texto)
+  IF v IS NOT NULL AND v NOT IN ('4cb3ccc80a10701e66d0ce9fb1e585ad', '4b96da8c8d2b529d4fbcf99e52c1dc9f', '7a76ace85f5620dbec943c34a3890e4c') THEN
     RAISE EXCEPTION 'gerar_json: public.integracao_gerar_json_ler ja existe com outro texto (md5 %)', v USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.integracao_gerar_json_confirmar(uuid,jsonb)')));
@@ -174,15 +179,19 @@ BEGIN
     INTO v_entram, v_fora
     FROM cl;
   -- ESPELHO de _integracao_ler (1ac58b34): mudar la => mudar aqui (anti-drift: integracao-11-gerar-json.test.ts)
-  -- Troca SO a selecao (`pagina`): lista de ids em vez de keyset (sem LIMIT/pagina_trim/n_total). O estado e o custo sao
-  -- reconferidos NA MESMA FOTO da pagina: quem mudou entre a classificacao e aqui (voltou, desfeito) nao sai com linhas vazias -
-  -- vai para o `fora` como 'mudou' logo abaixo.
+  -- Troca SO a selecao (`pagina`): lista de ids em vez de keyset (sem LIMIT/pagina_trim/n_total). O estado, o reprovado (mesma
+  -- expressao/JOIN do _integracao_ler) e o custo sao reconferidos NA MESMA FOTO da pagina: quem mudou entre a classificacao e
+  -- aqui (voltou, desfeito, reprovado) nao sai no arquivo - vai para o `fora` como 'mudou' logo abaixo.
   WITH pagina AS (
     SELECT ip.id, ip.modelo_id, ip.estado, ip.assinatura, ip.integrado_em, ip.campos
       FROM public.integracao_produtos ip
+      JOIN public.modelos m ON m.id = ip.modelo_id
      WHERE ip.tenant_id = v_tenant
        AND ip.modelo_id = ANY(v_entram)
        AND ip.estado IN ('integravel', 'integrado')
+       AND NOT (ip.estado = 'integravel'
+                AND (coalesce(m.status_planejamento, '') = 'reprovado'
+                     OR lower(btrim(coalesce(m.status_desenvolvimento, ''))) = 'reprovado'))
        AND NOT ('preco_custo' = ANY(ip.campos) AND NOT v_ver)
   ), campos_uniao AS (
     SELECT ARRAY(SELECT u.x FROM unnest(public._integracao_layout()) WITH ORDINALITY AS u(x, n)
@@ -353,7 +362,7 @@ DECLARE
 BEGIN
   FOR d IN
     SELECT * FROM (VALUES
-      ('public.integracao_gerar_json_ler(uuid[],uuid)', '7a76ace85f5620dbec943c34a3890e4c'),
+      ('public.integracao_gerar_json_ler(uuid[],uuid)', '4cb3ccc80a10701e66d0ce9fb1e585ad'),
       ('public.integracao_gerar_json_confirmar(uuid,jsonb)', 'e53973ef946a10dded322143f036508d')) AS t(f, m)
   LOOP
     v := md5(pg_get_functiondef(to_regprocedure(d.f)));
@@ -372,7 +381,8 @@ BEGIN
     END IF;
   END LOOP;
   IF (SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c
-       WHERE c.conrelid = 'public.integracao_acessos'::regclass AND c.conname = 'integracao_acessos_modo_chk') NOT LIKE '%''manual''%' THEN
+       WHERE c.conrelid = 'public.integracao_acessos'::regclass AND c.conname = 'integracao_acessos_modo_chk')
+     IS DISTINCT FROM 'CHECK ((modo = ANY (ARRAY[''normal''::text, ''teste''::text, ''manual''::text])))' THEN
     RAISE EXCEPTION 'gerar_json: pos-condicao falhou no CHECK de modo de integracao_acessos' USING ERRCODE = 'P0001';
   END IF;
   FOR d IN
