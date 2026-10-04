@@ -1593,6 +1593,30 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     faltar); `voltaS5SePreciso` roda dentro de TODO `aplica*`/`volta*` da S1..S4 (LIFO). Volta: `240000_down` ANTES de qualquer
     inverso da S4/S3/S2/S1. Os reaplicar de S3d (210000) e S4 (230000) não pegam trava se os gatilhos já existem.
 
+- **S6 "OCs e front, decisões finais" (P-236 = D7 A; migration `20261101250000_seg_s6_oc_status`, inverso `_down`; gerador
+  `.../mig/gerar-s6.mjs`; só CREATE OR REPLACE — trava só catálogo, medida):**
+  - **O Salvar NUNCA faz uma OC recebida voltar a encomendada — só o "Desmarcar recebimento"** (`desmarcar_recebimento_oc` /
+    `desmarcar_recebimento_oc_etiqueta`, que seguem iguais). `_salvar_oc_tecido_core`, `_salvar_oc_aviamento_core` (2) e
+    `salvar_oc_etiqueta` (2) travam a linha da OC (`FOR UPDATE`) e recusam recebido → outro status (inclusive payload SEM
+    `status`, que vira 'encomendado') com P0001 `oc_recebida_so_desmarcar:` (ASCII; PT em `mensagemSegS3`). recebida → recebida
+    (editar a OC recebida) e encomendada → recebida passam; OC NOVA nasce como vier. P. Acabado/Importado não têm o furo (o
+    Salvar não grava status; recebem pela RPC própria). ⚠️ Função NOVA que salve OC com `status` do cliente: mesma recusa.
+  - **Tela (OC Tecido/Aviamento/Insumo):** o `status` NÃO é campo do rascunho — segue SEMPRE o do servidor (re-semeado no merge
+    do refetch e no P0409); na recusa a tela relê a OC (`invalidateQueries` da key da OC).
+  - ⚠️ As sobrecargas de 3 args estão MORTAS: `salvar_oc_etiqueta(3)` e `_salvar_oc_aviamento_core(3)` são ambíguas com as de 4
+    args (que têm DEFAULT), e a wrapper `salvar_oc_aviamento(3)` chama o `_core` ambíguo (42725 sempre). Levaram a checagem
+    mesmo assim (conferida pelo texto); aposentar = backlog.
+  - **B4:** Tabela de Preço do Sheet — os 2 inputs da estimativa (`custo_simulado`) exigem também `podeEditarCustos`; sem ver
+    custos, nem R$/m nem o tecido estimado. **MO-0:** Plan. Tecido mostra "—" (não "R$ 0,00") quando a M.O. vem mascarada.
+  - Ensaio `S6_TXN=1` (sem a S3a viva traz a cadeia S3a..S5 pela ordem segura do `aplicaS5`); `voltaS6SePreciso` roda dentro do
+    `voltaS5SePreciso` (logo, em TODO `aplica*`/`volta*` da S1..S5). Volta **LIFO**: `250000_down` ANTES da S5 e de tudo abaixo —
+    em especial ANTES do `100000_down` da S3a (guarda `salvar_oc_etiqueta`), do `20261029100000_down` da L9 e do
+    `20261002100000_down` da Nota (guardam `_salvar_oc_aviamento_core`/`_salvar_oc_tecido_core`).
+- **Regra operacional (S5 B3): objeto novo em `public` SÓ por migration (`postgres`).** O default ACL do `supabase_admin` (painel
+  do Supabase: Table Editor/SQL do painel como outro papel) ainda dá `anon=arwdDxtm`/EXECUTE a PUBLIC no objeto que ele cria — o
+  PRIV-2 da S1 só cobriu o `postgres`. Tabela criada pelo painel nasce aberta para anon (reabre o ANON-3) e faz a pós-condição da
+  S5 recusar. Mudar o default ACL do `supabase_admin` é frente própria (exige o papel dono).
+
 ## O que NÃO fazer
 
 - Não esquecer de aplicar a migration com `psql -f`/`db push --db-url` no banco novo (regra 1).
