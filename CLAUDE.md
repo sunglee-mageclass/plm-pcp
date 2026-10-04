@@ -1562,6 +1562,19 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     ⚠️ A volta de EMERGÊNCIA da Integração (`20261007140000_down`) faz `DROP FUNCTION integracao_salvar` SEM guarda de md5: com a
     S3d no banco ela passa, e depois o `190000_down` da S3d recusa (função sumiu) — **volte a S3d ANTES** da volta da Integração.
 
+- **S4 "Brechas de módulo" (C1 OTB, C2 Plan. Tecido) — SEM CREATE POLICY (reavaliada sobre a S3; migrations `20261101220000..230000`,
+  inversos `_down` + `_down_drop` separado (230000: DROP dos 13 gatilhos), gerador `.../mig/gerar-s4.mjs`):**
+  - **C2:** já fechado pela S3d (as 12 `plan_tecido_*` graváveis sem escrita do cliente + todas as RPCs de entrada conferem
+    `criacao`); a 220000 RECUSA rodar sem esse estado.
+  - **C1:** gatilho `trg_aaa_seg_modulo` (BEFORE I/U/D, INVOKER, só `authenticated`/`anon`; super passa por `tenant_module_enabled`)
+    nas 12 tabelas do OTB (`colecoes`, `colecao_subcolecoes/_semanas/_semana_categorias/_pv_itens`, `mix_padroes/_linhas`,
+    `otb_simulac*`) = módulo `otb`; em `colecao_mixes` (famílias do Plan. Tecido/Plan. Produto/PA/PI) = módulo `criacao`. Pega
+    também as RPCs INVOKER do OTB (`excluir_mix_padrao` não conferia). TRUNCATE sai de `authenticated` e anon perde I/U/D/T nas 13.
+    SELECT intacto (Realtime): nenhuma policy nova. ⚠️ Tabela NOVA do OTB precisa do mesmo gatilho.
+  - Trava: ShareRowExclusive só nas 13 (pegas juntas, `LOCK TABLE`, até 1500ms, 3 tentativas atômicas); nada em auth/storage.
+  - Ensaio: `S4_TXN=1` (aplica a S3d/S3a antes se faltarem); `voltaS4SePreciso` roda dentro de `voltaS3d`. Volta LIFO: `230000_down`
+    → `220000_down` → `_down_drop` opcional, ANTES da S3d.
+
 ## O que NÃO fazer
 
 - Não esquecer de aplicar a migration com `psql -f`/`db push --db-url` no banco novo (regra 1).
