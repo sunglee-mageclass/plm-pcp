@@ -304,13 +304,14 @@ export function PrecoTabela(props: {
                   data-colab-path="consumo_tecido"
                   // P-53 A (fix 1, I-1a): grava em custo_simulado (SÓ do Planejamento) — fieldset não entra em
                   // <tbody>, trava por `disabled` como o resto do arquivo já faz (comentário ~:333).
-                  disabled={planBloqueado}
+                  // Reforço de segurança S6 (B4): a estimativa é custo — exige EDITAR a seção de custos do Planejamento.
+                  disabled={planBloqueado || !podeEditarCustos}
                   onChange={(e) => onConsumo(e.target.value)}
                 />
               )}
             </td>
             <td className="py-2 pl-2 text-xs text-muted-foreground">
-              {precoTecidoM > 0 ? `× ${brl(precoTecidoM)}/m` : "sem tecido planejado"}{consumoRealBOM > 0 && consumo == null ? " · vem do Desenvolvimento" : ""}
+              {precoTecidoM > 0 ? (podeVerCustos ? `× ${brl(precoTecidoM)}/m` : "× preço/m") : "sem tecido planejado"}{consumoRealBOM > 0 && consumo == null ? " · vem do Desenvolvimento" : ""}
             </td>
           </tr>
 
@@ -368,7 +369,7 @@ export function PrecoTabela(props: {
               <tr className="border-t">
                 <td className="py-2 pr-3">Tecido</td>
                 <td className="py-2 px-2 text-right text-muted-foreground">—</td>
-                <td className="py-2 px-2 text-right tabular-nums">{tecidoEstimado > 0 ? brl(tecidoEstimado) : "—"}</td>
+                <td className="py-2 px-2 text-right tabular-nums">{podeVerCustos && tecidoEstimado > 0 ? brl(tecidoEstimado) : "—"}</td>
                 <td className="py-2 pl-2 text-xs text-muted-foreground">{seloBadge} consumo × preço/m</td>
               </tr>
               <tr className="border-t">
@@ -381,8 +382,8 @@ export function PrecoTabela(props: {
                     placeholder="0,00"
                     data-colab-path="custo_aviamento"
                     // P-53 A (fix 1, I-1a): grava em custo_simulado (SÓ do Planejamento) — mesma trava do
-                    // Consumo de tecido acima.
-                    disabled={planBloqueado}
+                    // Consumo de tecido acima (+ S6 B4: exige editar a seção de custos).
+                    disabled={planBloqueado || !podeEditarCustos}
                     onChange={(e) => onAviamento(e.target.value)}
                   />
                 </td>

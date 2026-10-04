@@ -904,6 +904,9 @@ function OcDialog({
       return;
     }
 
+    // [seg s6] (P-236 = D7 A) o STATUS nao e campo do rascunho: segue SEMPRE o do servidor (B recebeu enquanto A editava → A ve
+    // "recebida"; o Salvar nunca a faz voltar — o servidor tambem recusa a regressao fora do "Desmarcar recebimento").
+    setStatus((ocQueryData.oc.status as OCStatus) ?? "encomendado");
     // Refetch: MERGE em vez de sobrescrever. Só re-seta draft/items quando algo de fato
     // mudou (atualizado ou em conflito) — evita churn de identidade que marcaria "dirty"
     // à toa quando o merge não alterou nada visível.
@@ -1375,6 +1378,7 @@ function OcDialog({
         await qc.refetchQueries({ queryKey: ["oc-tecido", ocId] });
         const fresh = qc.getQueryData<typeof ocQueryData>(["oc-tecido", ocId]);
         if (fresh?.oc) {
+          setStatus((fresh.oc.status as OCStatus) ?? "encomendado"); // [seg s6] status sempre o do servidor
           const freshDraft = draftFromOc(fresh.oc);
           const freshItems = fresh.items;
           const liveDraft = draftLiveRef.current;
@@ -1407,6 +1411,8 @@ function OcDialog({
       // update de NFs (~1275) falhar e lançar pra cá — invalida o Financeiro/dashboard/
       // visão da OC também nesse ramo (não é só P0409).
       invalidarVencimentos(qc);
+      // [seg s6] OC recebida por outra pessoa no meio: relê (o status passa a "recebida" na tela)
+      if (String(e?.message ?? "").startsWith("oc_recebida_so_desmarcar:")) qc.invalidateQueries({ queryKey: ["oc-tecido", ocId] });
       toast.error(mensagemErro(e, "Erro ao salvar"));
     },
   });

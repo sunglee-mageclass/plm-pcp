@@ -679,6 +679,9 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       return;
     }
 
+    // [seg s6] (P-236 = D7 A) o STATUS nao e campo do rascunho: segue SEMPRE o do servidor (B recebeu enquanto A editava → A ve
+    // "recebida"; o Salvar nunca a faz voltar — o servidor tambem recusa a regressao fora do "Desmarcar recebimento").
+    setStatus((oc.status as OCStatus) ?? "encomendado");
     // Refetch: MERGE em vez de sobrescrever.
     const md = mergeDraft({ base: baseRef.current.draft, draft: draftLiveRef.current, fresh: freshHead, touched: touchedRef.current });
     const ml = mergeLinhas({ base: baseRef.current.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current });
@@ -852,6 +855,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
         toast.warning("Alguém salvou esta OC agora — confira os itens em conflito.");
         const oc = (await supabase.from("ocs_etiqueta" as any).select("*").eq("id", ocId!).maybeSingle()).data as any;
         if (!oc) return;
+        setStatus((oc.status as OCStatus) ?? "encomendado"); // [seg s6] status sempre o do servidor
         const its = ((await supabase.from("ocs_etiqueta_itens" as any).select("*").eq("oc_etiqueta_id", ocId!)).data ?? []) as any[];
         const freshHead = headFromOc(oc);
         const freshItens = its.map((i: any) => ({
@@ -870,6 +874,8 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
         baseRef.current = { draft: freshHead, items: freshItens };
         revRef.current = (oc as any).rev ?? null;
       } else {
+        // [seg s6] OC recebida por outra pessoa no meio: relê (o status passa a "recebida" na tela)
+        if (String(e?.message ?? "").startsWith("oc_recebida_so_desmarcar:")) qc.invalidateQueries({ queryKey: ["oc-insumo", ocId] });
         toast.error(mensagemErro(e, "Erro ao salvar"));
       }
     },

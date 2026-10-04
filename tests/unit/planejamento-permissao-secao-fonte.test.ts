@@ -66,7 +66,8 @@ describe("Sheet do Planejamento trava POR SEÇÃO pelas 2 permissões (P-53 A) �
   // Fix 1 (I-1a) — Consumo de tecido/Materiais (custo_simulado) travam com planBloqueado.
   it("PrecoTabela recebe planBloqueado e desabilita os 2 inputs de custo_simulado", () => {
     expect(DETALHE).toMatch(/<PrecoTabela[\s\S]*?planBloqueado=\{perm\.planBloqueado\}/);
-    const usos = (PRECO_TABELA.match(/disabled=\{planBloqueado\}/g) ?? []).length;
+    // Reforço de segurança S6 (B4): os 2 inputs também exigem editar a seção de custos (`|| !podeEditarCustos`)
+    const usos = (PRECO_TABELA.match(/disabled=\{planBloqueado(?: \|\| !podeEditarCustos)?\}/g) ?? []).length;
     expect(usos).toBeGreaterThanOrEqual(2);
   });
 

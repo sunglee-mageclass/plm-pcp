@@ -729,6 +729,9 @@ function OcDialog({
       return;
     }
 
+    // [seg s6] (P-236 = D7 A) o STATUS nao e campo do rascunho: segue SEMPRE o do servidor (B recebeu enquanto A editava → A ve
+    // "recebida"; o Salvar nunca a faz voltar — o servidor tambem recusa a regressao fora do "Desmarcar recebimento").
+    setStatus((ocQueryData.oc.status as OCStatus) ?? "encomendado");
     // Refetch: MERGE em vez de sobrescrever.
     const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
     const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
@@ -983,6 +986,7 @@ function OcDialog({
         const { data: oc } = await supabase.from("ocs_aviamento").select("*").eq("id", ocId!).maybeSingle();
         const { data: its } = await supabase.from("ocs_aviamento_itens").select("*").eq("oc_aviamento_id", ocId!);
         if (!oc) return;
+        setStatus((oc.status as OCStatus) ?? "encomendado"); // [seg s6] status sempre o do servidor
         const freshDraft = draftFromOc(oc);
         const freshItems: ItemDraft[] = (its ?? []).map(itemDoServidor);
         const base = baseRef.current ?? { draft: freshDraft, items: freshItems };
@@ -997,6 +1001,8 @@ function OcDialog({
         baseRef.current = { draft: freshDraft, items: freshItems };
         revRef.current = (oc as any).rev ?? null;
       } else {
+        // [seg s6] OC recebida por outra pessoa no meio: relê (o status passa a "recebida" na tela)
+        if (String(e?.message ?? "").startsWith("oc_recebida_so_desmarcar:")) qc.invalidateQueries({ queryKey: ["oc-avi", ocId] });
         toast.error(mensagemErro(e, "Erro ao salvar"));
       }
     },

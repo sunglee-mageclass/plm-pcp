@@ -63,7 +63,7 @@ function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard, custoCard
         <RO label="Custo de forro (do card)" value={det ? brl(det.forro) : "—"} />
         <RO label="Entretela (do card)" value={det ? brl(det.entretela) : "—"} />
         <RO label="Materiais (do card)" value={det ? brl(det.aviamento) : "—"} />
-        <RO label="Mão de obra (por serviço)" value={brl(maoObra)} />
+        <RO label="Mão de obra (por serviço)" value={maoObraServico == null ? "—" : brl(maoObra)} /* S6 MO-0: mascarado (sem ver custos) ou sem modelo = "—", nunca "R$ 0,00" */ />
         {maoObraEstado && <MoBadge maoObraEstado={maoObraEstado} />}
         <RO label="Custo (do card)" value={txt(pc?.custo, brl)} />
         <RO label="Markup (do card)" value={txt(pc?.markupExibir, (n) => `${fmtNum(n)}×`)} />
@@ -114,7 +114,7 @@ function CustoDaVagaSemCard({ slot, onChange, maoObraEstado, maoObraServico, pre
         <RO label="Custo de forro (auto)" value={brl(custoForro)} />
         <div><div className="text-[10px] text-muted-foreground">Materiais</div>
           <NumberInput blankZero placeholder="0,00" className={`h-7 w-full text-right ${fromDev ? "border-emerald-500" : ""}`} title={fromDev ? "Valor ligado ao modelo do Desenvolvimento" : undefined} value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
-        <RO label="Mão de obra (por serviço)" value={brl(maoObra)} />
+        <RO label="Mão de obra (por serviço)" value={maoObraServico == null ? "—" : brl(maoObra)} /* S6 MO-0: mascarado (sem ver custos) ou sem modelo = "—", nunca "R$ 0,00" */ />
         {!slot.modelo_id && (
           <p className="col-span-2 text-[10px] text-muted-foreground">Mão de obra definida por serviço no Planejamento.</p>
         )}
