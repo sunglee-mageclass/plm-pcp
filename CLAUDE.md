@@ -1535,6 +1535,28 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   - Ensaio: `S3C_TXN=1`; `voltaS3cSePreciso` (LIFO) roda dentro de `voltaS3a*` e de `aplicaS1`/`voltaS1`. Volta **LIFO**:
     `180000_down` → `170000_down` → `160000_down` (sem validar corpo) → `_down_drop` opcional, ANTES da S3a e da S1
     (`20261031120000_down` guarda `excluir_cad`) e de `20261014100000_down`/`20261006100000_down` (`_plan_tecido_arvore_core`).
+- **S3d "Planejamento, produtos, Plan. Tecido e importação" (a última da S3; por cima da S3a, independe da S3b/S3c; migrations
+  `20261101190000..210000`, inversos `_down` + `_down_drop` separado (210000: DROP dos 3 gatilhos), gerador `.../mig/gerar-s3d.mjs`):**
+  - **39 RPCs** com o portão: `lancar_modelo` = Planejamento OU Lançamentos; `conjunto_*` = módulo Criação + Planejamento;
+    `salvar_grade_revenda` = Planejamento OU Dev; `salvar_produto_acabado/_importado` (2 cada) = a página do produto OU o
+    Planejamento; preço fixo/markup do comprado = a página do produto OU `criacao_planejamento:preco_venda` (C4: o fixo do acabado
+    ganhou o módulo); ações do card PA/PI = a página; `importar_*_linha` = `importar`; RPCs do Plan. Tecido = `criacao_plan_tecido`
+    (o desfazer pedido ganhou o módulo `entrada_saida`, C8); `salvar/excluir_colecao_mix` (INVOKER; `excluir` virou plpgsql) =
+    Plan. Tecido OU Planejamento OU PA OU PI (o EditarMixDialog mora nas 4 telas). `integracao_salvar` não ganha gate: chama o
+    `_core` dos preços fixos (C-20). **B3:** `_salvar_plan_tecido_core` grava `modelo_id` de slot de outra loja como NULL.
+  - **`modelos` (gatilho `trg_aaa_seg_pagina`, BEFORE I/U/D):** INSERT/DELETE = Planejamento; UPDATE = Planejamento OU
+    Desenvolvimento; UPDATE que muda SÓ o `mix_id` = também Plan. Tecido, Produto Acabado e Produto Importado; a GUC
+    `app.explosao_sistema` da S1 passa (voltar ao Dev). Perde só TRUNCATE. ⚠️ Tela NOVA que grave `modelos` direto precisa caber
+    nesse OU (senão 42501 `sem_permissao_pagina`) — prefira RPC.
+  - **Produtos:** `produtos_acabados/_importados` só UPDATE em `mix_id`/`modelo_id` (página do produto OU Planejamento; TAM-1:
+    `tamanho_tipo` só pelas RPCs); as 3 filhas e as 13 `plan_tecido_*`: o cliente só lê (o C2 da S4 fica dispensável p/ escrita).
+  - **Tela:** markup e preço fixo do comprado no Sheet (`PrecoRevendaBloco`) travam também sem `podeEditarPrecoComprado`
+    (PA OU seção de preço — o OU do servidor).
+  - **Trava:** CREATE TRIGGER = ShareRowExclusive em `modelos` (bloqueia escrita, não leitura) e nos 2 produtos; cada tentativa
+    espera até 1500ms (acima do `deadlock_timeout`: cancela autovacuum) e tenta 3× — HORÁRIO CALMO.
+  - Ensaio: `S3D_TXN=1`; `voltaS3dSePreciso` (LIFO) roda dentro de `voltaS3a*` e de `aplicaS1`/`voltaS1`. Volta **LIFO**:
+    `210000_down` → `200000_down` → `190000_down` (sem validar corpo) → `_down_drop` opcional, ANTES da S3a/S1, de
+    `20261007140000/150000_down` (`integracao_salvar`) e de `20261014100000_down`/`20261006100000_down` (`_salvar_plan_tecido_core`).
 
 ## O que NÃO fazer
 
