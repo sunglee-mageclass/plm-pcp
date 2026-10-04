@@ -12,6 +12,7 @@ import { S3A_MD5, S3A_PAGINAS, S3A_HELPER, S3A_GATILHOS, S3A_ACL, S3A_COLUNAS } 
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { S3B_TABELAS_TRAVA } from "./seg-s3b-helpers";
+import { S3C_TABELAS_TRAVA } from "./seg-s3c-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -237,7 +238,8 @@ describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", (
       const QUATRO = ["public.ocs_aviamento", "public.ocs_etiqueta", "public.ocs_tecido", "public.ocs_tecido_itens"]
         .map((rel) => ({ rel, mode: "ShareRowExclusiveLock" }));
       // S3B_TXN=1: o CREATE TRIGGER da S3b (cad, controle_qualidade, producao_oficina) já pegou trava no começo da txn — não é da S3a
-      const foraS3b = (t: { rel: string }) => !S3B_TABELAS_TRAVA.includes(t.rel);
+      // (idem S3C_TXN=1: modelo_etiquetas, modelo_observacoes)
+      const foraS3b = (t: { rel: string }) => !S3B_TABELAS_TRAVA.includes(t.rel) && !S3C_TABELAS_TRAVA.includes(t.rel);
       const antes = (await travas()).filter(foraS3b); // S2_TXN=1 (parcelas) / S3A_TXN=1 (as 4) já aplicados no começo da txn
       if (!(await s3aViva(c)) && antes.length === 0) {
         await aplicarArquivo(c, S3A_MIGS[0]);

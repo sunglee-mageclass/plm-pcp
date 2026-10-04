@@ -237,7 +237,9 @@ describe.skipIf(!RODA)("seg S3b — trava medida (pg_locks na txn revertida)", (
       expect((await travas()).filter(s3b)).toEqual(TRES);
       // fora das 3 da S3b só pode haver as da S3a (4 OCs) e a da S2 (parcelas) — ganchos/camada de baixo
       const outras = (await travas()).filter((t) => !s3b(t)).map((t) => t.rel);
-      expect(outras.every((r) => ["public.ocs_tecido", "public.ocs_tecido_itens", "public.ocs_aviamento", "public.ocs_etiqueta", "public.parcelas"].includes(r)), outras.join(",")).toBe(true);
+      // (+ S3C_TXN=1: modelo_etiquetas/modelo_observacoes, gatilhos da S3c)
+      expect(outras.every((r) => ["public.ocs_tecido", "public.ocs_tecido_itens", "public.ocs_aviamento", "public.ocs_etiqueta", "public.parcelas",
+        "public.modelo_etiquetas", "public.modelo_observacoes"].includes(r)), outras.join(",")).toBe(true);
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
            JOIN pg_namespace n ON n.oid = k.relnamespace

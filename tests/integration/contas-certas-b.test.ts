@@ -143,6 +143,14 @@ describe.skipIf(!RODA)(
        on conflict (id) do update set tenant_id = excluded.tenant_id`,
         [SEM_PERM, TENANT_TESTE],
       );
+      // Reforço de segurança S3c (P-244 = B): mudar o VALOR da M.O. exige EDITAR o Planejamento E ver custos — este usuário
+      // tem as duas (o que falta a ele, de propósito, é a permissão de APROVAR: producao_servico_aprovacao).
+      await c.query(`delete from public.user_permissions where user_id = $1`, [SEM_PERM]);
+      await c.query(
+        `insert into public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
+         values ($1, $2, 'criacao_planejamento', true, true), ($1, $2, 'criacao_planejamento:custos', true, false)`,
+        [SEM_PERM, TENANT_TESTE],
+      );
       await c.query(`select set_config('request.jwt.claims', $1, true)`, [
         JSON.stringify({ sub: SEM_PERM, role: "authenticated" }),
       ]);

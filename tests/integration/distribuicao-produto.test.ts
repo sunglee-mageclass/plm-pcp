@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal, semJwt } from "./db";
 import { S1_MD5 } from "./seg-s1-helpers";
+import { md5OuSucessorS3c } from "./seg-s3c-helpers";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { voltaPrecoVersaoSePreciso } from "./integracao-helpers";
 
@@ -373,6 +374,8 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       for (const [i, f] of REDEF.entries()) {
         const d = (await def(c, f.fn))!;
         if (TAMANHO_EM[f.arq] && md5(d) === TAMANHO_EM[f.arq]) continue;
+        // Reforço de segurança S3c (20261101160000, B3) redefine _plan_tecido_arvore_core por cima de "Tamanho em" — sucessor aceito
+        if (TAMANHO_EM[f.arq] && md5OuSucessorS3c(f.fn, TAMANHO_EM[f.arq]).slice(1).includes(md5(d))) continue;
         // Reforço de segurança S1 (20261031150000, OPT-1) redefine tenant_module_enabled por cima ('etapas_pl') — sucessor aceito
         if (f.fn === "public.tenant_module_enabled(text)" && md5(d) === S1_MD5["public.tenant_module_enabled(text)"].depois) continue;
         expect(d, f.arq).toBe(corpo(MIG, f.cria) + "\n");

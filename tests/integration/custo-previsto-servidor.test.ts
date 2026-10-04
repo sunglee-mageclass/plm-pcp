@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, withTx, comoUsuario, semUsuario, um, dbUrl, ehBancoLocal, TENANT_TESTE } from "./db";
+import { semeiaLegadoSemB3 } from "./seg-s3c-helpers";
 import {
   CASO_MODELO,
   CASOS_ADICIONAIS,
@@ -862,9 +863,10 @@ describe.skipIf(!PRONTO)("C1 (h) — fix round G-MIGRATION", () => {
       await vincular(c, m, "forro", 1, local.vt, itemFora);
       const la = (await um<{ id: string }>(c,
         `INSERT INTO public.modelo_aviamentos (modelo_id, aviamento_id, numero, consumo, loss_percent) VALUES ($1, $2, 1, 1, 0) RETURNING id`, [m, aviFora])).id;
-      const le = (await um<{ id: string }>(c,
+      // vínculo legado de OUTRA loja (de antes do B3 da S3c — com ela viva a semente passa sem o gatilho)
+      const le = (await semeiaLegadoSemB3(c, "modelo_etiquetas", () => um<{ id: string }>(c,
         `INSERT INTO public.modelo_etiquetas (tenant_id, modelo_id, etiqueta_id, cor_id, numero, consumo, loss_percent) VALUES ($1, $2, $3, $4, 1, 1, 0) RETURNING id`,
-        [T, m, etqFora, k.X])).id;
+        [T, m, etqFora, k.X]))).id;
       await imediato(c);
       expect(await custoLinha(c, "modelo_tecidos", lFora)).toBe(0); // artigo da linha de outra loja
       expect(await custoLinha(c, "modelo_tecidos", lSub)).toBe(7); // substituto de outra loja não entra no MAX

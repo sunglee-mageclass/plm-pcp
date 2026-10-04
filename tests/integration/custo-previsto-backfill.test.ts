@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, dbUrl, ehBancoLocal, TENANT_TESTE } from "./db";
+import { semeiaLegadoSemB3 } from "./seg-s3c-helpers";
 import {
   CASOS_AVIAMENTO,
   CASOS_ETIQUETA,
@@ -417,10 +418,11 @@ async function montarFixtures(c: Client): Promise<string[]> {
     `INSERT INTO public.variantes_etiqueta (tenant_id, etiqueta_id, tamanho, cor_id, preco) VALUES ($1, $2, 'U', $3, 0.9)`,
     [OUTRA_LOJA, etqFora, k.X],
   );
-  await c.query(
+  // vínculo legado de OUTRA loja (de antes do B3 da S3c — com ela viva a semente passa sem o gatilho)
+  await semeiaLegadoSemB3(c, "modelo_etiquetas", () => c.query(
     `INSERT INTO public.modelo_etiquetas (tenant_id, modelo_id, etiqueta_id, cor_id, numero, consumo, loss_percent) VALUES ($1, $2, $3, $4, 1, 1, 0)`,
     [T, m3, etqFora, k.X],
-  );
+  ));
   // M.O. (3 casas: a peça é comparada ARREDONDADA) + adicionais com lixo (R-CD6)
   const mMo = await modelo(c);
   ids.push(mMo);
