@@ -57,6 +57,7 @@ import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeLinhas, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useRequerModulo } from "@/hooks/useRequerModulo";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { isServicoPL } from "@/lib/servico-confeccao";
 import { EtapasPlPanel } from "@/components/producao/EtapasPlPanel";
@@ -1084,6 +1085,8 @@ export function TerceirizadosDetail({
 
   // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
   const [voltarOpen, setVoltarOpen] = useState(false);
+  // [modularidade F2, T1 review M2] `reverter_corte_tecido` exige Entrada e Saída no servidor: sem ela o botão some (não vira erro).
+  const podeReverterCorte = useRequerModulo("entrada_saida").ok;
   const reverterImpacto = useReverterImpacto(cad?.id, voltarOpen);
   const voltarMut = useMutation({
     mutationFn: async () => {
@@ -1163,7 +1166,7 @@ export function TerceirizadosDetail({
   );
   // "Voltar uma etapa" (secundário) vive na barra de ações do rodapé, logo à ESQUERDA
   // do Salvar (que fica na extrema direita com ml-auto). Empurrado p/ a direita por ml-auto.
-  const voltarEtapaButton = cad?.id ? (
+  const voltarEtapaButton = cad?.id && podeReverterCorte ? (
     <Button className="ml-auto" variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || readOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
       <Undo2 className="h-4 w-4" />
     </Button>

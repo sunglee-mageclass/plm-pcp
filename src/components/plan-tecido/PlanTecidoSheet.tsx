@@ -43,6 +43,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useRequerModulo } from "@/hooks/useRequerModulo";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
 import { difVariantes, aplicarDifNoMaterial, indiceMaterialCorrespondente } from "@/lib/plan-tecido/replicar-variantes";
@@ -498,6 +500,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // com a query desabilitada (tenant ainda não resolvido) `isLoading` é FALSE e a 1ª carga leria o módulo "desligado".
   const { isModuleEnabled, isFetched: modulosProntos } = useTenantModules();
   const distribOn = isModuleEnabled("distribuicao");
+  // [modularidade F2, F4b] "Fazer pedido" cria OC de tecido = Entrada e Saída (o servidor recusa sem ela): avisa ANTES.
+  const requerEsPedido = useRequerModulo("entrada_saida");
   const distOpts = useMemo<OpcoesDist>(() => ({ ligado: distribOn, tamanhos }), [distribOn, tamanhos]);
   // PR12: sem permissão de editar, a carga que recalcula só AVISA (não suja — não dá para salvar).
   const paginaSoLeitura = useReadOnly();
@@ -1669,6 +1673,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // carrinho: slotOcMap ∪ vinculosMap por slot/modelo). Comprados NÃO bloqueiam — ficam fora do
   // pedido, com aviso.
   function handleFazerPedidoSelecaoClick() {
+    if (!requerEsPedido.ok) { toast.error(requerEsPedido.motivo); return; }
     const itens = slotsDaSelecao();
     const comprado = (slot: PtSlot): boolean =>
       ((slot.id ? slotOcMap[slot.id] : undefined)?.length ?? 0) > 0 ||
@@ -1945,9 +1950,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                 <Plus className="h-4 w-4" /><span className="max-sm:sr-only"> {criandoCards ? "Criando…" : "Criar cards"}</span>
               </Button>
               {/* Fazer pedido (principal) — ícone carrinho no mobile. G5: pula os já comprados. */}
-              <Button size="sm" variant="default" aria-label="Fazer pedido" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={preparandoPedidoSelecao} onClick={handleFazerPedidoSelecaoClick}>
+              <Button size="sm" variant="default" aria-label="Fazer pedido" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={preparandoPedidoSelecao || !requerEsPedido.ok} onClick={handleFazerPedidoSelecaoClick}>
                 <ShoppingCart className="h-4 w-4" /><span className="max-sm:sr-only"> {preparandoPedidoSelecao ? "Carregando…" : "Fazer pedido"}</span>
               </Button>
+              {/* [modularidade F2] o motivo (sem Entrada e Saída) abre também com toque no celular. */}
+              {!requerEsPedido.ok && requerEsPedido.faltam.length > 0 && (
+                <InfoHover ariaLabel="Por que não faz pedido">{requerEsPedido.motivo}</InfoHover>
+              )}
               {/* Limpar — ícone vassoura no mobile. */}
               <Button size="sm" variant="ghost" aria-label="Limpar seleção" className="gap-1 text-xs text-muted-foreground max-sm:aspect-square max-sm:px-0" onClick={() => setSelecao(new Set())}><BrushCleaning className="h-4 w-4" /><span className="max-sm:sr-only"> Limpar</span></Button>
             </div>

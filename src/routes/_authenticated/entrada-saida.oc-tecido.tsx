@@ -52,6 +52,7 @@ import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
+import { useRequerModulo } from "@/hooks/useRequerModulo";
 import {
   emptyDraft, uploadFile, fmtDate, fmtMoney, labelVariante, metragemPedidaItem, precoItem,
   type Artigo, type Colab, type Draft, type Empresa, type ItemDraft,
@@ -573,11 +574,14 @@ function ConfirmarRecebimentoDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  // [modularidade F2, F11] "gera as contas a pagar no Financeiro" (e o preview das parcelas) só com o módulo Financeiro ligado;
+  // sem ele o recebimento só registra a entrada (nada é prometido nem mostrado).
+  const financeiroOn = useRequerModulo("financeiro").ok;
   // Parcelas JÁ PAGAS da OC (sobrevivem ao desmarcar-recebido): o servidor as
   // preserva e redistribui só o restante — o preview espelha isso.
   const { data: pagas = [] } = useQuery({
     queryKey: ["oc-tecido-parcelas-pagas", ocId],
-    enabled: !!ocId,
+    enabled: !!ocId && financeiroOn,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("parcelas")
@@ -597,11 +601,17 @@ function ConfirmarRecebimentoDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Marcar como recebido?</AlertDialogTitle>
           <AlertDialogDescription>
-            Isto registra a entrada e gera as contas a pagar no Financeiro conforme o prazo{" "}
-            <b>{prazoPagamento || "—"}</b>.
+            {financeiroOn ? (
+              <>
+                Isto registra a entrada e gera as contas a pagar no Financeiro conforme o prazo{" "}
+                <b>{prazoPagamento || "—"}</b>.
+              </>
+            ) : (
+              "Isto registra a entrada do material."
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {rows.length > 0 ? (
+        {!financeiroOn ? null : rows.length > 0 ? (
           <div className="max-h-64 overflow-y-auto rounded-md border">
             <table className="w-full text-sm">
               <thead>
@@ -629,7 +639,7 @@ function ConfirmarRecebimentoDialog({
         ) : (
           <p className="text-sm text-muted-foreground">Nenhuma parcela será gerada (OC sem valor real a pagar).</p>
         )}
-        {pagoTotal > 0 && (
+        {financeiroOn && pagoTotal > 0 && (
           <p className="text-xs text-muted-foreground">
             Parcelas já pagas ({fmtMoney(pagoTotal)}) são preservadas; o restante é redistribuído.
           </p>

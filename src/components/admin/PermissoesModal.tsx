@@ -4,7 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
-import { PAGES_CATALOG, ALL_PAGE_KEYS, DASHBOARD_DADOS_ABAS, DASHBOARD_DADOS_INFO, DASHBOARD_LEADTIME_HINT, type ModuleDef, type PageDef } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, ALL_PAGE_KEYS, DASHBOARD_DADOS_ABAS, DASHBOARD_DADOS_INFO, DASHBOARD_LEADTIME_HINT, paginaComModuloDesligado, type ModuleDef, type PageDef } from "@/lib/permissions-catalog";
+import { useModulosDaLoja } from "@/hooks/useModulosDaLoja";
 import { savePermissions } from "@/lib/tenant-admin.functions";
 import { savePermissionsAsSuperAdmin } from "@/lib/admin.functions";
 import { salvarPapel } from "@/lib/papeis.functions";
@@ -60,8 +61,19 @@ function splitDashboardPages(m: ModuleDef): { abas: PageDef[]; dados: PageDef[] 
   return { abas, dados };
 }
 
+// [modularidade F2, F10] selo da linha de página cujo módulo está desligado NA LOJA do usuário/papel editado: linha esmaecida,
+// checkboxes desabilitados e o valor gravado segue no estado/payload (o `set_user_permissions` grava o delta — sumir com a
+// linha apagaria o acesso ao religar o módulo).
+function SeloModuloDesligado() {
+  return <span className="ml-1.5 text-xs text-muted-foreground">(módulo desligado)</span>;
+}
+const LINHA_DESLIGADA = " opacity-50";
+
 export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const qc = useQueryClient();
+  // Módulos da loja do usuário EDITADO (o super admin edita gente de outra loja): `null` enquanto carrega = nada esmaecido.
+  const { modules: modulosAlvo } = useModulosDaLoja(user.tenant_id);
+  const desligada = (key: string) => paginaComModuloDesligado(key, modulosAlvo);
   // Admins (admin/tenant_admin/super_admin) furam user_can_view → têm acesso total a TODAS as
   // páginas, EXCETO a Integração (P-107 A) — essa é a ÚNICA página onde um admin não é bypass:
   // a permissão real vem de `existing`, como um usuário comum, e só o super admin concede.
@@ -160,6 +172,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       if (!mod) return s;
       const next = { ...s };
       for (const p of mod.pages) {
+        if (desligada(p.key)) continue; // módulo desligado na loja: o valor gravado não muda pelo "marcar todos"
         // Permissão-só (soEdicao): só o master "Editor" a afeta; o master "Leitor" a IGNORA
         // (senão desmarcar Leitor revogaria a aprovação em silêncio — a coluna Leitor dela é "—").
         if (p.soEdicao) {
@@ -260,6 +273,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         <strong>Editor:</strong> pode visualizar e também criar, editar ou excluir
         registros (inclui acesso de leitor).
       </p>
+      {modulosAlvo && ALL_PAGE_KEYS.some(desligada) && (
+        <p className="text-xs rounded-md border bg-muted/40 text-muted-foreground px-3 py-2 mt-2">
+          As páginas de módulos <strong>desligados nesta loja</strong> aparecem esmaecidas e não podem ser alteradas aqui.
+          O que já estava marcado é mantido e volta a valer se o módulo for ligado.
+        </p>
+      )}
       {isAdminRole && (
         <p className="text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2 mt-2">
           {viewerESuperAdmin
@@ -283,14 +302,18 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
           <p className="text-sm text-muted-foreground">Carregando…</p>
         ) : (
           catalogo.map((m) => {
-            const allVer = m.pages.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
-            const allEdit = m.pages.every((p) => state[p.key]?.pode_editar);
+            // Master "marcar todos" só olha as páginas de módulo LIGADO; todas desligadas = master desabilitado e vazio.
+            const ativas = m.pages.filter((p) => !desligada(p.key));
+            const moduloTodoDesligado = m.pages.length > 0 && ativas.length === 0;
+            const allVer = !moduloTodoDesligado && ativas.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
+            const allEdit = !moduloTodoDesligado && ativas.every((p) => state[p.key]?.pode_editar);
             const { abas, dados } = splitDashboardPages(m);
             const renderPagina = (p: (typeof m.pages)[number]) => (
               <Fragment key={p.key}>
-                <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                <div className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
                   <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">
                     {p.label}
+                    {desligada(p.key) && <SeloModuloDesligado />}
                     {/* F5c review (I-1): hint só na linha-aba Leadtime — a mesma permissão também
                         libera os números de leadtime dentro da aba Desenvolvimento. */}
                     {p.key === "dashboard_leadtime" && (
@@ -303,7 +326,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     ) : (
                     <Checkbox
                       id={`${p.key}-ver`}
-                      disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                      disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || desligada(p.key)}
                       className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_ver") ? "opacity-40" : undefined}
                       checked={state[p.key]?.pode_ver ?? false}
                       onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
@@ -312,7 +335,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                   </div>
                   <div className="flex justify-center">
                     <Checkbox
-                      disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                      disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || desligada(p.key)}
                       className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_editar") ? "opacity-40" : undefined}
                       checked={state[p.key]?.pode_editar ?? false}
                       onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
@@ -323,12 +346,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     pertence ao módulo Integração — ehChaveIntegracao(s.key) é defensivo (mesma
                     regra da página-mãe, caso uma seção `integracao:*` apareça no futuro). */}
                 {p.sections?.map((s) => (
-                  <div key={s.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20">
+                  <div key={s.key} className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
                     <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
                     <div className="flex justify-center">
                       <Checkbox
                         id={`${s.key}-ver`}
-                        disabled={isAdminRole && !ehChaveIntegracao(s.key)}
+                        disabled={(isAdminRole && !ehChaveIntegracao(s.key)) || desligada(p.key)}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_ver") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_ver ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
@@ -336,7 +359,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center">
                       <Checkbox
-                        disabled={isAdminRole && !ehChaveIntegracao(s.key)}
+                        disabled={(isAdminRole && !ehChaveIntegracao(s.key)) || desligada(p.key)}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_editar") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_editar ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}
@@ -348,13 +371,13 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
             );
             return (
               <div key={m.module}>
-                <h3 className="text-sm font-semibold mb-2">{m.label}</h3>
+                <h3 className="text-sm font-semibold mb-2">{m.label}{moduloTodoDesligado && <SeloModuloDesligado />}</h3>
                 <div className="border rounded-md divide-y">
                   <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 text-xs text-muted-foreground bg-muted/40 items-center">
                     <span>Página</span>
                     <div className="flex justify-center items-center gap-1">
                       <Checkbox
-                        disabled={isAdminRole && m.module !== "integracao"}
+                        disabled={(isAdminRole && m.module !== "integracao") || moduloTodoDesligado}
                         checked={allVer}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_ver", !!v)}
                         aria-label={`Marcar todos como leitor em ${m.label}`}
@@ -363,7 +386,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center items-center gap-1">
                       <Checkbox
-                        disabled={isAdminRole && m.module !== "integracao"}
+                        disabled={(isAdminRole && m.module !== "integracao") || moduloTodoDesligado}
                         checked={allEdit}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_editar", !!v)}
                         aria-label={`Marcar todos como editor em ${m.label}`}
@@ -384,9 +407,9 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     const abasQueAlimenta = DASHBOARD_DADOS_ABAS[p.key] ?? [];
                     return (
                       <Fragment key={p.key}>
-                        <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                        <div className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
                           <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">
-                            <span className="pl-3">↳ {p.label}</span>
+                            <span className="pl-3">↳ {p.label}{desligada(p.key) && <SeloModuloDesligado />}</span>
                             {abasQueAlimenta.length > 0 && (
                               <span className="block pl-3 text-xs text-muted-foreground">
                                 alimenta: {abasQueAlimenta.join(", ")}
@@ -396,7 +419,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                           <div className="flex justify-center">
                             <Checkbox
                               id={`${p.key}-ver`}
-                              disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                              disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || desligada(p.key)}
                               className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_ver") ? "opacity-40" : undefined}
                               checked={state[p.key]?.pode_ver ?? false}
                               onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
@@ -404,7 +427,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                           </div>
                           <div className="flex justify-center">
                             <Checkbox
-                              disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                              disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || desligada(p.key)}
                               className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_editar") ? "opacity-40" : undefined}
                               checked={state[p.key]?.pode_editar ?? false}
                               onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
@@ -453,6 +476,9 @@ export type PapelEditorProps = {
 
 export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
   const qc = useQueryClient();
+  // Módulos da loja DONA do papel: página de módulo desligado esmaecida (valor mantido no payload).
+  const { modules: modulosAlvo } = useModulosDaLoja(papel.tenant_id);
+  const desligada = (key: string) => paginaComModuloDesligado(key, modulosAlvo);
   const callSalvar = useServerFn(salvarPapel);
 
   const { data: existing, isLoading } = useQuery({
@@ -506,6 +532,7 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
       if (!mod) return s;
       const next = { ...s };
       for (const p of mod.pages) {
+        if (desligada(p.key)) continue; // módulo desligado na loja: o valor gravado não muda pelo "marcar todos"
         if (p.soEdicao) {
           if (field === "pode_editar") next[p.key] = { ...next[p.key], pode_editar: v };
           continue;
@@ -581,19 +608,28 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
           <strong>Leitor:</strong> acessa e visualiza.{" "}
           <strong>Editor:</strong> visualiza e altera (inclui leitura).
         </p>
+        {modulosAlvo && ALL_PAGE_KEYS.some(desligada) && (
+          <p className="text-xs rounded-md border bg-muted/40 text-muted-foreground px-3 py-2">
+            As páginas de módulos <strong>desligados nesta loja</strong> aparecem esmaecidas e não podem ser alteradas aqui.
+            O que já estava marcado é mantido e volta a valer se o módulo for ligado.
+          </p>
+        )}
         <div className="space-y-6">
           {isLoading && papel.id ? (
             <p className="text-sm text-muted-foreground">Carregando…</p>
           ) : (
             catalogoSemIntegracao.map((m) => {
-              const allVer = m.pages.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
-              const allEdit = m.pages.every((p) => state[p.key]?.pode_editar);
+              const ativas = m.pages.filter((p) => !desligada(p.key));
+              const moduloTodoDesligado = m.pages.length > 0 && ativas.length === 0;
+              const allVer = !moduloTodoDesligado && ativas.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
+              const allEdit = !moduloTodoDesligado && ativas.every((p) => state[p.key]?.pode_editar);
               const { abas, dados } = splitDashboardPages(m);
               const renderPagina = (p: (typeof m.pages)[number]) => (
                 <Fragment key={p.key}>
-                  <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                  <div className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
                     <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">
                       {p.label}
+                      {desligada(p.key) && <SeloModuloDesligado />}
                       {p.key === "dashboard_leadtime" && (
                         <span className="block text-xs text-muted-foreground">{DASHBOARD_LEADTIME_HINT}</span>
                       )}
@@ -602,21 +638,21 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                       {p.soEdicao ? (
                         <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
                       ) : (
-                        <Checkbox id={`papel-${p.key}-ver`} checked={state[p.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)} />
+                        <Checkbox id={`papel-${p.key}-ver`} disabled={desligada(p.key)} checked={state[p.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)} />
                       )}
                     </div>
                     <div className="flex justify-center">
-                      <Checkbox checked={state[p.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)} />
+                      <Checkbox disabled={desligada(p.key)} checked={state[p.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)} />
                     </div>
                   </div>
                   {p.sections?.map((s) => (
-                    <div key={s.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20">
+                    <div key={s.key} className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
                       <Label htmlFor={`papel-${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
                       <div className="flex justify-center">
-                        <Checkbox id={`papel-${s.key}-ver`} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
+                        <Checkbox id={`papel-${s.key}-ver`} disabled={desligada(p.key)} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
                       </div>
                       <div className="flex justify-center">
-                        <Checkbox checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
+                        <Checkbox disabled={desligada(p.key)} checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
                       </div>
                     </div>
                   ))}
@@ -624,16 +660,16 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
               );
               return (
                 <div key={m.module}>
-                  <h3 className="text-sm font-semibold mb-2">{m.label}</h3>
+                  <h3 className="text-sm font-semibold mb-2">{m.label}{moduloTodoDesligado && <SeloModuloDesligado />}</h3>
                   <div className="border rounded-md divide-y">
                     <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 text-xs text-muted-foreground bg-muted/40 items-center">
                       <span>Página</span>
                       <div className="flex justify-center items-center gap-1">
-                        <Checkbox checked={allVer} onCheckedChange={(v) => toggleAllInModule(m.module, "pode_ver", !!v)} aria-label={`Marcar todos como leitor em ${m.label}`} />
+                        <Checkbox disabled={moduloTodoDesligado} checked={allVer} onCheckedChange={(v) => toggleAllInModule(m.module, "pode_ver", !!v)} aria-label={`Marcar todos como leitor em ${m.label}`} />
                         <span>Leitor</span>
                       </div>
                       <div className="flex justify-center items-center gap-1">
-                        <Checkbox checked={allEdit} onCheckedChange={(v) => toggleAllInModule(m.module, "pode_editar", !!v)} aria-label={`Marcar todos como editor em ${m.label}`} />
+                        <Checkbox disabled={moduloTodoDesligado} checked={allEdit} onCheckedChange={(v) => toggleAllInModule(m.module, "pode_editar", !!v)} aria-label={`Marcar todos como editor em ${m.label}`} />
                         <span>Editor</span>
                       </div>
                     </div>
@@ -650,9 +686,9 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                       const abasQueAlimenta = DASHBOARD_DADOS_ABAS[p.key] ?? [];
                       return (
                         <Fragment key={p.key}>
-                          <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                          <div className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
                             <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">
-                              <span className="pl-3">↳ {p.label}</span>
+                              <span className="pl-3">↳ {p.label}{desligada(p.key) && <SeloModuloDesligado />}</span>
                               {abasQueAlimenta.length > 0 && (
                                 <span className="block pl-3 text-xs text-muted-foreground">
                                   alimenta: {abasQueAlimenta.join(", ")}
@@ -660,10 +696,10 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                               )}
                             </Label>
                             <div className="flex justify-center">
-                              <Checkbox id={`papel-${p.key}-ver`} checked={state[p.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)} />
+                              <Checkbox id={`papel-${p.key}-ver`} disabled={desligada(p.key)} checked={state[p.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)} />
                             </div>
                             <div className="flex justify-center">
-                              <Checkbox checked={state[p.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)} />
+                              <Checkbox disabled={desligada(p.key)} checked={state[p.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)} />
                             </div>
                           </div>
                         </Fragment>

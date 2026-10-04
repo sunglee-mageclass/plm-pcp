@@ -275,6 +275,39 @@ export const ALL_PAGE_KEYS: PageKey[] = PAGES_CATALOG.flatMap((m) =>
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Editor de permissões × módulos da loja [modularidade F2, F10/T11]. Página (ou seção dela) cujo módulo — o do
+// `ModuleDef` (`gate ?? module`) ou o `gate` da própria `PageDef` — está DESLIGADO na loja do usuário editado aparece
+// esmaecida "(módulo desligado)" e sem checkbox; o valor gravado NÃO some do estado (o `set_user_permissions` grava o
+// delta: perder a linha apagaria o acesso ao religar o módulo).
+// ─────────────────────────────────────────────────────────────────────────────
+/** Permissão que segue editável com o módulo da página desligado: "Aprovação de mão de obra" é decisão da Criação (Sheet do
+ *  Planejamento) e vale numa loja sem Produção (a página-mãe `pcp` é só onde a chave mora no catálogo). */
+const PAGINAS_SEMPRE_EDITAVEIS: ReadonlySet<string> = new Set(["producao_servico_aprovacao"]);
+
+/** key da página/seção → chaves de contratação que ela exige (módulo do bloco + gate da própria página). */
+const MODULOS_DA_PAGINA: ReadonlyMap<string, string[]> = new Map(
+  PAGES_CATALOG.flatMap((m) =>
+    m.pages.flatMap((p) => {
+      const chaves = [m.gate ?? m.module, ...(p.gate ? [p.gate] : [])];
+      return [[p.key, chaves] as const, ...(p.sections ?? []).map((s) => [s.key, chaves] as const)];
+    }),
+  ),
+);
+
+/** Chaves de módulo que a página exige e a loja tem DESLIGADAS. `modules` = mapa JÁ RESOLVIDO da loja (com os padrões:
+ *  `useTenantModules().modules` / `resolverModulos`); chave fora de `ModuleKey` (ex.: `importar`) nunca conta como desligada.
+ *  `null` (ainda não carregou / erro) = nada desligado (não esmaece o que não se sabe). */
+export function modulosDesligadosDaPagina(pageKey: PageKey, modules: Partial<Record<ModuleKey, boolean>> | null): string[] {
+  if (!modules || PAGINAS_SEMPRE_EDITAVEIS.has(pageKey)) return [];
+  return (MODULOS_DA_PAGINA.get(pageKey) ?? []).filter((k) => (modules as Record<string, boolean | undefined>)[k] === false);
+}
+
+/** A página (ou seção) pertence a módulo desligado na loja? (ver `modulosDesligadosDaPagina`). */
+export function paginaComModuloDesligado(pageKey: PageKey, modules: Partial<Record<ModuleKey, boolean>> | null): boolean {
+  return modulosDesligadosDaPagina(pageKey, modules).length > 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // F5c (P-112 A, 28/set) — Dashboard: as 6 chaves de DADOS acima (`dashboard_colecao/estoque/
 // producao/financeiro/custos/comercial`) continuam INTACTAS (mesmas keys, mesmo payload) — o
 // banco as usa direto nos gates de RPC + `_pode_ver_custos`. Isso aqui é só metadado de EXIBIÇÃO:

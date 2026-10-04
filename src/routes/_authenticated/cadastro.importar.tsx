@@ -20,6 +20,8 @@ import { PageActionBar } from "@/components/shared/PageActionBar";
 import { AbaAnalise, contarPendencias } from "@/components/importar/AbaAnalise";
 import { alvosDeFoto, casarFotos } from "@/lib/import/foto-match";
 import { DESCRIPTORS, descriptorPorEntidade } from "@/lib/import/registry";
+import { descritoresOferecidos, entidadeOferecida } from "@/lib/import/oferta";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { lerWorkbook, parseAba } from "@/lib/import/parse";
 import { carregarLookups, carregarOpcoes, type OpcoesLookup } from "@/lib/import/lookup";
 import { agregar, type AgregadoResult } from "@/lib/import/aggregate";
@@ -51,6 +53,13 @@ type EstadoTipo = {
 function ImportarDadosPage() {
   const readOnly = useReadOnly();
   const qc = useQueryClient();
+  // [modularidade F2, F4e] só oferece o que a loja tem: Modelo = Criação; Produto = Produto Acabado OU Importado.
+  const { modules } = useTenantModules();
+  const { criacao, produto_acabado, produto_importado } = modules;
+  const descritores = useMemo(
+    () => descritoresOferecidos(DESCRIPTORS, { criacao, produto_acabado, produto_importado }),
+    [criacao, produto_acabado, produto_importado],
+  );
   const [fase, setFase] = useState<Fase>("vazio");
   // resultado por tipo, na ordem de DESCRIPTORS (só os tipos presentes no arquivo).
   const [porTipo, setPorTipo] = useState<Record<string, EstadoTipo>>({});
@@ -64,8 +73,8 @@ function ImportarDadosPage() {
 
   // tipos analisados, na ordem canônica de DESCRIPTORS (dependências primeiro: tecido→aviamento→insumo).
   const tiposAtivos = useMemo(
-    () => DESCRIPTORS.map((d) => d.entidade).filter((e) => porTipo[e]),
-    [porTipo],
+    () => descritores.map((d) => d.entidade).filter((e) => porTipo[e]),
+    [descritores, porTipo],
   );
 
   const resetar = () => {
@@ -81,7 +90,7 @@ function ImportarDadosPage() {
 
   const onBaixarModelo = () => {
     try {
-      baixarTemplate(DESCRIPTORS);
+      baixarTemplate(descritores);
       toast.success("Modelo baixado.");
     } catch (e) {
       toast.error(mensagemErro(e, "Erro ao gerar o modelo."));
@@ -105,8 +114,13 @@ function ImportarDadosPage() {
 
       const novos: Record<string, EstadoTipo> = {};
       const semLinhas: string[] = []; // abas presentes mas vazias (só exemplos/em branco)
+      const foraDaLoja: string[] = []; // abas com dados de um tipo que a loja não tem (módulo desligado) — não entram
       for (const desc of DESCRIPTORS) {
         const parsed = parseAba(wb, desc.sheetName, desc.colunas, "nome");
+        if (!entidadeOferecida(desc.entidade, modules)) {
+          if (parsed.encontrada && parsed.linhas.length > 0) foraDaLoja.push(desc.label);
+          continue;
+        }
         if (!parsed.encontrada || parsed.linhas.length === 0) {
           if (parsed.encontrada) semLinhas.push(desc.label);
           continue;
@@ -125,14 +139,16 @@ function ImportarDadosPage() {
       const tipos = Object.keys(novos);
       if (tipos.length === 0) {
         toast.error("Nenhuma aba com dados encontrada. Baixe o modelo, preencha e importe.");
+        if (foraDaLoja.length > 0) toast.info(`Ignorada (o módulo não está ligado nesta loja): ${foraDaLoja.join(", ")}.`);
         setFase("vazio");
         return;
       }
       setPorTipo(novos);
-      setAbaAtiva(DESCRIPTORS.find((d) => novos[d.entidade])?.entidade ?? tipos[0]);
+      setAbaAtiva(descritores.find((d) => novos[d.entidade])?.entidade ?? tipos[0]);
       setRelatorios(null);
       setFase("analisado");
       if (semLinhas.length > 0) toast.info(`Sem dados (ignorada): ${semLinhas.join(", ")}.`);
+      if (foraDaLoja.length > 0) toast.info(`Ignorada (o módulo não está ligado nesta loja): ${foraDaLoja.join(", ")}.`);
     } catch (err) {
       toast.error(mensagemErro(err, "Erro ao analisar a planilha."));
       setFase("vazio");

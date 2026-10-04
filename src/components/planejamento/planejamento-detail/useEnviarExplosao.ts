@@ -8,10 +8,13 @@ import { useMutation, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { RecusaEsperadaError } from "@/lib/categoria-card-produto";
 import type { Draft } from "@/components/planejamento/modelo-shared";
 
-export function useEnviarExplosao({ modeloId, qc, salvarAntes, draftLiveRef, onEnviado }: {
+export function useEnviarExplosao({ modeloId, qc, salvarAntes, draftLiveRef, bloqueioModulo, onEnviado }: {
   modeloId: string | null;
+  /** [modularidade F2] texto PT quando a loja não tem Entrada e Saída (a Explosão exige): o `mutationFn` recusa sem chamar a RPC. */
+  bloqueioModulo?: string | null;
   qc: QueryClient;
   salvarAntes: () => Promise<void>;
   draftLiveRef: RefObject<Draft>;
@@ -19,6 +22,7 @@ export function useEnviarExplosao({ modeloId, qc, salvarAntes, draftLiveRef, onE
 }) {
   return useMutation({
     mutationFn: async () => {
+      if (bloqueioModulo) throw new RecusaEsperadaError(bloqueioModulo);
       if (!modeloId) throw new Error("Salve o modelo primeiro.");
       // Salva o card antes de enviar (consumos/variantes/CAD corretos) — Dev :2404-2405.
       await salvarAntes();

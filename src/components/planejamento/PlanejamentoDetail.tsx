@@ -57,6 +57,7 @@ import { useGridCols } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useRequerModulo } from "@/hooks/useRequerModulo";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
@@ -313,6 +314,8 @@ function PlanejamentoDetailConteudo({
   const paOn = isModuleEnabled("produto_acabado");
   // F3.4 — Produto Importado (opt-in, `produto_importado`): Origem "Importado" no Select e a grade/seção do importado.
   const piOn = isModuleEnabled("produto_importado");
+  // [modularidade F2, F4a] Explosão = Entrada e Saída (T1: o servidor recusa `enviar_modelo_para_cad` sem E&S): o botão avisa ANTES.
+  const requerEs = useRequerModulo("entrada_saida");
   // isRevenda = ESPECÍFICO de revenda (edição de preço atacado/grade via `produtos_acabados`).
   // isComprado = revenda OU importado — a semântica "comprado vs fabricado" (esconder tecido/
   // custo/MO). Importado tem tela própria de edição (`criacao.produto-importado`), então aqui
@@ -957,6 +960,7 @@ function PlanejamentoDetailConteudo({
   // F3.3 — Enviar à Explosão (Dev :2402-2433): Salvar + `enviar_modelo_para_cad`; pós-envio re-trava e avisa a lista.
   const enviarExplosao = useEnviarExplosao({
     modeloId, qc, salvarAntes, draftLiveRef,
+    bloqueioModulo: requerEs.ok ? null : requerEs.motivo,
     onEnviado: () => { setEditandoDev(false); onSaved(); },
   });
   // F3.3 — Importar dados (Dev :2328-2400): staging no rascunho/BOM/CAD (só o Salvar grava); obs. do bloco grava na hora.
@@ -1432,6 +1436,7 @@ function PlanejamentoDetailConteudo({
   // "carregando" pra sempre — o guard antigo nunca saía desse estado com a query falhada) e NUNCA destrava o
   // envio sem a grade (mesma trava de antes, só troca o texto).
   const motivoEnvioBloqueado: string | null = !mostraEnviarExplosao ? null
+    : !requerEs.ok ? requerEs.motivo
     : gradeComprado.gradeModeloError ? "Não foi possível carregar a grade — recarregue a página."
       : !ficha.carregado || !gradeCompradoPronta ? "Carregando a ficha…"
         : !podeEditarDev ? "Sem permissão para editar o Desenvolvimento."
@@ -2133,6 +2138,10 @@ function PlanejamentoDetailConteudo({
                 {motivoEnvioBloqueado && <TooltipContent className="max-w-[260px]">{motivoEnvioBloqueado}</TooltipContent>}
               </Tooltip>
             </TooltipProvider>
+          )}
+          {/* [modularidade F2] Toque no celular não tem hover: o motivo do módulo também sai num InfoHover ao lado do botão. */}
+          {mostraEnviarExplosao && !requerEs.ok && requerEs.faltam.length > 0 && (
+            <InfoHover ariaLabel="Por que não envia à Explosão">{requerEs.motivo}</InfoHover>
           )}
           {/* Trava pós-Explosão (decisão F3 #1): "Editar" destrava os campos vindos do Dev (BOM e CAD incluídos); o Salvar re-trava. */}
           {isEdit && enviadoCad && !editandoDev && podeEditarDev && (

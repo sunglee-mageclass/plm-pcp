@@ -31,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { blocosConfigVisiveis } from "@/lib/config-loja-blocos";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -348,6 +349,8 @@ function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
   const { modules, isStockOnly } = useTenantModules();
+  // [modularidade F2, F9] blocos por módulo (esconder NÃO apaga o que está gravado: o Salvar manda só o que mudou).
+  const blocos = blocosConfigVisiveis(modules, isStockOnly);
   const [cfg, setCfg] = useState<ConfigState>(DEFAULTS);
   // Espelha `cfg` p/ o useEffect do eco (fix round 2) ler o valor JÁ na tela sem depender do
   // closure do render que agendou o efeito (evita staleness entre múltiplos setState no meio).
@@ -1116,6 +1119,7 @@ function ConfiguracoesLojaPage() {
       {!isStockOnly && (<>
       {/* Serviços (categorias), Acabamento e Grade de Tamanhos migraram p/ Cadastro > Atributos.
           A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
+      {blocos.statusKanban && (
       <div data-colab-path="cfg:status_kanban" className={anelConflito("cfg:status_kanban")}>
       <SortableListCard
         title="Status do Kanban"
@@ -1182,6 +1186,7 @@ function ConfiguracoesLojaPage() {
                 nomeEtapa={nomeDaEtapa}
                 colabPath="cfg:kanban_requisitos"
               />
+              {blocos.envioExplosao && (
               <EnvioExplosaoToggle
                 label={label}
                 checked={checked}
@@ -1193,6 +1198,7 @@ function ConfiguracoesLojaPage() {
                   }))
                 }
               />
+              )}
               <RefExibirToggle
                 label={label}
                 checked={refChecked}
@@ -1226,12 +1232,14 @@ function ConfiguracoesLojaPage() {
         }}
         footer={
           <div className="space-y-1.5 border-t pt-3">
+            {blocos.envioExplosao && (
             <p className="text-xs text-muted-foreground">
               <Send className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
               Modelos podem ser enviados à Explosão a partir da etapa marcada (ou de
               etapas posteriores). Padrão: <span className="font-medium">Aprovado</span>.
             </p>
-            {explosaoOrphan && (
+            )}
+            {blocos.envioExplosao && explosaoOrphan && (
               <p className="text-xs text-amber-700 dark:text-amber-300">
                 {explosaoCfgSet
                   ? `A etapa marcada para Envio à Explosão ("${explosaoEffectiveKey.replace(/_/g, " ")}") não existe mais nas colunas do kanban. Enquanto não marcar outra, o envio volta a exigir "Aprovado".`
@@ -1278,19 +1286,22 @@ function ConfiguracoesLojaPage() {
         }
       />
       </div>
+      )}
 
+      {blocos.formatoRef && (
       <div data-colab-path="cfg:ref_config" className={anelConflito("cfg:ref_config")}>
         <FormatoRefCard
           value={cfg.ref_config}
           onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
         />
       </div>
+      )}
       {/* Formato do SKU grava sozinho (sku_config — fora do Salvar da página): só o anel de presença. */}
       <div data-colab-path="cfg:sku_config">
         <FormatoSkuCard paginaSuja={dirty} />
       </div>
 
-      {modules.produto_acabado && (
+      {blocos.fluxoRevenda && (
         <FluxoRevendaCard
           statusKanban={cfg.status_kanban}
           fluxoKeys={fluxoRevendaTela}
@@ -1314,7 +1325,7 @@ function ConfiguracoesLojaPage() {
         />
       </div>
 
-      {modules.etapas_pl && (
+      {blocos.etapasPl && (
         <div data-colab-path="cfg:pcp_etapas" className={anelConflito("cfg:pcp_etapas")}>
           <EtapasPLCard
             value={cfg.pcp_etapas}

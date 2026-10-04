@@ -188,7 +188,7 @@ function UsuariosLojaPage() {
         </Table>
       </div>
 
-      {permUser && <PermissoesModal mode="tenant" user={permUser} onClose={() => setPermUser(null)} />}
+      {permUser && <PermissoesModal mode="tenant" user={{ ...permUser, tenant_id: tenantId }} onClose={() => setPermUser(null)} />}
 
       {papeisOpen && tenantId && (
         <GerenciarPapeisDialog tenantId={tenantId} open={papeisOpen} onClose={() => setPapeisOpen(false)} />

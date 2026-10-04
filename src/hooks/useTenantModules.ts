@@ -65,6 +65,12 @@ const LANDING_ORDER: ModuleKey[] = [
   "cadastro",
 ];
 
+/** Mapa de módulos já resolvido (padrões + o que a loja gravou) — mesma conta do `useTenantModules`, reusável para a loja de
+ *  OUTRO usuário (editor de permissões, [modularidade F2]). */
+export function resolverModulos(raw: Partial<Record<ModuleKey, boolean>> | null | undefined): Record<ModuleKey, boolean> {
+  return { ...DEFAULTS, ...(raw ?? {}) };
+}
+
 export function useTenantModules() {
   const { tenantId, resolvido } = useActiveTenant();
   const { data, status, isFetched } = useQuery({
@@ -83,7 +89,7 @@ export function useTenantModules() {
   // DEFAULTS, comportamento de sempre) — nunca "Carregando" eterno. Sem loja (sem usuário) também é pronto.
   const pronto = resolvido && (tenantId === "" || status !== "pending");
 
-  const modules: Record<ModuleKey, boolean> = { ...DEFAULTS, ...(data ?? {}) };
+  const modules: Record<ModuleKey, boolean> = resolverModulos(data);
 
   const isModuleEnabled = (key: string) =>
     modules[key as ModuleKey] ?? DEFAULTS[key as ModuleKey] ?? true;
