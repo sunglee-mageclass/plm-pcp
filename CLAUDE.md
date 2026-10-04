@@ -576,8 +576,9 @@ e verifique** — o repo muda rápido.
    `tenants` são NO ACTION); super_admins nunca são apagados.
    **Reforço de segurança S1 (out/2026, `20261031130000`/`20261031140000`):** as 52 RPCs DEFINER que o `anon` executava
    perderam o EXECUTE de PUBLIC/anon (authenticated/service_role mantêm o grant explícito) e as funções de GATILHO DEFINER
-   perderam o de PUBLIC/anon/authenticated (gatilho segue disparando — EXECUTE só é conferido no CREATE TRIGGER). Só os 4
-   auxiliares de RLS (`tenant_module_enabled`, `user_can_edit`, `user_can_view`, `meu_tenant_ativo`) seguem com anon (S5).
+   perderam o de PUBLIC/anon/authenticated (gatilho segue disparando — EXECUTE só é conferido no CREATE TRIGGER). Os 4
+   auxiliares de RLS (`tenant_module_enabled`, `user_can_edit`, `user_can_view`, `meu_tenant_ativo`) perdem PUBLIC/anon na S5
+   (`20261101240000`; authenticated/service_role seguem): helper novo usado em policy lida pelo anon precisa de GRANT explícito.
    **Default ACL mudou (PRIV-2):** objeto NOVO criado pelo `postgres` em `public` nasce SEM anon (tabela/sequência/função),
    `authenticated` sem TRUNCATE/REFERENCES/TRIGGER e FUNÇÃO NOVA SEM EXECUTE para PUBLIC (authenticated e service_role seguem
    com X pela entrada de `public`). Consequências: RPC nova já nasce sem anon (o REVOKE dos 3 do `_core` continua obrigatório —
@@ -1574,6 +1575,19 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   - Trava: ShareRowExclusive só nas 13 (pegas juntas, `LOCK TABLE`, até 1500ms, 3 tentativas atômicas); nada em auth/storage.
   - Ensaio: `S4_TXN=1` (aplica a S3d/S3a antes se faltarem); `voltaS4SePreciso` roda dentro de `voltaS3d`. Volta LIFO: `230000_down`
     → `220000_down` → `_down_drop` opcional, ANTES da S3d.
+
+- **S5 "Faxina de privilégios" (ANON-3, PRIV-1, auxiliares do ANON-1; só GRANT/REVOKE; migration `20261101240000`, inverso `_down`
+  = a lista EXATA do que a ida tirou; gerador `.../mig/gerar-s5.mjs`):**
+  - **anon** não tem mais NENHUM privilégio de tabela em `public`, exceto **SELECT em `system_settings`** (identidade da tela de
+    login/Home deslogada; a imagem vem do bucket público `system-identity`, fora do `public`). ⚠️ Tela deslogada NOVA que leia outra
+    tabela precisa de `GRANT SELECT … TO anon` (e policy de anon) — senão "permission denied".
+  - **authenticated** sem TRUNCATE/REFERENCES/TRIGGER em todas as tabelas de `public` (pula RLS e gatilhos).
+  - Os 4 auxiliares de RLS sem EXECUTE de PUBLIC/anon (nenhuma policy que o anon avalia os usa — conferido por teste).
+  - Guarda: ACL NORMALIZADA (aclitems em ordem alfabética — um GRANT de volta recoloca o papel no fim) = o antes (estado de depois da
+    S3a..S4) ou o depois, nas 116 tabelas e nas 4 funções; pós-condição pega tabela nova com grant de anon (aí, gere de novo).
+  - Trava: só catálogo (medido). Ensaio `S5_TXN=1` (traz a cadeia S3a..S4 em ORDEM SEGURA — funções/gatilhos antes dos grants — se
+    faltar); `voltaS5SePreciso` roda dentro de TODO `aplica*`/`volta*` da S1..S4 (LIFO). Volta: `240000_down` ANTES de qualquer
+    inverso da S4/S3/S2/S1. Os reaplicar de S3d (210000) e S4 (230000) não pegam trava se os gatilhos já existem.
 
 ## O que NÃO fazer
 
