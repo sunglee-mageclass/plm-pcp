@@ -115,11 +115,79 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   string` em `permissions-catalog.ts` (mesmo conceito do `ModuleDef.gate`, mas por PÁGINA dentro
   de um módulo já ligado) — consumido por `app-sidebar.tsx`/`SectionHub.tsx` além do gate de
   módulo (`!p.gate || isModuleEnabled(p.gate)`).
-  As 2 rotas novas **não usam `ModuleGuard`** (mesmo precedente do `otb`: o hook
-  `useTenantModules().isLoading` tem uma corrida de render antes do `tenantId` resolver — cai
-  nos `DEFAULTS`=off e redireciona por engano numa navegação DIRETA por URL; bug pré-existente,
-  fora de escopo consertar aqui) — em vez disso renderizam um empty-state próprio quando o
-  módulo está OFF (mitigação de UI; ver invariante 13).
+  As 2 rotas novas **não usavam `ModuleGuard`** (o hook `useTenantModules().isLoading` tinha uma corrida de render
+  antes do `tenantId` resolver — caía nos `DEFAULTS`=off e redirecionava por engano numa navegação DIRETA por URL; bug
+  pré-existente) e renderizavam um empty-state próprio. **A corrida foi CONSERTADA na Modularidade (Parte 1):**
+  `useTenantModules` expõe `pronto` (a loja E a config dela já chegaram; `isLoading = !pronto`), quem decide
+  redirecionar ou mostrar "desativado" espera `pronto`, e os empty-states "Ative em Config da Loja" saíram — o aviso
+  único é `<ModuloDesligadoAviso>` (via `RequirePermission` + `PageDef.gate`; ver "Modularidade (out/2026)" abaixo e
+  invariante 13).
+- **Modularidade (out/2026, 15 partes; desenho/plano/relatórios em `.superpowers/sdd/2026-10-04-modularidade/`; migrations
+  `20261103100000..131000` (+ `20261103200000` = T5, `rev` 1×/transação, se já existir), inversos em `supabase/rollback/`):**
+  - **Mapa de dependências** `MODULE_DEPS`/`MODULE_ROTULO` (`src/lib/permissions-catalog.ts`, `faltasDeModulo`): fonte ÚNICA, **só em
+    código, SEM uso no Gerenciar Lojas** (P-251 C — dar módulo é do super admin, sem aviso nem bloqueio na tela). Quem lê:
+    `useRequerModulo`/`ModuloDesligadoAviso`, `RequirePermission` (`PageDef.gate`: Plan. Tecido = `otb`, Explosão = `criacao`),
+    o editor de permissões (página de módulo desligado esmaecida, SEM apagar a permissão gravada) e o anti-drift. Perfil por
+    `paginaNoPerfil` (P-256 A): OS Tecido/OS Aviamento/Destinos ficam visíveis enquanto a **Criação** estiver desligada (não só
+    no modo só-estoque) — OS sem Criação.
+  - **Dois helpers, duas regras (T1, `20261103100000`):** `_exige_modulos(VARIADIC text[])` = PORTÃO de módulo das RPCs (segue
+    `tenant_module_enabled`: super admin PASSA; `42501 modulo_desligado: a,b`, ASCII, na ordem dos argumentos; a tela traduz em
+    `mensagemModularidade`, `erro-mensagem.ts`); `_tenant_modulo_ligado(tenant, modulo)` = REGRA DE NEGÓCIO por loja (lê
+    `tenant_config.modules`, sem JWT, **SEM atalho de super admin**; EXECUTE só service_role). Recusar chamada = o 1º; o
+    comportamento que depende do módulo DA LOJA (Lançar, "não se aplica" do kanban, Dashboards) = o 2º. 37 wrappers portados:
+    Dashboards = `dashboard` (`dashboard_financeiro` também `financeiro`; M7: aba/bloco some sem o módulo-fonte), **Explosão =
+    Criação + E&S (`excluir_cad` só Criação)**, Plan. Tecido = `otb` (P-253 A), Revenda/Importado (P9) = `criar_card*` Criação e
+    `receber_oc_*` Criação + Produção. Anti-drift `tests/integration/mod-antidrift.test.ts`: toda chave de portão ∈ `ModuleKey`
+    (T1 M5), módulos do portão ⊆ {dono} ∪ `MODULE_DEPS[dono].exige` (RPC nova com `_exige_modulos` = acrescentar o dono em
+    `DONOS` do teste), lista opt-in IGUAL em `tenant_module_enabled`/`_tenant_modulo_ligado`/`useTenantModules.DEFAULTS`/
+    `admin/lojas.tsx MODULE_DEFAULTS` e nenhuma tabela do Realtime com policy RESTRICTIVE de SELECT fora da lista conhecida (M12).
+  - **Lançar sem Produção (P-252 A, T2, `20261103110000`):** `lancar_modelo` exige CQ liberado **SÓ quando a loja tem Produção**
+    (`_tenant_modulo_ligado(tenant,'producao')`); sem Produção basta M.O. aprovada + data (super admin segue a regra da LOJA).
+    Front: `bloqueiosLancar`/`prontoParaLancar({cqExigido})`/`textoLancarExige` (foguete do card sem data fica desabilitado).
+  - **Excluir coleção com cards = RECUSADO (P-255 A, T2):** `otb_excluir_colecao` dá P0001 `colecao_com_cards: N` (FOR UPDATE
+    na coleção antes de contar; **nunca apaga card**); `ExcluirColecaoDialog` lista os cards e não confirma; FK de coleção
+    ligada só por PA/PI vira texto em `erro-mensagem.ts`.
+  - **Kanban "não se aplica" (P-254 A, T3 `20261103120000` + F4):** condição de módulo desligado (10 chaves do mapa M5: 4 da
+    Explosão → Criação + E&S; 6 da Produção → Produção; `lancado` fora) vale `true` no **avaliador SQL único**
+    (`_avaliar_condicoes_kanban_core` via `_kanban_cond_na`) e no **espelho TS `condicoesForaDoModulo`** (`Condicao.requer` em
+    `src/lib/kanban-condicoes.ts`); nenhuma tela recalcula condição (todas leem o mapa da RPC). Detalhes no bloco "Motor de regras
+    do kanban". `salvar_loja` re-enfileira o kanban SÓ quando `modules` muda de verdade (`IS DISTINCT FROM`; só vale com a chave
+    do Kanban automático ligada).
+  - **Coleção pelo rótulo (M10/Parte 12):** regra única = nome da coleção do OTB (`colecao_id` → `colecoes.nome`, mesma loja),
+    senão o texto `modelos.colecao` com trim; vazio = `null`. SQL `_modelo_colecao_rotulo` (4 `_core` dos Dashboards + filtro) ≡ TS
+    `rotuloColecao*`/`comRotuloColecao*` (`src/lib/colecao-rotulo.ts`) ≡ `_integracao_extras->>'colecao'`; `colecao_preenchida`
+    vale com `colecao_id`. Toda tela que lê `modelos.colecao` pede o embed `colecoes(nome)` NO MESMO select e passa pelo rótulo
+    (anti-drift `tests/unit/colecao-rotulo-antidrift.test.ts`, por literal: selects curtos, `select("*")`, 2º select e filtros
+    `.in/.ilike/.or/.not` — lista de exceções VAZIA; quem só escreve a coluna não entra).
+  - **Reprovado (T4, `20261103130000` + `131000`):** CHECK `lower(btrim(...))` em `modelos.status_desenvolvimento`/`status_planejamento`
+    (`ADD … NOT VALID` — AccessExclusive só em `modelos`, ms — e `VALIDATE`, ShareUpdateExclusive em arquivo separado) + helper
+    `_modelo_eh_reprovado(sd, sp)`: **SQL NOVO usa o helper**; nada antigo foi redefinido (as 4 grafias ficam equivalentes pelo
+    DADO). ⚠️ (i) o helper tem `SET search_path` e por isso NÃO é inlinável: em varredura grande de `modelos` por linha, a grafia
+    `_kanban_norm` inline é equivalente e mais barata; (ii) o `_down_drop` varre o `prosrc` das funções de `public` INCLUSIVE
+    COMENTÁRIOS: não cite `_modelo_eh_reprovado`/`_exige_modulos`/`_tenant_modulo_ligado`/`_seg_exige_pagina` em comentário de
+    função que não os chama (trava os `_down_drop` antigos — já aconteceu com a T1 e o `_seg_exige_pagina`); (iii) tab/quebra de
+    linha nas pontas passam pelo CHECK (`btrim` só tira espaço) e o TS `ehReprovadoNoGate` faz `.trim()` — divergência
+    pré-existente, inalcançável pela UI (R8, parked).
+  - **Decisões declaradas (não são furos):** Financeiro desligado continua anotando parcelas em segundo plano (T3 do desenho);
+    leitura NÃO ganha gate de módulo (T4 do desenho, C9 — policy RESTRICTIVE de SELECT derruba o Realtime, inv. 13); Distribuição:
+    a escrita não tem gate próprio, o dialog some sem o módulo e o dado gravado fica inerte (T6); o espelho card↔produto grava com
+    PA/PI desligado, de propósito, e pode recusar `categoria_acessorio_com_pedido` (D17).
+  - **Testes:** módulo desligado no servidor se testa com usuário COMUM, **nunca super admin** (ele fura `tenant_module_enabled`), e
+    o módulo se desliga na txn SEM claims (MOD-1). ⚠️ `MOD_TXN=1` (ensaio da frente dentro de cada txn) numa cópia que AINDA não
+    tem a T4 dá 55P03 FALSO em testes com 2ª conexão em `modelos` (`preco-titulo-versao`, `modelo-descricao-produto`) e lock a mais
+    nas medições de `seg-s3d`/`seg-s4` — aplique a T4 na cópia antes (nota em `mod-helpers.ts`).
+  - **Volta (LIFO pela aplicação):** SITE → `20261103200000_down` (T5, se foi) → `130000_down` (no-op documentado; `131000` não
+    tem inverso) → `120000_down` → `110000_down` → `100000_down`; os `_down_drop` são opcionais, DEPOIS e também LIFO, em horário
+    calmo: `130000_down_drop` (DROP CONSTRAINT: AccessExclusive em `modelos`) → `120000_down_drop` → `100000_down_drop` (recusa
+    enquanto a 110000/120000 estiverem vivas). **Tudo ANTES** do `20261102100000_down` (Gerar JSON) e da cadeia S6..S2. Inversos
+    ANTIGOS que recusam (md5) ou que apagariam os portões se rodados fora de ordem — desfazer esta frente antes: S3b
+    `20261101130000_down` (Explosão), S3c `20261101160000_down` (`enviar_modelo_para_cad`), S3d `20261101190000_down`
+    (`lancar_modelo`, `criar_card(s)_produto_*`, `plan_tecido_*`, `replicar…`, `salvar_plan_tecido`), S3a `20261101100000_down`/
+    `_down_drop` (`receber_oc_*`), S1 `20261031130000_down` e `20261031120000_down`, R12 `20261022100000_down` e L4
+    `20261027200000_down` (wrappers/`_core` de Dashboard), R15a `20261025100000_down` (`dashboard_estoque`), F1 do kanban
+    `20260930140000_down` e L3 `20261027100000_down` (`_avaliar_condicoes_kanban_core`). **Dados que NÃO voltam sozinhos:** cards
+    que o kanban moveu por "não se aplica" (histórico `origem='auto'`) ficam onde estão, **a REF revelada por um avanço "não se
+    aplica" NÃO reverte ao religar o módulo**, cards lançados sem CQ seguem lançados; nenhuma coleção/card foi apagado.
 
 ## Mapa de rotas (`src/routes/_authenticated/`)
 
@@ -487,7 +555,7 @@ e verifique** — o repo muda rápido.
    serviço pós-costura ativo) Pós confirmado; consumido por **Direcionamento, "Lançar" (Planejamento) e
    Lançamentos** — não duplicar o predicado. "Sem acabamento" = `cad.sem_acabamento` (Pré finalizado
    vira Finalizado sem pós). **"Lançado" tem fonte ÚNICA = `modelos.lancado`** (setado por "Lançar" no
-   Planejamento, gated por `cqLiberado`). A tabela `lancamentos` está APOSENTADA (o botão de foto-amostra
+   Planejamento, gated por `cqLiberado` **só quando a loja tem Produção**, P-252 A). A tabela `lancamentos` está APOSENTADA (o botão de foto-amostra
    saiu em 18/jun; nada mais a popula) — não reintroduzir dependência dela. Os dashboards derivam "Lançado"
    de `m.lancado`: `_dashboard_producao_core` (etapa da timeline, era `EXISTS(lancamentos)`) E
    `_dashboard_colecao_core` (KPI "Lançados"/"Em Produção", era "CQ Pré confirmado" — unificado jul/2026). Trigger `trg_rebaixa_lancado_cq` em `controle_qualidade`: desmarcar o CQ
@@ -554,7 +622,8 @@ e verifique** — o repo muda rápido.
    modelo a cada mudança de linha. A coluna virou **boolean efetivo** (a pendência mora nas
    linhas, não mais nela). `lancar_modelo`/kanban seguem lendo o flag
    `COALESCE(custo_terceirizados_aprovado,false)` — nenhum consumidor downstream mudou.
-   **Lançar exige CQ liberado E mão de obra aprovada**; botão-foguete do card lança/cancela
+   **Lançar exige CQ liberado (só quando a loja tem o módulo Produção — P-252 A; sem ele, só M.O. aprovada + data) E mão de obra
+   aprovada**; botão-foguete do card lança/cancela
    com data. `custo_unitario_modelos.mao_obra_previsto` = **Σ `modelo_servico_mo.valor`** (era
    `custo_terceirizados_previsto`, agora INERTE). O card separa **materiais (= total − mão de
    obra)** da mão de obra, trocando previsto→real quando pronto/lançado; PCP mostra card
@@ -1021,6 +1090,20 @@ CAD com ≥1 folha/metragem → true; sem CAD → false. **Rótulos revisados co
 (key mantida) teve o label trocado p/ **"Direcionamento — separado"**, alinhado ao badge "Separado"/
 toast "Direcionamento confirmado — Separado" de `expedicao.direcionamento.$modeloId.tsx`.
 
+**Condição de módulo desligado = "não se aplica" (Modularidade, P-254 A; T3 `20261103120000` + F4):** a condição que depende de
+módulo que a LOJA não tem vale `true` — o card segue, não trava por algo que a loja não faz. Mapa M5 (10 chaves, `Condicao.requer`
+no catálogo TS ≡ `_kanban_cond_modulos()` no SQL ≡ anti-drift): as 4 da Explosão exigem Criação + E&S; as 6 da Produção exigem
+Produção; `lancado` fica fora. **A regra mora no AVALIADOR SQL ÚNICO** (`_avaliar_condicoes_kanban_core` faz `|| _kanban_cond_na(tenant)`,
+que usa `_tenant_modulo_ligado` — sem JWT e sem atalho de super admin) **e no espelho TS `condicoesForaDoModulo(modules)`**
+(`src/lib/kanban-condicoes.ts`, só `false` explícito desliga, igual ao SQL); NENHUMA outra função recalcula condição — a derivação
+(`statusDerivado`), o arraste (`destinoDrop`), `faltandoPara`, o selo "Faltam X dados" e a cascata leem o mapa que a RPC devolve, e
+por isso não mudaram. Tela: o diálogo de requisitos da Config da Loja esmaece/trava a condição fora do módulo (selo "não se aplica
+(módulo X desligado)"; a já gravada continua gravada e volta a valer ao religar; não dá para abrir exceção para o que não se
+aplica). ⚠️ **A REF revelada por um avanço "não se aplica" NÃO reverte quando o módulo é religado** (a posição derivada volta, a REF
+não — coerente com "REF revelada não volta"); `salvar_loja` re-enfileira o recálculo SÓ quando `modules` muda de verdade
+(1º Salvar só do nome pode re-enfileirar por diferença crua — inofensivo). No 1º recálculo pós-deploy e a cada mudança de módulos
+podem andar cards e revelar REFs: o Passo 0 do kit lista antes.
+
 **Kanban AUTOMÁTICO (F1/F2, set/2026, `supabase/migrations/2026093*_kanban_auto_*`):** chave
 POR LOJA `tenant_config.kanban_automatico` (default `false`) — a **ÚNICA** porta de escrita é a
 RPC `kanban_definir_automatico(_ligar)` (retorna `{ligado,mudou,lote_id,snapshot,cards_movidos}`);
@@ -1340,10 +1423,10 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   `plan-tecido/calc.ts` delega a ele; não reimplementar; os gates por posição — `statusParaGate`, Enviar à Explosão, par do gate no
   Dev — usam `ehReprovadoNoGate`, do MESMO arquivo, com `trim` ≡ `_kanban_norm`). **SQL canônico:**
   `lower(coalesce(status_desenvolvimento,''))='reprovado' OR lower(coalesce(status_planejamento,''))='reprovado'` (OTB, dashboards,
-  estoque, Plan. Tecido). Grafias que AINDA divergem (backlog Modularidade: predicado único SQL; hoje sem efeito, os status vêm de
-  selects em minúsculas): kanban/gates/REF = `_kanban_norm` (lower+btrim); Integração compara o lado do Planejamento case-sensitive
+  estoque, Plan. Tecido). Grafias que as funções ANTIGAS ainda usam (Modularidade T4: o CHECK `lower(btrim)` nas 2 colunas e o helper
+  `_modelo_eh_reprovado` tornam as 4 grafias EQUIVALENTES pelo dado — ver "Modularidade (out/2026)"): kanban/gates/REF = `_kanban_norm` (lower+btrim); Integração compara o lado do Planejamento case-sensitive
   (`coalesce(status_planejamento,'')='reprovado'` em `_integracao_base`/`_integracao_ler`/`integracao_marcar`/`integracao_previa`/
-  `integracao_listar`). SQL novo usa o canônico (ou `_kanban_norm` se for gate por posição). Efeitos: sai da necessidade de tecido do Plan. Tecido e da Demanda
+  `integracao_listar`). SQL NOVO usa `_modelo_eh_reprovado(sd, sp)` (ou `_kanban_norm` se for gate por posição). Efeitos: sai da necessidade de tecido do Plan. Tecido e da Demanda
   (P-198), EXCETO o já enviado ao corte, que continua contando tecido; sai do Poder de venda e das Pendências (P-212) mesmo
   cortado; sai do Realizado, custo e contagem da OTB (P-209); sai da reserva de estoque (tecido e aviamento); no Dashboard vira o
   balde "Reprovados" e sai do Comercial (P-215); NUNCA revela a REF nem passa o gate da Explosão, com a chave do kanban

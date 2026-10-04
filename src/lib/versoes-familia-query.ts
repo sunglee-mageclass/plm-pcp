@@ -1,6 +1,7 @@
 // P-152 — LEITURA das versões de cada família (só SELECT, pela RLS; nenhuma escrita, nenhuma RPC).
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emLotes, raizDaFamilia, type LinhaVersao } from "@/lib/versoes-familia";
+import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 
 /** Ids por lote no 1º SELECT (`id in (...)`). */
 export const LOTE_IDS = 100;
@@ -37,8 +38,8 @@ export async function buscarVersoesFamilia(client: SupabaseClient<any, any, any>
         versao: r.versao ?? null,
         modelo_base_id: r.modelo_base_id ?? null,
         colecao_id: r.colecao_id ?? null,
-        // embed pela FK; fallback no espelho de texto (o espelho PA/PI não grava `modelos.colecao`)
-        colecao: r.colecoes?.nome ?? r.colecao ?? null,
+        // [modularidade B2] regra ÚNICA do rótulo (nome do OTB, senão o texto com trim; vazio = null)
+        colecao: rotuloColecaoDoModelo(r),
         subcolecao: r.subcolecao ?? null,
         created_at: r.created_at ?? null,
       });

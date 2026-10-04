@@ -258,13 +258,27 @@ describe.skipIf(!RODA)("mod T4 — reprovado com uma regra só (CHECK + helper)"
           if (!s.key || s.key !== s.key.trim().toLowerCase())
             ruins.push(`${r.tenant_id} TS ${s.key}`);
         }
-        // SQL: _kanban_resolve_key (o servidor grava ESTA chave)
-        for (const raw of Array.isArray(r.status_kanban) ? r.status_kanban : []) {
-          const rot = typeof raw === "string" ? raw : (raw?.key ?? raw?.label ?? "");
-          const k = (
-            await um<{ k: string }>(c, "SELECT public._kanban_resolve_key($1) AS k", [String(rot)])
-          ).k;
-          if (!k || k !== k.trim().toLowerCase()) ruins.push(`${r.tenant_id} SQL ${rot} -> ${k}`);
+        // SQL: o caminho REAL do servidor — `_kanban_status_rows_raw(status_kanban)` entrega a chave CRUA (chave de objeto vem
+        // de `elem->>'key'` SEM `_kanban_resolve_key`; só rótulo/string passa por ele). É ESTA chave que `kanban_mover` grava em
+        // `modelos.status_*`, então ela mesma tem de ser minúscula e sem espaço nas pontas (M1 do review da T4).
+        const { rows: cruas } = await c.query<{ key: string }>(
+          "SELECT key FROM public._kanban_status_rows_raw($1::jsonb)",
+          [JSON.stringify(r.status_kanban ?? null)],
+        );
+        for (const { key: k } of cruas) {
+          if (!k || k !== k.trim().toLowerCase()) ruins.push(`${r.tenant_id} SQL cru ${k}`);
+        }
+        // fluxo completo (inclui o recorte da Revenda por `revenda_kanban_colunas`): todas as chaves do fluxo, interno e comprado
+        for (const comprado of [false, true]) {
+          const { fluxo } = await um<{ fluxo: string[] }>(
+            c,
+            "SELECT public._kanban_fluxo(to_jsonb(tc), $2::boolean) AS fluxo FROM public.tenant_config tc WHERE tc.tenant_id = $1",
+            [r.tenant_id, comprado],
+          );
+          for (const k of fluxo) {
+            if (!k || k !== k.trim().toLowerCase())
+              ruins.push(`${r.tenant_id} fluxo(${comprado ? "comprado" : "interno"}) ${k}`);
+          }
         }
         for (const k of Array.isArray(r.revenda_kanban_colunas) ? r.revenda_kanban_colunas : []) {
           if (String(k) !== String(k).trim().toLowerCase())

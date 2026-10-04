@@ -235,7 +235,7 @@ describe.skipIf(!hasDb)("OTB — otb_excluir_colecao", () => {
       const b = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-DEL-B','confirmada') returning id`, []);
       await c.query(`insert into modelos (colecao_id, nome, status_planejamento, versao) values ($1,'M3','planejado',1)`, [b.id]);
       await c.query(`savepoint sp1`);
-      await expect(c.query(`select public.otb_excluir_colecao($1)`, [b.id])).rejects.toThrow();
+      await expect(c.query(`select public.otb_excluir_colecao($1)`, [b.id])).rejects.toThrow(/^colecao_com_cards: 1$/);
       await c.query(`rollback to savepoint sp1`);
       const col = await um<{ n: string }>(c, `select count(*)::text n from colecoes where id=$1`, [b.id]);
       expect(col.n).toBe("1");

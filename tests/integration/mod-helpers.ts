@@ -9,6 +9,12 @@
  *   export const MOD_SENTINELA: string;                                                 // uma chave de MOD_MD5 (bloco vivo?)
  * A T4 (CHECK em `modelos`, à mão, sem dados gerados) é reconhecida pela constraint; o `_down` dela é no-op documentado (só o
  * `_down_drop` remove), então `voltaMod*` NÃO a desfaz dentro da txn (nenhuma guarda da cadeia S olha `modelos` CHECK).
+ *
+ * ⚠️ `MOD_TXN=1` numa cópia que AINDA NÃO tem a T4 aplica o ADD CONSTRAINT dentro da txn do teste: a AccessExclusive em `modelos`
+ * fica presa até o fim do teste e dá 55P03 FALSO em teste com 2ª conexão real em `modelos` (`preco-titulo-versao`,
+ * `modelo-descricao-produto`) e acusa lock a mais nas medições de trava de `seg-s3d`/`seg-s4`. Não é regressão da frente
+ * (D1/T4-M5): aplique a T4 na cópia (janela N3) ANTES de ensaiar com `MOD_TXN=1`; com a T4 viva a suíte inteira fica igual à base.
+ * (Decisão da D1: documentar em vez de o `aplicaMod` pular a T4 — pular esconderia justamente o ensaio do CHECK sobre a suíte.)
  */
 import type { Client } from "pg";
 import { existsSync } from "node:fs";

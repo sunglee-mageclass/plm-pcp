@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { produtoDescriptor } from "@/lib/import/entities/produto.descriptor";
 import { agregar } from "@/lib/import/aggregate";
-import type { LookupMaps, RawRow } from "@/lib/import/types";
+import type { EntidadeAgregada, LookupMaps, RawRow } from "@/lib/import/types";
+import { descritorDaLoja } from "@/lib/import/oferta";
 
 // grade tolerante: "38"/"P" → "38|P"
 const gradeMap = new Map<string, string>();
@@ -121,5 +122,56 @@ describe("produtoDescriptor — agregação por nome (variantes de N linhas)", (
     expect(ag.entidades).toHaveLength(2);
     const tipos = ag.entidades.map((e) => e.cabecalho.tipo).sort();
     expect(tipos).toEqual(["importado", "revenda"]);
+  });
+});
+
+// [modularidade R12] Bug pré-existente: o resolve gravava o fallback "revenda" no cabeçalho de um tipo inválido, então o
+// `revalidar` (roda a cada edição de célula e SUBSTITUI `problemas`) deixava de ver o erro e a linha virava revenda.
+describe("R12 — tipo inválido/sem módulo continua erro depois das edições de célula (nunca vira revenda)", () => {
+  const base = { nome: "Camisa X", grupo: "Roupas", categoria: "Camisa" };
+  const errosTipo = (ps: { nivel: string; campo?: string }[]) => ps.filter((p) => p.nivel === "erro" && p.campo === "tipo");
+  /** Simula N edições de célula: cada uma refaz `problemas` pelo revalidar, como a tela de revisão faz. */
+  const editaVezes = (desc: typeof produtoDescriptor, ent: EntidadeAgregada, n: number): EntidadeAgregada => {
+    let atual = ent;
+    for (let i = 0; i < n; i++) atual = { ...atual, problemas: desc.revalidar!(atual) };
+    return atual;
+  };
+  const entidadeDe = (desc: typeof produtoDescriptor, tipo: string) => {
+    const ag = agregar(desc, [row(2, { tipo, ...base })], maps);
+    return ag.entidades[0];
+  };
+
+  it("tipo digitado inválido ('xyz', vazio, 'modelo'): o cabeçalho NÃO vira 'revenda' e o erro sobrevive a várias edições", () => {
+    for (const tipo of ["xyz", "", "modelo"]) {
+      const ent = entidadeDe(produtoDescriptor, tipo);
+      expect(ent.cabecalho.tipo, `tipo='${tipo}'`).not.toBe("revenda");
+      expect(errosTipo(ent.problemas), `resolve '${tipo}'`).toHaveLength(1);
+      for (const n of [1, 2, 3]) expect(errosTipo(editaVezes(produtoDescriptor, ent, n).problemas), `'${tipo}' após ${n} edição(ões)`).toHaveLength(1);
+    }
+  });
+
+  it("tipo válido segue limpo depois das edições (revenda e importado)", () => {
+    for (const tipo of ["revenda", "Importado", " REVENDA "]) {
+      const ent = entidadeDe(produtoDescriptor, tipo);
+      expect(errosTipo(editaVezes(produtoDescriptor, ent, 3).problemas), tipo).toEqual([]);
+    }
+    expect(entidadeDe(produtoDescriptor, "Importado").cabecalho.tipo).toBe("importado");
+  });
+
+  it("loja só com Produto Acabado: linha 'Importado' guarda 'importado' (não 'revenda') e continua erro após as edições", () => {
+    const d = descritorDaLoja(produtoDescriptor, { produto_acabado: true });
+    const ent = entidadeDe(d, "Importado");
+    expect(ent.cabecalho.tipo).toBe("importado");
+    expect(errosTipo(ent.problemas)).toHaveLength(1);
+    expect(errosTipo(editaVezes(d, ent, 3).problemas)).toHaveLength(1);
+  });
+
+  it("o resolve segue montando o ramo de revenda p/ tipo inválido (sem quebrar) e a RPC se recusa a importar tipo inválido", async () => {
+    const ent = entidadeDe(produtoDescriptor, "xyz");
+    expect(ent.cabecalho).toHaveProperty("valor_unitario"); // ramo revenda só p/ não quebrar o resolve
+    let chamou = false;
+    const sb = { rpc: async () => { chamou = true; return { data: { acao: "criado" }, error: null }; } };
+    await expect(produtoDescriptor.rpc!(sb as never, ent)).rejects.toThrow(/inválido/);
+    expect(chamou).toBe(false);
   });
 });

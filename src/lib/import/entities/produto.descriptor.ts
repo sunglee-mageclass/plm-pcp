@@ -145,10 +145,11 @@ export const produtoDescriptor: EntityImportDescriptor = {
     if (!nome) problemas.push({ nivel: "erro", campo: "nome", mensagem: "Nome do produto é obrigatório." });
 
     // tipo (revenda|importado)
-    let tipo = normalizeCat(row.tipo);
+    const tipoDigitado = normalizeCat(row.tipo);
+    let tipo = tipoDigitado;
     if (!TIPOS.has(tipo)) {
       problemas.push({ nivel: "erro", campo: "tipo", mensagem: `Tipo "${row.tipo}" inválido — use "revenda" ou "importado".` });
-      tipo = "revenda"; // fallback só p/ não quebrar o resolve; a linha fica com erro bloqueante
+      tipo = "revenda"; // fallback só p/ ramificar o resolve (campos de revenda); a linha fica com erro bloqueante
     }
 
     const grupo_id = look(maps, "grupos", row.grupo);
@@ -181,7 +182,10 @@ export const produtoDescriptor: EntityImportDescriptor = {
 
     // cabeçalho comum + ramo por tipo
     const cabecalho: Record<string, unknown> = {
-      tipo,
+      // [R12] o cabeçalho guarda o tipo DIGITADO (válido ou não): o fallback "revenda" acima é só do ramo do resolve. Com o
+      // fallback aqui, o `revalidar` (que roda a cada edição de célula) enxergava "revenda" e o erro de tipo sumia — linha
+      // inválida/sem módulo importaria como revenda.
+      tipo: tipoDigitado,
       nome,
       grupo_id, categoria_id, subcategoria1_id, subcategoria2_id, colecao_id,
       subcolecao: (row.subcolecao ?? "").trim() || null,
@@ -282,7 +286,9 @@ export const produtoDescriptor: EntityImportDescriptor = {
   async rpc(sb: SupabaseClient, ent: EntidadeAgregada): Promise<AcaoImport | void> {
     const cabecalho = { ...ent.cabecalho };
     if (ent.fotoPath) cabecalho.foto_url = ent.fotoPath;
-    const tipo = String(cabecalho.tipo ?? "revenda");
+    const tipo = String(cabecalho.tipo ?? "");
+    // [R12] defesa em profundidade: nunca importa com tipo inválido (antes caía em "revenda" por padrão)
+    if (!TIPOS.has(tipo)) throw new Error(`Tipo "${tipo}" inválido — use "revenda" ou "importado".`);
     // remove auxiliares de cliente das variantes (o banco não os conhece).
     const variantes = ent.variantes.map((v) => {
       const { _corNome, _apelidoNome, ...limpa } = v as Record<string, unknown>;
