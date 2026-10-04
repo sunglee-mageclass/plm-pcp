@@ -344,7 +344,7 @@ export function mensagemModularidade(code: string, msg: string): string | null {
     return chaves.length ? textoAcaoPrecisaDeModulos(chaves) : null;
   }
   if (code === "42501") {
-    const legado = /^Módulo (.+?) não habilitado/.exec(msg);
+    const legado = /^Módulo (.+?) não (?:está )?(?:habilitado|ativo)/.exec(msg);
     if (legado) {
       // chave interna ("criacao", "entrada_saida", "otb"…) → rótulo do catálogo; nome já em PT ("Produto Acabado (Revenda)") fica como veio.
       // "criacao/producao" (marcar_etapa_verificada) = DOIS módulos; "Estilo & Engenharia" = nome antigo de Criação (sku-previa).

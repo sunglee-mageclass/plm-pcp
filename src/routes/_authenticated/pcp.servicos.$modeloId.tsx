@@ -1085,8 +1085,9 @@ export function TerceirizadosDetail({
 
   // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
   const [voltarOpen, setVoltarOpen] = useState(false);
-  // [modularidade F2, T1 review M2] `reverter_corte_tecido` exige Entrada e Saída no servidor: sem ela o botão some (não vira erro).
-  const podeReverterCorte = useRequerModulo("entrada_saida").ok;
+  // [modularidade F2, T1 review M2 + F2 m2] `reverter_corte_tecido` exige Criação (legado, 1º) E Entrada e Saída no servidor: sem
+  // elas o botão some (não vira erro).
+  const podeReverterCorte = useRequerModulo("criacao", "entrada_saida").ok;
   const reverterImpacto = useReverterImpacto(cad?.id, voltarOpen);
   const voltarMut = useMutation({
     mutationFn: async () => {

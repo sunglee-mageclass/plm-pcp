@@ -33,7 +33,7 @@ describe("F4b — Fazer pedido pede Entrada e Saída", () => {
 describe("T1 M2 — reverter corte em PCP › Serviços", () => {
   const f = ler("src/routes/_authenticated/pcp.servicos.$modeloId.tsx");
   it("o botão some sem Entrada e Saída", () => {
-    expect(f).toContain('const podeReverterCorte = useRequerModulo("entrada_saida").ok;');
+    expect(f).toContain('const podeReverterCorte = useRequerModulo("criacao", "entrada_saida").ok;');
     expect(f).toContain("const voltarEtapaButton = cad?.id && podeReverterCorte ? (");
   });
 });

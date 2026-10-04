@@ -86,7 +86,9 @@ export function parseAba(
   const headersDesconhecidos: string[] = [];
   // índice da coluna → key (ou null se desconhecida)
   const colKey: (string | null)[] = headerRow.map((h) => {
-    const k = headerToKey.get(h) ?? null;
+    // Além das duas formas do descritor em uso, aceita o header com QUALQUER lista de opções entre parênteses
+    // ("Tipo (Revenda | Importado)" de planilha antiga × "Tipo (Revenda)" do modelo filtrado por loja — Ruling R9).
+    const k = headerToKey.get(h) ?? headerToKey.get(h.replace(/\s*\([^()]*\)\s*$/, "")) ?? null;
     if (!k && h) headersDesconhecidos.push(h);
     return k;
   });

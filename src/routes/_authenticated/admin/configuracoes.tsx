@@ -348,7 +348,8 @@ function motivoCurtoLojaAnterior(e: unknown): string {
 function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
-  const { modules, isStockOnly } = useTenantModules();
+  // `isLoading` = `!pronto` (alias da F1/M9): módulos da loja ainda não chegaram.
+  const { modules, isStockOnly, isLoading: modulosCarregando } = useTenantModules();
   // [modularidade F2, F9] blocos por módulo (esconder NÃO apaga o que está gravado: o Salvar manda só o que mudou).
   const blocos = blocosConfigVisiveis(modules, isStockOnly);
   const [cfg, setCfg] = useState<ConfigState>(DEFAULTS);
@@ -993,7 +994,8 @@ function ConfiguracoesLojaPage() {
   // Fix hidratação (P-57 A, §4.1, metade 1): não editar/salvar com DEFAULTS antes da 1ª carga —
   // sem isso, o usuário digita em cima de "" (fuso/kanban/etc. com cara de dado real) e a 1ª
   // resolução da query sobrescreve. Nenhum hook depois deste ponto (verificado).
-  if (isLoading) return <div className="p-6 text-muted-foreground">Carregando…</div>;
+  // [modularidade F2, m3] a página não está sob RequirePermission: sem esperar `pronto`, os blocos por módulo/perfil piscam com os DEFAULTS.
+  if (isLoading || modulosCarregando) return <div className="p-6 text-muted-foreground">Carregando…</div>;
 
   // Envio à Explosão: derivado do próprio status_kanban (marcador POR LINHA no bloco do
   // kanban, não mais um card separado — feedback do dono, ago/2026). Espelha a mesma
