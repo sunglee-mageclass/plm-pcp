@@ -6,7 +6,7 @@ export const MOD_DOWN = "supabase/rollback/20261103110000_mod_lancar_colecao_dow
 export const MOD_SENTINELA = "public.lancar_modelo(uuid,date,boolean)";
 export const MOD_MD5: Record<string, { antes: string; depois: string }> = {
   "public.lancar_modelo(uuid,date,boolean)": { antes: "efe52aaad9a1e6055d758cf93e1950d5", depois: "3a79fd6fa5ca7959640618057b385620" },
-  "public.otb_excluir_colecao(uuid)": { antes: "5557291079763a24fdf202c46671d3c0", depois: "b5abbfad66773c3c4d7789418b9107a1" },
+  "public.otb_excluir_colecao(uuid)": { antes: "5557291079763a24fdf202c46671d3c0", depois: "4ba36eb4972d10832ed8eb1e8b89adea" },
 };
 /** proacl::text de antes (= depois: CREATE OR REPLACE preserva); as 2 são SECURITY DEFINER. */
 export const MOD2_ACL: Record<string, string> = {

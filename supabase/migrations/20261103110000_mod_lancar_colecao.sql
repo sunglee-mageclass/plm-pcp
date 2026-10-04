@@ -5,6 +5,9 @@
 --     JWT e sem atalho de super admin - M2). M.O. aprovada e Data de Lancamento seguem obrigatorias; _send=false igual.
 --   otb_excluir_colecao (P-255 A): colecao com QUALQUER card (antes: so 'planejado') e recusada com P0001
 --     'colecao_com_cards: N' (ASCII); nada e apagado. Sem cards: apaga a colecao + o plano de tecido dela, como antes.
+--     Fix corrida: a linha da colecao e travada (FOR UPDATE) ANTES de contar - quem grava modelos.colecao_id pega FOR KEY
+--     SHARE nela pela FK e serializa; o 'delete from modelos' SAIU (card nunca e apagado; a FK NO ACTION barra o delete
+--     da colecao se sobrar card). O texto livre modelos.colecao (sem FK) nunca foi apagado por esta funcao.
 -- ACL, SECURITY DEFINER e search_path ficam iguais (pos-condicao). Nenhum objeto novo (sem _down_drop).
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.lancar_modelo(uuid,date,boolean)  [P-252 A]
@@ -12,7 +15,7 @@
 --     DEPOIS 3a79fd6fa5ca7959640618057b385620
 --   public.otb_excluir_colecao(uuid)  [P-255 A]
 --     ANTES  5557291079763a24fdf202c46671d3c0
---     DEPOIS b5abbfad66773c3c4d7789418b9107a1
+--     DEPOIS 4ba36eb4972d10832ed8eb1e8b89adea
 --   dependencias fixadas: public._tenant_modulo_ligado(uuid,text) = 0c9655642d6b570f9adaf136bcaa09c7; public._cq_liberado(uuid) = 55a5f7ad704a061087e0fc154d4605e7
 -- ====================================================================================
 -- Trava: so catalogo (CREATE OR REPLACE FUNCTION): nenhuma tabela, nada de auth/storage/realtime. Sem DROP, sem TRIGGER/POLICY.
@@ -34,7 +37,7 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.lancar_modelo(uuid,date,boolean)', 'efe52aaad9a1e6055d758cf93e1950d5', '3a79fd6fa5ca7959640618057b385620'),
-      ('public.otb_excluir_colecao(uuid)', '5557291079763a24fdf202c46671d3c0', 'b5abbfad66773c3c4d7789418b9107a1')
+      ('public.otb_excluir_colecao(uuid)', '5557291079763a24fdf202c46671d3c0', '4ba36eb4972d10832ed8eb1e8b89adea')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.a, r.b) THEN
@@ -118,7 +121,9 @@ begin
   end if;
   if v_tenant is null then raise exception 'Sem tenant'; end if;
 
-  perform 1 from colecoes where id = _colecao_id and tenant_id = v_tenant;
+  -- [modularidade P-255 A] trava a linha da colecao ANTES de contar: card que grava colecao_id pega FOR KEY SHARE nela (FK)
+  -- e conflita com FOR UPDATE - o card em voo termina antes (e e contado) ou espera esta transacao (e falha na FK depois).
+  perform 1 from colecoes where id = _colecao_id and tenant_id = v_tenant for update;
   if not found then raise exception 'Coleção não encontrada'; end if;
 
   -- [modularidade P-255 A] colecao com QUALQUER card no Planejamento e recusada (antes: so 'planejado'; os demais eram apagados).
@@ -130,7 +135,8 @@ begin
   end if;
 
   perform set_config('app.otb_reconciling', 'on', true);
-  delete from modelos where tenant_id = v_tenant and colecao_id = _colecao_id;  -- nunca apaga card: ver P-255 A acima
+  -- [modularidade P-255 A] o 'delete from modelos' saiu: card NUNCA e apagado com a colecao (a FK NO ACTION de
+  -- modelos.colecao_id recusa o delete da colecao se ainda houver card apontando para ela).
   -- apaga a árvore de Plan. Tecido antes do cascade de colecoes (FK NO ACTION em subcolecao_id)
   delete from plan_tecido where colecao_id = _colecao_id;
   delete from colecoes where id = _colecao_id and tenant_id = v_tenant;
@@ -144,7 +150,7 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.lancar_modelo(uuid,date,boolean)', '3a79fd6fa5ca7959640618057b385620', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'),
-      ('public.otb_excluir_colecao(uuid)', 'b5abbfad66773c3c4d7789418b9107a1', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}')
+      ('public.otb_excluir_colecao(uuid)', '4ba36eb4972d10832ed8eb1e8b89adea', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}')
     ) AS x(f, m, acl) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.m THEN

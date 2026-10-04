@@ -7,7 +7,7 @@
 --     DEPOIS 3a79fd6fa5ca7959640618057b385620
 --   public.otb_excluir_colecao(uuid)  [P-255 A]
 --     ANTES  5557291079763a24fdf202c46671d3c0
---     DEPOIS b5abbfad66773c3c4d7789418b9107a1
+--     DEPOIS 4ba36eb4972d10832ed8eb1e8b89adea
 -- ====================================================================================
 -- Trava: so catalogo (CREATE OR REPLACE FUNCTION): nenhuma tabela, nada de auth/storage/realtime. Sem DROP, sem TRIGGER/POLICY.
 -- Idempotente (a guarda aceita o estado de antes OU o de depois).
@@ -25,7 +25,7 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.lancar_modelo(uuid,date,boolean)', 'efe52aaad9a1e6055d758cf93e1950d5', '3a79fd6fa5ca7959640618057b385620'),
-      ('public.otb_excluir_colecao(uuid)', '5557291079763a24fdf202c46671d3c0', 'b5abbfad66773c3c4d7789418b9107a1')
+      ('public.otb_excluir_colecao(uuid)', '5557291079763a24fdf202c46671d3c0', '4ba36eb4972d10832ed8eb1e8b89adea')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.a, r.b) THEN

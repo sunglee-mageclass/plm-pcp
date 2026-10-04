@@ -4,8 +4,8 @@
 // (mod-helpers/mig-txn, nunca \i). Chamadas como o PAPEL do PostgREST (SET LOCAL ROLE authenticated). Módulo desligado SEM
 // claims (MOD-1 ignora a mudança feita com JWT de não-super). Fixtures semeadas como postgres, sem JWT, dentro da txn.
 import { describe, it, expect } from "vitest";
-import type { Client } from "pg";
-import { hasDb, ehBancoLocal, withTx, um, semJwt, TENANT_TESTE, USER_TESTE } from "./db";
+import { Client } from "pg";
+import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicarArquivo } from "./mig-txn";
 import { aplicaMod, voltaMod, modViva } from "./mod-helpers";
 import { MOD_MD5, MOD2_ACL, MOD2_DEPS, MOD_MIG, MOD_DOWN } from "./mod-2-dados";
@@ -284,6 +284,76 @@ describe.skipIf(!RODA)("mod T2 — excluir coleção com cards é recusado (P-25
       await jwt(c, null);
       expect(await conta(c, [vazia])).toEqual({ col: 0, mod: 0, pt: 0 });
     });
+  });
+
+  // Fix "corrida" (ruling do controlador sobre P-255 A): a linha da coleção é travada (FOR UPDATE) ANTES de contar os cards.
+  // Outra sessão com um card EM VOO apontando para a coleção (INSERT não commitado = FOR KEY SHARE na coleção pela FK) faz a
+  // exclusão ESPERAR já no PERFORM ... FOR UPDATE (antes da contagem) — aqui medido com lock_timeout curto (55P03). Nada é gravado:
+  // a outra sessão faz ROLLBACK; a coleção usada é uma coleção REAL vazia da cópia (só lida, nunca alterada fora de txn revertida).
+  it("corrida: card em voo noutra sessão faz a exclusão esperar no FOR UPDATE da coleção (antes de contar); o texto não apaga card", async () => {
+    const def = await (async () => {
+      let d = "";
+      await withTx(async (c) => {
+        await prepara(c);
+        d = (
+          await um<{ d: string }>(
+            c,
+            "SELECT pg_get_functiondef('public.otb_excluir_colecao(uuid)'::regprocedure) AS d",
+          )
+        ).d;
+      });
+      return d;
+    })();
+    expect(def).toMatch(
+      /perform 1 from colecoes where id = _colecao_id and tenant_id = v_tenant for update;[\s\S]*select count\(\*\) into v_planejados/,
+    );
+    expect(def).not.toMatch(/^\s*delete from modelos/m);
+
+    const url = dbUrl();
+    if (!url) throw new Error("sem DATABASE_URL");
+    const outra = new Client({ connectionString: url });
+    await outra.connect();
+    try {
+      await withTx(async (c) => {
+        await prepara(c);
+        const alvo = await um<{ id: string; tenant_id: string } | undefined>(
+          c,
+          `SELECT c.id, c.tenant_id FROM public.colecoes c
+            WHERE NOT EXISTS (SELECT 1 FROM public.modelos m WHERE m.colecao_id = c.id) ORDER BY c.id LIMIT 1`,
+        );
+        expect(alvo, "a cópia precisa de 1 coleção real sem cards").toBeTruthy();
+        // outra sessão: card NOVO apontando para a coleção, SEM commit (só ROLLBACK no fim)
+        await outra.query("BEGIN");
+        await outra.query("SET LOCAL lock_timeout = '5s'");
+        await outra.query(
+          `INSERT INTO public.modelos (tenant_id, nome, versao, status_planejamento, colecao_id)
+           VALUES ($1, 'Mod2 corrida', 1, 'em_planejamento', $2)`,
+          [alvo!.tenant_id, alvo!.id],
+        );
+        await jwt(c, null);
+        await c.query("UPDATE public.users SET tenant_id = $1 WHERE id = $2", [
+          alvo!.tenant_id,
+          SUPER,
+        ]);
+        await jwt(c, SUPER);
+        await c.query("SAVEPOINT corrida");
+        await c.query("SET LOCAL lock_timeout = '400ms'");
+        let erro: { code?: string; where?: string } | null = null;
+        try {
+          await c.query("SELECT public.otb_excluir_colecao($1)", [alvo!.id]);
+        } catch (e) {
+          erro = e as { code?: string; where?: string };
+        }
+        await c.query("ROLLBACK TO SAVEPOINT corrida");
+        await c.query("SET LOCAL lock_timeout = '3s'");
+        expect(erro?.code, "a exclusão tem de esperar o card em voo").toBe("55P03");
+        expect(erro?.where ?? "").toMatch(/otb_excluir_colecao\(uuid\) line \d+ at PERFORM/);
+        await jwt(c, null);
+      });
+    } finally {
+      await outra.query("ROLLBACK").catch(() => undefined);
+      await outra.end();
+    }
   });
 
   it("as coleções REAIS da cópia que têm cards (todas as lojas): recusa com o nº exato de cards; nada apagado", async () => {
