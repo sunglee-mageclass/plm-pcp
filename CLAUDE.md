@@ -1511,6 +1511,30 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     `marcar_etapa_verificada` sql não trava `modelos`) → `_down_drop` opcional, ANTES da S3a e da S1 (`20261031130000_down` /
     `20261031120000_down` guardam `confirmar_direcionamento`/`voltar_modelo_desenvolvimento`) e de `20261023100000_down`
     (`salvar_terceirizados`).
+- **S3c "Ficha técnica, CAD, M.O. e B3" (mesmo mecanismo, por cima da S3a; independe da S3b; migrations `20261101160000..180000`,
+  inversos `_down` + `_down_drop` separado (180000: DROP dos 2 gatilhos), gerador `.../mig/gerar-s3c.mjs`):**
+  - **M1 (C-13):** `salvar_modelo_bom` = `criacao_desenvolvimento` (BOM INICIAL — modelo sem nenhuma linha em `modelo_tecidos`/
+    `modelo_aviamentos`, card novo e Duplicar — também `criacao_planejamento`); `salvar_cad_completo`, `enviar_modelo_para_cad`,
+    `excluir_cad` = Desenvolvimento. **C14:** `prova_comentar/_resolver/_excluir` = módulo Criação + Desenvolvimento;
+    `marcar_revisao_por_mudanca` e `marcar_revisao_pendente` (virou plpgsql) = módulo Criação + Planejamento OU Desenvolvimento OU
+    Plan. Tecido.
+  - **M.O. (P-244 = B):** `salvar_modelo_servico_mo` só para quem EDITA o Planejamento E vê custos (`_pode_ver_custos`) → senão
+    42501 `mao_obra_sem_permissao:`. Quem só edita o Desenvolvimento ou o card do Produto Acabado/Importado PERDE. Aprovar/reprovar
+    segue em `aprovar_servico_mo` (`producao_servico_aprovacao`, inv. 12). Tela: `podeEditarValorMO`/`CHAVES_VER_CUSTOS`
+    (`src/lib/mao-obra.ts`, espelho do SQL) → prop `podeEditarValor` do `MaoObraEditor` (Sheet) e do `MaoObraCardMini` (cards
+    PA/PI): sem ela o valor vira texto e somem Adicionar/Remover (aprovar fica); o Salvar não manda a M.O.; nos cards PA/PI
+    "ver M.O." = ver custos. Anti-drift em `tests/unit/mao-obra-valor-somente-leitura.test.ts`.
+  - **Escrita direta:** `modelo_etiquetas` (Desenvolvimento) e `modelo_observacoes` (Desenvolvimento OU PCP Serviços, C-07) com
+    gatilho `trg_aaa_seg_pagina` (página só para o cliente) + **B3 em QUALQUER escrita** (cliente e servidor): `modelo_id`/
+    `etiqueta_id`/`cor_id` da mesma loja da linha → P0001 `loja_diferente: <coluna>`; perdem só TRUNCATE. As 12 tabelas da ficha
+    que a tela só grava por RPC (`modelo_tecidos`, `_tecido_variantes`, `_tecido_oc_links`, `_aviamentos`, `_grades`,
+    `_servico_mo`, `_prova_comentarios`, `cad_tecidos`, `_tecido_variantes`, `_grades`, `_aviamentos`, `_etiquetas`): o cliente só
+    lê. anon sem escrita nas 14. **B3 nas RPCs:** `set_artigo_categorias` ignora categoria de outra loja;
+    `_plan_tecido_arvore_core` só junta modelo da loja do plano. ⚠️ Teste que semeia vínculo de OUTRA loja de propósito usa
+    `semeiaLegadoSemB3` (seg-s3c-helpers).
+  - Ensaio: `S3C_TXN=1`; `voltaS3cSePreciso` (LIFO) roda dentro de `voltaS3a*` e de `aplicaS1`/`voltaS1`. Volta **LIFO**:
+    `180000_down` → `170000_down` → `160000_down` (sem validar corpo) → `_down_drop` opcional, ANTES da S3a e da S1
+    (`20261031120000_down` guarda `excluir_cad`) e de `20261014100000_down`/`20261006100000_down` (`_plan_tecido_arvore_core`).
 
 ## O que NÃO fazer
 
