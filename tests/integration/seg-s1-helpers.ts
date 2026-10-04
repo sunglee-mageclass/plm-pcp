@@ -8,6 +8,7 @@ import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 import { voltaS2SePreciso } from "./seg-s2-helpers";
 import { voltaS3bSePreciso } from "./seg-s3b-helpers";
 import { voltaS3cSePreciso } from "./seg-s3c-helpers";
+import { voltaS3dSePreciso } from "./seg-s3d-helpers";
 
 export const S1_MIGS = [
   "supabase/migrations/20261031100000_seg_s1_usuario_proprio.sql",
@@ -50,6 +51,7 @@ async function zeraTimeouts(c: Client): Promise<void> {
 
 export async function aplicaS1(c: Client): Promise<void> {
   exigeBancoLocal();
+  await voltaS3dSePreciso(c); // LIFO: a S3d (20261101190000) redefine RPCs que a S1 (20261031130000) guarda — sai antes
   await voltaS3cSePreciso(c); // LIFO: a S3c (20261101160000) redefine excluir_cad por cima da S1 (20261031120000) — sai antes
   await voltaS3bSePreciso(c); // LIFO: a S3b (20261101130000) redefine voltar_modelo_desenvolvimento/confirmar_direcionamento por cima da S1 — sai antes
   for (const m of S1_MIGS) await aplicarArquivo(c, m);
@@ -58,6 +60,7 @@ export async function aplicaS1(c: Client): Promise<void> {
 
 export async function voltaS1(c: Client): Promise<void> {
   exigeBancoLocal();
+  await voltaS3dSePreciso(c); // LIFO: a S3d sai antes da S1
   await voltaS3cSePreciso(c); // LIFO: a S3c sai antes da S1
   await voltaS3bSePreciso(c); // LIFO: a S3b sai antes da S1
   for (const m of S1_DOWNS) await aplicarArquivo(c, m);

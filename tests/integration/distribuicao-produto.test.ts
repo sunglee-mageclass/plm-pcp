@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal, semJwt } from "./db";
 import { S1_MD5 } from "./seg-s1-helpers";
 import { md5OuSucessorS3c } from "./seg-s3c-helpers";
+import { md5OuSucessorS3d } from "./seg-s3d-helpers";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { voltaPrecoVersaoSePreciso } from "./integracao-helpers";
 
@@ -313,6 +314,12 @@ async function falha(c: Client, sql: string, params: unknown[] = []): Promise<{ 
 async function lojaComModulos(c: Client, distribuicao: boolean): Promise<void> {
   await comoUsuario(c);
   await c.query("delete from public.user_roles where user_id = $1 and role = 'super_admin'", [USER_TESTE]);
+  // Reforço de segurança S3d: sem o super, o usuário de teste precisa EDITAR o Plan. Tecido (as RPCs dele exigem a página)
+  await c.query(
+    `insert into public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
+     select $1, $2, 'criacao_plan_tecido', true, true
+      where not exists (select 1 from public.user_permissions where user_id = $1 and pagina = 'criacao_plan_tecido')`,
+    [USER_TESTE, TENANT_TESTE]);
   await semJwt(c, () => c.query( // S1 MOD-1: módulo só muda sem JWT (ou super admin)
     `insert into tenant_config (tenant_id, modules) values ($1, $2::jsonb)
      on conflict (tenant_id) do update set modules = tenant_config.modules || $2::jsonb`,
@@ -376,6 +383,8 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
         if (TAMANHO_EM[f.arq] && md5(d) === TAMANHO_EM[f.arq]) continue;
         // Reforço de segurança S3c (20261101160000, B3) redefine _plan_tecido_arvore_core por cima de "Tamanho em" — sucessor aceito
         if (TAMANHO_EM[f.arq] && md5OuSucessorS3c(f.fn, TAMANHO_EM[f.arq]).slice(1).includes(md5(d))) continue;
+        // Reforço de segurança S3d (20261101190000, B3) redefine _salvar_plan_tecido_core por cima de "Tamanho em" — sucessor aceito
+        if (TAMANHO_EM[f.arq] && md5OuSucessorS3d(f.fn, TAMANHO_EM[f.arq]).slice(1).includes(md5(d))) continue;
         // Reforço de segurança S1 (20261031150000, OPT-1) redefine tenant_module_enabled por cima ('etapas_pl') — sucessor aceito
         if (f.fn === "public.tenant_module_enabled(text)" && md5(d) === S1_MD5["public.tenant_module_enabled(text)"].depois) continue;
         expect(d, f.arq).toBe(corpo(MIG, f.cria) + "\n");

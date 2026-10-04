@@ -9,6 +9,7 @@ import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 import { S3A_MD5, S3A_HELPER } from "./seg-s3a-dados";
 import { voltaS3bSePreciso } from "./seg-s3b-helpers";
 import { voltaS3cSePreciso } from "./seg-s3c-helpers";
+import { voltaS3dSePreciso } from "./seg-s3d-helpers";
 
 export const S3A_MIGS = [
   "supabase/migrations/20261101100000_seg_s3a_helper_gates_entrada.sql",
@@ -37,6 +38,7 @@ export async function aplicaS3a(c: Client): Promise<void> {
 
 export async function voltaS3a(c: Client, comDrop = false): Promise<void> {
   exigeBancoLocal();
+  await voltaS3dSePreciso(c); // LIFO: a S3d (20261101190000..210000) usa o helper da S3a — sai antes
   await voltaS3cSePreciso(c); // LIFO: a S3c (20261101160000..180000) usa o helper da S3a — sai antes
   await voltaS3bSePreciso(c); // LIFO: a S3b (20261101130000..150000) roda por cima da S3a — sai antes
   for (const m of S3A_DOWNS) await aplicarArquivo(c, m);
@@ -56,6 +58,7 @@ export async function s3aViva(c: Client): Promise<boolean> {
  * `recalcular_parcelas` por cima da S2 — as guardas md5 da S2 recusam enquanto ela estiver viva. Volta a S3a primeiro.
  */
 export async function voltaS3aSePreciso(c: Client): Promise<void> {
+  await voltaS3dSePreciso(c); // LIFO: a S3d (mais nova) sai antes
   await voltaS3cSePreciso(c); // LIFO: a S3c (mais nova) sai antes
   await voltaS3bSePreciso(c); // LIFO: a S3b (mais nova) sai antes
   if (!(await s3aViva(c))) return;

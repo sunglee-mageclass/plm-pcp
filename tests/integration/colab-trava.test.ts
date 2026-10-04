@@ -88,6 +88,12 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
       // passar (bypass intencional) — removê-lo do USUÁRIO QUE AGE para o teste exercitar a
       // checagem de tenant de verdade (mesmo idiom usado em otb-simulador.test.ts).
       await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
+      // Reforço de segurança S3d: sem o super, ele precisa EDITAR o Plan. Tecido para chegar à checagem de loja
+      await c.query(
+        `insert into public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
+         select $1, $2, 'criacao_plan_tecido', true, true
+          where not exists (select 1 from public.user_permissions where user_id = $1 and pagina = 'criacao_plan_tecido')`,
+        [USER_TESTE, TENANT_TESTE]);
       await c.query("SAVEPOINT sp1");
       const outra = await um<{ id: string }>(
         c,
