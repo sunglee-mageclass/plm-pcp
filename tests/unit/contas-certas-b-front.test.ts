@@ -178,12 +178,12 @@ describe("item 8 — moLinhaVaiReabrir (P-163 A)", () => {
     expect(det).toMatch(
       /const maoObraPendente = !\(moEstadoLocal === "sem_servico" \|\| moEstadoLocal === "aprovada"\) \|\| moReabreAoSalvar;/,
     );
-    expect(det).toMatch(
-      /if \(moReabreAoSalvar\) throw new Error\("Salve antes de lançar: a mão de obra alterada volta para pendente/,
+    // [modularidade F3] os bloqueios saíram para `bloqueiosLancar` (src/lib/lancar.ts), usado na mutation e no tooltip.
+    expect(det).toMatch(/bloqueiosLancar\(\{[^}]*moReabreAoSalvar \}\)/);
+    expect(ler("src/lib/lancar.ts")).toMatch(
+      /if \(e\.moReabreAoSalvar\) b\.push\(TEXTO_LANCAR_MO_REABRE\)/,
     );
-    expect(det).toMatch(
-      /if \(moReabreAoSalvar\) lancarBloqueios\.push\("Salve antes: a mão de obra alterada volta para pendente/,
-    );
+    expect(ler("src/lib/lancar.ts")).toMatch(/TEXTO_LANCAR_MO_REABRE = "Salve antes: a mão de obra alterada volta para pendente/);
   });
 });
 

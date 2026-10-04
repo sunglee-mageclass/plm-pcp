@@ -33,6 +33,7 @@ import { precoDoCard } from "@/lib/preco";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado, pecasReaisLiberadas } from "@/lib/cq-status";
+import { prontoParaLancar, textoLancarExige } from "@/lib/lancar";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -379,6 +380,8 @@ function PlanejamentoPage() {
 
   const { isModuleEnabled } = useTenantModules();
   const otbOn = isModuleEnabled("otb");
+  // [modularidade P-252 A] o CQ liberado só é exigido para Lançar com o módulo Produção (como o servidor, `lancar_modelo`).
+  const cqExigido = isModuleEnabled("producao");
   // Selo da etapa (F2): board/requisitos/chave da loja — `select("*")`, tolera banco sem a F1 (= chave desligada).
   const { cfg: kanbanCfg, ligado: kanbanLigado } = useKanbanConfig();
   // Opções do filtro "Etapa do kanban": Planejamento → colunas do board NA ORDEM da loja → Lançado
@@ -540,7 +543,7 @@ function PlanejamentoPage() {
   // gate do setor Lançamento. Map modelo_id → boolean (CQ liberado, ainda sem olhar lançado).
   const { data: cqProntoMap = {} } = useQuery({
     queryKey: ["plan-cq-pronto", modeloIdsAll],
-    enabled: modeloIdsAll.length > 0,
+    enabled: modeloIdsAll.length > 0 && cqExigido,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cad")
@@ -553,11 +556,11 @@ function PlanejamentoPage() {
     },
   });
   // "lançado" | "pronto" | null — p/ filtro e badge. "pronto" = mesmo gate do botão
-  // Lançar: CQ liberado E valor dos serviços externos aprovado, e ainda não lançado.
+  // Lançar: valor dos serviços externos aprovado E, só com o módulo Produção, CQ liberado; e ainda não lançado.
   const lancStatusDe = (m: Modelo): "lancado" | "pronto" | null => {
     if (m.lancado) return "lancado";
     const cqOk = !!(cqProntoMap as Record<string, boolean>)[m.id];
-    return cqOk && !!(m as any).custo_terceirizados_aprovado ? "pronto" : null;
+    return prontoParaLancar({ cqExigido, cqLiberado: cqOk, moAprovada: !!(m as any).custo_terceirizados_aprovado }) ? "pronto" : null;
   };
 
   const colecoes = useMemo(() => {
@@ -768,6 +771,7 @@ function PlanejamentoPage() {
         dataLancamento={(m as any).data_lancamento ?? null}
         onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
         lancStatus={lancStatusDe(m)}
+        cqExigido={cqExigido}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
         refModelo={(m as any).ref || null}
@@ -1322,8 +1326,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, etapa, precoVenda, onPrecoVenda, precoTravado, excluirTravado, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; etapa: EtapaSelo; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; precoTravado?: string | null; excluirTravado?: string | null; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, cqExigido, mesNome, anoNome, refModelo, etapa, precoVenda, onPrecoVenda, precoTravado, excluirTravado, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; cqExigido: boolean; mesNome: string | null; anoNome: string | null; refModelo: string | null; etapa: EtapaSelo; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; precoTravado?: string | null; excluirTravado?: string | null; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1546,7 +1550,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
                       className="w-[7.75rem] shrink-0 [&>div]:h-7 max-md:[&>div]:h-10 [&_input]:h-full [&_input]:pl-2 [&_input]:pr-7 max-md:[&_input]:pr-9 [&_input]:text-xs [&_button]:w-7 max-md:[&_button]:w-9 [&_svg]:h-3.5 [&_svg]:w-3.5" />
                     <button type="button" disabled={lancStatus == null}
                       aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
-                      title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : "Disponível só com CQ liberado e mão de obra aprovada"}
+                      title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : textoLancarExige(cqExigido)}
                       onClick={() => onLancar(dtLanc || null, lancStatus !== "lancado")}
                       className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border max-md:h-10 max-md:w-10 ${
                         lancStatus === "lancado" ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"

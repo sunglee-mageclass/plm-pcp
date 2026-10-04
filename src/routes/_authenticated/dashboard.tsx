@@ -40,6 +40,10 @@ import {
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
 import { useAuth } from "@/hooks/useAuth";
+import { useTenantModules } from "@/hooks/useTenantModules";
+import { abasVisiveis, blocosCustoFinanceiro } from "@/lib/dashboard-abas";
+import { rotuloColecao } from "@/lib/colecao-rotulo";
+import { EmptyState } from "@/components/shared/EmptyState";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
@@ -63,13 +67,33 @@ const DASH_TABS = [
   { value: "leadtime", label: "Leadtime", Comp: LeadtimeTab },
 ] as const;
 
-function Dashboard() {
+// [modularidade M7] Abas visíveis = permissão `dashboard_<aba>` (a RPC de cada aba também checa no banco — migration
+// dashboard_permissao_por_aba) E o módulo da aba ligado na loja (`DASH_ABA_MODULOS`, `src/lib/dashboard-abas.ts`).
+// Usado pelo <Dashboard /> e pelo <DashTabsList /> (antes duplicado).
+function useAbasVisiveis() {
   const { canView } = useAuth();
-  // Só mostra as abas que o usuário pode ver (a RPC de cada aba também checa
-  // a permissão no banco — ver migration dashboard_permissao_por_aba).
-  const tabs = DASH_TABS.filter((t) => canView(`dashboard_${t.value}`));
+  const { isModuleEnabled } = useTenantModules();
+  return abasVisiveis(DASH_TABS, canView, isModuleEnabled);
+}
+
+function Dashboard() {
+  const tabs = useAbasVisiveis();
   const [tab, setTab] = useState<string>(tabs[0]?.value ?? "colecao");
   const active = tabs.some((t) => t.value === tab) ? tab : (tabs[0]?.value ?? "colecao");
+  // Loja com Dashboard ligado mas sem módulo que alimente uma das abas que o usuário pode ver (ex.: só Dashboard): em vez de
+  // página vazia, avisa. Só o super admin liga módulo (P-251 C).
+  if (tabs.length === 0) {
+    return (
+      <div className="container mx-auto flex min-h-[50vh] items-center justify-center p-6">
+        <EmptyState
+          icon={BarChart3}
+          title="Nenhuma aba do Dashboard disponível"
+          description="As abas do Dashboard dependem dos módulos Criação, Produção e Financeiro da loja, e nenhum deles está ligado para as abas que você pode ver. Peça ao administrador do sistema para ligar o módulo."
+          className="max-w-lg"
+        />
+      </div>
+    );
+  }
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex items-start gap-3">
@@ -100,8 +124,7 @@ function Dashboard() {
 // os botões de ação pra direita). Mesma lista filtrada por permissão do <Dashboard />.
 // No mobile o seletor de abas é o dropdown no nível da página (hidden md:inline-flex aqui).
 function DashTabsList() {
-  const { canView } = useAuth();
-  const tabs = DASH_TABS.filter((t) => canView(`dashboard_${t.value}`));
+  const tabs = useAbasVisiveis();
   return (
     <TabsList className="mr-auto hidden md:inline-flex">
       {tabs.map((t) => (
@@ -284,11 +307,16 @@ const TIPO_OC_LABEL: Record<string, string> = {
 function CustoFinanceiroTab() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { isModuleEnabled } = useTenantModules();
+  // [modularidade M7] cada bloco só com o módulo dele: Financeiro = parcelas/estoque parado; Criação = custo dos cards.
+  // As queries também só rodam com o módulo (o servidor recusaria `dashboard_financeiro` sem Financeiro — T1 M4).
+  const { financeiro: comFin, custos: comCustos } = blocosCustoFinanceiro(isModuleEnabled);
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const fin = useQuery({
     queryKey: ["dash-financeiro", ini, fim],
+    enabled: comFin,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_financeiro" as never, { p_inicio: ini, p_fim: fim } as never);
       if (error) throw error;
@@ -297,6 +325,7 @@ function CustoFinanceiroTab() {
   });
   const parado = useQuery({
     queryKey: ["dash-estoque-parado"],
+    enabled: comFin,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_estoque_parado" as never);
       if (error) throw error;
@@ -305,6 +334,7 @@ function CustoFinanceiroTab() {
   });
   const custos = useQuery({
     queryKey: ["dash-custos", ini, fim, "all", "all", "all"],
+    enabled: comCustos,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_custos" as never, {
         p_inicio: ini, p_fim: fim, p_colecao: undefined, p_categoria: undefined, p_linha: undefined,
@@ -334,8 +364,8 @@ function CustoFinanceiroTab() {
     [rowsCusto],
   );
 
-  const isLoading = fin.isLoading || parado.isLoading || custos.isLoading;
-  const isError = fin.isError || parado.isError || custos.isError;
+  const isLoading = (comFin && (fin.isLoading || parado.isLoading)) || (comCustos && custos.isLoading);
+  const isError = (comFin && (fin.isError || parado.isError)) || (comCustos && custos.isError);
 
   // ——— KPIs "Ação de hoje" ———
   const kpis = (
@@ -388,14 +418,16 @@ function CustoFinanceiroTab() {
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2"><MobileFilterBar periodo={periodo} onPeriodo={setPeriodo} /></div>
-        <div className="grid grid-cols-2 gap-2.5">
-          <KpiCardMobile compact label="A pagar (aberto)" value={brlAbrev(pendente)} valueTitle={brl(pendente)} sub={`${brlAbrev(vencendo30)} em 30d`} />
-          <KpiCardMobile compact label="Estoque parado" value={brlAbrev(estoqueParado)} valueTitle={brl(estoqueParado)} sub="sem uso/reserva" />
-          <KpiCardMobile compact label="Investido em MP" value={brlAbrev(investido)} valueTitle={brl(investido)} sub="no período" />
-          <KpiCardMobile compact label="% pago" value={`${pctPago}%`} sub={`${brlAbrev(pago)} pago`} />
-        </div>
-        {cardDiverg}
-        {cardAPagar}
+        {comFin && (
+          <div className="grid grid-cols-2 gap-2.5">
+            <KpiCardMobile compact label="A pagar (aberto)" value={brlAbrev(pendente)} valueTitle={brl(pendente)} sub={`${brlAbrev(vencendo30)} em 30d`} />
+            <KpiCardMobile compact label="Estoque parado" value={brlAbrev(estoqueParado)} valueTitle={brl(estoqueParado)} sub="sem uso/reserva" />
+            <KpiCardMobile compact label="Investido em MP" value={brlAbrev(investido)} valueTitle={brl(investido)} sub="no período" />
+            <KpiCardMobile compact label="% pago" value={`${pctPago}%`} sub={`${brlAbrev(pago)} pago`} />
+          </div>
+        )}
+        {comCustos && cardDiverg}
+        {comFin && cardAPagar}
         {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
         <DashError show={isError} />
       </div>
@@ -409,40 +441,49 @@ function CustoFinanceiroTab() {
         <div className="hidden md:contents"><PeriodoPicker value={periodo} onChange={setPeriodo} /></div>
         <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} />
       </div>
-      <SecHeader icon={Sparkles}>Ação de hoje</SecHeader>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{kpis}</div>
-      <div className="grid gap-4 lg:grid-cols-2">{cardDiverg}{cardAPagar}</div>
-      <DetalheExpansivel titulo="Custo previsto × real — todos os modelos" sub={`${rowsCusto.length} modelo(s)`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm card-table">
-            <thead className="text-left text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-3">REF</th>
-                <th className="py-2 pr-3">Modelo</th>
-                <th className="py-2 pr-3 text-right">Previsto</th>
-                <th className="py-2 pr-3 text-right">Real</th>
-                <th className="py-2 pr-3 text-right">Δ variação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...rowsCusto].sort((a, b) => Math.abs(Number(b.pct) || 0) - Math.abs(Number(a.pct) || 0)).map((r) => {
-                const pct = Number(r.pct) || 0;
-                const cor = pct > 15 ? "var(--tone-danger-fg)" : pct > 0 ? "var(--tone-warning-fg)" : pct < 0 ? "var(--tone-success-fg)" : "var(--muted-foreground)";
-                return (
-                  <tr key={r.id} className="border-t">
-                    <td className="py-2 pr-3 num" data-label="REF">{r.ref ?? "—"}{r.versao ? <span className="text-muted-foreground"> v{r.versao}</span> : null}</td>
-                    <td className="py-2 pr-3" data-label="Modelo">{r.nome}{!r.confirmado && <span className="text-[11px] text-muted-foreground"> · previsto</span>}</td>
-                    <td className="py-2 pr-3 text-right num" data-label="Previsto">{brl(r.previsto)}</td>
-                    <td className="py-2 pr-3 text-right num" data-label="Real">{r.confirmado ? brl(r.real) : "—"}</td>
-                    <td className="py-2 pr-3 text-right num font-semibold" data-label="Δ variação" style={{ color: cor }}>{r.confirmado ? `${pct > 0 ? "+" : ""}${fmtInt(pct)}%` : "—"}</td>
-                  </tr>
-                );
-              })}
-              {rowsCusto.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem dados de custo no filtro.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </DetalheExpansivel>
+      {comFin && (
+        <>
+          <SecHeader icon={Sparkles}>Ação de hoje</SecHeader>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{kpis}</div>
+        </>
+      )}
+      <div className={cn("grid gap-4", comFin && comCustos && "lg:grid-cols-2")}>
+        {comCustos && cardDiverg}
+        {comFin && cardAPagar}
+      </div>
+      {comCustos && (
+        <DetalheExpansivel titulo="Custo previsto × real — todos os modelos" sub={`${rowsCusto.length} modelo(s)`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm card-table">
+              <thead className="text-left text-muted-foreground">
+                <tr>
+                  <th className="py-2 pr-3">REF</th>
+                  <th className="py-2 pr-3">Modelo</th>
+                  <th className="py-2 pr-3 text-right">Previsto</th>
+                  <th className="py-2 pr-3 text-right">Real</th>
+                  <th className="py-2 pr-3 text-right">Δ variação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...rowsCusto].sort((a, b) => Math.abs(Number(b.pct) || 0) - Math.abs(Number(a.pct) || 0)).map((r) => {
+                  const pct = Number(r.pct) || 0;
+                  const cor = pct > 15 ? "var(--tone-danger-fg)" : pct > 0 ? "var(--tone-warning-fg)" : pct < 0 ? "var(--tone-success-fg)" : "var(--muted-foreground)";
+                  return (
+                    <tr key={r.id} className="border-t">
+                      <td className="py-2 pr-3 num" data-label="REF">{r.ref ?? "—"}{r.versao ? <span className="text-muted-foreground"> v{r.versao}</span> : null}</td>
+                      <td className="py-2 pr-3" data-label="Modelo">{r.nome}{!r.confirmado && <span className="text-[11px] text-muted-foreground"> · previsto</span>}</td>
+                      <td className="py-2 pr-3 text-right num" data-label="Previsto">{brl(r.previsto)}</td>
+                      <td className="py-2 pr-3 text-right num" data-label="Real">{r.confirmado ? brl(r.real) : "—"}</td>
+                      <td className="py-2 pr-3 text-right num font-semibold" data-label="Δ variação" style={{ color: cor }}>{r.confirmado ? `${pct > 0 ? "+" : ""}${fmtInt(pct)}%` : "—"}</td>
+                    </tr>
+                  );
+                })}
+                {rowsCusto.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem dados de custo no filtro.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </DetalheExpansivel>
+      )}
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
@@ -480,6 +521,15 @@ const fmtMkp = (v: number) => (v > 0 ? `${v.toLocaleString("pt-BR", { maximumFra
 // margem por linha vs a faixa cadastrada (markup_min/ideal). Mesma matemática da ComercialTab
 // (preco.ts, fonte única) — reusa o padrão de agregação por linha; ZERO RPC nova (só
 // custo_unitario_modelos + grade, já usados). Detalhe completo abre na aba "Comercial" (tabelas).
+// [modularidade F3 · Parte 12] Coleção do card = o NOME da coleção do OTB (`colecao_id` → `colecoes.nome`) e, sem ela, o texto
+// `modelos.colecao` (`rotuloColecao`, espelho de `_modelo_colecao_rotulo` do servidor): card só com `colecao_id` entra no
+// filtro e no agrupamento. O embed `colecoes(nome)` traz o nome da coleção da mesma loja (RLS).
+const nomeColecaoEmbed = (m: any): string | null => {
+  const c = m?.colecoes;
+  return (Array.isArray(c) ? c[0]?.nome : c?.nome) ?? null;
+};
+const rotuloColecaoDoCard = (m: any): string | null => rotuloColecao({ colecao: m?.colecao, colecaoNome: nomeColecaoEmbed(m) });
+
 function ComercialColecaoTab() {
   const isMobile = useIsMobile();
   const [fColecao, setFColecao] = useState("all");
@@ -488,9 +538,9 @@ function ComercialColecaoTab() {
   const { data: opts = { colecoes: [] as string[], subcolecoes: [] as string[] } } = useQuery({
     queryKey: ["comercial-opts"],
     queryFn: async () => {
-      const { data } = await supabase.from("modelos").select("colecao, subcolecao");
+      const { data } = await supabase.from("modelos").select("colecao, subcolecao, colecoes(nome)");
       return {
-        colecoes: Array.from(new Set((data ?? []).map((m: any) => m.colecao).filter(Boolean))).sort() as string[],
+        colecoes: Array.from(new Set((data ?? []).map((m: any) => rotuloColecaoDoCard(m)).filter(Boolean))).sort() as string[],
         subcolecoes: Array.from(new Set((data ?? []).map((m: any) => m.subcolecao).filter(Boolean))).sort() as string[],
       };
     },
@@ -500,12 +550,14 @@ function ComercialColecaoTab() {
     queryKey: ["comercial-col-modelos", fColecao, fSubcolecao],
     queryFn: async () => {
       // embed estende a ComercialTab com markup_min/markup_max (faixa da linha) p/ o status por faixa.
-      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, status_desenvolvimento, status_planejamento, linha:linha_id(nome, markup, markup_min, markup_max)");
-      if (fColecao !== "all") q = q.eq("colecao", fColecao);
+      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, status_desenvolvimento, status_planejamento, linha:linha_id(nome, markup, markup_min, markup_max), colecoes(nome)");
       if (fSubcolecao !== "all") q = q.eq("subcolecao", fSubcolecao);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as any[];
+      // Filtro de coleção NO CLIENTE pelo rótulo (o texto `modelos.colecao` sozinho deixaria de fora o card só com `colecao_id`);
+      // `colecao` da linha vira o rótulo (agrupamento "Por coleção").
+      const rows = ((data ?? []) as any[]).map((m) => ({ ...m, colecao: rotuloColecaoDoCard(m) }));
+      return fColecao === "all" ? rows : rows.filter((m) => m.colecao === fColecao);
     },
   });
   const ids = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);

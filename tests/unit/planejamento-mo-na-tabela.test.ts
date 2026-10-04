@@ -18,7 +18,8 @@ describe("Mão de obra DENTRO de Preço e Custos (fonte)", () => {
     expect(s).toContain("const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));");
     expect(s).toContain("mao_obra_novo: !isEdit && moBlocoVisivel,");
     expect(s.split("blocoMaoObra={moBlocoVisivel ? editorMaoObra : null}").length - 1).toBe(2); // PrecoTabela + PrecoRevendaBloco
-    expect(s).toContain("(na seção Preço e Custos)");
+    // [modularidade F3] o texto do bloqueio do Lançar saiu para `bloqueiosLancar` (src/lib/lancar.ts)
+    expect(fonte("src/lib/lancar.ts")).toContain("(na seção Preço e Custos)");
     expect(s).not.toMatch(/maoObra: \{ estado: moEstadoLocal/);
     // R15 (item 13 do G-plano): o aviso de MO pendente/reprovada vai p/ o selo de Preço — interno E comprado.
     expect(s).toContain('maoObraAviso: moBlocoVisivel && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null,');

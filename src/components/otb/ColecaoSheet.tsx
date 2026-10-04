@@ -10,10 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Trash2, ArrowLeft, Check, Save, Plus, Tags } from "lucide-react";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ExcluirColecaoDialog } from "./ExcluirColecaoDialog";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -636,9 +633,6 @@ export function ColecaoSheet({
     for (const [sub, ms] of Object.entries(bySub)) out[sub] = computeColecaoResumo(ms, custoMap as any, gradeMap as any, linhaMarkupMap as any).poder;
     return out;
   }, [modelos, custoMap, gradeMap, linhaMarkupMap]);
-  // Contagens p/ o diálogo de exclusão: modelos planejados bloqueiam; os demais são apagados.
-  const nPlanejado = modelos.filter((m) => m.status_planejamento === "planejado").length;
-  const nExcluir = modelos.length - nPlanejado;
   const orc = orcamento === "" ? null : Number(orcamento);
   const saldo = orc != null ? orc - resumo.previsto : null;
   const pct = orc && orc > 0 ? resumo.previsto / orc : 0;
@@ -830,7 +824,7 @@ export function ColecaoSheet({
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       setConfirmDel(false); onSaved(); onClose();
     },
-    // Bloqueio (há modelo planejado) chega como erro: mostra a mensagem do banco.
+    // Recusa do servidor (`colecao_com_cards: N`, P-255 A) chega como erro: `mensagemErro` traduz.
     onError: (e: any) => { setConfirmDel(false); toast.error(mensagemErro(e, "Erro ao excluir coleção")); },
   });
 
@@ -975,36 +969,8 @@ export function ColecaoSheet({
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nesta coleção." />
       </SheetContent>
 
-      <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir a coleção “{nome}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {nPlanejado > 0 ? (
-                <>
-                  Esta coleção tem <strong>{nPlanejado}</strong> modelo(s) já <strong>planejado(s)</strong>, então a exclusão será{" "}
-                  <strong>bloqueada</strong>. Remova ou reprove esses modelos antes de excluir a coleção.
-                </>
-              ) : (
-                <>
-                  Exclui a coleção, suas semanas e <strong>{nExcluir}</strong> modelo(s) vinculado(s) que ainda estão{" "}
-                  <strong>em planejamento</strong> (ou reprovados) — <strong>inclusive os já preenchidos</strong>. Esta ação não pode ser desfeita.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={(e) => { e.preventDefault(); excluir.mutate(); }}
-              disabled={excluir.isPending || nPlanejado > 0}
-            >
-              {excluir.isPending ? "Excluindo…" : "Excluir"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* P-255 A: coleção com card é RECUSADA (mostra quantos/quais, sem botão de confirmar). */}
+      <ExcluirColecaoDialog open={confirmDel} onOpenChange={setConfirmDel} colecaoId={colecaoId} nome={nome} pending={excluir.isPending} onConfirm={() => excluir.mutate()} />
     </Sheet>
   );
 }

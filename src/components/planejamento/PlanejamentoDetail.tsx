@@ -47,6 +47,7 @@ import { estadoMO, moLinhasEqual, moLinhaVaiReabrir, podeEditarValorMO, type MoL
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
+import { bloqueiosLancar } from "@/lib/lancar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -742,6 +743,9 @@ function PlanejamentoDetailConteudo({
   // Lançar exige Pré confirmado E (se há serviço pós-costura) Pós confirmado — mesmo
   // gate do Direcionamento (predicado único em @/lib/cq-status).
   const cqConfirmado = cqLiberado(cqInfo as any);
+  // [modularidade P-252 A] o CQ só é exigido para Lançar se a loja tem o módulo Produção (o servidor decide igual:
+  // `lancar_modelo`); sem Produção basta a mão de obra aprovada e a data.
+  const cqExigido = isModuleEnabled("producao");
 
   // MO por serviço (spec 2026-08-06): semeia `moLinhas` do resumo do servidor. GUARDADA — se o
   // usuário tem edições locais de VALOR não salvas (moLinhas ≠ moLinhasBase), um refetch em
@@ -1079,10 +1083,8 @@ function PlanejamentoDetailConteudo({
       if (!modeloId) throw new Error("Salve o modelo primeiro.");
       // Pré-checagens de UX (mensagem imediata); o SERVIDOR re-valida em lancar_modelo.
       if (send) {
-        if (!cqConfirmado) throw new Error("Confirme o Controle de Qualidade antes de lançar.");
-        if (moReabreAoSalvar) throw new Error("Salve antes de lançar: a mão de obra alterada volta para pendente e precisa de nova aprovação.");
-        if (maoObraPendente) throw new Error("Aprove a mão de obra antes de lançar.");
-        if (!draft.data_lancamento) throw new Error("Preencha a Data de Lançamento.");
+        const faltas = bloqueiosLancar({ cqExigido, cqLiberado: cqConfirmado, moAprovada: !maoObraPendente, temData: !!draft.data_lancamento, moReabreAoSalvar });
+        if (faltas.length > 0) throw new Error(faltas[0]);
       }
       // Gate REAL no servidor (CQ liberado + valor de serviço aprovado + data). Ao lançar,
       // a RPC também limpa o #Erro de 'lancamentos' (setado quando o CQ foi desmarcado antes).
@@ -1228,11 +1230,7 @@ function PlanejamentoDetailConteudo({
 
   // O que falta p/ poder Lançar (mesmo gate da mutation `lancar`) — alimenta o tooltip
   // do botão desabilitado no setor Lançamento.
-  const lancarBloqueios: string[] = [];
-  if (!cqConfirmado) lancarBloqueios.push("Confirme o Controle de Qualidade (Pré e, se houver acabamento, o Pós).");
-  if (moReabreAoSalvar) lancarBloqueios.push("Salve antes: a mão de obra alterada volta para pendente e precisa de nova aprovação.");
-  else if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Preço e Custos).");
-  if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
+  const lancarBloqueios = bloqueiosLancar({ cqExigido, cqLiberado: cqConfirmado, moAprovada: !maoObraPendente, temData: !!draft.data_lancamento, moReabreAoSalvar });
 
   // Selo da etapa no HEADER (decisão 5: Nome → REF → selo). "Planejamento" antes da Ordem de Criação, "Lançado"
   // depois de lançar, senão a coluna (+ automática/fixado c/ a chave ligada). Mover exige editar o Dev (a RPC
@@ -1948,7 +1946,7 @@ function PlanejamentoDetailConteudo({
             </Secao>
           )}
 
-          {/* SETOR 6 — Lançamento (gate: CAD + CQ liberado + valor de serviços aprovado) */}
+          {/* SETOR 6 — Lançamento (gate: valor de serviços aprovado + data; CQ liberado só com o módulo Produção — P-252 A) */}
           {vis.lancamento && (
             <Secao id="lancamento" titulo="Lançamento" numero={numeros.lancamento} selo={seloDe("lancamento")} defaultOpen={false}>
               <div className="flex flex-wrap items-end gap-3">

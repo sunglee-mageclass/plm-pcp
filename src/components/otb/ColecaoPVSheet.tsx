@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ExcluirColecaoDialog } from "./ExcluirColecaoDialog";
 import { DateField } from "@/components/shared/DateField";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -818,24 +818,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nesta coleção por Poder de Venda." />
       </SheetContent>
 
-      <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir a coleção “{nome}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Exclui a coleção e os modelos vinculados que ainda estão em planejamento (ou reprovados).
-              Se houver modelo já <strong>planejado</strong>, a exclusão é bloqueada. Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction variant="destructive"
-              onClick={(e) => { e.preventDefault(); excluir.mutate(); }} disabled={excluir.isPending}>
-              {excluir.isPending ? "Excluindo…" : "Excluir"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* P-255 A: coleção com card é RECUSADA (mostra quantos/quais, sem botão de confirmar). */}
+      <ExcluirColecaoDialog open={confirmDel} onOpenChange={setConfirmDel} colecaoId={savedId} nome={nome} pending={excluir.isPending} onConfirm={() => excluir.mutate()} />
     </Sheet>
   );
 }
