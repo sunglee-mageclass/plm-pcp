@@ -147,6 +147,12 @@ DO $trg$
 DECLARE
   i int;
 BEGIN
+  -- reaplicar com os gatilhos já criados não pega trava nenhuma (S5: nada de LOCK à toa numa txn que já mexeu em pg_class)
+  IF NOT EXISTS (SELECT 1 FROM unnest(ARRAY['modelos', 'produtos_acabados', 'produtos_importados']) x(t)
+                  WHERE NOT EXISTS (SELECT 1 FROM pg_trigger g WHERE g.tgrelid = to_regclass('public.' || x.t)
+                                     AND g.tgname = 'trg_aaa_seg_pagina' AND NOT g.tgisinternal)) THEN
+    RETURN;
+  END IF;
   FOR i IN 1..3 LOOP
     BEGIN
       PERFORM set_config('lock_timeout', '1500ms', true);

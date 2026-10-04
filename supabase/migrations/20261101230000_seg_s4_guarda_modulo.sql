@@ -111,6 +111,12 @@ DO $trg$
 DECLARE
   i int;
 BEGIN
+  -- reaplicar com os gatilhos já criados não pega trava nenhuma (S5: nada de LOCK à toa numa txn que já mexeu em pg_class)
+  IF NOT EXISTS (SELECT 1 FROM unnest(ARRAY['colecao_mixes', 'colecao_pv_itens', 'colecao_semana_categorias', 'colecao_semanas', 'colecao_subcolecoes', 'mix_padrao_linhas', 'mix_padroes', 'otb_simulacao_linhas', 'otb_simulacao_modelos', 'otb_simulacao_variantes', 'otb_simulacao_unidades', 'otb_simulacoes', 'colecoes']) x(t)
+                  WHERE NOT EXISTS (SELECT 1 FROM pg_trigger g WHERE g.tgrelid = to_regclass('public.' || x.t)
+                                     AND g.tgname = 'trg_aaa_seg_modulo' AND NOT g.tgisinternal)) THEN
+    RETURN;
+  END IF;
   FOR i IN 1..3 LOOP
     BEGIN
       PERFORM set_config('lock_timeout', '1500ms', true);
