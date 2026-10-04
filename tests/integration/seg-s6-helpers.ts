@@ -40,6 +40,8 @@ export async function s6Viva(c: Client): Promise<boolean> {
 
 /** LIFO: quem volta (ou reaplica) a S5 ou qualquer release anterior dentro da txn tira a S6 antes (chamado por voltaS5SePreciso). */
 export async function voltaS6SePreciso(c: Client): Promise<void> {
+  // LIFO: a frente Modularidade (20261103*) roda por cima da S6 e redefine wrappers que a S1..S3d guardam por md5 — sai antes
+  await (await import("./mod-helpers")).voltaModSePreciso(c);
   if (!(await s6Viva(c))) return;
   const st = (await c.query("SELECT current_setting('statement_timeout') AS v")).rows[0].v as string;
   await voltaS6(c);

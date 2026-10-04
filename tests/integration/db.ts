@@ -126,6 +126,13 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaS6(client);
     }
+    // Modularidade (mesmo ensaio): com MOD_TXN=1 os blocos da frente que existem no repositório (T1..T5, mod-helpers) são
+    // aplicados DENTRO desta txn, na ordem, antes do teste (os já vivos na cópia são pulados).
+    if (process.env.MOD_TXN === "1") {
+      const { aplicaMod } = await import("./mod-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaMod(client);
+    }
     await fn(client);
   } finally {
     try {
