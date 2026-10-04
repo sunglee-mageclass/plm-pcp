@@ -94,8 +94,9 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
     // Importado desligado) ao lado da trava da Integração — ver describe "Fix round 1 — I-2" mais abaixo.
     expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
     const r = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
-    expect(r.match(/disabled=\{planBloqueado \|\| travaVarejo( \|\| salvarMarkupsRevenda\.isPending)?\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
-    expect(r.match(/disabled=\{planBloqueado( \|\| salvarMarkupsRevenda\.isPending)?\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
+    // (Reforço de segurança S3d: os 4 travam também sem `podeEditarPrecoComprado` — o OU do servidor; a trava da Integração segue só no varejo)
+    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado \|\| travaVarejo( \|\| salvarMarkupsRevenda\.isPending)?\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
+    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado( \|\| salvarMarkupsRevenda\.isPending)?\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
     expect(r).toMatch(/\{podeEditarPreco && !travaPrecoAnterior \? \(/);
     expect(r).toMatch(/markup_varejo: markupCanalIntocado\(produtoRevenda\?\.markup_varejo, markupVarejoInput, enviadoVarejoRef\.current\)/);
   });

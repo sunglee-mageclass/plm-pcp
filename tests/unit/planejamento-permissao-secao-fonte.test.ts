@@ -73,7 +73,8 @@ describe("Sheet do Planejamento trava POR SEÇÃO pelas 2 permissões (P-53 A) �
   // Fix 1 (I-1b/c) — markups + preços fixos da revenda travam com planBloqueado.
   it("PrecoRevendaBloco recebe planBloqueado e desabilita os 4 inputs (2 markups + 2 preços fixos)", () => {
     expect(DETALHE).toMatch(/<PrecoRevendaBloco[\s\S]*?planBloqueado=\{perm\.planBloqueado\}/);
-    const usos = (REVENDA_SETORES.match(/disabled=\{planBloqueado(?: \|\| travaVarejo)?(?: \|\| salvarMarkupsRevenda\.isPending)?\}/g) ?? []).length; // varejo: + trava da Integração (F4)
+    // (S3d: + `!podeEditarPrecoComprado`, o OU do servidor — Produto Acabado OU a seção de preço)
+    const usos = (REVENDA_SETORES.match(/disabled=\{planBloqueado(?: \|\| !podeEditarPrecoComprado)?(?: \|\| travaVarejo)?(?: \|\| salvarMarkupsRevenda\.isPending)?\}/g) ?? []).length; // varejo: + trava da Integração (F4)
     expect(usos).toBeGreaterThanOrEqual(4);
   });
 

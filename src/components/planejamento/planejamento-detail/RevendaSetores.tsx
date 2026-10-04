@@ -32,7 +32,7 @@ import type { ReactNode } from "react";
 import { mostraVerNoProdutoAcabado, type ContextoDetalhe } from "./contexto";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, podeEditarPrecoComprado, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
   /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
@@ -44,6 +44,9 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
    *  são campos SÓ do Planejamento (nenhum Sheet do Dev antigo os tinha). Sem `podeEditarPlanejamento`, os
    *  4 inputs travam (o slot de M.O., abaixo, fica de fora — é compartilhado, trava própria no orquestrador). */
   planBloqueado: boolean;
+  /** Reforço de segurança S3d (C-14/C-15): markup e preço fixo do comprado (RPCs salvar_markups/salvar_precos_fixo_produto_acabado)
+   *  exigem no servidor EDITAR o Produto Acabado OU a seção "Editar preço de venda" do Planejamento — sem isso os 4 inputs travam. */
+  podeEditarPrecoComprado: boolean;
   /** Integração (F4, D34/R8) — "Preço de venda" marcado trava o VAREJO (Preço varejo + Markup varejo); "Preço anterior"
    *  marcado trava o anterior. Preço atacado e Markup atacado ficam LIVRES (não vão na API). O banco recusa; aqui só desabilita. */
   travaVarejo?: boolean; travaPrecoAnterior?: boolean;
@@ -87,7 +90,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           className="pr-6"
                           value={markupAtacadoInput ?? 0}
                           // P-53 A (fix 1, I-1b): grava na hora via salvar_markups_produto_acabado — SÓ do Planejamento.
-                          disabled={planBloqueado || salvarMarkupsRevenda.isPending}
+                          disabled={planBloqueado || !podeEditarPrecoComprado || salvarMarkupsRevenda.isPending}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                           onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupCanalIntocado(produtoRevenda?.markup_varejo, markupVarejoInput, enviadoVarejoRef.current) }); }}
@@ -104,7 +107,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           className="pr-6"
                           value={markupVarejoInput ?? 0}
                           // P-53 A (fix 1, I-1b): mesma trava do markup atacado acima + Integração (D34/R8).
-                          disabled={planBloqueado || travaVarejo || salvarMarkupsRevenda.isPending}
+                          disabled={planBloqueado || !podeEditarPrecoComprado || travaVarejo || salvarMarkupsRevenda.isPending}
                           onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                           onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupCanalIntocado(produtoRevenda?.markup_atacado, markupAtacadoInput, enviadoAtacadoRef.current), markup_varejo: markupVarejoInput }); }}
@@ -177,7 +180,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         value={precoAtacadoDraft}
                         placeholder="0,00"
                         // P-53 A (fix 1, I-1c): grava na hora via salvar_precos_fixo_produto_acabado — SÓ do Planejamento.
-                        disabled={planBloqueado}
+                        disabled={planBloqueado || !podeEditarPrecoComprado}
                         onChange={(e) => setPrecoAtacadoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                         onBlur={() => {
@@ -196,7 +199,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         value={precoVarejoDraft}
                         placeholder="0,00"
                         // P-53 A (fix 1, I-1c): mesma trava do preço atacado acima + Integração (D34/R8).
-                        disabled={planBloqueado || travaVarejo}
+                        disabled={planBloqueado || !podeEditarPrecoComprado || travaVarejo}
                         onChange={(e) => setPrecoVarejoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                         onBlur={() => {

@@ -198,6 +198,9 @@ function PlanejamentoDetailConteudo({
   // do payload) — campo editável que nunca salva. Variável ÚNICA usada na UI (PrecoTabela/PrecoRevendaBloco)
   // E no hook de save (mesmo nome que antes, para não espalhar o `&&` em vários pontos).
   const podeEditarPreco = canEdit("criacao_planejamento:preco_venda") && podeEditarPlanejamento;
+  // Reforço de segurança S3d (C-14/C-15): markup/preço fixo do comprado = EDITAR o Produto Acabado OU a seção de preço (o mesmo
+  // OU do servidor em salvar_markups/salvar_precos_fixo_produto_acabado); a trava do Planejamento (planBloqueado) segue por fora.
+  const podeEditarPrecoComprado = canEdit("criacao_planejamento:preco_venda") || canEdit("criacao_produto_acabado");
 
   // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
   // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect mais abaixo.
@@ -1853,6 +1856,7 @@ function PlanejamentoDetailConteudo({
               <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft}
                 blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
                 podeEditarPreco={podeEditarPreco}
+                podeEditarPrecoComprado={podeEditarPrecoComprado}
                 planBloqueado={perm.planBloqueado}
                 travaVarejo={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 precoAnterior={draft.preco_anterior}
