@@ -9,6 +9,7 @@ import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { totaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { recomputeEtiqueta, type EtiquetaInfo } from "@/components/desenvolvimento/modelo-detail/types";
+import { md5CamadaSucessor } from "./camada-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const SIG = "public._custo_unitario_modelos_core(uuid[])";
@@ -98,7 +99,10 @@ describe.skipIf(!RODA)("R16 preço M7 — custo real com M.O. por serviço (P-18
            from pg_proc p where p.oid = to_regprocedure($1)`,
         [SIG],
       );
-      expect(r).toEqual({ m: MD5_DEPOIS, v: "s", d: true, anon: false, auth: false, pub: false });
+      // [urg R1 T5] 20261103173000 redefine o _core por cima (custo REAL do insumo vinculado rateado, Ruling A5): aceita o
+      // sucessor pela cadeia LIFO (md5CamadaSucessor continua em md5UrgASucessor), nunca troca o pino.
+      expect(md5CamadaSucessor(SIG, MD5_DEPOIS)).toContain(r.m);
+      expect({ ...r, m: MD5_DEPOIS }).toEqual({ m: MD5_DEPOIS, v: "s", d: true, anon: false, auth: false, pub: false });
       // o wrapper da tela segue chamável por authenticated
       const w = await um<{ a: boolean }>(
         c,

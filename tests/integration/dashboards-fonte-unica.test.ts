@@ -84,7 +84,9 @@ describe.skipIf(!hasDb)("R12 — dashboards na fonte única", () => {
         c,
         `select md5(pg_get_functiondef('public._custo_unitario_modelos_core(uuid[])'::regprocedure)) m`,
       );
-      expect(cu.m).toBe(MD5_INTOCADA);
+      // [urg R1 T5] 20261103173000 redefine o _core por cima (custo REAL do insumo vinculado rateado, Ruling A5): aceita o
+      // sucessor pela cadeia LIFO (md5ModSucessor continua até md5UrgASucessor), nunca troca o pino.
+      expect(md5ModSucessor("public._custo_unitario_modelos_core(uuid[])", MD5_INTOCADA)).toContain(cu.m);
       // wrappers seguem chamáveis pela tela
       for (const w of [
         "public.dashboard_custos(date,date,text,uuid,uuid)",

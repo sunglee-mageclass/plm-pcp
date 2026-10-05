@@ -86,6 +86,20 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
     "NEUTRO": {
       "public.fn_custo_fila_grade()": "619e266e6dbbc469637802b8acf9920a"
     }
+  },
+  "173000": {
+    "mig": "supabase/migrations/20261103173000_urg_r1_custo_real_insumo.sql",
+    "down": "supabase/rollback/20261103173000_urg_r1_custo_real_insumo_down.sql",
+    "drop": "",
+    "sentinela": "public._custo_unitario_modelos_core(uuid[])",
+    "volta": true,
+    "MD5": {
+      "public._custo_unitario_modelos_core(uuid[])": {
+        "antes": "4bf2770e4932d00914d5209a71ca6312",
+        "depois": "9c0b0f18df6b63a4990c3dda57e506a3"
+      }
+    },
+    "NOVAS": {}
   }
 }
 /* URG_A_JSON_FIM */;
