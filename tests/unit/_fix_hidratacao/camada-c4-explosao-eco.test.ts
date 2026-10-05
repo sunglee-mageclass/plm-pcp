@@ -3,6 +3,7 @@
 // que chegam em renders diferentes, banco que arredonda) nunca vira "A Explosão foi atualizada por outra pessoa."; mudança de
 // OUTRA pessoa continua avisando; P0409 igual; e uma carga que falhou nunca deixa Salvar/Enviar mandar a tela inteira.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
 
@@ -233,4 +234,114 @@ describe("[camada C4 · F6a] Explosão — carga que falhou nunca vira o estado 
       expect(metragemTela()).toBe(3);
     });
   }
+});
+
+// ── Fix round 2 (re-revisão N1 / L1 / pré-existente): a janela do Salvar NUNCA pode engolir mudança alheia ─────────────────
+// O Salvar da Explosão manda a TELA INTEIRA; se a mudança de outra pessoa não chegar à tela, o Salvar seguinte a sobrescreve
+// (e, no P0409, a trava de concorrência fica desarmada).
+const valorTela = (sel: string) => {
+  const el = document.querySelector<HTMLElement>(sel);
+  const v = el?.querySelector("input")?.value ?? el?.textContent ?? "";
+  return Number(v.replace(/\./g, "").replace(",", "."));
+};
+const aviTela = () => valorTela('td[data-label="A separar/enviar"]');
+const avi = () => FAKE.linhas.cad_aviamentos[0];
+
+describe("[camada C4 · fix 2] mudança ALHEIA no meio do Salvar não é engolida nem sobrescrita", () => {
+  it("Caso A — outra pessoa grava aviamento=7 enquanto minha RPC 3 está em voo: a tela adota 7, avisa, e o 2º Salvar mantém 7", async () => {
+    await abrir();
+    await digitar(campoMetragem()!, "10");
+    const soltar = segurarRpc("salvar_explosao_etiqueta_enviar");
+    await salvar();
+    await aguardar(() => rpcs("salvar_explosao_etiqueta_enviar").length === 1, "RPC 3 em voo");
+    await outraPessoaGrava(() => { avi().quantidade_separar = 7; });
+    soltar();
+    await aguardar(() => toastMock.success.mock.calls.length > 0, "toast Salvo");
+    await esperar(300);
+    expect(aviTela()).toBe(7);
+    expect(aviso()).toBe(1);
+    // 2º Salvar (só mudo a metragem): o aviamento da outra pessoa NÃO pode voltar para 3
+    await clicar(btn("Editar")!);
+    await digitar(campoMetragem()!, "11");
+    await salvar();
+    await aguardar(() => toastMock.success.mock.calls.length > 1, "2º Salvo");
+    expect(avi().quantidade_separar).toBe(7);
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("Caso B — eco alheio durante minha RPC 1 que toma P0409: a tela adota o dado alheio e o 2º Salvar não o sobrescreve", async () => {
+    await abrir();
+    await digitar(campoMetragem()!, "10");
+    const soltar = segurarRpc("salvar_explosao_metragem");
+    await salvar();
+    await aguardar(() => rpcs("salvar_explosao_metragem").length === 1, "RPC 1 em voo");
+    await outraPessoaGrava(() => { avi().quantidade_separar = 7; FAKE.linhas.cad[0].rev += 2; });
+    soltar(); // _rev_base velho -> P0409
+    await aguardar(() => toastMock.warning.mock.calls.length > 0, "toast do P0409", 3000);
+    await esperar(300);
+    expect(toastMock.success).not.toHaveBeenCalled();
+    expect(aviTela()).toBe(7); // o delta alheio chegou à tela (não ficou só no base)
+    // 2º Salvar: com a âncora nova e o dado alheio na tela
+    await salvar();
+    await aguardar(() => toastMock.success.mock.calls.length > 0, "Salvo depois de reconciliar", 3000);
+    expect(avi().quantidade_separar).toBe(7);
+    expect((rpcs("salvar_explosao_metragem")[1].payload as any)._rev_base).toBe(FAKE.linhas.cad[0].rev - 3);
+  });
+
+  it("pré-existente (item 7) — o cad-row chega ANTES das filhas num refetch comum: um Salvar nesse intervalo toma P0409, não passa com a tela velha", async () => {
+    await abrir();
+    const soltar = FAKE.segurar("cad_aviamentos"); // as filhas atrasam; o cad-row (leve) chega primeiro
+    FAKE.linhas.cad_aviamentos[0].quantidade_separar = 7;
+    FAKE.linhas.cad[0].rev += 1;
+    FAKE.emitirRealtime("cad");
+    await esperar(150);
+    await digitar(campoMetragem()!, "10");
+    await salvar();
+    await aguardar(() => toastMock.warning.mock.calls.length > 0, "P0409 do servidor", 3000);
+    expect(avi().quantidade_separar).toBe(7); // não foi sobrescrito pela tela velha
+    expect(rpcs("salvar_explosao_aviamento_separar")).toHaveLength(0);
+    soltar();
+    await esperar(300);
+    expect(aviTela()).toBe(7);
+  });
+});
+
+describe("[camada C4 · fix 2 · L1] releitura pós-Salvar que falha", () => {
+  it("não adota cache velho: Salvar/Enviar travam com aviso; 'Tentar de novo' relê e destrava sem falso 'outra pessoa'", async () => {
+    await abrir();
+    await digitar(campoMetragem()!, "10");
+    const soltar = segurarRpc("salvar_explosao_etiqueta_enviar");
+    await salvar();
+    await aguardar(() => rpcs("salvar_explosao_etiqueta_enviar").length === 1, "RPC 3 em voo");
+    FAKE.falhar("cad_etiquetas", 1); // a releitura do pós-Salvar falha
+    soltar();
+    await aguardar(() => texto().includes("não foi possível reler"), "aviso de releitura", 3000);
+    expect(toastMock.success).toHaveBeenCalled(); // gravou
+    const enviar = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((b) => (b.textContent ?? "").includes("para PCP"));
+    expect(enviar.every((b) => b.disabled)).toBe(true);
+    await clicar(btn("Editar")!);
+    expect(salvarBtn().every((b) => b.disabled)).toBe(true);
+    expect(aviso()).toBe(0);
+    const tentar = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").includes("Tentar de novo"))!;
+    await clicar(tentar);
+    await aguardar(() => !texto().includes("não foi possível reler"), "releitura recuperou", 3000);
+    await esperar(200);
+    expect(aviso()).toBe(0); // era o meu próprio save
+    expect(salvarBtn().some((b) => !b.disabled)).toBe(true);
+    // e o rev foi relido: um novo Salvar não toma P0409 contra o próprio save
+    await digitar(campoMetragem()!, "11");
+    await salvar();
+    await aguardar(() => toastMock.success.mock.calls.length > 1, "2º Salvo");
+    expect(toastMock.warning).not.toHaveBeenCalled();
+  });
+});
+
+describe("[camada C4 · fix 2 · L2] fonte", () => {
+  const src = readFileSync("src/components/producao/explosao/ExplosaoDetail.tsx", "utf8");
+  it("o reset dos 'tocados antes' é a 1ª coisa do mutationFn (antes do guard do CAD) e o efeito não avança base/rev na janela", () => {
+    const mf = src.slice(src.indexOf("const salvarMut = useMutation"));
+    expect(mf.indexOf("tocadosAntesRef.current = { metragem: false")).toBeLessThan(mf.indexOf('throw new Error("CAD não carregado")'));
+    const ef = src.slice(src.indexOf("if (assentandoRef.current || releituraFalhouRef.current) return;"));
+    expect(ef.slice(0, 200)).not.toContain("baseServidorRef");
+  });
 });

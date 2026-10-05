@@ -145,7 +145,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // [camada C4 · F6a] As queries que formam o payload do Salvar/Enviar LANÇAM o erro (antes `cad`/`cad_grades` engoliam:
   // falha de carga virava "sem CAD"/"grade 0" e o Salvar mandava o estado inteiro com zeros). Sucesso sem linha = `null`.
   // `isFetched` também fica true depois de um ERRO (TanStack v5), então o "carregou" do seed exige `!falhaCarga`.
-  const { data: cadRow, isError: cadRowIsErr, refetch: refetchCadRow } = useQuery({
+  const { data: cadRow, isError: cadRowIsErr, isFetching: cadRowFetching, refetch: refetchCadRow } = useQuery({
     queryKey: ["explosao-cad-row", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
@@ -174,7 +174,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     campoFocado: campoFocadoColab,
   });
 
-  const { data: cadTecidos = [], isFetched: cadTecidosFetched, isError: cadTecidosIsErr, data: cadTecidosRaw, refetch: refetchCadTecidos } = useQuery({
+  const { data: cadTecidos = [], isFetched: cadTecidosFetched, isFetching: cadTecidosFetching, isError: cadTecidosIsErr, data: cadTecidosRaw, refetch: refetchCadTecidos } = useQuery({
     queryKey: ["explosao-cad-tecidos", cadRow?.id],
     enabled: !!cadRow?.id,
     queryFn: async () => {
@@ -256,7 +256,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // "A separar/enviar" do aviamento = cad_aviamentos.quantidade_separar (mesma coluna "Qtd a
   // Enviar" da tela CAD/Ficha). Agora POR aviamento×variante (o envio ao CAD copia a
   // variante — migration 20260820160000). Espelho editável do metragem_enviada do tecido.
-  const { data: cadAviamentosSeparar = [], isFetched: cadAviamentosFetched, isError: cadAviIsErr, data: cadAviRaw, refetch: refetchCadAvi } = useQuery({
+  const { data: cadAviamentosSeparar = [], isFetched: cadAviamentosFetched, isFetching: cadAviFetching, isError: cadAviIsErr, data: cadAviRaw, refetch: refetchCadAvi } = useQuery({
     queryKey: ["explosao-cad-aviamentos", cadRow?.id],
     enabled: !!cadRow?.id,
     queryFn: async () => {
@@ -272,7 +272,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // Etiquetas/insumos do CAD (cad_etiquetas). A "a enviar" (quantidade_enviar) é editável na
   // Explosão — espelha o "a separar" do aviamento, mas identifica a linha pela `id`. Para a
   // REVENDA é onde a troca de etiqueta é separada (materializada no recebimento da OC).
-  const { data: cadEtiquetas = [], isFetched: cadEtiquetasFetched, isError: cadEtiIsErr, data: cadEtiRaw, refetch: refetchCadEti } = useQuery({
+  const { data: cadEtiquetas = [], isFetched: cadEtiquetasFetched, isFetching: cadEtiFetching, isError: cadEtiIsErr, data: cadEtiRaw, refetch: refetchCadEti } = useQuery({
     queryKey: ["explosao-cad-etiquetas", cadRow?.id],
     enabled: !!cadRow?.id,
     queryFn: async () => {
@@ -307,11 +307,16 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     (modeloAviIsErr && modeloAviRaw === undefined) ||
     (cadAviIsErr && cadAviRaw === undefined) ||
     (cadEtiIsErr && cadEtiRaw === undefined);
-  const podeGravar = seededAll && !falhaCarga;
+  // Releitura pós-Salvar que FALHOU (L1): o Salvar gravou, mas não dá para confirmar o que o servidor tem agora. Base e rev
+  // ficam os de ANTES do save; Salvar/Enviar travados até uma releitura nova dar certo (o "Tentar de novo" refaz).
+  const [releituraFalhou, setReleituraFalhou] = useState(false);
+  const releituraFalhouRef = useRef(false);
+  const podeGravar = seededAll && !falhaCarga && !releituraFalhou;
   const podeGravarRef = useRef(false);
   podeGravarRef.current = podeGravar;
   const recarregando = useIsFetching({ predicate: (q) => String(q.queryKey[0]).startsWith("explosao-") }) > 0;
   const tentarDeNovo = () => {
+    if (releituraFalhouRef.current) { void assentarPosSalvar(); return; }
     if (cadRowIsErr) void refetchCadRow();
     if (cadTecidosIsErr) void refetchCadTecidos();
     if (cadGradesIsErr) void refetchCadGrades();
@@ -328,14 +333,19 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const tocouAviRef = useRef(false);
   const tocouEtiRef = useRef(false);
   const baseServidorRef = useRef<ExplosaoColabBlob | null>(null);
-  // Janela de ASSENTAMENTO do próprio Salvar (R-02): aberta no mutationFn (depois dos guards) e fechada no onSuccess, depois
-  // de reler as 4 leituras do CAD, ou no onError; nela o efeito de merge só acompanha o servidor (base = fresh, rev novo),
-  // sem toast nem adoção de seção.
+  // Janela do Salvar próprio (R-02): aberta no mutationFn (depois dos guards) e fechada no onSuccess, depois de reler as 4
+  // leituras do CAD, ou no onError. Nela o efeito de merge NÃO avalia nem mexe em base/rev (re-revisão N1): o eco das 3 RPCs
+  // (3 `rev`) chega em renders diferentes e um "assentar" que avançasse base/rev sem trazer o dado para a tela engoliria a
+  // mudança alheia. A avaliação é UMA só: no onSuccess, contra o que foi ENVIADO.
   const assentandoRef = useRef(false);
+  // Força UMA avaliação do cache atual (o onError do Salvar: dados iguais não re-disparam o efeito sozinhos).
+  const [mergeNonce, setMergeNonce] = useState(0);
   // "Tocados" no momento em que o Salvar começou (zerados na largada; edições DURANTE o voo re-marcam). Restaurados no erro.
   const tocadosAntesRef = useRef({ metragem: false, avi: false, eti: false });
   // Snapshot do "não salvo" no momento do envio: o selo só limpa o que foi enviado, não a edição feita durante o voo.
   const snapshotEnviadoRef = useRef<unknown>(null);
+  // O que o Salvar ENVIOU (na escala do banco): base da avaliação do onSuccess. Relido ≠ enviado só pode ser OUTRA pessoa.
+  const enviadoRef = useRef<ExplosaoColabBlob | null>(null);
   const [conflitos, setConflitos] = useState<Conflito[]>([]);
   const conflitosRef = useRef<Conflito[]>([]);
   const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
@@ -383,37 +393,18 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     });
   }, [seededAll, cadRow]);
 
-  // Merge grão-grosso por seção: dispara quando o cad OU as 3 filhas re-buscam (refetch alheio,
-  // via onMudancaServidor → invalidateQueries). Só age DEPOIS da 1ª carga (baseServidorRef já
-  // setado pelo effect acima) — a 1ª carga é seed puro, sem merge. Cada seção não-tocada que
-  // mudou no servidor adota o fresco (REIDRATADO da árvore real — cadTecidos/cadAviamentosSeparar/
-  // cadEtiquetas —, não do objeto de comparação); cada seção tocada que diverge vira conflito
-  // ALL-OR-NOTHING (mantém o meu, sinaliza no banner).
-  useEffect(() => {
-    if (!baseServidorRef.current) return;
-    if (!cadTecidosFetched || !cadAviamentosFetched || !cadEtiquetasFetched) return;
-
-    // Reconstrói os 3 blocos "fresh" a partir dos dados crus recém-carregados (mesmas fontes
-    // do seed original), não do state local — senão comparar contra si mesmo nunca acharia
-    // mudança nenhuma.
-    const freshTecidosArvore: TecidoRow[] = arvoreTecidosDoCad(cadTecidos as any[]);
-    const base = baseServidorRef.current;
-    const fresh: ExplosaoColabBlob = blobDoServidorExplosao({
-      tecidos: freshTecidosArvore,
-      cadAviamentos: cadAviamentosSeparar as any[],
-      cadEtiquetas: cadEtiquetas as any[],
-    });
-    const novoRev = (cadRow as any)?.rev ?? null;
-
-    // Janela de ASSENTAMENTO do próprio Salvar (R-02 / I1): enquanto o onSuccess espera as 4 leituras voltarem, cada uma
-    // chega em um render e o efeito vê o servidor PARCIAL (ex.: cad-row com o rev novo e as filhas ainda velhas). Nada
-    // disso é "outra pessoa": só acompanha o servidor (base = fresh, rev novo), sem toast e sem mexer na tela.
-    if (assentandoRef.current) {
-      baseServidorRef.current = fresh;
-      cadRevRef.current = novoRev;
-      return;
-    }
-
+  // Avalia o servidor RELIDO contra o `base` e APLICA o resultado (adoção de seção não-tocada, conflito, toast); no fim o
+  // `fresh` vira o novo base e o rev novo, o rev de referência. Usada pelo efeito de merge (refetch alheio/Realtime) e pelo
+  // onSuccess do Salvar (que avalia contra o que ENVIOU, não contra o base de antes — assim o eco próprio some e uma mudança
+  // alheia que caiu no meio das 3 RPCs aparece, em vez de ser engolida e depois sobrescrita pelo Salvar seguinte).
+  const avaliarEAplicar = (o: {
+    base: ExplosaoColabBlob;
+    fresh: ExplosaoColabBlob;
+    freshTecidosArvore: TecidoRow[];
+    novoRev: number | null;
+    revMudou: boolean;
+  }) => {
+    const { base, fresh, freshTecidosArvore, novoRev, revMudou } = o;
     const draftBlob: ExplosaoColabBlob = blobDaTelaExplosao({
       tecidos: tecidosLiveRef.current,
       aviSeparar: aviSepararLiveRef.current,
@@ -424,7 +415,6 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     if (tocouAviRef.current) touched.add("aviBlob");
     if (tocouEtiRef.current) touched.add("etiBlob");
 
-    const revMudou = novoRev !== cadRevRef.current;
     const { m, aviso } = avaliarMergeExplosao({ base, draft: draftBlob, fresh, touched, revMudou });
     const tinhaConflito = conflitosRef.current.length > 0;
 
@@ -464,8 +454,35 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     }
     baseServidorRef.current = fresh;
     cadRevRef.current = novoRev;
+  };
+
+  // Merge grão-grosso por seção: dispara quando o cad OU as 3 filhas re-buscam (refetch alheio,
+  // via onMudancaServidor → invalidateQueries). Só age DEPOIS da 1ª carga (baseServidorRef já
+  // setado pelo effect acima) — a 1ª carga é seed puro, sem merge. Cada seção não-tocada que
+  // mudou no servidor adota o fresco (REIDRATADO da árvore real — cadTecidos/cadAviamentosSeparar/
+  // cadEtiquetas —, não do objeto de comparação); cada seção tocada que diverge vira conflito
+  // ALL-OR-NOTHING (mantém o meu, sinaliza no banner).
+  useEffect(() => {
+    if (!baseServidorRef.current) return;
+    if (!cadTecidosFetched || !cadAviamentosFetched || !cadEtiquetasFetched) return;
+    // Durante o Salvar próprio (3 RPCs + releitura) NADA é avaliado aqui e base/rev ficam como estavam: quem avalia é o
+    // onSuccess (contra o enviado) ou o onError (`mergeNonce`). Avançar base/rev sem trazer o dado para a tela fazia o
+    // Salvar seguinte (que manda a tela INTEIRA) sobrescrever a mudança alheia e desarmava o P0409 (re-revisão N1).
+    if (assentandoRef.current || releituraFalhouRef.current) return;
+    // Só avalia (e só adota um rev novo) quando as 4 leituras do CAD assentaram: o `cad-row` chega antes das filhas num
+    // refetch comum, e adotar o rev novo com filhas velhas deixava um Salvar nesse intervalo passar no P0409 com a tela velha.
+    if (cadRowFetching || cadTecidosFetching || cadAviFetching || cadEtiFetching) return;
+
+    const freshTecidosArvore: TecidoRow[] = arvoreTecidosDoCad(cadTecidos as any[]);
+    const fresh: ExplosaoColabBlob = blobDoServidorExplosao({
+      tecidos: freshTecidosArvore,
+      cadAviamentos: cadAviamentosSeparar as any[],
+      cadEtiquetas: cadEtiquetas as any[],
+    });
+    const novoRev = (cadRow as any)?.rev ?? null;
+    avaliarEAplicar({ base: baseServidorRef.current, fresh, freshTecidosArvore, novoRev, revMudou: novoRev !== cadRevRef.current });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cadTecidos, cadTecidosFetched, cadAviamentosSeparar, cadAviamentosFetched, cadEtiquetas, cadEtiquetasFetched, cadRow]);
+  }, [cadTecidos, cadTecidosFetched, cadAviamentosSeparar, cadAviamentosFetched, cadEtiquetas, cadEtiquetasFetched, cadRow, cadRowFetching, cadTecidosFetching, cadAviFetching, cadEtiFetching, mergeNonce]);
 
   useEffect(() => {
     if (seeded) return;
@@ -829,11 +846,54 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     await qc.invalidateQueries({ queryKey: ["explosao-cad-etiquetas", cadRow?.id] });
   };
 
+  // Pós-Salvar: relê as 4 leituras do CAD e faz UMA avaliação real contra o que foi ENVIADO (adota mudança alheia em seção
+  // não-tocada, conflito em seção tocada, toast); só então o relido vira base e o rev relido vira a âncora (M2). Se alguma
+  // releitura FALHAR (L1), base/rev ficam os de antes do save, nada é adotado do cache velho e Salvar/Enviar travam até uma
+  // releitura nova dar certo ("Tentar de novo" chama isto de novo).
+  const assentarPosSalvar = async (): Promise<boolean> => {
+    assentandoRef.current = true;
+    try {
+      const cadId = cadRow?.id;
+      const kRow = ["explosao-cad-row", modeloId];
+      const kTec = ["explosao-cad-tecidos", cadId];
+      const kAvi = ["explosao-cad-aviamentos", cadId];
+      const kEti = ["explosao-cad-etiquetas", cadId];
+      await Promise.all([kRow, kTec, kAvi, kEti].map((queryKey) => qc.invalidateQueries({ queryKey })));
+      const falhou = [kRow, kTec, kAvi, kEti].some((k) => {
+        const st = qc.getQueryState(k);
+        return !st || st.status === "error" || st.data === undefined;
+      });
+      if (falhou) {
+        releituraFalhouRef.current = true;
+        setReleituraFalhou(true);
+        return false;
+      }
+      const row: any = qc.getQueryData(kRow);
+      const tec = qc.getQueryData<any[]>(kTec) ?? [];
+      const avi = qc.getQueryData<any[]>(kAvi) ?? [];
+      const eti = qc.getQueryData<any[]>(kEti) ?? [];
+      const freshTecidosArvore = arvoreTecidosDoCad(tec);
+      const fresh = blobDoServidorExplosao({ tecidos: freshTecidosArvore, cadAviamentos: avi, cadEtiquetas: eti });
+      avaliarEAplicar({
+        base: enviadoRef.current ?? baseServidorRef.current ?? fresh,
+        fresh,
+        freshTecidosArvore,
+        novoRev: row?.rev ?? null,
+        revMudou: true,
+      });
+      releituraFalhouRef.current = false;
+      setReleituraFalhou(false);
+      return true;
+    } finally {
+      assentandoRef.current = false;
+    }
+  };
+
   // --- salvar sem baixa ---
   const salvarMut = useMutation({
     mutationFn: async () => {
+      tocadosAntesRef.current = { metragem: false, avi: false, eti: false }; // o onError só restaura o que ESTE envio zerou (L2)
       if (!cadRow?.id) throw new Error("CAD não carregado");
-      tocadosAntesRef.current = { metragem: false, avi: false, eti: false }; // o onError só restaura o que ESTE envio zerou
       // Guard SÍNCRONO: não salvar com conflito pendente (o disabled do botão é state async —
       // um clique entre o merge chegar e o re-render não deve escapar por uma frame de corrida).
       if (conflitosRef.current.length > 0) throw erroValidacao("Resolva os conflitos antes de salvar.");
@@ -846,8 +906,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       tocouAviRef.current = false;
       tocouEtiRef.current = false;
       snapshotEnviadoRef.current = editSnapshot;
-      // A janela de assentamento abre JÁ AQUI: são 3 RPCs/3 `rev`, então o eco Realtime de uma delas pode chegar no meio
-      // (servidor parcial) — não é "outra pessoa". Fecha no onSuccess (depois de reler) ou no onError.
+      enviadoRef.current = blobDaTelaExplosao({ tecidos, aviSeparar, etiEnviar }); // mesma closure que os build*Payload() abaixo
+      // A janela abre JÁ AQUI: são 3 RPCs/3 `rev`, e o eco Realtime de uma delas pode chegar no meio (servidor parcial).
+      // Fecha no onSuccess (depois de reler e avaliar) ou no onError.
       assentandoRef.current = true;
       // ⚠️ As 3 RPCs são UM save atômico do MESMO cad. SÓ A PRIMEIRA checa o rev: a 1ª RPC (com
       // dados) bumpa cad.rev via trigger-de-filha, então passar o MESMO _rev_base velho na 2ª/3ª
@@ -875,31 +936,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       if (errEti) throw errEti;
     },
     onSuccess: async () => {
+      tocadosAntesRef.current = { metragem: false, avi: false, eti: false }; // L2: gravou — nada a restaurar
       toast.success("Salvo");
       resetDirty(snapshotEnviadoRef.current as typeof editSnapshot); // limpa o "não salvo" do que FOI enviado (edição em voo continua suja)
       setEditing(false); // trava a edição após salvar (o lápis reabre)
-      // R-02: adota o estado RELIDO do servidor (não o enviado) como novo base 3-vias — o banco normaliza (numeric(10,2),
-      // integer) e a gravação são 3 RPCs/3 `rev`, então o enviado NUNCA é garantia do que volta. Na espera, o efeito de
-      // merge só acompanha o servidor (assentandoRef). O mutation fica `isPending` até aqui ⇒ o Salvar só reabre depois.
-      assentandoRef.current = true;
-      try {
-        await Promise.all([
-          qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] }),
-          qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] }),
-          qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] }),
-          qc.invalidateQueries({ queryKey: ["explosao-cad-etiquetas", cadRow?.id] }),
-        ]);
-        const row: any = qc.getQueryData(["explosao-cad-row", modeloId]);
-        const tec = qc.getQueryData<any[]>(["explosao-cad-tecidos", cadRow?.id]);
-        const avi = qc.getQueryData<any[]>(["explosao-cad-aviamentos", cadRow?.id]);
-        const eti = qc.getQueryData<any[]>(["explosao-cad-etiquetas", cadRow?.id]);
-        if (row && tec && avi && eti) {
-          baseServidorRef.current = blobDoServidorExplosao({ tecidos: arvoreTecidosDoCad(tec), cadAviamentos: avi, cadEtiquetas: eti });
-          cadRevRef.current = row.rev ?? null; // M2: um 2º Salvar logo em seguida não toma P0409 contra o próprio save
-        }
-      } finally {
-        assentandoRef.current = false;
-      }
+      // O mutation fica `isPending` até o fim daqui ⇒ o Salvar só reabre depois de relido o rev (M2).
+      await assentarPosSalvar();
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
     },
     onError: (e: any) => {
@@ -909,6 +951,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       tocouAviRef.current ||= tocadosAntesRef.current.avi;
       tocouEtiRef.current ||= tocadosAntesRef.current.eti;
       tocadosAntesRef.current = { metragem: false, avi: false, eti: false };
+      // Base e rev ficam os de ANTES do save. O eco alheio que caiu dentro da janela está no cache e dados iguais não
+      // re-disparam o efeito: força UMA avaliação agora (adota/avisa/conflita) — o P0409 não pode ficar sem o delta.
+      setMergeNonce((n) => n + 1);
       if (e?.code === "P0409") { void reconciliarP0409(); return; }
       toast.error(mensagemErro(e, "Erro ao salvar"));
     },
@@ -1125,6 +1170,16 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         {falhaCarga && (
           <Card role="alert" className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
             <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+            <Button type="button" variant="outline" size="sm" disabled={recarregando} onClick={tentarDeNovo}>
+              <RotateCcw className="h-4 w-4 mr-2" /> {recarregando ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </Card>
+        )}
+        {releituraFalhou && !falhaCarga && (
+          <Card role="alert" className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+            <p className="text-destructive font-medium">
+              Salvamos, mas não foi possível reler os dados para confirmar. Salvar e Enviar ficam travados até reler.
+            </p>
             <Button type="button" variant="outline" size="sm" disabled={recarregando} onClick={tentarDeNovo}>
               <RotateCcw className="h-4 w-4 mr-2" /> {recarregando ? "Tentando…" : "Tentar de novo"}
             </Button>
