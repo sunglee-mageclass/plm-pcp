@@ -399,7 +399,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — delta 7: permissão só pelo s
         const def = (await um<{ d: string }>(c,
           `SELECT pg_get_functiondef(p.oid) AS d FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = $1`, [nome])).d;
         expect(def, nome).toContain("_integracao_pode(");
-        expect(def, nome).not.toMatch(/public\.user_can_(view|edit)\('integracao'\)/);
+        expect(def, nome).not.toMatch(/user_can_(view|edit)\('integracao(:[^']*)?'\)/); // sem prefixo `public.` e cobrindo 'integracao:*'
       }
     });
   });

@@ -55,6 +55,9 @@ describe.skipIf(!hasDb)("FF2 — modgate de leitura (produto_acabado)", () => {
         const v = await um<{ n: string }>(c, `select count(*)::text as n from produto_acabado_variantes`);
         expect(p.n).toBe("0");
         expect(v.n).toBe("0");
+        // leitura de ocs_p_acabado NÃO é gated pelo módulo (sem modgate_sel, documentado): o usuário comum segue lendo as OCs da Ave Rara
+        const o = await um<{ n: string }>(c, `select count(*)::text as n from ocs_p_acabado`);
+        expect(Number(o.n)).toBeGreaterThan(0);
       } finally {
         await c.query("RESET ROLE");
       }

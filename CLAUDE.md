@@ -839,7 +839,7 @@ e verifique** — o repo muda rápido.
     **`produtos_acabados`** (+`produto_acabado_variantes`, por cor) é **espelho 1:1 com
     `modelos`** via trigger `enforce_unique_fk('modelo_id')` (NUNCA `UNIQUE` — regra "O que NÃO
     fazer"); `modelos.origem='revenda'` (coluna pré-existente) marca o card espelho. **REF**:
-    gerada na CRIAÇÃO do produto (7 dígitos sequenciais + sigla — trigger `fn_produto_acabado_ref`)
+    gerada na CRIAÇÃO do produto (nº de 8 dígitos por loja, `_ref_num_digitos`, contador único + sigla — trigger `fn_produto_acabado_ref`)
     e **copiada DIRETO pra `modelos.ref`** quando o card é criado (`criar_card_produto_acabado`)
     — passa por FORA do fluxo `ref_auto`→aprovar da invariante 11 (o card nasce com
     `ordem_criacao_enviada=false`, então `fn_modelo_ref_auto` nunca mexe nele). **Grupo

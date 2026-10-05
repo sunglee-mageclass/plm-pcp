@@ -15,6 +15,7 @@ describe.skipIf(!hasDb)("Produto Acabado — códigos automáticos", () => {
       // T1 (backend, 05/out): o nº tem os dígitos da config da loja (`_ref_num_digitos`, padrão 8 — invariante 11: contador único por loja a
       // partir de 10000000, "Começar em" da loja) e NÃO mais 7 (formato de ago/2026, antes do contador único de 8 dígitos). Lê da própria loja.
       const nd = (await um<any>(c, `select public._ref_num_digitos('${TENANT_TESTE}'::uuid) as n`)).n as number;
+      expect(nd).toBe(8); // piso fixo do padrão (invariante 11): a Loja Teste não tem `num_digitos` em ref_config; pega regressão 8 → 7
       expect(p1.ref).toMatch(new RegExp(`^FEVES\\d{${nd}}$`));
       const p2 = await um<any>(c, `insert into produtos_acabados (tenant_id, nome, grupo_id, categoria_id)
         values ('${TENANT_TESTE}','Bolsa Y','${ga.id}','${catB.id}') returning ref`);
