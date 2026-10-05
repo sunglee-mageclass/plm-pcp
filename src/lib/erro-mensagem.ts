@@ -363,6 +363,50 @@ export function mensagemBackend(code: string, msg: string): string | null {
   return null;
 }
 
+// Camada intermediária C1 (20261103160000 / 161000): recusas P0001 com prefixo ASCII → texto PT.
+// - `estado_vazio_recusado: <servicos|itens_oc|direcionamento> <n>`: o Salvar de ESTADO COMPLETO chegou com a lista VAZIA e o
+//   servidor tem n linhas — nada foi apagado (P-77 A). A tela pergunta "Apagar todos os N…?" antes e manda a marca; este texto só
+//   aparece quando a lista chegou vazia sem a pessoa ter confirmado (tela velha, carga incompleta).
+// - `servico_com_parcela_paga: <serviço>: parcela n, m; …`: excluir serviço com parcela PAGA é recusado em qualquer caminho
+//   (P-268 A); o detalhe diz QUAIS (vem do banco: nome da categoria/fornecedor).
+export const PREFIXO_ESTADO_VAZIO = "estado_vazio_recusado:";
+export const PREFIXO_SERVICO_PARCELA_PAGA = "servico_com_parcela_paga:";
+const plural = (n: number, um: string, varios: string) => (n === 1 ? `1 ${um}` : `${n} ${varios}`);
+export function textoEstadoVazio(entidade: string, n: number | null): string {
+  const recarregue = "Recarregue a tela e confira antes de salvar de novo.";
+  const qtd = (um: string, varios: string) => (n && n > 0 ? plural(n, um, varios) : null);
+  if (entidade === "servicos") {
+    const q = qtd("serviço salvo", "serviços salvos");
+    return `Nada foi apagado: a lista de serviços chegou vazia ao servidor${
+      q ? `, mas este modelo tem ${q}` : ""
+    }. ${recarregue}`;
+  }
+  if (entidade === "itens_oc") {
+    const q = qtd("item salvo", "itens salvos");
+    return `Nada foi apagado: a lista de itens chegou vazia ao servidor${q ? `, mas esta OC tem ${q}` : ""}. ${recarregue}`;
+  }
+  if (entidade === "direcionamento") {
+    const q = qtd("linha de loja salva", "linhas de loja salvas");
+    return `Nada foi apagado: o Direcionamento chegou vazio ao servidor${q ? `, mas este modelo tem ${q}` : ""}. ${recarregue}`;
+  }
+  return `Nada foi apagado: a lista chegou vazia ao servidor. ${recarregue}`;
+}
+export function textoServicoParcelaPaga(detalhe: string): string {
+  const d = detalhe.trim();
+  return `Não é possível excluir serviço com parcela já paga${d ? ` (${d})` : ""}. Para excluir, desmarque o pagamento no Financeiro antes.`;
+}
+export function mensagemCamada(code: string, msg: string): string | null {
+  if (code !== "P0001") return null;
+  if (msg.startsWith(PREFIXO_ESTADO_VAZIO)) {
+    const [ent = "", num] = msg.slice(PREFIXO_ESTADO_VAZIO.length).trim().split(/\s+/);
+    const n = Number(num);
+    return textoEstadoVazio(ent, Number.isFinite(n) ? n : null);
+  }
+  if (msg.startsWith(PREFIXO_SERVICO_PARCELA_PAGA))
+    return textoServicoParcelaPaga(msg.slice(PREFIXO_SERVICO_PARCELA_PAGA.length));
+  return null;
+}
+
 // Modularidade (out/2026, migrations 20261103100000..120000): recusas do servidor por MÓDULO desligado e por coleção com cards.
 // - 42501 `modulo_desligado: a,b` (ASCII, `_exige_modulos`) → "Esta ação precisa do módulo A (e dos módulos A e B)…".
 // - 42501 com o texto LEGADO "Módulo criacao não habilitado para esta loja" (checagens antigas que rodam antes do portão novo, e
@@ -489,6 +533,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // "não encontrado" P0002 (B3 nao_encontrado:) → texto PT.
   const backend = mensagemBackend(code, msg);
   if (backend) return backend;
+
+  // Camada C1: lista vazia recusada (estado_vazio_recusado:) e serviço com parcela paga (servico_com_parcela_paga:) → texto PT.
+  const camada = mensagemCamada(code, msg);
+  if (camada) return camada;
 
   // Modularidade: módulo desligado (portão novo + texto legado), coleção com cards e a FK da coleção → texto PT.
   const modularidade = mensagemModularidade(code, msg);

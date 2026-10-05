@@ -2,9 +2,11 @@
 // (serviços do PCP, itens de OC) e clica em Salvar, o sistema pergunta "Apagar todos os N…?" e SÓ ao confirmar manda a marca
 // explícita ao servidor. Sem a marca, a trava do servidor (C1) recusa o Salvar vazio (`estado_vazio_recusado:`).
 //
-// TODO(C1): os NOMES das marcas abaixo vêm de `.superpowers/sdd/2026-10-05-camada/desenho.md` §2.4. A migration da C1
-// (`20261103160000_camada_estado_vazio`) ainda não está neste worktree — ao entrar, CONFERIR os nomes aqui (único lugar).
-// Enquanto o servidor não tem a trava, a marca é ignorada (o Salvar vazio segue como hoje) e o diálogo já protege a pessoa.
+// Os NOMES das marcas abaixo são os que a migration da C1 (`20261103160000_camada_estado_vazio`, desenho §2.4) lê — único lugar
+// no front; o anti-drift `tests/unit/camada-c1-marcas.test.ts` confere contra o texto da migration. A marca vai como `true`
+// (o servidor aceita boolean ou "true"). Banco velho (sem a C1) ignora a chave extra — o diálogo já protege a pessoa.
+// O Direcionamento NÃO tem marca na tela: o servidor recusa sempre a lista vazia com linhas (`_rev_base->'apagar_tudo'` existe só
+// para manutenção).
 
 /** `salvar_terceirizados`: chave reservada dentro do `_rev_base` (o laço do servidor só lê chaves de bloco). */
 export const MARCA_APAGAR_TUDO_SERVICOS = "_apagar_tudo";

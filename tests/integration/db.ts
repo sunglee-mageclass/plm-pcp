@@ -140,6 +140,13 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaBk(client);
     }
+    // Camada intermediária (mesmo ensaio): com CAMADA_TXN=1 os blocos da frente que existem no repositório (C1: 160000 + 161000;
+    // camada-helpers) são aplicados DENTRO desta txn, DEPOIS do Backend (os já vivos na cópia são pulados).
+    if (process.env.CAMADA_TXN === "1") {
+      const { aplicaCamada } = await import("./camada-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaCamada(client);
+    }
     await fn(client);
   } finally {
     try {

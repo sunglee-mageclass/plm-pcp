@@ -18,6 +18,8 @@ async function zeraTimeouts(c: Client): Promise<void> {
 
 export async function aplicaS6(c: Client): Promise<void> {
   exigeBancoLocal();
+  // LIFO: a Camada C1 (20261103160000, por cima da S6) redefine salvar_oc_etiqueta — sai antes de (re)aplicar a S6
+  await (await import("./camada-helpers")).voltaCamadaSePreciso(c);
   // a S6 roda por cima da S3a (salvar_oc_etiqueta no texto dela): sem a S3a viva, traz a cadeia inteira S3a..S5 pela ORDEM SEGURA
   // do aplicaS5 (lição do deadlock da S4: nenhum GRANT antes de CREATE TRIGGER na mesma txn)
   const { s3aViva } = await import("./seg-s3a-helpers");
@@ -28,6 +30,7 @@ export async function aplicaS6(c: Client): Promise<void> {
 
 export async function voltaS6(c: Client): Promise<void> {
   exigeBancoLocal();
+  await (await import("./camada-helpers")).voltaCamadaSePreciso(c); // LIFO: a Camada C1 sai antes (salvar_oc_etiqueta)
   await aplicarArquivo(c, S6_DOWN);
   await zeraTimeouts(c);
 }

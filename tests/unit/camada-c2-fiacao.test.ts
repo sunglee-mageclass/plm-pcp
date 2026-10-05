@@ -35,11 +35,11 @@ describe("[camada C2] fiação das confirmações", () => {
     expect(ler("src/components/planejamento/PlanejamentoDetail.tsx")).toContain("onClick={() => lancar.mutate(true)}");
     expect(ler("src/routes/_authenticated/expedicao.cq.$modeloId.tsx")).toContain("onClick={() => confirmMut.mutate()}");
   });
-  it("Apagar tudo (P-262 A): marcas do servidor vêm de UM arquivo (TODO C1) e as 4 telas usam o guarda", () => {
+  it("Apagar tudo (P-262 A): marcas do servidor vêm de UM arquivo (conferidas contra a migration da C1) e as 4 telas usam o guarda", () => {
     const m = ler("src/lib/apagar-tudo.ts");
     expect(m).toContain('MARCA_APAGAR_TUDO_SERVICOS = "_apagar_tudo"');
     expect(m).toContain('MARCA_APAGAR_TUDO_ITENS_OC = "_apagar_itens"');
-    expect(m).toContain("TODO(C1)");
+    expect(m).not.toContain("TODO(C1)"); // C1 entrou: o anti-drift tela × migration mora em camada-c1-marcas.test.ts
     for (const f of [
       "src/routes/_authenticated/pcp.servicos.$modeloId.tsx",
       "src/routes/_authenticated/entrada-saida.oc-tecido.tsx",

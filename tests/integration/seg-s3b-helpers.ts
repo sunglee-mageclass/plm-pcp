@@ -7,6 +7,7 @@
 import type { Client } from "pg";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 import { S3B_MD5 } from "./seg-s3b-dados";
+import { md5ModSucessor } from "./mod-helpers"; // cadeia Mod → Backend → Camada (C1 redefine salvar_terceirizados/direcionamento)
 
 export const S3B_MIGS = [
   "supabase/migrations/20261101130000_seg_s3b_gates_producao.sql",
@@ -62,5 +63,8 @@ export async function voltaS3bSePreciso(c: Client): Promise<void> {
 export function md5OuSucessorS3b(sig: string, md5Antes: string): string[] {
   const k = sig.startsWith("public.") ? sig : `public.${sig}`;
   const s = S3B_MD5[k];
-  return s && s.antes === md5Antes ? [md5Antes, s.depois] : [md5Antes];
+  const base = s && s.antes === md5Antes ? [md5Antes, s.depois] : [md5Antes];
+  // + os sucessores das frentes de cima (Mod → Backend → Camada C1), na cadeia do último texto
+  for (const m of md5ModSucessor(k, base[base.length - 1])) if (!base.includes(m)) base.push(m);
+  return base;
 }

@@ -242,7 +242,9 @@ describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", (
         .map((rel) => ({ rel, mode: "ShareRowExclusiveLock" }));
       // S3B_TXN=1: o CREATE TRIGGER da S3b (cad, controle_qualidade, producao_oficina) já pegou trava no começo da txn — não é da S3a
       // (idem S3C_TXN=1: modelo_etiquetas, modelo_observacoes)
-      const foraS3b = (t: { rel: string }) => ![...S3B_TABELAS_TRAVA, ...S3C_TABELAS_TRAVA, ...S3D_TABELAS_TRAVA, ...S4_TABELAS_TRAVA].includes(t.rel); // + S3D/S4_TXN=1
+      // (+ CAMADA_TXN=1 numa cópia sem a C1: o CREATE TRIGGER da 161000 em producao_terceirizados)
+      const foraS3b = (t: { rel: string }) => ![...S3B_TABELAS_TRAVA, ...S3C_TABELAS_TRAVA, ...S3D_TABELAS_TRAVA, ...S4_TABELAS_TRAVA,
+        "public.producao_terceirizados"].includes(t.rel); // + S3D/S4_TXN=1
       const antes = (await travas()).filter(foraS3b); // S2_TXN=1 (parcelas) / S3A_TXN=1 (as 4) já aplicados no começo da txn
       if (!(await s3aViva(c)) && antes.length === 0) {
         await aplicarArquivo(c, S3A_MIGS[0]);

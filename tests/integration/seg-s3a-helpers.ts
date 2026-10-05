@@ -10,6 +10,7 @@ import { S3A_MD5, S3A_HELPER } from "./seg-s3a-dados";
 import { voltaS3bSePreciso } from "./seg-s3b-helpers";
 import { voltaS3cSePreciso } from "./seg-s3c-helpers";
 import { voltaS3dSePreciso } from "./seg-s3d-helpers";
+import { md5ModSucessor } from "./mod-helpers"; // cadeia Mod → Backend → Camada (C1 redefine o wrapper-sentinela salvar_oc_tecido)
 
 export const S3A_MIGS = [
   "supabase/migrations/20261101100000_seg_s3a_helper_gates_entrada.sql",
@@ -76,7 +77,8 @@ export async function voltaS3a(c: Client, comDrop = false): Promise<void> {
 export async function s3aViva(c: Client): Promise<boolean> {
   const sig = "public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)";
   const r = await c.query("SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [sig]);
-  return r.rows[0]?.m === S3A_MD5[sig].depois;
+  // viva = o texto da S3a OU um sucessor dele (Camada C1 160000 redefine salvar_oc_tecido por cima da S3a)
+  return md5ModSucessor(sig, S3A_MD5[sig].depois).includes(r.rows[0]?.m);
 }
 
 /**
@@ -99,7 +101,10 @@ export async function voltaS3aSePreciso(c: Client): Promise<void> {
 export function md5OuSucessorS3a(sig: string, md5Antes: string): string[] {
   const k = sig.startsWith("public.") ? sig : `public.${sig}`;
   const s = S3A_MD5[k];
-  return s && s.antes === md5Antes ? [md5Antes, s.depois] : [md5Antes];
+  const base = s && s.antes === md5Antes ? [md5Antes, s.depois] : [md5Antes];
+  // + os sucessores das frentes de cima (Mod → Backend → Camada C1), na cadeia do último texto
+  for (const m of md5ModSucessor(k, base[base.length - 1])) if (!base.includes(m)) base.push(m);
+  return base;
 }
 
 export { S3A_HELPER };

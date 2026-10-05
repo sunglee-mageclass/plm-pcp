@@ -21,6 +21,16 @@ import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
+// Camada intermediária (camada-helpers): roda DEPOIS desta frente no kit (C1 160000/161000, antes da T5). Import dinâmico tolerante
+// a ausência: `voltaBk*` tira a Camada PRIMEIRO (LIFO) e `md5BkSucessor` continua a cadeia nos "depois" da Camada.
+type Camada = {
+  voltaCamadaSePreciso: (c: Client) => Promise<void>;
+  md5CamadaSucessor: (sig: string, pinado?: string) => string[];
+};
+const CAMADA: Camada | null = existsSync(`${ROOT}tests/integration/camada-helpers.ts`)
+  ? ((await import(/* @vite-ignore */ "./camada-helpers.ts")) as Camada)
+  : null;
+
 type Dados = { BK_MD5: Record<string, { antes: string; depois: string }>; BK_SENTINELA: string };
 export type BlocoBk = {
   id: "B1" | "B2" | "B4" | "F21" | "F23" | "B3" | "B5";
@@ -137,6 +147,7 @@ export async function aplicaBk(c: Client, ate?: BlocoBk["id"]): Promise<void> {
 /** Volta TODOS os blocos vivos, LIFO, pelos `_down` neutros (B4/F2.1 ficam: o `_down` deles é no-op). */
 export async function voltaBk(c: Client): Promise<void> {
   exigeBancoLocal();
+  if (CAMADA) await CAMADA.voltaCamadaSePreciso(c); // LIFO: a Camada (por cima desta frente) sai antes
   for (const b of [...BK_MIGS].reverse()) {
     if (!b.downs.length || !(await bkViva(c, b.id))) continue;
     for (const d of b.downs) await aplicarArquivo(c, d);
@@ -146,6 +157,7 @@ export async function voltaBk(c: Client): Promise<void> {
 
 /** LIFO: quem volta (ou reaplica) a Modularidade ou qualquer release anterior dentro da txn tira esta frente antes. */
 export async function voltaBkSePreciso(c: Client): Promise<void> {
+  if (CAMADA) await CAMADA.voltaCamadaSePreciso(c); // LIFO: a Camada sai antes, mesmo que nenhum bloco desta frente esteja vivo
   let viva = false;
   for (const b of BK_MIGS) if (b.downs.length && (await bkViva(c, b.id))) viva = true;
   if (!viva) return;
@@ -167,6 +179,11 @@ export function md5BkSucessor(sig: string, pinado?: string): string[] {
     const s = DADOS[b.id]?.BK_MD5[k];
     if (!s) continue;
     if (!pinado || out.includes(s.antes)) out.push(s.depois);
+  }
+  // cadeia Backend → Camada: o "depois" da Camada que sucede o último texto desta cadeia
+  if (CAMADA) {
+    const ultimo = out.length ? out[out.length - 1] : undefined;
+    for (const m of CAMADA.md5CamadaSucessor(k, ultimo)) if (!out.includes(m)) out.push(m);
   }
   return out;
 }
