@@ -46,4 +46,7 @@ BEGIN
 END
 $pos$;
 
+-- PostgREST recarrega o cache de schema (a RPC aparece/some na API sem esperar o reload periodico).
+NOTIFY pgrst, 'reload schema';
+
 COMMIT;
