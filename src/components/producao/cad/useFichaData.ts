@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { comRotuloColecao } from "@/lib/colecao-rotulo";
 import { supabase } from "@/integrations/supabase/client";
@@ -131,6 +131,7 @@ export function useFichaData(modeloId: string): FichaData {
   // Falha na 1ª carga => `isReady` fica false (não imprime com quantidade de insumo duvidosa) e `tamanhoVinculadoErro`
   // true (o PrintFicha avisa com "Tentar de novo").
   const { data: tamVinc, isError: tamVincIsErr, refetch: refetchTamVinc } = useTamanhoVinculadoInsumos();
+  const refazerTamanhoVinculado = useCallback(() => void refetchTamVinc(), [refetchTamVinc]);
 
   const { data: tamanhosConfig = [] } = useQuery({
     queryKey: ["ft-tamanhos", tenantId],
@@ -291,6 +292,6 @@ export function useFichaData(modeloId: string): FichaData {
     // urg R1: o vínculo de tamanho dos insumos também tem de ter chegado (senão o insumo vinculado sairia como "Geral").
     isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched) && tamVinc !== undefined,
     tamanhoVinculadoErro: tamVincIsErr && tamVinc === undefined,
-    refazerTamanhoVinculado: () => void refetchTamVinc(),
+    refazerTamanhoVinculado,
   };
 }

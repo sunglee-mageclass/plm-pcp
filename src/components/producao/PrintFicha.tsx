@@ -28,7 +28,10 @@ export function PrintFicha({
   const lastPrinted = useRef(0);
   const ready = d.isReady;
   const tamErro = d.tamanhoVinculadoErro;
-  const refazerTam = d.refazerTamanhoVinculado;
+  // Em ref: NÃO pode entrar nas deps do efeito — um re-render do pai durante a espera das imagens re-roda o efeito, o
+  // cleanup cancela a impressão em curso e (com `lastPrinted` já gravado) ela se perderia calada.
+  const refazerTamRef = useRef(d.refazerTamanhoVinculado);
+  refazerTamRef.current = d.refazerTamanhoVinculado;
 
   useEffect(() => {
     if (!token || token === lastPrinted.current) return; // só em um novo pedido
@@ -38,7 +41,7 @@ export function PrintFicha({
     if (!ready && tamErro) {
       lastPrinted.current = token;
       toast.error("Não foi possível carregar os dados da ficha.", {
-        action: { label: "Tentar de novo", onClick: refazerTam },
+        action: { label: "Tentar de novo", onClick: () => refazerTamRef.current() },
       });
       return;
     }
@@ -70,7 +73,7 @@ export function PrintFicha({
     run();
 
     return () => { cancelled = true; };
-  }, [token, ready, tamErro, refazerTam]);
+  }, [token, ready, tamErro]);
 
   return (
     <div ref={wrapRef}>

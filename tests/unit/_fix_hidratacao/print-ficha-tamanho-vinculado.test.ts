@@ -78,6 +78,25 @@ describe("PrintFicha — falha da leitura dos tamanhos vinculados", () => {
   });
 });
 
+describe("PrintFicha — re-render durante a espera das imagens", () => {
+  it("fix round 2: um re-render do pai na janela de 'settle' NAO cancela a impressao em curso — exatamente 1 window.print", async () => {
+    const qc = novoQc();
+    const el = (n: number) =>
+      createElement(QueryClientProvider, { client: qc }, createElement("div", { "data-n": n }, createElement(PrintFicha, { modeloId: "m1", kind: "tecnica", token: 1 })));
+    const m = await montar(el(0));
+    desmontar = m.desmontar;
+    await esperar(150); // dado pronto, dentro da janela de 400ms do disparo
+    expect(imprimir).not.toHaveBeenCalled();
+    for (let i = 1; i <= 3; i++) { // re-renders do pai (PrintFicha re-renderiza, useFichaData devolve funcoes novas)
+      await act(async () => { m.root.render(el(i)); });
+      await esperar(40);
+    }
+    await aguardar(() => imprimir.mock.calls.length >= 1, "impressao", 6000);
+    await esperar(600);
+    expect(imprimir).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("BotaoFichaTecnica (PCP Serviços)", () => {
   it("F2: desabilitado enquanto carrega; falha => erro + 'Tentar de novo' (continua desabilitado); recuperou => habilita sem imprimir sozinho", async () => {
     const soltar = FAKE.segurar("etiquetas");
