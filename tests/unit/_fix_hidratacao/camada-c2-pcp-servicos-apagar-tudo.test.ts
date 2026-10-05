@@ -217,3 +217,22 @@ describe("[camada C2] PCP Serviços — serviço REMOVIDO e merge (não ressusci
     expect(document.body.textContent).not.toContain("conflito a resolver");
   });
 });
+
+describe("[camada C2] PCP Serviços — conflito de serviço REMOVIDO sobrevive ao eco do Realtime (I1)", () => {
+  const eco = async () => { await act(async () => { await qcAtual!.invalidateQueries({ queryKey: ["producao-terc"] }); }); await esperar(200); };
+  it("removo o pt1 → o outro edita o pt1 (conflito) → o eco de OUTRO serviço NÃO derruba o conflito e o Salvar segue travado", async () => {
+    await abrir();
+    await prepararEditando();
+    await clicar(remover()[0]); // pt1
+    FAKE.linhas.producao_terceirizados[0].observacao = "editado pela outra pessoa";
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.producao_terceirizados[1].observacao = "mexeram em outro serviço"; // eco de OUTRO bloco (pt2)
+    await eco();
+    expect(document.body.textContent).toContain("1 conflito a resolver"); // antes: sumia e o Salvar apagava a edição alheia
+    await clicar(salvar()!);
+    await esperar(150);
+    expect(rpcSalvar()).toHaveLength(0); // Salvar travado
+    expect(remover()).toHaveLength(1);
+  });
+});

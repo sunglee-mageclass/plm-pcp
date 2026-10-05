@@ -159,6 +159,17 @@ describe("mergeLinhas — linhas REMOVIDAS por mim (removidasIds, opt-in)", () =
     expect(r.conflitos).toEqual([{ path: "linha:1", meu: null, dele: L("1", 9) }]);
     expect(r.linhas).toEqual([L("2", 2)]);
   });
+  it("removida por mim E pelo servidor (fresh sem a linha) → nada a fazer: sem conflito, sem volta", () => {
+    const r = mergeLinhas({ base: [L("1", 1), L("2", 2)], draft: [L("2", 2)], fresh: [L("2", 2)], touchedIds: new Set(["1"]), removidasIds: new Set(["1"]) });
+    expect(r.linhas).toEqual([L("2", 2)]);
+    expect(r.conflitos).toEqual([]);
+    expect(r.atualizadas).toEqual([]);
+  });
+  it("removida por mim e SEM base dela (não dá p/ provar que ninguém mexeu) → conflito, o lado seguro", () => {
+    const r = mergeLinhas({ base: [L("2", 2)], draft: [L("2", 2)], fresh: [L("1", 1), L("2", 2)], touchedIds: new Set(["1"]), removidasIds: new Set(["1"]) });
+    expect(r.conflitos).toEqual([{ path: "linha:1", meu: null, dele: L("1", 1) }]);
+    expect(r.linhas).toEqual([L("2", 2)]);
+  });
   it("linha nova do servidor que eu NÃO removi continua entrando (removidasIds não afeta o resto)", () => {
     const r = mergeLinhas({ base: [L("1", 1)], draft: [], fresh: [L("1", 1), L("7", 7)], touchedIds: new Set(["1"]), removidasIds: new Set(["1"]) });
     expect(r.linhas).toEqual([L("7", 7)]);

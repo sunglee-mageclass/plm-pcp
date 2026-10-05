@@ -38,6 +38,7 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
+import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida } from "@/lib/colab/conflitos-pendentes";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -693,16 +694,18 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
       ml.atualizadas.length === 0 && ml.conflitos.length === 0;
     if (semResultado) {
       // No-op (inclui o refetch que o onError do save P0409 já processou): não tocar em nenhum state.
-      baseRef.current = { draft: freshHead, items: freshItens };
+      baseRef.current = { draft: freshHead, items: baseSemAvancarEmConflito(baseRef.current.items, freshItens, conflitosRef.current) };
       return;
     }
     if (md.atualizados.length > 0 || md.conflitos.length > 0) aplicarDraftHead(md.valor);
     if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setBlocks((bs) => aplicarItensMerge(bs, ml.linhas));
-    const todosConflitos = [...md.conflitos, ...ml.conflitos];
+    // Conflitos ainda NÃO resolvidos continuam na lista (um eco de OUTRA linha não pode destravar o Salvar) e a base das linhas em
+    // conflito NÃO avança — senão o próximo merge daria o conflito por resolvido e o Salvar apagaria a edição alheia.
+    const todosConflitos = juntarConflitos(conflitosRef.current, [...md.conflitos, ...ml.conflitos]);
     conflitosRef.current = todosConflitos;
     setConflitos(todosConflitos);
     setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todosConflitos });
-    baseRef.current = { draft: freshHead, items: freshItens };
+    baseRef.current = { draft: freshHead, items: baseSemAvancarEmConflito(baseRef.current.items, freshItens, todosConflitos) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ocQueryData]);
 
@@ -718,13 +721,23 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
     path.startsWith("linha:") ? "Item (insumo)" : (ROTULO_CONFLITO_INS[path] ?? path);
   const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
     const c = conflitosRef.current.find((x) => x.path === path);
+    // A base dessa linha passa a ser o que o servidor tem (a base das linhas em conflito não avançou no merge): não reaparece como conflito.
+    if (c && path.startsWith("linha:") && baseRef.current)
+      baseRef.current = { ...baseRef.current, items: baseComLinhaResolvida(baseRef.current.items, path.slice("linha:".length), (c.dele ?? null) as ItemFlat | null) };
     if (c && escolha === "dele") {
       if (path.startsWith("linha:")) {
         const id = path.slice("linha:".length);
         // Aplica o valor do servidor p/ ESTA linha (ou a remoção) na row correspondente.
         const it = (c.dele ?? null) as ItemFlat | null;
-        setBlocks((bs) => (it && !bs.some((b) => b.rows.some((r) => r.itemId === id)) ? restaurarItemRemovido(bs, it) : aplicarUmItem(bs, id, it)));
-        touchedItemIdsRef.current.delete(id);
+        const ausente = !blocksLiveRef.current.some((b) => b.rows.some((r) => r.itemId === id));
+        if (it && ausente && baseRef.current && draftLiveRef.current.empresa_id !== baseRef.current.draft.empresa_id) {
+          // Eu o removera ao trocar de fornecedor: devolvê-lo misturaria insumos do fornecedor antigo na OC do novo.
+          toast.warning("Este item era de outro fornecedor e não foi trazido de volta, porque a OC mudou. Adicione-o de novo, se ainda precisar.");
+          // (o id segue "removido" — senão o próximo merge o traria de volta como "linha nova do servidor")
+        } else {
+          setBlocks((bs) => (it && !bs.some((b) => b.rows.some((r) => r.itemId === id)) ? restaurarItemRemovido(bs, it) : aplicarUmItem(bs, id, it)));
+          touchedItemIdsRef.current.delete(id);
+        }
       } else {
         const d = { ...draftLiveRef.current, [path]: c.dele } as DraftHead;
         aplicarDraftHead(d);
@@ -875,7 +888,7 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
         parcelas_recebimento: parcelas, status: finalStatus,
       };
       // [camada C2 · P-262 A] payload vazio + o servidor TEM itens (os que seriam apagados) => exige a confirmação.
-      const apagarItens = exigirConfirmacaoApagarTudo({ nPayload: itens.length, nServidor: (ocQueryData?.its ?? []).length, confirmado: apagarTudoRef.current });
+      const apagarItens = exigirConfirmacaoApagarTudo({ nPayload: itens.length, nServidor: (qc.getQueryData<typeof ocQueryData>(["oc-insumo", ocId])?.its ?? ocQueryData?.its ?? []).length, confirmado: apagarTudoRef.current });
       const { error } = await supabase.rpc("salvar_oc_etiqueta" as any, {
         _oc_id: isEdit ? ocId : null, _oc: apagarItens ? { ...payload, [MARCA_APAGAR_TUDO_ITENS_OC]: true } : payload, _itens: itens,
         _rev_base: isEdit ? revRef.current : null, // P0409 se outra pessoa salvou no meio
@@ -919,11 +932,11 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
         const ml = mergeLinhas({ base: base.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current });
         aplicarDraftHead(md.valor);
         setBlocks((bs) => aplicarItensMerge(bs, ml.linhas));
-        const todos = [...md.conflitos, ...ml.conflitos];
+        const todos = juntarConflitos(conflitosRef.current, [...md.conflitos, ...ml.conflitos]);
         conflitosRef.current = todos;
         setConflitos(todos);
         setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todos });
-        baseRef.current = { draft: freshHead, items: freshItens };
+        baseRef.current = { draft: freshHead, items: baseSemAvancarEmConflito(base.items, freshItens, todos) };
         revRef.current = (oc as any).rev ?? null;
       } else {
         // [seg s6] OC recebida por outra pessoa no meio: relê (o status passa a "recebida" na tela)

@@ -32,7 +32,7 @@ vi.mock("@tanstack/react-router", async (orig) => {
 });
 vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastMock), Toaster: () => null }));
 
-import { createElement } from "react";
+import { createElement, act } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
 import { montar, esperar, aguardar, clicar, botaoPorTexto } from "./dom-helpers";
@@ -76,8 +76,10 @@ function p0409NaPrimeira(nome: string, aoConflitar?: () => void) {
     return orig(rpc, args);
   }) as never);
 }
+let qcAtual: QueryClient | null = null;
 async function abrir() {
-  const m = await montar(createElement(QueryClientProvider, { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+  qcAtual = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const m = await montar(createElement(QueryClientProvider, { client: qcAtual },
     createElement(SidebarProvider, null, createElement(OcDialog, { ocId: "oc1", empresas: [{ id: "e1", nome_fantasia: "Fornecedor X" } as any], onClose: () => {}, onSaved: () => {} }))));
   desmontar = m.desmontar;
   await aguardar(() => !!caixaVariante() && caixaVariante()!.checked, "variante marcada na tela", 5000);
@@ -111,6 +113,20 @@ describe("[camada C2 · P-262 A] OC de Tecido — Apagar todos os itens", () => 
     expect(p._oc._apagar_itens).toBe(true);
     await esperar(80);
     expect(rpcs()).toHaveLength(1);
+  });
+
+  it("M2: no retry do P0409 a contagem do 'Apagar tudo' vem do servidor RELIDO — se a outra pessoa já apagou tudo, não pergunta de novo", async () => {
+    await abrir();
+    await clicar(caixaVariante()!);
+    await aguardar(() => !caixaVariante(), "lista de variantes some (nenhum tecido na OC)");
+    await clicar(salvar()!);
+    await aguardar(() => !!dialogo(), "diálogo Apagar todos");
+    p0409NaPrimeira("salvar_oc_tecido", () => { FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens = []; }); // a outra pessoa também apagou os itens
+    await clicar(botaoDialogo("Apagar todos")!);
+    await aguardar(() => rpcs().length === 2, "1º envio (P0409) + retry automático", 5000);
+    await esperar(150);
+    expect(dialogo()).toBeNull(); // o servidor relido tem 0 linhas: nada a confirmar (antes: perguntava de novo com o N velho)
+    expect((rpcs()[1].payload as any)._itens).toEqual([]);
   });
 
   it("OC com 2 itens: mensagem no plural com N (\"Apagar todos os 2 itens da OC …\")", async () => {
@@ -210,5 +226,52 @@ describe("[camada C2] OC de Tecido — linha REMOVIDA e P0409 (merge não ressus
     await clicar(salvar()!);
     await aguardar(() => rpcs().length === 2, "novo Salvar após resolver", 5000);
     expect(idsDe(rpcs()[1])).toEqual(["it1"]);
+  });
+});
+
+describe("[camada C2] OC de Tecido — conflito de linha REMOVIDA sobrevive ao eco do Realtime (I1)", () => {
+  const caixa = (nome: string) => Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find((l) => (l.textContent ?? "").trim() === nome)?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null;
+  const eco = async () => { await act(async () => { await qcAtual!.invalidateQueries({ queryKey: ["oc-tecido"] }); }); await esperar(200); };
+  beforeEach(() => {
+    FAKE.linhas.ocs_tecido_itens.push({ id: "it2", oc_tecido_id: "oc1", artigo_id: "a1", artigo_numero: 1, variante_tecido_id: "v2", quantidade_pedida: 4, quantidade_recebida: null, rendimento: null, cancelado: false, preco: 5 });
+    FAKE.linhas.variantes_tecido.push({ id: "v2", artigo_id: "a1", nome_variante: null, codigo_variante: null, preco: 5, cor: { nome: "Verde" }, apelido: null });
+  });
+  async function abrirDuas() {
+    await abrir();
+    await aguardar(() => !!caixa("Verde") && caixa("Verde")!.checked, "as 2 variantes marcadas");
+  }
+
+  it("removo it2 → o outro edita it2 (conflito) → o eco de OUTRA linha NÃO derruba o conflito e o Salvar segue travado", async () => {
+    await abrirDuas();
+    await clicar(caixa("Verde")!);
+    await aguardar(() => !caixa("Verde")!.checked, "Verde desmarcada (linha removida)");
+    FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens[1].quantidade_pedida = 9; // a outra pessoa edita o it2
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_tecido[0].rev = 5; FAKE.linhas.ocs_tecido_itens[0].quantidade_pedida = 11; // e agora mexem em OUTRA linha (it1)
+    await eco();
+    expect(document.body.textContent).toContain("1 conflito a resolver"); // continua lá (antes: sumia e o Salvar apagava a edição alheia)
+    await clicar(salvar()!);
+    await esperar(150);
+    expect(rpcs()).toHaveLength(0); // Salvar travado enquanto há conflito pendente
+    expect(caixa("Verde")!.checked).toBe(false);
+  });
+
+  it("'usar o novo' NÃO duplica: a variante re-marcada depois da remoção vira a linha do servidor (1 só item da variante no Salvar)", async () => {
+    await abrirDuas();
+    await clicar(caixa("Verde")!); // remove it2
+    await aguardar(() => !caixa("Verde")!.checked, "Verde desmarcada");
+    await clicar(caixa("Verde")!); // marca de novo => linha nova SEM id da mesma variante
+    await aguardar(() => caixa("Verde")!.checked, "Verde re-marcada");
+    FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens[1].quantidade_pedida = 9;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    const usarNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "usar o novo")!;
+    await clicar(usarNovo);
+    await aguardar(() => !document.body.textContent!.includes("conflito a resolver"), "conflito resolvido");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "Salvar após resolver", 5000);
+    const itens = (rpcs()[0].payload as any)._itens as { id: string | null; variante_tecido_id: string }[];
+    expect(itens.filter((i) => i.variante_tecido_id === "v2")).toEqual([expect.objectContaining({ id: "it2" })]); // 1 só, e é o do servidor
   });
 });

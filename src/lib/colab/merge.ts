@@ -29,7 +29,7 @@ export function mergeLinhas<R extends LinhaId>(o: {
   /**
    * OPT-IN. Ids de linhas que EU REMOVI do rascunho. Sem isto, toda linha do servidor ausente do rascunho volta como "linha nova do
    * servidor" (a remoção se perde em silêncio). Com isto: linha removida por mim que o servidor NÃO mexeu desde a base continua
-   * removida; se o servidor a MUDOU depois da base, vira conflito (`meu: null`, `dele: <linha>`) — nem restaurada nem apagada em silêncio.
+   * removida; se o servidor a MUDOU depois da base (ou eu não tenho base dela), vira conflito (`meu: null`, `dele: <linha>`) — nem restaurada nem apagada em silêncio.
    */
   removidasIds?: ReadonlySet<string>;
 }): { linhas: R[]; conflitos: Conflito[]; atualizadas: string[] } {
@@ -58,7 +58,8 @@ export function mergeLinhas<R extends LinhaId>(o: {
     if (f.id && !o.draft.some((d) => d.id === f.id)) {
       if (o.removidasIds?.has(f.id)) {                   // eu removi esta linha: não volta como "nova do servidor"
         const b = bBase.get(f.id);
-        if (b && !igual(b, f)) conflitos.push({ path: `linha:${f.id}`, meu: null, dele: f }); // o servidor a mudou depois da base
+        // o servidor a mudou depois da base — ou eu não tenho base dela (não dá p/ provar que ninguém mexeu): conflito, o lado seguro
+        if (!b || !igual(b, f)) conflitos.push({ path: `linha:${f.id}`, meu: null, dele: f });
         continue;                                        // sem mudança alheia: segue removida (o Salvar a apaga)
       }
       out.push(f); atualizadas.push(f.id);

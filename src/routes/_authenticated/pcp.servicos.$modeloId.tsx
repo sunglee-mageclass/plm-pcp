@@ -59,6 +59,7 @@ import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeLinhas, igual, type Conflito } from "@/lib/colab/merge";
+import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida } from "@/lib/colab/conflitos-pendentes";
 import { mergeGrade } from "@/lib/colab/merge-grade";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
@@ -700,14 +701,16 @@ export function TerceirizadosDetail({
       gradeAtual += mg.atualizados.length;
       return mg.atualizados.length || mg.conflitos.length ? { ...b, grade_detalhe: mg.valor } : b;
     });
-    const todos = [...ml.conflitos, ...gradeConf];
     const semResultado = ml.atualizadas.length === 0 && ml.conflitos.length === 0 && gradeConf.length === 0 && gradeAtual === 0;
-    if (semResultado) { baseBlocosRef.current = fresh; return; }
+    if (semResultado) { baseBlocosRef.current = baseSemAvancarEmConflito(baseBlocosRef.current, fresh, conflitosRef.current); return; }
     setBlocos(out);
+    // Conflitos ainda NÃO resolvidos continuam na lista (um eco de OUTRO bloco não pode destravar o Salvar) e a base dos blocos em
+    // conflito NÃO avança — senão o próximo merge daria o conflito por resolvido e o Salvar apagaria a edição alheia.
+    const todos = juntarConflitos(conflitosRef.current, [...ml.conflitos, ...gradeConf]);
     conflitosRef.current = todos;
     setConflitos(todos);
     setUltimoMerge({ atualizados: ml.atualizadas.length + gradeAtual, conflitos: todos });
-    baseBlocosRef.current = fresh;
+    baseBlocosRef.current = baseSemAvancarEmConflito(baseBlocosRef.current, fresh, todos);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing, cad?.id, existingFetched, existingFetching, existingOk]);
 
@@ -742,6 +745,7 @@ export function TerceirizadosDetail({
         touchedGradeRef.current.delete(path);
       } else if (path.startsWith("linha:")) {
         const id = path.slice("linha:".length);
+        // (a base desse bloco passa a ser o que o servidor tem: ver o bloco comum abaixo)
         setBlocos((prev) => c.dele
           ? (prev.some((b) => b.id === id) ? prev.map((b) => (b.id === id ? (c.dele as Bloco) : b)) : [...prev, c.dele as Bloco]) // ausente = eu o removi: "usar o novo" o traz de volta
           : prev.filter((b) => b.id !== id));
@@ -752,6 +756,9 @@ export function TerceirizadosDetail({
         if (id) { setBlocos((prev) => prev.map((b) => (b.id === id ? { ...b, ...(c.dele as any) } : b))); touchedBlocoIdsRef.current.delete(id); }
       }
     }
+    // A base do bloco resolvido passa a ser o que o servidor tem (a base dos blocos em conflito não avançou no merge): não reaparece.
+    if (path.startsWith("linha:") && baseBlocosRef.current)
+      baseBlocosRef.current = baseComLinhaResolvida(baseBlocosRef.current, path.slice("linha:".length), (c.dele ?? null) as Bloco | null);
     setConflitos((prev) => { const nx = prev.filter((x) => x.path !== path); conflitosRef.current = nx; return nx; });
     setUltimoMerge((prev) => prev ? { ...prev, conflitos: prev.conflitos.filter((x) => x.path !== path) } : prev);
   };
@@ -905,7 +912,7 @@ export function TerceirizadosDetail({
         blocos.filter((b) => b.id).map((b) => [b.id as string, revByBlocoRef.current[b.id as string] ?? 0]),
       );
       // [camada C2 · P-262 A] payload vazio + o servidor TEM serviços (as linhas que seriam apagadas) => exige a confirmação.
-      if (exigirConfirmacaoApagarTudo({ nPayload: _blocos.length, nServidor: (existing as unknown[]).length, confirmado: apagarTudoRef.current }))
+      if (exigirConfirmacaoApagarTudo({ nPayload: _blocos.length, nServidor: (qc.getQueryData<unknown[]>(["producao-terc", cad.id]) ?? (existing as unknown[])).length, confirmado: apagarTudoRef.current }))
         _rev_base[MARCA_APAGAR_TUDO_SERVICOS] = true;
       const { error } = await supabase.rpc("salvar_terceirizados" as any, {
         _cad_id: cad.id,
@@ -1002,11 +1009,11 @@ export function TerceirizadosDetail({
         });
         blocosLiveRef.current = out; // o retry abaixo roda ANTES do re-render: o mutationFn lê o estado MESCLADO daqui
         setBlocos(out);
-        const todos = [...ml.conflitos, ...gradeConf];
+        const todos = juntarConflitos(conflitosRef.current, [...ml.conflitos, ...gradeConf]);
         conflitosRef.current = todos;
         setConflitos(todos);
         setUltimoMerge({ atualizados: ml.atualizadas.length + gradeAtual, conflitos: todos });
-        baseBlocosRef.current = fresh;
+        baseBlocosRef.current = baseSemAvancarEmConflito(base, fresh, todos);
         if (todos.length === 0) {
           saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
           return;

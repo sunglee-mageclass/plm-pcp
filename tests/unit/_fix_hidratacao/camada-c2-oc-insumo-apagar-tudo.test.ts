@@ -88,8 +88,10 @@ async function escolherFornecedor(rotulo: string) {
   await aguardar(() => !!opcao(rotulo), `opção ${rotulo}`);
   await act(async () => { opcao(rotulo)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
 }
+let qcAtual: QueryClient | null = null;
 async function abrir() {
-  const m = await montar(createElement(QueryClientProvider, { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+  qcAtual = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const m = await montar(createElement(QueryClientProvider, { client: qcAtual },
     createElement(SidebarProvider, null, createElement(OcDialog, { ocId: "oc1", empresas: EMPRESAS, etiquetas: ETIQUETAS, onClose: () => {}, onSaved: () => {}, onDelete: () => {} }))));
   desmontar = m.desmontar;
   await aguardar(() => remover().length === 2, "2 insumos da OC na tela", 5000);
@@ -209,5 +211,37 @@ describe("[camada C2] OC de Insumo — insumo REMOVIDO e P0409 (merge não ressu
     await clicar(usarNovo);
     await aguardar(() => remover().length === 2, "insumo do servidor de volta na tela");
     expect(document.body.textContent).not.toContain("conflito a resolver");
+  });
+});
+
+describe("[camada C2] OC de Insumo — conflito de insumo REMOVIDO sobrevive ao eco do Realtime (I1) e não mistura fornecedores (M1)", () => {
+  const eco = async () => { await act(async () => { await qcAtual!.invalidateQueries({ queryKey: ["oc-insumo"] }); }); await esperar(200); };
+  it("removo o insumo A → o outro edita o A (conflito) → o eco de OUTRO insumo NÃO derruba o conflito e o Salvar segue travado", async () => {
+    await abrir();
+    await clicar(remover()[0]); // Etiqueta A (it1)
+    FAKE.linhas.ocs_etiqueta[0].rev = 4; FAKE.linhas.ocs_etiqueta_itens[0].quantidade_pedida = 99;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_etiqueta[0].rev = 5; FAKE.linhas.ocs_etiqueta_itens[1].quantidade_pedida = 33; // mexem no B (it2)
+    await eco();
+    expect(document.body.textContent).toContain("1 conflito a resolver");
+    await clicar(salvar()!);
+    await esperar(150);
+    expect(rpcs()).toHaveLength(0);
+    expect(remover()).toHaveLength(1);
+  });
+
+  it("trocar o fornecedor remove os insumos; o outro edita um deles: 'usar o novo' NÃO devolve o insumo do fornecedor antigo (avisa)", async () => {
+    await abrir();
+    await escolherFornecedor("Fornecedor Y");
+    await aguardar(() => remover().length === 0, "insumos esvaziados pela troca de fornecedor");
+    FAKE.linhas.ocs_etiqueta[0].rev = 4; FAKE.linhas.ocs_etiqueta_itens[0].quantidade_pedida = 99;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("conflito a resolver"), "conflito mostrado");
+    const usarNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "usar o novo")!;
+    await clicar(usarNovo);
+    await aguardar(() => !document.body.textContent!.includes("conflito a resolver"), "conflito resolvido");
+    expect(remover()).toHaveLength(0); // o insumo do fornecedor antigo NÃO voltou
+    expect(toastMock.warning).toHaveBeenCalledWith(expect.stringContaining("outro fornecedor"));
   });
 });
