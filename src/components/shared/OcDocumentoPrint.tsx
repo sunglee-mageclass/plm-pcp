@@ -116,8 +116,8 @@ export function OcDocumentoPrint({ modelo }: { modelo: OcDocModelo }) {
               <tbody>
                 {modelo.itens.map((it, i) => it.subtotalArtigo ? (
                   <tr key={i}>
-                    <td style={{ ...td, ...num, background: "#f6f7f9", fontWeight: 700, fontSize: 10.5, color: "#444" }} colSpan={2}>Total {it.nome}</td>
-                    <td style={{ ...td, ...num, background: "#f6f7f9", fontWeight: 700, fontSize: 10.5, color: "#444" }}>{it.qtd}</td>
+                    <td style={{ ...td, ...num, background: "#f6f7f9", fontWeight: 700, fontSize: 10, color: "#444" }} colSpan={2}>Total {it.nome}</td>
+                    <td style={{ ...td, ...num, background: "#f6f7f9", fontWeight: 700, fontSize: 10, color: "#444" }}>{it.qtd}</td>
                     {col.preco && <td style={{ ...td, background: "#f6f7f9" }} />}
                     {col.subtotal && <td style={{ ...td, background: "#f6f7f9" }} />}
                   </tr>

@@ -54,6 +54,8 @@ const EXCECAO_IMPRESSAO = [
   "src/components/oc-tecido/Rolos.tsx", // EtiquetaRolo — etiqueta de rolo p/ imprimir
   "src/components/shared/PrintBarChart.tsx", // PBar/PBar2 — gráfico de tamanho fixo p/ impressão
   "src/components/financeiro/ComprovantePagamentoPrint.tsx",
+  "src/components/shared/DocPrintCasca.tsx", // casca A4 dos printáveis (marca/rodapé/assinaturas) — só JSX de papel, sem parte interativa
+  "src/components/shared/OcDocumentoPrint.tsx", // Pedido de Compra impresso — tudo dentro de <PrintArea>, sem parte interativa
   "src/routes/_authenticated/pcp.oficina.$modeloId.tsx", // Ficha de Oficina — Impressão (PrintArea)
 ].map((p) => path.join(ROOT, p));
 
