@@ -173,7 +173,7 @@ function TercListPage() {
     if (!a?.pior) return null;
     return (
       <span title={a.detalhes.join("; ")} className="inline-flex">
-        <ServicoAtrasoBadge atraso={a.pior} tipo="servico" />
+        <ServicoAtrasoBadge atraso={a.pior} tipo={a.tipo ?? "servico"} />
       </span>
     );
   };

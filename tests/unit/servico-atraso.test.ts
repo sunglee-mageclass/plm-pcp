@@ -170,3 +170,75 @@ describe("atrasosDoProduto (lista do PCP: pior atraso por produto + title)", () 
     expect(atrasosDoProduto([costuraNaoPl], HOJE, true).pior).toBeNull(); // categoria nao e PL
   });
 });
+
+describe("[fix round 1] bloco ausente/parcial nunca quebra (o quadro de Etapas PL nao pode cair)", () => {
+  it("atrasoServico / atrasoPecaFoto aceitam undefined, null e objeto parcial: sem alerta, sem erro", () => {
+    expect(atrasoServico(undefined, HOJE)).toBeNull();
+    expect(atrasoServico(null, HOJE)).toBeNull();
+    expect(atrasoServico({}, HOJE)).toBeNull();
+    expect(atrasoPecaFoto(undefined, HOJE)).toBeNull();
+    expect(atrasoPecaFoto(null, HOJE)).toBeNull();
+    expect(atrasoPecaFoto({}, HOJE)).toBeNull();
+    expect(atrasoPecaFoto({ peca_foto: true }, HOJE)).toBeNull(); // marcada sem previsao
+  });
+  it("parcial com so a prevista ainda alerta (campo ausente = null)", () => {
+    expect(atrasoServico({ data_prevista: "2026-10-04" }, HOJE)).toEqual({
+      estado: "atrasado",
+      dias: 1,
+    });
+  });
+  it("atrasosDoProduto aceita lista ausente e bloco parcial/nulo", () => {
+    expect(atrasosDoProduto(undefined, HOJE, true)).toEqual({
+      pior: null,
+      tipo: null,
+      detalhes: [],
+    });
+    expect(atrasosDoProduto(null, HOJE, true)).toEqual({ pior: null, tipo: null, detalhes: [] });
+    const r = atrasosDoProduto([null, {}, { data_prevista: "2026-10-04" }] as never, HOJE, true);
+    expect(r.pior).toEqual({ estado: "atrasado", dias: 1 });
+    expect(r.detalhes).toEqual(["Serviço — Atrasado 1 dia"]);
+  });
+  it("atrasoPorData com data invalida nao quebra", () => {
+    expect(atrasoPorData("lixo", null, HOJE)).toBeNull();
+  });
+});
+
+describe("[fix round 1] atrasosDoProduto devolve o TIPO do vencedor (badge diz o que esta atrasado)", () => {
+  const bloco = (o: Record<string, unknown>) => ({
+    interno: false,
+    nome: "PL",
+    data_prevista: null,
+    data_entregue: null,
+    peca_foto: false,
+    peca_foto_previsao: null,
+    peca_foto_data: null,
+    ...o,
+  });
+  it("vencedor e a peca de foto => tipo peca_foto", () => {
+    const r = atrasosDoProduto(
+      [bloco({ data_prevista: "2026-10-04", peca_foto: true, peca_foto_previsao: "2026-10-01" })],
+      HOJE,
+      true,
+    );
+    expect(r.tipo).toBe("peca_foto");
+    expect(textoAtraso(r.pior!, r.tipo!)).toBe("Peça de foto atrasada 4 dias");
+  });
+  it("vencedor e o servico => tipo servico", () => {
+    const r = atrasosDoProduto(
+      [bloco({ data_prevista: "2026-10-01", peca_foto: true, peca_foto_previsao: "2026-10-04" })],
+      HOJE,
+      true,
+    );
+    expect(r.tipo).toBe("servico");
+    expect(textoAtraso(r.pior!, r.tipo!)).toBe("Atrasado 4 dias");
+  });
+  it("empate: o servico (listado primeiro) vence; sem atraso: tipo null", () => {
+    const r = atrasosDoProduto(
+      [bloco({ data_prevista: "2026-10-03", peca_foto: true, peca_foto_previsao: "2026-10-03" })],
+      HOJE,
+      true,
+    );
+    expect(r.tipo).toBe("servico");
+    expect(atrasosDoProduto([bloco({})], HOJE, true).tipo).toBeNull();
+  });
+});

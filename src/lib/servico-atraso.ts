@@ -19,19 +19,28 @@ export function atrasoPorData(
   return { estado: "atrasado", dias: dif };
 }
 
+/** Bloco ausente/parcial (card sem prazos, select antigo) = sem alerta: o quadro nunca pode quebrar por causa do selo. */
 export function atrasoServico(
-  b: { data_prevista: string | null; data_entregue: string | null },
+  b: { data_prevista?: string | null; data_entregue?: string | null } | null | undefined,
   hojeISO: string,
 ): Atraso {
+  if (!b) return null;
   return atrasoPorData(b.data_prevista, b.data_entregue, hojeISO);
 }
 
 /** Só com `peca_foto = true`; previsão = `peca_foto_previsao`; entregue = `peca_foto_data`. */
 export function atrasoPecaFoto(
-  b: { peca_foto: boolean; peca_foto_previsao: string | null; peca_foto_data: string | null },
+  b:
+    | {
+        peca_foto?: boolean | null;
+        peca_foto_previsao?: string | null;
+        peca_foto_data?: string | null;
+      }
+    | null
+    | undefined,
   hojeISO: string,
 ): Atraso {
-  if (!b.peca_foto) return null;
+  if (!b || !b.peca_foto) return null;
   return atrasoPorData(b.peca_foto_previsao, b.peca_foto_data, hojeISO);
 }
 
@@ -54,41 +63,48 @@ export function textoAtraso(a: NonNullable<Atraso>, tipo: "servico" | "peca_foto
   return tipo === "servico" ? `Atrasado ${dias}` : `Peça de foto atrasada ${dias}`;
 }
 
-/** Bloco como a lista do PCP o lê (linha de `producao_terceirizados` ativa + nome da categoria). */
+/** Bloco como a lista do PCP o lê (linha de `producao_terceirizados` ativa + nome da categoria). Campos ausentes = vazio. */
 export type BlocoAtrasoLista = {
-  interno: boolean;
-  nome: string;
-  data_prevista: string | null;
-  data_entregue: string | null;
-  peca_foto: boolean;
-  peca_foto_previsao: string | null;
-  peca_foto_data: string | null;
+  interno?: boolean | null;
+  nome?: string | null;
+  data_prevista?: string | null;
+  data_entregue?: string | null;
+  peca_foto?: boolean | null;
+  peca_foto_previsao?: string | null;
+  peca_foto_data?: string | null;
 };
+
+export type TipoAtraso = "servico" | "peca_foto";
 
 /**
  * Lista do PCP › Serviços: PIOR atraso do produto entre [serviço de cada bloco ativo] + [peça de foto dos blocos PL externos, só com
- * o módulo `etapas_pl`]. `detalhes` = uma frase por atraso ("Costura — Atrasado 2 dias"), para o `title` do badge.
+ * o módulo `etapas_pl`]. `tipo` = de qual dos dois é o vencedor (o badge diz o que está atrasado; empate: o primeiro listado).
+ * `detalhes` = uma frase por atraso ("Costura — Atrasado 2 dias"), para o `title` do badge. Lista/bloco ausente = sem alerta.
  */
 export function atrasosDoProduto(
-  blocos: readonly BlocoAtrasoLista[],
+  blocos: readonly (BlocoAtrasoLista | null | undefined)[] | null | undefined,
   hojeISO: string,
   comEtapasPl: boolean,
-): { pior: Atraso; detalhes: string[] } {
-  const todos: Atraso[] = [];
+): { pior: Atraso; tipo: TipoAtraso | null; detalhes: string[] } {
+  const achados: { a: NonNullable<Atraso>; tipo: TipoAtraso }[] = [];
   const detalhes: string[] = [];
-  for (const b of blocos) {
+  for (const b of blocos ?? []) {
+    if (!b) continue;
+    const nome = b.nome || "Serviço";
     const s = atrasoServico(b, hojeISO);
     if (s) {
-      todos.push(s);
-      detalhes.push(`${b.nome} — ${textoAtraso(s, "servico")}`);
+      achados.push({ a: s, tipo: "servico" });
+      detalhes.push(`${nome} — ${textoAtraso(s, "servico")}`);
     }
-    if (comEtapasPl && !b.interno && isServicoPL(b.nome)) {
+    if (comEtapasPl && !b.interno && isServicoPL(nome)) {
       const p = atrasoPecaFoto(b, hojeISO);
       if (p) {
-        todos.push(p);
-        detalhes.push(`${b.nome} — ${textoAtraso(p, "peca_foto")}`);
+        achados.push({ a: p, tipo: "peca_foto" });
+        detalhes.push(`${nome} — ${textoAtraso(p, "peca_foto")}`);
       }
     }
   }
-  return { pior: piorAtraso(todos), detalhes };
+  const pior = piorAtraso(achados.map((x) => x.a));
+  const tipo = achados.find((x) => x.a === pior)?.tipo ?? null;
+  return { pior, tipo, detalhes };
 }
