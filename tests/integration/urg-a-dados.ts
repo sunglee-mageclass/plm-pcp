@@ -72,6 +72,20 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
       }
     },
     "NOVAS": {}
+  },
+  "172000": {
+    "mig": "supabase/migrations/20261103172000_urg_r1_custo_fila_grade.sql",
+    "down": "supabase/rollback/20261103172000_urg_r1_custo_fila_grade_down.sql",
+    "drop": "supabase/rollback/20261103172000_urg_r1_custo_fila_grade_down_drop.sql",
+    "sentinela": "public.fn_custo_fila_grade()",
+    "volta": true,
+    "MD5": {},
+    "NOVAS": {
+      "public.fn_custo_fila_grade()": "6193e2458d9f566caa3b4ff7d0b6a551"
+    },
+    "NEUTRO": {
+      "public.fn_custo_fila_grade()": "619e266e6dbbc469637802b8acf9920a"
+    }
   }
 }
 /* URG_A_JSON_FIM */;

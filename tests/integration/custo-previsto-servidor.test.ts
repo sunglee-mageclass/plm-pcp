@@ -259,6 +259,8 @@ describe.skipIf(!PRONTO)("C1 (a) — catálogo e ACL (#9, R-CD3)", () => {
             -- têm o teste próprio: custo-fila-cad-delete-variante.test.ts (f)
             AND NOT (c.relname = 'cad' AND t.tgname = 'trg_custo_fila_del')
             AND NOT (c.relname = 'variantes_tecido' AND t.tgname = 'trg_custo_fila_upd')
+            -- os 3 da grade (urg R1 T4, 20261103172000; modelo_grades, mesma forma) têm o teste próprio: urg-a1-fila-grade.test.ts
+            AND NOT (c.relname = 'modelo_grades' AND t.tgname LIKE 'trg\\_custo\\_fila\\_grade\\_%')
           ORDER BY 1, 2`);
       expect(rows.length).toBe(30);
       for (const r of rows) expect(r.tgenabled).toBe("O");
