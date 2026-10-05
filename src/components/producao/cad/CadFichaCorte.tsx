@@ -6,6 +6,7 @@ import { FichaHeader } from "@/components/producao/FichaHeader";
 import { useTenantLogo } from "@/hooks/useTenantLogo";
 import { useFichaData } from "./useFichaData";
 import { fmtNum } from "@/lib/format";
+import { linhaImpressaoInsumoVinculado } from "@/lib/insumo-tamanho";
 import { PrintArea } from "@/components/shared/PrintArea";
 
 type Props = {
@@ -225,6 +226,20 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
                 </thead>
                 <tbody>
                   {(etiquetas ?? []).flatMap((e, i) => {
+                    // urg R1: insumo vinculado a UM tamanho = UMA linha desse tamanho (consumo × peças do tamanho);
+                    // "Qtd a Enviar" é o gravado. Fora da grade: rótulo "(fora da grade)" e planejada 0.
+                    if (e.tamanhoVinculado) {
+                      const v = linhaImpressaoInsumoVinculado(e, e.tamanhoVinculado, grades);
+                      return [(
+                        <tr key={i}>
+                          <td style={cell}>{e.etiqueta_nome ?? ""}</td>
+                          <td style={cell}>{e.cor_nome ?? "—"}</td>
+                          <td style={cell}>{v.tamanho}</td>
+                          <td style={cell}>{fmt2(v.planejada)}</td>
+                          <td style={cell}>{fmt2(v.enviar)}</td>
+                        </tr>
+                      )];
+                    }
                     // Explode pela GRADE quando o insumo tem tamanho (mesmo sem enviar_por_tamanho
                     // gravado — reflete o cadastro atual). Sem tamanho → uma linha "Geral".
                     if (e.semTamanho || gradeTams.length === 0) {

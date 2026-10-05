@@ -4,6 +4,7 @@ import { ModeloPhotoPrint } from "@/components/producao/cad/shared";
 import { MaterialTable, Etiquetas, Assinatura } from "@/components/producao/cad/CadFichaCorte";
 import { cell, cellH } from "@/components/producao/cad/types";
 import { fmtNum } from "@/lib/format";
+import { linhaImpressaoInsumoVinculado } from "@/lib/insumo-tamanho";
 import { useFichaData } from "@/components/producao/cad/useFichaData";
 import { PrintArea } from "@/components/shared/PrintArea";
 
@@ -126,6 +127,20 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
             </thead>
             <tbody>
               {d.etiquetas.flatMap((e, i) => {
+                // urg R1: insumo vinculado a UM tamanho = UMA linha desse tamanho (consumo × peças do tamanho);
+                // "Qtd a Enviar" é o gravado. Fora da grade: rótulo "(fora da grade)" e planejada 0.
+                if (e.tamanhoVinculado) {
+                  const v = linhaImpressaoInsumoVinculado(e, e.tamanhoVinculado, d.grades);
+                  return [(
+                    <tr key={i}>
+                      <td style={cell}>{e.etiqueta_nome ?? ""}</td>
+                      <td style={cell}>{e.cor_nome ?? "—"}</td>
+                      <td style={cell}>{v.tamanho}</td>
+                      <td style={cell}>{fmt(v.planejada)}</td>
+                      <td style={cell}>{fmt(v.enviar)}</td>
+                    </tr>
+                  )];
+                }
                 // Explode pela GRADE quando o insumo tem tamanho (reflete o cadastro atual,
                 // mesmo sem enviar_por_tamanho gravado). Sem tamanho → uma linha "Geral".
                 if (e.semTamanho || gradeTams.length === 0) {

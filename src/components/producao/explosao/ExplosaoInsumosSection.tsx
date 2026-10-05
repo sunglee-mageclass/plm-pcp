@@ -10,10 +10,12 @@
  * de etiqueta é separada aqui (a etiqueta é materializada no recebimento da OC — ver
  * _receber_oc_p_acabado_core). Modelo sem etiqueta no CAD ⇒ a seção não aparece (linhas vazias).
  */
-import { Tag } from "lucide-react";
+import { AlertTriangle, Tag } from "lucide-react";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { fmtNum, fmtNumEdit } from "@/lib/format";
+import { rotuloTamanho } from "@/lib/insumo-tamanho";
 
 export type InsumoLinha = {
   /** id da linha em cad_etiquetas (chave de gravação). */
@@ -24,8 +26,15 @@ export type InsumoLinha = {
   cor_label?: string | null;
   /** consumo por peça (cad_etiquetas.consumo). */
   consumo: number;
-  /** consumo × grade total do modelo (qtd necessária p/ toda a grade). */
-  quantidade: number;
+  /**
+   * consumo × grade total do modelo (ou × peças do tamanho vinculado, urg R1). `null` = os vínculos ainda não carregaram
+   * (a tela mostra "—": nunca decide "sem vínculo" a partir de um dado que pode ter falhado).
+   */
+  quantidade: number | null;
+  /** Tamanho EFETIVO a que o insumo está vinculado (ex. "40|M"); null = sem vínculo. */
+  tamanhoVinculado: string | null;
+  /** Vinculado a um tamanho que não está na grade do modelo (quantidade 0 + aviso âmbar — P-281 A). */
+  foraDaGrade: boolean;
   /** Qtd a enviar/separar (cad_etiquetas.quantidade_enviar). Editável na Explosão. */
   aEnviar: number;
 };
@@ -52,7 +61,10 @@ export function ExplosaoInsumosSection({ linhas, gradeTotalGeral, editing, onEnv
         <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
         <b className="font-display text-sm">Insumos / Etiquetas</b>
         <span className="text-[11px] text-muted-foreground">
-          necessária = consumo por peça × grade total ({fmtNum(gradeTotalGeral)}); só "a enviar" é editável
+          necessária = consumo por peça × grade total (ou × peças do tamanho vinculado); só "a enviar" é editável
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          Grade total <b className="text-foreground num">{fmtNum(gradeTotalGeral)}</b>
         </span>
         <span className="ml-auto text-[11px] text-muted-foreground">
           A enviar <b className="text-foreground num">{fmtNum(totalEnviar)}</b>
@@ -76,12 +88,23 @@ export function ExplosaoInsumosSection({ linhas, gradeTotalGeral, editing, onEnv
                   {l.cor ? <VarianteSwatch nome={l.cor} className="mr-1" /> : null}
                   {l.etiqueta_nome}
                   {l.cor_label ? <span className="text-muted-foreground"> · {l.cor_label}</span> : null}
+                  {l.tamanhoVinculado ? (
+                    <StatusBadge tone="neutral" className="ml-2 align-middle">
+                      Só tam. {rotuloTamanho(l.tamanhoVinculado)}
+                    </StatusBadge>
+                  ) : null}
+                  {l.tamanhoVinculado && l.foraDaGrade ? (
+                    <div role="status" className="mt-1 flex items-start gap-1.5 text-[11px] text-warning">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                      <span>O tamanho {rotuloTamanho(l.tamanhoVinculado)} não está na grade deste modelo — quantidade 0.</span>
+                    </div>
+                  ) : null}
                 </td>
                 <td className="px-2 py-1 num text-muted-foreground" data-label="Consumo/peça">
                   {fmtNumEdit(l.consumo) || "0"}
                 </td>
                 <td className="px-2 py-1 num text-muted-foreground" data-label="Qtd necessária">
-                  {fmtNum(l.quantidade)}
+                  {l.quantidade == null ? "—" : fmtNum(l.quantidade)}
                 </td>
                 <td className="px-2 py-1 bg-primary/5" data-label="A separar/enviar">
                   {editing ? (

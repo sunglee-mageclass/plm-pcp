@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { varianteLabel, corApelidoLabel } from "@/lib/variante";
 import { roundTo } from "@/lib/num";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useTamanhoVinculadoInsumos } from "@/hooks/useTamanhoVinculadoInsumos";
 import type { TecidoRow, GradeRow, AviamentoRow, EtiquetaRow } from "./types";
 
 const num = (v: any) => Number(v ?? 0) || 0;
@@ -123,6 +124,10 @@ export function useFichaData(modeloId: string): FichaData {
     },
   });
 
+  // urg R1: tamanho a que cada insumo está vinculado. `undefined` = carregando/falhou: NÃO imprime como "sem vínculo".
+  // Falha na 1ª carga => `isReady` fica false (a impressão automática não sai com quantidade de insumo duvidosa).
+  const { data: tamVinc } = useTamanhoVinculadoInsumos();
+
   const { data: tamanhosConfig = [] } = useQuery({
     queryKey: ["ft-tamanhos", tenantId],
     enabled: !!tenantId,
@@ -192,8 +197,9 @@ export function useFichaData(modeloId: string): FichaData {
       id: e.id, etiqueta_id: e.etiqueta_id, etiqueta_nome: e.etiquetas?.nome ?? "—", cor_id: e.cor_id ?? null, cor_nome: e.cor?.nome ?? null, tamanho: e.etiquetas?.tamanho ?? null, consumo: num(e.consumo), quantidade_planejada: num(e.quantidade_planejada), quantidade_enviar: num(e.quantidade_enviar), enviarPorTamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>,
       // Sem tamanho vindo do mapa (query separada) — default true se ainda não carregou.
       semTamanho: (etqSemTamanhoMap as Record<string, boolean>)[e.etiqueta_id] ?? true,
+      tamanhoVinculado: tamVinc && Object.prototype.hasOwnProperty.call(tamVinc, e.etiqueta_id) ? tamVinc[e.etiqueta_id] : null,
     })),
-    [cadEtiquetas, etqSemTamanhoMap],
+    [cadEtiquetas, etqSemTamanhoMap, tamVinc],
   );
 
   const tamanhosAll = useMemo(() => {
@@ -278,6 +284,7 @@ export function useFichaData(modeloId: string): FichaData {
     tecido1LabelById,
     // Só está "pronto" quando o modelo, o CAD e a grade carregaram (e, havendo
     // CAD, os tecidos). Evita imprimir a ficha em branco no 1º clique (cache frio).
-    isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched),
+    // urg R1: o vínculo de tamanho dos insumos também tem de ter chegado (senão o insumo vinculado sairia como "Geral").
+    isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched) && tamVinc !== undefined,
   };
 }

@@ -77,6 +77,10 @@ export type EtiquetaRow = {
   // Insumo sem tamanho (formato Nenhum ou sem variante com tamanho) — usado na impressão
   // p/ decidir "Geral" vs explosão pela grade, mesmo sem enviar_por_tamanho gravado.
   semTamanho?: boolean;
+  // urg R1: tamanho EFETIVO a que o insumo está vinculado (ex. "40|M"; só p/ insumo sem tamanho próprio). Vinculado
+  // imprime UMA linha só desse tamanho. null/undefined = sem vínculo (ou o mapa ainda não carregou: a ficha espera —
+  // `isReady` de useFichaData).
+  tamanhoVinculado?: string | null;
 };
 
 export function calcCusto(consumo: number, loss: number, preco: number) {

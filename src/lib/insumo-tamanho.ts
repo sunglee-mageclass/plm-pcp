@@ -126,3 +126,84 @@ export function vinculoLigadoSemTamanho(p: {
   if (!p.ativo || !vinculoDisponivel(p.formato, p.blocos)) return false;
   return p.tamanho == null || trimEspacos(p.tamanho) === "";
 }
+
+// ── Explosão e fichas impressas (urg R1 T8) ──────────────────────────────────────────────────────────────────────
+// Puro (sem React/Supabase). A Explosão e as duas fichas contam, para o insumo vinculado, só as peças do tamanho.
+
+/** Linha de `etiquetas` (+ variantes) como o hook `useTamanhoVinculadoInsumos` lê. */
+export type EtiquetaTamanhoRow = {
+  id: string;
+  tamanho_vinculado: string | null;
+  formato_tamanho: string | null;
+  variantes_etiqueta: { tamanho: string | null }[] | null;
+};
+
+/** `etiqueta_id` → tamanho EFETIVO (vínculo que vale; null = sem vínculo). Só o que o hook devolve. */
+export function mapaTamanhoVinculado(rows: EtiquetaTamanhoRow[]): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const r of rows) {
+    out[r.id] = tamanhoEfetivoInsumo({
+      tamanho_vinculado: r.tamanho_vinculado ?? null,
+      formato_tamanho: r.formato_tamanho ?? null,
+      variantes: (r.variantes_etiqueta ?? []).map((v) => ({ tamanho: v.tamanho ?? null })),
+    });
+  }
+  return out;
+}
+
+const vinculoDe = (mapa: Record<string, string | null>, etiquetaId: string | null | undefined): string | null =>
+  etiquetaId != null && Object.prototype.hasOwnProperty.call(mapa, etiquetaId) ? (mapa[etiquetaId] ?? null) : null;
+
+export type LinhaInsumoExplosao = {
+  consumo: number;
+  /** consumo × peças do insumo; `null` = o mapa de vínculos ainda não carregou (a tela mostra "—"). */
+  quantidade: number | null;
+  tamanhoVinculado: string | null;
+  foraDaGrade: boolean;
+  /** quantidade_enviar SALVO quando não nulo (Ruling A6: nada retroativo), senão a necessária; null = ainda indefinida. */
+  aEnviar: number | null;
+};
+
+/**
+ * Uma linha de `cad_etiquetas` na Explosão. `tamPorEtiqueta === undefined` = o hook de vínculos ainda não respondeu:
+ * NÃO decide "sem vínculo" (necessária fica null); o salvo continua valendo. `grades` = as grades planejadas semeadas.
+ */
+export function linhaInsumoExplosao(
+  e: { etiqueta_id?: string | null; consumo?: unknown; quantidade_enviar?: unknown },
+  tamPorEtiqueta: Record<string, string | null> | undefined,
+  grades: GradeLinha[],
+): LinhaInsumoExplosao {
+  const consumo = Number(e.consumo ?? 0) || 0;
+  const salvo = e.quantidade_enviar == null ? null : Number(e.quantidade_enviar) || 0;
+  if (tamPorEtiqueta === undefined) {
+    return { consumo, quantidade: null, tamanhoVinculado: null, foraDaGrade: false, aEnviar: salvo };
+  }
+  const mapa = gradeMapa(grades);
+  const total = gradeTotal(grades);
+  const tam = vinculoDe(tamPorEtiqueta, e.etiqueta_id);
+  const quantidade = consumo * pecasDoInsumo(tam, mapa, total);
+  return {
+    consumo,
+    quantidade,
+    tamanhoVinculado: tam,
+    foraDaGrade: tamanhoForaDaGrade(tam, mapa, total),
+    aEnviar: salvo ?? quantidade,
+  };
+}
+
+/** Insumo vinculado nas fichas impressas: UMA linha (Tamanho = rótulo; fora da grade ganha o sufixo). */
+export function linhaImpressaoInsumoVinculado(
+  e: { consumo?: unknown; quantidade_enviar?: unknown },
+  tam: string,
+  grades: GradeLinha[],
+): { tamanho: string; planejada: number; enviar: number; foraDaGrade: boolean } {
+  const mapa = gradeMapa(grades);
+  const total = gradeTotal(grades);
+  const fora = tamanhoForaDaGrade(tam, mapa, total);
+  return {
+    tamanho: fora ? `${rotuloTamanho(tam)} (fora da grade)` : rotuloTamanho(tam),
+    planejada: (Number(e.consumo ?? 0) || 0) * pecasDoInsumo(tam, mapa, total),
+    enviar: Number(e.quantidade_enviar ?? 0) || 0,
+    foraDaGrade: fora,
+  };
+}

@@ -28,6 +28,8 @@ import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { ExplosaoMetragemSection } from "@/components/producao/explosao/ExplosaoMetragemSection";
 import { ExplosaoAviamentosSection } from "@/components/producao/explosao/ExplosaoAviamentosSection";
 import { ExplosaoInsumosSection, type InsumoLinha } from "@/components/producao/explosao/ExplosaoInsumosSection";
+import { useTamanhoVinculadoInsumos } from "@/hooks/useTamanhoVinculadoInsumos";
+import { linhaInsumoExplosao } from "@/lib/insumo-tamanho";
 import { agruparAviamentosExplosao, chaveVarianteAviamento } from "@/lib/explosao-aviamentos";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
@@ -297,6 +299,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     },
   });
 
+  // urg R1 (T8): tamanho a que cada insumo está vinculado (query separada, lança o erro). `tamData === undefined` = carregando
+  // OU 1ª carga com falha — nunca vira "sem vínculo" (falha entra no `falhaCarga`, que trava o Salvar/Enviar).
+  const { data: tamData, isError: tamIsErr, refetch: refetchTam } = useTamanhoVinculadoInsumos();
+
   // --- local editable state (metragem_enviada do tecido + a-separar do aviamento) ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
@@ -316,7 +322,8 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     (cadGradesIsErr && cadGradesRaw === undefined) ||
     (modeloAviIsErr && modeloAviRaw === undefined) ||
     (cadAviIsErr && cadAviRaw === undefined) ||
-    (cadEtiIsErr && cadEtiRaw === undefined);
+    (cadEtiIsErr && cadEtiRaw === undefined) ||
+    (tamIsErr && tamData === undefined);
   const podeGravar = seededAll && !falhaCarga;
   const podeGravarRef = useRef(false);
   podeGravarRef.current = podeGravar;
@@ -328,6 +335,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     if (modeloAviIsErr) void refetchModeloAvi();
     if (cadAviIsErr) void refetchCadAvi();
     if (cadEtiIsErr) void refetchCadEti();
+    if (tamIsErr) void refetchTam();
   };
 
   // ── Merge de conflito colaborativo (Fase 3) ──────────────────────────────────
@@ -666,26 +674,27 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   };
 
   // Insumos/etiquetas: base direto de cad_etiquetas. Necessária = consumo × grade total (mesma
-  // fórmula do aviamento); "a enviar" = quantidade_enviar salvo (default = necessária quando
-  // vazio/nunca gravado). O envio ao receber a OC já materializa quantidade_enviar (revenda),
-  // então normalmente há valor; o default cobre etiqueta do manufaturado ainda não separada.
+  // fórmula do aviamento) — ou × peças do tamanho vinculado (urg R1, `linhaInsumoExplosao`); "a enviar" =
+  // quantidade_enviar salvo (default = necessária quando vazio/nunca gravado; o salvo NÃO muda retroativamente, A6).
+  // O envio ao receber a OC já materializa quantidade_enviar (revenda), então normalmente há valor; o default
+  // cobre etiqueta do manufaturado ainda não separada.
   const insumosBase = useMemo<InsumoLinha[]>(
     () =>
       (cadEtiquetas as any[]).map((e) => {
-        const consumo = Number(e.consumo ?? 0);
-        const necessaria = consumo * gradeTotalGeral;
-        const salvo = e.quantidade_enviar;
+        const l = linhaInsumoExplosao(e, tamData, grades);
         return {
           id: e.id as string,
           etiqueta_nome: e.etiquetas?.nome ?? "Etiqueta",
           cor: e.cores?.nome ?? null,
           cor_label: e.cores?.nome ?? null,
-          consumo,
-          quantidade: necessaria,
-          aEnviar: salvo == null ? necessaria : Number(salvo ?? 0),
+          consumo: l.consumo,
+          quantidade: l.quantidade,
+          tamanhoVinculado: l.tamanhoVinculado,
+          foraDaGrade: l.foraDaGrade,
+          aEnviar: l.aEnviar ?? 0, // null só enquanto os vínculos carregam; a semente do "a enviar" espera (abaixo)
         };
       }),
-    [cadEtiquetas, gradeTotalGeral],
+    [cadEtiquetas, tamData, grades],
   );
 
   // Semeia a "a enviar" editável a partir da base, quando as etiquetas do CAD carregam e o
@@ -693,12 +702,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   useEffect(() => {
     if (etiSeeded) return;
     if (falhaCarga) return;
-    if (!seeded || !cadEtiquetasFetched) return;
+    if (!seeded || !cadEtiquetasFetched || tamData === undefined) return; // urg R1: sem o vínculo a necessária default sairia errada
     const init: Record<string, number> = {};
     for (const l of insumosBase) init[l.id] = l.aEnviar;
     setEtiEnviar(init);
     setEtiSeeded(true);
-  }, [etiSeeded, seeded, cadEtiquetasFetched, insumosBase, falhaCarga]);
+  }, [etiSeeded, seeded, cadEtiquetasFetched, tamData, insumosBase, falhaCarga]);
 
   // Sobrepõe as edições locais ao base (o que a UI mostra e o payload leva).
   const insumosView = useMemo<InsumoLinha[]>(
