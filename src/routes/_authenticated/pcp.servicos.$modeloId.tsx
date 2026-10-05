@@ -63,6 +63,7 @@ import { EtapasPlPanel } from "@/components/producao/EtapasPlPanel";
 import { ReprovadasPl } from "@/components/producao/ReprovadasPl";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 import { NfList, type NfItem } from "@/components/oc-tecido/NfList";
+import { type AviamentoEnviado, type BlocoServico, blocoDeLinha, blocoParaPayload } from "@/lib/servicos-payload";
 import { tenantPrefix, sanitizeStorageName } from "@/lib/storage-tenant";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/$modeloId")({
@@ -102,68 +103,10 @@ function rotuloConflito(path: string): string {
   return ROTULO_CONFLITO[path] ?? path;
 }
 
-// FF#2 (ago/2026): "aviamento enviado" passa a distinguir a VARIANTE (cor) do aviamento.
-// A chave é {aviamento_id, variante_aviamento_id} (variante null = aviamento sem variante, ou
-// o legado migrado). Um aviamento com 2+ variantes no BOM vira 2 botões distintos.
-type AviamentoEnviado = { aviamento_id: string; variante_aviamento_id: string | null };
-
-// Aceita o formato NOVO (objeto) e o LEGADO (string = aviamento_id, variante null) — resiliência
-// na transição; o banco também migra o dado (mig 20260820170000). Descarta lixo.
-function normalizeAviEnviados(raw: unknown): AviamentoEnviado[] {
-  if (!Array.isArray(raw)) return [];
-  const out: AviamentoEnviado[] = [];
-  for (const el of raw) {
-    if (typeof el === "string") {
-      if (el) out.push({ aviamento_id: el, variante_aviamento_id: null });
-    } else if (el && typeof el === "object" && (el as any).aviamento_id) {
-      out.push({ aviamento_id: (el as any).aviamento_id, variante_aviamento_id: (el as any).variante_aviamento_id ?? null });
-    }
-  }
-  return out;
-}
+// Tipos/leitura/payload do bloco: fonte única em src/lib/servicos-payload.ts (também usada pela edição rápida de Etapas PL).
 const mesmoAvi = (a: AviamentoEnviado, b: AviamentoEnviado) =>
   a.aviamento_id === b.aviamento_id && (a.variante_aviamento_id ?? null) === (b.variante_aviamento_id ?? null);
-
-type Bloco = {
-  _key: string; // chave estável de render (permite blocos repetidos da mesma categoria)
-  id?: string;
-  categoria_terceirizado_id: string;
-  categoria_nome?: string;
-  interno: boolean;
-  // Seleção do responsável (ramo PL): empresa de serviço + representante opcional.
-  empresa_id: string | null;
-  representante_id: string | null;
-  colaborador_id: string | null;
-  preco_metro_unidade: number;
-  aprovado: boolean;
-  quantidade_enviada: number;
-  quantidade_recebida: number;
-  quantidade_defeito: number;
-  desconto_total: number;
-  multa_total: number;
-  numero_parcelas: number;
-  data_enviado: string | null;
-  data_prevista: string | null;
-  data_entregue: string | null;
-  status: string | null;
-  observacao: string;
-  aviamentos_enviados: AviamentoEnviado[];
-  tecidos_enviados: string[];
-  // Quantidade por tamanho × variante (opt-in). Quando `detalhado`, os 3 totais viram Σ da grade.
-  detalhado: boolean;
-  grade_detalhe: GradeDetalhe;
-  // Etapas PL (Fase 1, módulo opt-in `etapas_pl`): campos da etapa "Peça Teste" — alimentam
-  // etapaDoBloco (src/lib/pcp-etapas.ts) no painel EtapasPlPanel.
-  pt_data_saida: string | null;
-  pt_data_entrada: string | null;
-  pt_aprovacao: "aprovado" | "reprovado" | null;
-  // Notas Fiscais do serviço PL (Etapas PL S4): 2 listas, cada NF com url+data.
-  nf_saida: NfItem[];
-  nf_entrada: NfItem[];
-  // Peça de foto (Etapas PL S5): checkbox + data de entrega condicional.
-  peca_foto: boolean;
-  peca_foto_data: string | null;
-};
+type Bloco = BlocoServico;
 
 // Tom §Q9 por status de bloco/serviço (campanha StatusBadge, ago/2026). pre_finalizado
 // (Pré confirmado, Pós ainda não) fica no mesmo tom "em progresso" de em_andamento —
@@ -681,40 +624,7 @@ export function TerceirizadosDetail({
   });
 
   // Mapeamento server-row → Bloco (reusado pela hidratação/merge e pelo retry P0409).
-  const blocosFromRows = (rows: any[]): Bloco[] =>
-    rows.map((r) => ({
-      _key: r.id ?? crypto.randomUUID(),
-      id: r.id,
-      categoria_terceirizado_id: r.categoria_terceirizado_id,
-      interno: Boolean(r.interno),
-      empresa_id: r.empresa_id ?? null,
-      representante_id: r.representante_id ?? null,
-      colaborador_id: r.colaborador_id ?? null,
-      preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
-      aprovado: Boolean(r.aprovado),
-      quantidade_enviada: Number(r.quantidade_enviada ?? 0),
-      quantidade_recebida: Number(r.quantidade_recebida ?? 0),
-      quantidade_defeito: Number(r.quantidade_defeito ?? 0),
-      desconto_total: Number(r.desconto_total ?? 0),
-      multa_total: Number(r.multa_total ?? 0),
-      numero_parcelas: Number(r.numero_parcelas ?? 1),
-      data_enviado: r.data_enviado,
-      data_prevista: r.data_prevista,
-      data_entregue: r.data_entregue,
-      status: r.status,
-      observacao: r.observacao ?? "",
-      aviamentos_enviados: normalizeAviEnviados(r.aviamentos_enviados),
-      tecidos_enviados: Array.isArray(r.tecidos_enviados) ? r.tecidos_enviados : [],
-      detalhado: Boolean(r.detalhado),
-      grade_detalhe: (r.grade_detalhe && typeof r.grade_detalhe === "object" ? r.grade_detalhe : {}) as GradeDetalhe,
-      pt_data_saida: (r as any).pt_data_saida ?? null,
-      pt_data_entrada: (r as any).pt_data_entrada ?? null,
-      pt_aprovacao: (r as any).pt_aprovacao ?? null,
-      nf_saida: Array.isArray((r as any).nf_saida) ? (r as any).nf_saida : [],
-      nf_entrada: Array.isArray((r as any).nf_entrada) ? (r as any).nf_entrada : [],
-      peca_foto: Boolean((r as any).peca_foto),
-      peca_foto_data: (r as any).peca_foto_data ?? null,
-    }));
+  const blocosFromRows = (rows: any[]): Bloco[] => rows.map(blocoDeLinha);
 
   // Colab: 1ª carga semeia + baseline; refetch/Realtime faz merge 3-vias (escalares por bloco
   // via mergeLinhas + células por bloco via mergeGrade) em vez de re-seed às cegas. Espera a
@@ -940,41 +850,7 @@ export function TerceirizadosDetail({
       cqStatusAntesRef.current = await lerStatusCq(cad.id);
       // RPC transacional com diff-por-id: preserva ids, atualiza/insere/deleta numa
       // transação (a lógica de `interno` fica aqui; o resto é genérico no banco).
-      const _blocos = blocos.map((b) => ({
-        id: b.id ?? null,
-        categoria_terceirizado_id: b.categoria_terceirizado_id,
-        interno: b.interno,
-        // Grava empresa + representante (empresa_id é a fonte única do responsável PL).
-        empresa_id: b.interno ? null : b.empresa_id,
-        representante_id: b.interno ? null : b.representante_id,
-        colaborador_id: b.interno ? b.colaborador_id : null,
-        ativo: true,
-        preco_metro_unidade: b.interno ? 0 : b.preco_metro_unidade,
-        // Detalhado por tamanho/variante → os totais são a SOMA da grade (fonte única p/ financeiro/CQ).
-        quantidade_enviada: b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : b.quantidade_enviada,
-        quantidade_recebida: b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : b.quantidade_recebida,
-        quantidade_defeito: b.detalhado ? somaGrade(b.grade_detalhe, "defeito") : b.quantidade_defeito,
-        detalhado: b.detalhado,
-        grade_detalhe: b.detalhado ? b.grade_detalhe : {},
-        desconto_total: b.interno ? 0 : (Number(b.desconto_total) || 0),
-        multa_total: b.interno ? 0 : (Number(b.multa_total) || 0),
-        numero_parcelas: Math.max(1, Number(b.numero_parcelas) || 1),
-        data_enviado: b.data_enviado,
-        data_prevista: b.data_prevista,
-        data_entregue: b.data_entregue,
-        observacao: b.observacao,
-        aviamentos_enviados: b.aviamentos_enviados,
-        tecidos_enviados: b.tecidos_enviados,
-        // Etapas PL (Fase 1): só faz sentido pra bloco PL, mas grava sempre (interno fica null
-        // nos 3 — mesmo padrão de empresa_id/representante_id acima).
-        pt_data_saida: b.interno ? null : b.pt_data_saida,
-        pt_data_entrada: b.interno ? null : b.pt_data_entrada,
-        pt_aprovacao: b.interno ? null : b.pt_aprovacao,
-        nf_saida: b.interno ? [] : b.nf_saida,
-        nf_entrada: b.interno ? [] : b.nf_entrada,
-        peca_foto: b.interno ? false : b.peca_foto,
-        peca_foto_data: b.interno ? null : b.peca_foto_data,
-      }));
+      const _blocos = blocos.map(blocoParaPayload);
       // Colab: barra o save enquanto há conflito pendente (o banner no topo lista cada um).
       if (conflitosRef.current.length > 0)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
