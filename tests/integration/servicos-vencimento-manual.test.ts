@@ -304,27 +304,35 @@ describe.skipIf(!RODA)("medios R10 fin #6 — parcelas_servico.vencimento_manual
     });
   });
 
-  it("P-191 A: as 4 parcelas da Loja Teste (9a77fc69, c575f73d, 0b040678, 53865b07) passam a acompanhar a data calculada", async () => {
+  // T1 (backend, 05/out): a versão original deste caso lia as 4 parcelas REAIS da Loja Teste (9a77fc69, c575f73d, 0b040678, 53865b07), "paradas
+  // numa data velha" ANTES da migration, e exigia que a 1ª abertura da tela as movesse. Isso é uma correção ÚNICA de dado: depois de aplicada
+  // (e de alguém abrir a tela), as 4 já estão na data calculada ("expected '2026-08-05' not to be '2026-08-05'") e o teste nunca mais poderia
+  // passar. A regra de P-191 A — parcela em aberto, NENHUMA marcada como manual, parada numa data velha, passa a acompanhar a data calculada
+  // quando a tela sincroniza — é provada aqui com fixture PRÓPRIA na txn: 4 parcelas em 3 serviços (como eram: 2 de Corte + 1 de PL + 1 de
+  // Oficina), geradas, depois a entrega muda SEM a tela aberta (= ficam paradas na data velha) e a abertura da tela as move.
+  it("P-191 A: parcelas em aberto paradas numa data velha (nenhuma marcada) passam a acompanhar a data calculada", async () => {
     await withTx(async (c) => {
-      await comoUsuario(c);
-      const q = `select substr(id::text,1,8) id, to_char(data_vencimento,'YYYY-MM-DD') venc, vencimento_manual manual
-                   from parcelas_servico where tenant_id = $1
-                    and substr(id::text,1,8) in ('9a77fc69','c575f73d','0b040678','53865b07') order by 1`;
-      const antes = (await c.query(q, [TENANT_TESTE])).rows;
-      // R1c: as 4 são obrigatórias (a cópia tem as 4; sem elas o teste FALHA)
-      expect(antes.map((r) => r.id)).toEqual(["0b040678", "53865b07", "9a77fc69", "c575f73d"]);
-      expect(antes.every((r) => r.manual === false)).toBe(true); // P-191 A: nenhuma marcada
+      const a = await bloco(c, { n: 2, entregue: "2026-08-05" }); // "Corte": 2 parcelas
+      const b = await bloco(c, { n: 1, entregue: "2026-07-11" }); // "PL"
+      const o = await bloco(c, { n: 1, entregue: "2026-08-06" }); // "Oficina"
       await tela(c);
-      const depois = (await c.query(q, [TENANT_TESTE])).rows;
-      // sem prazo na empresa: data calculada = entrega (flat) — Corte 05/08, PL 11/07, Oficina 06/08
-      expect(depois).toEqual([
-        { id: "0b040678", venc: "2026-08-05", manual: false },
-        { id: "53865b07", venc: "2026-07-11", manual: false },
-        { id: "9a77fc69", venc: "2026-08-06", manual: false },
-        { id: "c575f73d", venc: "2026-08-05", manual: false },
-      ]);
-      // e todas estavam paradas numa data velha
-      for (const a of antes) expect(a.venc).not.toBe(depois.find((d) => d.id === a.id)!.venc);
+      const ids = [a.pt, b.pt, o.pt];
+      const lerTodas = async () =>
+        (await c.query(
+          `select id, to_char(data_vencimento,'YYYY-MM-DD') venc, vencimento_manual manual, producao_terceirizado_id pt, numero_parcela n
+             from parcelas_servico where producao_terceirizado_id = any($1::uuid[]) order by pt, n`, [ids],
+        )).rows as { id: string; venc: string; manual: boolean; pt: string; n: number }[];
+      const antes = await lerTodas();
+      expect(antes).toHaveLength(4);
+      expect(antes.every((r) => r.manual === false)).toBe(true); // P-191 A: nenhuma marcada
+      // a entrega muda sem a tela aberta → as parcelas ficam paradas na data velha
+      await c.query(`update producao_terceirizados set data_entregue = '2026-09-25' where id = any($1::uuid[])`, [ids]);
+      expect((await lerTodas()).map((r) => r.venc)).toEqual(antes.map((r) => r.venc));
+      await tela(c);
+      const depois = await lerTodas();
+      // sem prazo na empresa: data calculada = entrega (flat)
+      expect(depois.map((r) => [r.venc, r.manual])).toEqual(antes.map(() => ["2026-09-25", false]));
+      for (const x of antes) expect(x.venc).not.toBe(depois.find((d) => d.id === x.id)!.venc); // e todas estavam paradas numa data velha
     });
   });
 });
