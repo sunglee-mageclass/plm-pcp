@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 import type { Client } from "pg";
+import { kanbanChaveDesligada } from "./loja-fixture";
 
 // Item 14 — REF revelada a partir de etapa configurável (tenant_config.ref_exibir_status):
 // gate `_ref_exibir_gate` + trigger `fn_modelo_ref_auto` (invariante #11 preservada no resto).
@@ -10,20 +11,6 @@ const T = TENANT_TESTE;
 
 async function setCfg(c: Client, v: string | null) {
   await c.query(`UPDATE public.tenant_config SET ref_exibir_status = $2 WHERE tenant_id = $1`, [T, v]);
-}
-/**
- * T1 (backend, 05/out): na cópia a chave do kanban automático da Loja Teste está LIGADA (dado vivo do dono). Com ela ligada o status passa a ser
- * DERIVADO pelo motor (migration 3G, guard: a coluna automática do UPDATE direto é ignorada), então o `setStatus` do teste não move o card e a REF
- * nunca é revelada ("expected '' not to be ''"). Estes testes cobrem o gate/trigger da REF no modo MANUAL (chave desligada = comportamento de hoje),
- * então desligam a chave NESTA txn pelo caminho da RPC (GUC `app.kanban_chave='rpc'`; revertido no ROLLBACK). Não toca o dado persistente.
- */
-async function chaveDesligada(c: Client) {
-  await c.query(`SELECT set_config('app.kanban_chave', 'rpc', true)`);
-  try {
-    await c.query(`UPDATE public.tenant_config SET kanban_automatico = false WHERE tenant_id = $1`, [T]);
-  } finally {
-    await c.query(`SELECT set_config('app.kanban_chave', '', true)`);
-  }
 }
 async function gate(c: Client, status: string): Promise<boolean> {
   const r = await um<{ ok: boolean }>(c, `SELECT public._ref_exibir_gate($1, $2) AS ok`, [T, status]);
@@ -78,7 +65,7 @@ describe.skipIf(!hasDb)("Item 14 — REF configurável (_ref_exibir_gate + trigg
   it("trigger: revela ref (ref_auto → ref) ao ATINGIR a etapa configurada, não antes", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      await chaveDesligada(c);
+      await kanbanChaveDesligada(c); // T1: Loja Teste da cópia tem a chave do kanban automático LIGADA (dado vivo); estes testes são do modo manual
       const id = await modeloComSigla(c);
       if (!id) return; // sem modelo elegível na Loja Teste → auto-skip
 
@@ -107,7 +94,7 @@ describe.skipIf(!hasDb)("Item 14 — REF configurável (_ref_exibir_gate + trigg
   it("trigger: config AUSENTE ⇒ revela só em 'aprovado' (histórico)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      await chaveDesligada(c);
+      await kanbanChaveDesligada(c); // T1: Loja Teste da cópia tem a chave do kanban automático LIGADA (dado vivo); estes testes são do modo manual
       const id = await modeloComSigla(c);
       if (!id) return;
 
@@ -129,7 +116,7 @@ describe.skipIf(!hasDb)("Item 14 — REF configurável (_ref_exibir_gate + trigg
   it("trigger: REF manual (fora do padrão) NUNCA é sobrescrita ao revelar", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      await chaveDesligada(c);
+      await kanbanChaveDesligada(c); // T1: Loja Teste da cópia tem a chave do kanban automático LIGADA (dado vivo); estes testes são do modo manual
       const id = await modeloComSigla(c);
       if (!id) return;
 

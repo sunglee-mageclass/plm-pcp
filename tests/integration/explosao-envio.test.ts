@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 import type { Client } from "pg";
+import { kanbanChaveDesligada } from "./loja-fixture";
 
 // Envio à Explosão configurável por loja (tenant_config.explosao_envio_status):
 // gate `_explosao_envio_gate` + enforcement no `_enviar_modelo_para_cad_core`.
@@ -81,6 +82,7 @@ describe.skipIf(!hasDb)("Envio à Explosão configurável — gate + RPC", () =>
   it("RPC bloqueia com P0001 antes da etapa e libera na etapa (config ausente = 'aprovado')", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await kanbanChaveDesligada(c); // T1: com a chave ligada (Loja Teste da cópia) o status é derivado e o setStatus abaixo não move o card
       const id = await modeloComCad(c);
       if (!id) return; // sem modelo com CAD na Loja Teste → auto-skip
       await setCfg(c, null);
@@ -103,6 +105,7 @@ describe.skipIf(!hasDb)("Envio à Explosão configurável — gate + RPC", () =>
   it("RPC com config 'em_pilotagem': bloqueia etapa anterior, libera posterior", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await kanbanChaveDesligada(c); // T1: com a chave ligada (Loja Teste da cópia) o status é derivado e o setStatus abaixo não move o card
       const id = await modeloComCad(c);
       if (!id) return;
       await setCfg(c, "em_pilotagem");
