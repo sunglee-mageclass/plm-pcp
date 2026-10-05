@@ -1747,10 +1747,10 @@ function BatchCardsDialog({
       // Os cards JÁ existem: daqui em diante nada pode derrubar a criação (falha de insumos vira aviso no toast, por card).
       const ids = ((criados ?? []) as { id: string }[]).map((c) => c.id);
       const insumos = await aplicarInsumosPadraoEmLote(ids, insumosPadrao.linhas, (nome, args) => supabase.rpc(nome as any, args as any));
-      return { n: payloads.length, aplicados: insumos.aplicados, falhas: insumos.falhas.length, comInsumos: insumosPadrao.linhas.length > 0 };
+      return { n: payloads.length, aplicados: insumos.aplicados, falhas: insumos.falhas.length, comInsumos: insumosPadrao.linhas.length > 0, orfaos: insumosPadrao.orfaos };
     },
-    onSuccess: ({ n, aplicados, falhas, comInsumos }) => {
-      const r = resumoToastLote(n, aplicados, falhas, comInsumos);
+    onSuccess: ({ n, aplicados, falhas, comInsumos, orfaos }) => {
+      const r = resumoToastLote(n, aplicados, falhas, comInsumos, orfaos);
       if (r.tipo === "warning") toast.warning(r.texto);
       else toast.success(r.texto);
       onSaved();

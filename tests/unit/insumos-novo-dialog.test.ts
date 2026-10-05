@@ -257,20 +257,23 @@ describe("usePlanejamentoSave — a chamada mora no INSERT real (retry/2º cliqu
     "src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts",
     "utf8",
   );
-  it("gravarInsumosIniciaisDoCard roda DEPOIS de gravarTecidosIniciais e DENTRO do else do INSERT (antes do bloco da grade)", () => {
-    const iTec = src.indexOf("await gravarTecidosIniciais(");
+  it("insumos entra como passo DEPOIS dos tecidos, só quando o card foi criado AGORA (retry não regrava) e antes do bloco da grade", () => {
+    const iCria = src.indexOf("garantirCardCriado(");
+    const iAgora = src.indexOf("criado.criadoAgora && savedId");
+    const iTec = src.indexOf("gravarTecidosIniciais(idCriado");
     const iIns = src.indexOf("gravarInsumosIniciaisDoCard(");
     const iGrade = src.indexOf("if (isRevenda && savedId && gradeRevendaDirty)");
-    expect(iTec).toBeGreaterThan(0);
+    expect(iCria).toBeGreaterThan(0);
+    expect(iAgora).toBeGreaterThan(iCria);
+    expect(iTec).toBeGreaterThan(iAgora);
     expect(iIns).toBeGreaterThan(iTec);
     expect(iIns).toBeLessThan(iGrade);
-    // a chamada fica depois do `criadoIdRef.current = savedId` (só no insert real) — nunca no ramo `if (criadoIdRef.current)`
-    expect(iIns).toBeGreaterThan(src.indexOf("criadoIdRef.current = savedId;"));
     expect(src.match(/gravarInsumosIniciaisDoCard\(/g)).toHaveLength(1);
   });
-  it("onError tem o ramo etapaFalha==='insumos' (o card foi criado, insumos não)", () => {
-    expect(src).toMatch(/etapaFalha === "insumos"/);
-    expect(src).toMatch(/O card foi criado, mas os insumos NÃO foram salvos/);
+  it("onError usa o texto por etapa (o de insumos mora em criacao-card-passos)", () => {
+    expect(src).toContain("textoFalhasPosCriacao(");
+    const lib = readFileSync("src/lib/criacao-card-passos.ts", "utf8");
+    expect(lib).toMatch(/O card foi criado, mas os insumos NÃO foram salvos/);
   });
   it("o Dialog novo não perde o rascunho de insumos: o save lê o rascunho por ref síncrono", () => {
     expect(src).toMatch(/insumosIniciaisRef/);

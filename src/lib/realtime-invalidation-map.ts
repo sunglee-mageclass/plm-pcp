@@ -114,6 +114,8 @@ export const TENANT_CONFIG_EXTRA_KEYS: readonly string[] = [
   "confeccao-prioridade",
   "cq-confeccao-prioridade",
   "plan-tecido-kanban-cols",
+  // urg R2 T12 — lista "Insumos padrão" lida pelo "+ Novo"/"Criar vários cards" (tenant_config.insumos_padrao + catálogo de insumos).
+  "planejamento-insumos-padrao",
 ];
 
 function matchTenantConfig(k: QueryKey): boolean {
@@ -219,7 +221,7 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
   empresas: ["empresas-multi"],
   representantes: ["representantes"],
   destinos_saida: ["destinos-saida"],
-  etiquetas: ["etiquetas-cadastro"],
+  etiquetas: ["etiquetas-cadastro", "planejamento-insumos-padrao"],
 };
 
 // Tokens AMBÍGUOS: o mesmo `k[0]` nomeia a LISTA (`["token", [ids]]`, k[1] = array de ids) E o

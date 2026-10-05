@@ -20,7 +20,8 @@ import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento
 import { rotuloDaColuna } from "@/lib/integracao/campos";
 import { invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
-import { gravarInsumosIniciaisDoCard } from "@/lib/insumos-iniciais";
+import { gravarInsumosIniciaisDoCard, validarInsumosRascunho } from "@/lib/insumos-iniciais";
+import { erroPosCriacao, executarPassosPosCriacao, falhasDoErro, garantirCardCriado, textoFalhasPosCriacao, type FalhaPosCriacao } from "@/lib/criacao-card-passos";
 import type { ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
@@ -493,6 +494,8 @@ export function usePlanejamentoSave({
         }
       }
       let savedId: string | null = isEdit ? modeloId : null;
+      // Card NOVO: falhas dos passos pós-INSERT (tecidos/insumos/grade/M.O.), juntadas e lançadas UMA vez no fim (M1/M2).
+      const falhasCriacao: FalhaPosCriacao[] = [];
       if (isEdit && modeloId) {
         // Grade cor×tamanho (revenda, fast-follow — fecha o last-write-wins do antigo
         // delete+insert cru): grava ANTES do UPDATE do header, com `_rev_base` PRÓPRIO
@@ -594,39 +597,37 @@ export function usePlanejamentoSave({
         }
       } else {
         // Card novo: sem concorrência possível (linha ainda não existe) — insert direto, UMA vez só (F3.1).
-        if (criadoIdRef.current) {
-          savedId = criadoIdRef.current;
-        } else {
+        // L4 (fix round 1) — `garantirCardCriado`: o INSERT acontece UMA vez só; retry/2º clique pegam o id guardado (`criadoAgora=false`)
+        // e NÃO rodam de novo os passos de "card recém-criado" (tecidos/insumos).
+        const criado = await garantirCardCriado(criadoIdRef, async () => {
           const { data: inserted, error } = await supabase.from("modelos").insert(payload).select("id").single();
           if (error) throw error;
-          savedId = inserted?.id ?? null;
-          criadoIdRef.current = savedId;
-          // F3.2 / G-mockup R3 — o seletor "Tecidos" do Dialog grava o BOM como Tecido 1..N (só o artigo) logo após
-          // o INSERT REAL. DENTRO do `else` (R1 do G-plano conjunto): só com o id que ESTE insert criou — BOM vazio,
-          // salvar_modelo_bom não apaga nada. No caminho do `criadoIdRef` já preenchido (2º clique/retry) NÃO regrava.
-          // Fix T10 I2 — marca a etapa que falhou (mesmo padrão de "grade"/"mo" abaixo): o card JÁ foi criado
-          // (INSERT acima teve sucesso) mesmo que este passo falhe; o onError usa `etapaFalha` pra avisar
-          // especificamente que os tecidos não foram para a Ficha (BOM), não que o card inteiro falhou.
-          // Item I (T11, m3) — card comprado (revenda/importado) nunca tem a seção "Tecidos" no Dialog
-          // (`PlanejamentoDetail.tsx`, `!isEdit && !isComprado`) e não usa o BOM manufaturado (F3.2, decisão
-          // F3 #4) — gravar aqui criaria um Tecido 1..N fantasma que a Ficha do comprado nunca mostra/edita.
-          if (savedId && !ehOrigemComprada(d.origem)) {
-            try {
-              await gravarTecidosIniciais(savedId, d.tecidos_planejados);
-            } catch (eT) {
-              (eT as any).etapaFalha = "tecidos";
-              throw eT;
-            }
-          }
-          // urg R2 T12 (P-306 B) — insumos do rascunho (pré-preenchidos com os padrão da loja): UMA chamada de `salvar_insumos_iniciais`
-          // logo depois dos tecidos, DENTRO do mesmo `else` do INSERT real (o retry/2º clique pega o ramo `criadoIdRef` e NÃO regrava).
-          // Falha => `etapaFalha = "insumos"`: o card JÁ existe e fica; o onError avisa (nunca um 2º INSERT).
-          if (savedId) {
-            await gravarInsumosIniciaisDoCard({
-              modeloId: savedId, origem: d.origem, linhas: insumosIniciaisRef?.current ?? [],
-              rpc: (nome, args) => supabase.rpc(nome as any, args as any),
-            });
-          }
+          return inserted?.id ?? null;
+        });
+        savedId = criado.id;
+        if (criado.criadoAgora && savedId) {
+          // F3.2 / G-mockup R3 — o seletor "Tecidos" do Dialog grava o BOM como Tecido 1..N (só o artigo) logo após o INSERT REAL
+          // (BOM vazio; salvar_modelo_bom não apaga nada). Card comprado (revenda/importado) nunca tem a seção "Tecidos" no Dialog
+          // e não usa o BOM manufaturado (F3 #4) — gravar criaria um Tecido 1..N fantasma que a Ficha do comprado nunca mostra.
+          // urg R2 T12 (P-306 B) — insumos do rascunho (pré-preenchidos com os padrão da loja): UMA chamada de `salvar_insumos_iniciais`.
+          // M1/M2 (fix round 1): os passos são INDEPENDENTES — todos são tentados (um que falha não impede o seguinte nem a M.O. mais
+          // abaixo); as falhas são juntadas em `falhasCriacao` e avisadas JUNTAS no fim (o card fica criado, nunca um 2º INSERT).
+          const idCriado = savedId;
+          falhasCriacao.push(
+            ...(await executarPassosPosCriacao([
+              ...(ehOrigemComprada(d.origem)
+                ? []
+                : [{ etapa: "tecidos" as const, run: () => gravarTecidosIniciais(idCriado, d.tecidos_planejados) }]),
+              {
+                etapa: "insumos" as const,
+                run: () =>
+                  gravarInsumosIniciaisDoCard({
+                    modeloId: idCriado, origem: d.origem, linhas: insumosIniciaisRef?.current ?? [],
+                    rpc: (nome, args) => supabase.rpc(nome as any, args as any),
+                  }),
+              },
+            ])),
+          );
         }
         // Grade cor×tamanho: hoje inatingível na criação (só aparece depois de o Produto
         // Acabado vinculado existir, o que exige o modelo já salvo) — mantido por
@@ -640,7 +641,7 @@ export function usePlanejamentoSave({
           });
           // Ajuste (set/2026): marca a etapa que falhou — o onError do card NOVO usa isto pra
           // avisar especificamente que a grade/tecido não foi salvo (o card em si já foi criado).
-          if (gradeErr) { (gradeErr as any).etapaFalha = "grade"; throw gradeErr; }
+          if (gradeErr) falhasCriacao.push({ etapa: "grade", erro: gradeErr });
         }
       }
       // F3.3 — CAD no MESMO Salvar (decisão F3 #7; Dev :2062-2119): DEPOIS do BOM e das etiquetas (a RPC devolve
@@ -673,7 +674,9 @@ export function usePlanejamentoSave({
           _linhas: moLinhasEnviadas.map((l) => moLinhaParaPayload(l, moBaseRef.current)),
         });
         // Ajuste (set/2026): marca a etapa que falhou (mão de obra) — ver comentário acima.
-        if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }
+        // Card NOVO: a falha entra na lista e segue (M1); card existente: lança na hora, como sempre.
+        if (moErr && !isEdit) falhasCriacao.push({ etapa: "mo", erro: moErr });
+        else if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }
       }
       // F3.2 — #Erro nas etapas seguintes quando o BOM gravado mudou grade/consumo/aviamento (Dev :2198-2213).
       // A RPC só marca com CAD e etapas existentes; erro aqui NÃO derruba o save (paridade: o Dev ignora).
@@ -897,6 +900,8 @@ export function usePlanejamentoSave({
       // Sem isto, `baseRef` (o "base" do próximo merge) divergia do que o banco de fato tem,
       // e o refetch seguinte via Realtime mostrava o eco do PRÓPRIO Salvar como conflito.
       // `savedId` (F3.1): id do card — usado no onSuccess pra disparar `onCreated` no card NOVO.
+      // M1/M2 — card NOVO: se algum passo pós-INSERT falhou, avisa tudo junto agora (o `onError` mostra um toast que nomeia cada passo).
+      if (falhasCriacao.length > 0) throw erroPosCriacao(falhasCriacao);
       return {
         // F3.6 (ruling R-b) — sem `podeEditarPreco` o payload OMITE `preco_anterior` (acima, `aplicarPrecoAnterior`);
         // o `savedDraft` tem que ecoar o valor CRU que já estava (não normalizar), senão o próximo merge acha
@@ -1177,29 +1182,14 @@ export function usePlanejamentoSave({
         // `e.etapaFalha` no mutationFn acima) — a mão de obra digitada some na remontagem do Sheet
         // (o MaoObraEditor reseta com o baseline do servidor), então o aviso precisa dizer isso.
         const idCriado = criadoIdRef.current;
-        if (e?.etapaFalha === "mo") {
-          toast.error("O card foi criado, mas a mão de obra NÃO foi salva — confira e salve de novo.");
-        } else if (e?.etapaFalha === "tecidos") {
-          // Item E (fix round 2) — `gravarTecidosIniciais` falhou: o BOM do servidor segue VAZIO. Ao reabrir
-          // o Sheet do card criado, a carga (useFichaBom) vê o BOM vazio e pré-preenche Tecido 1..N a partir
-          // de `tecidos_planejados` (a mesma lista que o Dialog gravou no draft) — SEM tocar, mas marcando
-          // `prefillPendenteRef` (item E). O `capturar` do useFichaTecnica soma essa pendência à condição de
-          // `gravar`: o PRÓXIMO Salvar regrava o BOM sozinho, mesmo sem o usuário tocar em nada.
-          // Fix round 4 (item 8, T13 m3) — toast honesto: sem `podeEditarDev`, "salve de novo" é uma instrução
-          // que o próprio usuário não consegue cumprir (o Salvar sem `canEdit("criacao_desenvolvimento")` OMITE
-          // as colunas do Dev — decisão F3 #8 — e nunca regravaria o BOM). Mesma condição/mesma mensagem do
-          // `duplicate` em `PlanejamentoDetail.tsx`.
-          toast.error(
-            podeEditarDev
-              ? "O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Eles aparecem na seção Tecidos — salve o card de novo para gravá-los."
-              : "O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Peça a quem edita o Desenvolvimento para salvar a nova versão.",
-          );
-        } else if (e?.etapaFalha === "insumos") {
-          // urg R2 T12 — o card existe (e os tecidos, se houve) mas os insumos NÃO: o Sheet que abre em seguida carrega o BOM do servidor
-          // (sem insumos), então a pessoa adiciona na seção Insumos. O motivo vem traduzido (prefixos `insumos_iniciais_*`).
-          toast.error(`O card foi criado, mas os insumos NÃO foram salvos — ${mensagemErro(e, "erro desconhecido").replace(/[.\s]+$/, "")}. Adicione-os na seção Insumos do card.`);
-        } else if (e?.etapaFalha === "grade") {
-          toast.error("O card foi criado, mas a grade NÃO foi salva — confira e salve de novo.");
+        // M1/M2 (fix round 1) — os passos pós-INSERT (tecidos/insumos/grade/M.O.) são independentes: o `mutationFn` tentou TODOS e juntou
+        // as falhas em `e.falhasCriacao`; UM toast nomeia cada passo que falhou (e o motivo, quando há mais de um). Textos de uma etapa só
+        // em `textoFalhasPosCriacao` (src/lib/criacao-card-passos.ts) — tecidos: ao reabrir o Sheet, a carga (useFichaBom) vê o BOM vazio e
+        // pré-preenche Tecido 1..N a partir de `tecidos_planejados` (item E, `prefillPendenteRef`); sem `podeEditarDev` o "salve de novo"
+        // não seria cumprível (decisão F3 #8), então o texto muda (round 4, item 8).
+        const falhasPos = falhasDoErro(e);
+        if (falhasPos.length > 0) {
+          toast.error(textoFalhasPosCriacao(falhasPos, { podeEditarDev, motivo: (x) => mensagemErro(x, "erro desconhecido") }));
         } else {
           toast.error(`O card foi criado, mas algo não foi salvo: ${mensagemErro(e, "erro desconhecido")}`);
         }
@@ -1395,6 +1385,15 @@ export function usePlanejamentoSave({
 
   const handleSave = () => {
     if (savingRef.current || save.isPending) return;
+    // M3 (fix round 1) — card NOVO interno: confere os insumos do rascunho ANTES do INSERT (valor que a RPC recusaria só seria
+    // descoberto com o card já criado). Nenhum INSERT sai se algo estiver fora da faixa.
+    if (!isEdit && !criadoIdRef.current && !ehOrigemComprada(draftLiveRef.current?.origem)) {
+      const { problemas } = validarInsumosRascunho(insumosIniciaisRef?.current ?? []);
+      if (problemas.length > 0) {
+        toast.error(problemas.length > 1 ? `${problemas[0]} (e mais ${problemas.length - 1} problema${problemas.length - 1 === 1 ? "" : "s"} nos insumos)` : problemas[0]);
+        return;
+      }
+    }
     savingRef.current = true;
     save.mutate(undefined, { onSettled: () => { savingRef.current = false; } });
   };

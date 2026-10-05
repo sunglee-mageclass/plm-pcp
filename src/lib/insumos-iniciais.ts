@@ -2,78 +2,22 @@
 // "+ Novo" (rascunho até o Salvar) e "Criar vários cards". Puro (sem React/Supabase): testado em
 // tests/unit/insumos-novo-dialog.test.ts. A regra de leitura espelha o helper do servidor `_insumos_padrao_aplicar`
 // (item ruim é IGNORADO, nunca derruba a criação) e a fixture `tests/fixtures/insumos-padrao-casos.ts`.
-// ⚠️ Não confundir com `normalizarInsumosPadrao`/`validarInsumosPadrao` da Config da Loja (T11, `src/lib/insumos-padrao.ts`):
-// aquelas RECUSAM a lista inteira ao gravar; esta aqui é a leitura TOLERANTE, item a item.
+// O normalizador "para card" mora em `src/lib/insumos-padrao-normalizadores.ts` (ao lado do da Config da Loja, T11) e é reexportado aqui.
 import type {
   EtiquetaInfo,
   ModeloEtiquetaRow,
 } from "@/components/desenvolvimento/modelo-detail/types";
 import { recomputeEtiqueta } from "@/components/desenvolvimento/modelo-detail/types";
 
-/** = limite do editor de insumos do card e da RPC `salvar_insumos_iniciais` (e da lista da Config). */
-export const LIMITE_INSUMOS_INICIAIS = 20;
+export {
+  LIMITE_INSUMOS_INICIAIS,
+  normalizarInsumosPadraoParaCard,
+} from "@/lib/insumos-padrao-normalizadores";
+import { LIMITE_INSUMOS_INICIAIS, temNoMaximoCasas } from "@/lib/insumos-padrao-normalizadores";
+import type { InsumoPadrao } from "@/lib/insumos-padrao";
 
-export type InsumoPadraoLinha = { etiqueta_id: string; cor_id: string | null; consumo: number };
+export type InsumoPadraoLinha = InsumoPadrao;
 export type PayloadInsumoInicial = InsumoPadraoLinha & { loss_percent: number };
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ehObjeto = (x: unknown): x is Record<string, unknown> =>
-  typeof x === "object" && x !== null && !Array.isArray(x);
-
-/** Número finito com no máximo `casas` casas decimais (conta o VALOR, não a grafia: 1.10 vale). */
-function temNoMaximoCasas(n: number, casas: number): boolean {
-  return Number(n.toFixed(casas)) === n;
-}
-
-/**
- * Lista CRUA da loja → linhas do card. Item a item: não-objeto, insumo fora do formato, consumo que não é número de 0 a 9999
- * com ≤ 4 casas e par (insumo, cor) repetido (fica o 1º) são IGNORADOS em silêncio; insumo que NÃO está no catálogo da loja
- * (apagado/de outra loja) é ÓRFÃO — fica de fora e é contado (aviso âmbar). Cor fora das variantes do insumo vira `null`.
- * No máximo 20 linhas válidas. Valor que não é lista => vazio. Nunca lança.
- */
-export function normalizarInsumosPadraoParaCard(
-  raw: unknown,
-  etiquetaMap: Record<string, Pick<EtiquetaInfo, "variantes">>,
-): { linhas: InsumoPadraoLinha[]; orfaos: number } {
-  if (!Array.isArray(raw)) return { linhas: [], orfaos: 0 };
-  const linhas: InsumoPadraoLinha[] = [];
-  const vistos = new Set<string>();
-  let orfaos = 0;
-  for (const it of raw) {
-    if (!ehObjeto(it)) continue;
-    const eid =
-      typeof it.etiqueta_id === "string" && UUID.test(it.etiqueta_id)
-        ? it.etiqueta_id.toLowerCase()
-        : null;
-    if (!eid) continue;
-    const consumo = it.consumo;
-    if (
-      typeof consumo !== "number" ||
-      !Number.isFinite(consumo) ||
-      consumo < 0 ||
-      consumo > 9999 ||
-      !temNoMaximoCasas(consumo, 4)
-    )
-      continue;
-    let cor: string | null;
-    if (it.cor_id === undefined || it.cor_id === null || it.cor_id === "") cor = null;
-    else if (typeof it.cor_id === "string" && UUID.test(it.cor_id)) cor = it.cor_id.toLowerCase();
-    else continue;
-    const chave = `${eid}|${cor ?? ""}`;
-    if (vistos.has(chave)) continue;
-    vistos.add(chave);
-    const etq = etiquetaMap[eid];
-    if (!etq) {
-      orfaos += 1;
-      continue;
-    }
-    if (linhas.length >= LIMITE_INSUMOS_INICIAIS) continue;
-    const corValida =
-      cor !== null && (etq.variantes ?? []).some((v) => (v.cor_id ?? "").toLowerCase() === cor);
-    linhas.push({ etiqueta_id: eid, cor_id: corValida ? cor : null, consumo });
-  }
-  return { linhas, orfaos };
-}
 
 /** Aviso âmbar da seção Insumos do Dialog Novo. Vazio quando não há órfãos. */
 export function textoOrfaosInsumosPadrao(n: number): string {
@@ -119,6 +63,45 @@ export function payloadInsumosIniciais(rows: ModeloEtiquetaRow[]): PayloadInsumo
     if (out.length >= LIMITE_INSUMOS_INICIAIS) break;
   }
   return out;
+}
+
+/**
+ * M3 (fix round 1) — confere o rascunho de insumos do Dialog "Novo Modelo" ANTES do INSERT, com mensagem por campo (a RPC só recusaria
+ * depois de o card existir). Linha totalmente vazia (sem insumo, consumo 0, perda 0) é descartada; sem insumo mas com valor pede para
+ * escolher o insumo. Devolve as linhas do payload (quando não há problema) e a lista de problemas em PT-BR.
+ */
+export function validarInsumosRascunho(rows: ModeloEtiquetaRow[]): {
+  linhas: PayloadInsumoInicial[];
+  problemas: string[];
+} {
+  const problemas: string[] = [];
+  const linhas: PayloadInsumoInicial[] = [];
+  let n = 0;
+  rows.forEach((r, i) => {
+    const consumo = Number(r.consumo) || 0;
+    const perda = Number(r.loss_percent) || 0;
+    const nome = `Insumo ${i + 1}`;
+    if (!r.etiqueta_id) {
+      if (consumo !== 0 || perda !== 0)
+        problemas.push(`${nome}: escolha o insumo (ou remova a linha).`);
+      return;
+    }
+    n += 1;
+    const c = Number(r.consumo);
+    if (!Number.isFinite(c) || c < 0 || c > 9999)
+      problemas.push(`${nome}: o consumo precisa ficar entre 0 e 9999.`);
+    else if (!temNoMaximoCasas(c, 4))
+      problemas.push(`${nome}: o consumo aceita no máximo 4 casas decimais.`);
+    const l = Number(r.loss_percent);
+    if (!Number.isFinite(l) || l < 0 || l > 100)
+      problemas.push(`${nome}: a perda precisa ficar entre 0 e 100.`);
+    else if (!temNoMaximoCasas(l, 2))
+      problemas.push(`${nome}: a perda aceita no máximo 2 casas decimais.`);
+  });
+  if (n > LIMITE_INSUMOS_INICIAIS)
+    problemas.push(`No máximo ${LIMITE_INSUMOS_INICIAIS} insumos por card.`);
+  if (problemas.length === 0) linhas.push(...payloadInsumosIniciais(rows));
+  return { linhas, problemas };
 }
 
 /** Seção "Insumos" do Dialog "Novo Modelo": só card NOVO e só origem interna; o Salvar espera a lista (P-57, Ruling A12b). */
@@ -188,24 +171,34 @@ export async function aplicarInsumosPadraoEmLote(
   return { aplicados, falhas };
 }
 
-/** Texto do ÚNICO toast do "Criar vários cards". `comInsumos` = havia lista para aplicar. */
+/**
+ * Texto do ÚNICO toast do "Criar vários cards". `comInsumos` = havia lista para aplicar; `orfaos` = itens da lista da loja que
+ * ficaram de fora porque o insumo não existe mais (L1: não somem em silêncio).
+ */
 export function resumoToastLote(
   criados: number,
   aplicados: number,
   falhas: number,
   comInsumos = false,
+  orfaos = 0,
 ): { tipo: "success" | "warning"; texto: string } {
   const base = `${criados} ${criados === 1 ? "card criado" : "cards criados"}`;
+  const aviso = textoOrfaosInsumosPadrao(orfaos);
   if (falhas > 0) {
     const onde = criados === 1 ? "no card" : falhas === 1 ? "em 1 deles" : `em ${falhas} deles`;
     return {
       tipo: "warning",
-      texto: `${base}, mas os insumos padrão não entraram ${onde} — adicione na seção Insumos do card.`,
+      texto: `${base}, mas os insumos padrão não entraram ${onde} — adicione na seção Insumos do card.${aviso ? ` ${aviso}` : ""}`,
     };
   }
-  if (comInsumos && aplicados > 0)
-    return { tipo: "success", texto: `${base}, com os insumos padrão da loja` };
-  return { tipo: "success", texto: base };
+  if (comInsumos && aplicados > 0) {
+    return aviso
+      ? { tipo: "warning", texto: `${base}, com os insumos padrão da loja — ${aviso}` }
+      : { tipo: "success", texto: `${base}, com os insumos padrão da loja` };
+  }
+  return aviso
+    ? { tipo: "warning", texto: `${base} — ${aviso}` }
+    : { tipo: "success", texto: base };
 }
 
 const MOTIVOS_INVALIDOS: [RegExp, string][] = [
@@ -230,9 +223,7 @@ export function mensagemInsumosIniciais(code: string, msg: string): string | nul
     const linha = /linha (\d+)/.exec(msg)?.[1];
     const motivo = MOTIVOS_INVALIDOS.find(([re]) => re.test(msg))?.[1];
     const onde = linha ? `Linha ${linha}: ` : "";
-    return motivo
-      ? `${onde}${motivo}. Confira a seção Insumos.`
-      : "Os insumos informados são inválidos. Confira a seção Insumos.";
+    return motivo ? `${onde}${motivo}.` : "Os insumos informados são inválidos.";
   }
   if (msg.startsWith("funcao_desativada: salvar_insumos_iniciais"))
     return "Os insumos iniciais estão desativados no momento. Adicione-os pela seção Insumos do card.";

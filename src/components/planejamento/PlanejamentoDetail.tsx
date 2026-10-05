@@ -67,9 +67,8 @@ import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelaci
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 import { ehOrigemComprada } from "@/lib/origem";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { useInsumosPadrao } from "@/components/planejamento/planejamento-detail/useInsumosPadrao";
-import { estadoSecaoInsumosNovo, linhasParaRascunho, LIMITE_INSUMOS_INICIAIS, textoOrfaosInsumosPadrao } from "@/lib/insumos-iniciais";
-import { recomputeEtiqueta, type ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
+import { useInsumosNovosRascunho } from "@/components/planejamento/planejamento-detail/useInsumosPadrao";
+import { estadoSecaoInsumosNovo, LIMITE_INSUMOS_INICIAIS, textoOrfaosInsumosPadrao } from "@/lib/insumos-iniciais";
 import { ModeloEtiquetasSection as InsumosNovoEditor } from "@/components/desenvolvimento/modelo-detail/ModeloEtiquetasSection";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 
@@ -717,26 +716,17 @@ function PlanejamentoDetailConteudo({
     edicaoPendente: ficha.tocado || gradeComprado.gradeRevendaDirty,
   });
   // urg R2 T12 (P-306 B) — Dialog "Novo Modelo": seção "Insumos" pré-preenchida com os insumos padrão da loja. É um RASCUNHO (nada grava
-  // antes do Salvar): `insumosNovos` guarda as linhas editáveis; a base (`insumosBaseRef`) é a semente, p/ o "não salvo" só acender
+  // antes do Salvar): `insumosNovos` guarda as linhas editáveis; a semente é a base do "não salvo", que só acende
   // quando a pessoa mexe. Só origem interna; o Salvar espera a lista carregar (P-57) e erro de rede trava com "Tentar de novo".
-  const insumosPadrao = useInsumosPadrao(!isEdit);
+  // H1 (fix round 1): o rascunho só nasce de uma leitura FEITA DEPOIS de abrir (nunca do cache da abertura anterior).
+  const {
+    padrao: insumosPadrao, rows: insumosNovos, setRows: setInsumosNovos, rowsRef: insumosNovosRef,
+    dirty: insumosNovosDirty0, mudarLinha: mudarInsumoNovo,
+  } = useInsumosNovosRascunho(!isEdit);
   const secaoInsumosNovo = estadoSecaoInsumosNovo({
     isEdit, origem: draft.origem, carregando: insumosPadrao.carregando, erro: insumosPadrao.erro, lojaPronta: !!tenantIdAtivo,
   });
-  const [insumosNovos, setInsumosNovos] = useState<ModeloEtiquetaRow[]>([]);
-  const insumosNovosRef = useRef<ModeloEtiquetaRow[]>(insumosNovos);
-  insumosNovosRef.current = insumosNovos;
-  const insumosBaseRef = useRef<string>("[]");
-  const insumosSemeadoRef = useRef(false);
-  const chaveInsumos = (rows: ModeloEtiquetaRow[]) => JSON.stringify(rows.map((r) => [r.etiqueta_id, r.cor_id, r.consumo, r.loss_percent]));
-  useEffect(() => {
-    if (isEdit || insumosSemeadoRef.current || !insumosPadrao.carregado) return;
-    insumosSemeadoRef.current = true;
-    const rows = linhasParaRascunho(insumosPadrao.linhas, insumosPadrao.etiquetaMap);
-    insumosBaseRef.current = chaveInsumos(rows);
-    setInsumosNovos(rows);
-  }, [isEdit, insumosPadrao.carregado, insumosPadrao.linhas, insumosPadrao.etiquetaMap]);
-  const insumosNovosDirty = secaoInsumosNovo.visivel && insumosSemeadoRef.current && chaveInsumos(insumosNovos) !== insumosBaseRef.current;
+  const insumosNovosDirty = secaoInsumosNovo.visivel && insumosNovosDirty0;
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
@@ -1848,7 +1838,7 @@ function PlanejamentoDetailConteudo({
                     rows={insumosNovos}
                     etiquetas={insumosPadrao.etiquetaOpts}
                     etiquetaMap={insumosPadrao.etiquetaMap}
-                    onChangeRow={(idx, patch) => setInsumosNovos((rs) => rs.map((r, i) => (i === idx ? recomputeEtiqueta({ ...r, ...patch }, insumosPadrao.etiquetaMap) : r)))}
+                    onChangeRow={mudarInsumoNovo}
                     onAdd={() => setInsumosNovos((rs) => (rs.length >= LIMITE_INSUMOS_INICIAIS ? rs : [...rs, { etiqueta_id: null, cor_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]))}
                     onRemove={(idx) => setInsumosNovos((rs) => rs.filter((_, i) => i !== idx))}
                   />

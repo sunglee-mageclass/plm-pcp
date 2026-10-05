@@ -176,3 +176,163 @@ export const CASOS_RECUSA: CasoRecusa[] = [
     motivo: "item 2: insumo e cor repetidos (já no item 1)",
   },
 ];
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// CASOS_APLICAR (urg R2 T12, fix round 1) - a leitura TOLERANTE da lista CRUA que CRIA CARD. Espelha EXATAMENTE o helper do
+// servidor `public._insumos_padrao_aplicar` (migration 20261103175000) e e a mesma regra do pre-preenchimento do "+ Novo" e do
+// "Criar varios cards":
+//   tests/unit/insumos-novo-dialog.test.ts  (TS, src/lib/insumos-padrao-normalizadores.ts -> normalizarInsumosPadraoParaCard)
+//   (o teste SQL de _insumos_padrao_aplicar roda a MESMA lista: cria o catalogo CATALOGO_APLICAR numa loja, grava `entrada` em
+//    tenant_config.insumos_padrao por UPDATE direto e confere que as linhas gravadas em modelo_etiquetas = `esperado`)
+// Regras (a ordem e a do laco SQL):
+//  - lista que nao e array => nada; le no MAXIMO 200 itens crus; PARA ao juntar 20 linhas validas;
+//  - item que nao e objeto => pula; etiqueta_id que nao e TEXTO uuid => pula (nao e orfao); uuid que nao esta no catalogo da loja
+//    (outra loja/apagado) => pula e conta como ORFAO (a contagem so existe no TS - a tela mostra o aviso ambar);
+//  - consumo: NUMERO JSON 0..9999 com no maximo 4 casas, senao pula;
+//  - cor: so vale TEXTO uuid presente nas variantes DO INSUMO (CATALOGO_APLICAR); qualquer outra coisa (ausente, null, "", numero,
+//    booleano, texto fora do formato, cor removida/de outra loja) vira SEM cor - o item NAO e descartado;
+//  - par (insumo, cor) repetido e conferido DEPOIS de resolver a cor (cor removida + "sem cor" do mesmo insumo = 1 linha so):
+//    fica o 1o; uuid sai em minusculo; saida = [{etiqueta_id, cor_id, consumo}] na ordem da lista.
+// ---------------------------------------------------------------------------------------------------------------------------
+
+/** insumos extras (sem variantes) so para exercitar o teto de 20 linhas. */
+export const E_MUITOS: string[] = Array.from({ length: 25 }, (_, i) => `a9e10000-0000-4000-8000-0000000f${String(i).padStart(4, "0")}`);
+
+/** Catalogo da loja usado pelos CASOS_APLICAR: insumo -> cores das suas variantes. C_OUTRA/E_OUTRA/E_INEXISTENTE NAO estao aqui. */
+export const CATALOGO_APLICAR: Record<string, string[]> = {
+  [E1]: [C1, C2],
+  [E2]: [],
+  ...Object.fromEntries(E_MUITOS.map((id) => [id, [] as string[]])),
+};
+
+export type CasoAplicar = { nome: string; entrada: unknown; esperado: InsumoPadrao[]; /** so TS */ orfaos: number };
+
+const lixo = (n: number) => Array.from({ length: n }, () => "x");
+
+export const CASOS_APLICAR: CasoAplicar[] = [
+  { nome: "nao e lista (null/objeto/texto) => nada", entrada: { etiqueta_id: E1, consumo: 1 }, esperado: [], orfaos: 0 },
+  { nome: "lista vazia", entrada: [], esperado: [], orfaos: 0 },
+  {
+    nome: "cor removida do insumo + o mesmo insumo sem cor => UMA linha (resolve a cor ANTES de repetir)",
+    entrada: [item(E1, IP_IDS.C_OUTRA, 1), item(E1, null, 2)],
+    esperado: [{ etiqueta_id: E1, cor_id: null, consumo: 1 }],
+    orfaos: 0,
+  },
+  {
+    nome: "sem cor primeiro, cor removida depois => UMA linha (fica a 1a)",
+    entrada: [item(E1, null, 2), item(E1, IP_IDS.C_OUTRA, 1)],
+    esperado: [{ etiqueta_id: E1, cor_id: null, consumo: 2 }],
+    orfaos: 0,
+  },
+  {
+    nome: "cor_id que nao e uuid (texto/numero/booleano/objeto) => item entra SEM cor",
+    entrada: [item(E1, "abc", 1), item(E2, 123, 2), item(E2, true, 3), item(E1, { a: 1 }, 4)],
+    esperado: [
+      { etiqueta_id: E1, cor_id: null, consumo: 1 },
+      { etiqueta_id: E2, cor_id: null, consumo: 2 },
+    ],
+    orfaos: 0,
+  },
+  {
+    nome: "cor existente no catalogo mas nao nas variantes DESTE insumo => sem cor",
+    entrada: [item(E2, C1, 1), item(E1, C1, 2)],
+    esperado: [
+      { etiqueta_id: E2, cor_id: null, consumo: 1 },
+      { etiqueta_id: E1, cor_id: C1, consumo: 2 },
+    ],
+    orfaos: 0,
+  },
+  {
+    nome: "cor \"\" / ausente / null => sem cor; uuid em caixa alta vira minusculo",
+    entrada: [item(E1, "", 1), item(E2.toUpperCase(), null, 2), item(E1.toUpperCase(), C2.toUpperCase(), 3)],
+    esperado: [
+      { etiqueta_id: E1, cor_id: null, consumo: 1 },
+      { etiqueta_id: E2, cor_id: null, consumo: 2 },
+      { etiqueta_id: E1, cor_id: C2, consumo: 3 },
+    ],
+    orfaos: 0,
+  },
+  {
+    nome: "par repetido (inclusive caixa diferente) => fica o 1o",
+    entrada: [item(E1, C1, 1), item(E1, C1, 2), item(E1.toUpperCase(), C1.toUpperCase(), 3), item(E1, C2, 4)],
+    esperado: [
+      { etiqueta_id: E1, cor_id: C1, consumo: 1 },
+      { etiqueta_id: E1, cor_id: C2, consumo: 4 },
+    ],
+    orfaos: 0,
+  },
+  {
+    nome: "insumo de outra loja / apagado => pulado e contado como orfao; os bons ficam na ordem",
+    entrada: [item(E2, null, 1), item(E_OUTRA, null, 1), item(E1, C1, 2), item(E_INEXISTENTE, null, 3)],
+    esperado: [
+      { etiqueta_id: E2, cor_id: null, consumo: 1 },
+      { etiqueta_id: E1, cor_id: C1, consumo: 2 },
+    ],
+    orfaos: 2,
+  },
+  {
+    nome: "etiqueta_id fora do formato (nulo, numero, espacos, abc) => pulado, NAO e orfao",
+    entrada: [item(null, null, 1), item(123, null, 1), item(` ${E1} `, null, 1), item("abc", null, 1), { cor_id: null, consumo: 1 }, item(E1, null, 5)],
+    esperado: [{ etiqueta_id: E1, cor_id: null, consumo: 5 }],
+    orfaos: 0,
+  },
+  {
+    nome: "item que nao e objeto (texto/null/array) => pulado",
+    entrada: ["x", null, [E1, null, 1], item(E1, null, 1)],
+    esperado: [{ etiqueta_id: E1, cor_id: null, consumo: 1 }],
+    orfaos: 0,
+  },
+  {
+    nome: "consumo: 0, 9999 e 4 casas valem",
+    entrada: [item(E1, null, 0), item(E2, null, 9999), item(E1, C1, 1.2345), item(E1, C2, 1.1)],
+    esperado: [
+      { etiqueta_id: E1, cor_id: null, consumo: 0 },
+      { etiqueta_id: E2, cor_id: null, consumo: 9999 },
+      { etiqueta_id: E1, cor_id: C1, consumo: 1.2345 },
+      { etiqueta_id: E1, cor_id: C2, consumo: 1.1 },
+    ],
+    orfaos: 0,
+  },
+  {
+    nome: "consumo invalido (negativo, > 9999, texto, null, ausente, booleano, 5 casas) => item pulado",
+    entrada: [
+      item(E1, null, -1), item(E1, null, 9999.0001), item(E1, null, "1.5"), item(E1, null, null), { etiqueta_id: E1 },
+      item(E1, null, true), item(E1, null, 1.00001), item(E1, null, 0.00005), item(E2, null, 2),
+    ],
+    esperado: [{ etiqueta_id: E2, cor_id: null, consumo: 2 }],
+    orfaos: 0,
+  },
+  {
+    nome: "25 validos => so os 20 primeiros (para ao juntar 20)",
+    entrada: E_MUITOS.map((id) => item(id, null, 1)),
+    esperado: E_MUITOS.slice(0, 20).map((id) => ({ etiqueta_id: id, cor_id: null, consumo: 1 })),
+    orfaos: 0,
+  },
+  {
+    nome: "orfao DEPOIS do 20o valido nem e lido (nao conta)",
+    entrada: [...E_MUITOS.slice(0, 20).map((id) => item(id, null, 1)), item(E_OUTRA, null, 1)],
+    esperado: E_MUITOS.slice(0, 20).map((id) => ({ etiqueta_id: id, cor_id: null, consumo: 1 })),
+    orfaos: 0,
+  },
+  {
+    nome: "le no maximo 200 itens crus: valido na posicao 201 e ignorado",
+    entrada: [...lixo(200), item(E1, null, 1)],
+    esperado: [],
+    orfaos: 0,
+  },
+  {
+    nome: "valido na posicao 200 ainda entra",
+    entrada: [...lixo(199), item(E1, null, 1)],
+    esperado: [{ etiqueta_id: E1, cor_id: null, consumo: 1 }],
+    orfaos: 0,
+  },
+  {
+    nome: "chaves extras saem e a ordem da lista e mantida",
+    entrada: [{ id: "x", nome: "ETQ", etiqueta_id: E2, cor_id: null, consumo: 3, unidade: "un" }, item(E1, C1, 1)],
+    esperado: [
+      { etiqueta_id: E2, cor_id: null, consumo: 3 },
+      { etiqueta_id: E1, cor_id: C1, consumo: 1 },
+    ],
+    orfaos: 0,
+  },
+];
