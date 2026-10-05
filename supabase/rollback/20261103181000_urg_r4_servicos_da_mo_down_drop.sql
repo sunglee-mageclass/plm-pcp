@@ -9,13 +9,13 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public._enviar_modelo_para_cad_core(uuid,text,text)
 --     ANTES  bf28796bcd86538a3a5b516e9cf356c6
---     DEPOIS 47488eabb37b6ee180e17740269bebd5
+--     DEPOIS 6c5fc00819b4211eb08d20a1d271c9b2
 --   public._aprovar_servico_mo_core(uuid,uuid,boolean,text)
 --     ANTES  859dd63992e86cc75b7abeab41dee954
---     DEPOIS 5ce4cc9e8696b1495e8248eccce3f8d3
+--     DEPOIS 2ff506f1a250d7f4f79e08fc07c640eb
 --   public._servicos_da_mo_criar(uuid,uuid) (NOVA)
 --     ANTES  ausente
---     DEPOIS 92c0edd9037824726acadab8afc80648
+--     DEPOIS 9a54575d8595b31d3e89974e23689ecb
 --   public._servico_mo_preencher_preco(uuid) (NOVA)
 --     ANTES  ausente
 --     DEPOIS f8c56394f5adb07c7a42378978d77aa0
