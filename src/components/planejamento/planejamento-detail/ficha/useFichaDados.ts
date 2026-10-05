@@ -111,12 +111,14 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
     queryFn: async () => {
       const { data, error } = await supabase
         .from("etiquetas" as any)
-        .select("id, nome, formato_tamanho, preco, variantes_etiqueta(cor_id, preco, cor:cor_id(nome))")
+        .select("id, nome, formato_tamanho, preco, tamanho_vinculado, variantes_etiqueta(cor_id, preco, tamanho, cor:cor_id(nome))")
         .order("nome");
       if (error) throw error;
       return ((data ?? []) as any[]).map((e) => ({
         id: e.id, nome: e.nome, formato_tamanho: e.formato_tamanho ?? "ambos", preco: e.preco,
-        variantes: (e.variantes_etiqueta ?? []).map((v: any) => ({ cor_id: v.cor_id, cor_nome: v.cor?.nome ?? null, preco: v.preco })),
+        // urg R1: vínculo a um tamanho + tamanho de cada variante (o vínculo só vale p/ insumo sem tamanho próprio).
+        tamanho_vinculado: e.tamanho_vinculado ?? null,
+        variantes: (e.variantes_etiqueta ?? []).map((v: any) => ({ cor_id: v.cor_id, cor_nome: v.cor?.nome ?? null, preco: v.preco, tamanho: v.tamanho ?? null })),
       })) as EtiquetaInfo[];
     },
   });

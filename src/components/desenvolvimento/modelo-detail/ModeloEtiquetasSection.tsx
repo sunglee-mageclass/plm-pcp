@@ -7,6 +7,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Field, FieldSelectOpt } from "./shared";
 import { coresDaEtiqueta, type EtiquetaInfo, type ModeloEtiquetaRow, type Opt } from "./types";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+import { rotuloTamanho, tamanhoEfetivoInsumo, tamanhoForaDaGrade } from "@/lib/insumo-tamanho";
 
 // Etiquetas do modelo (BOM): escolhe a etiqueta + a COR; o tamanho explode pela grade no
 // CAD (não se escolhe aqui). Espelha o padrão dos Aviamentos.
@@ -19,6 +20,7 @@ export function ModeloEtiquetasSection({
   onRemove,
   camposCopiados = new Set(),
   onCampoEditado,
+  gradeInfo,
 }: {
   rows: ModeloEtiquetaRow[];
   etiquetas: Opt[];
@@ -28,6 +30,8 @@ export function ModeloEtiquetasSection({
   onRemove: (idx: number) => void;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
+  /** urg R1: grade do modelo (soma por tamanho + total) — só p/ avisar o insumo vinculado a um tamanho que a grade não tem. Opcional (o Sheet do Dev não passa). */
+  gradeInfo?: { mapa: Record<string, number>; total: number };
 }) {
   return (
     <div className="space-y-2">
@@ -42,6 +46,15 @@ export function ModeloEtiquetasSection({
         const etq = r.etiqueta_id ? etiquetaMap[r.etiqueta_id] : undefined;
         const cores = coresDaEtiqueta(etq);
         const semTamanho = etq?.formato_tamanho === "nenhum";
+        // urg R1: o vínculo só vale p/ insumo sem tamanho próprio (mesma regra do servidor); sem catálogo/sem vínculo = textos de hoje.
+        const tamVinculado = etq
+          ? tamanhoEfetivoInsumo({
+            tamanho_vinculado: etq.tamanho_vinculado ?? null,
+            formato_tamanho: etq.formato_tamanho ?? null,
+            variantes: (etq.variantes ?? []).map((v) => ({ tamanho: v.tamanho ?? null })),
+          })
+          : null;
+        const foraDaGrade = !!gradeInfo && tamanhoForaDaGrade(tamVinculado, gradeInfo.mapa, gradeInfo.total);
         return (
           <Card key={i} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "etiquetas")}`}>
             <div className="flex items-center justify-between">
@@ -73,11 +86,24 @@ export function ModeloEtiquetasSection({
                 <Input readOnly className="bg-muted/50 text-right tabular-nums cursor-default" placeholder="R$ —" value={r.custo_previsto ? `R$ ${fmtNum(r.custo_previsto)}` : ""} />
               </Field>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              {semTamanho
-                ? "Sem tamanho — 1 linha por peça (qtd = grade total × consumo)."
-                : "O tamanho explode pela grade no CAD (qtd por tamanho × cor)."}
-            </p>
+            {tamVinculado ? (
+              <>
+                <p className="text-[11px] text-muted-foreground">
+                  {`Vinculado ao tamanho ${rotuloTamanho(tamVinculado)} — qtd = consumo × peças desse tamanho.`}
+                </p>
+                {foraDaGrade && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                    {`O tamanho ${rotuloTamanho(tamVinculado)} não está na grade deste modelo — quantidade 0.`}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                {semTamanho
+                  ? "Sem tamanho — 1 linha por peça (qtd = grade total × consumo)."
+                  : "O tamanho explode pela grade no CAD (qtd por tamanho × cor)."}
+              </p>
+            )}
           </Card>
         );
       })}

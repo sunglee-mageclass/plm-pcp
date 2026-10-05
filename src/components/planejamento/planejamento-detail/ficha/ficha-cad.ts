@@ -3,6 +3,7 @@
 // (decisão travada 8). Cada função cita a faixa de origem; as diferenças deliberadas estão marcadas "F3.3 (T…)" e
 // registradas no plano F3.3 (§7). Sem React e sem Supabase — testadas em tests/unit/ficha-cad.test.ts. Tipos e
 // `calcCusto` vêm de src/components/producao/cad/types.ts (só importados).
+import { gradeMapa, gradeTotal, pecasDoInsumo, tamanhoEfetivoInsumo } from "@/lib/insumo-tamanho";
 import { gradeEfetivaPar } from "@/lib/casar-variantes-grade";
 import {
   calcCusto,
@@ -10,7 +11,7 @@ import {
   type VarianteRow as CadVarianteRow,
   type TipoTec,
 } from "@/components/producao/cad/types";
-import type { AviamentoRow, GradeRow, ModeloEtiquetaRow, TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
+import type { AviamentoRow, EtiquetaInfo, GradeRow, ModeloEtiquetaRow, TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import { montarAviamentosPayload, montarGradesPayload, roundNumeric, type TecidoRowDb, type VarianteRowDb } from "./ficha-calc";
 
 export type { CadTecidoRow, CadVarianteRow, TipoTec };
@@ -337,15 +338,47 @@ export type CadPayload = {
 export type CadCapturado = { estado: CadTecidoRow[]; linhas: CadTecidoRow[]; snapshot: string; gravar: boolean; payload: CadPayload | null };
 
 /**
+ * urg R1 (T7) — `etiqueta_id` → tamanho EFETIVO do insumo (vínculo que vale: só p/ insumo sem tamanho próprio; ver
+ * `tamanhoEfetivoInsumo`), só das etiquetas usadas nas linhas. Insumo fora do catálogo carregado = sem vínculo.
+ */
+export function tamanhoPorEtiquetaDe(
+  etiquetas: ModeloEtiquetaRow[], etiquetaMap: Record<string, EtiquetaInfo>,
+): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const e of etiquetas) {
+    if (!e.etiqueta_id || Object.prototype.hasOwnProperty.call(out, e.etiqueta_id)) continue;
+    const info = etiquetaMap[e.etiqueta_id];
+    out[e.etiqueta_id] = info
+      ? tamanhoEfetivoInsumo({
+        tamanho_vinculado: info.tamanho_vinculado ?? null,
+        formato_tamanho: info.formato_tamanho ?? null,
+        variantes: (info.variantes ?? []).map((v) => ({ tamanho: v.tamanho ?? null })),
+      })
+      : null;
+  }
+  return out;
+}
+
+/**
  * Argumentos do `salvar_cad_completo` (Dev :2067-2117): grade só das variantes com valor; aviamentos e etiquetas com a
  * quantidade = consumo × grade total geral (fórmula do `_enviar_modelo_para_cad_core`); `enviar_por_tamanho: {}` e
  * `_observacoes_molde: null` — paridade (o apagamento desses ajustes da Explosão é tarefa própria — decisão F3 #7).
  */
 export function montarCadPayload(i: {
   cad: CadTecidoRow[]; grades: GradeRow[]; aviamentos: AviamentoRow[]; etiquetas: ModeloEtiquetaRow[]; proporcoes: Record<string, number>;
+  /** urg R1 (T7): `etiqueta_id` → tamanho EFETIVO do insumo (`tamanhoEfetivoInsumo`); null/ausente = sem vínculo. */
+  tamanhoPorEtiqueta?: Record<string, string | null>;
 }): CadPayload {
   const round4 = (n: number) => Math.round(n * 10000) / 10000;
   const gradeTotalGeral = i.grades.reduce((s, g) => s + (g.grade_total || 0), 0);
+  // Insumo vinculado a um tamanho conta só as peças daquele tamanho (urg R1; espelho do `_enviar_modelo_para_cad_core`).
+  const mapaGrade = gradeMapa(i.grades);
+  const totalGrade = gradeTotal(i.grades);
+  const porTam = i.tamanhoPorEtiqueta ?? {};
+  const pecasEtiqueta = (etiquetaId: string): number => {
+    const tam = Object.prototype.hasOwnProperty.call(porTam, etiquetaId) ? porTam[etiquetaId] : null;
+    return pecasDoInsumo(tam ?? null, mapaGrade, totalGrade);
+  };
   return {
     _tecidos: i.cad.map((t) => ({
       artigo_id: t.artigo_id, numero: t.numero, tipo: t.tipo,
@@ -364,8 +397,8 @@ export function montarCadPayload(i: {
     })),
     _etiquetas: i.etiquetas.filter((e) => e.etiqueta_id).map((e) => ({
       etiqueta_id: e.etiqueta_id as string, cor_id: e.cor_id ?? null, consumo: Number(e.consumo ?? 0),
-      quantidade_planejada: round4(Number(e.consumo ?? 0) * gradeTotalGeral),
-      quantidade_enviar: round4(Number(e.consumo ?? 0) * gradeTotalGeral),
+      quantidade_planejada: round4(Number(e.consumo ?? 0) * pecasEtiqueta(e.etiqueta_id as string)),
+      quantidade_enviar: round4(Number(e.consumo ?? 0) * pecasEtiqueta(e.etiqueta_id as string)),
       enviar_por_tamanho: {},
     })),
     _proporcoes: i.proporcoes ?? {},

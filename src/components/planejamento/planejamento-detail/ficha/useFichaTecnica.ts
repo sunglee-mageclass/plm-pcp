@@ -29,7 +29,7 @@ import { requisitosUniao, seloSecaoBom, type SecaoBomKey, type SeloSecao } from 
 import { gradeCompradoMudouNoServidor, gradesParaBomComprado, requeridasPorOrigem } from "../comprado";
 import { useFichaCad } from "./useFichaCad";
 import {
-  assinaturaCad, assinaturaCadServidor, cadDivergeDaReferencia, deveGravarCad, linhasParaGravar, montarCadPayload,
+  assinaturaCad, assinaturaCadServidor, cadDivergeDaReferencia, deveGravarCad, linhasParaGravar, montarCadPayload, tamanhoPorEtiquetaDe,
   snapshotCad, type CadCapturado, type CadRowDb, type CadTecidoRow, type CadVarianteRow, type PatchBlocoCad,
 } from "./ficha-cad";
 import { seloCadSecao } from "./selos-secoes";
@@ -554,6 +554,9 @@ export function useFichaTecnica(a: {
    * `deveGravarCad` — plano F3.3 §3 P2). Lê refs (vale no retry). `linhasParaGravar`: linha que o servidor não tem só vai
    * quando o BOM grava junto (senão o CAD ganharia um tecido que o BOM do servidor não tem).
    */
+  // urg R1 — catálogo de insumos de AGORA (a captura pode rodar num retry, depois de outro render).
+  const etiquetaMapRef = useRef(dados.etiquetaMap);
+  etiquetaMapRef.current = dados.etiquetaMap;
   const capturarCad = (e: EstadoBom, bomGravado: boolean, retry: boolean, proporcoes: Record<string, number>): CadCapturado => {
     const c = cadCapturaRef.current;
     const estadoCad = cad.linhasRef.current;
@@ -568,7 +571,7 @@ export function useFichaTecnica(a: {
     });
     return {
       estado: estadoCad, linhas, snapshot: snapshotCad(estadoCad), gravar,
-      payload: gravar ? montarCadPayload({ cad: linhas, grades: e.grades, aviamentos: e.aviamentos, etiquetas: e.etiquetas, proporcoes }) : null,
+      payload: gravar ? montarCadPayload({ cad: linhas, grades: e.grades, aviamentos: e.aviamentos, etiquetas: e.etiquetas, proporcoes, tamanhoPorEtiqueta: tamanhoPorEtiquetaDe(e.etiquetas, etiquetaMapRef.current) }) : null,
     };
   };
 

@@ -22,6 +22,7 @@ import { SeloBadge } from "./SeloBadge";
 import type { SecaoSheetKey } from "../selos-secoes";
 import { SECOES_FICHA_INTERNO, type SecoesFicha } from "@/components/planejamento/planejamento-detail/comprado";
 import type { TamanhoTipo } from "@/lib/tamanho";
+import { gradeMapa, gradeTotal } from "@/lib/insumo-tamanho";
 
 // Avisos da trava ÚNICA (R2), IGUAIS aos da F3.1 (`AvisoCamposDev`): sem a trava interina "tem CAD", o "Editar" destrava
 // BOM e CAD como os demais campos do Dev (F3.3) — "enviado" usa a MESMA frase.
@@ -68,6 +69,8 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
   if (!ficha.habilitada) return null;
   const { estado, handlers, dados } = ficha;
   const vv = visiveis ?? SECOES_FICHA_INTERNO;
+  // urg R1: grade do modelo p/ o aviso do insumo vinculado a um tamanho que ela não tem (comprado: grade externa => total 0 => sem aviso).
+  const gradeInfo = { mapa: gradeMapa(estado.grades), total: gradeTotal(estado.grades) };
   const carregando = !ficha.carregado;
   // Lote B (revisão do commit 6fac668, I1) — uma recarga do CAD que FALHA depois de já ter carregado uma vez
   // (foco, invalidação pós-Salvar, Realtime) não regride `ficha.carregado` (`bom.hidratado`/`cad.hidratado` são
@@ -134,6 +137,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
             onRemove={handlers.removeEtiqueta}
             camposCopiados={ficha.camposCopiados}
             onCampoEditado={ficha.onCampoEditado}
+            gradeInfo={gradeInfo}
           />,
         )}
       </SecaoBom>

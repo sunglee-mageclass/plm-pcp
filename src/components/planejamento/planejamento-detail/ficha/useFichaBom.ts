@@ -30,12 +30,27 @@ import {
   relevantArtigoIds, tecido1VarianteIds as calcTecido1VarianteIds,
   type EstadoBom, type FlagsBom,
 } from "./ficha-calc";
-import type { PatchBlocoCad } from "./ficha-cad";
+import { tamanhoPorEtiquetaDe, type PatchBlocoCad } from "./ficha-cad";
+import { fatorCustoInsumo, gradeMapa, gradeTotal } from "@/lib/insumo-tamanho";
 import type { FichaDados } from "./useFichaDados";
 import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
 import { patchCadDoImport } from "./importar-ficha";
 
 const MAPA_VAZIO: Record<string, string> = {};
+
+/**
+ * urg R1 (Ruling A3) — prévia do custo de UMA linha de insumo: rateada pelo tamanho vinculado (peças do tamanho ÷ grade
+ * total do modelo). Sem vínculo, com grade vazia ou insumo com tamanho próprio => fator 1 (o valor de sempre). Vale o do
+ * servidor (inv. 15). COMPRADO (grade externa, Ruling A7): a grade cor × tamanho do comprado mora no Sheet
+ * (`useGradeComprado`), fora do alcance deste hook => fator 1 aqui (a baixa/materialização seguem a regra no SQL).
+ */
+function recomputarEtiquetaComGrade(
+  r: ModeloEtiquetaRow, map: Parameters<typeof recomputeEtiqueta>[1], gs: GradeRow[], gradeExterna: boolean,
+): ModeloEtiquetaRow {
+  if (gradeExterna || !r.etiqueta_id) return recomputeEtiqueta(r, map);
+  const tam = tamanhoPorEtiquetaDe([r], map)[r.etiqueta_id] ?? null;
+  return recomputeEtiqueta(r, map, fatorCustoInsumo(tam, gradeMapa(gs), gradeTotal(gs)));
+}
 const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false };
 
 export type ConfirmGrade = { msg: string; onConfirm: () => void } | null;
@@ -227,10 +242,11 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     if (Object.keys(dados.etiquetaMap).length === 0) return;
     setEtiquetasState((rows) => {
       if (!rows.length) return rows;
-      const next = rows.map((r) => recomputeEtiqueta(r, dados.etiquetaMap));
+      const next = rows.map((r) => recomputarEtiquetaComGrade(r, dados.etiquetaMap, grades, gradeExterna));
       return next.some((r, i) => r.custo_previsto !== rows[i].custo_previsto) ? next : rows;
     });
-  }, [dados.etiquetaMap, dados.etiquetasData, cargaSeq, hidratarTick]);
+    // urg R1: `grades` nas deps — mudar a grade muda o fator do insumo vinculado a um tamanho.
+  }, [dados.etiquetaMap, dados.etiquetasData, grades, gradeExterna, cargaSeq, hidratarTick]);
   useEffect(() => {
     if (Object.keys(dados.artigoMap).length === 0) return;
     setBlocks((bs) => {
@@ -394,7 +410,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
 
   const updateEtiqueta = (idx: number, patch: Partial<ModeloEtiquetaRow>) => {
     marcarTocado();
-    setEtiquetasState((rows) => rows.map((r, i) => (i === idx ? recomputeEtiqueta({ ...r, ...patch }, dados.etiquetaMap) : r)));
+    setEtiquetasState((rows) => rows.map((r, i) => (i === idx ? recomputarEtiquetaComGrade({ ...r, ...patch }, dados.etiquetaMap, grades, gradeExterna) : r)));
   };
   const addEtiqueta = () => {
     marcarTocado();
@@ -533,7 +549,10 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       setAviamentosState(patch.aviamentos.map((r) => recomputeAviamento(r, dados.aviamentoMap)));
       marcarFlag("aviamentos");
     }
-    if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas.map((r) => recomputeEtiqueta(r, dados.etiquetaMap)));
+    if (patch.etiquetas !== undefined) {
+      const gradesDoImport = patch.grades ?? grades; // a cópia pode trazer a grade junto: o fator usa a que vai valer
+      setEtiquetasState(patch.etiquetas.map((r) => recomputarEtiquetaComGrade(r, dados.etiquetaMap, gradesDoImport, gradeExterna)));
+    }
     if (patch.grades !== undefined) {
       setGrades(patch.grades);
       marcarFlag("grade");

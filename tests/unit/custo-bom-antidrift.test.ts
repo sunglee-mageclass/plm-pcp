@@ -13,16 +13,20 @@ import {
 } from "@/components/desenvolvimento/modelo-detail/types";
 import { pecaCom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { somaCustosAdicionais } from "@/lib/custo";
+import { fatorCustoInsumo, gradeMapa, gradeTotal, tamanhoEfetivoInsumo } from "@/lib/insumo-tamanho";
 import {
   CASO_MODELO,
   CASOS_ADICIONAIS,
   CASOS_AVIAMENTO,
   CASOS_ETIQUETA,
+  CASOS_ETIQUETA_FATOR,
+  CASO_MODELO_FATOR,
   CASOS_TECIDO,
   MEIO_CENTAVO,
   TOLERANCIA,
   precoPorMetro,
   type CasoEtiqueta,
+  type CasoEtiquetaFator,
   type CasoTecido,
 } from "../fixtures/custo-bom-casos";
 
@@ -71,6 +75,32 @@ function etiquetaTs(caso: CasoEtiqueta): number {
   ).custo_previsto;
 }
 
+/** urg R1 (Ruling A3): linha de insumo vinculado a um tamanho — fator vem dos helpers de src/lib/insumo-tamanho.ts. */
+function fatorTs(caso: CasoEtiquetaFator): number {
+  const variantes = caso.tamanhoProprio ? [{ tamanho: "U" }] : [];
+  const linhas = caso.grade
+    ? [{ grades: caso.grade, grade_total: Object.values(caso.grade).reduce((s, v) => s + v, 0) }]
+    : [];
+  const tam = tamanhoEfetivoInsumo({ tamanho_vinculado: caso.vinculo, formato_tamanho: caso.tamanhoProprio ? "unico" : "nenhum", variantes });
+  return fatorCustoInsumo(tam, gradeMapa(linhas), gradeTotal(linhas));
+}
+
+function etiquetaFatorTs(caso: CasoEtiquetaFator): number {
+  const info: EtiquetaInfo = {
+    id: "etq",
+    nome: "Etq",
+    formato_tamanho: caso.tamanhoProprio ? "unico" : "nenhum",
+    preco: caso.preco,
+    tamanho_vinculado: caso.vinculo,
+    variantes: caso.tamanhoProprio ? [{ cor_id: null, cor_nome: null, preco: caso.preco, tamanho: "U" }] : [],
+  };
+  return recomputeEtiqueta(
+    { etiqueta_id: "etq", cor_id: null, consumo: caso.consumo, loss_percent: caso.perda, custo_previsto: 0 },
+    { etq: info },
+    fatorTs(caso),
+  ).custo_previsto;
+}
+
 describe("custo previsto — anti-drift TS × SQL (tests/fixtures/custo-bom-casos.ts)", () => {
   it.each(CASOS_TECIDO.map((c) => [c.nome, c] as const))("tecido: %s", (_nome, caso) => {
     expect(perto(tecidoTs(caso), caso.esperado)).toBe(true);
@@ -86,6 +116,23 @@ describe("custo previsto — anti-drift TS × SQL (tests/fixtures/custo-bom-caso
 
   it.each(CASOS_ETIQUETA.map((c) => [c.nome, c] as const))("etiqueta: %s", (_nome, caso) => {
     expect(perto(etiquetaTs(caso), caso.esperado)).toBe(true);
+  });
+
+  it.each(CASOS_ETIQUETA_FATOR.map((c) => [c.nome, c] as const))("etiqueta por tamanho (urg R1): %s", (_nome, caso) => {
+    expect(fatorTs(caso)).toBeCloseTo(caso.fator, 10);
+    expect(perto(etiquetaFatorTs(caso), caso.esperado)).toBe(true);
+  });
+
+  it("etiqueta por tamanho: fator omitido = 1 (o valor de hoje)", () => {
+    const info: EtiquetaInfo = { id: "etq", nome: "Etq", formato_tamanho: "nenhum", preco: 1, variantes: [] };
+    const r = { etiqueta_id: "etq", cor_id: null, consumo: 2, loss_percent: 5, custo_previsto: 0 };
+    expect(recomputeEtiqueta(r, { etq: info }).custo_previsto).toBe(2.1);
+    expect(recomputeEtiqueta(r, { etq: info }, 1).custo_previsto).toBe(2.1);
+  });
+
+  it("card com linhas 0, 2 e 5 de CASOS_ETIQUETA_FATOR na mesma grade soma a etiqueta esperada", () => {
+    const total = CASO_MODELO_FATOR.linhas.reduce((s, i) => s + etiquetaFatorTs(CASOS_ETIQUETA_FATOR[i]), 0);
+    expect(perto(total, CASO_MODELO_FATOR.etiqueta)).toBe(true);
   });
 
   it.each(CASOS_ADICIONAIS.map((c) => [c.nome, c] as const))("custos adicionais (R-CD6): %s", (_nome, caso) => {

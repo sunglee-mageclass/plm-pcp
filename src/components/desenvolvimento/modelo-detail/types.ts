@@ -174,8 +174,13 @@ export function recomputeAviamento(
 }
 
 // ── Etiquetas no BOM do modelo (escolhe etiqueta + cor; tamanho explode no CAD) ──
-export type EtiquetaVarInfo = { cor_id: string | null; cor_nome: string | null; preco: number | null };
-export type EtiquetaInfo = { id: string; nome: string; formato_tamanho: string; preco: number | null; variantes: EtiquetaVarInfo[] };
+// urg R1: `tamanho` (da variante) e `tamanho_vinculado` (do insumo) sao OPCIONAIS — quem nao os le (Sheet do Dev, hoje so
+// leitura) segue byte a byte como antes; so o Sheet do Planejamento os carrega p/ ratear o custo pelo tamanho vinculado.
+export type EtiquetaVarInfo = { cor_id: string | null; cor_nome: string | null; preco: number | null; tamanho?: string | null };
+export type EtiquetaInfo = {
+  id: string; nome: string; formato_tamanho: string; preco: number | null; variantes: EtiquetaVarInfo[];
+  tamanho_vinculado?: string | null;
+};
 
 export type ModeloEtiquetaRow = {
   id?: string;
@@ -194,10 +199,14 @@ export function precoEtiquetaCor(etq: EtiquetaInfo | undefined, corId: string | 
   return max > 0 ? max : Number(etq.preco ?? 0);
 }
 
-export function recomputeEtiqueta(r: ModeloEtiquetaRow, etiquetaMap: Record<string, EtiquetaInfo>): ModeloEtiquetaRow {
+/**
+ * `fator` (urg R1, Ruling A3): custo da linha rateado pelo tamanho vinculado = pecas do tamanho / grade total
+ * (`fatorCustoInsumo`, src/lib/insumo-tamanho.ts). Padrao 1 = o valor de sempre. So PREVIA: vale o do servidor.
+ */
+export function recomputeEtiqueta(r: ModeloEtiquetaRow, etiquetaMap: Record<string, EtiquetaInfo>, fator = 1): ModeloEtiquetaRow {
   const etq = r.etiqueta_id ? etiquetaMap[r.etiqueta_id] : undefined;
   const preco = precoEtiquetaCor(etq, r.cor_id);
-  const custo = preco * (r.consumo || 0) * (1 + (r.loss_percent || 0) / 100);
+  const custo = preco * (r.consumo || 0) * fator * (1 + (r.loss_percent || 0) / 100);
   return { ...r, custo_previsto: Math.round(custo * 100) / 100 };
 }
 
