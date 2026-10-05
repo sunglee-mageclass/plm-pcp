@@ -127,7 +127,11 @@ describe.skipIf(!RODA)("R16 preço M7 — custo real com M.O. por serviço (P-18
       expect(cu[ids.vestal].real).toBeCloseTo(146.23, 6);
       expect(cu[ids.vestal].mao_obra_real).toBeCloseTo(60, 6);
       expect(cu[ids.vestal].real! - cu[ids.vestal].mao_obra_real).toBeCloseTo(86.23, 6);
-      expect(cu[ids.vestal].previsto).toBeCloseTo(134.98, 6); // previsto (materiais do BOM 74,98 + 60) intocado
+      // T1 (backend, 05/out): o "previsto 134,98 (materiais do BOM 74,98 + 60)" era FOTO do BOM da Loja Teste; o dono atualizou o BOM desse
+      // card na cópia (hoje 146,23) e o número absoluto virou dado vivo. A regra — previsto = materiais do BOM + M.O. PREVISTA inteira (60),
+      // sem olhar o lançado — fica checada aqui pela parte da M.O. prevista (60) e pelo piso; o número absoluto do BOM é dado vivo.
+      expect(cu[ids.vestal].mao_obra_previsto).toBeCloseTo(60, 6);
+      expect(cu[ids.vestal].previsto).toBeGreaterThanOrEqual(cu[ids.vestal].mao_obra_previsto); // materiais do BOM (≥ 0) + 60, intocado
       // Blusa do Teste 1: Corte sem bloco → a prevista da linha Corte; PL lançado (sem linha própria) substitui o "Geral".
       // [fix round 1, L2] âncoras AO VIVO (a grade real desse cad mudou na cópia compartilhada: 192 → 208)
       const bt1 = await um<{ lanc: string; corte: string; geral: string }>(
