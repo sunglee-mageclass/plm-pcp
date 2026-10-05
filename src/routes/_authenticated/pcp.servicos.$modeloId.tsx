@@ -1174,6 +1174,9 @@ export function TerceirizadosDetail({
   // `blocosDaAba`/`reprovadosPl`), pois é o que `updateBloco`/`removeBloco` esperam.
   function renderBlocoCard(b: Bloco, idx: number) {
     const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
+    // [urg R4b / fix round 1 L3] o aviso só vale se o resumo da M.O. trouxe a linha do bloco (resumo vazio = sem acesso ou ainda
+    // carregando: nada a afirmar, então nada é mostrado).
+    const linhaMoDoBloco = moLinhas.find((l) => l.id === b.mo_linha_id);
     const empresaSel = (empresasServico as any[]).find((e) => e.id === b.empresa_id);
     // [urg R4b] opções = empresas da categoria ∪ a já escolhida (bloco nascido da M.O. pode ter fornecedor sem vínculo com a categoria).
     const empresasCatBase = empresasDaCategoria(b.categoria_terceirizado_id);
@@ -1231,7 +1234,7 @@ export function TerceirizadosDetail({
             {/* [urg R4b] bloco nascido da M.O. (Enviar à Explosão), externo e ainda sem preço: o preço entra sozinho quando a linha de M.O.
                 for aprovada no Planejamento. Some quando a linha está aprovada ou quando já há preço (digitado ou vindo da aprovação). */}
             {b.mo_linha_id && !b.interno && !(Number(b.preco_metro_unidade) > 0)
-              && moLinhas.find((l) => l.id === b.mo_linha_id)?.aprovado !== true && (
+              && linhaMoDoBloco && linhaMoDoBloco.aprovado !== true && (
               <span className="inline-flex items-center gap-1">
                 <StatusBadge tone="warning">M.O. não aprovada</StatusBadge>
                 <InfoHover ariaLabel="Por que o preço está vazio">

@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { type Conflito } from "@/lib/colab/merge";
-import { moLinhasEqual } from "@/lib/mao-obra";
+import { moLinhasEqual, moLinhaParaPayload } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
@@ -656,13 +656,7 @@ export function usePlanejamentoSave({
       if (podeEditarMO && (podeVerCustos || fichaRef.current.podeVerCustos) && savedId && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: savedId,
-          _linhas: moLinhasEnviadas.map((l) => ({
-            id: l.id ?? null, // multi-instância: id preserva a linha (e sua aprovação) no diff do servidor
-            categoria_terceirizado_id: l.categoria_terceirizado_id,
-            valor: Number(l.valor) || 0,
-            observacoes: null,
-            empresa_id: l.empresa_id ?? null, // [urg R4] fornecedor de serviço da linha (chave presente: null LIMPA, uuid grava)
-          })),
+          _linhas: moLinhasEnviadas.map((l) => moLinhaParaPayload(l, moBaseRef.current)),
         });
         // Ajuste (set/2026): marca a etapa que falhou (mão de obra) — ver comentário acima.
         if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }

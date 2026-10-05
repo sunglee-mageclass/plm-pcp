@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, type MoLinha } from "@/lib/mao-obra";
+import { moLinhaVaiReabrir, moLinhasEqual, moLinhaParaPayload, TEXTO_MO_VAI_REABRIR, type MoLinha } from "@/lib/mao-obra";
 import { blocoDeLinha, blocoParaPayload } from "@/lib/servicos-payload";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -49,11 +49,12 @@ describe("fontes", () => {
   it("useMaoObraModelo (cards PA/PI) NAO contem empresa_id — nunca apaga o fornecedor", () => {
     expect(ler("src/hooks/useMaoObraModelo.ts")).not.toContain("empresa_id");
   });
-  it("usePlanejamentoSave manda empresa_id no salvar_modelo_servico_mo", () => {
+  it("usePlanejamentoSave monta o _linhas por moLinhaParaPayload com a base do servidor", () => {
     const src = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
     const i = src.indexOf('"salvar_modelo_servico_mo"');
     expect(i).toBeGreaterThan(-1);
-    expect(src.slice(i, i + 900)).toContain("empresa_id: l.empresa_id ?? null");
+    expect(src.slice(i, i + 700)).toContain("moLinhaParaPayload(l, moBaseRef.current)");
+    expect(src).not.toContain("empresa_id: l.empresa_id ?? null");
   });
   it("MaoObraEditor: prop fornecedores opcional, Select 'Fornecedor' e data-colab-path proprio", () => {
     const ed = ler("src/components/planejamento/MaoObraEditor.tsx");
@@ -126,5 +127,71 @@ describe("B4 — excluir fornecedor em uso na M.O.", () => {
     );
     expect(i).toBeGreaterThan(-1);
     expect(SRC).toMatch(/onError: \(e: any\) => toast\.error\(mensagemExcluirEmpresa\(e\)\)/);
+  });
+});
+
+describe("[fix round 1 M1] moLinhaParaPayload — empresa_id so quando a linha e nova ou mudou", () => {
+  const X = (o: Partial<MoLinha> = {}): MoLinha => ({
+    id: "X", aprovado: true, valor: 10, categoria_terceirizado_id: "c", empresa_id: "A", empresa_nome: "Forn A", ...o,
+  });
+  it("base X=A, local inalterado (servidor mudou para B): payload SEM a chave empresa_id", () => {
+    const p = moLinhaParaPayload(X(), [X()]);
+    expect(Object.keys(p)).not.toContain("empresa_id");
+    expect(p).toEqual({ id: "X", categoria_terceirizado_id: "c", valor: 10, observacoes: null });
+  });
+  it("local mudou para C: manda C; limpou: manda null", () => {
+    expect(moLinhaParaPayload(X({ empresa_id: "C" }), [X()]).empresa_id).toBe("C");
+    expect(moLinhaParaPayload(X({ empresa_id: null }), [X()])).toHaveProperty("empresa_id", null);
+  });
+  it("linha nova (sem id): manda a chave (null ou uuid)", () => {
+    expect(moLinhaParaPayload({ ...X({ id: null }), empresa_id: null }, [X()])).toHaveProperty("empresa_id", null);
+    expect(moLinhaParaPayload(X({ id: null, empresa_id: "B" }), [X()]).empresa_id).toBe("B");
+  });
+  it("linha com id que nao esta na base: manda a chave (nao ha o que preservar)", () => {
+    expect(moLinhaParaPayload(X({ id: "Z", empresa_id: "B" }), [X()]).empresa_id).toBe("B");
+  });
+  it("cards PA/PI (sem empresa_id nos dois lados): sem a chave", () => {
+    const sem = { id: "X", aprovado: true, valor: 5, categoria_terceirizado_id: "c" } as MoLinha;
+    expect(Object.keys(moLinhaParaPayload(sem, [sem]))).not.toContain("empresa_id");
+  });
+  it("valor 0/null vai como 0 (igual ao de antes)", () => {
+    expect(moLinhaParaPayload(X({ valor: null }), [X()]).valor).toBe(0);
+  });
+});
+
+describe("[fix round 1 L1/L4] moLinhasEqual — fornecedor", () => {
+  const base: MoLinha[] = [{ id: "X", aprovado: null, valor: 10, categoria_terceirizado_id: "c", empresa_id: "A", empresa_nome: "Forn A" }];
+  it("so o empresa_id diferente = sujo (e o que faz o Salvar gravar)", () => {
+    expect(moLinhasEqual([{ ...base[0], empresa_id: "B", empresa_nome: "Forn B" }], base)).toBe(false);
+    expect(moLinhasEqual([{ ...base[0], empresa_id: null, empresa_nome: null }], base)).toBe(false);
+  });
+  it("so o empresa_nome diferente = limpo (rotulo, nao dado)", () => {
+    expect(moLinhasEqual([{ ...base[0], empresa_nome: "outro" }], base)).toBe(true);
+  });
+  it("linha nova: escolher e voltar a 'Sem fornecedor' nao deixa sujo", () => {
+    const semChave: MoLinha[] = [{ id: null, aprovado: null, valor: null, categoria_terceirizado_id: "c", empresa_id: null }];
+    const voltou: MoLinha[] = [{ id: null, aprovado: null, valor: null, categoria_terceirizado_id: "c", empresa_id: null, empresa_nome: null }];
+    expect(moLinhasEqual(voltou, semChave)).toBe(true);
+  });
+  it("undefined x null no empresa_id e igual (cards PA/PI)", () => {
+    const a: MoLinha[] = [{ id: "X", aprovado: null, valor: 1, categoria_terceirizado_id: "c" }];
+    const b: MoLinha[] = [{ id: "X", aprovado: null, valor: 1, categoria_terceirizado_id: "c", empresa_id: null }];
+    expect(moLinhasEqual(a, b)).toBe(true);
+  });
+});
+
+describe("[fix round 1 L2/L3] invalidacao do Cadastro e badge so com a linha vinda do resumo", () => {
+  it("Cadastro > Servico invalida empresas-servico-mo onde invalida empresas-servico-sel", () => {
+    const src = ler("src/routes/_authenticated/cadastro.servico.tsx");
+    const sel = src.match(/queryKey: \["empresas-servico-sel"\]/g) ?? [];
+    const mo = src.match(/queryKey: \["empresas-servico-mo"\]/g) ?? [];
+    expect(sel.length).toBeGreaterThanOrEqual(4);
+    expect(mo.length).toBe(sel.length);
+  });
+  it("badge 'M.O. nao aprovada' exige a linha no resumo e nao aprovada", () => {
+    const PCP = ler("src/routes/_authenticated/pcp.servicos.$modeloId.tsx");
+    expect(PCP).toContain("const linhaMoDoBloco = moLinhas.find((l) => l.id === b.mo_linha_id);");
+    expect(PCP).toMatch(/linhaMoDoBloco && linhaMoDoBloco\.aprovado !== true/);
+    expect(PCP).not.toMatch(/moLinhas\.find\(\(l\) => l\.id === b\.mo_linha_id\)\?\.aprovado !== true/);
   });
 });

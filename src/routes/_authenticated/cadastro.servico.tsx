@@ -717,6 +717,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
     qc.invalidateQueries({ queryKey: ["representantes"] });
     qc.invalidateQueries({ queryKey: ["servico-count", "representantes"] });
     qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
+    qc.invalidateQueries({ queryKey: ["empresas-servico-mo"] }); // [urg R4] Select de fornecedor da M.O. no Sheet do Planejamento
     if (ok > 0) toast.success(`${ok} excluído(s).${emUso > 0 ? ` ${emUso} em uso (não excluído(s)).` : ""}`);
     else toast.error(`Nenhum excluído${emUso > 0 ? ` — ${emUso} em uso` : ""}.`);
   };
@@ -1337,6 +1338,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
       // Atualiza o seletor de empresa de serviço da Produção.
       qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
+      qc.invalidateQueries({ queryKey: ["empresas-servico-mo"] }); // [urg R4] Select de fornecedor da M.O. no Sheet do Planejamento
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
@@ -1378,6 +1380,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
       qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
+      qc.invalidateQueries({ queryKey: ["empresas-servico-mo"] }); // [urg R4] Select de fornecedor da M.O. no Sheet do Planejamento
     },
     onError: (e: any) => toast.error(mensagemExcluirEmpresa(e)),
   });
@@ -1417,6 +1420,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     qc.invalidateQueries({ queryKey: ["empresas-multi"] });
     qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
     qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
+    qc.invalidateQueries({ queryKey: ["empresas-servico-mo"] }); // [urg R4] Select de fornecedor da M.O. no Sheet do Planejamento
     if (ok > 0) toast.success(`${ok} excluído(s).${emUso > 0 ? ` ${emUso} em uso (não excluído(s)).` : ""}`);
     else toast.error(`Nenhum excluído${emUso > 0 ? ` — ${emUso} em uso` : ""}.`);
   };

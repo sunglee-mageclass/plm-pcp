@@ -55,7 +55,10 @@ export function somaTotal(linhas: MoLinha[]): number {
  */
 export function moLinhasEqual(a: MoLinha[], b: MoLinha[]): boolean {
   if (a.length !== b.length) return false;
-  const norm = (ls: MoLinha[]) => ls.map((l) => ({ ...l, valor: l.valor ? l.valor : null }));
+  // [urg R4] fornecedor: `empresa_id` undefined ≡ null (cards PA/PI não têm a chave) e `empresa_nome` é só rótulo (fica de fora),
+  // senão escolher e desfazer o fornecedor numa linha recém-adicionada deixaria "não salvo" aceso à toa.
+  const norm = (ls: MoLinha[]) =>
+    ls.map(({ empresa_nome: _rotulo, ...l }) => ({ ...l, valor: l.valor ? l.valor : null, empresa_id: l.empresa_id ?? null }));
   return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
 
@@ -110,4 +113,26 @@ export function podeVerCustosServidor(canView: (k: string) => boolean): boolean 
 /** Pode mudar o VALOR (digitar, adicionar, remover serviço) — a mesma regra do servidor. */
 export function podeEditarValorMO(canEdit: (k: string) => boolean, canView: (k: string) => boolean): boolean {
   return canEdit(PAGINA_EDITAR_VALOR_MO) && podeVerCustosServidor(canView);
+}
+
+/**
+ * Item de `_linhas` do `salvar_modelo_servico_mo` (estado completo). [urg R4 / fix round 1 M1] `empresa_id` só vai quando a linha é
+ * NOVA (sem id, ou id que não está na base) ou quando difere da BASE (o que o editor carregou do servidor / gravou por último):
+ * chave ausente = o servidor MANTÉM o gravado. Assim, quem não mexeu no fornecedor não desfaz (nem reabre a aprovação por causa de)
+ * a troca que outra pessoa salvou no meio; limpar (null) e trocar continuam valendo porque diferem da base.
+ * (O mesmo "último vence" já existe para `valor` — backlog.)
+ */
+export function moLinhaParaPayload(
+  l: MoLinha,
+  base: MoLinha[] | null | undefined,
+): { id: string | null; categoria_terceirizado_id: string | null; valor: number; observacoes: null; empresa_id?: string | null } {
+  const item: { id: string | null; categoria_terceirizado_id: string | null; valor: number; observacoes: null; empresa_id?: string | null } = {
+    id: l.id ?? null, // multi-instância: id preserva a linha (e sua aprovação) no diff do servidor
+    categoria_terceirizado_id: l.categoria_terceirizado_id,
+    valor: Number(l.valor) || 0,
+    observacoes: null,
+  };
+  const daBase = l.id != null ? base?.find((b) => b.id === l.id) : undefined;
+  if (!daBase || (l.empresa_id ?? null) !== (daBase.empresa_id ?? null)) item.empresa_id = l.empresa_id ?? null;
+  return item;
 }
