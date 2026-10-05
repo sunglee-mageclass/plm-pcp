@@ -22,6 +22,10 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useStoreTimezone } from "@/hooks/useStoreTimezone";
+import { todayISOInStoreTZ } from "@/lib/timezone";
+import { ServicoAtrasoBadge } from "@/components/shared/ServicoAtrasoBadge";
+import { atrasosDoProduto } from "@/lib/servico-atraso";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/")({
   component: TercListPage,
@@ -39,6 +43,8 @@ function MoDot({ estado }: { estado?: string }) {
 function TercListPage() {
   const fl = useFieldLabels();
   const { isModuleEnabled } = useTenantModules();
+  // [urg R5] "hoje" no fuso da loja p/ o badge de pior atraso por produto.
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
   const [sheetId, setSheetId] = useState<string | null>(null);
   // Guarda de "alterações não salvas" do detalhe aberto no Sheet: o TerceirizadosDetail
   // reporta se há edições pendentes; fechar (X/ESC/fora/Voltar) com pendências confirma.
@@ -59,7 +65,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, colecoes(nome), mes_id, ano_id, categoria_principal_id, origem, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, colecoes(nome), mes_id, ano_id, categoria_principal_id, origem, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_prevista, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto, peca_foto_previsao, peca_foto_data, categorias_terceirizado(etapa, nome)))",
         )
         // Manufaturado entra por enviado_cad; REVENDA por origem (não seta enviado_cad). O gate
         // enviado_corte abaixo garante que ambos só aparecem DEPOIS da Explosão (Enviar para PCP)
@@ -93,7 +99,18 @@ function TercListPage() {
           else if (sPos === "vazio") statusGeral = m.cad?.[0]?.sem_acabamento === true ? "finalizado" : "pre_finalizado";
           else statusGeral = "pendente";
         }
-        const temFotoPeca = tercs.some((t: any) => !t.interno && !!t.peca_foto_data);
+        // [urg R5 · Ruling 14] a câmera indica "peça de foto marcada" (a data virou "entregue").
+        const temFotoPeca = tercs.some((t: any) => !t.interno && t.peca_foto === true);
+        // prazos crus por bloco ativo: o cálculo do atraso fica fora do queryFn (precisa do "hoje" do fuso da loja).
+        const blocosAtraso = tercs.map((t: any) => ({
+          interno: Boolean(t.interno),
+          nome: t.categorias_terceirizado?.nome ?? "Serviço",
+          data_prevista: t.data_prevista ?? null,
+          data_entregue: t.data_entregue ?? null,
+          peca_foto: t.peca_foto === true,
+          peca_foto_previsao: t.peca_foto_previsao ?? null,
+          peca_foto_data: t.peca_foto_data ?? null,
+        }));
         return {
           modelo_id: m.id,
           ref: m.ref,
@@ -111,6 +128,7 @@ function TercListPage() {
           cad_id: m.cad?.[0]?.id ?? null,
           statusGeral,
           temFotoPeca,
+          blocosAtraso,
         };
       });
     },
@@ -142,6 +160,23 @@ function TercListPage() {
     queryKey: ["opt", "anos"],
     queryFn: async () => (await supabase.from("anos").select("id, nome:ano").order("ano")).data ?? [],
   });
+
+  // [urg R5] pior atraso por produto (serviço de cada bloco ativo + peça de foto dos blocos PL, só com `etapas_pl`).
+  const comEtapasPl = isModuleEnabled("etapas_pl");
+  const atrasoPorModelo = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof atrasosDoProduto>>();
+    for (const r of rows as any[]) m.set(r.modelo_id, atrasosDoProduto(r.blocosAtraso ?? [], hoje, comEtapasPl));
+    return m;
+  }, [rows, hoje, comEtapasPl]);
+  const atrasoBadge = (modeloId: string) => {
+    const a = atrasoPorModelo.get(modeloId);
+    if (!a?.pior) return null;
+    return (
+      <span title={a.detalhes.join("; ")} className="inline-flex">
+        <ServicoAtrasoBadge atraso={a.pior} tipo="servico" />
+      </span>
+    );
+  };
 
   const colecoes = useMemo(
     () => Array.from(new Set(rows.map((r: any) => r.colecao).filter(Boolean))) as string[],
@@ -235,7 +270,7 @@ function TercListPage() {
                   versao={r.versao}
                   nome={r.nome}
                   categoria={r.categoria_nome}
-                  extra={<StatusBadge status={r.statusGeral} />}
+                  extra={<span className="inline-flex flex-wrap items-center gap-1"><StatusBadge status={r.statusGeral} />{atrasoBadge(r.modelo_id)}</span>}
                 />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
@@ -249,7 +284,7 @@ function TercListPage() {
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
-                <td className="px-4 py-2" data-label="Status"><StatusBadge status={r.statusGeral} /></td>
+                <td className="px-4 py-2" data-label="Status"><span className="inline-flex flex-wrap items-center gap-1"><StatusBadge status={r.statusGeral} />{atrasoBadge(r.modelo_id)}</span></td>
                 <td className="px-4 py-2 text-center" data-label="">
                   <Button
                     variant="ghost"

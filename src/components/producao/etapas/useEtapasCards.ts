@@ -47,7 +47,7 @@ export function useEtapasCards(filtros: EtapasFiltros = {}) {
       const data = await buscarTodas<ModeloRow & { colecao?: string | null }>((de, ate) =>
         (supabase.from("modelos") as any)
           .select(
-            "id, ref, nome, colecao, colecoes(nome), lancado, origem, fotos_modelo, desenho_tecnico_url, croqui_url, cad(id, enviado_corte, producao_terceirizados(id, ativo, interno, categoria_terceirizado_id, categorias_terceirizado(nome), empresa:empresa_id(nome_fantasia), pt_data_saida, pt_data_entrada, pt_aprovacao, data_enviado, data_entregue, quantidade_recebida, grade_detalhe))",
+            "id, ref, nome, colecao, colecoes(nome), lancado, origem, fotos_modelo, desenho_tecnico_url, croqui_url, cad(id, enviado_corte, producao_terceirizados(id, ativo, interno, categoria_terceirizado_id, categorias_terceirizado(nome), empresa:empresa_id(nome_fantasia), pt_data_saida, pt_data_entrada, pt_aprovacao, data_enviado, data_entregue, data_prevista, quantidade_recebida, grade_detalhe, peca_foto, peca_foto_previsao, peca_foto_data))",
           )
           .eq("enviado_cad", true)
           .order("created_at", { ascending: false })

@@ -34,6 +34,10 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
+import { ServicoAtrasoBadge } from "@/components/shared/ServicoAtrasoBadge";
+import { atrasoServico, atrasoPecaFoto } from "@/lib/servico-atraso";
+import { todayISOInStoreTZ } from "@/lib/timezone";
+import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -97,6 +101,9 @@ const ROTULO_CONFLITO: Record<string, string> = {
   pt_data_saida: "Peça Teste — Saída",
   pt_data_entrada: "Peça Teste — Entrada",
   pt_aprovacao: "Peça Teste — Aprovação",
+  peca_foto: "Peça de foto",
+  peca_foto_data: "Data entregue (peça de foto)",
+  peca_foto_previsao: "Previsão de entrega (peça de foto)",
 };
 const CAMPO_GRADE_PT: Record<string, string> = {
   enviada: "Enviada", cortada: "Cortada", recebida: "Recebida", defeito: "Defeito",
@@ -171,6 +178,8 @@ export function TerceirizadosDetail({
   // Etapas PL (Fase 1, módulo opt-in): painel só aparece quando a loja ligou `etapas_pl`.
   const { isModuleEnabled } = useTenantModules();
   const tenantId = useActiveTenantId();
+  // [urg R5] "hoje" no fuso da loja — base dos alertas de atraso (Vence hoje / Atrasado N dias) no cabeçalho do bloco.
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
   const { data: pcpEtapasCfg } = useQuery({
     queryKey: ["tenant_config", "pcp_etapas", tenantId],
     enabled: !!tenantId,
@@ -823,6 +832,7 @@ export function TerceirizadosDetail({
         nf_saida: [],
         nf_entrada: [],
         peca_foto: false,
+        peca_foto_previsao: null,
         peca_foto_data: null,
       },
     ]);
@@ -1199,7 +1209,7 @@ export function TerceirizadosDetail({
             {catNome}
             {totalMesmaCat > 1 && <span className="text-muted-foreground font-normal"> #{mesmaCatAteAqui}</span>}
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Toggle Interno / PL (Interno esconde o responsável) */}
             <div className="flex rounded-md border overflow-hidden text-xs font-medium">
               <button
@@ -1232,6 +1242,11 @@ export function TerceirizadosDetail({
               const bSt = blocoFinalizado(b) ? "finalizado" : b.data_enviado ? "em_andamento" : "pendente";
               return <StatusBadge tone={STATUS_TONE[bSt] ?? "neutral"}>{STATUS_LABELS[bSt] ?? bSt}</StatusBadge>;
             })()}
+            {/* [urg R5] alertas de atraso: o serviço (Data Prevista × Data Entregue) em TODO bloco; a peça de foto só no bloco PL com Etapas PL. */}
+            <ServicoAtrasoBadge atraso={atrasoServico(b, hoje)} tipo="servico" />
+            {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
+              <ServicoAtrasoBadge atraso={atrasoPecaFoto(b, hoje)} tipo="peca_foto" />
+            )}
             {/* [urg R4b] bloco nascido da M.O. (Enviar à Explosão), externo e ainda sem preço: o preço entra sozinho quando a linha de M.O.
                 for aprovada no Planejamento. Some quando a linha está aprovada ou quando já há preço (digitado ou vindo da aprovação). */}
             {b.mo_linha_id && !b.interno && !(Number(b.preco_metro_unidade) > 0)
@@ -1525,13 +1540,29 @@ export function TerceirizadosDetail({
           <div className="col-span-full space-y-2">
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={b.peca_foto}
-                onChange={(e) => updateBloco(idx, e.target.checked ? { peca_foto: true } : { peca_foto: false, peca_foto_data: null })} />
+                onChange={(e) => updateBloco(idx, e.target.checked ? { peca_foto: true } : { peca_foto: false, peca_foto_previsao: null, peca_foto_data: null })} />
               <span>Peça de foto</span>
             </label>
             {b.peca_foto && (
-              <div className="max-w-xs">
-                <Label className="text-xs">Data de entrega da peça de foto</Label>
-                <DateField value={b.peca_foto_data ?? ""} onChange={(e) => updateBloco(idx, { peca_foto_data: e.target.value || null })} disabled={readOnly} />
+              <div className="grid gap-4 sm:grid-cols-2 max-w-xl">
+                <div>
+                  <Label className="text-xs">Previsão de entrega (peça de foto)</Label>
+                  <DateField
+                    value={b.peca_foto_previsao ?? ""}
+                    onChange={(e) => updateBloco(idx, { peca_foto_previsao: e.target.value || null })}
+                    disabled={readOnly}
+                    data-colab-path={`bloco:${b.id ?? b._key}:peca_foto_previsao`}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Data entregue (peça de foto)</Label>
+                  <DateField
+                    value={b.peca_foto_data ?? ""}
+                    onChange={(e) => updateBloco(idx, { peca_foto_data: e.target.value || null })}
+                    disabled={readOnly}
+                    data-colab-path={`bloco:${b.id ?? b._key}:peca_foto_data`}
+                  />
+                </div>
               </div>
             )}
           </div>

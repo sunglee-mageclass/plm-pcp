@@ -18,6 +18,10 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { textoReprovarPecaTeste } from "@/lib/confirmacoes-textos";
 import type { EtapaCard } from "@/lib/pcp-etapas-kanban";
+import { ServicoAtrasoBadge } from "@/components/shared/ServicoAtrasoBadge";
+import { atrasoServico, atrasoPecaFoto } from "@/lib/servico-atraso";
+import { todayISOInStoreTZ } from "@/lib/timezone";
+import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { useSalvarEtapaRapida, type CampoRapido } from "./useSalvarEtapaRapida";
 
 // Card rico do kanban de Etapas PL (Fase 2, Task 4). Substitui o `CardMinimo` do Task 3 em
@@ -169,19 +173,27 @@ export function EtapaCardView({
   onToggleMin: () => void;
   onAbrir: (modeloId: string) => void;
 }) {
+  // [urg R5] alertas de atraso: "hoje" no fuso da loja; o card só traz os prazos crus.
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
+  const atrasoSrv = atrasoServico(card.prazos, hoje);
+  const atrasoFoto = atrasoPecaFoto(card.prazos, hoje);
   return (
     <div className="w-full rounded-md border bg-card p-2.5 text-left text-sm shadow-sm transition-colors hover:border-primary/50">
       <div className="flex items-start gap-2">
         <CardFoto card={card} />
-        <button
-          type="button"
-          onClick={() => onAbrir(card.modeloId)}
-          className="min-w-0 flex-1 text-left"
-        >
-          <p className="truncate font-semibold">{card.ref ?? "—"}</p>
-          <p className="truncate text-muted-foreground">{card.nome ?? "—"}</p>
-          {card.empresa && <p className="truncate text-xs text-muted-foreground">{card.empresa}</p>}
-        </button>
+        <div className="min-w-0 flex-1">
+          <button type="button" onClick={() => onAbrir(card.modeloId)} className="block w-full min-w-0 text-left">
+            <p className="truncate font-semibold">{card.ref ?? "—"}</p>
+            <p className="truncate text-muted-foreground">{card.nome ?? "—"}</p>
+            {card.empresa && <p className="truncate text-xs text-muted-foreground">{card.empresa}</p>}
+          </button>
+          {(atrasoSrv || atrasoFoto) && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              <ServicoAtrasoBadge atraso={atrasoSrv} tipo="servico" />
+              <ServicoAtrasoBadge atraso={atrasoFoto} tipo="peca_foto" />
+            </div>
+          )}
+        </div>
         <div className="flex shrink-0 flex-col gap-1">
           <Button
             type="button"

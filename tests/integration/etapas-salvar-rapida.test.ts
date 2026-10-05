@@ -8,6 +8,7 @@ import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, comoUsuario, semJwt, um, TENANT_TESTE } from "./db";
 import { montarPayloadEdicaoRapida } from "@/lib/servicos-payload";
 import { camadaVazioViva } from "./camada-helpers";
+import { aplicaUrgb } from "./urgb-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -52,6 +53,8 @@ async function salvar(
 async function cadComServicos(
   c: Client,
 ): Promise<{ cad: string; a: string; b: string; i: string }> {
+  // [urg R5] a coluna peca_foto_previsao (migration 20261103185000) entra DENTRO da txn quando a cópia ainda não a tem.
+  await aplicaUrgb(c, "r5");
   return semJwt(c, async () => {
     const m = (
       await um<{ id: string }>(
@@ -90,9 +93,9 @@ async function cadComServicos(
           `insert into producao_terceirizados (cad_id, tenant_id, ativo, categoria_terceirizado_id, interno, empresa_id, colaborador_id,
              preco_metro_unidade, quantidade_enviada, quantidade_recebida, quantidade_defeito, desconto_total, multa_total,
              numero_parcelas, data_enviado, data_prevista, observacao, aviamentos_enviados, tecidos_enviados,
-             pt_data_saida, pt_data_entrada, pt_aprovacao, nf_saida, nf_entrada, peca_foto, peca_foto_data)
+             pt_data_saida, pt_data_entrada, pt_aprovacao, nf_saida, nf_entrada, peca_foto, peca_foto_data, peca_foto_previsao)
            values ($1, $2, true, $3, $4, $5, null, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, '[]', '[]',
-                   $16, $17, $18, $19::jsonb, $20::jsonb, $21, $22)
+                   $16, $17, $18, $19::jsonb, $20::jsonb, $21, $22, $23)
            returning id`,
           [
             cad,
@@ -117,6 +120,7 @@ async function cadComServicos(
             JSON.stringify(v.nf_entrada),
             v.peca_foto,
             v.peca_foto_data,
+            v.peca_foto_previsao,
           ],
         )
       ).id;
@@ -140,6 +144,7 @@ async function cadComServicos(
       nf_entrada: [{ url: "t/nf-entrada-a.pdf", data: "2026-10-03" }],
       peca_foto: true,
       peca_foto_data: "2026-10-04",
+      peca_foto_previsao: "2026-10-02",
     });
     const b = await serv({
       cat: await cat("Lavanderia ER"),
@@ -161,6 +166,7 @@ async function cadComServicos(
       nf_entrada: [{ url: "t/nf-entrada-b.pdf", data: "2026-09-23" }],
       peca_foto: true,
       peca_foto_data: "2026-09-30",
+      peca_foto_previsao: "2026-09-28",
     });
     const i = await serv({
       cat: await cat("Oficina ER"),
@@ -182,6 +188,7 @@ async function cadComServicos(
       nf_entrada: [],
       peca_foto: false,
       peca_foto_data: null,
+      peca_foto_previsao: null,
     });
     return { cad, a, b, i };
   });
@@ -270,9 +277,17 @@ describe.skipIf(!RODA)(
             expect(semVolateis(d), `${campo} ${d.id === s.a ? "card" : "outro"}`).toEqual(esperado);
           }
         }
+        // [urg R5] a edição rápida NÃO zera a previsão da peça de foto (o payload devolve o valor lido)
+        const prevPorId = (ls: Linha[]) =>
+          Object.fromEntries(ls.map((x) => [x.id as string, x.peca_foto_previsao ?? null]));
+        expect(prevPorId(await linhasDoCad(c, s.cad))).toEqual({
+          [s.a]: "2026-10-02",
+          [s.b]: "2026-09-28",
+          [s.i]: null,
+        });
         // NF/peça-foto do começo seguem iguais (o card só mudou campos de etapa)
         const fim = await linhasDoCad(c, s.cad);
-        for (const k of ["nf_saida", "nf_entrada", "peca_foto", "peca_foto_data"])
+        for (const k of ["nf_saida", "nf_entrada", "peca_foto", "peca_foto_data", "peca_foto_previsao"])
           expect(
             fim.map((x) => x[k]),
             k,

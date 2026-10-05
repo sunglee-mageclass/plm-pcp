@@ -54,6 +54,7 @@ const linhaA = {
   nf_saida: [{ url: "loja/nf-saida-a.pdf", data: "2026-10-01" }],
   nf_entrada: [{ url: "loja/nf-entrada-a.pdf", data: "2026-10-03" }],
   peca_foto: true,
+  peca_foto_previsao: "2026-10-02",
   peca_foto_data: "2026-10-04",
   created_at: "2026-09-01T10:00:00Z",
 };
@@ -96,6 +97,7 @@ const linhaB = {
   nf_saida: [{ url: "loja/nf-saida-b.pdf", data: "2026-09-21" }, { url: "loja/nf-saida-b2.pdf" }],
   nf_entrada: [{ url: "loja/nf-entrada-b.pdf", data: "2026-09-23" }],
   peca_foto: true,
+  peca_foto_previsao: null,
   peca_foto_data: "2026-09-30",
 };
 const linhaC = {
@@ -132,6 +134,7 @@ const linhaC = {
   nf_saida: [],
   nf_entrada: [],
   peca_foto: false,
+  peca_foto_previsao: null,
   peca_foto_data: null,
 };
 const linhas = [linhaA, linhaB, linhaC];
@@ -209,6 +212,7 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
       nf_saida: [{ url: "loja/nf-saida-a.pdf", data: "2026-10-01" }],
       nf_entrada: [{ url: "loja/nf-entrada-a.pdf", data: "2026-10-03" }],
       peca_foto: true,
+      peca_foto_previsao: "2026-10-02",
       peca_foto_data: "2026-10-04",
     });
     for (const [p, r] of [
@@ -219,6 +223,7 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
       expect(p.nf_entrada).toEqual(r.nf_entrada);
       expect(p.peca_foto).toBe(r.peca_foto);
       expect(p.peca_foto_data).toBe(r.peca_foto_data);
+      expect(p.peca_foto_previsao).toBe(r.peca_foto_previsao);
       expect(p.pt_data_saida).toBe(r.pt_data_saida);
       expect(p.pt_aprovacao).toBe(r.pt_aprovacao);
       expect(p.grade_detalhe).toEqual(r.grade_detalhe);
@@ -285,6 +290,33 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
         "x",
       ),
     ).toMatch(/Outra pessoa salvou/);
+  });
+});
+
+describe("[urg R5] peca_foto_previsao — roundtrip linha -> bloco -> payload", () => {
+  it("a previsao lida volta no payload (a edicao rapida nao a zera) e a chave SEMPRE vai", () => {
+    expect(blocoDeLinha(linhaA).peca_foto_previsao).toBe("2026-10-02");
+    expect(doSheet(linhaA).peca_foto_previsao).toBe("2026-10-02");
+    // linha sem a coluna (banco antigo / select parcial) = null, mas a chave existe no payload
+    const { peca_foto_previsao: _omit, ...semColuna } = linhaA;
+    void _omit;
+    const p = doSheet(semColuna);
+    expect(Object.keys(p)).toContain("peca_foto_previsao");
+    expect(p.peca_foto_previsao).toBeNull();
+  });
+  it("bloco interno manda peca_foto_previsao null (limpa); PL mantem", () => {
+    const interno = { ...blocoDeLinha(linhaA), interno: true };
+    expect(blocoParaPayload(interno).peca_foto_previsao).toBeNull();
+    expect(blocoParaPayload({ ...interno, interno: false }).peca_foto_previsao).toBe("2026-10-02");
+  });
+  it("edicao rapida de outro campo mantem a previsao do bloco do card e dos demais", () => {
+    const { _blocos } = montarPayloadEdicaoRapida({
+      linhas,
+      blocoId: A,
+      campo: "pt_aprovacao",
+      valor: "aprovado",
+    });
+    expect(_blocos.map((b) => b.peca_foto_previsao)).toEqual(["2026-10-02", null, null]);
   });
 });
 

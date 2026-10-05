@@ -16,6 +16,11 @@ type BlocoRow = {
   data_entregue: string | null;
   quantidade_recebida: number | null;
   grade_detalhe?: BlocoEtapa["grade_detalhe"];
+  // [urg R5] prazos p/ os alertas de atraso (serviço e peça de foto). Ausentes (select antigo) = sem prazo.
+  data_prevista?: string | null;
+  peca_foto?: boolean | null;
+  peca_foto_previsao?: string | null;
+  peca_foto_data?: string | null;
 };
 
 type CadRow = {
@@ -38,6 +43,15 @@ export type ModeloRow = {
   cad?: CadRow[] | null;
 };
 
+/** [urg R5] Prazos crus do bloco; o cálculo do atraso (`atrasoServico`/`atrasoPecaFoto`) fica na tela, com o "hoje" do fuso da loja. */
+export type PrazosCard = {
+  data_prevista: string | null;
+  data_entregue: string | null;
+  peca_foto: boolean;
+  peca_foto_previsao: string | null;
+  peca_foto_data: string | null;
+};
+
 export type EtapaCard = {
   blocoId: string;
   cadId: string;
@@ -49,6 +63,7 @@ export type EtapaCard = {
   origem: string | null;
   etapa: EtapaKey | null;
   bloco: BlocoEtapa & { categoria_terceirizado_id: string };
+  prazos: PrazosCard;
 };
 
 /** Achata modelos → blocos PL (só serviço PL, não-interno, ativo) → 1 card por bloco, com a
@@ -92,6 +107,13 @@ export function montarCards(rows: ModeloRow[], etapas: EtapaCfg[]): EtapaCard[] 
         origem: modelo.origem ?? null,
         etapa: etapaFinal,
         bloco: { ...bloco, categoria_terceirizado_id: t.categoria_terceirizado_id },
+        prazos: {
+          data_prevista: t.data_prevista ?? null,
+          data_entregue: t.data_entregue ?? null,
+          peca_foto: t.peca_foto === true,
+          peca_foto_previsao: t.peca_foto_previsao ?? null,
+          peca_foto_data: t.peca_foto_data ?? null,
+        },
       });
     }
   }

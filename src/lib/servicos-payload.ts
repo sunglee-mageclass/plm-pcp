@@ -72,6 +72,8 @@ export type BlocoServico = {
   nf_entrada: NfItem[];
   // Peça de foto (Etapas PL S5): checkbox + data de entrega condicional.
   peca_foto: boolean;
+  // [urg R5] previsão de entrega da peça de foto; `peca_foto_data` passa a ser a data ENTREGUE (real).
+  peca_foto_previsao: string | null;
   peca_foto_data: string | null;
   // [urg R4b] linha de M.O. (`modelo_servico_mo.id`) de onde o bloco nasceu no Enviar à Explosão. SÓ LEITURA — nunca vai no payload
   // de `salvar_terceirizados` (o servidor guarda; o PCP só usa para o aviso "M.O. não aprovada"). Bloco criado à mão = null.
@@ -114,6 +116,7 @@ export function blocoDeLinha(r: any): BlocoServico {
     nf_saida: Array.isArray(r.nf_saida) ? r.nf_saida : [],
     nf_entrada: Array.isArray(r.nf_entrada) ? r.nf_entrada : [],
     peca_foto: Boolean(r.peca_foto),
+    peca_foto_previsao: r.peca_foto_previsao ?? null,
     peca_foto_data: r.peca_foto_data ?? null,
     mo_linha_id: r.mo_linha_id ?? null,
   };
@@ -156,6 +159,8 @@ export function blocoParaPayload(b: BlocoServico) {
     nf_saida: b.interno ? [] : b.nf_saida,
     nf_entrada: b.interno ? [] : b.nf_entrada,
     peca_foto: b.interno ? false : b.peca_foto,
+    // [urg R5] a chave SEMPRE vai (chave ausente = o servidor mantém; null = limpa): interno limpa, PL devolve o valor lido.
+    peca_foto_previsao: b.interno ? null : b.peca_foto_previsao,
     peca_foto_data: b.interno ? null : b.peca_foto_data,
   };
 }

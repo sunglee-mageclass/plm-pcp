@@ -5522,6 +5522,7 @@ export type Database = {
           observacao: string | null
           peca_foto: boolean
           peca_foto_data: string | null
+          peca_foto_previsao: string | null
           preco_metro_unidade: number | null
           pt_aprovacao: string | null
           pt_data_entrada: string | null
@@ -5560,6 +5561,7 @@ export type Database = {
           observacao?: string | null
           peca_foto?: boolean
           peca_foto_data?: string | null
+          peca_foto_previsao?: string | null
           preco_metro_unidade?: number | null
           pt_aprovacao?: string | null
           pt_data_entrada?: string | null
@@ -5598,6 +5600,7 @@ export type Database = {
           observacao?: string | null
           peca_foto?: boolean
           peca_foto_data?: string | null
+          peca_foto_previsao?: string | null
           preco_metro_unidade?: number | null
           pt_aprovacao?: string | null
           pt_data_entrada?: string | null

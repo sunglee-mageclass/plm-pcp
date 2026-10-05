@@ -34,4 +34,16 @@ describe("montarCards", () => {
     const m = modelo(); (m as any).cad[0].enviado_corte = false;
     expect(montarCards([m as any], ETAPAS_DEFAULT)).toHaveLength(0);
   });
+  it("[urg R5] o card carrega os prazos crus (servico + peca de foto) p/ os alertas de atraso", () => {
+    const m = modelo(); const b = (m as any).cad[0].producao_terceirizados[0];
+    b.data_prevista = "2026-10-01"; b.peca_foto = true; b.peca_foto_previsao = "2026-10-03"; b.peca_foto_data = null;
+    expect(montarCards([m as any], ETAPAS_DEFAULT)[0].prazos).toEqual({
+      data_prevista: "2026-10-01", data_entregue: null, peca_foto: true, peca_foto_previsao: "2026-10-03", peca_foto_data: null,
+    });
+  });
+  it("[urg R5] bloco sem as colunas novas (select antigo) = prazos vazios, sem quebrar", () => {
+    expect(montarCards([modelo() as any], ETAPAS_DEFAULT)[0].prazos).toEqual({
+      data_prevista: null, data_entregue: null, peca_foto: false, peca_foto_previsao: null, peca_foto_data: null,
+    });
+  });
 });
