@@ -17,6 +17,21 @@ import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
+// Frente por CIMA desta no kit (urgentes plan-b, 180000..199000; urgb-helpers). Import dinâmico tolerante a ausência:
+// `voltaCamadaSePreciso` tira essa frente PRIMEIRO (LIFO) e `md5CamadaSucessor` continua a cadeia nos "depois" dela.
+// [Ruling 20 do plan-b] quando o plan-a (170000..179000, urga-helpers) existir, ESTE gancho passa a apontar para ele (e o do
+// plan-a chama o do plan-b) — só trocar o import abaixo.
+type Sucessora = {
+  voltaSePreciso: (c: Client) => Promise<void>;
+  md5Sucessor: (sig: string, pinado?: string) => string[];
+};
+const SUCESSORA: Sucessora | null = existsSync(`${ROOT}tests/integration/urgb-helpers.ts`)
+  ? await import(/* @vite-ignore */ "./urgb-helpers.ts").then((m) => ({
+      voltaSePreciso: m.voltaUrgbSePreciso as Sucessora["voltaSePreciso"],
+      md5Sucessor: m.md5UrgbSucessor as Sucessora["md5Sucessor"],
+    }))
+  : null;
+
 type Dados = {
   CAMADA_MD5: Record<string, { antes: string; depois: string }>;
   CAMADA_SENTINELA: string;
@@ -87,6 +102,7 @@ export async function voltaCamada(c: Client): Promise<void> {
 
 /** LIFO: quem volta (ou reaplica) o Backend ou qualquer release anterior dentro da txn tira a Camada antes. */
 export async function voltaCamadaSePreciso(c: Client): Promise<void> {
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a frente por cima (urgentes) sai antes, mesmo com a C1 fora
   if (!(await camadaViva(c))) return;
   const st = (await c.query("SELECT current_setting('statement_timeout') AS v")).rows[0]
     .v as string;
@@ -100,5 +116,10 @@ export function md5CamadaSucessor(sig: string, pinado?: string): string[] {
   const out: string[] = pinado ? [pinado] : [];
   const s = DADOS?.CAMADA_MD5[k];
   if (s && (!pinado || out.includes(s.antes))) out.push(s.depois);
+  // cadeia Camada -> urgentes: o "depois" da frente por cima que sucede o último texto desta cadeia
+  if (SUCESSORA) {
+    const ultimo = out.length ? out[out.length - 1] : undefined;
+    for (const m of SUCESSORA.md5Sucessor(k, ultimo)) if (!out.includes(m)) out.push(m);
+  }
   return out;
 }

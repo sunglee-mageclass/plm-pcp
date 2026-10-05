@@ -4,6 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal } from "./db";
 import type { Client } from "pg";
+import { md5CamadaSucessor } from "./camada-helpers";
 
 // L3 (revisão G-migration): SÓ na cópia local. Sem DATABASE_URL o db.ts cai em /tmp/dburl.txt (PRODUÇÃO) — este arquivo
 // faz DML (tenant_config, ref_sequencia, auth.users) em transação revertida e nunca deve rodar lá.
@@ -211,7 +212,11 @@ describe.skipIf(!RODA)(
 
     it("migration aplicada: md5 de depois", async () => {
       await withTx(async (c) => {
-        expect(await md5Fn(c, "public.enforce_servico_mo_aprovacao()")).toBe(MD5.enforceMo);
+        // [urg R4a] 20261103180000 redefine enforce_servico_mo_aprovacao por cima (fornecedor da linha reabre): aceita o
+        // sucessor pela cadeia LIFO (md5CamadaSucessor continua em md5UrgbSucessor), nunca troca o pino.
+        expect(md5CamadaSucessor("public.enforce_servico_mo_aprovacao()", MD5.enforceMo)).toContain(
+          await md5Fn(c, "public.enforce_servico_mo_aprovacao()"),
+        );
       });
     });
 
