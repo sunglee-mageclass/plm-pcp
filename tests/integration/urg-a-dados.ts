@@ -89,3 +89,26 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
   }
 }
 /* URG_A_JSON_FIM */;
+// ======================== INICIO secao R3 (gerar-a3.mjs) ========================
+// GERADO por .superpowers/sdd/2026-10-05-urgentes/mig/gerar-a3.mjs (nunca editar a mao; rode o gerador de novo). Blocos R3 (176000..178000) do plan-a numa secao PROPRIA,
+// fora do JSON do gerar-a1/a2 (a juncao com a raia 1 e so acrescimo no fim deste arquivo); entram em URG_A_BLOCOS na carga do modulo.
+// O gerar-a3 troca SO o JSON entre os marcadores URG_A3_JSON_*.
+Object.assign(URG_A_BLOCOS, /* URG_A3_JSON_INICIO */
+{
+  "176000": {
+    "mig": "supabase/migrations/20261103176000_urg_r3_estoque_mov_log.sql",
+    "down": "supabase/rollback/20261103176000_urg_r3_estoque_mov_log_down.sql",
+    "drop": "supabase/rollback/20261103176000_urg_r3_estoque_mov_log_down_drop.sql",
+    "sentinela": "public.fn_estoque_mov_log()",
+    "volta": true,
+    "MD5": {},
+    "NOVAS": {
+      "public.fn_estoque_mov_log()": "b50b96f26df262c55a4a9085e56bbb10"
+    },
+    "NEUTRO": {
+      "public.fn_estoque_mov_log()": "910a696b98994505c5257369bb9df434"
+    }
+  }
+}
+/* URG_A3_JSON_FIM */);
+// ======================== FIM secao R3 (gerar-a3.mjs) ========================
