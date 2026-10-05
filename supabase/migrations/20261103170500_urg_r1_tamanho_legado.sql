@@ -17,7 +17,7 @@
 -- carregado, por diferenca de pg_locks): nada em auth/storage/realtime. Qualquer hora. Idempotente.
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public._urg_r1_tamanho_legado_lista()  DEPOIS f4445fa3dda66d27ba08faa7c8030991  NEUTRO ec571c054460a10676852e532c931e03
---   public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)  DEPOIS 08561ccbd8dd7a9877c6340f9b95ac75  NEUTRO f7d613fb53dbaef6be59c467bbaad580
+--   public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)  DEPOIS cb855927bc56a6edb0391c78cc390621  NEUTRO f7d613fb53dbaef6be59c467bbaad580
 --   (ANTES: ausentes) - exige a 20261103170000 viva: public._insumo_tamanho_efetivo = c3cdade8a88d585492eeb6a01205ce3e
 -- ====================================================================================
 -- Volta (LIFO): supabase/rollback/20261103170500_urg_r1_tamanho_legado_down.sql (devolve o "antes" SO onde ainda vale o "depois", relata o que a pessoa
@@ -41,7 +41,7 @@ BEGIN
   END IF;
   FOR r IN SELECT * FROM (VALUES
       ('public._urg_r1_tamanho_legado_lista()', 'f4445fa3dda66d27ba08faa7c8030991', 'ec571c054460a10676852e532c931e03'),
-      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', '08561ccbd8dd7a9877c6340f9b95ac75', 'f7d613fb53dbaef6be59c467bbaad580')
+      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', 'cb855927bc56a6edb0391c78cc390621', 'f7d613fb53dbaef6be59c467bbaad580')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
@@ -143,7 +143,7 @@ AS $function$
 -- hash e n: divergiu = P0001 lista_mudou (nada grava). 3) linha aprovada fora da lista de agora = P0001 fora_da_lista. 4) grava SO
 -- os aprovados com vinculo ainda vazio (btrim) - nunca sobrescreve - com backup antes/depois em _bkp_urg_r1_tamanho_legado.
 -- Devolve {ligados, pulados:[{id, motivo}], hash, n}; motivo = ja_corrigido_antes (ja tem gravacao no backup: nunca religa o que
--- a pessoa desligou depois) | ja_vinculado | nao_aprovado | o motivo da lista. Idempotente: a 2a execucao liga 0. Efeito colateral: com a 171000 viva, o gatilho de etiquetas enfileira o custo previsto
+-- a pessoa desligou depois; so gravacao ainda nao devolvida pelo _down) | ja_vinculado | nao_aprovado | o motivo da lista. Idempotente: a 2a execucao liga 0. Efeito colateral: com a 171000 viva, o gatilho de etiquetas enfileira o custo previsto
 -- dos modelos internos NAO cortados que usam o insumo (os cortados ficam congelados).
 DECLARE
   v_aprov text[];
@@ -190,25 +190,26 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- [M-1] correcao UNICA: insumo que ja tem gravacao no backup (corrigido numa rodada anterior) nunca e religado - a pessoa pode
-  -- te-lo desligado de proposito depois.
+  -- [M-1] correcao UNICA: insumo que ja tem gravacao EM VIGOR no backup (corrigido numa rodada anterior e ainda nao devolvido por
+  -- um _down - restaurado_em vazio) nunca e religado - a pessoa pode te-lo desligado de proposito depois. [M-1b] gravacao ja
+  -- devolvida nao conta: _down -> ida -> nova rodada aprovada liga de novo (a auditoria da 1a rodada fica no backup).
   SELECT coalesce(jsonb_agg(jsonb_build_object('id', l.etiqueta_id, 'motivo',
            CASE WHEN NOT l.elegivel THEN l.motivo
                 WHEN NOT (l.linha = ANY (v_aprov)) THEN 'nao_aprovado'
-                WHEN EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id)
+                WHEN EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id AND k.restaurado_em IS NULL)
                   THEN 'ja_corrigido_antes'
                 ELSE 'ja_vinculado' END) ORDER BY l.tenant_id, l.etiqueta_id), '[]'::jsonb)
     INTO v_pulados
     FROM public._urg_r1_tamanho_legado_lista() l
    WHERE NOT l.elegivel OR NOT (l.linha = ANY (v_aprov)) OR l.vinculo_atual IS NOT NULL
-      OR EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id);
+      OR EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id AND k.restaurado_em IS NULL);
 
   WITH alvo AS (
     SELECT l.etiqueta_id, l.tenant_id, l.valor, e.tamanho_vinculado AS antes
       FROM public._urg_r1_tamanho_legado_lista() l
       JOIN public.etiquetas e ON e.id = l.etiqueta_id
      WHERE l.elegivel AND l.linha = ANY (v_aprov) AND l.vinculo_atual IS NULL
-       AND NOT EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id)
+       AND NOT EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id AND k.restaurado_em IS NULL)
   ), upd AS (
     UPDATE public.etiquetas e
        SET tamanho_vinculado = a.valor
@@ -225,7 +226,7 @@ BEGIN
 
   IF EXISTS (SELECT 1 FROM public._urg_r1_tamanho_legado_lista() l
               WHERE l.elegivel AND l.linha = ANY (v_aprov) AND l.vinculo_atual IS NULL
-                AND NOT EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id)) THEN
+                AND NOT EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id AND k.restaurado_em IS NULL)) THEN
     RAISE EXCEPTION 'pos_condicao: insumo aprovado ficou sem vinculo - nada gravado' USING ERRCODE = 'P0001';
   END IF;
   RETURN jsonb_build_object('ligados', v_ligados, 'pulados', v_pulados, 'hash', v_hash, 'n', v_n);
@@ -238,7 +239,7 @@ DECLARE
   r record;
 BEGIN
   IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1_tamanho_legado_lista()'))) IS DISTINCT FROM 'f4445fa3dda66d27ba08faa7c8030991'
-     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)'))) IS DISTINCT FROM '08561ccbd8dd7a9877c6340f9b95ac75' THEN
+     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)'))) IS DISTINCT FROM 'cb855927bc56a6edb0391c78cc390621' THEN
     RAISE EXCEPTION 'urg_r1_170500: pos-condicao falhou no texto das funcoes' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES ('public._urg_r1_tamanho_legado_lista()'), ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)')) AS x(f) LOOP

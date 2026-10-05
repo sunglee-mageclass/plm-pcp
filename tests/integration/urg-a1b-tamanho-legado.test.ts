@@ -297,6 +297,40 @@ describe.skipIf(!RODA)("urg R1 T2b — correcao unica do tamanho legado (170500)
     });
   });
 
+  it("M-1b: _down -> reaplicar a ida -> rodar com a mesma aprovacao LIGA de novo (so gravacoes em vigor contam como ja corrigidas)", async () => {
+    const b = bloco();
+    expect(b).toBeTruthy();
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "170500");
+      const a = await aprovada(c);
+      expect((await rodar(c, a.linhas, a.hash, a.n)).ligados).toBe(a.n);
+      await aplicarArquivo(c, b!.down);
+      await c.query("SET LOCAL transaction_timeout = 0");
+      expect(Object.values(await vinculos(c)).every((v) => v === null)).toBe(true);
+      await aplicaUrgA(c, "170500"); // reaplica a ida (funcoes neutras -> depois)
+      expect(await urgAViva(c, "170500")).toBe(true);
+      const r = await rodar(c, a.linhas, a.hash, a.n);
+      expect(r.ligados).toBe(a.n);
+      expect(r.pulados.filter((p) => p.motivo === "ja_corrigido_antes")).toEqual([]);
+      const v = await vinculos(c);
+      for (const s of a.linhas) expect(v[s.split("|")[1]]).toBe(`${s.split("|")[3]}|${s.split("|")[4]}`);
+      const k = await um<{ tot: string; pend: string }>(
+        c,
+        `SELECT count(*)::text AS tot, count(*) FILTER (WHERE restaurado_em IS NULL)::text AS pend FROM ${BKP}`,
+      );
+      expect(k).toEqual({ tot: String(2 * a.n), pend: String(a.n) }); // a auditoria da 1a rodada fica
+      // M-1 segue fechado na nova rodada: a pessoa desliga, rodar de novo nao religa
+      await c.query("UPDATE etiquetas SET tamanho_vinculado = NULL WHERE id = $1", [AVERARA_TAM_M]);
+      const r3 = await rodar(c, a.linhas, a.hash, a.n);
+      expect(r3.ligados).toBe(0);
+      expect(r3.pulados.find((p) => p.id === AVERARA_TAM_M)?.motivo).toBe("ja_corrigido_antes");
+      // e o _down seguinte devolve pela gravacao nova
+      await aplicarArquivo(c, b!.down);
+      await c.query("SET LOCAL transaction_timeout = 0");
+      expect(Object.values(await vinculos(c)).every((x) => x === null)).toBe(true);
+    });
+  });
+
   it("M-3: a previa mostra por insumo os modelos que vao a 0 pecas (total > 0 e celula do tamanho ausente/0) - informativo, fora do hash", async () => {
     await withTx(async (c) => {
       await aplicaUrgA(c, "170500");
