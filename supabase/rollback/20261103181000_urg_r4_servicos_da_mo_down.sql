@@ -6,13 +6,13 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public._enviar_modelo_para_cad_core(uuid,text,text)
 --     ANTES  bf28796bcd86538a3a5b516e9cf356c6
---     DEPOIS ada02368e68996e2d52337d68b42c2c4
+--     DEPOIS 47488eabb37b6ee180e17740269bebd5
 --   public._aprovar_servico_mo_core(uuid,uuid,boolean,text)
 --     ANTES  859dd63992e86cc75b7abeab41dee954
 --     DEPOIS 5ce4cc9e8696b1495e8248eccce3f8d3
 --   public._servicos_da_mo_criar(uuid,uuid) (NOVA)
 --     ANTES  ausente
---     DEPOIS 8b008cdb9e69383c5fb6488f4e012c21
+--     DEPOIS 92c0edd9037824726acadab8afc80648
 --   public._servico_mo_preencher_preco(uuid) (NOVA)
 --     ANTES  ausente
 --     DEPOIS f8c56394f5adb07c7a42378978d77aa0
@@ -29,7 +29,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', 'ada02368e68996e2d52337d68b42c2c4'),
+      ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', '47488eabb37b6ee180e17740269bebd5'),
       ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '5ce4cc9e8696b1495e8248eccce3f8d3')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -40,7 +40,7 @@ BEGIN
   END LOOP;
   -- funcoes NOVAS deste bloco: ausentes ou ja com o texto de DEPOIS
   FOR r IN SELECT * FROM (VALUES
-      ('public._servicos_da_mo_criar(uuid,uuid)', '8b008cdb9e69383c5fb6488f4e012c21'),
+      ('public._servicos_da_mo_criar(uuid,uuid)', '92c0edd9037824726acadab8afc80648'),
       ('public._servico_mo_preencher_preco(uuid)', 'f8c56394f5adb07c7a42378978d77aa0')
     ) AS x(f, d) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -246,7 +246,7 @@ BEGIN
   END LOOP;
   -- funcoes NOVAS deste bloco: ausentes ou ja com o texto de DEPOIS
   FOR r IN SELECT * FROM (VALUES
-      ('public._servicos_da_mo_criar(uuid,uuid)', '8b008cdb9e69383c5fb6488f4e012c21'),
+      ('public._servicos_da_mo_criar(uuid,uuid)', '92c0edd9037824726acadab8afc80648'),
       ('public._servico_mo_preencher_preco(uuid)', 'f8c56394f5adb07c7a42378978d77aa0')
     ) AS x(f, d) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));

@@ -4,8 +4,8 @@
 // o bloco é aplicado DENTRO da txn por aplicaUrgb(c, "r4b") (pula se já vivo na cópia). As RPCs rodam como o PAPEL authenticated
 // com o JWT de um usuário comum (não super admin) com as páginas certas. Só na cópia local (DDL em txn contra produção trava o app).
 import { describe, it, expect } from "vitest";
-import type { Client } from "pg";
-import { hasDb, withTx, um, semJwt, TENANT_TESTE, ehBancoLocal } from "./db";
+import { Client } from "pg";
+import { hasDb, withTx, um, semJwt, TENANT_TESTE, USER_TESTE, ehBancoLocal, dbUrl } from "./db";
 import { aplicaUrgb, voltaUrgb, urgbViva, URGB_MIGS } from "./urgb-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { blocoDeLinha, blocoParaPayload } from "@/lib/servicos-payload";
@@ -225,6 +225,60 @@ describe.skipIf(!RODA)("urg R4b — blocos de Serviços nascem da M.O. no Enviar
       expect(
         (await um<{ n: number }>(c, "SELECT count(*)::int AS n FROM public.parcelas_servico WHERE producao_terceirizado_id = ANY($1::uuid[])", [bs.map((b) => b.id)])).n,
       ).toBe(0);
+    });
+  });
+
+  it("1c) ordem: os blocos nascem com created_at crescente na ORDEM da M.O. (categoria.ordem, nome) — a do PCP (created_at, id)", async () => {
+    await withTx(async (c) => {
+      const s = await cenario(c);
+      // 3 serviços salvos fora da ordem da M.O.: Z (ordem 30), X (ordem 10), Y (ordem 20)
+      const suf = Math.random().toString(36).slice(2, 8);
+      const cat = async (n: string, ordem: number) =>
+        semJwt(c, async () =>
+          (
+            await um<{ id: string }>(
+              c,
+              "INSERT INTO public.categorias_terceirizado (tenant_id, nome, etapa, ordem) VALUES ($1, $2, 'ate_costura', $3) RETURNING id",
+              [T, `Ordem R4b ${n} ${suf}`, ordem],
+            )
+          ).id,
+        );
+      const z = await cat("Z", 30), x = await cat("X", 10), y = await cat("Y", 20);
+      const m = await semJwt(c, async () =>
+        (
+          await um<{ id: string }>(
+            c,
+            `INSERT INTO public.modelos (tenant_id, nome, ordem_criacao_enviada, status_desenvolvimento, origem)
+             VALUES ($1, $2, true, 'aprovado', 'interno') RETURNING id`,
+            [T, `M R4b ordem ${suf}`],
+          )
+        ).id,
+      );
+      for (const k of [z, x, y]) {
+        // uma linha por Salvar (created_at das linhas também fora da ordem da M.O.)
+        const atuais = (await c.query("SELECT id, categoria_terceirizado_id AS cat FROM modelo_servico_mo WHERE modelo_id = $1", [m])).rows;
+        expect(
+          txt(await rpc(c, "SELECT public.salvar_modelo_servico_mo($1, $2::jsonb)", [
+            m,
+            JSON.stringify([...atuais.map((l) => ({ id: l.id, categoria_terceirizado_id: l.cat, valor: 1 })), { categoria_terceirizado_id: k, valor: 1 }]),
+          ])),
+        ).toBe("PASSOU");
+      }
+      await voltaAprovado(c, m);
+      const cad = await enviar(c, m);
+      const r = (
+        await c.query(
+          "SELECT categoria_terceirizado_id AS cat, created_at FROM producao_terceirizados WHERE cad_id = $1 AND ativo ORDER BY created_at, id",
+          [cad],
+        )
+      ).rows as { cat: string; created_at: Date }[];
+      expect(r.map((b) => b.cat)).toEqual([x, y, z]);
+      const us = (
+        await c.query("SELECT (extract(epoch from created_at) * 1000000)::bigint AS us FROM producao_terceirizados WHERE cad_id = $1 ORDER BY created_at", [cad])
+      ).rows.map((x) => Number(x.us));
+      expect(us[1] - us[0]).toBe(1);
+      expect(us[2] - us[1]).toBe(1);
+      void s;
     });
   });
 
@@ -485,6 +539,90 @@ describe.skipIf(!RODA)("urg R4b — blocos de Serviços nascem da M.O. no Enviar
       for (const sig of [ENVIAR_CORE, APROVAR_CORE]) expect(d1[sig], sig).toBe(B.URGB_MD5[sig].depois);
     });
   });
+});
+
+/**
+ * Fix round 1 — ordem de trava (2 conexões REAIS na cópia local, as duas revertidas). B imita o `salvar_terceirizados`: pega o
+ * advisory do CAD (hashtext(cad_id)) e depois grava a linha do `cad` (observacoes_molde). A chama o envio no caminho "CAD já existia".
+ * Ordem ANTIGA (texto da 1ª versão da r4b: UPDATE cad e só depois o advisory do helper) = 40P01; ordem NOVA (advisory antes) = B passa
+ * e A termina depois que B solta.
+ */
+describe.skipIf(!RODA)("urg R4b — fix round 1: envio x Salvar do PCP no mesmo CAD (ordem de trava)", () => {
+  const LINHA_LOCK = "    PERFORM pg_advisory_xact_lock(hashtext(v_cad_id::text));  -- [urg r4] mesma chave/ordem do salvar_terceirizados\n";
+  const MD5_RODADA0 = "ada02368e68996e2d52337d68b42c2c4"; // _enviar_modelo_para_cad_core da 1ª versão (sem a linha acima)
+
+  async function rodada(
+    ordemAntiga: boolean,
+  ): Promise<{ a: PromiseSettledResult<unknown>; b: PromiseSettledResult<unknown>; esperou: boolean }> {
+    const a = new Client({ connectionString: dbUrl()!, ssl: false });
+    const b = new Client({ connectionString: dbUrl()!, ssl: false });
+    await a.connect();
+    await b.connect();
+    try {
+      await a.query("BEGIN");
+      await b.query("BEGIN");
+      for (const x of [a, b]) await x.query("SET LOCAL lock_timeout = '15s'");
+      await aplicaUrgb(a, "r4b");
+      await a.query("SET LOCAL lock_timeout = '15s'");
+      if (ordemAntiga) {
+        const def = (await um<{ d: string }>(a, "SELECT pg_get_functiondef($1::regprocedure) AS d", [ENVIAR_CORE])).d;
+        expect(def.split(LINHA_LOCK).length - 1).toBe(1);
+        const velho = def.replace(LINHA_LOCK, "");
+        await a.query(velho);
+        expect(await md5Fn(a, ENVIAR_CORE)).toBe(MD5_RODADA0);
+      }
+      // card existente da Loja Teste com CAD (dado da cópia, só lido; tudo revertido)
+      const alvo = await um<{ m: string; cad: string } | undefined>(
+        a,
+        `SELECT m.id AS m, k.id AS cad FROM public.modelos m JOIN public.cad k ON k.modelo_id = m.id
+          WHERE m.tenant_id = $1 AND lower(coalesce(m.status_planejamento, '')) <> 'reprovado' ORDER BY m.id LIMIT 1`,
+        [T],
+      );
+      expect(alvo, "a Loja Teste da cópia precisa de 1 card com CAD").toBeTruthy();
+      await a.query("SELECT set_config('app.kanban_chave', 'rpc', true)");
+      await a.query("UPDATE public.tenant_config SET kanban_automatico = false, explosao_envio_status = NULL WHERE tenant_id = $1", [T]);
+      await a.query("SELECT set_config('app.kanban_chave', '', true)");
+      await a.query("UPDATE public.modelos SET status_desenvolvimento = 'aprovado', ordem_criacao_enviada = true WHERE id = $1", [alvo!.m]);
+      await a.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_TESTE, role: "authenticated" })]);
+      await a.query("UPDATE public.users SET tenant_id = $1 WHERE id = $2", [T, USER_TESTE]);
+      const apid = (await um<{ p: number }>(a, "SELECT pg_backend_pid() AS p")).p;
+
+      await b.query("SELECT pg_advisory_xact_lock(hashtext($1::text))", [alvo!.cad]); // B = salvar_terceirizados (1º passo)
+      const pa = a.query(`SELECT ${ENVIAR_CORE.replace("(uuid,text,text)", "")}($1) AS cad`, [alvo!.m]);
+      pa.catch(() => {});
+      // espera A ficar parado numa trava (o advisory que B segura)
+      let esperou = false;
+      for (let i = 0; i < 100 && !esperou; i++) {
+        const w = await um<{ t: string | null }>(b, "SELECT wait_event_type AS t FROM pg_stat_activity WHERE pid = $1", [apid]);
+        esperou = w.t === "Lock";
+        if (esperou) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      // B = salvar_terceirizados (fim: grava observacoes_molde do cad)
+      const pb = b.query("UPDATE public.cad SET observacoes_molde = observacoes_molde WHERE id = $1", [alvo!.cad]);
+      pb.catch(() => {});
+      const rb = await Promise.allSettled([pb]);
+      await b.query("ROLLBACK").catch(() => {});
+      const ra = await Promise.allSettled([pa]);
+      return { a: ra[0], b: rb[0], esperou };
+    } finally {
+      await a.query("ROLLBACK").catch(() => {});
+      await b.query("ROLLBACK").catch(() => {});
+      await a.end();
+      await b.end();
+    }
+  }
+  const codigo = (r: PromiseSettledResult<unknown>) => (r.status === "rejected" ? String((r.reason as { code?: string }).code) : "ok");
+
+  it("ordem ANTIGA (1ª versão da r4b) = deadlock 40P01; ordem NOVA = o Salvar do PCP passa e o envio termina depois", async () => {
+    const velho = await rodada(true);
+    expect(velho.esperou).toBe(true);
+    expect([codigo(velho.a), codigo(velho.b)]).toContain("40P01");
+    const novo = await rodada(false);
+    expect(novo.esperou).toBe(true); // A parou no advisory do CAD ANTES de tocar a linha do cad
+    expect(codigo(novo.b)).toBe("ok");
+    expect(codigo(novo.a)).toBe("ok");
+  }, 60000);
 });
 
 /** Igual a `cenario`, mas com a r4b FORA (para provar a volta): mesma preparação, sem aplicaUrgb. */

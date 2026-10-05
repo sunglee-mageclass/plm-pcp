@@ -46,7 +46,7 @@ export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
     "URGB_MD5": {
       "public._enviar_modelo_para_cad_core(uuid,text,text)": {
         "antes": "bf28796bcd86538a3a5b516e9cf356c6",
-        "depois": "ada02368e68996e2d52337d68b42c2c4"
+        "depois": "47488eabb37b6ee180e17740269bebd5"
       },
       "public._aprovar_servico_mo_core(uuid,uuid,boolean,text)": {
         "antes": "859dd63992e86cc75b7abeab41dee954",
@@ -58,7 +58,7 @@ export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
       "public._aprovar_servico_mo_core(uuid,uuid,boolean,text)": "{postgres=X/postgres,service_role=X/postgres}"
     },
     "URGB_NOVAS": {
-      "public._servicos_da_mo_criar(uuid,uuid)": "8b008cdb9e69383c5fb6488f4e012c21",
+      "public._servicos_da_mo_criar(uuid,uuid)": "92c0edd9037824726acadab8afc80648",
       "public._servico_mo_preencher_preco(uuid)": "f8c56394f5adb07c7a42378978d77aa0"
     }
   }

@@ -465,7 +465,10 @@ export function TerceirizadosDetail({
         .from("producao_terceirizados")
         .select("*")
         .eq("cad_id", cad!.id)
-        .eq("ativo", true);
+        .eq("ativo", true)
+        // [urg R4b] ordem estável: os blocos que nascem da M.O. no Enviar à Explosão têm created_at crescente na ordem da M.O.
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
       if (error) throw error;
       return data ?? [];
     },

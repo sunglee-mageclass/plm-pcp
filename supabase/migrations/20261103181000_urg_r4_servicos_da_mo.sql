@@ -12,6 +12,9 @@
 --      blocos ATIVOS, externos, ligados a ela e com preco NULL ou 0 (Ruling 4); preco > 0 nunca muda (Ruling 5); rev + 1.
 --   4) _enviar_modelo_para_cad_core: nos 2 caminhos (CAD ja existia / CAD novo), depois de restaurar a GUC
 --      app.explosao_sistema, chama a (2). _aprovar_servico_mo_core: aprovou -> chama a (3).
+--      Fix round 1: no caminho 'CAD ja existia' o advisory do CAD (hashtext(cad_id), o MESMO do salvar_terceirizados) vem
+--      ANTES do UPDATE do cad - mesma ordem de trava do Salvar do PCP (sem isto: 40P01 com os 2 no mesmo CAD).
+--      Blocos criados juntos ganham created_at crescente na ordem da M.O. (o PCP lista por created_at, id).
 -- ACL, SECURITY e search_path das 2 redefinidas ficam iguais (CREATE OR REPLACE preserva; pos-condicao confere).
 -- Nenhum dado existente muda (blocos so nascem no proximo Enviar a Explosao de CAD sem blocos).
 -- Trava: ADD COLUMN ... REFERENCES = AccessExclusiveLock em producao_terceirizados + ShareRowExclusiveLock em
@@ -24,13 +27,13 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public._enviar_modelo_para_cad_core(uuid,text,text)
 --     ANTES  bf28796bcd86538a3a5b516e9cf356c6
---     DEPOIS ada02368e68996e2d52337d68b42c2c4
+--     DEPOIS 47488eabb37b6ee180e17740269bebd5
 --   public._aprovar_servico_mo_core(uuid,uuid,boolean,text)
 --     ANTES  859dd63992e86cc75b7abeab41dee954
 --     DEPOIS 5ce4cc9e8696b1495e8248eccce3f8d3
 --   public._servicos_da_mo_criar(uuid,uuid) (NOVA)
 --     ANTES  ausente
---     DEPOIS 8b008cdb9e69383c5fb6488f4e012c21
+--     DEPOIS 92c0edd9037824726acadab8afc80648
 --   public._servico_mo_preencher_preco(uuid) (NOVA)
 --     ANTES  ausente
 --     DEPOIS f8c56394f5adb07c7a42378978d77aa0
@@ -51,7 +54,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', 'ada02368e68996e2d52337d68b42c2c4'),
+      ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', '47488eabb37b6ee180e17740269bebd5'),
       ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '5ce4cc9e8696b1495e8248eccce3f8d3')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -70,7 +73,7 @@ BEGIN
   END IF;
   -- funcoes NOVAS deste bloco: ausentes ou ja com o texto de DEPOIS
   FOR r IN SELECT * FROM (VALUES
-      ('public._servicos_da_mo_criar(uuid,uuid)', '8b008cdb9e69383c5fb6488f4e012c21'),
+      ('public._servicos_da_mo_criar(uuid,uuid)', '92c0edd9037824726acadab8afc80648'),
       ('public._servico_mo_preencher_preco(uuid)', 'f8c56394f5adb07c7a42378978d77aa0')
     ) AS x(f, d) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -107,11 +110,15 @@ BEGIN
   IF NOT public._tenant_modulo_ligado(v_tenant, 'producao') THEN RETURN 0; END IF;
   PERFORM pg_advisory_xact_lock(hashtext(_cad_id::text));   -- mesma chave do salvar_terceirizados (serializa com o PCP)
   IF EXISTS (SELECT 1 FROM public.producao_terceirizados WHERE cad_id = _cad_id) THEN RETURN 0; END IF;
+  -- created_at distinto e crescente na ORDEM das linhas de M.O. (a mesma do modelo_mo_resumo): a tela do PCP lista por
+  -- created_at, id - os blocos aparecem na ordem da M.O. (senao todos teriam o mesmo now()).
   INSERT INTO public.producao_terceirizados
-    (cad_id, tenant_id, categoria_terceirizado_id, interno, empresa_id, ativo, preco_metro_unidade, numero_parcelas, mo_linha_id)
+    (cad_id, tenant_id, categoria_terceirizado_id, interno, empresa_id, ativo, preco_metro_unidade, numero_parcelas, mo_linha_id,
+     created_at)
   SELECT _cad_id, v_tenant, s.categoria_terceirizado_id, false,
          (SELECT e.id FROM public.empresas e WHERE e.id = s.empresa_id AND e.tenant_id = v_tenant AND e.tipo = 'servico'),
-         true, CASE WHEN s.aprovado IS TRUE AND COALESCE(s.valor, 0) > 0 THEN s.valor END, 1, s.id
+         true, CASE WHEN s.aprovado IS TRUE AND COALESCE(s.valor, 0) > 0 THEN s.valor END, 1, s.id,
+         now() + make_interval(secs => (row_number() OVER (ORDER BY ct.ordem, ct.nome, s.created_at, s.id) - 1) / 1000000.0)
     FROM public.modelo_servico_mo s
     LEFT JOIN public.categorias_terceirizado ct ON ct.id = s.categoria_terceirizado_id
    WHERE s.modelo_id = _modelo_id AND s.tenant_id = v_tenant
@@ -210,6 +217,7 @@ BEGIN
   -- Só atualiza observações/ficha (se informadas) e marca o modelo como enviado à Explosão.
   SELECT id INTO v_cad_id FROM public.cad WHERE modelo_id = _modelo_id ORDER BY id LIMIT 1;
   IF v_cad_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtext(v_cad_id::text));  -- [urg r4] mesma chave/ordem do salvar_terceirizados
     UPDATE public.cad
        SET observacoes_tecnicas = COALESCE(_observacoes_tecnicas, observacoes_tecnicas),
            ficha_medida_url     = COALESCE(_ficha_medida_url, ficha_medida_url)
@@ -326,7 +334,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'ada02368e68996e2d52337d68b42c2c4', '{postgres=X/postgres,service_role=X/postgres}'),
+      ('public._enviar_modelo_para_cad_core(uuid,text,text)', '47488eabb37b6ee180e17740269bebd5', '{postgres=X/postgres,service_role=X/postgres}'),
       ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '5ce4cc9e8696b1495e8248eccce3f8d3', '{postgres=X/postgres,service_role=X/postgres}')
     ) AS x(f, m, acl) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -364,7 +372,7 @@ BEGIN
     RAISE EXCEPTION 'urg_r4b: pos-condicao falhou nos privilegios da coluna mo_linha_id' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public._servicos_da_mo_criar(uuid,uuid)', '8b008cdb9e69383c5fb6488f4e012c21'),
+      ('public._servicos_da_mo_criar(uuid,uuid)', '92c0edd9037824726acadab8afc80648'),
       ('public._servico_mo_preencher_preco(uuid)', 'f8c56394f5adb07c7a42378978d77aa0')
     ) AS x(f, d) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
