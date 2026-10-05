@@ -27,6 +27,24 @@ export const FASES: readonly Fase[] = [
   { key: "lancamento", label: "Lançamento", short: "Lançam." },
 ] as const;
 
+/**
+ * [modularidade, R13] Módulo de que uma etapa do Leadtime depende, para a CONFIG DA LOJA esconder o que a loja não usa:
+ * Explosão (`cad_corte`) mora na Entrada e Saída; Serviços/CQ/Direcionamento (e Serviços por categoria) são da Produção.
+ * Planejamento, colunas do kanban e Lançamento não dependem de módulo (Lançar funciona sem Produção). Esconder NÃO apaga:
+ * quem chama só filtra a EXIBIÇÃO; o que já está gravado em `tenant_config.leadtime` segue como está.
+ */
+export function moduloDaEtapaLeadtime(key: string): "entrada_saida" | "producao" | null {
+  if (key === "cad_corte") return "entrada_saida";
+  if (key === "servicos" || key === "cq" || key === "direcionamento" || key.startsWith("servico_cat:")) return "producao";
+  return null;
+}
+
+/** A etapa aparece na Config do Leadtime? `modules` = mapa resolvido da loja (`useTenantModules().modules`, depois do `pronto`). */
+export function etapaLeadtimeVisivel(key: string, modules: { entrada_saida?: boolean; producao?: boolean }): boolean {
+  const m = moduloDaEtapaLeadtime(key);
+  return m === null || modules[m] !== false;
+}
+
 /** Fase de uma etapa-chave da RPC (colapsa o kanban em Desenvolvimento; cad_corte→Serviços). */
 export function faseDeEtapa(etapa: string): FaseKey {
   if (etapa === "planejamento") return "planejamento";

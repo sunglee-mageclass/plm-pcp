@@ -54,6 +54,7 @@ import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { resolveStatusKey, normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/kanban-status";
 import { matchesTable } from "@/lib/realtime-invalidation-map";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
+import { etapaLeadtimeVisivel } from "@/lib/leadtime";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 import { REVENDA_COND_NA, requisitosHerdados, condicoesForaDoModulo } from "@/lib/kanban-condicoes";
@@ -1330,6 +1331,7 @@ function ConfiguracoesLojaPage() {
           tenantId={data?.tenantId ?? null}
           statusKanban={cfg.status_kanban}
           value={cfg.leadtime}
+          modules={modules}
           onChange={(leadtime) => setCfg((c) => ({ ...c, leadtime }))}
         />
       </div>
@@ -1681,11 +1683,14 @@ function LeadtimeConfigCard({
   tenantId,
   statusKanban,
   value,
+  modules,
   onChange,
 }: {
   tenantId: string | null;
   statusKanban: string[];
   value: LtConfig;
+  /** Mapa resolvido da loja (só chega aqui depois do `pronto`). Esconde Explosão sem E&S e Serviços/CQ/Direcionamento sem Produção. */
+  modules: Partial<Record<ModuleKey, boolean>>;
   onChange: (leadtime: LtConfig) => void;
 }) {
   // Categorias de serviço da loja — p/ acompanhar Serviços "micro" (por categoria).
@@ -1718,16 +1723,20 @@ function LeadtimeConfigCard({
 
   // Lista ordenada de etapas disponíveis, na ORDEM DO FLUXO (define a ordem salva):
   // Planejamento → Desenvolvimento (kanban) → Produção (macro + serviços-micro).
-  const disponiveis: { key: string; tipo: LtTipo; label: string }[] = [
+  // `todas` inclui as etapas de módulo desligado: o `commit` ordena/regrava por ELAS, então esconder não apaga o que já está salvo.
+  const todas: { key: string; tipo: LtTipo; label: string }[] = [
     { ...LEADTIME_PLANEJAMENTO, tipo: "macro" as const },
     ...statusKanban.map((label) => ({ key: "kanban:" + resolveStatusKey(label), tipo: "kanban" as const, label })),
     ...producaoItens.filter((it) => !it.caption).map((it) => ({ key: it.key, tipo: it.tipo!, label: it.label! })),
   ];
+  const visivel = (key: string) => etapaLeadtimeVisivel(key, modules);
+  const disponiveis = todas.filter((d) => visivel(d.key));
+  const producaoVisiveis = producaoItens.filter((it) => visivel(it.caption ? "servicos" : it.key));
   const sel = new Map(value.etapas.map((e) => [e.key, e]));
 
   // Reescreve a seleção sempre na ordem canônica da lista de disponíveis (preserva slaServico).
   function commit(next: Map<string, LtEtapa>) {
-    onChange({ ...value, etapas: disponiveis.filter((d) => next.has(d.key)).map((d) => next.get(d.key)!) });
+    onChange({ ...value, etapas: todas.filter((d) => next.has(d.key)).map((d) => next.get(d.key)!) });
   }
   function toggle(d: { key: string; tipo: LtTipo }, on: boolean) {
     const m = new Map(sel);
@@ -1772,7 +1781,7 @@ function LeadtimeConfigCard({
         />
         <LeadtimeGrupo
           titulo="Produção"
-          itens={producaoItens}
+          itens={producaoVisiveis}
           sel={sel}
           onToggle={toggle}
           onIdeal={setIdeal}
@@ -1780,6 +1789,7 @@ function LeadtimeConfigCard({
 
         {/* Prazo de Serviços vindo do "SLA de Serviços" da Subcategoria 1 do item (varia por
             produto). Opções filtradas aos serviços de confecção (oficina/costura/PL). */}
+        {modules.producao !== false && (
         <div className="rounded-md border p-3">
           <p className="text-sm font-medium">Prazo de Serviços pelo SLA da Subcategoria</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1800,6 +1810,7 @@ function LeadtimeConfigCard({
             </SelectContent>
           </Select>
         </div>
+        )}
       </CardContent>
     </Card>
   );
