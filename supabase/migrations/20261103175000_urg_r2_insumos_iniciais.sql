@@ -9,7 +9,8 @@
 --      modelo_etiquetas SO se o card e interno e ainda nao tem nenhuma. NUNCA derruba a criacao: erro vira WARNING (ASCII) e 0.
 --   2) NOVA public.salvar_insumos_iniciais(uuid, jsonb) RETURNS integer (RPC do cliente; DEFINER; EXECUTE so authenticated e
 --      service_role): login -> modulo Criacao -> pagina Planejamento OU Desenvolvimento -> card da loja (FOR UPDATE) -> so interno
---      -> so sem insumos -> valida a lista (<= 20; insumo/cor DA LOJA; consumo numero 0..9999) e grava. Recusas: 42501
+--      -> so sem insumos -> valida a lista (<= 20; insumo/cor DA LOJA; consumo numero 0..9999, <= 4 casas; Perda % opcional
+--      0..100, <= 2 casas, ausente = 0) e grava. Recusas: 42501
 --      nao_autenticado:/modulo_desligado:/sem_permissao_pagina:, P0001 nao_encontrado: modelo / insumos_iniciais_so_interno: /
 --      insumos_iniciais_ja_existem: / insumos_iniciais_invalidos: (ASCII; a tela traduz). Usada pelo "+ Novo" (Dialog) e pelo
 --      "Criar varios cards" (front, tarefa propria).
@@ -37,9 +38,9 @@
 --   public.importar_modelo_linha(jsonb,jsonb)
 --     ANTES  db0c3dcbd90ded80d210b96747e01cb1
 --     DEPOIS 4c53027d97a3b2a60108098fe8e1849a
---   public._insumos_padrao_aplicar(uuid)  (NOVA)  DEPOIS c57de860de7c4dbd950856de2376ce23  NEUTRO fa0d3ce7bb39628db1a6d33c46f4d289
---   public.salvar_insumos_iniciais(uuid,jsonb)  (NOVA)  DEPOIS 89ab4ba9d6a060dca5c679aa60a16570  NEUTRO 9a0c13cdab6ca7720c6669b964faa052
---   exige a 20261103174000 viva: public.salvar_config_loja(uuid,jsonb,jsonb,boolean) = f43aabf3946e2c142d51b7cba45e04bc e a coluna tenant_config.insumos_padrao.
+--   public._insumos_padrao_aplicar(uuid)  (NOVA)  DEPOIS 08197edd4d3ce0d3558c7546c693d961  NEUTRO fa0d3ce7bb39628db1a6d33c46f4d289
+--   public.salvar_insumos_iniciais(uuid,jsonb)  (NOVA)  DEPOIS 44da042744bc302a7b129201de93aeac  NEUTRO 9a0c13cdab6ca7720c6669b964faa052
+--   exige a 20261103174000 viva: public.salvar_config_loja(uuid,jsonb,jsonb,boolean) = 27fdf9f2c9b2d1fe49577e9d30eaa574 e a coluna tenant_config.insumos_padrao.
 -- ====================================================================================
 -- Volta: supabase/rollback/20261103175000_urg_r2_insumos_iniciais_down.sql (devolve os 2 textos de ANTES e NEUTRALIZA as 2 novas; sem trava de tabela) - ANTES do
 -- 20261103174000_down. DROP das 2 novas: supabase/rollback/20261103175000_urg_r2_insumos_iniciais_down_drop.sql (opcional, depois). Linhas de insumo ja gravadas FICAM.
@@ -71,8 +72,8 @@ BEGIN
     END IF;
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
-      ('public._insumos_padrao_aplicar(uuid)', 'c57de860de7c4dbd950856de2376ce23', 'fa0d3ce7bb39628db1a6d33c46f4d289'),
-      ('public.salvar_insumos_iniciais(uuid,jsonb)', '89ab4ba9d6a060dca5c679aa60a16570', '9a0c13cdab6ca7720c6669b964faa052')
+      ('public._insumos_padrao_aplicar(uuid)', '08197edd4d3ce0d3558c7546c693d961', 'fa0d3ce7bb39628db1a6d33c46f4d289'),
+      ('public.salvar_insumos_iniciais(uuid,jsonb)', '44da042744bc302a7b129201de93aeac', '9a0c13cdab6ca7720c6669b964faa052')
     ) AS x(fn, depois, neutro) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.fn)));
     IF v IS NOT NULL AND v NOT IN (r.depois, r.neutro) THEN
@@ -93,7 +94,7 @@ AS $function$
 -- na mesma transacao. So age se o card e origem='interno' e ainda NAO tem nenhuma linha em modelo_etiquetas (nunca apaga nem soma).
 -- A coluna pode ter sido gravada CRUA (UPDATE direto do admin da loja, fora de salvar_config_loja): RE-VALIDA cada item e IGNORA o
 -- que nao serve - item que nao e objeto; insumo que nao e texto uuid ou nao e de etiquetas DA LOJA DO CARD (outra loja, apagado);
--- consumo que nao e numero JSON de 0 a 9999; par (insumo, cor) repetido (fica o 1o). Cor que nao e texto uuid de uma cor DA LOJA
+-- consumo que nao e numero JSON de 0 a 9999 com no maximo 4 casas; par (insumo, cor) repetido (fica o 1o). Cor que nao e texto uuid de uma cor DA LOJA
 -- presente nas variantes do insumo entra como SEM cor (mesma regra do pre-preenchimento da tela). No maximo 20 linhas (limite do
 -- editor), na ordem da lista; numero = posicao, perda 0, custo 0 (a fila de custo calcula no COMMIT).
 -- NUNCA derruba a criacao do card: qualquer erro daqui e engolido (sub-bloco), vira WARNING e devolve 0 (o card nasce sem os
@@ -136,10 +137,11 @@ BEGIN
       CONTINUE WHEN (v_it ->> 'etiqueta_id') !~ '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$';
       v_e := (v_it ->> 'etiqueta_id')::uuid;
       CONTINUE WHEN NOT EXISTS (SELECT 1 FROM public.etiquetas e WHERE e.id = v_e AND e.tenant_id = v_tenant);
-      -- consumo: numero JSON de 0 a 9999
+      -- consumo: numero JSON de 0 a 9999, no maximo 4 casas (a mesma regra da Config da Loja)
       CONTINUE WHEN jsonb_typeof(v_it -> 'consumo') IS DISTINCT FROM 'number';
       v_q := (v_it ->> 'consumo')::numeric;
       CONTINUE WHEN v_q < 0 OR v_q > 9999;
+      CONTINUE WHEN v_q <> round(v_q, 4);
       -- cor: so vale uuid de uma cor da loja presente nas variantes do insumo; senao, sem cor
       v_c := NULL;
       v_ct := CASE WHEN jsonb_typeof(v_it -> 'cor_id') = 'string' THEN v_it ->> 'cor_id' END;
@@ -185,7 +187,9 @@ AS $function$
 -- cards" (P-306 B). Portoes: login; modulo Criacao (_exige_modulos); pagina Planejamento OU Desenvolvimento (_seg_exige_pagina - BOM
 -- inicial, precedente M1 da S3c), ANTES de qualquer busca. So card DA LOJA (senao nao_encontrado), so interno, so SEM nenhuma linha
 -- de insumo (nunca apaga nem soma). Linhas: lista de ate 20 (limite do editor) de {etiqueta_id: insumo DA LOJA, cor_id: ausente,
--- null, "" ou cor DA LOJA, consumo: numero JSON de 0 a 9999}; numero = posicao, perda 0, custo 0 (a fila de custo calcula no COMMIT;
+-- null, "" ou cor DA LOJA, consumo: numero JSON de 0 a 9999 com no maximo 4 casas, loss_percent (Perda %, opcional): ausente/null = 0,
+-- numero JSON de 0 a 100 com no maximo 2 casas (as casas das colunas de modelo_etiquetas)}; numero = posicao, custo 0 (a fila de custo
+-- calcula no COMMIT;
 -- o gatilho de pagina de modelo_etiquetas so morde o papel do cliente e o B3 dele confere a loja de novo). Recusas ASCII com prefixo
 -- (a tela traduz). Devolve quantas linhas gravou.
 DECLARE
@@ -197,6 +201,8 @@ DECLARE
   v_es uuid[] := ARRAY[]::uuid[];
   v_cs uuid[] := ARRAY[]::uuid[];
   v_qs numeric[] := ARRAY[]::numeric[];
+  v_ls numeric[] := ARRAY[]::numeric[];
+  v_l numeric;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'nao_autenticado: login' USING ERRCODE = '42501';
@@ -259,16 +265,34 @@ BEGIN
     IF (v_it ->> 'consumo')::numeric < 0 OR (v_it ->> 'consumo')::numeric > 9999 THEN
       RAISE EXCEPTION 'insumos_iniciais_invalidos: linha %: consumo precisa ser um numero de 0 a 9999', v_i USING ERRCODE = 'P0001';
     END IF;
+    IF (v_it ->> 'consumo')::numeric <> round((v_it ->> 'consumo')::numeric, 4) THEN
+      RAISE EXCEPTION 'insumos_iniciais_invalidos: linha %: consumo com no maximo 4 casas decimais', v_i USING ERRCODE = 'P0001';
+    END IF;
+    -- perda (opcional): ausente ou null = 0; numero JSON de 0 a 100 com no maximo 2 casas (loss_percent numeric(10,2))
+    v_l := 0;
+    IF coalesce(jsonb_typeof(v_it -> 'loss_percent'), 'null') <> 'null' THEN
+      IF jsonb_typeof(v_it -> 'loss_percent') <> 'number' THEN
+        RAISE EXCEPTION 'insumos_iniciais_invalidos: linha %: perda precisa ser um numero de 0 a 100', v_i USING ERRCODE = 'P0001';
+      END IF;
+      v_l := (v_it ->> 'loss_percent')::numeric;
+      IF v_l < 0 OR v_l > 100 THEN
+        RAISE EXCEPTION 'insumos_iniciais_invalidos: linha %: perda precisa ser um numero de 0 a 100', v_i USING ERRCODE = 'P0001';
+      END IF;
+      IF v_l <> round(v_l, 2) THEN
+        RAISE EXCEPTION 'insumos_iniciais_invalidos: linha %: perda com no maximo 2 casas decimais', v_i USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
     v_es := array_append(v_es, (v_it ->> 'etiqueta_id')::uuid);
     v_cs := array_append(v_cs, v_ct::uuid);
     v_qs := array_append(v_qs, (v_it ->> 'consumo')::numeric);
+    v_ls := array_append(v_ls, v_l);
   END LOOP;
   IF cardinality(v_es) = 0 THEN
     RETURN 0;
   END IF;
   INSERT INTO public.modelo_etiquetas (tenant_id, modelo_id, etiqueta_id, cor_id, numero, consumo, loss_percent, custo_previsto)
-  SELECT v_tenant, _modelo_id, u.e, u.c, u.o::integer, u.q, 0, 0
-    FROM unnest(v_es, v_cs, v_qs) WITH ORDINALITY AS u(e, c, q, o)
+  SELECT v_tenant, _modelo_id, u.e, u.c, u.o::integer, u.q, u.l, 0
+    FROM unnest(v_es, v_cs, v_qs, v_ls) WITH ORDINALITY AS u(e, c, q, l, o)
    ORDER BY u.o;
   RETURN cardinality(v_es);
 END;
@@ -468,8 +492,8 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)', '5814a5907981617a1b7c731941177143'),
       ('public.importar_modelo_linha(jsonb,jsonb)', '4c53027d97a3b2a60108098fe8e1849a'),
-      ('public._insumos_padrao_aplicar(uuid)', 'c57de860de7c4dbd950856de2376ce23'),
-      ('public.salvar_insumos_iniciais(uuid,jsonb)', '89ab4ba9d6a060dca5c679aa60a16570')
+      ('public._insumos_padrao_aplicar(uuid)', '08197edd4d3ce0d3558c7546c693d961'),
+      ('public.salvar_insumos_iniciais(uuid,jsonb)', '44da042744bc302a7b129201de93aeac')
     ) AS x(fn, m) LOOP
     IF md5(pg_get_functiondef(to_regprocedure(r.fn))) IS DISTINCT FROM r.m THEN
       RAISE EXCEPTION 'urg_r2_175000: pos-condicao falhou no texto de % (esperado %)', r.fn, r.m USING ERRCODE = 'P0001';

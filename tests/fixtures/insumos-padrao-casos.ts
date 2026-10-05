@@ -5,7 +5,8 @@
 // Sem import de codigo do app (o teste SQL importa so este arquivo). Toda entrada e serializavel em JSON.
 // Mudou a regra? Mude SQL, TS e AQUI.
 // Regras fixadas aqui (o TS deve concordar):
-//  - a lista e um ARRAY JSON (null/objeto/texto = recusa); no maximo 50 itens (o limite e conferido ANTES dos itens).
+//  - a lista e um ARRAY JSON (null/objeto/texto = recusa); no maximo 20 itens (= limite do editor de insumos do card; fix round 1
+//    da T10 - era 50) - o limite e conferido ANTES dos itens.
 //  - itens conferidos NA ORDEM; a 1a falha decide a mensagem; "item N" e 1-based.
 //  - item = objeto JSON (null/texto/array = "formato invalido").
 //  - etiqueta_id: texto no formato uuid com hifens (8-4-4-4-12, hex em qualquer caixa, sem espacos/chaves); ausente/null/outro
@@ -13,7 +14,8 @@
 //    (casos soServidor).
 //  - cor_id: ausente, null ou "" (exato) = sem cor (null). Texto nao vazio = mesmo formato uuid ("  " e recusado); outro tipo
 //    (numero, booleano, objeto) = recusa. O SERVIDOR tambem exige que exista em cores DA LOJA.
-//  - consumo: NUMERO JSON (texto, mesmo "1.5", e recusado), 0 <= consumo <= 9999.
+//  - consumo: NUMERO JSON (texto, mesmo "1.5", e recusado), 0 <= consumo <= 9999, no maximo 4 casas decimais (=
+//    modelo_etiquetas.consumo numeric(10,4); "1.10" vale - conta o VALOR, nao a grafia). Ordem: tipo, faixa, casas.
 //  - par (insumo, cor) repetido = recusa no 2o (comparado JA normalizado: caixa do uuid e "" x ausente nao contam).
 //  - normalizado: [{etiqueta_id, cor_id, consumo}] na MESMA ordem, so essas 3 chaves; uuid canonico (minusculo); cor sem valor =
 //    null; consumo numerico (o mesmo numero).
@@ -105,15 +107,23 @@ export const CASOS_NORMALIZA: CasoNormaliza[] = [
     entrada: [item(E1, C1, 0.125)],
     esperado: [{ etiqueta_id: E1, cor_id: C1, consumo: 0.125 }],
   },
+  {
+    nome: "consumo com 4 casas (o maximo)",
+    entrada: [item(E1, null, 1.2345), item(E2, C2, 9998.9999)],
+    esperado: [
+      { etiqueta_id: E1, cor_id: null, consumo: 1.2345 },
+      { etiqueta_id: E2, cor_id: C2, consumo: 9998.9999 },
+    ],
+  },
 ];
 
 export const CASOS_RECUSA: CasoRecusa[] = [
   { nome: "null", entrada: null, motivo: "precisa ser uma lista" },
   { nome: "objeto", entrada: { etiqueta_id: E1 }, motivo: "precisa ser uma lista" },
   { nome: "texto", entrada: "[]", motivo: "precisa ser uma lista" },
-  { nome: "51 itens", entrada: repete(51, item(E1, null, 1)), motivo: "no máximo 50 insumos (veio 51)" },
-  // 50 = dentro do limite: a recusa e a do item repetido, nao a do tamanho
-  { nome: "50 itens repetidos (limite inclusivo)", entrada: repete(50, item(E1, null, 1)), motivo: "item 2: insumo e cor repetidos (já no item 1)" },
+  { nome: "21 itens", entrada: repete(21, item(E1, null, 1)), motivo: "no máximo 20 insumos (veio 21)" },
+  // 20 = dentro do limite: a recusa e a do item repetido, nao a do tamanho
+  { nome: "20 itens repetidos (limite inclusivo)", entrada: repete(20, item(E1, null, 1)), motivo: "item 2: insumo e cor repetidos (já no item 1)" },
   { nome: "item texto", entrada: ["x"], motivo: "item 1: formato inválido" },
   { nome: "item null", entrada: [null], motivo: "item 1: formato inválido" },
   { nome: "item array", entrada: [[E1, null, 1]], motivo: "item 1: formato inválido" },
@@ -150,6 +160,9 @@ export const CASOS_RECUSA: CasoRecusa[] = [
   { nome: "consumo null", entrada: [item(E1, null, null)], motivo: "item 1: consumo precisa ser um número de 0 a 9999" },
   { nome: "consumo ausente", entrada: [{ etiqueta_id: E1 }], motivo: "item 1: consumo precisa ser um número de 0 a 9999" },
   { nome: "consumo booleano", entrada: [item(E1, null, true)], motivo: "item 1: consumo precisa ser um número de 0 a 9999" },
+  { nome: "consumo com 5 casas", entrada: [item(E1, null, 1.00001)], motivo: "item 1: consumo com no máximo 4 casas decimais" },
+  { nome: "consumo minusculo (5a casa)", entrada: [item(E1, null, 0.00005)], motivo: "item 1: consumo com no máximo 4 casas decimais" },
+  { nome: "acima de 9999 com 5 casas: a faixa decide antes", entrada: [item(E1, null, 9999.00001)], motivo: "item 1: consumo precisa ser um número de 0 a 9999" },
   { nome: "falha no 2o item diz item 2", entrada: [item(E1, null, 1), item(E2, null, -2)], motivo: "item 2: consumo precisa ser um número de 0 a 9999" },
   { nome: "par repetido", entrada: [item(E1, C1, 1), item(E1, C1, 2)], motivo: "item 2: insumo e cor repetidos (já no item 1)" },
   {

@@ -110,7 +110,7 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
     "MD5": {
       "public.salvar_config_loja(uuid,jsonb,jsonb,boolean)": {
         "antes": "2d43c259135119b345a09a894091c2b5",
-        "depois": "f43aabf3946e2c142d51b7cba45e04bc"
+        "depois": "27fdf9f2c9b2d1fe49577e9d30eaa574"
       }
     },
     "NOVAS": {}
@@ -132,8 +132,8 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
       }
     },
     "NOVAS": {
-      "public._insumos_padrao_aplicar(uuid)": "c57de860de7c4dbd950856de2376ce23",
-      "public.salvar_insumos_iniciais(uuid,jsonb)": "89ab4ba9d6a060dca5c679aa60a16570"
+      "public._insumos_padrao_aplicar(uuid)": "08197edd4d3ce0d3558c7546c693d961",
+      "public.salvar_insumos_iniciais(uuid,jsonb)": "44da042744bc302a7b129201de93aeac"
     },
     "NEUTRO": {
       "public._insumos_padrao_aplicar(uuid)": "fa0d3ce7bb39628db1a6d33c46f4d289",

@@ -18,7 +18,7 @@ DECLARE
   v text;
 BEGIN
   v := md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)')));
-  IF v IS NULL OR v NOT IN ('2d43c259135119b345a09a894091c2b5', 'f43aabf3946e2c142d51b7cba45e04bc') THEN
+  IF v IS NULL OR v NOT IN ('2d43c259135119b345a09a894091c2b5', '27fdf9f2c9b2d1fe49577e9d30eaa574') THEN
     RAISE EXCEPTION 'urg_r2_174000_down: salvar_config_loja com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;

@@ -190,22 +190,22 @@ describe.skipIf(!RODA)("urg R2 T10 - insumos padrao na criacao do card interno (
       const m = await card(c);
       await jwt(c, U_PLAN);
       const r = await salvar(c, m, [
-        { etiqueta_id: fx.E1, cor_id: null, consumo: 1.5 },
-        { etiqueta_id: fx.E3.toUpperCase(), cor_id: fx.C1, consumo: 2 },
-        { etiqueta_id: fx.E2, cor_id: "", consumo: 0 },
-        { etiqueta_id: fx.E1, consumo: 0.25 }, // repetido e aceito (o editor permite; so a lista da loja barra par repetido)
+        { etiqueta_id: fx.E1, cor_id: null, consumo: 1.5, loss_percent: 10 }, // Perda % do Dialog (fix round 1)
+        { etiqueta_id: fx.E3.toUpperCase(), cor_id: fx.C1, consumo: 2, loss_percent: null }, // null = 0
+        { etiqueta_id: fx.E2, cor_id: "", consumo: 0, loss_percent: 99.99 },
+        { etiqueta_id: fx.E1, consumo: 0.2525 }, // repetido e aceito (o editor permite; so a lista da loja barra par repetido); sem perda = 0
       ]);
       expect(txt(r)).toBe("PASSOU");
       expect(r.ok && r.rows[0].n).toBe(4);
       expect(await linhas(c, m)).toEqual([
-        { e: fx.E1, c: null, n: 1, q: 1.5, l: 0 },
+        { e: fx.E1, c: null, n: 1, q: 1.5, l: 10 },
         { e: fx.E3, c: fx.C1, n: 2, q: 2, l: 0 },
-        { e: fx.E2, c: null, n: 3, q: 0, l: 0 },
-        { e: fx.E1, c: null, n: 4, q: 0.25, l: 0 },
+        { e: fx.E2, c: null, n: 3, q: 0, l: 99.99 },
+        { e: fx.E1, c: null, n: 4, q: 0.2525, l: 0 },
       ]);
       await imediato(c);
       const { rows } = await c.query(`SELECT numero, custo_previsto::float8 AS v FROM public.modelo_etiquetas WHERE modelo_id = $1 ORDER BY numero`, [m]);
-      expect(rows.map((x) => x.v)).toEqual([3, 10, 0, 0.5]); // 2 x 1,5 ; 5 (variante da cor) x 2 ; 3 x 0 ; 2 x 0,25
+      expect(rows.map((x) => x.v)).toEqual([3.3, 10, 0, 0.51]); // 2 x 1,5 x 1,1 ; 5 (variante da cor) x 2 ; 3 x 0 ; 2 x 0,2525 = 0,505 -> 0,51
       const r2 = await salvar(c, m, [{ etiqueta_id: fx.E2, consumo: 1 }]);
       expect(txt(r2)).toBe("P0001 insumos_iniciais_ja_existem: o card ja tem insumos");
       expect((await linhas(c, m)).length).toBe(4);
@@ -270,12 +270,19 @@ describe.skipIf(!RODA)("urg R2 T10 - insumos padrao na criacao do card interno (
         [[{ etiqueta_id: fx.E1 }], "linha 1: consumo precisa ser um numero de 0 a 9999"],
         [[{ etiqueta_id: fx.E1, consumo: -0.1 }], "linha 1: consumo precisa ser um numero de 0 a 9999"],
         [[{ etiqueta_id: fx.E1, consumo: 10000 }], "linha 1: consumo precisa ser um numero de 0 a 9999"],
+        [[{ etiqueta_id: fx.E1, consumo: 1.00001 }], "linha 1: consumo com no maximo 4 casas decimais"],
+        [[ok, { etiqueta_id: fx.E1, consumo: 1, loss_percent: "5" }], "linha 2: perda precisa ser um numero de 0 a 100"],
+        [[{ etiqueta_id: fx.E1, consumo: 1, loss_percent: true }], "linha 1: perda precisa ser um numero de 0 a 100"],
+        [[{ etiqueta_id: fx.E1, consumo: 1, loss_percent: -0.01 }], "linha 1: perda precisa ser um numero de 0 a 100"],
+        [[{ etiqueta_id: fx.E1, consumo: 1, loss_percent: 100.01 }], "linha 1: perda precisa ser um numero de 0 a 100"],
+        [[{ etiqueta_id: fx.E1, consumo: 1, loss_percent: 1.234 }], "linha 1: perda com no maximo 2 casas decimais"],
       ];
       for (const [l, msg] of casos) expect(txt(await salvar(c, m, l)), JSON.stringify(l).slice(0, 80)).toBe(`P0001 insumos_iniciais_invalidos: ${msg}`);
       expect(await linhas(c, m)).toEqual([]);
       // 20 linhas = o limite (passa)
-      const r = await salvar(c, m, fx.muitos.slice(0, 20).map((e) => ({ etiqueta_id: e, consumo: 9999 })));
+      const r = await salvar(c, m, fx.muitos.slice(0, 20).map((e, i) => ({ etiqueta_id: e, consumo: 9999, loss_percent: i === 0 ? 100 : 0 })));
       expect(r.ok && r.rows[0].n).toBe(20);
+      expect((await linhas(c, m))[0]).toMatchObject({ q: 9999, l: 100 });
     });
   });
 
@@ -291,6 +298,7 @@ describe.skipIf(!RODA)("urg R2 T10 - insumos padrao na criacao do card interno (
         { etiqueta_id: fx.E1, consumo: -1 },
         { etiqueta_id: fx.E1, consumo: 10000 },
         { etiqueta_id: fx.E1, consumo: null },
+        { etiqueta_id: fx.E1, consumo: 1.23456 }, // mais de 4 casas (so por escrita crua; a Config recusa) -> ignora
         { etiqueta_id: fx.E1.toUpperCase(), cor_id: fx.COUT, consumo: 1.5 }, // cor de outra loja -> sem cor
         { etiqueta_id: fx.E3, cor_id: fx.C1, consumo: 2 },
         { etiqueta_id: fx.E3, cor_id: fx.C2, consumo: 4 }, // C2 nao e variante de E3 -> sem cor

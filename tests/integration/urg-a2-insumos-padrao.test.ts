@@ -1,6 +1,6 @@
 // Urgentes R2 T9 (plan-a Task 9, Rulings A12-A13) - lista "Insumos padrao" da loja (20261103174000): coluna
 // tenant_config.insumos_padrao jsonb NOT NULL DEFAULT '[]' gravada SO por salvar_config_loja (compare-and-set POR COLUNA, como as
-// outras 17). A RPC valida (array, <= 50, insumo/cor DA LOJA, consumo 0..9999, sem par repetido) e normaliza
+// outras 17). A RPC valida (array, <= 20, insumo/cor DA LOJA, consumo 0..9999 com <= 4 casas, sem par repetido) e normaliza
 // ([{etiqueta_id, cor_id, consumo}] na mesma ordem) - fixture COMPARTILHADA com o espelho TS da T11:
 // tests/fixtures/insumos-padrao-casos.ts. Txn revertida; o bloco e aplicado DENTRO da txn por aplicaUrgA(c, "174000") (pula se ja
 // vivo). Os testes de trava/laco usam 2 conexoes, sempre em txn revertida. So na copia local.

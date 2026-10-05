@@ -6,8 +6,9 @@
 --      reescrever a tabela; toda loja nasce com lista vazia). Sem GRANT novo: o authenticated ja le a tabela inteira (RLS da loja);
 --      quem grava e SO salvar_config_loja (a tela nunca faz UPDATE direto - mesma regra das outras 17 colunas da Config da Loja).
 --   2) salvar_config_loja (1x CREATE OR REPLACE, troca EXATA sobre o vivo, 4 ancoras 1x; ACL/DEFINER/VOLATILE/search_path
---      preservados): 'insumos_padrao' entra na lista branca; validacao (lista; <= 50; item objeto; insumo = uuid de etiquetas DA
---      LOJA; cor ausente/null/"" ou uuid de cores DA LOJA; consumo numero JSON 0..9999; sem par (insumo, cor) repetido) com recusa
+--      preservados): 'insumos_padrao' entra na lista branca; validacao (lista; <= 20 = limite do editor; item objeto; insumo = uuid
+--      de etiquetas DA LOJA; cor ausente/null/"" ou uuid de cores DA LOJA; consumo numero JSON 0..9999 com no maximo 4 casas
+--      decimais; sem par (insumo, cor) repetido) com recusa
 --      P0001 "Lista de insumos padrao invalida: <motivo>" (PT com acento, como as vizinhas - 400); normalizacao em v_mn
 --      ([{etiqueta_id, cor_id, consumo}] na mesma ordem, uuid minusculo, cor vazia = null) usada no compare-and-set E no UPDATE;
 --      compare-and-set por coluna como as outras (P0409 conflito_versao: config_loja, DETAIL insumos_padrao - ASCII).
@@ -32,7 +33,7 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.salvar_config_loja(uuid,jsonb,jsonb,boolean)
 --     ANTES  2d43c259135119b345a09a894091c2b5
---     DEPOIS f43aabf3946e2c142d51b7cba45e04bc
+--     DEPOIS 27fdf9f2c9b2d1fe49577e9d30eaa574
 -- ====================================================================================
 -- Volta: supabase/rollback/20261103174000_urg_r2_insumos_padrao_down.sql (devolve o texto de ANTES; a coluna FICA - o site velho nao a le) - ANTES do 20261103173000_down.
 -- DROP da coluna: supabase/rollback/20261103174000_urg_r2_insumos_padrao_down_drop.sql (opcional, depois, horario calmo).
@@ -47,7 +48,7 @@ DECLARE
   v text;
 BEGIN
   v := md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)')));
-  IF v IS NULL OR v NOT IN ('2d43c259135119b345a09a894091c2b5', 'f43aabf3946e2c142d51b7cba45e04bc') THEN
+  IF v IS NULL OR v NOT IN ('2d43c259135119b345a09a894091c2b5', '27fdf9f2c9b2d1fe49577e9d30eaa574') THEN
     RAISE EXCEPTION 'urg_r2_174000: salvar_config_loja com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;
@@ -201,15 +202,16 @@ BEGIN
         END IF;
       WHEN 'insumos_padrao' THEN
         -- [urg R2] lista "Insumos padrao" da loja (pre-preenche a secao Insumos do card INTERNO novo): lista obrigatoria, no
-        -- maximo 50 itens; item = objeto {etiqueta_id: uuid de etiquetas DA LOJA, cor_id: ausente/null/"" ou uuid de cores DA
-        -- LOJA, consumo: numero JSON de 0 a 9999}; sem par (insumo, cor) repetido (comparado ja normalizado). Itens conferidos na
+        -- maximo 20 itens (= limite do editor de insumos do card); item = objeto {etiqueta_id: uuid de etiquetas DA LOJA, cor_id:
+        -- ausente/null/"" ou uuid de cores DA LOJA, consumo: numero JSON de 0 a 9999 com no maximo 4 casas decimais (=
+        -- modelo_etiquetas.consumo numeric(10,4))}; sem par (insumo, cor) repetido (comparado ja normalizado). Itens conferidos na
         -- ordem; a 1a falha decide a mensagem (item N, 1-based). Mesma regra do espelho TS (fixture compartilhada
         -- tests/fixtures/insumos-padrao-casos.ts). A forma gravada sai da normalizacao (v_mn), antes da trava da linha.
         IF v_t <> 'array' THEN
           RAISE EXCEPTION 'Lista de insumos padrão inválida: precisa ser uma lista.' USING ERRCODE = 'P0001';
         END IF;
-        IF jsonb_array_length(v_v) > 50 THEN
-          RAISE EXCEPTION 'Lista de insumos padrão inválida: no máximo 50 insumos (veio %).', jsonb_array_length(v_v) USING ERRCODE = 'P0001';
+        IF jsonb_array_length(v_v) > 20 THEN
+          RAISE EXCEPTION 'Lista de insumos padrão inválida: no máximo 20 insumos (veio %).', jsonb_array_length(v_v) USING ERRCODE = 'P0001';
         END IF;
         DECLARE
           v_ip_it jsonb;
@@ -250,12 +252,15 @@ BEGIN
             ELSIF v_ip_tc IS NOT NULL AND v_ip_tc NOT IN ('null', 'string') THEN
               RAISE EXCEPTION 'Lista de insumos padrão inválida: item %: cor não encontrada nesta loja.', v_ip_i USING ERRCODE = 'P0001';
             END IF;
-            -- consumo: numero JSON (texto e recusado), 0..9999
+            -- consumo: numero JSON (texto e recusado), 0..9999, no maximo 4 casas decimais
             IF jsonb_typeof(v_ip_it -> 'consumo') IS DISTINCT FROM 'number' THEN
               RAISE EXCEPTION 'Lista de insumos padrão inválida: item %: consumo precisa ser um número de 0 a 9999.', v_ip_i USING ERRCODE = 'P0001';
             END IF;
             IF (v_ip_it ->> 'consumo')::numeric < 0 OR (v_ip_it ->> 'consumo')::numeric > 9999 THEN
               RAISE EXCEPTION 'Lista de insumos padrão inválida: item %: consumo precisa ser um número de 0 a 9999.', v_ip_i USING ERRCODE = 'P0001';
+            END IF;
+            IF (v_ip_it ->> 'consumo')::numeric <> round((v_ip_it ->> 'consumo')::numeric, 4) THEN
+              RAISE EXCEPTION 'Lista de insumos padrão inválida: item %: consumo com no máximo 4 casas decimais.', v_ip_i USING ERRCODE = 'P0001';
             END IF;
             v_ip_rep := array_position(v_ip_par, v_ip_e || '|' || coalesce(v_ip_c, ''));
             IF v_ip_rep IS NOT NULL THEN
@@ -423,8 +428,8 @@ $col$;
 
 DO $pos$
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)'))) IS DISTINCT FROM 'f43aabf3946e2c142d51b7cba45e04bc' THEN
-    RAISE EXCEPTION 'urg_r2_174000: pos-condicao falhou em salvar_config_loja (esperado %)', 'f43aabf3946e2c142d51b7cba45e04bc' USING ERRCODE = 'P0001';
+  IF md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)'))) IS DISTINCT FROM '27fdf9f2c9b2d1fe49577e9d30eaa574' THEN
+    RAISE EXCEPTION 'urg_r2_174000: pos-condicao falhou em salvar_config_loja (esperado %)', '27fdf9f2c9b2d1fe49577e9d30eaa574' USING ERRCODE = 'P0001';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid = to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)') AND coalesce(p.proacl::text, '') = '{postgres=X/postgres,authenticated=X/postgres}'
                    AND p.prosecdef AND p.provolatile = 'v' AND coalesce(array_to_string(p.proconfig, '|'), '') = 'search_path=public')
