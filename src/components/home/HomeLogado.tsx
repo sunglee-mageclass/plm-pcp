@@ -18,6 +18,7 @@ import { todayISOInStoreTZ } from "@/lib/timezone";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { Card } from "@/components/ui/card";
 import { TecelagemAnimacao } from "./TecelagemAnimacao";
+import { LojaErroAviso } from "@/components/shared/LojaErroAviso";
 
 // Atalhos de MÓDULO — só no MOBILE (sidebar recolhida = navegação primária). No desktop os
 // tiles de módulo duplicavam 1:1 a sidebar visível ao lado (laudo do time, jul/2026).
@@ -60,7 +61,7 @@ type CardAtencao = {
  */
 export function HomeLogado() {
   const { user, canView, isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
-  const { modules: modulosLoja, pronto } = useTenantModules();
+  const { modules: modulosLoja, pronto, erro: lojaErro, tentarDeNovo } = useTenantModules();
   // [modularidade F2, m8] até a loja e a config chegarem os módulos são os DEFAULTS: nenhum conta como ligado (cards, atalhos e
   // queries esperam), senão o card pisca e uma query de módulo desligado pode sair (42501 na rede).
   const modules: Partial<Record<ModuleKey, boolean>> = pronto ? modulosLoja : {};
@@ -285,6 +286,10 @@ export function HomeLogado() {
       </Card>
     </Link>
   );
+
+  // [backend F1] 1ª carga da loja/módulos falhou: sem módulos conhecidos a Home não mostra cards/atalhos "vazios" como se a loja
+  // não tivesse nada — avisa e oferece "Tentar de novo" (depois de TODOS os hooks).
+  if (lojaErro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} />;
 
   return (
     <div className="container mx-auto space-y-6 p-3 sm:p-6">

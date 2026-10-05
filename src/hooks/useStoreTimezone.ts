@@ -13,7 +13,10 @@ export function useStoreTimezone(): string {
     enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("timezone").eq("tenant_id", tenantId).maybeSingle();
+      const { data, error } = await supabase.from("tenant_config").select("timezone").eq("tenant_id", tenantId).maybeSingle();
+      // [backend F1] erro sobe: no refetch o RQ mantém o fuso de antes (antes virava null = padrão do sistema); na 1ª carga
+      // com erro cai no padrão (só exibição de datas).
+      if (error) throw error;
       return (data as { timezone?: string | null } | null)?.timezone ?? null;
     },
   });

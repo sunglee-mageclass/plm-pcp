@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Store } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { recarregarLojaAtiva } from "@/hooks/useActiveTenantId";
 import { setActiveTenant } from "@/lib/admin.functions";
 import { clearTenantPrefixCache } from "@/lib/storage-tenant";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -61,7 +62,7 @@ export function TenantSwitcher() {
       // nova seguiriam montando o caminho com o tenant ANTIGO e a RLS de storage
       // rejeitaria até dar F5.
       clearTenantPrefixCache();
-      await qc.refetchQueries({ queryKey: ["active-tenant-id"] });
+      await recarregarLojaAtiva(qc);
       qc.invalidateQueries();
       // Sai de qualquer CARD/detalhe: a URL podia apontar p/ um registro da loja
       // ANTERIOR (ex.: /cadastro/tecidos/<id>), que não existe na loja nova — ficava

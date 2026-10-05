@@ -10,7 +10,9 @@ export { motivoModulos };
  * mostra o aviso errado — o botão fica desabilitado por instantes).
  */
 export function useRequerModulo(...chaves: ModuleKey[]): { ok: boolean; faltam: ModuleKey[]; motivo: string } {
-  const { isModuleEnabled, pronto } = useTenantModules();
+  const { isModuleEnabled, pronto, erro } = useTenantModules();
+  // [backend F1] 1ª carga da loja falhou: não libera nem mostra "módulo desligado" (a loja pode TER o módulo).
+  if (erro) return { ok: false, faltam: [], motivo: "Não foi possível carregar a loja." };
   if (!pronto) return { ok: false, faltam: [], motivo: "Carregando…" };
   const faltam = chaves.filter((k) => !isModuleEnabled(k));
   return { ok: faltam.length === 0, faltam, motivo: motivoModulos(faltam) };

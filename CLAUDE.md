@@ -371,6 +371,19 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   ⚠️ Na **key** do Storage, o nome do arquivo tem que passar por `sanitizeStorageName()`
   (`@/lib/storage-tenant`) — acento/espaço/símbolo dão `Invalid key` (ex.: `Véu - 2060.jpeg`).
 - Não usar `localStorage` em lógica de auth/tenant — vem do contexto/Supabase.
+- **Loja ativa e módulos NÃO engolem erro (Backend F1, out/2026; reverte a regra "falha = pronto" da Modularidade F1)** —
+  `useActiveTenant()` (`{tenantId, resolvido, erro, tentarDeNovo}`; `useActiveTenantId()` mantém a assinatura) e
+  `useTenantModules()` (`pronto`, `erro`, `tentarDeNovo`) fazem `if (error) throw error` no `queryFn`: **falha de REFETCH (foco,
+  rede caída) MANTÉM o último valor bom** (a loja e os módulos de antes; nunca `""`/DEFAULTS); **1ª carga com falha** (depois dos
+  retries do RQ) = `erro: true`, `pronto: false` e a tela mostra `<LojaErroAviso>` ("Não foi possível carregar a sua loja" +
+  "Tentar de novo") em vez de tratar a loja como "sem módulos opcionais"/"Módulo desligado". `pronto` agora exige DADO (sucesso);
+  loja SEM linha de config (`data` null, sem erro) segue sendo sucesso = DEFAULTS. `isLoading` continua `= !pronto` (inclusive em
+  erro, de propósito: nenhum consumidor decide módulo/perfil sobre DEFAULTS) — quem renderiza checa `erro` ANTES e mostra o aviso
+  (`RequirePermission`, `ModuleGuard`, `SectionHub`, `HomeLogado`, Config da Loja); `useRequerModulo` devolve `ok:false` ("Não
+  foi possível carregar a loja."); `isFetched` só vale com dado. `useStoreTimezone`/`useTabLabels` também lançam o erro (1ª carga
+  com erro cai no padrão, só exibição). ⚠️ Hook/tela NOVO que leia loja/módulos: lance o erro no `queryFn` (nunca `const { data } =
+  await …` sem olhar `error` — o RQ grava `""`/`null` como sucesso) e trate `erro` antes de decidir por módulo. O TenantSwitcher
+  relê a loja por `recarregarLojaAtiva` (se a releitura falhar depois da troca, zera a query para não ficar na loja ANTERIOR).
 - **UI de edição — PADRÃO DO SISTEMA** (docs/design/ui-padroes.md §A/§G; NÃO reinventar; §K–§P =
   padrões do redesign ago/2026 — divisão por função/InfoStrip, ações de ciclo na tela + ⋯ no card,
   canvas colapsável, grade/peso/variante·apelido, form padrão OC, rollout tela a tela; **§Q =

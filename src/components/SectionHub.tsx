@@ -7,6 +7,7 @@ import { useTabLabels } from "@/hooks/useTabLabels";
 import { PAGES_CATALOG, paginaNoPerfil } from "@/lib/permissions-catalog";
 import { PAGE_URLS, PAGE_ICONS, MODULE_META, BADGE_CLS, pageBadgeCounts, badgeViva } from "@/lib/nav";
 import { NavBadge } from "@/components/shared/NavBadge";
+import { LojaErroAviso } from "@/components/shared/LojaErroAviso";
 
 /**
  * HUB de setor (página basePath, ex.: /criacao) — blocos DERIVADOS do catálogo de permissões
@@ -18,7 +19,7 @@ import { NavBadge } from "@/components/shared/NavBadge";
  */
 export function SectionHub({ module, subtitle }: { module: string; subtitle?: string }) {
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView } = useAuth();
-  const { isStockOnly, isModuleEnabled, isLoading } = useTenantModules();
+  const { isStockOnly, isModuleEnabled, isLoading, erro, tentarDeNovo } = useTenantModules();
   const tabLabels = useTabLabels();
   const badges = useSidebarBadges();
   const counts = pageBadgeCounts(badges.data);
@@ -45,6 +46,7 @@ export function SectionHub({ module, subtitle }: { module: string; subtitle?: st
     }));
 
   // Evita o flash "blocos → módulo desligado" enquanto a loja e a config carregam (`isLoading` = !pronto; o default é true).
+  if (erro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} />; // [backend F1]
   if (isLoading) return null;
 
   return (

@@ -69,6 +69,7 @@ import {
 import { keywordsDoServidor } from "@/lib/config-keywords";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { LojaErroAviso } from "@/components/shared/LojaErroAviso";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
 import {
@@ -350,7 +351,7 @@ function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
   // `isLoading` = `!pronto` (alias da F1/M9): módulos da loja ainda não chegaram.
-  const { modules, isStockOnly, isLoading: modulosCarregando } = useTenantModules();
+  const { modules, isStockOnly, isLoading: modulosCarregando, erro: modulosErro, tentarDeNovo: tentarModulosDeNovo } = useTenantModules();
   // [modularidade F2, F9] blocos por módulo (esconder NÃO apaga o que está gravado: o Salvar manda só o que mudou).
   const blocos = blocosConfigVisiveis(modules, isStockOnly);
   const [cfg, setCfg] = useState<ConfigState>(DEFAULTS);
@@ -996,6 +997,8 @@ function ConfiguracoesLojaPage() {
   // sem isso, o usuário digita em cima de "" (fuso/kanban/etc. com cara de dado real) e a 1ª
   // resolução da query sobrescreve. Nenhum hook depois deste ponto (verificado).
   // [modularidade F2, m3] a página não está sob RequirePermission: sem esperar `pronto`, os blocos por módulo/perfil piscam com os DEFAULTS.
+  // [backend F1] a 1ª carga da loja/módulos falhou: avisa com "Tentar de novo" (senão ficaria em "Carregando…" para sempre).
+  if (modulosErro) return <LojaErroAviso onTentarDeNovo={tentarModulosDeNovo} />;
   if (isLoading || modulosCarregando) return <div className="p-6 text-muted-foreground">Carregando…</div>;
 
   // [modularidade F4, P-254 A] condições do kanban que NÃO SE APLICAM a esta loja (módulo desligado): o servidor já as trata

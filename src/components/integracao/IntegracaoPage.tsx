@@ -64,6 +64,8 @@ export function IntegracaoPage() {
   const informarChaveVisivel = useCallback((v: boolean) => setChaveVisivel(v), []);
   const guarda = useMemo(() => ({ informarSujo, informarChaveVisivel }), [informarSujo, informarChaveVisivel]);
   const dirty = Object.values(sujas).some(Boolean);
+  // [backend F1] O hook NÃO devolve mais "" por erro de REFETCH (a leitura que falha mantém a última loja); a defesa abaixo
+  // fica para a 1ª carga e para a troca de loja (loja "" = ainda sem loja), sem custo.
   // Fix round 4 T15 (N-1, code-review "Re-check round 3"): `useActiveTenantId` devolve "" quando a releitura de
   // `active-tenant-id` FALHA (ex.: refetch no `visibilitychange` com a rede ainda caída — o hook engole o erro e
   // assenta ""). Com `key={tenantId}` isso remontava TODAS as abas (X → "" → X: rascunhos de Produtos, Campos,

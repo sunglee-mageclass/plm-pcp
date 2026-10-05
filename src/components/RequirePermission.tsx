@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { PAGES_CATALOG, modulosExigidosDaPagina, paginaNoPerfil } from "@/lib/permissions-catalog";
 import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
+import { LojaErroAviso } from "@/components/shared/LojaErroAviso";
 
 interface Props {
   page?: string;
@@ -37,7 +38,11 @@ export function ReadOnlyScope({ value, children }: { value: boolean; children: R
 export function RequirePermission({ page, anyOf, editarCom, children }: Props) {
   const { canView, canEdit, loading } = useAuth();
   // `isLoading` = `!pronto` (loja e config chegaram): a decisão por módulo/perfil NUNCA roda sobre os DEFAULTS.
-  const { isStockOnly, isModuleEnabled, firstActiveModulePath, isLoading: modulesLoading } = useTenantModules();
+  const {
+    isStockOnly, isModuleEnabled, firstActiveModulePath, isLoading: modulesLoading, erro: modulesErro, tentarDeNovo,
+  } = useTenantModules();
+  // [backend F1] 1ª carga da loja/módulos falhou: avisa com "Tentar de novo" — nunca decide perfil/gate/permissão sobre os DEFAULTS.
+  if (modulesErro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} />;
   if (loading || modulesLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">

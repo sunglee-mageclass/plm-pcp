@@ -72,22 +72,35 @@ export function resolverModulos(raw: Partial<Record<ModuleKey, boolean>> | null 
 }
 
 export function useTenantModules() {
-  const { tenantId, resolvido } = useActiveTenant();
-  const { data, status, isFetched } = useQuery({
+  const tenant = useActiveTenant();
+  const { tenantId } = tenant;
+  const { data, status, isFetched, refetch } = useQuery({
     // tenantId na key: troca de loja => key nova => refaz o fetch da loja nova.
     queryKey: ["tenant_config", "modules", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("modules").eq("tenant_id", tenantId).maybeSingle();
+      const { data, error } = await supabase.from("tenant_config").select("modules").eq("tenant_id", tenantId).maybeSingle();
+      // [backend F1] o erro sobe (antes virava `null` = DEFAULTS como se fosse sucesso): no refetch o RQ mantém os módulos
+      // de antes; na 1ª carga fica `error` e a tela mostra "Tentar de novo". Loja SEM linha de config (data null, sem erro)
+      // continua sendo sucesso = DEFAULTS.
+      if (error) throw error;
       return ((data as any)?.modules ?? null) as Partial<Record<ModuleKey, boolean>> | null;
     },
     staleTime: 5 * 60 * 1000,
   });
 
-  // `pronto` [modularidade F1, parte 1]: a loja E a config dela já chegaram (sucesso OU erro). Antes disso `modules`
-  // são os DEFAULTS e quem decide por eles pisca/redireciona errado numa URL direta. Erro conta como pronto (cai nos
-  // DEFAULTS, comportamento de sempre) — nunca "Carregando" eterno. Sem loja (sem usuário) também é pronto.
-  const pronto = resolvido && (tenantId === "" || status !== "pending");
+  // `erro` [backend F1]: a 1ª carga da loja OU da config dela falhou e não há valor anterior (reverte de propósito a regra da
+  // modularidade F1, "erro conta como pronto"). Falha de refetch COM valor guardado não é `erro`: segue `pronto` com os
+  // módulos de antes, nunca com os DEFAULTS.
+  const erro = tenant.erro || (status === "error" && data === undefined);
+  // `pronto` [modularidade F1, parte 1; backend F1]: a loja E a config dela já chegaram COM SUCESSO. Antes disso `modules`
+  // são os DEFAULTS e quem decide por eles pisca/redireciona errado numa URL direta; em erro também não se decide por eles
+  // (a tela mostra o aviso). Sem loja (sem usuário, ou usuário sem linha em `users`) também é pronto.
+  const pronto = tenant.resolvido && !tenant.erro && (tenantId === "" || data !== undefined);
+  const tentarDeNovo = () => {
+    if (tenant.erro) tenant.tentarDeNovo();
+    else if (status === "error") void refetch();
+  };
 
   const modules: Record<ModuleKey, boolean> = resolverModulos(data);
 
@@ -106,8 +119,14 @@ export function useTenantModules() {
   const firstActiveModulePath =
     MODULE_BASE_PATH[LANDING_ORDER.find((k) => modules[k]) ?? "cadastro"];
 
-  // `isLoading` = `!pronto` (M9): os consumidores antigos ganham o conserto da corrida sem mudar de código.
+  // `isLoading` = `!pronto` (M9): os consumidores antigos ganham o conserto da corrida sem mudar de código. Em `erro` segue
+  // true DE PROPÓSITO (nenhum consumidor decide módulo/perfil sobre os DEFAULTS); quem renderiza espera `erro` antes e
+  // mostra `<LojaErroAviso>` (RequirePermission, ModuleGuard, SectionHub, HomeLogado, Config da Loja).
   const isLoading = !pronto;
 
-  return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched, pronto };
+  // `isFetched` só com dado de verdade (1ª carga com erro não conta: PlanTecidoSheet normaliza com o gate do módulo).
+  return {
+    modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading,
+    isFetched: isFetched && data !== undefined, pronto, erro, tentarDeNovo,
+  };
 }

@@ -1,18 +1,19 @@
 // [modularidade F1, parte 3] useRequerModulo: `ok`/`faltam`/`motivo` prontos para o botão que atravessa módulo.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const h = vi.hoisted(() => ({ ret: { modules: {} as Record<string, boolean>, pronto: true } }));
+const h = vi.hoisted(() => ({ ret: { modules: {} as Record<string, boolean>, pronto: true, erro: false } }));
 vi.mock("@/hooks/useTenantModules", () => ({
   useTenantModules: () => ({
     isModuleEnabled: (k: string) => !!h.ret.modules[k],
     pronto: h.ret.pronto,
+    erro: h.ret.erro,
   }),
 }));
 
 import { useRequerModulo, motivoModulos } from "@/hooks/useRequerModulo";
 
 beforeEach(() => {
-  h.ret = { modules: { criacao: true, entrada_saida: true, producao: false, otb: false }, pronto: true };
+  h.ret = { modules: { criacao: true, entrada_saida: true, producao: false, otb: false }, pronto: true, erro: false };
 });
 
 describe("useRequerModulo", () => {
@@ -38,6 +39,11 @@ describe("useRequerModulo", () => {
   it("config da loja ainda não chegou → ok false e 'Carregando…' (nunca libera nem acusa módulo por engano)", () => {
     h.ret = { modules: { criacao: true, entrada_saida: true }, pronto: false };
     expect(useRequerModulo("criacao")).toEqual({ ok: false, faltam: [], motivo: "Carregando…" });
+  });
+
+  it("1ª carga da loja falhou (erro) → ok false e motivo próprio (nunca 'módulo desligado' nem libera)", () => {
+    h.ret = { modules: {}, pronto: false, erro: true };
+    expect(useRequerModulo("criacao")).toEqual({ ok: false, faltam: [], motivo: "Não foi possível carregar a loja." });
   });
 
   it("motivoModulos (puro) exportado para teste", () => {

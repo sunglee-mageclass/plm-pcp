@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const h = vi.hoisted(() => ({
-  mods: { modules: {} as Record<string, boolean>, isStockOnly: false, isLoading: false },
+  mods: { modules: {} as Record<string, boolean>, isStockOnly: false, isLoading: false, erro: false, tentarDeNovo: () => {} },
   auth: { isSuperAdmin: false },
 }));
 
@@ -26,6 +26,8 @@ vi.mock("@/hooks/useTenantModules", () => ({
     firstActiveModulePath: "/entrada-saida",
     isLoading: h.mods.isLoading,
     pronto: !h.mods.isLoading,
+    erro: h.mods.erro,
+    tentarDeNovo: () => h.mods.tentarDeNovo(),
   }),
 }));
 
@@ -43,7 +45,7 @@ async function html(page: string): Promise<string> {
 const COMPLETO = { cadastro: true, entrada_saida: true, criacao: true, producao: true, financeiro: true, dashboard: true, otb: true };
 
 beforeEach(() => {
-  h.mods = { modules: { ...COMPLETO }, isStockOnly: false, isLoading: false };
+  h.mods = { modules: { ...COMPLETO }, isStockOnly: false, isLoading: false, erro: false, tentarDeNovo: () => {} };
   h.auth = { isSuperAdmin: false };
 });
 
@@ -56,6 +58,24 @@ describe("RequirePermission — módulo e perfil", () => {
     expect(out).not.toContain("CONTEUDO");
     expect(out).not.toContain("data-redirect");
     expect(out).not.toContain("Módulo desligado");
+  });
+
+  it("[backend F1] 1ª carga da loja falhou → aviso com 'Tentar de novo' (sem DEFAULTS, sem 'Módulo desligado', sem redirecionar)", async () => {
+    const tentar = vi.fn();
+    h.mods = { modules: {}, isStockOnly: false, isLoading: true, erro: true, tentarDeNovo: tentar };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => { root.render(createElement(RequirePermission, { page: "criacao_plan_tecido" }, createElement("main", null, "CONTEUDO"))); });
+    const out = container.innerHTML;
+    expect(out).toContain("Não foi possível carregar a sua loja");
+    expect(out).not.toContain("Módulo desligado");
+    expect(out).not.toContain("CONTEUDO");
+    expect(out).not.toContain("data-redirect");
+    const botao = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "Tentar de novo")!;
+    expect(botao).toBeTruthy();
+    await act(async () => { botao.click(); });
+    expect(tentar).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
   });
 
   it("Plan. Tecido sem OTB → aviso do módulo (sem redirecionar, sem a tela)", async () => {

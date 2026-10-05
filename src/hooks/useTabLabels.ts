@@ -13,7 +13,9 @@ export function useTabLabels() {
     enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tab_labels").eq("tenant_id", tenantId).maybeSingle();
+      const { data, error } = await supabase.from("tenant_config").select("tab_labels").eq("tenant_id", tenantId).maybeSingle();
+      // [backend F1] erro sobe: no refetch o RQ mantém os rótulos de antes; na 1ª carga com erro cai nos nomes padrão.
+      if (error) throw error;
       return ((data as any)?.tab_labels ?? {}) as Record<string, string>;
     },
   });

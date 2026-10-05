@@ -99,8 +99,8 @@ async function abrir() {
   desmontar = m.desmontar;
 }
 
-describe("[fix hidratação rodada 5] N5b — tenant some DEPOIS de hidratado (refetch de foco falha)", () => {
-  it("CQ confirmado em edição, sem fonte, modelo_grades vazio: refetch do tenant FALHA ⇒ Salvar/Confirmar travam, sem chamar salvar_cq", async () => {
+describe("[fix hidratação rodada 5] N5b — tenant some DEPOIS de hidratado", () => {
+  it("CQ confirmado em edição, sem fonte, modelo_grades vazio: tenant SOME (loja sem linha em users, refetch com sucesso vazio) ⇒ Salvar/Confirmar travam, sem chamar salvar_cq", async () => {
     await abrir();
     // Hidrata normalmente primeiro (tenant real = "t1", tudo assenta).
     await aguardar(() => !!document.querySelector('button[aria-label="Editar"]'), "Editar", 3000);
@@ -108,9 +108,10 @@ describe("[fix hidratação rodada 5] N5b — tenant some DEPOIS de hidratado (r
     await aguardar(() => salvar()?.disabled === false, "Salvar habilitado", 3000);
     expect(txt()).toContain("Observações do Controle de Qualidade");
 
-    // Agora simula o refetch de FOCO que falha: 1 falha em `users` (o SELECT que
-    // `useActiveTenantId` faz) + invalida a key do hook — o hook engole o erro e assenta `""`.
-    FAKE.falhar("users", 1);
+    // [backend F1] Falha de REDE no refetch NÃO tira mais a loja (o hook lança o erro e o RQ mantém o `tenantId` — ver o
+    // teste seguinte). A defesa `|| !tenantId` segue valendo para o `tenantId` realmente vazio: aqui a linha do usuário
+    // some (refetch com SUCESSO sem linha => "").
+    FAKE.linhas.users = [];
     await act(async () => { await QC.invalidateQueries({ queryKey: ["active-tenant-id"] }); });
     await esperar(150);
 
@@ -124,5 +125,22 @@ describe("[fix hidratação rodada 5] N5b — tenant some DEPOIS de hidratado (r
     // ainda assim confirmamos que NENHUM salvar_cq foi disparado com o tenant sumido).
     await esperar(150);
     expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_cq")).toBe(false);
+  });
+});
+
+describe("[backend F1] refetch de foco do tenant FALHA (rede) — a loja anterior continua valendo", () => {
+  it("hidratado e em edição: o refetch do tenant falha ⇒ tenantId mantido, formulário e Salvar seguem habilitados, nada travou", async () => {
+    await abrir();
+    await aguardar(() => !!document.querySelector('button[aria-label="Editar"]'), "Editar", 3000);
+    await clicar(document.querySelector<HTMLButtonElement>('button[aria-label="Editar"]')!);
+    await aguardar(() => salvar()?.disabled === false, "Salvar habilitado", 3000);
+
+    FAKE.falhar("users", 1);
+    await act(async () => { await QC.invalidateQueries({ queryKey: ["active-tenant-id"] }); });
+    await esperar(150);
+
+    expect(txt()).toContain("Observações do Controle de Qualidade");
+    expect(txt()).not.toContain("Não foi possível carregar a sua loja");
+    expect(salvar()?.disabled).toBe(false);
   });
 });

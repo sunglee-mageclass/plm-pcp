@@ -94,15 +94,16 @@ async function abrir() {
   return QC;
 }
 
-describe("[fix hidratação rodada 6] N5c — Direcionamento: tenant some DEPOIS de hidratado (refetch de foco falha)", () => {
-  it("hidrata com 'E-commerce' na tela; refetch do tenant FALHA ⇒ Salvar/Confirmar travam, sem chamar salvar_direcionamento (não apaga as lojas)", async () => {
+describe("[fix hidratação rodada 6] N5c — Direcionamento: tenant some DEPOIS de hidratado", () => {
+  it("hidrata com 'E-commerce' na tela; tenant SOME (linha de users some, refetch com sucesso vazio) ⇒ Salvar/Confirmar travam, sem chamar salvar_direcionamento (não apaga as lojas)", async () => {
     await abrir();
     await aguardar(() => salvar()?.disabled === false, "hidratou", 3000);
     expect(txt()).toContain("E-commerce");
 
-    // Refetch de foco que falha: 1 falha em `users` (o SELECT que `useActiveTenantId` faz) +
-    // invalida a key do hook — o hook engole o erro e assenta "".
-    FAKE.falhar("users", 1);
+    // [backend F1] Falha de REDE no refetch NÃO tira mais a loja (o hook lança o erro e o RQ mantém o `tenantId` — ver
+    // o último teste deste arquivo). A defesa `|| !tenantId` segue valendo para o `tenantId` realmente vazio: aqui a
+    // linha do usuário some (refetch com SUCESSO sem linha => "").
+    FAKE.linhas.users = [];
     await act(async () => { await QC.invalidateQueries({ queryKey: ["active-tenant-id"] }); });
     await esperar(150);
 
@@ -129,5 +130,20 @@ describe("[fix hidratação rodada 6] N5c — Direcionamento: tenant some DEPOIS
       amostras.push(salvar()?.disabled ?? true);
     }
     expect(amostras.every((disabled) => disabled === false)).toBe(true);
+  });
+});
+
+describe("[backend F1] refetch de foco do tenant FALHA (rede) — a loja anterior continua valendo", () => {
+  it("hidratado: o refetch do tenant falha ⇒ tenantId mantido, lojas na tela e Salvar habilitado, nada travou", async () => {
+    await abrir();
+    await aguardar(() => salvar()?.disabled === false, "hidratou", 3000);
+
+    FAKE.falhar("users", 1);
+    await act(async () => { await QC.invalidateQueries({ queryKey: ["active-tenant-id"] }); });
+    await esperar(150);
+
+    expect(txt()).toContain("E-commerce");
+    expect(txt()).not.toContain("Não foi possível carregar a sua loja");
+    expect(salvar()?.disabled).toBe(false);
   });
 });
