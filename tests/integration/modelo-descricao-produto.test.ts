@@ -127,10 +127,26 @@ async function reorgViva(c: Client): Promise<boolean> {
   ).v;
 }
 
+/**
+ * T1 (backend, 05/out): a F3.1 JÁ foi aplicada (a cópia = produção + kit: a coluna existe, com descrições reais). Estes testes foram escritos
+ * para o estado ANTERIOR (sem a coluna). Para continuar provando a migration e o inverso, leva a txn DE VOLTA ao "antes" aplicando o próprio
+ * inverso (com a confirmação do apagar, SÓ nesta txn revertida; o texto das descrições volta no ROLLBACK) e zera a confirmação, para que os
+ * testes de recusa/idempotência do inverso continuem medindo o inverso sem ela. Sem a coluna (banco pré-F3.1): não faz nada.
+ * Efeito colateral deliberado: o inverso restaura o corpo de `_replicar_cards_plan_tecido_core` de ANTES da F3.1 (também anterior à reorg do
+ * Sheet), então a comparação byte a byte da migration volta a ser exata.
+ */
+async function paraEstadoAnterior(c: Client): Promise<void> {
+  if (!(await coluna(c))) return;
+  await c.query("SELECT set_config('app.confirmo_apagar_descricao_produto', 'sim', true)");
+  await aplicarArquivo(c, INV);
+  await c.query("SELECT set_config('app.confirmo_apagar_descricao_produto', '', true)");
+}
+
 describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia local, txn revertida)", () => {
   it("base: sem a coluna; função = corpo vivo (âncoras 1× cada); ACL fechada", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      await paraEstadoAnterior(c);
       expect(await coluna(c)).toBeUndefined();
       const d = await def(c);
       expect(d.split(COL_ANTES).length - 1).toBe(1);
@@ -144,9 +160,12 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
   it("migration: coluna text/nullable/sem default; função = antes com SÓ 2 linhas trocadas; ACL igual e fechada", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      await paraEstadoAnterior(c);
       const antes = await def(c);
       const aclAntes = await acl(c);
-      if (await reorgViva(c)) {
+      // Com o estado anterior reconstruído pelo inverso, a função tem as âncoras e a comparação byte a byte vale; o ramo da reorg só roda
+      // num banco que já tem a reorg do Sheet E ainda não tem a coluna (ordem de deploy antiga).
+      if (!antes.includes(COL_ANTES) && (await reorgViva(c))) {
         // R14/R23–R26 (T7, ruling do controlador 25/set): a reorg do Sheet (20261005100000) já
         // redefiniu `_replicar_cards_plan_tecido_core` com 7 campos + tamanho_tipo A MAIS no
         // INSERT — `antes` já não termina em `ref_auto` (COL_ANTES/VAL_ANTES deixam de bater), e
@@ -190,6 +209,10 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
       await outra.query("SELECT 1 FROM public.modelos LIMIT 1");
       await withTx(async (c) => {
         await prepara(c);
+        // T1 (backend, 05/out): com a F3.1 já aplicada a coluna existe e não dá para voltar ao "antes" com a outra sessão segurando `modelos`
+        // (o DROP também pede ACCESS EXCLUSIVE). Não precisa: `ADD COLUMN IF NOT EXISTS` pede o MESMO ACCESS EXCLUSIVE antes de olhar se
+        // a coluna existe, então a receita (desiste em 55P03 e NADA fica) é medida igual — a função trocada ANTES do ALTER tem de voltar.
+        const existia = await coluna(c);
         const antes = await def(c);
         const t0 = Date.now();
         let codigo: string | undefined;
@@ -200,7 +223,7 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
         }
         expect(codigo).toBe("55P03");
         expect(Date.now() - t0).toBeLessThan(3000);
-        expect(await coluna(c)).toBeUndefined();
+        expect(await coluna(c)).toEqual(existia); // nada mudou: ausente continua ausente (banco pré-F3.1), presente continua presente
         expect(await def(c)).toBe(antes);
       });
     } finally {
@@ -252,6 +275,7 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
   it("inverso: recusa apagar descrições sem a confirmação; com 'sim' volta a função byte a byte e some a coluna", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      await paraEstadoAnterior(c);
       const antes = await def(c);
       const aclAntes = await acl(c);
       await aplicarArquivo(c, MIG);
@@ -273,6 +297,7 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
   it("inverso com a coluna só com espaços passa SEM confirmação (não há texto a perder)", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      await paraEstadoAnterior(c);
       const antes = await def(c);
       await aplicarArquivo(c, MIG);
       await comoUsuario(c);
@@ -286,6 +311,7 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
   it("inverso sem a coluna: só recria a função (idempotente)", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      await paraEstadoAnterior(c);
       const antes = await def(c);
       await aplicarArquivo(c, INV);
       expect(await def(c)).toBe(antes);
