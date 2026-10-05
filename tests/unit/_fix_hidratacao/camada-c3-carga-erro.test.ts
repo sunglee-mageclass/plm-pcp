@@ -36,7 +36,7 @@ vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastM
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
-import { montar, esperar, aguardar, clicar } from "./dom-helpers";
+import { montar, esperar, aguardar, clicar, digitar } from "./dom-helpers";
 import { Route as RouteDir } from "@/routes/_authenticated/expedicao.direcionamento.$modeloId";
 import { Route as RouteOficina } from "@/routes/_authenticated/pcp.oficina.$modeloId";
 import { Route as RouteServicos } from "@/routes/_authenticated/pcp.servicos.$modeloId";
@@ -72,9 +72,9 @@ async function abrir(Route: any, qc: QueryClient) {
 const novoQc = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 const TELAS = [
-  { nome: "Direcionamento", Route: RouteDir, chaveCad: ["dir-cad", "m1"], falhasCad: 1, semCad: "Sem registro de CAD" },
-  { nome: "PCP Oficina", Route: RouteOficina, chaveCad: ["oficina-cad", "m1"], falhasCad: 1, semCad: "ainda não tem registro de CAD" },
-  { nome: "PCP Serviços", Route: RouteServicos, chaveCad: ["terc-cad", "m1"], falhasCad: 2 /* a Ficha Técnica impressa (useFichaData) também lê `cad` */, semCad: "ainda não possui um registro de CAD" },
+  { nome: "Direcionamento", Route: RouteDir, chaveCad: ["dir-cad", "m1"], falhasCad: 2, semCad: "Sem registro de CAD" },
+  { nome: "PCP Oficina", Route: RouteOficina, chaveCad: ["oficina-cad", "m1"], falhasCad: 2, semCad: "ainda não tem registro de CAD" },
+  { nome: "PCP Serviços", Route: RouteServicos, chaveCad: ["terc-cad", "m1"], falhasCad: 4 /* a Ficha Técnica impressa (useFichaData) também lê `cad` */, semCad: "ainda não possui um registro de CAD" },
 ] as const;
 
 for (const T of TELAS) {
@@ -82,7 +82,7 @@ for (const T of TELAS) {
     it("CAD falha: aviso + 'Tentar de novo', SEM texto de 'sem CAD', Salvar travado; clicar recupera", async () => {
       FAKE.falhar("cad", T.falhasCad);
       await abrir(T.Route, novoQc());
-      await aguardar(() => !!tentarDeNovo(), "aviso com Tentar de novo", 3000);
+      await aguardar(() => !!tentarDeNovo(), "aviso com Tentar de novo", 5000);
       expect(texto()).toContain("Não foi possível carregar os dados");
       expect(texto()).not.toContain(T.semCad);
       await aguardar(() => !!salvar(), "botão Salvar na tela");
@@ -124,9 +124,9 @@ for (const T of TELAS) {
 
 describe("[camada C3] PCP Oficina — grade da ficha", () => {
   it("cad_grades falha: aviso da grade com 'Tentar de novo'; clicar recupera; o formulário segue utilizável", async () => {
-    FAKE.falhar("cad_grades", 1);
+    FAKE.falhar("cad_grades", 2); // a query tem retry: 1 (B1) = 2 tentativas
     await abrir(RouteOficina, novoQc());
-    await aguardar(() => texto().includes("Não foi possível carregar a grade"), "aviso da grade", 3000);
+    await aguardar(() => texto().includes("Não foi possível carregar a grade"), "aviso da grade", 5000);
     expect(tentarDeNovo()).not.toBeNull();
     await clicar(tentarDeNovo()!);
     await aguardar(() => !texto().includes("Não foi possível carregar a grade"), "grade recuperada", 3000);
@@ -136,13 +136,99 @@ describe("[camada C3] PCP Oficina — grade da ficha", () => {
 describe("[camada C3] PCP Serviços — cabeçalho (Grade Total Geral / custo)", () => {
   it("cad_grades falha: cabeçalho mostra '—' (não '0,00') + aviso; clicar recupera e mostra o total", async () => {
     FAKE.linhas.cad_grades = [{ cad_id: "c1", variante_numero: 1, grade_total_real: 20, grade_total_planejada: 20 }];
-    FAKE.falhar("cad_grades", 1);
+    FAKE.falhar("cad_grades", 2); // retry: 1 (B1) = 2 tentativas
     await abrir(RouteServicos, novoQc());
-    await aguardar(() => texto().includes("Não foi possível carregar a grade e o custo do CAD"), "aviso do cabeçalho", 3000);
+    await aguardar(() => texto().includes("Não foi possível carregar a grade e o custo do CAD"), "aviso do cabeçalho", 5000);
     expect(texto()).toContain("Grade Total Geral—");
     expect(texto()).not.toContain("Grade Total Geral0,00");
     await clicar(tentarDeNovo()!);
     await aguardar(() => !texto().includes("Não foi possível carregar a grade e o custo do CAD"), "recuperou", 3000);
     expect(texto()).toContain("Grade Total Geral20");
+  });
+});
+
+// ---- fix round 1 ----------------------------------------------------------------------------------------------------
+const molde = () => Array.from(document.querySelectorAll<HTMLTextAreaElement>("textarea")).find((t) => t.value.startsWith("molde"));
+const updatesCad = () => FAKE.chamadas.filter((c) => c.tabela === "cad" && c.op === "update");
+
+describe("[camada C3 fix1 · I1] PCP Oficina — refetch do CAD que falha DEPOIS do Salvar não re-semeia o molde VELHO", () => {
+  it("Salvar (molde NOVO) -> refetch do cad falha: aviso + Tentar de novo, Salvar TRAVADO, nenhum UPDATE com o molde velho; retry hidrata o molde NOVO", async () => {
+    await abrir(RouteOficina, novoQc());
+    await aguardar(() => !!salvar() && salvar()!.disabled === false && !!molde(), "hidratou", 3000);
+    await digitar(molde()!, "molde NOVO");
+
+    FAKE.falhar("cad", 8); // o refetch pós-Salvar (e o retry:1) falham
+    await clicar(salvar()!);
+    await aguardar(() => updatesCad().length === 1, "UPDATE do cad com o molde NOVO");
+    expect((updatesCad()[0].payload as any).observacoes_molde).toBe("molde NOVO");
+    expect(FAKE.linhas.cad[0].observacoes_molde).toBe("molde NOVO");
+
+    await aguardar(() => !!tentarDeNovo(), "aviso depois do refetch falho", 5000);
+    expect(texto()).toContain("Não foi possível carregar os dados");
+    expect(salvar()!.disabled).toBe(true);
+    expect(molde()).toBeUndefined(); // o formulário (e o molde velho semeado) não volta
+    await esperar(200);
+    expect(salvar()!.disabled).toBe(true);
+    expect(updatesCad().length).toBe(1); // nada gravou o molde velho por cima
+
+    FAKE.falhar("cad", 0);
+    await clicar(tentarDeNovo()!);
+    await aguardar(() => salvar()?.disabled === false && !!molde(), "carga NOVA com sucesso libera o Salvar", 3000);
+    expect(molde()!.value).toBe("molde NOVO");
+  });
+});
+
+describe("[camada C3 fix1 · M1] PCP Serviços — refetch do CAD que falha DEPOIS do Salvar mostra aviso (não trava mudo)", () => {
+  it("Salvar -> refetch do terc-cad falha: aviso + Tentar de novo + Salvar travado; retry libera", async () => {
+    await abrir(RouteServicos, novoQc());
+    await aguardar(() => !!salvar() && salvar()!.disabled === false && !!molde(), "hidratou", 3000);
+    await digitar(molde()!, "molde NOVO");
+    FAKE.falhar("cad", 8);
+    await clicar(salvar()!);
+    await aguardar(() => !!tentarDeNovo(), "aviso depois do refetch falho", 6000);
+    expect(texto()).toContain("Não foi possível carregar os dados");
+    expect(salvar()!.disabled).toBe(true);
+    FAKE.falhar("cad", 0);
+    await clicar(tentarDeNovo()!);
+    await aguardar(() => salvar()?.disabled === false, "libera após carga NOVA", 3000);
+    expect(texto()).not.toContain("Não foi possível carregar os dados");
+  });
+});
+
+describe("[camada C3 fix1 · B2/B3/B4] carregando não vira vazio/0,00", () => {
+  it("Oficina: imprimir desabilitado e Serviços: cabeçalho '—' enquanto cad_grades carrega", async () => {
+    const soltar = FAKE.segurar("cad_grades");
+    await abrir(RouteServicos, novoQc());
+    await aguardar(() => texto().includes("Grade Total Geral"), "cabeçalho");
+    await esperar(60);
+    expect(texto()).toContain("Grade Total Geral—");
+    expect(texto()).not.toContain("Grade Total Geral0,00");
+    soltar();
+    await aguardar(() => texto().includes("Grade Total Geral20"), "total chega", 3000);
+  });
+
+  it("Oficina: botão de imprimir desabilitado enquanto a grade carrega", async () => {
+    const soltar = FAKE.segurar("cad_grades");
+    await abrir(RouteOficina, novoQc());
+    const imprimir = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").includes("Imprimir Ficha de Oficina"))!;
+    await aguardar(() => !!imprimir(), "botão de imprimir");
+    await esperar(60);
+    expect(imprimir().disabled).toBe(true);
+    soltar();
+    await aguardar(() => imprimir().disabled === false, "habilita quando a grade chega", 3000);
+  });
+});
+
+describe("[camada C3 fix1 · M2] Direcionamento — carregando não vira 'Nenhuma variante'", () => {
+  it("com o CAD lido e cad_grades em voo: 'Carregando…', sem 'Nenhuma variante com grade real'", async () => {
+    const soltar = FAKE.segurar("cad_grades");
+    await abrir(RouteDir, novoQc());
+    await aguardar(() => !!salvar(), "tela");
+    await esperar(80);
+    expect(texto()).toContain("Carregando…");
+    expect(texto()).not.toContain("Nenhuma variante com grade real");
+    soltar();
+    await aguardar(() => salvar()?.disabled === false, "hidrata", 3000);
+    expect(texto()).not.toContain("Carregando…");
   });
 });

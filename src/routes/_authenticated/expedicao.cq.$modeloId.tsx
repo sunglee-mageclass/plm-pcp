@@ -1846,6 +1846,7 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
   const { data: serv, isError: servErrored, isFetching: servFetching, refetch: refetchServ } = useQuery({
     queryKey: ["cq-oficina-servico", cadId],
     enabled: open && !!cadId,
+    retry: 1, // [camada C3 · B1] aviso honesto em ~1s, não nos 3 retries padrão (~7s)
     queryFn: async () => {
       const { data, error } = await supabase.rpc("cq_oficina_servico" as any, { _cad_id: cadId });
       if (error) throw error;
@@ -1856,18 +1857,41 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
   const [desc, setDesc] = useState(0);
   const [multa, setMulta] = useState(0);
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ desc, multa });
-  // [camada C3 · F5] Re-hidratar só MESCLA: um refetch (foco da janela, invalidação) com alteração pendente NÃO re-semeia
-  // por cima do que a pessoa digitou (só semeia quando não há alteração pendente).
-  const changedRef = useRef(changed);
-  changedRef.current = changed;
+  // [camada C3 · F5 + fix1 I2] Semeadura do rascunho:
+  //  - FECHADO: o rascunho volta ao valor salvo (é o que o "Descartar" faz) — o diálogo fica sempre montado, então sem isso o
+  //    valor descartado reaparecia na reabertura e o Salvar o gravava por cima do que o servidor tem hoje.
+  //  - 1ª leitura depois de abrir: semeia tudo do servidor.
+  //  - refetch com o diálogo ABERTO: MESCLA POR CAMPO — o campo que a pessoa não tocou (local === última base do servidor) adota o
+  //    valor novo do servidor; o que ela editou fica. Assim a multa que OUTRA sessão mudou não é revertida pelo meu Salvar do desconto.
+  const draftRef = useRef({ desc, multa });
+  draftRef.current = { desc, multa };
+  const baseServRef = useRef<{ desc: number; multa: number } | null>(null);
+  // O `MoneyInput` NÃO atualiza o texto enquanto está em foco (e o Radix foca o 1º campo ao abrir): um valor adotado do servidor
+  // ficaria com o estado novo e o texto velho (a pessoa veria 10 e o Salvar mandaria 30). A `key` por campo remonta só o campo
+  // cujo valor foi trocado pela semeadura/mescla (o campo que a pessoa está digitando nunca é remontado).
+  const [descKey, setDescKey] = useState(0);
+  const [multaKey, setMultaKey] = useState(0);
   useEffect(() => {
-    if (serv && !changedRef.current) {
-      const nd = Number(serv.desconto ?? 0);
-      const nm = Number(serv.multa ?? 0);
+    if (!serv) return;
+    const nd = Number(serv.desconto ?? 0);
+    const nm = Number(serv.multa ?? 0);
+    if (!open || !baseServRef.current) {
+      if (draftRef.current.desc !== nd) setDescKey((k) => k + 1);
+      if (draftRef.current.multa !== nm) setMultaKey((k) => k + 1);
       setDesc(nd); setMulta(nm);
       resetBaseline({ desc: nd, multa: nm });
+      baseServRef.current = open ? { desc: nd, multa: nm } : null;
+      return;
     }
-  }, [serv]); // eslint-disable-line react-hooks/exhaustive-deps
+    const base = baseServRef.current;
+    const mDesc = draftRef.current.desc === base.desc ? nd : draftRef.current.desc;
+    const mMulta = draftRef.current.multa === base.multa ? nm : draftRef.current.multa;
+    if (mDesc !== draftRef.current.desc) setDescKey((k) => k + 1);
+    if (mMulta !== draftRef.current.multa) setMultaKey((k) => k + 1);
+    setDesc(mDesc); setMulta(mMulta);
+    resetBaseline({ desc: nd, multa: nm }); // baseline = o que está SALVO no servidor; o campo editado continua "sujo"
+    baseServRef.current = { desc: nd, multa: nm };
+  }, [serv, open]); // eslint-disable-line react-hooks/exhaustive-deps
   // Guarda: só há edição quando aberto e há serviço (campos aparecem). Fechar com
   // pendências pede confirmação de descarte.
   const dirty = open && !!serv && changed;
@@ -1915,11 +1939,11 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Desconto total</Label>
-                <MoneyInput value={desc || ""} placeholder="0,00" onChange={(e) => setDesc(Number(e.target.value))} />
+                <MoneyInput key={`d${descKey}`} value={desc || ""} placeholder="0,00" onChange={(e) => setDesc(Number(e.target.value))} />
               </div>
               <div>
                 <Label className="text-xs">Multa total</Label>
-                <MoneyInput value={multa || ""} placeholder="0,00" onChange={(e) => setMulta(Number(e.target.value))} />
+                <MoneyInput key={`m${multaKey}`} value={multa || ""} placeholder="0,00" onChange={(e) => setMulta(Number(e.target.value))} />
               </div>
             </div>
             <div className="rounded-md bg-muted/40 px-3 py-2"><span className="text-muted-foreground">Custo líquido:</span> <b>{brl(liquido)}</b></div>

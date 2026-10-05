@@ -275,6 +275,7 @@ export function TerceirizadosDetail({
   // "Tentar de novo", sem corpo, sem "sem CAD", Salvar travado). Refetch com erro depois de sucesso mantém o último dado.
   const { data: cad, isSuccess: cadOk, isFetching: cadFetching, isError: cadErrored, refetch: refetchCad } = useQuery({
     queryKey: ["terc-cad", modeloId],
+    retry: 1, // [camada C3 · B1] aviso honesto em ~1s, não nos 3 retries padrão (~7s)
     queryFn: async () => {
       const { data, error } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
       if (error) throw error;
@@ -282,14 +283,14 @@ export function TerceirizadosDetail({
     },
   });
 
-  const cadErro = cadErrored && cad === undefined;
 
   // Grade Total Geral (soma das grades do CAD) — exibida no cabeçalho.
   // [camada C3 · m-A] lança o erro (antes: `data ?? []` somava 0 e o cabeçalho mostrava "Grade Total Geral 0,00"
   // numa falha de carga). Falha na 1ª carga -> "—" + aviso com "Tentar de novo" (`custoAuxErro`, abaixo).
-  const { data: gradeTotalRaw, isError: gradeTotalErrored, refetch: refetchGradeTotal } = useQuery({
+  const { data: gradeTotalRaw, isError: gradeTotalErrored, isFetching: gradeTotalFetching, refetch: refetchGradeTotal } = useQuery({
     queryKey: ["terc-grade-total", cad?.id],
     enabled: !!cad?.id,
+    retry: 1, // [camada C3 · B1]
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cad_grades")
@@ -307,9 +308,10 @@ export function TerceirizadosDetail({
 
   // Custo de materiais do CAD por peça (tecidos + aviamentos) — base do custo real.
   // [camada C3 · m-A] lança o erro de qualquer das 2 leituras (antes: custo de materiais 0 silencioso).
-  const { data: materiaisRaw, isError: materiaisErrored, refetch: refetchMateriais } = useQuery({
+  const { data: materiaisRaw, isError: materiaisErrored, isFetching: materiaisFetching, refetch: refetchMateriais } = useQuery({
     queryKey: ["terc-cad-materiais", cad?.id],
     enabled: !!cad?.id,
+    retry: 1, // [camada C3 · B1]
     queryFn: async () => {
       const [tecRes, aviRes] = await Promise.all([
         supabase.from("cad_tecidos").select("custo_cad, consumo_cad, loss_percent_cad, artigos:artigo_id(preco_por_metro)").eq("cad_id", cad!.id),
@@ -331,6 +333,9 @@ export function TerceirizadosDetail({
   const gradeTotalErro = gradeTotalErrored && gradeTotalRaw === undefined;
   const materiaisErro = materiaisErrored && materiaisRaw === undefined;
   const custoAuxErro = gradeTotalErro || materiaisErro;
+  // [camada C3 fix1 · B3] "—" também ENQUANTO carrega/repete (CAD existe e o valor ainda não chegou), nunca "0,00" por falta de dado.
+  const gradeTotalPendente = !!cad?.id && gradeTotalRaw === undefined;
+  const custoPendente = gradeTotalPendente || (!!cad?.id && materiaisRaw === undefined);
 
   // Colaboradores (Cadastro > Colaboradores) — responsáveis quando o serviço é Interno.
   const { data: colaboradores = [] } = useQuery({
@@ -637,6 +642,10 @@ export function TerceirizadosDetail({
   // "Não há acabamento (pós)": peças sem serviço pós → Status Geral vira Finalizado.
   const [semAcabamento, setSemAcabamento] = useState(false);
   const [moldeHydrated, setMoldeHydrated] = useState(false);
+  // [camada C3 fix1 · M1] erro do CAD + molde ainda não (re)hidratado: 1ª carga OU refetch pós-Salvar que falhou (o `onSuccess` zera
+  // `moldeHydrated` e o Salvar fica travado até uma carga NOVA com sucesso) -> aviso com "Tentar de novo" em vez de travar mudo.
+  // Refetch com erro de uma tela já hidratada (moldeHydrated true) segue mantendo o dado, sem aviso.
+  const cadErro = cadErrored && !moldeHydrated;
   // Fix hidratação — revisão final (C2): + `!cadOk || cadFetching` — espera o `cad` assentar COM
   // SUCESSO (não só `!== undefined`, que também é true depois de um erro engolido). Mesma classe
   // do achado I1 já corrigido no CQ Pré/Direcionamento nas rodadas anteriores; a Oficina não tinha
@@ -1764,8 +1773,8 @@ export function TerceirizadosDetail({
       {custoAuxErro && (
         <Card role="alert" className="p-4 space-y-2 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar a grade e o custo do CAD.</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => { if (gradeTotalErro) refetchGradeTotal(); if (materiaisErro) refetchMateriais(); }}>
-            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          <Button type="button" variant="outline" size="sm" disabled={gradeTotalFetching || materiaisFetching} onClick={() => { if (gradeTotalErro) refetchGradeTotal(); if (materiaisErro) refetchMateriais(); }}>
+            <RotateCcw className="h-4 w-4 mr-2" /> {gradeTotalFetching || materiaisFetching ? "Tentando…" : "Tentar de novo"}
           </Button>
         </Card>
       )}
@@ -1774,7 +1783,7 @@ export function TerceirizadosDetail({
       <Card className="p-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <div>
           <Label className="text-xs text-muted-foreground">Grade Total Geral</Label>
-          <div className="mt-1 text-sm font-semibold">{gradeTotalErro ? "—" : fmtNum(gradeTotalGeral)}</div>
+          <div className="mt-1 text-sm font-semibold">{gradeTotalErro || gradeTotalPendente ? "—" : fmtNum(gradeTotalGeral)}</div>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Status Pré</Label>
@@ -1811,9 +1820,9 @@ export function TerceirizadosDetail({
           <Label className="text-xs text-muted-foreground">Custo real (c/ serviço) / peça</Label>
           <div
             className="mt-1 text-sm font-bold text-primary"
-            title={`Materiais CAD ${brl(Number(materiaisPorPeca) || 0)} + serviço ${brl(servicoPorPeca)}${custosAdicionaisPeca > 0 ? ` + adicionais ${brl(custosAdicionaisPeca)}` : ""}`}
+            title={custoAuxErro || custoPendente ? undefined : `Materiais CAD ${brl(Number(materiaisPorPeca) || 0)} + serviço ${brl(servicoPorPeca)}${custosAdicionaisPeca > 0 ? ` + adicionais ${brl(custosAdicionaisPeca)}` : ""}`}
           >
-            {custoAuxErro ? "—" : brl(custoRealPeca)}
+            {custoAuxErro || custoPendente ? "—" : brl(custoRealPeca)}
           </div>
           {custosAdicionaisPeca > 0 && (
             <div className="text-xs text-muted-foreground">inclui custos adicionais: {brl(custosAdicionaisPeca)}</div>

@@ -499,13 +499,21 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   rascunho" e o `upsert` da linha inteira saíram; quem grava agora é `salvar_config_loja`
   (compare-and-set por coluna).
 - **Carregar sem enganar (Camada C3, out/2026):** a leitura do CAD das telas Direcionamento (`dir-cad`), PCP Oficina (`oficina-cad`) e
-  PCP Serviços (`terc-cad`) LANÇA o erro; sucesso sem linha = `null` ("sem CAD" de verdade), falha na 1ª carga = `cadErro`
-  (`isError && cad === undefined`) -> aviso "Não foi possível carregar os dados." + "Tentar de novo", sem corpo, **sem** texto de "sem CAD"
-  e Salvar travado; enquanto `cad === undefined` mostra "Carregando…". Refetch com erro depois de sucesso mantém o último dado (sem aviso).
-  Grade/custo do cabeçalho do PCP Serviços (`terc-grade-total`, `terc-cad-materiais`) e a grade da ficha da Oficina também lançam: "—" + aviso,
-  nunca "Grade Total Geral 0,00". Diálogo desconto/multa da Oficina (CQ): `serv` `undefined` = carregando / erro com retry, `null` = "Nenhum
-  serviço" de verdade, e o efeito só re-semeia sem alteração pendente. Padrão a repetir em telas novas: nunca decidir "vazio" a partir de
-  `data ?? []` de uma query que pode ter falhado. Testes: `tests/unit/_fix_hidratacao/camada-c3-*.test.ts`.
+  PCP Serviços (`terc-cad`) LANÇA o erro (com `retry: 1`, aviso em ~1s); sucesso sem linha = `null` ("sem CAD" de verdade), `cad === undefined`
+  = carregando ("Carregando…" nas 3 telas). Falha = `cadErro` -> aviso "Não foi possível carregar os dados." + "Tentar de novo" ("Tentando…"
+  e desabilitado durante o fetch), **sem** texto de "sem CAD" e Salvar travado. `cadErro` = `isError && !hydrated` (Oficina) /
+  `isError && !moldeHydrated` (Serviços) / `isError && cad === undefined` (Direcionamento, que não re-hidrata o CAD): um refetch que falha
+  DEPOIS de um Salvar (o `onSuccess` zera a hidratação) NÃO re-semeia do `cad` velho do cache — o efeito de hidratação exige `isSuccess &&
+  !isFetching` do CAD (senão o próximo Salvar reverteria "Partes do Molde") e a tela mostra o aviso até uma carga NOVA com sucesso. Refetch com
+  erro de uma tela já hidratada mantém o último dado (sem aviso). No Direcionamento o corpo mostra "Carregando…" também enquanto a
+  grade/lojas não hidratam (nunca "Nenhuma variante com grade real" por falta de dado). Grade/custo do cabeçalho do PCP Serviços
+  (`terc-grade-total`, `terc-cad-materiais`) e a grade da ficha da Oficina também lançam: "—" (carregando ou erro) + aviso, nunca "0,00"; o
+  botão de imprimir da Oficina fica desabilitado até a grade chegar. Diálogo desconto/multa da Oficina (CQ, sempre montado): `serv`
+  `undefined` = carregando / erro com retry, `null` = "Nenhum serviço" de verdade; fechado (inclui o Descartar) o rascunho volta ao salvo,
+  e um refetch com o diálogo aberto MESCLA POR CAMPO (o campo que não toquei adota o servidor; o editado fica) — os `MoneyInput` remontam
+  por `key` ao adotar valor (o MoneyInput não atualiza o texto em foco). Padrão a repetir: nunca decidir "vazio" a partir de `data ?? []`
+  de uma query que pode ter falhado, e nunca re-semear de dado em cache depois de um refetch que falhou. Testes:
+  `tests/unit/_fix_hidratacao/camada-c3-*.test.ts`.
 - **Config da Loja colaborativa (P-28 A, release 5, migration `20261015100000`)** — a tela deixou
   de fazer `upsert` da linha inteira de `tenant_config` ("último vence": trocar de loja/o outro
   editar zerava o que você tinha acabado de gravar noutra coluna) e passou a chamar

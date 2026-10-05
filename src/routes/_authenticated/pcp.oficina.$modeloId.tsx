@@ -74,15 +74,15 @@ function OficinaDetailPage() {
   // [camada C3 · B8c] A query LANÇA o erro (antes engolia: `data` virava `undefined` e a tela tratava a falha como
   // "este modelo ainda não tem CAD"). Sucesso sem linha = `null` (CAD inexistente de verdade); falha na 1ª carga =
   // `cadErro` (aviso + "Tentar de novo", sem formulário, Salvar travado). Refetch com erro depois de sucesso mantém o dado.
-  const { data: cad, isError: cadErrored, refetch: refetchCad, isFetching: cadFetching } = useQuery({
+  const { data: cad, isError: cadErrored, isSuccess: cadOk, refetch: refetchCad, isFetching: cadFetching } = useQuery({
     queryKey: ["oficina-cad", modeloId],
+    retry: 1, // [camada C3 · B1] aviso honesto em ~1s, não nos 3 retries padrão (~7s); o "Tentar de novo" cobre o resto.
     queryFn: async () => {
       const { data, error } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
       if (error) throw error;
       return data ?? null;
     },
   });
-  const cadErro = cadErrored && cad === undefined;
 
   // Editor de oficina legado (producao_oficina está fora do menu; oficina viva roda em
   // Serviços). Lê empresas de serviço (o espelho terceirizados foi removido).
@@ -108,6 +108,7 @@ function OficinaDetailPage() {
     // cache. O CQ invalida por prefixo ["cad-grades", cad?.id], que casa ambos.
     queryKey: ["cad-grades", cad?.id, "full"],
     enabled: !!cad?.id,
+    retry: 1, // [camada C3 · B1]
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cad_grades")
@@ -167,6 +168,10 @@ function OficinaDetailPage() {
     observacoes_molde: "",
   });
   const [hydrated, setHydrated] = useState(false);
+  // [camada C3 fix1 · I1] `!hydrated`, não `cad === undefined`: depois de um Salvar o `onSuccess` zera `hydrated`; se o refetch do
+  // CAD falhar, o RQ MANTÉM o `cad` de antes do save (molde velho) — re-hidratar dele reverteria "Partes do Molde". Erro + não
+  // hidratado = aviso com "Tentar de novo" e Salvar travado até uma carga NOVA com sucesso (ver o guard do efeito de hidratação).
+  const cadErro = cadErrored && !hydrated;
   const { dirty, reset: resetBaseline } = useDirtySnapshot(form);
 
   useEffect(() => {
@@ -181,7 +186,9 @@ function OficinaDetailPage() {
     // sem esperar a resposta nova. Se outra pessoa mudou a linha nesse intervalo, o Salvar grava
     // por cima os valores velhos. Tela legada, sem controle de concorrência (é "o último vence"
     // por natureza), mas a correção é barata e fecha a janela de semear do cache desatualizado.
-    if (existing === undefined || cad === undefined || !existingOk || existingFetching) return;
+    // [camada C3 fix1 · I1] + `!cadOk || cadFetching`: só semeia de um CAD lido COM SUCESSO e sem refetch em voo (mesma guarda do
+    // PCP Serviços/C2) — um refetch pós-Salvar que falha deixa o `cad` VELHO no cache e semearia o molde antigo.
+    if (existing === undefined || cad === undefined || !cadOk || cadFetching || !existingOk || existingFetching) return;
     const molde = (cad as any)?.observacoes_molde ?? "";
     let next = form;
     if (existing) {
@@ -204,7 +211,7 @@ function OficinaDetailPage() {
     }
     resetBaseline(next);
     setHydrated(true);
-  }, [existing, cad, hydrated, existingOk, existingFetching]);
+  }, [existing, cad, hydrated, existingOk, existingFetching, cadOk, cadFetching]);
 
   const status = computeStatus({
     data_enviado: form.data_enviado || null,
@@ -321,7 +328,7 @@ function OficinaDetailPage() {
             </Button>
           </Card>
         )}
-        {cad?.id && !existingErrored && !hydrated && (
+        {cad?.id && !existingErrored && !cadErro && !hydrated && (
           <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
         )}
 
@@ -499,7 +506,7 @@ function OficinaDetailPage() {
           <Link to="/pcp/oficina"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Link>
         </Button>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint} disabled={gradesErro}>
+          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint} disabled={gradesErro || (!!cad?.id && gradesRaw === undefined)}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
           {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — auditoria confirmou (26/set) que

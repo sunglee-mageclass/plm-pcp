@@ -107,6 +107,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   // `cadErro` (aviso + "Tentar de novo", Salvar travado). Refetch com erro depois de sucesso mantém o último dado (RQ).
   const { data: cad, isError: cadErrored, refetch: refetchCad, isFetching: cadFetching } = useQuery({
     queryKey: ["dir-cad", modeloId],
+    retry: 1, // [camada C3 · B1] aviso honesto em ~1s, não nos 3 retries padrão (~7s)
     queryFn: async () => {
       const { data, error } = await (supabase.from("cad") as any).select("id, direcionamento_status, direcionamento_confirmado_at").eq("modelo_id", modeloId).maybeSingle();
       if (error) throw error;
@@ -818,6 +819,11 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           </Button>
         </Card>
       )}
+      {/* [camada C3 fix1 · M2] "Carregando…" enquanto o CAD não respondeu OU a grade/lojas ainda não hidrataram (sem erro): o corpo
+          vazio não pode se passar por "Nenhuma variante com grade real definida". */}
+      {((cad === undefined && !cadErro) || (cad?.id && !hydrated && !dirLoadError)) && (
+        <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
+      )}
       {cad?.id && dirLoadError && (!hydrated || dirControle === undefined) && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -906,7 +912,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         </Card>
       )}
 
-      {variantes.length === 0 && cad?.id && (
+      {variantes.length === 0 && cad?.id && hydrated && (
         <Card className="p-8 text-center text-sm text-muted-foreground">Nenhuma variante com grade real definida no CAD.</Card>
       )}
 
