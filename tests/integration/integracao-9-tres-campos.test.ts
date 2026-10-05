@@ -255,7 +255,19 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 9 — 3 campos não obrigatórios 
         .toBe("(_integracao_layout())[1:17]");
       expect((await um<{ n: string }>(c,
         "SELECT count(*) AS n FROM public.integracao_config WHERE campos && ARRAY['colecao','categoria_tecido','linha']")).n).toBe("0");
-      // _down_drop da I3b (só funções + colunas de integracao_linhas; sem DROP TRIGGER) roda depois do inverso
+      // _down_drop da I3b (só funções + colunas de integracao_linhas; sem DROP TRIGGER) roda depois do inverso.
+      // T1 (backend, 05/out): a cópia tem linhas REAIS da API com Coleção/Categoria/Linha preenchidas (32 — dado vivo, marcado depois da ida), e o
+      // DROP COLUMN as apagaria: a guarda do arquivo exige `app.confirmo_apagar_campos_informativos = 'sim'` (i3b_volta_drop). O teste passava
+      // com a coluna vazia (cópia de antes). Agora: se há linha preenchida, prova a RECUSA da guarda e só então confirma (a txn é revertida: o
+      // texto das colunas volta no ROLLBACK). Sem linha preenchida (banco de antes) o ramo da recusa não existe e o DROP segue direto.
+      const preenchidas = Number((await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.integracao_linhas WHERE colecao IS NOT NULL OR categoria_tecido IS NOT NULL OR linha IS NOT NULL`)).n);
+      if (preenchidas > 0) {
+        await c.query("SAVEPOINT sem_confirmacao");
+        await expect(aplica(c, DROPS[1])).rejects.toThrow(/i3b_volta_drop: \d+ linha\(s\) da API com Colecao\/Categoria\/Linha preenchidas/);
+        await c.query("ROLLBACK TO SAVEPOINT sem_confirmacao");
+        await c.query("SELECT set_config('app.confirmo_apagar_campos_informativos', 'sim', true)");
+      }
       await aplica(c, DROPS[1]);
       await timeouts(c);
       expect(await md5Vivo(c, "public._integracao_extras(uuid)")).toBeNull();
