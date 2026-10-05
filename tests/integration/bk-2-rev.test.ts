@@ -521,10 +521,17 @@ describe.skipIf(!RODA)("bk B2 — rev das outras raízes sobe uma vez por transa
     });
   });
 
-  it("P0409 continua com a B2: base velha recusa (OC Tecido, CQ {cq,fonte}, Plan. Tecido, Explosão), inclusive depois de um Salvar no topo da mesma txn", async () => {
+  it("P0409 continua com a B2 nas 7 raízes: base velha recusa de cara e DEPOIS de um Salvar no NÍVEL DE TOPO da mesma txn (OC Tecido/Aviamento/Insumo, CQ {cq,fonte}, Plan. Tecido, Explosão)", async () => {
     await withTx(async (c) => {
       await comB2(c);
-      for (const nome of ["OC Tecido", "CQ Pré", "Plan. Tecido", "Explosão"]) {
+      for (const nome of [
+        "OC Tecido",
+        "OC Aviamento",
+        "OC Insumo",
+        "CQ Pré",
+        "Plan. Tecido",
+        "Explosão",
+      ]) {
         const cen = CENARIOS.find((x) => x.nome.startsWith(nome))!;
         const a = (await cen.acha(c))!;
         const col = (cen.cols ?? ["rev"])[0];
@@ -534,13 +541,101 @@ describe.skipIf(!RODA)("bk B2 — rev das outras raízes sobe uma vez por transa
           /^P0409 conflito_versao/,
         );
         expect(await revDe(c, cen.raiz, a.id, col)).toBe(r0);
-        // A salva (r0 → r0 + 1/+2); B com a base de antes → P0409; nada muda
-        expect(await tenta(c, () => cen.salva(c, a, r0)), nome).toBe("PASSOU");
+        // (review m1) A salva NO TOPO da txn (sem SAVEPOINT: o caminho em que a B2 pula os bumps): r0 → r0 + 1/+2
+        await cen.salva(c, a, r0);
         const r1 = await revDe(c, cen.raiz, a.id, col);
-        expect(r1).toBeGreaterThan(r0);
+        expect(r1, nome).toBeGreaterThan(r0);
+        // B com a base de antes → P0409; nada muda
         expect(await tenta(c, () => cen.salva(c, a, r0)), nome).toMatch(/^P0409 conflito_versao/);
         expect(await revDe(c, cen.raiz, a.id, col)).toBe(r1);
+        // a base nova (a que a tela de A recebeu) segue passando, de novo no topo
+        await cen.salva(c, a, r1);
+        expect(await revDe(c, cen.raiz, a.id, col), nome).toBeGreaterThanOrEqual(r1);
       }
+    });
+  });
+
+  it("P0409 nos caminhos diretos (review m2): OC Insumo recebida (.eq(rev) da Nota), Cadastro de Tecido (.eq(rev) de artigos) e otb_rev depois de um Salvar do Plan. Tecido", async () => {
+    await withTx(async (c) => {
+      await comB2(c);
+      // OC Insumo RECEBIDA: a tela grava só a Nota com UPDATE direto .eq("rev") (0 linhas = P0409 local)
+      const oe = await um<{ id: string; tenant: string } | undefined>(
+        c,
+        `SELECT o.id, o.tenant_id AS tenant FROM ocs_etiqueta o
+          WHERE o.status = 'recebido' AND EXISTS (SELECT 1 FROM ocs_etiqueta_itens i WHERE i.oc_etiqueta_id = o.id)
+          ORDER BY o.id LIMIT 1`,
+      );
+      expect(oe, "OC de insumo recebida com itens na cópia").toBeTruthy();
+      const nota = (id: string, rev: number) =>
+        comoCliente(
+          c,
+          oe!.tenant,
+          async () =>
+            (
+              await c.query(
+                `UPDATE public.ocs_etiqueta SET data_nota_entrada = data_nota_entrada WHERE id = $1 AND rev = $2 RETURNING id, rev`,
+                [id, rev],
+              )
+            ).rows as { id: string; rev: number }[],
+        );
+      const e0 = await revDe(c, "ocs_etiqueta", oe!.id);
+      // outra pessoa grava um item (filha) no topo da txn → a raiz sobe 1 (1º bump da B2)
+      await c.query(
+        "UPDATE public.ocs_etiqueta_itens SET quantidade_pedida = quantidade_pedida WHERE oc_etiqueta_id = $1",
+        [oe!.id],
+      );
+      expect(await revDe(c, "ocs_etiqueta", oe!.id)).toBe(e0 + 1);
+      expect(await nota(oe!.id, e0)).toEqual([]); // base velha: 0 linhas
+      const ok = await nota(oe!.id, e0 + 1);
+      expect(ok.map((r) => r.rev)).toEqual([e0 + 2]);
+      expect(await nota(oe!.id, e0 + 1)).toEqual([]); // e a base de antes do próprio save, também
+
+      // Cadastro de Tecido: variantes gravadas pelo cliente (filhas) e depois o UPDATE .eq("rev") do artigo
+      const art = (await CENARIOS.find((x) => x.raiz === "artigos")!.acha(c))!;
+      const a0 = await revDe(c, "artigos", art.id);
+      await comoCliente(c, art.tenant, () =>
+        c.query(
+          "UPDATE public.variantes_tecido SET nome_variante = nome_variante WHERE artigo_id = $1",
+          [art.id],
+        ),
+      );
+      expect(await revDe(c, "artigos", art.id)).toBe(a0 + 1);
+      const artigo = (rev: number) =>
+        comoCliente(
+          c,
+          art.tenant,
+          async () =>
+            (
+              await c.query(
+                "UPDATE public.artigos SET nome = nome WHERE id = $1 AND rev = $2 RETURNING rev",
+                [art.id, rev],
+              )
+            ).rows as { rev: number }[],
+        );
+      expect(await artigo(a0)).toEqual([]);
+      expect((await artigo(a0 + 1)).map((r) => r.rev)).toEqual([a0 + 2]);
+      expect(await artigo(a0 + 1)).toEqual([]);
+
+      // otb_rev: o OTB aberto na coleção, com a base de ANTES de um Salvar do Plan. Tecido, recebe P0409
+      const pt = CENARIOS.find((x) => x.nome.startsWith("Plan. Tecido"))!;
+      const col = (await pt.acha(c))!;
+      const o0 = await revDe(c, "colecoes", col.id, "otb_rev");
+      const p0 = await revDe(c, "colecoes", col.id, "plan_rev");
+      await pt.salva(c, col, p0); // no topo da txn
+      expect(await revDe(c, "colecoes", col.id, "otb_rev")).toBe(o0 + 1);
+      const nomeCol = (
+        await um<{ n: string }>(c, "SELECT nome AS n FROM colecoes WHERE id = $1", [col.id])
+      ).n;
+      expect(
+        await tenta(c, () =>
+          comoCliente(c, col.tenant, () =>
+            c.query("SELECT public.otb_salvar_colecao($1::jsonb)", [
+              JSON.stringify({ id: col.id, nome: nomeCol, rev_base: o0 }),
+            ]),
+          ),
+        ),
+      ).toMatch(/^P0409 conflito_versao/);
+      expect(await revDe(c, "colecoes", col.id, "otb_rev")).toBe(o0 + 1);
     });
   });
 

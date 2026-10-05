@@ -245,6 +245,9 @@ describe.skipIf(!RODA)("seg S4 — trava medida (pg_locks na txn revertida) e Re
           WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND n.nspname NOT IN ('pg_catalog', 'pg_toast')
             AND l.mode <> 'AccessShareLock' ORDER BY 1, 2`)).rows as { rel: string; mode: string }[];
       const chave = (t: { rel: string; mode: string }) => `${t.rel}|${t.mode}`;
+      // Ruling R6 (frente Backend): travas que os ganchos MOD_TXN/BK_TXN já pegaram no começo da txn (ex.: o índice novo da B4
+      // numa cópia sem ela) não são da S4 — a checagem "nenhuma AccessExclusive" olha só o que veio depois daqui.
+      const inicio = new Set((await travas()).map(chave));
       const TREZE = [...S4_TABELAS_TRAVA].sort().map((rel) => ({ rel, mode: "ShareRowExclusiveLock" }));
       const { aplicaS3d, s3dViva } = await import("./seg-s3d-helpers");
       let base: Set<string>;
@@ -261,7 +264,7 @@ describe.skipIf(!RODA)("seg S4 — trava medida (pg_locks na txn revertida) e Re
         await aplicaS4(c);
         expect(await novas()).toEqual([]);
       }
-      expect((await travas()).filter((t) => /AccessExclusive|^ExclusiveLock/.test(t.mode))).toEqual([]);
+      expect((await travas()).filter((t) => !inicio.has(chave(t)) && /AccessExclusive|^ExclusiveLock/.test(t.mode))).toEqual([]);
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
            JOIN pg_namespace n ON n.oid = k.relnamespace

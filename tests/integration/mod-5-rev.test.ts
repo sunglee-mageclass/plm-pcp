@@ -488,22 +488,29 @@ describe.skipIf(!RODA)("mod T5 — rev sobe uma vez por transação (Parte 14)",
 
   it("migration: guarda/pós (md5, ACL interna, deps, gatilhos), ida 2× / _down 2× / ida; só catálogo nas travas (2ª sessão lendo pg_locks)", async () => {
     await withTx(async (c) => {
-      await semT5(c);
       const pid = (await um<{ p: number }>(c, "SELECT pg_backend_pid() AS p")).p;
-      await aplica(c, MOD_MIG);
       // travas desta txn vistas de FORA (2ª sessão)
       const b = new Client({ connectionString: dbUrl()!, ssl: false });
       await b.connect();
-      let travas: { rel: string | null; nsp: string | null; mode: string; locktype: string }[] = [];
+      type Trava = { rel: string | null; nsp: string | null; mode: string; locktype: string };
+      let travas: Trava[] = [];
       try {
-        travas = (
-          await b.query(
-            `SELECT c.relname AS rel, n.nspname AS nsp, l.mode, l.locktype
-             FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE l.pid = $1 AND l.granted`,
-            [pid],
-          )
-        ).rows;
+        const le = async (): Promise<Trava[]> =>
+          (
+            await b.query(
+              `SELECT c.relname AS rel, n.nspname AS nsp, l.mode, l.locktype
+               FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE l.pid = $1 AND l.granted`,
+              [pid],
+            )
+          ).rows;
+        // Ruling R6 (frente Backend, receita da B1/B4): só a DIFERENÇA desde o começo da txn — com MOD_TXN/BK_TXN=1 numa cópia
+        // sem os blocos seguintes, o gancho já segura travas que não são da T5 (ex.: ShareLock/índice novo da B4).
+        const chave = (t: Trava) => `${t.locktype}|${t.nsp}.${t.rel}|${t.mode}`;
+        const inicio = new Set((await le()).map(chave));
+        await semT5(c);
+        await aplica(c, MOD_MIG);
+        travas = (await le()).filter((t) => !inicio.has(chave(t)));
       } finally {
         await b.end();
       }

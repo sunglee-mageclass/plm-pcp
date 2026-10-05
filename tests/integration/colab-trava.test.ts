@@ -267,8 +267,6 @@ describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
   it("producao_terceirizados: UPDATE bumpa rev (BEFORE UPDATE); rev é do servidor", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      // Backend B2 (rev 1x por transacao): o CQ nasce e e editado num SAVEPOINT (outra subtransacao); a filha e gravada FORA.
-      await c.query("SAVEPOINT colab_cq_raiz");
       const cad = await um<{ id: string }>(
         c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
       const pt = await um<{ id: string; rev: number }>(

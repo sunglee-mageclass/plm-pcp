@@ -260,13 +260,23 @@ describe.skipIf(!RODA)("seg S2 — B1 (fix round 1): grants só sobre a ACL medi
 describe.skipIf(!RODA)("seg S2 — trava medida (pg_locks na txn revertida)", () => {
   it("grants: nenhuma tabela fora do pg_catalog acima de AccessShare; financeiro_aba: só ShareRowExclusive em parcelas", async () => {
     await withTx(async (c) => {
+      // Ruling R6 (frente Backend): travas que os ganchos MOD_TXN/BK_TXN já pegaram no começo da txn (ex.: o índice novo da B4
+      // numa cópia sem ela) não são da S2. As de public.parcelas ficam de fora da subtração (o S2_TXN=1 as mostra em jaTinha).
+      const inicio = new Set(
+        (await c.query(
+          `SELECT n.nspname || '.' || k.relname || '|' || l.mode AS k
+             FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
+            WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND l.granted
+              AND n.nspname || '.' || k.relname <> 'public.parcelas'`)).rows.map((r) => r.k as string),
+      );
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
           WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND n.nspname NOT IN ('pg_catalog', 'pg_toast')
             AND l.mode <> 'AccessShareLock' ORDER BY 1, 2`)).rows
         // S3A_TXN=1: o CREATE TRIGGER da S3a (4 tabelas de OC) já pegou trava no começo da txn — não é da S2
-        .filter((r) => ![...S3A_TABELAS_TRAVA, ...S3B_TABELAS_TRAVA, ...S3C_TABELAS_TRAVA, ...S3D_TABELAS_TRAVA, ...S4_TABELAS_TRAVA].includes(r.rel)); // idem S3B/S3C/S3D/S4_TXN=1
+        .filter((r) => ![...S3A_TABELAS_TRAVA, ...S3B_TABELAS_TRAVA, ...S3C_TABELAS_TRAVA, ...S3D_TABELAS_TRAVA, ...S4_TABELAS_TRAVA].includes(r.rel)) // idem S3B/S3C/S3D/S4_TXN=1
+        .filter((r) => !inicio.has(`${r.rel}|${r.mode}`)); // R6
       await voltaS3aSePreciso(c); // LIFO: a S3a redefine recalcular_parcelas por cima da S2 (a 220000 recusaria)
       const jaTinha = await travas(); // S2_TXN=1 já aplicou no começo da txn
       // Com a S2 aplicada DE VERDADE na cópia (o controlador aplicou), o gatilho já existe: o CREATE TRIGGER é pulado

@@ -520,6 +520,9 @@ describe.skipIf(!RODA)("mod T4 — reprovado com uma regra só (CHECK + helper)"
 
   it("migration: 130000 → NOT VALID; 131000 → validada; ida idempotente; _down no-op; _down_drop round-trip; travas", async () => {
     await withTx(async (c) => {
+      // Ruling R6 (frente Backend): travas que os ganchos MOD_TXN/BK_TXN/S*_TXN já pegaram no começo da txn (ex.: o índice novo
+      // da B4 numa cópia sem ela) não são desta migration — as asserções de "nada além de" olham só o que veio DEPOIS daqui.
+      const inicio = new Set(await travas(c));
       await prepara(c);
       const vivaNaCopia = (await estado(c)).dev !== null;
       // reaplicar com a T4 viva não pega trava em modelos (só faz sentido se a txn ainda não travou: cópia já com a T4)
@@ -550,9 +553,12 @@ describe.skipIf(!RODA)("mod T4 — reprovado com uma regra só (CHECK + helper)"
       // a trava da ida: AccessExclusive SÓ em modelos (das relações não-catálogo); nada em auth/storage/realtime
       const tr = await travas(c);
       expect(tr).toContain("public.modelos AccessExclusiveLock");
-      expect(tr.filter((t) => /^(auth|storage|realtime|supabase_\w+)\./.test(t))).toEqual([]);
+      const trNovas = tr.filter((t) => !inicio.has(t)); // R6: só o que não vinha dos ganchos
+      expect(trNovas.filter((t) => /^(auth|storage|realtime|supabase_\w+)\./.test(t))).toEqual([]);
       expect(
-        tr.filter((t) => t.endsWith(" AccessExclusiveLock") && !t.startsWith("public.modelos ")),
+        trNovas.filter(
+          (t) => t.endsWith(" AccessExclusiveLock") && !t.startsWith("public.modelos "),
+        ),
       ).toEqual([]);
       // idempotente
       await aplicarArquivo(c, MIG);
