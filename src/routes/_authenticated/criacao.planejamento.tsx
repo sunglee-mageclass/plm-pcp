@@ -19,6 +19,8 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useInsumosPadrao } from "@/components/planejamento/planejamento-detail/useInsumosPadrao";
+import { aplicarInsumosPadraoEmLote, resumoToastLote } from "@/lib/insumos-iniciais";
 import { MoListaSection } from "@/components/planejamento/MoListaSection";
 import { type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
@@ -1679,6 +1681,9 @@ function BatchCardsDialog({
   const [mesId, setMesId] = useState<string | null>(null);
   const [anoId, setAnoId] = useState<string | null>(null);
   const [rows, setRows] = useState<CatRow[]>([emptyCatRow()]);
+  // urg R2 T12 (P-306 B) — os cards criados aqui são sempre INTERNOS (o payload não traz `origem`; default do banco): nascem com os
+  // insumos padrão da loja. A lista carrega junto; enquanto carrega ou se a rede falhar o Criar espera (P-57), com "Tentar de novo".
+  const insumosPadrao = useInsumosPadrao(true);
 
   const { dirty } = useDirtySnapshot({ colecao, colecaoId, subcolecao, linhaId, status, semana, mesId, anoId, rows });
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
@@ -1737,12 +1742,17 @@ function BatchCardsDialog({
       }
       if (payloads.length === 0) throw new Error("Selecione ao menos uma categoria.");
       // tenant_id é preenchido pelo trigger set_tenant_id.
-      const { error } = await supabase.from("modelos").insert(payloads);
+      const { data: criados, error } = await supabase.from("modelos").insert(payloads).select("id");
       if (error) throw error;
-      return payloads.length;
+      // Os cards JÁ existem: daqui em diante nada pode derrubar a criação (falha de insumos vira aviso no toast, por card).
+      const ids = ((criados ?? []) as { id: string }[]).map((c) => c.id);
+      const insumos = await aplicarInsumosPadraoEmLote(ids, insumosPadrao.linhas, (nome, args) => supabase.rpc(nome as any, args as any));
+      return { n: payloads.length, aplicados: insumos.aplicados, falhas: insumos.falhas.length, comInsumos: insumosPadrao.linhas.length > 0 };
     },
-    onSuccess: (n) => {
-      toast.success(`${n} ${n === 1 ? "card criado" : "cards criados"}`);
+    onSuccess: ({ n, aplicados, falhas, comInsumos }) => {
+      const r = resumoToastLote(n, aplicados, falhas, comInsumos);
+      if (r.tipo === "warning") toast.warning(r.texto);
+      else toast.success(r.texto);
       onSaved();
       onClose();
     },
@@ -1897,6 +1907,13 @@ function BatchCardsDialog({
             Total: <span className="font-medium text-foreground">{total}</span>{" "}
             {total === 1 ? "card" : "cards"} serão criados.
           </p>
+          {insumosPadrao.erro && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Não foi possível carregar os insumos padrão da loja. O Criar fica travado até carregar.</span>
+              <Button type="button" variant="outline" size="sm" onClick={insumosPadrao.tentarDeNovo}>Tentar de novo</Button>
+            </div>
+          )}
           {/* Por que "Total 0" com Qtd 1? A linha só conta com categoria escolhida (laudo jul/2026). */}
           {total === 0 && (
             <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
@@ -1924,7 +1941,7 @@ function BatchCardsDialog({
             <ArrowLeft className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Voltar</span>
           </Button>
-          <Button className="max-sm:ml-auto" onClick={() => create.mutate()} disabled={create.isPending || total === 0}>
+          <Button className="max-sm:ml-auto" onClick={() => create.mutate()} disabled={create.isPending || total === 0 || insumosPadrao.carregando || insumosPadrao.erro}>
             {create.isPending ? "Criando…" : `Criar ${total} ${total === 1 ? "card" : "cards"}`}
           </Button>
         </DialogFooter>

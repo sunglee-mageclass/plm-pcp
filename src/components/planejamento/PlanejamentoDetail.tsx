@@ -67,6 +67,10 @@ import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelaci
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 import { ehOrigemComprada } from "@/lib/origem";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useInsumosPadrao } from "@/components/planejamento/planejamento-detail/useInsumosPadrao";
+import { estadoSecaoInsumosNovo, linhasParaRascunho, LIMITE_INSUMOS_INICIAIS, textoOrfaosInsumosPadrao } from "@/lib/insumos-iniciais";
+import { recomputeEtiqueta, type ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
+import { ModeloEtiquetasSection as InsumosNovoEditor } from "@/components/desenvolvimento/modelo-detail/ModeloEtiquetasSection";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
@@ -712,10 +716,31 @@ function PlanejamentoDetailConteudo({
     // do BOM calculada com a OUTRA projeção ("Tecidos & BOM" falso). Sem edição, a referência re-baseia sozinha.
     edicaoPendente: ficha.tocado || gradeComprado.gradeRevendaDirty,
   });
+  // urg R2 T12 (P-306 B) — Dialog "Novo Modelo": seção "Insumos" pré-preenchida com os insumos padrão da loja. É um RASCUNHO (nada grava
+  // antes do Salvar): `insumosNovos` guarda as linhas editáveis; a base (`insumosBaseRef`) é a semente, p/ o "não salvo" só acender
+  // quando a pessoa mexe. Só origem interna; o Salvar espera a lista carregar (P-57) e erro de rede trava com "Tentar de novo".
+  const insumosPadrao = useInsumosPadrao(!isEdit);
+  const secaoInsumosNovo = estadoSecaoInsumosNovo({
+    isEdit, origem: draft.origem, carregando: insumosPadrao.carregando, erro: insumosPadrao.erro, lojaPronta: !!tenantIdAtivo,
+  });
+  const [insumosNovos, setInsumosNovos] = useState<ModeloEtiquetaRow[]>([]);
+  const insumosNovosRef = useRef<ModeloEtiquetaRow[]>(insumosNovos);
+  insumosNovosRef.current = insumosNovos;
+  const insumosBaseRef = useRef<string>("[]");
+  const insumosSemeadoRef = useRef(false);
+  const chaveInsumos = (rows: ModeloEtiquetaRow[]) => JSON.stringify(rows.map((r) => [r.etiqueta_id, r.cor_id, r.consumo, r.loss_percent]));
+  useEffect(() => {
+    if (isEdit || insumosSemeadoRef.current || !insumosPadrao.carregado) return;
+    insumosSemeadoRef.current = true;
+    const rows = linhasParaRascunho(insumosPadrao.linhas, insumosPadrao.etiquetaMap);
+    insumosBaseRef.current = chaveInsumos(rows);
+    setInsumosNovos(rows);
+  }, [isEdit, insumosPadrao.carregado, insumosPadrao.linhas, insumosPadrao.etiquetaMap]);
+  const insumosNovosDirty = secaoInsumosNovo.visivel && insumosSemeadoRef.current && chaveInsumos(insumosNovos) !== insumosBaseRef.current;
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
-  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar);
+  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: !hostGuardaNavegacao, navPermitida });
   requestCloseRef.current = requestClose;
   const setSim = (patch: Partial<CustoSimInput>) =>
@@ -964,6 +989,7 @@ function PlanejamentoDetailConteudo({
     // F3.4 — a grade do IMPORTADO grava pelo BOM (a da revenda por `salvar_grade_revenda`). Origem SALVA (a da grade).
     gradeCompradoPeloBom: origemComprado === "importado",
     qc, onSaved: aoSalvar, onCreated, ficha: ficha.save, resetDraftBaseline,
+    insumosIniciaisRef: insumosNovosRef,
   });
   // F3.3 — Enviar à Explosão (Dev :2402-2433): Salvar + `enviar_modelo_para_cad`; pós-envio re-trava e avisa a lista.
   const enviarExplosao = useEnviarExplosao({
@@ -1335,6 +1361,8 @@ function PlanejamentoDetailConteudo({
     tecidos: fichaVisivel && secFicha.tecidos, aviamentos: fichaVisivel && secFicha.aviamentos,
     insumos: fichaVisivel && secFicha.insumos, grade: fichaVisivel && secFicha.gradeTecido, cad: fichaVisivel && secFicha.cad,
     tecidos_novo: !isEdit && !isComprado,
+    // urg R2 T12 — Insumos do Dialog Novo (sem número, entre Tecidos e Mão de obra): só card novo INTERNO.
+    insumos_novo: secaoInsumosNovo.visivel,
     // F3.6 (R1) — Dialog "Novo Modelo" (sem a seção Preço): a MO segue como seção SEM número (mockup gen_novo.py), chave
     // própria como `tecidos_novo`. No Sheet ela mora dentro de "Preço e Custos" (`moBlocoVisivel`).
     mao_obra_novo: !isEdit && moBlocoVisivel,
@@ -1799,6 +1827,36 @@ function PlanejamentoDetailConteudo({
           </Secao>
           )}
 
+          {/* urg R2 T12 (P-306 B) — só no Dialog "Novo Modelo" interno: Insumos pré-preenchidos com o padrão da loja. Rascunho — só grava
+              ao Salvar (`salvar_insumos_iniciais` logo após o INSERT). Carregando/erro de rede: o Salvar espera (P-57). */}
+          {vis.insumos_novo && (
+            <Secao id="insumos_novo" titulo="Insumos" numero={numeros.insumos_novo} defaultOpen>
+              {insumosPadrao.carregando ? (
+                <p className="text-sm text-muted-foreground">Carregando insumos padrão…</p>
+              ) : insumosPadrao.erro ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+                  <span>Não foi possível carregar os insumos padrão da loja. O Salvar fica travado até carregar.</span>
+                  <Button type="button" variant="outline" size="sm" onClick={insumosPadrao.tentarDeNovo}>Tentar de novo</Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Pré-preenchido com os insumos padrão da loja (Config da Loja). Ajuste à vontade — só grava ao Salvar.</p>
+                  {insumosPadrao.orfaos > 0 && (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">{textoOrfaosInsumosPadrao(insumosPadrao.orfaos)}</p>
+                  )}
+                  <InsumosNovoEditor
+                    rows={insumosNovos}
+                    etiquetas={insumosPadrao.etiquetaOpts}
+                    etiquetaMap={insumosPadrao.etiquetaMap}
+                    onChangeRow={(idx, patch) => setInsumosNovos((rs) => rs.map((r, i) => (i === idx ? recomputeEtiqueta({ ...r, ...patch }, insumosPadrao.etiquetaMap) : r)))}
+                    onAdd={() => setInsumosNovos((rs) => (rs.length >= LIMITE_INSUMOS_INICIAIS ? rs : [...rs, { etiqueta_id: null, cor_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]))}
+                    onRemove={(idx) => setInsumosNovos((rs) => rs.filter((_, i) => i !== idx))}
+                  />
+                </div>
+              )}
+            </Secao>
+          )}
+
           {/* F3.6 (R1) — só no Dialog "Novo Modelo" (a seção Preço não existe nele): a MESMA M.O. da tabela do Sheet. */}
           {vis.mao_obra_novo && (
             <Secao id="mao_obra_novo" titulo="Mão de obra" numero={numeros.mao_obra_novo} defaultOpen={false}>
@@ -2185,7 +2243,7 @@ function PlanejamentoDetailConteudo({
           {/* P-53 A: Salvar habilitado com !perm.sheetSomenteLeitura (antes dependia só da trava da página).
               Fix hidratação (P-57 A): + trava até o seed (isEdit && !semeado) — sem isso o Salvar fica
               habilitado em cima do emptyDraft() e grava vazio por cima do servidor. */}
-          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={perm.sheetSomenteLeitura || save.isPending || enviarExplosao.isPending || (isEdit && !semeado)}>
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={perm.sheetSomenteLeitura || save.isPending || enviarExplosao.isPending || (isEdit && !semeado) || secaoInsumosNovo.bloqueiaSalvar}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>

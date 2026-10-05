@@ -9,7 +9,7 @@ import { seloDeSecao, seloPorChaves, type SeloSecao } from "./selos-bom";
 export type SecaoSheetKey =
   | "info" | "colecao" | "desenvolvimento" | "codigos" | "prova"
   | "tecidos" | "aviamentos" | "insumos" | "grade" | "cad"
-  | "tecidos_novo" | "mao_obra_novo" | "preco" | "produto_acabado" | "grade_revenda"
+  | "tecidos_novo" | "insumos_novo" | "mao_obra_novo" | "preco" | "produto_acabado" | "grade_revenda"
   | "anexos" | "observacoes" | "lancamento" | "relacionado";
 
 /** Ordem do mockup aprovado (gen_main.py:106) + F3.6 (spec 2026-09-25 §5.1): "Códigos" logo depois de "Desenvolvimento"
@@ -18,7 +18,7 @@ export type SecaoSheetKey =
  *  "Novo Modelo" (sem número — R1/R18). */
 export const ORDEM_SECOES_SHEET: readonly SecaoSheetKey[] = [
   "info", "colecao", "desenvolvimento", "codigos", "prova", "tecidos", "aviamentos", "insumos", "grade", "cad",
-  "tecidos_novo", "mao_obra_novo", "preco", "produto_acabado", "grade_revenda", "anexos", "observacoes", "lancamento", "relacionado",
+  "tecidos_novo", "insumos_novo", "mao_obra_novo", "preco", "produto_acabado", "grade_revenda", "anexos", "observacoes", "lancamento", "relacionado",
 ];
 
 /** Dialog "Novo Modelo": o mockup aprovado numera SÓ "1. Informações Gerais do Produto" e "2. Coleção"; Tecidos, Mão de

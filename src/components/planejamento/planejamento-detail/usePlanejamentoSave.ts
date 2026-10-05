@@ -20,6 +20,8 @@ import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento
 import { rotuloDaColuna } from "@/lib/integracao/campos";
 import { invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
+import { gravarInsumosIniciaisDoCard } from "@/lib/insumos-iniciais";
+import type { ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
 import { type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
@@ -187,6 +189,9 @@ export type UsePlanejamentoSaveArgs = {
   ficha: FichaSave;
   /** F3.2 — re-baseia o "não salvo" do draft no valor ENVIADO (fix do save-em-voo, receita 2419d0f). */
   resetDraftBaseline: (next?: Draft) => void;
+  /** urg R2 T12 — rascunho da seção "Insumos" do Dialog "Novo Modelo" (pré-preenchido com os insumos padrão da loja). Lido SÓ no INSERT real
+   *  do card novo interno; espelho SÍNCRONO (o mutationFn não fecha sobre render velho). Ausente/vazio => nada a gravar. */
+  insumosIniciaisRef?: RefObject<ModeloEtiquetaRow[]>;
 };
 
 export function usePlanejamentoSave({
@@ -196,7 +201,7 @@ export function usePlanejamentoSave({
   setEnviada, setLancado,
   moLinhasRef, moBaseRef, setMoLinhasBase,
   gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda, gradeCompradoPeloBom,
-  qc, onSaved, onCreated, ficha, resetDraftBaseline,
+  qc, onSaved, onCreated, ficha, resetDraftBaseline, insumosIniciaisRef,
 }: UsePlanejamentoSaveArgs) {
   // F3.1 — card NOVO: id do INSERT já feito neste detalhe. Um 2º Salvar (ou o retry depois de um erro nas
   // gravações seguintes) NUNCA insere de novo; o detalhe vira o Sheet desse id (`onCreated`).
@@ -612,6 +617,15 @@ export function usePlanejamentoSave({
               (eT as any).etapaFalha = "tecidos";
               throw eT;
             }
+          }
+          // urg R2 T12 (P-306 B) — insumos do rascunho (pré-preenchidos com os padrão da loja): UMA chamada de `salvar_insumos_iniciais`
+          // logo depois dos tecidos, DENTRO do mesmo `else` do INSERT real (o retry/2º clique pega o ramo `criadoIdRef` e NÃO regrava).
+          // Falha => `etapaFalha = "insumos"`: o card JÁ existe e fica; o onError avisa (nunca um 2º INSERT).
+          if (savedId) {
+            await gravarInsumosIniciaisDoCard({
+              modeloId: savedId, origem: d.origem, linhas: insumosIniciaisRef?.current ?? [],
+              rpc: (nome, args) => supabase.rpc(nome as any, args as any),
+            });
           }
         }
         // Grade cor×tamanho: hoje inatingível na criação (só aparece depois de o Produto
@@ -1180,6 +1194,10 @@ export function usePlanejamentoSave({
               ? "O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Eles aparecem na seção Tecidos — salve o card de novo para gravá-los."
               : "O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Peça a quem edita o Desenvolvimento para salvar a nova versão.",
           );
+        } else if (e?.etapaFalha === "insumos") {
+          // urg R2 T12 — o card existe (e os tecidos, se houve) mas os insumos NÃO: o Sheet que abre em seguida carrega o BOM do servidor
+          // (sem insumos), então a pessoa adiciona na seção Insumos. O motivo vem traduzido (prefixos `insumos_iniciais_*`).
+          toast.error(`O card foi criado, mas os insumos NÃO foram salvos — ${mensagemErro(e, "erro desconhecido").replace(/[.\s]+$/, "")}. Adicione-os na seção Insumos do card.`);
         } else if (e?.etapaFalha === "grade") {
           toast.error("O card foi criado, mas a grade NÃO foi salva — confira e salve de novo.");
         } else {

@@ -13,6 +13,7 @@ import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, RecusaEsperadaError, TEXTO_CATEGORI
 import { TEXTO_REF_FORMATO_SEM_NUMERO, textoRefSiglaComDigito } from "@/lib/ref-montar";
 import { PAGES_CATALOG, MODULE_ROTULO } from "@/lib/permissions-catalog";
 import { chavesDoModuloDesligado, textoAcaoPrecisaDeModulos } from "@/lib/modulos-texto";
+import { mensagemInsumosIniciais } from "@/lib/insumos-iniciais";
 
 /** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
  *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
@@ -519,6 +520,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Contas certas: prefixos ASCII (P0001) e 42501 sem acento das RPCs novas → texto PT.
   const contasCertas = mensagemContasCertas(code, msg);
   if (contasCertas) return contasCertas;
+
+  // urg R2 T12: insumos padrão na criação do card (salvar_insumos_iniciais) — prefixos ASCII (P0001) → texto PT.
+  const insumosIniciais = mensagemInsumosIniciais(code, msg);
+  if (insumosIniciais) return insumosIniciais;
 
   // Leves L3: prefixos ASCII (P0001) do reprovado na Explosão e do Formato da REF → texto PT.
   const levesL3 = mensagemLevesL3(code, msg);
