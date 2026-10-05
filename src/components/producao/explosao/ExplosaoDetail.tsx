@@ -37,7 +37,14 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
-import { mergeDraft, type Conflito } from "@/lib/colab/merge";
+import type { Conflito } from "@/lib/colab/merge";
+import {
+  avaliarMergeExplosao,
+  blobEnviadoExplosao,
+  metragemBlobDeTecidos,
+  type ExplosaoColabBlob,
+  type MetragemBlob,
+} from "@/components/producao/explosao/explosao-colab";
 import { erroValidacao } from "@/components/produto-acabado/shared";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { printWithImages } from "@/lib/print";
@@ -76,24 +83,6 @@ type Props = {
 // gerariam ruído de comparação). `aviBlob`/`etiBlob` são os próprios mapas de estado (já no
 // formato certo). Comparação por valor via `igual()` (dentro do mergeDraft) — objeto de chave
 // ausente ≈ ausente (paridade OTB).
-type MetragemBlob = Record<string, { metragem_enviada: number; quantidade_folhas: number }>;
-type ExplosaoColabBlob = {
-  metragemBlob: MetragemBlob;
-  aviBlob: Record<string, number>;
-  etiBlob: Record<string, number>;
-};
-
-function metragemBlobDeTecidos(tecidos: TecidoRow[]): MetragemBlob {
-  const out: MetragemBlob = {};
-  for (const t of tecidos) {
-    for (const v of t.variantes) {
-      if (!v.id) continue; // linha nova sem id (não deveria ocorrer aqui — tecidos vêm do CAD) — ignora
-      out[v.id] = { metragem_enviada: Number(v.metragem_enviada) || 0, quantidade_folhas: Number(v.quantidade_folhas) || 0 };
-    }
-  }
-  return out;
-}
-
 /** Reidrata `tecidos` com os valores de metragem/folhas de um `MetragemBlob` — usado ao ADOTAR
  *  o fresco de uma seção não-tocada: aplica os NÚMEROS sobre a ÁRVORE REAL recém-carregada
  *  (cadTecidos), nunca o objeto de comparação (lição do OTB — comparar normalizado, aplicar a
@@ -311,6 +300,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const tocouAviRef = useRef(false);
   const tocouEtiRef = useRef(false);
   const baseServidorRef = useRef<ExplosaoColabBlob | null>(null);
+  // Foto do que o Salvar ENVIA (capturada no mutationFn, antes das RPCs). No onSuccess vira o novo base 3-vias: o eco do
+  // PRÓPRIO save (refetch/Realtime) fica igual ao base e cai no no-op do merge, em vez de avisar "por outra pessoa" (R-02).
+  const blobEnviadoRef = useRef<ExplosaoColabBlob | null>(null);
   const [conflitos, setConflitos] = useState<Conflito[]>([]);
   const conflitosRef = useRef<Conflito[]>([]);
   const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
@@ -422,9 +414,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     if (tocouAviRef.current) touched.add("aviBlob");
     if (tocouEtiRef.current) touched.add("etiBlob");
 
-    const m = mergeDraft({ base: base as any, draft: draftBlob as any, fresh: fresh as any, touched });
     const novoRev = (cadRow as any)?.rev ?? null;
     const revMudou = novoRev !== cadRevRef.current;
+    const { m, aviso } = avaliarMergeExplosao({ base, draft: draftBlob, fresh, touched, revMudou });
     const tinhaConflito = conflitosRef.current.length > 0;
 
     // ⚠️ Reconstrói o conjunto de conflitos SEMPRE a partir de `m.conflitos` — inclusive p/ LIMPAR
@@ -455,10 +447,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     if (m.atualizados.includes("etiBlob")) setEtiEnviar(m.valor.etiBlob);
     if (m.conflitos.length > 0) {
       setUltimoMerge({ atualizados: m.atualizados.length, conflitos: m.conflitos });
-      if (revMudou) toast.warning("Alguém salvou esta Explosão agora — confira os itens em conflito.");
+      if (aviso === "conflito") toast.warning("Alguém salvou esta Explosão agora — confira os itens em conflito.");
     } else {
       if (tinhaConflito) setUltimoMerge(null);
-      if (m.atualizados.length > 0 && revMudou) toast.message("A Explosão foi atualizada por outra pessoa.");
+      if (aviso === "outra-pessoa") toast.message("A Explosão foi atualizada por outra pessoa.");
     }
     baseServidorRef.current = fresh;
     cadRevRef.current = novoRev;
@@ -831,6 +823,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       // Guard SÍNCRONO: não salvar com conflito pendente (o disabled do botão é state async —
       // um clique entre o merge chegar e o re-render não deve escapar por uma frame de corrida).
       if (conflitosRef.current.length > 0) throw erroValidacao("Resolva os conflitos antes de salvar.");
+      blobEnviadoRef.current = blobEnviadoExplosao({ tecidos, aviSeparar, etiEnviar });
       // ⚠️ As 3 RPCs são UM save atômico do MESMO cad. SÓ A PRIMEIRA checa o rev: a 1ª RPC (com
       // dados) bumpa cad.rev via trigger-de-filha, então passar o MESMO _rev_base velho na 2ª/3ª
       // daria P0409 contra o PRÓPRIO save. As seguintes usam _rev_base: null (bypass) — já estão
@@ -864,6 +857,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       tocouMetragemRef.current = false;
       tocouAviRef.current = false;
       tocouEtiRef.current = false;
+      // Re-basa o 3-vias no que foi gravado (R-02). O rev do servidor NÃO é adotado aqui: o refetch seguinte cai no ramo
+      // no-op do merge (fresh == base) e lá o `cadRevRef` acompanha o rev novo, sem toast. Mudança de OUTRA pessoa
+      // depois do meu save continua diferindo do base → aviso normal.
+      if (blobEnviadoRef.current) baseServidorRef.current = blobEnviadoRef.current;
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
