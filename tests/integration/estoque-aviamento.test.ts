@@ -24,7 +24,9 @@ describe.skipIf(!hasDb)("estoque_aviamento (fonte canônica)", () => {
       prazo_pagamento: "30", quantidade_prazos: 1, parcelas_recebimento: [], status,
     };
     const itens = [{ id: null, aviamento_id: avi, quantidade_pedida: pedida, quantidade_recebida: recebida, cancelado }];
-    await c.query(`select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb)`,
+    // T1 (backend, 05/out): 4º argumento (_rev_base) explícito (null::integer): a sobrecarga morta de 3 args deixa `_salvar_oc_aviamento_core(null,…)`
+    // ambígua (42725); a Faxina apaga a morta. Não apagar a função aqui.
+    await c.query(`select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb, null::integer)`,
       [JSON.stringify(oc), JSON.stringify(itens)]);
   };
 

@@ -235,7 +235,7 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
       const f = await fixture(c);
       if (!f) return;
       const rows = [{ loja_id: f.lojaId, variante_numero: f.grades[0].variante_numero, grades: {} }];
-      await c.query(`select salvar_direcionamento($1, $2::jsonb)`, [f.cadId, JSON.stringify(rows)]);
+      await c.query(`select salvar_direcionamento($1, $2::jsonb, null::jsonb)`, [f.cadId, JSON.stringify(rows)]);
       const n = await um<{ n: string }>(
         c,
         `select count(*) as n from direcionamento_lojas where cad_id = $1 and loja_id = $2`,
@@ -253,7 +253,9 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
       // Direciona TUDO pra loja default: Σ por tamanho = grade real em toda variante.
       const rows = f.grades.map((r) => ({ loja_id: f.lojaId, variante_numero: r.variante_numero, grades: r.g }));
       // Core direto (conexão postgres ignora ACL) — o gate de CQ do wrapper é testado à parte.
-      await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, true)`, [f.cadId, JSON.stringify(rows)]);
+      // T1 (backend, 05/out): o 5º argumento (_rev_base) é explícito porque a sobrecarga morta de 4 args deixa a chamada ambígua
+      // (42725); a Faxina apaga a morta. Mesmo vale para os wrappers: usa-se a de 3 args (a viva), não a de 2.
+      await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, true, null::jsonb)`, [f.cadId, JSON.stringify(rows)]);
       const st = await um<{ s: string }>(c, `select direcionamento_status as s from cad where id = $1`, [f.cadId]);
       expect(st.s).toBe("separado");
     });
@@ -284,7 +286,7 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
       if (!tamFalta) return;
       let erro: any;
       try {
-        await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]);
+        await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false, null::jsonb)`, [f.cadId, JSON.stringify(rows)]);
       } catch (e) {
         erro = e;
       }
@@ -319,7 +321,7 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
       if (!tamSobra) return;
       let erro: any;
       try {
-        await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]);
+        await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false, null::jsonb)`, [f.cadId, JSON.stringify(rows)]);
       } catch (e) {
         erro = e;
       }
@@ -341,7 +343,7 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
       if (!outra) return;
       const rows = [{ loja_id: outra.id, variante_numero: f.grades[0].variante_numero, grades: {} }];
       await expect(
-        c.query(`select salvar_direcionamento($1, $2::jsonb)`, [f.cadId, JSON.stringify(rows)]),
+        c.query(`select salvar_direcionamento($1, $2::jsonb, null::jsonb)`, [f.cadId, JSON.stringify(rows)]),
       ).rejects.toThrow(/não encontrada nesta conta/);
     });
   });
@@ -358,17 +360,20 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
       );
       const rows = [{ loja_id: inativa.id, variante_numero: f.grades[0].variante_numero, grades: {} }];
       await expect(
-        c.query(`select salvar_direcionamento($1, $2::jsonb)`, [f.cadId, JSON.stringify(rows)]),
+        c.query(`select salvar_direcionamento($1, $2::jsonb, null::jsonb)`, [f.cadId, JSON.stringify(rows)]),
       ).rejects.toThrow(/desativada/);
     });
   });
 
   it("core tem EXECUTE revogado de anon e authenticated (invariante #9)", async () => {
     await withTx(async (c) => {
+      // Vale para as DUAS aridades (a de 5 args, com _rev_base, é a viva; a de 4 é sobrecarga morta que a Faxina apaga).
       const r = await um<{ a: boolean; b: boolean }>(
         c,
-        `select has_function_privilege('anon', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean)', 'EXECUTE') as a,
-                has_function_privilege('authenticated', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean)', 'EXECUTE') as b`,
+        `select has_function_privilege('anon', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean,jsonb)', 'EXECUTE')
+                  or has_function_privilege('anon', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean)', 'EXECUTE') as a,
+                has_function_privilege('authenticated', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean,jsonb)', 'EXECUTE')
+                  or has_function_privilege('authenticated', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean)', 'EXECUTE') as b`,
       );
       expect(r.a).toBe(false);
       expect(r.b).toBe(false);

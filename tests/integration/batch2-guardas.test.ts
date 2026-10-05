@@ -17,7 +17,9 @@ describe.skipIf(!hasDb)("Backlog audit de saúde — guardas de servidor", () =>
         [TENANT_TESTE, emp.id])).id;
       const oc = { numero_pedido: "X", empresa_id: emp.id, data_prevista_entrega: "2026-07-01",
         prazo_pagamento: "30", quantidade_prazos: 1, parcelas_recebimento: [], status: "recebido" };
-      await c.query(`select public._salvar_oc_aviamento_core(null,$1::jsonb,$2::jsonb)`,
+      // T1 (backend, 05/out): 4º argumento (_rev_base) explícito (null::integer): a sobrecarga morta de 3 args deixa `_salvar_oc_aviamento_core(null,…)`
+      // ambígua (42725); a Faxina apaga a morta. Não apagar a função aqui.
+      await c.query(`select public._salvar_oc_aviamento_core(null,$1::jsonb,$2::jsonb, null::integer)`,
         [JSON.stringify(oc), JSON.stringify([{ id: null, aviamento_id: avi, quantidade_pedida: 10, quantidade_recebida: 10, cancelado: false }])]);
       const os = (await um<{ id: string }>(c, `select public.salvar_os('aviamento', null, $1::jsonb, $2::jsonb) id`,
         [JSON.stringify({ responsavel: "t" }), JSON.stringify([{ itemId: avi, reserva: 4 }])])).id;

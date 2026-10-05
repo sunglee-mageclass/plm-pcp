@@ -28,7 +28,9 @@ describe.skipIf(!hasDb)("RPC salvar_oc_aviamento (atômico)", () => {
       const itens = [{ id: null, aviamento_id: avi.id, quantidade_pedida: 4, quantidade_recebida: 4, cancelado: false }];
 
       const ins = await um<{ id: string }>(
-        c, `select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb) as id`,
+        // T1 (backend, 05/out): 4º argumento (_rev_base) explícito (null::integer): a sobrecarga morta de 3 args deixa `_salvar_oc_aviamento_core(null,…)`
+        // ambígua (42725); a Faxina apaga a morta. Não apagar a função aqui.
+        c, `select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb, null::integer) as id`,
         [JSON.stringify(oc), JSON.stringify(itens)],
       );
       const ocId = ins.id;
@@ -48,7 +50,7 @@ describe.skipIf(!hasDb)("RPC salvar_oc_aviamento (atômico)", () => {
       // Edição: muda a quantidade do item (diff por id) e re-salva → parcelas recalculadas.
       const item = await um<{ id: string }>(c, `select id from ocs_aviamento_itens where oc_aviamento_id = $1 limit 1`, [ocId]);
       await um(
-        c, `select public._salvar_oc_aviamento_core($1, $2::jsonb, $3::jsonb)`,
+        c, `select public._salvar_oc_aviamento_core($1, $2::jsonb, $3::jsonb, null::integer)`,
         [ocId, JSON.stringify(oc),
          JSON.stringify([{ id: item.id, aviamento_id: avi.id, quantidade_pedida: 2, quantidade_recebida: 2, cancelado: false }])],
       );
@@ -101,7 +103,7 @@ describe.skipIf(!hasDb)("RPC salvar_oc_aviamento — variante do item", () => {
 
       // 1) grava variante_aviamento_id
       const ins1 = await um<{ id: string }>(
-        c, `select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb) as id`,
+        c, `select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb, null::integer) as id`,
         [JSON.stringify(oc("ITEST-VAR-1")), JSON.stringify(
           [{ id: null, aviamento_id: avi.aviamento_id, variante_aviamento_id: avi.variante_id, quantidade_pedida: 3, quantidade_recebida: null, cancelado: false }],
         )],
@@ -113,7 +115,7 @@ describe.skipIf(!hasDb)("RPC salvar_oc_aviamento — variante do item", () => {
 
       // 2) item SEM variante = ok (null persistido)
       const ins2 = await um<{ id: string }>(
-        c, `select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb) as id`,
+        c, `select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb, null::integer) as id`,
         [JSON.stringify(oc("ITEST-VAR-2")), JSON.stringify(
           [{ id: null, aviamento_id: avi.aviamento_id, variante_aviamento_id: null, quantidade_pedida: 2, quantidade_recebida: null, cancelado: false }],
         )],
@@ -131,7 +133,7 @@ describe.skipIf(!hasDb)("RPC salvar_oc_aviamento — variante do item", () => {
       if (outra) {
         await c.query("SAVEPOINT sp_bad");
         await expect(
-          c.query(`select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb)`,
+          c.query(`select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb, null::integer)`,
             [JSON.stringify(ocBase), JSON.stringify(
               [{ id: null, aviamento_id: avi.aviamento_id, variante_aviamento_id: outra.variante_id, quantidade_pedida: 1, quantidade_recebida: null, cancelado: false }],
             )]),
@@ -142,7 +144,7 @@ describe.skipIf(!hasDb)("RPC salvar_oc_aviamento — variante do item", () => {
       // 3b) variante forjada (uuid inexistente) → RAISE.
       await c.query("SAVEPOINT sp_forged");
       await expect(
-        c.query(`select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb)`,
+        c.query(`select public._salvar_oc_aviamento_core(null, $1::jsonb, $2::jsonb, null::integer)`,
           [JSON.stringify(ocBase), JSON.stringify(
             [{ id: null, aviamento_id: avi.aviamento_id, variante_aviamento_id: "00000000-0000-0000-0000-0000000000aa", quantidade_pedida: 1, quantidade_recebida: null, cancelado: false }],
           )]),
