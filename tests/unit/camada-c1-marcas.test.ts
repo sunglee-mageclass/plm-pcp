@@ -3,7 +3,7 @@
 // viram texto PT em mensagemErro — toda entidade que a migration usa tem texto próprio (nunca o genérico).
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { mensagemErro, textoEstadoVazio } from "@/lib/erro-mensagem";
+import { mensagemErro, textoEstadoVazio, TEXTO_MOLDE_CONFLITO } from "@/lib/erro-mensagem";
 import { MARCA_APAGAR_TUDO_ITENS_OC, MARCA_APAGAR_TUDO_SERVICOS } from "@/lib/apagar-tudo";
 
 const MIG = readFileSync("supabase/migrations/20261103160000_camada_estado_vazio.sql", "utf8");
@@ -11,7 +11,13 @@ const GAT = readFileSync("supabase/migrations/20261103161000_camada_parcela_paga
 
 describe("camada C1 — marcas 'apagar tudo' (tela × migration)", () => {
   it("salvar_terceirizados lê _rev_base->>'<marca de serviços>' e as 3 OCs leem _oc->>'<marca de itens>'", () => {
-    expect(MIG).toContain(`COALESCE(_rev_base->>'${MARCA_APAGAR_TUDO_SERVICOS}', '') <> 'true'`);
+    // serviços: a marca é a CONTAGEM confirmada (M1); a tela manda o nº de blocos da base
+    expect(MIG).toContain(
+      `COALESCE(_rev_base->>'${MARCA_APAGAR_TUDO_SERVICOS}', '') !~ '^[0-9]{1,9}$'`,
+    );
+    expect(readFileSync("src/routes/_authenticated/pcp.servicos.$modeloId.tsx", "utf8")).toContain(
+      "_rev_base[MARCA_APAGAR_TUDO_SERVICOS] = nServidorApagar;",
+    );
     expect(
       MIG.split(`COALESCE(_oc->>'${MARCA_APAGAR_TUDO_ITENS_OC}', '') <> 'true'`).length - 1,
     ).toBe(3);
@@ -75,6 +81,41 @@ describe("camada C1 — mensagens PT", () => {
     // o gatilho e o salvar_terceirizados usam o mesmo prefixo
     expect(GAT).toContain("'servico_com_parcela_paga: %: parcela %'");
     expect(MIG).toContain("'servico_com_parcela_paga: %'");
+  });
+
+  it("follow-up I2/I3: P0409 do molde tem texto próprio; o do bloco removido cai no P0409 genérico (a tela re-tenta com o merge)", () => {
+    expect(MIG).toContain(
+      "RAISE EXCEPTION 'conflito_versao: observacoes_molde' USING ERRCODE = 'P0409';",
+    );
+    expect(
+      mensagemErro({ code: "P0409", message: "conflito_versao: observacoes_molde" }, "fb"),
+    ).toBe(TEXTO_MOLDE_CONFLITO);
+    expect(MIG).toContain(
+      "'conflito_versao: um servico removido foi alterado ou criado por outra pessoa'",
+    );
+    expect(
+      mensagemErro(
+        {
+          code: "P0409",
+          message: "conflito_versao: um servico removido foi alterado ou criado por outra pessoa",
+        },
+        "fb",
+      ),
+    ).toContain("Outra pessoa salvou este registro");
+    // a tela manda as chaves que o servidor lê (PCP Serviços)
+    const pcp = readFileSync("src/routes/_authenticated/pcp.servicos.$modeloId.tsx", "utf8");
+    expect(pcp).toContain("_molde_tocado: observacoesMolde !== moldeBaseRef.current");
+    expect(pcp).toContain("_molde_base: moldeBaseRef.current");
+    expect(pcp).toContain("...revByBlocoRef.current,");
+    expect(MIG).toContain("_rev_base ? '_molde_tocado'");
+    expect(MIG).toContain("_rev_base->>'_molde_base'");
+  });
+
+  it("B1: 'Voltar uma etapa' avisa com a MESMA regra de paga do servidor (status 'pago' OU data de pagamento)", () => {
+    const src = readFileSync("src/hooks/useReverterImpacto.ts", "utf8");
+    expect(src).toContain('.select("status, data_pagamento")');
+    expect(src).toContain('temPaga: contas.some((c) => c.status === "pago" || !!c.data_pagamento)');
+    expect(GAT).toContain("(ps.status = 'pago' OR ps.data_pagamento IS NOT NULL)");
   });
 
   it("outro código com o mesmo texto não é traduzido por aqui", () => {

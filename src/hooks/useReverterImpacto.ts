@@ -34,7 +34,7 @@ export function useReverterImpacto(cadId: string | undefined, enabled: boolean) 
       if (tercIds.length > 0) {
         const { data } = await supabase
           .from("parcelas_servico")
-          .select("status")
+          .select("status, data_pagamento")
           .in("producao_terceirizado_id", tercIds);
         contas = data ?? [];
       }
@@ -42,9 +42,10 @@ export function useReverterImpacto(cadId: string | undefined, enabled: boolean) 
       return {
         servicos: tercIds.length,
         contas: contas.length,
-        contasPagas: contas.filter((c) => c.status === "pago").length,
+        // paga = a MESMA regra do servidor (fn_servico_parcela_valor_pago / gatilho da Camada C1): status 'pago' OU data de pagamento
+        contasPagas: contas.filter((c) => c.status === "pago" || !!c.data_pagamento).length,
         cq: cqCount ?? 0,
-        temPaga: contas.some((c) => c.status === "pago"),
+        temPaga: contas.some((c) => c.status === "pago" || !!c.data_pagamento),
       };
     },
   });

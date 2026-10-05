@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
+import { CAMADA_MD5 } from "./camada-1-dados";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261006120000_sku_previa_mensagens_ascii.sql";
@@ -268,7 +269,10 @@ describe.skipIf(!PRONTO)("SKU/PCP/CQ — mensagens ASCII: comportamento e ACL na
       for (const f of FNS) {
         const texto = await def(c, f.fn);
         const cmds = comandosP0409(texto);
-        expect(cmds.length, f.fn).toBe(f.nP0409);
+        // Camada C1 viva (follow-up I2/M1/I3): salvar_terceirizados ganha 3 RAISE P0409 (bloco removido, contagem do apagar tudo,
+        // observacao do molde) — todos ASCII, conferidos no laço abaixo.
+        const c1Viva = createHash("md5").update(texto, "utf8").digest("hex") === CAMADA_MD5[f.fn]?.depois;
+        expect(cmds.length, f.fn).toBe(f.nP0409 + (c1Viva ? 3 : 0));
         for (const cmd of cmds) expect(ehAscii(cmd), `${f.fn}: ${cmd}`).toBe(true);
       }
     });

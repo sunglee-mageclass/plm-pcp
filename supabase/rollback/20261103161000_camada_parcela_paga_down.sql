@@ -1,7 +1,7 @@
 -- Inverso NEUTRO de supabase/migrations/20261103161000_camada_parcela_paga.sql - GERADO por .superpowers/sdd/2026-10-05-camada/mig/gerar-c1.mjs (nunca editar a mao).
 -- A funcao do gatilho vira passa-direto (RETURN OLD): volta o comportamento de antes (a cascata leva as parcelas). O gatilho
 -- FICA (so catalogo: sem trava de tabela, sem DROP). Remover de fato = supabase/rollback/20261103161000_camada_parcela_paga_down_drop.sql (opcional, depois). Re-ida aceita o neutro.
---   public.fn_servico_parcela_paga_bloqueia_delete()  IDA 8e5618da90c83c2e788e0c9f6f8794ad  NEUTRO 7a6dd9a7e13c300569c162808081bf7f
+--   public.fn_servico_parcela_paga_bloqueia_delete()  IDA f819e2f2059019539de03dd179721611  NEUTRO 7a6dd9a7e13c300569c162808081bf7f
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -14,7 +14,7 @@ DECLARE
   n int;
 BEGIN
   v := md5(pg_get_functiondef(to_regprocedure('public.fn_servico_parcela_paga_bloqueia_delete()')));
-  IF v IS NOT NULL AND v NOT IN ('8e5618da90c83c2e788e0c9f6f8794ad', '7a6dd9a7e13c300569c162808081bf7f') THEN
+  IF v IS NOT NULL AND v NOT IN ('f819e2f2059019539de03dd179721611', '7a6dd9a7e13c300569c162808081bf7f') THEN
     RAISE EXCEPTION 'camada_c1_parcela_paga_down: public.fn_servico_parcela_paga_bloqueia_delete() com texto inesperado (md5 %) - outra frente mexeu; gere de novo', v USING ERRCODE = 'P0001';
   END IF;
   -- se o gatilho ja existe, e o nosso (mesma funcao, BEFORE DELETE FOR EACH ROW, ligado)

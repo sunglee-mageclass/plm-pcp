@@ -588,6 +588,9 @@ export function TerceirizadosDetail({
 
   // "Observação de Partes do Molde": mesmo campo do CAD (cad.observacoes_molde).
   const [observacoesMolde, setObservacoesMolde] = useState("");
+  // [camada C1 · I3] o texto que a tela CARREGOU (base): o Salvar manda `_molde_base` + `_molde_tocado` e o servidor só grava a
+  // observação se a pessoa mexeu — e recusa (P0409) se outra pessoa (Oficina/outra aba) mudou desde a base.
+  const moldeBaseRef = useRef("");
   // "Não há acabamento (pós)": peças sem serviço pós → Status Geral vira Finalizado.
   const [semAcabamento, setSemAcabamento] = useState(false);
   const [moldeHydrated, setMoldeHydrated] = useState(false);
@@ -603,6 +606,7 @@ export function TerceirizadosDetail({
     if (moldeHydrated) return;
     if (cad === undefined || !cadOk || cadFetching) return; // espera o cad carregar COM SUCESSO
     setObservacoesMolde((cad as any)?.observacoes_molde ?? "");
+    moldeBaseRef.current = (cad as any)?.observacoes_molde ?? "";
     setSemAcabamento(Boolean((cad as any)?.sem_acabamento));
     setMoldeHydrated(true);
   }, [cad, moldeHydrated, cadOk, cadFetching]);
@@ -908,12 +912,21 @@ export function TerceirizadosDetail({
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       // _rev_base por bloco existente (id→rev semeado da query). null=bypass; a RPC dá P0409
       // se algum bloco avançou desde a última carga.
-      const _rev_base: Record<string, number | boolean> = Object.fromEntries(
-        blocos.filter((b) => b.id).map((b) => [b.id as string, revByBlocoRef.current[b.id as string] ?? 0]),
-      );
+      // [camada C1 · I2] + o rev de TODO bloco da base (inclusive os que a pessoa removeu): o servidor recusa (P0409) apagar bloco
+      // que outra pessoa editou ou criou depois da carga. [I3] + a base/marca da Observação de Partes do Molde.
+      const _rev_base: Record<string, number | boolean | string> = {
+        ...revByBlocoRef.current,
+        ...Object.fromEntries(
+          blocos.filter((b) => b.id).map((b) => [b.id as string, revByBlocoRef.current[b.id as string] ?? 0]),
+        ),
+        _molde_tocado: observacoesMolde !== moldeBaseRef.current,
+        _molde_base: moldeBaseRef.current,
+      };
       // [camada C2 · P-262 A] payload vazio + o servidor TEM serviços (as linhas que seriam apagadas) => exige a confirmação.
-      if (exigirConfirmacaoApagarTudo({ nPayload: _blocos.length, nServidor: (qc.getQueryData<unknown[]>(["producao-terc", cad.id]) ?? (existing as unknown[])).length, confirmado: apagarTudoRef.current }))
-        _rev_base[MARCA_APAGAR_TUDO_SERVICOS] = true;
+      const nServidorApagar = (qc.getQueryData<unknown[]>(["producao-terc", cad.id]) ?? (existing as unknown[])).length;
+      if (exigirConfirmacaoApagarTudo({ nPayload: _blocos.length, nServidor: nServidorApagar, confirmado: apagarTudoRef.current }))
+        // [camada C1 · M1] a marca leva N = o MESMO número que o diálogo mostrou; o servidor recusa (P0409) se tiver outro número
+        _rev_base[MARCA_APAGAR_TUDO_SERVICOS] = nServidorApagar;
       const { error } = await supabase.rpc("salvar_terceirizados" as any, {
         _cad_id: cad.id,
         _blocos,

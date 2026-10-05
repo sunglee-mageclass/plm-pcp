@@ -54,6 +54,8 @@ beforeEach(() => {
 });
 afterEach(async () => { vi.restoreAllMocks(); await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
 
+/** C1 M1: a marca de "apagar tudo" dos serviços leva a contagem confirmada (os 2 blocos da base: pt1, pt2). */
+const N_SERVIDOR = 2;
 const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Salvar"]')).at(-1) ?? null;
 const remover = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Remover bloco"]'));
 const rpcSalvar = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_terceirizados");
@@ -123,7 +125,7 @@ describe("[camada C2 · P-262 A] PCP Serviços — Apagar todos os serviços", (
     await aguardar(() => rpcSalvar().length === 1, "salvar_terceirizados chamada após confirmar");
     const p = rpcSalvar()[0].payload as any;
     expect(p._blocos).toEqual([]);
-    expect(p._rev_base._apagar_tudo).toBe(true); // a marca explícita vai SÓ depois de confirmar
+    expect(p._rev_base._apagar_tudo).toBe(N_SERVIDOR); // a marca (contagem confirmada, C1 M1) vai SÓ depois de confirmar
     await esperar(80);
     expect(rpcSalvar()).toHaveLength(1);
   });
@@ -140,7 +142,7 @@ describe("[camada C2 · P-262 A] PCP Serviços — Apagar todos os serviços", (
     for (const c of rpcSalvar()) {
       const p = c.payload as any;
       expect(p._blocos).toEqual([]);
-      expect(p._rev_base._apagar_tudo).toBe(true); // a confirmação sobrevive ao retry
+      expect(p._rev_base._apagar_tudo).toBe(N_SERVIDOR); // a confirmação sobrevive ao retry
     }
     await esperar(150);
     expect(rpcSalvar()).toHaveLength(2);

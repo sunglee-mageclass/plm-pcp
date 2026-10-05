@@ -3,12 +3,13 @@
 // explícita ao servidor. Sem a marca, a trava do servidor (C1) recusa o Salvar vazio (`estado_vazio_recusado:`).
 //
 // Os NOMES das marcas abaixo são os que a migration da C1 (`20261103160000_camada_estado_vazio`, desenho §2.4) lê — único lugar
-// no front; o anti-drift `tests/unit/camada-c1-marcas.test.ts` confere contra o texto da migration. A marca vai como `true`
-// (o servidor aceita boolean ou "true"). Banco velho (sem a C1) ignora a chave extra — o diálogo já protege a pessoa.
+// no front; o anti-drift `tests/unit/camada-c1-marcas.test.ts` confere contra o texto da migration. Nas OCs a marca vai como `true`;
+// nos SERVIÇOS (PCP) vai a CONTAGEM N que a pessoa confirmou (follow-up M1): o servidor recusa (P0409) se tiver outro número e, desde
+// o I2, também recusa apagar bloco cujo rev mudou ou que a tela nunca viu. Banco velho (sem a C1) ignora a chave extra.
 // O Direcionamento NÃO tem marca na tela: o servidor recusa sempre a lista vazia com linhas (`_rev_base->'apagar_tudo'` existe só
 // para manutenção).
 
-/** `salvar_terceirizados`: chave reservada dentro do `_rev_base` (o laço do servidor só lê chaves de bloco). */
+/** `salvar_terceirizados`: chave reservada dentro do `_rev_base` (o laço do servidor só lê chaves de bloco); valor = N confirmado. */
 export const MARCA_APAGAR_TUDO_SERVICOS = "_apagar_tudo";
 /** `salvar_oc_tecido` / `salvar_oc_aviamento` / `salvar_oc_etiqueta`: chave dentro do `_oc`. */
 export const MARCA_APAGAR_TUDO_ITENS_OC = "_apagar_itens";

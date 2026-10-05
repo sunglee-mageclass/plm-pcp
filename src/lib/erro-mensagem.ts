@@ -395,7 +395,12 @@ export function textoServicoParcelaPaga(detalhe: string): string {
   const d = detalhe.trim();
   return `Não é possível excluir serviço com parcela já paga${d ? ` (${d})` : ""}. Para excluir, desmarque o pagamento no Financeiro antes.`;
 }
+// - P0409 `conflito_versao: observacoes_molde` (follow-up I3): a pessoa mexeu na Observação de Partes do Molde e outra pessoa
+//   (Oficina/outra aba) gravou outro texto depois da carga — nada foi salvo.
+export const TEXTO_MOLDE_CONFLITO =
+  "Outra pessoa mudou a Observação de Partes do Molde depois que você abriu a tela. Nada foi salvo — recarregue a tela, confira o texto e salve de novo.";
 export function mensagemCamada(code: string, msg: string): string | null {
+  if (code === "P0409" && msg.startsWith("conflito_versao: observacoes_molde")) return TEXTO_MOLDE_CONFLITO;
   if (code !== "P0001") return null;
   if (msg.startsWith(PREFIXO_ESTADO_VAZIO)) {
     const [ent = "", num] = msg.slice(PREFIXO_ESTADO_VAZIO.length).trim().split(/\s+/);

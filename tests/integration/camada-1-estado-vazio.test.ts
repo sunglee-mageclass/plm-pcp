@@ -62,6 +62,20 @@ const md5Fn = async (c: Client, sig: string) =>
     ])
   ).m;
 
+/** `_rev_base` como a tela manda (C1 I2): o rev de TODO bloco do cad + extras (marcas/molde). */
+async function revsBase(
+  c: Client,
+  cadId: string,
+  extra: Record<string, unknown> = {},
+): Promise<string> {
+  const r = await um<{ b: Record<string, number> }>(
+    c,
+    `select coalesce(jsonb_object_agg(id::text, rev), '{}'::jsonb) b from producao_terceirizados where cad_id = $1`,
+    [cadId],
+  );
+  return JSON.stringify({ ...r.b, ...extra });
+}
+
 async function prepara(c: Client): Promise<void> {
   await c.query("SET LOCAL statement_timeout = '180s'");
   await aplicaMod(c); // idempotentes (cópia já com Modularidade/Backend)
@@ -101,7 +115,11 @@ async function cadComServicos(
       (
         await um<{ id: string }>(
           c,
-          `insert into categorias_terceirizado (tenant_id, nome) values ($1, $2) returning id`,
+          // reaproveita a categoria se o teste montar mais de um cad na mesma txn (nome único por loja)
+          `with ja as (select id from categorias_terceirizado where tenant_id = $1 and nome = $2 limit 1),
+                novo as (insert into categorias_terceirizado (tenant_id, nome)
+                         select $1, $2 where not exists (select 1 from ja) returning id)
+           select id from ja union all select id from novo`,
           [T, nome],
         )
       ).id;
@@ -250,6 +268,7 @@ describe.skipIf(!RODA)("camada C1 — estado completo vazio (P-77 A / P-262 A)",
         { _apagar_tudo: false },
         { apagar_tudo: true },
         { _apagar_tudo: "sim" },
+        { _apagar_tudo: true }, // M1: a marca dos serviços é a contagem N; sem número = sem marca
       ]) {
         expect(
           txt(
@@ -272,14 +291,14 @@ describe.skipIf(!RODA)("camada C1 — estado completo vazio (P-77 A / P-262 A)",
       ).toBe("PASSOU");
       expect(await conta()).toBe(1);
       await c.query("ROLLBACK TO SAVEPOINT um");
-      // com a marca (boolean ou "true"): apaga tudo
-      for (const marca of [true, "true"]) {
+      // com a marca N = 2 (número ou texto): apaga tudo
+      for (const marca of [2, "2"]) {
         await c.query("SAVEPOINT m");
         expect(
           txt(
             await tenta(c, `select salvar_terceirizados($1, '[]'::jsonb, null, $2::jsonb)`, [
               s.cad,
-              JSON.stringify({ _apagar_tudo: marca }),
+              await revsBase(c, s.cad, { _apagar_tudo: marca }),
             ]),
           ),
         ).toBe("PASSOU");
@@ -507,11 +526,10 @@ describe.skipIf(!RODA)("camada C1 — serviço com parcela PAGA não é excluíd
       ]);
       expect(txt(r)).toBe("P0001 servico_com_parcela_paga: Costura C1: parcela 1, 2");
       // com a marca "apagar tudo" e lista vazia: a regra da parcela paga segue valendo
-      const r2 = await tenta(
-        c,
-        `select salvar_terceirizados($1, '[]'::jsonb, null, '{"_apagar_tudo": true}'::jsonb)`,
-        [s.cad],
-      );
+      const r2 = await tenta(c, `select salvar_terceirizados($1, '[]'::jsonb, null, $2::jsonb)`, [
+        s.cad,
+        await revsBase(c, s.cad, { _apagar_tudo: 2 }),
+      ]);
       expect(txt(r2)).toBe("P0001 servico_com_parcela_paga: Costura C1: parcela 1, 2");
       expect(
         await n(c, `select count(*) n from producao_terceirizados where cad_id = $1`, [s.cad]),
@@ -629,6 +647,338 @@ describe.skipIf(!RODA)("camada C1 — serviço com parcela PAGA não é excluíd
     });
   });
 });
+
+// ─────────────────────────────────────────── follow-up I2/I3 (revisão merge-removidas) ───────────────────────────────────────────
+describe.skipIf(!RODA)(
+  "camada C1 follow-up — I2 rev dos blocos APAGADOS e I3 observação do molde",
+  () => {
+    const P0409_DEL =
+      "P0409 conflito_versao: um servico removido foi alterado ou criado por outra pessoa";
+    const salvar = (
+      c: Client,
+      cadId: string,
+      blocos: unknown[],
+      molde: string | null,
+      base: string | null,
+    ) =>
+      tenta(c, `select salvar_terceirizados($1, $2::jsonb, $3, $4::jsonb)`, [
+        cadId,
+        JSON.stringify(blocos),
+        molde,
+        base,
+      ]);
+    const conta = (c: Client, cadId: string) =>
+      n(c, `select count(*) n from producao_terceirizados where cad_id = $1`, [cadId]);
+
+    it("I2: remover um bloco que OUTRA pessoa editou depois da minha base = P0409 e nada muda; com a base em dia, remove", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const s = await cadComServicos(c);
+        const base = await revsBase(c, s.cad); // minha carga: rev dos 2
+        // outra pessoa edita a Lavanderia (rev + 1)
+        await semJwt(c, () =>
+          c.query(`update producao_terceirizados set observacao = 'B mexeu' where id = $1`, [
+            s.lav,
+          ]),
+        );
+        // eu removo a Lavanderia e salvo com a base velha
+        expect(txt(await salvar(c, s.cad, [{ id: s.costura, ativo: true }], null, base))).toBe(
+          P0409_DEL,
+        );
+        expect(await conta(c, s.cad)).toBe(2);
+        // com a base relida (o retry da tela): remove
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              [{ id: s.costura, ativo: true }],
+              null,
+              await revsBase(c, s.cad),
+            ),
+          ),
+        ).toBe("PASSOU");
+        expect(await conta(c, s.cad)).toBe(1);
+      });
+    });
+
+    it("I2: bloco que OUTRA pessoa criou e eu nunca vi (fora do _rev_base) = P0409, inclusive com 'apagar tudo'; cliente antigo (só os blocos do payload) também", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const s = await cadComServicos(c);
+        const base = await revsBase(c, s.cad);
+        // outra pessoa cria um serviço depois da minha carga
+        const novo = await semJwt(
+          c,
+          async () =>
+            (
+              await um<{ id: string }>(
+                c,
+                `insert into producao_terceirizados (cad_id, tenant_id, ativo) values ($1, $2, true) returning id`,
+                [s.cad, T],
+              )
+            ).id,
+        );
+        // salvo os 2 que eu via (sem remover nada meu) → o novo seria apagado → P0409
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              [
+                { id: s.costura, ativo: true },
+                { id: s.lav, ativo: true },
+              ],
+              null,
+              base,
+            ),
+          ),
+        ).toBe(P0409_DEL);
+        // "apagar todos os 2" que eu via, com o 3º criado no meio → P0409
+        // contagem confirmada 2 ≠ 3 no servidor → M1 recusa antes do I2 (os dois são P0409 e nada muda)
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              [],
+              null,
+              JSON.stringify({ ...JSON.parse(base), _apagar_tudo: 2 }),
+            ),
+          ),
+        ).toBe(
+          "P0409 conflito_versao: a lista de servicos mudou depois da confirmacao de apagar tudo",
+        );
+        // com N = 3 (contagem que bate por acaso) o I2 ainda pega o bloco que eu nunca vi
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              [],
+              null,
+              JSON.stringify({ ...JSON.parse(base), _apagar_tudo: 3 }),
+            ),
+          ),
+        ).toBe(P0409_DEL);
+        expect(await conta(c, s.cad)).toBe(3);
+        // cliente ANTIGO (aba aberta antes do deploy): _rev_base só com os blocos do payload → remover = P0409 (falha segura)
+        const so1 = JSON.stringify({ [s.costura]: JSON.parse(base)[s.costura] });
+        expect(txt(await salvar(c, s.cad, [{ id: s.costura, ativo: true }], null, so1))).toBe(
+          P0409_DEL,
+        );
+        expect(await conta(c, s.cad)).toBe(3);
+        // _rev_base null (manutenção) segue o bypass de antes
+        expect(txt(await salvar(c, s.cad, [{ id: s.costura, ativo: true }], null, null))).toBe(
+          "PASSOU",
+        );
+        expect(await conta(c, s.cad)).toBe(1);
+        expect(novo).toBeTruthy();
+      });
+    });
+
+    it("I2: payload com TODOS os blocos (edição rápida) não apaga nada e não confere rev de removido", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const s = await cadComServicos(c);
+        const base = await revsBase(c, s.cad);
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              [
+                { id: s.costura, ativo: true },
+                { id: s.lav, ativo: true },
+              ],
+              null,
+              base,
+            ),
+          ),
+        ).toBe("PASSOU");
+        expect(await conta(c, s.cad)).toBe(2);
+      });
+    });
+
+    it("I3: molde NÃO tocado não sobrescreve o que outra pessoa gravou; tocado + servidor mudou = P0409; tocado + base em dia grava; sem as chaves = como antes", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const s = await cadComServicos(c);
+        const molde = async () =>
+          (
+            await um<{ m: string | null }>(c, `select observacoes_molde m from cad where id = $1`, [
+              s.cad,
+            ])
+          ).m;
+        await semJwt(c, () =>
+          c.query(`update cad set observacoes_molde = 'A' where id = $1`, [s.cad]),
+        );
+        // abro com "A"; a Oficina grava "B"
+        await semJwt(c, () =>
+          c.query(`update cad set observacoes_molde = 'B' where id = $1`, [s.cad]),
+        );
+        const todos = [
+          { id: s.costura, ativo: true },
+          { id: s.lav, ativo: true },
+        ];
+        // não tocado: manda "A" (o que a tela tem) → o servidor NÃO grava
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              todos,
+              "A",
+              await revsBase(c, s.cad, { _molde_tocado: false, _molde_base: "A" }),
+            ),
+          ),
+        ).toBe("PASSOU");
+        expect(await molde()).toBe("B");
+        // tocado ("C") com base "A", servidor "B" → P0409, nada muda
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              todos,
+              "C",
+              await revsBase(c, s.cad, { _molde_tocado: true, _molde_base: "A" }),
+            ),
+          ),
+        ).toBe("P0409 conflito_versao: observacoes_molde");
+        expect(await molde()).toBe("B");
+        // tocado com a base em dia ("B" → "C") grava; base vazia = NULL do servidor
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              todos,
+              "C",
+              await revsBase(c, s.cad, { _molde_tocado: true, _molde_base: "B" }),
+            ),
+          ),
+        ).toBe("PASSOU");
+        expect(await molde()).toBe("C");
+        await semJwt(c, () =>
+          c.query(`update cad set observacoes_molde = null where id = $1`, [s.cad]),
+        );
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              todos,
+              "D",
+              await revsBase(c, s.cad, { _molde_tocado: true, _molde_base: "" }),
+            ),
+          ),
+        ).toBe("PASSOU");
+        expect(await molde()).toBe("D");
+        // apagar o texto (tocado, "" → NULL)
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              todos,
+              "",
+              await revsBase(c, s.cad, { _molde_tocado: true, _molde_base: "D" }),
+            ),
+          ),
+        ).toBe("PASSOU");
+        expect(await molde()).toBeNull();
+        // sem as chaves (cliente antigo / edição rápida que relê) e _rev_base null: grava como antes
+        expect(txt(await salvar(c, s.cad, todos, "E", await revsBase(c, s.cad)))).toBe("PASSOU");
+        expect(await molde()).toBe("E");
+        expect(txt(await salvar(c, s.cad, todos, "F", null))).toBe("PASSOU");
+        expect(await molde()).toBe("F");
+      });
+    });
+
+    it("M1: 'apagar tudo' com a contagem N: servidor com outro número de serviços = P0409 e nada muda", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const s = await cadComServicos(c);
+        const base = JSON.parse(await revsBase(c, s.cad));
+        // a pessoa confirmou "Apagar todos os 2"; a outra sessão apaga um no meio (serviço não pago) → o servidor tem 1
+        await c.query("SAVEPOINT m1");
+        await semJwt(c, () => c.query(`delete from producao_terceirizados where id = $1`, [s.lav]));
+        expect(
+          txt(await salvar(c, s.cad, [], null, JSON.stringify({ ...base, _apagar_tudo: 2 }))),
+        ).toBe(
+          "P0409 conflito_versao: a lista de servicos mudou depois da confirmacao de apagar tudo",
+        );
+        expect(await conta(c, s.cad)).toBe(1);
+        await c.query("ROLLBACK TO SAVEPOINT m1");
+        // N certo + revs em dia: apaga
+        expect(
+          txt(await salvar(c, s.cad, [], null, JSON.stringify({ ...base, _apagar_tudo: 2 }))),
+        ).toBe("PASSOU");
+        expect(await conta(c, s.cad)).toBe(0);
+      });
+    });
+
+    it("M2: 'Voltar uma etapa' (reverter_corte_tecido) — só a pagar passa e leva as parcelas; status 'pago' = 42501 de antes; pago só pela data = servico_com_parcela_paga:", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const parcelas = (id: string) =>
+          n(c, `select count(*) n from parcelas_servico where producao_terceirizado_id = $1`, [id]);
+        // (a) só parcelas a pagar → reverte; serviços e parcelas somem
+        const a = await cadComServicos(c);
+        expect(txt(await tenta(c, `select reverter_corte_tecido($1)`, [a.cad]))).toBe("PASSOU");
+        expect(await conta(c, a.cad)).toBe(0);
+        expect(await parcelas(a.costura)).toBe(0);
+        // (b) status 'pago' → a guarda antiga (42501), inalterada
+        const b = await cadComServicos(c, [1]);
+        const rb = await tenta(c, `select reverter_corte_tecido($1)`, [b.cad]);
+        expect(rb.ok ? "PASSOU" : rb.code).toBe("42501");
+        expect(txt(rb)).toContain("Não é possível voltar");
+        expect(await conta(c, b.cad)).toBe(2);
+        // (c) a_pagar + data_pagamento → a guarda antiga não pega; o gatilho da C1 recusa e nada muda
+        const d = await cadComServicos(c);
+        await semJwt(c, async () => {
+          await c.query("SELECT set_config('app.servico_valor_pago_correcao', 'on', true)");
+          await c.query(
+            `update parcelas_servico set data_pagamento = '2026-10-02' where producao_terceirizado_id = $1 and numero_parcela = 1`,
+            [d.costura],
+          );
+          await c.query("SELECT set_config('app.servico_valor_pago_correcao', '', true)");
+        });
+        expect(txt(await tenta(c, `select reverter_corte_tecido($1)`, [d.cad]))).toBe(
+          "P0001 servico_com_parcela_paga: Costura C1: parcela 1",
+        );
+        expect(await conta(c, d.cad)).toBe(2);
+        expect(await parcelas(d.costura)).toBe(2);
+      });
+    });
+
+    it("I2/I3: os RAISE novos são ASCII e P0409 (o PostgREST devolve 5xx — com acento vira 'Something went wrong')", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const src = (
+          await um<{ s: string }>(
+            c,
+            `select prosrc s from pg_proc where oid = 'public.salvar_terceirizados(uuid,jsonb,text,jsonb)'::regprocedure`,
+          )
+        ).s;
+        const raises = [
+          ...src.matchAll(
+            /RAISE EXCEPTION 'conflito_versao: (um servico removido|observacoes_molde)[^;]*;/g,
+          ),
+        ].map((m) => m[0]);
+        expect(raises).toHaveLength(2);
+        for (const r of raises) {
+          expect(r).toMatch(/USING ERRCODE = 'P0409';$/);
+          expect(
+            [...r].every((ch) => ch.charCodeAt(0) < 128),
+            r,
+          ).toBe(true);
+        }
+      });
+    });
+  },
+);
 
 // ─────────────────────────────────────────── (e)(f)(g) md5, ACL, idempotência, volta, trava, anti-drift ─────────────────────────────
 describe.skipIf(!RODA)(
@@ -836,7 +1186,11 @@ describe.skipIf(!RODA)(
             )
           ).s;
           expect(src, fn).toContain(`'estado_vazio_recusado: ${ent} %'`);
-          expect(src, fn).toContain(`COALESCE(${MARCA[ent]}, '') <> 'true'`);
+          expect(src, fn).toContain(
+            ent === "servicos"
+              ? `COALESCE(${MARCA[ent]}, '') !~ '^[0-9]{1,9}$'`
+              : `COALESCE(${MARCA[ent]}, '') <> 'true'`,
+          );
           // RAISE da guarda só ASCII e P0001 (400; texto ASCII de qualquer forma)
           const raise = /RAISE EXCEPTION 'estado_vazio_recusado[^;]*;/.exec(src)?.[0] ?? "";
           expect(raise, fn).toMatch(/USING ERRCODE = 'P0001';$/);

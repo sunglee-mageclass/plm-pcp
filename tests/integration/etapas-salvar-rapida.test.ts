@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, comoUsuario, semJwt, um, TENANT_TESTE } from "./db";
 import { montarPayloadEdicaoRapida } from "@/lib/servicos-payload";
+import { camadaVazioViva } from "./camada-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -319,6 +320,13 @@ describe.skipIf(!RODA)(
         const a0 = base.find((x) => x.id === s.a)!;
         const { blocos, revBase } = payloadAntigo(a0, "pt_data_entrada", "2026-10-06");
         const r = await salvar(c, s.cad, blocos, "molde: 4 partes", revBase);
+        // Camada C1 (follow-up I2) viva: o servidor confere o rev de todo bloco que vai APAGAR — o payload antigo (só 1 bloco no
+        // _rev_base) passa a ser RECUSADO (P0409) e nada muda; o contraste do bug só existe sem ela.
+        if (await camadaVazioViva(c)) {
+          expect(r.ok ? "" : r.code).toBe("P0409");
+          expect(await linhasDoCad(c, s.cad)).toEqual(base);
+          return;
+        }
         expect(r).toEqual({ ok: true });
         const depois = await linhasDoCad(c, s.cad);
         expect(depois).toHaveLength(1); // B e o interno foram APAGADOS

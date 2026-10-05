@@ -142,8 +142,10 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
       // bloco novo (sem id) + _rev_base '{}' → insere sem P0409
       await um(c, `select salvar_terceirizados($1, $2::jsonb, null, '{}'::jsonb)`,
                [cad.id, JSON.stringify([{ categoria_terceirizado_id: null }])]);
-      // _rev_base sem bloco = sem trava (bypass); lista VAZIA com serviço no servidor exige a marca "apagar tudo" (Camada C1, P-77 A)
-      await um(c, `select salvar_terceirizados($1, '[]'::jsonb, null, '{"_apagar_tudo": true}'::jsonb)`, [cad.id]);
+      // lista VAZIA com serviço no servidor exige a marca "apagar tudo" (Camada C1, P-77 A) e o rev de cada bloco que sai (C1 I2)
+      await um(c, `select salvar_terceirizados($1, '[]'::jsonb, null,
+                     (select jsonb_build_object('_apagar_tudo', count(*)) || coalesce(jsonb_object_agg(id::text, rev), '{}'::jsonb)
+                        from producao_terceirizados where cad_id = $1))`, [cad.id]);
       const n = await um<{ n: string }>(c, `select count(*) n from producao_terceirizados where cad_id=$1`, [cad.id]);
       expect(Number(n.n)).toBeGreaterThanOrEqual(0);
     });

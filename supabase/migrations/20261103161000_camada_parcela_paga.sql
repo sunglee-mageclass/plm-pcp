@@ -10,7 +10,7 @@
 -- COMMIT; leitura segue) -> HORARIO CALMO, lock_timeout 1500ms; 55P03 = nada mudou, rodar de novo. Nada em auth/storage/realtime.
 -- Idempotente (gatilho ja igual = pula o CREATE TRIGGER, sem trava). Volta: supabase/rollback/20261103161000_camada_parcela_paga_down.sql (NEUTRO, so catalogo) e,
 -- opcional/depois/horario calmo, supabase/rollback/20261103161000_camada_parcela_paga_down_drop.sql. LIFO: 20261103161000_down ANTES do 20261103160000_down.
---   public.fn_servico_parcela_paga_bloqueia_delete()  IDA 8e5618da90c83c2e788e0c9f6f8794ad  NEUTRO 7a6dd9a7e13c300569c162808081bf7f
+--   public.fn_servico_parcela_paga_bloqueia_delete()  IDA f819e2f2059019539de03dd179721611  NEUTRO 7a6dd9a7e13c300569c162808081bf7f
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -23,7 +23,7 @@ DECLARE
   n int;
 BEGIN
   v := md5(pg_get_functiondef(to_regprocedure('public.fn_servico_parcela_paga_bloqueia_delete()')));
-  IF v IS NOT NULL AND v NOT IN ('8e5618da90c83c2e788e0c9f6f8794ad', '7a6dd9a7e13c300569c162808081bf7f') THEN
+  IF v IS NOT NULL AND v NOT IN ('f819e2f2059019539de03dd179721611', '7a6dd9a7e13c300569c162808081bf7f') THEN
     RAISE EXCEPTION 'camada_c1_parcela_paga: public.fn_servico_parcela_paga_bloqueia_delete() com texto inesperado (md5 %) - outra frente mexeu; gere de novo', v USING ERRCODE = 'P0001';
   END IF;
   -- se o gatilho ja existe, e o nosso (mesma funcao, BEFORE DELETE FOR EACH ROW, ligado)
@@ -52,13 +52,17 @@ AS $function$
 -- fn_servico_parcela_valor_pago) = recusa P0001 'servico_com_parcela_paga: <servico>: parcela n, m' (prefixo ASCII; a tela
 -- traduz). Sem isto a FK ON DELETE CASCADE levava as parcelas pagas junto, sem trilha. Pega TODO caminho: salvar_terceirizados
 -- (que ja recusa antes, com a lista inteira), excluir_cad (cascata do CAD), _reverter_corte_tecido_core, service_role, SQL
--- direto. Fluxo certo: desmarcar o pagamento no Financeiro e entao excluir. Gatilho comum (ENABLE ORIGIN): NAO roda com
+-- direto (TRUNCATE nao dispara gatilho de DELETE - so service_role/postgres tem). Fluxo certo: desmarcar o pagamento no
+-- Financeiro e entao excluir. Gatilho comum (ENABLE ORIGIN): NAO roda com
 -- session_replication_role = replica (_wipe_tenant_core do reset/excluir loja). SECURITY INVOKER (quem apaga servico e o
 -- servidor: authenticated nao tem DELETE na tabela).
 DECLARE
   v_parcelas text;
   v_rotulo text;
 BEGIN
+  -- trava as parcelas do servico ANTES de olhar (B2): pagar no meio espera este DELETE (mesma ordem de travas da cascata; sem o
+  -- advisory 'parcelas_servico:<id>' do fn_servico_parcela_valor_pago, que inverteria a ordem advisory x linha).
+  PERFORM 1 FROM public.parcelas_servico ps WHERE ps.producao_terceirizado_id = OLD.id FOR UPDATE;
   SELECT string_agg(ps.numero_parcela::text, ', ' ORDER BY ps.numero_parcela) INTO v_parcelas
     FROM public.parcelas_servico ps
    WHERE ps.producao_terceirizado_id = OLD.id
@@ -90,7 +94,7 @@ DO $pos$
 DECLARE
   n int;
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public.fn_servico_parcela_paga_bloqueia_delete()'))) IS DISTINCT FROM '8e5618da90c83c2e788e0c9f6f8794ad' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_servico_parcela_paga_bloqueia_delete()'))) IS DISTINCT FROM 'f819e2f2059019539de03dd179721611' THEN
     RAISE EXCEPTION 'camada_c1_parcela_paga: pos-condicao falhou no texto de public.fn_servico_parcela_paga_bloqueia_delete()' USING ERRCODE = 'P0001';
   END IF;
   IF has_function_privilege('anon', 'public.fn_servico_parcela_paga_bloqueia_delete()', 'EXECUTE') OR has_function_privilege('authenticated', 'public.fn_servico_parcela_paga_bloqueia_delete()', 'EXECUTE')

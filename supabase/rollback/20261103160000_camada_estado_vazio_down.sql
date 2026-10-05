@@ -4,7 +4,7 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.salvar_terceirizados(uuid,jsonb,text,jsonb)
 --     ANTES  7199a05fac6716ac110bfa637944c2e9
---     DEPOIS 8f62269d795eb29e942d089c1c44e698
+--     DEPOIS 16c444931af99c7afbdffe2d49ae0dd7
 --   public.salvar_direcionamento(uuid,jsonb,jsonb)
 --     ANTES  7f5e84c87bcfe7f14d123053063da1d0
 --     DEPOIS 602b905c36f1ea1b4c7aa3a85aa0010d
@@ -36,7 +36,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '7199a05fac6716ac110bfa637944c2e9', '8f62269d795eb29e942d089c1c44e698'),
+      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '7199a05fac6716ac110bfa637944c2e9', '16c444931af99c7afbdffe2d49ae0dd7'),
       ('public.salvar_direcionamento(uuid,jsonb,jsonb)', '7f5e84c87bcfe7f14d123053063da1d0', '602b905c36f1ea1b4c7aa3a85aa0010d'),
       ('public.confirmar_direcionamento(uuid,jsonb,jsonb)', 'ae30cec520c8a1cc436e500b3b976396', 'c9b194ed5f4b2f8bf889adc2f0c1c003'),
       ('public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)', '26c656169b6f9ef826e5b93932b15fe9', 'c68f8dca982d5bab85c9f1eda1771672'),
