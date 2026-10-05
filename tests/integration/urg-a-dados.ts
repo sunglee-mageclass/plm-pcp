@@ -108,6 +108,22 @@ Object.assign(URG_A_BLOCOS, /* URG_A3_JSON_INICIO */
     "NEUTRO": {
       "public.fn_estoque_mov_log()": "910a696b98994505c5257369bb9df434"
     }
+  },
+  "177000": {
+    "mig": "supabase/migrations/20261103177000_urg_r3_estoque_extrato.sql",
+    "down": "supabase/rollback/20261103177000_urg_r3_estoque_extrato_down.sql",
+    "drop": "supabase/rollback/20261103177000_urg_r3_estoque_extrato_down_drop.sql",
+    "sentinela": "public.estoque_extrato_tecido(uuid)",
+    "volta": false,
+    "MD5": {},
+    "NOVAS": {
+      "public._estoque_extrato_tecido_core(uuid,uuid)": "bccc3cb6423a88d4942921f2e72c03fb",
+      "public._estoque_extrato_aviamento_core(uuid,uuid)": "c86981af6abf8129f5142e3636083483",
+      "public._estoque_extrato_insumo_core(uuid,uuid)": "9f2013ad56ec77e0601d51b32b793708",
+      "public.estoque_extrato_tecido(uuid)": "2ce5cc0e1161a0a83479047063464007",
+      "public.estoque_extrato_aviamento(uuid)": "e457e2fb99a6b9554bc03c07eee1838b",
+      "public.estoque_extrato_insumo(uuid)": "26909762250ea9bfec6a4c21e5e3eb51"
+    }
   }
 }
 /* URG_A3_JSON_FIM */);

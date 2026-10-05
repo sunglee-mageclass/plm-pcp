@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, um, ehBancoLocal, TENANT_TESTE } from "./db";
-import { aplicaUrgA, voltaUrgASePreciso, URG_A_MIGS } from "./urg-a-helpers";
+import { aplicaUrgA, voltaUrgASePreciso, dropUrgAExtratoSePreciso, URG_A_MIGS } from "./urg-a-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { CASOS_INSUMO_TAMANHO, type CasoInsumoTamanho } from "../fixtures/insumo-tamanho-casos";
 
@@ -293,6 +293,9 @@ describe.skipIf(!RODA)("urg R1 T2 — helpers SQL do insumo por tamanho (170000)
     await withTx(async (c) => {
       await aplicaUrgA(c, "170000");
       await voltaUrgASePreciso(c); // LIFO: blocos por cima (urgb, 170500…) neutralizados antes
+      // LIFO (urg R3 T14): o extrato da 177000 (so leitura, _down no-op) CITA _insumo_pecas/_insumo_tamanho_de/_grade_mapa_cad - o
+      // _down_drop dele vem antes do desta 170000 (sem ele a recusa abaixo dispararia pelo extrato, nao pela funcao de teste)
+      await dropUrgAExtratoSePreciso(c);
       await c.query(
         "CREATE FUNCTION public._urg_a1_teste_cita() RETURNS numeric LANGUAGE sql AS $$ SELECT public._insumo_pecas(NULL, NULL, 1) $$",
       );

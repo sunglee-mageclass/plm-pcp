@@ -20,6 +20,7 @@ import {
   MOD_DOWN_DROP,
 } from "./mod-1-dados";
 import { dropUrgbSePreciso } from "./urgb-helpers"; // [urg r4b] _servicos_da_mo_criar cita _tenant_modulo_ligado: o _down_drop dela vem antes (LIFO)
+import { dropUrgAExtratoSePreciso } from "./urg-a-helpers"; // [urg R3 T14] extrato 177000 cita _exige_modulos (LIFO)
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -502,6 +503,7 @@ describe.skipIf(!RODA)(
         // volta tudo e derruba os auxiliares (blocos mais novos que criem quem os cite saem antes pelo _down_drop deles)
         await voltaMod(c);
         await dropUrgbSePreciso(c);
+        await dropUrgAExtratoSePreciso(c); // [urg R3 T14] o extrato (177000) cita _exige_modulos: o _down_drop dele vem antes (LIFO)
         for (const b of [...MOD_MIGS].reverse()) {
           if (b.n === 1 || b.n === 4) continue;
           const drop = b.downs[0]?.replace(/_down\.sql$/, "_down_drop.sql");
