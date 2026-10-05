@@ -28,6 +28,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
   rotuloTamanho, tamanhoEfetivoInsumo, tamanhoVinculadoParaSalvar, vinculoAtivoDoRegistro, vinculoDisponivel,
+  vinculoLigadoSemTamanho,
 } from "@/lib/insumo-tamanho";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
@@ -103,6 +104,7 @@ function EtiquetasPage() {
   // "Vincular a um tamanho" (urg R1): o insumo vai só nas peças de UM tamanho (coluna etiquetas.tamanho_vinculado).
   const [fVincular, setFVincular] = useState(false);
   const [fTamVinc, setFTamVinc] = useState<string | null>(null);
+  const [fErroTam, setFErroTam] = useState(false); // Salvar bloqueado: vínculo ligado sem tamanho
   const [tipoNovoOpen, setTipoNovoOpen] = useState(false);
   const [tipoNovoNome, setTipoNovoNome] = useState("");
 
@@ -204,7 +206,7 @@ function EtiquetasPage() {
   const resetForm = () => {
     setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null);
     setFFormato("nenhum"); setFObs(""); setFBlocks([]); setFTipo(null);
-    setFVincular(false); setFTamVinc(null);
+    setFVincular(false); setFTamVinc(null); setFErroTam(false);
   };
   const openCreate = () => {
     setEditing(null);
@@ -222,7 +224,7 @@ function EtiquetasPage() {
     const tamVinc = vincular
       ? tamanhoVinculadoParaSalvar({ ativo: true, tamanho: e.tamanho_vinculado, formato: "nenhum", blocos: [] })
       : null;
-    setFVincular(vincular); setFTamVinc(tamVinc);
+    setFVincular(vincular); setFTamVinc(tamVinc); setFErroTam(false);
     setOpen(true);
     const { data } = await supabase.from("variantes_etiqueta" as any).select("tamanho, cor_id, preco").eq("etiqueta_id", e.id);
     // agrupa variantes por cor → blocos
@@ -260,6 +262,10 @@ function EtiquetasPage() {
     mutationFn: async () => {
       const nome = fNome.trim();
       if (!nome) throw new Error("Informe o nome da etiqueta.");
+      if (vinculoLigadoSemTamanho({ ativo: fVincular, tamanho: fTamVinc, formato: fFormato, blocos: fBlocks })) {
+        setFErroTam(true);
+        throw new Error("Escolha o tamanho ou desligue o vínculo.");
+      }
       // uma cor por bloco (não repetir cor)
       const seenCor = new Set<string>();
       for (const b of fBlocks) {
@@ -446,7 +452,7 @@ function EtiquetasPage() {
                     </TableCell>
                   )}
                   <TableCell>
-                    <span className="flex items-center gap-2">
+                    <span className="flex flex-wrap items-center gap-2 min-w-0">
                       {isAdmin && !readOnly && (
                         <span className="hidden max-md:inline-flex" onClick={(ev) => ev.stopPropagation()}>
                           <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />
@@ -555,7 +561,7 @@ function EtiquetasPage() {
                           <Switch
                             id="insumo-vincular-tamanho"
                             checked={ligado}
-                            onCheckedChange={(v) => { setFVincular(v); if (!v) setFTamVinc(null); }}
+                            onCheckedChange={(v) => { setFVincular(v); setFErroTam(false); if (!v) setFTamVinc(null); }}
                             disabled={readOnly || !disponivel}
                           />
                           <Label htmlFor="insumo-vincular-tamanho">Vincular a um tamanho</Label>
@@ -563,13 +569,16 @@ function EtiquetasPage() {
                             Use para insumo que vai só nas peças de UM tamanho (ex.: etiqueta de tamanho M). Na Explosão a quantidade passa a ser consumo × peças desse tamanho, e o custo por peça é rateado. Só vale para insumo sem tamanho nas variantes.
                           </InfoHover>
                         </div>
-                        <Select value={fTamVinc ?? ""} onValueChange={setFTamVinc} disabled={readOnly || !ligado}>
+                        <Select value={fTamVinc ?? ""} onValueChange={(v) => { setFTamVinc(v); setFErroTam(false); }} disabled={readOnly || !ligado}>
                           <SelectTrigger className="w-full sm:w-56"><SelectValue placeholder="Escolha o tamanho" /></SelectTrigger>
                           <SelectContent>
                             {opcoes.map((t) => <SelectItem key={t} value={t}>{rotuloTamanho(t)}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>
+                      {fErroTam && ligado && !fTamVinc && (
+                        <p className="text-xs text-destructive" role="alert">Escolha o tamanho ou desligue o vínculo.</p>
+                      )}
                       {!disponivel && (
                         <p className="text-xs text-amber-600 dark:text-amber-400">
                           Disponível só para insumo sem tamanho nas variantes (formato "Nenhum" ou nenhum tamanho marcado).

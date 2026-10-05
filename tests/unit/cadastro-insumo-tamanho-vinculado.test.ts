@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   tamanhoVinculadoParaSalvar,
+  vinculoLigadoSemTamanho,
   vinculoAtivoDoRegistro,
   vinculoDisponivel,
 } from "../../src/lib/insumo-tamanho";
@@ -76,7 +77,31 @@ describe("vinculoDisponivel (switch habilitado so p/ insumo sem tamanho nas vari
   });
 });
 
+describe("vinculoLigadoSemTamanho (Salvar bloqueado: switch ligado sem tamanho escolhido)", () => {
+  it("true quando o vinculo vale (ligado e disponivel) e nao ha tamanho", () => {
+    for (const tamanho of [null, undefined, "", "   "]) {
+      expect(vinculoLigadoSemTamanho({ ativo: true, tamanho, formato: "nenhum", blocos: [] })).toBe(true);
+    }
+  });
+  it("false com tamanho escolhido", () => {
+    expect(vinculoLigadoSemTamanho({ ativo: true, tamanho: "40|M", formato: "nenhum", blocos: [] })).toBe(false);
+  });
+  it("false com o switch desligado", () => {
+    expect(vinculoLigadoSemTamanho({ ativo: false, tamanho: null, formato: "nenhum", blocos: [] })).toBe(false);
+  });
+  it("false quando o vinculo nao vale (tamanho marcado nas variantes): o Salvar so limpa (A2)", () => {
+    expect(vinculoLigadoSemTamanho({ ativo: true, tamanho: null, formato: "ambos", blocos: COM_TAM })).toBe(false);
+  });
+});
+
 describe("cadastro.etiquetas.tsx (fonte)", () => {
+  it("bloqueia o Salvar com a mensagem de campo e a nome-celula quebra linha", () => {
+    const f = readFileSync(resolve(__dirname, "../../src/routes/_authenticated/cadastro.etiquetas.tsx"), "utf8");
+    expect(f).toContain("Escolha o tamanho ou desligue o vínculo.");
+    expect(f).toMatch(/if \(vinculoLigadoSemTamanho\(/);
+    expect(f).toMatch(/<span className="flex flex-wrap items-center gap-2 min-w-0">/);
+  });
+
   const src = readFileSync(resolve(__dirname, "../../src/routes/_authenticated/cadastro.etiquetas.tsx"), "utf8");
 
   it("textos aprovados verbatim", () => {

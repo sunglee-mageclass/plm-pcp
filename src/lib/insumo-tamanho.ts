@@ -115,3 +115,14 @@ export function tamanhoVinculadoParaSalvar(p: {
   if (t === "") return null;
   return vinculoDisponivel(p.formato, p.blocos) ? t : null;
 }
+
+/** Switch ligado (e valendo) mas sem tamanho escolhido: o Salvar deve ser bloqueado em vez de gravar null calado. */
+export function vinculoLigadoSemTamanho(p: {
+  ativo: boolean;
+  tamanho: string | null | undefined;
+  formato: string | null;
+  blocos: { tamanhos: string[] }[];
+}): boolean {
+  if (!p.ativo || !vinculoDisponivel(p.formato, p.blocos)) return false;
+  return p.tamanho == null || trimEspacos(p.tamanho) === "";
+}
