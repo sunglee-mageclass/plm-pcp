@@ -86,6 +86,34 @@ export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
     "URGB_ACL": {
       "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
     }
+  },
+  "r8a": {
+    "mig": "supabase/migrations/20261103190000_urg_r8_titulo_sublinha.sql",
+    "down": "supabase/rollback/20261103190000_urg_r8_titulo_sublinha_down.sql",
+    "drop": "supabase/rollback/20261103190000_urg_r8_titulo_sublinha_down_drop.sql",
+    "URGB_SENTINELA": "public._integracao_retrato_core(uuid,text[],jsonb)",
+    "URGB_MD5": {
+      "public._integracao_retrato_core(uuid,text[],jsonb)": {
+        "antes": "8a5275cf8c145f88e23c5158c22fdfc6",
+        "depois": "2635e1833654111858a301f7ef06ccf1"
+      },
+      "public.integracao_listar(text,jsonb,integer,integer)": {
+        "antes": "d2d3c9c55b3a6ce8b42d1842cab415f6",
+        "depois": "5fd15e4b95fc5555e055935a67af62e8"
+      },
+      "public._integracao_exemplo(text[],integer)": {
+        "antes": "8882ce651fe5f13a44c60751692da40e",
+        "depois": "d57b40f96cc4a4fdbb2f9dc0ddc6c8d7"
+      }
+    },
+    "URGB_ACL": {
+      "public._integracao_retrato_core(uuid,text[],jsonb)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public.integracao_listar(text,jsonb,integer,integer)": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "public._integracao_exemplo(text[],integer)": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    "URGB_NOVAS": {
+      "public._integracao_titulo_sublinha(text,text,text,text)": "a847a61f50f4b72608aa10edaa7ac0c9"
+    }
   }
 }
 /* URGB_JSON_FIM */;

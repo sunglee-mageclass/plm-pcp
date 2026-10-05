@@ -21,6 +21,7 @@ import {
   prepara,
   revenda,
   ROOT,
+  vRetratoVivo,
 } from "./integracao-helpers";
 
 type Ret = {
@@ -200,7 +201,8 @@ describe.skipIf(!hasDb || !LOCAL)(
         expect(f[0].texto).toMatch(/^1 SKU desatualizado — Regerar \(/);
         expect(f[0].texto).toContain(`X${p1.sku} -> ${p1.sku}`);
         // o retrato NÃO muda de forma: marcador v=2 e a sublinha leva o SKU GRAVADO (o previsto só alimenta a falta)
-        expect(r.retrato.v).toBe((await i3bViva(c)) ? 3 : 2); // Release I3 (20261030110000) passa o marcador a 3; a forma é a mesma
+        // Release I3 (20261030110000) passa o marcador a 3 e a urg R8a (20261103190000) a 4 (vRetratoVivo); a forma é a mesma
+        expect(r.retrato.v).toBe((await i3bViva(c)) ? await vRetratoVivo(c) : 2);
         expect(r.retrato.linhas.map((l) => l.tipo)).toEqual(ok.retrato.linhas.map((l) => l.tipo));
         expect(r.retrato.linhas.find((l) => l.tamanho_key === p1.tk)?.valores.ref_sku).toBe(
           `X${p1.sku}`,
