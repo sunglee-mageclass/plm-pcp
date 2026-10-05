@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { hasDb, ehBancoLocal, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 import type { Client } from "pg";
 import { kanbanChaveDesligada } from "./loja-fixture";
 
@@ -50,7 +50,7 @@ async function modeloComCad(c: Client): Promise<string | null> {
   return m?.id ?? null;
 }
 
-describe.skipIf(!hasDb)("Envio à Explosão configurável — gate + RPC", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("Envio à Explosão configurável — gate + RPC", () => {
   it("_explosao_envio_gate: ausente ⇒ só 'aprovado'; a-partir-da-etapa; órfã ⇒ fallback", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);

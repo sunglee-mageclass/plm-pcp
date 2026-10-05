@@ -212,7 +212,7 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     lê `select xmin from <tabela> where id = new.id` (sem `id` = 42703 em todo INSERT/UPDATE da filha); a guarda da migration e o
     anti-drift de `mod-5-rev.test.ts` (lista exata de tabelas dos gatilhos, caso "migration") pegam tabela nova.
   - **Decisões declaradas (não são furos):** Financeiro desligado continua anotando parcelas em segundo plano (T3 do desenho);
-    leitura NÃO ganha gate de módulo (T4 do desenho, C9 — policy RESTRICTIVE de SELECT derruba o Realtime, inv. 13); Distribuição:
+    leitura NÃO ganha gate de módulo (T4 do desenho, C9 — decisão mantida; a premissa "policy RESTRICTIVE de SELECT derruba o Realtime" foi **desmentida** em 05/out, frente Backend, Q-R: o `tenant-sync` dá SUBSCRIBE com 41 tabelas numa loja sem `produto_acabado` e entrega os eventos; ver inv. 13); Distribuição:
     a escrita não tem gate próprio, o dialog some sem o módulo e o dado gravado fica inerte (T6); o espelho card↔produto grava com
     PA/PI desligado, de propósito, e pode recusar `categoria_acessorio_com_pedido` (D17); a **reserva de estoque** (`_estoque_tecido_core`) continua descontando os
     cards da Criação (reprovados já saem, R15a) mesmo depois de a Criação ser desligada — os cards ficam invisíveis mas ainda
@@ -892,12 +892,15 @@ e verifique** — o repo muda rápido.
     (`modgate_ins/upd/del` — **SEM** `modgate_sel`). O `modgate_sel` de `ocs_p_acabado` (e de
     `ocs_importado`) foi **DROPADO** depois (`20260916140000_fix_rls_ocs_pacabado_importado.sql`,
     lição do merge colaborativo): o Realtime lê como `authenticated` **sem** contexto de tenant,
-    então um RESTRICTIVE de SELECT fazia o canal `postgres_changes` nunca ficar SUBSCRIBED
+    então (assim se achava) um RESTRICTIVE de SELECT fazia o canal `postgres_changes` nunca ficar SUBSCRIBED
     (mesmo padrão de `controle_qualidade`/`ocs_tecido`/`ocs_aviamento`/`ocs_etiqueta`/
     `direcionamento_controle`, que também só têm `tenant_select` PERMISSIVE, nunca modgate no
     SELECT). Ou seja: escrita das 3 tabelas SEMPRE gated por módulo; leitura direta gated nas
     2 primeiras, mas NÃO em `ocs_p_acabado` (decisão registrada, não é regressão — uniformiza
-    com o resto do sistema).
+    com o resto do sistema). ⚠️ **Revisto em 05/out (frente Backend, Q-R, `qa-report.md`): a explicação do canal NÃO se sustenta** —
+    com o `modgate_sel` RESTRICTIVE de `produtos_acabados`/`produto_acabado_variantes` ativo, numa loja SEM `produto_acabado`, o
+    `tenant-sync` ficou SUBSCRIBED com 41 tabelas no `phx_join` e entregou os eventos das outras tabelas. As policies ficam; não
+    se decide "não pode RESTRICTIVE de SELECT" por este motivo (o `DROP` de `ocs_p_acabado` segue válido, é só uniformização).
     ⚠️ **Fluxo de Revenda CONFIGURÁVEL por loja (ago/2026, `a342618..efdeea0`, review opus SHIP):**
     3 colunas jsonb novas em `tenant_config` (migração `20260826130000`): `revenda_kanban_colunas`
     (keys de colunas por onde a revenda passa; `[]`=todas), `revenda_kanban_requisitos` (mapa
@@ -1105,6 +1108,16 @@ e verifique** — o repo muda rápido.
     (apaga os registros `loja_nao_autorizada` com `SET app.confirmo_apagar_acessos_loja='sim'`, volta o CHECK, DROP da função) —
     tudo ANTES dos inversos da I3. Testes: `tests/integration/integracao-10-api-loja.test.ts` (txn revertida) +
     `tests/unit/integracao-api.test.ts`/`integracao-resposta.test.ts`.
+    **1 linha `produto` por card (Backend B4, `20261103143000`):** índice único parcial `integracao_linhas_produto_unico` ON
+    `integracao_linhas (modelo_id) WHERE tipo = 'produto'` (o `UNIQUE (modelo_id, ordem)` antigo não pegava 2 `produto` com `ordem`
+    diferente); `23505` citando o índice é traduzido em `mensagemBackend` (rede de segurança — nenhum caminho da tela gera isso hoje).
+    A ida recusa sozinha se já houver duplicata (`bk4_integracao_duplicada: N cards …`, nada muda; Passo 0 do kit: `SELECT count(*)
+    FROM (SELECT modelo_id FROM integracao_linhas WHERE tipo='produto' GROUP BY 1 HAVING count(*)>1) d` = 0). ⚠️ **Horário calmo:** a ida
+    toma `LOCK TABLE … IN SHARE MODE` (ms; `lock_timeout 1500ms` → 55P03 e nada muda) e o `_down_drop` toma AccessExclusive em
+    `integracao_linhas` — no pior caso há ~1,5 s de FILA: escritas novas (marcar/voltar/desfazer/confirmar, Gerar JSON) esperam atrás da
+    ida e até as LEITURAS esperam atrás do `_down_drop`. `_down` é no-op (o índice fica). ⚠️ Índice homônimo INVÁLIDO (CREATE
+    interrompido): a ida só dá NOTICE e cai no `bk4_pos`; saída = `143000_down_drop` (remove o inválido porque a definição bate) e
+    reaplicar a ida.
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
@@ -1245,17 +1258,6 @@ dos demais filtros (`useFilterState`); opções = colunas do board da loja na or
 usa a MESMA função pura `etapaDoModelo`/`etapaFiltroId` (`src/lib/kanban-auto-ui.ts`) que já
 alimenta o selo `EtapaKanbanBadge` no card — filtro e selo nunca divergem, inclusive
 revenda/importado (fluxo próprio de `etapaDoModelo`).
-
-    **1 linha `produto` por card (Backend B4, `20261103143000`):** índice único parcial `integracao_linhas_produto_unico` ON
-    `integracao_linhas (modelo_id) WHERE tipo = 'produto'` (o `UNIQUE (modelo_id, ordem)` antigo não pegava 2 `produto` com `ordem`
-    diferente); `23505` citando o índice é traduzido em `mensagemBackend` (rede de segurança — nenhum caminho da tela gera isso hoje).
-    A ida recusa sozinha se já houver duplicata (`bk4_integracao_duplicada: N cards …`, nada muda; Passo 0 do kit: `SELECT count(*)
-    FROM (SELECT modelo_id FROM integracao_linhas WHERE tipo='produto' GROUP BY 1 HAVING count(*)>1) d` = 0). ⚠️ **Horário calmo:** a ida
-    toma `LOCK TABLE … IN SHARE MODE` (ms; `lock_timeout 1500ms` → 55P03 e nada muda) e o `_down_drop` toma AccessExclusive em
-    `integracao_linhas` — no pior caso há ~1,5 s de FILA: escritas novas (marcar/voltar/desfazer/confirmar, Gerar JSON) esperam atrás da
-    ida e até as LEITURAS esperam atrás do `_down_drop`. `_down` é no-op (o índice fica). ⚠️ Índice homônimo INVÁLIDO (CREATE
-    interrompido): a ida só dá NOTICE e cai no `bk4_pos`; saída = `143000_down_drop` (remove o inválido porque a definição bate) e
-    reaplicar a ida.
 
 15. **Custo previsto derivado no servidor (release 8, contas certas C; plano `.superpowers/sdd/2026-09-30-contas-certas-cd/plan-cd.md`)** —
     `modelos.custo_peca_previsto`, `custo_tecido/forro/entretela/aviamento_total` e o `custo_previsto` das linhas do BOM
@@ -1853,8 +1855,10 @@ Frente de endurecimento do servidor + front sem engolir erro. Detalhes das regra
 - **Volta (LIFO pela aplicação):** SITE → T5 `200000_down` → Camada → **`145000_down` (no-op) → `143000_down` (no-op) → `141000_down` →
   `140000_down`** → Mod `130000_down` … Os `_down_drop` (`145000` e depois `143000`) são opcionais, DEPOIS, em horário calmo, e só com o
   SITE já voltado (o site novo chama a RPC). **Inversos ANTIGOS que recusam (md5) com o Backend vivo — desfazer o Backend antes:** S3d
-  `20261101210000_down`/`_down_drop` (`fn_seg_pagina_modelos`, B1), L9 `20261029100000_down` (`fn_colab_bump_oc_avi`, B2) e S1
-  `20261031130000_down` (ACL dos bumps `_cq`/`_oc`/`_plan`, B2). A lista final é a "cadeia md5" de cada `mig/md5-bkN.txt`.
+  `20261101210000_down`/`_down_drop` (`fn_seg_pagina_modelos`, B1) e L9 `20261029100000_down` (`fn_colab_bump_oc_avi`, B2).
+  ⚠️ **S1 `20261031130000_down` NÃO recusa** (só confere que as funções existem e devolve o EXECUTE aos bumps `_cq`/`_oc`/`_plan`,
+  sem olhar md5); o risco é o OPOSTO: rodado ANTES do `141000_down`, ele muda a ACL dos bumps e o `141000_down` aborta na
+  pós-condição de ACL (`proacl::text` exato). Ordem certa: `141000_down` primeiro, S1 `_down` depois (LIFO). A lista final é a "cadeia md5" de cada `mig/md5-bkN.txt`.
 - **Teste de trava por DIFERENÇA (R6):** a txn do teste já segura as travas dos ganchos `MOD_TXN`/`BK_TXN`/`S*_TXN`; testes que medem
   `pg_locks` comparam só as travas NOVAS depois do `aplicarArquivo` (receita do fix I1 da B1). Medir tudo dá falso vermelho (ex.: o
   índice da B4 criado pelo gancho numa cópia sem ele).

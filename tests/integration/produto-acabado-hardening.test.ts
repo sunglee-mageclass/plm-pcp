@@ -63,7 +63,8 @@ describe.skipIf(!hasDb)("FF2 — modgate de leitura (produto_acabado)", () => {
       }
       // T1 (backend, 05/out): `ocs_p_acabado` NÃO tem `modgate_sel` — decisão registrada no CLAUDE.md (Produto Acabado, "Assimetria entre as 3"):
       // o `modgate_sel` dela foi DROPADO por 20260916140000_fix_rls_ocs_pacabado_importado.sql (lição do merge colaborativo: o Realtime lê como
-      // authenticated sem contexto de tenant e um RESTRICTIVE de SELECT impedia o canal de ficar SUBSCRIBED). A leitura NÃO é gated nela; a
+      // authenticated sem contexto de tenant; achava-se que um RESTRICTIVE de SELECT impedia o canal de ficar SUBSCRIBED — a Q-R do Backend, 05/out,
+      // desmentiu: o tenant-sync dá SUBSCRIBE com `modgate_sel` nas outras 2 tabelas e entrega os eventos). A leitura NÃO é gated nela; a
       // ESCRITA continua (modgate_ins/upd/del). Em vez de esperar 0 linhas, trava a assimetria documentada (anti-drift de política).
       const pol = await c.query(
         `select polname from pg_policy where polrelid = 'public.ocs_p_acabado'::regclass and not polpermissive order by 1`,

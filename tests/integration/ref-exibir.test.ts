@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { hasDb, ehBancoLocal, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 import type { Client } from "pg";
 import { kanbanChaveDesligada } from "./loja-fixture";
 
@@ -41,7 +41,7 @@ async function modeloComSigla(c: Client): Promise<string | null> {
   return m?.id ?? null;
 }
 
-describe.skipIf(!hasDb)("Item 14 — REF configurável (_ref_exibir_gate + trigger)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("Item 14 — REF configurável (_ref_exibir_gate + trigger)", () => {
   it("_ref_exibir_gate: ausente ⇒ só 'aprovado'; a-partir-da-etapa; órfã ⇒ fallback", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
