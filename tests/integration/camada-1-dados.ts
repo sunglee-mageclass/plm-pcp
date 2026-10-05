@@ -9,7 +9,7 @@ export const CAMADA_DOWN_GAT = "supabase/rollback/20261103161000_camada_parcela_
 export const CAMADA_DROP_GAT = "supabase/rollback/20261103161000_camada_parcela_paga_down_drop.sql";
 export const CAMADA_SENTINELA = "public.salvar_terceirizados(uuid,jsonb,text,jsonb)";
 export const CAMADA_MD5: Record<string, { antes: string; depois: string }> = {
-  "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": { antes: "7199a05fac6716ac110bfa637944c2e9", depois: "16c444931af99c7afbdffe2d49ae0dd7" },
+  "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": { antes: "7199a05fac6716ac110bfa637944c2e9", depois: "fe2530878c26ae9a9680a7b1d02eca71" },
   "public.salvar_direcionamento(uuid,jsonb,jsonb)": { antes: "7f5e84c87bcfe7f14d123053063da1d0", depois: "602b905c36f1ea1b4c7aa3a85aa0010d" },
   "public.confirmar_direcionamento(uuid,jsonb,jsonb)": { antes: "ae30cec520c8a1cc436e500b3b976396", depois: "c9b194ed5f4b2f8bf889adc2f0c1c003" },
   "public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)": { antes: "26c656169b6f9ef826e5b93932b15fe9", depois: "c68f8dca982d5bab85c9f1eda1771672" },

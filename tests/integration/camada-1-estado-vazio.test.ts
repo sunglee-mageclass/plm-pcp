@@ -67,11 +67,14 @@ async function revsBase(
   c: Client,
   cadId: string,
   extra: Record<string, unknown> = {},
+  soAtivas = false,
 ): Promise<string> {
+  // soAtivas = como o sheet do PCP (a query dele é `.eq("ativo", true)`)
   const r = await um<{ b: Record<string, number> }>(
     c,
-    `select coalesce(jsonb_object_agg(id::text, rev), '{}'::jsonb) b from producao_terceirizados where cad_id = $1`,
-    [cadId],
+    `select coalesce(jsonb_object_agg(id::text, rev), '{}'::jsonb) b from producao_terceirizados
+      where cad_id = $1 and ($2::boolean is false or ativo)`,
+    [cadId, soAtivas],
   );
   return JSON.stringify({ ...r.b, ...extra });
 }
@@ -108,7 +111,8 @@ async function cad(c: Client): Promise<string> {
 async function cadComServicos(
   c: Client,
   pagas: number[] = [],
-): Promise<{ cad: string; costura: string; lav: string }> {
+  op: { inativo?: boolean; inativoPago?: boolean } = {},
+): Promise<{ cad: string; costura: string; lav: string; inativo: string }> {
   const id = await cad(c);
   return semJwt(c, async () => {
     const cat = async (nome: string) =>
@@ -145,8 +149,24 @@ async function cadComServicos(
         [T, pt, num, pago ? "pago" : "a_pagar", pago ? "2026-10-01" : null],
       );
     }
+    // Follow-up 2: serviço INATIVO (ativo = false) no mesmo cad, opcionalmente com parcela paga
+    let inativo = "";
+    if (op.inativo) {
+      inativo = (
+        await um<{ id: string }>(
+          c,
+          `insert into producao_terceirizados (cad_id, tenant_id, ativo, numero_parcelas) values ($1, $2, false, 1) returning id`,
+          [id, T],
+        )
+      ).id;
+      if (op.inativoPago)
+        await c.query(
+          `insert into parcelas_servico (tenant_id, producao_terceirizado_id, numero_parcela, status, data_pagamento) values ($1, $2, 1, 'pago', '2026-10-01')`,
+          [T, inativo],
+        );
+    }
     await c.query("SELECT set_config('app.servico_valor_pago_correcao', '', true)");
-    return { cad: id, costura, lav };
+    return { cad: id, costura, lav, inativo };
   });
 }
 async function cadComDirecionamento(c: Client): Promise<string> {
@@ -950,6 +970,110 @@ describe.skipIf(!RODA)(
         );
         expect(await conta(c, d.cad)).toBe(2);
         expect(await parcelas(d.costura)).toBe(2);
+      });
+    });
+
+    it("Follow-up 2 (inativos): o Salvar do PCP (só ativas) passa com uma linha ativo=false no cad e NÃO a toca; remover ativa também", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const s = await cadComServicos(c, [], { inativo: true });
+        const inativoAntes = await um<Record<string, unknown>>(
+          c,
+          `select * from producao_terceirizados where id = $1`,
+          [s.inativo],
+        );
+        // a tela só carrega as ATIVAS: revs e payload sem a inativa (antes: P0409 eterno — "criada por outra pessoa")
+        const todasAtivas = [
+          { id: s.costura, ativo: true },
+          { id: s.lav, ativo: true },
+        ];
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              todasAtivas,
+              null,
+              await revsBase(c, s.cad, { _molde_tocado: false }, true),
+            ),
+          ),
+        ).toBe("PASSOU");
+        // remover uma ATIVA (com a base das ativas em dia) passa e a inativa fica
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              [{ id: s.costura, ativo: true }],
+              null,
+              await revsBase(c, s.cad, {}, true),
+            ),
+          ),
+        ).toBe("PASSOU");
+        const inativoDepois = await um<Record<string, unknown>>(
+          c,
+          `select * from producao_terceirizados where id = $1`,
+          [s.inativo],
+        );
+        expect(inativoDepois).toEqual(inativoAntes); // intocada (nem apagada, nem rev)
+        expect(
+          await n(c, `select count(*) n from producao_terceirizados where cad_id = $1 and ativo`, [
+            s.cad,
+          ]),
+        ).toBe(1);
+        // a edição rápida (manda a inativa com ativo:false + o rev dela) segue passando
+        expect(
+          txt(
+            await salvar(
+              c,
+              s.cad,
+              [
+                { id: s.costura, ativo: true },
+                { id: s.inativo, ativo: false },
+              ],
+              null,
+              await revsBase(c, s.cad),
+            ),
+          ),
+        ).toBe("PASSOU");
+      });
+    });
+
+    it("Follow-up 2 (inativos): 'apagar tudo' conta só as ATIVAS (N) e apaga só elas; inativa com parcela paga não trava o Salvar", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const s = await cadComServicos(c, [], { inativo: true, inativoPago: true });
+        const base = JSON.parse(await revsBase(c, s.cad, {}, true));
+        // N = 3 (contando a inativa) = P0409; N = 2 (ativas) apaga as 2 ativas e a inativa (paga) fica
+        expect(
+          txt(await salvar(c, s.cad, [], null, JSON.stringify({ ...base, _apagar_tudo: 3 }))),
+        ).toBe(
+          "P0409 conflito_versao: a lista de servicos mudou depois da confirmacao de apagar tudo",
+        );
+        expect(
+          txt(await salvar(c, s.cad, [], null, JSON.stringify({ ...base, _apagar_tudo: 2 }))),
+        ).toBe("PASSOU");
+        expect(await conta(c, s.cad)).toBe(1);
+        expect(
+          await n(c, `select count(*) n from producao_terceirizados where id = $1`, [s.inativo]),
+        ).toBe(1);
+        // servidor só com a inativa + lista vazia = nada a apagar: passa sem marca
+        expect(txt(await salvar(c, s.cad, [], null, JSON.stringify({})))).toBe("PASSOU");
+        expect(await conta(c, s.cad)).toBe(1);
+      });
+    });
+
+    it("Follow-up 2 (B-1): a observação do molde trava o cad com FOR NO KEY UPDATE (não FOR UPDATE)", async () => {
+      await withTx(async (c) => {
+        await prepara(c);
+        const src = (
+          await um<{ s: string }>(
+            c,
+            `select prosrc s from pg_proc where oid = 'public.salvar_terceirizados(uuid,jsonb,text,jsonb)'::regprocedure`,
+          )
+        ).s;
+        expect(src).toContain("PERFORM 1 FROM public.cad WHERE id = _cad_id FOR NO KEY UPDATE;");
+        expect(src).not.toMatch(/FROM public\.cad WHERE id = _cad_id FOR UPDATE/);
       });
     });
 

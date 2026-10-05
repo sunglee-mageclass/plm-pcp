@@ -14,7 +14,7 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.salvar_terceirizados(uuid,jsonb,text,jsonb)
 --     ANTES  7199a05fac6716ac110bfa637944c2e9
---     DEPOIS 16c444931af99c7afbdffe2d49ae0dd7
+--     DEPOIS fe2530878c26ae9a9680a7b1d02eca71
 --   public.salvar_direcionamento(uuid,jsonb,jsonb)
 --     ANTES  7f5e84c87bcfe7f14d123053063da1d0
 --     DEPOIS 602b905c36f1ea1b4c7aa3a85aa0010d
@@ -49,7 +49,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '7199a05fac6716ac110bfa637944c2e9', '16c444931af99c7afbdffe2d49ae0dd7'),
+      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '7199a05fac6716ac110bfa637944c2e9', 'fe2530878c26ae9a9680a7b1d02eca71'),
       ('public.salvar_direcionamento(uuid,jsonb,jsonb)', '7f5e84c87bcfe7f14d123053063da1d0', '602b905c36f1ea1b4c7aa3a85aa0010d'),
       ('public.confirmar_direcionamento(uuid,jsonb,jsonb)', 'ae30cec520c8a1cc436e500b3b976396', 'c9b194ed5f4b2f8bf889adc2f0c1c003'),
       ('public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)', '26c656169b6f9ef826e5b93932b15fe9', 'c68f8dca982d5bab85c9f1eda1771672'),
@@ -95,11 +95,11 @@ BEGIN
   -- [camada C1 / P-77 A] estado completo VAZIO com servicos no servidor = recusa (nada e apagado), a nao ser com a marca
   -- explicita "apagar tudo" (_rev_base->'_apagar_tudo' = N, a contagem que a pessoa confirmou em "Apagar todos os N servicos?").
   IF (CASE jsonb_typeof(COALESCE(_blocos, '[]'::jsonb)) WHEN 'array' THEN jsonb_array_length(COALESCE(_blocos, '[]'::jsonb)) = 0 ELSE true END)
-     AND EXISTS (SELECT 1 FROM public.producao_terceirizados WHERE cad_id = _cad_id) THEN
+     AND EXISTS (SELECT 1 FROM public.producao_terceirizados WHERE cad_id = _cad_id AND ativo IS TRUE) THEN
     IF COALESCE(_rev_base->>'_apagar_tudo', '') !~ '^[0-9]{1,9}$' THEN
       RAISE EXCEPTION 'estado_vazio_recusado: servicos %',
-        (SELECT count(*) FROM public.producao_terceirizados WHERE cad_id = _cad_id) USING ERRCODE = 'P0001';
-    ELSIF (SELECT count(*) FROM public.producao_terceirizados WHERE cad_id = _cad_id) <> (_rev_base->>'_apagar_tudo')::int THEN
+        (SELECT count(*) FROM public.producao_terceirizados WHERE cad_id = _cad_id AND ativo IS TRUE) USING ERRCODE = 'P0001';
+    ELSIF (SELECT count(*) FROM public.producao_terceirizados WHERE cad_id = _cad_id AND ativo IS TRUE) <> (_rev_base->>'_apagar_tudo')::int THEN
       -- [camada C1 / M1] a pessoa confirmou apagar N; o servidor tem outro numero (alguem criou/apagou servico no meio)
       RAISE EXCEPTION 'conflito_versao: a lista de servicos mudou depois da confirmacao de apagar tudo' USING ERRCODE = 'P0409';
     END IF;
@@ -193,11 +193,12 @@ BEGIN
   -- [camada C1 / I2] blocos que este Salvar vai APAGAR: o cliente manda em _rev_base o rev de TODO bloco da base dele (inclusive
   -- os removidos). Apagar bloco cujo rev mudou desde a base (outra pessoa editou) ou que o cliente nunca viu (criado por outra
   -- pessoa depois da carga) = P0409 e nada muda. _rev_base null = bypass (compat/manutencao, como a trava por bloco acima).
+  -- [Follow-up 2] o Salvar de estado completo opera SO nas linhas ATIVAS: linha ativo = false nunca e conferida nem apagada.
   IF jsonb_typeof(_rev_base) = 'object' THEN
     DECLARE v_del record;
     BEGIN
       FOR v_del IN SELECT pt.id, pt.rev FROM public.producao_terceirizados pt
-                    WHERE pt.cad_id = _cad_id AND NOT (pt.id = ANY(v_ids)) ORDER BY pt.id FOR UPDATE LOOP
+                    WHERE pt.cad_id = _cad_id AND pt.ativo IS TRUE AND NOT (pt.id = ANY(v_ids)) ORDER BY pt.id FOR UPDATE LOOP
         IF (_rev_base->>v_del.id::text) IS NULL OR v_del.rev IS DISTINCT FROM (_rev_base->>v_del.id::text)::int THEN
           RAISE EXCEPTION 'conflito_versao: um servico removido foi alterado ou criado por outra pessoa'
             USING ERRCODE = 'P0409';
@@ -208,7 +209,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM public.producao_terceirizados pt
     JOIN public.parcelas_servico ps ON ps.producao_terceirizado_id = pt.id
-    WHERE pt.cad_id = _cad_id AND NOT (pt.id = ANY(v_ids))
+    WHERE pt.cad_id = _cad_id AND pt.ativo IS TRUE AND NOT (pt.id = ANY(v_ids))
       AND (ps.status = 'pago' OR ps.data_pagamento IS NOT NULL)
   ) THEN
     -- [camada C1 / P-268 A] prefixo ASCII + QUAIS servicos/parcelas (a tela traduz: erro-mensagem.ts mensagemCamada).
@@ -221,13 +222,14 @@ BEGIN
                 LEFT JOIN public.categorias_terceirizado ct ON ct.id = pt.categoria_terceirizado_id
                 LEFT JOIN public.empresas e ON e.id = pt.empresa_id
                 LEFT JOIN public.colaboradores co ON co.id = pt.colaborador_id
-               WHERE pt.cad_id = _cad_id AND NOT (pt.id = ANY(v_ids))
+               WHERE pt.cad_id = _cad_id AND pt.ativo IS TRUE AND NOT (pt.id = ANY(v_ids))
                  AND (ps.status = 'pago' OR ps.data_pagamento IS NOT NULL)
                GROUP BY pt.id, ct.nome, e.nome_fantasia, co.nome) x
     ) USING ERRCODE = 'P0001';
   END IF;
 
-  DELETE FROM public.producao_terceirizados WHERE cad_id = _cad_id AND NOT (id = ANY(v_ids));
+  -- [camada C1 / Follow-up 2] estado completo opera so nas linhas ATIVAS: servico inativo (ativo = false) nunca e apagado aqui.
+  DELETE FROM public.producao_terceirizados WHERE cad_id = _cad_id AND ativo IS TRUE AND NOT (id = ANY(v_ids));
 
   -- FONTE ÚNICA: com CQ confirmado + bloco-fonte, re-deriva a Grade Real do grade_detalhe
   -- (editar recebida/defeito no PCP move a Grade Real). Mesma fórmula do _salvar_cq_core.
@@ -263,7 +265,7 @@ BEGIN
   -- rele o valor, _rev_base null) = grava como antes.
   IF jsonb_typeof(_rev_base) = 'object' AND (_rev_base ? '_molde_tocado') THEN
     IF COALESCE(_rev_base->>'_molde_tocado', '') = 'true' THEN
-      PERFORM 1 FROM public.cad WHERE id = _cad_id FOR UPDATE;
+      PERFORM 1 FROM public.cad WHERE id = _cad_id FOR NO KEY UPDATE;  -- B-1: o mesmo nivel do UPDATE (nao espera FOR KEY SHARE)
       IF (SELECT COALESCE(c.observacoes_molde, '') FROM public.cad c WHERE c.id = _cad_id)
          IS DISTINCT FROM COALESCE(_rev_base->>'_molde_base', '') THEN
         RAISE EXCEPTION 'conflito_versao: observacoes_molde' USING ERRCODE = 'P0409';
@@ -538,7 +540,7 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '16c444931af99c7afbdffe2d49ae0dd7', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'),
+      ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'fe2530878c26ae9a9680a7b1d02eca71', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'),
       ('public.salvar_direcionamento(uuid,jsonb,jsonb)', '602b905c36f1ea1b4c7aa3a85aa0010d', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'),
       ('public.confirmar_direcionamento(uuid,jsonb,jsonb)', 'c9b194ed5f4b2f8bf889adc2f0c1c003', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'),
       ('public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)', 'c68f8dca982d5bab85c9f1eda1771672', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'),
