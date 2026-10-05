@@ -104,13 +104,13 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `modo_baixa_estoque ∈ {por_oc,automatico}`, `timezone` (`useStoreTimezone`).
   ⚠️ **`produto_acabado` (ago/2026, feature Revenda) também é OPT-IN (default OFF)** — mesmo
   padrão do `otb`: sobrescrito p/ `false` em `useTenantModules.DEFAULTS` E `admin/lojas.tsx
-  MODULE_DEFAULTS`. Diferente dos 7 módulos de contratação, **NÃO tem `ModuleDef` de topo** em
+  MODULE_DEFAULTS`. Diferente dos 7 módulos com `ModuleDef` de topo (`cadastro`, `entrada_saida`, `otb`, `criacao`, `producao` = PCP+Expedição, `financeiro`, `dashboard`), **NÃO tem `ModuleDef` de topo** em
   `PAGES_CATALOG` (é `PageDef.gate` dentro de `criacao`/`entrada_saida`, não um módulo próprio),
-  mas **o toggle mora em Gerenciar Lojas junto dos outros 7** (decisão do dono, ago/2026 — reverte
+  mas **o toggle mora em Gerenciar Lojas junto dos outros** (decisão do dono, ago/2026 — reverte
   uma escolha anterior de deixá-lo em Config da Loja): `admin/lojas.tsx` inclui `produto_acabado`
   à mão em `MODULE_TOGGLES` (rótulo "Produto Acabado (Revenda)"), editável só por `super_admin`,
   igual aos demais. Em **Config da Loja** (`admin/configuracoes.tsx`) ele é só **badge
-  read-only** (`MODULE_LABELS`), igual aos outros 7 — o `tenant_admin` NÃO liga/desliga mais por
+  read-only** (`MODULE_LABELS`), igual aos demais — o `tenant_admin` NÃO liga/desliga mais por
   lá (o card próprio antigo, `ProdutoAcabadoToggleCard`, foi removido). Novo `PageDef.gate?:
   string` em `permissions-catalog.ts` (mesmo conceito do `ModuleDef.gate`, mas por PÁGINA dentro
   de um módulo já ligado) — consumido por `app-sidebar.tsx`/`SectionHub.tsx` além do gate de
@@ -125,6 +125,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - **Modularidade (out/2026, 15 partes; desenho/plano/relatórios em `.superpowers/sdd/2026-10-04-modularidade/`; migrations
   `20261103100000..131000` + `20261103200000` (T5, `rev` 1×/transação: bloco PRÓPRIO, o ÚLTIMO do kit único — Ruling R1),
   inversos em `supabase/rollback/`):**
+  - ⚠️ **Contagem de módulos (3 números, não confundir):** **11** = chaves de `ModuleKey`/`tenant_config.modules` (acima); **7** = os que
+    têm `ModuleDef` de topo em `PAGES_CATALOG` (os 6 default ON + `otb`; `pcp`+`expedicao` dividem a flag `producao`); **11** = toggles em
+    Gerenciar Lojas (`MODULE_TOGGLES` = os 7 do catálogo + `produto_acabado`, `produto_importado`, `etapas_pl`, `distribuicao` à mão);
+    Config da Loja mostra só **9** badges só-leitura (`MODULE_LABELS`: sem `distribuicao` nem `produto_importado`). `importar` e
+    `integracao` são `ModuleDef` mas NÃO são módulos contratáveis (fora dos toggles).
   - **Mapa de dependências** `MODULE_DEPS`/`MODULE_ROTULO` (`src/lib/permissions-catalog.ts`, `faltasDeModulo`): fonte ÚNICA, **só em
     código, SEM uso no Gerenciar Lojas** (P-251 C — dar módulo é do super admin, sem aviso nem bloqueio na tela). Quem lê:
     `useRequerModulo`/`ModuloDesligadoAviso`, `RequirePermission` (`PageDef.gate`: Plan. Tecido = `otb`, Explosão = `criacao`),
@@ -162,6 +167,19 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     vale com `colecao_id`. Toda tela que lê `modelos.colecao` pede o embed `colecoes(nome)` NO MESMO select e passa pelo rótulo
     (anti-drift `tests/unit/colecao-rotulo-antidrift.test.ts`, por literal: selects curtos, `select("*")`, 2º select e filtros
     `.in/.ilike/.or/.not` — lista de exceções VAZIA; quem só escreve a coluna não entra).
+    **As OPÇÕES de Coleção/Subcoleção vêm do servidor (Backend F2, `20261103145000`):** RPC `opcoes_colecao_modelos()` → jsonb
+    `{colecoes: [...], subcolecoes: [...]}` (distintos, sem vazio; o cliente ordena — `src/lib/opcoes-colecao.ts`
+    `buscarOpcoesColecao`), usada por PCP › Etapas e Dashboard › Comercial no lugar do select de TODOS os `modelos` (lista sem teto de
+    1.000 linhas; `useEtapasCards` pagina por `buscarTodas`). `STABLE SECURITY DEFINER` + `search_path=public`, loja = `get_user_tenant_id()`,
+    **SEM portão de módulo/página** (leitura não ganha gate; devolve só o que o usuário já lê por `select`), anon sem EXECUTE.
+    ⚠️ A regra do rótulo agora existe em **3 textos SQL** (`_modelo_colecao_rotulo`, `_integracao_extras`, esta RPC), mais o TS: a ida da
+    F2.1 fixa o md5 do helper (`bk_f21_dep:`) e o anti-drift `bk-f2-opcoes-colecao` compara o TEXTO do corpo — mudar a regra =
+    regenerar a F2.1 junto. ⚠️ **Banco ANTES do site** (site novo + banco velho = RPC inexistente, opções de Coleção quebram). ⚠️ Limite
+    aceito (m3, parked; mesma classe do R8 do Reprovado abaixo): `btrim` do Postgres só tira ESPAÇO ASCII e o `.trim()` do JS tira todo
+    whitespace Unicode (tab/quebra de linha/NBSP) — um texto livre `modelos.colecao` com tab/NBSP nas pontas gera a opção `"\tX"` (SQL)
+    e o rótulo `"X"` (TS), e a opção escolhida mostra 0 cards (0 linhas assim na cópia; inalcançável pela UI normal). O conserto real
+    é alinhar helper + `_integracao_extras` + RPC + TS ao mesmo conjunto de whitespace (mudança de regra, com gerador). F2.3 (tornar o
+    helper inlinável) foi MEDIDA e descartada: ganho 0–3%, e função SQL com subconsulta nem é inlinada pelo Postgres.
   - **Reprovado (T4, `20261103130000` + `131000`):** CHECK `lower(btrim(...))` em `modelos.status_desenvolvimento`/`status_planejamento`
     (`ADD … NOT VALID` — AccessExclusive só em `modelos`, ms — e `VALIDATE`, ShareUpdateExclusive em arquivo separado) + helper
     `_modelo_eh_reprovado(sd, sp)`: **SQL NOVO usa o helper — mas SÓ dentro de função SECURITY DEFINER** (o EXECUTE foi revogado de
@@ -371,7 +389,7 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   ⚠️ Na **key** do Storage, o nome do arquivo tem que passar por `sanitizeStorageName()`
   (`@/lib/storage-tenant`) — acento/espaço/símbolo dão `Invalid key` (ex.: `Véu - 2060.jpeg`).
 - Não usar `localStorage` em lógica de auth/tenant — vem do contexto/Supabase.
-- **Loja ativa e módulos NÃO engolem erro (Backend F1, out/2026; reverte a regra "falha = pronto" da Modularidade F1)** —
+- **Loja ativa e módulos NÃO engolem erro (Backend F1, out/2026; Ruling R3 do controlador: reverte DE PROPÓSITO a regra "falha = pronto" da Modularidade F1 — 1ª carga com falha mostra erro + "Tentar de novo", melhor que tratar a loja como sem módulos)** —
   `useActiveTenant()` (`{tenantId, resolvido, erro, tentarDeNovo}`; `useActiveTenantId()` mantém a assinatura) e
   `useTenantModules()` (`pronto`, `erro`, `tentarDeNovo`) fazem `if (error) throw error` no `queryFn`: **falha de REFETCH (foco,
   rede caída) MANTÉM o último valor bom** (a loja e os módulos de antes; nunca `""`/DEFAULTS); **1ª carga com falha** (depois dos
@@ -444,6 +462,23 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   do PCP na grade compartilhada dispara re-merge no CQ aberto, cross-tela). Spec/plano original em
   `.superpowers/sdd/2026-08-03-concorrencia-multiusuario/`; não reinventar o merge ao levar novas
   telas.
+  **`rev` 1× por TRANSAÇÃO também nas OUTRAS raízes (Backend B2, `20261103141000`, mesmo idioma e mesmos limites da T5):** as 8
+  `fn_colab_bump_{cad_direto,cad_via_ctv,artigo_via_variante,cq,oc,oc_avi,oc_etq,plan}` só fazem o `update <raiz> set id = id` se a
+  raiz AINDA não foi escrita por esta transação (`xmin` = xid de topo OU = `xmin` da própria filha). Raízes cobertas: **OC Tecido**
+  (`ocs_tecido`), **OC Aviamento** (`ocs_aviamento`), **OC Insumo** (`ocs_etiqueta`), **CQ** (`controle_qualidade`), **CAD/Explosão**
+  (`cad`), **Plan. Tecido** (`colecoes.plan_rev` E `otb_rev`) e **artigo** (`artigos`, via `variantes_tecido`). Medido: **OC
+  Tecido/Aviamento/Insumo e `salvar_cad_completo` sobem +2** (não +1: a RPC grava a raiz DEPOIS das filhas — a 1ª filha soma 1, o
+  UPDATE da raiz soma 1; chegar a +1 exigiria mexer nas RPCs); CQ, Explosão, Plan. Tecido e artigo +1. Antes: OC Tecido +9 (8 itens),
+  CQ +13, CAD +23, artigo +38 e Plan. Tecido **+273** em `plan_rev` e `otb_rev` (1 por slot regravado) — o Realtime recebe 1 aviso, não N.
+  O `otb_rev` sobe junto com o `plan_rev`: o OTB aberto na mesma coleção continua recebendo P0409 por qualquer Salvar do Plan. Tecido
+  (como antes), só deixa de receber centenas de eventos. P0409 igual à T5 (toda txn que escreve filha de raiz existente sobe o `rev` ≥ 1;
+  provado nas 7 raízes em `bk-2-rev.test.ts`, inclusive "Salvar no topo" e `.eq("rev")` de OC Insumo recebida/artigo). **Limites da T5
+  valem aqui, em especial o (iii):** teste que cria a raiz e grava filhas no MESMO nível de topo da txn NÃO vê o `rev` subir — receita:
+  crie a raiz num `SAVEPOINT … RELEASE` e grave as filhas FORA dele (filhas no MESMO savepoint da raiz também não sobem); e o DELETE
+  de filha em SAVEPOINT/EXCEPTION segue 1 por linha. ⚠️ **Tabela com gatilho que chame `fn_colab_bump_*` TEM de ter `id`** (o 2º critério
+  lê `where id = new.id`; sem `id` = 42703 em todo INSERT/UPDATE da filha); o anti-drift de `bk-2-rev` pega, e `fn_colab_bump_%`
+  nova = PARE (a lista é exata: estas 8 + `_modelo`/`_modelo_via_tecido` da T5). Nenhuma RPC/tela deriva valor do `rev` intermediário
+  (só comparam `_rev_base` no início).
 - **Fix "salvar rápido" / hidratação (P-57, set/2026, deploy 26/set)** — investigação de 26/set achou
   que 6 telas (Planejamento, CQ Pré/Pós, Direcionamento, PCP Oficina, PCP Serviços, Config da Loja)
   deixavam o Salvar/Confirmar habilitado ANTES da 1ª carga de dados terminar (várias queries em
@@ -599,7 +634,18 @@ e verifique** — o repo muda rápido.
    serviço pós-costura ativo) Pós confirmado; consumido por **Direcionamento, "Lançar" (Planejamento) e
    Lançamentos** — não duplicar o predicado. "Sem acabamento" = `cad.sem_acabamento` (Pré finalizado
    vira Finalizado sem pós). **"Lançado" tem fonte ÚNICA = `modelos.lancado`** (setado por "Lançar" no
-   Planejamento, gated por `cqLiberado` **só quando a loja tem Produção**, P-252 A). A tabela `lancamentos` está APOSENTADA (o botão de foto-amostra
+   Planejamento, gated por `cqLiberado` **só quando a loja tem Produção**, P-252 A). **`lancado` só muda por caminho do
+   SERVIDOR (Backend B1, `20261103140000`):** o gatilho `fn_seg_pagina_modelos` (`trg_aaa_seg_pagina`) recusa com `42501
+   lancado_protegido: use o botao Lancar do card` (ASCII; o front traduz em `mensagemBackend`) todo `INSERT … lancado = true` e todo
+   `UPDATE` que mude `lancado` (inclusive para NULL) vindo de CLIENTE (authenticated/anon, super admin incluso) — a checagem vem ANTES
+   do portão de página e do atalho da GUC `app.explosao_sistema`; sem claims (migration/psql) e `service_role` passam. Os escritores
+   legítimos são DEFINER (`lancar_modelo`, `fn_rebaixa_lancado_cq`, `_reverter_corte_tecido_core`, `_voltar_cq_para_servico_core`,
+   `_replicar_cards_plan_tecido_core`): **função NOVA que grave `lancado` TEM de ser SECURITY DEFINER** — o anti-drift
+   `bk-1-lancado.test.ts` pega `UPDATE … SET lancado =`, `SET (…, lancado, …) =`, `INSERT INTO modelos (… lancado …)`, `INSERT` sem lista de
+   colunas e função de gatilho de `modelos` que atribui `NEW.lancado`; função INVOKER com `EXECUTE` citando `modelos` vai para revisão manual
+   (o gerador aborta). O front nunca escreve `lancado` (o `Draft` não tem a chave; Duplicar manda `data_lancamento: null`).
+   ⚠️ **`data_lancamento` NÃO é protegida, de propósito (R5, P-252):** é campo normal do Sheet, preenchido ANTES do Lançar; o cliente ainda
+   pode mudá-la direto pela API (se o dono quiser trancar: 1 linha no mesmo gatilho). A tabela `lancamentos` está APOSENTADA (o botão de foto-amostra
    saiu em 18/jun; nada mais a popula) — não reintroduzir dependência dela. Os dashboards derivam "Lançado"
    de `m.lancado`: `_dashboard_producao_core` (etapa da timeline, era `EXISTS(lancamentos)`) E
    `_dashboard_colecao_core` (KPI "Lançados"/"Em Produção", era "CQ Pré confirmado" — unificado jul/2026). Trigger `trg_rebaixa_lancado_cq` em `controle_qualidade`: desmarcar o CQ
@@ -1200,6 +1246,17 @@ usa a MESMA função pura `etapaDoModelo`/`etapaFiltroId` (`src/lib/kanban-auto-
 alimenta o selo `EtapaKanbanBadge` no card — filtro e selo nunca divergem, inclusive
 revenda/importado (fluxo próprio de `etapaDoModelo`).
 
+    **1 linha `produto` por card (Backend B4, `20261103143000`):** índice único parcial `integracao_linhas_produto_unico` ON
+    `integracao_linhas (modelo_id) WHERE tipo = 'produto'` (o `UNIQUE (modelo_id, ordem)` antigo não pegava 2 `produto` com `ordem`
+    diferente); `23505` citando o índice é traduzido em `mensagemBackend` (rede de segurança — nenhum caminho da tela gera isso hoje).
+    A ida recusa sozinha se já houver duplicata (`bk4_integracao_duplicada: N cards …`, nada muda; Passo 0 do kit: `SELECT count(*)
+    FROM (SELECT modelo_id FROM integracao_linhas WHERE tipo='produto' GROUP BY 1 HAVING count(*)>1) d` = 0). ⚠️ **Horário calmo:** a ida
+    toma `LOCK TABLE … IN SHARE MODE` (ms; `lock_timeout 1500ms` → 55P03 e nada muda) e o `_down_drop` toma AccessExclusive em
+    `integracao_linhas` — no pior caso há ~1,5 s de FILA: escritas novas (marcar/voltar/desfazer/confirmar, Gerar JSON) esperam atrás da
+    ida e até as LEITURAS esperam atrás do `_down_drop`. `_down` é no-op (o índice fica). ⚠️ Índice homônimo INVÁLIDO (CREATE
+    interrompido): a ida só dá NOTICE e cai no `bk4_pos`; saída = `143000_down_drop` (remove o inválido porque a definição bate) e
+    reaplicar a ida.
+
 15. **Custo previsto derivado no servidor (release 8, contas certas C; plano `.superpowers/sdd/2026-09-30-contas-certas-cd/plan-cd.md`)** —
     `modelos.custo_peca_previsto`, `custo_tecido/forro/entretela/aviamento_total` e o `custo_previsto` das linhas do BOM
     (tecido/aviamento/etiqueta) de `origem='interno'` são calculados NO BANCO (`20261019300000_custo_previsto_servidor.sql`);
@@ -1772,7 +1829,7 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
     não têm retry automático.)
   - ⚠️ As sobrecargas de 3 args estão MORTAS: `salvar_oc_etiqueta(3)` e `_salvar_oc_aviamento_core(3)` são ambíguas com as de 4
     args (que têm DEFAULT), e a wrapper `salvar_oc_aviamento(3)` chama o `_core` ambíguo (42725 sempre). Levaram a checagem
-    mesmo assim (conferida pelo texto); aposentar = backlog.
+    mesmo assim (conferida pelo texto); aposentar = backlog (o DROP vai para a Faxina, item a item — ver "Backend (out/2026)").
   - **B4:** Tabela de Preço do Sheet — os 2 inputs da estimativa (`custo_simulado`) exigem também `podeEditarCustos`; sem ver
     custos, nem R$/m nem o tecido estimado. **MO-0:** Plan. Tecido mostra "—" (não "R$ 0,00") quando a M.O. vem mascarada.
   - Ensaio `S6_TXN=1` (sem a S3a viva traz a cadeia S3a..S5 pela ordem segura do `aplicaS5`); `voltaS6SePreciso` roda dentro do
@@ -1783,6 +1840,32 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   do Supabase: Table Editor/SQL do painel como outro papel) ainda dá `anon=arwdDxtm`/EXECUTE a PUBLIC no objeto que ele cria — o
   PRIV-2 da S1 só cobriu o `postgres`. Tabela criada pelo painel nasce aberta para anon (reabre o ANON-3) e faz a pós-condição da
   S5 recusar. Mudar o default ACL do `supabase_admin` é frente própria (exige o papel dono).
+
+## Backend (out/2026; plano/relatórios em `.superpowers/sdd/2026-10-05-backend/`; branch `backend/lote`)
+
+Frente de endurecimento do servidor + front sem engolir erro. Detalhes das regras ficam nos blocos citados; aqui só o mapa.
+
+- **Migrations (cada uma com inverso em `supabase/rollback/`):** `20261103140000_bk_lancado_protegido` (B1 — inv. 6),
+  `20261103141000_bk_rev_uma_vez_raizes` (B2 — "Colaboração em tempo real"), `20261103143000_bk_integracao_produto_unico` (B4 — inv. 14;
+  `_down` no-op + `_down_drop` opcional), `20261103145000_bk_opcoes_colecao` (F2.1 — "Coleção pelo rótulo"; `_down` no-op + `_down_drop`
+  opcional). B1/B2/B4 NÃO mudam dado; B4/F2 criam objeto novo inerte. Gerador/md5/`mig/` ficam FORA do git (`.superpowers/`) e vão
+  junto do kit. **Ida (banco ANTES do site):** Mod `131000` → `140000` → `141000` → `143000` → `145000` → Camada → T5 `200000` → SITE.
+- **Volta (LIFO pela aplicação):** SITE → T5 `200000_down` → Camada → **`145000_down` (no-op) → `143000_down` (no-op) → `141000_down` →
+  `140000_down`** → Mod `130000_down` … Os `_down_drop` (`145000` e depois `143000`) são opcionais, DEPOIS, em horário calmo, e só com o
+  SITE já voltado (o site novo chama a RPC). **Inversos ANTIGOS que recusam (md5) com o Backend vivo — desfazer o Backend antes:** S3d
+  `20261101210000_down`/`_down_drop` (`fn_seg_pagina_modelos`, B1), L9 `20261029100000_down` (`fn_colab_bump_oc_avi`, B2) e S1
+  `20261031130000_down` (ACL dos bumps `_cq`/`_oc`/`_plan`, B2). A lista final é a "cadeia md5" de cada `mig/md5-bkN.txt`.
+- **Teste de trava por DIFERENÇA (R6):** a txn do teste já segura as travas dos ganchos `MOD_TXN`/`BK_TXN`/`S*_TXN`; testes que medem
+  `pg_locks` comparam só as travas NOVAS depois do `aplicarArquivo` (receita do fix I1 da B1). Medir tudo dá falso vermelho (ex.: o
+  índice da B4 criado pelo gancho numa cópia sem ele).
+- **OC Tecido: Salvar/Marcar Recebido esperam o modo OC/Rolo (F2.2, R7):** `useModoOcRoloEstado()` → `{modo, pronto, erro, recarregar}`
+  (`pronto` = já houve leitura OK, `data !== undefined` — NÃO `isSuccess`, que cai a false num refetch com erro). Sem `pronto` os
+  botões (`OcAcoesSalvar.tsx`), os handlers e o `mutationFn` recusam (title PT-BR + aviso com "Tentar de novo" se a 1ª carga falhou), e a
+  query da OC só carrega com o modo pronto (`enabled: !!ocId && modoPronto`) — antes uma falha da 1ª leitura deixava decidir com o
+  fallback `"ambos"`. Leituras de `modelos` sem `.range` em OUTRAS abas do `dashboard.tsx` seguem como backlog (lojas ~280 cards).
+- **Fora desta frente (DROP vai para a Faxina, item a item — nada é apagado aqui):** sobrecargas mortas de 3 args (S6, ver
+  "Reforço de segurança") e o legado dos itens 10/11/22 do plano. **B3** (os 11 `P0002` antigos → `nao_encontrado: <entidade>`, depende de P-259) e **B5** (OTB exigir a página `otb` no
+  servidor, gatilho + 8 RPCs, depende de P-258) NÃO entraram: "RAISE 5xx só ASCII" e "Reforço › Alcance" valem como estão.
 
 ## O que NÃO fazer
 

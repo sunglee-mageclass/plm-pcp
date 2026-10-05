@@ -536,6 +536,11 @@ que NÃO são print puro) usam constantes nomeadas exportadas por `RelatorioPrin
 solto no chamador. **Fontes fracionárias NÃO são exceção de impressão** — mesmo componente 100%
 print (`RelatorioPrint.tsx`, `FichaHeader.tsx`) teve os `fontSize` fracionários arredondados pro
 degrau inteiro (regra `e` do scanner não tem exceção nenhuma).
+**Backend F3 (05/out/2026) — anti-drift voltou a verde:** `DocPrintCasca.tsx` (casca A4 dos printáveis) e `OcDocumentoPrint.tsx`
+(Pedido de Compra, tudo dentro de `<PrintArea>`) são 100% papel (sem estado, handlers ou controles) e entraram em
+`EXCECAO_IMPRESSAO` para a regra (a) — componente de impressão NOVO segue o mesmo caminho (confira que é só papel e liste o arquivo).
+Para a regra (e) NÃO há exceção: a linha "Total <artigo>" do documento de OC usava `fontSize: 10.5` e foi arredondada para **10** (não
+11, para o subtotal seguir menor que a linha de dados, 11) — mudança de 0,5 px no PDF impresso, conforme esta seção.
 
 **Segunda exceção, não-impressão (dado real, não decoração):** `src/lib/cor-hex.ts` (dicionário
 nome-da-cor→hex do TECIDO/produto, usado no swatch da variante — é a cor REAL da peça, não um
