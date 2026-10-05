@@ -770,6 +770,9 @@ describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct
 // automaticamente modelos.preco_atacado/preco_venda, sem precisar reabrir o card do
 // produto pra "salvar de novo".
 describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (item 3 do refino)", () => {
+  // T1 (backend, 05/out): regra VIVA do varejo = base(custo) × markup_varejo, INDEPENDENTE do atacado (87d373cf, 16/set: "Varejo INDEPENDENTE do
+  // atacado: preço_varejo = base × mk_varejo, não mais atacado × mk_varejo"; `_pa_recomputar_precos_modelo`, `src/lib/preco-revenda.ts`). Estes
+  // testes (12/ago, fc988e60) esperavam atacado × mk_varejo; o atacado (custo × mk_atacado) segue igual.
   async function criarProdutoComMarkupECard(c: any, sufixo: string) {
     const g = await um<{ id: string }>(
       c,
@@ -798,10 +801,10 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
         `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb)`,
         [JSON.stringify({ nome_produto: "OC MkOc-a", valor_unitario: 100, desconto_pct: 0, produto_acabado_id: produtoId })],
       );
-      // custo = 100 + 0 insumos = 100; atacado = 100×2 = 200; varejo = 200×1.5 = 300
+      // custo = 100 + 0 insumos = 100; atacado = 100×2 = 200; varejo = 100×1.5 = 150
       const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(m.preco_atacado)).toBe(200);
-      expect(Number(m.preco_venda)).toBe(300);
+      expect(Number(m.preco_venda)).toBe(150);
     });
   });
 
@@ -821,10 +824,10 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
         `select salvar_oc_p_acabado($1, $2::jsonb, '{}'::jsonb)`,
         [oc.id, JSON.stringify({ nome_produto: "OC MkOc-b", valor_unitario: 60, desconto_pct: 50 })],
       );
-      // custo = 60×(1−50%) = 30; atacado = 30×2 = 60; varejo = 60×1.5 = 90
+      // custo = 60×(1−50%) = 30; atacado = 30×2 = 60; varejo = 30×1.5 = 45
       const depois = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(depois.preco_atacado)).toBe(60);
-      expect(Number(depois.preco_venda)).toBe(90);
+      expect(Number(depois.preco_venda)).toBe(45);
     });
   });
 
@@ -837,10 +840,10 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
         `select salvar_oc_p_acabado(null, '{"nome_produto":"OC MkOc-c avulsa","valor_unitario":40,"desconto_pct":0}'::jsonb, '{}'::jsonb) as id`,
       );
       await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc.id, produtoId]);
-      // custo = 40; atacado = 80; varejo = 120
+      // custo = 40; atacado = 80; varejo = 40×1.5 = 60
       const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(m.preco_atacado)).toBe(80);
-      expect(Number(m.preco_venda)).toBe(120);
+      expect(Number(m.preco_venda)).toBe(60);
     });
   });
 
@@ -860,10 +863,10 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
         `select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb)`,
         [oc.id, JSON.stringify({ "0": { UN: { pedida: 10, recebida: 10, defeito: 0 } } })],
       );
-      // custo = 50; atacado = 100; varejo = 150
+      // custo = 50; atacado = 100; varejo = 50×1.5 = 75
       const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(m.preco_atacado)).toBe(100);
-      expect(Number(m.preco_venda)).toBe(150);
+      expect(Number(m.preco_venda)).toBe(75);
     });
   });
 });

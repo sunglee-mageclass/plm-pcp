@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 
 describe.skipIf(!hasDb)("Produto Acabado — códigos automáticos", () => {
-  it("REF não-acessório = 2G+1C+2S + 7 díg; acessório = 2G+3CAT; nº OC usa ACE p/ grupo Acessórios", async () => {
+  it("REF não-acessório = 2G+1C+2S + nº de dígitos da loja (8 por padrão); acessório = 2G+3CAT; nº OC usa ACE p/ grupo Acessórios", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Feminino PATest') returning id`);
@@ -12,10 +12,13 @@ describe.skipIf(!hasDb)("Produto Acabado — códigos automáticos", () => {
       const s1 = await um<any>(c, `insert into subcategorias1_produto (tenant_id, nome, categoria_id) values ('${TENANT_TESTE}','Estampado PATest','${cat.id}') returning id`);
       const p1 = await um<any>(c, `insert into produtos_acabados (tenant_id, nome, grupo_id, categoria_id, subcategoria1_id)
         values ('${TENANT_TESTE}','Vestido X','${g.id}','${cat.id}','${s1.id}') returning ref`);
-      expect(p1.ref).toMatch(/^FEVES\d{7}$/);
+      // T1 (backend, 05/out): o nº tem os dígitos da config da loja (`_ref_num_digitos`, padrão 8 — invariante 11: contador único por loja a
+      // partir de 10000000, "Começar em" da loja) e NÃO mais 7 (formato de ago/2026, antes do contador único de 8 dígitos). Lê da própria loja.
+      const nd = (await um<any>(c, `select public._ref_num_digitos('${TENANT_TESTE}'::uuid) as n`)).n as number;
+      expect(p1.ref).toMatch(new RegExp(`^FEVES\\d{${nd}}$`));
       const p2 = await um<any>(c, `insert into produtos_acabados (tenant_id, nome, grupo_id, categoria_id)
         values ('${TENANT_TESTE}','Bolsa Y','${ga.id}','${catB.id}') returning ref`);
-      expect(p2.ref).toMatch(/^ACBOL\d{7}$/);
+      expect(p2.ref).toMatch(new RegExp(`^ACBOL\\d{${nd}}$`));
       const emp = await um<any>(c, `insert into empresas (tenant_id, nome_fantasia, tipo) values ('${TENANT_TESTE}','Bella Couros PATest','material') returning id`);
       const oc = await um<any>(c, `insert into ocs_p_acabado (tenant_id, nome_produto, grupo_id, categoria_id, empresa_id)
         values ('${TENANT_TESTE}','Bolsa Y','${ga.id}','${catB.id}','${emp.id}') returning numero`);
@@ -370,7 +373,7 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
 });
 
 // Item 3 do refino (ago/2026) — markups digitáveis: custo (valor_unitario×(1−desconto/100)
-// + insumos) × markup_atacado = preço atacado; preço atacado × markup_varejo = preço venda.
+// + insumos) × markup_atacado = preço atacado; custo × markup_varejo = preço venda (varejo INDEPENDENTE do atacado desde set/2026).
 // `_salvar_produto_acabado_core` persiste os 2 markups e recomputa `modelos.preco_atacado`/
 // `preco_venda` do espelho a cada save; `salvar_markups_produto_acabado` é a RPC pequena
 // usada pelo card revenda do Planejamento (grava só os 2 markups, sem tocar no resto).
@@ -412,9 +415,14 @@ describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço deri
     });
   });
 
-  it("sem markups (null) → preços não são tocados (preserva um preço manual pré-existente)", async () => {
+  it("sem markups (null) → o preço do canal vem do preço FIXO; sem markup NEM fixo o preço fica NULL (não mantém valor antigo)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      // T1 (backend, 05/out): o teste antigo gravava `modelos.preco_atacado/preco_venda` direto (77/99) e esperava que o save sem markups os
+      // PRESERVASSE. Duas regras vivas mudaram isso: (1) B1b (seg S1, CLAUDE.md "B1b"): `preco_venda` de comprado só muda pela GUC
+      // `app.preco_comprado_sistema` (PATCH direto = 42501 `preco_comprado_derivado:`) — o preço "manual" do comprado é o preço FIXO do
+      // produto (`preco_atacado_fixo`/`preco_varejo_fixo`, RPC `salvar_precos_fixo_produto_acabado`); (2) `_pa_recomputar_precos_modelo`: fixo
+      // manda; senão markup; "senão NULL — NÃO manter o valor antigo, que vira lixo exibido como 'fixado' que o usuário nunca digitou".
       const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem MK2 PATest') returning id`);
       const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido MK2 PATest') returning id`);
       const dados = { nome: "Vestido MK2", grupo_id: g.id, categoria_id: cat.id, qtd_total: 10, valor_unitario: 20, grade_proporcao: { UN: 1 } };
@@ -422,13 +430,24 @@ describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço deri
       const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`, [JSON.stringify(dados), JSON.stringify(variantes)]);
       const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
 
-      await c.query(`update modelos set preco_atacado = 77, preco_venda = 99 where id = $1`, [modelo.id]);
+      // preço manual = preço FIXO do produto (a via oficial); o espelho o recebe
+      await c.query(`select salvar_precos_fixo_produto_acabado($1, true, 77, true, 99)`, [prod.id]);
+      const fixo = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
+      expect(Number(fixo.preco_atacado)).toBe(77);
+      expect(Number(fixo.preco_venda)).toBe(99);
 
+      // save SEM markups (null) não toca no fixo: os preços do espelho seguem os fixos
       await c.query(`select salvar_produto_acabado($1, $2::jsonb, $3::jsonb)`, [prod.id, JSON.stringify(dados), JSON.stringify(variantes)]);
-
       const m = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
       expect(Number(m.preco_atacado)).toBe(77);
       expect(Number(m.preco_venda)).toBe(99);
+
+      // sem markup E sem fixo: não há preço (NULL), nunca o valor antigo
+      await c.query(`select salvar_precos_fixo_produto_acabado($1, true, null, true, null)`, [prod.id]);
+      await c.query(`select salvar_produto_acabado($1, $2::jsonb, $3::jsonb)`, [prod.id, JSON.stringify(dados), JSON.stringify(variantes)]);
+      const n = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
+      expect(n.preco_atacado).toBeNull();
+      expect(n.preco_venda).toBeNull();
     });
   });
 
@@ -466,10 +485,11 @@ describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço deri
       expect(p.ref_fornecedor).toBe("REF-MK4"); // resto do produto intocado
       expect(p.grupo_id).toBe(g.id);
 
-      // custo = 40 (sem desconto, sem insumos); atacado = 120; varejo = 144
+      // custo = 40 (sem desconto, sem insumos); atacado = 40×3 = 120; varejo = 40×1,2 = 48 (INDEPENDENTE do atacado desde 87d373cf, 16/set;
+      // o 144 = 120×1,2 era a regra velha de atacado × mk_varejo — ver `_pa_recomputar_precos_modelo`)
       const m = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
       expect(Number(m.preco_atacado)).toBe(120);
-      expect(Number(m.preco_venda)).toBe(144);
+      expect(Number(m.preco_venda)).toBe(48);
     });
   });
 
