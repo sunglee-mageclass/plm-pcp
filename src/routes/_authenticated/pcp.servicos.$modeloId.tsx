@@ -554,6 +554,8 @@ export function TerceirizadosDetail({
   const setBlocosTracked: typeof setBlocos = (upd) =>
     setBlocos((prev) => {
       const next = typeof upd === "function" ? (upd as (p: Bloco[]) => Bloco[])(prev) : upd;
+      // Bloco REMOVIDO (id persistido que sumiu): marca o id p/ o merge não ressuscitá-lo como "linha nova do servidor" (mergeLinhas.removidasIds).
+      for (const p of prev) if (p.id && !next.some((b) => b.id === p.id)) touchedBlocoIdsRef.current.add(p.id);
       for (const b of next) {
         if (!b.id) continue;
         const p = prev.find((x) => x.id === b.id);
@@ -774,7 +776,7 @@ export function TerceirizadosDetail({
       return;
     }
     // Refetch: MERGE. Escalares por bloco (mergeLinhas) + células (mergeGrade) por bloco.
-    const ml = mergeLinhas({ base: baseBlocosRef.current, draft: blocos, fresh, touchedIds: touchedBlocoIdsRef.current });
+    const ml = mergeLinhas({ base: baseBlocosRef.current, draft: blocos, fresh, touchedIds: touchedBlocoIdsRef.current, removidasIds: touchedBlocoIdsRef.current });
     let out = ml.linhas;
     const gradeConf: Conflito[] = [];
     let gradeAtual = 0;
@@ -830,7 +832,9 @@ export function TerceirizadosDetail({
         touchedGradeRef.current.delete(path);
       } else if (path.startsWith("linha:")) {
         const id = path.slice("linha:".length);
-        setBlocos((prev) => c.dele ? prev.map((b) => (b.id === id ? (c.dele as Bloco) : b)) : prev.filter((b) => b.id !== id));
+        setBlocos((prev) => c.dele
+          ? (prev.some((b) => b.id === id) ? prev.map((b) => (b.id === id ? (c.dele as Bloco) : b)) : [...prev, c.dele as Bloco]) // ausente = eu o removi: "usar o novo" o traz de volta
+          : prev.filter((b) => b.id !== id));
         touchedBlocoIdsRef.current.delete(id);
       } else {
         // conflito de escalar num bloco: aplica dele.[path] no bloco correspondente
@@ -1101,7 +1105,7 @@ export function TerceirizadosDetail({
         revByBlocoRef.current = Object.fromEntries(rows.filter((r) => r.id).map((r) => [r.id, Number(r.rev ?? 0)]));
         const base = baseBlocosRef.current ?? fresh;
         const live = blocosLiveRef.current;
-        const ml = mergeLinhas({ base, draft: live, fresh, touchedIds: touchedBlocoIdsRef.current });
+        const ml = mergeLinhas({ base, draft: live, fresh, touchedIds: touchedBlocoIdsRef.current, removidasIds: touchedBlocoIdsRef.current });
         const gradeConf: Conflito[] = [];
         // Colab (item 2, fast-follow): soma as células de grade ADOTADAS (mg.atualizados) junto
         // com ml.atualizadas — espelha o merge effect (linha 629, `gradeAtual`). Sem isso o banner

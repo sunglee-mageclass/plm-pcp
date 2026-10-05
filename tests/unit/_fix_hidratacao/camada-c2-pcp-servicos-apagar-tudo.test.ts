@@ -32,7 +32,7 @@ vi.mock("@tanstack/react-router", async (orig) => {
 });
 vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastMock), Toaster: () => null }));
 
-import { createElement } from "react";
+import { createElement, act } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
 import { montar, esperar, aguardar, clicar, botaoPorTexto } from "./dom-helpers";
@@ -60,19 +60,22 @@ const rpcSalvar = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_ter
 const dialogo = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
 const botaoDialogo = (t: string) => Array.from(dialogo()?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((b) => (b.textContent ?? "").trim() === t) ?? null;
 /** Faz a 1ª chamada da RPC voltar P0409 (conflito de versão) e deixa as demais seguirem o fake normal. */
-function p0409NaPrimeira(nome: string) {
+function p0409NaPrimeira(nome: string, aoConflitar?: () => void) {
   const orig = FAKE.supabase.rpc;
   let n = 0;
   vi.spyOn(FAKE.supabase, "rpc").mockImplementation(((rpc: string, args?: unknown) => {
     if (rpc === nome && n++ === 0) {
+      aoConflitar?.();
       FAKE.chamadas.push({ tabela: `rpc:${rpc}`, op: "rpc", filtros: [], payload: args });
       return Promise.resolve({ data: null, error: { code: "P0409", message: `conflito_versao: ${nome}`, details: "" } });
     }
     return orig(rpc, args);
   }) as never);
 }
+let qcAtual: QueryClient | null = null;
 async function abrir() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qcAtual = qc;
   const C = (Route as any).options.component;
   const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
   desmontar = m.desmontar;
@@ -152,5 +155,48 @@ describe("[camada C2 · P-262 A] PCP Serviços — Apagar todos os serviços", (
     await aguardar(() => rpcSalvar().length === 1, "salvar_terceirizados chamada");
     expect(dialogo()).toBeNull();
     expect((rpcSalvar()[0].payload as any)._rev_base._apagar_tudo).toBeUndefined();
+  });
+});
+
+describe("[camada C2] PCP Serviços — serviço REMOVIDO e merge (não ressuscita o bloco)", () => {
+  const usarNovo = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "usar o novo")!;
+
+  it("remover um serviço e o servidor mudar OUTRO (refetch/realtime): o removido NÃO volta e não há conflito", async () => {
+    await abrir();
+    await prepararEditando();
+    await clicar(remover()[0]); // pt1
+    expect(remover()).toHaveLength(1);
+    FAKE.linhas.producao_terceirizados[1].observacao = "alteração da outra pessoa"; // pt2 mudou no servidor; pt1 NÃO
+    await act(async () => { await qcAtual!.invalidateQueries({ queryKey: ["producao-terc"] }); });
+    await esperar(200);
+    expect(remover()).toHaveLength(1); // pt1 segue removido (antes: ressuscitava como "linha nova do servidor")
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+  });
+
+  it("remover um serviço que OUTRA sessão editou no meio (P0409): CONFLITO, o Salvar não segue; 'usar o novo' o traz de volta", async () => {
+    await abrir();
+    await prepararEditando();
+    await clicar(remover()[0]); // pt1
+    p0409NaPrimeira("salvar_terceirizados", () => { FAKE.linhas.producao_terceirizados[0].observacao = "editado pela outra pessoa"; });
+    await clicar(salvar()!);
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado", 5000);
+    await esperar(150);
+    expect(rpcSalvar()).toHaveLength(1); // sem retry: parou no conflito (nem apagou nem restaurou em silêncio)
+    expect(document.body.textContent).toContain("Bloco de serviço");
+    expect(remover()).toHaveLength(1);
+    await clicar(usarNovo());
+    await aguardar(() => remover().length === 2, "serviço do servidor de volta na tela");
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+  });
+
+  it("remover um serviço e P0409 SEM mudança alheia nele: segue removido (retry manda só o outro), sem conflito", async () => {
+    await abrir();
+    await prepararEditando();
+    await clicar(remover()[0]);
+    p0409NaPrimeira("salvar_terceirizados", () => { FAKE.linhas.producao_terceirizados[1].rev = 5; });
+    await clicar(salvar()!);
+    await aguardar(() => rpcSalvar().length === 2, "1º envio (P0409) + retry", 5000);
+    expect((rpcSalvar()[1].payload as any)._blocos.map((b: any) => b.id)).toEqual(["pt2"]);
+    expect(document.body.textContent).not.toContain("conflito a resolver");
   });
 });
