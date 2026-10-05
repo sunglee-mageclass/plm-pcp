@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 
+// T1 (backend, 05/out): desde a multi-instância (87d373cf / 20260916300000_mo_multi_instancia.sql) o modelo pode ter MAIS DE UMA linha de M.O. do
+// mesmo serviço; `aprovar_servico_mo(_modelo_id, _linha_id, …)` recebe o id da LINHA (modelo_servico_mo.id), não o da categoria (antes
+// `categoria_terceirizado_id`). Os testes de 06/ago passavam `cat.id` e davam "Linha de mão de obra não encontrada". Pega a linha pelo par.
+async function linhaDe(c: any, modeloId: string, catId: string): Promise<string> {
+  return (await um<{ id: string }>(
+    c, `select id from modelo_servico_mo where modelo_id=$1 and categoria_terceirizado_id=$2`, [modeloId, catId],
+  )).id;
+}
+
 describe.skipIf(!hasDb)("MO por serviço — Task 1: toggle ativo em categorias_terceirizado", () => {
   it("coluna ativo existe, NOT NULL default true", async () => {
     await withTx(async (c) => {
@@ -246,14 +255,14 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4: RPCs + permissão por linha
       const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M ap') returning id`, [TENANT_TESTE]);
       const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv ap','ate_costura') returning id`, [TENANT_TESTE]);
       await c.query(`select salvar_modelo_servico_mo($1, $2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 5 }])]);
-      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]);
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, await linhaDe(c, m.id, cat.id)]);
       let f = await um<{ f: boolean }>(c, `select custo_terceirizados_aprovado as f from modelos where id=$1`, [m.id]);
       expect(f.f).toBe(true);
       // savepoint: o RAISE do motivo obrigatório aborta a txn até o próximo ROLLBACK/SAVEPOINT.
       await c.query("SAVEPOINT sp_motivo");
-      await expect(c.query(`select aprovar_servico_mo($1,$2,false,null)`, [m.id, cat.id])).rejects.toThrow(/motivo/i);
+      await expect(c.query(`select aprovar_servico_mo($1,$2,false,null)`, [m.id, await linhaDe(c, m.id, cat.id)])).rejects.toThrow(/motivo/i);
       await c.query("ROLLBACK TO SAVEPOINT sp_motivo");
-      await c.query(`select aprovar_servico_mo($1,$2,false,'valor alto')`, [m.id, cat.id]);
+      await c.query(`select aprovar_servico_mo($1,$2,false,'valor alto')`, [m.id, await linhaDe(c, m.id, cat.id)]);
       f = await um<{ f: boolean }>(c, `select custo_terceirizados_aprovado as f from modelos where id=$1`, [m.id]);
       expect(f.f).toBe(false);
     });
@@ -284,7 +293,7 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4: RPCs + permissão por linha
       const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M resumo') returning id`, [TENANT_TESTE]);
       const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv resumo','ate_costura') returning id`, [TENANT_TESTE]);
       await c.query(`select salvar_modelo_servico_mo($1, $2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 30 }])]);
-      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]);
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, await linhaDe(c, m.id, cat.id)]);
       const r = await um<{ resumo: any }>(c, `select modelo_mo_resumo(array[$1]::uuid[]) as resumo`, [m.id]);
       const info = r.resumo[m.id];
       expect(info.estado).toBe("aprovada");
@@ -325,12 +334,18 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4: RPCs + permissão por linha
 });
 
 describe.skipIf(!hasDb)("MO por serviço — Task 4 fix1: gate no DELETE + categoria ativa", () => {
-  // Semeia um usuário do tenant SEM papel (não super_admin) e SEM producao_servico_aprovacao,
+  // Semeia um usuário do tenant SEM papel (não super_admin) e SEM producao_servico_aprovacao (mas com Planejamento + custos, ver abaixo),
   // e o deixa como identidade ativa (auth.uid()). Txn revertida.
   async function comoSemPermissao(c: any, uid: string) {
     await c.query(`insert into auth.users (id, email) values ($1,$2) on conflict (id) do nothing`, [uid, `${uid}@teste`]);
     await c.query(`insert into public.users (id, tenant_id, email, nome) values ($1,$2,$3,'Sem Perm')
                    on conflict (id) do update set tenant_id=excluded.tenant_id`, [uid, TENANT_TESTE, `${uid}@teste`]);
+    // T1 (backend, 05/out): S3c (P-244 = B, `salvar_modelo_servico_mo`) exige EDITAR criacao_planejamento E ver custos para salvar QUALQUER valor de
+    // M.O. Sem isto, o salvar deste usuário era barrado no wrapper (`mao_obra_sem_permissao`) ANTES do gate por linha — e os casos (a)/(c) deixavam de
+    // medir o que dizem (o (a) passava pelo motivo errado). Ele agora tem Planejamento (editar) + custos (ver), e continua SEM
+    // `producao_servico_aprovacao`: o que sobra de recusa é o gate por linha do DELETE (aprovar/reprovar segue exclusivo da aprovação, inv. 12).
+    await c.query(`insert into public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) values
+                     ($1,$2,'criacao_planejamento',true,true), ($1,$2,'criacao_planejamento:custos',true,false)`, [uid, TENANT_TESTE]);
     await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
   }
   const salvar = (c: any, m: string, linhas: any[]) =>
@@ -346,12 +361,12 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4 fix1: gate no DELETE + categ
       const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M del noperm') returning id`, [TENANT_TESTE]);
       const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv del noperm','ate_costura') returning id`, [TENANT_TESTE]);
       await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]);
-      await c.query(`select aprovar_servico_mo($1,$2,false,'valor alto')`, [m.id, cat.id]); // reprovada → flag false
+      await c.query(`select aprovar_servico_mo($1,$2,false,'valor alto')`, [m.id, await linhaDe(c, m.id, cat.id)]); // reprovada → flag false
       expect(await flag(c, m.id)).toBe(false);
       await comoSemPermissao(c, "0c0c0c0c-0000-4000-8000-0000000000cc");
       // salvar com payload vazio tentaria APAGAR a linha reprovada (estado-completo) → liberaria o flag.
       await c.query("SAVEPOINT sp");
-      await expect(salvar(c, m.id, [])).rejects.toThrow(/permiss/i);
+      await expect(salvar(c, m.id, [])).rejects.toThrow(/Sem permissão para remover mão de obra pendente\/reprovada/); // gate por linha (enforce_servico_mo_del_aprovacao), não o do wrapper
       await c.query("ROLLBACK TO SAVEPOINT sp");
       expect(await conta(c, m.id)).toBe(1); // reprovada permanece
       expect(await flag(c, m.id)).toBe(false); // continua bloqueada
@@ -364,7 +379,7 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4 fix1: gate no DELETE + categ
       const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M del ok') returning id`, [TENANT_TESTE]);
       const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv del ok','ate_costura') returning id`, [TENANT_TESTE]);
       await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]);
-      await c.query(`select aprovar_servico_mo($1,$2,false,'motivo')`, [m.id, cat.id]);
+      await c.query(`select aprovar_servico_mo($1,$2,false,'motivo')`, [m.id, await linhaDe(c, m.id, cat.id)]);
       await salvar(c, m.id, []); // remove a reprovada
       expect(await conta(c, m.id)).toBe(0);
       expect(await flag(c, m.id)).toBe(true); // sem linha = liberada
@@ -377,7 +392,7 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4 fix1: gate no DELETE + categ
       const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M del aprov') returning id`, [TENANT_TESTE]);
       const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv del aprov','ate_costura') returning id`, [TENANT_TESTE]);
       await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]);
-      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]); // aprovada
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, await linhaDe(c, m.id, cat.id)]); // aprovada
       await comoSemPermissao(c, "0d0d0d0d-0000-4000-8000-0000000000dd");
       await salvar(c, m.id, []); // remove linha aprovada → permitido
       expect(await conta(c, m.id)).toBe(0);
@@ -403,9 +418,13 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4 fix1: gate no DELETE + categ
       const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv hist','ate_costura') returning id`, [TENANT_TESTE]);
       await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]); // cria a linha enquanto ATIVA
       await c.query(`update categorias_terceirizado set ativo=false where id=$1`, [cat.id]); // desativa DEPOIS
-      await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 9 }]); // UPDATE do valor → permitido
-      const v = await um<{ valor: string }>(c, `select valor from modelo_servico_mo where modelo_id=$1`, [m.id]);
+      // UPDATE do valor → permitido. Multi-instância: a linha EXISTENTE vai com o `id` (sem id = linha NOVA, que a categoria inativa barra
+      // com "Serviço desativado" — caso (d)); sem o id o salvar também apagaria a histórica (estado completo).
+      const hist = await linhaDe(c, m.id, cat.id);
+      await salvar(c, m.id, [{ id: hist, categoria_terceirizado_id: cat.id, valor: 9 }]);
+      const v = await um<{ id: string; valor: string }>(c, `select id, valor from modelo_servico_mo where modelo_id=$1`, [m.id]);
       expect(Number(v.valor)).toBe(9);
+      expect(v.id).toBe(hist); // a MESMA linha histórica (não recriada)
     });
   });
 
@@ -434,7 +453,7 @@ describe.skipIf(!hasDb)("MO por serviço — Fix wave: contagem p/ o KPI da Home
       const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv cnt A','ate_costura') returning id`, [TENANT_TESTE]);
       await c.query(`select salvar_modelo_servico_mo($1,$2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 5 }])]);
       expect(await cnt(c)).toBe(base + 1); // linha pendente (aprovado null) → entra
-      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]);
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, await linhaDe(c, m.id, cat.id)]);
       expect(await cnt(c)).toBe(base); // aprovada → sai
       // modelo sem serviço nenhum não conta
       await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M cnt vazio') returning id`, [TENANT_TESTE]);
