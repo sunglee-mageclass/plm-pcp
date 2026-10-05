@@ -38,6 +38,25 @@ export async function aplicaS3a(c: Client): Promise<void> {
   await zeraTimeouts(c);
 }
 
+/** Inverso (neutralizador) do Gerar JSON (20261102100000), que roda DEPOIS da S3a/S6 no kit. */
+const GERAR_JSON_DOWN = "supabase/rollback/20261102100000_integracao_gerar_json_down.sql";
+
+/**
+ * T1 (backend, 05/out): o `_down_drop` da S3a (DROP de `_seg_exige_pagina`) recusa enquanto QUALQUER função de `public` cita o nome em
+ * `prosrc` — e a `integracao_gerar_json_ler` do Gerar JSON (mais NOVO que a S3a) o cita num COMENTÁRIO ("D7: ... NAO _seg_exige_pagina").
+ * LIFO real (rollback do kit): o `_down` do Gerar JSON é o 1º inverso do banco e o texto neutralizado não cita o helper. O teste, que só
+ * volta a S3a, precisa fazer o mesmo antes dos drops. Idempotente (o inverso aceita o texto da ida OU o já neutralizado); sem efeito
+ * quando o Gerar JSON não está aplicado ou o arquivo não existe.
+ */
+export async function voltaGerarJsonSePreciso(c: Client): Promise<void> {
+  const viva = await c.query(
+    `SELECT 1 FROM pg_proc p WHERE p.oid = to_regprocedure('public.integracao_gerar_json_ler(uuid[],uuid)') AND p.prosrc LIKE '%_seg_exige_pagina%'`,
+  );
+  if (!viva.rowCount) return;
+  await aplicarArquivo(c, GERAR_JSON_DOWN);
+  await zeraTimeouts(c);
+}
+
 export async function voltaS3a(c: Client, comDrop = false): Promise<void> {
   exigeBancoLocal();
   const { voltaS5SePreciso } = await import("./seg-s5-helpers"); // LIFO: a S5 (grants por cima de tudo) sai antes
@@ -46,7 +65,10 @@ export async function voltaS3a(c: Client, comDrop = false): Promise<void> {
   await voltaS3cSePreciso(c); // LIFO: a S3c (20261101160000..180000) usa o helper da S3a — sai antes
   await voltaS3bSePreciso(c); // LIFO: a S3b (20261101130000..150000) roda por cima da S3a — sai antes
   for (const m of S3A_DOWNS) await aplicarArquivo(c, m);
-  if (comDrop) for (const m of S3A_DOWN_DROPS) await aplicarArquivo(c, m);
+  if (comDrop) {
+    await voltaGerarJsonSePreciso(c); // LIFO: o Gerar JSON (mais novo) sai antes dos drops
+    for (const m of S3A_DOWN_DROPS) await aplicarArquivo(c, m);
+  }
   await zeraTimeouts(c);
 }
 

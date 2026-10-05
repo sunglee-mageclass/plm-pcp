@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, TENANT_TESTE, USER_TESTE } from "./db";
-import { aplicaS3a, voltaS3a, s3aViva, S3A_MIGS, S3A_DOWNS, S3A_DOWN_DROPS } from "./seg-s3a-helpers";
+import { aplicaS3a, voltaS3a, s3aViva, voltaGerarJsonSePreciso, S3A_MIGS, S3A_DOWNS, S3A_DOWN_DROPS } from "./seg-s3a-helpers";
 import { S3A_MD5, S3A_PAGINAS, S3A_HELPER, S3A_GATILHOS, S3A_ACL, S3A_COLUNAS } from "./seg-s3a-dados";
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
@@ -178,6 +178,7 @@ describe.skipIf(!RODA)("seg S3a — md5, ACL, idempotência e volta (LIFO)", () 
       for (const g of S3A_GATILHOS) expect(await md5(c, g.fn), g.fn).toBe(g.neutra); // os gatilhos FICAM, neutros
       for (const t of TABELAS) expect(await aclTabela(c, t), t).toEqual(S3A_ACL[t].antes);
       await voltaS3a(c); // o inverso também é idempotente
+      await voltaGerarJsonSePreciso(c); // T1: LIFO — o Gerar JSON (mais novo) cita _seg_exige_pagina num comentário e trava o DROP do helper
       for (const d of S3A_DOWN_DROPS) await aplicarArquivo(c, d);
       expect((await um<{ f: string | null }>(c, `select to_regprocedure($1)::text f`, [S3A_HELPER.fn])).f).toBeNull();
       for (const g of S3A_GATILHOS) expect((await um<{ f: string | null }>(c, `select to_regprocedure($1)::text f`, [g.fn])).f).toBeNull();
@@ -251,9 +252,14 @@ describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", (
         await aplicarArquivo(c, S3A_MIGS[2]);
         expect((await travas()).filter(foraS3b)).toEqual(QUATRO);
       } else {
+        // T1 (backend, 05/out): com a S3a JÁ aplicada na cópia, os gatilhos já existem e o arquivo reaplicado não cria nenhum (sem CREATE TRIGGER →
+        // nenhuma trava de tabela). As 4 ShareRowExclusive só aparecem na txn quando o gancho S3A_TXN=1 aplicou a ida NESTA txn (ou no ramo acima,
+        // banco sem a S3a). Regra medida (inalterada): a reaplicação não pega trava nova; o que estava seguro no começo da txn é exatamente as 4 ou nada.
+        const seguras = (ts: { rel: string; mode: string }[]) => ts.filter((t) => t.rel !== "public.parcelas" && foraS3b(t)); // parcelas = o CREATE TRIGGER da S2_TXN
+        expect([[], QUATRO]).toContainEqual(seguras(antes));
         await aplicaS3a(c); // idempotente: não pega trava nova
-        const depois = (await travas()).filter((t) => t.rel !== "public.parcelas" && foraS3b(t)); // parcelas = o CREATE TRIGGER da S2_TXN
-        expect(depois).toEqual(QUATRO);
+        const depois = seguras(await travas());
+        expect(depois).toEqual(seguras(antes));
       }
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation

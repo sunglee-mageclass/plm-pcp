@@ -223,10 +223,16 @@ describe.skipIf(!RODA)("seg S3c — trava medida (pg_locks na txn revertida)", (
         await aplicarArquivo(c, S3C_MIGS[2]);
         expect(await novas()).toEqual(DUAS);
       } else {
+        // T1 (backend, 05/out): com a S3c JÁ aplicada na cópia, os gatilhos já existem e o arquivo reaplicado não cria nenhum (sem CREATE TRIGGER → nenhuma
+        // trava de tabela). As 2 ShareRowExclusive só aparecem na txn quando o gancho S3C_TXN=1 aplicou a ida NESTA txn (ou no ramo acima, banco sem a S3c).
+        // Regra medida (inalterada): a ida/reaplicação não pega trava nova; o que estava seguro no começo
+        // da txn é exatamente as DUAS ou nada.
+        const seguradasNoInicio = (await travas()).filter((t) => S3C_TABELAS_TRAVA.includes(t.rel));
+        expect([[], DUAS]).toContainEqual(seguradasNoInicio);
         base = new Set((await travas()).map(chave));
         await aplicaS3c(c); // idempotente: não pega trava nova
         expect(await novas()).toEqual([]);
-        expect((await travas()).filter((t) => S3C_TABELAS_TRAVA.includes(t.rel))).toEqual(DUAS);
+        expect((await travas()).filter((t) => S3C_TABELAS_TRAVA.includes(t.rel))).toEqual(seguradasNoInicio);
       }
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation

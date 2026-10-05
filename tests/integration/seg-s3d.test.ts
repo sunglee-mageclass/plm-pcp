@@ -225,10 +225,16 @@ describe.skipIf(!RODA)("seg S3d — trava medida (pg_locks na txn revertida)", (
         await aplicarArquivo(c, S3D_MIGS[2]);
         expect(await novas()).toEqual(TRES);
       } else {
+        // T1 (backend, 05/out): com a S3d JÁ aplicada na cópia, os gatilhos já existem e o arquivo reaplicado não cria nenhum (sem CREATE TRIGGER → nenhuma
+        // trava de tabela). As 3 ShareRowExclusive só aparecem na txn quando o gancho S3D_TXN=1 aplicou a ida NESTA txn (ou no ramo acima, banco sem a S3d).
+        // Regra medida (inalterada): a ida/reaplicação não pega trava nova e nunca mais forte que ShareRowExclusive; o que estava seguro no começo
+        // da txn é exatamente as TRES ou nada.
+        const seguradasNoInicio = (await travas()).filter((t) => S3D_TABELAS_TRAVA.includes(t.rel));
+        expect([[], TRES]).toContainEqual(seguradasNoInicio);
         base = new Set((await travas()).map(chave));
         await aplicaS3d(c);
         expect(await novas()).toEqual([]);
-        expect((await travas()).filter((t) => S3D_TABELAS_TRAVA.includes(t.rel))).toEqual(TRES);
+        expect((await travas()).filter((t) => S3D_TABELAS_TRAVA.includes(t.rel))).toEqual(seguradasNoInicio);
       }
       // a de modelos é ShareRowExclusive (bloqueia INSERT/UPDATE/DELETE, não SELECT) — nada mais forte, em nenhuma tabela
       expect((await travas()).filter((t) => /AccessExclusive|^ExclusiveLock/.test(t.mode))).toEqual([]);
