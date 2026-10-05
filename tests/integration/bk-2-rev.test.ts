@@ -755,19 +755,26 @@ describe.skipIf(!RODA)("bk B2 — rev das outras raízes sobe uma vez por transa
     await withTx(async (c) => {
       await semB2(c);
       const pid = (await um<{ p: number }>(c, "SELECT pg_backend_pid() AS p")).p;
-      await aplica(c, BK_MIG);
       const b = new Client({ connectionString: dbUrl()!, ssl: false });
       await b.connect();
-      let travas: { rel: string | null; nsp: string | null; mode: string; locktype: string }[] = [];
+      type Trava = { rel: string | null; nsp: string | null; mode: string; locktype: string };
+      let travas: Trava[] = [];
       try {
-        travas = (
-          await b.query(
-            `SELECT c.relname AS rel, n.nspname AS nsp, l.mode, l.locktype
-               FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE l.pid = $1 AND l.granted`,
-            [pid],
-          )
-        ).rows;
+        const le = async (): Promise<Trava[]> =>
+          (
+            await b.query(
+              `SELECT c.relname AS rel, n.nspname AS nsp, l.mode, l.locktype
+                 FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE l.pid = $1 AND l.granted`,
+              [pid],
+            )
+          ).rows;
+        // Só a DIFERENÇA que a ida da B2 pegou (mesma receita do fix I1 da B1): com BK_TXN=1 numa cópia sem a B4, o gancho já
+        // segura o ShareLock do índice novo em integracao_linhas desde o começo da txn — não é da B2.
+        const chave = (t: Trava) => `${t.locktype}|${t.nsp}.${t.rel}|${t.mode}`;
+        const antes = new Set((await le()).map(chave));
+        await aplica(c, BK_MIG);
+        travas = (await le()).filter((t) => !antes.has(chave(t)));
       } finally {
         await b.end();
       }

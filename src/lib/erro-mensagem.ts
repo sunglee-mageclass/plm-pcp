@@ -333,8 +333,14 @@ export function mensagemSegS3(code: string, msg: string): string | null {
 // - 42501 `lancado_protegido:` (B1, fn_seg_pagina_modelos): `modelos.lancado` só muda pelo servidor (Lançar e cia.), nunca
 //   por gravação direta da tela/API.
 export const TEXTO_LANCADO_PROTEGIDO = "O lançamento só muda pelo botão Lançar (foguete) do card.";
+// - 23505 no índice único parcial `integracao_linhas_produto_unico` (B4, 20261103143000): 2ª linha 'produto' do mesmo card no
+//   espelho da Integração (a API exige exatamente 1). Nenhum caminho da tela grava isso hoje; se um dia vier, o texto diz o quê.
+export const TEXTO_INTEGRACAO_PRODUTO_DUPLICADO =
+  "Este produto já tem a linha de produto no espelho da Integração (só pode haver 1 por card). Recarregue a tela e confira o estado do produto.";
 export function mensagemBackend(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("lancado_protegido:")) return TEXTO_LANCADO_PROTEGIDO;
+  if (code === "23505" && msg.includes("integracao_linhas_produto_unico"))
+    return TEXTO_INTEGRACAO_PRODUTO_DUPLICADO;
   return null;
 }
 
@@ -460,7 +466,7 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   const segS3 = mensagemSegS3(code, msg);
   if (segS3) return segS3;
 
-  // Frente Backend: prefixos ASCII das guardas novas (B1 lancado_protegido) → texto PT.
+  // Frente Backend: prefixos ASCII das guardas novas (B1 lancado_protegido) e o índice único da Integração (B4) → texto PT.
   const backend = mensagemBackend(code, msg);
   if (backend) return backend;
 

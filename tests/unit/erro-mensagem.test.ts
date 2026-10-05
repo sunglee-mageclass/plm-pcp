@@ -32,6 +32,27 @@ describe("mensagemErro", () => {
       ),
     ).toBe("O lançamento só muda pelo botão Lançar (foguete) do card.");
   });
+
+  it("Backend B4: 23505 no índice integracao_linhas_produto_unico vira texto PT próprio; outro 23505 segue o genérico", () => {
+    expect(
+      mensagemErro(
+        {
+          code: "23505",
+          message:
+            'duplicate key value violates unique constraint "integracao_linhas_produto_unico"',
+        },
+        "fb",
+      ),
+    ).toBe(
+      "Este produto já tem a linha de produto no espelho da Integração (só pode haver 1 por card). Recarregue a tela e confira o estado do produto.",
+    );
+    expect(
+      mensagemErro(
+        { code: "23505", message: 'duplicate key value violates unique constraint "outra_key"' },
+        "fb",
+      ),
+    ).toBe("Já existe um registro com esses dados (valor duplicado).");
+  });
 });
 
 describe("mensagemErro — Kanban automático (RPCs da F1)", () => {
