@@ -91,9 +91,9 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `_papel_tenant_autorizado`. Gestão em Gerenciar Usuários (`GerenciarPapeisDialog`+`PapelSelect`);
   editor de papel reusa a grade do `PermissoesModal` (`PapelEditor`). Só role `user` usa papel
   (admins furam). Papéis GLOBAIS ficaram fora de escopo (são por-loja).
-- **Modularização**: 7 módulos liga/desliga por loja em `tenant_config.modules` (jsonb):
-  `cadastro, entrada_saida, criacao, producao, financeiro, dashboard` + **`otb`** (hook
-  `useTenantModules`). **Só o SUPER ADMIN muda `modules`** (Reforço de segurança S1, MOD-1, P-233 = D4 A, `20261031110000`):
+- **Modularização**: 11 módulos liga/desliga por loja em `tenant_config.modules` (jsonb), as chaves de `ModuleKey`:
+  `cadastro, entrada_saida, criacao, producao, financeiro, dashboard` (default ON) + `otb, distribuicao, produto_acabado,
+  produto_importado, etapas_pl` (opt-in, default OFF) (hook `useTenantModules`). **Só o SUPER ADMIN muda `modules`** (Reforço de segurança S1, MOD-1, P-233 = D4 A, `20261031110000`):
   `fn_kanban_chave_protegida` (BEFORE INSERT/UPDATE de `tenant_config`) devolve o valor de antes quando quem grava tem JWT e
   não é super admin (ignorado, SEM erro — o resto da linha grava; INSERT nasce com o padrão da coluna); sem JWT (migration/psql)
   e `service_role` passam. ⚠️ Teste que desliga módulo dentro da txn tem de fazê-lo SEM claims (ou como super admin).
@@ -164,8 +164,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     `.in/.ilike/.or/.not` — lista de exceções VAZIA; quem só escreve a coluna não entra).
   - **Reprovado (T4, `20261103130000` + `131000`):** CHECK `lower(btrim(...))` em `modelos.status_desenvolvimento`/`status_planejamento`
     (`ADD … NOT VALID` — AccessExclusive só em `modelos`, ms — e `VALIDATE`, ShareUpdateExclusive em arquivo separado) + helper
-    `_modelo_eh_reprovado(sd, sp)`: **SQL NOVO usa o helper**; nada antigo foi redefinido (as 4 grafias ficam equivalentes pelo
-    DADO). ⚠️ (i) o helper tem `SET search_path` e por isso NÃO é inlinável: em varredura grande de `modelos` por linha, a grafia
+    `_modelo_eh_reprovado(sd, sp)`: **SQL NOVO usa o helper — mas SÓ dentro de função SECURITY DEFINER** (o EXECUTE foi revogado de
+    PUBLIC/anon/authenticated em `130000`; chamado de função INVOKER, de policy RLS ou de CHECK avaliado como `authenticated` dá
+    42501 — nesses casos use o predicado minúsculo inline `lower(btrim(coalesce(status_x,'')))='reprovado'`/`_kanban_norm`); nada
+    antigo foi redefinido (as 4 grafias ficam equivalentes pelo DADO). ⚠️ (i) o helper tem `SET search_path` e por isso NÃO é inlinável: em varredura grande de `modelos` por linha, a grafia
     `_kanban_norm` inline é equivalente e mais barata; (ii) o `_down_drop` varre o `prosrc` das funções de `public` INCLUSIVE
     COMENTÁRIOS: não cite `_modelo_eh_reprovado`/`_exige_modulos`/`_tenant_modulo_ligado`/`_seg_exige_pagina` em comentário de
     função que não os chama (trava os `_down_drop` antigos — já aconteceu com a T1 e o `_seg_exige_pagina`); (iii) tab/quebra de
@@ -194,7 +196,9 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   - **Decisões declaradas (não são furos):** Financeiro desligado continua anotando parcelas em segundo plano (T3 do desenho);
     leitura NÃO ganha gate de módulo (T4 do desenho, C9 — policy RESTRICTIVE de SELECT derruba o Realtime, inv. 13); Distribuição:
     a escrita não tem gate próprio, o dialog some sem o módulo e o dado gravado fica inerte (T6); o espelho card↔produto grava com
-    PA/PI desligado, de propósito, e pode recusar `categoria_acessorio_com_pedido` (D17).
+    PA/PI desligado, de propósito, e pode recusar `categoria_acessorio_com_pedido` (D17); a **reserva de estoque** (`_estoque_tecido_core`) continua descontando os
+    cards da Criação (reprovados já saem, R15a) mesmo depois de a Criação ser desligada — os cards ficam invisíveis mas ainda
+    descontam do estoque (D10, baixo; aceito, só documentado).
   - **Testes:** módulo desligado no servidor se testa com usuário COMUM, **nunca super admin** (ele fura `tenant_module_enabled`), e
     o módulo se desliga na txn SEM claims (MOD-1). ⚠️ `MOD_TXN=1` (ensaio da frente dentro de cada txn) numa cópia que AINDA não
     tem a T4 dá 55P03 FALSO em testes com 2ª conexão em `modelos` (`preco-titulo-versao`, `modelo-descricao-produto`) e lock a mais
@@ -1449,7 +1453,7 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   estoque, Plan. Tecido). Grafias que as funções ANTIGAS ainda usam (Modularidade T4: o CHECK `lower(btrim)` nas 2 colunas e o helper
   `_modelo_eh_reprovado` tornam as 4 grafias EQUIVALENTES pelo dado — ver "Modularidade (out/2026)"): kanban/gates/REF = `_kanban_norm` (lower+btrim); Integração compara o lado do Planejamento case-sensitive
   (`coalesce(status_planejamento,'')='reprovado'` em `_integracao_base`/`_integracao_ler`/`integracao_marcar`/`integracao_previa`/
-  `integracao_listar`). SQL NOVO usa `_modelo_eh_reprovado(sd, sp)` (ou `_kanban_norm` se for gate por posição). Efeitos: sai da necessidade de tecido do Plan. Tecido e da Demanda
+  `integracao_listar`). SQL NOVO usa `_modelo_eh_reprovado(sd, sp)` SÓ em função SECURITY DEFINER (EXECUTE revogado: de função INVOKER/policy dá 42501 — use o predicado minúsculo inline) (ou `_kanban_norm` se for gate por posição). Efeitos: sai da necessidade de tecido do Plan. Tecido e da Demanda
   (P-198), EXCETO o já enviado ao corte, que continua contando tecido; sai do Poder de venda e das Pendências (P-212) mesmo
   cortado; sai do Realizado, custo e contagem da OTB (P-209); sai da reserva de estoque (tecido e aviamento); no Dashboard vira o
   balde "Reprovados" e sai do Comercial (P-215); NUNCA revela a REF nem passa o gate da Explosão, com a chave do kanban
