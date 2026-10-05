@@ -11,6 +11,7 @@ import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, semUsuario, um } from "./db";
 import { DEF, LOCAL, MIG_TXN, ROOT, T, U, aplica, modeloInterno, prepara } from "./integracao-helpers";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const MIG_D7 = "supabase/migrations/20261008100000_integracao_7_permissao_super.sql";
 const INV_D7 = "supabase/rollback/20261008100000_integracao_7_permissao_super_down.sql";
@@ -28,10 +29,23 @@ const TB = "d7000000-0000-4000-8000-0000000000b1"; // admin da loja; a permissã
 const X = "d7000000-0000-4000-8000-0000000000c1"; // usuário comum (alvo do set_user_permissions)
 const Y = "d7000000-0000-4000-8000-0000000000d1"; // usuário comum que será excluído
 
-/** Texto de antes (pg_get_functiondef de produção = cópia; gerado por dump_antes_d7.sh) SEM o "\n" que o psql acrescenta. */
+/**
+ * Texto de antes (= pg_get_functiondef de produção antes do delta 7).
+ * T1 (backend, 05/out): antes lia `.superpowers/integracao/mig/antes-d7/<nome>.sql` (dump_antes_d7.sh) — pasta GITIGNORED que só existia no
+ * worktree da Integração, então em qualquer outro checkout dava ENOENT. O inverso do delta 7 (`INV_D7`, versionado) carrega exatamente esses
+ * textos nos CREATE OR REPLACE (é o que ele devolve ao banco); extrai de lá e CONFERE o md5 contra o `antes` pinado em REDEF — sem confiança
+ * cega na extração (se o inverso mudar de texto, o teste acusa).
+ */
 function antes(nome: string): string {
-  const t = readFileSync(`${ROOT}.superpowers/integracao/mig/antes-d7/${nome}.sql`, "utf8");
-  return t.slice(0, -1);
+  const inv = readFileSync(`${ROOT}${INV_D7}`, "utf8");
+  const i = inv.indexOf(`\nCREATE OR REPLACE FUNCTION public.${nome}(`) + 1;
+  const f = inv.indexOf("$function$\n;", i);
+  if (i === 0 || f < 0) throw new Error(`${INV_D7}: texto de antes de ${nome} não achado`);
+  const texto = inv.slice(i, f + "$function$".length) + "\n"; // pg_get_functiondef termina em "$function$\n"
+  const esperado = REDEF.find((r) => r.nome === nome)!.antes;
+  const md5 = createHash("md5").update(texto).digest("hex");
+  if (md5 !== esperado) throw new Error(`${INV_D7}: texto de antes de ${nome} com md5 ${md5} (esperado ${esperado})`);
+  return texto;
 }
 /** O MESMO texto com SÓ as expressões de permissão trocadas — o que o delta 7 tem de deixar no banco. */
 function esperadoDepois(nome: string): string {
@@ -348,22 +362,44 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — delta 7: permissão só pelo s
     });
   });
 
-  it("as 3 funções redefinidas diferem do texto de antes SÓ nas expressões de permissão (pg_get_functiondef)", async () => {
+  /** Texto que a migration do delta 7 grava para `nome` (CREATE OR REPLACE do arquivo versionado), no formato de pg_get_functiondef. */
+  function textoDaIda(nome: string): string {
+    const mg = readFileSync(`${ROOT}${MIG_D7}`, "utf8");
+    const i = mg.indexOf(`\nCREATE OR REPLACE FUNCTION public.${nome}(`) + 1;
+    const f = mg.indexOf("$function$\n;", i);
+    if (i === 0 || f < 0) throw new Error(`${MIG_D7}: CREATE OR REPLACE de ${nome} não achado`);
+    return mg.slice(i, f + "$function$".length) + "\n";
+  }
+
+  // T1 (backend, 05/out): a versão original comparava o texto VIVO no banco com `antes + trocas de permissão`. Depois do delta 7, outras migrations
+  // REDEFINIRAM duas das três (`_integracao_gates` por 20261027110000_ref_sigla_e_msg_reprovado; `integracao_listar` ganhou o 4º argumento em
+  // 20261013100000 e 20261024200000), então o vivo já não é "antes + 2 trocas" e o teste falhava por drift legítimo. A propriedade do delta 7 é
+  // sobre o que A MIGRATION escreve, então é conferida no ARQUIVO versionado (texto de antes extraído do inverso, md5 pinado): diferem SÓ nas linhas
+  // de permissão. No banco, vale o que continua verdadeiro: nenhuma das três volta a chamar `user_can_*('integracao')` direto — todas passam por
+  // `_integracao_pode` — e `_integracao_exige` (não redefinida depois) segue byte a byte igual ao texto do delta 7.
+  it("as 3 funções redefinidas diferem do texto de antes SÓ nas expressões de permissão (arquivo da migration) e o banco segue pelo _integracao_pode", async () => {
+    for (const f of REDEF) {
+      const a = antes(f.nome);
+      const d = textoDaIda(f.nome);
+      expect(d, f.nome).toBe(esperadoDepois(f.nome));
+      const la = a.split("\n");
+      const ld = d.split("\n");
+      expect(ld.length).toBe(la.length);
+      const mudou = la.map((x, i) => [x, ld[i]] as const).filter(([x, y]) => x !== y);
+      expect(mudou.length, f.nome).toBe(f.trocas);
+      for (const [x, y] of mudou) {
+        expect(x).toMatch(/public\.user_can_(view|edit)\('integracao'\)/);
+        expect(y).toMatch(/public\._integracao_pode\((true|false)\)/);
+      }
+    }
     await withTx(async (c) => {
       await preparaD7(c);
-      for (const f of REDEF) {
-        const a = antes(f.nome);
-        const d = await DEF(c, f.sig);
-        expect(d, f.nome).toBe(esperadoDepois(f.nome));
-        const la = a.split("\n");
-        const ld = d.split("\n");
-        expect(ld.length).toBe(la.length);
-        const mudou = la.map((x, i) => [x, ld[i]] as const).filter(([x, y]) => x !== y);
-        expect(mudou.length, f.nome).toBe(f.trocas);
-        for (const [x, y] of mudou) {
-          expect(x).toMatch(/public\.user_can_(view|edit)\('integracao'\)/);
-          expect(y).toMatch(/public\._integracao_pode\((true|false)\)/);
-        }
+      expect(await DEF(c, REDEF[0].sig), REDEF[0].nome).toBe(esperadoDepois(REDEF[0].nome)); // _integracao_exige: nunca mais redefinida
+      for (const nome of ["_integracao_exige", "_integracao_gates", "integracao_listar"]) {
+        const def = (await um<{ d: string }>(c,
+          `SELECT pg_get_functiondef(p.oid) AS d FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = $1`, [nome])).d;
+        expect(def, nome).toContain("_integracao_pode(");
+        expect(def, nome).not.toMatch(/public\.user_can_(view|edit)\('integracao'\)/);
       }
     });
   });
