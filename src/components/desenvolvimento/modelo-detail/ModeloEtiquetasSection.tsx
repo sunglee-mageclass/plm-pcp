@@ -7,6 +7,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Field, FieldSelectOpt } from "./shared";
 import { coresDaEtiqueta, type EtiquetaInfo, type ModeloEtiquetaRow, type Opt } from "./types";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+import { mostraAvisoForaDaGrade, textoAjudaInsumoVinculado } from "./insumo-ajuda";
 import { rotuloTamanho, tamanhoEfetivoInsumo, tamanhoForaDaGrade } from "@/lib/insumo-tamanho";
 
 // Etiquetas do modelo (BOM): escolhe a etiqueta + a COR; o tamanho explode pela grade no
@@ -21,6 +22,7 @@ export function ModeloEtiquetasSection({
   camposCopiados = new Set(),
   onCampoEditado,
   gradeInfo,
+  comprado = false,
 }: {
   rows: ModeloEtiquetaRow[];
   etiquetas: Opt[];
@@ -32,6 +34,8 @@ export function ModeloEtiquetasSection({
   onCampoEditado?: (k: string) => void;
   /** urg R1: grade do modelo (soma por tamanho + total) — só p/ avisar o insumo vinculado a um tamanho que a grade não tem. Opcional (o Sheet do Dev não passa). */
   gradeInfo?: { mapa: Record<string, number>; total: number };
+  /** urg R1 (A7): card comprado (revenda/importado) — texto neutro e sem aviso de grade (a grade do comprado não chega aqui). */
+  comprado?: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -89,9 +93,9 @@ export function ModeloEtiquetasSection({
             {tamVinculado ? (
               <>
                 <p className="text-[11px] text-muted-foreground">
-                  {`Vinculado ao tamanho ${rotuloTamanho(tamVinculado)} — qtd = consumo × peças desse tamanho.`}
+                  {textoAjudaInsumoVinculado(rotuloTamanho(tamVinculado), comprado)}
                 </p>
-                {foraDaGrade && (
+                {mostraAvisoForaDaGrade(foraDaGrade, comprado) && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-500">
                     {`O tamanho ${rotuloTamanho(tamVinculado)} não está na grade deste modelo — quantidade 0.`}
                   </p>

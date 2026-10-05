@@ -20,7 +20,7 @@ import { distribuiAncora, distribuiTotal, redistribuiPorEscala, somaGrade, somaP
 import { tamanhosVisiveis } from "@/lib/tamanho-exibicao";
 import type { TamanhoTipo } from "@/lib/tamanho";
 import {
-  makeEmptyBlocks, recomputeAviamento, recomputeBlock, recomputeEtiqueta,
+  makeEmptyBlocks, recomputeAviamento, recomputeBlock,
   remapGradesAposRemocao, removerVarianteDoBloco,
   type AviamentoRow, type GradeRow, type ModeloEtiquetaRow, type OcAlloc, type TecidoBlock,
 } from "@/components/desenvolvimento/modelo-detail/types";
@@ -30,27 +30,13 @@ import {
   relevantArtigoIds, tecido1VarianteIds as calcTecido1VarianteIds,
   type EstadoBom, type FlagsBom,
 } from "./ficha-calc";
-import { tamanhoPorEtiquetaDe, type PatchBlocoCad } from "./ficha-cad";
-import { fatorCustoInsumo, gradeMapa, gradeTotal } from "@/lib/insumo-tamanho";
+import { recomputarEtiquetaComGrade, type PatchBlocoCad } from "./ficha-cad";
 import type { FichaDados } from "./useFichaDados";
 import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
 import { patchCadDoImport } from "./importar-ficha";
 
 const MAPA_VAZIO: Record<string, string> = {};
 
-/**
- * urg R1 (Ruling A3) — prévia do custo de UMA linha de insumo: rateada pelo tamanho vinculado (peças do tamanho ÷ grade
- * total do modelo). Sem vínculo, com grade vazia ou insumo com tamanho próprio => fator 1 (o valor de sempre). Vale o do
- * servidor (inv. 15). COMPRADO (grade externa, Ruling A7): a grade cor × tamanho do comprado mora no Sheet
- * (`useGradeComprado`), fora do alcance deste hook => fator 1 aqui (a baixa/materialização seguem a regra no SQL).
- */
-function recomputarEtiquetaComGrade(
-  r: ModeloEtiquetaRow, map: Parameters<typeof recomputeEtiqueta>[1], gs: GradeRow[], gradeExterna: boolean,
-): ModeloEtiquetaRow {
-  if (gradeExterna || !r.etiqueta_id) return recomputeEtiqueta(r, map);
-  const tam = tamanhoPorEtiquetaDe([r], map)[r.etiqueta_id] ?? null;
-  return recomputeEtiqueta(r, map, fatorCustoInsumo(tam, gradeMapa(gs), gradeTotal(gs)));
-}
 const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false };
 
 export type ConfirmGrade = { msg: string; onConfirm: () => void } | null;

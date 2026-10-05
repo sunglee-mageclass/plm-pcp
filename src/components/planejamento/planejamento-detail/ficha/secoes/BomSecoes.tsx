@@ -138,6 +138,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
             camposCopiados={ficha.camposCopiados}
             onCampoEditado={ficha.onCampoEditado}
             gradeInfo={gradeInfo}
+            comprado={ficha.isComprado}
           />,
         )}
       </SecaoBom>

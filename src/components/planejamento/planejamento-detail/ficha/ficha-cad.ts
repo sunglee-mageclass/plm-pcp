@@ -3,7 +3,7 @@
 // (decisão travada 8). Cada função cita a faixa de origem; as diferenças deliberadas estão marcadas "F3.3 (T…)" e
 // registradas no plano F3.3 (§7). Sem React e sem Supabase — testadas em tests/unit/ficha-cad.test.ts. Tipos e
 // `calcCusto` vêm de src/components/producao/cad/types.ts (só importados).
-import { gradeMapa, gradeTotal, pecasDoInsumo, tamanhoEfetivoInsumo } from "@/lib/insumo-tamanho";
+import { fatorCustoInsumo, gradeMapa, gradeTotal, pecasDoInsumo, tamanhoEfetivoInsumo } from "@/lib/insumo-tamanho";
 import { gradeEfetivaPar } from "@/lib/casar-variantes-grade";
 import {
   calcCusto,
@@ -11,7 +11,7 @@ import {
   type VarianteRow as CadVarianteRow,
   type TipoTec,
 } from "@/components/producao/cad/types";
-import type { AviamentoRow, EtiquetaInfo, GradeRow, ModeloEtiquetaRow, TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
+import { recomputeEtiqueta, type AviamentoRow, type EtiquetaInfo, type GradeRow, type ModeloEtiquetaRow, type TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import { montarAviamentosPayload, montarGradesPayload, roundNumeric, type TecidoRowDb, type VarianteRowDb } from "./ficha-calc";
 
 export type { CadTecidoRow, CadVarianteRow, TipoTec };
@@ -357,6 +357,20 @@ export function tamanhoPorEtiquetaDe(
       : null;
   }
   return out;
+}
+
+/**
+ * urg R1 (Ruling A3) — prévia do custo de UMA linha de insumo: rateada pelo tamanho vinculado (peças do tamanho ÷ grade
+ * total do modelo). Sem vínculo, com grade vazia ou insumo com tamanho próprio => fator 1 (o valor de sempre). Vale o do
+ * servidor (inv. 15). COMPRADO (`gradeExterna`, Ruling A7): a grade cor × tamanho do comprado mora no Sheet
+ * (`useGradeComprado`), fora do alcance do `useFichaBom` => fator 1 aqui (a baixa/materialização seguem a regra no SQL).
+ */
+export function recomputarEtiquetaComGrade(
+  r: ModeloEtiquetaRow, map: Record<string, EtiquetaInfo>, gs: GradeRow[], gradeExterna: boolean,
+): ModeloEtiquetaRow {
+  if (gradeExterna || !r.etiqueta_id) return recomputeEtiqueta(r, map);
+  const tam = tamanhoPorEtiquetaDe([r], map)[r.etiqueta_id] ?? null;
+  return recomputeEtiqueta(r, map, fatorCustoInsumo(tam, gradeMapa(gs), gradeTotal(gs)));
 }
 
 /**

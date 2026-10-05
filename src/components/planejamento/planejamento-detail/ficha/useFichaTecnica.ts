@@ -765,6 +765,8 @@ export function useFichaTecnica(a: {
 
   return {
     habilitada, carregado, podeEditar, podeVerCustos, motivoSomenteLeitura,
+    /** urg R1 (A7): card comprado — a prévia de custo do insumo vinculado a tamanho não usa a grade (fator 1). */
+    isComprado: a.isComprado,
     dados, estado, handlers, gradeAuto: bom.gradeAuto,
     tecido1Info, totais, selos, seloCad,
     // F3.3 — seção CAD (render em BomSecoes) e as regras dela.
