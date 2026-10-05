@@ -142,7 +142,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
         `SELECT (SELECT count(*) FROM public.tenants t WHERE NOT EXISTS (SELECT 1 FROM public.integracao_config x WHERE x.tenant_id = t.id)) AS faltam,
                 c.campos, c.limite_por_minuto AS lim, c.max_por_pagina AS pag, c.validade_foto_dias AS foto, c.bloqueio_tentativas AS blq, c.rev
            FROM public.integracao_config c WHERE c.tenant_id = $1`, [T]);
-      expect(r).toEqual({ faltam: "0", campos: [...(await padraoVivo(c))], lim: 60, pag: 50, foto: 7, blq: 10, rev: i3 ? 2 : 1 });
+      // T1 (backend, 05/out): `rev` é o contador de edições da config (sobe a cada Salvar da tela / registro 'campos'); a Loja Teste da cópia
+      // já foi editada depois da migration (rev 4), então o valor exato é dado vivo. O que a migration garante é o PISO (1; com a I3c, 2) —
+      // a config nunca nasce/volta abaixo dele. O restante (campos, limites, faltam) segue exato.
+      const { rev, ...resto } = r;
+      expect(resto).toEqual({ faltam: "0", campos: [...(await padraoVivo(c))], lim: 60, pag: 50, foto: 7, blq: 10 });
+      expect(rev).toBeGreaterThanOrEqual(i3 ? 2 : 1);
       await c.query("SAVEPOINT a");
       await expect(c.query(`UPDATE public.integracao_config SET limite_por_minuto = 601 WHERE tenant_id = $1`, [T]))
         .rejects.toThrow(/integracao_config_limite_chk/);
