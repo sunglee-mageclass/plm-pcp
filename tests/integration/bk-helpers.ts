@@ -115,6 +115,12 @@ export async function bkViva(c: Client, id: BlocoBk["id"]): Promise<boolean> {
     return r.rows[0]?.m === d.BK_MD5[d.BK_SENTINELA]?.depois;
   }
   if (b.vivaSql) return !!(await c.query(b.vivaSql)).rows[0]?.v;
+  // migration presente, dados gerados ausentes e sem vivaSql: "vivo" seria false para sempre e voltaBk nunca desfaria o bloco
+  // (os _down antigos recusariam por md5 sem pista). Falha alto (B1 review M2).
+  if (b.dados)
+    throw new Error(
+      `bk-helpers: ${b.id} sem tests/integration/${b.dados}.ts — rode o gerador do bloco`,
+    );
   return false;
 }
 

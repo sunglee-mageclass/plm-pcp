@@ -9,7 +9,7 @@ import { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicarArquivo } from "./mig-txn";
 import { aplicaBk, bkViva, voltaBk } from "./bk-helpers";
-import { md5ModSucessor, voltaModSePreciso } from "./mod-helpers";
+import { aplicaMod, md5ModSucessor, voltaModSePreciso } from "./mod-helpers";
 import {
   BK_MD5,
   BK_MIG,
@@ -96,6 +96,9 @@ async function md5Fn(c: Client, sig: string): Promise<string | null> {
 }
 async function prepara(c: Client): Promise<void> {
   await c.query("SET LOCAL statement_timeout = '180s'");
+  // a cadeia LIFO dos ganchos S*_TXN tira a Modularidade (e o Backend) antes de reaplicar a S3a..S4: devolve o estado da cópia
+  // (Mod T2 = Lançar sem Produção) antes da B1. Idempotente: na cópia tudo já está vivo e nada roda.
+  await aplicaMod(c);
   await aplicaBk(c, "B1"); // idempotente (cópia já com a B1, ou BK_TXN=1: pula)
   expect(await bkViva(c, "B1")).toBe(true);
   await jwt(c, null);
@@ -205,6 +208,7 @@ describe.skipIf(!RODA)("bk B1 — modelos.lancado só muda pelo servidor (lancad
         a.id,
       ]);
       expect(anon.ok).toBe(false);
+      expect(anon.ok ? "" : anon.code).toBe("42501"); // sem privilégio de tabela (não um erro qualquer)
       expect(await lancado(c, a.id)).toBe(false);
     });
   });
@@ -276,14 +280,26 @@ describe.skipIf(!RODA)("bk B1 — modelos.lancado só muda pelo servidor (lancad
     });
   });
 
-  it("anti-drift: toda função de public que grava modelos.lancado é SECURITY DEFINER (INVOKER nova seria barrada pela B1)", async () => {
+  it("anti-drift: toda função/procedure de public que grava modelos.lancado é SECURITY DEFINER (INVOKER nova seria barrada pela B1)", async () => {
     await withTx(async (c) => {
+      // Mesma consulta da pré-checagem do gerador (mig/gerar-bk1.mjs, ESCRITORAS_SQL) — fix round 1 (review M1). Pega:
+      //   UPDATE … modelos … lancado =    |  UPDATE … modelos … SET (…, lancado, …) =
+      //   INSERT INTO modelos (… lancado …)  |  INSERT INTO modelos SELECT/VALUES/WITH/TABLE… SEM lista de colunas
+      //   função de gatilho de modelos que atribui NEW.lancado (:= ou =; comparação também casa — falso positivo conservador)
+      //   funções (prokind f) E procedures (p).
       const Q = `SELECT p.oid::regprocedure::text AS f, p.prosecdef AS sd FROM pg_proc p
-                  WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f'
+                  WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p')
                     AND (p.prosrc ~* 'update[^;]*\\ymodelos\\y[^;]*\\ylancado\\y\\s*='
-                         OR p.prosrc ~* 'insert\\s+into\\s+(public\\.)?modelos\\s*\\([^)]*\\ylancado\\y')
+                         OR p.prosrc ~* 'update[^;]*\\ymodelos\\y[^;]*\\yset\\s*\\([^)]*\\ylancado\\y'
+                         OR p.prosrc ~* 'insert\\s+into\\s+(public\\.)?modelos\\s*\\([^)]*\\ylancado\\y'
+                         OR p.prosrc ~* 'insert\\s+into\\s+(public\\.)?modelos\\s+(as\\s+\\w+\\s+)?(select|values|with|table|default|overriding)\\y'
+                         OR ((p.oid IN (SELECT t.tgfoid FROM pg_trigger t WHERE t.tgrelid = 'public.modelos'::regclass AND NOT t.tgisinternal)
+                              OR p.proname = ANY($1::text[]))
+                             AND p.prosrc ~* 'new\\.lancado\\s*:?='))
                   ORDER BY 1`;
-      const escritoras = (await c.query(Q)).rows as { f: string; sd: boolean }[];
+      // $1 = funções tratadas COMO SE fossem gatilho de modelos (só o controle negativo usa; sem CREATE TRIGGER no teste — não
+      // pegar trava de gatilho em modelos/auth). Em uso real: [].
+      const escritoras = (await c.query(Q, [[]])).rows as { f: string; sd: boolean }[];
       // os 4 escritores do desenho (UPDATE) + o Replicar do Plan. Tecido (INSERT com lancado = false) — todos DEFINER
       expect(escritoras.map((r) => r.f)).toEqual(
         expect.arrayContaining([
@@ -291,14 +307,47 @@ describe.skipIf(!RODA)("bk B1 — modelos.lancado só muda pelo servidor (lancad
           "fn_rebaixa_lancado_cq()",
           "_reverter_corte_tecido_core(uuid)",
           "_voltar_cq_para_servico_core(uuid)",
+          "_replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)",
         ]),
       );
       expect(escritoras.filter((r) => !r.sd)).toEqual([]);
-      // o detector pega uma INVOKER nova (controle negativo, criada e revertida na txn — só na cópia local)
-      await c.query(`CREATE FUNCTION public._bk1_sonda_invoker(_id uuid) RETURNS void LANGUAGE sql
-                      AS $f$ UPDATE public.modelos SET lancado = true WHERE id = _id $f$`);
-      const comSonda = (await c.query(Q)).rows as { f: string; sd: boolean }[];
-      expect(comSonda.filter((r) => !r.sd).map((r) => r.f)).toEqual(["_bk1_sonda_invoker(uuid)"]);
+      // SQL dinâmico (EXECUTE) não é analisável por regex: toda função/procedure INVOKER de public que usa EXECUTE e cita
+      // modelos fica numa lista de REVISÃO MANUAL. Hoje vazia; se aparecer uma, revise se grava lancado (se gravar, tem de ser
+      // DEFINER) e só então acrescente-a aqui com o motivo.
+      const dinamicasRevisadas: string[] = [];
+      const dinamicas = (
+        await c.query(
+          `SELECT p.oid::regprocedure::text AS f FROM pg_proc p
+            WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p') AND NOT p.prosecdef
+              AND p.prosrc ~* '\\yexecute\\y' AND p.prosrc ~* '\\ymodelos\\y' ORDER BY 1`,
+        )
+      ).rows.map((r: { f: string }) => r.f);
+      expect(dinamicas).toEqual(dinamicasRevisadas);
+      // controles negativos (criados e revertidos na txn — só na cópia local): cada forma é pega como INVOKER
+      const sondas = [
+        `CREATE FUNCTION public._bk1_sonda_upd(_id uuid) RETURNS void LANGUAGE sql
+           AS $f$ UPDATE public.modelos SET lancado = true WHERE id = _id $f$`,
+        `CREATE FUNCTION public._bk1_sonda_tupla(_id uuid) RETURNS void LANGUAGE sql
+           AS $f$ UPDATE public.modelos SET (lancado, data_lancamento) = (true, now()::date) WHERE id = _id $f$`,
+        `CREATE FUNCTION public._bk1_sonda_ins_sel(_id uuid) RETURNS void LANGUAGE sql
+           AS $f$ INSERT INTO public.modelos SELECT * FROM public.modelos WHERE id = _id $f$`,
+        `CREATE PROCEDURE public._bk1_sonda_proc(_id uuid) LANGUAGE sql
+           AS $f$ UPDATE public.modelos SET lancado = true WHERE id = _id $f$`,
+        `CREATE FUNCTION public._bk1_sonda_trg() RETURNS trigger LANGUAGE plpgsql
+           AS $f$ BEGIN NEW.lancado := true; RETURN NEW; END $f$`,
+      ];
+      for (const sql of sondas) await c.query(sql);
+      const comSonda = (await c.query(Q, [["_bk1_sonda_trg"]])).rows as {
+        f: string;
+        sd: boolean;
+      }[];
+      expect(comSonda.filter((r) => !r.sd).map((r) => r.f)).toEqual([
+        "_bk1_sonda_ins_sel(uuid)",
+        "_bk1_sonda_proc(uuid)",
+        "_bk1_sonda_trg()",
+        "_bk1_sonda_tupla(uuid)",
+        "_bk1_sonda_upd(uuid)",
+      ]);
     });
   });
 
@@ -306,30 +355,36 @@ describe.skipIf(!RODA)("bk B1 — modelos.lancado só muda pelo servidor (lancad
     await withTx(async (c) => {
       await c.query("SET LOCAL statement_timeout = '180s'");
       const pid = (await um<{ p: number }>(c, "SELECT pg_backend_pid() AS p")).p;
-      await aplicarArquivo(c, BK_MIG);
+      // Travas vistas de FORA (2ª sessão). Fix round 1 (review I1): compara SÓ a DIFERENÇA que o aplicarArquivo da B1 pegou —
+      // os ganchos *_TXN (S3a..S4, BK_TXN com a B4/índice) já seguram travas próprias desde o começo da txn e não contam aqui.
+      type Trava = { rel: string | null; nsp: string | null; mode: string; locktype: string };
       const b = new Client({ connectionString: dbUrl()!, ssl: false });
       await b.connect();
-      let travas: { rel: string | null; nsp: string | null; mode: string; locktype: string }[] = [];
-      try {
-        travas = (
+      const travas = async (): Promise<Trava[]> =>
+        (
           await b.query(
             `SELECT c.relname AS rel, n.nspname AS nsp, l.mode, l.locktype
-             FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE l.pid = $1 AND l.granted`,
+               FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE l.pid = $1 AND l.granted AND l.locktype = 'relation'`,
             [pid],
           )
         ).rows;
+      const chave = (t: Trava) => `${t.nsp}.${t.rel}|${t.mode}`;
+      let novas: Trava[] = [];
+      try {
+        const antes = new Set((await travas()).map(chave));
+        await aplicarArquivo(c, BK_MIG);
+        novas = (await travas()).filter((t) => !antes.has(chave(t)));
       } finally {
         await b.end();
       }
-      const rel = travas.filter((t) => t.locktype === "relation");
       expect(
-        rel.filter((t) =>
+        novas.filter((t) =>
           /^(auth|storage|realtime|supabase_functions|graphql|vault)$/.test(t.nsp ?? ""),
         ),
       ).toEqual([]);
-      expect(rel.filter((t) => t.nsp === "public" && t.mode !== "AccessShareLock")).toEqual([]);
-      expect(rel.filter((t) => t.mode === "AccessExclusiveLock")).toEqual([]);
+      expect(novas.filter((t) => t.nsp === "public" && t.mode !== "AccessShareLock")).toEqual([]);
+      expect(novas.filter((t) => t.mode === "AccessExclusiveLock")).toEqual([]);
       const confere = async (m: string) => {
         expect(await md5Fn(c, FN)).toBe(m);
         const p = await um(
