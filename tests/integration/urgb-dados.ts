@@ -51,11 +51,21 @@ export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
       "public._aprovar_servico_mo_core(uuid,uuid,boolean,text)": {
         "antes": "859dd63992e86cc75b7abeab41dee954",
         "depois": "2ff506f1a250d7f4f79e08fc07c640eb"
+      },
+      "public._salvar_modelo_servico_mo_core(uuid,jsonb)": {
+        "antes": "4d13d632ae2c5b931632e93536ae2ddd",
+        "depois": "1a4c045651694a64c3a99de522b7be53"
+      },
+      "public.excluir_cad(uuid)": {
+        "antes": "ba41974bab8c81cd2729da7f440dcef3",
+        "depois": "51b6833cb1887703c1bf6aa459524f64"
       }
     },
     "URGB_ACL": {
       "public._enviar_modelo_para_cad_core(uuid,text,text)": "{postgres=X/postgres,service_role=X/postgres}",
-      "public._aprovar_servico_mo_core(uuid,uuid,boolean,text)": "{postgres=X/postgres,service_role=X/postgres}"
+      "public._aprovar_servico_mo_core(uuid,uuid,boolean,text)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public._salvar_modelo_servico_mo_core(uuid,jsonb)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public.excluir_cad(uuid)": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
     },
     "URGB_NOVAS": {
       "public._servicos_da_mo_criar(uuid,uuid)": "9a54575d8595b31d3e89974e23689ecb",

@@ -10,6 +10,12 @@
 --   public._aprovar_servico_mo_core(uuid,uuid,boolean,text)
 --     ANTES  859dd63992e86cc75b7abeab41dee954
 --     DEPOIS 2ff506f1a250d7f4f79e08fc07c640eb
+--   public._salvar_modelo_servico_mo_core(uuid,jsonb)
+--     ANTES  4d13d632ae2c5b931632e93536ae2ddd
+--     DEPOIS 1a4c045651694a64c3a99de522b7be53
+--   public.excluir_cad(uuid)
+--     ANTES  ba41974bab8c81cd2729da7f440dcef3
+--     DEPOIS 51b6833cb1887703c1bf6aa459524f64
 --   public._servicos_da_mo_criar(uuid,uuid) (NOVA)
 --     ANTES  ausente
 --     DEPOIS 9a54575d8595b31d3e89974e23689ecb
@@ -30,7 +36,9 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', '6c5fc00819b4211eb08d20a1d271c9b2'),
-      ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '2ff506f1a250d7f4f79e08fc07c640eb')
+      ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '2ff506f1a250d7f4f79e08fc07c640eb'),
+      ('public._salvar_modelo_servico_mo_core(uuid,jsonb)', '4d13d632ae2c5b931632e93536ae2ddd', '1a4c045651694a64c3a99de522b7be53'),
+      ('public.excluir_cad(uuid)', 'ba41974bab8c81cd2729da7f440dcef3', '51b6833cb1887703c1bf6aa459524f64')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.a, r.b) THEN
@@ -222,6 +230,118 @@ BEGIN
   END IF;
 END $function$;
 
+CREATE OR REPLACE FUNCTION public._salvar_modelo_servico_mo_core(_modelo_id uuid, _linhas jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid := public.get_user_tenant_id();
+  v_keep uuid[] := '{}';   -- ids de linha presentes no payload (mantidos)
+  r jsonb; v_id uuid; v_cat uuid; v_valor numeric; v_obs text;
+  v_emp uuid; v_emp_tem boolean;  -- [urg r4] fornecedor de servico da linha
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Não autenticado'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.modelos WHERE id = _modelo_id AND tenant_id = v_tenant) THEN
+    RAISE EXCEPTION 'Modelo não encontrado' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_typeof(_linhas) <> 'array' THEN
+    RAISE EXCEPTION 'Formato inválido: as linhas de MO devem ser uma lista' USING ERRCODE = 'P0001';
+  END IF;
+
+  FOR r IN SELECT * FROM jsonb_array_elements(_linhas) LOOP
+    v_id  := NULLIF(r->>'id','')::uuid;
+    v_cat := NULLIF(r->>'categoria_terceirizado_id','')::uuid;
+    v_valor := COALESCE((r->>'valor')::numeric, 0);
+    v_obs := NULLIF(r->>'observacoes','');
+    -- [urg r4] fornecedor de servico da linha (empresas tipo 'servico' da loja; P-289 C: TODOS, nao so PL; pode ficar vazio).
+    -- Chave AUSENTE = mantem o gravado (cards de Produto Acabado/Importado e site antigo nao mandam a chave).
+    v_emp_tem := r ? 'empresa_id';
+    v_emp := NULLIF(r->>'empresa_id','')::uuid;
+    IF v_emp IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.modelo_servico_mo x
+                        WHERE x.id = v_id AND x.modelo_id = _modelo_id AND x.empresa_id = v_emp)
+       AND NOT EXISTS (SELECT 1 FROM public.empresas e
+                        WHERE e.id = v_emp AND e.tenant_id = v_tenant AND e.tipo = 'servico') THEN
+      RAISE EXCEPTION 'Fornecedor de serviço inválido' USING ERRCODE = 'P0001';
+    END IF;
+
+    -- Categoria (quando informada) tem que ser do tenant.
+    IF v_cat IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.categorias_terceirizado WHERE id = v_cat AND tenant_id = v_tenant
+    ) THEN
+      RAISE EXCEPTION 'Serviço inválido' USING ERRCODE = 'P0001';
+    END IF;
+
+    IF v_id IS NOT NULL THEN
+      -- Linha EXISTENTE (por id): atualiza valor/obs/categoria; preserva `aprovado`. Só do próprio modelo.
+      UPDATE public.modelo_servico_mo
+         SET valor = v_valor, observacoes = v_obs, categoria_terceirizado_id = v_cat, updated_at = now(),
+             empresa_id = CASE WHEN v_emp_tem THEN v_emp ELSE empresa_id END  -- [urg r4]
+       WHERE id = v_id AND modelo_id = _modelo_id AND tenant_id = v_tenant;
+      IF FOUND THEN
+        v_keep := array_append(v_keep, v_id);
+      ELSE
+        -- id não é deste modelo/tenant (payload inconsistente) — ignora silenciosamente (não vaza).
+        CONTINUE;
+      END IF;
+    ELSE
+      -- Linha NOVA (sem id): categoria real precisa estar ATIVA (soft-hide barra novo serviço).
+      -- "Geral (legado)" (v_cat NULL) segue permitido como linha nova.
+      IF v_cat IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM public.categorias_terceirizado WHERE id = v_cat AND tenant_id = v_tenant AND ativo = true
+      ) THEN
+        RAISE EXCEPTION 'Serviço desativado' USING ERRCODE = 'P0001';
+      END IF;
+      INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor, observacoes, empresa_id)
+      VALUES (v_tenant, _modelo_id, v_cat, v_valor, v_obs, v_emp)  -- [urg r4]
+      RETURNING id INTO v_id;
+      v_keep := array_append(v_keep, v_id);
+    END IF;
+  END LOOP;
+
+  -- Estado completo: apaga as linhas do modelo cujo id NÃO veio no payload.
+  DELETE FROM public.modelo_servico_mo
+   WHERE modelo_id = _modelo_id
+     AND NOT (id = ANY(v_keep));
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.excluir_cad(_cad_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_tenant uuid; v_modelo uuid; v_enviado boolean;
+  v_explosao_antes text;  -- [seg s1 M2]
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Não autenticado'; END IF;
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Módulo criacao não habilitado para esta loja' USING ERRCODE = '42501';
+  END IF;
+  -- [seg s3c] permissao de PAGINA no servidor (Reforco de seguranca S3c, P-231 = D2 A): exige EDITAR criacao_desenvolvimento.
+  PERFORM public._seg_exige_pagina('criacao_desenvolvimento');
+  SELECT tenant_id, modelo_id, COALESCE(enviado_corte, false)
+    INTO v_tenant, v_modelo, v_enviado FROM public.cad WHERE id = _cad_id;
+  IF v_modelo IS NULL THEN RAISE EXCEPTION 'CAD não encontrado'; END IF;
+  IF v_tenant <> public.get_user_tenant_id() AND NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Sem permissão para este CAD';
+  END IF;
+  IF v_enviado THEN
+    RAISE EXCEPTION 'Este CAD já foi enviado ao corte (baixou estoque). Reverta o corte antes de excluir.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.lancamentos WHERE cad_id = _cad_id) THEN
+    RAISE EXCEPTION 'Este CAD tem lançamentos e não pode ser excluído.';
+  END IF;
+  DELETE FROM public.cad WHERE id = _cad_id;  -- rascunho (sem corte): cascatas internas ok
+  v_explosao_antes := current_setting('app.explosao_sistema', true);  -- [seg s1 M2] excluir o CAD (rascunho) devolve o card
+  PERFORM set_config('app.explosao_sistema', 'on', true);
+  UPDATE public.modelos SET enviado_cad = false WHERE id = v_modelo;
+  PERFORM set_config('app.explosao_sistema', coalesce(v_explosao_antes, ''), true);
+END;
+$function$;
+
 DO $pos$
 DECLARE
   r record;
@@ -229,7 +349,8 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', '{postgres=X/postgres,service_role=X/postgres}'),
-      ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '{postgres=X/postgres,service_role=X/postgres}')
+      ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '{postgres=X/postgres,service_role=X/postgres}'),
+      ('public._salvar_modelo_servico_mo_core(uuid,jsonb)', '4d13d632ae2c5b931632e93536ae2ddd', '{postgres=X/postgres,service_role=X/postgres}')
     ) AS x(f, m, acl) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.m THEN
@@ -252,6 +373,22 @@ BEGIN
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v <> r.d THEN
       RAISE EXCEPTION 'urg_r4b_down: % (nova) com texto inesperado (md5 %) - gere de novo', r.f, v USING ERRCODE = 'P0001';
+    END IF;
+  END LOOP;
+  FOR r IN SELECT * FROM (VALUES
+      ('public.excluir_cad(uuid)', 'ba41974bab8c81cd2729da7f440dcef3', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}')
+    ) AS x(f, m, acl) LOOP
+    v := md5(pg_get_functiondef(to_regprocedure(r.f)));
+    IF v IS DISTINCT FROM r.m THEN
+      RAISE EXCEPTION 'urg_r4b_down: pos-condicao falhou em % (wrapper; md5 %, esperado %)', r.f, coalesce(v, 'ausente'), r.m USING ERRCODE = 'P0001';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid = to_regprocedure(r.f) AND coalesce(p.proacl::text, '') = r.acl
+                     AND p.prosecdef AND coalesce(array_to_string(p.proconfig, '|'), '') = 'search_path=public')
+       OR has_function_privilege('anon', r.f, 'EXECUTE')
+       OR NOT has_function_privilege('authenticated', r.f, 'EXECUTE')
+       OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) x
+                   WHERE p.oid = to_regprocedure(r.f) AND x.grantee = 0) THEN
+      RAISE EXCEPTION 'urg_r4b_down: pos-condicao falhou na ACL/secdef/search_path de % (wrapper)', r.f USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
 END

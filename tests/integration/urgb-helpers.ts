@@ -61,7 +61,10 @@ export async function urgbViva(c: Client, bloco: UrgbId): Promise<boolean> {
   const e = URGB_MIGS.find((x) => x.id === bloco);
   if (!e) return false;
   const s = e.b.URGB_SENTINELA;
-  return (await md5Fn(c, s)) === e.b.URGB_MD5[s].depois;
+  // vivo = o "depois" do bloco OU o de um bloco POSTERIOR que redefine a mesma sentinela por cima (ex.: a r4b redefine o
+  // _salvar_modelo_servico_mo_core da r4a na fix round 3) — senão a r4a pareceria "fora" com a r4b viva e o aplicaUrgb a reaplicaria.
+  const atual = await md5Fn(c, s);
+  return atual !== null && md5UrgbSucessor(s, e.b.URGB_MD5[s].depois).includes(atual);
 }
 
 /** Aplica os blocos que existem e ainda não estão vivos, NA ORDEM (idempotente); `ate` = último bloco a aplicar. */

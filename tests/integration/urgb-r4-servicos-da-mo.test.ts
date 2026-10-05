@@ -17,6 +17,16 @@ const CRIAR = "public._servicos_da_mo_criar(uuid,uuid)";
 const PREENCHER = "public._servico_mo_preencher_preco(uuid)";
 const ENVIAR_CORE = "public._enviar_modelo_para_cad_core(uuid,text,text)";
 const APROVAR_CORE = "public._aprovar_servico_mo_core(uuid,uuid,boolean,text)";
+const SALVAR_MO_CORE = "public._salvar_modelo_servico_mo_core(uuid,jsonb)";
+const EXCLUIR_CAD = "public.excluir_cad(uuid)";
+// fix round 3: trechos que a 181000 insere (o teste remonta o texto ANTIGO tirando-os, dentro da txn)
+const LOCK_MO =
+  "  -- [urg r4b] chave do card ANTES de tocar linhas de M.O. / modelos: serializa com o Enviar a Explosao e o aprovar (mesma 1a chave)\n" +
+  "  PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || _modelo_id::text));\n";
+const LOCKS_EXCLUIR =
+  "  -- [urg r4b] mesma ordem de trava do envio/aprovar/Salvar do PCP: chave do card -> chave do CAD -> linhas\n" +
+  "  PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || v_modelo::text));\n" +
+  "  PERFORM pg_advisory_xact_lock(hashtext(_cad_id::text));\n";
 const bloco = () => URGB_MIGS.find((x) => x.id === "r4b")?.b;
 
 type Res = { ok: true; rows: any[] } | { ok: false; code: string; msg: string };
@@ -566,7 +576,10 @@ describe.skipIf(!RODA)("urg R4b — blocos de Serviços nascem da M.O. no Enviar
         (await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM information_schema.columns
                                       WHERE table_schema = 'public' AND table_name = 'producao_terceirizados' AND column_name = 'mo_linha_id'`)).n,
       ).toBe(1);
-      await aplicarArquivo(c, B.down); // _down de novo = no-op
+      // _down de novo = no-op (com a r4a viva por baixo: desde a fix round 3 a r4b redefine o _salvar_modelo_servico_mo_core da r4a,
+      // então o _down da r4b só confere com a r4a no lugar - LIFO)
+      await aplicaUrgb(c, "r4a");
+      await aplicarArquivo(c, B.down);
       // sem o bloco: envio não cria nada (as novas ficaram sem chamador)
       const s = await (async () => {
         // cenario() reaplica o bloco; aqui preparamos sem ele
@@ -742,6 +755,21 @@ describe.skipIf(!RODA)("urg R4b — fix round 2: aprovar e Salvar da M.O. × env
     await x.query("UPDATE public.modelos SET status_desenvolvimento = 'aprovado', ordem_criacao_enviada = true WHERE id = $1", [m]);
   }
   const ENVIAR = ENVIAR_CORE.replace("(uuid,text,text)", "");
+  /** Remonta, NESTA txn, o texto de `sig` sem o trecho (o texto de antes da fix round). */
+  async function semTrecho(x: Client, sig: string, trecho: string): Promise<void> {
+    const def = (await um<{ d: string }>(x, "SELECT pg_get_functiondef($1::regprocedure) AS d", [sig])).d;
+    expect(def.split(trecho).length - 1, sig).toBe(1);
+    await x.query(def.replace(trecho, ""));
+  }
+  /** A conexão `p` está esperando um advisory lock (não uma linha)? */
+  async function esperaAdvisory(obs: Client, p: number): Promise<boolean> {
+    for (let i = 0; i < 100; i++) {
+      const w = await um<{ n: number }>(obs, "SELECT count(*)::int AS n FROM pg_locks WHERE pid = $1 AND NOT granted AND locktype = 'advisory'", [p]);
+      if (w.n > 0) return true;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
+  }
   const APROVAR = APROVAR_CORE.replace("(uuid,uuid,boolean,text)", "");
 
   it("o texto vivo: envio = chave do card -> chave do CAD -> cad -> blocos -> modelos (2 caminhos); aprovar = as 2 chaves antes da linha", async (ctx) => {
@@ -862,7 +890,9 @@ describe.skipIf(!RODA)("urg R4b — fix round 2: aprovar e Salvar da M.O. × env
         };
         if (antiga) await modelos();
         else await a.query("SELECT public._servicos_da_mo_criar($1, $2)", [x.m, x.cad]);
-        // B = Salvar da M.O. tirando todas as linhas (o flag vira -> rollup em modelos)
+        // B = Salvar da M.O. tirando todas as linhas (o flag vira -> rollup em modelos). Texto da r4a (sem a chave do card da fix round
+        // 3): isola a ORDEM DO ENVIO, que é o que este caso prova; a chave nova tem caso próprio (M-1r).
+        await semTrecho(b, SALVAR_MO_CORE, LOCK_MO);
         const pb = b.query("SELECT public._salvar_modelo_servico_mo_core($1, '[]'::jsonb)", [x.m]);
         pb.catch(() => {});
         const esperou = await esperaTrava(a, await pid(b));
@@ -883,6 +913,136 @@ describe.skipIf(!RODA)("urg R4b — fix round 2: aprovar e Salvar da M.O. × env
     expect([velho.a, velho.b]).toContain("40P01");
     const novo = await rodada(false);
     expect(novo).toEqual({ esperou: true, a: "ok", b: "ok" });
+  }, 60000);
+
+  // ───────────── fix round 3 (re-revisão): M-1r Salvar da M.O. e B-r excluir_cad pegam a chave do card ─────────────
+  it("fix round 3, texto vivo: Salvar da M.O. pega a chave do card antes das linhas; excluir_cad = chave do card -> do CAD antes do DELETE", async (ctx) => {
+    if (!(await r4bVivaNaCopia())) ctx.skip();
+    await withTx(async (c) => {
+      const mo = (await um<{ d: string }>(c, "SELECT pg_get_functiondef($1::regprocedure) AS d", [SALVAR_MO_CORE])).d;
+      expect(mo.split(LOCK_MO).length - 1).toBe(1);
+      expect(mo.indexOf(LOCK_MO)).toBeLessThan(mo.indexOf("FOR r IN SELECT"));
+      const ex = (await um<{ d: string }>(c, "SELECT pg_get_functiondef($1::regprocedure) AS d", [EXCLUIR_CAD])).d;
+      expect(ex.split(LOCKS_EXCLUIR).length - 1).toBe(1);
+      expect(ex.indexOf(LOCKS_EXCLUIR)).toBeLessThan(ex.indexOf("DELETE FROM public.cad"));
+    });
+  });
+
+  it("M-1r: card com M.O. toda aprovada; Salvar da M.O. que INCLUI uma linha (o flag vira) e APAGA a antiga × envio — antiga 40P01, nova sem deadlock", async (ctx) => {
+    if (!(await r4bVivaNaCopia())) ctx.skip();
+    const rodada = async (antiga: boolean) => {
+      const a = await abre();
+      const b = await abre();
+      try {
+        const x = await um<{ m: string; cad: string; t: string; cat: string } | undefined>(
+          a,
+          `SELECT m.id AS m, k.id AS cad, m.tenant_id AS t,
+                  (SELECT ct2.id FROM public.categorias_terceirizado ct2 WHERE ct2.tenant_id = m.tenant_id AND ct2.ativo ORDER BY ct2.id LIMIT 1) AS cat
+             FROM public.modelos m JOIN public.cad k ON k.modelo_id = m.id JOIN public.tenant_config tc ON tc.tenant_id = m.tenant_id
+            WHERE coalesce(m.custo_terceirizados_aprovado, false) AND NOT coalesce(k.enviado_corte, false)
+              AND lower(coalesce(m.status_planejamento, '')) <> 'reprovado'
+              AND NOT EXISTS (SELECT 1 FROM public.modelo_servico_mo s2 WHERE s2.modelo_id = m.id AND s2.aprovado IS NOT TRUE)
+              AND EXISTS (SELECT 1 FROM public.modelo_servico_mo s3 JOIN public.categorias_terceirizado ct ON ct.id = s3.categoria_terceirizado_id
+                           AND ct.tenant_id = m.tenant_id AND ct.ativo WHERE s3.modelo_id = m.id AND s3.valor > 0)
+              AND NOT EXISTS (SELECT 1 FROM public.producao_terceirizados pt WHERE pt.cad_id = k.id)
+              AND NOT EXISTS (SELECT 1 FROM public.controle_qualidade q WHERE q.cad_id = k.id AND q.status = 'confirmado')
+            ORDER BY tc.kanban_automatico, m.id LIMIT 1`,
+        );
+        expect(x, "a cópia precisa de 1 card com CAD sem blocos e M.O. toda aprovada").toBeTruthy();
+        // B = Salvar da M.O. como usuário da loja do card (só B grava a linha do usuário)
+        await b.query("UPDATE public.users SET tenant_id = $1 WHERE id = $2 AND tenant_id IS DISTINCT FROM $1", [x!.t, USER_TESTE]);
+        if (antiga) await semTrecho(b, SALVAR_MO_CORE, LOCK_MO);
+        // A = envio na ordem NOVA, decomposto até o helper (inclusive)
+        await a.query("SELECT pg_advisory_xact_lock(hashtext('cad:modelo_id:' || $1::text))", [x!.m]);
+        await a.query("SELECT pg_advisory_xact_lock(hashtext($1::text))", [x!.cad]);
+        await a.query("UPDATE public.cad SET observacoes_tecnicas = observacoes_tecnicas WHERE id = $1", [x!.cad]);
+        expect((await um<{ n: number }>(a, "SELECT public._servicos_da_mo_criar($1, $2) AS n", [x!.m, x!.cad])).n).toBeGreaterThan(0);
+        const pb = b.query("SELECT public._salvar_modelo_servico_mo_core($1, $2::jsonb)", [
+          x!.m,
+          JSON.stringify([{ categoria_terceirizado_id: x!.cat, valor: 5 }]),
+        ]);
+        pb.catch(() => {});
+        const esperou = await esperaTrava(a, await pid(b));
+        const naChave = antiga ? false : await esperaAdvisory(a, await pid(b));
+        const pa = (async () => {
+          await a.query("SELECT set_config('app.explosao_sistema', 'on', true)");
+          await a.query("UPDATE public.modelos SET enviado_cad = true WHERE id = $1", [x!.m]);
+          await a.query("SELECT set_config('app.explosao_sistema', '', true)");
+        })();
+        pa.catch(() => {});
+        const ra = (await Promise.allSettled([pa]))[0];
+        if (ra.status === "fulfilled") await a.query("ROLLBACK");
+        const rb = (await Promise.allSettled([pb]))[0];
+        return { esperou, naChave, a: codigo(ra), b: codigo(rb) };
+      } finally {
+        await fecha(a, b);
+      }
+    };
+    const velho = await rodada(true);
+    expect(velho.esperou).toBe(true);
+    expect([velho.a, velho.b]).toContain("40P01");
+    const novo = await rodada(false);
+    expect(novo).toEqual({ esperou: true, naChave: true, a: "ok", b: "ok" });
+  }, 60000);
+
+  it("M-1r: aprovar aberto × Salvar da M.O. do mesmo card — o Salvar espera na chave do card (sem ciclo fila/modelos), depois passa", async (ctx) => {
+    if (!(await r4bVivaNaCopia())) ctx.skip();
+    const a = await abre();
+    const b = await abre();
+    try {
+      const x = await alvo(a);
+      await a.query(`SELECT ${APROVAR}($1, $2, true, null)`, [x.m, x.linha]);
+      const linhas = (
+        await b.query("SELECT id, categoria_terceirizado_id AS cat, valor FROM public.modelo_servico_mo WHERE modelo_id = $1", [x.m])
+      ).rows.map((l) => ({ id: l.id, categoria_terceirizado_id: l.cat, valor: Number(l.valor) }));
+      const pb = b.query("SELECT public._salvar_modelo_servico_mo_core($1, $2::jsonb)", [x.m, JSON.stringify(linhas)]);
+      pb.catch(() => {});
+      expect(await esperaAdvisory(a, await pid(b))).toBe(true);
+      await a.query("ROLLBACK");
+      expect(codigo((await Promise.allSettled([pb]))[0])).toBe("ok");
+    } finally {
+      await fecha(a, b);
+    }
+  }, 60000);
+
+  it("B-r: excluir_cad × aprovar — sem as chaves o excluir não espera o aprovar aberto; com elas serializa (nos 2 sentidos), sem 40P01", async (ctx) => {
+    if (!(await r4bVivaNaCopia())) ctx.skip();
+    // antiga: o excluir NÃO espera na chave (vai direto às linhas; com o kanban ligado pode esperar a fila, mas nunca o advisory)
+    {
+      const a = await abre();
+      const b = await abre();
+      try {
+        const x = await alvo(a);
+        await semTrecho(b, EXCLUIR_CAD, LOCKS_EXCLUIR);
+        await a.query(`SELECT ${APROVAR}($1, $2, true, null)`, [x.m, x.linha]);
+        const pb = b.query("SELECT public.excluir_cad($1)", [x.cad]);
+        pb.catch(() => {});
+        const naChave = await esperaAdvisory(a, await pid(b));
+        await a.query("ROLLBACK");
+        await Promise.allSettled([pb]);
+        expect(naChave).toBe(false);
+      } finally {
+        await fecha(a, b);
+      }
+    }
+    // nova: aprovar aberto -> o excluir espera a chave; e excluir aberto -> o aprovar espera
+    for (const primeiro of ["aprovar", "excluir"] as const) {
+      const a = await abre();
+      const b = await abre();
+      try {
+        const x = await alvo(a);
+        const aprovar = (k: Client) => k.query(`SELECT ${APROVAR}($1, $2, true, null)`, [x.m, x.linha]);
+        const excluir = (k: Client) => k.query("SELECT public.excluir_cad($1)", [x.cad]);
+        await (primeiro === "aprovar" ? aprovar(a) : excluir(a));
+        const pb = primeiro === "aprovar" ? excluir(b) : aprovar(b);
+        pb.catch(() => {});
+        expect(await esperaAdvisory(a, await pid(b)), primeiro).toBe(true);
+        await a.query("ROLLBACK");
+        expect(codigo((await Promise.allSettled([pb]))[0]), primeiro).toBe("ok");
+      } finally {
+        await fecha(a, b);
+      }
+    }
   }, 60000);
 });
 

@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, semJwt, TENANT_TESTE, ehBancoLocal } from "./db";
-import { aplicaUrgb, voltaUrgb, urgbViva, URGB_MIGS } from "./urgb-helpers";
+import { aplicaUrgb, voltaUrgb, urgbViva, URGB_MIGS, md5UrgbSucessor } from "./urgb-helpers";
 import { aplicarArquivo } from "./mig-txn";
 
 const BLOCO = URGB_MIGS.find((x) => x.id === "r4a")?.b;
@@ -101,7 +101,8 @@ describe.skipIf(!RODA)("urg R4a — fornecedor de serviço na linha de M.O. (mod
     await withTx(async (c) => {
       await aplicaUrgb(c, "r4a");
       expect(await urgbViva(c, "r4a")).toBe(true);
-      for (const [sig, m] of Object.entries(BLOCO!.URGB_MD5)) expect(await md5Fn(c, sig), sig).toBe(m.depois);
+      // (a r4b, por cima, redefine o _salvar_modelo_servico_mo_core na fix round 3: aceita o sucessor)
+      for (const [sig, m] of Object.entries(BLOCO!.URGB_MD5)) expect(md5UrgbSucessor(sig, m.depois), sig).toContain(await md5Fn(c, sig));
       const col = await um<{ t: string; n: string; d: string | null }>(
         c,
         `SELECT data_type AS t, is_nullable AS n, column_default AS d FROM information_schema.columns
