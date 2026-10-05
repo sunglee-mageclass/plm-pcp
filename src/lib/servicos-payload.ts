@@ -178,21 +178,26 @@ export class ServicoSumiuError extends RecusaEsperadaError {
  * `ativo: false` — a edição rápida não apaga nem reativa nada que não é dela.
  *
  * Nunca manda a marca "apagar tudo": sem linhas, ou sem o bloco do card entre elas, lança `ServicoSumiuError`.
+ * Manda `_molde_tocado: false` (Camada C1 · I3): a edição rápida NUNCA grava `cad.observacoes_molde` — o servidor ignora o
+ * `_observacoes_molde` (que segue indo, relido, só para o banco sem a C1, que grava sempre).
  */
 export function montarPayloadEdicaoRapida(p: {
   linhas: readonly Record<string, unknown>[];
   blocoId: string;
   campo: CampoRapido;
   valor: string | null;
-}): { _blocos: BlocoPayload[]; _rev_base: Record<string, number> } {
+}): { _blocos: BlocoPayload[]; _rev_base: Record<string, number | boolean> } {
   if (!p.linhas.some((r) => r.id === p.blocoId)) throw new ServicoSumiuError();
   const _blocos = p.linhas.map((r) => {
     const b = blocoDeLinha(r);
     const editado = r.id === p.blocoId ? { ...b, [p.campo]: p.valor } : b;
     return { ...blocoParaPayload(editado), ativo: r.ativo !== false };
   });
-  const _rev_base = Object.fromEntries(
-    p.linhas.filter((r) => r.id).map((r) => [r.id as string, Number(r.rev ?? 0)]),
-  );
+  const _rev_base: Record<string, number | boolean> = {
+    ...Object.fromEntries(
+      p.linhas.filter((r) => r.id).map((r) => [r.id as string, Number(r.rev ?? 0)]),
+    ),
+    _molde_tocado: false,
+  };
   return { _blocos, _rev_base };
 }

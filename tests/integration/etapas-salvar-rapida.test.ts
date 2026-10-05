@@ -287,6 +287,35 @@ describe.skipIf(!RODA)(
       });
     });
 
+    it("observação do molde: a edição rápida NUNCA grava (com a C1, `_molde_tocado: false`) — o texto que a Oficina gravou no meio fica", async () => {
+      await withTx(async (c) => {
+        await c.query("SET LOCAL statement_timeout = '60s'");
+        await comoUsuario(c);
+        const s = await cadComServicos(c);
+        const base = await linhasDoCad(c, s.cad);
+        const { _blocos, _rev_base } = montarPayloadEdicaoRapida({
+          linhas: base,
+          blocoId: s.a,
+          campo: "pt_data_entrada",
+          valor: "2026-10-06",
+        });
+        expect(_rev_base._molde_tocado).toBe(false);
+        // a tela releu "molde: 4 partes"; a Oficina grava outro texto antes do RPC
+        await semJwt(c, () =>
+          c.query(`update cad set observacoes_molde = 'Oficina mudou' where id = $1`, [s.cad]),
+        );
+        const r = await salvar(c, s.cad, _blocos, "molde: 4 partes", _rev_base);
+        expect(r).toEqual({ ok: true });
+        const molde = (
+          await um<{ o: string | null }>(c, `select observacoes_molde o from cad where id = $1`, [
+            s.cad,
+          ])
+        ).o;
+        // com a C1 viva o servidor não grava; sem ela (banco velho) grava o valor relido, como antes
+        expect(molde).toBe((await camadaVazioViva(c)) ? "Oficina mudou" : "molde: 4 partes");
+      });
+    });
+
     it("outra pessoa salvou no meio: P0409 e NADA é gravado (sem retry)", async () => {
       await withTx(async (c) => {
         await c.query("SET LOCAL statement_timeout = '60s'");

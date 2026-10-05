@@ -165,7 +165,8 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
       // o do card: o do sheet com SÓ o campo trocado
       expect(_blocos[0]).toEqual({ ...doSheet(linhaA), [campo]: valor });
       // `_rev_base` de TODOS os blocos, com o rev lido agora; nunca a marca "apagar tudo"
-      expect(_rev_base).toEqual({ [A]: 4, [B]: 7, [C]: 2 });
+      // + `_molde_tocado: false`: a edição rápida nunca grava a observação do molde (Camada C1 · I3)
+      expect(_rev_base).toEqual({ [A]: 4, [B]: 7, [C]: 2, _molde_tocado: false });
       expect(Object.keys(_rev_base)).not.toContain("_apagar_tudo");
     },
   );
@@ -240,7 +241,7 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
       [A, true],
       [inativo.id, false],
     ]);
-    expect(_rev_base).toEqual({ [A]: 4, [inativo.id]: 1 });
+    expect(_rev_base).toEqual({ [A]: 4, [inativo.id]: 1, _molde_tocado: false });
   });
 
   it("serviço do card sumiu do servidor (ou CAD sem serviços): recusa, nada é montado", () => {

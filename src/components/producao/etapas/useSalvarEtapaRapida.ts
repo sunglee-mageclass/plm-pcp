@@ -54,7 +54,8 @@ export function useSalvarEtapaRapida() {
       const { error } = await supabase.rpc("salvar_terceirizados" as any, {
         _cad_id: card.cadId,
         _blocos,
-        // A RPC grava `cad.observacoes_molde` incondicionalmente: repassa o valor lido agora (null apagaria a observação).
+        // Com a Camada C1 o servidor NÃO grava a observação (`_molde_tocado: false` no `_rev_base`); o valor relido agora vai só
+        // para o banco sem a C1, que grava sempre (null apagaria a observação).
         _observacoes_molde:
           (cadRow as { observacoes_molde: string | null } | null)?.observacoes_molde ?? null,
         _rev_base,
