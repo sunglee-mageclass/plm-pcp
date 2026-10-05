@@ -4,6 +4,9 @@
 -- (outra frente mexeu). Ja removido = nada a fazer (sem trava).
 -- Trava: DROP INDEX = AccessExclusive em public.integracao_linhas (e no proprio indice) por um instante, ate o COMMIT: bloqueia
 -- leitura e escrita da tabela do espelho (tela Integracao, API, Gerar JSON) por milissegundos. Nada em auth/storage/realtime.
+-- PIOR CASO = ~1,5 s de FILA: enquanto o DROP ESPERA o AccessExclusive (qualquer leitura/escrita em voo), ate as LEITURAS novas
+-- (tela, API) entram na fila atras dele por ate 1500ms (lock_timeout). HORARIO CALMO.
+-- Tambem e a saida para um indice homonimo INVALIDO com a mesma definicao (ver o cabecalho da ida): rodar este e reaplicar a ida.
 -- Em ate 1500ms (lock_timeout); 55P03/40P01 = nada mudou, rodar de novo.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 SET client_encoding = 'UTF8';

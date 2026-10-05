@@ -84,6 +84,17 @@ async function semIndice(c: Client): Promise<void> {
   if ((await defVivo(c)) !== null) expect(await aplica(c, DROP)).toBe("PASSOU");
   expect(await defVivo(c)).toBeNull();
 }
+/** O índice está aplicado de VERDADE na cópia? (2ª sessão: só vê o que foi commitado.) */
+async function indiceNaCopia(): Promise<boolean> {
+  const b = new Client({ connectionString: dbUrl()!, ssl: false });
+  await b.connect();
+  try {
+    return (await b.query(`SELECT to_regclass('public.${IDX}') IS NOT NULL AS v`)).rows[0]
+      .v as boolean;
+  } finally {
+    await b.end();
+  }
+}
 async function marcar(c: Client, id: string): Promise<unknown> {
   const a = (
     await um<{ r: { produtos: ProdutoLido[] } }>(
@@ -337,8 +348,14 @@ describe.skipIf(!RODA)("Backend B4 — índice único parcial integracao_linhas_
     await withTx(async (c) => {
       await c.query("SET LOCAL statement_timeout = '180s'");
       // SEM aplicaBk("B4") antes: a ida tem de ser a 1ª coisa da txn a tocar integracao_linhas (senão o ShareLock já estaria
-      // seguro e não apareceria como novo). Cópia com o índice (ou BK_TXN=1) = _down_drop antes (AccessExclusive já seguro).
-      if ((await defVivo(c)) !== null) await semIndice(c);
+      // seguro e não apareceria como novo). Fix round 1 (review m1): índice já vivo na txn (cópia com a B4) = RENOMEIA o índice
+      // (ALTER INDEX … RENAME trava SÓ o próprio índice, nada na tabela) para a ida achar o nome livre e seguir o caminho de
+      // CRIAÇÃO — sem o _down_drop (AccessExclusive na tabela antes da medição, que esconderia uma regressão). A única exceção é
+      // BK_TXN=1 numa cópia SEM a B4: o gancho já criou o índice no começo da txn (ShareLock já seguro); aí a medição fica parcial.
+      const naCopia = await indiceNaCopia();
+      if ((await defVivo(c)) !== null)
+        await c.query(`ALTER INDEX public.${IDX} RENAME TO _bk4_sonda_original`);
+      expect(await defVivo(c)).toBeNull();
       const pid = (await um<{ p: number }>(c, "SELECT pg_backend_pid() AS p")).p;
       // Travas vistas de FORA (2ª sessão), por OID; o nome é resolvido NESTA txn (o índice novo é invisível à 2ª sessão até o COMMIT).
       type Trava = { oid: number; mode: string };
@@ -391,6 +408,10 @@ describe.skipIf(!RODA)("Backend B4 — índice único parcial integracao_linhas_
       // em public: ShareLock na tabela do espelho + AccessExclusive no PRÓPRIO índice novo (invisível aos outros até o COMMIT)
       const fortes = ver.filter((x) => x.startsWith("public.") && !x.endsWith("|AccessShareLock"));
       const esperado = [`public.${IDX}|AccessExclusiveLock`, "public.integracao_linhas|ShareLock"];
+      // medição ESTRITA em todo estado exceto BK_TXN=1 numa cópia sem a B4 (o gancho já segurou a tabela): ShareLock na tabela +
+      // AccessExclusive SÓ no índice novo, nada mais acima de AccessShare
+      const parcial = process.env.BK_TXN === "1" && !naCopia;
+      if (!parcial) expect(tabelaJaTravada).toBe(false);
       if (tabelaJaTravada) expect(esperado).toEqual(expect.arrayContaining(fortes));
       else expect(fortes).toEqual(esperado);
       expect(ver.filter((x) => x.endsWith("|AccessExclusiveLock"))).toEqual([
@@ -464,11 +485,16 @@ describe.skipIf(!RODA)("Backend B4 — índice único parcial integracao_linhas_
         .rows[0].v as boolean;
       await s.query("BEGIN");
       await s.query("SET LOCAL lock_timeout = '2s'");
-      // ida (só dá para provar com a cópia SEM o índice): um integracao_marcar em voo = RowExclusive, que conflita com o ShareLock
-      if (!naCopia && process.env.BK_TXN !== "1") {
+      // ida: um integracao_marcar em voo = RowExclusive, que conflita com o ShareLock da ida. Fix round 1 (review m2b): roda
+      // também com a cópia JÁ com o índice — a txn RENOMEIA o índice vivo (trava só o índice, não a tabela, então não espera a 2ª
+      // sessão) e a ida segue o caminho de criação. Única exceção: BK_TXN=1 numa cópia SEM a B4 (o gancho criaria o índice no
+      // começo da txn e esperaria a 2ª sessão). A prova original deste caminho veio da rodada antes da aplicação na cópia
+      // (relatório: 1516 ms); desde o fix round 1 ela roda nos 2 estados.
+      if (naCopia || process.env.BK_TXN !== "1") {
         await s.query("LOCK TABLE public.integracao_linhas IN ROW EXCLUSIVE MODE");
         await withTx(async (c) => {
           await c.query("SET LOCAL statement_timeout = '60s'");
+          if (naCopia) await c.query(`ALTER INDEX public.${IDX} RENAME TO _bk4_sonda_original`);
           expect(await defVivo(c)).toBeNull();
           const t0 = performance.now();
           const r = await aplica(c, MIG);
@@ -476,7 +502,7 @@ describe.skipIf(!RODA)("Backend B4 — índice único parcial integracao_linhas_
           console.log(`[B4 lock_timeout] ida desistiu em ${ms.toFixed(0)} ms: ${r}`);
           expect(r).toMatch(/^55P03 /);
           expect(ms).toBeGreaterThan(1400);
-          expect(ms).toBeLessThan(5000);
+          expect(ms).toBeLessThan(2500); // < 3s do fallback do teste: é o lock_timeout 1500ms do ARQUIVO
           expect(await defVivo(c)).toBeNull();
         });
         await s.query("ROLLBACK");
@@ -495,7 +521,7 @@ describe.skipIf(!RODA)("Backend B4 — índice único parcial integracao_linhas_
         console.log(`[B4 lock_timeout] _down_drop desistiu em ${ms.toFixed(0)} ms: ${r}`);
         expect(r).toMatch(/^55P03 /);
         expect(ms).toBeGreaterThan(1400);
-        expect(ms).toBeLessThan(5000);
+        expect(ms).toBeLessThan(2500); // < 3s do fallback do teste: é o lock_timeout 1500ms do ARQUIVO
         expect(await defVivo(c)).toBe(DEF);
       });
     } finally {

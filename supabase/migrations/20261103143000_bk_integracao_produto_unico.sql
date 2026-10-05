@@ -18,7 +18,12 @@
 -- Trava: LOCK TABLE ... IN SHARE MODE (a MESMA que o CREATE INDEX pega; tomada antes da contagem para a guarda e o indice verem
 -- o mesmo dado - fecha a corrida com um integracao_marcar em voo) = ShareLock SO em public.integracao_linhas: bloqueia ESCRITA
 -- nela (marcar/voltar/desfazer/confirmar da API e do Gerar JSON) por milissegundos (tabela pequena), ate o COMMIT; leitura segue.
+-- PIOR CASO = ~1,5 s de FILA: enquanto a ida ESPERA o ShareLock (uma escrita em voo), as escritas NOVAS nessa tabela entram na
+-- fila atras dela por ate 1500ms (lock_timeout); a leitura nunca espera. HORARIO CALMO.
 -- Nada em auth/storage/realtime; nenhuma policy/gatilho/funcao. Em ate 1500ms (lock_timeout); 55P03/40P01 = nada mudou, rodar de novo.
+-- Caso raro (B4 review m4): indice com este nome e a MESMA definicao mas INVALIDO (so um CREATE INDEX CONCURRENTLY interrompido
+-- deixa assim; nenhum arquivo daqui usa) -> a ida da NOTICE "ja existe" e cai no bk4_pos ("indice ausente ou invalido"), e rodar
+-- de novo da o mesmo. Saida: rodar o _down_drop (remove o invalido: mesma definicao) e reaplicar a ida.
 -- Volta: supabase/rollback/20261103143000_bk_integracao_produto_unico_down.sql (no-op documentado: o indice fica, inerte);
 -- remover = supabase/rollback/20261103143000_bk_integracao_produto_unico_down_drop.sql (opcional, depois, LIFO).
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
