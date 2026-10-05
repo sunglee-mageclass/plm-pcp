@@ -58,7 +58,7 @@ export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
       },
       "public.excluir_cad(uuid)": {
         "antes": "ba41974bab8c81cd2729da7f440dcef3",
-        "depois": "51b6833cb1887703c1bf6aa459524f64"
+        "depois": "a1e9336258c76ca1fc266c6313dcba4f"
       }
     },
     "URGB_ACL": {

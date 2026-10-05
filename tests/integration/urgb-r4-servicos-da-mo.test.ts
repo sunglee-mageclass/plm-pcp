@@ -27,6 +27,12 @@ const LOCKS_EXCLUIR =
   "  -- [urg r4b] mesma ordem de trava do envio/aprovar/Salvar do PCP: chave do card -> chave do CAD -> linhas\n" +
   "  PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || v_modelo::text));\n" +
   "  PERFORM pg_advisory_xact_lock(hashtext(_cad_id::text));\n";
+// fix round 4 (follow-up): depois das chaves, o excluir_cad RELÊ o CAD (com FOR UPDATE) e decide pelo valor fresco
+const RELE_EXCLUIR =
+  "  -- [urg r4b] rele o CAD DEPOIS das chaves (e trava a linha): quem chegou antes (envio ao corte, outra exclusao) ja commitou\n" +
+  "  SELECT tenant_id, modelo_id, COALESCE(enviado_corte, false)\n" +
+  "    INTO v_tenant, v_modelo, v_enviado FROM public.cad WHERE id = _cad_id FOR UPDATE;\n" +
+  "  IF v_modelo IS NULL THEN RAISE EXCEPTION 'CAD não encontrado'; END IF;\n";
 const bloco = () => URGB_MIGS.find((x) => x.id === "r4b")?.b;
 
 type Res = { ok: true; rows: any[] } | { ok: false; code: string; msg: string };
@@ -1002,6 +1008,67 @@ describe.skipIf(!RODA)("urg R4b — fix round 2: aprovar e Salvar da M.O. × env
       expect(codigo((await Promise.allSettled([pb]))[0])).toBe("ok");
     } finally {
       await fecha(a, b);
+    }
+  }, 60000);
+
+  it("B-r follow-up: excluir_cad espera a chave; quem a segurava marca o CAD como enviado ao corte e COMMITA → o excluir RECUSA (texto da fix round 3 apagaria)", async (ctx) => {
+    if (!(await r4bVivaNaCopia())) ctx.skip();
+    // Este caso PRECISA de um COMMIT de outra conexão (é a visibilidade do valor fresco que se prova). Para não mexer em dado da
+    // cópia: card + CAD DESCARTÁVEIS criados e apagados por uma 3ª conexão com session_replication_role = replica (sem gatilho:
+    // nem auditoria, nem fila, nem cascata) — o UPDATE de B também roda em replica. Nada mais é gravado.
+    const s = new Client({ connectionString: dbUrl()!, ssl: false });
+    await s.connect();
+    const ids: { m?: string; cad?: string } = {};
+    try {
+      await s.query("SET session_replication_role = replica");
+      const suf = Math.random().toString(36).slice(2, 8);
+      ids.m = (
+        await um<{ id: string }>(
+          s,
+          "INSERT INTO public.modelos (tenant_id, nome, ordem_criacao_enviada) VALUES ($1, $2, true) RETURNING id",
+          [T, `R4b round4 descartavel ${suf}`],
+        )
+      ).id;
+      ids.cad = (
+        await um<{ id: string }>(s, "INSERT INTO public.cad (modelo_id, tenant_id, enviado_corte) VALUES ($1, $2, false) RETURNING id", [ids.m, T])
+      ).id;
+      const rodada = async (antiga: boolean) => {
+        const a = await abre();
+        const b = new Client({ connectionString: dbUrl()!, ssl: false });
+        await b.connect();
+        try {
+          if (antiga) await semTrecho(a, EXCLUIR_CAD, RELE_EXCLUIR);
+          await b.query("BEGIN");
+          await b.query("SET LOCAL session_replication_role = replica");
+          // B = quem chegou antes (ex.: envio ao corte): segura as chaves e marca o CAD
+          await b.query("SELECT pg_advisory_xact_lock(hashtext('cad:modelo_id:' || $1::text))", [ids.m]);
+          await b.query("SELECT pg_advisory_xact_lock(hashtext($1::text))", [ids.cad]);
+          await b.query("UPDATE public.cad SET enviado_corte = true WHERE id = $1", [ids.cad]);
+          const pa = a.query("SELECT public.excluir_cad($1)", [ids.cad]);
+          pa.catch(() => {});
+          const esperou = await esperaAdvisory(b, await pid(a));
+          await b.query("COMMIT");
+          const ra = (await Promise.allSettled([pa]))[0];
+          const msg = ra.status === "rejected" ? String((ra.reason as Error).message) : "ok";
+          await a.query("ROLLBACK").catch(() => {});
+          // volta o CAD a "não enviado" para a próxima rodada (replica, sem gatilho)
+          await s.query("UPDATE public.cad SET enviado_corte = false WHERE id = $1", [ids.cad]);
+          return { esperou, msg };
+        } finally {
+          await fecha(a);
+          await b.query("ROLLBACK").catch(() => {});
+          await b.end();
+        }
+      };
+      const velho = await rodada(true);
+      expect(velho).toEqual({ esperou: true, msg: "ok" }); // decidiu pelo valor lido ANTES da espera: apagaria um CAD já cortado
+      const novo = await rodada(false);
+      expect(novo.esperou).toBe(true);
+      expect(novo.msg).toMatch(/já foi enviado ao corte/);
+    } finally {
+      if (ids.cad) await s.query("DELETE FROM public.cad WHERE id = $1", [ids.cad]).catch(() => {});
+      if (ids.m) await s.query("DELETE FROM public.modelos WHERE id = $1", [ids.m]).catch(() => {});
+      await s.end();
     }
   }, 60000);
 

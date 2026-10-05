@@ -15,7 +15,7 @@
 --     DEPOIS 1a4c045651694a64c3a99de522b7be53
 --   public.excluir_cad(uuid)
 --     ANTES  ba41974bab8c81cd2729da7f440dcef3
---     DEPOIS 51b6833cb1887703c1bf6aa459524f64
+--     DEPOIS a1e9336258c76ca1fc266c6313dcba4f
 --   public._servicos_da_mo_criar(uuid,uuid) (NOVA)
 --     ANTES  ausente
 --     DEPOIS 9a54575d8595b31d3e89974e23689ecb
@@ -38,7 +38,7 @@ BEGIN
       ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', '6c5fc00819b4211eb08d20a1d271c9b2'),
       ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '2ff506f1a250d7f4f79e08fc07c640eb'),
       ('public._salvar_modelo_servico_mo_core(uuid,jsonb)', '4d13d632ae2c5b931632e93536ae2ddd', '1a4c045651694a64c3a99de522b7be53'),
-      ('public.excluir_cad(uuid)', 'ba41974bab8c81cd2729da7f440dcef3', '51b6833cb1887703c1bf6aa459524f64')
+      ('public.excluir_cad(uuid)', 'ba41974bab8c81cd2729da7f440dcef3', 'a1e9336258c76ca1fc266c6313dcba4f')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.a, r.b) THEN

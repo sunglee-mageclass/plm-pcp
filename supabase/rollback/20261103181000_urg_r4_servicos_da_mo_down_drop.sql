@@ -18,7 +18,7 @@
 --     DEPOIS 1a4c045651694a64c3a99de522b7be53
 --   public.excluir_cad(uuid)
 --     ANTES  ba41974bab8c81cd2729da7f440dcef3
---     DEPOIS 51b6833cb1887703c1bf6aa459524f64
+--     DEPOIS a1e9336258c76ca1fc266c6313dcba4f
 --   public._servicos_da_mo_criar(uuid,uuid) (NOVA)
 --     ANTES  ausente
 --     DEPOIS 9a54575d8595b31d3e89974e23689ecb

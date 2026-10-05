@@ -22,6 +22,7 @@
 --      Fix round 3: _salvar_modelo_servico_mo_core (ANTES = r4a) pega a chave do card antes das linhas (Salvar da M.O. x envio
 --      x aprovar); excluir_cad (wrapper, ACL com authenticated) pega a chave do card e a do CAD antes do DELETE. Ordem unica:
 --      chave do card -> chave do CAD -> cad -> linhas de M.O. -> blocos -> modelos.
+--      Fix round 4: depois das chaves o excluir_cad rele o CAD com FOR UPDATE e decide (corte, existencia) pelo valor fresco.
 -- ACL, SECURITY e search_path das 2 redefinidas ficam iguais (CREATE OR REPLACE preserva; pos-condicao confere).
 -- Nenhum dado existente muda (blocos so nascem no proximo Enviar a Explosao de CAD sem blocos).
 -- Trava: ADD COLUMN ... REFERENCES = AccessExclusiveLock em producao_terceirizados + ShareRowExclusiveLock em
@@ -43,7 +44,7 @@
 --     DEPOIS 1a4c045651694a64c3a99de522b7be53
 --   public.excluir_cad(uuid)
 --     ANTES  ba41974bab8c81cd2729da7f440dcef3
---     DEPOIS 51b6833cb1887703c1bf6aa459524f64
+--     DEPOIS a1e9336258c76ca1fc266c6313dcba4f
 --   public._servicos_da_mo_criar(uuid,uuid) (NOVA)
 --     ANTES  ausente
 --     DEPOIS 9a54575d8595b31d3e89974e23689ecb
@@ -71,7 +72,7 @@ BEGIN
       ('public._enviar_modelo_para_cad_core(uuid,text,text)', 'bf28796bcd86538a3a5b516e9cf356c6', '6c5fc00819b4211eb08d20a1d271c9b2'),
       ('public._aprovar_servico_mo_core(uuid,uuid,boolean,text)', '859dd63992e86cc75b7abeab41dee954', '2ff506f1a250d7f4f79e08fc07c640eb'),
       ('public._salvar_modelo_servico_mo_core(uuid,jsonb)', '4d13d632ae2c5b931632e93536ae2ddd', '1a4c045651694a64c3a99de522b7be53'),
-      ('public.excluir_cad(uuid)', 'ba41974bab8c81cd2729da7f440dcef3', '51b6833cb1887703c1bf6aa459524f64')
+      ('public.excluir_cad(uuid)', 'ba41974bab8c81cd2729da7f440dcef3', 'a1e9336258c76ca1fc266c6313dcba4f')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.a, r.b) THEN
@@ -458,6 +459,10 @@ BEGIN
   -- [urg r4b] mesma ordem de trava do envio/aprovar/Salvar do PCP: chave do card -> chave do CAD -> linhas
   PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || v_modelo::text));
   PERFORM pg_advisory_xact_lock(hashtext(_cad_id::text));
+  -- [urg r4b] rele o CAD DEPOIS das chaves (e trava a linha): quem chegou antes (envio ao corte, outra exclusao) ja commitou
+  SELECT tenant_id, modelo_id, COALESCE(enviado_corte, false)
+    INTO v_tenant, v_modelo, v_enviado FROM public.cad WHERE id = _cad_id FOR UPDATE;
+  IF v_modelo IS NULL THEN RAISE EXCEPTION 'CAD não encontrado'; END IF;
   IF v_enviado THEN
     RAISE EXCEPTION 'Este CAD já foi enviado ao corte (baixou estoque). Reverta o corte antes de excluir.';
   END IF;
@@ -534,7 +539,7 @@ BEGIN
     END IF;
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
-      ('public.excluir_cad(uuid)', '51b6833cb1887703c1bf6aa459524f64', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}')
+      ('public.excluir_cad(uuid)', 'a1e9336258c76ca1fc266c6313dcba4f', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}')
     ) AS x(f, m, acl) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.m THEN
