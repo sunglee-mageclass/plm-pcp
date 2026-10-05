@@ -581,7 +581,11 @@ describe.skipIf(!hasDb)("Produto Acabado — excluir_produto_acabado (Task 6 fix
   it("produto inexistente → erro (não encontrado)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      await expect(c.query(`select excluir_produto_acabado('00000000-0000-0000-0000-000000000000'::uuid)`)).rejects.toThrow(/não encontrado/);
+      // Backend B3 (20261103147000): P0002 em ASCII `nao_encontrado: produto` (antes: "Produto não encontrado.").
+      await expect(c.query(`select excluir_produto_acabado('00000000-0000-0000-0000-000000000000'::uuid)`)).rejects.toMatchObject({
+        code: "P0002",
+        message: expect.stringMatching(/^(Produto não encontrado\.|nao_encontrado: produto)$/),
+      });
     });
   });
 });

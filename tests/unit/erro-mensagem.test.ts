@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "../../src/lib/categoria-card-produto";
-import { mensagemErro } from "../../src/lib/erro-mensagem";
+import {
+  mensagemBackend,
+  mensagemErro,
+  PREFIXO_NAO_ENCONTRADO,
+  TEXTO_NAO_ENCONTRADO_GENERICO,
+  TEXTOS_NAO_ENCONTRADO,
+} from "../../src/lib/erro-mensagem";
+import { BK3_MSG } from "../integration/bk-3-dados";
 
 describe("mensagemErro", () => {
   it("P0409 (conflito de versão) vira mensagem PT amigável", () => {
@@ -119,5 +126,36 @@ describe("mensagemErro — recusas esperadas do P-137 não vão pro console como
     mensagemErro(new Error("boom"), "fb");
     expect(s).toHaveBeenCalledTimes(1);
     s.mockRestore();
+  });
+});
+
+// Frente Backend B3 (20261103147000): os 11 RAISE … P0002 "não encontrado" vêm em ASCII `nao_encontrado: <entidade>` (o
+// PostgREST devolve P0002 como 500; com acento o code sumia). A tela traduz pelo prefixo, só para code P0002.
+describe("mensagemErro — P0002 nao_encontrado: (Backend B3)", () => {
+  it("cada entidade vira o texto PT próprio", () => {
+    for (const [ent, texto] of Object.entries(TEXTOS_NAO_ENCONTRADO))
+      expect(mensagemErro({ code: "P0002", message: `nao_encontrado: ${ent}` }, "fb")).toBe(texto);
+    expect(mensagemErro({ code: "P0002", message: "nao_encontrado: oc" }, "fb")).toMatch(/Esta OC não existe mais/);
+    expect(mensagemErro({ code: "P0002", message: "nao_encontrado: modelo" }, "fb")).toMatch(/Este card não existe mais/);
+  });
+  it("as mensagens que a migration grava (bk-3-dados) têm TODAS tradução específica (anti-drift)", () => {
+    const novas = new Set(Object.values(BK3_MSG).map((m) => m.depois));
+    expect(novas.size).toBe(5);
+    for (const m of novas) {
+      expect(m.startsWith(PREFIXO_NAO_ENCONTRADO), m).toBe(true);
+      const ent = m.slice(PREFIXO_NAO_ENCONTRADO.length).trim();
+      expect(TEXTOS_NAO_ENCONTRADO[ent], m).toBeTruthy();
+      expect(mensagemBackend("P0002", m)).toBe(TEXTOS_NAO_ENCONTRADO[ent]);
+    }
+  });
+  it("entidade desconhecida → texto genérico; outro code com o mesmo prefixo não é traduzido aqui", () => {
+    expect(mensagemErro({ code: "P0002", message: "nao_encontrado: xyz" }, "fb")).toBe(TEXTO_NAO_ENCONTRADO_GENERICO);
+    expect(mensagemErro({ code: "P0002", message: "nao_encontrado: constructor" }, "fb")).toBe(TEXTO_NAO_ENCONTRADO_GENERICO);
+    expect(mensagemBackend("P0001", "nao_encontrado: oc")).toBeNull();
+    // P0001 de outras frentes com prefixo parecido seguem as traduções delas
+    expect(mensagemErro({ code: "P0001", message: "oc_nao_encontrada: x" }, "fb")).toMatch(/A OC desta parcela/);
+  });
+  it("banco ainda sem a B3 (texto PT acentuado com P0002) continua passando direto", () => {
+    expect(mensagemErro({ code: "P0002", message: "OC não encontrada." }, "fb")).toBe("OC não encontrada.");
   });
 });

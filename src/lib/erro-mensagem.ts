@@ -337,7 +337,26 @@ export const TEXTO_LANCADO_PROTEGIDO = "O lançamento só muda pelo botão Lanç
 //   espelho da Integração (a API exige exatamente 1). Nenhum caminho da tela grava isso hoje; se um dia vier, o texto diz o quê.
 export const TEXTO_INTEGRACAO_PRODUTO_DUPLICADO =
   "Este produto já tem a linha de produto no espelho da Integração (só pode haver 1 por card). Recarregue a tela e confira o estado do produto.";
+// - P0002 `nao_encontrado: <entidade>` (B3, 20261103147000): o registro sumiu entre abrir a tela e agir (outra pessoa excluiu).
+//   O PostgREST devolve P0002 como HTTP 500 — por isso a mensagem do banco é ASCII (com acento o 500 vira "Something went wrong"
+//   e o code some); o texto PT mora aqui. Só para `code === "P0002"` (não colide com `oc_nao_encontrada:`/`cad_nao_encontrado:`,
+//   que são P0001). Entidade desconhecida → texto genérico.
+export const PREFIXO_NAO_ENCONTRADO = "nao_encontrado:";
+export const TEXTOS_NAO_ENCONTRADO: Record<string, string> = {
+  oc: "Esta OC não existe mais (outra pessoa pode tê-la excluído). Recarregue a tela.",
+  produto: "Este produto não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.",
+  modelo: "Este card não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.",
+  config_loja: "A configuração da loja não foi encontrada. Recarregue a tela.",
+  lote_kanban: "Este lote de colunas do Kanban não existe mais. Recarregue a tela.",
+};
+export const TEXTO_NAO_ENCONTRADO_GENERICO = "Este registro não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.";
 export function mensagemBackend(code: string, msg: string): string | null {
+  if (code === "P0002" && msg.startsWith(PREFIXO_NAO_ENCONTRADO)) {
+    const ent = msg.slice(PREFIXO_NAO_ENCONTRADO.length).trim().split(/\s/)[0] ?? "";
+    return Object.prototype.hasOwnProperty.call(TEXTOS_NAO_ENCONTRADO, ent)
+      ? TEXTOS_NAO_ENCONTRADO[ent]
+      : TEXTO_NAO_ENCONTRADO_GENERICO;
+  }
   if (code === "42501" && msg.startsWith("lancado_protegido:")) return TEXTO_LANCADO_PROTEGIDO;
   if (code === "23505" && msg.includes("integracao_linhas_produto_unico"))
     return TEXTO_INTEGRACAO_PRODUTO_DUPLICADO;
@@ -466,7 +485,8 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   const segS3 = mensagemSegS3(code, msg);
   if (segS3) return segS3;
 
-  // Frente Backend: prefixos ASCII das guardas novas (B1 lancado_protegido) e o índice único da Integração (B4) → texto PT.
+  // Frente Backend: prefixos ASCII das guardas novas (B1 lancado_protegido), o índice único da Integração (B4) e o
+  // "não encontrado" P0002 (B3 nao_encontrado:) → texto PT.
   const backend = mensagemBackend(code, msg);
   if (backend) return backend;
 

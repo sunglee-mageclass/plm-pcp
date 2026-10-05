@@ -18,6 +18,7 @@ import {
 } from "./db";
 import { aplicarArquivo } from "./mig-txn";
 import { aplicaMod, voltaMod, modViva, MOD_MIGS } from "./mod-helpers";
+import { voltaBkSePreciso } from "./bk-helpers";
 import {
   MOD_MD5,
   MOD3_ACL,
@@ -746,6 +747,9 @@ describe.skipIf(!RODA)(
       await withTx(async (c) => {
         await c.query("SET LOCAL statement_timeout = '180s'");
         await comT3(c);
+        // LIFO: o Backend (por cima da Modularidade) sai antes dos _down antigos — a B3 (20261103147000) redefine
+        // voltar_modelo_desenvolvimento, que o _down da T1 guarda por md5.
+        await voltaBkSePreciso(c);
         await aplicarArquivo(c, MOD2_DOWN);
         await aplicarArquivo(c, MOD1_DOWN);
         await expect(aplicarArquivo(c, MOD1_DOWN_DROP)).rejects.toThrow(
