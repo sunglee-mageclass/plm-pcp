@@ -14,24 +14,36 @@ import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { EnderecoPopover, RoloEnderecoPopover } from "@/components/tecido/EnderecoEditor";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoAjustarQtdRolo, textoCancelarRolo, textoReabrirRolo } from "@/lib/confirmacoes-textos";
 import { fmtMoney, labelVariante, metragemPedidaItem, precoItem, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
 
 // Quantidade EDITÁVEL de um rolo já criado: controlado (mostra o valor salvo) e só
-// dispara o ajuste (RPC) no blur se mudou.
-function RoloQtyInput({ value, disabled, onCommit }: { value: string; disabled?: boolean; onCommit: (nq: number) => void }) {
+// dispara o ajuste (RPC) no blur se mudou. [camada C2 · P-263 A / 1.11] Ajustar a quantidade recalcula o estoque do lote
+// de origem e o valor da OC: antes de chamar o ajuste, abre o "Tem certeza?"; Cancelar devolve o campo ao valor salvo.
+function RoloQtyInput({ value, disabled, codigo, unidade, onCommit }: { value: string; disabled?: boolean; codigo?: string | null; unidade?: string | null; onCommit: (nq: number) => void }) {
   const [v, setV] = useState(value);
+  const { pedir, dialog } = useConfirmacao();
   useEffect(() => { setV(value); }, [value]);
   return (
-    <NumberInput type="number" step="0.01" className="h-9 w-24"
-      value={v}
-      disabled={disabled}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => {
-        const nq = Number(String(v).replace(",", "."));
-        const orig = Number(String(value).replace(",", "."));
-        if (nq > 0 && nq !== orig) onCommit(nq);
-        else setV(value);
-      }} />
+    <>
+      <NumberInput type="number" step="0.01" className="h-9 w-24"
+        value={v}
+        disabled={disabled}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => {
+          const nq = Number(String(v).replace(",", "."));
+          const orig = Number(String(value).replace(",", "."));
+          if (nq > 0 && nq !== orig) {
+            pedir({
+              ...textoAjustarQtdRolo({ codigo, qtdAtual: value, qtdNova: nq, unidade }),
+              onConfirmar: () => onCommit(nq),
+              onCancelar: () => setV(value),
+            });
+          } else setV(value);
+        }} />
+      {dialog}
+    </>
   );
 }
 
@@ -39,7 +51,7 @@ export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
   totalPrevisto, totalReal, dataPrevista, dataEntrega, status, readOnly = false,
   toggleCancelado, canCancel,
-  modoRolo = false, rolos = {}, setRolos, onRoloCq, onRoloCancelar, onRoloAjuste,
+  modoRolo = false, rolos = {}, setRolos, onRoloCq, onRoloCancelar, onRoloAjuste, ocNumero,
 }: {
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
@@ -60,10 +72,14 @@ export function OcTecidoCalculos({
   onRoloCq?: (roloItemId: string, patch: { cq_ok?: boolean; cq_alerta?: boolean; obs?: string }) => void;
   onRoloCancelar?: (roloId: string, cancel: boolean) => void;
   onRoloAjuste?: (roloId: string, novaQtd: number) => void;
+  /** Nº do pedido da OC (só para os textos de confirmação dos rolos; sem ele a frase fica sem "da OC …"). */
+  ocNumero?: string | null;
 }) {
   // Endereçar é uma ação SEMPRE permitida (gate só de permissão da página), independente do
   // travamento pós-recebimento (readOnly/isReadOnlyRecebimento, que trava só a qtd recebida).
   const enderecoReadOnly = useReadOnly();
+  // [camada C2 · P-263 A / 1.9–1.10] Cancelar/Reabrir rolo: "Tem certeza?" antes; a caixa só muda depois de confirmar.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
 
   // Atualiza os rolos de um item e reflete a SOMA no quantidade_recebida.
   const aplicarRolos = (tempId: string, novos: RoloEntry[]) => {
@@ -165,6 +181,8 @@ export function OcTecidoCalculos({
                                 key={`q-${entry.roloId}`}
                                 value={entry.qtd}
                                 disabled={!!entry.cancelado || !!entry.usado}
+                                codigo={entry.codigo}
+                                unidade={sufixo}
                                 onCommit={(nq) => onRoloAjuste(entry.roloId!, nq)} />
                             ) : (
                               <NumberInput type="number" step="0.01" className="h-9 w-24"
@@ -202,7 +220,14 @@ export function OcTecidoCalculos({
                               </label>
                               {entry.roloId && onRoloCancelar && (
                                 <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                  <Checkbox checked={!!entry.cancelado} disabled={!!entry.usado} onCheckedChange={(v) => onRoloCancelar(entry.roloId!, v === true)} />
+                                  <Checkbox checked={!!entry.cancelado} disabled={!!entry.usado} onCheckedChange={(c) => {
+                                    const cancelar = c === true;
+                                    const dados = { codigo: entry.codigo, variante: labelVariante(v), numeroOc: ocNumero };
+                                    pedirConfirmacao({
+                                      ...(cancelar ? textoCancelarRolo(dados) : textoReabrirRolo(dados)),
+                                      onConfirmar: () => onRoloCancelar(entry.roloId!, cancelar),
+                                    });
+                                  }} />
                                   Cancelar rolo
                                 </label>
                               )}
@@ -271,6 +296,7 @@ export function OcTecidoCalculos({
         <div>Total Real: <b className="tabular-nums whitespace-nowrap">{fmtMoney(totalReal)}</b></div>
         <OcPrazoBadge dataPrevista={dataPrevista} dataEntrega={dataEntrega} status={status} />
       </div>
+      {dialogConfirmacao}
     </Card>
   );
 }

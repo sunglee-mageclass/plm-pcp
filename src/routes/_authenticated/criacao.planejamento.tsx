@@ -65,6 +65,8 @@ import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
 import { TEXTO_PRECO_TRAVADO, colunasTravadas, invalidarEstadoSeTravado, textoExcluirTravado } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoCancelarLancamento } from "@/lib/confirmacoes-textos";
 // Detalhe do card + campos compartilhados extraídos (refactor 2026-08-25).
 import { PlanejamentoDetail, FieldText, FieldSelect } from "@/components/planejamento/PlanejamentoDetail";
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
@@ -274,6 +276,8 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao lançar")),
   });
+  // [camada C2 · P-263 A] CANCELAR o lançamento (foguete verde do card) desfaz: pede "Tem certeza?" antes. Lançar segue direto.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
   // Preço de venda editável DIRETO no card (novo desenho tabulado, set/2026). Update pontual em
   // `modelos.preco_venda` (molde do `bulkMoverMix`/`lancarCard`: RLS tenant-scope; o gate de
   // permissão é o trigger `fn_modelo_preco_venda_gate`, que exige criacao_planejamento:preco_venda).
@@ -767,7 +771,13 @@ function PlanejamentoPage() {
         // `m.id` (senão aprovar num card deixaria botões de OUTROS cards desabilitados à toa).
         pendingLinhaMO={aprovarServicoMOLista.isPending && aprovarServicoMOLista.variables?.modeloId === m.id ? aprovarServicoMOLista.variables.linhaId : undefined}
         dataLancamento={(m as any).data_lancamento ?? null}
-        onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
+        onLancar={(data, send) => {
+          if (send) { lancarCard.mutate({ id: m.id, data, send }); return; }
+          pedirConfirmacao({
+            ...textoCancelarLancamento({ nome: m.nome, ref: (m as any).ref, dataLancamento: data ?? (m as any).data_lancamento }),
+            onConfirmar: () => lancarCard.mutate({ id: m.id, data, send }),
+          });
+        }}
         lancStatus={lancStatusDe(m)}
         cqExigido={cqExigido}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
@@ -1310,6 +1320,8 @@ function PlanejamentoPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {dialogConfirmacao}
 
       {/* Barra CONTEXTUAL: com seleção ativa, a barra de seleção (acima) substitui esta —
           duas barras fixed no rodapé se sobrepunham. */}

@@ -27,6 +27,9 @@ import { NfList } from "@/components/oc-tecido/NfList";
 import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { OcSecTitle } from "@/components/oc-tecido/OcTecidoForm";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoApagarTodosItensOc } from "@/lib/confirmacoes-textos";
+import { ehApagarTudoPendente, exigirConfirmacaoApagarTudo, MARCA_APAGAR_TUDO_ITENS_OC } from "@/lib/apagar-tudo";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
@@ -388,7 +391,7 @@ function OcInsumoPage() {
   );
 }
 
-function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
+export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   ocId: string | null; empresas: EmpresaFornecedor[]; etiquetas: EtqOpt[];
   onClose: () => void; onSaved: () => void; onDelete: () => void;
 }) {
@@ -786,6 +789,11 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
     return m;
   };
 
+  // [camada C2 · P-262 A] Remover TODOS os insumos e Salvar apaga os itens no servidor: antes pergunta "Apagar todos os N itens da OC …?"
+  // e só ao confirmar manda a marca explícita (`_oc._apagar_itens`; a trava da C1 recusa o Salvar vazio sem ela).
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
+  const apagarTudoRef = useRef(false);
+
   const save = useMutation({
     mutationFn: async (markReceived: boolean) => {
       // Guard SÍNCRONO contra salvar com conflito pendente (o `disabled={temConflito}` do botão é
@@ -841,14 +849,31 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
         data_nota_entrada: payloadDataNota(dataNota), // chave SEMPRE presente: "" limpa
         parcelas_recebimento: parcelas, status: finalStatus,
       };
+      // [camada C2 · P-262 A] payload vazio + o servidor TEM itens (os que seriam apagados) => exige a confirmação.
+      const apagarItens = exigirConfirmacaoApagarTudo({ nPayload: itens.length, nServidor: (ocQueryData?.its ?? []).length, confirmado: apagarTudoRef.current });
       const { error } = await supabase.rpc("salvar_oc_etiqueta" as any, {
-        _oc_id: isEdit ? ocId : null, _oc: payload, _itens: itens,
+        _oc_id: isEdit ? ocId : null, _oc: apagarItens ? { ...payload, [MARCA_APAGAR_TUDO_ITENS_OC]: true } : payload, _itens: itens,
         _rev_base: isEdit ? revRef.current : null, // P0409 se outra pessoa salvou no meio
       });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("OC salva"); markClean(); invalidarVencimentos(qc); onSaved(); },
-    onError: async (e: any) => {
+    onSuccess: () => { apagarTudoRef.current = false; toast.success("OC salva"); markClean(); invalidarVencimentos(qc); onSaved(); },
+    onError: async (e: any, markReceived: boolean) => {
+      // [camada C2 · P-262 A] Salvar iria esvaziar a OC: abre o "Apagar todos os N itens da OC …?". Cancelar não grava nada (os itens
+      // continuam removidos no rascunho); Confirmar salva de novo COM a marca.
+      if (ehApagarTudoPendente(e)) {
+        pedirConfirmacao({
+          ...textoApagarTodosItensOc({ familia: "insumo", n: e.n, numeroOc: draftLiveRef.current.numero_pedido }),
+          onConfirmar: () => {
+            if (savingRef.current) return;
+            apagarTudoRef.current = true;
+            savingRef.current = true;
+            save.mutate(markReceived, { onSettled: () => { savingRef.current = false; } });
+          },
+        });
+        return;
+      }
+      apagarTudoRef.current = false; // sem retry automático nesta tela: qualquer outra saída encerra a confirmação
       if (e?.code === "P0409") {
         // Alguém salvou no meio: recarrega o servidor e faz o merge 3-vias (mantém minhas edições,
         // sinaliza conflito onde EU e o servidor divergimos). O usuário resolve e salva de novo.
@@ -1147,6 +1172,8 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
         </div>
         <OcDocumentoPrint modelo={docModelo} />
     </OcModalShell>
+
+      {dialogConfirmacao}
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>
         <AlertDialogContent>

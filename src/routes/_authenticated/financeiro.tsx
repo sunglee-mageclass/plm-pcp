@@ -54,6 +54,8 @@ import { useSort, SortTh } from "@/components/shared/sort";
 import { VencimentoCell as VencimentoCellBase } from "@/components/financeiro/VencimentoCell";
 import { buscarTodas } from "@/lib/buscar-todas";
 import { aplicarOcCancelada, ocTecidoCancelada, podeDesmarcarPagamento, MOTIVO_NAO_DESMARCAR_OC_CANCELADA } from "@/lib/financeiro-oc-cancelada";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoDesmarcarPagoOc, textoDesmarcarPagoServico, textoRecalcularParcelas } from "@/lib/confirmacoes-textos";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { AlertTriangle } from "lucide-react";
@@ -233,7 +235,7 @@ function StatusFilterChips({ value, onChange }: { value: string; onChange: (v: s
 // que renderizam fora do subtree da página) e as células/botões das tabelas.
 // Default false = fail-closed. Corrige: (a) view-only conseguia gravar parcelas e
 // (b) editor só de `financeiro_resumo` (aba sem mutação) liberava escrita em Parcelas.
-const FinanceiroEditContext = createContext(false);
+export const FinanceiroEditContext = createContext(false);
 const usePodeEditarFinanceiro = () => useContext(FinanceiroEditContext);
 
 // F5c (P-112 A, 28/set): 1 aba = 1 permissão. Ordem fixa (a mesma da TabsList/SegmentedTabs) —
@@ -813,7 +815,7 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
   );
 }
 
-function ParcelaDetailDialog({
+export function ParcelaDetailDialog({
   parcela, onClose, onMarkPaid, onOpenOc, onVencimentoSaved, onAnexar,
 }: {
   parcela: Parcela | null;
@@ -933,6 +935,8 @@ function ParcelaDetailDialog({
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao recalcular")),
   });
+  // [camada C2 · P-263 A / 1.12] "Recalcular" deixa de usar o `confirm()` nativo do navegador: AlertDialog do sistema, mesmo texto aprovado.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao(recalcMut.isPending);
 
   if (!parcela) return null;
   const st = effectiveStatus(parcela, hoje);
@@ -1039,11 +1043,10 @@ function ParcelaDetailDialog({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                if (confirm("Recalcular parcelas desta OC? Parcelas pagas serão preservadas; as demais serão regeradas com os valores atuais.")) {
-                  recalcMut.mutate();
-                }
-              }}
+              onClick={() => pedirConfirmacao({
+                ...textoRecalcularParcelas({ tipoOc: parcela.tipo_oc, numeroOc: ocNumero }),
+                onConfirmar: () => recalcMut.mutate(),
+              })}
               disabled={recalcMut.isPending}
             >
               Recalcular
@@ -1071,6 +1074,7 @@ function ParcelaDetailDialog({
             <Button size="sm" onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
           ))}
         </DialogFooter>
+        {dialogConfirmacao}
         <AlertDialog open={confirmVoltarAuto} onOpenChange={setConfirmVoltarAuto}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -1147,9 +1151,31 @@ function parcelaOrigemLabel(p: Parcela): string {
 // marcar/desmarcar pago, abrir OC, comprovante). Compartilhada: popover do dia (desktop) e
 // sheet do dia (mobile).
 /** "Desmarcar pago" — desabilitado (com o porquê) na parcela PAGA de OC cancelada: desmarcar a faria sumir da lista. */
-function DesmarcarPagoBtn({ parcela, onClick, disabled, children }: { parcela: Parcela; onClick: () => void; disabled?: boolean; children: ReactNode }) {
+// [camada C2 · P-263 A / 1.7] Desmarcar o pagamento DESFAZ (a parcela volta a "a pagar" e a data some): "Tem certeza?" antes —
+// os 2 lugares (detalhe da parcela e linha da lista) passam por aqui; `onClick` só roda depois do "Desmarcar pagamento".
+export function DesmarcarPagoBtn({ parcela, onClick, disabled, children }: { parcela: Parcela; onClick: () => void; disabled?: boolean; children: ReactNode }) {
+  const { pedir, dialog } = useConfirmacao();
   if (podeDesmarcarPagamento(parcela)) {
-    return <Button size="sm" variant="destructive" onClick={onClick} disabled={disabled}>{children}</Button>;
+    const numeroOc = parcela.ocs_tecido?.numero_pedido ?? parcela.ocs_aviamento?.numero_pedido ?? parcela.ocs_etiqueta?.numero_pedido ?? parcela.ocs_p_acabado?.numero_pedido ?? parcela.ocs_importado?.numero_pedido ?? null;
+    return (
+      <>
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => pedir({
+            ...textoDesmarcarPagoOc({
+              numeroParcela: parcela.numero_parcela, valor: parcela.valor, tipoOc: parcela.tipo_oc, numeroOc, dataPagamento: parcela.data_pagamento,
+              formatarValor: brl,
+            }),
+            onConfirmar: onClick,
+          })}
+          disabled={disabled}
+        >
+          {children}
+        </Button>
+        {dialog}
+      </>
+    );
   }
   return (
     <UiTooltipProvider delayDuration={0}>
@@ -1162,6 +1188,33 @@ function DesmarcarPagoBtn({ parcela, onClick, disabled, children }: { parcela: P
         <UiTooltipContent>{MOTIVO_NAO_DESMARCAR_OC_CANCELADA}</UiTooltipContent>
       </UiTooltip>
     </UiTooltipProvider>
+  );
+}
+
+/** [camada C2 · P-263 A / 1.8] "Desmarcar pago" de parcela de SERVIÇO (linha da lista e detalhe): "Tem certeza?" antes; `onConfirmar` só roda depois. */
+export function DesmarcarPagoServicoBtn({ row, onConfirmar, disabled, children }: {
+  row: { numero_parcela?: number | null; servico?: string | null; ref?: string | null; valor_parcela?: number | string | null; data_pagamento?: string | null };
+  onConfirmar: () => void; disabled?: boolean; children: ReactNode;
+}) {
+  const { pedir, dialog } = useConfirmacao();
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="destructive"
+        onClick={() => pedir({
+          ...textoDesmarcarPagoServico({
+            numeroParcela: row.numero_parcela, servico: row.servico, ref: row.ref, valor: row.valor_parcela, dataPagamento: row.data_pagamento,
+            formatarValor: (v) => brl(Number(v)),
+          }),
+          onConfirmar,
+        })}
+        disabled={disabled}
+      >
+        {children}
+      </Button>
+      {dialog}
+    </>
   );
 }
 
@@ -1770,7 +1823,7 @@ function ServicosView() {
                           </Button>
                         )}
                         {podeEditar && (st === "pago" ? (
-                          <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
+                          <DesmarcarPagoServicoBtn row={r} onConfirmar={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</DesmarcarPagoServicoBtn>
                         ) : (
                           <Button size="sm" onClick={() => setPagandoId(r.parcela_id)}>Marcar pago</Button>
                         ))}
@@ -1890,7 +1943,7 @@ function ServicosView() {
 
 /* ===== Card/detalhe de uma parcela de SERVIÇO (terceirizado) ===== */
 
-function ServicoDetailDialog({
+export function ServicoDetailDialog({
   row, stLabel, stVariant, fmtD, canPay, onTogglePago, toggling, onClose, onAnexar,
 }: {
   row: any | null;
@@ -1975,7 +2028,7 @@ function ServicoDetailDialog({
             </Button>
           )}
           {canPay && (isPago ? (
-            <Button size="sm" variant="destructive" onClick={() => onTogglePago(false)} disabled={toggling}>Desmarcar pago</Button>
+            <DesmarcarPagoServicoBtn row={row} onConfirmar={() => onTogglePago(false)} disabled={toggling}>Desmarcar pago</DesmarcarPagoServicoBtn>
           ) : (
             <Button size="sm" onClick={() => onTogglePago(true)} disabled={toggling}>Marcar pago</Button>
           ))}

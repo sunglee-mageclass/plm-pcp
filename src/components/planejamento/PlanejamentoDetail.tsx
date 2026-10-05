@@ -28,6 +28,8 @@ import { CONTEXTO_PADRAO, type ContextoDetalhe } from "@/components/planejamento
 import { consumirFlag } from "@/lib/cq-status-tela";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoCancelarLancamento } from "@/lib/confirmacoes-textos";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
@@ -1105,6 +1107,8 @@ function PlanejamentoDetailConteudo({
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
     },
   });
+  // [camada C2 · P-263 A] "Cancelar Lançamento" desfaz: pede "Tem certeza?" antes. "Lançar" segue direto (Seção 2 não implementada).
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao(lancar.isPending);
 
   const duplicate = useMutation({
     mutationFn: async () => {
@@ -1967,7 +1971,15 @@ function PlanejamentoDetailConteudo({
                 </fieldset>
                 {/* P-53 A: Lançar/Cancelar Lançamento é ação de ciclo do Planejamento — só perm.podeAcoesPlanejamento. */}
                 {perm.podeAcoesPlanejamento && (lancado ? (
-                  <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
+                  <Button
+                    variant="outline"
+                    // [camada C2 · P-263 A] cancelar o lançamento desfaz: "Tem certeza?" antes (o servidor só recebe ao confirmar).
+                    onClick={() => pedirConfirmacao({
+                      ...textoCancelarLancamento({ nome: draft.nome, ref: draft.ref, dataLancamento: draft.data_lancamento }),
+                      onConfirmar: () => lancar.mutate(false),
+                    })}
+                    disabled={lancar.isPending}
+                  >
                     Cancelar Lançamento
                   </Button>
                 ) : (
@@ -2165,6 +2177,8 @@ function PlanejamentoDetailConteudo({
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
         </div>
+
+        {dialogConfirmacao}
 
         <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
           <AlertDialogContent>

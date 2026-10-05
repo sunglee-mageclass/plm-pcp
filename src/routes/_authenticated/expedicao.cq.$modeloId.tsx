@@ -42,6 +42,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoDesmarcarCqPre, textoDesmarcarCqPos } from "@/lib/confirmacoes-textos";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
@@ -1189,6 +1191,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // "Voltar uma etapa" — do CQ volta UMA etapa (para Serviços): reabre os serviços pré e
   // desfaz o CQ; o corte é mantido (NÃO volta até a Explosão — isso é o botão do Serviços).
   const [voltarOpen, setVoltarOpen] = useState(false);
+  // [camada C2 · P-263 A] Desmarcar a confirmação do CQ (Pré e Pós) desfaz em cascata: pede "Tem certeza?" antes.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
   const voltarMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado");
@@ -1282,7 +1286,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={permReadOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly} aria-label="Desmarcar confirmação">
+          <Button variant="outline" onClick={() => pedirConfirmacao({ ...textoDesmarcarCqPre({ nome: modelo?.nome }), onConfirmar: () => desmarcarMut.mutate() })} disabled={desmarcarMut.isPending || permReadOnly} aria-label="Desmarcar confirmação">
             <RotateCcw className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Desmarcar confirmação</span>
           </Button>
         </>
@@ -1305,7 +1309,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <Button variant="outline" size="icon" onClick={() => cqPosRef.current?.edit()} disabled={permReadOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending || !posBtn.hydrated || !hydrated}>
+          <Button variant="outline" onClick={() => pedirConfirmacao({ ...textoDesmarcarCqPos({ nome: modelo?.nome }), onConfirmar: () => cqPosRef.current?.desmarcar() })} disabled={permReadOnly || posBtn.pending || !posBtn.hydrated || !hydrated}>
             <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
           </Button>
         </>
@@ -1682,6 +1686,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       </Card>
       </fieldset>
       )}
+
+      {dialogConfirmacao}
 
       <AlertDialog open={voltarOpen} onOpenChange={setVoltarOpen}>
         <AlertDialogContent>

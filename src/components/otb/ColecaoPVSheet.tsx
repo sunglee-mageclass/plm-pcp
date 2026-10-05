@@ -21,6 +21,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ExcluirColecaoDialog } from "./ExcluirColecaoDialog";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoDesconfirmarColecaoPV } from "@/lib/confirmacoes-textos";
 import { DateField } from "@/components/shared/DateField";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -535,6 +537,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     onSuccess: () => { toast.success("Coleção desconfirmada."); setConfirmada(false); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); invalidarDownstream(); onSaved?.(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desconfirmar a coleção.")),
   });
+  // [camada C2 · P-263 A] Desconfirmar desfaz a confirmação (volta a rascunho): "Tem certeza?" antes.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
   const excluir = useMutation({
     mutationFn: async () => { if (!savedId) return; const { error } = await supabase.rpc("otb_excluir_colecao" as any, { _colecao_id: savedId }); if (error) throw error; },
     onSuccess: () => { toast.success("Coleção excluída."); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); onClose(); },
@@ -796,7 +800,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           )}
           {confirmada ? (
             <>
-              <Button variant="outline" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending}
+              <Button variant="outline" onClick={() => pedirConfirmacao({ ...textoDesconfirmarColecaoPV({ nome }), onConfirmar: () => desconfirmar.mutate() })} disabled={desconfirmar.isPending}
                 className="ml-auto shrink-0 text-red-700 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400">
                 {desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}
               </Button>
@@ -819,6 +823,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
       </SheetContent>
 
       {/* P-255 A: coleção com card é RECUSADA (mostra quantos/quais, sem botão de confirmar). */}
+      {dialogConfirmacao}
       <ExcluirColecaoDialog open={confirmDel} onOpenChange={setConfirmDel} colecaoId={savedId} nome={nome} pending={excluir.isPending} onConfirm={() => excluir.mutate()} />
     </Sheet>
   );

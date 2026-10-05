@@ -70,6 +70,9 @@ import { NfList } from "@/components/oc-tecido/NfList";
 import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { OcSecTitle } from "@/components/oc-tecido/OcTecidoForm";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoApagarTodosItensOc } from "@/lib/confirmacoes-textos";
+import { ehApagarTudoPendente, exigirConfirmacaoApagarTudo, MARCA_APAGAR_TUDO_ITENS_OC } from "@/lib/apagar-tudo";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
@@ -594,7 +597,7 @@ function emptyDraft(): Draft {
   };
 }
 
-function OcDialog({
+export function OcDialog({
   ocId, empresas, onClose, onSaved, onDelete,
 }: {
   ocId: string | null;
@@ -892,6 +895,11 @@ function OcDialog({
   // rápidos disparam 2 saves = 2 OCs). Espelha o padrão da OC Tecido.
   const savingRef = useRef(false);
 
+  // [camada C2 · P-262 A] Remover TODOS os aviamentos e Salvar apaga os itens no servidor: antes pergunta "Apagar todos os N itens da OC …?"
+  // e só ao confirmar manda a marca explícita (`_oc._apagar_itens`; a trava da C1 recusa o Salvar vazio sem ela).
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
+  const apagarTudoRef = useRef(false);
+
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
       // Guard SÍNCRONO contra salvar com conflito pendente (o `disabled={temConflito}` do botão é
@@ -950,9 +958,11 @@ function OcDialog({
       // Dentro da RPC os itens entram ANTES do status='recebido' (o trigger gerar_parcelas
       // lê os itens no UPDATE) e recalcular_parcelas roda no fim (preserva pagas). Acaba
       // com a janela de falha parcial das 6-8 chamadas que isto era no cliente.
+      // [camada C2 · P-262 A] payload vazio + o servidor TEM itens (os que seriam apagados) => exige a confirmação.
+      const apagarItens = exigirConfirmacaoApagarTudo({ nPayload: itensPayload.length, nServidor: (ocQueryData?.items ?? []).length, confirmado: apagarTudoRef.current });
       const { data: savedId, error } = await supabase.rpc("salvar_oc_aviamento" as any, {
         _oc_id: isEdit ? ocId : null,
-        _oc: ocPayload,
+        _oc: apagarItens ? { ...ocPayload, [MARCA_APAGAR_TUDO_ITENS_OC]: true } : ocPayload,
         _itens: itensPayload,
         _rev_base: isEdit ? revRef.current : null, // P0409 se outra pessoa salvou no meio
       });
@@ -965,6 +975,7 @@ function OcDialog({
       }
     },
     onSuccess: () => {
+      apagarTudoRef.current = false;
       toast.success("OC salva");
       markClean();
       invalidarVencimentos(qc);
@@ -978,7 +989,22 @@ function OcDialog({
       onSaved();
       onClose();
     },
-    onError: async (e: any) => {
+    onError: async (e: any, markReceived: boolean) => {
+      // [camada C2 · P-262 A] Salvar iria esvaziar a OC: abre o "Apagar todos os N itens da OC …?". Cancelar não grava nada (os itens
+      // continuam removidos no rascunho); Confirmar salva de novo COM a marca.
+      if (ehApagarTudoPendente(e)) {
+        pedirConfirmacao({
+          ...textoApagarTodosItensOc({ familia: "aviamento", n: e.n, numeroOc: draftLiveRef.current.numero_pedido }),
+          onConfirmar: () => {
+            if (savingRef.current) return;
+            apagarTudoRef.current = true;
+            savingRef.current = true;
+            saveMutation.mutate(markReceived, { onSettled: () => { savingRef.current = false; } });
+          },
+        });
+        return;
+      }
+      apagarTudoRef.current = false; // sem retry automático nesta tela: qualquer outra saída encerra a confirmação
       if (e?.code === "P0409") {
         // Alguém salvou no meio: recarrega o servidor e faz o merge 3-vias (mantém minhas edições,
         // sinaliza conflito onde EU e o servidor divergimos). O usuário resolve e salva de novo.
@@ -1496,6 +1522,8 @@ function OcDialog({
         </div>
         <OcDocumentoPrint modelo={docModelo} />
     </OcModalShell>
+
+      {dialogConfirmacao}
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>
         <AlertDialogContent>

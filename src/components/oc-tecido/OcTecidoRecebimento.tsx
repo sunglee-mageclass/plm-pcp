@@ -256,6 +256,7 @@ export function OcTecidoRecebimento({
           onRoloCq={onRoloCq}
           onRoloCancelar={onRoloCancelar}
           onRoloAjuste={onRoloAjuste}
+          ocNumero={draft.numero_pedido}
         />
       </div>
     </section>

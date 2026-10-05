@@ -46,6 +46,9 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { useResponsavelFilter, SENTINEL_UUID } from "@/hooks/useResponsavelFilter";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcAcoesSalvar, MOTIVO_MODO_DESCONHECIDO } from "@/components/oc-tecido/OcAcoesSalvar";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoApagarTodosItensOc } from "@/lib/confirmacoes-textos";
+import { ehApagarTudoPendente, exigirConfirmacaoApagarTudo, MARCA_APAGAR_TUDO_ITENS_OC } from "@/lib/apagar-tudo";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcModalShell } from "@/components/shared/OcModalShell";
@@ -656,7 +659,7 @@ function ConfirmarRecebimentoDialog({
   );
 }
 
-function OcDialog({
+export function OcDialog({
   ocId, empresas, onClose, onSaved, onDelete,
 }: {
   ocId: string | null;
@@ -1194,6 +1197,19 @@ function OcDialog({
     } catch (e: any) { toast.error(mensagemErro(e)); }
   };
 
+  // [camada C2 · P-262 A] Remover TODOS os tecidos e Salvar apaga os itens no servidor: antes pergunta "Apagar todos os N itens da OC …?"
+  // e só ao confirmar manda a marca explícita (`_oc._apagar_itens`; a trava da C1 recusa o Salvar vazio sem ela). `apagarTudoRef` =
+  // a pessoa JÁ confirmou (vale também para o retry automático do P0409; limpa ao terminar).
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
+  const apagarTudoRef = useRef(false);
+  // Confirmou o "Apagar todos": salva de novo, agora COM a marca (fora do `onError` p/ não confundir o teste de ordem do retry do P0409).
+  const salvarConfirmandoApagarTudo = (markReceived: boolean) => {
+    if (savingRef.current) return;
+    apagarTudoRef.current = true;
+    savingRef.current = true;
+    saveMutation.mutate(markReceived, { onSettled: () => { savingRef.current = false; } });
+  };
+
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
       if (!modoPronto) throw new Error(MOTIVO_MODO_DESCONHECIDO);
@@ -1293,9 +1309,11 @@ function OcDialog({
         preco: i.preco,
         rolos_planejados: modoOcRolo !== "oc" ? roloPlan(i.tempId) : null,
       }));
+      // [camada C2 · P-262 A] payload vazio + o servidor TEM itens (os que seriam apagados) => exige a confirmação.
+      const apagarItens = exigirConfirmacaoApagarTudo({ nPayload: itensPayload.length, nServidor: (ocQueryData?.its ?? []).length, confirmado: apagarTudoRef.current });
       const { data: savedOcId, error: saveErr } = await supabase.rpc("salvar_oc_tecido" as any, {
         _oc_id: isEdit ? ocId : null,
-        _oc: payload,
+        _oc: apagarItens ? { ...payload, [MARCA_APAGAR_TUDO_ITENS_OC]: true } : payload,
         _itens: itensPayload,
         // Colab (spec 2026-08-03): trava otimista — se outra pessoa salvou entre a
         // última carga e agora, a RPC dá P0409 (tratado no onError abaixo).
@@ -1360,6 +1378,7 @@ function OcDialog({
       }
     },
     onSuccess: () => {
+      apagarTudoRef.current = false;
       toast.success("OC salva");
       // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime
       // (nosso próprio UPDATE) apareça como "alguém atualizou N campos" no banner.
@@ -1381,6 +1400,17 @@ function OcDialog({
       onClose();
     },
     onError: async (e: any, markReceived) => {
+      // [camada C2 · P-262 A] Salvar iria esvaziar a OC: abre o "Apagar todos os N itens da OC …?". Cancelar não grava nada (os itens
+      // continuam removidos no rascunho); Confirmar salva de novo COM a marca.
+      if (ehApagarTudoPendente(e)) {
+        pedirConfirmacao({
+          ...textoApagarTodosItensOc({ familia: "tecido", n: e.n, numeroOc: draftLiveRef.current.numero_pedido }),
+          onConfirmar: () => salvarConfirmandoApagarTudo(markReceived),
+        });
+        return;
+      }
+      // Qualquer saída que NÃO seja o retry automático do P0409 encerra a confirmação (a próxima tentativa pergunta de novo).
+      if (!(e?.code === "P0409" && !retryRef.current)) apagarTudoRef.current = false;
       // Colab (spec 2026-08-03): conflito de versão — outra pessoa salvou entre a
       // última carga e agora. Busca o estado novo e roda o merge AQUI MESMO (síncrono,
       // não delega pro useEffect — ver comentário abaixo) e, se não sobrou nenhum
@@ -1441,6 +1471,7 @@ function OcDialog({
             return;
           }
         }
+        apagarTudoRef.current = false;
         savingRef.current = false;
         retryRef.current = false;
         toast.error(mensagemErro(e, "Erro ao salvar"));
@@ -1851,6 +1882,8 @@ function OcDialog({
         </div>
         <OcDocumentoPrint modelo={docModelo} />
     </OcModalShell>
+
+      {dialogConfirmacao}
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>
         <AlertDialogContent>

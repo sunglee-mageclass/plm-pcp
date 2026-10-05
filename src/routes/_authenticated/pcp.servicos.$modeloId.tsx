@@ -21,6 +21,9 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoApagarTodosServicos } from "@/lib/confirmacoes-textos";
+import { ehApagarTudoPendente, exigirConfirmacaoApagarTudo, MARCA_APAGAR_TUDO_SERVICOS } from "@/lib/apagar-tudo";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
@@ -961,6 +964,12 @@ export function TerceirizadosDetail({
     return error ? null : ((data as { status?: string | null } | null)?.status ?? "pendente");
   };
 
+  // [camada C2 · P-262 A] Remover TODOS os serviços e Salvar apaga tudo no servidor: antes pergunta "Apagar todos os N serviços?" e
+  // só ao confirmar manda a marca explícita de "apagar tudo" (a trava da C1 recusa o Salvar vazio sem ela). `apagarTudoRef` = a
+  // pessoa JÁ confirmou (vale também para o retry automático do P0409; limpa ao terminar).
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
+  const apagarTudoRef = useRef(false);
+
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado para este modelo. Abra o CAD primeiro.");
@@ -1008,9 +1017,12 @@ export function TerceirizadosDetail({
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       // _rev_base por bloco existente (id→rev semeado da query). null=bypass; a RPC dá P0409
       // se algum bloco avançou desde a última carga.
-      const _rev_base = Object.fromEntries(
+      const _rev_base: Record<string, number | boolean> = Object.fromEntries(
         blocos.filter((b) => b.id).map((b) => [b.id as string, revByBlocoRef.current[b.id as string] ?? 0]),
       );
+      // [camada C2 · P-262 A] payload vazio + o servidor TEM serviços (as linhas que seriam apagadas) => exige a confirmação.
+      if (exigirConfirmacaoApagarTudo({ nPayload: _blocos.length, nServidor: (existing as unknown[]).length, confirmado: apagarTudoRef.current }))
+        _rev_base[MARCA_APAGAR_TUDO_SERVICOS] = true;
       const { error } = await supabase.rpc("salvar_terceirizados" as any, {
         _cad_id: cad.id,
         _blocos,
@@ -1020,6 +1032,7 @@ export function TerceirizadosDetail({
       if (error) throw error;
     },
     onSuccess: async () => {
+      apagarTudoRef.current = false;
       const antes = cqStatusAntesRef.current;
       cqStatusAntesRef.current = null;
       // R13: só com o CQ confirmado antes vale reler o status depois (o toast espera essa leitura, DEPOIS do reset do colab
@@ -1064,6 +1077,17 @@ export function TerceirizadosDetail({
       baselinedRef.current = false; // re-baseliniza o guarda na próxima hidratação
     },
     onError: async (e: any) => {
+      // [camada C2 · P-262 A] Salvar iria esvaziar a lista: abre o "Apagar todos os N serviços?". Cancelar não grava nada
+      // (as linhas continuam removidas no rascunho, a pessoa pode voltar atrás); Confirmar salva de novo COM a marca.
+      if (ehApagarTudoPendente(e)) {
+        pedirConfirmacao({
+          ...textoApagarTodosServicos({ n: e.n, nome: modelo?.nome }),
+          onConfirmar: () => { apagarTudoRef.current = true; saveMut.mutate(); },
+        });
+        return;
+      }
+      // Qualquer saída que NÃO seja o retry automático do P0409 encerra a confirmação (a próxima tentativa pergunta de novo).
+      if (!(e?.code === "P0409" && !retryRef.current)) apagarTudoRef.current = false;
       // Colab: conflito de versão (outra pessoa salvou entre a carga e agora). Busca o
       // estado novo e roda o merge AQUI MESMO (síncrono, lendo o cache direto + os refs-
       // espelho — NUNCA via useEffect, que rodaria com refs velhos e reenviaria o mesmo
@@ -1102,6 +1126,7 @@ export function TerceirizadosDetail({
           saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
           return;
         }
+        apagarTudoRef.current = false;
         savingRef.current = false; retryRef.current = false;
         toast.error(mensagemErro(e, "Erro ao salvar"));
         return;
@@ -1946,6 +1971,8 @@ export function TerceirizadosDetail({
       ) : (
         <FichaTecnica modeloId={modeloId} />
       )}
+
+      {dialogConfirmacao}
 
       <AlertDialog open={voltarOpen} onOpenChange={setVoltarOpen}>
         <AlertDialogContent>

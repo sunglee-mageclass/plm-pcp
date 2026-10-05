@@ -24,6 +24,8 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoDesmarcarDirecionamento } from "@/lib/confirmacoes-textos";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { ColabBanner } from "@/components/shared/ColabBanner";
@@ -673,6 +675,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
+  // [camada C2 · P-263 A] Desmarcar o Direcionamento (editando OU travado) desfaz a confirmação: "Tem certeza?" antes.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
+  const pedirDesmarcar = () => pedirConfirmacao({ ...textoDesmarcarDirecionamento({ nome: modelo?.nome }), onConfirmar: () => desmarcarMut.mutate() });
 
   const confirmado = status === "separado";
   const locked = confirmado && !editing;
@@ -746,7 +751,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || cadErro || dirControle === undefined || !tenantId} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
-          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
+          <Button variant="ghost" onClick={pedirDesmarcar} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
             <RotateCcw className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Desmarcar</span>
           </Button>
         </>
@@ -755,7 +760,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
+          <Button variant="ghost" onClick={pedirDesmarcar} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
             <RotateCcw className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Desmarcar</span>
           </Button>
         </>
@@ -1066,6 +1071,8 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       })}
       </fieldset>
       )}
+
+      {dialogConfirmacao}
 
       {confirmarPreencher && (
         <AlertDialog open onOpenChange={(o) => !o && setConfirmarPreencher(false)}>

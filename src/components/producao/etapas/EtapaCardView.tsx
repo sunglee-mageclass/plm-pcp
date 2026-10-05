@@ -15,6 +15,8 @@ import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoReprovarPecaTeste } from "@/lib/confirmacoes-textos";
 import type { EtapaCard } from "@/lib/pcp-etapas-kanban";
 import { useSalvarEtapaRapida, type CampoRapido } from "./useSalvarEtapaRapida";
 
@@ -55,8 +57,10 @@ function CardFoto({ card }: { card: EtapaCard }) {
   return <ModeloResumoFoto fontes={card.fotoFontes} nome={card.nome} className="h-14 w-14" />;
 }
 
-function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
+export function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
   const salvar = useSalvarEtapaRapida();
+  // [camada C2 · P-265 A] "Reprovado" tira o card do quadro (DESFAZ): "Tem certeza?" antes. "Aprovado" segue direto.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
 
   // Último valor mandado gravar por campo: Enter seguido de blur (ao desabilitar o input) não grava
   // duas vezes; ao terminar (ok ou erro) libera — no erro, redigitar a mesma data tenta de novo.
@@ -101,7 +105,16 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
           <Label className="text-[11px] text-muted-foreground">Aprovação</Label>
           <Select
             value={bloco.pt_aprovacao ?? ""}
-            onValueChange={(v) => onChange("pt_aprovacao", v || null)}
+            onValueChange={(v) => {
+              if (v === "reprovado") {
+                pedirConfirmacao({
+                  ...textoReprovarPecaTeste({ nome: card.nome, ref: card.ref, empresa: card.empresa }),
+                  onConfirmar: () => onChange("pt_aprovacao", "reprovado"),
+                });
+                return;
+              }
+              onChange("pt_aprovacao", v || null);
+            }}
             disabled={salvar.isPending}
           >
             <SelectTrigger className="h-9">
@@ -113,6 +126,7 @@ function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
             </SelectContent>
           </Select>
         </div>
+        {dialogConfirmacao}
       </div>
     );
   }

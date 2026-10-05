@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoDesconfirmarColecaoOrcamento } from "@/lib/confirmacoes-textos";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -810,6 +812,8 @@ export function ColecaoSheet({
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desconfirmar coleção")),
   });
+  // [camada C2 · P-263 A] Desconfirmar desfaz a confirmação (volta a rascunho): "Tem certeza?" antes.
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
 
   const excluir = useMutation({
     mutationFn: async () => {
@@ -956,7 +960,7 @@ export function ColecaoSheet({
               <span className="max-sm:sr-only">{confirmar.isPending ? "Confirmando…" : "Confirmar"}</span>
             </Button>
           ) : (
-            <Button variant="outline" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending || save.isPending} aria-label="Desconfirmar" className="ml-auto shrink-0 text-red-700 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400 max-sm:aspect-square max-sm:px-0">
+            <Button variant="outline" onClick={() => pedirConfirmacao({ ...textoDesconfirmarColecaoOrcamento({ nome }), onConfirmar: () => desconfirmar.mutate() })} disabled={desconfirmar.isPending || save.isPending} aria-label="Desconfirmar" className="ml-auto shrink-0 text-red-700 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400 max-sm:aspect-square max-sm:px-0">
               <Check className="h-4 w-4 sm:hidden" />
               <span className="max-sm:sr-only">{desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}</span>
             </Button>
@@ -970,6 +974,7 @@ export function ColecaoSheet({
       </SheetContent>
 
       {/* P-255 A: coleção com card é RECUSADA (mostra quantos/quais, sem botão de confirmar). */}
+      {dialogConfirmacao}
       <ExcluirColecaoDialog open={confirmDel} onOpenChange={setConfirmDel} colecaoId={colecaoId} nome={nome} pending={excluir.isPending} onConfirm={() => excluir.mutate()} />
     </Sheet>
   );
