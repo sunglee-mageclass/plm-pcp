@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, ehBancoLocal, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
-import { aplicaUrgA, urgAViva, URG_A_MIGS } from "./urg-a-helpers";
+import { aplicaUrgA, urgAViva, voltaUrgAAcima, URG_A_MIGS } from "./urg-a-helpers";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 import {
   CASOS_NORMALIZA,
@@ -258,6 +258,7 @@ describe.skipIf(!RODA)("urg R2 T9 - tenant_config.insumos_padrao + salvar_config
   it("_down devolve o texto de antes (coluna fica; insumos_padrao recusado pela lista branca); reaplicar volta ao depois", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      await voltaUrgAAcima(c, "174000"); // [urg R2 T10] LIFO: a 175000 (por cima) sai antes
       await aplica(c, bloco()!.down);
       await c.query("SET LOCAL check_function_bodies = on");
       expect(await md5Fn(c, SIG)).toBe(ANTES);
@@ -281,6 +282,7 @@ describe.skipIf(!RODA)("urg R2 T9 - tenant_config.insumos_padrao + salvar_config
       expect((await salvar(c, { insumos_padrao: lista }, { insumos_padrao: [] })).erro).toBeNull();
       await c.query("SELECT set_config('request.jwt.claims', '', true)");
       await expect(aplica(c, bloco()!.drop)).rejects.toThrow(/funcoes ainda citam/);
+      await voltaUrgAAcima(c, "174000"); // [urg R2 T10] LIFO: a 175000 (por cima) sai antes
       await aplica(c, bloco()!.down);
       await c.query("SET LOCAL check_function_bodies = on");
       await expect(aplica(c, bloco()!.drop)).rejects.toThrow(/app\.confirmo_apagar_insumos_padrao/);
@@ -326,6 +328,7 @@ describe.skipIf(!RODA)("urg R2 T9 - tenant_config.insumos_padrao + salvar_config
         await a.query("SET LOCAL lock_timeout = '3s'");
         await a.query("SET LOCAL statement_timeout = '60s'");
         await aplicaUrgA(a, "174000");
+        await voltaUrgAAcima(a, "174000"); // [urg R2 T10] LIFO: a 175000 (por cima) cita insumos_padrao e travaria o _down_drop
         await aplica(a, bloco()!.down); // o _down_drop exige a funcao sem a coluna
         await a.query("SET LOCAL check_function_bodies = on");
         await a.query("SELECT set_config('app.confirmo_apagar_insumos_padrao', 'sim', true)");

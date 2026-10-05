@@ -114,6 +114,31 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
       }
     },
     "NOVAS": {}
+  },
+  "175000": {
+    "mig": "supabase/migrations/20261103175000_urg_r2_insumos_iniciais.sql",
+    "down": "supabase/rollback/20261103175000_urg_r2_insumos_iniciais_down.sql",
+    "drop": "supabase/rollback/20261103175000_urg_r2_insumos_iniciais_down_drop.sql",
+    "sentinela": "public.salvar_insumos_iniciais(uuid,jsonb)",
+    "volta": true,
+    "MD5": {
+      "public._plan_tecido_criar_card_core(uuid,uuid,jsonb)": {
+        "antes": "fceac02c52bd0b29a33856dc9e0f9b11",
+        "depois": "5814a5907981617a1b7c731941177143"
+      },
+      "public.importar_modelo_linha(jsonb,jsonb)": {
+        "antes": "db0c3dcbd90ded80d210b96747e01cb1",
+        "depois": "4c53027d97a3b2a60108098fe8e1849a"
+      }
+    },
+    "NOVAS": {
+      "public._insumos_padrao_aplicar(uuid)": "c57de860de7c4dbd950856de2376ce23",
+      "public.salvar_insumos_iniciais(uuid,jsonb)": "89ab4ba9d6a060dca5c679aa60a16570"
+    },
+    "NEUTRO": {
+      "public._insumos_padrao_aplicar(uuid)": "fa0d3ce7bb39628db1a6d33c46f4d289",
+      "public.salvar_insumos_iniciais(uuid,jsonb)": "9a0c13cdab6ca7720c6669b964faa052"
+    }
   }
 }
 /* URG_A_JSON_FIM */;

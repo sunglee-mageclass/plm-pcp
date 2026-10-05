@@ -112,6 +112,23 @@ export async function voltaUrgA(c: Client): Promise<void> {
   await zeraTimeouts(c);
 }
 
+/**
+ * LIFO DENTRO desta frente: tira (pelos `_down`, na ordem inversa) os blocos POR CIMA de `bloco` que estejam vivos — quem testa o
+ * `_down`/`_down_drop` de um bloco com os de cima vivos na cópia (ex.: a 174000 com a 175000, cujas funções citam
+ * `insumos_padrao` e travam o `_down_drop` dela). O plan-b (por cima) não depende desta frente e fica.
+ */
+export async function voltaUrgAAcima(c: Client, bloco: UrgAId): Promise<void> {
+  exigeBancoLocal();
+  const cfb = (await c.query("SELECT current_setting('check_function_bodies') AS v")).rows[0].v as string;
+  const limite = ORDEM.indexOf(bloco);
+  for (const { id, b } of [...URG_A_MIGS].reverse()) {
+    if (ORDEM.indexOf(id) <= limite) break;
+    if (b.volta && (await urgAViva(c, id))) await aplicarArquivo(c, b.down);
+  }
+  await c.query("SELECT set_config('check_function_bodies', $1, true)", [cfb]);
+  await zeraTimeouts(c);
+}
+
 /** LIFO: quem volta (ou reaplica) a Camada ou qualquer release anterior dentro da txn tira esta frente antes (e o plan-b antes dela). */
 export async function voltaUrgASePreciso(c: Client): Promise<void> {
   if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: o plan-b (por cima) sai antes, mesmo com esta frente fora
