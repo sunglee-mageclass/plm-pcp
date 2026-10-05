@@ -45,7 +45,7 @@ async function novoProdutoAcabado(c: any, tenant = TENANT_TESTE, modeloId: strin
 }
 
 describe.skipIf(!hasDb)("FF2 — modgate de leitura (produto_acabado)", () => {
-  it("módulo OFF: SELECT como authenticated não-super_admin retorna 0 nas 3 tabelas", async () => {
+  it("módulo OFF: SELECT como authenticated não-super_admin retorna 0 em produtos_acabados e variantes (ocs_p_acabado: sem modgate_sel, documentado)", async () => {
     await withTx(async (c) => {
       await moduloOff(c);
       await comoUsuario(c, AVE_RARA_USER_COMUM);
@@ -53,13 +53,19 @@ describe.skipIf(!hasDb)("FF2 — modgate de leitura (produto_acabado)", () => {
       try {
         const p = await um<{ n: string }>(c, `select count(*)::text as n from produtos_acabados`);
         const v = await um<{ n: string }>(c, `select count(*)::text as n from produto_acabado_variantes`);
-        const o = await um<{ n: string }>(c, `select count(*)::text as n from ocs_p_acabado`);
         expect(p.n).toBe("0");
         expect(v.n).toBe("0");
-        expect(o.n).toBe("0");
       } finally {
         await c.query("RESET ROLE");
       }
+      // T1 (backend, 05/out): `ocs_p_acabado` NÃO tem `modgate_sel` — decisão registrada no CLAUDE.md (Produto Acabado, "Assimetria entre as 3"):
+      // o `modgate_sel` dela foi DROPADO por 20260916140000_fix_rls_ocs_pacabado_importado.sql (lição do merge colaborativo: o Realtime lê como
+      // authenticated sem contexto de tenant e um RESTRICTIVE de SELECT impedia o canal de ficar SUBSCRIBED). A leitura NÃO é gated nela; a
+      // ESCRITA continua (modgate_ins/upd/del). Em vez de esperar 0 linhas, trava a assimetria documentada (anti-drift de política).
+      const pol = await c.query(
+        `select polname from pg_policy where polrelid = 'public.ocs_p_acabado'::regclass and not polpermissive order by 1`,
+      );
+      expect(pol.rows.map((r: { polname: string }) => r.polname)).toEqual(["modgate_del", "modgate_ins", "modgate_upd"]);
     });
   });
 
