@@ -16,14 +16,20 @@ describe("insumo-tamanho: fixture anti-drift (espelho do SQL)", () => {
     expect(CASOS_INSUMO_TAMANHO.length).toBeGreaterThanOrEqual(12);
   });
 
+  it("a fixture e serializavel em JSON (ida e volta identica)", () => {
+    expect(JSON.parse(JSON.stringify(CASOS_INSUMO_TAMANHO))).toEqual(CASOS_INSUMO_TAMANHO);
+  });
+
   for (const c of CASOS_INSUMO_TAMANHO) {
     it(c.nome, () => {
       const efetivo = tamanhoEfetivoInsumo(c.info);
       const mapa = gradeMapa(c.linhas);
       const total = gradeTotal(c.linhas);
       expect(efetivo).toBe(c.esperado.efetivo);
-      expect(pecasDoInsumo(efetivo, mapa, total)).toBeCloseTo(c.esperado.pecas, 4);
-      expect(fatorCustoInsumo(efetivo, mapa, total)).toBeCloseTo(c.esperado.fator, 4);
+      expect(pecasDoInsumo(efetivo, mapa, total)).toBe(c.esperado.pecas);
+      const fator = fatorCustoInsumo(efetivo, mapa, total);
+      if (c.fatorAproximado) expect(fator).toBeCloseTo(c.esperado.fator, 10);
+      else expect(fator).toBe(c.esperado.fator);
       expect(tamanhoForaDaGrade(efetivo, mapa, total)).toBe(c.esperado.fora);
     });
   }
@@ -35,6 +41,12 @@ describe("insumo-tamanho: funcoes soltas", () => {
     expect(insumoSemTamanho("letra", [{ tamanho: "M" }])).toBe(false);
     expect(insumoSemTamanho("letra", [{ tamanho: " " }, { tamanho: null }])).toBe(true);
     expect(insumoSemTamanho(null, [])).toBe(true);
+    expect(insumoSemTamanho("letra", [{ tamanho: "\t" }])).toBe(false); // btrim so tira espaco
+  });
+
+  it("pecasDoInsumo/tamanhoForaDaGrade ignoram chaves herdadas do prototipo", () => {
+    expect(pecasDoInsumo("toString", {}, 5)).toBe(0);
+    expect(tamanhoForaDaGrade("constructor", {}, 5)).toBe(true);
   });
 
   it("gradeMapa soma por tamanho e so aceita numero >= 0 (regex do SQL)", () => {
