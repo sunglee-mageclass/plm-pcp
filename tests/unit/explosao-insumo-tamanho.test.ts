@@ -155,7 +155,7 @@ describe("ligacao (fonte)", () => {
     expect(s).toMatch(/falhaCarga =[\s\S]{0,700}tamIsErr/);
     expect(s).toMatch(/tentarDeNovo = \(\) => \{[\s\S]{0,500}tamIsErr/);
     // a semente do "a enviar" espera o mapa (senao semearia a necessaria SEM o vinculo)
-    expect(s).toMatch(/if \(!seeded \|\| !cadEtiquetasFetched \|\| tamData === undefined\) return;/);
+    expect(s).toMatch(/if \(!seeded \|\| !cadEtiquetasFetched \|\| tamData === undefined \|\| tamFetching \|\| tamIsErr\) return;/);
   });
 
   it("fichas: useFichaData liga o mapa; as duas impressoes imprimem UMA linha p/ o vinculado", () => {

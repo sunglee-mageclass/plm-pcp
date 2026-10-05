@@ -35,8 +35,8 @@ export type InsumoLinha = {
   tamanhoVinculado: string | null;
   /** Vinculado a um tamanho que não está na grade do modelo (quantidade 0 + aviso âmbar — P-281 A). */
   foraDaGrade: boolean;
-  /** Qtd a enviar/separar (cad_etiquetas.quantidade_enviar). Editável na Explosão. */
-  aEnviar: number;
+  /** Qtd a enviar/separar (cad_etiquetas.quantidade_enviar). Editável na Explosão. `null` = ainda indefinida (vínculos carregando): "—". */
+  aEnviar: number | null;
 };
 
 type Props = {
@@ -53,7 +53,7 @@ export function ExplosaoInsumosSection({ linhas, gradeTotalGeral, editing, onEnv
   // Sem etiqueta no CAD: não renderiza nada (não polui a tela dos modelos que não usam insumo).
   if (linhas.length === 0) return null;
 
-  const totalEnviar = linhas.reduce((s, l) => s + l.aEnviar, 0);
+  const totalEnviar = linhas.reduce((s, l) => s + (l.aEnviar ?? 0), 0);
 
   return (
     <div className="border rounded-[11px] overflow-hidden">
@@ -85,20 +85,26 @@ export function ExplosaoInsumosSection({ linhas, gradeTotalGeral, editing, onEnv
             {linhas.map((l) => (
               <tr key={l.id} className="border-t">
                 <td className="px-2 py-1">
-                  {l.cor ? <VarianteSwatch nome={l.cor} className="mr-1" /> : null}
-                  {l.etiqueta_nome}
-                  {l.cor_label ? <span className="text-muted-foreground"> · {l.cor_label}</span> : null}
-                  {l.tamanhoVinculado ? (
-                    <StatusBadge tone="neutral" className="ml-2 align-middle">
-                      Só tam. {rotuloTamanho(l.tamanhoVinculado)}
-                    </StatusBadge>
-                  ) : null}
-                  {l.tamanhoVinculado && l.foraDaGrade ? (
-                    <div role="status" className="mt-1 flex items-start gap-1.5 text-[11px] text-warning">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
-                      <span>O tamanho {rotuloTamanho(l.tamanhoVinculado)} não está na grade deste modelo — quantidade 0.</span>
+                  {/* Um único bloco na célula: no mobile (card-table) a 1ª td é flex SEM wrap — sem este wrapper o aviso
+                      âmbar virava uma coluna estreita ao lado do nome. O aviso fica ABAIXO do nome/chip. */}
+                  <div className="min-w-0 text-left">
+                    <div className="flex flex-wrap items-center gap-x-1">
+                      {l.cor ? <VarianteSwatch nome={l.cor} className="mr-1" /> : null}
+                      <span>{l.etiqueta_nome}</span>
+                      {l.cor_label ? <span className="text-muted-foreground"> · {l.cor_label}</span> : null}
+                      {l.tamanhoVinculado ? (
+                        <StatusBadge tone="neutral" className="ml-1 align-middle">
+                          Só tam. {rotuloTamanho(l.tamanhoVinculado)}
+                        </StatusBadge>
+                      ) : null}
                     </div>
-                  ) : null}
+                    {l.tamanhoVinculado && l.foraDaGrade ? (
+                      <div role="status" className="mt-1 flex items-start gap-1.5 text-[11px] font-normal text-warning">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                        <span>O tamanho {rotuloTamanho(l.tamanhoVinculado)} não está na grade deste modelo — quantidade 0.</span>
+                      </div>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="px-2 py-1 num text-muted-foreground" data-label="Consumo/peça">
                   {fmtNumEdit(l.consumo) || "0"}
@@ -107,7 +113,9 @@ export function ExplosaoInsumosSection({ linhas, gradeTotalGeral, editing, onEnv
                   {l.quantidade == null ? "—" : fmtNum(l.quantidade)}
                 </td>
                 <td className="px-2 py-1 bg-primary/5" data-label="A separar/enviar">
-                  {editing ? (
+                  {l.aEnviar == null ? (
+                    <span className="block text-right num font-semibold text-muted-foreground">—</span>
+                  ) : editing ? (
                     <NumberInput
                       blankZero
                       placeholder="0,00"

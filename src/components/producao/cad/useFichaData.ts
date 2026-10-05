@@ -35,6 +35,9 @@ export type FichaData = {
   tecido1LabelById: Map<string, string>;
   /** true quando os dados essenciais da ficha já carregaram (p/ imprimir só depois). */
   isReady: boolean;
+  /** urg R1: a leitura dos tamanhos vinculados dos insumos falhou na 1ª carga — `isReady` não chega; quem imprime avisa e oferece `refazerTamanhoVinculado`. */
+  tamanhoVinculadoErro: boolean;
+  refazerTamanhoVinculado: () => void;
 };
 
 /** Carrega os dados SALVOS do CAD de um modelo nos formatos da ficha (read-only). */
@@ -125,8 +128,9 @@ export function useFichaData(modeloId: string): FichaData {
   });
 
   // urg R1: tamanho a que cada insumo está vinculado. `undefined` = carregando/falhou: NÃO imprime como "sem vínculo".
-  // Falha na 1ª carga => `isReady` fica false (a impressão automática não sai com quantidade de insumo duvidosa).
-  const { data: tamVinc } = useTamanhoVinculadoInsumos();
+  // Falha na 1ª carga => `isReady` fica false (não imprime com quantidade de insumo duvidosa) e `tamanhoVinculadoErro`
+  // true (o PrintFicha avisa com "Tentar de novo").
+  const { data: tamVinc, isError: tamVincIsErr, refetch: refetchTamVinc } = useTamanhoVinculadoInsumos();
 
   const { data: tamanhosConfig = [] } = useQuery({
     queryKey: ["ft-tamanhos", tenantId],
@@ -286,5 +290,7 @@ export function useFichaData(modeloId: string): FichaData {
     // CAD, os tecidos). Evita imprimir a ficha em branco no 1º clique (cache frio).
     // urg R1: o vínculo de tamanho dos insumos também tem de ter chegado (senão o insumo vinculado sairia como "Geral").
     isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched) && tamVinc !== undefined,
+    tamanhoVinculadoErro: tamVincIsErr && tamVinc === undefined,
+    refazerTamanhoVinculado: () => void refetchTamVinc(),
   };
 }

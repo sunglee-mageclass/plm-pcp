@@ -3,7 +3,7 @@ import { mensagemToastPosSavePcp } from "@/lib/cq-status-tela";
 import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer, Undo2, AlertTriangle, RotateCcw } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, Pencil, Printer, Undo2, AlertTriangle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabelServico } from "@/lib/variante";
@@ -53,6 +53,7 @@ import { ReverterImpacto } from "@/components/producao/ReverterImpacto";
 import { useReverterImpacto } from "@/hooks/useReverterImpacto";
 import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
+import { BotaoFichaTecnica } from "@/components/producao/cad/BotaoFichaTecnica";
 import { OrdemServicoTerceirizados, type OSItem } from "@/components/producao/OrdemServicoTerceirizados";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
@@ -1560,9 +1561,7 @@ export function TerceirizadosDetail({
         <Breadcrumb items={[{ label: "PCP", to: "/pcp/servicos" }, { label: modelo?.ref ?? "…" }]} />
         <div className="flex items-center gap-2">
           <UnsavedIndicator show={dirty} className="shrink-0" />
-          <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
-            <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
-          </Button>
+          <BotaoFichaTecnica onImprimir={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id} />
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("os"); printWithImages(); }} disabled={osItens.length === 0}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>

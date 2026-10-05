@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 import { FichaCorteDoc } from "@/components/producao/cad/CadFichaCorte";
 import { useFichaData } from "@/components/producao/cad/useFichaData";
@@ -26,9 +27,21 @@ export function PrintFicha({
   const wrapRef = useRef<HTMLDivElement>(null);
   const lastPrinted = useRef(0);
   const ready = d.isReady;
+  const tamErro = d.tamanhoVinculadoErro;
+  const refazerTam = d.refazerTamanhoVinculado;
 
   useEffect(() => {
     if (!token || token === lastPrinted.current) return; // só em um novo pedido
+    // urg R1: a leitura dos tamanhos vinculados dos insumos falhou — sem ela o insumo vinculado sairia com a quantidade da
+    // grade inteira. Avisa (com "Tentar de novo") e DESISTE deste pedido: se a leitura se recuperar depois, NÃO imprime
+    // sozinho — a impressão só sai num clique do usuário com o dado pronto.
+    if (!ready && tamErro) {
+      lastPrinted.current = token;
+      toast.error("Não foi possível carregar os dados da ficha.", {
+        action: { label: "Tentar de novo", onClick: refazerTam },
+      });
+      return;
+    }
     if (!ready) return; // espera os dados; quando `ready` virar true, o efeito re-roda
     lastPrinted.current = token;
     let cancelled = false;
@@ -57,7 +70,7 @@ export function PrintFicha({
     run();
 
     return () => { cancelled = true; };
-  }, [token, ready]);
+  }, [token, ready, tamErro, refazerTam]);
 
   return (
     <div ref={wrapRef}>

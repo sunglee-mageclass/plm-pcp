@@ -301,7 +301,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
 
   // urg R1 (T8): tamanho a que cada insumo está vinculado (query separada, lança o erro). `tamData === undefined` = carregando
   // OU 1ª carga com falha — nunca vira "sem vínculo" (falha entra no `falhaCarga`, que trava o Salvar/Enviar).
-  const { data: tamData, isError: tamIsErr, refetch: refetchTam } = useTamanhoVinculadoInsumos();
+  const { data: tamData, isError: tamIsErr, isFetching: tamFetching, refetch: refetchTam } = useTamanhoVinculadoInsumos();
 
   // --- local editable state (metragem_enviada do tecido + a-separar do aviamento) ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
@@ -323,11 +323,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     (modeloAviIsErr && modeloAviRaw === undefined) ||
     (cadAviIsErr && cadAviRaw === undefined) ||
     (cadEtiIsErr && cadEtiRaw === undefined) ||
-    (tamIsErr && tamData === undefined);
+    // Falha antes de semear também conta (refetch com erro sobre mapa velho do cache: a semente não pode usá-lo).
+    (tamIsErr && (tamData === undefined || !etiSeeded));
   const podeGravar = seededAll && !falhaCarga;
   const podeGravarRef = useRef(false);
   podeGravarRef.current = podeGravar;
-  const recarregando = useIsFetching({ predicate: (q) => String(q.queryKey[0]).startsWith("explosao-") }) > 0;
+  const recarregando = useIsFetching({ predicate: (q) => String(q.queryKey[0]).startsWith("explosao-") || q.queryKey[0] === "insumos-tamanho-vinculado" }) > 0;
   const tentarDeNovo = () => {
     if (cadRowIsErr) void refetchCadRow();
     if (cadTecidosIsErr) void refetchCadTecidos();
@@ -691,7 +692,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           quantidade: l.quantidade,
           tamanhoVinculado: l.tamanhoVinculado,
           foraDaGrade: l.foraDaGrade,
-          aEnviar: l.aEnviar ?? 0, // null só enquanto os vínculos carregam; a semente do "a enviar" espera (abaixo)
+          aEnviar: l.aEnviar, // null só enquanto os vínculos carregam ("—" na tela); a semente do "a enviar" espera (abaixo)
         };
       }),
     [cadEtiquetas, tamData, grades],
@@ -702,12 +703,14 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   useEffect(() => {
     if (etiSeeded) return;
     if (falhaCarga) return;
-    if (!seeded || !cadEtiquetasFetched || tamData === undefined) return; // urg R1: sem o vínculo a necessária default sairia errada
+    // urg R1: sem o vínculo a necessária default sairia errada — e o mapa do cache pode estar velho: espera a leitura NOVA
+    // (sem refetch em curso e sem erro) antes de semear.
+    if (!seeded || !cadEtiquetasFetched || tamData === undefined || tamFetching || tamIsErr) return;
     const init: Record<string, number> = {};
-    for (const l of insumosBase) init[l.id] = l.aEnviar;
+    for (const l of insumosBase) init[l.id] = l.aEnviar ?? 0;
     setEtiEnviar(init);
     setEtiSeeded(true);
-  }, [etiSeeded, seeded, cadEtiquetasFetched, tamData, insumosBase, falhaCarga]);
+  }, [etiSeeded, seeded, cadEtiquetasFetched, tamData, tamFetching, tamIsErr, insumosBase, falhaCarga]);
 
   // Sobrepõe as edições locais ao base (o que a UI mostra e o payload leva).
   const insumosView = useMemo<InsumoLinha[]>(
@@ -721,7 +724,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   };
 
   const buildEtiquetaEnviarPayload = () =>
-    insumosView.map((l) => ({ id: l.id, quantidade_enviar: l.aEnviar }));
+    insumosView.map((l) => ({ id: l.id, quantidade_enviar: l.aEnviar ?? 0 }));
 
   // Explosão de Aviamentos p/ a Ficha de Corte impressa — uma linha por aviamento×variante
   // (com o rótulo da variante). Espelha o bloco da tela (aviGruposView), incluindo edições.
@@ -775,7 +778,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     () => aviGruposView.reduce((a, g) => a + g.totalSeparar, 0),
     [aviGruposView],
   );
-  const totalInsumos = useMemo(() => insumosView.reduce((a, l) => a + l.aEnviar, 0), [insumosView]);
+  const totalInsumos = useMemo(() => insumosView.reduce((a, l) => a + (l.aEnviar ?? 0), 0), [insumosView]);
   // "Nada a separar" bloqueia o envio — MAS não para a REVENDA: ela é OBRIGADA a passar pela
   // Explosão (Enviar para PCP) para chegar ao CQ, e pode não ter etiqueta a trocar (BOM vazio).
   // Bloquear aqui a prenderia fora do CQ para sempre (deadlock). Para revenda, o envio é o
