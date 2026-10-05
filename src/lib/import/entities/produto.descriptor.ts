@@ -228,7 +228,10 @@ export const produtoDescriptor: EntityImportDescriptor = {
       });
     }
 
-    return { raw: row, cabecalho, variantes, fotoNome: nome, problemas, chave: `${tipo}::${normalizeCat(nome)}` };
+    return { raw: row, cabecalho, variantes, fotoNome: nome, problemas,
+      // [R12/I1] tipo inválido = entidade PRÓPRIA (chave com o tipo digitado, igual ao `chaveNatural`): uma linha inválida do mesmo
+      // nome não pode fundir numa entidade `revenda` válida (o cabeçalho seria o da 1ª linha e o erro sumiria na 1ª edição de célula).
+      chave: `${tipoDigitado}::${normalizeCat(nome)}` };
   },
 
   revalidar(ent: EntidadeAgregada): Problema[] {

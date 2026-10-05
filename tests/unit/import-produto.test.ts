@@ -166,6 +166,26 @@ describe("R12 — tipo inválido/sem módulo continua erro depois das edições 
     expect(errosTipo(editaVezes(d, ent, 3).problemas)).toHaveLength(1);
   });
 
+  it("[I1] linha 'revenda' + linha de tipo inválido do MESMO nome: NÃO fundem; o inválido segue erro após 1–3 edições e nunca vira revenda", () => {
+    for (const invalido of ["revneda", "", "xyz"]) {
+      for (const ordem of ["valida-primeiro", "invalida-primeiro"]) {
+        const v = row(2, { tipo: "revenda", ...base, cor_base: "Azul", qtd: "10" });
+        const x = row(3, { tipo: invalido, ...base, cor_base: "Preto", qtd: "10" });
+        const ag = agregar(produtoDescriptor, ordem === "valida-primeiro" ? [v, x] : [x, v], maps);
+        const rotulo = `'${invalido}' ${ordem}`;
+        expect(ag.entidades, rotulo).toHaveLength(2);
+        const ruim = ag.entidades.find((e) => e.cabecalho.tipo !== "revenda")!;
+        const boa = ag.entidades.find((e) => e.cabecalho.tipo === "revenda")!;
+        expect(boa.variantes, rotulo).toHaveLength(1);
+        expect(ruim.variantes, rotulo).toHaveLength(1);
+        for (const n of [0, 1, 2, 3]) {
+          expect(errosTipo(editaVezes(produtoDescriptor, ruim, n).problemas), `${rotulo} após ${n} edições`).toHaveLength(1);
+          expect(errosTipo(editaVezes(produtoDescriptor, boa, n).problemas), `${rotulo} (válida) após ${n}`).toEqual([]);
+        }
+      }
+    }
+  });
+
   it("o resolve segue montando o ramo de revenda p/ tipo inválido (sem quebrar) e a RPC se recusa a importar tipo inválido", async () => {
     const ent = entidadeDe(produtoDescriptor, "xyz");
     expect(ent.cabecalho).toHaveProperty("valor_unitario"); // ramo revenda só p/ não quebrar o resolve

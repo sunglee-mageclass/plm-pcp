@@ -135,8 +135,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     `mensagemModularidade`, `erro-mensagem.ts`); `_tenant_modulo_ligado(tenant, modulo)` = REGRA DE NEGÓCIO por loja (lê
     `tenant_config.modules`, sem JWT, **SEM atalho de super admin**; EXECUTE só service_role). Recusar chamada = o 1º; o
     comportamento que depende do módulo DA LOJA (Lançar, "não se aplica" do kanban, Dashboards) = o 2º. 37 wrappers portados:
-    Dashboards = `dashboard` (`dashboard_financeiro` também `financeiro`; M7: aba/bloco some sem o módulo-fonte), **Explosão =
-    Criação + E&S (`excluir_cad` só Criação)**, Plan. Tecido = `otb` (P-253 A), Revenda/Importado (P9) = `criar_card*` Criação e
+    Dashboards = `dashboard` (`dashboard_financeiro` também `financeiro`; M7: aba/bloco some sem o módulo-fonte), **Explosão
+    (7 RPCs: `baixar_estoque_tecido_corte`, `salvar_explosao_*`, `voltar_modelo_desenvolvimento`, `reverter_corte_tecido`,
+    `enviar_modelo_para_cad`) = portão `entrada_saida` na RPC; a Criação vem do `PageDef.gate: criacao` da página** (`excluir_cad`
+    NÃO é wrapper portado: não ganhou portão de módulo), Plan. Tecido = `otb` (P-253 A), Revenda/Importado (P9) = `criar_card*` Criação e
     `receber_oc_*` Criação + Produção. Anti-drift `tests/integration/mod-antidrift.test.ts`: toda chave de portão ∈ `ModuleKey`
     (T1 M5), módulos do portão ⊆ {dono} ∪ `MODULE_DEPS[dono].exige` (RPC nova com `_exige_modulos` = acrescentar o dono em
     `DONOS` do teste), lista opt-in IGUAL em `tenant_module_enabled`/`_tenant_modulo_ligado`/`useTenantModules.DEFAULTS`/

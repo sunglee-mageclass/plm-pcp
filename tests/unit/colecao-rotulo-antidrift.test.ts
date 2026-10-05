@@ -6,6 +6,7 @@
 //     EDIÇÃO da lista EDITORES (a coluna é o valor editável do formulário, não exibição);
 //  3. nenhum filtro/ordem por `colecao` (`.eq/.neq/.in/.ilike/.like/.or/.not/.is/.gt…("colecao", …)` nem `colecao.eq.x` dentro de
 //     `.or(...)`): quem filtra, filtra pelo rótulo no cliente;
+//     Literal de crase (template) multilinha também é lido: o texto é compactado antes de olhar o select.
 //  4. quem lê passa pelo rótulo (`@/lib/colecao-rotulo`).
 // A lista de exceções do leitor ficou VAZIA (B2: `versoes-familia-query.ts` passou a usar `rotuloColecaoDoModelo`).
 import { describe, it, expect } from "vitest";
@@ -31,7 +32,11 @@ function arquivos(dir: string): string[] {
 }
 
 // Literal de string de UMA linha (aspas simples, duplas ou crase).
-const LITERAL = /(["'`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
+// Aspas simples/duplas: UMA linha. Crase (template literal): pode quebrar linha (select multilinha); o texto é compactado
+// (espaços/quebras viram um espaço) em `textoDoLiteral`. Interpolação `${...}` fica no texto como veio.
+const LITERAL = /(["'])((?:(?!\1)[^\\\n]|\\.)*)\1|`((?:[^`\\]|\\.)*)`/g;
+const textoDoLiteral = (m: RegExpMatchArray): string =>
+  (m[2] ?? m[3] ?? "").replace(/\s+/g, " ").trim();
 // `colecao` isolado (não colecao_id/subcolecao/colecoes): começo, espaço, vírgula ou "(" antes; vírgula, ")", fim ou espaço+vírgula depois.
 const COLECAO_TOKEN = /(^|[\s,(])colecao(?=\s*(,|$|\)))/;
 // `colecao.ilike.x` / `colecao.in.(a,b)` dentro de um `.or("...")` / `.filter("colecao", "eq", x)`.
@@ -54,7 +59,7 @@ export function leituraCrua(fonte: string): Achado[] {
     .replace(/(^|\s)\/\/.*$/gm, "$1");
 
   for (const m of src.matchAll(LITERAL)) {
-    const txt = m[2];
+    const txt = textoDoLiteral(m);
     const antes = src.slice(Math.max(0, m.index! - 40), m.index!);
     const dentroDeSelect = /\.select\(\s*$/.test(antes);
     // objeto literal / prosa: "colecao: x", frases com espaços e sem vírgula de coluna
@@ -79,7 +84,7 @@ export function leituraCrua(fonte: string): Achado[] {
   // `from("modelos")…select("*")` (a cadeia pode quebrar linha): sem embed = leitura crua
   for (const m of src.matchAll(/from\(\s*["'`]modelos["'`][^)]*\)/g)) {
     const cadeia = src.slice(m.index! + m[0].length, m.index! + 700).split(/;|\.from\(/)[0]; // só a cadeia desta tabela
-    if (/\.select\(\s*["'`]\*["'`]\s*[,)]/.test(cadeia))
+    if (/\.select\(\s*(["'`])\s*\*\s*\1\s*[,)]/.test(cadeia))
       achados.push({ regra: "select-estrela", trecho: cadeia.slice(0, 80).replace(/\s+/g, " ") });
   }
   return achados;
@@ -96,6 +101,16 @@ describe("colecao pelo rótulo: detector (o detector enxerga os buracos que o F3
     ]);
     expect(regras('supabase.from("modelos").select("colecao")')).toEqual(["select-sem-embed"]);
     expect(regras('supabase.from("modelos").select("id, colecao")')).toEqual(["select-sem-embed"]);
+  });
+  it("select em template literal MULTILINHA: sem o embed é pego; com o embed passa (M2 do review)", () => {
+    const sem = 'supabase.from("modelos").select(`\n    id, nome,\n    colecao, subcolecao\n  `)';
+    const com =
+      'supabase.from("modelos").select(`\n    id, nome,\n    colecao, colecoes(nome)\n  `)';
+    expect(regras(sem)).toEqual(["select-sem-embed"]);
+    expect(regras(com)).toEqual([]);
+    expect(regras('supabase.from("modelos").select(`\n  *\n`).eq("id", x)')).toEqual([
+      "select-estrela",
+    ]);
   });
   it("select de lista longa sem o embed é pego", () => {
     expect(regras('.select("id, ref, nome, colecao, subcolecao")')).toEqual(["select-sem-embed"]);
@@ -162,7 +177,9 @@ describe("colecao pelo rótulo: nenhuma leitura crua de modelos.colecao nas tela
     for (const f of todos) {
       if (f.p === "src/lib/colecao-rotulo.ts") continue;
       const pede = [...f.src.matchAll(LITERAL)].some(
-        (m) => /colecoes\(nome\)/.test(m[2]) && /(^|[\s,(*])(colecao|\*)\s*,/.test(m[2]),
+        (m) =>
+          /colecoes\(nome\)/.test(textoDoLiteral(m)) &&
+          /(^|[\s,(*])(colecao|\*)\s*,/.test(textoDoLiteral(m)),
       );
       if (!pede) continue;
       expect(f.src, `${f.p}: falta importar o rótulo`).toMatch(/from "@\/lib\/colecao-rotulo"/);
