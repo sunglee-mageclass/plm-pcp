@@ -130,8 +130,24 @@ async function prepara(c: Client, ate: 1 | 2 | 3 | 4 = 4): Promise<void> {
   if (MIG_TXN) exigeBancoLocal(); // ANTES de qualquer comando: DDL nunca fora da cópia local
   await c.query("SET LOCAL lock_timeout = '3s'");
   await c.query("SET LOCAL statement_timeout = '120s'");
-  if (!MIG_TXN) return;
+  if (!MIG_TXN) {
+    await normalizaLojaTeste(c);
+    return;
+  }
   for (const rel of MIGRACOES.slice(0, ate)) await aplicarArquivo(c, rel);
+}
+
+/**
+ * T1 (backend, 05/out): estes testes foram escritos para uma Loja Teste COM a chave do kanban automático desligada e SEM lotes de snapshot
+ * (o que o `KANBAN_AUTO_MIG_TXN=1` constrói). Na cópia com as migrations já aplicadas a Loja Teste é dado vivo: chave LIGADA pelo dono e 12
+ * lotes de snapshot reais (1 'ligar' + 11 'config'), o que quebrava 12 testes ("expected [config×12…] to equal [ligar×N]", prévia pegando o lote
+ * errado, "lote já restaurado"). Em vez de depender do dado, leva a Loja Teste ao estado de partida NESTA txn (revertida no ROLLBACK): chave
+ * desligada pelo caminho da RPC (GUC) e snapshot/fila da loja vazios. Só toca a Loja Teste e só dentro da txn — nada persiste.
+ */
+async function normalizaLojaTeste(c: Client): Promise<void> {
+  await chave(c, false);
+  await c.query(`DELETE FROM public.kanban_snapshot WHERE tenant_id = $1`, [T]);
+  await c.query(`DELETE FROM public.kanban_recalculo_fila WHERE tenant_id = $1`, [T]);
 }
 
 async function migracoesJaAplicadas(): Promise<boolean> {
