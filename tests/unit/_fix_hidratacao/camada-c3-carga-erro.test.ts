@@ -248,3 +248,29 @@ describe("[camada C3 fix2 · L4] PCP Oficina — imprimir desabilitado enquanto 
     await aguardar(() => imprimir().disabled === false, "habilita quando o CAD e a grade chegam", 3000);
   });
 });
+
+describe("[camada C3 fix3] N-L1 / N-L2", () => {
+  it("N-L1 Oficina: o que foi digitado DURANTE o Salvar continua 'não salvo' (baseline = o enviado)", async () => {
+    await abrir(RouteOficina, novoQc());
+    await aguardar(() => !!salvar() && salvar()!.disabled === false && !!molde(), "hidratou", 3000);
+    await digitar(molde()!, "molde NOVO");
+    FAKE.falhar("cad", 8); // o refetch pós-Salvar falha: a re-hidratação não roda
+    const soltar = FAKE.segurar("cad"); // segura o refetch do CAD: janela "durante o Salvar"
+    await clicar(salvar()!);
+    await aguardar(() => updatesCad().length === 1, "UPDATE do cad enviado (molde NOVO)");
+    await digitar(molde()!, "molde NOVO + digitado durante o Salvar");
+    soltar();
+    await aguardar(() => !!tentarDeNovo(), "aviso depois do refetch falho", 6000);
+    expect((updatesCad()[0].payload as any).observacoes_molde).toBe("molde NOVO");
+    expect(texto()).toContain("alterações não salvas"); // a edição feita durante o Salvar NÃO foi marcada como salva
+  });
+
+  it("N-L2 Serviços: o 'Tentar de novo' da grade/custo fica FORA do fieldset desabilitado (clicável no aviso do CAD)", async () => {
+    FAKE.falhar("cad_grades", 2);
+    await abrir(RouteServicos, novoQc());
+    await aguardar(() => texto().includes("Não foi possível carregar a grade e o custo do CAD"), "aviso grade/custo", 5000);
+    const botaoGrade = tentarDeNovo()!;
+    expect(botaoGrade.closest("fieldset")).toBeNull();
+  });
+});
+

@@ -1747,6 +1747,16 @@ export function TerceirizadosDetail({
         <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
       )}
 
+      {/* [fix3 N-L2] FORA do fieldset do corpo (que fica desabilitado no aviso do M1): o "Tentar de novo" segue clicável. */}
+      {(cad === null || hydrated) && custoAuxErro && (
+        <Card role="alert" className="p-4 space-y-2 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar a grade e o custo do CAD.</p>
+          <Button type="button" variant="outline" size="sm" disabled={gradeTotalFetching || materiaisFetching} onClick={() => { if (gradeTotalErro) refetchGradeTotal(); if (materiaisErro) refetchMateriais(); }}>
+            <RotateCcw className="h-4 w-4 mr-2" /> {gradeTotalFetching || materiaisFetching ? "Tentando…" : "Tentar de novo"}
+          </Button>
+        </Card>
+      )}
+
       {(cad === null || hydrated) && (
       <fieldset disabled={readOnly || locked || cadErro} className="contents">
 
@@ -1769,15 +1779,6 @@ export function TerceirizadosDetail({
           />
         </div>
       </header>
-
-      {custoAuxErro && (
-        <Card role="alert" className="p-4 space-y-2 border-destructive/50 bg-destructive/5 text-sm">
-          <p className="text-destructive font-medium">Não foi possível carregar a grade e o custo do CAD.</p>
-          <Button type="button" variant="outline" size="sm" disabled={gradeTotalFetching || materiaisFetching} onClick={() => { if (gradeTotalErro) refetchGradeTotal(); if (materiaisErro) refetchMateriais(); }}>
-            <RotateCcw className="h-4 w-4 mr-2" /> {gradeTotalFetching || materiaisFetching ? "Tentando…" : "Tentar de novo"}
-          </Button>
-        </Card>
-      )}
 
       {/* Status geral */}
       <Card className="p-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">

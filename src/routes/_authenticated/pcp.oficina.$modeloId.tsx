@@ -226,22 +226,22 @@ function OficinaDetailPage() {
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
 
   const saveMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (f: typeof form) => {
       if (!cad?.id) throw new Error("CAD não encontrado. Abra o CAD desse modelo primeiro.");
       const payload = {
         cad_id: cad.id,
         // Oficina interna: o Select de terceirizado fica escondido — não gravar
         // um terceirizado_id órfão (do estado anterior).
-        terceirizado_id: oficinaInterna ? null : (form.terceirizado_id || null),
-        preco_por_peca: form.preco_por_peca,
-        quantidade_enviada: form.quantidade_enviada,
-        quantidade_recebida: form.quantidade_recebida,
-        quantidade_defeito: form.quantidade_defeito,
-        data_enviado: form.data_enviado || null,
-        data_prevista: form.data_prevista || null,
-        data_entregue: form.data_entregue || null,
-        status,
-        observacao: form.observacao,
+        terceirizado_id: oficinaInterna ? null : (f.terceirizado_id || null),
+        preco_por_peca: f.preco_por_peca,
+        quantidade_enviada: f.quantidade_enviada,
+        quantidade_recebida: f.quantidade_recebida,
+        quantidade_defeito: f.quantidade_defeito,
+        data_enviado: f.data_enviado || null,
+        data_prevista: f.data_prevista || null,
+        data_entregue: f.data_entregue || null,
+        status: computeStatus({ data_enviado: f.data_enviado || null, data_entregue: f.data_entregue || null }),
+        observacao: f.observacao,
       };
       if (existing?.id) {
         const { error } = await supabase.from("producao_oficina").update(payload).eq("id", existing.id);
@@ -253,11 +253,11 @@ function OficinaDetailPage() {
       // "Partes do Molde" tem fonte única no CAD (Ficha de Corte).
       const { error: cadErr } = await supabase
         .from("cad")
-        .update({ observacoes_molde: form.observacoes_molde || null } as any)
+        .update({ observacoes_molde: f.observacoes_molde || null } as any)
         .eq("id", cad.id);
       if (cadErr) throw cadErr;
     },
-    onSuccess: async () => {
+    onSuccess: async (_d, f) => {
       toast.success("Salvo");
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo).
@@ -266,7 +266,8 @@ function OficinaDetailPage() {
       await refetch();
       // [fix2 L1] o que está na tela É o que foi salvo: sem isso, se o refetch do CAD falhar (a re-hidratação não roda) o selo
       // "alterações não salvas" ficaria aceso e o guard pediria "descartar?" ao sair.
-      resetBaseline(form);
+      // [fix3 N-L1] baseline = o que foi ENVIADO (variável da mutation), não o `form` atual: o que se digitou durante o Salvar continua "sujo".
+      resetBaseline(f);
       setHydrated(false);
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
@@ -516,7 +517,7 @@ function OficinaDetailPage() {
               `producao_oficina` não tem RPC própria: o Salvar faz `.update()`/`.insert()` direto
               com TODO o `form` local; cedo demais, grava zeros por cima de um registro real
               (mesma classe de dano do "estado completo", sem ser DELETE). */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated || cadErro} aria-label="Salvar">
+          <Button onClick={() => saveMut.mutate(form)} disabled={saveMut.isPending || readOnly || !hydrated || cadErro} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </div>
