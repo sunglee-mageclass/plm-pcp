@@ -153,4 +153,54 @@ describe("[camada C3 · F5] OficinaServicoDialog", () => {
     await aguardar(() => salvarArgs().length === 1, "RPC de salvar chamada");
     expect(salvarArgs()[0]).toMatchObject({ _desconto: 99, _multa: 8 });
   });
+
+  // ---- fix round 2 ---------------------------------------------------------------------------------------------------
+  it("N1 (P-I2c): Salvar 99 (servidor = 99/5), refetch pós-Salvar FALHA, reabrir mostra 99/5 e o 2º Salvar manda 99 (não reverte para 10)", async () => {
+    let servidor = { ...SERV, desconto: 10, multa: 5 };
+    let lerFalha = false;
+    rpc.fn.mockImplementation((nome: string, args: any) => {
+      if (nome === "cq_set_oficina_desconto_multa") {
+        servidor = { ...servidor, desconto: args._desconto, multa: args._multa };
+        lerFalha = true; // a partir daqui toda leitura falha (o refetch pós-Salvar e a da reabertura)
+        return Promise.resolve({ data: null, error: null });
+      }
+      return Promise.resolve(lerFalha ? { data: null, error: { message: "Failed to fetch" } } : { data: servidor, error: null });
+    });
+    const qc = novoQc();
+    await abrirHarness(qc);
+    await aguardar(() => campos().length >= 2, "campos");
+    await digitar(campos()[0], "99");
+    await clicar(botao("Salvar")!);
+    await aguardar(() => salvarArgs().length === 1, "1º Salvar");
+    expect(salvarArgs()[0]).toMatchObject({ _desconto: 99, _multa: 5 });
+    await aguardar(() => campos().length === 0, "diálogo fechou");
+    await esperar(50);
+
+    await act(async () => { setOpenExt(true); });
+    await aguardar(() => campos().length >= 2, "reabriu");
+    expect(num(campos()[0])).toBe(99); // NÃO o 10 de antes do Salvar
+    expect(num(campos()[1])).toBe(5);
+    await digitar(campos()[1], "6");
+    await esperar(50);
+    // o Salvar só habilita quando a leitura da reabertura assenta (falhou) — aguarda
+    await aguardar(() => !botao("Salvar")!.disabled, "Salvar habilitado após a leitura assentar", 6000);
+    await clicar(botao("Salvar")!);
+    await aguardar(() => salvarArgs().length === 2, "2º Salvar", 3000);
+    expect(salvarArgs()[1]).toMatchObject({ _desconto: 99, _multa: 6 });
+  });
+
+  it("L3: campo TOCADO (digitado e de volta ao valor-base) não é tratado como 'não tocado': refetch não o substitui nem o remonta", async () => {
+    rpc.fn.mockImplementation((nome: string) => Promise.resolve({ data: nome === "cq_oficina_servico" ? SERV : null, error: null }));
+    const qc = novoQc();
+    await abrirHarness(qc);
+    await aguardar(() => campos().length >= 2, "campos");
+    const antes = campos()[0];
+    await digitar(antes, "99");
+    await digitar(antes, "10"); // volta ao valor-base (10), mas foi digitado
+    rpc.fn.mockImplementation((nome: string) => Promise.resolve({ data: nome === "cq_oficina_servico" ? { ...SERV, desconto: 30 } : null, error: null }));
+    await qc.invalidateQueries({ queryKey: ["cq-oficina-servico", "c1"] });
+    await esperar(100);
+    expect(campos()[0]).toBe(antes); // mesmo nó: não remontou
+    expect(num(campos()[0])).toBe(10); // o que a pessoa digitou fica
+  });
 });

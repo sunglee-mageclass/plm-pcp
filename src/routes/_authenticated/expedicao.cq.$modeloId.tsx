@@ -1871,6 +1871,9 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
   // cujo valor foi trocado pela semeadura/mescla (o campo que a pessoa está digitando nunca é remontado).
   const [descKey, setDescKey] = useState(0);
   const [multaKey, setMultaKey] = useState(0);
+  // [fix2 L3] "tocado" é EXPLÍCITO (marcado no onChange), não `local === base`: digitar "100" passa por "10" (= a base) e o campo não
+  // pode ser tratado como "não tocado". Limpa quando a semeadura volta ao servidor ou quando o valor local converge com o do servidor.
+  const touchedRef = useRef({ desc: false, multa: false });
   useEffect(() => {
     if (!serv) return;
     const nd = Number(serv.desconto ?? 0);
@@ -1879,13 +1882,14 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
       if (draftRef.current.desc !== nd) setDescKey((k) => k + 1);
       if (draftRef.current.multa !== nm) setMultaKey((k) => k + 1);
       setDesc(nd); setMulta(nm);
+      touchedRef.current = { desc: false, multa: false };
       resetBaseline({ desc: nd, multa: nm });
       baseServRef.current = open ? { desc: nd, multa: nm } : null;
       return;
     }
-    const base = baseServRef.current;
-    const mDesc = draftRef.current.desc === base.desc ? nd : draftRef.current.desc;
-    const mMulta = draftRef.current.multa === base.multa ? nm : draftRef.current.multa;
+    const mDesc = touchedRef.current.desc ? draftRef.current.desc : nd;
+    const mMulta = touchedRef.current.multa ? draftRef.current.multa : nm;
+    touchedRef.current = { desc: touchedRef.current.desc && mDesc !== nd, multa: touchedRef.current.multa && mMulta !== nm };
     if (mDesc !== draftRef.current.desc) setDescKey((k) => k + 1);
     if (mMulta !== draftRef.current.multa) setMultaKey((k) => k + 1);
     setDesc(mDesc); setMulta(mMulta);
@@ -1899,11 +1903,14 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
   const bruto = Number(serv?.custo_bruto ?? 0);
   const liquido = bruto - (Number(desc) || 0) + (Number(multa) || 0);
   const save = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.rpc("cq_set_oficina_desconto_multa" as any, { _cad_id: cadId, _desconto: Number(desc) || 0, _multa: Number(multa) || 0 });
+    mutationFn: async (v: { desc: number; multa: number }) => {
+      const { error } = await supabase.rpc("cq_set_oficina_desconto_multa" as any, { _cad_id: cadId, _desconto: v.desc, _multa: v.multa });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_d, v) => {
+      // [fix2 N1] Grava no cache o que acabou de ser SALVO ANTES do invalidate/onClose: o `onClose` re-semeia o rascunho do `serv` em
+      // cache; se o refetch pós-Salvar falhar, o cache ainda teria o valor de ANTES e a reabertura (e o próximo Salvar) o reverteria.
+      qc.setQueryData(["cq-oficina-servico", cadId], (old: any) => (old ? { ...old, desconto: v.desc, multa: v.multa } : old));
       qc.invalidateQueries({ queryKey: ["cq-oficina-servico", cadId] });
       qc.invalidateQueries({ queryKey: ["servicos-financeiro"] });
       // O desconto/multa grava em producao_terceirizados: invalida os caches de
@@ -1939,11 +1946,11 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Desconto total</Label>
-                <MoneyInput key={`d${descKey}`} value={desc || ""} placeholder="0,00" onChange={(e) => setDesc(Number(e.target.value))} />
+                <MoneyInput key={`d${descKey}`} value={desc || ""} placeholder="0,00" onChange={(e) => { touchedRef.current.desc = true; setDesc(Number(e.target.value)); }} />
               </div>
               <div>
                 <Label className="text-xs">Multa total</Label>
-                <MoneyInput key={`m${multaKey}`} value={multa || ""} placeholder="0,00" onChange={(e) => setMulta(Number(e.target.value))} />
+                <MoneyInput key={`m${multaKey}`} value={multa || ""} placeholder="0,00" onChange={(e) => { touchedRef.current.multa = true; setMulta(Number(e.target.value)); }} />
               </div>
             </div>
             <div className="rounded-md bg-muted/40 px-3 py-2"><span className="text-muted-foreground">Custo líquido:</span> <b>{brl(liquido)}</b></div>
@@ -1954,7 +1961,7 @@ export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; 
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Voltar</span>
           </Button>
-          {serv && <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>}
+          {serv && <Button onClick={() => save.mutate({ desc: Number(desc) || 0, multa: Number(multa) || 0 })} disabled={save.isPending || servFetching}>Salvar</Button>}
         </DialogFooter>
         <UnsavedChangesGuard confirm={confirm} message="Há alterações de desconto/multa não salvas nesta oficina." />
       </DialogContent>

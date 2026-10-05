@@ -170,6 +170,7 @@ describe("[camada C3 fix1 · I1] PCP Oficina — refetch do CAD que falha DEPOIS
     await esperar(200);
     expect(salvar()!.disabled).toBe(true);
     expect(updatesCad().length).toBe(1); // nada gravou o molde velho por cima
+    expect(texto()).not.toContain("alterações não salvas"); // [fix2 L1] o que foi salvo não deixa o selo aceso
 
     FAKE.falhar("cad", 0);
     await clicar(tentarDeNovo()!);
@@ -188,6 +189,8 @@ describe("[camada C3 fix1 · M1] PCP Serviços — refetch do CAD que falha DEPO
     await aguardar(() => !!tentarDeNovo(), "aviso depois do refetch falho", 6000);
     expect(texto()).toContain("Não foi possível carregar os dados");
     expect(salvar()!.disabled).toBe(true);
+    // [fix2 L2] corpo somente leitura enquanto o aviso está na tela (o que se digitasse seria sobrescrito no retry)
+    expect(molde()!.closest("fieldset")!.disabled).toBe(true);
     FAKE.falhar("cad", 0);
     await clicar(tentarDeNovo()!);
     await aguardar(() => salvar()?.disabled === false, "libera após carga NOVA", 3000);
@@ -230,5 +233,18 @@ describe("[camada C3 fix1 · M2] Direcionamento — carregando não vira 'Nenhum
     soltar();
     await aguardar(() => salvar()?.disabled === false, "hidrata", 3000);
     expect(texto()).not.toContain("Carregando…");
+  });
+});
+
+describe("[camada C3 fix2 · L4] PCP Oficina — imprimir desabilitado enquanto o CAD carrega", () => {
+  it("com o `cad` em voo o botão de imprimir fica desabilitado", async () => {
+    const soltar = FAKE.segurar("cad");
+    await abrir(RouteOficina, novoQc());
+    const imprimir = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").includes("Imprimir Ficha de Oficina"))!;
+    await aguardar(() => !!imprimir(), "botão de imprimir");
+    await esperar(60);
+    expect(imprimir().disabled).toBe(true);
+    soltar();
+    await aguardar(() => imprimir().disabled === false, "habilita quando o CAD e a grade chegam", 3000);
   });
 });

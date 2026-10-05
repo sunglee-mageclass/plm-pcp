@@ -1748,7 +1748,7 @@ export function TerceirizadosDetail({
       )}
 
       {(cad === null || hydrated) && (
-      <fieldset disabled={readOnly || locked} className="contents">
+      <fieldset disabled={readOnly || locked || cadErro} className="contents">
 
       <header className="flex items-start gap-3">
         <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />

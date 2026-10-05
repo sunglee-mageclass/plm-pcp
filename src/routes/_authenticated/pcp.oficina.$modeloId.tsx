@@ -264,6 +264,9 @@ function OficinaDetailPage() {
       await qc.invalidateQueries({ queryKey: ["producao-oficina", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["oficina-cad", modeloId] });
       await refetch();
+      // [fix2 L1] o que está na tela É o que foi salvo: sem isso, se o refetch do CAD falhar (a re-hidratação não roda) o selo
+      // "alterações não salvas" ficaria aceso e o guard pediria "descartar?" ao sair.
+      resetBaseline(form);
       setHydrated(false);
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
@@ -506,7 +509,7 @@ function OficinaDetailPage() {
           <Link to="/pcp/oficina"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Link>
         </Button>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint} disabled={gradesErro || (!!cad?.id && gradesRaw === undefined)}>
+          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint} disabled={gradesErro || cad === undefined || (!!cad?.id && gradesRaw === undefined)}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
           {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — auditoria confirmou (26/set) que
