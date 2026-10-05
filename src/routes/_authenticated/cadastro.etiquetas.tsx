@@ -23,6 +23,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { InfoHover } from "@/components/shared/InfoHover";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import {
+  rotuloTamanho, tamanhoEfetivoInsumo, tamanhoVinculadoParaSalvar, vinculoAtivoDoRegistro, vinculoDisponivel,
+} from "@/lib/insumo-tamanho";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -48,6 +54,7 @@ type Etiqueta = {
   id: string; nome: string; unidade: string; preco: number | null;
   empresa_id: string | null; representante_id: string | null; observacoes: string | null;
   formato_tamanho: string; n_variantes: number; tipo_insumo_id: string | null;
+  tamanho_vinculado: string | null; variantes_tamanho: { tamanho: string | null }[];
 };
 
 const UNIDADES = ["unidade", "metro", "rolo", "milheiro"];
@@ -93,6 +100,9 @@ function EtiquetasPage() {
   const [fObs, setFObs] = useState("");
   const [fBlocks, setFBlocks] = useState<CorBlock[]>([]);
   const [fTipo, setFTipo] = useState<string | null>(null);
+  // "Vincular a um tamanho" (urg R1): o insumo vai só nas peças de UM tamanho (coluna etiquetas.tamanho_vinculado).
+  const [fVincular, setFVincular] = useState(false);
+  const [fTamVinc, setFTamVinc] = useState<string | null>(null);
   const [tipoNovoOpen, setTipoNovoOpen] = useState(false);
   const [tipoNovoNome, setTipoNovoNome] = useState("");
 
@@ -101,7 +111,7 @@ function EtiquetasPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("etiquetas" as any)
-        .select("id, nome, unidade, preco, empresa_id, representante_id, observacoes, formato_tamanho, tipo_insumo_id, variantes_etiqueta(id)")
+        .select("id, nome, unidade, preco, empresa_id, representante_id, observacoes, formato_tamanho, tipo_insumo_id, tamanho_vinculado, variantes_etiqueta(id, tamanho)")
         .order("nome");
       if (error) throw error;
       return ((data ?? []) as any[]).map((e) => ({
@@ -109,6 +119,8 @@ function EtiquetasPage() {
         empresa_id: e.empresa_id, representante_id: e.representante_id, observacoes: e.observacoes,
         formato_tamanho: e.formato_tamanho ?? "ambos", n_variantes: (e.variantes_etiqueta ?? []).length,
         tipo_insumo_id: e.tipo_insumo_id ?? null,
+        tamanho_vinculado: e.tamanho_vinculado ?? null,
+        variantes_tamanho: ((e.variantes_etiqueta ?? []) as any[]).map((v) => ({ tamanho: v.tamanho ?? null })),
       })) as Etiqueta[];
     },
   });
@@ -177,10 +189,14 @@ function EtiquetasPage() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["etiquetas-cadastro"] });
     qc.invalidateQueries({ queryKey: ["etiquetas-opts"] });
+    // Consumidores do vínculo por tamanho (Ficha/Planejamento, Ficha Técnica, Explosão/estoque de insumos).
+    qc.invalidateQueries({ queryKey: ["plan-ficha-etiquetas-cat"] });
+    qc.invalidateQueries({ queryKey: ["ft-etiquetas-semtamanho"] });
+    qc.invalidateQueries({ queryKey: ["insumos-tamanho-vinculado"] });
   };
 
   // Snapshot do formulário para detecção de alterações (Case C — muitos campos + async).
-  const formSnapshot = { nome: fNome, unidade: fUnidade, empresa: fEmpresa, rep: fRep, preco: fPreco, formato: fFormato, obs: fObs, blocks: fBlocks, tipo: fTipo };
+  const formSnapshot = { nome: fNome, unidade: fUnidade, empresa: fEmpresa, rep: fRep, preco: fPreco, formato: fFormato, obs: fObs, blocks: fBlocks, tipo: fTipo, vincular: fVincular, tamVinc: fTamVinc };
   const { dirty: snapshotDirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
   const dirty = open && snapshotDirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
@@ -188,19 +204,25 @@ function EtiquetasPage() {
   const resetForm = () => {
     setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null);
     setFFormato("nenhum"); setFObs(""); setFBlocks([]); setFTipo(null);
+    setFVincular(false); setFTamVinc(null);
   };
   const openCreate = () => {
     setEditing(null);
     resetForm();
     setOpen(true);
     // Baseline limpa (formulário vazio) para detecção de alterações.
-    resetBaseline({ nome: "", unidade: "unidade", empresa: null, rep: null, preco: null, formato: "nenhum", obs: "", blocks: [], tipo: null });
+    resetBaseline({ nome: "", unidade: "unidade", empresa: null, rep: null, preco: null, formato: "nenhum", obs: "", blocks: [], tipo: null, vincular: false, tamVinc: null });
   };
   const openEdit = async (e: Etiqueta) => {
     setEditing(e);
     setFNome(e.nome); setFUnidade(e.unidade); setFEmpresa(e.empresa_id); setFRep(e.representante_id);
     setFPreco(e.preco); setFFormato(e.formato_tamanho ?? "ambos"); setFObs(e.observacoes ?? ""); setFBlocks([]);
     setFTipo(e.tipo_insumo_id);
+    const vincular = vinculoAtivoDoRegistro(e.tamanho_vinculado);
+    const tamVinc = vincular
+      ? tamanhoVinculadoParaSalvar({ ativo: true, tamanho: e.tamanho_vinculado, formato: "nenhum", blocos: [] })
+      : null;
+    setFVincular(vincular); setFTamVinc(tamVinc);
     setOpen(true);
     const { data } = await supabase.from("variantes_etiqueta" as any).select("tamanho, cor_id, preco").eq("etiqueta_id", e.id);
     // agrupa variantes por cor → blocos
@@ -219,7 +241,7 @@ function EtiquetasPage() {
     resetBaseline({
       nome: e.nome, unidade: e.unidade, empresa: e.empresa_id, rep: e.representante_id,
       preco: e.preco, formato: e.formato_tamanho ?? "ambos", obs: e.observacoes ?? "", blocks,
-      tipo: e.tipo_insumo_id,
+      tipo: e.tipo_insumo_id, vincular, tamVinc,
     });
   };
 
@@ -254,6 +276,8 @@ function EtiquetasPage() {
         nome, unidade: fUnidade, empresa_id: fEmpresa, representante_id: fRep,
         preco: fPreco, formato_tamanho: fFormato, observacoes: fObs.trim() || null,
         tipo_insumo_id: fTipo,
+        // Ruling A2: o Salvar limpa o vínculo que não vale (toggle off, sem tamanho, ou tamanho marcado nas variantes).
+        tamanho_vinculado: tamanhoVinculadoParaSalvar({ ativo: fVincular, tamanho: fTamVinc, formato: fFormato, blocos: fBlocks }),
       };
       let etqId = editing?.id;
       if (editing) {
@@ -430,6 +454,12 @@ function EtiquetasPage() {
                       )}
                       <span className="font-medium">{e.nome}</span>
                       {e.n_variantes > 0 && <Badge variant="secondary" className="ml-2">{e.n_variantes} var.</Badge>}
+                      {(() => {
+                        const tv = tamanhoEfetivoInsumo({
+                          tamanho_vinculado: e.tamanho_vinculado, formato_tamanho: e.formato_tamanho, variantes: e.variantes_tamanho,
+                        });
+                        return tv ? <StatusBadge tone="neutral" className="normal-case tracking-normal">Só tam. {rotuloTamanho(tv)}</StatusBadge> : null;
+                      })()}
                     </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground" data-label="Tipo">{e.tipo_insumo_id ? tipoMap.get(e.tipo_insumo_id) ?? "—" : "—"}</TableCell>
@@ -511,6 +541,43 @@ function EtiquetasPage() {
                   Formato dos tamanhos da grade cadastrada (letra P/M/G, número, ambos ou sem tamanho) —
                   não é o tamanho físico do insumo.
                 </p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                {(() => {
+                  const disponivel = vinculoDisponivel(fFormato, fBlocks);
+                  const ligado = fVincular && disponivel;
+                  // O valor gravado pode não estar mais na grade da loja: entra como opção extra p/ continuar visível.
+                  const opcoes = fTamVinc && !tamanhos.includes(fTamVinc) ? [...tamanhos, fTamVinc] : tamanhos;
+                  return (
+                    <>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            id="insumo-vincular-tamanho"
+                            checked={ligado}
+                            onCheckedChange={(v) => { setFVincular(v); if (!v) setFTamVinc(null); }}
+                            disabled={readOnly || !disponivel}
+                          />
+                          <Label htmlFor="insumo-vincular-tamanho">Vincular a um tamanho</Label>
+                          <InfoHover ariaLabel="Sobre vincular a um tamanho">
+                            Use para insumo que vai só nas peças de UM tamanho (ex.: etiqueta de tamanho M). Na Explosão a quantidade passa a ser consumo × peças desse tamanho, e o custo por peça é rateado. Só vale para insumo sem tamanho nas variantes.
+                          </InfoHover>
+                        </div>
+                        <Select value={fTamVinc ?? ""} onValueChange={setFTamVinc} disabled={readOnly || !ligado}>
+                          <SelectTrigger className="w-full sm:w-56"><SelectValue placeholder="Escolha o tamanho" /></SelectTrigger>
+                          <SelectContent>
+                            {opcoes.map((t) => <SelectItem key={t} value={t}>{rotuloTamanho(t)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {!disponivel && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          Disponível só para insumo sem tamanho nas variantes (formato "Nenhum" ou nenhum tamanho marcado).
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div className="space-y-1.5">
                 <Label>Preço base (R$)</Label>

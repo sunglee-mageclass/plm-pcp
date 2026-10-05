@@ -84,3 +84,34 @@ export function rotuloTamanho(tam: string): string {
   const [n, s] = tam.split("|");
   return s ? `${s} · ${n}` : tam;
 }
+
+/** Switch "Vincular a um tamanho" habilitado so para insumo sem tamanho proprio ('nenhum' ou nenhum tamanho marcado nos blocos). */
+export function vinculoDisponivel(formato: string | null, blocos: { tamanhos: string[] }[]): boolean {
+  const variantes: { tamanho: string | null }[] = [];
+  for (const b of blocos) {
+    if (b.tamanhos.length === 0) variantes.push({ tamanho: null });
+    else for (const t of b.tamanhos) variantes.push({ tamanho: t });
+  }
+  return insumoSemTamanho(formato, variantes);
+}
+
+/** Ao editar: o toggle comeca ligado quando `tamanho_vinculado` nao e vazio apos o trim de espacos. */
+export function vinculoAtivoDoRegistro(tamanhoVinculado: string | null | undefined): boolean {
+  return tamanhoVinculado != null && trimEspacos(tamanhoVinculado) !== "";
+}
+
+/**
+ * Valor de `etiquetas.tamanho_vinculado` a gravar no Salvar (Ruling A2: o Salvar limpa o vinculo que nao vale):
+ * toggle desligado, tamanho vazio ou algum tamanho marcado nos blocos (com formato != 'nenhum') => null.
+ */
+export function tamanhoVinculadoParaSalvar(p: {
+  ativo: boolean;
+  tamanho: string | null | undefined;
+  formato: string | null;
+  blocos: { tamanhos: string[] }[];
+}): string | null {
+  if (!p.ativo || p.tamanho == null) return null;
+  const t = trimEspacos(p.tamanho);
+  if (t === "") return null;
+  return vinculoDisponivel(p.formato, p.blocos) ? t : null;
+}
