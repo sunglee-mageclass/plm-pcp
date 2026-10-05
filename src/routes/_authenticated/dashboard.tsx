@@ -541,6 +541,7 @@ function ComercialColecaoTab() {
 
   const { data: modelos = [], isLoading, isError } = useQuery({
     queryKey: ["comercial-col-modelos", tenantId, fColecao, fSubcolecao],
+    enabled: !!tenantId, // [backend F2.2 fix, review m1] loja ainda nao resolvida = sem baixar a lista inteira 2x
     queryFn: async () => {
       // embed estende a ComercialTab com markup_min/markup_max (faixa da linha) p/ o status por faixa.
       // Filtro de coleção NO CLIENTE (pelo rótulo), então traz TODOS os cards em blocos (buscarTodas, ordem estável por id):

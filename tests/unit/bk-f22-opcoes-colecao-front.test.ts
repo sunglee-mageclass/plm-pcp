@@ -130,13 +130,21 @@ describe("R7 — OC Tecido: Salvar espera o modo OC/Rolo ser conhecido", () => {
     expect(oc).toContain("pronto: modoPronto");
   });
 
-  it("Salvar e Marcar Recebido ficam desabilitados com motivo em PT-BR até saber o modo; handlers e mutationFn também recusam", () => {
-    expect(oc).toContain("disabled={saveMutation.isPending || !modoPronto} title={motivoModo ?? undefined}");
-    expect(oc).toContain("onClick={handleMarkReceived} disabled={saveMutation.isPending || !modoPronto}");
-    expect(oc).toContain("o modo de trabalho da loja (OC/Rolo) ainda não foi carregado");
+  it("Salvar/Marcar Recebido saem do componente OcAcoesSalvar ligado ao modoPronto; handlers e mutationFn também recusam sem o modo", () => {
+    expect(oc).toContain("<OcAcoesSalvar");
+    expect(oc).toContain("modoPronto={modoPronto}");
     expect(oc).toMatch(/const handleSave = \(\) => \{\s*\n\s*if \(!modoPronto \|\|/);
     expect(oc).toMatch(/const handleMarkReceived = \(\) => \{\s*\n\s*if \(!modoPronto \|\|/);
     expect(oc).toMatch(/const confirmarRecebimento = \(\) => \{\s*\n\s*if \(!modoPronto \|\|/);
     expect(oc).toContain("if (!modoPronto) throw new Error(MOTIVO_MODO_DESCONHECIDO);");
+  });
+
+  it("m4: a carga da OC (query que ramifica por modo) só roda com o modo conhecido", () => {
+    expect(oc).toContain("enabled: !!ocId && modoPronto,");
+  });
+
+  it("m1: a lista de cards do Comercial só roda com a loja resolvida", () => {
+    const dash = ler("src/routes/_authenticated/dashboard.tsx");
+    expect(dash).toMatch(/queryKey: \["comercial-col-modelos", tenantId, fColecao, fSubcolecao\],\s*\n\s*enabled: !!tenantId,/);
   });
 });

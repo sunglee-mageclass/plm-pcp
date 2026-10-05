@@ -3,7 +3,7 @@ import { fmtNum } from "@/lib/format";
 import { semAcento } from "@/lib/busca";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, Check, AlertTriangle } from "lucide-react";
+import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, AlertTriangle } from "lucide-react";
 import { addDays, format as formatDate, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -45,6 +45,7 @@ import { OcDocumentoPrint, type OcDocModelo, type OcDocItem } from "@/components
 import { useFilterState } from "@/hooks/useFilterState";
 import { useResponsavelFilter, SENTINEL_UUID } from "@/hooks/useResponsavelFilter";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
+import { OcAcoesSalvar, MOTIVO_MODO_DESCONHECIDO } from "@/components/oc-tecido/OcAcoesSalvar";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcModalShell } from "@/components/shared/OcModalShell";
@@ -459,9 +460,6 @@ function draftFromOc(oc: any): Draft {
 // Colab round 4 — rótulos PT dos paths do Draft para o banner de resolução genérica de
 // conflito. O merge compara TODAS as chaves do Draft, então qualquer campo pode conflitar
 // (inclusive os SEM UI inline). Path sem rótulo → mostra o próprio path (fallback).
-// [backend F2.2 / R7] motivo mostrado (e usado no title) enquanto o modo OC/Rolo da loja nao foi lido.
-const MOTIVO_MODO_DESCONHECIDO = "Aguarde: o modo de trabalho da loja (OC/Rolo) ainda não foi carregado.";
-
 const ROTULO_CONFLITO: Record<string, string> = {
   numero_pedido: "Número do Pedido",
   empresa_id: "Fornecedor",
@@ -678,7 +676,6 @@ function OcDialog({
   // [backend F2.2 / R7] Salvar e Marcar Recebido DECIDEM por este modo (rolos x OC): ate a leitura dar certo (`modoPronto`) eles ficam
   // desabilitados, para nao gravar com o 'ambos' de fallback depois de uma 1a carga com erro.
   const { modo: modoOcRolo, pronto: modoPronto, erro: modoErro, recarregar: recarregarModo } = useModoOcRoloEstado();
-  const motivoModo = modoPronto ? null : MOTIVO_MODO_DESCONHECIDO;
   const [rolosPorItem, setRolosPorItem] = useState<Record<string, RoloEntry[]>>({});
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
@@ -814,9 +811,11 @@ function OcDialog({
   const pc = (path: string) => presencaDoCampo(presentes, path);
   const conflitoLinha = (id: string | undefined) => (id ? conflitos.find((c) => c.path === `linha:${id}`) : undefined);
 
+  // [backend F2.2 fix, review m4] a carga abaixo ramifica por `modoOcRolo` (rolos planejados/destrinchados): so roda com o modo CONHECIDO,
+  // nunca com o 'ambos' de fallback. A key segue sem o modo (getQueryData/invalidate por chave exata em varios pontos).
   const { data: ocQueryData } = useQuery({
     queryKey: ["oc-tecido", ocId],
-    enabled: !!ocId,
+    enabled: !!ocId && modoPronto,
     queryFn: async () => {
       if (!ocId) return null;
       const { data: oc, error: e1 } = await supabase.from("ocs_tecido").select("*").eq("id", ocId).maybeSingle();
@@ -1837,34 +1836,18 @@ function OcDialog({
               <span className="max-md:sr-only">Excluir</span>
             </Button>
           )}
-          <div className="ml-auto flex gap-2">
-            {canShowRecebimento && (
-              // Botão que alterna: marca quando encomendado, desmarca quando recebido.
-              isReadOnlyRecebimento ? (
-                <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmarkReceivedMut.isPending}>
-                  Desmarcar Recebido
-                </Button>
-              ) : (
-                <Button variant="outline" onClick={handleMarkReceived} disabled={saveMutation.isPending || !modoPronto} title={motivoModo ?? undefined}>
-                  Marcar Recebido
-                </Button>
-              )
-            )}
-            {motivoModo && (
-              <span className="self-center text-xs text-muted-foreground" role="status">
-                {modoErro ? "Não foi possível carregar o modo de trabalho da loja (OC/Rolo)." : "Carregando o modo de trabalho da loja…"}
-                {modoErro && (
-                  <button type="button" className="ml-1 underline underline-offset-2" onClick={recarregarModo}>
-                    Tentar de novo
-                  </button>
-                )}
-              </span>
-            )}
-            <Button onClick={handleSave} disabled={saveMutation.isPending || !modoPronto} title={motivoModo ?? undefined}>
-              <Check className="h-4 w-4 mr-1" />
-              Salvar
-            </Button>
-          </div>
+          <OcAcoesSalvar
+            modoPronto={modoPronto}
+            modoErro={modoErro}
+            recarregarModo={recarregarModo}
+            salvando={saveMutation.isPending}
+            canShowRecebimento={canShowRecebimento}
+            somenteLeituraRecebimento={isReadOnlyRecebimento}
+            desmarcando={unmarkReceivedMut.isPending}
+            onSalvar={handleSave}
+            onMarcarRecebido={handleMarkReceived}
+            onDesmarcarRecebido={() => setConfirmUnmark(true)}
+          />
         </div>
         <OcDocumentoPrint modelo={docModelo} />
     </OcModalShell>
