@@ -30,6 +30,22 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
       "public._grade_mapa_modelo(uuid)": "96b2a9c7e16fc789965dbf482b23b4c5",
       "public._grade_mapa_cad(uuid,boolean)": "44224a78f86abff7ac18f8e2051a7067"
     }
+  },
+  "170500": {
+    "mig": "supabase/migrations/20261103170500_urg_r1_tamanho_legado.sql",
+    "down": "supabase/rollback/20261103170500_urg_r1_tamanho_legado_down.sql",
+    "drop": "supabase/rollback/20261103170500_urg_r1_tamanho_legado_down_drop.sql",
+    "sentinela": "public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)",
+    "volta": true,
+    "MD5": {},
+    "NOVAS": {
+      "public._urg_r1_tamanho_legado_lista()": "143abc25ee038ec27bd246e51ef0fbcb",
+      "public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)": "6d5f3f2998d22ed72fc5ac479932eb44"
+    },
+    "NEUTRO": {
+      "public._urg_r1_tamanho_legado_lista()": "ec571c054460a10676852e532c931e03",
+      "public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)": "f7d613fb53dbaef6be59c467bbaad580"
+    }
   }
 }
 /* URG_A_JSON_FIM */;
