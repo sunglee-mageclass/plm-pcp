@@ -56,7 +56,7 @@ beforeEach(() => {
   ];
   Object.values(toastMock).forEach((f) => f.mockClear());
 });
-afterEach(async () => { await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
+afterEach(async () => { vi.restoreAllMocks(); await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
 
 const ETIQUETAS: any[] = [
   { id: "et1", nome: "Etiqueta A", preco: 1, formato_tamanho: "letra", variantes: [] },
@@ -67,6 +67,19 @@ const botaoDialogo = (t: string) => Array.from(dialogo()?.querySelectorAll<HTMLB
 const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "Salvar") ?? null;
 const remover = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Remover insumo"]'));
 const rpcs = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_oc_etiqueta");
+/** Faz a 1ª chamada da RPC voltar P0409 (conflito de versão); `aoConflitar` simula o que a outra pessoa gravou no meio. */
+function p0409NaPrimeira(nome: string, aoConflitar?: () => void) {
+  const orig = FAKE.supabase.rpc;
+  let n = 0;
+  vi.spyOn(FAKE.supabase, "rpc").mockImplementation(((rpc: string, args?: unknown) => {
+    if (rpc === nome && n++ === 0) {
+      aoConflitar?.();
+      FAKE.chamadas.push({ tabela: `rpc:${rpc}`, op: "rpc", filtros: [], payload: args });
+      return Promise.resolve({ data: null, error: { code: "P0409", message: `conflito_versao: ${nome}`, details: "" } });
+    }
+    return orig(rpc, args);
+  }) as never);
+}
 const EMPRESAS: any[] = [{ id: "e1", nome_fantasia: "Fornecedor X" }, { id: "e2", nome_fantasia: "Fornecedor Y" }];
 const gatilho = () => document.querySelector<HTMLElement>('[role="combobox"]');
 const opcao = (t: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((o) => (o.textContent ?? "").trim() === t) ?? null;
@@ -165,5 +178,36 @@ describe("[camada C2 · P-262 A] OC de Insumo — Apagar todos os itens", () => 
     await aguardar(() => rpcs().length === 1, "salvar_oc_etiqueta chamada");
     expect(dialogo()).toBeNull();
     expect((rpcs()[0].payload as any)._oc._apagar_itens).toBeUndefined();
+  });
+});
+
+describe("[camada C2] OC de Insumo — insumo REMOVIDO e P0409 (merge não ressuscita o bloco)", () => {
+  const ids = (c: { payload?: unknown }) => ((c.payload as any)._itens as { id: string }[]).map((i) => i.id);
+  it("remover um insumo e P0409 (servidor NÃO mexeu nele): segue removido e o novo Salvar manda só o outro", async () => {
+    await abrir();
+    await clicar(remover()[0]); // Etiqueta A (it1)
+    p0409NaPrimeira("salvar_oc_etiqueta", () => { FAKE.linhas.ocs_etiqueta[0].rev = 4; });
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "1º envio (P0409)");
+    await esperar(150);
+    expect(remover()).toHaveLength(1); // o merge não trouxe o it1 de volta
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 2, "novo Salvar", 5000);
+    expect(ids(rpcs()[1])).toEqual(["it2"]);
+  });
+
+  it("remover um insumo que OUTRA sessão editou no meio: CONFLITO; 'usar o novo' devolve o insumo", async () => {
+    await abrir();
+    await clicar(remover()[0]);
+    p0409NaPrimeira("salvar_oc_etiqueta", () => { FAKE.linhas.ocs_etiqueta[0].rev = 4; FAKE.linhas.ocs_etiqueta_itens[0].quantidade_pedida = 99; });
+    await clicar(salvar()!);
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado", 5000);
+    expect(document.body.textContent).toContain("Item (insumo)");
+    expect(remover()).toHaveLength(1);
+    const usarNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "usar o novo")!;
+    await clicar(usarNovo);
+    await aguardar(() => remover().length === 2, "insumo do servidor de volta na tela");
+    expect(document.body.textContent).not.toContain("conflito a resolver");
   });
 });

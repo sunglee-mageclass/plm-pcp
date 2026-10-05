@@ -141,3 +141,27 @@ describe("mergeLinhas (coleções por id)", () => {
     expect(r.conflitos[0]).toMatchObject({ path: "linha:1" });
   });
 });
+
+describe("mergeLinhas — linhas REMOVIDAS por mim (removidasIds, opt-in)", () => {
+  const L = (id: string, v: number) => ({ id, v });
+  it("sem removidasIds (legado): a linha que sumiu do rascunho volta como 'nova do servidor'", () => {
+    const r = mergeLinhas({ base: [L("1", 1)], draft: [], fresh: [L("1", 1)], touchedIds: new Set(["1"]) });
+    expect(r.linhas).toEqual([L("1", 1)]);
+  });
+  it("removida por mim e o servidor NÃO mexeu nela → segue removida, sem conflito", () => {
+    const r = mergeLinhas({ base: [L("1", 1), L("2", 2)], draft: [L("2", 2)], fresh: [L("1", 1), L("2", 2)], touchedIds: new Set(["1"]), removidasIds: new Set(["1"]) });
+    expect(r.linhas).toEqual([L("2", 2)]);
+    expect(r.conflitos).toEqual([]);
+    expect(r.atualizadas).toEqual([]);
+  });
+  it("removida por mim e o servidor a MUDOU depois da base → conflito (meu: null, dele: a linha); a linha não volta nem some em silêncio", () => {
+    const r = mergeLinhas({ base: [L("1", 1), L("2", 2)], draft: [L("2", 2)], fresh: [L("1", 9), L("2", 2)], touchedIds: new Set(["1"]), removidasIds: new Set(["1"]) });
+    expect(r.conflitos).toEqual([{ path: "linha:1", meu: null, dele: L("1", 9) }]);
+    expect(r.linhas).toEqual([L("2", 2)]);
+  });
+  it("linha nova do servidor que eu NÃO removi continua entrando (removidasIds não afeta o resto)", () => {
+    const r = mergeLinhas({ base: [L("1", 1)], draft: [], fresh: [L("1", 1), L("7", 7)], touchedIds: new Set(["1"]), removidasIds: new Set(["1"]) });
+    expect(r.linhas).toEqual([L("7", 7)]);
+    expect(r.atualizadas).toEqual(["7"]);
+  });
+});

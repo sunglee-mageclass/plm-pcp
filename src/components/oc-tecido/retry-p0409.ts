@@ -23,7 +23,7 @@ export function mesclarParaRetryP0409<D extends Record<string, any>, I extends L
   mudouItens: boolean;
 } {
   const md = mergeDraft({ base: o.base.draft, draft: o.live.draft, fresh: o.fresh.draft, touched: o.touched });
-  const ml = mergeLinhas({ base: o.base.items, draft: o.live.items, fresh: o.fresh.items, touchedIds: o.touchedIds });
+  const ml = mergeLinhas({ base: o.base.items, draft: o.live.items, fresh: o.fresh.items, touchedIds: o.touchedIds, removidasIds: o.touchedIds });
   return {
     // status NÃO é campo do rascunho (P-236 = D7 A): sempre o do servidor
     estado: { draft: md.valor, items: ml.linhas, status: o.fresh.status },

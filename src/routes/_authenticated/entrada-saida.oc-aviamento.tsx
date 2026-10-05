@@ -653,6 +653,8 @@ export function OcDialog({
         const p = prev.find((x) => x.id && x.id === n.id);
         if (n.id && (!p || JSON.stringify(p) !== JSON.stringify(n))) touchedItemIdsRef.current.add(n.id);
       }
+      // Linha REMOVIDA (id persistido que sumiu): marca o id p/ o merge não ressuscitá-la como "linha nova do servidor" (mergeLinhas.removidasIds).
+      for (const p of prev) if (p.id && !next.some((n) => n.id === p.id)) touchedItemIdsRef.current.add(p.id);
       return next;
     });
 
@@ -737,7 +739,7 @@ export function OcDialog({
     setStatus((ocQueryData.oc.status as OCStatus) ?? "encomendado");
     // Refetch: MERGE em vez de sobrescrever.
     const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
-    const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+    const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current });
     const semResultado =
       md.atualizados.length === 0 && md.conflitos.length === 0 &&
       ml.atualizadas.length === 0 && ml.conflitos.length === 0;
@@ -851,7 +853,8 @@ export function OcDialog({
         if (c.dele == null) {
           setItems((its) => its.filter((i) => i.id !== id)); // item removido no servidor
         } else {
-          setItems((its) => its.map((i) => (i.id === id ? (c.dele as ItemDraft) : i)));
+          // ausente = eu a removi: "usar o novo" a traz de volta
+          setItems((its) => (its.some((i) => i.id === id) ? its.map((i) => (i.id === id ? (c.dele as ItemDraft) : i)) : [...its, c.dele as ItemDraft]));
         }
         touchedItemIdsRef.current.delete(id);
       } else {
@@ -1017,7 +1020,7 @@ export function OcDialog({
         const freshItems: ItemDraft[] = (its ?? []).map(itemDoServidor);
         const base = baseRef.current ?? { draft: freshDraft, items: freshItems };
         const md = mergeDraft({ base: base.draft, draft: draftLiveRef.current, fresh: freshDraft, touched: touchedRef.current });
-        const ml = mergeLinhas({ base: base.items, draft: itemsLiveRef.current, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+        const ml = mergeLinhas({ base: base.items, draft: itemsLiveRef.current, fresh: freshItems, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current });
         setDraft(md.valor);
         setItems(ml.linhas);
         const todos = [...md.conflitos, ...ml.conflitos];

@@ -752,6 +752,8 @@ export function OcDialog({
         const p = prev.find((x) => x.id && x.id === n.id);
         if (n.id && (!p || JSON.stringify(p) !== JSON.stringify(n))) touchedItemIdsRef.current.add(n.id);
       }
+      // Linha REMOVIDA (id persistido que sumiu): marca o id p/ o merge não ressuscitá-la como "linha nova do servidor" (mergeLinhas.removidasIds).
+      for (const p of prev) if (p.id && !next.some((n) => n.id === p.id)) touchedItemIdsRef.current.add(p.id);
       return next;
     });
 
@@ -766,7 +768,7 @@ export function OcDialog({
       const id = c.path.slice("linha:".length);
       if (useDele) {
         setItems((prev) => c.dele
-          ? prev.map((it) => (it.id === id ? (c.dele as ItemDraft) : it))
+          ? (prev.some((it) => it.id === id) ? prev.map((it) => (it.id === id ? (c.dele as ItemDraft) : it)) : [...prev, c.dele as ItemDraft]) // ausente = eu a removi: "usar o novo" a traz de volta
           : prev.filter((it) => it.id !== id));
         touchedItemIdsRef.current.delete(id);
       }
@@ -936,7 +938,7 @@ export function OcDialog({
     // mudou (atualizado ou em conflito) — evita churn de identidade que marcaria "dirty"
     // à toa quando o merge não alterou nada visível.
     const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
-    const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+    const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current });
     const semResultado =
       md.atualizados.length === 0 && md.conflitos.length === 0 &&
       ml.atualizadas.length === 0 && ml.conflitos.length === 0;

@@ -687,7 +687,7 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
     setStatus((oc.status as OCStatus) ?? "encomendado");
     // Refetch: MERGE em vez de sobrescrever.
     const md = mergeDraft({ base: baseRef.current.draft, draft: draftLiveRef.current, fresh: freshHead, touched: touchedRef.current });
-    const ml = mergeLinhas({ base: baseRef.current.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current });
+    const ml = mergeLinhas({ base: baseRef.current.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current });
     const semResultado =
       md.atualizados.length === 0 && md.conflitos.length === 0 &&
       ml.atualizadas.length === 0 && ml.conflitos.length === 0;
@@ -723,7 +723,7 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
         const id = path.slice("linha:".length);
         // Aplica o valor do servidor p/ ESTA linha (ou a remoção) na row correspondente.
         const it = (c.dele ?? null) as ItemFlat | null;
-        setBlocks((bs) => aplicarUmItem(bs, id, it));
+        setBlocks((bs) => (it && !bs.some((b) => b.rows.some((r) => r.itemId === id)) ? restaurarItemRemovido(bs, it) : aplicarUmItem(bs, id, it)));
         touchedItemIdsRef.current.delete(id);
       } else {
         const d = { ...draftLiveRef.current, [path]: c.dele } as DraftHead;
@@ -746,6 +746,31 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
         return { ...r, incluido: true, qtdPedida: it.quantidade_pedida, qtdRecebida: it.quantidade_recebida, preco: it.preco };
       }),
     }));
+  // "Usar o novo" num conflito de linha que EU removi (bloco/fornecedor): a row nem existe mais nos blocos — devolve o item do servidor
+  // (na row da variante, se o bloco da etiqueta voltou a existir; senão num bloco novo).
+  const restaurarItemRemovido = (bs: Block[], it: ItemFlat): Block[] => {
+    let achou = false;
+    const out = bs.map((b) => {
+      if (b.etiquetaId !== it.etiqueta_id) return b;
+      const rows = b.rows.map((r) => {
+        if (achou || r.itemId || r.varianteId !== it.variante_etiqueta_id) return r;
+        achou = true;
+        return { ...r, itemId: it.id ?? undefined, incluido: true, qtdPedida: it.quantidade_pedida, qtdRecebida: it.quantidade_recebida, preco: it.preco };
+      });
+      return { ...b, rows, selectedCores: [...new Set(rows.filter((r) => r.incluido && r.corId).map((r) => r.corId as string))] };
+    });
+    if (achou) return out;
+    const asRow = { etiqueta_id: it.etiqueta_id, id: it.id, variante_etiqueta_id: it.variante_etiqueta_id, quantidade_pedida: it.quantidade_pedida, quantidade_recebida: it.quantidade_recebida, preco: it.preco };
+    const nb = buildBlocks([asRow])[0];
+    if (!nb) return out;
+    if (!out.some((b) => b.etiquetaId === it.etiqueta_id)) return [...out, nb];
+    // o bloco da etiqueta já existe mas sem row desta variante (ex.: "Único"): acrescenta só a row restaurada
+    return out.map((b) => {
+      if (b.etiquetaId !== it.etiqueta_id) return b;
+      const rows = [...b.rows, ...nb.rows.filter((r) => r.itemId === it.id)];
+      return { ...b, rows, selectedCores: [...new Set(rows.filter((r) => r.incluido && r.corId).map((r) => r.corId as string))] };
+    });
+  };
   const temConflito = conflitos.length > 0;
 
   const addInsumo = (id: string) => {
@@ -891,7 +916,7 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
         })) as ItemFlat[];
         const base = baseRef.current ?? { draft: freshHead, items: freshItens };
         const md = mergeDraft({ base: base.draft, draft: draftLiveRef.current, fresh: freshHead, touched: touchedRef.current });
-        const ml = mergeLinhas({ base: base.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current });
+        const ml = mergeLinhas({ base: base.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current });
         aplicarDraftHead(md.valor);
         setBlocks((bs) => aplicarItensMerge(bs, ml.linhas));
         const todos = [...md.conflitos, ...ml.conflitos];

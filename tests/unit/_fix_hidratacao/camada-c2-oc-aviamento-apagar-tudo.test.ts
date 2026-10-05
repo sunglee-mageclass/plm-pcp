@@ -56,13 +56,26 @@ beforeEach(() => {
   FAKE.linhas.aviamentos = [{ id: "av1", codigo_nome: "Botão", empresa_id: "e1", preco: 2, variantes: [] }];
   Object.values(toastMock).forEach((f) => f.mockClear());
 });
-afterEach(async () => { await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
+afterEach(async () => { vi.restoreAllMocks(); await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
 
 const dialogo = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
 const botaoDialogo = (t: string) => Array.from(dialogo()?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((b) => (b.textContent ?? "").trim() === t) ?? null;
 const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "Salvar") ?? null;
 const lixeiras = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((b) => b.querySelector("svg.lucide-trash-2") && !b.hasAttribute("aria-label"));
 const rpcs = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_oc_aviamento");
+/** Faz a 1ª chamada da RPC voltar P0409 (conflito de versão); `aoConflitar` simula o que a outra pessoa gravou no meio. */
+function p0409NaPrimeira(nome: string, aoConflitar?: () => void) {
+  const orig = FAKE.supabase.rpc;
+  let n = 0;
+  vi.spyOn(FAKE.supabase, "rpc").mockImplementation(((rpc: string, args?: unknown) => {
+    if (rpc === nome && n++ === 0) {
+      aoConflitar?.();
+      FAKE.chamadas.push({ tabela: `rpc:${rpc}`, op: "rpc", filtros: [], payload: args });
+      return Promise.resolve({ data: null, error: { code: "P0409", message: `conflito_versao: ${nome}`, details: "" } });
+    }
+    return orig(rpc, args);
+  }) as never);
+}
 async function abrir() {
   const m = await montar(createElement(QueryClientProvider, { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
     createElement(SidebarProvider, null, createElement(OcDialog, { ocId: "oc1", empresas: [{ id: "e1", nome_fantasia: "Fornecedor X" } as any], onClose: () => {}, onSaved: () => {} }))));
@@ -109,5 +122,36 @@ describe("[camada C2 · P-262 A] OC de Aviamento — Apagar todos os itens", () 
     expect(p._oc._apagar_itens).toBe(true);
     await esperar(80);
     expect(rpcs()).toHaveLength(1);
+  });
+});
+
+describe("[camada C2] OC de Aviamento — item REMOVIDO e P0409 (merge não ressuscita o item)", () => {
+  const ids = (c: { payload?: unknown }) => ((c.payload as any)._itens as { id: string }[]).map((i) => i.id);
+  it("remover um item e P0409 (servidor NÃO mexeu nele): o item segue removido e o novo Salvar manda só o outro", async () => {
+    await abrir();
+    await clicar(lixeiras()[0]); // it1
+    p0409NaPrimeira("salvar_oc_aviamento", () => { FAKE.linhas.ocs_aviamento[0].rev = 4; });
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "1º envio (P0409)");
+    await esperar(150);
+    expect(lixeiras()).toHaveLength(1); // o merge não trouxe o it1 de volta
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 2, "novo Salvar", 5000);
+    expect(ids(rpcs()[1])).toEqual(["it2"]);
+  });
+
+  it("remover um item que OUTRA sessão editou no meio: CONFLITO (não restaura nem apaga em silêncio); 'usar o novo' o traz de volta", async () => {
+    await abrir();
+    await clicar(lixeiras()[0]);
+    p0409NaPrimeira("salvar_oc_aviamento", () => { FAKE.linhas.ocs_aviamento[0].rev = 4; FAKE.linhas.ocs_aviamento_itens[0].quantidade_pedida = 99; });
+    await clicar(salvar()!);
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado", 5000);
+    expect(document.body.textContent).toContain("Item (aviamento)");
+    expect(lixeiras()).toHaveLength(1); // segue removido até a pessoa decidir
+    const usarNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "usar o novo")!;
+    await clicar(usarNovo);
+    await aguardar(() => lixeiras().length === 2, "item do servidor de volta na tela");
+    expect(document.body.textContent).not.toContain("conflito a resolver");
   });
 });

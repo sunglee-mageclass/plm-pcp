@@ -136,9 +136,8 @@ describe("[camada C2 · P-262 A] OC de Tecido — Apagar todos os itens", () => 
     await aguardar(() => !caixaVariante(), "lista de variantes some (nenhum tecido na OC)");
     await clicar(salvar()!);
     await aguardar(() => !!dialogo(), "diálogo Apagar todos");
-    // "outra pessoa salvou no meio": o item que sobra no servidor segue sem variante (incompleto) => o payload do retry continua VAZIO
-    // e o servidor ainda tem linha => o retry precisa da marca de novo (sem perguntar outra vez).
-    p0409NaPrimeira("salvar_oc_tecido", () => { FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens[0].variante_tecido_id = null; });
+    // P0409 no 1º envio, sem mudança alheia na linha que eu removi: o retry segue com a lista VAZIA (a remoção não é ressuscitada) e a marca
+    p0409NaPrimeira("salvar_oc_tecido", () => { FAKE.linhas.ocs_tecido[0].rev = 4; });
     await clicar(botaoDialogo("Apagar todos")!);
     await aguardar(() => rpcs().length === 2, "1º envio (P0409) + retry automático", 5000);
     for (const c of rpcs()) {
@@ -149,5 +148,67 @@ describe("[camada C2 · P-262 A] OC de Tecido — Apagar todos os itens", () => 
     await esperar(150);
     expect(rpcs()).toHaveLength(2);
     expect(dialogo()).toBeNull(); // o retry não reabre o diálogo
+  });
+});
+
+describe("[camada C2] OC de Tecido — linha REMOVIDA e P0409 (merge não ressuscita a linha)", () => {
+  const caixa = (nome: string) => Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find((l) => (l.textContent ?? "").trim() === nome)?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null;
+  beforeEach(() => {
+    FAKE.linhas.ocs_tecido_itens.push({ id: "it2", oc_tecido_id: "oc1", artigo_id: "a1", artigo_numero: 1, variante_tecido_id: "v2", quantidade_pedida: 4, quantidade_recebida: null, rendimento: null, cancelado: false, preco: 5 });
+    FAKE.linhas.variantes_tecido.push({ id: "v2", artigo_id: "a1", nome_variante: null, codigo_variante: null, preco: 5, cor: { nome: "Verde" }, apelido: null });
+  });
+  async function abrirDuas() {
+    await abrir();
+    await aguardar(() => !!caixa("Verde") && caixa("Verde")!.checked, "as 2 variantes marcadas");
+  }
+  const idsDe = (c: { payload?: unknown }) => ((c.payload as any)._itens as { id: string }[]).map((i) => i.id);
+
+  it("remover UMA linha e P0409 (servidor NÃO mexeu nela): o retry NÃO leva a linha de volta; sem diálogo nem conflito", async () => {
+    await abrirDuas();
+    await clicar(caixa("Verde")!); // remove só it2 (a última variante)
+    await aguardar(() => !caixa("Verde")!.checked, "Verde desmarcada (linha removida)");
+    p0409NaPrimeira("salvar_oc_tecido", () => { FAKE.linhas.ocs_tecido[0].rev = 4; });
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 2, "1º envio (P0409) + retry automático", 5000);
+    expect(idsDe(rpcs()[0])).toEqual(["it1"]);
+    expect(idsDe(rpcs()[1])).toEqual(["it1"]); // it2 NÃO ressuscitou no merge do retry
+    expect(dialogo()).toBeNull();
+    expect(document.body.textContent).not.toContain("em conflito");
+  });
+
+  it("remover uma linha que OUTRA sessão editou no meio: vira CONFLITO (nem restaurada nem apagada em silêncio); 'usar o novo' a traz de volta", async () => {
+    await abrirDuas();
+    await clicar(caixa("Verde")!);
+    await aguardar(() => !caixa("Verde")!.checked, "Verde desmarcada (linha removida)");
+    p0409NaPrimeira("salvar_oc_tecido", () => {
+      FAKE.linhas.ocs_tecido[0].rev = 4;
+      FAKE.linhas.ocs_tecido_itens[1].quantidade_pedida = 9; // a outra pessoa mudou a quantidade do it2
+    });
+    await clicar(salvar()!);
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado", 5000);
+    await esperar(150);
+    expect(rpcs()).toHaveLength(1); // o retry NÃO rodou: parou no conflito (não apagou nem restaurou em silêncio)
+    expect(document.body.textContent).toContain("Item (variante)");
+    expect(caixa("Verde")!.checked).toBe(false); // continua removida na tela até a pessoa decidir
+
+    const usarNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "usar o novo")!;
+    await clicar(usarNovo);
+    await aguardar(() => !!caixa("Verde") && caixa("Verde")!.checked, "linha do servidor de volta na tela");
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+  });
+
+  it("conflito resolvido com 'manter meu': a linha segue removida e o Salvar manda só a outra", async () => {
+    await abrirDuas();
+    await clicar(caixa("Verde")!);
+    await aguardar(() => !caixa("Verde")!.checked, "Verde desmarcada (linha removida)");
+    p0409NaPrimeira("salvar_oc_tecido", () => { FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens[1].quantidade_pedida = 9; });
+    await clicar(salvar()!);
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado", 5000);
+    const manter = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "manter meu")!;
+    await clicar(manter);
+    await aguardar(() => !document.body.textContent!.includes("conflito a resolver"), "conflito resolvido");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 2, "novo Salvar após resolver", 5000);
+    expect(idsDe(rpcs()[1])).toEqual(["it1"]);
   });
 });
