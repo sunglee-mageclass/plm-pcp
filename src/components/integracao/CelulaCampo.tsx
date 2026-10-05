@@ -92,6 +92,8 @@ type Props = {
   campo: CampoDef; produto: ProdutoLista; indice: number | null; rascunho: Rascunho; previa: PreviaSkus | undefined;
   salvando: boolean; onAtualizar: (f: (r: Rascunho) => Rascunho) => void; onKeywords: () => void; onFotos: () => void;
   versaoAnterior?: VersaoCelula;
+  /** R8 (B3): em qual coluna o "i" de sublinhas aparece (REF/SKU ou Título; uma vez por linha). Ausente = na própria célula. */
+  colunaAvisoSublinhas?: "ref_sku" | "titulo" | null;
 };
 
 const TEXTO_SALVANDO = "Salvando…";
@@ -317,14 +319,15 @@ function SkuCelula({ p, indice, r, previa, salvando, onAtualizar }: {
   return <Leitura texto={texto} travado={travadoEstado} info={motivo} />;
 }
 
-function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: {
+function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar, colunaAviso }: {
   campo: CampoDef; p: ProdutoLista; indice: number; r: Rascunho; previa: PreviaSkus | undefined; salvando: boolean;
-  onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
+  onAtualizar: (f: (r: Rascunho) => Rascunho) => void; colunaAviso?: "ref_sku" | "titulo" | null;
 }) {
+  const mostraAviso = colunaAviso === undefined || colunaAviso === campo.key;
   if (campo.key === "ref_sku") {
     const sku = <SkuCelula p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
     // sku #10 (medios R14): as sublinhas mudaram depois do retrato — o "i" fica na coluna SKU (a API recebe as do retrato).
-    const avisoSub = avisoSublinhas(p);
+    const avisoSub = mostraAviso ? avisoSublinhas(p) : null;
     if (!avisoSub) return sku;
     return (
       <div className="flex min-w-0 items-center gap-1">
@@ -337,7 +340,7 @@ function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: 
   // R8 (B4): o título da sublinha (calculado no servidor, SOMENTE LEITURA aqui) também acende o aviso de sublinhas —
   // a loja pode ter Título marcado sem REF/SKU, e o "i" não ficaria em lugar nenhum.
   if (campo.key === "titulo") {
-    const avisoTit = avisoSublinhas(p);
+    const avisoTit = mostraAviso ? avisoSublinhas(p) : null;
     return (
       <div className="flex min-w-0 items-center gap-1">
         <span className="max-w-[16rem] truncate text-muted-foreground" title={texto}>{texto}</span>
@@ -471,9 +474,9 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar, versaoAnterior }: {
   );
 }
 
-export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, salvando, onAtualizar, onKeywords, onFotos, versaoAnterior }: Props) {
+export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, salvando, onAtualizar, onKeywords, onFotos, versaoAnterior, colunaAvisoSublinhas }: Props) {
   if (indice !== null) {
-    return <CelulaSublinha campo={campo} p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
+    return <CelulaSublinha campo={campo} p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} colunaAviso={colunaAvisoSublinhas} />;
   }
   // Fix round 2 (R2): `trava` decide SÓ trava/gate (nunca `salvando`) — é o que governa `LeituraComPendencia`.
   // Quando a trava/gate está aberta, `salvando` é tratado localmente por cada controle (`disabled={salvando}`),

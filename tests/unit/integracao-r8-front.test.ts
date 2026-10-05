@@ -7,9 +7,9 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { CAMPO_BY_KEY } from "@/lib/integracao/campos";
-import { AVISO_SUBLINHAS, avisoSublinhas, lerLista, type ProdutoLista } from "@/lib/integracao/produtos";
+import { AVISO_SUBLINHAS, avisoSublinhas, colunaAvisoSublinhas, lerLista, type ProdutoLista } from "@/lib/integracao/produtos";
 import { novoRascunho } from "@/lib/integracao/rascunho";
-import { respostaExemplo } from "@/components/integracao/manual-conteudo";
+import { montarManual, respostaExemplo, TEXTO_TITULO_SUBLINHA } from "@/components/integracao/manual-conteudo";
 import { tituloSublinha } from "@/lib/integracao/titulo-sublinha";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,6 +40,17 @@ describe("M1 — exemplo do Manual: o título da variante vem do espelho TS (nã
   });
 });
 
+describe("Fix round 1 — o Manual publica o texto do título da sublinha (B1/B2)", () => {
+  it("montarManual inclui TEXTO_TITULO_SUBLINHA", () => {
+    expect(JSON.stringify(montarManual("https://site", null))).toContain(TEXTO_TITULO_SUBLINHA);
+  });
+  it("o texto diz qual cor entra: a mesma do nome da variante (cor base ou apelido, por Config da Loja)", () => {
+    expect(TEXTO_TITULO_SUBLINHA).toMatch(/Cor base/);
+    expect(TEXTO_TITULO_SUBLINHA).toMatch(/Apelido/);
+    expect(TEXTO_TITULO_SUBLINHA).toMatch(/mesma cor do nome da variante/);
+  });
+});
+
 describe("B3 — texto do aviso de sublinhas cita o título", () => {
   it("AVISO_SUBLINHAS menciona título (e segue mencionando SKU, cor, tamanho, nome)", () => {
     expect(AVISO_SUBLINHAS).toMatch(/título/);
@@ -66,7 +77,7 @@ function produtoComSublinha(o: Record<string, unknown> = {}): ProdutoLista {
     }],
   }).produtos[0];
 }
-function montar(campo: string, pr: ProdutoLista) {
+function montar(campo: string, pr: ProdutoLista, avisoEm?: string) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -74,6 +85,7 @@ function montar(campo: string, pr: ProdutoLista) {
     root.render(createElement(CelulaCampo, {
       campo: c(campo), produto: pr, indice: 0, rascunho: novoRascunho(pr), previa: undefined, salvando: false,
       onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {},
+      colunaAvisoSublinhas: avisoEm,
     }));
   });
   return { container, unmount: () => { act(() => root.unmount()); container.remove(); } };
@@ -93,6 +105,28 @@ describe("B4 — o 'i' de sublinhas também aparece na coluna Título da sublinh
     const v = montar("titulo", produtoComSublinha({ estado: "integrado", retrato, retrato_difere: [] }));
     expect(v.container.querySelector(ARIA)).toBeNull();
     v.unmount();
+  });
+});
+
+describe("Fix round 1 (B3) — o 'i' de sublinhas aparece UMA vez por linha", () => {
+  it("colunaAvisoSublinhas: a 1ª coluna exibida entre REF/SKU e Título (ordem da tabela); nenhuma → null", () => {
+    expect(colunaAvisoSublinhas(["nome", "ref_sku", "titulo"])).toBe("ref_sku");
+    expect(colunaAvisoSublinhas(["titulo", "nome", "ref_sku"])).toBe("titulo");
+    expect(colunaAvisoSublinhas(["nome", "titulo"])).toBe("titulo");
+    expect(colunaAvisoSublinhas(["nome", "ref_sku"])).toBe("ref_sku");
+    expect(colunaAvisoSublinhas(["nome", "peso"])).toBeNull();
+  });
+  it("com as 2 colunas exibidas, só a célula escolhida desenha o 'i'", () => {
+    const pr = produtoComSublinha({ estado: "integrado", retrato, retrato_difere: ["sublinhas"] });
+    const tit = montar("titulo", pr, "ref_sku");
+    expect(tit.container.querySelector(ARIA)).toBeNull();
+    tit.unmount();
+    const sku = montar("ref_sku", pr, "ref_sku");
+    expect(sku.container.querySelectorAll(ARIA)).toHaveLength(1);
+    sku.unmount();
+    const tit2 = montar("titulo", pr, "titulo");
+    expect(tit2.container.querySelectorAll(ARIA)).toHaveLength(1);
+    tit2.unmount();
   });
 });
 

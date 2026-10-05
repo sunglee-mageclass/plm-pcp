@@ -63,7 +63,7 @@ export const TEXTO_NOME_SUBLINHA =
 /** R8 (P-301 B): o título de cada sublinha é o do produto com a cor inserida antes do último " | ". Sem aspas retas (mesma razão do
  *  TEXTO_NOME_SUBLINHA: o teste busca a constante dentro do JSON.stringify do Manual). */
 export const TEXTO_TITULO_SUBLINHA =
-  "O título de cada variante (campo titulo) é o título do produto com a cor inserida antes do último separador de barra vertical (ex.: Vestido Suelen | Ave Rara vira Vestido Suelen Preto | Ave Rara); título sem barra vertical recebe a cor no fim, e variante sem cor traz o mesmo título do produto. É calculado pelo sistema — não se edita na variante.";
+  "O título de cada variante (campo titulo) é o título do produto com a cor inserida antes do último separador de barra vertical (a mesma cor do nome da variante: a Cor base ou o Apelido, conforme Config da Loja › Formato do SKU › Cor no nome da sublinha; ex.: Vestido Suelen | Ave Rara vira Vestido Suelen Preto | Ave Rara); título sem barra vertical recebe a cor no fim, e variante sem cor traz o mesmo título do produto. É calculado pelo sistema — não se edita na variante.";
 
 /** Release I3: Coleção, Categoria do Tecido Principal e Linha (colunas 19–21) são informativas e NÃO obrigatórias. */
 export const TEXTO_COLUNAS_INFORMATIVAS =

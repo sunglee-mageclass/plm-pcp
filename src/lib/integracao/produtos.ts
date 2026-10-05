@@ -411,6 +411,12 @@ export function avisoRetrato(p: ProdutoLista, campo: CampoKey): string | null {
 /** medios R14 sku #10: rótulo do "i" quando as SUBLINHAS mudaram depois do retrato (a API recebe as do retrato). */
 export const AVISO_SUBLINHAS =
   "As sublinhas (cor × tamanho: SKU, cor, tamanho, nome ou título) mudaram depois do retrato — a API recebe as sublinhas do retrato.";
+/** R8 (B3): REF/SKU e Título da sublinha acendem o MESMO aviso — com as duas colunas na tabela, o "i" aparece uma vez por
+ *  linha, na 1ª delas (ordem das colunas exibidas). Nenhuma das duas exibida ⇒ null. */
+export function colunaAvisoSublinhas(chavesExibidas: readonly string[]): "ref_sku" | "titulo" | null {
+  for (const k of chavesExibidas) if (k === "ref_sku" || k === "titulo") return k;
+  return null;
+}
 export function avisoSublinhas(p: ProdutoLista): string | null {
   return usaRetrato(p) && p.retratoDifereSublinhas ? AVISO_SUBLINHAS : null;
 }
