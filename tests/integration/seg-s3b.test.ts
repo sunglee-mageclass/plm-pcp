@@ -248,8 +248,10 @@ describe.skipIf(!RODA)("seg S3b — trava medida (pg_locks na txn revertida)", (
       // (+ S3C_TXN=1: modelo_etiquetas/modelo_observacoes, gatilhos da S3c)
       expect(outras.every((r) => ["public.ocs_tecido", "public.ocs_tecido_itens", "public.ocs_aviamento", "public.ocs_etiqueta", "public.parcelas",
         "public.modelo_etiquetas", "public.modelo_observacoes", "public.modelos", "public.produtos_acabados", "public.produtos_importados",
-        ...S4_TABELAS_TRAVA, "public.producao_terceirizados"].includes(r)), outras.join(",")).toBe(true); // (+ S4_TXN=1: as 13 do OTB/mix;
-      // + CAMADA_TXN=1 numa cópia sem a C1: o CREATE TRIGGER da 161000 em producao_terceirizados)
+        ...S4_TABELAS_TRAVA, "public.producao_terceirizados",
+        "public.modelo_servico_mo", "public.empresas", "public.producao_terceirizados_mo_linha_idx"].includes(r)), outras.join(",")).toBe(true); // (+ S4_TXN=1: as 13 do OTB/mix;
+      // + CAMADA_TXN=1 numa cópia sem a C1: o CREATE TRIGGER da 161000 em producao_terceirizados;
+      // + URGB_TXN=1 numa cópia sem os urgentes: o ADD COLUMN da 180000 (modelo_servico_mo, empresas) e o ADD COLUMN + índice da 181000)
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
            JOIN pg_namespace n ON n.oid = k.relnamespace

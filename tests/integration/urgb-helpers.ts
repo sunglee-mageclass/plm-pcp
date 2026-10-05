@@ -30,6 +30,7 @@ type Bloco = {
   URGB_SENTINELA: string;
   URGB_MD5: Record<string, { antes: string; depois: string }>;
   URGB_ACL: Record<string, string>;
+  URGB_NOVAS?: Record<string, string>; // funções CRIADAS pelo bloco (o _down NEUTRO as deixa; só o _down_drop apaga)
 };
 
 const TODOS: Record<string, Bloco> = existsSync(`${ROOT}tests/integration/urgb-dados.ts`)
@@ -90,6 +91,24 @@ export async function voltaUrgbSePreciso(c: Client): Promise<void> {
   const st = (await c.query("SELECT current_setting('statement_timeout') AS v")).rows[0].v as string;
   await voltaUrgb(c);
   await c.query("SELECT set_config('statement_timeout', $1, true)", [st]);
+}
+
+/**
+ * LIFO dos `_down_drop`: o `_down` NEUTRO deixa as funções NOVAS de um bloco (URGB_NOVAS) — inertes, mas ainda citam helpers de
+ * frentes antigas (ex.: `_servicos_da_mo_criar` da r4b chama `_tenant_modulo_ligado`, e o `_down_drop` da T1 da Modularidade recusa
+ * enquanto alguma função o cita). Quem testa o `_down_drop` de uma frente ANTIGA roda isto antes: volta os blocos e aplica o
+ * `_down_drop` de quem ainda tem função nova (DDL na txn do teste — só na cópia local).
+ */
+export async function dropUrgbSePreciso(c: Client): Promise<void> {
+  exigeBancoLocal();
+  await voltaUrgbSePreciso(c);
+  for (const { b } of [...URGB_MIGS].reverse()) {
+    if (!b.URGB_NOVAS) continue;
+    let existe = false;
+    for (const sig of Object.keys(b.URGB_NOVAS)) if ((await md5Fn(c, sig)) !== null) existe = true;
+    if (existe) await aplicarArquivo(c, b.drop);
+  }
+  await zeraTimeouts(c);
 }
 
 /**
