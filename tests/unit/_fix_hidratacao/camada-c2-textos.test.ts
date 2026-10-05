@@ -111,6 +111,17 @@ describe("[camada C2] textos aprovados — Seções 3 e 4", () => {
     expect(textoApagarTodosItensOc({ familia: "tecido", n: 1, numeroOc: "OC-9" }).titulo).toBe("Apagar o único item da OC OC-9?");
     expect(textoApagarTodosServicos({ n: 1, nome: "BLUSA" }).titulo).toBe("Apagar o único serviço de “BLUSA”?");
   });
+  it("3 Apagar todos (OC): a 1ª frase diz a verdade quando a pessoa NÃO clicou em remover (troca de fornecedor / sem linha válida)", () => {
+    const resto = "Ao salvar, os 2 itens serão apagados e o valor da OC fica zerado. A OC continua existindo, sem itens. Isso não pode ser desfeito.";
+    const troca = textoApagarTodosItensOc({ familia: "insumo", n: 2, numeroOc: "OC-4", motivo: "troca_fornecedor" });
+    expect(troca.descricao).toBe(`A OC ficou sem itens (ao trocar o fornecedor). ${resto}`);
+    expect(troca.titulo).toBe("Apagar todos os 2 itens da OC OC-4?"); // título e botões não mudam
+    expect([troca.confirmar, troca.cancelar, troca.destrutivo]).toEqual(["Apagar todos", "Cancelar", true]);
+    expect(textoApagarTodosItensOc({ familia: "aviamento", n: 2, motivo: "sem_linha_valida" }).descricao)
+      .toBe("A OC ficou sem itens válidos (as linhas que restam estão incompletas). Ao salvar, os 2 itens (quantidades e preços) serão apagados e o valor da OC fica zerado. A OC continua existindo, sem itens. Isso não pode ser desfeito.");
+    // sem motivo = "removeu" (texto aprovado, inalterado)
+    expect(textoApagarTodosItensOc({ familia: "insumo", n: 2, numeroOc: "OC-4" }).descricao).toContain("Você removeu todos os insumos desta OC.");
+  });
   it("4 Reprovar peça-teste", () => {
     const t = textoReprovarPecaTeste({ nome: "BLUSA", ref: "R1", empresa: "Oficina X" });
     expect(t.titulo).toBe("Reprovar a peça-teste de “BLUSA”?");

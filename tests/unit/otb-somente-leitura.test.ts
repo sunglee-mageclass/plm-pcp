@@ -20,6 +20,8 @@ const SHEETS = [
   "src/components/otb/PadraoMixSheet.tsx",
 ];
 const DIALOGO_EXCLUIR = "src/components/otb/ExcluirColecaoDialog.tsx";
+/** [camada C2] "Tem certeza?" único: usado pelos Sheets do OTB (Desconfirmar). Também grava via AlertDialogAction. */
+const DIALOGO_CONFIRMAR = "src/components/shared/ConfirmarAcaoDialog.tsx";
 /** RPCs de LEITURA que a tela do OTB chama (sem portão de página no servidor, de propósito). */
 const LEITURAS = new Set(["custo_unitario_modelos", "otb_orcamento"]);
 const nome = (sig: string) => sig.replace(/^public\./, "").replace(/\(.*$/, "");
@@ -64,6 +66,15 @@ describe("OTB — modo só leitura (Backend B5, P-258 A)", () => {
     }
     // excluir coleção: confirmação pelo AlertDialogAction (desabilitado para quem só vê)
     expect(ler(DIALOGO_EXCLUIR)).toMatch(/<AlertDialogAction\s+variant="destructive"/);
+    // [camada C2] ConfirmarAcaoDialog (Desconfirmar do OTB; o `{dialogConfirmacao}` fica FORA do SheetContent): o botão que confirma
+    // é AlertDialogAction (desabilitado por useReadOnly via alert-dialog.tsx) e nenhum outro botão do arquivo executa a ação.
+    const confirmar = ler(DIALOGO_CONFIRMAR);
+    expect(confirmar).toMatch(/<AlertDialogAction[\s\S]*?onClick=\{\(\) => \{[\s\S]*?onConfirmar\(\)/);
+    expect(confirmar.split("onConfirmar()").length - 1).toBe(1); // a ação roda SÓ pelo AlertDialogAction
+    expect(confirmar).not.toMatch(/<Button\b/);
+    // e os Sheets do OTB que o usam o chamam pelo hook (mesmo componente), sem diálogo próprio solto
+    for (const f of ["src/components/otb/ColecaoSheet.tsx", "src/components/otb/ColecaoPVSheet.tsx"])
+      expect(ler(f), f).toMatch(/useConfirmacao\(\)/);
   });
 
   it("anti-drift: toda RPC da tela do OTB é leitura conhecida ou está trancada pelo servidor (B5: 9 DEFINER + 6 INVOKER pelo gatilho)", () => {

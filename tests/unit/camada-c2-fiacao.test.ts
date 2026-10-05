@@ -49,6 +49,14 @@ describe("[camada C2] fiação das confirmações", () => {
     // Direcionamento NÃO ganha este diálogo (a tela sempre monta lojas × variantes)
     expect(ler("src/routes/_authenticated/expedicao.direcionamento.$modeloId.tsx")).not.toContain("apagar-tudo");
   });
+  it("Apagar tudo (OC): a frase do diálogo diz a verdade quando a lista esvaziou SEM clicar em remover (M3 pós-review)", () => {
+    for (const f of ["tecido", "aviamento"])
+      expect(ler(`src/routes/_authenticated/entrada-saida.oc-${f}.tsx`), f)
+        .toContain('motivo: itemsLiveRef.current.length > 0 ? "sem_linha_valida" : "removeu"');
+    const ins = ler("src/routes/_authenticated/entrada-saida.oc-insumo.tsx");
+    expect(ins).toContain('motivo: trocouFornecedor ? "troca_fornecedor" : "removeu"');
+    expect(ins).toContain("const trocouFornecedor =");
+  });
   it("Etapas PL: só 'Reprovado' pede confirmação ('Aprovado' segue direto)", () => {
     const e = ler("src/components/producao/etapas/EtapaCardView.tsx");
     expect(e).toContain('if (v === "reprovado")');

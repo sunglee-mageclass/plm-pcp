@@ -56,13 +56,26 @@ beforeEach(() => {
   FAKE.linhas.variantes_tecido = [{ id: "v1", artigo_id: "a1", nome_variante: null, codigo_variante: null, preco: 5, cor: { nome: "Azul" }, apelido: null }];
   Object.values(toastMock).forEach((f) => f.mockClear());
 });
-afterEach(async () => { await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
+afterEach(async () => { vi.restoreAllMocks(); await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
 
 const dialogo = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
 const botaoDialogo = (t: string) => Array.from(dialogo()?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((b) => (b.textContent ?? "").trim() === t) ?? null;
 const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "Salvar") ?? null;
 const caixaVariante = () => Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find((l) => (l.textContent ?? "").trim() === "Azul")?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null;
 const rpcs = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_oc_tecido");
+/** Faz a 1ª chamada da RPC voltar P0409 (conflito de versão) e deixa as demais seguirem o fake normal. */
+function p0409NaPrimeira(nome: string, aoConflitar?: () => void) {
+  const orig = FAKE.supabase.rpc;
+  let n = 0;
+  vi.spyOn(FAKE.supabase, "rpc").mockImplementation(((rpc: string, args?: unknown) => {
+    if (rpc === nome && n++ === 0) {
+      aoConflitar?.();
+      FAKE.chamadas.push({ tabela: `rpc:${rpc}`, op: "rpc", filtros: [], payload: args });
+      return Promise.resolve({ data: null, error: { code: "P0409", message: `conflito_versao: ${nome}`, details: "" } });
+    }
+    return orig(rpc, args);
+  }) as never);
+}
 async function abrir() {
   const m = await montar(createElement(QueryClientProvider, { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
     createElement(SidebarProvider, null, createElement(OcDialog, { ocId: "oc1", empresas: [{ id: "e1", nome_fantasia: "Fornecedor X" } as any], onClose: () => {}, onSaved: () => {} }))));
@@ -115,5 +128,26 @@ describe("[camada C2 · P-262 A] OC de Tecido — Apagar todos os itens", () => 
     await aguardar(() => !!dialogo(), "diálogo Apagar todos");
     expect(dialogo()!.textContent).toContain("Apagar todos os 2 itens da OC T-0001?");
     expect(rpcs()).toHaveLength(0);
+  });
+
+  it("Confirmar -> P0409 no 1º envio -> o retry automático TAMBÉM leva a marca de apagar tudo (sem perguntar de novo)", async () => {
+    await abrir();
+    await clicar(caixaVariante()!);
+    await aguardar(() => !caixaVariante(), "lista de variantes some (nenhum tecido na OC)");
+    await clicar(salvar()!);
+    await aguardar(() => !!dialogo(), "diálogo Apagar todos");
+    // "outra pessoa salvou no meio": o item que sobra no servidor segue sem variante (incompleto) => o payload do retry continua VAZIO
+    // e o servidor ainda tem linha => o retry precisa da marca de novo (sem perguntar outra vez).
+    p0409NaPrimeira("salvar_oc_tecido", () => { FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens[0].variante_tecido_id = null; });
+    await clicar(botaoDialogo("Apagar todos")!);
+    await aguardar(() => rpcs().length === 2, "1º envio (P0409) + retry automático", 5000);
+    for (const c of rpcs()) {
+      const p = c.payload as any;
+      expect(p._itens).toEqual([]);
+      expect(p._oc._apagar_itens).toBe(true); // a confirmação sobrevive ao retry
+    }
+    await esperar(150);
+    expect(rpcs()).toHaveLength(2);
+    expect(dialogo()).toBeNull(); // o retry não reabre o diálogo
   });
 });

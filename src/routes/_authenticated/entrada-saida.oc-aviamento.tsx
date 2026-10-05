@@ -994,7 +994,7 @@ export function OcDialog({
       // continuam removidos no rascunho); Confirmar salva de novo COM a marca.
       if (ehApagarTudoPendente(e)) {
         pedirConfirmacao({
-          ...textoApagarTodosItensOc({ familia: "aviamento", n: e.n, numeroOc: draftLiveRef.current.numero_pedido }),
+          ...textoApagarTodosItensOc({ familia: "aviamento", n: e.n, numeroOc: draftLiveRef.current.numero_pedido, motivo: itemsLiveRef.current.length > 0 ? "sem_linha_valida" : "removeu" }),
           onConfirmar: () => {
             if (savingRef.current) return;
             apagarTudoRef.current = true;

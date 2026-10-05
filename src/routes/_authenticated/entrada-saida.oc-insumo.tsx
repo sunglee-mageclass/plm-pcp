@@ -862,8 +862,10 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
       // [camada C2 · P-262 A] Salvar iria esvaziar a OC: abre o "Apagar todos os N itens da OC …?". Cancelar não grava nada (os itens
       // continuam removidos no rascunho); Confirmar salva de novo COM a marca.
       if (ehApagarTudoPendente(e)) {
+        // Trocar o fornecedor esvazia os blocos sem a pessoa clicar em remover: o texto não pode dizer "Você removeu".
+        const trocouFornecedor = ((ocQueryData?.oc as { empresa_id?: string | null } | null | undefined)?.empresa_id ?? null) !== (draftLiveRef.current.empresa_id ?? null);
         pedirConfirmacao({
-          ...textoApagarTodosItensOc({ familia: "insumo", n: e.n, numeroOc: draftLiveRef.current.numero_pedido }),
+          ...textoApagarTodosItensOc({ familia: "insumo", n: e.n, numeroOc: draftLiveRef.current.numero_pedido, motivo: trocouFornecedor ? "troca_fornecedor" : "removeu" }),
           onConfirmar: () => {
             if (savingRef.current) return;
             apagarTudoRef.current = true;

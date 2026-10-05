@@ -52,13 +52,25 @@ beforeEach(() => {
   FAKE.linhas.categorias_terceirizado = [{ id: "cat1", tenant_id: "t1", nome: "Estamparia", ativo: true, etapa: "ate_costura" }];
   Object.values(toastMock).forEach((f) => f.mockClear());
 });
-afterEach(async () => { await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
+afterEach(async () => { vi.restoreAllMocks(); await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
 
 const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Salvar"]')).at(-1) ?? null;
 const remover = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Remover bloco"]'));
 const rpcSalvar = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_terceirizados");
 const dialogo = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
 const botaoDialogo = (t: string) => Array.from(dialogo()?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((b) => (b.textContent ?? "").trim() === t) ?? null;
+/** Faz a 1ª chamada da RPC voltar P0409 (conflito de versão) e deixa as demais seguirem o fake normal. */
+function p0409NaPrimeira(nome: string) {
+  const orig = FAKE.supabase.rpc;
+  let n = 0;
+  vi.spyOn(FAKE.supabase, "rpc").mockImplementation(((rpc: string, args?: unknown) => {
+    if (rpc === nome && n++ === 0) {
+      FAKE.chamadas.push({ tabela: `rpc:${rpc}`, op: "rpc", filtros: [], payload: args });
+      return Promise.resolve({ data: null, error: { code: "P0409", message: `conflito_versao: ${nome}`, details: "" } });
+    }
+    return orig(rpc, args);
+  }) as never);
+}
 async function abrir() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const C = (Route as any).options.component;
@@ -111,6 +123,25 @@ describe("[camada C2 · P-262 A] PCP Serviços — Apagar todos os serviços", (
     expect(p._rev_base._apagar_tudo).toBe(true); // a marca explícita vai SÓ depois de confirmar
     await esperar(80);
     expect(rpcSalvar()).toHaveLength(1);
+  });
+
+  it("Confirmar -> P0409 no 1º envio -> o retry automático TAMBÉM leva a marca de apagar tudo (sem perguntar de novo)", async () => {
+    await abrir();
+    await prepararEditando();
+    for (let i = 0; i < 2; i++) { await clicar(remover()[0]); await esperar(10); }
+    await clicar(salvar()!);
+    await aguardar(() => !!dialogo(), "diálogo Apagar todos");
+    p0409NaPrimeira("salvar_terceirizados");
+    await clicar(botaoDialogo("Apagar todos")!);
+    await aguardar(() => rpcSalvar().length === 2, "1º envio (P0409) + retry automático", 5000);
+    for (const c of rpcSalvar()) {
+      const p = c.payload as any;
+      expect(p._blocos).toEqual([]);
+      expect(p._rev_base._apagar_tudo).toBe(true); // a confirmação sobrevive ao retry
+    }
+    await esperar(150);
+    expect(rpcSalvar()).toHaveLength(2);
+    expect(dialogo()).toBeNull(); // o retry não reabre o diálogo
   });
 
   it("servidor JÁ vazio e rascunho vazio: não pergunta (nada seria apagado)", async () => {

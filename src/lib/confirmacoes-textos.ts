@@ -314,11 +314,20 @@ export function textoApagarTodosServicos(a: { n: number; nome?: string | null })
 
 export type FamiliaOcApagar = "tecido" | "aviamento" | "insumo";
 
+/**
+ * Como a OC chegou a ficar sem itens (só muda a 1ª frase do corpo):
+ * - `removeu` (padrão): a pessoa tirou todas as linhas;
+ * - `troca_fornecedor`: a lista foi esvaziada ao trocar o fornecedor (OC Insumo), sem clicar em remover;
+ * - `sem_linha_valida`: ainda há linhas na tela, mas nenhuma completa o bastante para ir ao servidor (OC Tecido/Aviamento).
+ */
+export type MotivoOcSemItens = "removeu" | "troca_fornecedor" | "sem_linha_valida";
+
 /** 3 — OC de Tecido / Aviamento / Insumo. */
 export function textoApagarTodosItensOc(a: {
   familia: FamiliaOcApagar;
   n: number;
   numeroOc?: string | null;
+  motivo?: MotivoOcSemItens;
 }): TextoConfirmacao {
   const um = a.n === 1;
   const oc = presente(a.numeroOc) ? `da OC ${txt(a.numeroOc)}` : "desta OC";
@@ -328,10 +337,15 @@ export function textoApagarTodosItensOc(a: {
     aviamento: " (quantidades e preços)",
     insumo: "",
   }[a.familia];
+  const abertura = {
+    removeu: `Você removeu todos os ${plural} desta OC.`,
+    troca_fornecedor: "A OC ficou sem itens (ao trocar o fornecedor).",
+    sem_linha_valida: "A OC ficou sem itens válidos (as linhas que restam estão incompletas).",
+  }[a.motivo ?? "removeu"];
   return {
     titulo: um ? `Apagar o único item ${oc}?` : `Apagar todos os ${a.n} itens ${oc}?`,
     descricao:
-      `Você removeu todos os ${plural} desta OC. ` +
+      `${abertura} ` +
       (um
         ? `Ao salvar, o item${detalhe} será apagado`
         : `Ao salvar, os ${a.n} itens${detalhe} serão apagados`) +
