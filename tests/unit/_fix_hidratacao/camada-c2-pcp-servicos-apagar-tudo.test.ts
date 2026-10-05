@@ -237,4 +237,34 @@ describe("[camada C2] PCP Serviços — conflito de serviço REMOVIDO sobrevive 
     expect(rpcSalvar()).toHaveLength(0); // Salvar travado
     expect(remover()).toHaveLength(1);
   });
+
+  it("(b) o outro edita o pt1 e DEPOIS o apaga: o conflito velho some (Salvar liberado) e o payload sai só com o pt2", async () => {
+    await abrir();
+    await prepararEditando();
+    await clicar(remover()[0]); // pt1
+    FAKE.linhas.producao_terceirizados[0].observacao = "editado pela outra pessoa";
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.producao_terceirizados = FAKE.linhas.producao_terceirizados.filter((r) => r.id !== "pt1"); // a outra pessoa apaga o pt1
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcSalvar().length === 1, "Salvar liberado", 5000);
+    expect(((rpcSalvar()[0].payload as any)._blocos as { id: string }[]).map((b) => b.id)).toEqual(["pt2"]);
+  });
+
+  it("(b2) o outro edita o pt1 e DEPOIS reverte ao valor original: o conflito velho some e o pt1 segue removido", async () => {
+    await abrir();
+    await prepararEditando();
+    await clicar(remover()[0]);
+    FAKE.linhas.producao_terceirizados[0].observacao = "editado pela outra pessoa";
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    delete FAKE.linhas.producao_terceirizados[0].observacao; // reverteu ao original (sem observação)
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcSalvar().length === 1, "Salvar liberado", 5000);
+    expect(((rpcSalvar()[0].payload as any)._blocos as { id: string }[]).map((b) => b.id)).toEqual(["pt2"]);
+  });
 });

@@ -59,7 +59,7 @@ import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeLinhas, igual, type Conflito } from "@/lib/colab/merge";
-import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida } from "@/lib/colab/conflitos-pendentes";
+import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha } from "@/lib/colab/conflitos-pendentes";
 import { mergeGrade } from "@/lib/colab/merge-grade";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
@@ -706,7 +706,18 @@ export function TerceirizadosDetail({
       return mg.atualizados.length || mg.conflitos.length ? { ...b, grade_detalhe: mg.valor } : b;
     });
     const semResultado = ml.atualizadas.length === 0 && ml.conflitos.length === 0 && gradeConf.length === 0 && gradeAtual === 0;
-    if (semResultado) { baseBlocosRef.current = baseSemAvancarEmConflito(baseBlocosRef.current, fresh, conflitosRef.current); return; }
+    if (semResultado) {
+      // Merge SEM resultado: nenhum conflito de LINHA foi recalculado, logo nenhum vale mais (o servidor apagou o bloco, ou a outra pessoa
+      // reverteu): descarta-os — "usar o novo" neles ressuscitaria bloco inexistente ou desfaria a reversão alheia.
+      const restantes = semConflitosDeLinha(conflitosRef.current);
+      if (restantes.length !== conflitosRef.current.length) {
+        conflitosRef.current = restantes;
+        setConflitos(restantes);
+        setUltimoMerge((prev) => (prev ? { ...prev, conflitos: prev.conflitos.filter((c) => !c.path.startsWith("linha:")) } : prev));
+      }
+      baseBlocosRef.current = fresh;
+      return;
+    }
     setBlocos(out);
     // Conflitos ainda NÃO resolvidos continuam na lista (um eco de OUTRO bloco não pode destravar o Salvar) e a base dos blocos em
     // conflito NÃO avança — senão o próximo merge daria o conflito por resolvido e o Salvar apagaria a edição alheia.

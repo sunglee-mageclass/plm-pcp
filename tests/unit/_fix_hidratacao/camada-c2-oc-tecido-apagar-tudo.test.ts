@@ -257,6 +257,38 @@ describe("[camada C2] OC de Tecido — conflito de linha REMOVIDA sobrevive ao e
     expect(caixa("Verde")!.checked).toBe(false);
   });
 
+  it("(b) o outro edita it2 e DEPOIS o apaga: o conflito velho some (nada a decidir) e o Salvar manda só o it1, sem ressuscitar o it2", async () => {
+    await abrirDuas();
+    await clicar(caixa("Verde")!);
+    await aguardar(() => !caixa("Verde")!.checked, "Verde desmarcada (linha removida)");
+    FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens[1].quantidade_pedida = 9;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_tecido[0].rev = 5; FAKE.linhas.ocs_tecido_itens = FAKE.linhas.ocs_tecido_itens.filter((i) => i.id !== "it2"); // e agora a outra pessoa apaga o it2
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver"); // antes: ficava e "usar o novo" ressuscitava o it2
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "Salvar liberado", 5000);
+    const p = rpcs()[0].payload as any;
+    expect((p._itens as { id: string }[]).map((i) => i.id)).toEqual(["it1"]);
+    expect(p._oc.valor_previsto_total).toBe(50); // 10 x 5 do it1; o it2 não existe mais
+  });
+
+  it("(b2) o outro edita it2 e DEPOIS reverte ao valor original: o conflito velho some e o Salvar não grava o valor intermediário", async () => {
+    await abrirDuas();
+    await clicar(caixa("Verde")!);
+    await aguardar(() => !caixa("Verde")!.checked, "Verde desmarcada (linha removida)");
+    FAKE.linhas.ocs_tecido[0].rev = 4; FAKE.linhas.ocs_tecido_itens[1].quantidade_pedida = 9;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_tecido[0].rev = 5; FAKE.linhas.ocs_tecido_itens[1].quantidade_pedida = 4; // reverteu
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "Salvar liberado", 5000);
+    expect(((rpcs()[0].payload as any)._itens as { id: string }[]).map((i) => i.id)).toEqual(["it1"]); // a remoção que a pessoa fez vale
+  });
+
   it("'usar o novo' NÃO duplica: a variante re-marcada depois da remoção vira a linha do servidor (1 só item da variante no Salvar)", async () => {
     await abrirDuas();
     await clicar(caixa("Verde")!); // remove it2

@@ -175,7 +175,35 @@ describe("[camada C2] OC de Aviamento — conflito de item REMOVIDO sobrevive ao
     expect(lixeiras()).toHaveLength(1);
   });
 
-  it("'usar o novo' NÃO duplica: o item re-adicionado do MESMO aviamento (linha nova, sem id) vira o do servidor", async () => {
+  it("(b) o outro edita it1 e DEPOIS o apaga: o conflito velho some e o Salvar manda só o it2", async () => {
+    await abrir();
+    await clicar(lixeiras()[0]); // it1
+    FAKE.linhas.ocs_aviamento[0].rev = 4; FAKE.linhas.ocs_aviamento_itens[0].quantidade_pedida = 99;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_aviamento[0].rev = 5; FAKE.linhas.ocs_aviamento_itens = FAKE.linhas.ocs_aviamento_itens.filter((i) => i.id !== "it1");
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "Salvar liberado", 5000);
+    expect(((rpcs()[0].payload as any)._itens as { id: string }[]).map((i) => i.id)).toEqual(["it2"]);
+  });
+
+  it("(b2) o outro edita it1 e DEPOIS reverte ao valor original: o conflito velho some e o Salvar não grava o valor intermediário", async () => {
+    await abrir();
+    await clicar(lixeiras()[0]);
+    FAKE.linhas.ocs_aviamento[0].rev = 4; FAKE.linhas.ocs_aviamento_itens[0].quantidade_pedida = 99;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_aviamento[0].rev = 5; FAKE.linhas.ocs_aviamento_itens[0].quantidade_pedida = 5;
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "Salvar liberado", 5000);
+    expect(((rpcs()[0].payload as any)._itens as { id: string }[]).map((i) => i.id)).toEqual(["it2"]);
+  });
+
+  it("B-a: o item re-adicionado do MESMO aviamento (linha nova, sem id) NÃO é trocado: 'usar o novo' devolve o do servidor como linha SEPARADA e avisa", async () => {
     await abrir();
     await clicar(lixeiras()[0]); // remove it1 (av1)
     const add = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => /Adicionar/.test(b.textContent ?? ""))!;
@@ -195,10 +223,7 @@ describe("[camada C2] OC de Aviamento — conflito de item REMOVIDO sobrevive ao
     const usarNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "usar o novo")!;
     await clicar(usarNovo);
     await aguardar(() => !document.body.textContent!.includes("conflito a resolver"), "conflito resolvido");
-    expect(lixeiras()).toHaveLength(2); // it2 + o it1 do servidor (a linha nova do mesmo aviamento foi SUBSTITUÍDA, não somada)
-    await clicar(salvar()!);
-    await aguardar(() => rpcs().length === 1, "Salvar após resolver", 5000);
-    const itens = (rpcs()[0].payload as any)._itens as { id: string | null; aviamento_id: string }[];
-    expect(itens.map((i) => i.id).sort()).toEqual(["it1", "it2"]);
+    expect(lixeiras()).toHaveLength(3); // it2 + a linha nova da pessoa (intacta) + o it1 do servidor
+    expect(toastMock.info).toHaveBeenCalledWith(expect.stringContaining("linha separada"));
   });
 });

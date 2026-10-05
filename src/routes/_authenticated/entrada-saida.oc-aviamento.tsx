@@ -35,7 +35,7 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
-import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida } from "@/lib/colab/conflitos-pendentes";
+import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha } from "@/lib/colab/conflitos-pendentes";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
@@ -746,7 +746,15 @@ export function OcDialog({
       ml.atualizadas.length === 0 && ml.conflitos.length === 0;
     if (semResultado) {
       // No-op (inclui o refetch que o onError do save P0409 já processou): não tocar em nenhum state.
-      baseRef.current = { draft: freshDraft, items: baseSemAvancarEmConflito(baseRef.current.items, freshItems, conflitosRef.current) };
+      // Merge SEM resultado: nenhum conflito de LINHA foi recalculado, logo nenhum vale mais (o servidor apagou a linha, ou a outra pessoa
+      // reverteu): descarta-os — "usar o novo" neles ressuscitaria linha inexistente ou desfaria a reversão alheia.
+      const restantes = semConflitosDeLinha(conflitosRef.current);
+      if (restantes.length !== conflitosRef.current.length) {
+        conflitosRef.current = restantes;
+        setConflitos(restantes);
+        setUltimoMerge((prev) => (prev ? { ...prev, conflitos: prev.conflitos.filter((c) => !c.path.startsWith("linha:")) } : prev));
+      }
+      baseRef.current = { draft: freshDraft, items: freshItems };
       return;
     }
     if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
@@ -860,16 +868,16 @@ export function OcDialog({
         if (!dele) { setItems((its) => its.filter((i) => i.id !== id)); touchedItemIdsRef.current.delete(id); } // item removido no servidor
         else if (itemsLiveRef.current.some((i) => i.id === id)) { setItems((its) => its.map((i) => (i.id === id ? dele : i))); touchedItemIdsRef.current.delete(id); }
         else {
-          // Eu o removera: "usar o novo" o traz de volta — SE ainda combina com a OC (mesmo fornecedor) e sem duplicar o aviamento/variante.
+          // Eu o removera: "usar o novo" o traz de volta — SE ainda combina com a OC (mesmo fornecedor); se já há linha nova do mesmo aviamento, volta como linha SEPARADA.
           const outroFornecedor = !!baseRef.current && draftLiveRef.current.empresa_id !== baseRef.current.draft.empresa_id;
           if (outroFornecedor) {
             toast.warning("Este item era de outro fornecedor e não foi trazido de volta, porque a OC mudou. Adicione-o de novo, se ainda precisar.");
             // (o id segue "removido" — senão o próximo merge o traria de volta como "linha nova do servidor")
           } else {
-            setItems((its) => {
-              const dup = its.findIndex((i) => !i.id && i.aviamento_id === dele.aviamento_id && (i.variante_aviamento_id ?? null) === (dele.variante_aviamento_id ?? null));
-              return dup >= 0 ? its.map((i, k) => (k === dup ? dele : i)) : [...its, dele]; // a linha nova do mesmo aviamento vira a do servidor
-            });
+            // Esta OC ACEITA o mesmo aviamento em 2 linhas: não troca a linha nova da pessoa pela do servidor — volta como linha SEPARADA.
+            const colide = itemsLiveRef.current.some((i) => !i.id && i.aviamento_id === dele.aviamento_id && (i.variante_aviamento_id ?? null) === (dele.variante_aviamento_id ?? null));
+            setItems((its) => [...its, dele]);
+            if (colide) toast.info("O item voltou como uma linha separada: já existe outra linha do mesmo aviamento nesta OC.");
             touchedItemIdsRef.current.delete(id);
           }
         }

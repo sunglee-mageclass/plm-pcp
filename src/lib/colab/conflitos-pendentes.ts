@@ -3,11 +3,22 @@
 // destravava e apagava a edição da outra pessoa em silêncio. PURO, sem dependências de tela.
 import type { Conflito, LinhaId } from "./merge";
 
-/** Pendentes (ainda não resolvidos) + os recém-calculados. Mesmo `path` => vale o novo (dado mais fresco do servidor). */
+const ehDeLinha = (c: Conflito) => c.path.startsWith("linha:");
+
+/**
+ * Pendentes (ainda não resolvidos) + os recém-calculados. Mesmo `path` => vale o novo (dado mais fresco do servidor).
+ * Só os conflitos de CAMPO/GRADE ficam pendentes entre merges. Os de LINHA valem apenas pelo que o merge ATUAL recalculou: a base dessas
+ * linhas é segurada (ver `baseSemAvancarEmConflito`), então todo conflito de linha que ainda vale reaparece em `novos`; um que não
+ * reapareceu deixou de valer (o servidor apagou a linha, ou a outra pessoa reverteu) e "usar o novo" nele ressuscitaria linha
+ * inexistente ou desfaria a reversão alheia.
+ */
 export function juntarConflitos(pendentes: readonly Conflito[], novos: readonly Conflito[]): Conflito[] {
   const novosPaths = new Set(novos.map((c) => c.path));
-  return [...pendentes.filter((c) => !novosPaths.has(c.path)), ...novos];
+  return [...pendentes.filter((c) => !novosPaths.has(c.path) && !ehDeLinha(c)), ...novos];
 }
+
+/** Para os ramos "merge sem resultado": descarta os conflitos de linha pendentes (nenhum foi recalculado, logo nenhum vale mais). */
+export const semConflitosDeLinha = (pendentes: readonly Conflito[]): Conflito[] => pendentes.filter((c) => !ehDeLinha(c));
 
 const idsEmConflito = (conflitos: readonly Conflito[]) =>
   new Set(conflitos.filter((c) => c.path.startsWith("linha:")).map((c) => c.path.slice("linha:".length)));
@@ -24,7 +35,8 @@ export function baseSemAvancarEmConflito<R extends LinhaId>(
   const ids = idsEmConflito(conflitos);
   if (ids.size === 0) return [...fresh];
   const antigas = new Map(baseAntiga.filter((r) => r.id).map((r) => [r.id as string, r]));
-  const out = fresh.map((f) => (f.id && ids.has(f.id) ? (antigas.get(f.id) ?? f) : f));
+  // Linha em conflito SEM base antiga (conflito "removida sem base"): continua SEM base — o próximo merge recalcula o conflito.
+  const out = fresh.flatMap((f) => (f.id && ids.has(f.id) ? (antigas.has(f.id) ? [antigas.get(f.id) as R] : []) : [f]));
   const noFresh = new Set(fresh.map((f) => f.id).filter(Boolean) as string[]);
   for (const id of ids) {
     const antiga = antigas.get(id);
@@ -37,4 +49,12 @@ export function baseSemAvancarEmConflito<R extends LinhaId>(
 export function baseComLinhaResolvida<R extends LinhaId>(base: readonly R[], id: string, dele: R | null): R[] {
   const resto = base.filter((r) => r.id !== id);
   return dele ? [...resto, dele] : resto;
+}
+
+/**
+ * "Usar o novo" numa linha que eu removi, quando já existe uma linha NOVA (sem id) equivalente: a do servidor ocupa o lugar dela e
+ * herda o `tempId` — estados indexados por `tempId` (ex.: `rolosPorItem` da OC Tecido) não ficam órfãos.
+ */
+export function substituirLinhaNova<R extends { tempId: string }>(linhas: readonly R[], k: number, dele: R): R[] {
+  return linhas.map((r, i) => (i === k ? { ...dele, tempId: r.tempId } : r));
 }

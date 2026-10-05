@@ -33,7 +33,7 @@ import { presencaDoCampo } from "@/lib/colab/presenca-cor";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
-import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida } from "@/lib/colab/conflitos-pendentes";
+import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha, substituirLinhaNova } from "@/lib/colab/conflitos-pendentes";
 import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
@@ -782,7 +782,7 @@ export function OcDialog({
           } else {
             setItems((prev) => {
               const dup = prev.findIndex((it) => !it.id && it.artigo_numero === dele.artigo_numero && it.variante_tecido_id === dele.variante_tecido_id);
-              return dup >= 0 ? prev.map((it, k) => (k === dup ? dele : it)) : [...prev, dele]; // a linha nova da mesma variante vira a do servidor
+              return dup >= 0 ? substituirLinhaNova(prev, dup, dele) : [...prev, dele]; // a linha nova da mesma variante vira a do servidor (mantém o tempId dela: rolosPorItem)
             });
             touchedItemIdsRef.current.delete(id);
           }
@@ -967,7 +967,15 @@ export function OcDialog({
       // ou um save OK — nunca por um refetch que não achou nada de novo. Sem esse guard,
       // este efeito rodando LOGO APÓS o onError apagava em silêncio o conflito que o
       // onError acabou de detectar (achado do QA da Task 7).
-      baseRef.current = { draft: freshDraft, items: baseSemAvancarEmConflito(baseRef.current.items, freshItems, conflitosRef.current) };
+      // Merge SEM resultado: nenhum conflito de LINHA foi recalculado, logo nenhum vale mais (o servidor apagou a linha, ou a outra pessoa
+      // reverteu): descarta-os — "usar o novo" neles ressuscitaria linha inexistente ou desfaria a reversão alheia.
+      const restantes = semConflitosDeLinha(conflitosRef.current);
+      if (restantes.length !== conflitosRef.current.length) {
+        conflitosRef.current = restantes;
+        setConflitos(restantes);
+        setUltimoMerge((prev) => (prev ? { ...prev, conflitos: prev.conflitos.filter((c) => !c.path.startsWith("linha:")) } : prev));
+      }
+      baseRef.current = { draft: freshDraft, items: freshItems };
       return;
     }
     if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);

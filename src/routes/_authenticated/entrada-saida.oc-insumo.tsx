@@ -38,7 +38,7 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
-import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida } from "@/lib/colab/conflitos-pendentes";
+import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha } from "@/lib/colab/conflitos-pendentes";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -694,7 +694,15 @@ export function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete
       ml.atualizadas.length === 0 && ml.conflitos.length === 0;
     if (semResultado) {
       // No-op (inclui o refetch que o onError do save P0409 já processou): não tocar em nenhum state.
-      baseRef.current = { draft: freshHead, items: baseSemAvancarEmConflito(baseRef.current.items, freshItens, conflitosRef.current) };
+      // Merge SEM resultado: nenhum conflito de LINHA foi recalculado, logo nenhum vale mais (o servidor apagou a linha, ou a outra pessoa
+      // reverteu): descarta-os — "usar o novo" neles ressuscitaria linha inexistente ou desfaria a reversão alheia.
+      const restantes = semConflitosDeLinha(conflitosRef.current);
+      if (restantes.length !== conflitosRef.current.length) {
+        conflitosRef.current = restantes;
+        setConflitos(restantes);
+        setUltimoMerge((prev) => (prev ? { ...prev, conflitos: prev.conflitos.filter((c) => !c.path.startsWith("linha:")) } : prev));
+      }
+      baseRef.current = { draft: freshHead, items: freshItens };
       return;
     }
     if (md.atualizados.length > 0 || md.conflitos.length > 0) aplicarDraftHead(md.valor);

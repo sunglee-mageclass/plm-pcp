@@ -231,6 +231,34 @@ describe("[camada C2] OC de Insumo — conflito de insumo REMOVIDO sobrevive ao 
     expect(remover()).toHaveLength(1);
   });
 
+  it("(b) o outro edita o A e DEPOIS o apaga: o conflito velho some e o Salvar manda só o B", async () => {
+    await abrir();
+    await clicar(remover()[0]); // A (it1)
+    FAKE.linhas.ocs_etiqueta[0].rev = 4; FAKE.linhas.ocs_etiqueta_itens[0].quantidade_pedida = 99;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_etiqueta[0].rev = 5; FAKE.linhas.ocs_etiqueta_itens = FAKE.linhas.ocs_etiqueta_itens.filter((i) => i.id !== "it1");
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "Salvar liberado", 5000);
+    expect(((rpcs()[0].payload as any)._itens as { id: string }[]).map((i) => i.id)).toEqual(["it2"]);
+  });
+
+  it("(b2) o outro edita o A e DEPOIS reverte ao valor original: o conflito velho some e o Salvar não grava o valor intermediário", async () => {
+    await abrir();
+    await clicar(remover()[0]);
+    FAKE.linhas.ocs_etiqueta[0].rev = 4; FAKE.linhas.ocs_etiqueta_itens[0].quantidade_pedida = 99;
+    await eco();
+    await aguardar(() => document.body.textContent!.includes("1 conflito a resolver"), "conflito mostrado");
+    FAKE.linhas.ocs_etiqueta[0].rev = 5; FAKE.linhas.ocs_etiqueta_itens[0].quantidade_pedida = 5;
+    await eco();
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+    await clicar(salvar()!);
+    await aguardar(() => rpcs().length === 1, "Salvar liberado", 5000);
+    expect(((rpcs()[0].payload as any)._itens as { id: string }[]).map((i) => i.id)).toEqual(["it2"]);
+  });
+
   it("trocar o fornecedor remove os insumos; o outro edita um deles: 'usar o novo' NÃO devolve o insumo do fornecedor antigo (avisa)", async () => {
     await abrir();
     await escolherFornecedor("Fornecedor Y");
