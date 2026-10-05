@@ -123,7 +123,8 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   único é `<ModuloDesligadoAviso>` (via `RequirePermission` + `PageDef.gate`; ver "Modularidade (out/2026)" abaixo e
   invariante 13).
 - **Modularidade (out/2026, 15 partes; desenho/plano/relatórios em `.superpowers/sdd/2026-10-04-modularidade/`; migrations
-  `20261103100000..131000` (+ `20261103200000` = T5, `rev` 1×/transação, se já existir), inversos em `supabase/rollback/`):**
+  `20261103100000..131000` + `20261103200000` (T5, `rev` 1×/transação: bloco PRÓPRIO, o ÚLTIMO do kit único — Ruling R1),
+  inversos em `supabase/rollback/`):**
   - **Mapa de dependências** `MODULE_DEPS`/`MODULE_ROTULO` (`src/lib/permissions-catalog.ts`, `faltasDeModulo`): fonte ÚNICA, **só em
     código, SEM uso no Gerenciar Lojas** (P-251 C — dar módulo é do super admin, sem aviso nem bloqueio na tela). Quem lê:
     `useRequerModulo`/`ModuloDesligadoAviso`, `RequirePermission` (`PageDef.gate`: Plan. Tecido = `otb`, Explosão = `criacao`),
@@ -170,6 +171,16 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     função que não os chama (trava os `_down_drop` antigos — já aconteceu com a T1 e o `_seg_exige_pagina`); (iii) tab/quebra de
     linha nas pontas passam pelo CHECK (`btrim` só tira espaço) e o TS `ehReprovadoNoGate` faz `.trim()` — divergência
     pré-existente, inalcançável pela UI (R8, parked).
+  - **`rev` do card sobe 1× por transação (T5, Parte 14, `20261103200000`):** `fn_colab_bump_modelo` (7 filhas) e
+    `fn_colab_bump_modelo_via_tecido` (`modelo_tecido_variantes`) só fazem o `update modelos set id = id` se a linha do card AINDA
+    não foi escrita por esta transação (`xmin <> pg_current_xact_id()::xid`, idioma de `_custo_enfileirar`). Um Salvar do BOM
+    passou de +1 por linha apagada/inserida (~70 no card de teste) para **+1** (o processador adiado do custo/kanban no COMMIT
+    pode somar +1 se mudar o card); o canal Realtime recebe UM aviso. P0409 igual: toda txn que escreve filha de card existente
+    sobe o `rev` ≥ 1. ⚠️ (i) Dentro de SAVEPOINT/bloco EXCEPTION o bump volta a ser por linha (xid da subtransação) — nunca pior
+    que antes; (ii) **teste que cria o card e grava filhas na MESMA txn não vê o `rev` subir** (o INSERT já é desta txn — use
+    `modViva(c, 5)` como em `produto-acabado.test.ts`); (iii) gatilho BEFORE NOVO em `modelos` que derive valor das filhas
+    veria o estado do 1º UPDATE da txn — o anti-drift de `tests/integration/mod-5-rev.test.ts` falha (hoje só `fn_modelo_ref_auto`
+    alcança as filhas, e só com `v_relevante`).
   - **Decisões declaradas (não são furos):** Financeiro desligado continua anotando parcelas em segundo plano (T3 do desenho);
     leitura NÃO ganha gate de módulo (T4 do desenho, C9 — policy RESTRICTIVE de SELECT derruba o Realtime, inv. 13); Distribuição:
     a escrita não tem gate próprio, o dialog some sem o módulo e o dado gravado fica inerte (T6); o espelho card↔produto grava com
@@ -1184,8 +1195,8 @@ revenda/importado (fluxo próprio de `etapaDoModelo`).
     **modelo INTEIRO com os preços de HOJE** — inclusive card já cortado (R3, aviso ao dono); reverter o corte
     (`enviado_corte` true→false) **re-enfileira**. **Autor da auditoria** (`fn_audit`) = quem disparou a transação (quem mudou o
     preço do artigo aparece como autor dos N cards — R-CD5); só a correção única sai como "Sistema". Toda escrita do aplicador
-    usa `IS DISTINCT FROM` (obrigatório: `fn_colab_bump_modelo` sobe `rev` a cada linha do BOM, então UPDATE sem mudança
-    real geraria rev à toa). **Revenda/importado NÃO são tocados** (o previsto deles vem dos ramos próprios de
+    usa `IS DISTINCT FROM` (obrigatório: UPDATE sem mudança real sobe o `rev` à toa — antes da T5 da Modularidade, 1× por
+    linha do BOM; desde ela, 1× por transação). **Revenda/importado NÃO são tocados** (o previsto deles vem dos ramos próprios de
     `_custo_unitario_modelos_core`). Limite consciente (R-C1c): UPDATE do cliente só de `custo_previsto` de uma linha não é
     recalculado até a próxima edição do card. **Correção única (P-166 A):** `20261019310000_custo_previsto_backfill.sql` só
     cria `_custo_backfill_rodar(_aprovado jsonb, _hash text, _n int)` (+ `_custo_previa_lista`/`_custo_lista_hash`/

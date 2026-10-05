@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { modViva } from "./mod-helpers";
 
 describe.skipIf(!hasDb)("Produto Acabado — códigos automáticos", () => {
   it("REF não-acessório = 2G+1C+2S + 7 díg; acessório = 2G+3CAT; nº OC usa ACE p/ grupo Acessórios", async () => {
@@ -596,7 +597,11 @@ describe.skipIf(!hasDb)("Produto Acabado — salvar_grade_revenda (fast-follow t
         [1, 2],
       ]);
       const r1 = await um<{ rev: number }>(c, `select rev from modelos where id=$1`, [m.id]);
-      expect(r1.rev).toBeGreaterThan(m.rev); // modelo_grades tem trg_colab_bump (infra 2026-08-03) — bumpa sozinho
+      // modelo_grades tem trg_colab_bump (infra 2026-08-03) — bumpa sozinho. Com a Modularidade T5 (rev 1x por transação) o card
+      // criado NESTA MESMA transação (o INSERT acima) já tem o rev dela: o bump não soma de novo (em produção o card nasce
+      // noutra transação e o Salvar sobe +1 — mod-5-rev.test.ts).
+      if (await modViva(c, 5)) expect(r1.rev).toBe(m.rev);
+      else expect(r1.rev).toBeGreaterThan(m.rev);
 
       // Estado COMPLETO no 2º save, omitindo variante_numero=0 → linha ausente é APAGADA.
       await um(c, `select salvar_grade_revenda($1, $2::jsonb, $3)`, [
