@@ -469,6 +469,139 @@ describe.skipIf(!RODA)("bk B5 — OTB grava só com a página OTB (P-258 A)", ()
     });
   });
 
+  it("FK de OUTRAS telas (review B5 M2): quem NÃO tem a página OTB apaga categoria, card e OC de tecido — o CASCADE/SET NULL nas tabelas do OTB roda como o DONO (postgres) e passa", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await modulos(c, { cadastro: true, entrada_saida: true });
+      const U_OUTRO = "b5b5b5b5-0000-4000-8000-0000000000c4"; // Cadastro (categoria), Planejamento e OC Tecido; SEM a página OTB
+      await usuario(c, U_OUTRO, [
+        ["cadastro_atributos", true],
+        ["cadastro_atributos:cat_produto", true],
+        ["criacao_planejamento", true],
+        ["entrada_oc_tecido", true],
+      ]);
+      const fx = await fixture(c);
+      // card e OC de tecido apontados por linhas do simulador (como postgres, sem JWT)
+      const { card, oc, item } = await semJwt(c, async () => {
+        const id = async (sql: string, p: unknown[]) => (await um<{ id: string }>(c, sql, p)).id;
+        const art = await id(
+          `insert into artigos (tenant_id, nome, unidade_medida, rendimento) values ($1, 'ITEST B5 art', 'metro', 1) returning id`,
+          [T],
+        );
+        const card = await id(
+          `insert into modelos (tenant_id, nome, versao, status_planejamento) values ($1, 'ITEST B5 card', 1, 'em_planejamento') returning id`,
+          [T],
+        );
+        const oc = await id(
+          `insert into ocs_tecido (tenant_id, numero_pedido, status) values ($1, 'ITEST-B5', 'rascunho') returning id`,
+          [T],
+        );
+        const item = await id(
+          `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1, $2, 100) returning id`,
+          [oc, art],
+        );
+        await c.query(`update otb_simulacao_modelos set modelo_id = $1 where id = $2`, [
+          card,
+          fx.otb_simulacao_modelos,
+        ]);
+        await c.query(`update otb_simulacao_unidades set oc_tecido_id = $1 where id = $2`, [
+          oc,
+          fx.otb_simulacao_unidades,
+        ]);
+        await c.query(`update otb_simulacao_variantes set oc_tecido_item_id = $1 where id = $2`, [
+          item,
+          fx.otb_simulacao_variantes,
+        ]);
+        return { card, oc, item };
+      });
+      await jwt(c, U_OUTRO);
+      // prova de que o usuário NÃO passa o portão do OTB direto
+      expect(txt(await cli(c, `update colecoes set nome = 'API' where id = $1`, [fx.col]))).toBe(
+        NEG,
+      );
+      // (a) Cadastros: apagar a categoria → CASCADE em colecao_semana_categorias
+      expect(txt(await cli(c, `delete from categorias_produto where id = $1`, [fx.cat]))).toBe(
+        "PASSOU",
+      );
+      // (b) Planejamento: apagar o card → SET NULL em otb_simulacao_modelos.modelo_id
+      expect(txt(await cli(c, `delete from modelos where id = $1`, [card]))).toBe("PASSOU");
+      // (c) OC Tecido: excluir a OC (RPC da tela) → itens apagados → SET NULL em otb_simulacao_unidades/_variantes
+      expect(txt(await cli(c, `select public.excluir_oc_tecido($1)`, [oc]))).toBe("PASSOU");
+      await jwt(c, null);
+      expect(
+        (
+          await um<{ n: number }>(
+            c,
+            `select count(*)::int n from colecao_semana_categorias where id = $1`,
+            [fx.colecao_semana_categorias],
+          )
+        ).n,
+      ).toBe(0);
+      expect(
+        (
+          await um<{ m: string | null }>(
+            c,
+            `select modelo_id m from otb_simulacao_modelos where id = $1`,
+            [fx.otb_simulacao_modelos],
+          )
+        ).m,
+      ).toBeNull();
+      expect(
+        (
+          await um<{ o: string | null }>(
+            c,
+            `select oc_tecido_id o from otb_simulacao_unidades where id = $1`,
+            [fx.otb_simulacao_unidades],
+          )
+        ).o,
+      ).toBeNull();
+      expect(
+        (
+          await um<{ i: string | null }>(
+            c,
+            `select oc_tecido_item_id i from otb_simulacao_variantes where id = $1`,
+            [fx.otb_simulacao_variantes],
+          )
+        ).i,
+      ).toBeNull();
+      expect(
+        (
+          await um<{ n: number }>(c, `select count(*)::int n from ocs_tecido_itens where id = $1`, [
+            item,
+          ])
+        ).n,
+      ).toBe(0);
+    });
+  });
+
+  it("anti-drift (review B5 M2): as 12 tabelas do OTB são do postgres (a ação de FK roda como o DONO) e as FKs de fora com CASCADE/SET NULL/SET DEFAULT são as 4 conhecidas", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const donos = await c.query<{ t: string; dono: string }>(
+        `SELECT c.relname AS t, pg_get_userbyid(c.relowner) AS dono FROM pg_class c
+          WHERE c.relnamespace = 'public'::regnamespace AND c.relname = ANY($1::text[]) ORDER BY 1`,
+        [BK5_TABELAS],
+      );
+      expect(donos.rows.map((r) => r.t)).toEqual([...BK5_TABELAS].sort());
+      for (const r of donos.rows) expect(r.dono, r.t).toBe("postgres");
+      const fks = await c.query<{ de: string; para: string; acao: string }>(
+        `SELECT k.conrelid::regclass::text AS de, k.confrelid::regclass::text AS para, k.confdeltype::text AS acao
+           FROM pg_constraint k
+          WHERE k.contype = 'f' AND k.confdeltype IN ('c', 'n', 'd')
+            AND k.conrelid = ANY(SELECT to_regclass('public.' || t) FROM unnest($1::text[]) t)
+            AND NOT (k.confrelid = ANY(SELECT to_regclass('public.' || t) FROM unnest($1::text[]) t))
+          ORDER BY 1, 2`,
+        [BK5_TABELAS],
+      );
+      expect(fks.rows).toEqual([
+        { de: "colecao_semana_categorias", para: "categorias_produto", acao: "c" },
+        { de: "otb_simulacao_modelos", para: "modelos", acao: "n" },
+        { de: "otb_simulacao_unidades", para: "ocs_tecido", acao: "n" },
+        { de: "otb_simulacao_variantes", para: "ocs_tecido_itens", acao: "n" },
+      ]);
+    });
+  });
+
   it("anti-drift (R2): DEFINER com o módulo otb = as 9 + leitura; INVOKER que gravam o OTB = as 6; o portão vem DEPOIS do módulo; gatilho nas 12", async () => {
     await withTx(async (c) => {
       await prepara(c);
