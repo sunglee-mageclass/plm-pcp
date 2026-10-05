@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, withTx, um, comoUsuario, semUsuario, ehBancoLocal, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicarSql, exigeBancoLocal, semTransacao } from "./mig-txn";
+import { md5UrgASucessor } from "./urg-a-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261015100000_config_loja_salvar_colab.sql";
@@ -34,10 +35,12 @@ const FUNCOES_INTOCADAS = [
 const SO_ASCII = /^[\x20-\x7E]*$/;
 // md5 ACEITOS de salvar_config_loja no bloco de concorrência (leves L3 fix round 1, M3): o da release 5 (este arquivo) e os da
 // L3 por cima dela (20261027110000 "depois" e 20261027130000 "depois") — todos com o mesmo contrato para keywords/timezone.
+// [urg R2 T9] + os sucessores pela cadeia LIFO dos urgentes (20261103174000 acrescenta a coluna insumos_padrao; keywords/timezone
+// iguais): md5UrgASucessor, nunca troca o pino.
 const SALVAR_CONFIG_ACEITOS = [
   "14dd20b65d6e94c71658abdf11c7969b", // 20261015100000 (release 5)
   "39b44a2e9067a4d45f40fb24af1d61fd", // 20261027110000 (L3)
-  "2d43c259135119b345a09a894091c2b5", // 20261027130000 (L3)
+  ...md5UrgASucessor(SIG, "2d43c259135119b345a09a894091c2b5"), // 20261027130000 (L3) + 20261103174000 (urg R2)
 ];
 
 const ler = (rel: string) => readFileSync(ROOT + rel, "utf8");

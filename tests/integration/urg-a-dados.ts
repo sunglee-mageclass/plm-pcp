@@ -100,6 +100,20 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
       }
     },
     "NOVAS": {}
+  },
+  "174000": {
+    "mig": "supabase/migrations/20261103174000_urg_r2_insumos_padrao.sql",
+    "down": "supabase/rollback/20261103174000_urg_r2_insumos_padrao_down.sql",
+    "drop": "supabase/rollback/20261103174000_urg_r2_insumos_padrao_down_drop.sql",
+    "sentinela": "public.salvar_config_loja(uuid,jsonb,jsonb,boolean)",
+    "volta": true,
+    "MD5": {
+      "public.salvar_config_loja(uuid,jsonb,jsonb,boolean)": {
+        "antes": "2d43c259135119b345a09a894091c2b5",
+        "depois": "f43aabf3946e2c142d51b7cba45e04bc"
+      }
+    },
+    "NOVAS": {}
   }
 }
 /* URG_A_JSON_FIM */;
