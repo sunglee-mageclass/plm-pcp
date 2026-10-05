@@ -5,6 +5,7 @@
 // (saem `colunas`/`linhas`) e `loja=<código da loja>` obrigatório em toda chamada — comandos, parâmetros, resposta, códigos,
 // FAQ e checklist atualizados; os comandos usam o código da loja ATIVA quando a tela o passa (senão um marcador).
 import { CAMPOS } from "@/lib/integracao/campos";
+import { tituloSublinha } from "@/lib/integracao/titulo-sublinha";
 import { CAMINHO_FOTO_EXEMPLO, montarResposta, type RespostaApi, type RespostaLer } from "@/lib/integracao/api/resposta";
 
 export type Bloco =
@@ -59,6 +60,11 @@ export const TEXTO_TESTE_IGNORA_LIMITE =
 export const TEXTO_NOME_SUBLINHA =
   "O nome de cada variante (sublinha cor × tamanho) é Nome do produto + cor + tamanho (ex.: Saia Marola Preto P). A cor é a Cor base ou o Apelido, conforme a escolha da loja em Config da Loja › Formato do SKU › Cor no nome da sublinha (Integração); variante sem apelido usa a cor base, e sem cor fica só o nome + tamanho.";
 
+/** R8 (P-301 B): o título de cada sublinha é o do produto com a cor inserida antes do último " | ". Sem aspas retas (mesma razão do
+ *  TEXTO_NOME_SUBLINHA: o teste busca a constante dentro do JSON.stringify do Manual). */
+export const TEXTO_TITULO_SUBLINHA =
+  "O título de cada variante (campo titulo) é o título do produto com a cor inserida antes do último separador de barra vertical (ex.: Vestido Suelen | Ave Rara vira Vestido Suelen Preto | Ave Rara); título sem barra vertical recebe a cor no fim, e variante sem cor traz o mesmo título do produto. É calculado pelo sistema — não se edita na variante.";
+
 /** Release I3: Coleção, Categoria do Tecido Principal e Linha (colunas 19–21) são informativas e NÃO obrigatórias. */
 export const TEXTO_COLUNAS_INFORMATIVAS =
   "Os campos colecao (Coleção), categoria_tecido (Categoria do Tecido Principal) e linha (Linha) são INFORMATIVOS e não obrigatórios: podem vir vazios (null) quando o produto não tem esse dado. Os produtos integrados antes dessa mudança não têm o retrato reescrito: numa página só com produtos integrados antes da mudança, esses campos podem nem aparecer. Em revenda/importado, a Categoria do Tecido Principal vem do campo \"Categoria do tecido\" (ou \"Material do aviamento\", em Acessórios) do card do produto.";
@@ -92,9 +98,10 @@ export function respostaExemplo(modo: "normal" | "teste", origem: string): Respo
         colecao: "Coleção Exemplo", categoria_tecido: "Malha", linha: "Casual" };
   // P-126: o nome da sublinha leva a COR (Nome do produto + cor + tamanho) — normal usa a Cor base "Preto";
   // teste usa a Cor base "Cor Exemplo" (mesmo texto do exemplo do modo teste, `_integracao_exemplo`).
+  // R8: o título da sublinha = título do produto com a cor (espelho TS `tituloSublinha`, o mesmo da fixture anti-drift) — nunca à mão.
   const variante = modo === "normal"
-    ? { ...base, nome: "Saia Marola Preto P", ref_sku: "SAMA0019-PRT-P", cor_base: "Preto", cor_apelido: null, tamanho: "P", foto: [] }
-    : { ...base, nome: "Produto Exemplo 1 Cor Exemplo P", ref_sku: "EXPL0001-COR-P", cor_base: "Cor Exemplo", cor_apelido: "Apelido Exemplo", tamanho: "P", foto: [] };
+    ? { ...base, nome: "Saia Marola Preto P", titulo: tituloSublinha(base.titulo, "Preto", null, "cor_base"), ref_sku: "SAMA0019-PRT-P", cor_base: "Preto", cor_apelido: null, tamanho: "P", foto: [] }
+    : { ...base, nome: "Produto Exemplo 1 Cor Exemplo P", titulo: tituloSublinha(base.titulo, "Cor Exemplo", "Apelido Exemplo", "cor_base"), ref_sku: "EXPL0001-COR-P", cor_base: "Cor Exemplo", cor_apelido: "Apelido Exemplo", tamanho: "P", foto: [] };
   const r: RespostaLer = {
     status: "ok", modo, tenant_id: loja.id, loja, colunas: CAMPOS.map((c) => c.rotulo), chaves_colunas: CHAVES,
     proximo_cursor: modo === "teste" ? "eyJleGVtcGxvIjogMn0=" : null,
@@ -175,6 +182,7 @@ export function montarManual(origem: string, lojaId: string | null = null): Seca
       { tipo: "p", texto: TEXTO_LOJA_NOME_RETRATO },
       { tipo: "p", texto: TEXTO_PRECO_DIGITADO },
       { tipo: "p", texto: TEXTO_NOME_SUBLINHA },
+      { tipo: "p", texto: TEXTO_TITULO_SUBLINHA },
       { tipo: "p", texto: TEXTO_COLUNAS_INFORMATIVAS },
       { tipo: "exemplo" },
       { tipo: "codigo", titulo: "JSON de exemplo — modo NORMAL (dados reais da loja; só produtos JÁ INTEGRÁVEIS são levados)", codigo: JSON.stringify(respostaExemplo("normal", origem), null, 2) },

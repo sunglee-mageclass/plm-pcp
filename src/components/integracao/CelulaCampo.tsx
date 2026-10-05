@@ -334,6 +334,17 @@ function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: 
     );
   }
   const texto = valorCelula(p, campo.key, indice);
+  // R8 (B4): o título da sublinha (calculado no servidor, SOMENTE LEITURA aqui) também acende o aviso de sublinhas —
+  // a loja pode ter Título marcado sem REF/SKU, e o "i" não ficaria em lugar nenhum.
+  if (campo.key === "titulo") {
+    const avisoTit = avisoSublinhas(p);
+    return (
+      <div className="flex min-w-0 items-center gap-1">
+        <span className="max-w-[16rem] truncate text-muted-foreground" title={texto}>{texto}</span>
+        {avisoTit && <InfoHover ariaLabel="Sublinhas mudaram depois do retrato" className="text-[var(--tone-warning-fg)]">{avisoTit}</InfoHover>}
+      </div>
+    );
+  }
   if (campo.soVariante) {
     const sub = sublinhaDe(p, indice);
     const semApelido = campo.key === "cor_apelido" && !sub?.apelidoNome && !!sub?.corNome;

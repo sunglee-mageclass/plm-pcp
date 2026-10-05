@@ -410,7 +410,7 @@ export function avisoRetrato(p: ProdutoLista, campo: CampoKey): string | null {
 
 /** medios R14 sku #10: rótulo do "i" quando as SUBLINHAS mudaram depois do retrato (a API recebe as do retrato). */
 export const AVISO_SUBLINHAS =
-  "As sublinhas (cor × tamanho: SKU, cor, tamanho ou nome) mudaram depois do retrato — a API recebe as sublinhas do retrato.";
+  "As sublinhas (cor × tamanho: SKU, cor, tamanho, nome ou título) mudaram depois do retrato — a API recebe as sublinhas do retrato.";
 export function avisoSublinhas(p: ProdutoLista): string | null {
   return usaRetrato(p) && p.retratoDifereSublinhas ? AVISO_SUBLINHAS : null;
 }
