@@ -29,7 +29,7 @@ BEGIN
     END IF;
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
-      ('public._insumos_padrao_aplicar(uuid)', '08197edd4d3ce0d3558c7546c693d961', 'fa0d3ce7bb39628db1a6d33c46f4d289'),
+      ('public._insumos_padrao_aplicar(uuid)', '8e51a47dadb9b56970e2903f2bf2624f', 'fa0d3ce7bb39628db1a6d33c46f4d289'),
       ('public.salvar_insumos_iniciais(uuid,jsonb)', '44da042744bc302a7b129201de93aeac', '9a0c13cdab6ca7720c6669b964faa052')
     ) AS x(fn, depois, neutro) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.fn)));

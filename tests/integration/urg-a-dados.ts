@@ -132,7 +132,7 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
       }
     },
     "NOVAS": {
-      "public._insumos_padrao_aplicar(uuid)": "08197edd4d3ce0d3558c7546c693d961",
+      "public._insumos_padrao_aplicar(uuid)": "8e51a47dadb9b56970e2903f2bf2624f",
       "public.salvar_insumos_iniciais(uuid,jsonb)": "44da042744bc302a7b129201de93aeac"
     },
     "NEUTRO": {

@@ -487,6 +487,75 @@ describe.skipIf(!RODA)("urg R2 T10 - insumos padrao na criacao do card interno (
     });
   });
 
+  it("> 64 cards num 'Criar cards' (1 transacao): o helper com lista vazia nao abre subtransacao; 70 vagas com lista vazia e com 20 insumos gravam certo", async () => {
+    // [fix round 2 / LEVE-1 da revisao] as checagens so-leitura do helper vem ANTES do sub-bloco EXCEPTION: lista vazia (estado de
+    // todas as lojas hoje) nao gasta subtransacao/XID nem trava o card. O cache de subxids por backend e de 64 (PGPROC_MAX_CACHED_SUBXIDS).
+    const subxact = async (c: Client) => {
+      await c.query("SELECT pg_stat_clear_snapshot()"); // o retrato das estatisticas e por transacao: limpa antes de ler
+      return um<{ n: number; overflow: boolean }>(
+        c,
+        `SELECT s.subxact_count AS n, s.subxact_overflowed AS overflow
+           FROM pg_stat_get_backend_idset() AS b(id), LATERAL pg_stat_get_backend_subxact(b.id) AS s
+          WHERE pg_stat_get_backend_pid(b.id) = pg_backend_pid()`,
+      );
+    };
+    const vagas = (k: string, n: number) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ nome: `PT 70 ${k} ${i}`, materiais: [] })));
+    const lote = async (c: Client, fx: Fx, k: string) => {
+      const r = await como(c, "SELECT public.plan_tecido_criar_cards($1, $2::jsonb) AS r", [fx.col, vagas(k, 70)]);
+      expect(txt(r)).toBe("PASSOU");
+      return ((r as any).rows[0].r as { modelo_id: string }[]).map((x) => x.modelo_id);
+    };
+    // (a) o HELPER com lista vazia nao abre subtransacao. Os 70 cards nascem com os gatilhos DESLIGADOS (session_replication_role =
+    // replica, so nesta txn): cada INSERT normal em modelos ja gasta 1 subxid PRE-EXISTENTE (sub-bloco EXCEPTION de um gatilho de
+    // modelos - medido: 1 INSERT = 1 subxid; 65+ cards numa txn ja estouram o cache SEM esta migration) e esconderia a medida.
+    // Antes do fix round 2 (FOR UPDATE dentro do sub-bloco): 70 chamadas = 64 / overflow; agora 0.
+    await withTx(async (c) => {
+      await prepara(c);
+      const cards = await semJwt(c, async () => {
+        await c.query("SET LOCAL session_replication_role = replica");
+        const { rows } = await c.query(
+          `INSERT INTO public.modelos (tenant_id, nome, origem) SELECT $1, 'URG-A10 subx ' || g, 'interno' FROM generate_series(1, 70) g
+           RETURNING id::text AS id`,
+          [T],
+        );
+        await c.query("SET LOCAL session_replication_role = origin");
+        return rows.map((r) => r.id as string);
+      });
+      const antes = await subxact(c);
+      const { rows } = await c.query("SELECT public._insumos_padrao_aplicar(x) AS n FROM unnest($1::uuid[]) AS x", [cards]);
+      expect(rows.every((r) => r.n === 0)).toBe(true);
+      const depois = await subxact(c);
+      expect(depois, JSON.stringify({ antes, depois })).toEqual(antes);
+      expect(depois.overflow).toBe(false);
+    });
+    // (b) 70 cards num "Criar cards" (1 transacao), lista vazia: tudo criado, nenhuma linha, nenhuma falha
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      await jwt(c, U_NADA);
+      const ids = await lote(c, fx, "vazia");
+      expect(ids.length).toBe(70);
+      const n = await um<{ n: number }>(c, "SELECT count(*)::int AS n FROM public.modelo_etiquetas WHERE modelo_id = ANY ($1::uuid[])", [ids]);
+      expect(n.n).toBe(0);
+    });
+    // (c) 70 vagas com lista de 20 insumos: 70 x 20 linhas certas, sem falha (aqui cada card gasta mais 1 subxid - o sub-bloco que
+    // protege a criacao -, o que nao muda nada alem do que os gatilhos de modelos ja fazem)
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      await listaCrua(c, fx.muitos.slice(0, 20).map((e, i) => ({ etiqueta_id: e, consumo: i + 1 })));
+      await jwt(c, U_NADA);
+      const ids = await lote(c, fx, "cheia");
+      expect(ids.length).toBe(70);
+      const { rows } = await c.query(
+        `SELECT modelo_id::text AS m, count(*)::int AS n, min(numero) AS a, max(numero) AS z, sum(consumo)::float8 AS q
+           FROM public.modelo_etiquetas WHERE modelo_id = ANY ($1::uuid[]) GROUP BY 1`,
+        [ids],
+      );
+      expect(rows.length).toBe(70);
+      for (const x of rows) expect(x, x.m).toMatchObject({ n: 20, a: 1, z: 20, q: 210 });
+      await imediato(c); // a fila de custo dos 70 cards (o que o COMMIT faria) nao falha
+    });
+  });
+
   it("desempenho: 'Criar cards' do Plan. Tecido com 40 vagas e lista de 20 insumos fica no mesmo patamar (medido)", async () => {
     await withTx(async (c) => {
       const fx = await prepara(c);

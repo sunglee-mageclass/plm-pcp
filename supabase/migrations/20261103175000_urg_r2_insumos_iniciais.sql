@@ -38,7 +38,7 @@
 --   public.importar_modelo_linha(jsonb,jsonb)
 --     ANTES  db0c3dcbd90ded80d210b96747e01cb1
 --     DEPOIS 4c53027d97a3b2a60108098fe8e1849a
---   public._insumos_padrao_aplicar(uuid)  (NOVA)  DEPOIS 08197edd4d3ce0d3558c7546c693d961  NEUTRO fa0d3ce7bb39628db1a6d33c46f4d289
+--   public._insumos_padrao_aplicar(uuid)  (NOVA)  DEPOIS 8e51a47dadb9b56970e2903f2bf2624f  NEUTRO fa0d3ce7bb39628db1a6d33c46f4d289
 --   public.salvar_insumos_iniciais(uuid,jsonb)  (NOVA)  DEPOIS 44da042744bc302a7b129201de93aeac  NEUTRO 9a0c13cdab6ca7720c6669b964faa052
 --   exige a 20261103174000 viva: public.salvar_config_loja(uuid,jsonb,jsonb,boolean) = 27fdf9f2c9b2d1fe49577e9d30eaa574 e a coluna tenant_config.insumos_padrao.
 -- ====================================================================================
@@ -72,7 +72,7 @@ BEGIN
     END IF;
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
-      ('public._insumos_padrao_aplicar(uuid)', '08197edd4d3ce0d3558c7546c693d961', 'fa0d3ce7bb39628db1a6d33c46f4d289'),
+      ('public._insumos_padrao_aplicar(uuid)', '8e51a47dadb9b56970e2903f2bf2624f', 'fa0d3ce7bb39628db1a6d33c46f4d289'),
       ('public.salvar_insumos_iniciais(uuid,jsonb)', '44da042744bc302a7b129201de93aeac', '9a0c13cdab6ca7720c6669b964faa052')
     ) AS x(fn, depois, neutro) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.fn)));
@@ -97,8 +97,12 @@ AS $function$
 -- consumo que nao e numero JSON de 0 a 9999 com no maximo 4 casas; par (insumo, cor) repetido (fica o 1o). Cor que nao e texto uuid de uma cor DA LOJA
 -- presente nas variantes do insumo entra como SEM cor (mesma regra do pre-preenchimento da tela). No maximo 20 linhas (limite do
 -- editor), na ordem da lista; numero = posicao, perda 0, custo 0 (a fila de custo calcula no COMMIT).
--- NUNCA derruba a criacao do card: qualquer erro daqui e engolido (sub-bloco), vira WARNING e devolve 0 (o card nasce sem os
--- insumos; a pessoa adiciona na secao Insumos). Devolve quantas linhas gravou.
+-- NUNCA derruba a criacao do card: o laco + INSERT ficam num sub-bloco que engole qualquer erro, vira WARNING e devolve 0 (o card
+-- nasce sem os insumos; a pessoa adiciona na secao Insumos). Devolve quantas linhas gravou.
+-- Custo: as checagens so-leitura (card interno, lista da loja nao vazia, card sem linhas) vem ANTES do sub-bloco e SEM trava de
+-- linha - lista vazia (ou card que nao se aplica) = 3 SELECTs, sem subtransacao nem XID (um "Criar cards" de dezenas de vagas nao
+-- enche o cache de subtransacoes). Sem FOR UPDATE: os chamadores acabaram de inserir o card nesta transacao (invisivel as outras).
+-- Le no maximo 200 itens da lista (lista crua gigante gravada por UPDATE direto nao pesa em toda criacao de card).
 DECLARE
   v_tenant uuid;
   v_origem text;
@@ -114,22 +118,27 @@ DECLARE
   v_cs uuid[] := ARRAY[]::uuid[];
   v_qs numeric[] := ARRAY[]::numeric[];
 BEGIN
+  -- checagens so-leitura, FORA do sub-bloco (sem subtransacao/XID) e sem trava de linha
+  SELECT m.tenant_id, m.origem INTO v_tenant, v_origem
+    FROM public.modelos m
+   WHERE m.id = _modelo_id;
+  IF v_tenant IS NULL OR v_origem IS DISTINCT FROM 'interno' THEN
+    RETURN 0;
+  END IF;
+  SELECT tc.insumos_padrao INTO v_lista FROM public.tenant_config tc WHERE tc.tenant_id = v_tenant;
+  IF jsonb_typeof(v_lista) IS DISTINCT FROM 'array' THEN
+    RETURN 0;
+  END IF;
+  IF jsonb_array_length(v_lista) = 0 THEN
+    RETURN 0;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.modelo_etiquetas me WHERE me.modelo_id = _modelo_id) THEN
+    RETURN 0;
+  END IF;
   BEGIN
-    SELECT m.tenant_id, m.origem INTO v_tenant, v_origem
-      FROM public.modelos m
-     WHERE m.id = _modelo_id
-     FOR UPDATE;
-    IF v_tenant IS NULL OR v_origem IS DISTINCT FROM 'interno' THEN
-      RETURN 0;
-    END IF;
-    IF EXISTS (SELECT 1 FROM public.modelo_etiquetas me WHERE me.modelo_id = _modelo_id) THEN
-      RETURN 0;
-    END IF;
-    SELECT tc.insumos_padrao INTO v_lista FROM public.tenant_config tc WHERE tc.tenant_id = v_tenant;
-    IF jsonb_typeof(v_lista) IS DISTINCT FROM 'array' THEN
-      RETURN 0;
-    END IF;
-    FOR v_it IN SELECT a.value FROM jsonb_array_elements(v_lista) WITH ORDINALITY AS a(value, ord) ORDER BY a.ord LOOP
+    FOR v_it IN
+      SELECT a.value FROM jsonb_array_elements(v_lista) WITH ORDINALITY AS a(value, ord) ORDER BY a.ord LIMIT 200
+    LOOP
       EXIT WHEN cardinality(v_es) >= 20;
       CONTINUE WHEN jsonb_typeof(v_it) IS DISTINCT FROM 'object';
       -- insumo: texto uuid de etiquetas da loja do card
@@ -492,7 +501,7 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._plan_tecido_criar_card_core(uuid,uuid,jsonb)', '5814a5907981617a1b7c731941177143'),
       ('public.importar_modelo_linha(jsonb,jsonb)', '4c53027d97a3b2a60108098fe8e1849a'),
-      ('public._insumos_padrao_aplicar(uuid)', '08197edd4d3ce0d3558c7546c693d961'),
+      ('public._insumos_padrao_aplicar(uuid)', '8e51a47dadb9b56970e2903f2bf2624f'),
       ('public.salvar_insumos_iniciais(uuid,jsonb)', '44da042744bc302a7b129201de93aeac')
     ) AS x(fn, m) LOOP
     IF md5(pg_get_functiondef(to_regprocedure(r.fn))) IS DISTINCT FROM r.m THEN
