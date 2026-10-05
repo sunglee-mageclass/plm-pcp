@@ -51,7 +51,7 @@ import { OcModalShell } from "@/components/shared/OcModalShell";
 import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
-import { useModoOcRolo } from "@/hooks/useModoOcRolo";
+import { useModoOcRoloEstado } from "@/hooks/useModoOcRolo";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
 import {
   emptyDraft, uploadFile, fmtDate, fmtMoney, labelVariante, metragemPedidaItem, precoItem,
@@ -459,6 +459,9 @@ function draftFromOc(oc: any): Draft {
 // Colab round 4 — rótulos PT dos paths do Draft para o banner de resolução genérica de
 // conflito. O merge compara TODAS as chaves do Draft, então qualquer campo pode conflitar
 // (inclusive os SEM UI inline). Path sem rótulo → mostra o próprio path (fallback).
+// [backend F2.2 / R7] motivo mostrado (e usado no title) enquanto o modo OC/Rolo da loja nao foi lido.
+const MOTIVO_MODO_DESCONHECIDO = "Aguarde: o modo de trabalho da loja (OC/Rolo) ainda não foi carregado.";
+
 const ROTULO_CONFLITO: Record<string, string> = {
   numero_pedido: "Número do Pedido",
   empresa_id: "Fornecedor",
@@ -672,7 +675,10 @@ function OcDialog({
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
   const [status, setStatus] = useState<OCStatus>("encomendado");
   // Modo só-rolo: o recebimento é destrinchado em rolos (gera os rolos ao receber).
-  const modoOcRolo = useModoOcRolo();
+  // [backend F2.2 / R7] Salvar e Marcar Recebido DECIDEM por este modo (rolos x OC): ate a leitura dar certo (`modoPronto`) eles ficam
+  // desabilitados, para nao gravar com o 'ambos' de fallback depois de uma 1a carga com erro.
+  const { modo: modoOcRolo, pronto: modoPronto, erro: modoErro, recarregar: recarregarModo } = useModoOcRoloEstado();
+  const motivoModo = modoPronto ? null : MOTIVO_MODO_DESCONHECIDO;
   const [rolosPorItem, setRolosPorItem] = useState<Record<string, RoloEntry[]>>({});
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
@@ -1191,6 +1197,7 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      if (!modoPronto) throw new Error(MOTIVO_MODO_DESCONHECIDO);
       // [seg s6, fix B1 — receita 2419d0f] estado AO VIVO (refs), NUNCA a closure do render do clique: no retry do P0409
       // o merge acabou de rodar e gravou o estado mesclado nos refs (setDraft/setItems/setStatus ainda não re-renderizaram)
       // — ler a closure mandaria o status velho e os campos que só o outro usuário mudou com o valor antigo.
@@ -1610,13 +1617,13 @@ function OcDialog({
   const getMissingRequirements = (): string[] => requisitosRecebimento.flatMap((r) => r.faltas);
 
   const handleSave = () => {
-    if (savingRef.current || saveMutation.isPending) return;
+    if (!modoPronto || savingRef.current || saveMutation.isPending) return;
     savingRef.current = true;
     saveMutation.mutate(false, { onSettled: () => { savingRef.current = false; } });
   };
 
   const handleMarkReceived = () => {
-    if (savingRef.current || saveMutation.isPending) return; // anti-duplo-clique (ref síncrono)
+    if (!modoPronto || savingRef.current || saveMutation.isPending) return; // anti-duplo-clique (ref síncrono)
     if (!canMarkReceived) {
       const missing = getMissingRequirements();
       toast.error("Não é possível marcar como recebido:", {
@@ -1630,7 +1637,7 @@ function OcDialog({
   // Só AQUI roda o fluxo real de marcar recebido (a ordem itens-antes-de-status
   // segue intacta dentro do saveMutation — comentário CRITICAL).
   const confirmarRecebimento = () => {
-    if (savingRef.current || saveMutation.isPending) return;
+    if (!modoPronto || savingRef.current || saveMutation.isPending) return;
     savingRef.current = true;
     saveMutation.mutate(true, { onSettled: () => { savingRef.current = false; setConfirmReceber(false); } });
   };
@@ -1838,12 +1845,22 @@ function OcDialog({
                   Desmarcar Recebido
                 </Button>
               ) : (
-                <Button variant="outline" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
+                <Button variant="outline" onClick={handleMarkReceived} disabled={saveMutation.isPending || !modoPronto} title={motivoModo ?? undefined}>
                   Marcar Recebido
                 </Button>
               )
             )}
-            <Button onClick={handleSave} disabled={saveMutation.isPending}>
+            {motivoModo && (
+              <span className="self-center text-xs text-muted-foreground" role="status">
+                {modoErro ? "Não foi possível carregar o modo de trabalho da loja (OC/Rolo)." : "Carregando o modo de trabalho da loja…"}
+                {modoErro && (
+                  <button type="button" className="ml-1 underline underline-offset-2" onClick={recarregarModo}>
+                    Tentar de novo
+                  </button>
+                )}
+              </span>
+            )}
+            <Button onClick={handleSave} disabled={saveMutation.isPending || !modoPronto} title={motivoModo ?? undefined}>
               <Check className="h-4 w-4 mr-1" />
               Salvar
             </Button>

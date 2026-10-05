@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
+import { buscarOpcoesColecao } from "@/lib/opcoes-colecao";
 import { supabase } from "@/integrations/supabase/client";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { Input } from "@/components/ui/input";
@@ -89,19 +89,12 @@ function EtapasPlPage() {
   });
 
   const tenantId = useActiveTenantId();
+  // [backend F2] opções de Coleção = RPC `opcoes_colecao_modelos()` (rótulo = nome do OTB, senão o texto; os mesmos que o filtro de
+  // `useEtapasCards` compara), sem baixar os cards (teto de 1.000 linhas do PostgREST).
   const { data: colecoes = [] } = useQuery({
     queryKey: ["opt", "colecoes-modelos", tenantId],
     enabled: !!tenantId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("modelos")
-        .select("colecao, colecoes(nome)");
-      if (error) throw error;
-      // [modularidade R11] opções = rótulos (nome do OTB, senão o texto), os mesmos que o filtro de `useEtapasCards` compara.
-      return Array.from(
-        new Set((data ?? []).map((r) => rotuloColecaoDoModelo(r as { colecao?: string | null; colecoes?: unknown })).filter(Boolean)),
-      ).sort() as string[];
-    },
+    queryFn: async () => (await buscarOpcoesColecao()).colecoes,
   });
 
   const fornecedores = useMemo(

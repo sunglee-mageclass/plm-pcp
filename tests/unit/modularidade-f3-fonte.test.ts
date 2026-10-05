@@ -24,16 +24,17 @@ describe("Dashboard — abas e blocos por módulo (M7, T1 M4)", () => {
     expect(corpo).toContain("{comFin && cardAPagar}");
     expect(corpo).toContain("{comCustos && (");
   });
-  it("Comercial & Coleção: opções e filtro pelo rótulo (`rotuloColecao`), sem `.eq(\"colecao\", …)` cru", () => {
+  it("Comercial & Coleção: opções da RPC (F2.2); filtro dos cards pelo rótulo (`rotuloColecao`), sem `.eq(\"colecao\", …)` cru", () => {
     const i = f.indexOf("function ComercialColecaoTab()");
     const corpo = f.slice(i, i + 5000);
     expect(f).toContain('import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";');
-    expect(corpo).toContain('select("id, colecao, subcolecao, colecoes(nome)")');
+    expect(corpo).toContain("queryFn: buscarOpcoesColecao");
+    expect(corpo).not.toContain('select("id, colecao, subcolecao, colecoes(nome)")');
     expect(corpo).toContain("rotuloColecaoDoModelo(m)");
     expect(corpo).not.toContain('q.eq("colecao"');
     expect(corpo).toContain("rows.filter((m) => m.colecao === fColecao)");
-    // m2: o filtro no cliente nunca corta em 1.000 linhas (buscarTodas, ordem estável) e a lista de opções também
-    expect(corpo.match(/buscarTodas<any>/g)?.length).toBe(2);
+    // m2: o filtro no cliente nunca corta em 1.000 linhas (buscarTodas, ordem estável); as opções vêm da RPC (F2.2)
+    expect(corpo.match(/buscarTodas<any>/g)?.length).toBe(1);
     expect(corpo).toContain('order("id", { ascending: true })');
   });
 });
@@ -91,7 +92,7 @@ describe("Parte 12 (R11) — telas que mostram/filtram coleção usam o rótulo"
     const comRotulo = [
       "src/components/producao/explosao/ExplosaoDetail.tsx",
       "src/components/producao/etapas/useEtapasCards.ts",
-      "src/routes/_authenticated/pcp.etapas.tsx",
+      // [backend F2.2] pcp.etapas.tsx saiu daqui: as opcoes de Coleção vêm da RPC (rótulo no servidor); o filtro de cards é do hook acima.
       "src/components/producao/cad/useFichaData.ts",
       "src/routes/_authenticated/criacao.desenvolvimento.tsx",
       "src/routes/_authenticated/criacao.planejamento.tsx",

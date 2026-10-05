@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { buscarTodas } from "@/lib/buscar-todas";
 import { comRotuloColecaoLista } from "@/lib/colecao-rotulo";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 import { montarCards, type ModeloRow } from "@/lib/pcp-etapas-kanban";
@@ -41,15 +42,20 @@ export function useEtapasCards(filtros: EtapasFiltros = {}) {
       filtros.busca ?? null,
     ],
     queryFn: async () => {
-      const { data, error } = await (supabase.from("modelos") as any)
-        .select(
-          "id, ref, nome, colecao, colecoes(nome), lancado, origem, fotos_modelo, desenho_tecnico_url, croqui_url, cad(id, enviado_corte, producao_terceirizados(id, ativo, interno, categoria_terceirizado_id, categorias_terceirizado(nome), empresa:empresa_id(nome_fantasia), pt_data_saida, pt_data_entrada, pt_aprovacao, data_enviado, data_entregue, quantidade_recebida, grade_detalhe))",
-        )
-        .eq("enviado_cad", true)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
+      // [backend F2] buscarTodas: sem `.range` o PostgREST corta em 1.000 linhas sem avisar (cards de Etapas sumiam do quadro). Ordem
+      // estável e única (created_at desc, id asc) entre as páginas; erro de qualquer página sobe (não mostra quadro pela metade).
+      const data = await buscarTodas<ModeloRow & { colecao?: string | null }>((de, ate) =>
+        (supabase.from("modelos") as any)
+          .select(
+            "id, ref, nome, colecao, colecoes(nome), lancado, origem, fotos_modelo, desenho_tecnico_url, croqui_url, cad(id, enviado_corte, producao_terceirizados(id, ativo, interno, categoria_terceirizado_id, categorias_terceirizado(nome), empresa:empresa_id(nome_fantasia), pt_data_saida, pt_data_entrada, pt_aprovacao, data_enviado, data_entregue, quantidade_recebida, grade_detalhe))",
+          )
+          .eq("enviado_cad", true)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(de, ate),
+      );
       // [modularidade R11] `colecao` = rótulo (nome do OTB, senão o texto): o filtro abaixo vê o card só-id.
-      return comRotuloColecaoLista((data ?? []) as (ModeloRow & { colecao?: string | null })[]);
+      return comRotuloColecaoLista(data);
     },
   });
 

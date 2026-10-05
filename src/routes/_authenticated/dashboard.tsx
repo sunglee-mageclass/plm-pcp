@@ -44,6 +44,8 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { abasVisiveis, blocosCustoFinanceiro } from "@/lib/dashboard-abas";
 import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
 import { buscarTodas } from "@/lib/buscar-todas";
+import { buscarOpcoesColecao } from "@/lib/opcoes-colecao";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { EmptyState } from "@/components/shared/EmptyState";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
@@ -529,22 +531,16 @@ function ComercialColecaoTab() {
   const [fColecao, setFColecao] = useState("all");
   const [fSubcolecao, setFSubcolecao] = useState("all");
 
+  // [backend F2] opções de Coleção/Subcoleção = RPC `opcoes_colecao_modelos()` (uma ida, sem baixar os cards; teto de 1.000 do PostgREST).
+  const tenantId = useActiveTenantId();
   const { data: opts = { colecoes: [] as string[], subcolecoes: [] as string[] } } = useQuery({
-    queryKey: ["comercial-opts"],
-    queryFn: async () => {
-      // buscarTodas: sem `.range` o PostgREST corta em 1.000 linhas sem avisar; ordem estável por id. Erro NÃO esvazia o filtro em silêncio.
-      const data = await buscarTodas<any>((de, ate) =>
-        supabase.from("modelos").select("id, colecao, subcolecao, colecoes(nome)").order("id", { ascending: true }).range(de, ate),
-      );
-      return {
-        colecoes: Array.from(new Set((data ?? []).map((m: any) => rotuloColecaoDoModelo(m)).filter(Boolean))).sort() as string[],
-        subcolecoes: Array.from(new Set((data ?? []).map((m: any) => m.subcolecao).filter(Boolean))).sort() as string[],
-      };
-    },
+    queryKey: ["comercial-opts", tenantId],
+    enabled: !!tenantId,
+    queryFn: buscarOpcoesColecao,
   });
 
   const { data: modelos = [], isLoading, isError } = useQuery({
-    queryKey: ["comercial-col-modelos", fColecao, fSubcolecao],
+    queryKey: ["comercial-col-modelos", tenantId, fColecao, fSubcolecao],
     queryFn: async () => {
       // embed estende a ComercialTab com markup_min/markup_max (faixa da linha) p/ o status por faixa.
       // Filtro de coleção NO CLIENTE (pelo rótulo), então traz TODOS os cards em blocos (buscarTodas, ordem estável por id):
