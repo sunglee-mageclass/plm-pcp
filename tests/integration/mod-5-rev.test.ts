@@ -1,9 +1,10 @@
 // Modularidade T5 — o `rev` do card sobe UMA vez por transação (Parte 14 / médios D-2).
 // Plano: .superpowers/sdd/2026-10-04-modularidade/plan.md §12 T5 (+ Ruling R1). Migration GERADA 20261103200000_mod_rev_uma_vez
 // (gerar-mod5.mjs): fn_colab_bump_modelo e fn_colab_bump_modelo_via_tecido só tocam a linha de `modelos` que AINDA não foi escrita
-// por esta transação (`xmin <> pg_current_xact_id()::xid`). Cada caso em transação revertida (withTx) e SÓ na cópia local: a
-// migration (ou o inverso) é aplicada DENTRO da txn (mig-txn, nunca \i). O Salvar do BOM roda SEM savepoint em volta (num
-// SAVEPOINT a escrita tem o xid da subtransação e o bump volta a ser por linha — caso 5 documenta isso).
+// por esta transação — `xmin` do card = xid de topo, OU (fix round 1, M1) = `xmin` da própria linha da filha (mesma
+// SUBtransação: processador adiado do custo). Efeito: +1 por TRANSAÇÃO (o Salvar do Sheet é uma cadeia de transações — ver o
+// relatório). Cada caso em transação revertida (withTx) e SÓ na cópia local: a migration (ou o inverso) é aplicada DENTRO da txn
+// (mig-txn, nunca \i). O Salvar do BOM roda SEM savepoint em volta (num SAVEPOINT os DELETEs seguem 1 bump por linha — caso 5).
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
@@ -308,7 +309,82 @@ describe.skipIf(!RODA)("mod T5 — rev sobe uma vez por transação (Parte 14)",
     });
   });
 
-  it("subtransação (SAVEPOINT/bloco EXCEPTION): o bump volta a ser por linha ali dentro — nunca pior que antes da T5 (limite aceito, documentado)", async () => {
+  it("P0409 FORA de savepoint no caminho pulado (M2): card já gravado nesta txn → o Salvar com a base nova passa sem bump extra; base velha recusa", async () => {
+    await withTx(async (c) => {
+      await comT5(c);
+      const { id: card } = await cardGrande(c);
+      const p = await payloadBom(c, card);
+      const r0 = (await mede(c, card)).rev;
+      // 1) o cabeçalho do card é gravado no NÍVEL DE TOPO (como o UPDATE .eq("rev") do Sheet): rev r0+1, xmin = xid de topo
+      await c.query("UPDATE public.modelos SET nome = nome WHERE id = $1", [card]);
+      expect((await mede(c, card)).rev).toBe(r0 + 1);
+      // 2) Salvar do BOM no topo com a base nova: TODOS os bumps das filhas são pulados (caminho da T5) e nada a mais sobe
+      await salvar(c, card, p, r0 + 1);
+      expect((await mede(c, card)).rev).toBe(r0 + 1);
+      // 3) quem ainda tem a base velha (r0) é recusado mesmo assim
+      const velho = await salvarSp(c, card, p, r0);
+      expect(velho).toMatchObject({ ok: false, code: "P0409" });
+      expect((velho as { msg: string }).msg).toMatch(/^conflito_versao: /);
+      expect((await mede(c, card)).rev).toBe(r0 + 1);
+    });
+  });
+
+  it("processador adiado do custo (M1): preço de catálogo muda → cada card afetado sobe +1 (antes da T5/fix: +1 + 1 por linha do BOM regravada)", async () => {
+    const roda = async (comA5: boolean) => {
+      const out: { card: string; delta: number; linhas: number }[] = [];
+      await withTx(async (c) => {
+        if (comA5) await comT5(c);
+        else await semT5(c);
+        // artigo mais usado em cards INTERNOS não cortados da Loja Teste (corte congela o preço — P-169 A)
+        const a = await um<{ artigo_id: string }>(
+          c,
+          `SELECT t.artigo_id FROM modelo_tecidos t JOIN modelos m ON m.id = t.modelo_id
+            WHERE m.tenant_id = $1 AND m.origem = 'interno'
+              AND NOT EXISTS (SELECT 1 FROM cad WHERE cad.modelo_id = m.id AND cad.enviado_corte)
+            GROUP BY 1 ORDER BY count(DISTINCT t.modelo_id) DESC, 1 LIMIT 1`,
+          [T],
+        );
+        const antes = (
+          await c.query(
+            `SELECT m.id, m.rev, (SELECT jsonb_object_agg(t.id, t.custo_previsto) FROM modelo_tecidos t WHERE t.modelo_id = m.id) AS l
+             FROM modelos m WHERE m.id IN (SELECT modelo_id FROM modelo_tecidos WHERE artigo_id = $1) AND m.origem = 'interno'`,
+            [a.artigo_id],
+          )
+        ).rows as { id: string; rev: number; l: Record<string, string> }[];
+        await semJwt(c, () =>
+          c.query("UPDATE public.artigos SET preco = coalesce(preco, 0) + 1 WHERE id = $1", [
+            a.artigo_id,
+          ]),
+        );
+        await commitSimulado(c);
+        for (const m of antes) {
+          const d = await um<{ rev: number; l: Record<string, string> }>(
+            c,
+            `SELECT m.rev, (SELECT jsonb_object_agg(t.id, t.custo_previsto) FROM modelo_tecidos t WHERE t.modelo_id = m.id) AS l
+               FROM modelos m WHERE m.id = $1`,
+            [m.id],
+          );
+          const linhas = Object.keys(m.l ?? {}).filter(
+            (k) => String(m.l[k]) !== String(d.l?.[k]),
+          ).length;
+          out.push({ card: m.id, delta: d.rev - m.rev, linhas });
+        }
+      });
+      return out;
+    };
+    const com = await roda(true);
+    const sem = await roda(false);
+    const mudaram = com.filter((x) => x.linhas > 0);
+    console.log(
+      `[mod T5] preço de catálogo: ${JSON.stringify({ com: mudaram, sem: sem.filter((x) => x.linhas > 0) })}`,
+    );
+    expect(mudaram.length).toBeGreaterThan(0); // o caso existe na cópia
+    for (const x of mudaram) expect(x.delta).toBe(1);
+    for (const x of com.filter((y) => y.linhas === 0)) expect(x.delta).toBe(0); // card sem mudança não sobe (IS DISTINCT FROM)
+    for (const x of sem.filter((y) => y.linhas > 0)) expect(x.delta).toBe(1 + x.linhas); // o de antes: +1 do card + 1 por linha
+  });
+
+  it("subtransação (SAVEPOINT/bloco EXCEPTION): INSERT/UPDATE de filha não sobe de novo; DELETE segue 1 por linha — nunca pior que antes da T5", async () => {
     let semA5 = 0,
       comA5 = 0;
     for (const com of [false, true]) {
@@ -326,7 +402,7 @@ describe.skipIf(!RODA)("mod T5 — rev sobe uma vez por transação (Parte 14)",
     }
     console.log(`[mod T5] Salvar dentro de SAVEPOINT: sem a T5 +${semA5}, com a T5 +${comA5}`);
     expect(comA5).toBeGreaterThanOrEqual(1);
-    expect(comA5).toBeLessThanOrEqual(semA5);
+    expect(comA5).toBeLessThan(semA5); // os INSERTs da subtransação não sobem mais (xmin do card = xmin da linha)
   });
 
   it("auditoria (anti-drift): dos gatilhos de modelos que disparam num UPDATE SET id = id, só fn_modelo_ref_auto alcança as filhas — e só quando v_relevante (o bump não muda coluna)", async () => {

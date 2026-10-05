@@ -2,12 +2,12 @@
 -- Plano: .superpowers/sdd/2026-10-04-modularidade/plan.md (§12 T5, §13, Ruling R1: bloco PROPRIO, ULTIMO do kit unico).
 -- NEUTRO: devolve os 2 textos de ANTES (md5 conferido) = o bump volta a ser por linha. Sem DROP.
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
---   public.fn_colab_bump_modelo()  [P14 (plano §12)]
+--   public.fn_colab_bump_modelo()  [P14 (plano §12 + fix round 1)]
 --     ANTES  76faacb20914225261b543c3a6522c8a
---     DEPOIS b6710e04db96e2a14b34d13ac02ca262
---   public.fn_colab_bump_modelo_via_tecido()  [P14 (desvio: variantes do tecido)]
+--     DEPOIS e6ff6704e57bace7029fd087914969e9
+--   public.fn_colab_bump_modelo_via_tecido()  [P14 (desvio: variantes do tecido + fix round 1)]
 --     ANTES  b259fa426ff19086c4ff5e8cf650ebcd
---     DEPOIS 6287bff3596e0920cbe2bef4521339a6
+--     DEPOIS baa49ff49b435c4a249b340a22023507
 -- ====================================================================================
 -- Trava: so catalogo (CREATE OR REPLACE FUNCTION de 2 funcoes de gatilho): nenhuma tabela (os gatilhos NAO sao recriados),
 -- nada de auth/storage/realtime. Sem DROP, sem CREATE/DROP TRIGGER/POLICY. Idempotente (a guarda aceita antes OU depois).
@@ -24,8 +24,8 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.fn_colab_bump_modelo()', '76faacb20914225261b543c3a6522c8a', 'b6710e04db96e2a14b34d13ac02ca262'),
-      ('public.fn_colab_bump_modelo_via_tecido()', 'b259fa426ff19086c4ff5e8cf650ebcd', '6287bff3596e0920cbe2bef4521339a6')
+      ('public.fn_colab_bump_modelo()', '76faacb20914225261b543c3a6522c8a', 'e6ff6704e57bace7029fd087914969e9'),
+      ('public.fn_colab_bump_modelo_via_tecido()', 'b259fa426ff19086c4ff5e8cf650ebcd', 'baa49ff49b435c4a249b340a22023507')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.a, r.b) THEN

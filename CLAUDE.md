@@ -171,16 +171,22 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     função que não os chama (trava os `_down_drop` antigos — já aconteceu com a T1 e o `_seg_exige_pagina`); (iii) tab/quebra de
     linha nas pontas passam pelo CHECK (`btrim` só tira espaço) e o TS `ehReprovadoNoGate` faz `.trim()` — divergência
     pré-existente, inalcançável pela UI (R8, parked).
-  - **`rev` do card sobe 1× por transação (T5, Parte 14, `20261103200000`):** `fn_colab_bump_modelo` (7 filhas) e
+  - **`rev` do card sobe 1× por TRANSAÇÃO (T5, Parte 14, `20261103200000`):** `fn_colab_bump_modelo` (7 filhas) e
     `fn_colab_bump_modelo_via_tecido` (`modelo_tecido_variantes`) só fazem o `update modelos set id = id` se a linha do card AINDA
-    não foi escrita por esta transação (`xmin <> pg_current_xact_id()::xid`, idioma de `_custo_enfileirar`). Um Salvar do BOM
-    passou de +1 por linha apagada/inserida (~70 no card de teste) para **+1** (o processador adiado do custo/kanban no COMMIT
-    pode somar +1 se mudar o card); o canal Realtime recebe UM aviso. P0409 igual: toda txn que escreve filha de card existente
-    sobe o `rev` ≥ 1. ⚠️ (i) Dentro de SAVEPOINT/bloco EXCEPTION o bump volta a ser por linha (xid da subtransação) — nunca pior
-    que antes; (ii) **teste que cria o card e grava filhas na MESMA txn não vê o `rev` subir** (o INSERT já é desta txn — use
-    `modViva(c, 5)` como em `produto-acabado.test.ts`); (iii) gatilho BEFORE NOVO em `modelos` que derive valor das filhas
-    veria o estado do 1º UPDATE da txn — o anti-drift de `tests/integration/mod-5-rev.test.ts` falha (hoje só `fn_modelo_ref_auto`
-    alcança as filhas, e só com `v_relevante`).
+    não foi escrita por esta transação: pulam quando o `xmin` do card = xid de topo (idioma de `_custo_enfileirar`) OU = `xmin` da
+    própria linha da filha (mesma SUBtransação — o processador adiado do custo grava card e BOM num bloco EXCEPTION; era +1+N,
+    agora +1). O `salvar_modelo_bom` foi de +1 por linha apagada/inserida (~70 no card de teste) para **+1**; mudança de preço de
+    catálogo: +1 por card afetado. ⚠️ **O Salvar do Sheet do Planejamento é uma CADEIA de requisições** (cabeçalho
+    `.eq("rev")`, `salvar_modelo_bom`, 1 update por insumo já salvo, CAD, `marcar_revisao_*`, M.O.), cada uma uma transação →
+    o Salvar inteiro sobe ~N pequeno (ex.: ~8 com 6 insumos; era ~78) e o canal Realtime recebe 1 aviso POR TRANSAÇÃO, não 1 por
+    Salvar (juntar tudo numa RPC = backlog). P0409 igual: toda txn que escreve filha de card existente sobe o `rev` ≥ 1.
+    Limites aceitos: (i) DELETE de filha dentro de SAVEPOINT/bloco EXCEPTION segue 1 bump por linha (não há linha para comparar) —
+    nunca pior que antes; (ii) `xmin` cru de 32 bits: colisão com tupla congelada antiga (~2^-32 por txn) pularia o bump daquela
+    txn — o MESMO limite já aceito em `_custo_enfileirar`/`_kanban_enfileirar`; (iii) **teste que cria o card e grava filhas no
+    MESMO nível de topo da txn não vê o `rev` subir** (o INSERT já é desta txn) — crie o card num SAVEPOINT (como
+    `produto-acabado.test.ts`); (iv) gatilho BEFORE NOVO em `modelos` que derive valor das filhas veria o estado do 1º UPDATE da
+    txn — o anti-drift de `tests/integration/mod-5-rev.test.ts` falha (hoje só `fn_modelo_ref_auto` alcança as filhas, e só com
+    `v_relevante`).
   - **Decisões declaradas (não são furos):** Financeiro desligado continua anotando parcelas em segundo plano (T3 do desenho);
     leitura NÃO ganha gate de módulo (T4 do desenho, C9 — policy RESTRICTIVE de SELECT derruba o Realtime, inv. 13); Distribuição:
     a escrita não tem gate próprio, o dialog some sem o módulo e o dado gravado fica inerte (T6); o espelho card↔produto grava com

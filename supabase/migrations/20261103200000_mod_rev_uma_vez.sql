@@ -5,19 +5,24 @@
 --     _tecido_oc_links/_tecidos) e fn_colab_bump_modelo_via_tecido (trg_colab_bump de modelo_tecido_variantes): o
 --     'update modelos set id = id' (que soma 1 ao rev pelo fn_colab_touch_rev) ganha 'and xmin <> pg_current_xact_id()::xid'
 --     -> a linha do card ja escrita por ESTA transacao (pelo proprio Salvar ou por um bump anterior) nao e tocada de novo.
---     Antes: 1 Salvar do BOM = 1 bump por linha apagada/inserida (~70 no card de teste; dezenas de avisos no canal
---     Realtime das telas colaborativas). Depois: +1 por transacao (o processador adiado do custo/kanban no COMMIT pode
---     somar +1 se de fato mudar o card). O P0409 segue igual: toda transacao que escreve uma filha de card existente sobe
+--     Tambem pula quando o xmin do card = xmin da propria linha da filha (mesma SUBtransacao: o processador adiado do
+--     custo grava o card e depois as linhas do BOM num bloco EXCEPTION - era +1+N, agora +1).
+--     Efeito: +1 por TRANSACAO (antes: 1 por linha apagada/inserida - o salvar_modelo_bom do card de teste ia de +70 a +1).
+--     ATENCAO: o Salvar do Sheet do Planejamento e uma CADEIA de requisicoes (cabecalho, salvar_modelo_bom, 1 update por
+--     insumo ja salvo, CAD, marcar_revisao, M.O.), cada uma uma transacao -> o Salvar inteiro sobe ~N pequeno (ex.: ~8
+--     com 6 insumos; era ~78), nao 1. O P0409 segue igual: toda transacao que escreve uma filha de card existente sobe
 --     o rev >= 1 (a linha so e pulada se JA foi escrita nesta transacao, e todo UPDATE de modelos soma 1).
+--     DELETE de filha dentro de subtransacao segue 1 por linha (nao ha linha para comparar). Limite aceito: xmin de 32
+--     bits (colisao com tupla congelada antiga ~2^-32), o mesmo de _custo_enfileirar.
 -- Gatilhos, ACL, SECURITY DEFINER e search_path ficam iguais (guarda/pos-condicao). Nenhum objeto novo (sem _down_drop).
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
---   public.fn_colab_bump_modelo()  [P14 (plano §12)]
+--   public.fn_colab_bump_modelo()  [P14 (plano §12 + fix round 1)]
 --     ANTES  76faacb20914225261b543c3a6522c8a
---     DEPOIS b6710e04db96e2a14b34d13ac02ca262
---   public.fn_colab_bump_modelo_via_tecido()  [P14 (desvio: variantes do tecido)]
+--     DEPOIS e6ff6704e57bace7029fd087914969e9
+--   public.fn_colab_bump_modelo_via_tecido()  [P14 (desvio: variantes do tecido + fix round 1)]
 --     ANTES  b259fa426ff19086c4ff5e8cf650ebcd
---     DEPOIS 6287bff3596e0920cbe2bef4521339a6
---   dependencias fixadas: public._custo_enfileirar(uuid[],boolean) = af8976a493758423d267325156f14633; public.fn_colab_touch_rev() = 292f1a1077df1e08fdca7f21eb0d856c
+--     DEPOIS baa49ff49b435c4a249b340a22023507
+--   dependencias fixadas: public.fn_colab_touch_rev() = 292f1a1077df1e08fdca7f21eb0d856c
 -- ====================================================================================
 -- Trava: so catalogo (CREATE OR REPLACE FUNCTION de 2 funcoes de gatilho): nenhuma tabela (os gatilhos NAO sao recriados),
 -- nada de auth/storage/realtime. Sem DROP, sem CREATE/DROP TRIGGER/POLICY. Idempotente (a guarda aceita antes OU depois).
@@ -37,8 +42,8 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.fn_colab_bump_modelo()', '76faacb20914225261b543c3a6522c8a', 'b6710e04db96e2a14b34d13ac02ca262'),
-      ('public.fn_colab_bump_modelo_via_tecido()', 'b259fa426ff19086c4ff5e8cf650ebcd', '6287bff3596e0920cbe2bef4521339a6')
+      ('public.fn_colab_bump_modelo()', '76faacb20914225261b543c3a6522c8a', 'e6ff6704e57bace7029fd087914969e9'),
+      ('public.fn_colab_bump_modelo_via_tecido()', 'b259fa426ff19086c4ff5e8cf650ebcd', 'baa49ff49b435c4a249b340a22023507')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL OR v NOT IN (r.a, r.b) THEN
@@ -47,7 +52,6 @@ BEGIN
     END IF;
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
-      ('public._custo_enfileirar(uuid[],boolean)', 'af8976a493758423d267325156f14633'),
       ('public.fn_colab_touch_rev()', '292f1a1077df1e08fdca7f21eb0d856c')
     ) AS x(f, m) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -84,11 +88,28 @@ CREATE OR REPLACE FUNCTION public.fn_colab_bump_modelo()
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-declare v_id uuid := coalesce(new.modelo_id, old.modelo_id);
+declare
+  v_id uuid := coalesce(new.modelo_id, old.modelo_id);
+  v_x xid;
+  v_y xid;
 begin
-  -- [modularidade P14 / medios D-2] o rev sobe UMA vez por transacao: a linha de modelos ja escrita por ESTA transacao
-  -- (xmin = xid atual) nao e tocada de novo. Mesmo idioma de _custo_enfileirar/_kanban_enfileirar. Linha escrita dentro
-  -- de SAVEPOINT/bloco EXCEPTION tem o xid da subtransacao: ali o bump segue por linha (como antes da T5), aceito.
+  -- [modularidade P14 / medios D-2] o rev do card sobe UMA vez por TRANSACAO (antes: 1 por linha da filha). O bump e pulado
+  -- quando a linha de modelos ja foi escrita por ESTA transacao (toda escrita dela ja somou 1 ao rev pelo trg_colab_rev):
+  --   (1) xmin do card = xid de topo (idioma de _custo_enfileirar/_kanban_enfileirar);
+  --   (2) dentro de SAVEPOINT/bloco EXCEPTION (ex.: o processador adiado do custo), xmin do card = xmin da linha da filha que
+  --       disparou (mesma subtransacao). DELETE em subtransacao nao tem a linha para comparar: ali segue 1 por linha.
+  -- Na duvida o bump acontece (nunca menos que +1 por transacao que grava filha de card existente). Limite aceito (o mesmo de
+  -- _custo_enfileirar): xmin cru de 32 bits - colisao com tupla congelada antiga, chance da ordem de 2^-32 por transacao.
+  select m.xmin into v_x from public.modelos m where m.id = v_id;
+  if v_x is null or v_x = pg_current_xact_id()::xid then
+    return coalesce(new, old);
+  end if;
+  if tg_op <> 'DELETE' then
+    execute format('select t.xmin from %I.%I t where t.id = $1', tg_table_schema, tg_table_name) into v_y using new.id;
+    if v_y = v_x then
+      return coalesce(new, old);
+    end if;
+  end if;
   update public.modelos set id = id where id = v_id and xmin <> pg_current_xact_id()::xid;
   return coalesce(new, old);
 end $function$;
@@ -99,14 +120,34 @@ CREATE OR REPLACE FUNCTION public.fn_colab_bump_modelo_via_tecido()
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-declare v_id uuid;
+declare
+  v_id uuid;
+  v_x xid;
+  v_y xid;
 begin
   select mt.modelo_id into v_id from public.modelo_tecidos mt
    where mt.id = coalesce(new.modelo_tecido_id, old.modelo_tecido_id);
-  -- [modularidade P14 / medios D-2] o rev sobe UMA vez por transacao: a linha de modelos ja escrita por ESTA transacao
-  -- (xmin = xid atual) nao e tocada de novo. Mesmo idioma de _custo_enfileirar/_kanban_enfileirar. Linha escrita dentro
-  -- de SAVEPOINT/bloco EXCEPTION tem o xid da subtransacao: ali o bump segue por linha (como antes da T5), aceito.
-  if v_id is not null then update public.modelos set id = id where id = v_id and xmin <> pg_current_xact_id()::xid; end if;
+  if v_id is null then
+    return coalesce(new, old);
+  end if;
+  -- [modularidade P14 / medios D-2] o rev do card sobe UMA vez por TRANSACAO (antes: 1 por linha da filha). O bump e pulado
+  -- quando a linha de modelos ja foi escrita por ESTA transacao (toda escrita dela ja somou 1 ao rev pelo trg_colab_rev):
+  --   (1) xmin do card = xid de topo (idioma de _custo_enfileirar/_kanban_enfileirar);
+  --   (2) dentro de SAVEPOINT/bloco EXCEPTION (ex.: o processador adiado do custo), xmin do card = xmin da linha da filha que
+  --       disparou (mesma subtransacao). DELETE em subtransacao nao tem a linha para comparar: ali segue 1 por linha.
+  -- Na duvida o bump acontece (nunca menos que +1 por transacao que grava filha de card existente). Limite aceito (o mesmo de
+  -- _custo_enfileirar): xmin cru de 32 bits - colisao com tupla congelada antiga, chance da ordem de 2^-32 por transacao.
+  select m.xmin into v_x from public.modelos m where m.id = v_id;
+  if v_x is null or v_x = pg_current_xact_id()::xid then
+    return coalesce(new, old);
+  end if;
+  if tg_op <> 'DELETE' then
+    execute format('select t.xmin from %I.%I t where t.id = $1', tg_table_schema, tg_table_name) into v_y using new.id;
+    if v_y = v_x then
+      return coalesce(new, old);
+    end if;
+  end if;
+  update public.modelos set id = id where id = v_id and xmin <> pg_current_xact_id()::xid;
   return coalesce(new, old);
 end $function$;
 
@@ -116,8 +157,8 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.fn_colab_bump_modelo()', 'b6710e04db96e2a14b34d13ac02ca262', '{postgres=X/postgres,service_role=X/postgres}'),
-      ('public.fn_colab_bump_modelo_via_tecido()', '6287bff3596e0920cbe2bef4521339a6', '{postgres=X/postgres,service_role=X/postgres}')
+      ('public.fn_colab_bump_modelo()', 'e6ff6704e57bace7029fd087914969e9', '{postgres=X/postgres,service_role=X/postgres}'),
+      ('public.fn_colab_bump_modelo_via_tecido()', 'baa49ff49b435c4a249b340a22023507', '{postgres=X/postgres,service_role=X/postgres}')
     ) AS x(f, m, acl) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.m THEN
