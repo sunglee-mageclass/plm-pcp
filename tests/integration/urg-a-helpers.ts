@@ -102,9 +102,13 @@ export async function aplicaUrgA(c: Client, ate?: UrgAId): Promise<void> {
 /** Volta, LIFO, os blocos vivos cujo `_down` desfaz algo (`volta`); os no-op (170000) ficam. */
 export async function voltaUrgA(c: Client): Promise<void> {
   exigeBancoLocal();
+  // o _down da 171000 faz SET LOCAL check_function_bodies = off (devolve o texto que ja estava vivo, sem trava de tabela); na txn do
+  // teste o SET LOCAL vazaria para o resto do teste (re-aplicar migration antiga sem validar corpo) - devolve o valor de antes.
+  const cfb = (await c.query("SELECT current_setting('check_function_bodies') AS v")).rows[0].v as string;
   for (const { id, b } of [...URG_A_MIGS].reverse()) {
     if (b.volta && (await urgAViva(c, id))) await aplicarArquivo(c, b.down);
   }
+  await c.query("SELECT set_config('check_function_bodies', $1, true)", [cfb]);
   await zeraTimeouts(c);
 }
 

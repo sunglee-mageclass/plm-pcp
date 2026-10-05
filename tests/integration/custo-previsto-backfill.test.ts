@@ -14,7 +14,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um, dbUrl, ehBancoLocal, TENANT_TESTE } from "./db";
+import { hasDb, withTx as withTxDb, comoUsuario, um, dbUrl, ehBancoLocal, TENANT_TESTE } from "./db";
+import { voltaUrgASePreciso } from "./urg-a-helpers";
 import { semeiaLegadoSemB3 } from "./seg-s3c-helpers";
 import {
   CASOS_AVIAMENTO,
@@ -25,6 +26,14 @@ import {
 } from "../fixtures/custo-bom-casos";
 
 const T = TENANT_TESTE;
+// [urg R1 T3] _custo_backfill_rodar (P-166) RECUSA com _custo_calcular != f9d87d6a (a 20261103171000 o redefine: insumo vinculado a
+// UM tamanho). No kit a correcao unica roda ANTES da 171000; o ensaio aqui tira a frente urg-a (LIFO, com o plan-b por cima) DENTRO
+// da txn revertida, antes de cada teste. Sem a 171000 viva e no-op.
+const withTx = (fn: (c: Client) => Promise<void>) =>
+  withTxDb(async (c) => {
+    await voltaUrgASePreciso(c);
+    await fn(c);
+  });
 const OUTRA_LOJA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // Ave Rara (existe na cópia)
 const LOCAL = hasDb && ehBancoLocal();
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));

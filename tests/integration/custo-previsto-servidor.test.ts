@@ -13,17 +13,21 @@ import { hasDb, withTx, comoUsuario, semUsuario, um, dbUrl, ehBancoLocal, TENANT
 import { semeiaLegadoSemB3 } from "./seg-s3c-helpers";
 import {
   CASO_MODELO,
+  CASO_MODELO_FATOR,
   CASOS_ADICIONAIS,
   CASOS_AVIAMENTO,
   CASOS_ETIQUETA,
+  CASOS_ETIQUETA_FATOR,
   CASOS_TECIDO,
   MEIO_CENTAVO,
   type ArtigoCaso,
   type CasoAviamento,
   type CasoEtiqueta,
+  type CasoEtiquetaFator,
   type CasoTecido,
   type CorCaso,
 } from "../fixtures/custo-bom-casos";
+import { aplicaUrgA, URG_A_MIGS } from "./urg-a-helpers";
 
 const T = TENANT_TESTE;
 const LOCAL = hasDb && ehBancoLocal();
@@ -986,4 +990,93 @@ describe.skipIf(!PRONTO)("C1 (i) — fix round 2: F1 (SKIP LOCKED + marcação p
       }
     });
   }, 60_000);
+});
+
+// ─────────────────────────────── (h) urg R1 — insumo vinculado a UM tamanho (171000) ───────────────────────────────
+/** Modelo + grade (1 linha de modelo_grades) + linha de insumo do caso (sem cor; preco base; vinculo gravado no cadastro). */
+async function linhaEtiquetaFator(c: Client, m: string, caso: CasoEtiquetaFator, comGrade = true): Promise<{ id: string; etq: string }> {
+  if (comGrade && caso.grade) {
+    const tot = Object.values(caso.grade).reduce((a, v) => a + v, 0);
+    await c.query(`DELETE FROM public.modelo_grades WHERE modelo_id = $1`, [m]);
+    await c.query(`INSERT INTO public.modelo_grades (modelo_id, variante_numero, grades, grade_total) VALUES ($1, 1, $2::jsonb, $3)`,
+      [m, JSON.stringify(caso.grade), tot]);
+  }
+  const etq = (await um<{ id: string }>(c,
+    `INSERT INTO public.etiquetas (tenant_id, nome, tamanho_vinculado) VALUES ($1, $2, $3) RETURNING id`,
+    [T, `C1 etq fator ${suf()}`, caso.vinculo])).id;
+  if (caso.tamanhoProprio) {
+    await c.query(`INSERT INTO public.variantes_etiqueta (tenant_id, etiqueta_id, tamanho, cor_id, preco) VALUES ($1, $2, 'U', NULL, $3)`,
+      [T, etq, caso.preco]);
+  }
+  await c.query(`UPDATE public.etiquetas SET preco = $2 WHERE id = $1`, [etq, caso.preco]);
+  const id = (await um<{ id: string }>(c,
+    `INSERT INTO public.modelo_etiquetas (tenant_id, modelo_id, etiqueta_id, cor_id, numero, consumo, loss_percent)
+     VALUES ($1, $2, $3, NULL, 1, $4, $5) RETURNING id`, [T, m, etq, caso.consumo, caso.perda])).id;
+  return { id, etq };
+}
+
+describe.skipIf(!PRONTO)("urg R1 (171000) — custo previsto do insumo vinculado a UM tamanho (Ruling A3)", () => {
+  it("o bloco 171000 existe (gerado por mig/gerar-a1.mjs)", () => {
+    expect(URG_A_MIGS.some((x) => x.id === "171000")).toBe(true);
+  });
+
+  it("linha: cada caso de CASOS_ETIQUETA_FATOR calculado pelo servidor = esperado (exato) e = round(preco x consumo x fator x (1+perda))", async () => {
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "171000");
+      await prepara(c);
+      for (const caso of CASOS_ETIQUETA_FATOR) {
+        const m = await modelo(c);
+        const l = await linhaEtiquetaFator(c, m, caso);
+        const r = await um<{ v: string; f: string }>(c,
+          `SELECT k.custo AS v,
+                  public._insumo_fator_custo(public._insumo_tamanho_de($4), public._grade_mapa_modelo($2),
+                    (SELECT coalesce(sum(g.grade_total), 0) FROM public.modelo_grades g WHERE g.modelo_id = $2)) AS f
+             FROM public._custo_calcular($1, ARRAY[$2::uuid]) k WHERE k.tabela = 'modelo_etiquetas' AND k.id = $3`, [T, m, l.id, l.etq]);
+        expect({ caso: caso.nome, v: Number(r.v), f: Number(r.f) }).toEqual({ caso: caso.nome, v: caso.esperado, f: caso.fator });
+        const conta = Math.round(caso.preco * caso.consumo * caso.fator * (1 + caso.perda / 100) * 1e6) / 1e6;
+        expect(Math.abs(conta - caso.esperado)).toBeLessThanOrEqual(0.005 + 1e-9);
+      }
+    });
+  });
+
+  it("card: total de insumo = soma das linhas rateadas; o COMMIT grava exatamente o calculado (linhas e totais)", async () => {
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "171000");
+      await prepara(c);
+      const m = await modelo(c);
+      const ids: string[] = [];
+      for (const [i, idx] of CASO_MODELO_FATOR.linhas.entries()) {
+        ids.push((await linhaEtiquetaFator(c, m, CASOS_ETIQUETA_FATOR[idx], i === 0)).id);
+      }
+      const r = await um<any>(c, `SELECT * FROM public._custo_calcular($1, ARRAY[$2::uuid]) WHERE tabela = 'modelos'`, [T, m]);
+      expect({ etiqueta: Number(r.etiqueta), peca: Number(r.custo) }).toEqual({ etiqueta: CASO_MODELO_FATOR.etiqueta, peca: CASO_MODELO_FATOR.peca });
+      await imediato(c);
+      expect(await fila(c)).toEqual([]);
+      expect((await custos(c, m)).peca).toBe(CASO_MODELO_FATOR.peca);
+      expect(await Promise.all(ids.map((id) => custoLinha(c, "modelo_etiquetas", id)))).toEqual(
+        CASO_MODELO_FATOR.linhas.map((idx) => CASOS_ETIQUETA_FATOR[idx].esperado),
+      );
+      expect(await gravadoBateComCalculo(c, m)).toBe(true);
+    });
+  });
+
+  it("ligar/trocar o vinculo no cadastro re-enfileira e regrava o rateio; desligar volta ao valor cheio (fila do custo)", async () => {
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "171000");
+      await prepara(c);
+      const m = await modelo(c);
+      const caso = CASOS_ETIQUETA_FATOR.find((x) => x.vinculo === null)!; // sem vinculo: 1 x 2 x 1,05 = 2,10
+      const l = await linhaEtiquetaFator(c, m, caso);
+      await imediato(c);
+      expect(await custoLinha(c, "modelo_etiquetas", l.id)).toBe(2.1);
+      await c.query(`UPDATE public.etiquetas SET tamanho_vinculado = '44|GG' WHERE id = $1`, [l.etq]); // 8 de 64
+      expect(await fila(c)).toEqual([m]);
+      await imediato(c);
+      expect(await custoLinha(c, "modelo_etiquetas", l.id)).toBe(0.26); // 2,10 x 0,125 = 0,2625
+      await c.query(`UPDATE public.etiquetas SET tamanho_vinculado = NULL WHERE id = $1`, [l.etq]);
+      await imediato(c);
+      expect(await custoLinha(c, "modelo_etiquetas", l.id)).toBe(2.1);
+      expect(await gravadoBateComCalculo(c, m)).toBe(true);
+    });
+  });
 });

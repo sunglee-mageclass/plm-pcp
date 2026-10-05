@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { splitMaiorResto } from "@/lib/produto-acabado";
+import { md5CamadaSucessor } from "./camada-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const SIG = "public._estoque_etiqueta_core(uuid)";
@@ -77,7 +78,10 @@ describe.skipIf(!RODA)("R16 est #7 — baixa do insumo por tamanho pela grade (P
            from pg_proc p where p.oid = to_regprocedure($1)`,
         [SIG],
       );
-      expect(r).toEqual({ m: MD5_DEPOIS, d: true, anon: false, auth: false, pub: false, w: true });
+      // [urg R1 T3] 20261103171000 redefine o core por cima (insumo vinculado a UM tamanho na baixa da revenda): aceita o
+      // sucessor pela cadeia LIFO (md5CamadaSucessor continua em md5UrgASucessor), nunca troca o pino.
+      expect(md5CamadaSucessor(SIG, MD5_DEPOIS)).toContain(r.m);
+      expect({ ...r, m: MD5_DEPOIS }).toEqual({ m: MD5_DEPOIS, d: true, anon: false, auth: false, pub: false, w: true });
     });
   });
 

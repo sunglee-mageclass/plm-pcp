@@ -86,7 +86,11 @@ describe.skipIf(!RODA)("contas certas 6 — _estoque_etiqueta_core: revenda baix
 
   it("migration aplicada: md5 de depois + EXECUTE revogado dos três", async () => {
     await withTx(async (c) => {
-      expect(await md5Fn(c, "public._estoque_etiqueta_core(uuid)")).toBe(MD5.estoqueEtiqueta);
+      // [urg R1 T3] 20261103171000 redefine _estoque_etiqueta_core por cima (insumo vinculado a UM tamanho na baixa da revenda):
+      // aceita o sucessor pela cadeia LIFO (md5CamadaSucessor continua em md5UrgASucessor), nunca troca o pino.
+      expect(md5CamadaSucessor("public._estoque_etiqueta_core(uuid)", MD5.estoqueEtiqueta)).toContain(
+        await md5Fn(c, "public._estoque_etiqueta_core(uuid)"),
+      );
       expect(await pode(c, "anon", "public._estoque_etiqueta_core(uuid)")).toBe(false);
       expect(await pode(c, "authenticated", "public._estoque_etiqueta_core(uuid)")).toBe(false);
     });

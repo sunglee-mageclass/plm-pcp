@@ -46,6 +46,32 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
       "public._urg_r1_tamanho_legado_lista()": "ec571c054460a10676852e532c931e03",
       "public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)": "f7d613fb53dbaef6be59c467bbaad580"
     }
+  },
+  "171000": {
+    "mig": "supabase/migrations/20261103171000_urg_r1_insumo_tamanho_consumidores.sql",
+    "down": "supabase/rollback/20261103171000_urg_r1_insumo_tamanho_consumidores_down.sql",
+    "drop": "",
+    "sentinela": "public._custo_calcular(uuid,uuid[])",
+    "volta": true,
+    "MD5": {
+      "public._custo_calcular(uuid,uuid[])": {
+        "antes": "f9d87d6a1f9f307a7d83cf837730566c",
+        "depois": "d10bf1397ea1fb9f37ef9b98d2aa1414"
+      },
+      "public.fn_custo_fila_preco()": {
+        "antes": "cd405a624d82e23f0ce8120472f04471",
+        "depois": "4a51428a975227cd4cdae34ae2ce1248"
+      },
+      "public._estoque_etiqueta_core(uuid)": {
+        "antes": "28aa308d297cc18b653c6290a5b3b958",
+        "depois": "e7681ebd0e2a32144ca41795735182fc"
+      },
+      "public._receber_oc_p_acabado_core(uuid,jsonb,jsonb)": {
+        "antes": "3f2e2b31f6f28aaa35c9b13c1fb197be",
+        "depois": "6cf6fe59c64d01450ce9c8c9a5cac951"
+      }
+    },
+    "NOVAS": {}
   }
 }
 /* URG_A_JSON_FIM */;

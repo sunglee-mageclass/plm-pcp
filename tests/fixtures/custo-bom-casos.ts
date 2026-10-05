@@ -121,3 +121,47 @@ export const CASO_MODELO = {
   adicionais: CASOS_ADICIONAIS[CASOS_ADICIONAIS.length - 1].custos,
   esperado: { tecido: 42.03, forro: 6, entretela: 20, aviamento: 1.54, etiqueta: 0.5, mao_obra: 20, adicionais: 3.75, peca: 93.82 },
 };
+
+/**
+ * urg R1 (migration 20261103171000, Ruling A3) — insumo vinculado a UM tamanho: o custo POR PECA da linha e rateado,
+ * preco x consumo x fator x (1 + perda/100), fator = pecas do tamanho / grade total do modelo (`_insumo_fator_custo`, espelho
+ * TS `fatorCustoInsumo` de src/lib/insumo-tamanho.ts). Sem vinculo, grade vazia ou insumo com tamanho proprio (variante com
+ * tamanho: o vinculo e ignorado, Ruling A2) => fator 1 = o valor de hoje; tamanho fora da grade => 0. O SQL faz
+ * `_custo_linha(preco, consumo * fator, perda)` = round(preco x consumo x fator x (1 + perda/100), 2). `esperado` = o SQL exato.
+ * O insumo nao tem cor nem variante (preco = o preco base), salvo `tamanhoProprio` (1 variante sem cor com tamanho "U", mesmo preco).
+ */
+export const GRADE_FATOR: Record<string, number> = { "40|M": 16, "38|P": 16, "36|PP": 8, "42|G": 16, "44|GG": 8 }; // total 64
+export type CasoEtiquetaFator = {
+  nome: string;
+  preco: number;
+  consumo: number;
+  perda: number;
+  /** etiquetas.tamanho_vinculado */
+  vinculo: string | null;
+  /** grade do modelo (1 linha de modelo_grades com grade_total = soma); null = sem linha de grade */
+  grade: Record<string, number> | null;
+  /** insumo com variante de tamanho proprio (o vinculo e ignorado) */
+  tamanhoProprio?: boolean;
+  fator: number;
+  esperado: number;
+};
+export const CASOS_ETIQUETA_FATOR: CasoEtiquetaFator[] = [
+  { nome: "vinculado 40|M (16 de 64 = fator 0,25)", preco: 1, consumo: 2, perda: 0, vinculo: "40|M", grade: GRADE_FATOR,
+    fator: 0.25, esperado: 0.5 }, // 1 x 2 x 0,25
+  { nome: "vinculado 36|PP com perda (8 de 64 = 0,125)", preco: 0.07, consumo: 0.5, perda: 5, vinculo: "36|PP", grade: GRADE_FATOR,
+    fator: 0.125, esperado: 0 }, // 0,07 x 0,5 x 0,125 x 1,05 = 0,0045937 -> 0,00
+  { nome: "vinculado 38|P, preco 0,10 x 2 com 5% (0,25)", preco: 0.1, consumo: 2, perda: 5, vinculo: "38|P", grade: GRADE_FATOR,
+    fator: 0.25, esperado: 0.05 }, // 0,1 x 2 x 0,25 x 1,05 = 0,0525 -> 0,05
+  { nome: "vinculo AUSENTE da grade (46|XG): fator 0", preco: 1, consumo: 2, perda: 0, vinculo: "46|XG", grade: GRADE_FATOR,
+    fator: 0, esperado: 0 },
+  { nome: "vinculado sem grade (modelo sem linha de grade): fator 1", preco: 0.1, consumo: 1, perda: 0, vinculo: "40|M", grade: null,
+    fator: 1, esperado: 0.1 },
+  { nome: "sem vinculo: fator 1 (o valor de hoje)", preco: 1, consumo: 2, perda: 5, vinculo: null, grade: GRADE_FATOR,
+    fator: 1, esperado: 2.1 },
+  { nome: "vinculo com espacos ' 40|M ' = 40|M (btrim)", preco: 1, consumo: 2, perda: 0, vinculo: " 40|M ", grade: GRADE_FATOR,
+    fator: 0.25, esperado: 0.5 },
+  { nome: "insumo com tamanho proprio: vinculo ignorado, fator 1 (Ruling A2)", preco: 1, consumo: 2, perda: 0, vinculo: "40|M",
+    grade: GRADE_FATOR, tamanhoProprio: true, fator: 1, esperado: 2 },
+];
+/** Um card com as linhas 0, 2 e 5 de CASOS_ETIQUETA_FATOR na MESMA grade: etiqueta total = 0,50 + 0,05 + 2,10. */
+export const CASO_MODELO_FATOR = { linhas: [0, 2, 5], etiqueta: 2.65, peca: 2.65 };
