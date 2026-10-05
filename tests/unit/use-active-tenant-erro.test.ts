@@ -32,12 +32,12 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { useActiveTenant, recarregarLojaAtiva } from "@/hooks/useActiveTenantId";
 
-type Visto = { tenantId: string; resolvido: boolean; erro: boolean };
+type Visto = { tenantId: string; resolvido: boolean; erro: boolean; tentando: boolean };
 let vistos: Visto[] = [];
 let retentar: () => void = () => {};
 function Sonda() {
   const t = useActiveTenant();
-  vistos.push({ tenantId: t.tenantId, resolvido: t.resolvido, erro: t.erro });
+  vistos.push({ tenantId: t.tenantId, resolvido: t.resolvido, erro: t.erro, tentando: t.tentando });
   retentar = t.tentarDeNovo;
   return null;
 }
@@ -51,6 +51,8 @@ async function montar() {
   await act(async () => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(Sonda))); });
 }
 const assentar = () => act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+// `retry: 1` (~1 s): a falha só assenta depois do retry
+const assentarErro = () => act(async () => { await new Promise((r) => setTimeout(r, 1150)); });
 const ok = (tenant_id: string | null) => ({ data: tenant_id === null ? null : { tenant_id }, error: null });
 const falha = { data: null, error: { message: "rede" } };
 
@@ -66,10 +68,10 @@ describe("useActiveTenant — erro da loja ativa", () => {
     const u = deferred<any>();
     h.state.users = u;
     await montar();
-    expect(ultimo()).toEqual({ tenantId: "", resolvido: false, erro: false });
+    expect(ultimo()).toEqual({ tenantId: "", resolvido: false, erro: false, tentando: false });
     await act(async () => { u.resolve(ok("T1")); });
     await assentar();
-    expect(ultimo()).toEqual({ tenantId: "T1", resolvido: true, erro: false });
+    expect(ultimo()).toEqual({ tenantId: "T1", resolvido: true, erro: false, tentando: false });
   });
 
   it("usuário sem linha em users (data null, sem erro) = sucesso com '' (sem loja), não erro", async () => {
@@ -78,26 +80,28 @@ describe("useActiveTenant — erro da loja ativa", () => {
     await montar();
     await act(async () => { u.resolve(ok(null)); });
     await assentar();
-    expect(ultimo()).toEqual({ tenantId: "", resolvido: true, erro: false });
+    expect(ultimo()).toEqual({ tenantId: "", resolvido: true, erro: false, tentando: false });
   });
 
-  it("1ª carga com erro → erro, tenantId '' e resolvido; tentarDeNovo refaz e limpa o erro", async () => {
+  it("1ª carga com erro → erro, tenantId '' e resolvido; tentarDeNovo refaz mantendo o erro visível (tentando) até chegar", async () => {
     const u = deferred<any>();
     h.state.users = u;
     await montar();
     await act(async () => { u.resolve(falha); });
-    await assentar();
-    expect(ultimo()).toEqual({ tenantId: "", resolvido: true, erro: true });
+    await assentarErro();
+    expect(ultimo()).toEqual({ tenantId: "", resolvido: true, erro: true, tentando: false });
 
     const u2 = deferred<any>();
     h.state.users = u2;
+    vistos = [];
     await act(async () => { retentar(); });
     await assentar();
-    expect(ultimo().erro).toBe(false); // refazendo = "Carregando"
-    expect(ultimo().resolvido).toBe(false);
+    // [review I1] refazendo: o erro NÃO some (o aviso fica com "Tentando…")
+    expect(ultimo()).toEqual({ tenantId: "", resolvido: true, erro: true, tentando: true });
+    expect(vistos.filter((v) => !v.erro)).toEqual([]);
     await act(async () => { u2.resolve(ok("T1")); });
     await assentar();
-    expect(ultimo()).toEqual({ tenantId: "T1", resolvido: true, erro: false });
+    expect(ultimo()).toEqual({ tenantId: "T1", resolvido: true, erro: false, tentando: false });
   });
 
   it("REFETCH com erro mantém o último tenantId (nunca '') e não vira erro", async () => {
@@ -113,42 +117,70 @@ describe("useActiveTenant — erro da loja ativa", () => {
     await act(async () => { void qc.refetchQueries({ queryKey: ["active-tenant-id"] }); });
     await act(async () => { u2.resolve(falha); });
     await assentar();
-    expect(ultimo()).toEqual({ tenantId: "T1", resolvido: true, erro: false });
+    expect(ultimo()).toEqual({ tenantId: "T1", resolvido: true, erro: false, tentando: false });
     expect(vistos.filter((v) => v.tenantId !== "T1" || v.erro)).toEqual([]);
   });
 });
 
 describe("recarregarLojaAtiva (TenantSwitcher)", () => {
-  it("releitura com sucesso: a loja nova vale e nada é zerado", async () => {
+  async function comLojaA() {
     const u = deferred<any>();
     h.state.users = u;
     await montar();
     await act(async () => { u.resolve(ok("A")); });
     await assentar();
+  }
 
+  it("releitura traz a loja escolhida: devolve true e nada é zerado", async () => {
+    await comLojaA();
     const u2 = deferred<any>();
     h.state.users = u2;
-    let fim = false;
-    await act(async () => { void recarregarLojaAtiva(qc).then(() => { fim = true; }); });
+    let res: boolean | null = null;
+    await act(async () => { void recarregarLojaAtiva(qc, "u1", "B").then((r) => { res = r; }); });
     await act(async () => { u2.resolve(ok("B")); });
     await assentar();
-    expect(fim).toBe(true);
-    expect(ultimo()).toEqual({ tenantId: "B", resolvido: true, erro: false });
+    expect(res).toBe(true);
+    expect(ultimo()).toEqual({ tenantId: "B", resolvido: true, erro: false, tentando: false });
   });
 
-  it("releitura que FALHA depois da troca: não fica na loja anterior — zera, refaz e mostra erro se falhar de novo", async () => {
-    const u = deferred<any>();
-    h.state.users = u;
-    await montar();
-    await act(async () => { u.resolve(ok("A")); });
-    await assentar();
-
+  it("releitura que FALHA: não fica na loja anterior — zera, devolve false e mostra erro se falhar de novo", async () => {
+    await comLojaA();
     const u2 = deferred<any>();
     h.state.users = u2;
-    await act(async () => { void recarregarLojaAtiva(qc); });
-    // a releitura (e a nova 1ª carga depois do reset) falham: a promise já resolvida serve às duas
-    await act(async () => { u2.resolve(falha); });
+    let res: boolean | null = null;
+    await act(async () => { void recarregarLojaAtiva(qc, "u1", "B").then((r) => { res = r; }); });
+    await act(async () => { u2.resolve(falha); }); // a promise já resolvida serve ao refetch, ao retry e ao reset
+    await act(async () => { await new Promise((r) => setTimeout(r, 2600)); }); // refetch+retry, depois reset+retry (~1 s cada)
+    expect(res).toBe(false);
+    expect(ultimo()).toEqual({ tenantId: "", resolvido: true, erro: true, tentando: false });
+  });
+
+  it("[review m1] releitura PAUSADA (offline) devolve a loja ANTIGA em cache: compara com a escolhida e zera", async () => {
+    await comLojaA();
+    // simula a pausa: refetchQueries resolve na hora com o cache da loja A
+    vi.spyOn(qc, "refetchQueries").mockImplementationOnce(async () => {});
+    const u2 = deferred<any>();
+    h.state.users = u2;
+    let res: boolean | null = null;
+    await act(async () => { void recarregarLojaAtiva(qc, "u1", "B").then((r) => { res = r; }); });
     await assentar();
-    expect(ultimo()).toEqual({ tenantId: "", resolvido: true, erro: true });
+    expect(ultimo().tenantId).toBe(""); // zerada (sem valor), refazendo
+    await act(async () => { u2.resolve(ok("B")); });
+    await assentar();
+    expect(res).toBe(false);
+    expect(ultimo()).toEqual({ tenantId: "B", resolvido: true, erro: false, tentando: false });
+  });
+
+  it("só olha a query do usuário atual (a de outro usuário em erro no cache não zera a dele)", async () => {
+    await comLojaA();
+    qc.setQueryData(["active-tenant-id", "u-outro"], "X");
+    const u2 = deferred<any>();
+    h.state.users = u2;
+    let res: boolean | null = null;
+    await act(async () => { void recarregarLojaAtiva(qc, "u1", "B").then((r) => { res = r; }); });
+    await act(async () => { u2.resolve(ok("B")); });
+    await assentar();
+    expect(res).toBe(true);
+    expect(qc.getQueryData(["active-tenant-id", "u-outro"])).toBe("X");
   });
 });

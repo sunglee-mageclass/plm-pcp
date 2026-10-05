@@ -61,7 +61,7 @@ type CardAtencao = {
  */
 export function HomeLogado() {
   const { user, canView, isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
-  const { modules: modulosLoja, pronto, erro: lojaErro, tentarDeNovo } = useTenantModules();
+  const { modules: modulosLoja, pronto, erro: lojaErro, tentando, tentarDeNovo } = useTenantModules();
   // [modularidade F2, m8] até a loja e a config chegarem os módulos são os DEFAULTS: nenhum conta como ligado (cards, atalhos e
   // queries esperam), senão o card pisca e uma query de módulo desligado pode sair (42501 na rede).
   const modules: Partial<Record<ModuleKey, boolean>> = pronto ? modulosLoja : {};
@@ -289,7 +289,7 @@ export function HomeLogado() {
 
   // [backend F1] 1ª carga da loja/módulos falhou: sem módulos conhecidos a Home não mostra cards/atalhos "vazios" como se a loja
   // não tivesse nada — avisa e oferece "Tentar de novo" (depois de TODOS os hooks).
-  if (lojaErro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} />;
+  if (lojaErro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} tentando={tentando} />;
 
   return (
     <div className="container mx-auto space-y-6 p-3 sm:p-6">

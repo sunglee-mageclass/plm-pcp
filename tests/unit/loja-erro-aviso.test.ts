@@ -44,10 +44,23 @@ describe("LojaErroAviso", () => {
     const tentar = vi.fn();
     const { container, desmontar } = await montar(createElement(LojaErroAviso, { onTentarDeNovo: tentar }));
     expect(container.textContent).toContain("Não foi possível carregar a sua loja");
-    expect(container.textContent).toContain("Verifique a conexão");
+    expect(container.textContent).toContain("Tente de novo");
+    expect(container.textContent).not.toContain("Verifique a conexão e tente"); // não afirma que é a rede (m4)
     const botao = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "Tentar de novo")!;
     await act(async () => { botao.click(); });
     expect(tentar).toHaveBeenCalledTimes(1);
+    desmontar();
+  });
+});
+
+describe("LojaErroAviso — tentando", () => {
+  it("[review I1] tentando: o aviso FICA na tela, botão desabilitado e 'Tentando…' (não some para o branco)", async () => {
+    const tentar = vi.fn();
+    const { container, desmontar } = await montar(createElement(LojaErroAviso, { onTentarDeNovo: tentar, tentando: true }));
+    expect(container.textContent).toContain("Não foi possível carregar a sua loja");
+    const botao = container.querySelector("button") as HTMLButtonElement;
+    expect(botao.textContent).toBe("Tentando…");
+    expect(botao.disabled).toBe(true);
     desmontar();
   });
 });

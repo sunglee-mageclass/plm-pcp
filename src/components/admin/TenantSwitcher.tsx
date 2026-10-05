@@ -54,7 +54,7 @@ export function TenantSwitcher() {
       // nova — por isso a sidebar não respeitava as toggles da loja selecionada.
       qc.setQueryData(["tenant-switcher", "current", user?.id], tenant_id);
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, tenant_id) => {
       // DEPOIS que o servidor trocou o tenant: relê o tenant ATIVO (muda a chave
       // das queries de identidade -> módulos/abas/fuso/logo/nomenclatura da loja
       // nova) e então invalida o resto dos dados.
@@ -62,8 +62,10 @@ export function TenantSwitcher() {
       // nova seguiriam montando o caminho com o tenant ANTIGO e a RLS de storage
       // rejeitaria até dar F5.
       clearTenantPrefixCache();
-      await recarregarLojaAtiva(qc);
-      qc.invalidateQueries();
+      const lojaLida = await recarregarLojaAtiva(qc, user?.id, tenant_id);
+      // Releitura falhou (a query da loja foi zerada e já refaz sozinha): fora da invalidação global, senão ela repetiria o
+      // ciclo de retries uma 3ª vez antes de o aviso "Tentar de novo" ficar estável.
+      qc.invalidateQueries(lojaLida ? undefined : { predicate: (q) => q.queryKey[0] !== "active-tenant-id" });
       // Sai de qualquer CARD/detalhe: a URL podia apontar p/ um registro da loja
       // ANTERIOR (ex.: /cadastro/tecidos/<id>), que não existe na loja nova — ficava
       // preso mostrando dado velho até dar F5. Volta pro centro (/home).

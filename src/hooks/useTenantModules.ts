@@ -74,7 +74,7 @@ export function resolverModulos(raw: Partial<Record<ModuleKey, boolean>> | null 
 export function useTenantModules() {
   const tenant = useActiveTenant();
   const { tenantId } = tenant;
-  const { data, status, isFetched, refetch } = useQuery({
+  const { data, errorUpdateCount, isFetching, isFetched, refetch } = useQuery({
     // tenantId na key: troca de loja => key nova => refaz o fetch da loja nova.
     queryKey: ["tenant_config", "modules", tenantId],
     enabled: !!tenantId,
@@ -87,19 +87,23 @@ export function useTenantModules() {
       return ((data as any)?.modules ?? null) as Partial<Record<ModuleKey, boolean>> | null;
     },
     staleTime: 5 * 60 * 1000,
+    retry: 1, // [backend F1, review I1] ~1 s até o aviso (padrão do RQ: 3 retries, ~7 s em branco)
   });
 
   // `erro` [backend F1]: a 1ª carga da loja OU da config dela falhou e não há valor anterior (reverte de propósito a regra da
   // modularidade F1, "erro conta como pronto"). Falha de refetch COM valor guardado não é `erro`: segue `pronto` com os
   // módulos de antes, nunca com os DEFAULTS.
-  const erro = tenant.erro || (status === "error" && data === undefined);
+  // (`errorUpdateCount > 0`: durante o "Tentar de novo" o status volta a "pending", mas o erro não some — ver `useActiveTenant`.)
+  const modulosErro = data === undefined && errorUpdateCount > 0;
+  const erro = tenant.erro || modulosErro;
+  const tentando = tenant.tentando || (modulosErro && isFetching);
   // `pronto` [modularidade F1, parte 1; backend F1]: a loja E a config dela já chegaram COM SUCESSO. Antes disso `modules`
   // são os DEFAULTS e quem decide por eles pisca/redireciona errado numa URL direta; em erro também não se decide por eles
   // (a tela mostra o aviso). Sem loja (sem usuário, ou usuário sem linha em `users`) também é pronto.
   const pronto = tenant.resolvido && !tenant.erro && (tenantId === "" || data !== undefined);
   const tentarDeNovo = () => {
     if (tenant.erro) tenant.tentarDeNovo();
-    else if (status === "error") void refetch();
+    else if (modulosErro) void refetch();
   };
 
   const modules: Record<ModuleKey, boolean> = resolverModulos(data);
@@ -127,6 +131,6 @@ export function useTenantModules() {
   // `isFetched` só com dado de verdade (1ª carga com erro não conta: PlanTecidoSheet normaliza com o gate do módulo).
   return {
     modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading,
-    isFetched: isFetched && data !== undefined, pronto, erro, tentarDeNovo,
+    isFetched: isFetched && data !== undefined, pronto, erro, tentando, tentarDeNovo,
   };
 }

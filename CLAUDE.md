@@ -383,7 +383,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   foi possível carregar a loja."); `isFetched` só vale com dado. `useStoreTimezone`/`useTabLabels` também lançam o erro (1ª carga
   com erro cai no padrão, só exibição). ⚠️ Hook/tela NOVO que leia loja/módulos: lance o erro no `queryFn` (nunca `const { data } =
   await …` sem olhar `error` — o RQ grava `""`/`null` como sucesso) e trate `erro` antes de decidir por módulo. O TenantSwitcher
-  relê a loja por `recarregarLojaAtiva` (se a releitura falhar depois da troca, zera a query para não ficar na loja ANTERIOR).
+  relê a loja por `recarregarLojaAtiva(qc, userId, loja escolhida)` (se a releitura não trouxer a loja escolhida — erro, pausa
+  offline, corrida —, zera a query do usuário para não ficar na loja ANTERIOR e tira `active-tenant-id` da invalidação global).
+  As 2 queries de identidade têm `retry: 1` (~1 s até o aviso; o padrão do RQ, 3 retries, deixava ~7 s em branco); `erro` fica
+  true durante o "Tentar de novo" e `tentando` liga o botão "Tentando…" (o aviso não some para o branco). `useModoOcRolo` também
+  lança o erro (1ª carga com erro = "ambos", padrão permissivo); `useTenantBranding` NÃO (só exibição: cabeçalho impresso).
 - **UI de edição — PADRÃO DO SISTEMA** (docs/design/ui-padroes.md §A/§G; NÃO reinventar; §K–§P =
   padrões do redesign ago/2026 — divisão por função/InfoStrip, ações de ciclo na tela + ⋯ no card,
   canvas colapsável, grade/peso/variante·apelido, form padrão OC, rollout tela a tela; **§Q =

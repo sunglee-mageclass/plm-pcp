@@ -159,6 +159,23 @@ export function IntegracaoPage() {
     }
     return trocouDeVerdade;
   }, [qc, user?.id, lojaEstavel, dirty, chaveVisivel, avisarTrocaDeLoja]);
+  // [backend F1, review m3] Troca de loja cuja releitura FALHOU: o `TenantSwitcher` zera a query da loja ativa e o
+  // `RequirePermission` (pai) troca esta página pelo "Carregando…"/aviso — ela desmonta SEM passar pelo `navPermitida`/efeito
+  // acima e o rascunho some calado. No desmonte, cache da loja VAZIO (nunca acontece em navegação normal, nem em Voltar/menu
+  // depois do "Descartar alterações?", que deixam a loja no cache) + rascunho sujo => o mesmo toast de descarte.
+  const ultimoRef = useRef({ dirty, chaveVisivel, lojaEstavel, userId: user?.id });
+  useEffect(() => {
+    ultimoRef.current = { dirty, chaveVisivel, lojaEstavel, userId: user?.id };
+  });
+  useEffect(
+    () => () => {
+      const u = ultimoRef.current;
+      if (!u.dirty || !u.lojaEstavel || !u.userId) return;
+      if (qc.getQueryData(["active-tenant-id", u.userId]) !== undefined) return;
+      avisarTrocaDeLoja("loja_indisponivel", { dirty: u.dirty, chaveVisivel: u.chaveVisivel });
+    },
+    [qc, avisarTrocaDeLoja],
+  );
   const { requestAction, confirm } = useUnsavedGuard({ dirty, blockNav: true, navPermitida });
   const atual = abas.includes(aba) ? aba : "produtos";
   // R14 / P-199 A: "abrir card" abre o PlanejamentoDetail em Sheet POR CIMA desta página (1 instância só; as

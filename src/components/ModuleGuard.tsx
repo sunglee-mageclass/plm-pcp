@@ -9,8 +9,8 @@ import { LojaErroAviso } from "@/components/shared/LojaErroAviso";
  * Sem children, renderiza o <Outlet/> da rota-layout.
  */
 export function ModuleGuard({ module, children }: { module: string; children?: ReactNode }) {
-  const { isModuleEnabled, firstActiveModulePath, isLoading, erro, tentarDeNovo } = useTenantModules();
-  if (erro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} />; // [backend F1] 1ª carga falhou: nunca redireciona pelos DEFAULTS
+  const { isModuleEnabled, firstActiveModulePath, isLoading, erro, tentando, tentarDeNovo } = useTenantModules();
+  if (erro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} tentando={tentando} />; // [backend F1] 1ª carga falhou: nunca redireciona pelos DEFAULTS
   if (isLoading) return null; // `isLoading` = !pronto: espera a loja E a config (nunca decide pelos DEFAULTS — corrida da URL direta)
   if (!isModuleEnabled(module)) return <Navigate to={firstActiveModulePath as any} replace />;
   return <>{children ?? <Outlet />}</>;

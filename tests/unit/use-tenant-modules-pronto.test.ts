@@ -43,12 +43,12 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { useTenantModules } from "@/hooks/useTenantModules";
 
-type Visto = { pronto: boolean; isLoading: boolean; otb: boolean; erro: boolean };
+type Visto = { pronto: boolean; isLoading: boolean; otb: boolean; erro: boolean; tentando: boolean };
 let retentar: () => void = () => {};
 let vistos: Visto[] = [];
 function Sonda() {
   const m = useTenantModules();
-  vistos.push({ pronto: m.pronto, isLoading: m.isLoading, otb: m.isModuleEnabled("otb"), erro: m.erro });
+  vistos.push({ pronto: m.pronto, isLoading: m.isLoading, otb: m.isModuleEnabled("otb"), erro: m.erro, tentando: m.tentando });
   retentar = m.tentarDeNovo;
   return null;
 }
@@ -66,6 +66,8 @@ async function rerender() {
   await act(async () => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(Sonda))); });
 }
 const assentar = () => act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+// as 2 queries de identidade têm `retry: 1` (~1 s): a falha só assenta depois do retry
+const assentarErro = () => act(async () => { await new Promise((r) => setTimeout(r, 1150)); });
 
 beforeEach(() => {
   vistos = [];
@@ -78,7 +80,7 @@ beforeEach(() => {
 describe("useTenantModules().pronto", () => {
   it("sem usuário (auth já carregada) → pronto, módulos nos DEFAULTS", async () => {
     await montar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: false, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: false, erro: false, tentando: false });
   });
 
   it("auth ainda carregando → NÃO pronto (mesmo sem usuário ainda)", async () => {
@@ -97,7 +99,7 @@ describe("useTenantModules().pronto", () => {
     h.state.users = users;
     h.state.cfg = { T1: cfg };
     await montar();
-    expect(ultimo()).toEqual({ pronto: false, isLoading: true, otb: false, erro: false });
+    expect(ultimo()).toEqual({ pronto: false, isLoading: true, otb: false, erro: false, tentando: false });
 
     await act(async () => { users.resolve({ data: { tenant_id: "T1" }, error: null }); });
     await assentar();
@@ -105,7 +107,7 @@ describe("useTenantModules().pronto", () => {
 
     await act(async () => { cfg.resolve({ data: { modules: { otb: true } }, error: null }); });
     await assentar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false, tentando: false });
   });
 
   it("nunca fica pronto com os DEFAULTS de uma loja que TEM o módulo ligado (a corrida da URL direta)", async () => {
@@ -132,21 +134,24 @@ describe("useTenantModules().pronto", () => {
     await montar();
     await act(async () => { users.resolve({ data: { tenant_id: "T1" }, error: null }); });
     await assentar();
+    // a 1ª tentativa falha; o retry (~1 s) também (`cfg` já resolvida com erro serve às duas)
     await act(async () => { cfg.resolve({ data: null, error: { message: "rede" } }); });
-    await assentar();
-    expect(ultimo()).toEqual({ pronto: false, isLoading: true, otb: false, erro: true });
+    await assentarErro();
+    expect(ultimo()).toEqual({ pronto: false, isLoading: true, otb: false, erro: true, tentando: false });
     // nunca um render "pronto" com DEFAULTS no caminho
     expect(vistos.filter((v) => v.pronto)).toEqual([]);
 
     const cfg2 = deferred<any>();
     h.state.cfg = { T1: cfg2 };
+    vistos = [];
     await act(async () => { retentar(); });
     await assentar();
-    expect(ultimo().erro).toBe(false); // refazendo: volta a "Carregando"
-    expect(ultimo().pronto).toBe(false);
+    // [review I1] refazendo: o aviso NÃO some — `erro` segue true e `tentando` liga (botão "Tentando…")
+    expect(ultimo()).toEqual({ pronto: false, isLoading: true, otb: false, erro: true, tentando: true });
+    expect(vistos.filter((v) => !v.erro)).toEqual([]);
     await act(async () => { cfg2.resolve({ data: { modules: { otb: true } }, error: null }); });
     await assentar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false, tentando: false });
   });
 
   it("1ª carga: erro ao descobrir a loja → `erro`, NÃO pronto; tentarDeNovo refaz a loja e depois a config", async () => {
@@ -156,8 +161,8 @@ describe("useTenantModules().pronto", () => {
     await montar();
     expect(ultimo().pronto).toBe(false);
     await act(async () => { users.resolve({ data: null, error: { message: "rede" } }); });
-    await assentar();
-    expect(ultimo()).toEqual({ pronto: false, isLoading: true, otb: false, erro: true });
+    await assentarErro();
+    expect(ultimo()).toEqual({ pronto: false, isLoading: true, otb: false, erro: true, tentando: false });
 
     const users2 = deferred<any>();
     const cfg = deferred<any>();
@@ -168,7 +173,7 @@ describe("useTenantModules().pronto", () => {
     await assentar();
     await act(async () => { cfg.resolve({ data: { modules: { otb: true } }, error: null }); });
     await assentar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false, tentando: false });
   });
 
   it("REFETCH com erro na config (dado guardado) → segue pronto com os módulos de ANTES, nunca DEFAULTS", async () => {
@@ -190,7 +195,7 @@ describe("useTenantModules().pronto", () => {
     await act(async () => { void qc.refetchQueries({ queryKey: ["tenant_config", "modules"] }); });
     await act(async () => { cfgFalha.resolve({ data: null, error: { message: "rede" } }); });
     await assentar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false, tentando: false });
     // em nenhum render do refetch os módulos viraram DEFAULTS ou "não pronto"
     expect(vistos.filter((v) => !v.pronto || !v.otb || v.erro)).toEqual([]);
   });
@@ -213,7 +218,7 @@ describe("useTenantModules().pronto", () => {
     await act(async () => { void qc.refetchQueries({ queryKey: ["active-tenant-id"] }); });
     await act(async () => { usersFalha.resolve({ data: null, error: { message: "rede" } }); });
     await assentar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false, tentando: false });
     expect(vistos.filter((v) => !v.pronto || !v.otb || v.erro)).toEqual([]);
   });
 
@@ -228,7 +233,7 @@ describe("useTenantModules().pronto", () => {
     await assentar();
     await act(async () => { cfg.resolve({ data: null, error: null }); });
     await assentar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: false, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: false, erro: false, tentando: false });
   });
 
   it("troca de loja/usuário → volta a NÃO pronto até a loja nova e a config nova chegarem", async () => {
@@ -256,6 +261,6 @@ describe("useTenantModules().pronto", () => {
     expect(ultimo().pronto).toBe(false);
     await act(async () => { cfgB.resolve({ data: { modules: { otb: true } }, error: null }); });
     await assentar();
-    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false });
+    expect(ultimo()).toEqual({ pronto: true, isLoading: false, otb: true, erro: false, tentando: false });
   });
 });

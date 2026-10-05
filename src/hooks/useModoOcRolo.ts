@@ -16,11 +16,15 @@ export function useModoOcRolo(): ModoOcRolo {
     enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("tenant_config")
         .select("modo_oc_rolo")
         .eq("tenant_id", tenantId as string)
         .maybeSingle();
+      // [backend F1, review m2] o erro sobe: no refetch o RQ mantém o modo de antes (antes o erro virava "ambos" como se fosse
+      // sucesso e esse valor valia por 5 min, mudando a OC Tecido/BOM no meio de uma edição). Na 1ª carga com erro cai em "ambos"
+      // (o padrão de sempre, o mais permissivo: mostra OC E rolo — nunca esconde tecido) até a próxima tentativa.
+      if (error) throw error;
       return ((data as any)?.modo_oc_rolo as ModoOcRolo) ?? "ambos";
     },
   });

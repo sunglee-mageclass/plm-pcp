@@ -19,7 +19,7 @@ import { LojaErroAviso } from "@/components/shared/LojaErroAviso";
  */
 export function SectionHub({ module, subtitle }: { module: string; subtitle?: string }) {
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView } = useAuth();
-  const { isStockOnly, isModuleEnabled, isLoading, erro, tentarDeNovo } = useTenantModules();
+  const { isStockOnly, isModuleEnabled, isLoading, erro, tentando, tentarDeNovo } = useTenantModules();
   const tabLabels = useTabLabels();
   const badges = useSidebarBadges();
   const counts = pageBadgeCounts(badges.data);
@@ -46,7 +46,7 @@ export function SectionHub({ module, subtitle }: { module: string; subtitle?: st
     }));
 
   // Evita o flash "blocos → módulo desligado" enquanto a loja e a config carregam (`isLoading` = !pronto; o default é true).
-  if (erro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} />; // [backend F1]
+  if (erro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} tentando={tentando} />; // [backend F1]
   if (isLoading) return null;
 
   return (
