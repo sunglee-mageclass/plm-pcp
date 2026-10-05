@@ -19,7 +19,7 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._urg_r1_tamanho_legado_lista()', 'f4445fa3dda66d27ba08faa7c8030991', 'ec571c054460a10676852e532c931e03'),
-      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', '08561ccbd8dd7a9877c6340f9b95ac75', 'f7d613fb53dbaef6be59c467bbaad580')
+      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', 'cb855927bc56a6edb0391c78cc390621', 'f7d613fb53dbaef6be59c467bbaad580')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
