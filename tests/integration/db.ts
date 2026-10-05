@@ -147,6 +147,13 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaCamada(client);
     }
+    // Urgentes R1–R3 (plan-a; mesmo ensaio): com URG_A_TXN=1 os blocos da frente que existem no repositório (170000..177000;
+    // urg-a-helpers) são aplicados DENTRO desta txn, DEPOIS da Camada e ANTES do plan-b (os já vivos na cópia são pulados).
+    if (process.env.URG_A_TXN === "1") {
+      const { aplicaUrgA } = await import("./urg-a-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaUrgA(client);
+    }
     // Urgentes R4–R8 (plan-b; mesmo ensaio): com URGB_TXN=1 os blocos da frente que existem no repositório (180000..191000;
     // urgb-helpers) são aplicados DENTRO desta txn, DEPOIS da Camada (os já vivos na cópia são pulados).
     if (process.env.URGB_TXN === "1") {
