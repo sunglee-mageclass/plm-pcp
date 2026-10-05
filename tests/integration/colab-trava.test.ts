@@ -52,8 +52,12 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
   it("salvar_plan_tecido: plan_rev incrementa em EXATAMENTE +1 por chamada (sem bump duplo)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      // Backend B2 (rev 1x por transacao): a colecao nasce num SAVEPOINT (outra subtransacao) e o Salvar roda FORA dele —
+      // colecao criada no topo desta mesma txn nao sobe o plan_rev pelo bump (a linha ja e desta transacao).
+      await c.query("SAVEPOINT trava_delta_col");
       const col = await um<{ id: string; plan_rev: number }>(
         c, `insert into colecoes (tenant_id, nome) values ($1,'TRAVA DELTA') returning id, plan_rev`, [TENANT_TESTE]);
+      await c.query("RELEASE SAVEPOINT trava_delta_col");
       await um(c, `select salvar_plan_tecido($1,'{}'::jsonb)`, [col.id]);
       const r = await um<{ plan_rev: number }>(c, `select plan_rev from colecoes where id=$1`, [col.id]);
       expect(r.plan_rev).toBe(col.plan_rev + 1);
@@ -263,6 +267,8 @@ describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
   it("producao_terceirizados: UPDATE bumpa rev (BEFORE UPDATE); rev é do servidor", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      // Backend B2 (rev 1x por transacao): o CQ nasce e e editado num SAVEPOINT (outra subtransacao); a filha e gravada FORA.
+      await c.query("SAVEPOINT colab_cq_raiz");
       const cad = await um<{ id: string }>(
         c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
       const pt = await um<{ id: string; rev: number }>(
@@ -280,6 +286,8 @@ describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
   it("controle_qualidade: UPDATE bumpa rev; insert de cq_variantes bumpa a raiz", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      // Backend B2 (rev 1x por transacao): o CQ nasce e e editado num SAVEPOINT (outra subtransacao); a filha e gravada FORA.
+      await c.query("SAVEPOINT colab_cq_raiz");
       const cad = await um<{ id: string }>(
         c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
       const cq = await um<{ id: string; rev: number }>(
@@ -288,6 +296,7 @@ describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
       const r1 = await um<{ rev: number }>(
         c, `update controle_qualidade set observacoes_cq='y' where id=$1 returning rev`, [cq.id]);
       expect(r1.rev).toBe(cq.rev + 1);
+      await c.query("RELEASE SAVEPOINT colab_cq_raiz");
       await um(c, `insert into cq_variantes (controle_qualidade_id, variante_numero, etapa, grades, grade_total)
                    values ($1, 1, 'recebimento', '{}'::jsonb, 0)`, [cq.id]);
       const r2 = await um<{ rev: number }>(c, `select rev from controle_qualidade where id=$1`, [cq.id]);

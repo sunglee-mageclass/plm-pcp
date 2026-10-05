@@ -7,6 +7,9 @@ describe.skipIf(!hasDb)("colab — rev bump (raiz + filhas)", () => {
       await comoUsuario(c);
       const art = await um<{ id: string }>(
         c, `insert into artigos (tenant_id, nome) values ($1, 'COLAB TESTE') returning id`, [TENANT_TESTE]);
+      // Backend B2 (rev 1x por transacao): a raiz nasce e e editada num SAVEPOINT (outra subtransacao), como se fosse outra
+      // transacao; a filha e gravada FORA dele — senao o bump e pulado (a linha da raiz ja foi escrita no topo desta txn).
+      await c.query("SAVEPOINT colab_rev_raiz");
       const oc = await um<{ id: string; rev: number }>(
         c, `insert into ocs_tecido (tenant_id, numero_pedido) values ($1, 'COLAB-REV') returning id, rev`, [TENANT_TESTE]);
       expect(oc.rev).toBe(1);
@@ -14,6 +17,7 @@ describe.skipIf(!hasDb)("colab — rev bump (raiz + filhas)", () => {
       const r1 = await um<{ rev: number }>(
         c, `update ocs_tecido set observacoes_entrega = 'x' where id = $1 returning rev`, [oc.id]);
       expect(r1.rev).toBe(2);
+      await c.query("RELEASE SAVEPOINT colab_rev_raiz");
       // insert de FILHA → bump na raiz (AFTER trigger)
       await um(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,10) returning id`, [oc.id, art.id]);
       const r2 = await um<{ rev: number }>(c, `select rev from ocs_tecido where id = $1`, [oc.id]);
