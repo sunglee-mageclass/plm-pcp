@@ -1,6 +1,7 @@
 -- Inverso de supabase/migrations/20261103170500_urg_r1_tamanho_legado.sql - GERADO por .superpowers/sdd/2026-10-05-urgentes/mig/gerar-a1.mjs (nunca editar a mao).
--- 1) devolve etiquetas.tamanho_vinculado ao "antes" do backup (ultima gravacao de cada insumo) SO onde o valor de hoje ainda e o
---    "depois" da correcao; o que a pessoa mudou depois FICA e e RELATADO (NOTICE com os ids). Com a 171000 viva, cada devolucao
+-- 1) devolve etiquetas.tamanho_vinculado ao "antes" do backup (ultima gravacao AINDA NAO DEVOLVIDA de cada insumo) SO onde o valor
+--    de hoje ainda e o "depois" da correcao; o que a pessoa mudou depois FICA e e RELATADO (NOTICE com os ids); marca as gravacoes
+--    como devolvidas (restaurado_em) - um 2o _down e no-op e nunca desfaz um vinculo religado a mao (M-2). Com a 171000 viva, cada devolucao
 --    enfileira o custo previsto dos modelos internos nao cortados (como qualquer mudanca de vinculo).
 -- 2) NEUTRALIZA _urg_r1_tamanho_legado_rodar e _lista (CREATE OR REPLACE: passam a recusar; nao citam mais a coluna nem os helpers
 --    da 170000, cujo _down_drop varre o prosrc). A tabela de backup FICA (e o dado de auditoria). Idempotente.
@@ -17,8 +18,8 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._urg_r1_tamanho_legado_lista()', '143abc25ee038ec27bd246e51ef0fbcb', 'ec571c054460a10676852e532c931e03'),
-      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', '6d5f3f2998d22ed72fc5ac479932eb44', 'f7d613fb53dbaef6be59c467bbaad580')
+      ('public._urg_r1_tamanho_legado_lista()', 'f4445fa3dda66d27ba08faa7c8030991', 'ec571c054460a10676852e532c931e03'),
+      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', '08561ccbd8dd7a9877c6340f9b95ac75', 'f7d613fb53dbaef6be59c467bbaad580')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
@@ -31,7 +32,7 @@ BEGIN
   IF to_regclass('public._bkp_urg_r1_tamanho_legado') IS NOT NULL
      AND (SELECT string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text, ',' ORDER BY a.attnum)
             FROM pg_attribute a WHERE a.attrelid = to_regclass('public._bkp_urg_r1_tamanho_legado') AND a.attnum > 0 AND NOT a.attisdropped)
-         IS DISTINCT FROM 'id:bigint:true,etiqueta_id:uuid:true,tenant_id:uuid:true,antes:text:false,depois:text:true,rodado_em:timestamp with time zone:true' THEN
+         IS DISTINCT FROM 'id:bigint:true,etiqueta_id:uuid:true,tenant_id:uuid:true,antes:text:false,depois:text:true,rodado_em:timestamp with time zone:true,restaurado_em:timestamp with time zone:false' THEN
     RAISE EXCEPTION 'urg_r1_170500_down: public._bkp_urg_r1_tamanho_legado ja existe com outro formato' USING ERRCODE = 'P0001';
   END IF;
 END
@@ -47,38 +48,46 @@ BEGIN
     RAISE NOTICE 'urg_r1_170500_down: sem tabela de backup - nenhum vinculo a devolver';
     RETURN;
   END IF;
-  -- sem nada a devolver nao ha UPDATE (nem RowExclusiveLock em etiquetas): a cadeia LIFO dos testes chama este _down a toda hora
-  IF NOT EXISTS (
-    SELECT 1
-      FROM (SELECT DISTINCT ON (k.etiqueta_id) k.etiqueta_id, k.depois
-              FROM public._bkp_urg_r1_tamanho_legado k
-             ORDER BY k.etiqueta_id, k.rodado_em DESC, k.id DESC) u
-      JOIN public.etiquetas e ON e.id = u.etiqueta_id
-     WHERE e.tamanho_vinculado IS NOT DISTINCT FROM u.depois) THEN
-    RAISE NOTICE 'urg_r1_170500_down: nenhum vinculo da correcao a devolver';
-  ELSE
-  WITH ult AS (
-    SELECT DISTINCT ON (k.etiqueta_id) k.etiqueta_id, k.antes, k.depois
-      FROM public._bkp_urg_r1_tamanho_legado k
-     ORDER BY k.etiqueta_id, k.rodado_em DESC, k.id DESC
-  ), dev AS (
-    UPDATE public.etiquetas e
-       SET tamanho_vinculado = u.antes
-      FROM ult u
-     WHERE e.id = u.etiqueta_id AND e.tamanho_vinculado IS NOT DISTINCT FROM u.depois
-    RETURNING e.id
-  )
-  SELECT count(*)::integer INTO v_dev FROM dev;
+  -- [M-2] so as gravacoes ainda NAO devolvidas (restaurado_em vazio); as ja devolvidas nunca mais sao tocadas (um vinculo religado
+  -- a mao depois de uma volta nao e desfeito por outra volta). Sem pendencia: no-op, sem UPDATE (sem RowExclusiveLock - a cadeia
+  -- LIFO dos testes chama este _down a toda hora).
+  IF NOT EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.restaurado_em IS NULL) THEN
+    RAISE NOTICE 'urg_r1_170500_down: nada pendente no backup (ja devolvido ou vazio) - no-op';
+    RETURN;
   END IF;
   WITH ult AS (
     SELECT DISTINCT ON (k.etiqueta_id) k.etiqueta_id, k.antes, k.depois
       FROM public._bkp_urg_r1_tamanho_legado k
+     WHERE k.restaurado_em IS NULL
      ORDER BY k.etiqueta_id, k.rodado_em DESC, k.id DESC
   )
   SELECT count(*)::integer, string_agg(CAST(u.etiqueta_id AS text), ', ' ORDER BY u.etiqueta_id)
     INTO v_mud, v_ids
     FROM ult u JOIN public.etiquetas e ON e.id = u.etiqueta_id
    WHERE e.tamanho_vinculado IS DISTINCT FROM u.depois AND e.tamanho_vinculado IS DISTINCT FROM u.antes;
+  IF EXISTS (
+    SELECT 1
+      FROM (SELECT DISTINCT ON (k.etiqueta_id) k.etiqueta_id, k.depois
+              FROM public._bkp_urg_r1_tamanho_legado k
+             WHERE k.restaurado_em IS NULL
+             ORDER BY k.etiqueta_id, k.rodado_em DESC, k.id DESC) u
+      JOIN public.etiquetas e ON e.id = u.etiqueta_id
+     WHERE e.tamanho_vinculado IS NOT DISTINCT FROM u.depois) THEN
+    WITH ult AS (
+      SELECT DISTINCT ON (k.etiqueta_id) k.etiqueta_id, k.antes, k.depois
+        FROM public._bkp_urg_r1_tamanho_legado k
+       WHERE k.restaurado_em IS NULL
+       ORDER BY k.etiqueta_id, k.rodado_em DESC, k.id DESC
+    ), dev AS (
+      UPDATE public.etiquetas e
+         SET tamanho_vinculado = u.antes
+        FROM ult u
+       WHERE e.id = u.etiqueta_id AND e.tamanho_vinculado IS NOT DISTINCT FROM u.depois
+      RETURNING e.id
+    )
+    SELECT count(*)::integer INTO v_dev FROM dev;
+  END IF;
+  UPDATE public._bkp_urg_r1_tamanho_legado SET restaurado_em = now() WHERE restaurado_em IS NULL;
   RAISE NOTICE 'urg_r1_170500_down: % vinculo(s) devolvido(s) ao valor de antes; % mudado(s) pela pessoa depois da correcao (ficam): %',
     v_dev, v_mud, coalesce(v_ids, '-');
 END

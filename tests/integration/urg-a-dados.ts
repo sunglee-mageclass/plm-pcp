@@ -39,8 +39,8 @@ export const URG_A_BLOCOS: Record<string, UrgABloco> = /* URG_A_JSON_INICIO */
     "volta": true,
     "MD5": {},
     "NOVAS": {
-      "public._urg_r1_tamanho_legado_lista()": "143abc25ee038ec27bd246e51ef0fbcb",
-      "public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)": "6d5f3f2998d22ed72fc5ac479932eb44"
+      "public._urg_r1_tamanho_legado_lista()": "f4445fa3dda66d27ba08faa7c8030991",
+      "public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)": "08561ccbd8dd7a9877c6340f9b95ac75"
     },
     "NEUTRO": {
       "public._urg_r1_tamanho_legado_lista()": "ec571c054460a10676852e532c931e03",

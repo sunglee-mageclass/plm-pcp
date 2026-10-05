@@ -16,8 +16,8 @@
 -- modelos e tenant_config pela validacao do corpo SQL da lista - nao bloqueia leitura nem escrita). MEDIDO na copia (supautils
 -- carregado, por diferenca de pg_locks): nada em auth/storage/realtime. Qualquer hora. Idempotente.
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
---   public._urg_r1_tamanho_legado_lista()  DEPOIS 143abc25ee038ec27bd246e51ef0fbcb  NEUTRO ec571c054460a10676852e532c931e03
---   public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)  DEPOIS 6d5f3f2998d22ed72fc5ac479932eb44  NEUTRO f7d613fb53dbaef6be59c467bbaad580
+--   public._urg_r1_tamanho_legado_lista()  DEPOIS f4445fa3dda66d27ba08faa7c8030991  NEUTRO ec571c054460a10676852e532c931e03
+--   public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)  DEPOIS 08561ccbd8dd7a9877c6340f9b95ac75  NEUTRO f7d613fb53dbaef6be59c467bbaad580
 --   (ANTES: ausentes) - exige a 20261103170000 viva: public._insumo_tamanho_efetivo = c3cdade8a88d585492eeb6a01205ce3e
 -- ====================================================================================
 -- Volta (LIFO): supabase/rollback/20261103170500_urg_r1_tamanho_legado_down.sql (devolve o "antes" SO onde ainda vale o "depois", relata o que a pessoa
@@ -40,8 +40,8 @@ BEGIN
     RAISE EXCEPTION 'urg_r1_170500: a 20261103170000 (coluna tamanho_vinculado + helpers) nao esta aplicada - aplique-a antes' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public._urg_r1_tamanho_legado_lista()', '143abc25ee038ec27bd246e51ef0fbcb', 'ec571c054460a10676852e532c931e03'),
-      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', '6d5f3f2998d22ed72fc5ac479932eb44', 'f7d613fb53dbaef6be59c467bbaad580')
+      ('public._urg_r1_tamanho_legado_lista()', 'f4445fa3dda66d27ba08faa7c8030991', 'ec571c054460a10676852e532c931e03'),
+      ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)', '08561ccbd8dd7a9877c6340f9b95ac75', 'f7d613fb53dbaef6be59c467bbaad580')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
@@ -51,7 +51,7 @@ BEGIN
   IF to_regclass('public._bkp_urg_r1_tamanho_legado') IS NOT NULL
      AND (SELECT string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text, ',' ORDER BY a.attnum)
             FROM pg_attribute a WHERE a.attrelid = to_regclass('public._bkp_urg_r1_tamanho_legado') AND a.attnum > 0 AND NOT a.attisdropped)
-         IS DISTINCT FROM 'id:bigint:true,etiqueta_id:uuid:true,tenant_id:uuid:true,antes:text:false,depois:text:true,rodado_em:timestamp with time zone:true' THEN
+         IS DISTINCT FROM 'id:bigint:true,etiqueta_id:uuid:true,tenant_id:uuid:true,antes:text:false,depois:text:true,rodado_em:timestamp with time zone:true,restaurado_em:timestamp with time zone:false' THEN
     RAISE EXCEPTION 'urg_r1_170500: public._bkp_urg_r1_tamanho_legado ja existe com outro formato' USING ERRCODE = 'P0001';
   END IF;
 END
@@ -63,10 +63,11 @@ CREATE TABLE IF NOT EXISTS public._bkp_urg_r1_tamanho_legado (
   tenant_id   uuid        NOT NULL,
   antes       text,
   depois      text        NOT NULL,
-  rodado_em   timestamptz NOT NULL DEFAULT now()
+  rodado_em   timestamptz NOT NULL DEFAULT now(),
+  restaurado_em timestamptz
 );
 COMMENT ON TABLE public._bkp_urg_r1_tamanho_legado IS
-  'Correcao unica do tamanho legado (urg R1 T2b, P-307 B, 20261103170500): vinculo de tamanho de cada insumo ANTES e DEPOIS de _urg_r1_tamanho_legado_rodar. O _down devolve o antes onde ainda vale o depois. RLS sem policy e sem grant: so o dono (postgres) le.';
+  'Correcao unica do tamanho legado (urg R1 T2b, P-307 B, 20261103170500): vinculo de tamanho de cada insumo ANTES e DEPOIS de _urg_r1_tamanho_legado_rodar. O _down devolve o antes onde ainda vale o depois e marca restaurado_em (cada gravacao volta uma vez so). RLS sem policy e sem grant: so o dono (postgres) le.';
 ALTER TABLE public._bkp_urg_r1_tamanho_legado ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public._bkp_urg_r1_tamanho_legado FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public._bkp_urg_r1_tamanho_legado_id_seq FROM PUBLIC, anon, authenticated, service_role;
@@ -81,7 +82,8 @@ AS $function$
   -- lojas, com o veredito. ELEGIVEL = (1) btrim(tamanho) existe exato em tenant_config.tamanhos_grade da loja (fora_da_grade);
   -- (2) _insumo_tamanho_efetivo(valor, formato, tem variante com tamanho) devolve o valor (com_tamanho_proprio); (3) o NOME, sem
   -- acento e sem caixa, tem o lado numerico como palavra inteira OU a sigla logo depois de "TAM." / "TAMANHO " (nome_nao_casa).
-  -- A 4a regra (vinculo ainda vazio) fica FORA do veredito e do hash: vinculo_atual e conferido na hora de gravar.
+  -- A 4a regra (vinculo ainda vazio) fica FORA do veredito e do hash: vinculo_atual e conferido na hora de gravar. A regra 3 nunca
+  -- passa por NULL (valor so-numero ou terminado em barra, sem sigla: so o lado numerico vale).
   -- linha = tenant_id|etiqueta_id|nome|valor|n_modelos (forma canonica; o hash aprovado = md5 das linhas elegiveis unidas por
   -- quebra de linha na ordem tenant_id, etiqueta_id). Espelho SO-LEITURA: supabase/consultas/urg_r1_tamanho_legado_previa.sql.
   WITH base AS (
@@ -113,8 +115,9 @@ AS $function$
     SELECT l.*,
            CASE WHEN NOT l.na_grade THEN 'fora_da_grade'
                 WHEN public._insumo_tamanho_efetivo(l.valor, l.formato, l.tem_var) IS NULL THEN 'com_tamanho_proprio'
-                WHEN NOT ((l.num IS NOT NULL AND l.nome_n ~ ('\y' || l.num || '\y'))
-                          OR (l.sigla ~ '^[A-Z0-9]+$' AND l.nome_n ~ ('\yTAM(\.|ANHO\s)\s*' || l.sigla || '\y')))
+                WHEN NOT coalesce((l.num IS NOT NULL AND l.nome_n ~ ('\y' || l.num || '\y'))
+                                  OR (l.sigla IS NOT NULL AND l.sigla ~ '^[A-Z0-9]+$'
+                                      AND l.nome_n ~ ('\yTAM(\.|ANHO\s)\s*' || l.sigla || '\y')), false)
                   THEN 'nome_nao_casa'
            END AS motivo,
            coalesce(CAST(l.tenant_id AS text), '') || '|' || CAST(l.etiqueta_id AS text) || '|' || l.nome || '|' || l.valor || '|'
@@ -139,8 +142,8 @@ AS $function$
 -- etiquetas com tamanho legado FOR UPDATE - a mesma ordem de quem grava variante, cujo gatilho de preco grava etiquetas) e confere
 -- hash e n: divergiu = P0001 lista_mudou (nada grava). 3) linha aprovada fora da lista de agora = P0001 fora_da_lista. 4) grava SO
 -- os aprovados com vinculo ainda vazio (btrim) - nunca sobrescreve - com backup antes/depois em _bkp_urg_r1_tamanho_legado.
--- Devolve {ligados, pulados:[{id, motivo}], hash, n}; motivo = ja_vinculado | nao_aprovado | o motivo da lista. Idempotente: a 2a
--- execucao com a mesma aprovacao liga 0. Efeito colateral: com a 171000 viva, o gatilho de etiquetas enfileira o custo previsto
+-- Devolve {ligados, pulados:[{id, motivo}], hash, n}; motivo = ja_corrigido_antes (ja tem gravacao no backup: nunca religa o que
+-- a pessoa desligou depois) | ja_vinculado | nao_aprovado | o motivo da lista. Idempotente: a 2a execucao liga 0. Efeito colateral: com a 171000 viva, o gatilho de etiquetas enfileira o custo previsto
 -- dos modelos internos NAO cortados que usam o insumo (os cortados ficam congelados).
 DECLARE
   v_aprov text[];
@@ -187,19 +190,25 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
+  -- [M-1] correcao UNICA: insumo que ja tem gravacao no backup (corrigido numa rodada anterior) nunca e religado - a pessoa pode
+  -- te-lo desligado de proposito depois.
   SELECT coalesce(jsonb_agg(jsonb_build_object('id', l.etiqueta_id, 'motivo',
            CASE WHEN NOT l.elegivel THEN l.motivo
                 WHEN NOT (l.linha = ANY (v_aprov)) THEN 'nao_aprovado'
+                WHEN EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id)
+                  THEN 'ja_corrigido_antes'
                 ELSE 'ja_vinculado' END) ORDER BY l.tenant_id, l.etiqueta_id), '[]'::jsonb)
     INTO v_pulados
     FROM public._urg_r1_tamanho_legado_lista() l
-   WHERE NOT l.elegivel OR NOT (l.linha = ANY (v_aprov)) OR l.vinculo_atual IS NOT NULL;
+   WHERE NOT l.elegivel OR NOT (l.linha = ANY (v_aprov)) OR l.vinculo_atual IS NOT NULL
+      OR EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id);
 
   WITH alvo AS (
     SELECT l.etiqueta_id, l.tenant_id, l.valor, e.tamanho_vinculado AS antes
       FROM public._urg_r1_tamanho_legado_lista() l
       JOIN public.etiquetas e ON e.id = l.etiqueta_id
      WHERE l.elegivel AND l.linha = ANY (v_aprov) AND l.vinculo_atual IS NULL
+       AND NOT EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id)
   ), upd AS (
     UPDATE public.etiquetas e
        SET tamanho_vinculado = a.valor
@@ -215,7 +224,8 @@ BEGIN
   SELECT count(*)::integer INTO v_ligados FROM ins;
 
   IF EXISTS (SELECT 1 FROM public._urg_r1_tamanho_legado_lista() l
-              WHERE l.elegivel AND l.linha = ANY (v_aprov) AND l.vinculo_atual IS NULL) THEN
+              WHERE l.elegivel AND l.linha = ANY (v_aprov) AND l.vinculo_atual IS NULL
+                AND NOT EXISTS (SELECT 1 FROM public._bkp_urg_r1_tamanho_legado k WHERE k.etiqueta_id = l.etiqueta_id)) THEN
     RAISE EXCEPTION 'pos_condicao: insumo aprovado ficou sem vinculo - nada gravado' USING ERRCODE = 'P0001';
   END IF;
   RETURN jsonb_build_object('ligados', v_ligados, 'pulados', v_pulados, 'hash', v_hash, 'n', v_n);
@@ -227,8 +237,8 @@ DO $pos$
 DECLARE
   r record;
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1_tamanho_legado_lista()'))) IS DISTINCT FROM '143abc25ee038ec27bd246e51ef0fbcb'
-     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)'))) IS DISTINCT FROM '6d5f3f2998d22ed72fc5ac479932eb44' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1_tamanho_legado_lista()'))) IS DISTINCT FROM 'f4445fa3dda66d27ba08faa7c8030991'
+     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)'))) IS DISTINCT FROM '08561ccbd8dd7a9877c6340f9b95ac75' THEN
     RAISE EXCEPTION 'urg_r1_170500: pos-condicao falhou no texto das funcoes' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES ('public._urg_r1_tamanho_legado_lista()'), ('public._urg_r1_tamanho_legado_rodar(jsonb,text,integer)')) AS x(f) LOOP

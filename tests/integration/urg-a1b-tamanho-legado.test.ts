@@ -212,12 +212,122 @@ describe.skipIf(!RODA)("urg R1 T2b — correcao unica do tamanho legado (170500)
       expect(bkp).toHaveLength(r.ligados);
       expect(bkp.find((b) => b.etiqueta_id === espacos)).toMatchObject({ antes: "  ", depois: "42|G", tenant_id: TENANT_TESTE });
       expect(bkp.find((b) => b.etiqueta_id === AVERARA_TAM_M)).toMatchObject({ antes: null, depois: "40|M", tenant_id: AVE_RARA });
-      // 2a execucao com a MESMA aprovacao: idempotente (0 ligados, todos os aprovados pulados como ja_vinculado, sem backup novo)
+      // 2a execucao com a MESMA aprovacao: idempotente (0 ligados; os ja corrigidos = ja_corrigido_antes, o ligado pela pessoa =
+      // ja_vinculado; sem backup novo)
       const r2 = await rodar(c, a.linhas, a.hash, a.n);
       expect(r2.ligados).toBe(0);
-      expect(r2.pulados.filter((p) => p.motivo === "ja_vinculado")).toHaveLength(a.n);
+      expect(r2.pulados.filter((p) => p.motivo === "ja_corrigido_antes")).toHaveLength(r.ligados);
+      expect(r2.pulados.filter((p) => p.motivo === "ja_vinculado").map((p) => p.id)).toEqual([AVERARA_40]);
       expect((await c.query(`SELECT 1 FROM ${BKP}`)).rowCount).toBe(r.ligados);
       expect(await vinculos(c)).toEqual(v);
+    });
+  });
+
+  it("I-1/B-5: valor so-numero e valor terminado em '|' so passam com o nome casando (regra 3 nunca vaza por NULL); tamanho que so existe na grade de OUTRA loja = fora_da_grade", async () => {
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "170500");
+      await c.query(`UPDATE tenant_config SET tamanhos_grade = tamanhos_grade || '["40", "42|"]'::jsonb WHERE tenant_id = $1`, [TENANT_TESTE]);
+      await c.query(`UPDATE tenant_config SET tamanhos_grade = tamanhos_grade || '["50|XG"]'::jsonb WHERE tenant_id = $1`, [AVE_RARA]);
+      const soNumNao = await insereEtq(c, "URG-A1B ETIQUETA QUALQUER 38", "40", "nenhum");
+      const soNumSim = await insereEtq(c, "URG-A1B ETIQUETA NUMERO 40", "40", "nenhum");
+      const barraNao = await insereEtq(c, "URG-A1B ETIQUETA SEM NUMERO", "42|", "nenhum");
+      const barraSim = await insereEtq(c, "URG-A1B ETIQUETA 42", "42|", "nenhum");
+      const outraLoja = await insereEtq(c, "URG-A1B ETIQUETA TAMANHO 50", "50|XG", "nenhum"); // 50|XG so na grade da Ave Rara
+      const l = await lista(c);
+      const de = (id: string) => l.find((x) => x.etiqueta_id === id);
+      expect(de(soNumNao)).toMatchObject({ elegivel: false, motivo: "nome_nao_casa" });
+      expect(de(barraNao)).toMatchObject({ elegivel: false, motivo: "nome_nao_casa" });
+      expect(de(soNumSim)).toMatchObject({ elegivel: true, motivo: null, valor: "40" });
+      expect(de(barraSim)).toMatchObject({ elegivel: true, motivo: null, valor: "42|" });
+      expect(de(outraLoja)).toMatchObject({ elegivel: false, motivo: "fora_da_grade" });
+      // a previa so-leitura da o MESMO veredito
+      const prev = (await c.query(PREVIA)).rows;
+      const sit = (id: string) => prev.find((r) => r.etiqueta_id === id)?.situacao;
+      expect([soNumNao, barraNao, soNumSim, barraSim, outraLoja].map(sit)).toEqual([
+        "nome_nao_casa",
+        "nome_nao_casa",
+        "a_ligar",
+        "a_ligar",
+        "fora_da_grade",
+      ]);
+      const a = await aprovada(c);
+      await rodar(c, a.linhas, a.hash, a.n);
+      const v = await vinculos(c);
+      expect([v[soNumNao], v[barraNao], v[soNumSim], v[barraSim], v[outraLoja]]).toEqual([null, null, "40", "42|", null]);
+    });
+  });
+
+  it("M-1: rodar de novo NAO religa o que a pessoa desligou depois da 1a rodada (ja_corrigido_antes)", async () => {
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "170500");
+      const a = await aprovada(c);
+      const r1 = await rodar(c, a.linhas, a.hash, a.n);
+      expect(r1.ligados).toBe(a.n);
+      await c.query("UPDATE etiquetas SET tamanho_vinculado = NULL WHERE id = $1", [AVERARA_TAM_M]); // decisao da pessoa
+      const r2 = await rodar(c, a.linhas, a.hash, a.n);
+      expect(r2.ligados).toBe(0);
+      expect(r2.pulados.find((p) => p.id === AVERARA_TAM_M)?.motivo).toBe("ja_corrigido_antes");
+      expect((await vinculos(c))[AVERARA_TAM_M]).toBeNull();
+      expect((await c.query(`SELECT 1 FROM ${BKP}`)).rowCount).toBe(a.n);
+    });
+  });
+
+  it("M-2: _down marca o backup como restaurado; vinculo religado a mao depois NAO e desfeito por um 2o _down (no-op, sem trava)", async () => {
+    const b = bloco();
+    expect(b).toBeTruthy();
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "170500");
+      const a = await aprovada(c);
+      await rodar(c, a.linhas, a.hash, a.n);
+      await aplicarArquivo(c, b!.down);
+      await c.query("SET LOCAL transaction_timeout = 0");
+      expect((await vinculos(c))[AVERARA_TAM_M]).toBeNull();
+      const pend = await um<{ n: string }>(c, `SELECT count(*)::text AS n FROM ${BKP} WHERE restaurado_em IS NULL`);
+      expect(pend.n).toBe("0");
+      await c.query("UPDATE etiquetas SET tamanho_vinculado = '40|M' WHERE id = $1", [AVERARA_TAM_M]); // a pessoa religa a mao
+      const LOCKS = `SELECT DISTINCT n.nspname || '.' || cl.relname AS rel, l.mode
+                       FROM pg_locks l JOIN pg_class cl ON cl.oid = l.relation JOIN pg_namespace n ON n.oid = cl.relnamespace
+                      WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND n.nspname NOT IN ('pg_catalog', 'pg_toast')`;
+      const antes = new Set((await c.query(LOCKS)).rows.map((r) => `${r.rel}|${r.mode}`));
+      await aplicarArquivo(c, b!.down);
+      await c.query("SET LOCAL transaction_timeout = 0");
+      const novas = (await c.query(LOCKS)).rows.map((r) => `${r.rel}|${r.mode}`).filter((k) => !antes.has(k));
+      expect(novas.filter((k) => !k.endsWith("|AccessShareLock"))).toEqual([]);
+      expect((await vinculos(c))[AVERARA_TAM_M]).toBe("40|M");
+    });
+  });
+
+  it("M-3: a previa mostra por insumo os modelos que vao a 0 pecas (total > 0 e celula do tamanho ausente/0) - informativo, fora do hash", async () => {
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "170500");
+      const prev = (await c.query(PREVIA)).rows.filter((r) => r.secao === "elegivel");
+      // mesma conta pelos helpers da 170000 (fonte unica), por insumo elegivel
+      const esperado = (
+        await c.query(
+          `SELECT l.etiqueta_id, count(*) FILTER (WHERE x.tot > 0 AND public._insumo_pecas(l.valor, public._grade_mapa_modelo(x.id), x.tot) = 0)::int AS n
+             FROM public._urg_r1_tamanho_legado_lista() l
+             JOIN LATERAL (SELECT DISTINCT m.id,
+                                  (SELECT coalesce(sum(g.grade_total), 0) FROM modelo_grades g WHERE g.modelo_id = m.id)::numeric AS tot
+                             FROM modelo_etiquetas me JOIN modelos m ON m.id = me.modelo_id AND m.tenant_id = l.tenant_id
+                            WHERE me.etiqueta_id = l.etiqueta_id) x ON true
+            WHERE l.elegivel
+            GROUP BY l.etiqueta_id`,
+        )
+      ).rows as { etiqueta_id: string; n: number }[];
+      expect(prev.reduce((t, r) => t + Number(r.n_modelos_zero), 0)).toBe(esperado.reduce((t, x) => t + x.n, 0));
+      for (const r of prev) {
+        const e = esperado.find((x) => x.etiqueta_id === r.etiqueta_id)?.n ?? 0;
+        expect(Number(r.n_modelos_zero), r.nome).toBe(e);
+        if (e === 0) expect(r.modelos_zero).toBeNull();
+        else expect(String(r.modelos_zero).split(" / ")).toHaveLength(e);
+      }
+      // copia: SAIA MARY e VESTIDO BEATRIX (grade com total e sem celulas) aparecem nos 6 "ETIQUETA AVERARA + TAMANHO nn"
+      const tamM = prev.find((r) => r.etiqueta_id === AVERARA_40);
+      expect(String(tamM?.modelos_zero)).toMatch(/SAIA MARY .*grade sem celulas/);
+      expect(String(tamM?.modelos_zero)).toMatch(/VESTIDO BEATRIX .*grade sem celulas/);
+      // fora do hash: o hash da previa continua = md5 das linhas canonicas
+      const h = (await c.query(PREVIA)).rows.find((r) => r.secao === "hash_lista");
+      expect(h.linha_canonica).toBe((await aprovada(c)).hash);
     });
   });
 

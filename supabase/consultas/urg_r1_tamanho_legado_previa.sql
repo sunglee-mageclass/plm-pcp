@@ -4,6 +4,7 @@
 -- SELECT PURO: nao chama nenhuma funcao do sistema (so as nativas do Postgres) e roda ANTES ou DEPOIS da 170000 (o vinculo atual e
 -- lido por to_jsonb(e), que da NULL se a coluna ainda nao existe). A funcao public._urg_r1_tamanho_legado_lista() da 170500 tem de
 -- dar o MESMO resultado, linha a linha (teste tests/integration/urg-a1b-tamanho-legado.test.ts).
+-- Regra 3 nunca passa por NULL (valor so-numero ou terminado em barra sem sigla: so o lado numerico vale).
 -- Regras do arquivo (pode ser embutido pelo psql como variavel dentro de um COPY): um unico SELECT, SEM ponto e virgula, sem
 -- meta-comando do psql e sem dois-pontos seguido de letra fora de strings (por isso CAST, nunca o atalho de dois-pontos).
 --
@@ -21,6 +22,10 @@
 --   secao = 'nao_elegivel'  -> situacao = o motivo (fora_da_grade | com_tamanho_proprio | nome_nao_casa)
 --   secao = 'hash_lista'    -> linha_canonica = hash_lista = md5 das linhas canonicas dos ELEGIVEIS unidas por quebra de linha na
 --                              ordem (tenant_id, etiqueta_id) - md5('') se nenhum, situacao = 'n=<quantidade de elegiveis>'
+-- n_modelos_zero / modelos_zero (M-3, SO INFORMATIVO - nao muda a elegibilidade e NAO entra no hash): modelos da mesma loja que
+-- usam o insumo e ficariam com 0 pecas dele (grade com total > 0 e a celula do tamanho ausente ou 0): nome [REF], separados por
+-- " / ", com "(grade sem celulas)" quando a grade do modelo tem total mas nenhuma celula preenchida - o dono decide completar a grade
+-- ou nao aprovar o insumo.
 -- n_modelos = modelos DISTINTOS da mesma loja que usam o insumo no BOM (modelo_etiquetas). O kit roda, numa transacao so:
 --   BEGIN, SET LOCAL app.confirmo_tamanho_legado = 'sim',
 --   SELECT public._urg_r1_tamanho_legado_rodar('<array jsonb das linhas aprovadas>', '<hash_lista>', <n>), COMMIT
@@ -53,15 +58,41 @@ WITH base AS (
   SELECT l.*,
          CASE WHEN NOT l.na_grade THEN 'fora_da_grade'
               WHEN NOT (l.formato = 'nenhum' OR NOT l.tem_var) THEN 'com_tamanho_proprio'
-              WHEN NOT ((l.num IS NOT NULL AND l.nome_n ~ ('\y' || l.num || '\y'))
-                        OR (l.sigla ~ '^[A-Z0-9]+$' AND l.nome_n ~ ('\yTAM(\.|ANHO\s)\s*' || l.sigla || '\y')))
+              WHEN NOT coalesce((l.num IS NOT NULL AND l.nome_n ~ ('\y' || l.num || '\y'))
+                                OR (l.sigla IS NOT NULL AND l.sigla ~ '^[A-Z0-9]+$'
+                                    AND l.nome_n ~ ('\yTAM(\.|ANHO\s)\s*' || l.sigla || '\y')), false)
                 THEN 'nome_nao_casa'
          END AS motivo,
          coalesce(CAST(l.tenant_id AS text), '') || '|' || CAST(l.etiqueta_id AS text) || '|' || l.nome || '|' || l.valor || '|'
            || CAST(l.n_modelos AS text) AS linha
     FROM lados l
+), mz AS (
+  -- [M-3, informativo, FORA do hash] por insumo elegivel x modelo da mesma loja que o usa: total da grade do modelo e pecas do
+  -- tamanho (mesma regra de celula de _grade_mapa_modelo/_insumo_pecas: so numero >= 0 em texto)
+  SELECT c.etiqueta_id,
+         CAST(m.nome AS text) || coalesce(' [' || m.ref || ']', '') AS rotulo,
+         (SELECT coalesce(sum(g.grade_total), 0) FROM public.modelo_grades g WHERE g.modelo_id = m.id) AS tot,
+         (SELECT coalesce(sum(CAST(kv.value AS numeric)), 0)
+            FROM public.modelo_grades g
+            CROSS JOIN LATERAL jsonb_each_text(CASE WHEN jsonb_typeof(g.grades) = 'object' THEN g.grades ELSE CAST('{}' AS jsonb) END) kv
+           WHERE g.modelo_id = m.id AND kv.key = c.valor AND kv.value ~ '^[0-9]+(\.[0-9]+)?$') AS pecas,
+         EXISTS (SELECT 1
+                   FROM public.modelo_grades g
+                   CROSS JOIN LATERAL jsonb_each_text(CASE WHEN jsonb_typeof(g.grades) = 'object' THEN g.grades ELSE CAST('{}' AS jsonb) END) kv
+                  WHERE g.modelo_id = m.id AND kv.value ~ '^[0-9]+(\.[0-9]+)?$') AS tem_celula
+    FROM cls c
+    JOIN (SELECT DISTINCT me.etiqueta_id, me.modelo_id FROM public.modelo_etiquetas me) me ON me.etiqueta_id = c.etiqueta_id
+    JOIN public.modelos m ON m.id = me.modelo_id AND m.tenant_id = c.tenant_id
+   WHERE c.motivo IS NULL
+), zero AS (
+  SELECT z.etiqueta_id,
+         CAST(count(*) AS integer) AS n,
+         string_agg(z.rotulo || CASE WHEN z.tem_celula THEN '' ELSE ' (grade sem celulas)' END, ' / ' ORDER BY z.rotulo) AS modelos
+    FROM mz z
+   WHERE z.tot > 0 AND z.pecas = 0
+   GROUP BY z.etiqueta_id
 )
-SELECT x.secao, x.tenant_id, x.etiqueta_id, x.nome, x.valor, x.n_modelos, x.situacao, x.linha_canonica
+SELECT x.secao, x.tenant_id, x.etiqueta_id, x.nome, x.valor, x.n_modelos, x.situacao, x.linha_canonica, x.n_modelos_zero, x.modelos_zero
   FROM (
     SELECT CASE WHEN c.motivo IS NULL THEN 1 ELSE 2 END AS ordem,
            CASE WHEN c.motivo IS NULL THEN 'elegivel' ELSE 'nao_elegivel' END AS secao,
@@ -69,12 +100,16 @@ SELECT x.secao, x.tenant_id, x.etiqueta_id, x.nome, x.valor, x.n_modelos, x.situ
            CASE WHEN c.motivo IS NOT NULL THEN c.motivo
                 WHEN c.vinculo_atual IS NULL THEN 'a_ligar'
                 ELSE 'ja_vinculado: ' || c.vinculo_atual END AS situacao,
-           CASE WHEN c.motivo IS NULL THEN c.linha END AS linha_canonica
+           CASE WHEN c.motivo IS NULL THEN c.linha END AS linha_canonica,
+           CASE WHEN c.motivo IS NULL THEN coalesce(z.n, 0) END AS n_modelos_zero,
+           z.modelos AS modelos_zero
       FROM cls c
+      LEFT JOIN zero z ON z.etiqueta_id = c.etiqueta_id
     UNION ALL
     SELECT 3, 'hash_lista', NULL, NULL, NULL, NULL, NULL,
            'n=' || CAST(count(*) FILTER (WHERE c.motivo IS NULL) AS text),
-           md5(coalesce(string_agg(c.linha, E'\n' ORDER BY c.tenant_id, c.etiqueta_id) FILTER (WHERE c.motivo IS NULL), ''))
+           md5(coalesce(string_agg(c.linha, E'\n' ORDER BY c.tenant_id, c.etiqueta_id) FILTER (WHERE c.motivo IS NULL), '')),
+           NULL, NULL
       FROM cls c
   ) x
  ORDER BY x.ordem, x.tenant_id, x.etiqueta_id
