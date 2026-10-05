@@ -17,6 +17,7 @@ const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
 const SUPER = USER_TESTE;
 const U_PLAN = "0d0e1000-0000-4000-8000-0000000000d1"; // usuário comum só com criacao_planejamento (ver+editar)
+const U_OTB = "0d0e1000-0000-4000-8000-0000000000d2"; // usuário comum só com a página OTB (ver+editar) — Backend B5
 const DATA = "2026-10-10";
 
 type Linha = Record<string, unknown>;
@@ -250,6 +251,8 @@ describe.skipIf(!RODA)("mod T2 — excluir coleção com cards é recusado (P-25
   it("coleção com 1 card (Reprovado, com CAD, em planejamento) ou N cards → P0001 colecao_com_cards: N, nada apagado; sem cards → apaga com o plano de tecido", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      // Backend B5 (P-258 A, 20261103148000): excluir coleção exige EDITAR a página OTB (é a tela que exclui) — usuário comum do OTB
+      await usuarioComum(c, U_OTB, T, ["otb"]);
       const casos: { nome: string; montar: (col: string) => Promise<unknown>; n: number }[] = [
         {
           nome: "reprovado",
@@ -273,7 +276,7 @@ describe.skipIf(!RODA)("mod T2 — excluir coleção com cards é recusado (P-25
         await caso.montar(col);
         const antes = await conta(c, [col]);
         expect(antes, caso.nome).toEqual({ col: 1, mod: caso.n, pt: 1 });
-        expect(txt(await excluir(c, U_PLAN, col)), caso.nome).toBe(
+        expect(txt(await excluir(c, U_OTB, col)), caso.nome).toBe(
           `P0001 colecao_com_cards: ${caso.n}`,
         );
         await jwt(c, null);
@@ -282,7 +285,7 @@ describe.skipIf(!RODA)("mod T2 — excluir coleção com cards é recusado (P-25
       // sem cards: apaga a coleção e o plano de tecido dela (como antes)
       const vazia = await colecao(c, "Mod2 vazia");
       expect(await conta(c, [vazia])).toEqual({ col: 1, mod: 0, pt: 1 });
-      expect(txt(await excluir(c, U_PLAN, vazia))).toBe("PASSOU");
+      expect(txt(await excluir(c, U_OTB, vazia))).toBe("PASSOU");
       await jwt(c, null);
       expect(await conta(c, [vazia])).toEqual({ col: 0, mod: 0, pt: 0 });
     });

@@ -20,7 +20,7 @@ import { ColecaoSheet } from "@/components/otb/ColecaoSheet";
 import { computeColecaoResumo } from "@/components/otb/otb-resumo";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { brl, mesLimpo } from "@/lib/format";
-import { RequirePermission } from "@/components/RequirePermission";
+import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { ModuloDesligadoAviso } from "@/components/shared/ModuloDesligadoAviso";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useBuscaColecaoSub } from "@/hooks/useBuscaColecaoSub";
@@ -53,8 +53,13 @@ function useOpts(table: string, key = "nome") {
   }});
 }
 
+// Backend B5 (P-258 A): gravar o OTB exige EDITAR a página OTB também no servidor (gatilho das 12 tabelas + RPCs `otb_*`).
+// Quem só VÊ: os botões que gravam ficam desabilitados (os Sheets/diálogos já travam pelo ReadOnlyContext).
+const TITULO_SO_LEITURA_OTB = "Você só pode ver o OTB — peça ao administrador da loja a permissão de editar.";
+
 function OtbPage() {
   const { isModuleEnabled } = useTenantModules();
+  const readOnly = useReadOnly();
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [tipoOpen, setTipoOpen] = useState(false);
@@ -200,8 +205,10 @@ function OtbPage() {
             { label: "Mês", value: fMes, onChange: setFMes, options: meses },
           ]} />
           <Button variant="outline" size="sm" onClick={() => setPadraoOpen(true)}>Padrão do mix</Button>
-          <Button variant="outline" className="max-sm:hidden" onClick={() => setConfirmImportar(true)} disabled={importar.isPending}>Importar coleções existentes</Button>
-          <Button className="max-sm:hidden" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+          <Button variant="outline" className="max-sm:hidden" onClick={() => setConfirmImportar(true)} disabled={readOnly || importar.isPending}
+            title={readOnly ? TITULO_SO_LEITURA_OTB : undefined}>Importar coleções existentes</Button>
+          <Button className="max-sm:hidden" onClick={() => setTipoOpen(true)} disabled={readOnly}
+            title={readOnly ? TITULO_SO_LEITURA_OTB : undefined}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
         </div>
       </header>
       {colecoesFiltradas.length === 0 ? (
@@ -330,8 +337,10 @@ function OtbPage() {
       )}
       {padraoOpen && <PadraoMixSheet onClose={() => setPadraoOpen(false)} />}
       <MobileActionBar>
-        <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => setConfirmImportar(true)} disabled={importar.isPending}>Importar coleções</Button>
-        <Button className="ml-auto" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+        <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => setConfirmImportar(true)} disabled={readOnly || importar.isPending}
+          title={readOnly ? TITULO_SO_LEITURA_OTB : undefined}>Importar coleções</Button>
+        <Button className="ml-auto" onClick={() => setTipoOpen(true)} disabled={readOnly}
+          title={readOnly ? TITULO_SO_LEITURA_OTB : undefined}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
       </MobileActionBar>
 
       <AlertDialog open={confirmImportar} onOpenChange={setConfirmImportar}>

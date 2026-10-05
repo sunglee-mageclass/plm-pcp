@@ -41,11 +41,15 @@ export async function voltaS4(c: Client, comDrop = false): Promise<void> {
   await zeraTimeouts(c);
 }
 
-/** A S4 está viva NESTA txn? Pela função de gatilho do OTB. */
+/**
+ * A S4 está viva NESTA txn? Pela função de gatilho do OTB — o texto da S4 OU o de um sucessor (Backend B5 `20261103148000`
+ * acrescenta o portão de página no MESMO gatilho; `voltaS4` tira o Backend antes, via voltaS5SePreciso → … → voltaBkSePreciso).
+ */
 export async function s4Viva(c: Client): Promise<boolean> {
   const f = S4_FUNCOES.find((x) => x.modulo === "otb")!;
   const r = await c.query("SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [f.fn]);
-  return r.rows[0]?.m === f.depois;
+  const { md5ModSucessor } = await import("./mod-helpers"); // cadeia Mod → Backend (md5BkSucessor)
+  return md5ModSucessor(f.fn, f.depois).includes(r.rows[0]?.m);
 }
 
 /** LIFO: quem volta a S3d (ou algo mais antigo) dentro da txn tira a S4 antes. */

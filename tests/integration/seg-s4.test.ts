@@ -217,6 +217,10 @@ describe.skipIf(!RODA)("seg S4 — fix round: ordem de volta (S5 → S4 → S3d)
 
   it("LIFO S5: com a S5 no banco, os inversos da S4 (230000/220000) e o dos grants da S3d RECUSAM; sem ela, passam", async () => {
     await withTx(async (c) => {
+      // LIFO: o Backend sai antes (a B5, 20261103148000, redefine fn_seg_modulo_otb — o inverso da S4 recusaria pelo md5 dela,
+      // não pela S5 que este caso prova)
+      const { voltaBkSePreciso } = await import("./bk-helpers");
+      await voltaBkSePreciso(c);
       const { aplicaS5, voltaS5 } = await import("./seg-s5-helpers");
       await aplicaS5(c);
       await expect(aplicarArquivo(c, S4_DOWNS[0])).rejects.toMatchObject({
