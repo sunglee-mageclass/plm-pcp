@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
+import { hasDb, ehBancoLocal, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
 
-describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("colab — trava otimista (P0409)", () => {
   it("salvar_oc_tecido: _rev_base errado recusa com P0409; null passa da checagem", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
@@ -216,7 +216,7 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
 // fez GRANT a `authenticated`, sem REVOKE explícito de PUBLIC/anon (toda função nova
 // nasce com EXECUTE pra PUBLIC; anon/authenticated herdam dele). Migração
 // 20260807130000 fecha o furo.
-describe.skipIf(!hasDb)("colab — ACL dos wrappers de salvar (invariante #9, fast-follow)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("colab — ACL dos wrappers de salvar (invariante #9, fast-follow)", () => {
   it("salvar_oc_tecido/salvar_modelo_bom/salvar_plan_tecido: PUBLIC e anon SEM EXECUTE; authenticated COM", async () => {
     await withTx(async (c) => {
       const r = await um<{ public_oc: boolean; anon_oc: boolean; auth_oc: boolean;
@@ -251,7 +251,7 @@ describe.skipIf(!hasDb)("colab — ACL dos wrappers de salvar (invariante #9, fa
 // IDENTITY FULL, o DELETE só manda a PK no WAL — o useColabRegistro filtra o payload
 // do DELETE por cad_id=eq (filtroColuna="cad_id"), que nunca casa e a exclusão não
 // propaga em tempo real pra outra aba do colab. Migração 20260807130000 corrige.
-describe.skipIf(!hasDb)("colab — REPLICA IDENTITY FULL (fast-follow, propaga DELETE)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("colab — REPLICA IDENTITY FULL (fast-follow, propaga DELETE)", () => {
   it("producao_terceirizados e controle_qualidade: relreplident = 'f' (FULL)", async () => {
     await withTx(async (c) => {
       const rows = await c.query(
@@ -265,7 +265,7 @@ describe.skipIf(!hasDb)("colab — REPLICA IDENTITY FULL (fast-follow, propaga D
   });
 });
 
-describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("colab PCP/CQ — rev infra (T1)", () => {
   it("producao_terceirizados: UPDATE bumpa rev (BEFORE UPDATE); rev é do servidor", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);

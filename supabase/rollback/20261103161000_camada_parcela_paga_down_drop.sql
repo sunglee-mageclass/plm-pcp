@@ -1,7 +1,8 @@
 -- DROP opcional de supabase/migrations/20261103161000_camada_parcela_paga.sql - GERADO por .superpowers/sdd/2026-10-05-camada/mig/gerar-c1.mjs (nunca editar a mao). Rodar SO depois do 20261103161000_down, com o SITE ja
 -- voltado, em HORARIO CALMO: DROP TRIGGER pega AccessExclusiveLock em producao_terceirizados por um instante E, em PRODUCAO
 -- (supautils.policy_grants), prende ~23 tabelas auth/storage/realtime ate o COMMIT (login/upload esperam) - transacao
--- curtissima, horario calmo. (A copia local nao tem supautils: a medicao dos testes nao enxerga isso.)
+-- curtissima, horario calmo. (A copia local TAMBEM carrega o supautils, por session_preload_libraries, com as 24 tabelas de auth/storage/realtime em
+-- supautils.policy_grants: a trava em auth foi MEDIDA na propria copia, entao o horario calmo vale igual nos testes e na producao.)
 -- Guarda: a funcao tem de estar NEUTRA (ou ausente).
 --   public.fn_servico_parcela_paga_bloqueia_delete()  IDA f819e2f2059019539de03dd179721611  NEUTRO 7a6dd9a7e13c300569c162808081bf7f
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).

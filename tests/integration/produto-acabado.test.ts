@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { hasDb, ehBancoLocal, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 
-describe.skipIf(!hasDb)("Produto Acabado — códigos automáticos", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — códigos automáticos", () => {
   it("REF não-acessório = 2G+1C+2S + nº de dígitos da loja (8 por padrão); acessório = 2G+3CAT; nº OC usa ACE p/ grupo Acessórios", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
@@ -38,7 +38,7 @@ describe.skipIf(!hasDb)("Produto Acabado — códigos automáticos", () => {
   });
 });
 
-describe.skipIf(!hasDb)("Produto Acabado — RPCs de escrita (Task 2)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — RPCs de escrita (Task 2)", () => {
   it("_split_maior_resto: Σ ≡ total, maior resto com desempate por chave", async () => {
     await withTx(async (c) => {
       const r1 = await um<any>(c, `select _split_maior_resto(100, '{"38":1,"40":1,"42":1}'::jsonb) as g`);
@@ -300,7 +300,7 @@ describe.skipIf(!hasDb)("Produto Acabado — RPCs de escrita (Task 2)", () => {
 
 // custo_unitario_modelos, ramo revenda (Task 4): modelo origem='revenda' COM produto
 // vinculado lê a cadeia de valores do produto/OC em vez do caminho CAD/cad_conf normal.
-describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("custo_unitario_modelos — ramo revenda (Task 4)", () => {
   it("modelo revenda + OC recebida → previsto/real batem com a cadeia de valores + insumos; sem OC recebida real=null", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
@@ -378,7 +378,7 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
 // `_salvar_produto_acabado_core` persiste os 2 markups e recomputa `modelos.preco_atacado`/
 // `preco_venda` do espelho a cada save; `salvar_markups_produto_acabado` é a RPC pequena
 // usada pelo card revenda do Planejamento (grava só os 2 markups, sem tocar no resto).
-describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço derivado (item 3 do refino)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — markups digitáveis → preço derivado (item 3 do refino)", () => {
   it("salvar_produto_acabado com markup_atacado/markup_varejo recomputa e persiste preco_atacado/preco_venda do espelho", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
@@ -518,7 +518,7 @@ describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço deri
   });
 });
 
-describe.skipIf(!hasDb)("Produto Acabado — excluir_produto_acabado (Task 6 fix round 1)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — excluir_produto_acabado (Task 6 fix round 1)", () => {
   async function novoProduto(c: any, sufixo: string) {
     const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Grupo excluir ${sufixo}') returning id`);
     const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Cat excluir ${sufixo}') returning id`);
@@ -594,7 +594,7 @@ describe.skipIf(!hasDb)("Produto Acabado — excluir_produto_acabado (Task 6 fix
 // _rev_base + P0409) na grade cor×tamanho do card de Revenda — fecha o last-write-wins do
 // antigo delete+insert cru em `modelo_grades` feito direto pelo front. Mesmo molde do
 // rev-check de `salvar_modelo_bom` (ver colab-trava.test.ts); NÃO é merge por célula.
-describe.skipIf(!hasDb)("Produto Acabado — salvar_grade_revenda (fast-follow trava otimista)", () => {
+describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — salvar_grade_revenda (fast-follow trava otimista)", () => {
   it("_rev_base correto grava e bumpa rev; save seguinte com linha ausente apaga", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);

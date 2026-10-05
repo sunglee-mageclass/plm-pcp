@@ -439,7 +439,9 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   com não-ASCII o PostgREST responde `500 text/plain "Something went wrong"`, o `code` some e o merge
   colaborativo/prévia do SKU não rodam (P-58/P-59, `20261006120000`, produção 26/set). A tela traduz
   pelo `code`. `P0001` (400) e `42501` (403) não são afetados. Ao testar regex no Postgres, fronteira
-  de palavra é `\y` (`\b` = backspace).
+  de palavra é `\y` (`\b` = backspace). **B3 (Backend, `20261103147000`, P-259):** os 11 `P0002` antigos com texto acentuado viraram
+  `nao_encontrado: <oc|produto|modelo|config_loja|lote_kanban>` (ASCII; o código segue `P0002`); `mensagemBackend` traduz por entidade
+  (`TEXTOS_NAO_ENCONTRADO`, entidade desconhecida = texto genérico) e deixa passar o texto antigo acentuado (banco sem a B3).
   `useColabRegistro` (`@/hooks`) abre o canal Realtime (`colab:<tela>:<id>`) p/ presença (quem está
   na tela/campo) + reagir a UPDATE alheio; `mergeDraft`/`mergeLinhas` (`@/lib/colab/merge`, puros)
   fazem merge 3-vias (base/draft/fresh) por campo tocado (`touched`), sinalizando conflito só onde
@@ -778,7 +780,8 @@ e verifique** — o repo muda rápido.
     legítimas seguem tocando o legado, não remover esses blocos; não reintroduzir leitor/writer NOVO).
     Validação **no SERVIDOR** (`_salvar_direcionamento_core` v2, payload
     `[{loja_id, variante_numero, grades}]` = **estado COMPLETO** — linha ausente é
-    APAGADA; front monta sempre o estado inteiro): grade real autoritativa de
+    APAGADA (**lista VAZIA com linhas no servidor é RECUSADA sempre**: `estado_vazio_recusado: direcionamento N`, a tela nunca manda
+    marca de "apagar tudo" — ver "Camada intermediária"); front monta sempre o estado inteiro): grade real autoritativa de
     `cad_grades.grades_reais`; rascunho livre; **Confirmar = RAISE P0001 em PT se
     Σ por tamanho ≠ real** (mensagem com tamanho+diferença — não trocar o ERRCODE:
     23514 seria engolido pelo erro-mensagem.ts), atômico com `direcionamento_status=
@@ -1612,8 +1615,14 @@ como recebida (P-197 A); 2 itens recebidos sem quantidade (Ave Rara) passam a co
   - **Cadastros** (artigos/tecidos, aviamentos, insumos, fornecedores, linhas, atributos, Lojas do Direcionamento, endereçamento —
     inclusive `importar_tecido/aviamento/insumo_linha` — só `importar_modelo_linha`/`importar_produto_linha` ganharam o portão
     `importar`, na S3d); só a correção B3 (`set_artigo_categorias` ignora categoria de outra loja).
-  - **OTB** (coleções, PV, Padrão do mix, simulador): com o módulo `otb` LIGADO qualquer login da loja grava (S4 só exige o
-    módulo; `otb_*` gravam `modelos` como DEFINER). Backlog: portão de página no mesmo `trg_aaa_seg_modulo`, se o dono quiser.
+  - **OTB — EXCEÇÃO, hoje TRANCADO por página (Backend B5, P-258 A, `20261103148000`):** com o módulo `otb` LIGADO, GRAVAR exige
+    **EDITAR a página `otb`** no servidor (quem só VÊ recebe `42501 sem_permissao_pagina: otb`; admin da loja e super passam). O portão é o
+    `trg_aaa_seg_modulo` das 12 tabelas do OTB (`fn_seg_modulo_otb`: módulo primeiro, página depois) + as 9 RPCs DEFINER do OTB
+    (`otb_salvar_colecao`, `otb_confirmar`, `otb_confirmar_pv`, `otb_desconfirmar`, `otb_excluir_colecao`, `otb_importar_colecoes`,
+    `otb_atribuir_card`, `aplicar_simulacao_modelo`, `criar_card_simulacao`). Leitura (SELECT, `otb_orcamento`, `sidebar_badges`) não
+    muda; o Plan. Tecido segue salvando sem a página OTB (o bump de `colecoes.plan_rev` é DEFINER). Telas: `otb.index.tsx` desabilita
+    "Importar coleções existentes"/"Nova coleção" com `useReadOnly()`; mensagem PT via `mensagemSegS3`. Antes da ida, o Passo 0
+    (`bk5-passo0.sql`) lista quem perde a gravação (na cópia: 3 usuários da Ave Rara) — avisar o dono.
   - **Config da Loja e Admin** (admin da loja/super pelas RPCs próprias: `salvar_config_loja`, `set_user_permissions`, papéis,
     `kanban_*`), **Dashboards** (leitura; gate de dado por `user_can_view` nas RPCs `dashboard_*`), e a **Distribuição por loja**
     (sem página própria desde a F5b: o dialog grava pelo Salvar do Plan. Tecido, portão `criacao_plan_tecido`).
@@ -1866,12 +1875,25 @@ Frente de endurecimento do servidor + front sem engolir erro. Detalhes das regra
 - **Migrations (cada uma com inverso em `supabase/rollback/`):** `20261103140000_bk_lancado_protegido` (B1 — inv. 6),
   `20261103141000_bk_rev_uma_vez_raizes` (B2 — "Colaboração em tempo real"), `20261103143000_bk_integracao_produto_unico` (B4 — inv. 14;
   `_down` no-op + `_down_drop` opcional), `20261103145000_bk_opcoes_colecao` (F2.1 — "Coleção pelo rótulo"; `_down` no-op + `_down_drop`
-  opcional). B1/B2/B4 NÃO mudam dado; B4/F2 criam objeto novo inerte. Gerador/md5/`mig/` ficam FORA do git (`.superpowers/`) e vão
-  junto do kit. **Ida (banco ANTES do site):** Mod `131000` → `140000` → `141000` → `143000` → `145000` → Camada → T5 `200000` → SITE.
-- **Volta (LIFO pela aplicação):** SITE → T5 `200000_down` → Camada → **`145000_down` (no-op) → `143000_down` (no-op) → `141000_down` →
-  `140000_down`** → Mod `130000_down` … Os `_down_drop` (`145000` e depois `143000`) são opcionais, DEPOIS, em horário calmo, e só com o
-  SITE já voltado (o site novo chama a RPC). **Inversos ANTIGOS que recusam (md5) com o Backend vivo — desfazer o Backend antes:** S3d
-  `20261101210000_down`/`_down_drop` (`fn_seg_pagina_modelos`, B1) e L9 `20261029100000_down` (`fn_colab_bump_oc_avi`, B2).
+  opcional), **`20261103147000_bk_p0002_ascii` (B3 — "Colaboração em tempo real", regra do ASCII; só catálogo, `_down` neutro devolve os 11
+  textos; sem `_down_drop`)** e **`20261103148000_bk_otb_pagina` (B5 — "Reforço › Alcance"; só catálogo, `_down` neutro; sem `_down_drop`)**.
+  B1/B2/B4 NÃO mudam dado; B4/F2 criam objeto novo inerte; B3/B5 só trocam texto/portão de função (B5 só RECUSA, dado intacto).
+  Gerador/md5/`mig/` ficam FORA do git (`.superpowers/`) e vão junto do kit. **Ida (banco ANTES do site):** Mod `131000` → `140000` →
+  `141000` → `143000` → `145000` → `147000` (B3) → `148000` (B5) → Camada `160000` → `161000` (**horário calmo**: CREATE TRIGGER pega
+  ShareRowExclusive em `producao_terceirizados`) → T5 `200000` → SITE.
+- **Volta (LIFO pela aplicação):** SITE → T5 `200000_down` → **`161000_down` (neutro) → `160000_down` → `148000_down` → `147000_down`** →
+  **`145000_down` (no-op) → `143000_down` (no-op) → `141000_down` →
+  `140000_down`** → Mod `130000_down` … Os `_down_drop` (`161000` — DROP TRIGGER/FUNCTION, AccessExclusive em `producao_terceirizados` e,
+  em produção E na cópia (ambas carregam o supautils), prende ~23 tabelas de auth/storage/realtime até o COMMIT; `145000` e depois `143000`) (`145000` e depois `143000`) são opcionais, DEPOIS, em horário calmo, e só com o
+  SITE já voltado (o site novo chama a RPC). **Inversos ANTIGOS que recusam (md5) com o Backend/Camada vivos — desfazer o novo antes:**
+  - B1/B2: S3d `20261101210000_down`/`_down_drop` (`fn_seg_pagina_modelos`, B1) e L9 `20261029100000_down` (`fn_colab_bump_oc_avi`, B2).
+  - **B3 (só DEPOIS do `147000_down`):** Mod `20261103100000_down` (`voltar_modelo_desenvolvimento`) e `20261030100000_down`
+    (`_limpar_produto_acabado/importado_core`). (S3a `100000_down`/S3d `190000_down` só dão PERFORM nos `_core`, sem md5: não afetados.)
+  - **B5 (só DEPOIS do `148000_down`):** S4 `20261101230000_down` e `_down_drop` (fixam `fn_seg_modulo_otb`), Mod `20261103110000_down`
+    (`otb_excluir_colecao`) e S3a `20261101100000_down_drop` (DROP do helper recusa enquanto alguém chama `_seg_exige_pagina`; a B5 soma 10).
+  - **C1 (só DEPOIS do `160000_down`):** S3a `20261101100000_down` e `_down_drop` (`salvar_oc_tecido`/`salvar_oc_aviamento`), S3b
+    `20261101130000_down` (`salvar_terceirizados`/`salvar_direcionamento`/`confirmar_direcionamento`) e S6 `20261101250000_down`
+    (`salvar_oc_etiqueta`). O `161000_down_drop` exige a função do gatilho NEUTRA (rode o `161000_down` antes).
   ⚠️ **S1 `20261031130000_down` NÃO recusa** (só confere que as funções existem e devolve o EXECUTE aos bumps `_cq`/`_oc`/`_plan`,
   sem olhar md5); o risco é o OPOSTO: rodado ANTES do `141000_down`, ele muda a ACL dos bumps e o `141000_down` aborta na
   pós-condição de ACL (`proacl::text` exato). Ordem certa: `141000_down` primeiro, S1 `_down` depois (LIFO). A lista final é a "cadeia md5" de cada `mig/md5-bkN.txt`.
@@ -1883,9 +1905,98 @@ Frente de endurecimento do servidor + front sem engolir erro. Detalhes das regra
   botões (`OcAcoesSalvar.tsx`), os handlers e o `mutationFn` recusam (title PT-BR + aviso com "Tentar de novo" se a 1ª carga falhou), e a
   query da OC só carrega com o modo pronto (`enabled: !!ocId && modoPronto`) — antes uma falha da 1ª leitura deixava decidir com o
   fallback `"ambos"`. Leituras de `modelos` sem `.range` em OUTRAS abas do `dashboard.tsx` seguem como backlog (lojas ~280 cards).
+- **B3 e B5 ENTRARAM (05/out):** B3 = os 11 `P0002` antigos → `nao_encontrado: <entidade>` ASCII + tradução PT (P-259; ver a regra
+  "RAISE 5xx só ASCII" em Convenções); B5 = OTB exige EDITAR a página `otb` no servidor (gatilho das 12 tabelas + 9 RPCs DEFINER, P-258 A;
+  ver "Reforço › Alcance"). Achado fora do escopo da B5 (Faxina/segurança): `salvar_mix_padrao(uuid,text,jsonb,integer)` ainda tem EXECUTE
+  para PUBLIC/anon (o anon não grava, mas destoa do anti-drift da S1/S5).
 - **Fora desta frente (DROP vai para a Faxina, item a item — nada é apagado aqui):** sobrecargas mortas de 3 args (S6, ver
-  "Reforço de segurança") e o legado dos itens 10/11/22 do plano. **B3** (os 11 `P0002` antigos → `nao_encontrado: <entidade>`, depende de P-259) e **B5** (OTB exigir a página `otb` no
-  servidor, gatilho + 8 RPCs, depende de P-258) NÃO entraram: "RAISE 5xx só ASCII" e "Reforço › Alcance" valem como estão.
+  "Reforço de segurança") e o legado dos itens 10/11/22 do plano.
+
+## Camada intermediária — Onda 1 (out/2026; plano/relatórios em `.superpowers/sdd/2026-10-05-camada/`; branch `camada/lote`)
+
+Frente "nada some em silêncio": o servidor recusa salvar lista vazia/serviço pago sem confirmação, a tela pergunta antes de desfazer, e o merge
+colaborativo não ressuscita nem apaga calado. Migrations `20261103160000_camada_estado_vazio` (só catálogo, 6 funções) e
+`20261103161000_camada_parcela_paga` (objeto novo, arquivo próprio; ver "Backend" para ida/volta/inversos antigos). C3 ("Carregar sem enganar")
+está em "Convenções de código". Onda 2 = backlog no fim desta seção.
+
+- **C1 — regras no SERVIDOR (P-77 A / P-262 A / P-268 A):**
+  - **Lista de ESTADO COMPLETO vazia** (`null`, `[]`; em `salvar_terceirizados` também não-lista) com linhas no servidor →
+    `P0001 estado_vazio_recusado: <entidade> <n>` (ASCII; entidade `servicos` | `direcionamento` | `itens_oc`) e nada é apagado, salvo com a marca:
+    **PCP Serviços** `_rev_base._apagar_tudo = N` (N = contagem de serviços ATIVOS que o diálogo mostrou, só dígitos; `true` NÃO vale; N ≠
+    contagem do servidor → `P0409 conflito_versao: a lista de servicos mudou…`); **3 OCs** (`salvar_oc_tecido/aviamento/etiqueta`) `_oc._apagar_itens
+    = true`. **Direcionamento (`salvar_direcionamento`/`confirmar_direcionamento`) recusa vazio SEMPRE** (a tela nunca manda marca). OC nova e
+    servidor já vazio passam; `_rev_base` null = bypass de manutenção/testes. Nomes das marcas em UM lugar no front: `src/lib/apagar-tudo.ts`
+    (anti-drift tela × migration em `tests/unit/camada-c1-marcas.test.ts`). Sobrecargas mortas (`salvar/confirmar_direcionamento(2)`,
+    `salvar_oc_aviamento(3)`, `salvar_oc_etiqueta(3)`) seguem inalcançáveis (42725) — o anti-drift falha se voltarem a funcionar.
+  - **I2 — rev de TODO bloco que o Salvar APAGA** (`salvar_terceirizados`, `_rev_base` objeto): cada serviço que sai precisa estar no
+    `_rev_base` com o MESMO rev; editado por outra pessoa OU criado por outra e nunca visto (fora do `_rev_base`) → `P0409 conflito_versao: um
+    servico removido foi alterado ou criado por outra pessoa`. Consequência: a tela manda no `_rev_base` o rev de TODO bloco da base
+    (`revByBlocoRef`), não só o do payload; chamada com UM bloco num CAD com vários é recusada em vez de apagar os outros.
+  - **Molde** (`observacoes_molde`, coluna do `cad`): chaves reservadas `_rev_base._molde_tocado` (bool) e `_molde_base` (texto carregado).
+    Ausente = grava como antes; `false` = NÃO grava; `true` = trava o cad (`FOR NO KEY UPDATE`) e, se o texto do servidor ≠ base →
+    `P0409 conflito_versao: observacoes_molde`.
+  - **Estado completo só nas linhas `ativo IS TRUE`**: o I2, a contagem N, a guarda de vazio, a checagem da parcela paga e o DELETE do
+    `salvar_terceirizados` ignoram linha `ativo = false` (nunca é conferida nem apagada; só `excluir_cad` a leva).
+  - **Serviço com parcela PAGA** (`status='pago' OR data_pagamento IS NOT NULL`): o Salvar do PCP lista quais →
+    `P0001 servico_com_parcela_paga: <categoria - fornecedor>: parcela n, m…` (ASCII no prefixo; o detalhe vem do cadastro e pode ter acento — P0001
+    é 400, sem o problema do 5xx) e o **gatilho `trg_servico_parcela_paga_bloqueia_delete`** (BEFORE DELETE FOR EACH ROW em
+    `producao_terceirizados`, função `fn_servico_parcela_paga_bloqueia_delete`, INVOKER) pega TODO caminho: `excluir_cad` (cascata
+    cad → serviço, antes sem guarda), `_reverter_corte_tecido_core` (caso `data_pagamento` sem status), SQL direto. **Excluir card/CAD inteiro
+    com serviço pago = RECUSADO** (desmarque o pagamento antes). **NÃO morde o reset/excluir loja**: o `_wipe_tenant_core` liga
+    `session_replication_role = replica` (gatilho comum não dispara). TRUNCATE não dispara gatilho de DELETE.
+  - Textos PT: `mensagemCamada` em `src/lib/erro-mensagem.ts` (por entidade, singular/plural); os dois P0409 novos caem no texto genérico de
+    P0409 ("Outra pessoa salvou…"), e `observacoes_molde` tem texto próprio.
+- **C2 — diálogos "Tem certeza?" (P-263 A, P-267 A, P-272 A):** `ConfirmarAcaoDialog` + `useConfirmacao()`
+  (`src/components/shared/ConfirmarAcaoDialog.tsx`; AlertDialog único, vermelho quando desfaz/apaga, neutro quando refaz/reabre/ajusta;
+  Cancelar/Esc/clique fora NUNCA executam). **Os textos aprovados pelo dono vivem em `src/lib/confirmacoes-textos.ts` (funções puras, fonte
+  única — mudar texto = o dono aprova; teste `camada-c2-textos` fixa verbatim).** Regra (P-263 A): **só ação que DESFAZ pede confirmação;
+  avançar não** (ex.: "Reprovado" da peça-teste pergunta, "Aprovado" é direto). ~14 diálogos: cancelar lançamento, desmarcar CQ Pré/Pós,
+  desmarcar Direcionamento, desconfirmar coleção OTB (orçamento/PV), desmarcar pago (parcela de OC e de serviço), cancelar/reabrir rolo,
+  ajustar quantidade, recalcular parcelas (o `confirm()` nativo foi REMOVIDO), reprovar peça-teste. **"Apagar todos os N?"** nas 4 telas de
+  lista (PCP Serviços, OC Tecido/Aviamento/Insumo): o `mutationFn` lança `ApagarTudoPendenteError(N)` quando o payload sai vazio e o servidor
+  TEM linhas; o `onError` abre o diálogo (sem toast); Cancelar não manda nada; Confirmar salva de novo com a marca; o retry do P0409 mantém a
+  confirmação. N=1 usa a frase no singular (P-272 A); `nServidor` vem do cache relido (`getQueryData`). Dialog novo de ação que desfaz: texto
+  em `confirmacoes-textos.ts` e teste de comportamento (clicar → texto → Cancelar não grava → Confirmar grava UMA vez).
+- **Merge colaborativo com linha REMOVIDA (OC Tecido/Aviamento/Insumo + PCP Serviços):** `mergeLinhas({removidasIds})` (opt-in, `@/lib/colab/merge`):
+  linha que EU removi e o servidor não mexeu **segue removida** (antes o merge a ressuscitava); se o servidor a mudou depois da base vira conflito
+  de LINHA (`meu: null`, `dele: linha`), nem restaurada nem apagada em silêncio; removida sem base = conflito. As telas marcam o id removido em
+  `setItemsTracked`/`setBlocosTracked`. Regras de `src/lib/colab/conflitos-pendentes.ts` (`juntarConflitos`, `baseSemAvancarEmConflito`,
+  `baseComLinhaResolvida`): conflitos pendentes de CAMPO/GRADE são juntados aos novos; **conflito de LINHA vale SÓ pelo que o merge atual
+  recalculou** (lição I1b: conflito de linha velho mantido deixava "usar o novo" ressuscitar linha que o outro apagou/reverteu — os ramos "merge
+  sem resultado" descartam via `semConflitosDeLinha`); **a base de uma linha em conflito NÃO avança** (o conflito é recalculado com o valor mais
+  novo; linha em conflito sem base antiga fica FORA da base); ao resolver ("manter meu"/"usar o novo") a base da linha vira o que o servidor
+  tem; Salvar segue travado enquanto houver conflito. "Usar o novo" numa removida a restaura (substitui a linha nova da mesma
+  variante/aviamento, sem duplicar; se o fornecedor — ou o tecido, na OC Tecido — mudou, NÃO restaura e avisa). OC Aviamento aceita o mesmo
+  aviamento em 2 linhas: restaura como linha separada + toast. OC Tecido mantém o tempId da linha nova (rolosPorItem não fica órfão). PCP
+  Serviços: o retry do P0409 lê `blocosLiveRef` (não a closure do clique) — senão o retry mandava o rascunho pré-merge e sobrescrevia o que
+  a outra pessoa mudou. Fora (backlog): `plan-tecido/colab-merge-arvore.ts`.
+- **C4 REVERTIDA (RULING R1) — só o F6a ficou:** a Explosão (`ExplosaoDetail.tsx`) tem o mesmo merge/eco/salvar de antes da C4; ficou o F6a
+  (`falhaCarga` das 6 leituras: aviso "Não foi possível carregar os dados." + "Tentar de novo", Salvar/Enviar travados, nenhuma RPC sai).
+  Continuam valendo o aviso falso ao próprio autor ("atualizada por outra pessoa", cosmético) e os pré-existentes R1–R3 (Salvar = 3 RPCs em
+  3 transações; RPCs 2 e 3 com `_rev_base` null → perda de dado possível). O teste `camada-c4-explosao-f6a.test.ts` FIXA o aviso falso de
+  propósito — a Onda 2 (Explosão em RPC única atômica) tem de atualizá-lo junto.
+- **Etapas PL — edição rápida usa o MESMO builder do PCP (hotfix, 14º deploy, `b0ea37fd`):** a edição rápida do card (Saída/Entrada/Aprovação/Data
+  de envio) chamava `salvar_terceirizados` com `_blocos: [só o bloco do card]` — e a RPC é estado COMPLETO por CAD, então apagava os OUTROS
+  serviços (e as parcelas a pagar, em cascata) e zerava `nf_saida`/`nf_entrada`/`peca_foto*`. Agora `src/lib/servicos-payload.ts`
+  (`blocoDeLinha`, `blocoParaPayload`, `montarPayloadEdicaoRapida`, `ServicoSumiuError`) é a ÚNICA fonte do payload para o sheet do PCP e
+  para `useSalvarEtapaRapida` (que relê TODAS as linhas do CAD por `cad_id` e o molde): manda todos os blocos, o rev de cada um, linha inativa
+  com `ativo:false` (no-op) e `_molde_tocado: false`. **Regra: nunca montar `_blocos` com um subconjunto do CAD.** Com a C1 viva o payload
+  antigo de 1 bloco é RECUSADO (I2). Testes: `etapas-salvar-rapida-payload` (unit) e `etapas-salvar-rapida` (integração, cópia).
+- **Deploy/kit (para o roteiro):** banco ANTES do site. Aba aberta antes do deploy precisa RECARREGAR: remover serviço dá P0409 (a aba velha
+  não manda o rev do removido); "apagar tudo"/serviço pago mostram o texto cru (`estado_vazio_recusado: …`/`servico_com_parcela_paga: …`). Passo 0
+  (só leitura): `c1-passo0.sql` (md5/ACL dos 6, gatilho ausente, parcelas pagas por loja, **3b** Direcionamento com todas as grades `'{}'` e
+  **3c** serviços `ativo IS NOT TRUE` — se > 0, PARE e leve ao controlador) e `bk5-passo0.sql`. ACL ≠ `md5-*.txt` = PARE. QA limpando
+  serviços/itens por lista vazia passa a exigir a marca.
+- **Onda 2 (backlog, nada disto está feito):**
+  - **Salvar por card** (C6/C7; mockup aprovado em P-269..P-271: "Aplicar a todas" → rascunho, foto/endereços na hora; decisão P-260 A);
+  - **Salvar único do Planejamento**;
+  - **Explosão em RPC única atômica** (prioridade ALTA: corrige o aviso falso ao próprio autor e a perda de dado pré-existente R1–R3; atualizar o teste do F6a);
+  - **`rolos_planejados` no merge da OC Tecido modo rolo** (hoje sobrescreve o plano alheio) e o item B-c da revisão do merge de removidas;
+  - **merge em árvore do Plan. Tecido** com `removidasIds`;
+  - **M2 do PCP**: tratamento próprio do P0409 do molde na tela + Realtime do `cad` (`tabelasExtra: ['cad']` no `useColabRegistro`) — a
+    Oficina ainda grava o molde sem rev;
+  - menores: `scope: { id: card.cadId }` na `useSalvarEtapaRapida` (2 edições rápidas em cards diferentes do mesmo CAD ao mesmo tempo dão P0409
+    "outra pessoa"; falha segura) e lista "efetivamente vazia" nas OCs (lista não vazia sem as chaves do item ainda apaga tudo; a tela sempre manda as chaves).
 
 ## O que NÃO fazer
 
