@@ -977,6 +977,10 @@ export function TerceirizadosDetail({
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado para este modelo. Abra o CAD primeiro.");
+      // [lost update, P0409] lê os blocos do REF ao vivo (não da closure do render do clique): o retry automático do P0409 roda o merge e
+      // grava o resultado em `blocosLiveRef` ANTES de salvar de novo — a closure ainda teria o rascunho pré-merge e sobrescreveria,
+      // em silêncio, o que a outra pessoa mudou (mesma receita da OC Tecido, S6 B1).
+      const blocos = blocosLiveRef.current;
       // R13: a RPC devolve void — lê o status do CQ ANTES p/ saber, depois, se o save o rebaixou (grade real zerada).
       cqStatusAntesRef.current = await lerStatusCq(cad.id);
       // RPC transacional com diff-por-id: preserva ids, atualiza/insere/deleta numa
@@ -1120,6 +1124,7 @@ export function TerceirizadosDetail({
           gradeAtual += mg.atualizados.length;
           return mg.atualizados.length || mg.conflitos.length ? { ...b, grade_detalhe: mg.valor } : b;
         });
+        blocosLiveRef.current = out; // o retry abaixo roda ANTES do re-render: o mutationFn lê o estado MESCLADO daqui
         setBlocos(out);
         const todos = [...ml.conflitos, ...gradeConf];
         conflitosRef.current = todos;

@@ -189,6 +189,23 @@ describe("[camada C2] PCP Serviços — serviço REMOVIDO e merge (não ressusci
     expect(document.body.textContent).not.toContain("conflito a resolver");
   });
 
+  it("LOST UPDATE: outra sessão muda um campo de um serviço que eu NÃO toquei, meu Salvar leva P0409 => o retry manda o valor DELA (não o rascunho velho)", async () => {
+    await abrir();
+    await prepararEditando();
+    await clicar(remover()[0]); // só toco o pt1 (removo); o pt2 fica como carreguei
+    p0409NaPrimeira("salvar_terceirizados", () => {
+      FAKE.linhas.producao_terceirizados[1].observacao = "valor da outra pessoa";
+      FAKE.linhas.producao_terceirizados[1].rev = 5;
+    });
+    await clicar(salvar()!);
+    await aguardar(() => rpcSalvar().length === 2, "1º envio (P0409) + retry automático", 5000);
+    const obs = (c: { payload?: unknown }) => ((c.payload as any)._blocos as any[]).map((b) => [b.id, b.observacao]);
+    expect(obs(rpcSalvar()[0])).toEqual([["pt2", expect.not.stringContaining("outra pessoa")]]); // 1º envio: rascunho antigo
+    expect(obs(rpcSalvar()[1])).toEqual([["pt2", "valor da outra pessoa"]]); // retry: o MESCLADO (antes: sobrescrevia com o velho)
+    expect((rpcSalvar()[1].payload as any)._rev_base.pt2).toBe(5); // e com a rev nova
+    expect(document.body.textContent).not.toContain("conflito a resolver");
+  });
+
   it("remover um serviço e P0409 SEM mudança alheia nele: segue removido (retry manda só o outro), sem conflito", async () => {
     await abrir();
     await prepararEditando();
