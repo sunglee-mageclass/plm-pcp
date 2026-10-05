@@ -24,6 +24,14 @@ describe("mensagemErro", () => {
     expect(mensagemErro({ code: "23514", message: msgFalta }))
       .toBe("Um dos valores informados é inválido.");
   });
+  it("Backend B1: 42501 lancado_protegido (gravação direta de modelos.lancado) vira texto PT", () => {
+    expect(
+      mensagemErro(
+        { code: "42501", message: "lancado_protegido: use o botao Lancar do card" },
+        "fb",
+      ),
+    ).toBe("O lançamento só muda pelo botão Lançar (foguete) do card.");
+  });
 });
 
 describe("mensagemErro — Kanban automático (RPCs da F1)", () => {

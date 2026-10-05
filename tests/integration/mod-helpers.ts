@@ -84,6 +84,17 @@ for (const b of MOD_MIGS) {
   }
 }
 
+// Frente Backend (bk-helpers): roda DEPOIS desta frente no kit (exceto a T5, que não toca funções do Backend — GC 17). Import
+// dinâmico tolerante a ausência (top-level, como os dados acima): `voltaMod*` tira o Backend PRIMEIRO (LIFO) e `md5ModSucessor`
+// continua a cadeia nos "depois" do Backend.
+type Bk = {
+  voltaBkSePreciso: (c: Client) => Promise<void>;
+  md5BkSucessor: (sig: string, pinado?: string) => string[];
+};
+const BK: Bk | null = existsSync(`${ROOT}tests/integration/bk-helpers.ts`)
+  ? ((await import(/* @vite-ignore */ "./bk-helpers.ts")) as Bk)
+  : null;
+
 async function zeraTimeouts(c: Client): Promise<void> {
   // As migrations fazem SET LOCAL transaction_timeout (vale para a txn INTEIRA do teste) — devolve ao normal do teste.
   await c.query("SET LOCAL transaction_timeout = 0");
@@ -119,6 +130,7 @@ export async function aplicaMod(c: Client, ate = 5): Promise<void> {
 /** Volta TODOS os blocos vivos, LIFO, pelos `_down` neutros (a T4 fica: o `_down` dela é no-op). */
 export async function voltaMod(c: Client): Promise<void> {
   exigeBancoLocal();
+  if (BK) await BK.voltaBkSePreciso(c); // LIFO: o Backend (por cima desta frente) sai antes
   for (const b of [...MOD_MIGS].reverse()) {
     if (!b.downs.length || !(await modViva(c, b.n))) continue;
     for (const d of b.downs) await aplicarArquivo(c, d);
@@ -128,6 +140,7 @@ export async function voltaMod(c: Client): Promise<void> {
 
 /** LIFO: quem volta (ou reaplica) a S6 ou qualquer release anterior dentro da txn tira esta frente antes (voltaS6SePreciso). */
 export async function voltaModSePreciso(c: Client): Promise<void> {
+  if (BK) await BK.voltaBkSePreciso(c); // LIFO: o Backend sai antes, mesmo que nenhum bloco desta frente esteja vivo
   let viva = false;
   for (const b of MOD_MIGS) if (b.downs.length && (await modViva(c, b.n))) viva = true;
   if (!viva) return;
@@ -148,6 +161,11 @@ export function md5ModSucessor(sig: string, pinado?: string): string[] {
     const s = DADOS[b.n]?.MOD_MD5[k];
     if (!s) continue;
     if (!pinado || out.includes(s.antes)) out.push(s.depois);
+  }
+  // cadeia Mod → Backend: os "depois" da frente Backend que sucedem o último texto desta cadeia
+  if (BK) {
+    const ultimo = out.length ? out[out.length - 1] : undefined;
+    for (const m of BK.md5BkSucessor(k, ultimo)) if (!out.includes(m)) out.push(m);
   }
   return out;
 }

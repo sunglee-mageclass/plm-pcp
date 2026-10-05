@@ -133,6 +133,13 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaMod(client);
     }
+    // Frente Backend (mesmo ensaio): com BK_TXN=1 os blocos da frente que existem no repositório (B1, B2, B4, F2.1, F2.3, B3, B5;
+    // bk-helpers) são aplicados DENTRO desta txn, na ordem, DEPOIS da Modularidade (os já vivos na cópia são pulados).
+    if (process.env.BK_TXN === "1") {
+      const { aplicaBk } = await import("./bk-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaBk(client);
+    }
     await fn(client);
   } finally {
     try {

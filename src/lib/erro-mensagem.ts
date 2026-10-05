@@ -329,6 +329,15 @@ export function mensagemSegS3(code: string, msg: string): string | null {
   return textoSemPermissaoPagina(msg.slice(PREFIXO_SEM_PERMISSAO_PAGINA.length).split("|"));
 }
 
+// Frente Backend (out/2026, migrations 20261103140000..): recusas ASCII com prefixo → texto PT.
+// - 42501 `lancado_protegido:` (B1, fn_seg_pagina_modelos): `modelos.lancado` só muda pelo servidor (Lançar e cia.), nunca
+//   por gravação direta da tela/API.
+export const TEXTO_LANCADO_PROTEGIDO = "O lançamento só muda pelo botão Lançar (foguete) do card.";
+export function mensagemBackend(code: string, msg: string): string | null {
+  if (code === "42501" && msg.startsWith("lancado_protegido:")) return TEXTO_LANCADO_PROTEGIDO;
+  return null;
+}
+
 // Modularidade (out/2026, migrations 20261103100000..120000): recusas do servidor por MÓDULO desligado e por coleção com cards.
 // - 42501 `modulo_desligado: a,b` (ASCII, `_exige_modulos`) → "Esta ação precisa do módulo A (e dos módulos A e B)…".
 // - 42501 com o texto LEGADO "Módulo criacao não habilitado para esta loja" (checagens antigas que rodam antes do portão novo, e
@@ -450,6 +459,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Reforço de segurança S3: permissão de página no servidor (42501 ASCII 'sem_permissao_pagina: <chaves>') → texto PT.
   const segS3 = mensagemSegS3(code, msg);
   if (segS3) return segS3;
+
+  // Frente Backend: prefixos ASCII das guardas novas (B1 lancado_protegido) → texto PT.
+  const backend = mensagemBackend(code, msg);
+  if (backend) return backend;
 
   // Modularidade: módulo desligado (portão novo + texto legado), coleção com cards e a FK da coleção → texto PT.
   const modularidade = mensagemModularidade(code, msg);
