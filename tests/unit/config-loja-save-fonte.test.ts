@@ -95,4 +95,24 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
     expect(pagina).toContain("emVooRef.current = new Set(Object.keys(mudancas))");
     expect(pagina).not.toContain("salvandoRef");
   });
+  // urg R2 T11: card "Insumos padrão" participa do Salvar colaborativo (coluna 17) como os outros blocos.
+  it("T11: Insumos padrão - estado, leitura CRUA do servidor, anel/presença por bloco e trava do Salvar", () => {
+    expect(s).toContain("insumos_padrao: [] as InsumoPadrao[]");
+    expect(s).toContain("insumos_padrao: normalizarInsumosPadrao((r as any).insumos_padrao)");
+    expect(s).toContain('insumos_padrao: "cfg:insumos_padrao"');
+    // o card mora logo depois de "Planejamento — análise de markup" e antes de Nomenclaturas
+    const iMarkup = s.indexOf("Planejamento — análise de markup</CardTitle>");
+    const iCard = s.indexOf("<InsumosPadraoCard");
+    const iNomen = s.indexOf('<Card data-colab-path="cfg:nomenclaturas">');
+    expect(iMarkup).toBeGreaterThan(0);
+    expect(iCard).toBeGreaterThan(iMarkup);
+    expect(iNomen).toBeGreaterThan(iCard);
+    expect(s).toContain("anelConflito={anelConflito}");
+    // Salvar travado quando a lista tocada tem linha com problema (órfã/duplicada/consumo) - o servidor recusaria
+    const m = pagina.match(/onClick=\{prepararSalvar\}\s*disabled=\{([^}]*)\}/);
+    expect(m![1]).toContain("insumosPadraoBloqueiaSalvar");
+    // a base é a CRUA (colunasCruas) e o hydrated cobre o catálogo
+    expect(pagina).toContain("colunasCruas(data.cfg");
+    expect(pagina).toContain("catalogoInsumosPronto");
+  });
 });

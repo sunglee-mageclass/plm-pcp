@@ -16,11 +16,13 @@
  */
 import { igual } from "./colab/merge";
 import { KANBAN_COLS, diffKanban, jsonCanonico, pickKanban, type KanbanCol, type KanbanColsValor } from "./kanban-auto-config";
+import { normalizarInsumosPadrao, type InsumoPadrao } from "./insumos-padrao";
 
 /**
- * As 16 colunas GERAIS da página (18 da lista branca da RPC menos `tab_labels`/`campos_editaveis`
+ * As 17 colunas GERAIS da página (19 da lista branca da RPC menos `tab_labels`/`campos_editaveis`
  * — essas 2 são da janela "Nomenclaturas", com upsert e RPC PRÓPRIOS, T5). As 5 colunas de kanban
- * (dentro dessas 16) NÃO entram no diff genérico — ver `montarMudancas` abaixo.
+ * (dentro dessas 17) NÃO entram no diff genérico — ver `montarMudancas` abaixo. A 17ª, `insumos_padrao`
+ * (urg R2 T11), é a lista "Insumos padrão" da loja (`src/lib/insumos-padrao.ts`).
  */
 export const COLUNAS_PAGINA = [
   "timezone",
@@ -39,6 +41,7 @@ export const COLUNAS_PAGINA = [
   "kanban_requisitos_excecoes",
   "revenda_kanban_colunas",
   "revenda_kanban_requisitos",
+  "insumos_padrao",
 ] as const;
 export type ColunaPagina = (typeof COLUNAS_PAGINA)[number];
 
@@ -63,6 +66,7 @@ export type ConfigLojaColab = {
   kanban_requisitos_excecoes: unknown;
   revenda_kanban_colunas: unknown;
   revenda_kanban_requisitos: unknown;
+  insumos_padrao: InsumoPadrao[];
   [k: string]: unknown;
 };
 
@@ -76,6 +80,8 @@ export type ConfigLojaColab = {
  * - `keywords`: string com só espaços (inclusive "") → `null`; senão o texto CRU (sem trim — igual
  *   ao `keywordsParaPayload`, que só decide null/mantém, nunca corta espaços do meio/bordas do que
  *   é gravado).
+ * - `insumos_padrao`: a lista NORMALIZADA (`normalizarInsumosPadrao`: uuid minúsculo, cor "" → null, só as 3 chaves) — a
+ *   mesma forma que a RPC grava; só a grafia diferente (caixa do uuid, chave extra) não conta como mudança.
  * - qualquer outra coluna: valor passa direto (`cfg[k]`).
  *
  * NÃO decide "mudou ou não" (isso é `montarMudancas`) — sempre devolve o valor PRONTO pro payload,
@@ -89,6 +95,7 @@ export function serializarColuna(k: ColunaPagina | string, v: unknown): unknown 
     const vazio = !v || typeof v !== "object" || !Array.isArray((v as { partes?: unknown }).partes) || ((v as { partes: unknown[] }).partes.length === 0);
     return vazio ? null : v;
   }
+  if (k === "insumos_padrao") return normalizarInsumosPadrao(v);
   if (k === "keywords") {
     // Revisão T3/T4 (I2): o banco faz `btrim` (T1 review M3) — o cliente espelha: grava APARADO, e
     // "Moda " e "Moda" são o MESMO valor (sem conflito/"atualizado" falso depois do próprio save).
@@ -125,7 +132,7 @@ export type MontarMudancasResult = {
 
 /**
  * Monta `{mudancas, base}` para a RPC `salvar_config_loja`:
- * - Colunas GERAIS (as 16 menos as 5 de kanban): tocada = `!igual(cfg[k], baseUi[k])` (mesmo
+ * - Colunas GERAIS (as 17 menos as 5 de kanban): tocada = `!igual(cfg[k], baseUi[k])` (mesmo
  *   critério do merge 3-vias hoje, `mergeDraft`/`cfgBaseRef`). Tocada entra em `mudancas`
  *   SERIALIZADA (`serializarColuna`) e `base[k] = baseRaw[k] ?? null` (CRU, não normalizado).
  * - Colunas de KANBAN: usa `diffKanban(kanbanBaseCfg, pickKanban(cfg))` (mesma função de hoje,
@@ -206,6 +213,7 @@ const ROTULOS: Record<string, string> = {
   kanban_requisitos_excecoes: "Exceções dos requisitos",
   revenda_kanban_colunas: "Fluxo de Revenda — colunas",
   revenda_kanban_requisitos: "Fluxo de Revenda — requisitos",
+  insumos_padrao: "Insumos padrão",
   tab_labels: "Nomes das abas",
   campos_editaveis: "Campos editáveis",
 };
@@ -234,7 +242,7 @@ export function colunasDoErro(e: unknown, aceitas: readonly string[] = COLUNAS_P
     (e as Record<string, unknown>).detail ??
     (e as Record<string, unknown>).DETAIL;
   if (typeof raw !== "string" || raw.trim() === "") return [];
-  // T5: a janela "Nomenclaturas" passa a SUA lista (tab_labels/campos_editaveis); default = as 16 da página.
+  // T5: a janela "Nomenclaturas" passa a SUA lista (tab_labels/campos_editaveis); default = as 17 da página.
   const aceitasSet: ReadonlySet<string> = aceitas === COLUNAS_PAGINA ? COLUNAS_PAGINA_SET : new Set(aceitas);
   return raw
     .split(",")

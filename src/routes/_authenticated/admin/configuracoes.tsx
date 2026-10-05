@@ -47,6 +47,11 @@ import {
 } from "@/components/ui/select";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { FormatoSkuCard } from "@/components/configuracoes/FormatoSkuCard";
+import { InsumosPadraoCard } from "@/components/configuracoes/InsumosPadraoCard";
+import {
+  diagnosticarLinhasInsumosPadrao, normalizarInsumosPadrao, TEXTO_PROBLEMA_INSUMO_PADRAO, validarInsumosPadrao,
+  type CatalogoInsumoPadrao, type InsumoPadrao,
+} from "@/lib/insumos-padrao";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -175,6 +180,9 @@ const DEFAULTS = {
   ref_config: null as RefConfig | null,
   // F3.6 (dono 25/set, R39): Keywords da loja — texto livre (`tenant_config.keywords`); p/ uma tela FUTURA do super admin.
   keywords: "" as string,
+  // urg R2 T11: "Insumos padrão" da loja - [{etiqueta_id, cor_id, consumo}] que pré-preenche a seção Insumos do produto INTERNO novo.
+  // Lida/gravada só pelo Salvar colaborativo (`salvar_config_loja`); a base da RPC é o valor CRU (nunca este normalizado).
+  insumos_padrao: [] as InsumoPadrao[],
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -236,6 +244,9 @@ function normalizarConfig(row: Record<string, unknown> | null | undefined): Conf
         ? ((r as any).ref_config as RefConfig)
         : DEFAULTS.ref_config,
     keywords: keywordsDoServidor((r as any).keywords),
+    // Lista ruim no banco (não é array, ids de outra loja/apagados) NUNCA derruba a tela: não-lista = [], linha órfã é mostrada
+    // como "Insumo removido" para a pessoa remover.
+    insumos_padrao: normalizarInsumosPadrao((r as any).insumos_padrao),
   };
 }
 
@@ -262,13 +273,13 @@ async function lerConfigServidor(tenantId: string): Promise<Record<string, unkno
   return (data ?? null) as Record<string, unknown> | null;
 }
 
-// T3 (Config colaborativa): as colunas GERAIS da página (as 16 de `COLUNAS_PAGINA` menos as 5 do
+// T3 (Config colaborativa): as colunas GERAIS da página (as 17 de `COLUNAS_PAGINA` menos as 5 do
 // kanban, que têm régua própria — `rebasearKanban`/`kanbanBase`).
 const COLUNAS_GERAIS_PAGINA: ReadonlySet<string> = new Set(
   COLUNAS_PAGINA.filter((k) => !(KANBAN_COLS as readonly string[]).includes(k)),
 );
 
-// O valor CRU (sem fallback de DEFAULTS) das 16 colunas da página — a `_base` da RPC. Loja sem
+// O valor CRU (sem fallback de DEFAULTS) das 17 colunas da página — a `_base` da RPC. Loja sem
 // linha = tudo null (a RPC exige a chave na base; `null` = "não havia valor").
 function colunasCruas(row: Record<string, unknown> | null | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -300,6 +311,7 @@ const BLOCO_DA_COLUNA: Record<string, string> = {
   modo_baixa_estoque: "cfg:modo_baixa_estoque",
   markup_analise_faixa: "cfg:markup_analise_faixa",
   keywords: "cfg:keywords",
+  insumos_padrao: "cfg:insumos_padrao",
 };
 
 // T4: foco em controle DENTRO de um bloco (diálogo de Requisitos, marcadores Explosão/REF por linha)
@@ -377,7 +389,7 @@ function ConfiguracoesLojaPage() {
   // Config colaborativa (T3, P-28 A): `hydrated` = a 1ª carga JÁ semeou `cfg`/`cfgBaseRef`/
   // `baseRawRef` (P-57 A — sem isso o Salvar podia sair entre a query resolver e o efeito semear).
   const [hydrated, setHydrated] = useState(false);
-  // Valor CRU do servidor (as 16 colunas da página, SEM o fallback de DEFAULTS) — vai como `_base`
+  // Valor CRU do servidor (as 17 colunas da página, SEM o fallback de DEFAULTS) — vai como `_base`
   // da RPC `salvar_config_loja` (compare-and-set por coluna). Loja sem linha = {} (base null por
   // coluna). Re-baseia a cada eco (`rebasearBaseRaw`), exceto colunas em conflito e o kanban com
   // save em voo; ZERA (adota o cru da loja nova) ao trocar de loja.
@@ -450,6 +462,9 @@ function ConfiguracoesLojaPage() {
   // gravado. Vale tanto para o caminho do `KanbanSalvarDialog` quanto para o AlertDialog comum (D19 —
   // a F1 não confere isso sozinha).
   const diffEsperadoRef = useRef<KanbanColsValor>({});
+  // urg R2 T11: o motivo (texto PT) pelo qual a lista "Insumos padrão" NÃO pode ser salva agora (linha órfã/duplicada/consumo, ou
+  // catálogo ainda sem chegar); null = pode. Calculado no render (abaixo) - o `mutationFn`/`prepararSalvar` leem daqui.
+  const motivoInsumosPadraoRef = useRef<string | null>(null);
 
   const { data, isLoading, isError: cfgLoadErrored, refetch: refetchCfg } = useQuery({
     queryKey: ["tenant-config", user?.id],
@@ -666,6 +681,10 @@ function ConfiguracoesLojaPage() {
         const problema = problemaFormatoRef(cfg.ref_config);
         if (problema) throw Object.assign(new Error(problema), { fecharDialogoKanban: true });
       }
+      // urg R2 T11: lista "Insumos padrão" com linha que o servidor recusaria (órfã, duplicada, consumo) - avisa antes de enviar.
+      if ("insumos_padrao" in mudancas && motivoInsumosPadraoRef.current) {
+        throw Object.assign(new Error(motivoInsumosPadraoRef.current), { fecharDialogoKanban: true });
+      }
       // Fix hidratação (P-57 A): guarda o que ESTE save está mandando — o onSuccess usa para
       // re-basear `cfgBaseRef` (o eco do PRÓPRIO save não deve ser tratado como edição alheia).
       cfgEnviadoRef.current = cfg;
@@ -842,6 +861,64 @@ function ConfiguracoesLojaPage() {
     },
   });
 
+  // urg R2 T11 - "Insumos padrão": catálogo da loja (insumo + cores das variantes) que alimenta os selects do card e confere
+  // linha órfã. Só busca com o card visível (módulo Criação, fora do só-estoque). O Salvar só espera o catálogo quando a lista
+  // FOI TOCADA (um catálogo que falha não pode travar o Salvar de outras configurações).
+  const mostrarInsumosPadrao = !isStockOnly && !!modules.criacao;
+  const tenantIdInsumos = data?.tenantId ?? null;
+  const catalogoInsumos = useQuery({
+    queryKey: ["cfg-insumos-padrao-catalogo", tenantIdInsumos],
+    enabled: !!tenantIdInsumos && mostrarInsumosPadrao,
+    queryFn: async (): Promise<CatalogoInsumoPadrao[]> => {
+      const linhas: any[] = [];
+      for (let de = 0; ; de += 1000) {
+        const { data: rows, error } = await supabase
+          .from("etiquetas" as any)
+          .select("id, nome, variantes_etiqueta(cor_id, cor:cor_id(nome))")
+          .eq("tenant_id", tenantIdInsumos!)
+          .order("nome")
+          .order("id")
+          .range(de, de + 999);
+        if (error) throw error;
+        linhas.push(...((rows ?? []) as any[]));
+        if ((rows ?? []).length < 1000) break;
+      }
+      return linhas.map((e) => {
+        const cores = new Map<string, string>();
+        for (const v of (e.variantes_etiqueta ?? []) as any[]) {
+          if (v?.cor_id && !cores.has(v.cor_id)) cores.set(v.cor_id, v.cor?.nome ?? "(sem nome)");
+        }
+        return {
+          id: String(e.id).toLowerCase(),
+          nome: String(e.nome ?? ""),
+          cores: [...cores].map(([id, nome]) => ({ id: id.toLowerCase(), nome })).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+        };
+      });
+    },
+  });
+  const catalogoInsumosPronto = catalogoInsumos.data !== undefined;
+  const diagInsumosPadrao = catalogoInsumos.data ? diagnosticarLinhasInsumosPadrao(cfg.insumos_padrao, catalogoInsumos.data) : null;
+  // "Tocada" = o que o banco gravaria difere da base (mesma régua do `montarMudancas`). Lista intacta nunca trava o Salvar.
+  const insumosPadraoTocada =
+    mostrarInsumosPadrao && hydrated && !!cfgBaseRef.current &&
+    !mesmoValorSalvo("insumos_padrao", cfg.insumos_padrao, cfgBaseRef.current.insumos_padrao);
+  let motivoInsumosPadrao: string | null = null;
+  if (insumosPadraoTocada) {
+    if (!catalogoInsumosPronto) {
+      motivoInsumosPadrao = "Aguarde os insumos carregarem para salvar os Insumos padrão.";
+    } else {
+      const iProb = diagInsumosPadrao ? diagInsumosPadrao.findIndex((d) => d.problema) : -1;
+      if (iProb >= 0) {
+        motivoInsumosPadrao = `Insumos padrão, linha ${iProb + 1}: ${TEXTO_PROBLEMA_INSUMO_PADRAO[diagInsumosPadrao![iProb].problema!]}`;
+      } else {
+        const v = validarInsumosPadrao(cfg.insumos_padrao);
+        if (!v.ok) motivoInsumosPadrao = `Insumos padrão: ${v.motivo}.`;
+      }
+    }
+  }
+  motivoInsumosPadraoRef.current = motivoInsumosPadrao;
+  const insumosPadraoBloqueiaSalvar = motivoInsumosPadrao !== null;
+
   // T4 (P-122 A): resolver um conflito pendente. O "novo" é o valor ATUAL do servidor (`data.cfg`,
   // já relido pelo efeito/refetch). "manter meu": a tela fica como está e a base CRUA dessa coluna
   // passa a ser o valor do servidor — o próximo Salvar grava o meu POR CIMA, conscientemente (sem
@@ -914,6 +991,8 @@ function ConfiguracoesLojaPage() {
         const problema = problemaFormatoRef(cfg.ref_config);
         if (problema) { toast.error(problema); return; }
       }
+      // urg R2 T11: "Insumos padrão" - o servidor recusaria a lista (linha órfã/duplicada/consumo) ou o catálogo não chegou.
+      if ("insumos_padrao" in mudancas && motivoInsumosPadraoRef.current) { toast.error(motivoInsumosPadraoRef.current); return; }
       // Leves L3 fix round 1 (M2): a etapa da REF e o Kanban vão em dois Salvar (as 2 prévias ficariam com meio estado).
       if (etapaRefComKanban(mudancas, KANBAN_COLS)) { toast.error(TEXTO_REF_ETAPA_COM_KANBAN); return; }
       etapaRef = etapaRefNoSalvar(mudancas);
@@ -1429,6 +1508,23 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
+      {mostrarInsumosPadrao && (
+        <div className="lg:col-span-2">
+          <InsumosPadraoCard
+            value={cfg.insumos_padrao}
+            onChange={(insumos_padrao) => setCfg((c) => ({ ...c, insumos_padrao }))}
+            catalogo={catalogoInsumos.data}
+            carregando={catalogoInsumos.isLoading}
+            erro={catalogoInsumos.isError}
+            tentando={catalogoInsumos.isFetching}
+            onTentarDeNovo={() => void catalogoInsumos.refetch()}
+            diagnostico={diagInsumosPadrao}
+            anelClassName={anelConflito("cfg:insumos_padrao")}
+            disabled={!hydrated}
+          />
+        </div>
+      )}
+
       <Card data-colab-path="cfg:nomenclaturas">
         <CardHeader>
           <CardTitle>Nomenclaturas</CardTitle>
@@ -1510,7 +1606,8 @@ function ConfiguracoesLojaPage() {
         <Button
           className="ml-auto"
           onClick={prepararSalvar}
-          disabled={save.isPending || isLoading || preparandoSalvar || !hydrated || !data?.tenantId || conflitosPendentes.length > 0}
+          disabled={save.isPending || isLoading || preparandoSalvar || !hydrated || !data?.tenantId || conflitosPendentes.length > 0 || insumosPadraoBloqueiaSalvar}
+          title={motivoInsumosPadrao ?? undefined}
         >
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
