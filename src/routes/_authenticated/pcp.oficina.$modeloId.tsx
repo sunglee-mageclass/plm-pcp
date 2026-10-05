@@ -71,13 +71,18 @@ function OficinaDetailPage() {
     },
   });
 
-  const { data: cad } = useQuery({
+  // [camada C3 · B8c] A query LANÇA o erro (antes engolia: `data` virava `undefined` e a tela tratava a falha como
+  // "este modelo ainda não tem CAD"). Sucesso sem linha = `null` (CAD inexistente de verdade); falha na 1ª carga =
+  // `cadErro` (aviso + "Tentar de novo", sem formulário, Salvar travado). Refetch com erro depois de sucesso mantém o dado.
+  const { data: cad, isError: cadErrored, refetch: refetchCad, isFetching: cadFetching } = useQuery({
     queryKey: ["oficina-cad", modeloId],
     queryFn: async () => {
-      const { data } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
-      return data;
+      const { data, error } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
+      if (error) throw error;
+      return data ?? null;
     },
   });
+  const cadErro = cadErrored && cad === undefined;
 
   // Editor de oficina legado (producao_oficina está fora do menu; oficina viva roda em
   // Serviços). Lê empresas de serviço (o espelho terceirizados foi removido).
@@ -96,21 +101,25 @@ function OficinaDetailPage() {
   });
   const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
 
-  const { data: grades = [] } = useQuery({
+  // [camada C3] lança o erro (antes: `data ?? []` -> a ficha imprimia "Sem grade definida." numa falha de carga).
+  const { data: gradesRaw, isError: gradesErrored, refetch: refetchGrades, isFetching: gradesFetching } = useQuery({
     // Sufixo "full": esta tela lê o superset (planejada+real+totais). O Direcionamento
     // usa a mesma raiz com só grades_reais ("reais") — sufixo evita shape errado no
     // cache. O CQ invalida por prefixo ["cad-grades", cad?.id], que casa ambos.
     queryKey: ["cad-grades", cad?.id, "full"],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("cad_grades")
         .select("variante_numero, grades_planejadas, grades_reais, grade_total_planejada, grade_total_real")
         .eq("cad_id", cad!.id)
         .order("variante_numero");
+      if (error) throw error;
       return data ?? [];
     },
   });
+  const grades = gradesRaw ?? [];
+  const gradesErro = gradesErrored && gradesRaw === undefined;
 
   // Apenas os tamanhos presentes na grade (real, senão planejada), na ordem do
   // tenant_config. Sem isso, o default ["PP",…] não casa com as chaves token
@@ -285,6 +294,25 @@ function OficinaDetailPage() {
             "Carregando…" no lugar do formulário, como pedia o brief original.
             Fix hidratação rodada 2 (achado N1 da re-revisão — regressão): o corpo renderiza por
             `hydrated` SOZINHO — um erro de REFETCH posterior não pode esconder o formulário. */}
+        {cadErro && (
+          <Card role="alert" className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+            <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+            <Button type="button" variant="outline" size="sm" disabled={cadFetching} onClick={() => { refetchCad(); }}>
+              <RotateCcw className="h-4 w-4 mr-2" /> {cadFetching ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </Card>
+        )}
+        {cad === undefined && !cadErro && (
+          <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
+        )}
+        {gradesErro && (
+          <Card role="alert" className="p-4 space-y-2 border-destructive/50 bg-destructive/5 text-sm">
+            <p className="text-destructive font-medium">Não foi possível carregar a grade das variantes (usada na ficha impressa).</p>
+            <Button type="button" variant="outline" size="sm" disabled={gradesFetching} onClick={() => { refetchGrades(); }}>
+              <RotateCcw className="h-4 w-4 mr-2" /> {gradesFetching ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </Card>
+        )}
         {cad?.id && existingErrored && !hydrated && (
           <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
             <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -297,7 +325,7 @@ function OficinaDetailPage() {
           <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
         )}
 
-        {(!cad?.id || hydrated) && (
+        {(cad === null || hydrated) && (
         <Card className="p-5 space-y-4">
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
@@ -376,7 +404,7 @@ function OficinaDetailPage() {
         </Card>
         )}
 
-        {!cad?.id && (
+        {cad === null && (
           <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
             Este modelo ainda não tem registro de CAD. Abra a página de CAD desse modelo antes de salvar.
           </Card>
@@ -471,14 +499,14 @@ function OficinaDetailPage() {
           <Link to="/pcp/oficina"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Link>
         </Button>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
+          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint} disabled={gradesErro}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
           {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — auditoria confirmou (26/set) que
               `producao_oficina` não tem RPC própria: o Salvar faz `.update()`/`.insert()` direto
               com TODO o `form` local; cedo demais, grava zeros por cima de um registro real
               (mesma classe de dano do "estado completo", sem ser DELETE). */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated} aria-label="Salvar">
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated || cadErro} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </div>

@@ -102,10 +102,18 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     queryFn: async () => comRotuloColecao((await (supabase.from("modelos") as any).select("id, ref, nome, colecao, colecoes(nome), subcolecao, semana, origem, tamanho_tipo, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data), // [modularidade R11] `colecao` = rótulo
   });
 
-  const { data: cad } = useQuery({
+  // [camada C3 · B8a] A query LANÇA o erro (antes engolia: `(await …).data` virava `undefined` e a tela mostrava "Sem
+  // registro de CAD" numa falha de carga). Sucesso sem linha = `null` (CAD realmente inexistente); falha na 1ª carga =
+  // `cadErro` (aviso + "Tentar de novo", Salvar travado). Refetch com erro depois de sucesso mantém o último dado (RQ).
+  const { data: cad, isError: cadErrored, refetch: refetchCad, isFetching: cadFetching } = useQuery({
     queryKey: ["dir-cad", modeloId],
-    queryFn: async () => (await (supabase.from("cad") as any).select("id, direcionamento_status, direcionamento_confirmado_at").eq("modelo_id", modeloId).maybeSingle()).data as { id: string; direcionamento_status: string | null; direcionamento_confirmado_at: string | null } | null,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("cad") as any).select("id, direcionamento_status, direcionamento_confirmado_at").eq("modelo_id", modeloId).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as { id: string; direcionamento_status: string | null; direcionamento_confirmado_at: string | null } | null;
+    },
   });
+  const cadErro = cadErrored && cad === undefined;
   useEffect(() => {
     if (cad) setStatus((cad as any).direcionamento_status ?? "pendente");
   }, [cad]);
@@ -708,22 +716,23 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
               o usuário recebe um P0409 falso ("Alguém salvou…") ao salvar.
               Fix hidratação rodada 6 (achado N5c da re-revisão, PERDA DE DADO comprovada,
               review-fix5.md — mesma classe do N5b do CQ Pré): + `|| !tenantId` — DEPOIS de
-              hidratado, um refetch de foco de `["active-tenant-id"]` que falhe (o hook engole o
-              erro e assenta `""`) troca a key `["dir-lojas", tenantId]` para `""`, que fica
+              hidratado, um refetch de foco de `["active-tenant-id"]` que falhe (ANTES do Backend F1 o hook
+              engolia o erro e assentava `""`; hoje lança e mantém o `tenantId` — a trava `!tenantId` fica como defesa para
+              a linha de `users` sumir com sucesso) troca a key `["dir-lojas", tenantId]` para `""`, que fica
               `disabled` e sem dado — `lojasVisiveis` esvazia e `buildRows()` não itera nenhuma
               loja. Como o corpo/botões só olhavam `hydrated` (que não regride), o Salvar ficava
               HABILITADO e mandava `_rows: []` com `_rev_base` válido — o `_salvar_direcionamento_
               core` trata o payload como estado COMPLETO e APAGA todas as linhas de
               `direcionamento_lojas` do CAD (o caso GRAVE original do P-57). Durante um refetch
               NORMAL o `tenantId` antigo continua em cache, então não pisca. */}
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined || !tenantId} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || cadErro || dirControle === undefined || !tenantId} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button
             title={temConflito ? "Resolva os conflitos antes de confirmar" : (motivo ?? undefined)}
             aria-label="Confirmar Direcionamento"
             onClick={() => confirmMut.mutate()}
-            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito || !hydrated || dirControle === undefined || !tenantId}
+            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito || !hydrated || cadErro || dirControle === undefined || !tenantId}
           >
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Direcionamento</span>
           </Button>
@@ -733,7 +742,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           {/* Fix hidratação (P-57 A): mesma trava `!hydrated` do Salvar acima (modo "editing" pós-confirmado).
               Fix hidratação rodada 1 (achado M4): + `dirControle === undefined`, mesmo motivo do Salvar acima.
               Fix hidratação rodada 6 (N5c): + `|| !tenantId`, mesmo motivo dos 2 botões acima. */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined || !tenantId} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || cadErro || dirControle === undefined || !tenantId} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
@@ -801,6 +810,14 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           aparecia, gated por `!hydrated`) enquanto os botões ficavam travados mudos (M4:
           `dirControle === undefined`). O banner usa a MESMA condição "ainda não pronto" dos
           botões: `!hydrated || dirControle === undefined`. */}
+      {cadErro && (
+        <Card role="alert" className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button type="button" variant="outline" size="sm" disabled={cadFetching} onClick={() => { refetchCad(); }}>
+            <RotateCcw className="h-4 w-4 mr-2" /> {cadFetching ? "Tentando…" : "Tentar de novo"}
+          </Button>
+        </Card>
+      )}
       {cad?.id && dirLoadError && (!hydrated || dirControle === undefined) && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -819,7 +836,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           renderiza quando NÃO está no caso "erro + ainda não pronto" (hydrated E dirControle
           resolvido). Corpo por `hydrated` continua sozinho quando JÁ pronto (achado N1 — um erro
           de refetch POSTERIOR não esconde o formulário). */}
-      {!(cad?.id && dirLoadError && (!hydrated || dirControle === undefined)) && (
+      {!cadErro && !(cad?.id && dirLoadError && (!hydrated || dirControle === undefined)) && (
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">
@@ -883,7 +900,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         );
       })()}
 
-      {!cad?.id && (
+      {cad === null && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Sem registro de CAD para este modelo.
         </Card>

@@ -271,7 +271,9 @@ export function TerceirizadosDetail({
   // servidor grava `NULLIF(...)` — apaga "Partes do Molde" (`cad.observacoes_molde`, campo
   // compartilhado com CAD/Ficha de Corte/Oficina). Único consumidor da key `["terc-cad",
   // modeloId]` (conferido por grep) — seguro trocar o `queryFn` sem afetar outra tela.
-  const { data: cad, isSuccess: cadOk, isFetching: cadFetching } = useQuery({
+  // [camada C3 · m-A] sucesso sem linha = `null` (CAD inexistente de verdade); falha na 1ª carga = `cadErro` (aviso +
+  // "Tentar de novo", sem corpo, sem "sem CAD", Salvar travado). Refetch com erro depois de sucesso mantém o último dado.
+  const { data: cad, isSuccess: cadOk, isFetching: cadFetching, isError: cadErrored, refetch: refetchCad } = useQuery({
     queryKey: ["terc-cad", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
@@ -280,15 +282,20 @@ export function TerceirizadosDetail({
     },
   });
 
+  const cadErro = cadErrored && cad === undefined;
+
   // Grade Total Geral (soma das grades do CAD) — exibida no cabeçalho.
-  const { data: gradeTotalGeral = 0 } = useQuery({
+  // [camada C3 · m-A] lança o erro (antes: `data ?? []` somava 0 e o cabeçalho mostrava "Grade Total Geral 0,00"
+  // numa falha de carga). Falha na 1ª carga -> "—" + aviso com "Tentar de novo" (`custoAuxErro`, abaixo).
+  const { data: gradeTotalRaw, isError: gradeTotalErrored, refetch: refetchGradeTotal } = useQuery({
     queryKey: ["terc-grade-total", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("cad_grades")
         .select("grade_total_planejada, grade_total_real")
         .eq("cad_id", cad!.id);
+      if (error) throw error;
       return (data ?? []).reduce(
         (a: number, g: any) => a + Number(g.grade_total_real ?? g.grade_total_planejada ?? 0),
         0,
@@ -296,8 +303,11 @@ export function TerceirizadosDetail({
     },
   });
 
+  const gradeTotalGeral = gradeTotalRaw ?? 0;
+
   // Custo de materiais do CAD por peça (tecidos + aviamentos) — base do custo real.
-  const { data: materiaisPorPeca = 0 } = useQuery({
+  // [camada C3 · m-A] lança o erro de qualquer das 2 leituras (antes: custo de materiais 0 silencioso).
+  const { data: materiaisRaw, isError: materiaisErrored, refetch: refetchMateriais } = useQuery({
     queryKey: ["terc-cad-materiais", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -305,6 +315,8 @@ export function TerceirizadosDetail({
         supabase.from("cad_tecidos").select("custo_cad, consumo_cad, loss_percent_cad, artigos:artigo_id(preco_por_metro)").eq("cad_id", cad!.id),
         supabase.from("cad_aviamentos").select("consumo, aviamentos:aviamento_id(preco)").eq("cad_id", cad!.id),
       ]);
+      if (tecRes.error) throw tecRes.error;
+      if (aviRes.error) throw aviRes.error;
       const tec = (tecRes.data ?? []).reduce((s: number, t: any) =>
         s + (t.custo_cad != null
           ? Number(t.custo_cad)
@@ -314,6 +326,11 @@ export function TerceirizadosDetail({
       return tec + avi;
     },
   });
+  const materiaisPorPeca = materiaisRaw ?? 0;
+  // Grade/custo do CAD sem dado por falha (1ª carga): mostra "—" e o aviso com "Tentar de novo"; refetch com erro mantém o valor.
+  const gradeTotalErro = gradeTotalErrored && gradeTotalRaw === undefined;
+  const materiaisErro = materiaisErrored && materiaisRaw === undefined;
+  const custoAuxErro = gradeTotalErro || materiaisErro;
 
   // Colaboradores (Cadastro > Colaboradores) — responsáveis quando o serviço é Interno.
   const { data: colaboradores = [] } = useQuery({
@@ -1188,7 +1205,7 @@ export function TerceirizadosDetail({
     // não é um apagamento parcial nos dois casos. O `grade_detalhe` destrinchado é gravado como
     // objeto OPACO por bloco — travar o Salvar até `hydrated && moldeHydrated` é barato e fecha a
     // classe (ver `.superpowers/fix-hidratacao/review.md`, auditoria das RPCs).
-    <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated || !moldeHydrated} aria-label="Salvar">
+    <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated || !moldeHydrated || cadErro} aria-label="Salvar">
       <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
     </Button>
   );
@@ -1698,6 +1715,17 @@ export function TerceirizadosDetail({
           `hydrated` SOZINHO — uma vez hidratado, um erro de REFETCH posterior não esconde o
           formulário nem deixa Salvar habilitado "por engano" (o botão só olha `hydrated`, então
           escondê-lo sem travar o Salvar era pior). */}
+      {cadErro && (
+        <Card role="alert" className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button type="button" variant="outline" size="sm" disabled={cadFetching} onClick={() => { refetchCad(); }}>
+            <RotateCcw className="h-4 w-4 mr-2" /> {cadFetching ? "Tentando…" : "Tentar de novo"}
+          </Button>
+        </Card>
+      )}
+      {cad === undefined && !cadErro && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
       {cad?.id && existingErrored && !hydrated && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -1710,7 +1738,7 @@ export function TerceirizadosDetail({
         <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
       )}
 
-      {(!cad?.id || hydrated) && (
+      {(cad === null || hydrated) && (
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">
@@ -1733,11 +1761,20 @@ export function TerceirizadosDetail({
         </div>
       </header>
 
+      {custoAuxErro && (
+        <Card role="alert" className="p-4 space-y-2 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar a grade e o custo do CAD.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => { if (gradeTotalErro) refetchGradeTotal(); if (materiaisErro) refetchMateriais(); }}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+
       {/* Status geral */}
       <Card className="p-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <div>
           <Label className="text-xs text-muted-foreground">Grade Total Geral</Label>
-          <div className="mt-1 text-sm font-semibold">{fmtNum(gradeTotalGeral)}</div>
+          <div className="mt-1 text-sm font-semibold">{gradeTotalErro ? "—" : fmtNum(gradeTotalGeral)}</div>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Status Pré</Label>
@@ -1776,7 +1813,7 @@ export function TerceirizadosDetail({
             className="mt-1 text-sm font-bold text-primary"
             title={`Materiais CAD ${brl(Number(materiaisPorPeca) || 0)} + serviço ${brl(servicoPorPeca)}${custosAdicionaisPeca > 0 ? ` + adicionais ${brl(custosAdicionaisPeca)}` : ""}`}
           >
-            {brl(custoRealPeca)}
+            {custoAuxErro ? "—" : brl(custoRealPeca)}
           </div>
           {custosAdicionaisPeca > 0 && (
             <div className="text-xs text-muted-foreground">inclui custos adicionais: {brl(custosAdicionaisPeca)}</div>
@@ -1883,7 +1920,7 @@ export function TerceirizadosDetail({
 
       <ModeloObservacoes modeloId={modeloId} readOnly={readOnly} />
 
-      {!cad?.id && (
+      {cad === null && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Atenção: este modelo ainda não possui um registro de CAD. Abra a página de CAD desse modelo antes de salvar.
         </Card>

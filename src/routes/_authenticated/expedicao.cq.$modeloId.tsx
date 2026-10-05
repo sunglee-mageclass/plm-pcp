@@ -1838,22 +1838,30 @@ function GradeMatrix(props: {
 
 // Janela rápida (pequena) p/ lançar desconto/multa do serviço de OFICINA — a oficina
 // só entra no Financeiro após o CQ confirmado, então o ajuste é feito aqui.
-function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: boolean; onClose: () => void }) {
+export function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const { data: serv } = useQuery({
+  // [camada C3 · F5] `serv` tem 3 estados que a tela NÃO pode confundir: `undefined` = carregando (ou 1ª carga com erro),
+  // `null` = a leitura voltou OK e não há serviço de Oficina externa, objeto = há serviço. Antes `!serv` mostrava
+  // "Nenhum serviço…" também enquanto carregava e depois de uma falha. Refetch com erro após sucesso mantém o último dado.
+  const { data: serv, isError: servErrored, isFetching: servFetching, refetch: refetchServ } = useQuery({
     queryKey: ["cq-oficina-servico", cadId],
     enabled: open && !!cadId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("cq_oficina_servico" as any, { _cad_id: cadId });
       if (error) throw error;
-      return data as any;
+      return (data ?? null) as any;
     },
   });
+  const servErro = servErrored && serv === undefined;
   const [desc, setDesc] = useState(0);
   const [multa, setMulta] = useState(0);
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ desc, multa });
+  // [camada C3 · F5] Re-hidratar só MESCLA: um refetch (foco da janela, invalidação) com alteração pendente NÃO re-semeia
+  // por cima do que a pessoa digitou (só semeia quando não há alteração pendente).
+  const changedRef = useRef(changed);
+  changedRef.current = changed;
   useEffect(() => {
-    if (serv) {
+    if (serv && !changedRef.current) {
       const nd = Number(serv.desconto ?? 0);
       const nm = Number(serv.multa ?? 0);
       setDesc(nd); setMulta(nm);
@@ -1889,7 +1897,16 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
     <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader><DialogTitle>Oficina — desconto / multa</DialogTitle></DialogHeader>
-        {!serv ? (
+        {servErro ? (
+          <div role="alert" className="space-y-3 text-sm">
+            <p className="text-destructive font-medium">Não foi possível carregar o serviço de Oficina.</p>
+            <Button type="button" variant="outline" size="sm" disabled={servFetching} onClick={() => { refetchServ(); }}>
+              <RotateCcw className="h-4 w-4 mr-2" /> {servFetching ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </div>
+        ) : serv === undefined ? (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        ) : serv === null ? (
           <p className="text-sm text-muted-foreground">Nenhum serviço de Oficina (externo) neste modelo.</p>
         ) : (
           <div className="space-y-3 text-sm">
