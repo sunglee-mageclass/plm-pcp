@@ -18,6 +18,7 @@ import { Client } from "pg";
 import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { CAMADA_MD5 } from "./camada-1-dados";
+import { md5CamadaSucessor } from "./camada-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261006120000_sku_previa_mensagens_ascii.sql";
@@ -271,7 +272,9 @@ describe.skipIf(!PRONTO)("SKU/PCP/CQ — mensagens ASCII: comportamento e ACL na
         const cmds = comandosP0409(texto);
         // Camada C1 viva (follow-up I2/M1/I3): salvar_terceirizados ganha 3 RAISE P0409 (bloco removido, contagem do apagar tudo,
         // observacao do molde) — todos ASCII, conferidos no laço abaixo.
-        const c1Viva = createHash("md5").update(texto, "utf8").digest("hex") === CAMADA_MD5[f.fn]?.depois;
+        // (a C1 ou um SUCESSOR dela por cima — a urg R5 185000 redefine o salvar_terceirizados e mantém os 3; cadeia md5CamadaSucessor)
+        const md5Vivo = createHash("md5").update(texto, "utf8").digest("hex");
+        const c1Viva = !!CAMADA_MD5[f.fn] && md5CamadaSucessor(f.fn, CAMADA_MD5[f.fn].depois).includes(md5Vivo);
         expect(cmds.length, f.fn).toBe(f.nP0409 + (c1Viva ? 3 : 0));
         for (const cmd of cmds) expect(ehAscii(cmd), `${f.fn}: ${cmd}`).toBe(true);
       }

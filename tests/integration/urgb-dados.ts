@@ -71,6 +71,21 @@ export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
       "public._servicos_da_mo_criar(uuid,uuid)": "9a54575d8595b31d3e89974e23689ecb",
       "public._servico_mo_preencher_preco(uuid)": "f8c56394f5adb07c7a42378978d77aa0"
     }
+  },
+  "r5": {
+    "mig": "supabase/migrations/20261103185000_urg_r5_peca_foto_previsao.sql",
+    "down": "supabase/rollback/20261103185000_urg_r5_peca_foto_previsao_down.sql",
+    "drop": "supabase/rollback/20261103185000_urg_r5_peca_foto_previsao_down_drop.sql",
+    "URGB_SENTINELA": "public.salvar_terceirizados(uuid,jsonb,text,jsonb)",
+    "URGB_MD5": {
+      "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": {
+        "antes": "fe2530878c26ae9a9680a7b1d02eca71",
+        "depois": "388454fc81028e43d60878fa75132db2"
+      }
+    },
+    "URGB_ACL": {
+      "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    }
   }
 }
 /* URGB_JSON_FIM */;

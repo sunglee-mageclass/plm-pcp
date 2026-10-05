@@ -71,12 +71,20 @@ async function zeraTimeouts(c: Client): Promise<void> {
   await c.query("SET LOCAL lock_timeout = '3s'");
 }
 
-/** 160000 vivo NESTA txn? (md5 da sentinela = "depois"). Sem os arquivos = false. */
+/**
+ * 160000 vivo NESTA txn? (md5 da sentinela = "depois" — OU o de uma frente POSTERIOR que redefine a sentinela por cima, pela
+ * cadeia `md5CamadaSucessor`: a urg R5 (185000) redefine o salvar_terceirizados da C1 e mantém tudo dela). Sem os arquivos = false.
+ */
 export async function camadaVazioViva(c: Client): Promise<boolean> {
   if (!DADOS) return false;
-  return (
-    (await md5Fn(c, DADOS.CAMADA_SENTINELA)) === DADOS.CAMADA_MD5[DADOS.CAMADA_SENTINELA].depois
-  );
+  const s = DADOS.CAMADA_SENTINELA;
+  const atual = await md5Fn(c, s);
+  return atual !== null && md5CamadaSucessor(s, DADOS.CAMADA_MD5[s].depois).includes(atual);
+}
+
+/** LIFO: tira as frentes POR CIMA da Camada (urgentes plan-a/plan-b) desta txn — antes de aplicar/voltar arquivos da C1 à mão. */
+export async function voltaSucessorasCamada(c: Client): Promise<void> {
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c);
 }
 /** 161000 vivo NESTA txn? (função do gatilho = IDA; neutra ou ausente = false). */
 export async function camadaGatViva(c: Client): Promise<boolean> {
@@ -100,6 +108,7 @@ export async function aplicaCamada(c: Client): Promise<void> {
 export async function voltaCamada(c: Client): Promise<void> {
   if (!DADOS) return;
   exigeBancoLocal();
+  await voltaSucessorasCamada(c); // LIFO: a urg R5 redefine o salvar_terceirizados por cima — o _down da C1 recusaria
   if (await camadaGatViva(c)) await aplicarArquivo(c, DADOS.CAMADA_DOWN_GAT);
   if (await camadaVazioViva(c)) await aplicarArquivo(c, DADOS.CAMADA_DOWN);
   await zeraTimeouts(c);

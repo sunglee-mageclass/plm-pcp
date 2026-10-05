@@ -19,7 +19,7 @@ import {
   USER_TESTE,
 } from "./db";
 import { aplicarArquivo } from "./mig-txn";
-import { aplicaCamada, voltaCamada, camadaVazioViva, camadaGatViva } from "./camada-helpers";
+import { aplicaCamada, voltaCamada, camadaVazioViva, camadaGatViva, voltaSucessorasCamada } from "./camada-helpers";
 import { aplicaBk } from "./bk-helpers";
 import { aplicaMod } from "./mod-helpers";
 import {
@@ -1111,6 +1111,7 @@ describe.skipIf(!RODA)(
     it("160000: ida = DEPOIS (ACL igual); reaplicar não muda; _down = ANTES (2x); ida de novo; guarda recusa texto inesperado", async () => {
       await withTx(async (c) => {
         await prepara(c);
+        await voltaSucessorasCamada(c); // LIFO: urg R5 (185000) redefine o salvar_terceirizados por cima da C1
         const confere = async (lado: "antes" | "depois") => {
           for (const [fn, m] of Object.entries(CAMADA_MD5)) {
             expect(await md5Fn(c, fn), `${fn} ${lado}`).toBe(m[lado]);
@@ -1262,6 +1263,7 @@ describe.skipIf(!RODA)(
             [CAMADA_GAT.nome],
           )
         ).v;
+        await voltaSucessorasCamada(c); // LIFO: urg R5 (185000) por cima da C1 sai antes do _down dela
         if (await camadaVazioViva(c))
           await aplicarArquivo(c, CAMADA_DOWN_GAT).then(() => aplicarArquivo(c, CAMADA_DOWN));
         const n1 = await novas(() => aplicarArquivo(c, CAMADA_MIG));
