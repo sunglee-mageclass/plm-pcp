@@ -303,7 +303,9 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   cards com espelho `modelos.origem='revenda'`; página `criacao_produto_acabado`, exige
   módulos `produto_acabado` E `otb`; ver docs/mapeamento §2D e invariante 13. NÃO mesclado —
   branch `feature/plan-tecido-a1`),
-  planejamento, desenvolvimento (kanban dinâmico, ficha técnica, observações).
+  planejamento, desenvolvimento (kanban dinâmico, ficha técnica, observações). **R7 (05/out): o card do kanban do
+  Desenvolvimento abre o `PlanejamentoDetail` (`SHEET_DEV_SOMENTE_LEITURA = false`); o `ModeloDetailPanel` só leitura descrito abaixo
+  fica oculto (não apagado) até a faxina.**
   No card (`ModeloDetailPanel`), a seção **"2. Ajustes na Prova"** é um FIO DE COMENTÁRIOS
   (tabela `modelo_prova_comentarios`, RPCs `prova_comentar`/`prova_resolver`/`prova_excluir`;
   fio de 2 níveis via `parent_id`, abas Abertos/Resolvidos, excluir só-autor, badge nº abertos).
@@ -339,6 +341,8 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - **pcp / expedicao** (ex-`producao`): cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`;
   **quantidade por tamanho×variante** opt-in — flag `producao_terceirizados.detalhado` + `grade_detalhe` jsonb,
   ver [[project_terceirizados_grade_detalhe]]),
+  **R6 (05/out), PCP › Serviços:** Aviamentos/Tecidos enviados saíram da tela (dados ficam; o Salvar devolve o valor lido; a OS impressa
+  mantém); Observações do produto saíram desta tela.
   oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos.
   (A tela **"Consumo por OC" foi REMOVIDA** jul/2026 na Fase C do Plan. Tecido — ver [[project_plan_tecido]];
   os **alertas de CQ de tecido** seguem vivos em `entrada-saida.alertas-tecido`, não eram parte dessa tela.
@@ -1350,6 +1354,7 @@ do Dev aberto em paralelo não escuta; o Dev não recarrega o CAD sozinho. A eta
 `modelos.descricao_produto` (seção 1, migration `20260930180000`) editável nos dois Sheets.
 
 **Sheet do Dev SÓ LEITURA + trava por seção (P-53 → F5a P-104/P-110/P-113, set/2026):**
+**R7 (05/out): o card do Desenvolvimento abre o `PlanejamentoDetail` (`SHEET_DEV_SOMENTE_LEITURA = false`); o texto abaixo descreve o Sheet antigo, que fica oculto (não apagado) até a faxina.**
 o Sheet antigo do Dev (`ModeloDetailPanel`) VOLTOU a abrir ao clicar no card do kanban do
 Desenvolvimento, mas SÓ PARA LEITURA: `criacao.desenvolvimento.tsx` passa
 `somenteLeitura` (`const SHEET_DEV_SOMENTE_LEITURA = true`; substitui o antigo

@@ -42,11 +42,10 @@ import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 
 import { RequirePermission } from "@/components/RequirePermission";
 
-// F5a (dono 28/set, P-104 B ajustado + P-110 A): o card do kanban volta a abrir o Sheet ANTIGO do Desenvolvimento
-// (ModeloDetailPanel), mas SÓ PARA LEITURA — toda edição mora no Sheet do Planejamento de Produto, alcançado pelo botão
-// "Ir para P. Produto" do rodapé. (De 26/set a 28/set, P-48 A, o card abria direto o Sheet do Planejamento por cima do
-// kanban; esse caminho fica guardado atrás da chave.) Voltar ao de 26/set = SHEET_DEV_SOMENTE_LEITURA = false.
-const SHEET_DEV_SOMENTE_LEITURA = true;
+// R7 (dono 05/out, P-48 A de volta): o card do kanban abre o MESMO Sheet do Planejamento (`PlanejamentoDetail`), único
+// editor do card; a trava por seção pelas 2 permissões vale ("nem ganha nem perde"). O Sheet antigo (`ModeloDetailPanel`
+// só leitura, F5a de 28/set) fica OCULTO atrás da chave — NÃO apagar (faxina depois).
+const SHEET_DEV_SOMENTE_LEITURA = false;
 
 export const Route = createFileRoute("/_authenticated/criacao/desenvolvimento")({
   component: () => (

@@ -47,7 +47,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useReadOnly } from "@/components/RequirePermission";
-import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { ReverterImpacto } from "@/components/producao/ReverterImpacto";
 import { useReverterImpacto } from "@/hooks/useReverterImpacto";
@@ -110,8 +109,6 @@ function rotuloConflito(path: string): string {
 }
 
 // Tipos/leitura/payload do bloco: fonte única em src/lib/servicos-payload.ts (também usada pela edição rápida de Etapas PL).
-const mesmoAvi = (a: AviamentoEnviado, b: AviamentoEnviado) =>
-  a.aviamento_id === b.aviamento_id && (a.variante_aviamento_id ?? null) === (b.variante_aviamento_id ?? null);
 type Bloco = BlocoServico;
 
 // Tom §Q9 por status de bloco/serviço (campanha StatusBadge, ago/2026). pre_finalizado
@@ -1457,78 +1454,6 @@ export function TerceirizadosDetail({
         </div>
 
         <div>
-          <Label className="text-xs mb-2 block">Aviamentos Enviados</Label>
-          <div className="flex flex-wrap gap-2">
-            {(aviamentosModelo as any[]).length === 0 && (
-              <p className="text-xs text-muted-foreground">Nenhum aviamento vinculado ao modelo.</p>
-            )}
-            {(aviamentosModelo as any[]).map((a) => {
-              const sel: AviamentoEnviado = { aviamento_id: a.aviamento_id, variante_aviamento_id: a.variante_aviamento_id ?? null };
-              const checked = b.aviamentos_enviados.some((x) => mesmoAvi(x, sel));
-              return (
-                <Button
-                  key={`${a.aviamento_id}::${a.variante_aviamento_id ?? ""}`}
-                  type="button"
-                  size="sm"
-                  variant={checked ? "default" : "outline"}
-                  onClick={() =>
-                    updateBloco(idx, {
-                      aviamentos_enviados: checked
-                        ? b.aviamentos_enviados.filter((x) => !mesmoAvi(x, sel))
-                        : [...b.aviamentos_enviados, sel],
-                    })
-                  }
-                >
-                  {a.nome}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-xs mb-2 block">Tecidos, Forros e Entretelas Enviados (variantes)</Label>
-          {(tecidosModelo as any[]).length === 0 && (
-            <p className="text-xs text-muted-foreground">Nenhum tecido/forro/entretela vinculado ao modelo.</p>
-          )}
-          <div className="space-y-2">
-            {(tecidosModelo as any[]).map((t) => {
-              const tipoLabel = t.tipo === "forro" ? " (Forro)" : t.tipo === "entretela" ? " (Entretela)" : "";
-              return (
-                <div key={t.id}>
-                  <p className="text-xs font-medium">{t.nome}{tipoLabel}</p>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {t.variantes.length === 0 && (
-                      <span className="text-xs text-muted-foreground italic">Sem variantes cadastradas.</span>
-                    )}
-                    {t.variantes.map((v: any) => {
-                      const checked = b.tecidos_enviados.includes(v.id);
-                      return (
-                        <Button
-                          key={v.id}
-                          type="button"
-                          size="sm"
-                          variant={checked ? "default" : "outline"}
-                          onClick={() =>
-                            updateBloco(idx, {
-                              tecidos_enviados: checked
-                                ? b.tecidos_enviados.filter((x) => x !== v.id)
-                                : [...b.tecidos_enviados, v.id],
-                            })
-                          }
-                        >
-                          {v.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
           <Label className="text-xs">Observação</Label>
           <Textarea
             value={b.observacao}
@@ -1868,8 +1793,6 @@ export function TerceirizadosDetail({
         />
         <p className="text-xs text-muted-foreground">Mesmo campo do CAD / Ficha de Corte.</p>
       </Card>
-
-      <ModeloObservacoes modeloId={modeloId} readOnly={readOnly} />
 
       {cad === null && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
