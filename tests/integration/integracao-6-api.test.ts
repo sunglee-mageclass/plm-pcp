@@ -61,7 +61,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
       expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 601}'::jsonb, 1)`, [])).toMatch(/^P0001 .*1–600/);
       const r = (await um<{ r: any }>(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 300, "validade_foto_dias": 30}'::jsonb, 1) AS r`)).r;
       expect(r.api).toEqual({ limite_por_minuto: 300, max_por_pagina: 50, validade_foto_dias: 30, bloqueio_tentativas: 10 });
-      const log = await um<{ d: any }>(c, `SELECT detalhe AS d FROM public.integracao_log WHERE tenant_id = $1 AND acao = 'config_api'`, [T]);
+      // T1 (backend, 05/out): a Loja Teste da cópia já acumula registros 'config_api' de QA anteriores (dado vivo); sem ordenar, `um()` pegava um
+      // registro ANTIGO ("expected 60 to be 300"). O desta chamada é o mais recente (criado_em = now() da txn, ≥ qualquer anterior).
+      const log = await um<{ d: any }>(c, `SELECT detalhe AS d FROM public.integracao_log WHERE tenant_id = $1 AND acao = 'config_api'
+          ORDER BY criado_em DESC, id DESC LIMIT 1`, [T]);
       expect(log.d.antes.limite_por_minuto).toBe(60);
       expect(log.d.depois.limite_por_minuto).toBe(300);
     });
