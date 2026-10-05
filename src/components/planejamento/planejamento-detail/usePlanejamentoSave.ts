@@ -661,6 +661,7 @@ export function usePlanejamentoSave({
             categoria_terceirizado_id: l.categoria_terceirizado_id,
             valor: Number(l.valor) || 0,
             observacoes: null,
+            empresa_id: l.empresa_id ?? null, // [urg R4] fornecedor de serviço da linha (chave presente: null LIMPA, uuid grava)
           })),
         });
         // Ajuste (set/2026): marca a etapa que falhou (mão de obra) — ver comentário acima.

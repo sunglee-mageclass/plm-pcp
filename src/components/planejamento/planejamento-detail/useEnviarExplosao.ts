@@ -45,6 +45,9 @@ export function useEnviarExplosao({ modeloId, qc, salvarAntes, draftLiveRef, blo
       qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("ft-") });
       qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && (q.queryKey[0] === "explosao-cad-tecidos" || q.queryKey[0] === "explosao-cad-grades") });
       for (const k of ["producao-explosao-list", "modelos-desenvolvimento", "modelos-planejamento"]) qc.invalidateQueries({ queryKey: [k] });
+      // [urg R4b] o Enviar à Explosão cria os blocos de PCP › Serviços a partir da M.O.: listas/cards de Serviços e Etapas PL recarregam.
+      for (const k of ["producao-terc-list", "etapas-cards"]) qc.invalidateQueries({ queryKey: [k] });
+      qc.invalidateQueries({ queryKey: ["producao-terc"] });
       onEnviado();
     },
     onError: (e: any) => {

@@ -13,6 +13,10 @@ export type MoLinha = {
   valor?: number | null;
   aprovado: boolean | null;
   motivo_reprovacao?: string | null;
+  // [urg R4] fornecedor de serviço da linha (empresas tipo 'servico'). Só o Sheet do Planejamento lê/manda; os cards PA/PI
+  // não têm a chave (undefined ≡ null) e o servidor mantém o gravado quando a chave não vem.
+  empresa_id?: string | null;
+  empresa_nome?: string | null;
 };
 
 /** Liberada p/ lançar? = nenhuma linha pendente/reprovada. Vazio = true. */
@@ -56,13 +60,13 @@ export function moLinhasEqual(a: MoLinha[], b: MoLinha[]): boolean {
 }
 
 /** Texto da dica âmbar da linha que vai reabrir (MaoObraEditor). */
-export const TEXTO_MO_VAI_REABRIR = "Mudar o valor volta este serviço para pendente — precisa de nova aprovação.";
+export const TEXTO_MO_VAI_REABRIR = "Mudar o valor, o serviço ou o fornecedor volta este serviço para pendente — precisa de nova aprovação.";
 /** Title dos botões Aprovar/Reprovar enquanto a linha tem valor/serviço mudado e ainda não salvo. */
 export const TEXTO_MO_SALVE_ANTES = "Salve o novo valor antes de aprovar ou reprovar";
 
 /**
  * Contas certas item 8 (P-163 A): no servidor, linha JÁ DECIDIDA (aprovada OU reprovada) que muda de VALOR ou de SERVIÇO
- * volta a PENDENTE no Salvar (`enforce_servico_mo_aprovacao`). Este espelho diz se a linha do rascunho vai reabrir:
+ * volta a PENDENTE no Salvar (`enforce_servico_mo_aprovacao`). Este espelho diz se a linha do rascunho vai reabrir (valor, serviço OU fornecedor):
  * `base` = a mesma linha como está no servidor (casada por `id`). Valor 0 ≡ vazio (o Salvar manda `Number(v) || 0`,
  * igual a `moLinhasEqual`); comparação em centavos. Linha nova (sem id) ou pendente no servidor nunca "reabre".
  */
@@ -71,7 +75,8 @@ export function moLinhaVaiReabrir(linha: MoLinha, base: MoLinha | null | undefin
   if (base.aprovado == null) return false;
   const centavos = (v: number | null | undefined) => Math.round((Number(v) || 0) * 100);
   return centavos(linha.valor) !== centavos(base.valor)
-    || (linha.categoria_terceirizado_id ?? null) !== (base.categoria_terceirizado_id ?? null);
+    || (linha.categoria_terceirizado_id ?? null) !== (base.categoria_terceirizado_id ?? null)
+    || (linha.empresa_id ?? null) !== (base.empresa_id ?? null);
 }
 
 /**

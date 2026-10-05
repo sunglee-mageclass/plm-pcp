@@ -244,6 +244,17 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
     expect(_rev_base).toEqual({ [A]: 4, [inativo.id]: 1, _molde_tocado: false });
   });
 
+  it("[urg R4b] bloco nascido da M.O. (mo_linha_id) vai SEM a chave mo_linha_id — o campo e so leitura", () => {
+    const { _blocos } = montarPayloadEdicaoRapida({
+      linhas: [{ ...linhaA, mo_linha_id: "mo-1" }, linhaB, linhaC],
+      blocoId: A,
+      campo: "data_enviado",
+      valor: "2026-10-07",
+    });
+    for (const b of _blocos) expect(Object.keys(b)).not.toContain("mo_linha_id");
+    expect(blocoDeLinha({ ...linhaA, mo_linha_id: "mo-1" }).mo_linha_id).toBe("mo-1");
+  });
+
   it("serviço do card sumiu do servidor (ou CAD sem serviços): recusa, nada é montado", () => {
     expect(() =>
       montarPayloadEdicaoRapida({

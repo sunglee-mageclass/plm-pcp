@@ -2680,6 +2680,7 @@ export type Database = {
           aprovado: boolean | null
           categoria_terceirizado_id: string | null
           created_at: string
+          empresa_id: string | null
           id: string
           modelo_id: string
           motivo_reprovacao: string | null
@@ -2692,6 +2693,7 @@ export type Database = {
           aprovado?: boolean | null
           categoria_terceirizado_id?: string | null
           created_at?: string
+          empresa_id?: string | null
           id?: string
           modelo_id: string
           motivo_reprovacao?: string | null
@@ -2704,6 +2706,7 @@ export type Database = {
           aprovado?: boolean | null
           categoria_terceirizado_id?: string | null
           created_at?: string
+          empresa_id?: string | null
           id?: string
           modelo_id?: string
           motivo_reprovacao?: string | null
@@ -2718,6 +2721,13 @@ export type Database = {
             columns: ["categoria_terceirizado_id"]
             isOneToOne: false
             referencedRelation: "categorias_terceirizado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_servico_mo_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
           {
@@ -5504,6 +5514,7 @@ export type Database = {
           grade_detalhe: Json
           id: string
           interno: boolean
+          mo_linha_id: string | null
           multa_total: number
           nf_entrada: Json
           nf_saida: Json
@@ -5541,6 +5552,7 @@ export type Database = {
           grade_detalhe?: Json
           id?: string
           interno?: boolean
+          mo_linha_id?: string | null
           multa_total?: number
           nf_entrada?: Json
           nf_saida?: Json
@@ -5578,6 +5590,7 @@ export type Database = {
           grade_detalhe?: Json
           id?: string
           interno?: boolean
+          mo_linha_id?: string | null
           multa_total?: number
           nf_entrada?: Json
           nf_saida?: Json
@@ -5625,6 +5638,13 @@ export type Database = {
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_terceirizados_mo_linha_id_fkey"
+            columns: ["mo_linha_id"]
+            isOneToOne: false
+            referencedRelation: "modelo_servico_mo"
             referencedColumns: ["id"]
           },
           {

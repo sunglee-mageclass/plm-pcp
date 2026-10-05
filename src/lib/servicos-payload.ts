@@ -73,6 +73,9 @@ export type BlocoServico = {
   // Peça de foto (Etapas PL S5): checkbox + data de entrega condicional.
   peca_foto: boolean;
   peca_foto_data: string | null;
+  // [urg R4b] linha de M.O. (`modelo_servico_mo.id`) de onde o bloco nasceu no Enviar à Explosão. SÓ LEITURA — nunca vai no payload
+  // de `salvar_terceirizados` (o servidor guarda; o PCP só usa para o aviso "M.O. não aprovada"). Bloco criado à mão = null.
+  mo_linha_id?: string | null;
 };
 
 /** Linha de `producao_terceirizados` (select "*") → bloco do sheet. Mesma leitura da hidratação/merge/retry P0409 do PCP. */
@@ -112,6 +115,7 @@ export function blocoDeLinha(r: any): BlocoServico {
     nf_entrada: Array.isArray(r.nf_entrada) ? r.nf_entrada : [],
     peca_foto: Boolean(r.peca_foto),
     peca_foto_data: r.peca_foto_data ?? null,
+    mo_linha_id: r.mo_linha_id ?? null,
   };
 }
 

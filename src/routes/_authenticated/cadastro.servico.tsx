@@ -1100,6 +1100,17 @@ const emptyEmpresaForm = {
   cats: [] as string[],
 };
 
+// [urg R4 / B4] Fornecedor (empresa de serviço) usado numa linha de mão de obra (`modelo_servico_mo.empresa_id`, FK NO ACTION):
+// o DELETE falha com 23503 — e a contagem de uso (startDelete) NÃO enxerga essa tabela (sem policy de leitura direta). Texto PT próprio.
+const TEXTO_EMPRESA_EM_USO_NA_MO =
+  "Este fornecedor está em uso na mão de obra de algum produto. Troque o fornecedor nessas linhas antes de excluir.";
+function mensagemExcluirEmpresa(e: any): string {
+  const code = String(e?.code ?? e?.error?.code ?? "");
+  const msg = String(e?.message ?? e?.error?.message ?? "");
+  if (code === "23503" && /modelo_servico_mo_empresa_id_fkey|on table "modelo_servico_mo"/.test(msg)) return TEXTO_EMPRESA_EM_USO_NA_MO;
+  return mensagemErro(e, "Erro ao excluir.");
+}
+
 function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
@@ -1368,7 +1379,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
       qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
+    onError: (e: any) => toast.error(mensagemExcluirEmpresa(e)),
   });
 
   // Exclusão em MASSA (só admin+): pula os em uso (mesma contagem do startDelete) e reporta.

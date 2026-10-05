@@ -9,7 +9,9 @@ import { brl } from "@/lib/format";
 import { moLinhaVaiReabrir, somaAprovadaVigente, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, type MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
+const NENHUM_FORNECEDOR = "__nenhum__";
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
+export type FornecedorServicoOpt = { id: string; nome_fantasia: string };
 export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; valor_padrao?: number | null };
 
 /**
@@ -24,7 +26,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; v
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
   onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase,
-  readOnly = false, podeEditarValor,
+  readOnly = false, podeEditarValor, fornecedores,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -55,6 +57,10 @@ export function MaoObraEditor({
    * custos (`podeEditarValorMO`, a mesma regra do servidor). `false` = o valor vira texto e somem "Adicionar"/"Remover";
    * aprovar/reprovar continua (é outra permissão, inv. 12). */
   podeEditarValor: boolean;
+  /** [urg R4] fornecedor de serviço por linha (opcional): com a lista, cada linha mostra um Select "Fornecedor" (editável só com
+   * `editaValor`; senão texto). SÓ o Sheet do Planejamento passa — o Dev (somente leitura) e o `MaoObraCardMini` dos cards PA/PI
+   * NÃO passam e ficam idênticos a antes. Trocar o fornecedor de linha decidida reabre a aprovação (a dica âmbar já cobre). */
+  fornecedores?: FornecedorServicoOpt[];
 }) {
   const editaValor = podeEditarValor && !readOnly;
   const [addSel, setAddSel] = useState<string>("");
@@ -65,6 +71,8 @@ export function MaoObraEditor({
   const disponiveis = categorias.filter((c) => c.ativo !== false);
   const nomeCat = (id: string | null) => id == null ? "Geral (legado)" : (categorias.find((c) => c.id === id)?.nome ?? "Serviço");
 
+  const setFornecedorAt = (idx: number, empresaId: string | null) =>
+    onChangeLinhas(linhas.map((l, i) => (i === idx ? { ...l, empresa_id: empresaId, empresa_nome: fornecedores?.find((f) => f.id === empresaId)?.nome_fantasia ?? null } : l)));
   const setValorAt = (idx: number, v: number | null) =>
     onChangeLinhas(linhas.map((l, i) => (i === idx ? { ...l, valor: v } : l)));
   const removerAt = (idx: number) =>
@@ -74,7 +82,7 @@ export function MaoObraEditor({
     // Sugestão: pré-preenche o valor com o `valor_padrao` do serviço (M.O. sugerida por serviço).
     // Fica editável; só afeta a linha NOVA (sem id — o servidor gera no Salvar).
     const padrao = categorias.find((c) => c.id === addSel)?.valor_padrao ?? null;
-    onChangeLinhas([...linhas, { categoria_terceirizado_id: addSel, valor: padrao != null && padrao > 0 ? padrao : null, aprovado: null }]);
+    onChangeLinhas([...linhas, { categoria_terceirizado_id: addSel, valor: padrao != null && padrao > 0 ? padrao : null, aprovado: null, empresa_id: null }]);
     setAddSel("");
   };
 
@@ -90,6 +98,24 @@ export function MaoObraEditor({
         return (
           <div key={linhaId ?? `nova-${idx}`} className="flex flex-wrap items-center gap-2 rounded-md border p-2">
             <span className="min-w-[8rem] flex-1 truncate text-sm font-medium">{nomeCat(l.categoria_terceirizado_id)}</span>
+            {fornecedores && (
+              editaValor ? (
+                <div className="w-full sm:w-48">
+                  <Select value={l.empresa_id ?? NENHUM_FORNECEDOR} onValueChange={(v) => setFornecedorAt(idx, v === NENHUM_FORNECEDOR ? null : v)}>
+                    <SelectTrigger aria-label="Fornecedor" data-colab-path={`mo:${linhaId ?? `nova-${idx}`}:fornecedor`}><SelectValue placeholder="Sem fornecedor" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NENHUM_FORNECEDOR}>Sem fornecedor</SelectItem>
+                      {l.empresa_id && !fornecedores.some((f) => f.id === l.empresa_id) && (
+                        <SelectItem value={l.empresa_id}>{l.empresa_nome ?? "Fornecedor"}</SelectItem>
+                      )}
+                      {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome_fantasia}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <span className="w-full truncate text-sm text-muted-foreground sm:w-48" data-testid="mo-fornecedor-leitura">{l.empresa_nome ?? "Sem fornecedor"}</span>
+              )
+            )}
             {podeVerCustos && (
               <div className="w-32">
                 {/* `l.valor || ""` (não `??`): 0 e vazio são o MESMO valor de negócio aqui —

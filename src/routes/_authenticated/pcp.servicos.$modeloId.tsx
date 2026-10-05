@@ -34,6 +34,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -343,12 +344,14 @@ export function TerceirizadosDetail({
       const { data } = await supabase
         .from("empresas")
         .select(
-          "id, nome_fantasia, prazo_pagamento, empresa_categorias_servico!inner(categoria_terceirizado_id), representantes(id, nome)",
+          "id, nome_fantasia, prazo_pagamento, empresa_categorias_servico(categoria_terceirizado_id), representantes(id, nome)",
         )
         .eq("tipo", "servico");
       return (data ?? []) as any[];
     },
   });
+  // [urg R4b] sem `!inner`: o fornecedor da M.O. pode ser qualquer empresa de serviço (P-289 C), mesmo sem vínculo com categoria —
+  // com `!inner` ela nem vinha na lista e o Select do bloco nascido da M.O. ficava vazio. O filtro por categoria é o abaixo.
   // Filtra empresas pela categoria do bloco (mesmo padrão do filtro por categoria de hoje).
   const empresasDaCategoria = (catId: string) =>
     (empresasServico as any[]).filter((e) =>
@@ -881,7 +884,9 @@ export function TerceirizadosDetail({
   // o card já é gated por `podeVerPrecos` (∈ `_pode_ver_custos`), então na prática não chega mascarado.
   const { data: moResumo } = useQuery({
     queryKey: ["pcp-mo-resumo", modeloId],
-    enabled: !!modeloId && podeVerPrecos,
+    // [urg R4b] sem `podeVerPrecos`: o aviso "M.O. não aprovada" também vale para quem não vê preço; o wrapper já devolve `{}` a quem
+    // não vê custo nem aprova (nada vaza). Os cards de MO seguem gated por `podeVerPrecos` na tela.
+    enabled: !!modeloId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: [modeloId] });
       if (error) throw error;
@@ -1169,8 +1174,10 @@ export function TerceirizadosDetail({
   // `blocosDaAba`/`reprovadosPl`), pois é o que `updateBloco`/`removeBloco` esperam.
   function renderBlocoCard(b: Bloco, idx: number) {
     const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
-    const empresasCat = empresasDaCategoria(b.categoria_terceirizado_id);
     const empresaSel = (empresasServico as any[]).find((e) => e.id === b.empresa_id);
+    // [urg R4b] opções = empresas da categoria ∪ a já escolhida (bloco nascido da M.O. pode ter fornecedor sem vínculo com a categoria).
+    const empresasCatBase = empresasDaCategoria(b.categoria_terceirizado_id);
+    const empresasCat = empresaSel && !empresasCatBase.some((e: any) => e.id === b.empresa_id) ? [...empresasCatBase, empresaSel] : empresasCatBase;
     const repsDaEmpresa = (empresaSel?.representantes ?? []) as { id: string; nome: string | null }[];
     const colabsCat = colaboradoresDaCategoria(b.categoria_terceirizado_id);
     // SLA do serviço: dias entre enviado e entregue (calculado das datas).
@@ -1221,6 +1228,17 @@ export function TerceirizadosDetail({
               const bSt = blocoFinalizado(b) ? "finalizado" : b.data_enviado ? "em_andamento" : "pendente";
               return <StatusBadge tone={STATUS_TONE[bSt] ?? "neutral"}>{STATUS_LABELS[bSt] ?? bSt}</StatusBadge>;
             })()}
+            {/* [urg R4b] bloco nascido da M.O. (Enviar à Explosão), externo e ainda sem preço: o preço entra sozinho quando a linha de M.O.
+                for aprovada no Planejamento. Some quando a linha está aprovada ou quando já há preço (digitado ou vindo da aprovação). */}
+            {b.mo_linha_id && !b.interno && !(Number(b.preco_metro_unidade) > 0)
+              && moLinhas.find((l) => l.id === b.mo_linha_id)?.aprovado !== true && (
+              <span className="inline-flex items-center gap-1">
+                <StatusBadge tone="warning">M.O. não aprovada</StatusBadge>
+                <InfoHover ariaLabel="Por que o preço está vazio">
+                  O preço entra sozinho quando a mão de obra deste serviço for aprovada no Planejamento. Se digitar um preço aqui, ele não é trocado.
+                </InfoHover>
+              </span>
+            )}
             <Button type="button" size="icon" variant="ghost" onClick={() => removeBloco(idx)} aria-label="Remover bloco">
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>

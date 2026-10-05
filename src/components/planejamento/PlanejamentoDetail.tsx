@@ -760,6 +760,7 @@ function PlanejamentoDetailConteudo({
       id: (l as any).id ?? null,
       categoria_terceirizado_id: l.categoria_terceirizado_id ?? null,
       nome: l.nome, valor: l.valor ?? null, aprovado: l.aprovado ?? null, motivo_reprovacao: l.motivo_reprovacao ?? null,
+      empresa_id: l.empresa_id ?? null, empresa_nome: l.empresa_nome ?? null, // [urg R4] fornecedor de serviço da linha
     })) as MaoObraEditorLinha[];
     if (!moLinhasEqual(moLinhasRef.current, moBaseRef.current)) return; // preserva edições não salvas
     setMoLinhas(seed); setMoLinhasBase(seed);
@@ -1312,6 +1313,17 @@ function PlanejamentoDetailConteudo({
   // F3.6 (Parte A — spec §5.1): a Mão de obra deixa de ser seção no Sheet e vira o bloco da linha "Mão de obra" DENTRO de
   // "Preço e Custos"; a condição de exibir é a MESMA de antes (ver custos OU aprovar; comprado só com o card salvo).
   const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));
+  // [urg R4] fornecedores de serviço do Select por linha de M.O.: TODAS as empresas tipo 'servico' da loja (P-289 C — não só as
+  // vinculadas à categoria do serviço). Só carrega quando o bloco de M.O. aparece; a loja entra na key (super admin troca de loja).
+  const { data: empresasServicoMO = [] } = useQuery({
+    queryKey: ["empresas-servico-mo", tenantIdAtivo],
+    enabled: moBlocoVisivel && !!tenantIdAtivo,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("empresas").select("id, nome_fantasia").eq("tipo", "servico").order("nome_fantasia");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome_fantasia: string }[];
+    },
+  });
   const vis: Record<SecaoSheetKey, boolean> = {
     info: true,
     colecao: true,
@@ -1473,6 +1485,7 @@ function PlanejamentoDetailConteudo({
         linhasPersistidas={moLinhasPersistidas}
         linhasBase={moLinhasBase}
         podeEditarValor={podeEditarMO}
+        fornecedores={empresasServicoMO}
       />
     </fieldset>
   );

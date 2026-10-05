@@ -132,7 +132,7 @@ describe("item 8 — moLinhaVaiReabrir (P-163 A)", () => {
     expect(ed).toMatch(/\{TEXTO_MO_VAI_REABRIR\}/);
     // vale para aprovada E reprovada (a reprovada nunca foi aprovada: "nova aprovação")
     expect(TEXTO_MO_VAI_REABRIR).toBe(
-      "Mudar o valor volta este serviço para pendente — precisa de nova aprovação.",
+      "Mudar o valor, o serviço ou o fornecedor volta este serviço para pendente — precisa de nova aprovação.",
     );
     expect(ler("src/components/planejamento/PlanejamentoDetail.tsx")).toMatch(
       /linhasBase=\{moLinhasBase\}/,
