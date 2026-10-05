@@ -9,7 +9,9 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { cn } from "@/lib/utils";
 import {
   LIMITE_INSUMOS_PADRAO,
+  TEXTO_COR_REMOVIDA_SEM_CORES,
   TEXTO_PROBLEMA_INSUMO_PADRAO,
+  cortarCasasConsumo,
   type CatalogoInsumoPadrao,
   type DiagnosticoLinhaInsumoPadrao,
   type InsumoPadrao,
@@ -157,7 +159,7 @@ export function InsumosPadraoCard({
                       <Select
                         value={l.cor_id ?? SEM_COR}
                         onValueChange={(v) => setLinha(i, { cor_id: v === SEM_COR ? null : v })}
-                        disabled={travado || l.etiqueta_id === "" || (ins?.cores.length ?? 0) === 0}
+                        disabled={travado || l.etiqueta_id === "" || ((ins?.cores.length ?? 0) === 0 && !corRemovida)}
                       >
                         <SelectTrigger
                           aria-label="Cor"
@@ -187,7 +189,7 @@ export function InsumosPadraoCard({
                       disabled={travado}
                       aria-invalid={consumoRuim || undefined}
                       className={cn(consumoRuim && "border-amber-500")}
-                      onChange={(e) => setLinha(i, { consumo: Number(e.target.value) })}
+                      onChange={(e) => setLinha(i, { consumo: Number(cortarCasasConsumo(e.target.value)) })}
                     />
                   </div>
 
@@ -197,6 +199,7 @@ export function InsumosPadraoCard({
                       variant="ghost"
                       size="iconSm"
                       aria-label="Remover insumo"
+                      disabled={travado}
                       onClick={() => remover(i)}
                     >
                       <X className="h-4 w-4" />
@@ -211,7 +214,9 @@ export function InsumosPadraoCard({
                         msgNeutra ? "text-muted-foreground" : "text-amber-700 dark:text-amber-400",
                       )}
                     >
-                      {TEXTO_PROBLEMA_INSUMO_PADRAO[problema]}
+                      {problema === "cor_removida" && (ins?.cores.length ?? 0) === 0
+                        ? TEXTO_COR_REMOVIDA_SEM_CORES
+                        : TEXTO_PROBLEMA_INSUMO_PADRAO[problema]}
                     </p>
                   )}
                 </div>

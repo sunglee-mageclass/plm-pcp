@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { InsumosPadraoCard } from "@/components/configuracoes/InsumosPadraoCard";
-import { diagnosticarLinhasInsumosPadrao, type CatalogoInsumoPadrao, type InsumoPadrao } from "@/lib/insumos-padrao";
+import { cortarCasasConsumo, diagnosticarLinhasInsumosPadrao, TEXTO_COR_REMOVIDA_SEM_CORES, type CatalogoInsumoPadrao, type InsumoPadrao } from "@/lib/insumos-padrao";
 import { IP_IDS } from "../fixtures/insumos-padrao-casos";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -108,5 +108,45 @@ describe("InsumosPadraoCard", () => {
     expect(add.disabled).toBe(true);
     expect(container.textContent).toContain("20/20");
     unmount();
+  });
+  // Fix round 1 (review T11)
+  it("L1: digitar 5+ casas no Consumo corta em 4 (nunca guarda/mostra valor invalido como se fosse valido)", () => {
+    const lista: InsumoPadrao[] = [{ etiqueta_id: E1, cor_id: C1, consumo: 1 }];
+    const { container, onChange, unmount } = montar(lista);
+    const input = container.querySelector('input[aria-label="Consumo"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      input.focus();
+      setter.call(input, "0,12345");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(onChange).toHaveBeenLastCalledWith([{ etiqueta_id: E1, cor_id: C1, consumo: 0.1234 }]);
+    expect(cortarCasasConsumo("0.12345")).toBe("0.1234");
+    expect(cortarCasasConsumo("12")).toBe("12");
+    expect(cortarCasasConsumo("1.5")).toBe("1.5");
+    unmount();
+  });
+
+  it("L2: cor removida num insumo SEM cores: select habilitado (Sem cor) e mensagem manda voltar a 'Sem cor' ou remover", () => {
+    const lista: InsumoPadrao[] = [{ etiqueta_id: E2, cor_id: C1, consumo: 1 }];
+    const { container, unmount } = montar(lista);
+    const msg = Array.from(container.querySelectorAll("p")).map((p) => p.textContent);
+    expect(msg).toContain(TEXTO_COR_REMOVIDA_SEM_CORES);
+    expect(TEXTO_COR_REMOVIDA_SEM_CORES).toContain("remova esta linha");
+    expect(msg.join(" ")).not.toContain("escolha outra cor");
+    const cor = container.querySelector('button[aria-label="Cor"]') as HTMLButtonElement;
+    expect(cor.disabled).toBe(false);
+    unmount();
+  });
+
+  it("L3: sem catalogo (carregando/falha) o Remover fica desabilitado", () => {
+    const lista: InsumoPadrao[] = [{ etiqueta_id: E1, cor_id: null, consumo: 1 }];
+    const { container, unmount } = montar(lista, { catalogo: undefined, erro: true, diagnostico: null });
+    const rem = container.querySelector('button[aria-label="Remover insumo"]') as HTMLButtonElement;
+    expect(rem.disabled).toBe(true);
+    unmount();
+    const ok = montar(lista);
+    expect((ok.container.querySelector('button[aria-label="Remover insumo"]') as HTMLButtonElement).disabled).toBe(false);
+    ok.unmount();
   });
 });

@@ -1509,7 +1509,6 @@ function ConfiguracoesLojaPage() {
       </Card>
 
       {mostrarInsumosPadrao && (
-        <div className="lg:col-span-2">
           <InsumosPadraoCard
             value={cfg.insumos_padrao}
             onChange={(insumos_padrao) => setCfg((c) => ({ ...c, insumos_padrao }))}
@@ -1522,7 +1521,6 @@ function ConfiguracoesLojaPage() {
             anelClassName={anelConflito("cfg:insumos_padrao")}
             disabled={!hydrated}
           />
-        </div>
       )}
 
       <Card data-colab-path="cfg:nomenclaturas">

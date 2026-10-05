@@ -145,7 +145,16 @@ export function diagnosticarLinhasInsumosPadrao(
 export const TEXTO_PROBLEMA_INSUMO_PADRAO: Record<ProblemaLinhaInsumoPadrao, string> = {
   sem_insumo: "Escolha o insumo.",
   insumo_removido: "Insumo removido do cadastro — remova esta linha.",
-  cor_removida: "Cor removida do insumo — escolha outra cor ou remova esta linha.",
+  cor_removida: "Cor removida do insumo — troque a cor ou remova esta linha.",
   consumo_invalido: "Consumo de 0 a 9999, com no máximo 4 casas decimais.",
   duplicado: "Este insumo nesta cor já está na lista.",
 };
+
+/** Cor removida de um insumo que ficou SEM nenhuma cor: não há outra cor para escolher. */
+export const TEXTO_COR_REMOVIDA_SEM_CORES = 'Cor removida do insumo — volte para "Sem cor" ou remova esta linha.';
+
+/** Máscara do Consumo: corta o texto numérico (ponto decimal, como o NumberInput entrega) em 4 casas decimais. */
+export function cortarCasasConsumo(texto: string): string {
+  const i = texto.indexOf(".");
+  return i < 0 ? texto : texto.slice(0, i + 1 + CASAS_CONSUMO_INSUMO_PADRAO);
+}
