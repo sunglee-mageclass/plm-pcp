@@ -10,7 +10,7 @@ export type SecaoSheetKey =
   | "info" | "colecao" | "desenvolvimento" | "codigos" | "prova"
   | "tecidos" | "aviamentos" | "insumos" | "grade" | "cad"
   | "tecidos_novo" | "insumos_novo" | "mao_obra_novo" | "preco" | "produto_acabado" | "grade_revenda"
-  | "anexos" | "observacoes" | "lancamento" | "relacionado";
+  | "peca_teste" | "anexos" | "observacoes" | "lancamento" | "relacionado";
 
 /** Ordem do mockup aprovado (gen_main.py:106) + F3.6 (spec 2026-09-25 §5.1): "Códigos" logo depois de "Desenvolvimento"
  *  + "Tecidos" do Dialog e as 2 seções da revenda onde o JSX as põe.
@@ -18,7 +18,7 @@ export type SecaoSheetKey =
  *  "Novo Modelo" (sem número — R1/R18). */
 export const ORDEM_SECOES_SHEET: readonly SecaoSheetKey[] = [
   "info", "colecao", "desenvolvimento", "codigos", "prova", "tecidos", "aviamentos", "insumos", "grade", "cad",
-  "tecidos_novo", "insumos_novo", "mao_obra_novo", "preco", "produto_acabado", "grade_revenda", "anexos", "observacoes", "lancamento", "relacionado",
+  "tecidos_novo", "insumos_novo", "mao_obra_novo", "preco", "peca_teste", "produto_acabado", "grade_revenda", "anexos", "observacoes", "lancamento", "relacionado",
 ];
 
 /** Dialog "Novo Modelo": o mockup aprovado numera SÓ "1. Informações Gerais do Produto" e "2. Coleção"; Tecidos, Mão de
@@ -50,6 +50,8 @@ export const CONDICOES_SECAO_SHEET: Partial<Record<SecaoSheetKey, readonly strin
   cad: ["cad_preenchido"],
   // F3.6 (spec 2026-09-25 §5.3) — a MO mora dentro de "Preço e Custos": as condições dela viram requisito DESTA seção.
   preco: ["preco_venda_preenchido", "servico_aprovado", "servico_mo_decidido", "servico_mo_preenchido"],
+  // R9 (T6) — Peça Teste: o requisito "Peça teste aprovada" vira o selo DESTA seção (que ainda mostra "N de M aprovadas").
+  peca_teste: ["peca_teste_aprovada"],
   anexos: ["anexo_croqui", "desenho_tecnico_anexado", "anexo_modelo", "ficha_medida_anexada"],
   lancamento: ["data_lancamento_preenchida"],
 };
@@ -98,6 +100,8 @@ export type EntradaSelosSheet = {
    *  referência, desenho técnico, croqui. */
   anexos: { fotoModelo: boolean; fotoReferencia: boolean; desenho: boolean; croqui: boolean };
   lancamento: { lancado: boolean; data: string | null };
+  /** R9 (T6) — resumo da seção Peça Teste (requisito local: trilhas que exigem × com peça teste aprovada). null/ausente = sem trilhas (sem selo). */
+  pecaTeste?: { aprovadas: number; total: number; ok: boolean } | null;
 };
 
 /** Ordem/rótulos dos 4 anexos (decisão do dono 25/set: são 4 totais — Ficha de Medida NÃO conta). */
@@ -149,6 +153,16 @@ export function selosSecoesSheet(e: EntradaSelosSheet): Partial<Record<SecaoShee
     ? { tone: "warn", texto: e.maoObraAviso === "reprovada" ? "MO reprovada" : "MO pendente" }
     : undefined;
   out.preco = moAviso && r("preco")?.tone !== "warn" ? moAviso : seloDeSecao(!e.preco || e.preco.efetivo <= 0, r("preco"), precoInformativo);
+  // R9 (T6) — "N de M aprovadas": verde quando o requisito local está cumprido (peça teste E M.O. aprovadas em todo serviço que exige),
+  // âmbar senão. O requisito do kanban (quando a loja o marca) só decide o aviso do "i": o texto é sempre o resumo.
+  if (e.pecaTeste && e.pecaTeste.total > 0) {
+    const falta = r("peca_teste");
+    out.peca_teste = {
+      tone: e.pecaTeste.ok ? "ok" : "warn",
+      texto: `${e.pecaTeste.aprovadas} de ${e.pecaTeste.total} aprovadas`,
+      ...(falta?.tone === "warn" ? { title: falta.title, condicaoUnica: falta.condicaoUnica } : {}),
+    };
+  }
   out.anexos = seloDeSecao(
     e.anexos.fotoModelo === false && e.anexos.fotoReferencia === false && e.anexos.desenho === false && e.anexos.croqui === false,
     r("anexos"), seloAnexos(e.anexos),

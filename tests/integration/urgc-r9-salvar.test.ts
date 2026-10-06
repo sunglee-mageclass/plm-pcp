@@ -10,6 +10,9 @@ import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TEST
 import { aplicaUrgc, voltaUrgc, urgcViva, URGC_BLOCOS } from "./urgc-helpers";
 import { aplicarArquivo, semTransacao } from "./mig-txn";
 import { readFileSync } from "node:fs";
+import {
+  aprovar, desfazerDecisao, editarAtual, estadoPTDoServidor, payloadPecaTeste, reprovar, type EstadoPT, type TrilhaPT,
+} from "../../src/lib/peca-teste";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -783,6 +786,58 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
       // base = fornecedor de serviço da loja (o de antes): passa e congela o de antes, como no teste 15
       expect(txt(await reprovar(s.f1))).toBe("PASSOU");
       expect((await tentativas(c, s.linhaA))[0]).toMatchObject({ aprovacao: "reprovado", empresa_id: s.f1 });
+    });
+  });
+
+  it("17) T6 — o payload montado pela função TS REAL (payloadPecaTeste: delta + _rev_base) é aceito pelo servidor: lançar datas, aprovar, reprovar + próxima, trocar fornecedor", async () => {
+    await withTx(async (c) => {
+      const s = await cenario(c);
+      const estado = async () => estadoPTDoServidor(await ler(c, U_ED, s.modelo))!;
+      const mandar = async (draft: EstadoPT, base: EstadoPT) => {
+        const p = payloadPecaTeste(draft, base);
+        return { p, r: await salvar(c, U_ED, s.modelo, p._trilhas as TrilhaPayload[], p._rev_base) };
+      };
+      const trilha = (e: EstadoPT, linha: string) => e.trilhas.find((t) => t.mo_linha_id === linha)!;
+      const troca = (e: EstadoPT, linha: string, f: (t: TrilhaPT) => TrilhaPT): EstadoPT => ({ ...e, trilhas: e.trilhas.map((t) => (t.mo_linha_id === linha ? f(t) : t)) });
+
+      // 1) lançar as 2 datas na 1ª tentativa virtual (id null, número 1): sem decisão, sem chave empresa_id, sem _rev_base.fornecedor
+      let base = await estado();
+      let draft = troca(base, s.linhaA, (t) => editarAtual(editarAtual(t, { data_saida: D1 }), { data_entrada: D2 }));
+      let m = await mandar(draft, base);
+      expect(m.p._trilhas[0]).not.toHaveProperty("empresa_id");
+      expect(m.p._rev_base.fornecedor).toEqual({});
+      expect(txt(m.r)).toBe("PASSOU");
+      expect((await tentativas(c, s.linhaA)).map((x) => [x.numero, x.data_saida, x.data_entrada, x.aprovacao])).toEqual([[1, D1, D2, null]]);
+
+      // 2) aprovar: tentativa gravada (id + rev da base) + _rev_base.fornecedor[linha] = o fornecedor que a tela viu; congela o da linha
+      base = await estado();
+      draft = troca(base, s.linhaA, (t) => aprovar(t, { id: trilha(base, s.linhaA).empresa_id, nome: trilha(base, s.linhaA).empresa_nome }));
+      m = await mandar(draft, base);
+      expect(m.p._rev_base.fornecedor).toEqual({ [s.linhaA]: s.f1 });
+      expect(txt(m.r)).toBe("PASSOU");
+      expect((await tentativas(c, s.linhaA))[0]).toMatchObject({ aprovacao: "aprovado", empresa_id: s.f1, decidido_por: U_ED });
+      expect(trilha(await estado(), s.linhaA)).toBeDefined();
+
+      // 3) desfazer + reprovar: a atual vai para o histórico e a seguinte (nº 2) nasce no MESMO Salvar
+      base = await estado();
+      draft = troca(base, s.linhaA, (t) => editarAtual(reprovar(desfazerDecisao(t), { id: s.f1, nome: null }), { data_saida: "2026-10-09" }));
+      m = await mandar(draft, base);
+      expect(m.p._trilhas[0].tentativas.map((x) => [x.id === null ? "nova" : "gravada", x.numero, x.aprovacao])).toEqual([["gravada", 1, "reprovado"], ["nova", 2, null]]);
+      expect(txt(m.r)).toBe("PASSOU");
+      expect((await tentativas(c, s.linhaA)).map((x) => [x.numero, x.aprovacao, x.empresa_id])).toEqual([[1, "reprovado", s.f1], [2, null, null]]);
+
+      // 4) trocar o fornecedor da trilha B (M.O. ainda pendente): leva a chave empresa_id + _rev_base.fornecedor[linha] = o antigo; a MESMA linha muda
+      base = await estado();
+      draft = troca(base, s.linhaB, (t) => ({ ...t, empresa_id: s.f1, empresa_nome: "x" }));
+      m = await mandar(draft, base);
+      expect(m.p._trilhas).toEqual([{ mo_linha_id: s.linhaB, categoria_id: s.catB, empresa_id: s.f1, tentativas: [] }]);
+      expect(m.p._rev_base.fornecedor).toEqual({ [s.linhaB]: s.f2 });
+      expect(txt(m.r)).toBe("PASSOU");
+      expect((await um<{ e: string }>(c, "SELECT empresa_id AS e FROM public.modelo_servico_mo WHERE id = $1", [s.linhaB])).e).toBe(s.f1);
+
+      // nada mudou = o payload é vazio (a tela nem chama o servidor)
+      base = await estado();
+      expect(payloadPecaTeste(structuredClone(base), base)._trilhas).toEqual([]);
     });
   });
 

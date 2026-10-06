@@ -415,7 +415,8 @@ describe("Fix round 3 — usePlanejamentoSave.ts espelha a chamada de resolverCo
   it("o resultado da mutation devolve resolucaoTrava", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
     // Fix round 1 (M-1) — ganhou `precosServidorPosRpc` ao lado (ver describe "Fix round 1 — M-1" mais abaixo).
-    expect(s).toMatch(/consumoOuAviamento: bom\.gravar[\s\S]*?resolucaoTrava, precosServidorPosRpc,\n\s*};/);
+    // R9 (T6) — ganhou `pecaTeste: etapaPT` (resultado da etapa da Peça Teste) depois dele.
+    expect(s).toMatch(/consumoOuAviamento: bom\.gravar[\s\S]*?resolucaoTrava, precosServidorPosRpc, pecaTeste: etapaPT,\n\s*};/);
   });
 });
 

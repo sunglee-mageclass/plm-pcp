@@ -57,7 +57,7 @@ describe("limparCustoSim", () => {
 });
 
 describe("invalidarAposAprovarMO", () => {
-  it("invalida exatamente estas 7 queryKeys, nesta ordem", () => {
+  it("invalida exatamente estas 8 queryKeys, nesta ordem (R9: + a seção Peça Teste)", () => {
     const chamadas: unknown[] = [];
     const qc = { invalidateQueries: (o: { queryKey: unknown }) => { chamadas.push(o.queryKey); } };
     invalidarAposAprovarMO(qc as any, "m1");
@@ -68,6 +68,7 @@ describe("invalidarAposAprovarMO", () => {
       ["modelos-planejamento"],
       ["mo-resumo-list"],
       ["modelo-mo-resumo"],
+      ["peca-teste", "m1"],
       ["modelos-desenvolvimento"],
     ]);
   });

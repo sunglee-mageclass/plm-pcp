@@ -148,6 +148,8 @@ export const TAXONOMY_KEY_TOKENS: Record<TaxonomyTable, readonly string[]> = {
     "cq-cats-servico",
     "leadtime-categorias-terceirizado",
     "leadtime-servico-cats",
+    // R9 (T6): ligar/desligar "Exige peça teste" num tipo de serviço muda as trilhas da seção Peça Teste do card aberto.
+    "peca-teste",
   ],
   lojas_direcionamento: ["lojas-direcionamento", "dir-lojas"],
   // Fase 2 — taxonomias de Atributos: a lista é sempre `["attr", <tabela>, ""]`, casada pela regra
