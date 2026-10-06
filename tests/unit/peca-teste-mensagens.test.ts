@@ -34,6 +34,11 @@ describe("mensagemErro — Peça Teste", () => {
     });
   }
 
+  it("sem_datas por tentativa NOVA decidida (id nulo) tem texto próprio — não diz 'preencha as datas' com as datas preenchidas", () => {
+    const msg = "peca_teste_sem_datas: tentativa nova nao nasce aprovada ou reprovada - salve as datas antes de decidir";
+    expect(mensagemErro(err("P0001", msg))).toBe("A peça teste ainda não foi salva: salve as datas antes de aprovar ou reprovar.");
+  });
+
   it("os dois P0409 ganham o texto da Peça Teste (não o genérico de P0409)", () => {
     const generico = mensagemErro(err("P0409", "conflito_versao: modelo"));
     expect(mensagemErro(err("P0409", "peca_teste_conflito: x"))).not.toBe(generico);

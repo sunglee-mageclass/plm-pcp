@@ -171,24 +171,28 @@ export function podeDecidir(at: Pick<TentativaPT, "data_saida" | "data_entrada">
   return !!at.data_saida && !!at.data_entrada;
 }
 
-export type MotivoSemDecisao = "sem_datas" | "sem_fornecedor" | "fornecedor_nao_salvo";
+export type MotivoSemDecisao = "sem_datas" | "nao_salva" | "sem_fornecedor" | "fornecedor_nao_salvo";
 /** Por que a Aprovação está desabilitada (null = pode decidir). O servidor recusa decisão sem as 2 datas e com a linha SEM fornecedor
  *  gravado (`peca_teste_sem_fornecedor`): `fornecedorBase` = o da linha como está no SERVIDOR; `fornecedorEfetivo` = o do rascunho. */
 export function motivoSemDecisao(
-  at: Pick<TentativaPT, "data_saida" | "data_entrada">,
+  at: Pick<TentativaPT, "data_saida" | "data_entrada"> & { id?: string | null },
   fornecedorBase: string | null,
   fornecedorEfetivo: string | null,
 ): MotivoSemDecisao | null {
   if (!podeDecidir(at)) return "sem_datas";
+  // tentativa que ainda NÃO existe no banco (id nulo — virtual com dado, ou recém-enviada até a releitura trazer o id) não nasce decidida: o
+  // servidor recusa o payload inteiro (`peca_teste_sem_datas`). Salva as datas primeiro; a GRAVADA (id) pode receber a entrada + a decisão juntas.
+  if (at.id === null) return "nao_salva";
   if (!fornecedorBase) return fornecedorEfetivo ? "fornecedor_nao_salvo" : "sem_fornecedor";
   return null;
 }
 export const TEXTO_SEM_DATAS = "Preencha a Data de saída e a Data de entrada para decidir.";
+export const TEXTO_NAO_SALVA = "Salve as datas antes de decidir.";
 export const TEXTO_SEM_FORNECEDOR = "Defina o fornecedor da M.O. antes.";
 export const TEXTO_FORNECEDOR_NAO_SALVO = "Salve o card com o fornecedor antes de decidir.";
 export const TEXTO_APROVAR_COM_TROCA = "Salve a troca de fornecedor antes de aprovar.";
 export function textoMotivoSemDecisao(m: MotivoSemDecisao): string {
-  return m === "sem_datas" ? TEXTO_SEM_DATAS : m === "sem_fornecedor" ? TEXTO_SEM_FORNECEDOR : TEXTO_FORNECEDOR_NAO_SALVO;
+  return m === "sem_datas" ? TEXTO_SEM_DATAS : m === "nao_salva" ? TEXTO_NAO_SALVA : m === "sem_fornecedor" ? TEXTO_SEM_FORNECEDOR : TEXTO_FORNECEDOR_NAO_SALVO;
 }
 
 /** O fornecedor do rascunho difere do SALVO (a troca grava na MESMA linha da M.O., que volta a pendente). */

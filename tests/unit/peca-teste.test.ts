@@ -56,6 +56,16 @@ describe("decidir", () => {
     expect(podeDecidir({ data_saida: "2026-09-22", data_entrada: null })).toBe(false);
     expect(podeDecidir({ data_saida: "2026-09-22", data_entrada: "2026-09-29" })).toBe(true);
   });
+  it("N1 (sonda do revisor) — 1ª tentativa com as 2 datas e SEM id: a tela NÃO libera a decisão ('nao_salva'); com id libera", () => {
+    const t0 = trilha({ tentativas: [] });
+    const t = editarAtual(editarAtual(t0, { data_saida: "2026-10-01" }), { data_entrada: "2026-10-03" });
+    const at = t.tentativas[0];
+    expect(at.id).toBeNull();
+    expect(motivoSemDecisao(at, F1, F1)).toBe("nao_salva");
+    expect(motivoSemDecisao({ ...at, id: T1 }, F1, F1)).toBeNull();
+    // sem as datas a dica continua sendo a das datas
+    expect(motivoSemDecisao({ ...at, id: null, data_entrada: null }, F1, F1)).toBe("sem_datas");
+  });
   it("motivoSemDecisao: datas primeiro; depois fornecedor salvo (a linha sem fornecedor é recusada no servidor)", () => {
     const ok = { data_saida: "2026-09-22", data_entrada: "2026-09-29" };
     expect(motivoSemDecisao({ data_saida: null, data_entrada: null }, F1, F1)).toBe("sem_datas");

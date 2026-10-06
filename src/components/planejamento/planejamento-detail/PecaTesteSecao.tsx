@@ -100,7 +100,12 @@ export function PecaTesteSecao({
           ) : erro && !estado ? (
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-destructive">Não foi possível carregar a peça teste.</span>
-              <button type="button" className="underline underline-offset-2" onClick={onTentarDeNovo}>Tentar de novo</button>
+              {/* NÃO é <button>: quem só LÊ o Sheet tem um `fieldset disabled` (SheetContent) acima da seção, que desabilita todo <button> descendente */}
+              <span
+                role="button" tabIndex={0} className="cursor-pointer underline underline-offset-2"
+                onClick={onTentarDeNovo}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTentarDeNovo?.(); } }}
+              >Tentar de novo</span>
             </div>
           ) : (
             <>
@@ -142,7 +147,8 @@ export function PecaTesteSecao({
                     trilha={t}
                     base={b}
                     moAprovado={moEfetivo(t)}
-                    historicoAberto={historicoAberto}
+                    // quem só LÊ o Sheet inteiro tem o gatilho do colapsável desabilitado pelo fieldset do SheetContent: o histórico já nasce aberto
+                    historicoAberto={historicoAberto || somenteLeitura}
                     fornecedores={fornecedores}
                     somenteLeitura={somenteLeitura}
                     onEditarAtual={onEditarAtual}

@@ -477,10 +477,13 @@ export const MENSAGENS_PECA_TESTE = {
   peca_teste_modelo: "Este produto não foi encontrado (outra pessoa pode tê-lo excluído). Recarregue a tela.",
   peca_teste_sem_login: TEXTO_SESSAO_EXPIRADA,
 } as const;
+/** `peca_teste_sem_datas` por TENTATIVA NOVA decidida (id nulo + aprovação): a tela agora desabilita a decisão nesse caso; este é o texto da rede. */
+export const TEXTO_PECA_TESTE_NAO_SALVA = "A peça teste ainda não foi salva: salve as datas antes de aprovar ou reprovar.";
 export function mensagemPecaTeste(code: string, msg: string): string | null {
   if (code !== "P0001" && code !== "P0409" && code !== "42501") return null;
   const m = /^(peca_teste_[a-z_]+):/.exec(msg);
   if (!m) return null;
+  if (m[1] === "peca_teste_sem_datas" && /tentativa nova/.test(msg)) return TEXTO_PECA_TESTE_NAO_SALVA;
   return (MENSAGENS_PECA_TESTE as Record<string, string>)[m[1]] ?? null;
 }
 

@@ -239,6 +239,34 @@ describe("PecaTesteSecao — histórico, linhas novas, rodapé, conflito e só l
     expect(/<fieldset/.test(err)).toBe(false);
     expect(err).toContain("Tentar de novo");
   });
+
+  it("achado 2 (fix round 2) — Leitor do Sheet INTEIRO (fieldset desabilitado do SheetContent acima): histórico já aberto e 'Tentar de novo' sem <button>", () => {
+    const reprovada = tent(1, { aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15", empresa_id: F1, empresa_nome: "Oficina Um" });
+    const dentro = (html: string) => `<fieldset disabled="">${html}</fieldset>`;
+    const h = dentro(render({ estado: estado(trilha({ tentativas: [reprovada, tent(2, { data_saida: "2026-09-22" })] })), somenteLeitura: true }));
+    expect(h).toContain('data-testid="peca-teste-historico"');
+    expect(h).toContain("08/09/2026");
+    const e = dentro(render({ estado: null, erro: true, somenteLeitura: true }));
+    expect(e).not.toMatch(/<button[^>]*>[^<]*Tentar de novo/);
+    expect(e).toMatch(/<span role="button"[^>]*>Tentar de novo<\/span>/);
+    // quem EDITA a seção mantém o histórico fechado por padrão
+    expect(render({ estado: estado(trilha({ tentativas: [reprovada, tent(2, { data_saida: "2026-09-22" })] })) })).not.toContain('data-testid="peca-teste-historico"');
+  });
+
+  it("N1 (fix round 2) — tentativa ainda NÃO salva (id nulo) não decide: Aprovação desabilitada com 'Salve as datas antes de decidir.'; a gravada com só a saída decide junto da entrada", () => {
+    const comDatas = { ...tentativaVirtual(1), data_saida: "2026-10-01", data_entrada: "2026-10-03" };
+    const nova = render({ estado: estado(trilha({ tentativas: [comDatas] })) });
+    expect(desabilitado(tagDoCampo(nova, L1, "aprovacao"))).toBe(true);
+    expect(nova).toContain("Salve as datas antes de decidir.");
+    // virtual (sem nada) também: a dica é a das datas
+    // gravada (id) com só a saída + entrada preenchida no rascunho: habilitada
+    const gravada = render({ estado: estado(trilha({ tentativas: [tent(1, { data_saida: "2026-10-01", data_entrada: "2026-10-03" })] })) });
+    expect(desabilitado(tagDoCampo(gravada, L1, "aprovacao"))).toBe(false);
+    // a seguinte a uma reprovada é virtual de novo: mesma regra
+    const rep = tent(1, { aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15", empresa_id: F1 });
+    const prox = render({ estado: estado(trilha({ tentativas: [rep, { ...tentativaVirtual(2), data_saida: "2026-10-01", data_entrada: "2026-10-03" }] })) });
+    expect(desabilitado(tagDoCampo(prox, L1, "aprovacao"))).toBe(true);
+  });
 });
 
 describe("numeração, ordem e selo da seção", () => {
