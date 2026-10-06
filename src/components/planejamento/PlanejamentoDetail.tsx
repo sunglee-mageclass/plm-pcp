@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { CONTEXTO_PADRAO, type ContextoDetalhe } from "@/components/planejamento/planejamento-detail/contexto";
+import { CONTEXTO_PADRAO, rotuloTelaBreadcrumb, type ContextoDetalhe } from "@/components/planejamento/planejamento-detail/contexto";
 import { consumirFlag } from "@/lib/cq-status-tela";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -1523,7 +1523,7 @@ function PlanejamentoDetailConteudo({
   const conteudo = (
     <PedidoSecaoContext.Provider value={pedidoSecao}>
         <div className="shrink-0 px-6 pt-4 pb-0">
-          <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Planejamento de Produto" }, { label: draft.nome || "Novo modelo" }]} />
+          <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: rotuloTelaBreadcrumb(contexto) }, { label: draft.nome || "Novo modelo" }]} />
         </div>
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2 text-left">
           {/* Miniatura da foto do modelo à ESQUERDA do nome/REF (padrão dos headers de Serviços/CQ/

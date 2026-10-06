@@ -1183,6 +1183,7 @@ function DesenvolvimentoPage() {
         openId && (
           <PlanejamentoDetail
             modeloId={openId}
+            contexto="desenvolvimento"
             onClose={() => {
               setOpenId(null);
               invalidarQuadro();
