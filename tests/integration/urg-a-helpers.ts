@@ -158,3 +158,21 @@ export function md5UrgASucessor(sig: string, pinado?: string): string[] {
   }
   return out;
 }
+
+// ======================== INICIO secao R3 T14 (extrato 177000) ========================
+/**
+ * LIFO para os `_down_drop` ANTIGOS que recusam enquanto alguma função de `public` cita os helpers deles (Modularidade T1:
+ * `_exige_modulos`; urg R1 170000: `_insumo_pecas`/`_insumo_tamanho_de`/`_grade_mapa_cad`): o extrato da 177000 (6 funções só
+ * leitura com `_down` no-op — nunca sai por `voltaUrgA`) cita esses helpers, então o `_down_drop` DELE vem antes. Idempotente;
+ * DDL na txn do teste — só na cópia local.
+ */
+export async function dropUrgAExtratoSePreciso(c: Client): Promise<void> {
+  exigeBancoLocal();
+  const e = URG_A_MIGS.find((x) => x.id === "177000");
+  if (!e) return;
+  let existe = false;
+  for (const sig of Object.keys(e.b.NOVAS)) if ((await md5Fn(c, sig)) !== null) existe = true;
+  if (existe) await aplicarArquivo(c, e.b.drop);
+  await zeraTimeouts(c);
+}
+// ======================== FIM secao R3 T14 (extrato 177000) ========================

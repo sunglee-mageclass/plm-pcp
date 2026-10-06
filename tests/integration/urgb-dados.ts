@@ -10,6 +10,9 @@ export type UrgbBloco = {
   URGB_MD5: Record<string, { antes: string; depois: string }>;
   URGB_ACL: Record<string, string>;
   URGB_NOVAS?: Record<string, string>; // funcoes NOVAS do bloco: md5 de DEPOIS (o _down NEUTRO as deixa; so o _down_drop apaga)
+  // bloco de REPROCESSO (r8b; sem funcao): sentinela = o backup; efeito = SQL "algum integravel segue reprocessado" (bloco vivo);
+  // pendente = SQL "a ida tem trabalho" (aplica so com o backup ausente ou pendente)
+  URGB_REPROCESSO?: { backup: string; efeito: string; pendente: string };
 };
 export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
 {
@@ -85,6 +88,47 @@ export const URGB_BLOCOS: Record<string, UrgbBloco> = /* URGB_JSON_INICIO */
     },
     "URGB_ACL": {
       "public.salvar_terceirizados(uuid,jsonb,text,jsonb)": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    }
+  },
+  "r8a": {
+    "mig": "supabase/migrations/20261103190000_urg_r8_titulo_sublinha.sql",
+    "down": "supabase/rollback/20261103190000_urg_r8_titulo_sublinha_down.sql",
+    "drop": "supabase/rollback/20261103190000_urg_r8_titulo_sublinha_down_drop.sql",
+    "URGB_SENTINELA": "public._integracao_retrato_core(uuid,text[],jsonb)",
+    "URGB_MD5": {
+      "public._integracao_retrato_core(uuid,text[],jsonb)": {
+        "antes": "8a5275cf8c145f88e23c5158c22fdfc6",
+        "depois": "2635e1833654111858a301f7ef06ccf1"
+      },
+      "public.integracao_listar(text,jsonb,integer,integer)": {
+        "antes": "d2d3c9c55b3a6ce8b42d1842cab415f6",
+        "depois": "5fd15e4b95fc5555e055935a67af62e8"
+      },
+      "public._integracao_exemplo(text[],integer)": {
+        "antes": "8882ce651fe5f13a44c60751692da40e",
+        "depois": "d57b40f96cc4a4fdbb2f9dc0ddc6c8d7"
+      }
+    },
+    "URGB_ACL": {
+      "public._integracao_retrato_core(uuid,text[],jsonb)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public.integracao_listar(text,jsonb,integer,integer)": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "public._integracao_exemplo(text[],integer)": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    "URGB_NOVAS": {
+      "public._integracao_titulo_sublinha(text,text,text,text)": "a847a61f50f4b72608aa10edaa7ac0c9"
+    }
+  },
+  "r8b": {
+    "mig": "supabase/migrations/20261103191000_urg_r8_titulo_sublinha_reprocesso.sql",
+    "down": "supabase/rollback/20261103191000_urg_r8_titulo_sublinha_reprocesso_down.sql",
+    "drop": "supabase/rollback/20261103191000_urg_r8_titulo_sublinha_reprocesso_down_drop.sql",
+    "URGB_SENTINELA": "public._bkp_r8_titulo_sublinha",
+    "URGB_MD5": {},
+    "URGB_ACL": {},
+    "URGB_REPROCESSO": {
+      "backup": "public._bkp_r8_titulo_sublinha",
+      "efeito": "SELECT EXISTS (SELECT 1 FROM public._bkp_r8_titulo_sublinha b JOIN public.integracao_produtos p ON p.modelo_id = b.modelo_id AND p.tenant_id = b.tenant_id WHERE p.estado = 'integravel' AND p.assinatura = b.assinatura_depois) AS ok",
+      "pendente": "SELECT EXISTS (SELECT 1 FROM public.integracao_produtos p WHERE p.estado = 'integravel' AND p.retrato ->> 'v' IS DISTINCT FROM '4') AS ok"
     }
   }
 }

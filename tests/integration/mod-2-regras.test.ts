@@ -13,6 +13,7 @@ import { aplicaMod, voltaMod, modViva, MOD_MIGS } from "./mod-helpers";
 import { MOD_MD5, MOD2_ACL, MOD2_DEPS, MOD_MIG, MOD_DOWN } from "./mod-2-dados";
 import { MOD_DOWN as MOD1_DOWN, MOD_DOWN_DROP as MOD1_DOWN_DROP } from "./mod-1-dados";
 import { dropUrgbSePreciso } from "./urgb-helpers"; // [urg r4b] _servicos_da_mo_criar cita _tenant_modulo_ligado: o _down_drop dela vem antes (LIFO)
+import { dropUrgAExtratoSePreciso } from "./urg-a-helpers"; // [urg R3 T14] extrato 177000 cita _exige_modulos (LIFO)
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -481,6 +482,7 @@ describe.skipIf(!RODA)(
         // pelo _down e pelo _down_drop deles (LIFO) — senão o _down_drop da T1 recusaria por causa deles, não da T2.
         await voltaMod(c);
         await dropUrgbSePreciso(c);
+        await dropUrgAExtratoSePreciso(c); // [urg R3 T14] o extrato (177000) cita _exige_modulos: o _down_drop dele vem antes (LIFO)
         const raiz = fileURLToPath(new URL("../../", import.meta.url));
         for (const b of [...MOD_MIGS].reverse()) {
           if (b.n <= 2 || b.n === 4) continue;

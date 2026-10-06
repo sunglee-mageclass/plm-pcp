@@ -13,6 +13,10 @@ import { fileURLToPath } from "node:url";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import { ehBancoLocal, um, TENANT_TESTE, USER_TESTE } from "./db";
 import { voltaS1SePreciso } from "./seg-s1-helpers";
+// Frentes POR CIMA da I3 que redefinem funções da Integração (urgentes plan-b R8a 20261103190000: _integracao_retrato_core,
+// integracao_listar, _integracao_exemplo): os pinos aceitam o sucessor pela cadeia camada → urg-a → urgb (md5CamadaSucessor).
+import { md5CamadaSucessor } from "./camada-helpers";
+import { urgbViva } from "./urgb-helpers";
 
 export const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const MIG_TXN = process.env.INTEGRACAO_MIG_TXN === "1";
@@ -230,10 +234,15 @@ export const I3_SUCESSOR: Record<string, string> = {
   "integracao_marcar(jsonb)": "b4400251395251b80a458eb11524d172",
   "integracao_config_ler()": "62b81b3853de66118baef1748866b0dd",
 };
-/** Aceita o md5 pinado OU o sucessor da I3 (assinatura com ou sem "public."). */
+/**
+ * Aceita o md5 pinado OU o sucessor da I3 (assinatura com ou sem "public.") e, depois dele, os sucessores das frentes por cima
+ * (cadeia LIFO camada → urg-a → urgb: ex. o retrato/integracao_listar/_integracao_exemplo da urg R8a 20261103190000).
+ */
 export function md5OuSucessorI3(sig: string, pinado: string): string[] {
   const s = I3_SUCESSOR[sig.replace(/^public\./, "")];
-  return s ? [pinado, s] : [pinado];
+  const out = s ? [pinado, s] : [pinado];
+  for (const m of md5CamadaSucessor(sig, out[out.length - 1])) if (!out.includes(m)) out.push(m);
+  return out;
 }
 async function md5De(c: Client, sig: string): Promise<string | null> {
   return (await um<{ m: string | null }>(c, "SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [sig])).m;
@@ -241,8 +250,17 @@ async function md5De(c: Client, sig: string): Promise<string | null> {
 export async function i3aViva(c: Client): Promise<boolean> {
   return (await md5De(c, "public.fn_produto_cat_material_tenant()")) === I3A_TENANT_DEPOIS;
 }
+/** I3b viva = o retrato da I3b OU o de uma frente POR CIMA que o redefine (urg R8a, cadeia de sucessores). */
 export async function i3bViva(c: Client): Promise<boolean> {
-  return (await md5De(c, "public._integracao_retrato_core(uuid,text[],jsonb)")) === I3B_RETRATO_DEPOIS;
+  const m = await md5De(c, "public._integracao_retrato_core(uuid,text[],jsonb)");
+  return m !== null && md5OuSucessorI3("_integracao_retrato_core(uuid,text[],jsonb)", I3B_RETRATO_DEPOIS).includes(m);
+}
+/**
+ * Marcador `v` do retrato VIVO: 4 com a urg R8a (20261103190000: título próprio nas sublinhas) viva, senão 3 (Release I3).
+ * As suítes antigas que conferiam `retrato.v` = 3 com a I3b viva usam isto (nunca trocar o número à mão).
+ */
+export async function vRetratoVivo(c: Client): Promise<number> {
+  return (await urgbViva(c, "r8a")) ? 4 : 3;
 }
 /** Layout / padrão VIVOS (com ou sem a I3b na cópia). */
 export async function layoutVivo(c: Client): Promise<readonly string[]> {
@@ -276,7 +294,9 @@ export async function aplicaI3(c: Client): Promise<void> {
   await comTimeoutPreservado(c, async () => {
     if (!(await i3aViva(c))) await aplica(c, MIG_I3A);
     if (!(await i3bViva(c))) await aplica(c, MIG_I3B);
-    await aplica(c, MIG_I3C);
+    // a I3c (idempotente) exige o retrato EXATO da I3b: com uma frente por cima viva (urg R8a), ela já foi aplicada abaixo
+    // dela (LIFO) — reaplicar recusaria; pula.
+    if ((await md5De(c, "public._integracao_retrato_core(uuid,text[],jsonb)")) === I3B_RETRATO_DEPOIS) await aplica(c, MIG_I3C);
   });
 }
 /** Dispara os gatilhos ADIADOS (a txn do teste nunca faz COMMIT) e volta ao modo adiado. */

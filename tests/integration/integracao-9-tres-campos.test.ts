@@ -15,7 +15,7 @@ import { exigeBancoLocal } from "./mig-txn";
 import {
   CAMPOS_PADRAO, CAMPOS_PADRAO_I3, I3A_TENANT_DEPOIS, I3A_TENANT_NEUTRA, I3B_RETRATO_DEPOIS, I3_SUCESSOR, INV_I3A, INV_I3B, INV_I3C,
   LAYOUT_I3, LOCAL, MARCAS, MIG_I3A, MIG_I3B, MIG_I3C, T, U, aplica, aplicaI3, i3aViva, i3bViva, keywordsLoja, ler, modeloInterno,
-  revenda, importado, voltaI3SePreciso,
+  revenda, importado, voltaI3SePreciso, vRetratoVivo,
 } from "./integracao-helpers";
 
 const md5 = (s: string): string => createHash("md5").update(s, "utf8").digest("hex");
@@ -399,7 +399,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 9 — 3 campos não obrigatórios 
       await keywordsLoja(c, "k");
       const m = await internoCompleto(c);
       const r = await retrato(c, m.id);
-      expect(r.retrato.v).toBe(3);
+      expect(r.retrato.v).toBe(await vRetratoVivo(c)); // 3 (I3); 4 com a urg R8a (20261103190000) por cima — mesma forma
       expect(r.retrato.campos).toEqual([...CAMPOS_PADRAO_I3]);
       expect(r.completo).toBe(true);
       for (const l of r.retrato.linhas) {
@@ -416,7 +416,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 9 — 3 campos não obrigatórios 
       // não marcados: fora do retrato (nem chave)
       const r3 = await retrato(c, m.id, CAMPOS_PADRAO);
       expect(Object.keys(r3.retrato.linhas[0].valores)).not.toContain("colecao");
-      expect(r3.retrato.v).toBe(3);
+      expect(r3.retrato.v).toBe(await vRetratoVivo(c));
     });
   });
 
@@ -430,7 +430,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 9 — 3 campos não obrigatórios 
       await marcar(c, m.id); // integracao_marcar recusa se a assinatura ≠ a da prévia
       const p = await ip(c, m.id);
       expect(p.estado).toBe("integravel");
-      expect(p.retrato.v).toBe(3);
+      expect(p.retrato.v).toBe(await vRetratoVivo(c)); // 3 (I3); 4 com a urg R8a por cima
       expect(await linhasApi(c, m.id)).toEqual([
         { tipo: "produto", colecao: m.col, categoria_tecido: m.cat, linha: m.lin },
         { tipo: "variante", colecao: m.col, categoria_tecido: m.cat, linha: m.lin },

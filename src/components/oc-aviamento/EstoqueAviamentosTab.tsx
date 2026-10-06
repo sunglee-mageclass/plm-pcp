@@ -12,6 +12,8 @@ import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { fmtNum } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
 import { SortTh } from "@/components/shared/sort";
+import { HistoricoButton } from "@/components/estoque/HistoricoButton";
+import { ExtratoEstoqueSheet } from "@/components/estoque/ExtratoEstoqueSheet";
 import { useSort } from "@/components/shared/sort";
 
 // Posição de estoque de AVIAMENTOS — 3ª aba "Estoque" do OC Aviamento. Fonte ÚNICA: RPC
@@ -184,12 +186,13 @@ export function EstoqueAviamentosTable({ state }: { state: ReturnType<typeof use
                   <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
                     <colgroup>
                       <col style={{ width: "4%" }} />
-                      <col style={{ width: "28%" }} />
-                      <col style={{ width: "13.6%" }} />
-                      <col style={{ width: "13.6%" }} />
-                      <col style={{ width: "13.6%" }} />
-                      <col style={{ width: "13.6%" }} />
-                      <col style={{ width: "13.6%" }} />
+                      <col style={{ width: "26%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "10%" }} />
                     </colgroup>
                     <thead className="text-left text-muted-foreground">
                       <tr className="border-b">
@@ -200,6 +203,7 @@ export function EstoqueAviamentosTable({ state }: { state: ReturnType<typeof use
                         <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" />
                         <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" />
                         <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" />
+                        <th className="py-2" aria-label="Histórico"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -345,8 +349,22 @@ function OcDetalhe({ row, soleVarId }: { row: any; soleVarId: string | null }) {
   );
 }
 
+/** Sheet "Histórico" desta linha (aviamento × variante). Montado só aberto → nasce limpo. */
+function HistoricoLinha({ row, onClose }: { row: any; onClose: () => void }) {
+  return (
+    <ExtratoEstoqueSheet
+      familia="aviamento"
+      itemId={row.aviamentoId}
+      bucket={{ varianteId: row.variId ?? null }}
+      titulo={`${row.aviamentoNome} — ${row.varianteLabel}`}
+      onClose={onClose}
+    />
+  );
+}
+
 function VarianteRow({ row, soleVarId }: { row: any; soleVarId: string | null }) {
   const [open, setOpen] = useState(false);
+  const [hist, setHist] = useState(false);
   return (
     <>
       <tr className="border-b last:border-0 cursor-pointer" onClick={() => setOpen((o) => !o)}>
@@ -357,24 +375,28 @@ function VarianteRow({ row, soleVarId }: { row: any; soleVarId: string | null })
         <td className="py-2 pr-3 text-right font-medium">{fmt(row.fisico)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.reservado)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.previsto)}</td>
+        <td className="py-2 text-right"><HistoricoButton onOpen={() => setHist(true)} /></td>
       </tr>
       {open && (
         <tr className="bg-muted/30">
           <td></td>
-          <td colSpan={6} className="py-2 pr-3">
+          <td colSpan={7} className="py-2 pr-3">
             <OcDetalhe row={row} soleVarId={soleVarId} />
           </td>
         </tr>
       )}
+      {hist && <HistoricoLinha row={row} onClose={() => setHist(false)} />}
     </>
   );
 }
 
 function VarianteCard({ row, soleVarId }: { row: any; soleVarId: string | null }) {
   const [open, setOpen] = useState(false);
+  const [hist, setHist] = useState(false);
   return (
     <div className="rounded-lg border p-3">
-      <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
+      <div className="flex items-start gap-2">
+      <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpen((o) => !o)}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-medium truncate">{row.varianteLabel}</div>
@@ -392,11 +414,14 @@ function VarianteCard({ row, soleVarId }: { row: any; soleVarId: string | null }
         </div>
         <div className="mt-1 text-[10px] text-muted-foreground">{open ? "▾ ocultar OCs" : "▸ ver OCs"}</div>
       </button>
+      <HistoricoButton onOpen={() => setHist(true)} />
+      </div>
       {open && (
         <div className="mt-2 border-t pt-2">
           <OcDetalhe row={row} soleVarId={soleVarId} />
         </div>
       )}
+      {hist && <HistoricoLinha row={row} onClose={() => setHist(false)} />}
     </div>
   );
 }

@@ -49,7 +49,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { cn } from "@/lib/utils";
 import { CAMPO_BY_KEY, type CampoDef } from "@/lib/integracao/campos";
 import {
-  ROTULO_ORIGEM, SORT_KEY_ESTADO, acessorEstado, acessorOrdenacao, linhasVariante, resumoVariantes, seloVersaoIntegrada,
+  ROTULO_ORIGEM, SORT_KEY_ESTADO, acessorEstado, acessorOrdenacao, colunaAvisoSublinhas, linhasVariante, resumoVariantes, seloVersaoIntegrada,
   type ListaIntegracao, type ProdutoLista, type VersaoIntegradaInfo,
 } from "@/lib/integracao/produtos";
 import type { VersaoAnteriorInfo } from "@/lib/versao-anterior";
@@ -125,17 +125,20 @@ type LinhaProps = {
   // identidade a cada seleção e invalidaria o React.memo de TODA linha.
   marcado?: boolean; onMarcar?: (id: string, v: boolean) => void;
   versaoCelula?: VersaoCelula; versaoIntegrada?: VersaoIntegradaInfo;
+  /** R8 (B3): coluna que mostra o "i" de sublinhas (string estável — não invalida o memo da linha). */
+  colunaAvisoSublinhas?: "ref_sku" | "titulo" | null;
 };
 /** M7 (code-review): linha memoizada — uma edição na célula de UM produto só rerrenderiza a linha dele (comparador
  *  raso do React.memo cobre `r`/`previa` por identidade, que só mudam quando o PRÓPRIO produto é editado). */
 const LinhaProduto = memo(function LinhaProduto({
   p, r, previa, salvando, campos, aberto, onAlternar, onAtualizar, onKeywords, onFotos, estadoCelula, integravelCelula, marcado, onMarcar,
-  versaoCelula, versaoIntegrada,
+  versaoCelula, versaoIntegrada, colunaAvisoSublinhas,
 }: LinhaProps) {
   const subs = linhasVariante(p);
   const celula = (c: CampoDef, indice: number | null) => (
     <CelulaCampo campo={c} produto={p} indice={indice} rascunho={r} previa={previa} salvando={salvando}
-      onAtualizar={(f) => onAtualizar(p, f)} onKeywords={onKeywords} onFotos={() => onFotos(p)} versaoAnterior={versaoCelula} />
+      onAtualizar={(f) => onAtualizar(p, f)} onKeywords={onKeywords} onFotos={() => onFotos(p)} versaoAnterior={versaoCelula}
+      colunaAvisoSublinhas={colunaAvisoSublinhas} />
   );
   return (
     <>
@@ -213,6 +216,7 @@ export function ProdutosTabela({
     () => lista.campos.map((k) => CAMPO_BY_KEY.get(k)).filter((c): c is CampoDef => !!c),
     [lista.campos],
   );
+  const colunaAvisoSub = useMemo(() => colunaAvisoSublinhas(campos.map((c) => c.key)), [campos]);
   // Ordenação clicável — TODA coluna, Título incluído (owner: "senti falta de ordenar por título; todos deveriam
   // ter uma ordenação"). `useSort` (mesmo helper de EstoqueTecidosTab/attribute-tab): número-vs-número numérico,
   // texto pt-BR (`localeCompare` numeric), vazio sempre por último. Sem `key` inicial — a ordem de hoje (a que o
@@ -261,7 +265,8 @@ export function ProdutosTabela({
               campos={campos} aberto={abertos.has(p.modeloId)} onAlternar={alternar} onAtualizar={onAtualizar}
               onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula} integravelCelula={integravelCelula}
               marcado={selecao?.marcado(p.modeloId)} onMarcar={selecao?.onMarcar}
-              versaoCelula={versaoDe(p.modeloId)} versaoIntegrada={versoesIntegradas?.get(p.modeloId)} />
+              versaoCelula={versaoDe(p.modeloId)} versaoIntegrada={versoesIntegradas?.get(p.modeloId)}
+              colunaAvisoSublinhas={colunaAvisoSub} />
           ))}
         </tbody>
       </table>

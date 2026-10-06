@@ -293,6 +293,9 @@ export const MENSAGENS_SEG_S3 = {
     "Só quem edita o Planejamento e vê custos pode mudar os valores de mão de obra. Peça ao administrador da loja.",
   // S3c (B3): etiqueta/insumo, cor ou modelo de OUTRA loja numa linha desta loja
   loja_diferente: "Esse item é de outra loja e não pode ser usado aqui. Recarregue a tela e escolha de novo.",
+  // Urgentes R3 (T14/T16, 177000): a RPC do extrato ("Histórico") do estoque só exige VER a página da aba de estoque
+  // (42501 ASCII 'sem_permissao_ver: <chave>'). Texto genérico — a pessoa não clicou em "editar" nada.
+  sem_permissao_ver: "Você não tem permissão para ver este estoque. Peça ao administrador da loja.",
   // S6 (P-236 = D7 A): o Salvar nunca faz uma OC recebida voltar a encomendada — só o botão "Desmarcar recebimento"
   oc_recebida_so_desmarcar:
     "Esta OC já foi recebida (talvez por outra pessoa agora). Para voltá-la a encomendada, use \"Desmarcar recebimento\". A tela foi atualizada.",
@@ -324,6 +327,7 @@ export function textoSemPermissaoPagina(chaves: string[]): string {
 export function mensagemSegS3(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("oc_numero_so_pela_rpc:")) return MENSAGENS_SEG_S3.oc_numero_so_pela_rpc;
   if (code === "42501" && msg.startsWith("mao_obra_sem_permissao:")) return MENSAGENS_SEG_S3.mao_obra_sem_permissao;
+  if (code === "42501" && msg.startsWith("sem_permissao_ver:")) return MENSAGENS_SEG_S3.sem_permissao_ver;
   if (code === "P0001" && msg.startsWith("loja_diferente:")) return MENSAGENS_SEG_S3.loja_diferente;
   if (code === "P0001" && msg.startsWith("oc_recebida_so_desmarcar:")) return MENSAGENS_SEG_S3.oc_recebida_so_desmarcar;
   if (code !== "42501" || !msg.startsWith(PREFIXO_SEM_PERMISSAO_PAGINA)) return null;

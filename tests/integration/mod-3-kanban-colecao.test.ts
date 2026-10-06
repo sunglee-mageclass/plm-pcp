@@ -34,6 +34,7 @@ import { MOD_DOWN as MOD2_DOWN } from "./mod-2-dados";
 import { CONDICOES, CONDICAO_KEYS } from "../../src/lib/kanban-condicoes";
 import { rotuloColecao } from "../../src/lib/colecao-rotulo";
 import { dropUrgbSePreciso } from "./urgb-helpers"; // [urg r4b] _servicos_da_mo_criar cita _tenant_modulo_ligado: o _down_drop dela vem antes (LIFO)
+import { dropUrgAExtratoSePreciso } from "./urg-a-helpers"; // [urg R3 T14] extrato 177000 cita _exige_modulos (LIFO)
 
 const RODA = hasDb && ehBancoLocal();
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -752,6 +753,7 @@ describe.skipIf(!RODA)(
         // voltar_modelo_desenvolvimento, que o _down da T1 guarda por md5.
         await voltaBkSePreciso(c);
         await dropUrgbSePreciso(c);
+        await dropUrgAExtratoSePreciso(c); // [urg R3 T14] o extrato (177000) cita _exige_modulos: o _down_drop dele vem antes (LIFO)
         await aplicarArquivo(c, MOD2_DOWN);
         await aplicarArquivo(c, MOD1_DOWN);
         await expect(aplicarArquivo(c, MOD1_DOWN_DROP)).rejects.toThrow(

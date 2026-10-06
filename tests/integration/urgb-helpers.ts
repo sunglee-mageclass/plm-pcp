@@ -31,6 +31,10 @@ type Bloco = {
   URGB_MD5: Record<string, { antes: string; depois: string }>;
   URGB_ACL: Record<string, string>;
   URGB_NOVAS?: Record<string, string>; // funções CRIADAS pelo bloco (o _down NEUTRO as deixa; só o _down_drop apaga)
+  // bloco de REPROCESSO (r8b, correção única de DADOS, sem função): sentinela = a tabela de backup; `efeito` = SQL "algum
+  // integrável segue com a assinatura do reprocesso" (= bloco vivo, o `_down` tem o que devolver); `pendente` = SQL "a ida
+  // tem trabalho" (algum integrável com retrato v<>4)
+  URGB_REPROCESSO?: { backup: string; efeito: string; pendente: string };
 };
 
 const TODOS: Record<string, Bloco> = existsSync(`${ROOT}tests/integration/urgb-dados.ts`)
@@ -56,10 +60,35 @@ async function zeraTimeouts(c: Client): Promise<void> {
   await c.query("SET LOCAL lock_timeout = '3s'");
 }
 
-/** O bloco está vivo NESTA txn? (md5 da sentinela = "depois"). Bloco sem arquivo = false. */
+async function sqlOk(c: Client, sql: string): Promise<boolean> {
+  return (await c.query(sql)).rows[0]?.ok === true;
+}
+async function backupExiste(c: Client, rel: string): Promise<boolean> {
+  return (await c.query("SELECT to_regclass($1) IS NOT NULL AS ok", [rel])).rows[0]?.ok === true;
+}
+/** Reprocesso (r8b): vivo = o backup existe E algum integrável segue com a assinatura do reprocesso (o `_down` tem efeito). */
+async function reprocessoVivo(
+  c: Client,
+  r: NonNullable<Bloco["URGB_REPROCESSO"]>,
+): Promise<boolean> {
+  return (await backupExiste(c, r.backup)) && (await sqlOk(c, r.efeito));
+}
+/** Reprocesso (r8b): a ida tem o que fazer = backup ausente (nunca rodou) OU algum integrável com retrato v<>4. */
+async function reprocessoPendente(
+  c: Client,
+  r: NonNullable<Bloco["URGB_REPROCESSO"]>,
+): Promise<boolean> {
+  return !(await backupExiste(c, r.backup)) || (await sqlOk(c, r.pendente));
+}
+
+/**
+ * O bloco está vivo NESTA txn? (md5 da sentinela = "depois"). Bloco sem arquivo = false. Bloco de REPROCESSO (r8b): vivo =
+ * algum integrável segue reprocessado (o backup sozinho não conta: depois do `_down` ele FICA, inerte).
+ */
 export async function urgbViva(c: Client, bloco: UrgbId): Promise<boolean> {
   const e = URGB_MIGS.find((x) => x.id === bloco);
   if (!e) return false;
+  if (e.b.URGB_REPROCESSO) return reprocessoVivo(c, e.b.URGB_REPROCESSO);
   const s = e.b.URGB_SENTINELA;
   // vivo = o "depois" do bloco OU o de um bloco POSTERIOR que redefine a mesma sentinela por cima (ex.: a r4b redefine o
   // _salvar_modelo_servico_mo_core da r4a na fix round 3) — senão a r4a pareceria "fora" com a r4b viva e o aplicaUrgb a reaplicaria.
@@ -71,7 +100,11 @@ export async function urgbViva(c: Client, bloco: UrgbId): Promise<boolean> {
 export async function aplicaUrgb(c: Client, ate?: UrgbId): Promise<void> {
   exigeBancoLocal();
   for (const { id, b } of URGB_MIGS) {
-    if (!(await urgbViva(c, id))) await aplicarArquivo(c, b.mig);
+    // reprocesso: idempotente; só roda com trabalho pendente (senão pegaria o LOCK EXCLUSIVE da Integração à toa em toda txn)
+    const aplicar = b.URGB_REPROCESSO
+      ? await reprocessoPendente(c, b.URGB_REPROCESSO)
+      : !(await urgbViva(c, id));
+    if (aplicar) await aplicarArquivo(c, b.mig);
     if (id === ate) break;
   }
   await zeraTimeouts(c);

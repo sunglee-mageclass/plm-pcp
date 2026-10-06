@@ -64,6 +64,8 @@ const DONOS: { re: RegExp; dono: string; extras?: string[] }[] = [
   { re: /^(criar_cards?_produto_importado|receber_oc_importado)$/, dono: "produto_importado" },
   // Urgentes R2 T10 (20261103175000): BOM inicial de insumo do card interno novo = Criacao.
   { re: /^salvar_insumos_iniciais$/, dono: "criacao" },
+  // Extrato de estoque por item (urg R3 T14, 177000): mesmo módulo dos estoque_* (aba Estoque das OCs de Entrada e Saída).
+  { re: /^estoque_extrato_(tecido|aviamento|insumo)$/, dono: "entrada_saida" },
 ];
 
 const ASSINATURA_CHAMADA = /\b_exige_modulos\(([^)]*)\)/g;
