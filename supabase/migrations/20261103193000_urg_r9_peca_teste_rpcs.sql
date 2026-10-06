@@ -35,14 +35,14 @@
 --     NEUTRO 693da711ec898bdbbc078439ecd1c46e (_down)
 --   public._salvar_peca_teste_core(uuid,jsonb,jsonb) (NOVA)
 --     ANTES  ausente
---     DEPOIS 64edd2faa3956ac80165bbeafd5d47db
+--     DEPOIS 9338a5f0a8ef2e072ad6031c5d2030c6
 --   public.salvar_peca_teste(uuid,jsonb,jsonb) (NOVA, wrapper)
 --     ANTES  ausente
 --     DEPOIS 74edd9a64f98101476de545ac8361a81
 --     NEUTRO 4c501cdcdbf99aed1da1aef6d82f853f (_down)
 --   public._peca_teste_quadro_core(uuid) (NOVA)
 --     ANTES  ausente
---     DEPOIS 27285b960b59386ff5372a0058561a41
+--     DEPOIS 6e191644f2fb4acfea04e4ff76a6f5de
 --     NEUTRO 1821c151ef5963eb95d90167c75ba249 (_down)
 --   public.peca_teste_quadro() (NOVA, wrapper)
 --     ANTES  ausente
@@ -102,9 +102,9 @@ BEGIN
       ('public._peca_teste_aprovada(uuid,uuid,uuid)', '417fa9850a5a52204f62476818dc408c', '417fa9850a5a52204f62476818dc408c', false),
       ('public._peca_teste_trilhas_core(uuid,uuid)', '5ae0f7025744d63508d7617e6e3a7487', '5ae0f7025744d63508d7617e6e3a7487', false),
       ('public.peca_teste_modelo(uuid)', '9f5e9a528d3cac6deaf3c34133f5d56b', '693da711ec898bdbbc078439ecd1c46e', true),
-      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', '64edd2faa3956ac80165bbeafd5d47db', '64edd2faa3956ac80165bbeafd5d47db', false),
+      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', '9338a5f0a8ef2e072ad6031c5d2030c6', '9338a5f0a8ef2e072ad6031c5d2030c6', false),
       ('public.salvar_peca_teste(uuid,jsonb,jsonb)', '74edd9a64f98101476de545ac8361a81', '4c501cdcdbf99aed1da1aef6d82f853f', true),
-      ('public._peca_teste_quadro_core(uuid)', '27285b960b59386ff5372a0058561a41', '1821c151ef5963eb95d90167c75ba249', false),
+      ('public._peca_teste_quadro_core(uuid)', '6e191644f2fb4acfea04e4ff76a6f5de', '1821c151ef5963eb95d90167c75ba249', false),
       ('public.peca_teste_quadro()', 'ad45b8479fb46de11ea265b7ef5a728a', 'd208d91fc9846fd221da953481966968', true)
     ) AS x(f, d, n, w) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
@@ -231,6 +231,7 @@ DECLARE
   v_ult text;
   v_novo uuid;
   v_base uuid;
+  v_congela uuid;
 BEGIN
   -- [urg r9b] Salvar da secao Peca Teste (grava SO no Salvar do card; payload = so as trilhas tocadas, delta). Ordem:
   -- (1) card da loja + formato; (2) chave do card PRIMEIRO (a mesma 1a chave do Enviar a Explosao, do aprovar M.O., do Salvar da M.O.
@@ -238,7 +239,8 @@ BEGIN
   -- desligado = P0409; (4) tentativas FOR UPDATE (ordem de id), aplicadas (existentes primeiro, novas por numero); (5) fornecedor da
   -- linha por compare-and-set, na MESMA transacao (reabre a M.O. pelo gatilho; a trava morde se a atual, ja com o passo 4, estiver
   -- aprovada). Toda escrita grava updated_at = now() (revisao T1, achado 6). Decisao (aprovar/reprovar) congela em empresa_id o
-  -- fornecedor da linha ANTES da troca deste mesmo Salvar (Ruling 8; revisao T1, achado 1).
+  -- fornecedor da linha ANTES da troca deste mesmo Salvar (Ruling 8; revisao T1, achado 1) - CONFERIDO contra o que a pessoa viu
+  -- (_rev_base.fornecedor da linha, obrigatorio em toda decisao; revisao T2, achados 1 e 2) e nunca vazio (achado 3).
   IF NOT EXISTS (SELECT 1 FROM public.modelos m WHERE m.id = _modelo_id AND m.tenant_id = v_tenant) THEN
     RAISE EXCEPTION 'peca_teste_modelo: nao encontrado' USING ERRCODE = 'P0001';
   END IF;
@@ -256,7 +258,7 @@ BEGIN
                  OR jsonb_typeof(coalesce(x->'tentativas', '[]'::jsonb)) <> 'array'
                  OR (x ? 'empresa_id' AND jsonb_typeof(x->'empresa_id') NOT IN ('string', 'null'))
                  OR (x ? 'empresa_id' AND x->>'empresa_id' IS NOT NULL AND x->>'empresa_id' !~ v_uuid))
-     OR (SELECT count(*) <> count(DISTINCT x->>'mo_linha_id') FROM jsonb_array_elements(_trilhas) x) THEN
+     OR (SELECT count(*) <> count(DISTINCT lower(x->>'mo_linha_id')) FROM jsonb_array_elements(_trilhas) x) THEN
     RAISE EXCEPTION 'peca_teste_formato: trilha invalida ou repetida' USING ERRCODE = 'P0001';
   END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(_trilhas) x, jsonb_array_elements(coalesce(x->'tentativas', '[]'::jsonb)) t
@@ -265,9 +267,18 @@ BEGIN
                  OR (t->>'id' IS NULL AND coalesce(t->>'numero', '') !~ '^[1-9][0-9]{0,5}$')
                  OR coalesce(t->>'data_saida', '2000-01-01') !~ v_dia
                  OR coalesce(t->>'data_entrada', '2000-01-01') !~ v_dia
-                 OR coalesce(t->>'aprovacao', 'aprovado') !~ '^(aprovado|reprovado)$') THEN
-    RAISE EXCEPTION 'peca_teste_formato: tentativa invalida' USING ERRCODE = 'P0001';
+                 OR coalesce(t->>'aprovacao', 'aprovado') !~ '^(aprovado|reprovado)$')
+     OR (SELECT count(t->>'id') <> count(DISTINCT lower(t->>'id'))
+           FROM jsonb_array_elements(_trilhas) x, jsonb_array_elements(coalesce(x->'tentativas', '[]'::jsonb)) t) THEN
+    RAISE EXCEPTION 'peca_teste_formato: tentativa invalida ou repetida' USING ERRCODE = 'P0001';
   END IF;
+  -- data no formato mas inexistente (ex.: 2026-02-30) = o mesmo P0001 com prefixo (nao o 22008 cru)
+  BEGIN
+    PERFORM count((t->>'data_saida')::date) + count((t->>'data_entrada')::date)
+       FROM jsonb_array_elements(_trilhas) x, jsonb_array_elements(coalesce(x->'tentativas', '[]'::jsonb)) t;
+  EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format THEN
+    RAISE EXCEPTION 'peca_teste_formato: data invalida' USING ERRCODE = 'P0001';
+  END;
 
   PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || _modelo_id::text));
 
@@ -290,6 +301,36 @@ BEGIN
     v_linha := (tr->>'mo_linha_id')::uuid;
     v_cat := (tr->>'categoria_id')::uuid;
     SELECT s.empresa_id INTO v_forn FROM public.modelo_servico_mo s WHERE s.id = v_linha;  -- ANTES da troca deste Salvar
+    v_congela := v_forn;
+    -- DECISAO (nova com aprovacao, ou existente cuja aprovacao muda para aprovado/reprovado): o fornecedor que a pessoa viu
+    -- (_rev_base.fornecedor) tem de ser o da linha; a peca e decidida para ELE (revisao T2, achados 1-3)
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(tr->'tentativas', '[]'::jsonb)) x
+                LEFT JOIN public.modelo_peca_teste_tentativas t ON t.id = (x->>'id')::uuid
+               WHERE x->>'aprovacao' IS NOT NULL AND (x->>'id' IS NULL OR t.aprovacao IS DISTINCT FROM x->>'aprovacao')) THEN
+      IF NOT (v_forns ? v_linha::text) OR jsonb_typeof(v_forns->v_linha::text) NOT IN ('string', 'null')
+         OR (v_forns->>v_linha::text IS NOT NULL AND v_forns->>v_linha::text !~ v_uuid) THEN
+        RAISE EXCEPTION 'peca_teste_formato: aprovar ou reprovar exige _rev_base.fornecedor da linha' USING ERRCODE = 'P0001';
+      END IF;
+      v_base := (v_forns->>v_linha::text)::uuid;
+      IF v_base IS DISTINCT FROM v_forn THEN
+        IF tr ? 'empresa_id' AND (tr->>'empresa_id')::uuid IS NOT DISTINCT FROM v_forn THEN
+          -- a troca DESTE Salvar ja foi gravada (o Salvar da M.O. rodou antes): decide sobre o fornecedor de ANTES (Ruling 8) -
+          -- aprovar + trocar juntos = o mesmo P0001 da trava; reprovar congela o de antes (quem fez a peca)
+          IF EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(tr->'tentativas', '[]'::jsonb)) x
+                      LEFT JOIN public.modelo_peca_teste_tentativas t ON t.id = (x->>'id')::uuid
+                     WHERE x->>'aprovacao' = 'aprovado' AND (x->>'id' IS NULL OR t.aprovacao IS DISTINCT FROM 'aprovado')) THEN
+            RAISE EXCEPTION 'peca_teste_fornecedor_travado: peca teste aprovada trava o fornecedor' USING ERRCODE = 'P0001';
+          END IF;
+          v_congela := v_base;
+        ELSE
+          RAISE EXCEPTION 'peca_teste_conflito: outra pessoa salvou a peca teste' USING ERRCODE = 'P0409';
+        END IF;
+      END IF;
+      IF v_congela IS NULL THEN
+        RAISE EXCEPTION 'peca_teste_sem_fornecedor: defina o fornecedor da M.O. antes de aprovar ou reprovar a peca teste'
+          USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
     -- tentativas EXISTENTES (id): rev = a base; reprovada = so leitura; aprovada mantida = datas travadas; tudo vazio = DELETE
     FOR tt IN SELECT x FROM jsonb_array_elements(coalesce(tr->'tentativas', '[]'::jsonb)) x WHERE x->>'id' IS NOT NULL LOOP
       v_id := (tt->>'id')::uuid;
@@ -332,8 +373,8 @@ BEGIN
              decidido_por = CASE WHEN v_aprov IS NULL THEN NULL WHEN v_aprov IS DISTINCT FROM v_t.aprovacao THEN v_uid ELSE t.decidido_por END,
              -- decidir congela o fornecedor; aprovado -> reprovado guarda o de quem fez a peca (o congelado); desfazer limpa
              empresa_id = CASE WHEN v_aprov IS NULL THEN NULL
-                               WHEN v_t.aprovacao IS NULL THEN v_forn
-                               WHEN v_aprov IS DISTINCT FROM v_t.aprovacao THEN coalesce(t.empresa_id, v_forn)
+                               WHEN v_t.aprovacao IS NULL THEN v_congela
+                               WHEN v_aprov IS DISTINCT FROM v_t.aprovacao THEN coalesce(t.empresa_id, v_congela)
                                ELSE t.empresa_id END,
              updated_at = now()
        WHERE t.id = v_id;
@@ -365,7 +406,7 @@ BEGIN
         INSERT INTO public.modelo_peca_teste_tentativas
           (tenant_id, modelo_id, mo_linha_id, categoria_terceirizado_id, numero, empresa_id, data_saida, data_entrada, aprovacao,
            decidido_em, decidido_por, created_by, updated_at)
-        VALUES (v_tenant, _modelo_id, v_linha, v_cat, v_num, CASE WHEN v_aprov IS NOT NULL THEN v_forn END, v_saida, v_entrada, v_aprov,
+        VALUES (v_tenant, _modelo_id, v_linha, v_cat, v_num, CASE WHEN v_aprov IS NOT NULL THEN v_congela END, v_saida, v_entrada, v_aprov,
                 CASE WHEN v_aprov IS NOT NULL THEN now() END, CASE WHEN v_aprov IS NOT NULL THEN v_uid END, v_uid, now());
       EXCEPTION WHEN unique_violation THEN
         RAISE EXCEPTION 'peca_teste_conflito: outra pessoa salvou a peca teste' USING ERRCODE = 'P0409';
@@ -424,7 +465,8 @@ CREATE OR REPLACE FUNCTION public._peca_teste_quadro_core(_tenant uuid)
 AS $function$
 BEGIN
   -- [urg r9b] coluna Peca Teste do quadro PCP > Etapas: 1 item por card NAO lancado da loja com >= 1 trilha (tipo exigindo) cuja
-  -- tentativa atual esta "em_teste" (tem data de saida, sem decisao) ou "aprovada" (o predicado unico, com o fornecedor da linha).
+  -- tentativa atual esta "em_teste" (tem data de saida, sem decisao) ou "aprovada" (o predicado unico, com o fornecedor da linha);
+  -- card Reprovado fica fora.
   -- O item traz TODAS as trilhas exigindo do card (as demais com status "pendente": virtual, reprovada, so com entrada, ou aprovada
   -- com outro fornecedor) para o front decidir "aprovada so se todas" (Ruling 20). O filtro "e PL" fica no front (isServicoPL).
   RETURN coalesce((
@@ -461,6 +503,8 @@ BEGIN
            ) ORDER BY m.ref NULLS LAST, m.nome, m.id)
       FROM public.modelos m
      WHERE m.tenant_id = _tenant AND NOT m.lancado
+       -- card Reprovado (Dev OU Planejamento; o predicado canonico) sai do quadro (revisao T2, achado 6)
+       AND NOT (lower(coalesce(m.status_desenvolvimento, '')) = 'reprovado' OR lower(coalesce(m.status_planejamento, '')) = 'reprovado')
        AND EXISTS (SELECT 1 FROM st x WHERE x.modelo_id = m.id AND x.status <> 'pendente')
   ), '[]'::jsonb);
 END $function$;
@@ -528,9 +572,9 @@ BEGIN
       ('public._peca_teste_aprovada(uuid,uuid,uuid)', '417fa9850a5a52204f62476818dc408c', '417fa9850a5a52204f62476818dc408c', false),
       ('public._peca_teste_trilhas_core(uuid,uuid)', '5ae0f7025744d63508d7617e6e3a7487', '5ae0f7025744d63508d7617e6e3a7487', false),
       ('public.peca_teste_modelo(uuid)', '9f5e9a528d3cac6deaf3c34133f5d56b', '693da711ec898bdbbc078439ecd1c46e', true),
-      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', '64edd2faa3956ac80165bbeafd5d47db', '64edd2faa3956ac80165bbeafd5d47db', false),
+      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', '9338a5f0a8ef2e072ad6031c5d2030c6', '9338a5f0a8ef2e072ad6031c5d2030c6', false),
       ('public.salvar_peca_teste(uuid,jsonb,jsonb)', '74edd9a64f98101476de545ac8361a81', '4c501cdcdbf99aed1da1aef6d82f853f', true),
-      ('public._peca_teste_quadro_core(uuid)', '27285b960b59386ff5372a0058561a41', '1821c151ef5963eb95d90167c75ba249', false),
+      ('public._peca_teste_quadro_core(uuid)', '6e191644f2fb4acfea04e4ff76a6f5de', '1821c151ef5963eb95d90167c75ba249', false),
       ('public.peca_teste_quadro()', 'ad45b8479fb46de11ea265b7ef5a728a', 'd208d91fc9846fd221da953481966968', true)
     ) AS x(f, d, n, w) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));

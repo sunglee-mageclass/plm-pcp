@@ -212,11 +212,21 @@ type TentPayload = { id?: string | null; numero?: number; data_saida?: string | 
 type TrilhaPayload = { mo_linha_id: string; categoria_id: string; empresa_id?: string | null; tentativas?: TentPayload[] };
 type Base = { tentativas?: Record<string, number>; fornecedor?: Record<string, string | null> };
 const tp = (t: TentPayload): TentPayload => ({ id: null, data_saida: null, data_entrada: null, aprovacao: null, ...t });
+/** `base.fornecedor` AUSENTE = a tela que acabou de ler: o fornecedor ATUAL de cada linha do payload (toda decisão exige a base —
+ *  revisão T2, achado 1). Para testar "sem base"/"base velha" o teste passa `fornecedor` explícito. */
 async function salvar(c: Client, uid: string | null, modelo: string, trilhas: TrilhaPayload[], base: Base = {}): Promise<Res> {
+  let fornecedor = base.fornecedor;
+  if (fornecedor === undefined) {
+    fornecedor = {};
+    for (const t of trilhas) {
+      const r = await c.query("SELECT empresa_id FROM public.modelo_servico_mo WHERE id::text = $1", [t.mo_linha_id]);
+      if (r.rowCount) fornecedor[t.mo_linha_id] = r.rows[0].empresa_id;
+    }
+  }
   return como(c, uid, "SELECT public.salvar_peca_teste($1, $2::jsonb, $3::jsonb)", [
     modelo,
     JSON.stringify(trilhas),
-    JSON.stringify({ tentativas: {}, fornecedor: {}, ...base }),
+    JSON.stringify({ tentativas: {}, ...base, fornecedor }),
   ]);
 }
 async function ler(c: Client, uid: string, modelo: string): Promise<any> {
@@ -367,6 +377,19 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
       expect(
         txt(await salvar(c, U_ED, s.modelo, [{ mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, aprovacao: "talvez" })] }])),
       ).toMatch(/^P0001 peca_teste_formato: /);
+      // revisão T2, achado 7: data inexistente, id repetido e trilha repetida com caixa diferente = P0001 com prefixo
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: "2026-02-30" })] },
+      ]))).toBe("P0001 peca_teste_formato: data invalida");
+      const t1 = (await tentativas(c, s.linhaA))[0];
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ id: t1.id, data_saida: D1 }), tp({ id: t1.id.toUpperCase(), data_saida: "2026-10-02" })] },
+      ], { tentativas: { [t1.id]: t1.rev } }))).toMatch(/^P0001 peca_teste_formato: /);
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [] },
+        { mo_linha_id: s.linhaA.toUpperCase(), categoria_id: s.catA, tentativas: [] },
+      ], { fornecedor: {} }))).toMatch(/^P0001 peca_teste_formato: /);
+      expect(await tentativas(c, s.linhaA)).toEqual([t1]);
       // card de outra loja / inexistente
       expect(txt(await salvar(c, U_ED, s.modeloOutra, []))).toBe("P0001 peca_teste_modelo: nao encontrado");
     });
@@ -548,16 +571,23 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
       // troca sem a base do fornecedor = P0001 formato (a tela sempre manda)
       expect(txt(await salvar(c, U_ED, s.modelo, [
         { mo_linha_id: s.linhaA, categoria_id: s.catA, empresa_id: s.f1, tentativas: [] },
-      ]))).toMatch(/^P0001 peca_teste_formato: /);
+      ], { fornecedor: {} }))).toMatch(/^P0001 peca_teste_formato: /);
       // tirar o fornecedor (vazio) vale
       expect(txt(await salvar(c, U_ED, s.modelo, [
         { mo_linha_id: s.linhaA, categoria_id: s.catA, empresa_id: null, tentativas: [] },
       ], { fornecedor: { [s.linhaA]: s.f2 } }))).toBe("PASSOU");
       expect((await linhaMo(c, s.linhaA)).empresa_id).toBeNull();
-      // a tentativa decidida com a linha SEM fornecedor congela NULL (e conta como aprovada com a linha vazia)
-      await aprovaA(c, s);
-      expect((await tentativas(c, s.linhaA))[0].empresa_id).toBeNull();
-      expect(await aprovadaHelper(c, s.linhaA)).toBe(true);
+      // revisão T2, achado 3 (ruling): decidir com a linha SEM fornecedor é RECUSADO (nada gravado)
+      for (const aprovacao of ["aprovado", "reprovado"]) {
+        expect(txt(await salvar(c, U_ED, s.modelo, [
+          { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao })] },
+        ]))).toMatch(/^P0001 peca_teste_sem_fornecedor: /);
+      }
+      expect(await tentativas(c, s.linhaA)).toEqual([]);
+      // em teste (sem decisão) segue valendo sem fornecedor
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] },
+      ]))).toBe("PASSOU");
     });
   });
 
@@ -654,6 +684,78 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
     });
   });
 
+  it("14) revisão T2, achado 1 — ABA VELHA: o fornecedor mudou pelo Salvar da M.O. depois da leitura → aprovar/reprovar = P0409 e NADA gravado", async () => {
+    await withTx(async (c) => {
+      const s = await cenario(c);
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] },
+      ]))).toBe("PASSOU");
+      const t1 = (await tentativas(c, s.linhaA))[0];
+      // outra pessoa troca o fornecedor da linha F1 -> F2 pelo Salvar da M.O. (core, com a chave do card); a tentativa NÃO muda
+      await jwt(c, SUPER);
+      const linhasMo = (
+        await c.query("SELECT id, categoria_terceirizado_id AS cat, valor, empresa_id FROM public.modelo_servico_mo WHERE modelo_id = $1", [s.modelo])
+      ).rows.map((l) => ({ id: l.id, categoria_terceirizado_id: l.cat, valor: Number(l.valor), observacoes: null, empresa_id: l.id === s.linhaA ? s.f2 : l.empresa_id }));
+      await c.query("SELECT public._salvar_modelo_servico_mo_core($1, $2::jsonb)", [s.modelo, JSON.stringify(linhasMo)]);
+      await jwt(c, null);
+      expect((await tentativas(c, s.linhaA))[0].rev).toBe(t1.rev);
+      // a aba velha (viu F1) aprova / reprova, sem a chave empresa_id
+      for (const aprovacao of ["aprovado", "reprovado"]) {
+        expect(txt(await salvar(c, U_ED, s.modelo, [
+          { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ id: t1.id, data_saida: D1, data_entrada: D2, aprovacao })] },
+        ], { tentativas: { [t1.id]: t1.rev }, fornecedor: { [s.linhaA]: s.f1 } }))).toBe(CONFLITO);
+      }
+      expect(await tentativas(c, s.linhaA)).toEqual([t1]);
+      expect(await aprovadaHelper(c, s.linhaA)).toBe(false);
+      // decisão SEM a base do fornecedor = P0001 formato (nunca decide às cegas)
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ id: t1.id, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] },
+      ], { tentativas: { [t1.id]: t1.rev }, fornecedor: {} }))).toMatch(/^P0001 peca_teste_formato: /);
+      // relida a seção (base = F2), a aprovação passa e congela F2 — o que a pessoa viu
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ id: t1.id, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] },
+      ], { tentativas: { [t1.id]: t1.rev }, fornecedor: { [s.linhaA]: s.f2 } }))).toBe("PASSOU");
+      expect((await tentativas(c, s.linhaA))[0]).toMatchObject({ aprovacao: "aprovado", empresa_id: s.f2 });
+    });
+  });
+
+  it("15) revisão T2, achado 2 — aprovar + trocar no MESMO Salvar com a M.O. gravando ANTES: P0001 travado (como pela Peça Teste só); reprovar congela o de antes", async () => {
+    await withTx(async (c) => {
+      const s = await cenario(c);
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] },
+      ]))).toBe("PASSOU");
+      const t1 = (await tentativas(c, s.linhaA))[0];
+      const moTroca = async () => {
+        await jwt(c, SUPER);
+        const linhasMo = (
+          await c.query("SELECT id, categoria_terceirizado_id AS cat, valor, empresa_id FROM public.modelo_servico_mo WHERE modelo_id = $1", [s.modelo])
+        ).rows.map((l) => ({ id: l.id, categoria_terceirizado_id: l.cat, valor: Number(l.valor), observacoes: null, empresa_id: l.id === s.linhaA ? s.f2 : l.empresa_id }));
+        await c.query("SELECT public._salvar_modelo_servico_mo_core($1, $2::jsonb)", [s.modelo, JSON.stringify(linhasMo)]);
+        await jwt(c, null);
+      };
+      const payload = (aprovacao: string): TrilhaPayload[] => [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, empresa_id: s.f2, tentativas: [tp({ id: t1.id, data_saida: D1, data_entrada: D2, aprovacao })] },
+      ];
+      const base = { tentativas: { [t1.id]: t1.rev }, fornecedor: { [s.linhaA]: s.f1 } };
+      const TRAVADO = "P0001 peca_teste_fornecedor_travado: peca teste aprovada trava o fornecedor";
+      // rota 1: só pela Peça Teste
+      expect(txt(await salvar(c, U_ED, s.modelo, payload("aprovado"), base))).toBe(TRAVADO);
+      // rota 2: a etapa da M.O. do Sheet grava a troca ANTES; o MESMO payload da Peça Teste = o MESMO P0001
+      await c.query("SAVEPOINT r9b_15");
+      await moTroca();
+      expect(txt(await salvar(c, U_ED, s.modelo, payload("aprovado"), base))).toBe(TRAVADO);
+      expect(await tentativas(c, s.linhaA)).toEqual([t1]);
+      // reprovar + trocar com a M.O. antes: passa e a reprovada guarda F1 (quem fez a peça), igual à rota só pela Peça Teste
+      expect(txt(await salvar(c, U_ED, s.modelo, payload("reprovado"), base))).toBe("PASSOU");
+      expect((await tentativas(c, s.linhaA))[0]).toMatchObject({ aprovacao: "reprovado", empresa_id: s.f1 });
+      await c.query("ROLLBACK TO SAVEPOINT r9b_15");
+      expect(txt(await salvar(c, U_ED, s.modelo, payload("reprovado"), base))).toBe("PASSOU");
+      expect((await tentativas(c, s.linhaA))[0]).toMatchObject({ aprovacao: "reprovado", empresa_id: s.f1 });
+      expect((await linhaMo(c, s.linhaA)).empresa_id).toBe(s.f2);
+    });
+  });
+
   it("8) desatualizada: tipo da linha trocado por outra pessoa / switch desligado / linha apagada = P0409 peca_teste_desatualizada", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
@@ -721,6 +823,17 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
         { mo_linha_id: l4, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] },
       ]))).toBe("PASSOU");
       await semJwt(c, () => comoSistema(c, () => c.query("UPDATE public.modelos SET lancado = true WHERE id = $1", [m4])));
+      // M6: em teste, mas o CARD está Reprovado (Dev ou Planejamento) — não aparece (revisão T2, achado 6)
+      const reprovados: string[] = [];
+      for (const col of ["status_desenvolvimento", "status_planejamento"]) {
+        const m6 = await novoModelo(c, T, `M6 ${col} R9b ${s.suf}`);
+        const l6 = await novaLinha(c, m6, s.catA, s.f1, 10);
+        expect(txt(await salvar(c, U_ED, m6, [
+          { mo_linha_id: l6, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] },
+        ]))).toBe("PASSOU");
+        await semJwt(c, () => comoSistema(c, () => c.query(`UPDATE public.modelos SET ${col} = 'reprovado' WHERE id = $1`, [m6])));
+        reprovados.push(m6);
+      }
       // M5: tentativa só com data de ENTRADA (sem saída) = não está em teste
       const m5 = await novoModelo(c, T, `M5 R9b ${s.suf}`);
       const l5 = await novaLinha(c, m5, s.catA, s.f1, 10);
@@ -730,7 +843,7 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
 
       const q = await quadro(c, U_ETP);
       expect(txt(q)).toBe("PASSOU");
-      const itens = (q.ok ? (q.rows[0].r as any[]) : []).filter((x) => [s.modelo, m2, m3, m4, m5].includes(x.modelo_id));
+      const itens = (q.ok ? (q.rows[0].r as any[]) : []).filter((x) => [s.modelo, m2, m3, m4, m5, ...reprovados].includes(x.modelo_id));
       expect(itens.map((x) => x.modelo_id).sort()).toEqual([s.modelo, m2].sort());
       const i1 = itens.find((x) => x.modelo_id === s.modelo);
       expect(i1).toEqual({
@@ -912,7 +1025,7 @@ describe.skipIf(!RODA)("urg R9b — ordem de trava: Salvar da Peça Teste × apr
       await x.end();
     }
   }
-  type Fx = { m: string; cat: string; linha: string };
+  type Fx = { m: string; cat: string; linha: string; f1: string; f2: string };
   /** Card + tipo + linha de M.O. DESCARTÁVEIS gravados por uma 3ª conexão em `replica` (sem gatilho: nem auditoria, nem fila, nem
    * cascata) e apagados no `finally` — as 2 conexões do ensaio precisam VER o card (cada uma revertida no fim). */
   async function comFixture(fn: (f: Fx) => Promise<void>): Promise<void> {
@@ -936,11 +1049,20 @@ describe.skipIf(!RODA)("urg R9b — ordem de trava: Salvar da Peça Teste × apr
           [T, `R9b trava descartavel ${suf}`],
         )
       ).id;
+      for (const k of ["f1", "f2"] as const) {
+        ids[k] = (
+          await um<{ id: string }>(
+            s,
+            `INSERT INTO public.empresas (tenant_id, nome_fantasia, tipo) VALUES ($1, $2, 'servico') RETURNING id`,
+            [T, `R9b trava ${k} ${suf}`],
+          )
+        ).id;
+      }
       ids.linha = (
         await um<{ id: string }>(
           s,
-          `INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) VALUES ($1, $2, $3, 10) RETURNING id`,
-          [T, ids.m, ids.cat],
+          `INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor, empresa_id) VALUES ($1, $2, $3, 10, $4) RETURNING id`,
+          [T, ids.m, ids.cat, ids.f1],
         )
       ).id;
       await fn(ids as Fx);
@@ -950,6 +1072,7 @@ describe.skipIf(!RODA)("urg R9b — ordem de trava: Salvar da Peça Teste × apr
       if (ids.m) await s.query("DELETE FROM public.cad WHERE modelo_id = $1", [ids.m]).catch(() => {});
       if (ids.m) await s.query("DELETE FROM public.modelos WHERE id = $1", [ids.m]).catch(() => {});
       if (ids.cat) await s.query("DELETE FROM public.categorias_terceirizado WHERE id = $1", [ids.cat]).catch(() => {});
+      for (const f of [ids.f1, ids.f2]) if (f) await s.query("DELETE FROM public.empresas WHERE id = $1", [f]).catch(() => {});
       await s.end();
     }
   }
@@ -957,6 +1080,13 @@ describe.skipIf(!RODA)("urg R9b — ordem de trava: Salvar da Peça Teste × apr
     x.query("SELECT public.salvar_peca_teste($1, $2::jsonb, '{}'::jsonb)", [
       f.m,
       JSON.stringify([{ mo_linha_id: f.linha, categoria_id: f.cat, tentativas: [{ id: null, numero: 1, data_saida: D1 }] }]),
+    ]);
+  /** Salvar da Peça Teste que TROCA o fornecedor da linha: grava M.O. (reabre) e `modelos` (rollup) — o caminho completo da R4. */
+  const salvarPTTroca = (x: Client, f: Fx) =>
+    x.query("SELECT public.salvar_peca_teste($1, $2::jsonb, $3::jsonb)", [
+      f.m,
+      JSON.stringify([{ mo_linha_id: f.linha, categoria_id: f.cat, empresa_id: f.f2, tentativas: [{ id: null, numero: 1, data_saida: D1 }] }]),
+      JSON.stringify({ tentativas: {}, fornecedor: { [f.linha]: f.f1 } }),
     ]);
   const aprovar = (x: Client, f: Fx) => x.query("SELECT public._aprovar_servico_mo_core($1, $2, true, null)", [f.m, f.linha]);
   const salvarMo = (x: Client, f: Fx) =>
@@ -1013,6 +1143,20 @@ describe.skipIf(!RODA)("urg R9b — ordem de trava: Salvar da Peça Teste × apr
     if (!(await r9bVivaNaCopia())) ctx.skip();
     await comFixture(async (f) => {
       expect(await rodada(f, (x) => aprovar(x, f), (x) => salvarPT(x, f))).toEqual({ esperou: true, b: "ok" });
+    });
+  }, 60000);
+
+  it("(e) Peça Teste TROCANDO o fornecedor (grava M.O. e modelos) aberta × aprovar M.O.: o aprovar espera no advisory, sem 40P01", async (ctx) => {
+    if (!(await r9bVivaNaCopia())) ctx.skip();
+    await comFixture(async (f) => {
+      expect(await rodada(f, (x) => salvarPTTroca(x, f), (x) => aprovar(x, f))).toEqual({ esperou: true, b: "ok" });
+    });
+  }, 60000);
+
+  it("(f) aprovar M.O. aberto × Peça Teste TROCANDO o fornecedor: a Peça Teste espera no advisory, sem 40P01", async (ctx) => {
+    if (!(await r9bVivaNaCopia())) ctx.skip();
+    await comFixture(async (f) => {
+      expect(await rodada(f, (x) => aprovar(x, f), (x) => salvarPTTroca(x, f))).toEqual({ esperou: true, b: "ok" });
     });
   }, 60000);
 

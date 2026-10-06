@@ -129,9 +129,9 @@ export const URGC_BLOCOS: Record<string, UrgcBloco> = /* URGC_JSON_INICIO */
       "public._peca_teste_aprovada(uuid,uuid,uuid)": "417fa9850a5a52204f62476818dc408c",
       "public._peca_teste_trilhas_core(uuid,uuid)": "5ae0f7025744d63508d7617e6e3a7487",
       "public.peca_teste_modelo(uuid)": "9f5e9a528d3cac6deaf3c34133f5d56b",
-      "public._salvar_peca_teste_core(uuid,jsonb,jsonb)": "64edd2faa3956ac80165bbeafd5d47db",
+      "public._salvar_peca_teste_core(uuid,jsonb,jsonb)": "9338a5f0a8ef2e072ad6031c5d2030c6",
       "public.salvar_peca_teste(uuid,jsonb,jsonb)": "74edd9a64f98101476de545ac8361a81",
-      "public._peca_teste_quadro_core(uuid)": "27285b960b59386ff5372a0058561a41",
+      "public._peca_teste_quadro_core(uuid)": "6e191644f2fb4acfea04e4ff76a6f5de",
       "public.peca_teste_quadro()": "ad45b8479fb46de11ea265b7ef5a728a"
     },
     "URGC_NEUTRAS": {
