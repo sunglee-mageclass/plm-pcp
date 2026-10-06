@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ReadOnlyScope } from "@/components/RequirePermission";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -132,11 +133,16 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
   const rodape = movs.length > 0 ? rodapeDoExtrato(extrato, movs, un) : null;
   const anoBase = Number(new Intl.DateTimeFormat("en-CA", { timeZone: fuso, year: "numeric" }).format(new Date())) || undefined;
 
-  const carregando = q.isLoading;
+  // P-57: "ainda não há dado" = isPending (cobre a consulta PAUSADA sem rede, em que isLoading é false) — nunca cai no "vazio".
+  const semConexao = q.isPending && q.fetchStatus === "paused";
+  const carregando = q.isPending && !semConexao;
   const falhou = q.isError && !q.data;
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
+      {/* O extrato é SÓ LEITURA por natureza: quem só VÊ a página da OC não herda o `fieldset disabled` do SheetContent
+          (senão Voltar, Período, Origem e "Tentar de novo" ficam mortos — e no celular não há outro jeito de fechar). */}
+      <ReadOnlyScope value={false}>
       <SheetContent side="right" size="editor" className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="shrink-0 space-y-1 border-b p-4 text-left">
           <Breadcrumb items={[{ label: "Entrada e Saída" }, { label: `Estoque ${ROTULO_FAMILIA[familia]}` }, { label: titulo }]} />
@@ -147,7 +153,11 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
           )}
         </SheetHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {/* @container: tabela × cards pela largura do PRÓPRIO Sheet (70vw no desktop, tela cheia no celular), não do viewport. */}
+        <div className="@container flex-1 space-y-4 overflow-y-auto p-4">
+          {semConexao && (
+            <p className="rounded-lg border p-4 text-sm text-muted-foreground">Sem conexão — o histórico carrega quando a internet voltar.</p>
+          )}
           {carregando && <p className="text-sm text-muted-foreground">Carregando…</p>}
 
           {falhou && (
@@ -162,11 +172,11 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
             </div>
           )}
 
-          {!carregando && !falhou && movs.length === 0 && (
+          {!q.isPending && !falhou && movs.length === 0 && (
             <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">Nenhum movimento para este item.</p>
           )}
 
-          {!carregando && !falhou && movs.length > 0 && (
+          {!q.isPending && !falhou && movs.length > 0 && (
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <PeriodoPicker value={periodo} onChange={setPeriodo} anoBase={anoBase} />
@@ -182,7 +192,7 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
               {(extrato.linhas.length > 0 || extrato.saldoAnterior !== null) && (
                 <>
                   {/* Desktop: tabela compacta */}
-                  <div className="hidden overflow-x-auto md:block">
+                  <div className="hidden overflow-x-auto @2xl:block">
                     <table className="w-full text-sm">
                       <thead className="text-left text-muted-foreground">
                         <tr className="border-b">
@@ -210,7 +220,7 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
                   </div>
 
                   {/* Mobile: cada movimento vira um card (sem scroll horizontal em 360px) */}
-                  <div className="space-y-2 md:hidden">
+                  <div className="space-y-2 @2xl:hidden">
                     {extrato.saldoAnterior !== null && de && (
                       <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3 text-sm">
                         <span className="font-medium">Saldo anterior <span className="text-xs font-normal text-muted-foreground">(antes de {fmtDiaIso(de)})</span></span>
@@ -242,6 +252,7 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
           </Button>
         </div>
       </SheetContent>
+      </ReadOnlyScope>
     </Sheet>
   );
 }

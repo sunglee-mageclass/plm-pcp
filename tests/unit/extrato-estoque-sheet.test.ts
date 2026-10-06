@@ -5,7 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createElement, act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
+import { ReadOnlyScope } from "@/components/RequirePermission";
 
 const rpc = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a), from: vi.fn() } }));
@@ -239,6 +240,69 @@ describe("ExtratoEstoqueSheet — rodapé (saldo negativo, divergência) e estad
   });
 });
 
+// ───────────────────────── fix round 1 (review do T16) ─────────────────────────
+
+describe("H1 — usuário que só VÊ a página (ReadOnlyScope true) usa o Histórico normalmente", () => {
+  it("Voltar, Período, Filtros e 'Tentar de novo' ficam habilitados; Voltar fecha", async () => {
+    rpc.mockResolvedValue({ data: TECIDO_OK, error: null });
+    const p = props();
+    montar(createElement(ReadOnlyScope, { value: true }, createElement(ExtratoEstoqueSheet, p as any)));
+    await esperar(() => !corpo().includes("Carregando"));
+    const botoes = Array.from(document.body.querySelectorAll("button")) as HTMLButtonElement[];
+    const voltar = botoes.find((b) => b.getAttribute("aria-label") === "Voltar")!;
+    const filtros = botoes.find((b) => b.getAttribute("aria-label") === "Filtros")!;
+    const periodo = botoes.find((b) => b.textContent?.includes("Período"))!;
+    for (const b of [voltar, filtros, periodo]) {
+      expect(b).toBeTruthy();
+      expect(b.disabled).toBe(false);
+      expect(b.closest("fieldset[disabled]")).toBeNull();
+    }
+    await act(async () => { voltar.click(); });
+    expect(p.onClose).toHaveBeenCalled();
+  });
+
+  it("'Tentar de novo' habilitado para quem só vê", async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: "XX000", message: "falhou" } });
+    montar(createElement(ReadOnlyScope, { value: true }, createElement(ExtratoEstoqueSheet, props() as any)));
+    await esperar(() => corpo().includes("Tentar de novo"), 5000);
+    const btn = Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent?.includes("Tentar de novo"))!;
+    expect(btn.disabled).toBe(false);
+    expect(btn.closest("fieldset[disabled]")).toBeNull();
+  });
+});
+
+describe("M1 — consulta pausada (sem conexão) nunca vira 'Nenhum movimento'", () => {
+  it("mostra aviso de conexão, não o vazio; quando volta a rede, carrega", async () => {
+    onlineManager.setOnline(false);
+    try {
+      rpc.mockResolvedValue({ data: TECIDO_OK, error: null });
+      montar(createElement(ExtratoEstoqueSheet, props() as any));
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+      expect(rpc).not.toHaveBeenCalled();
+      expect(corpo()).not.toContain("Nenhum movimento");
+      expect(corpo()).toContain("Sem conexão");
+      await act(async () => { onlineManager.setOnline(true); });
+      await esperar(() => corpo().includes("Saldo final 10,00 m"));
+      expect(corpo()).not.toContain("Sem conexão");
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+});
+
+describe("L2 — tabela × cards pela largura do PRÓPRIO Sheet (container query), não do viewport", () => {
+  it("nenhum breakpoint de viewport (md:) alterna tabela/cards", async () => {
+    await abrir(TECIDO_OK);
+    const tabela = document.body.querySelector("table")!.parentElement!;
+    expect(tabela.className).toContain("@2xl:block");
+    expect(tabela.className).not.toMatch(/(^|\s)md:/);
+    const cards = Array.from(document.body.querySelectorAll("div")).find((d) => d.className.includes("@2xl:hidden"))!;
+    expect(cards).toBeTruthy();
+    expect(cards.className).not.toMatch(/(^|\s)md:/);
+    expect(document.body.querySelector(".\\@container")).toBeTruthy();
+  });
+});
+
 // ───────────────────────── puros ─────────────────────────
 
 describe("rodapeDoExtrato / periodoParaDias", () => {
@@ -325,6 +389,24 @@ describe("botão Histórico por linha (abas de estoque)", () => {
     await act(async () => { botoes[0].click(); });
     expect(corpo()).toContain("HIST:tecido:var9:Malha Suplex — Preto");
     expect(corpo()).not.toContain("Estoque por OC");
+  });
+
+  it("insumo (L1): um refetch que reordena as linhas NÃO troca o item do Sheet aberto", async () => {
+    const { EstoqueInsumosTable } = await import("@/components/oc-insumo/EstoqueInsumosTab");
+    const mk = (tam: string) => ({ etiquetaId: "e1", etiquetaNome: "Etiqueta X", tamanho: tam, corNome: "Azul", recebido: 1, prevReceb: 0, baixa: 0, fisico: 1 });
+    const estado = (rows: any[]) => ({ grouped: [{ id: "e1", nome: "Etiqueta X", cores: [{ cor: "Azul", rows }] }], isLoading: false });
+    const el = (rows: any[]) => createElement(QueryClientProvider, { client: qc }, createElement(EstoqueInsumosTable, { state: estado(rows) as any }));
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push({ root, el: container });
+    act(() => { root.render(el([mk("40|M"), mk("42|G")])); });
+    const botoes = Array.from(document.body.querySelectorAll('button[aria-label="Histórico"]')) as HTMLButtonElement[];
+    await act(async () => { botoes[1].click(); });
+    expect(corpo()).toContain("HIST:insumo:e1:Etiqueta X — Azul — G · 42");
+    act(() => { root.render(el([mk("42|G"), mk("40|M")])); }); // refetch reordenou
+    expect(corpo()).toContain("HIST:insumo:e1:Etiqueta X — Azul — G · 42");
+    expect(corpo()).not.toContain("HIST:insumo:e1:Etiqueta X — Azul — M · 40");
   });
 
   it("insumo: um botão por linha de tamanho, com a chave (insumo, tamanho, cor)", async () => {

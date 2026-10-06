@@ -153,8 +153,8 @@ export function EstoqueInsumosTable({ state }: { state: ReturnType<typeof useEst
                         </tr>
                       </thead>
                       <tbody>
-                        {c.rows.map((r: any, i: number) => (
-                          <LinhaInsumo key={i} r={r} insumoNome={g.nome} cor={c.cor} />
+                        {c.rows.map((r: any) => (
+                          <LinhaInsumo key={`${r.etiquetaId}|${r.tamanho ?? ""}|${r.corNome ?? ""}`} r={r} insumoNome={g.nome} cor={c.cor} />
                         ))}
                       </tbody>
                     </table>
