@@ -460,6 +460,30 @@ export function mensagemModularidade(code: string, msg: string): string | null {
   return null;
 }
 
+// Urgentes R9 (Peça Teste, migrations 20261103192000..196000): recusas ASCII com prefixo `peca_teste_*:` → texto PT. Dois códigos
+// são P0409 (`peca_teste_conflito`, `peca_teste_desatualizada` — a tela recarrega a seção e refaz o merge; o texto genérico de
+// P0409 falaria de "registro", não da Peça Teste), `peca_teste_sem_login` é 42501 e os demais P0001. `peca_teste_fornecedor_travado`
+// vem do salvar da Peça Teste E do gatilho de `modelo_servico_mo` (trocar o fornecedor da linha da M.O. com a peça aprovada).
+export const MENSAGENS_PECA_TESTE = {
+  peca_teste_conflito: "Outra pessoa salvou a Peça Teste deste card agora — conferimos as mudanças.",
+  peca_teste_desatualizada: "O serviço da mão de obra mudou — a Peça Teste foi recarregada.",
+  peca_teste_sem_datas: "Preencha a Data de saída e a Data de entrada para aprovar ou reprovar.",
+  peca_teste_historico: "Tentativa reprovada é só leitura.",
+  peca_teste_aprovada_travada: "Peça aprovada: as datas ficam travadas. Desfaça a aprovação para mudar.",
+  peca_teste_fornecedor_travado: "Peça teste aprovada: o fornecedor deste serviço está travado.",
+  peca_teste_fornecedor_invalido: "Fornecedor de serviço inválido.",
+  peca_teste_sem_fornecedor: "Defina o fornecedor da mão de obra deste serviço antes de aprovar ou reprovar a peça teste.",
+  peca_teste_formato: "Não foi possível salvar a Peça Teste: os dados enviados estão incompletos. Recarregue o card e tente de novo.",
+  peca_teste_modelo: "Este produto não foi encontrado (outra pessoa pode tê-lo excluído). Recarregue a tela.",
+  peca_teste_sem_login: TEXTO_SESSAO_EXPIRADA,
+} as const;
+export function mensagemPecaTeste(code: string, msg: string): string | null {
+  if (code !== "P0001" && code !== "P0409" && code !== "42501") return null;
+  const m = /^(peca_teste_[a-z_]+):/.exec(msg);
+  if (!m) return null;
+  return (MENSAGENS_PECA_TESTE as Record<string, string>)[m[1]] ?? null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -532,6 +556,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Leves L3: prefixos ASCII (P0001) do reprovado na Explosão e do Formato da REF → texto PT.
   const levesL3 = mensagemLevesL3(code, msg);
   if (levesL3) return levesL3;
+
+  // Urgentes R9: Peça Teste (`peca_teste_*:`, P0001/P0409/42501) → texto PT (antes do P0409 genérico e do ramo "P0001 = já em PT").
+  const pecaTeste = mensagemPecaTeste(code, msg);
+  if (pecaTeste) return pecaTeste;
 
   // Reforço de segurança S1: prefixos ASCII (42501/P0001) das guardas novas → texto PT.
   const segS1 = mensagemSegS1(code, msg);

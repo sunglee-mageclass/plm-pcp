@@ -160,11 +160,27 @@ async function novaTentativa(
 }
 async function semeiaCaso(c: Client, fx: Fx, caso: CasoPecaTeste, i: number): Promise<string> {
   const m = await novoModelo(c, `PT R9c ${fx.suf} ${i}`);
+  const catDe = (tipo: "exige" | "sem_switch") => (tipo === "exige" ? fx.catExige : fx.catSem);
   for (const l of caso.linhas) {
     const cat = l.tipo === "exige" ? fx.catExige : l.tipo === "sem_switch" ? fx.catSem : null;
     const linha = await novaLinha(c, m, cat, l.fornecedor ? fx[l.fornecedor] : null, l.mo_aprovado);
     if (l.tentativas.length && !cat) throw new Error(`fixture: tentativa em linha sem tipo (${caso.nome})`);
-    for (const t of l.tentativas) await novaTentativa(c, m, linha, cat!, t.numero, t.aprovacao, t.fornecedor ? fx[t.fornecedor] : null);
+    // `tipoOriginal` = a tentativa foi lançada sob OUTRO tipo (a linha mudou de tipo depois); o `_peca_teste_aprovada` filtra pelo atual
+    for (const t of l.tentativas) {
+      await novaTentativa(c, m, linha, t.tipoOriginal ? catDe(t.tipoOriginal) : cat!, t.numero, t.aprovacao, t.fornecedor ? fx[t.fornecedor] : null);
+    }
+  }
+  // Tentativa ÓRFÃ (Ruling 3): semeia numa linha provisória e APAGA a linha — a FK SET NULL deixa a tentativa no banco com `mo_linha_id` NULL
+  for (const o of caso.orfas ?? []) {
+    const provisoria = await novaLinha(c, m, catDe(o.tipo), null, null);
+    for (const t of o.tentativas) await novaTentativa(c, m, provisoria, catDe(o.tipo), t.numero, t.aprovacao, t.fornecedor ? fx[t.fornecedor] : null);
+    await comoSistema(c, () => c.query("DELETE FROM public.modelo_servico_mo WHERE id = $1", [provisoria]));
+    const sobrou = await um<{ n: number }>(
+      c,
+      "SELECT count(*)::int AS n FROM public.modelo_peca_teste_tentativas WHERE modelo_id = $1 AND mo_linha_id IS NULL",
+      [m],
+    );
+    if (sobrou.n !== o.tentativas.length) throw new Error(`fixture: órfãs esperadas ${o.tentativas.length}, no banco ${sobrou.n} (${caso.nome})`);
   }
   return m;
 }
@@ -271,7 +287,8 @@ describe.skipIf(!RODA)("urg R9c — condição Peça teste aprovada (banco)", ()
       for (const [i, caso] of CASOS_PECA_TESTE.entries()) ids.push(await semeiaCaso(c, fx, caso, i));
       const j = await mapa(c, ids);
       const sql = CASOS_PECA_TESTE.map((caso, i) => [caso.nome, j[ids[i]]?.[CHAVE]]);
-      const ts = CASOS_PECA_TESTE.map((caso) => [caso.nome, pecaTesteAprovadaModelo(entradaDoCaso(caso, { F1: fx.F1, F2: fx.F2 }))]);
+      const cats = { exige: fx.catExige, sem_switch: fx.catSem };
+      const ts = CASOS_PECA_TESTE.map((caso) => [caso.nome, pecaTesteAprovadaModelo(entradaDoCaso(caso, { F1: fx.F1, F2: fx.F2 }, cats))]);
       const esperado = CASOS_PECA_TESTE.map((caso) => [caso.nome, caso.esperado]);
       expect(sql).toEqual(ts);
       expect(sql).toEqual(esperado);

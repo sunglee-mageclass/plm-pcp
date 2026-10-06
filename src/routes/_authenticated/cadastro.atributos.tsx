@@ -367,6 +367,16 @@ const ATTRIBUTES: AttributeItem[] = [
       // "PL" a detecção de Private Label (src/lib/servico-confeccao.ts).
       protectedNames: ["corte", "oficina", "pl"],
       toggleField: { field: "ativo", label: "Ativo", hint: "Desligar esconde o serviço de novos usos (não exclui)." },
+      // R9 (Peça Teste): ligado, todo produto com este serviço na mão de obra ganha uma trilha na seção Peça Teste do card.
+      extraToggles: [
+        {
+          field: "exige_peca_teste",
+          label: "Exige peça teste",
+          hint: "Ligado: todo produto com este serviço na mão de obra precisa de peça teste aprovada (seção Peça Teste do card). Desligar não apaga tentativas já lançadas.",
+          textoLigado: "Exige",
+          textoDesligado: "Não exige",
+        },
+      ],
     },
   },
   {
@@ -652,6 +662,13 @@ function AtributosPage() {
               </Badge>
             )}
           </div>
+
+          {selected.value === "cat_terceirizado" && (
+            <p className="text-xs text-muted-foreground">
+              Ligar “Exige peça teste” faz o serviço ganhar uma trilha na seção Peça Teste de todo card cuja mão de obra o tenha.
+              Desligar não apaga tentativas já lançadas (ficam como histórico).
+            </p>
+          )}
 
           {selected.custom === "grade" ? (
             <GradeTamanhosCard readOnly={readOnlyAttr} />

@@ -50,6 +50,20 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { InfoHover } from "@/components/shared/InfoHover";
+import { ExtraToggleCell, ExtraToggleField } from "@/components/attribute-extra-toggle";
+import {
+  algumToggleLigado,
+  payloadExtraToggles,
+  rotulosTogglesLigados,
+  togglesDaLinha,
+  togglesMudaram,
+  togglesPadrao,
+  type ExtraToggle,
+  type ExtraTogglesEstado,
+} from "@/lib/attribute-extra-toggles";
+
+export type { ExtraToggle };
 
 export type UsageRef = { table: string; column: string };
 
@@ -97,6 +111,10 @@ export type AttributeTabConfig = {
   orderField?: string;
   /** Toggle booleano por linha (soft-hide). Coluna `field` bool NOT NULL. Ex.: ativo. */
   toggleField?: { field: string; label: string; hint?: string };
+  /** Switches EXTRAS por linha (booleana NOT NULL DEFAULT false — ex.: "Exige peça teste", R9). Aparecem como coluna da tabela
+   *  (Switch inline na linha em edição, selo na leitura), no Sheet mobile e no Dialog "Novo" (padrão DESLIGADO); o insert/update
+   *  manda o campo. Lógica pura em `@/lib/attribute-extra-toggles`. */
+  extraToggles?: ExtraToggle[];
 };
 
 type Row = Record<string, any>;
@@ -130,10 +148,11 @@ export function AttributeTab({
   const [newExtraNum, setNewExtraNum] = useState<string>("");
   const [newExtraText, setNewExtraText] = useState<string>("");
   const [newEnum, setNewEnum] = useState<string>("");
+  const [newToggles, setNewToggles] = useState<ExtraTogglesEstado>(() => togglesPadrao(config.extraToggles));
   const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
   // Conjunto fixo (meses): sem criar/excluir/seleção em massa — só renomear.
   const showCheck = isAdmin && !config.fixed;
-  const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraText ? 1 : 0) + (config.extraEnum ? 1 : 0) + (config.toggleField ? 1 : 0);
+  const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraText ? 1 : 0) + (config.extraEnum ? 1 : 0) + (config.toggleField ? 1 : 0) + (config.extraToggles?.length ?? 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   // Edição inline unificada do DESKTOP: o lápis liga a linha inteira (Nome + extra +
@@ -145,6 +164,7 @@ export function AttributeTab({
   const [editText, setEditText] = useState("");
   const [editEnum, setEditEnum] = useState("");
   const [editAtivo, setEditAtivo] = useState(true);
+  const [editToggles, setEditToggles] = useState<ExtraTogglesEstado>({});
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
@@ -152,7 +172,7 @@ export function AttributeTab({
   const [bulkBusy, setBulkBusy] = useState(false);
 
   // Guarda de alterações não salvas no diálogo "Novo …"
-  const createDirty = createOpen && (newName !== "" || newExtra !== "" || newExtraNum !== "" || newExtraText !== "" || newEnum !== "");
+  const createDirty = createOpen && (newName !== "" || newExtra !== "" || newExtraNum !== "" || newExtraText !== "" || newEnum !== "" || algumToggleLigado(config.extraToggles, newToggles));
   const { requestClose: requestCreateClose, confirm: createConfirm } = useUnsavedGuard({
     dirty: createDirty,
     onClose: () => setCreateOpen(false),
@@ -268,6 +288,8 @@ export function AttributeTab({
       if (config.extraEnum) {
         payload[config.extraEnum.field] = newEnum || config.extraEnum.options[0].value;
       }
+      // Switches extras (R9): SEMPRE manda o valor (padrão desligado) — o "Novo" nunca depende do DEFAULT do banco.
+      Object.assign(payload, payloadExtraToggles(config.extraToggles, newToggles));
       if (config.fixedFilter) {
         payload[config.fixedFilter.field] = config.fixedFilter.value;
       }
@@ -288,6 +310,7 @@ export function AttributeTab({
       setNewExtraNum("");
       setNewExtraText("");
       setNewEnum("");
+      setNewToggles(togglesPadrao(config.extraToggles));
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
     },
@@ -324,6 +347,7 @@ export function AttributeTab({
       }
       if (config.extraEnum) payload[config.extraEnum.field] = editEnum || config.extraEnum.options[0].value;
       if (config.toggleField) payload[config.toggleField.field] = editAtivo;
+      Object.assign(payload, payloadExtraToggles(config.extraToggles, editToggles));
       const { data, error } = await supabase.from(config.table as any).update(payload).eq("id", row.id).select("id");
       if (error) throw error;
       if (!data?.length) throw new Error("Sem permissão para editar este item.");
@@ -409,6 +433,7 @@ export function AttributeTab({
     setEditText(config.extraText ? String(row[config.extraText.field] ?? "") : "");
     setEditEnum(config.extraEnum ? String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value) : "");
     setEditAtivo(config.toggleField ? row[config.toggleField.field] !== false : true);
+    setEditToggles(togglesDaLinha(config.extraToggles, row));
   };
 
   // Sheet de edição mobile (lápis do card): TODOS os campos editáveis num único
@@ -420,6 +445,7 @@ export function AttributeTab({
   const [sheetText, setSheetText] = useState("");
   const [sheetEnum, setSheetEnum] = useState("");
   const [sheetAtivo, setSheetAtivo] = useState(true);
+  const [sheetToggles, setSheetToggles] = useState<ExtraTogglesEstado>({});
   const openEditSheet = (row: Row) => {
     setSheetRow(row);
     setSheetName(String(row[config.nameField] ?? ""));
@@ -428,6 +454,7 @@ export function AttributeTab({
     setSheetText(config.extraText ? String(row[config.extraText.field] ?? "") : "");
     setSheetEnum(config.extraEnum ? String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value) : "");
     setSheetAtivo(config.toggleField ? row[config.toggleField.field] !== false : true);
+    setSheetToggles(togglesDaLinha(config.extraToggles, row));
   };
 
   const sheetDirty = !!sheetRow && (
@@ -436,7 +463,8 @@ export function AttributeTab({
     (!!config.extraNumber && sheetNum !== (sheetRow[config.extraNumber.field] != null ? String(sheetRow[config.extraNumber.field]) : "")) ||
     (!!config.extraText && sheetText !== String(sheetRow[config.extraText.field] ?? "")) ||
     (!!config.extraEnum && sheetEnum !== String(sheetRow[config.extraEnum.field] ?? config.extraEnum.options[0].value)) ||
-    (!!config.toggleField && sheetAtivo !== (sheetRow[config.toggleField.field] !== false))
+    (!!config.toggleField && sheetAtivo !== (sheetRow[config.toggleField.field] !== false)) ||
+    togglesMudaram(config.extraToggles, sheetToggles, sheetRow)
   );
   const { requestClose: requestSheetClose, confirm: sheetConfirm } = useUnsavedGuard({
     dirty: sheetDirty,
@@ -467,6 +495,7 @@ export function AttributeTab({
       }
       if (config.extraEnum) payload[config.extraEnum.field] = sheetEnum || config.extraEnum.options[0].value;
       if (config.toggleField) payload[config.toggleField.field] = sheetAtivo;
+      Object.assign(payload, payloadExtraToggles(config.extraToggles, sheetToggles));
       const { data, error } = await supabase.from(config.table as any).update(payload).eq("id", sheetRow.id).select("id");
       if (error) throw error;
       if (!data?.length) throw new Error("Sem permissão para editar este item.");
@@ -584,6 +613,14 @@ export function AttributeTab({
               {config.toggleField && (
                 <TableHead className="w-32">{config.toggleField.label}</TableHead>
               )}
+              {config.extraToggles?.map((t) => (
+                <TableHead key={t.field} className="w-40">
+                  <span className="inline-flex items-center gap-1">
+                    {t.label}
+                    {t.hint && <InfoHover ariaLabel={`O que é "${t.label}"`}>{t.hint}</InfoHover>}
+                  </span>
+                </TableHead>
+              ))}
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -644,6 +681,7 @@ export function AttributeTab({
                   subParts.push(`${config.extraNumber.label}: ${String(row[config.extraNumber.field]).replace(".", ",")}`);
                 if (config.extraText && row[config.extraText.field])
                   subParts.push(`${config.extraText.label}: ${String(row[config.extraText.field])}`);
+                subParts.push(...rotulosTogglesLigados(config.extraToggles, row));
                 const sublinha = subParts.join(" · ");
                 return (
                 <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
@@ -817,6 +855,17 @@ export function AttributeTab({
                       )}
                     </TableCell>
                   )}
+                  {config.extraToggles?.map((t) => (
+                    <TableCell key={t.field}>
+                      <ExtraToggleCell
+                        toggle={t}
+                        valor={isEditingRow ? editToggles[t.field] === true : row[t.field] === true}
+                        editando={isEditingRow}
+                        onChange={(v) => setEditToggles((s) => ({ ...s, [t.field]: v }))}
+                        disabled={readOnly}
+                      />
+                    </TableCell>
+                  ))}
                   <TableCell className="text-right">
                     {isEditingRow ? (
                       <>
@@ -917,6 +966,15 @@ export function AttributeTab({
                 </Select>
               </div>
             )}
+            {config.extraToggles?.map((t) => (
+              <ExtraToggleField
+                key={t.field}
+                idPrefix="novo"
+                toggle={t}
+                valor={newToggles[t.field] === true}
+                onChange={(v) => setNewToggles((s) => ({ ...s, [t.field]: v }))}
+              />
+            ))}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={requestCreateClose}>
@@ -992,6 +1050,15 @@ export function AttributeTab({
                   <span className="text-sm">{sheetAtivo ? "Ativo" : "Inativo"}</span>
                 </div>
               )}
+              {config.extraToggles?.map((t) => (
+                <ExtraToggleField
+                  key={t.field}
+                  idPrefix="sheet"
+                  toggle={t}
+                  valor={sheetToggles[t.field] === true}
+                  onChange={(v) => setSheetToggles((s) => ({ ...s, [t.field]: v }))}
+                />
+              ))}
             </div>
             <div className="flex items-center gap-2 border-t p-4">
               <Button variant="outline" onClick={requestSheetClose}>

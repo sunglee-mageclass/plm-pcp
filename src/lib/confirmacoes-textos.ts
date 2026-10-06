@@ -379,3 +379,27 @@ export function textoReprovarPecaTeste(a: {
     destrutivo: true,
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Seção 5 — Peça Teste no card do produto (urgentes R9, P-313 B / P-263 A): "Reprovado" pergunta; "Aprovado" é direto.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** 5.1 Reprovar uma tentativa da Peça Teste no Sheet do Planejamento (sem motivo; a tentativa vai para o histórico e nasce a próxima).
+ *  `numero` = nº da tentativa; `servico`/`fornecedor` entram só quando a tela os tem (sem eles vale a frase sem o parêntese). */
+export function textoReprovarTentativa(a: {
+  numero: number;
+  servico?: string | null;
+  fornecedor?: string | null;
+}): TextoConfirmacao {
+  const atual = `A tentativa ${a.numero}${presente(a.fornecedor) ? ` (${txt(a.fornecedor)})` : ""}`;
+  const servico = presente(a.servico) ? ` (${txt(a.servico)})` : "";
+  return {
+    titulo: "Reprovar a peça teste?",
+    descricao:
+      `${atual} vai para o histórico como Reprovada e nasce a tentativa ${a.numero + 1} com o mesmo serviço${servico} ` +
+      "e o mesmo fornecedor, com as datas em branco.",
+    confirmar: "Reprovar",
+    cancelar: CANCELAR,
+    destrutivo: true,
+  };
+}

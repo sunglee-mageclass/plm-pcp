@@ -856,6 +856,7 @@ export type Database = {
           ativo: boolean
           created_at: string | null
           etapa: string
+          exige_peca_teste: boolean
           id: string
           nome: string
           ordem: number
@@ -866,6 +867,7 @@ export type Database = {
           ativo?: boolean
           created_at?: string | null
           etapa?: string
+          exige_peca_teste?: boolean
           id?: string
           nome: string
           ordem?: number
@@ -876,6 +878,7 @@ export type Database = {
           ativo?: boolean
           created_at?: string | null
           etapa?: string
+          exige_peca_teste?: boolean
           id?: string
           nome?: string
           ordem?: number
@@ -2600,6 +2603,105 @@ export type Database = {
           },
           {
             foreignKeyName: "modelo_observacoes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_peca_teste_tentativas: {
+        Row: {
+          aprovacao: string | null
+          categoria_terceirizado_id: string
+          created_at: string
+          created_by: string | null
+          data_entrada: string | null
+          data_saida: string | null
+          decidido_em: string | null
+          decidido_por: string | null
+          empresa_id: string | null
+          id: string
+          legado_bloco_id: string | null
+          mo_linha_id: string | null
+          modelo_id: string
+          numero: number
+          origem: string
+          rev: number
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          aprovacao?: string | null
+          categoria_terceirizado_id: string
+          created_at?: string
+          created_by?: string | null
+          data_entrada?: string | null
+          data_saida?: string | null
+          decidido_em?: string | null
+          decidido_por?: string | null
+          empresa_id?: string | null
+          id?: string
+          legado_bloco_id?: string | null
+          mo_linha_id?: string | null
+          modelo_id: string
+          numero: number
+          origem?: string
+          rev?: number
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          aprovacao?: string | null
+          categoria_terceirizado_id?: string
+          created_at?: string
+          created_by?: string | null
+          data_entrada?: string | null
+          data_saida?: string | null
+          decidido_em?: string | null
+          decidido_por?: string | null
+          empresa_id?: string | null
+          id?: string
+          legado_bloco_id?: string | null
+          mo_linha_id?: string | null
+          modelo_id?: string
+          numero?: number
+          origem?: string
+          rev?: number
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_peca_teste_tentativas_categoria_terceirizado_id_fkey"
+            columns: ["categoria_terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_terceirizado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_tentativas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_tentativas_mo_linha_id_fkey"
+            columns: ["mo_linha_id"]
+            isOneToOne: false
+            referencedRelation: "modelo_servico_mo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_tentativas_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_tentativas_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -8051,6 +8153,8 @@ export type Database = {
       otb_importar_colecoes: { Args: never; Returns: Json }
       otb_orcamento: { Args: { _colecao_id?: string }; Returns: Json }
       otb_salvar_colecao: { Args: { _payload: Json }; Returns: string }
+      peca_teste_modelo: { Args: { _modelo_id: string }; Returns: Json }
+      peca_teste_quadro: { Args: never; Returns: Json }
       plan_tecido_aplicar_ao_modelo: {
         Args: {
           _confirmar_sobrescrita?: boolean
@@ -8380,6 +8484,10 @@ export type Database = {
           _tenant_id: string
         }
         Returns: string
+      }
+      salvar_peca_teste: {
+        Args: { _modelo_id: string; _rev_base: Json; _trilhas: Json }
+        Returns: undefined
       }
       salvar_plan_tecido: {
         Args: { _arvore: Json; _colecao_id: string; _rev_base?: number }

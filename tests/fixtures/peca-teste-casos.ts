@@ -10,19 +10,31 @@ export type FornecedorRotulo = "F1" | "F2" | null;
 /** Tipo de serviço da linha: `exige` = categoria com "Exige peça teste" ligado; `sem_switch` = categoria com ele desligado;
  *  `sem_tipo` = linha "Geral (legado)", sem categoria. */
 export type TipoLinha = "exige" | "sem_switch" | "sem_tipo";
-export type CasoTentativa = { numero: number; aprovacao: AprovacaoPecaTeste; fornecedor: FornecedorRotulo };
+/** `tipoOriginal` = o tipo de serviço SOB O QUAL a tentativa foi lançada (padrão = o da linha hoje). Diferente do da linha = a linha
+ *  teve o tipo trocado depois (Ruling 4: a tentativa do tipo antigo fica escondida e NÃO conta). */
+export type CasoTentativa = { numero: number; aprovacao: AprovacaoPecaTeste; fornecedor: FornecedorRotulo; tipoOriginal?: Exclude<TipoLinha, "sem_tipo"> };
 export type CasoLinha = {
   tipo: TipoLinha;
   mo_aprovado: boolean | null;
   fornecedor: FornecedorRotulo;
   tentativas: CasoTentativa[];
 };
-export type CasoPecaTeste = { nome: string; linhas: CasoLinha[]; esperado: boolean };
+/** Tentativa ÓRFÃ = a linha de M.O. foi APAGADA depois (FK SET NULL: `mo_linha_id` NULL, a tentativa fica no banco — Ruling 3). Nenhuma
+ *  linha a reclama e ela não re-anexa a uma linha nova do mesmo tipo. O TS nunca as recebe (não pertencem a nenhuma linha); o SQL
+ *  as vê na tabela e tem de IGNORÁ-LAS. */
+export type CasoOrfa = { tipo: Exclude<TipoLinha, "sem_tipo">; tentativas: CasoTentativa[] };
+export type CasoPecaTeste = { nome: string; linhas: CasoLinha[]; orfas?: CasoOrfa[]; esperado: boolean };
 
-const t = (numero: number, aprovacao: AprovacaoPecaTeste, fornecedor: FornecedorRotulo = null): CasoTentativa => ({
+const t = (
+  numero: number,
+  aprovacao: AprovacaoPecaTeste,
+  fornecedor: FornecedorRotulo = null,
+  tipoOriginal?: CasoTentativa["tipoOriginal"],
+): CasoTentativa => ({
   numero,
   aprovacao,
   fornecedor,
+  ...(tipoOriginal ? { tipoOriginal } : {}),
 });
 
 export const CASOS_PECA_TESTE: CasoPecaTeste[] = [
@@ -132,15 +144,66 @@ export const CASOS_PECA_TESTE: CasoPecaTeste[] = [
     linhas: [{ tipo: "sem_switch", mo_aprovado: true, fornecedor: "F1", tentativas: [t(1, "reprovado", "F1")] }],
     esperado: true,
   },
+  // ── ruling do controlador (revisão T3, achado 1): `_peca_teste_aprovada` filtra pelo TIPO ATUAL da linha ──
+  {
+    nome: "tipo trocado: a linha hoje é de um tipo que exige, a aprovada é do tipo ANTIGO (fica escondida, não conta)",
+    linhas: [{ tipo: "exige", mo_aprovado: true, fornecedor: "F1", tentativas: [t(1, "aprovado", "F1", "sem_switch")] }],
+    esperado: false,
+  },
+  {
+    nome: "tipo trocado: aprovada do tipo antigo + reprovada nova no tipo atual (só a do tipo atual vale)",
+    linhas: [
+      { tipo: "exige", mo_aprovado: true, fornecedor: "F1", tentativas: [t(1, "aprovado", "F1", "sem_switch"), t(1, "reprovado", "F1")] },
+    ],
+    esperado: false,
+  },
+  {
+    nome: "tipo trocado: reprovada do tipo antigo (nº 2) + aprovada no tipo atual (nº 1) — a atual do TIPO ATUAL é a aprovada",
+    linhas: [
+      { tipo: "exige", mo_aprovado: true, fornecedor: "F1", tentativas: [t(2, "reprovado", "F1", "sem_switch"), t(1, "aprovado", "F1")] },
+    ],
+    esperado: true,
+  },
+  // ── Ruling 3: tentativa ÓRFÃ (linha apagada) — o SQL a ignora; nenhuma linha a reclama ──
+  {
+    nome: "linha apagada: tentativa ÓRFÃ aprovada, sem nenhuma linha de M.O. (vácuo = cumprido)",
+    linhas: [],
+    orfas: [{ tipo: "exige", tentativas: [t(1, "aprovado", "F1")] }],
+    esperado: true,
+  },
+  {
+    nome: "linha apagada: ÓRFÃ aprovada + linha NOVA do mesmo tipo sem tentativa (a órfã não re-anexa)",
+    linhas: [{ tipo: "exige", mo_aprovado: true, fornecedor: "F1", tentativas: [] }],
+    orfas: [{ tipo: "exige", tentativas: [t(1, "aprovado", "F1")] }],
+    esperado: false,
+  },
 ];
 
-/** A entrada do TS para um caso (rótulos de fornecedor viram os ids; o integração passa o mapa rótulo → empresa real). */
-export function entradaDoCaso(caso: CasoPecaTeste, ids: Record<"F1" | "F2", string> = { F1: "F1", F2: "F2" }): LinhaRequisito[] {
+/** Ids de tipo de serviço no TS (o integração passa as categorias reais). Linha "sem_tipo" = `null`. */
+export type CategoriasCaso = { exige: string; sem_switch: string };
+export const CATEGORIAS_ROTULO: CategoriasCaso = { exige: "CAT_EXIGE", sem_switch: "CAT_SEM_SWITCH" };
+
+/** A entrada do TS para um caso (rótulos de fornecedor/tipo viram os ids; o integração passa o mapa rótulo → registro real).
+ *  As tentativas ÓRFÃS (`caso.orfas`) NÃO entram: não pertencem a nenhuma linha (só o SQL as enxerga). */
+export function entradaDoCaso(
+  caso: CasoPecaTeste,
+  ids: Record<"F1" | "F2", string> = { F1: "F1", F2: "F2" },
+  cats: CategoriasCaso = CATEGORIAS_ROTULO,
+): LinhaRequisito[] {
   const id = (f: FornecedorRotulo) => (f === null ? null : ids[f]);
-  return caso.linhas.map((l) => ({
-    exige: l.tipo === "exige",
-    mo_aprovado: l.mo_aprovado,
-    empresa_id: id(l.fornecedor),
-    tentativas: l.tentativas.map((x) => ({ numero: x.numero, aprovacao: x.aprovacao, empresa_id: id(x.fornecedor) })),
-  }));
+  return caso.linhas.map((l) => {
+    const catDaLinha = l.tipo === "exige" ? cats.exige : l.tipo === "sem_switch" ? cats.sem_switch : null;
+    return {
+      categoria_id: catDaLinha,
+      exige: l.tipo === "exige",
+      mo_aprovado: l.mo_aprovado,
+      empresa_id: id(l.fornecedor),
+      tentativas: l.tentativas.map((x) => ({
+        categoria_id: x.tipoOriginal ? cats[x.tipoOriginal] : catDaLinha,
+        numero: x.numero,
+        aprovacao: x.aprovacao,
+        empresa_id: id(x.fornecedor),
+      })),
+    };
+  });
 }
