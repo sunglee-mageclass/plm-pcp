@@ -222,7 +222,8 @@ async function tentativas(c: Client, linha: string): Promise<Tent[]> {
     )
   ).rows as Tent[];
 }
-/** Salvar da Peça Teste como o super admin (a tela que acabou de ler: base = rev atual de cada tentativa + fornecedor atual). */
+/** Salvar da Peça Teste como o super admin (a tela que acabou de ler: base = rev atual de cada tentativa + fornecedor atual).
+ *  Tentativa NOVA nunca nasce decidida (revisão T6, achado 1 — 193000): a nova é gravada com as datas num 1º Salvar e decidida no 2º. */
 async function salvarPeca(
   c: Client,
   modelo: string,
@@ -230,19 +231,26 @@ async function salvarPeca(
   cat: string,
   tents: { id?: string; numero?: number; aprovacao: string | null }[],
 ): Promise<void> {
-  const atuais = await tentativas(c, linha);
-  const forn = (await um<{ e: string | null }>(c, "SELECT empresa_id AS e FROM public.modelo_servico_mo WHERE id = $1", [linha])).e;
-  await c.query("SELECT public.salvar_peca_teste($1, $2::jsonb, $3::jsonb)", [
-    modelo,
-    JSON.stringify([
-      {
-        mo_linha_id: linha,
-        categoria_id: cat,
-        tentativas: tents.map((t) => ({ id: t.id ?? null, numero: t.numero, data_saida: D1, data_entrada: D2, aprovacao: t.aprovacao })),
-      },
-    ]),
-    JSON.stringify({ tentativas: Object.fromEntries(atuais.map((t) => [t.id, t.rev])), fornecedor: { [linha]: forn } }),
-  ]);
+  const umSalvar = async (ts: { id?: string | null; numero?: number; aprovacao: string | null }[]) => {
+    const atuais = await tentativas(c, linha);
+    const forn = (await um<{ e: string | null }>(c, "SELECT empresa_id AS e FROM public.modelo_servico_mo WHERE id = $1", [linha])).e;
+    await c.query("SELECT public.salvar_peca_teste($1, $2::jsonb, $3::jsonb)", [
+      modelo,
+      JSON.stringify([
+        {
+          mo_linha_id: linha,
+          categoria_id: cat,
+          tentativas: ts.map((t) => ({ id: t.id ?? null, numero: t.numero, data_saida: D1, data_entrada: D2, aprovacao: t.aprovacao })),
+        },
+      ]),
+      JSON.stringify({ tentativas: Object.fromEntries(atuais.map((t) => [t.id, t.rev])), fornecedor: { [linha]: forn } }),
+    ]);
+  };
+  const novasDecididas = tents.filter((t) => !t.id && t.aprovacao !== null);
+  await umSalvar(tents.map((t) => (!t.id && t.aprovacao !== null ? { ...t, aprovacao: null } : t)));
+  if (!novasDecididas.length) return;
+  const gravadas = await tentativas(c, linha);
+  await umSalvar(novasDecididas.map((t) => ({ id: gravadas.find((g) => g.numero === t.numero)!.id, aprovacao: t.aprovacao })));
 }
 
 // ─────────────────────────────── contrato ───────────────────────────────

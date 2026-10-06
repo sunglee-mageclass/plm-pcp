@@ -20,7 +20,7 @@
 --     NEUTRO 693da711ec898bdbbc078439ecd1c46e (_down)
 --   public._salvar_peca_teste_core(uuid,jsonb,jsonb) (NOVA)
 --     ANTES  ausente
---     DEPOIS 4b3b1586f5f4ede33d5427a10d7af20a
+--     DEPOIS eccde92e1c6687045f8f7c9ae61caf8f
 --   public.salvar_peca_teste(uuid,jsonb,jsonb) (NOVA, wrapper)
 --     ANTES  ausente
 --     DEPOIS 74edd9a64f98101476de545ac8361a81
@@ -68,7 +68,7 @@ BEGIN
       ('public._peca_teste_aprovada(uuid,uuid,uuid)', '417fa9850a5a52204f62476818dc408c', '417fa9850a5a52204f62476818dc408c', false),
       ('public._peca_teste_trilhas_core(uuid,uuid)', '5ae0f7025744d63508d7617e6e3a7487', '5ae0f7025744d63508d7617e6e3a7487', false),
       ('public.peca_teste_modelo(uuid)', '9f5e9a528d3cac6deaf3c34133f5d56b', '693da711ec898bdbbc078439ecd1c46e', true),
-      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', '4b3b1586f5f4ede33d5427a10d7af20a', '4b3b1586f5f4ede33d5427a10d7af20a', false),
+      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', 'eccde92e1c6687045f8f7c9ae61caf8f', 'eccde92e1c6687045f8f7c9ae61caf8f', false),
       ('public.salvar_peca_teste(uuid,jsonb,jsonb)', '74edd9a64f98101476de545ac8361a81', '4c501cdcdbf99aed1da1aef6d82f853f', true),
       ('public._peca_teste_quadro_core(uuid)', '6e191644f2fb4acfea04e4ff76a6f5de', '1821c151ef5963eb95d90167c75ba249', false),
       ('public.peca_teste_quadro()', 'ad45b8479fb46de11ea265b7ef5a728a', 'd208d91fc9846fd221da953481966968', true)

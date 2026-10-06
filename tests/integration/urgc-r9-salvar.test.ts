@@ -275,11 +275,29 @@ async function aprovadaHelper(c: Client, linha: string): Promise<boolean> {
     )
   ).ok;
 }
-/** A 1ª tentativa APROVADA (pelo Salvar) na linha A — saída, entrada e aprovação. */
+/**
+ * Decisão em 2 Salvares (revisão T6, achado 1: tentativa NOVA nunca nasce decidida; decide-se só a tentativa GRAVADA com as 2 datas):
+ * (1) grava as 2 datas na tentativa atual (a em teste, ou a próxima nova), (2) decide a gravada com o rev dela. Devolve o 1º erro.
+ */
+async function lancaEDecide(
+  c: Client, uid: string, modelo: string, linha: string, cat: string, aprovacao: string,
+  base: Base = {}, extra: Partial<TrilhaPayload> = {},
+): Promise<Res> {
+  const atual = (await tentativas(c, linha, cat)).at(-1);
+  const emTeste = atual && atual.aprovacao === null ? atual : null;
+  const r1 = await salvar(c, uid, modelo, [
+    { mo_linha_id: linha, categoria_id: cat,
+      tentativas: [emTeste ? tp({ id: emTeste.id, data_saida: D1, data_entrada: D2 }) : tp({ numero: (atual?.numero ?? 0) + 1, data_saida: D1, data_entrada: D2 })] },
+  ], emTeste ? { tentativas: { [emTeste.id]: emTeste.rev } } : {});
+  if (!r1.ok) return r1;
+  const t = (await tentativas(c, linha, cat)).at(-1)!;
+  return salvar(c, uid, modelo, [
+    { mo_linha_id: linha, categoria_id: cat, ...extra, tentativas: [tp({ id: t.id, data_saida: D1, data_entrada: D2, aprovacao })] },
+  ], { ...base, tentativas: { [t.id]: t.rev, ...(base.tentativas ?? {}) } });
+}
+/** A 1ª tentativa APROVADA na linha A — datas gravadas e depois a aprovação. */
 async function aprovaA(c: Client, s: Cen): Promise<Linha> {
-  const r = await salvar(c, U_ED, s.modelo, [
-    { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] },
-  ]);
+  const r = await lancaEDecide(c, U_ED, s.modelo, s.linhaA, s.catA, "aprovado");
   expect(txt(r)).toBe("PASSOU");
   return (await tentativas(c, s.linhaA))[0];
 }
@@ -580,17 +598,18 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
         { mo_linha_id: s.linhaA, categoria_id: s.catA, empresa_id: null, tentativas: [] },
       ], { fornecedor: { [s.linhaA]: s.f2 } }))).toBe("PASSOU");
       expect((await linhaMo(c, s.linhaA)).empresa_id).toBeNull();
-      // revisão T2, achado 3 (ruling): decidir com a linha SEM fornecedor é RECUSADO (nada gravado)
-      for (const aprovacao of ["aprovado", "reprovado"]) {
-        expect(txt(await salvar(c, U_ED, s.modelo, [
-          { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao })] },
-        ]))).toMatch(/^P0001 peca_teste_sem_fornecedor: /);
-      }
-      expect(await tentativas(c, s.linhaA)).toEqual([]);
       // em teste (sem decisão) segue valendo sem fornecedor
       expect(txt(await salvar(c, U_ED, s.modelo, [
-        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] },
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2 })] },
       ]))).toBe("PASSOU");
+      // revisão T2, achado 3 (ruling): decidir com a linha SEM fornecedor é RECUSADO (nada gravado)
+      const tz = (await tentativas(c, s.linhaA))[0];
+      for (const aprovacao of ["aprovado", "reprovado"]) {
+        expect(txt(await salvar(c, U_ED, s.modelo, [
+          { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ id: tz.id, data_saida: D1, data_entrada: D2, aprovacao })] },
+        ], { tentativas: { [tz.id]: tz.rev } }))).toMatch(/^P0001 peca_teste_sem_fornecedor: /);
+      }
+      expect(await tentativas(c, s.linhaA)).toEqual([tz]);
     });
   });
 
@@ -600,14 +619,18 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
       const TRAVADO = "P0001 peca_teste_fornecedor_travado: peca teste aprovada trava o fornecedor";
       // aprovar e trocar no MESMO payload: a decisão congela o fornecedor de ANTES da troca -> a trava morde
       expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2 })] },
+      ]))).toBe("PASSOU");
+      const t0 = (await tentativas(c, s.linhaA))[0];
+      expect(txt(await salvar(c, U_ED, s.modelo, [
         {
           mo_linha_id: s.linhaA,
           categoria_id: s.catA,
           empresa_id: s.f2,
-          tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })],
+          tentativas: [tp({ id: t0.id, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })],
         },
-      ], { fornecedor: { [s.linhaA]: s.f1 } }))).toBe(TRAVADO);
-      expect(await tentativas(c, s.linhaA)).toEqual([]);
+      ], { tentativas: { [t0.id]: t0.rev }, fornecedor: { [s.linhaA]: s.f1 } }))).toBe(TRAVADO);
+      expect(await tentativas(c, s.linhaA)).toEqual([t0]);
       const t1 = await aprovaA(c, s);
       expect(txt(await salvar(c, U_ED, s.modelo, [
         { mo_linha_id: s.linhaA, categoria_id: s.catA, empresa_id: s.f2, tentativas: [] },
@@ -841,6 +864,62 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
     });
   });
 
+  it("18) revisão T6, achado 1 — TIPO da linha trocado (PL → Bordado, os 2 exigem): payload velho = P0409; payload mesclado com a minha aprovação na trilha nova NÃO grava (tentativa nova não nasce decidida)", async () => {
+    await withTx(async (c) => {
+      const s = await cenario(c);
+      // a pessoa preencheu saída/entrada e escolheu Aprovado na 1ª tentativa (virtual) da trilha PL; no MESMO Salvar a etapa da M.O.
+      // (ou outra pessoa, entre a leitura e o Salvar) troca o serviço da linha A para Bordado (que também exige peça teste)
+      await jwt(c, SUPER);
+      const linhasMo = (
+        await c.query("SELECT id, categoria_terceirizado_id AS cat, valor, empresa_id FROM public.modelo_servico_mo WHERE modelo_id = $1", [s.modelo])
+      ).rows.map((l) => ({ id: l.id, categoria_terceirizado_id: l.id === s.linhaA ? s.catB : l.cat, valor: Number(l.valor), observacoes: null, empresa_id: l.empresa_id }));
+      await c.query("SELECT public._salvar_modelo_servico_mo_core($1, $2::jsonb)", [s.modelo, JSON.stringify(linhasMo)]);
+      await jwt(c, null);
+      expect((await linhaMo(c, s.linhaA)).cat).toBe(s.catB);
+      const minhaAprovacao = [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })];
+      // (a) payload velho (trilha = o tipo que a tela viu) = P0409: recarregar (mesmo só com datas; com a aprovação junto, o P0001
+      // de (b) vem antes — recusa do mesmo jeito)
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2 })] },
+      ]))).toBe(DESATUALIZADA);
+      expect(txt(await salvar(c, U_ED, s.modelo, [{ mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: minhaAprovacao }]))).toMatch(/^P0001 peca_teste_sem_datas: /);
+      // (b) payload MESCLADO depois do P0409 (trilha = o tipo novo, com a minha aprovação do tipo antigo) = P0001; nada gravado
+      expect(txt(await salvar(c, U_ED, s.modelo, [{ mo_linha_id: s.linhaA, categoria_id: s.catB, tentativas: minhaAprovacao }])))
+        .toBe("P0001 peca_teste_sem_datas: tentativa nova nao nasce aprovada ou reprovada - salve as datas antes de decidir");
+      // reprovada nascendo direto também não
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catB, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao: "reprovado" })] },
+      ]))).toMatch(/^P0001 peca_teste_sem_datas: /);
+      expect(await tentativas(c, s.linhaA)).toEqual([]);
+      expect(await aprovadaHelper(c, s.linhaA)).toBe(false);
+      expect((await ler(c, U_ED, s.modelo)).trilhas.find((t: any) => t.mo_linha_id === s.linhaA)).toMatchObject({ categoria_id: s.catB, aprovada: false, tentativas: [] });
+      // (c) sem categoria_id = P0001 formato
+      expect(txt(await salvar(c, U_ED, s.modelo, [{ mo_linha_id: s.linhaA, tentativas: minhaAprovacao } as unknown as TrilhaPayload])))
+        .toMatch(/^P0001 peca_teste_formato: /);
+      // (d) a decisão vale sobre a tentativa GRAVADA da trilha atual (com as 2 datas no Salvar da decisão): saída gravada, depois
+      // entrada + Aprovado no mesmo Salvar = passa
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catB, tentativas: [tp({ numero: 1, data_saida: D1 })] },
+      ]))).toBe("PASSOU");
+      const t1 = (await tentativas(c, s.linhaA))[0];
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catB, tentativas: [tp({ id: t1.id, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] },
+      ], { tentativas: { [t1.id]: t1.rev } }))).toBe("PASSOU");
+      // id de tentativa de OUTRA trilha (o tipo antigo da linha) = P0409 (a aprovação do tipo antigo nunca vai para o novo)
+      expect(await aprovadaHelper(c, s.linhaA)).toBe(true);
+      const antiga = await um<{ id: string; rev: number }>(
+        c,
+        `INSERT INTO ${TAB} (tenant_id, modelo_id, mo_linha_id, categoria_terceirizado_id, numero, data_saida)
+         VALUES ($1, $2, $3, $4, 1, $5) RETURNING id, rev`,
+        [T, s.modelo, s.linhaA, s.catA, D1],
+      );
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catB, tentativas: [tp({ id: antiga.id, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] },
+      ], { tentativas: { [antiga.id]: antiga.rev } }))).toBe(CONFLITO);
+      expect(await aprovadaHelper(c, s.linhaA)).toBe(true);
+    });
+  });
+
   it("8) desatualizada: tipo da linha trocado por outra pessoa / switch desligado / linha apagada = P0409 peca_teste_desatualizada", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
@@ -891,16 +970,12 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
       // M2: aprovada + CAD enviado ao corte
       const m2 = await novoModelo(c, T, `M2 R9b ${s.suf}`);
       const l2 = await novaLinha(c, m2, s.catA, s.f1, 10);
-      expect(txt(await salvar(c, U_ED, m2, [
-        { mo_linha_id: l2, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] },
-      ]))).toBe("PASSOU");
+      expect(txt(await lancaEDecide(c, U_ED, m2, l2, s.catA, "aprovado"))).toBe("PASSOU");
       await semJwt(c, () => c.query("INSERT INTO public.cad (modelo_id, tenant_id, enviado_corte) VALUES ($1, $2, true)", [m2, T]));
       // M3: atual reprovada (a próxima é virtual, sem saída) — não aparece
       const m3 = await novoModelo(c, T, `M3 R9b ${s.suf}`);
       const l3 = await novaLinha(c, m3, s.catA, s.f1, 10);
-      expect(txt(await salvar(c, U_ED, m3, [
-        { mo_linha_id: l3, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1, data_entrada: D2, aprovacao: "reprovado" })] },
-      ]))).toBe("PASSOU");
+      expect(txt(await lancaEDecide(c, U_ED, m3, l3, s.catA, "reprovado"))).toBe("PASSOU");
       // M4: em teste, mas LANÇADO — não aparece
       const m4 = await novoModelo(c, T, `M4 R9b ${s.suf}`);
       const l4 = await novaLinha(c, m4, s.catA, s.f1, 10);

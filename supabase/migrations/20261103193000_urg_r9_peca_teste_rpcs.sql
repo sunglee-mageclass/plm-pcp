@@ -35,7 +35,7 @@
 --     NEUTRO 693da711ec898bdbbc078439ecd1c46e (_down)
 --   public._salvar_peca_teste_core(uuid,jsonb,jsonb) (NOVA)
 --     ANTES  ausente
---     DEPOIS 4b3b1586f5f4ede33d5427a10d7af20a
+--     DEPOIS eccde92e1c6687045f8f7c9ae61caf8f
 --   public.salvar_peca_teste(uuid,jsonb,jsonb) (NOVA, wrapper)
 --     ANTES  ausente
 --     DEPOIS 74edd9a64f98101476de545ac8361a81
@@ -102,7 +102,7 @@ BEGIN
       ('public._peca_teste_aprovada(uuid,uuid,uuid)', '417fa9850a5a52204f62476818dc408c', '417fa9850a5a52204f62476818dc408c', false),
       ('public._peca_teste_trilhas_core(uuid,uuid)', '5ae0f7025744d63508d7617e6e3a7487', '5ae0f7025744d63508d7617e6e3a7487', false),
       ('public.peca_teste_modelo(uuid)', '9f5e9a528d3cac6deaf3c34133f5d56b', '693da711ec898bdbbc078439ecd1c46e', true),
-      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', '4b3b1586f5f4ede33d5427a10d7af20a', '4b3b1586f5f4ede33d5427a10d7af20a', false),
+      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', 'eccde92e1c6687045f8f7c9ae61caf8f', 'eccde92e1c6687045f8f7c9ae61caf8f', false),
       ('public.salvar_peca_teste(uuid,jsonb,jsonb)', '74edd9a64f98101476de545ac8361a81', '4c501cdcdbf99aed1da1aef6d82f853f', true),
       ('public._peca_teste_quadro_core(uuid)', '6e191644f2fb4acfea04e4ff76a6f5de', '1821c151ef5963eb95d90167c75ba249', false),
       ('public.peca_teste_quadro()', 'ad45b8479fb46de11ea265b7ef5a728a', 'd208d91fc9846fd221da953481966968', true)
@@ -240,7 +240,8 @@ BEGIN
   -- linha por compare-and-set, na MESMA transacao (reabre a M.O. pelo gatilho; a trava morde se a atual, ja com o passo 4, estiver
   -- aprovada). Toda escrita grava updated_at = now() (revisao T1, achado 6). Decisao (aprovar/reprovar) congela em empresa_id o
   -- fornecedor da linha ANTES da troca deste mesmo Salvar (Ruling 8; revisao T1, achado 1) - CONFERIDO contra o que a pessoa viu
-  -- (_rev_base.fornecedor da linha, obrigatorio em toda decisao; revisao T2, achados 1 e 2) e nunca vazio (achado 3).
+  -- (_rev_base.fornecedor da linha, obrigatorio em toda decisao; revisao T2, achados 1 e 2) e nunca vazio (achado 3). A trilha e
+  -- conferida pelo TIPO ATUAL da linha (categoria_id obrigatorio; outro = P0409) e tentativa nova nunca nasce decidida (T6, achado 1).
   IF NOT EXISTS (SELECT 1 FROM public.modelos m WHERE m.id = _modelo_id AND m.tenant_id = v_tenant) THEN
     RAISE EXCEPTION 'peca_teste_modelo: nao encontrado' USING ERRCODE = 'P0001';
   END IF;
@@ -271,6 +272,13 @@ BEGIN
      OR (SELECT count(t->>'id') <> count(DISTINCT lower(t->>'id'))
            FROM jsonb_array_elements(_trilhas) x, jsonb_array_elements(coalesce(x->'tentativas', '[]'::jsonb)) t) THEN
     RAISE EXCEPTION 'peca_teste_formato: tentativa invalida ou repetida' USING ERRCODE = 'P0001';
+  END IF;
+  -- tentativa NOVA nunca nasce decidida (revisao T6, achado 1: um payload velho/mesclado de uma linha cujo TIPO mudou levava a
+  -- aprovacao do tipo antigo para a trilha nova): decide-se so a tentativa ja GRAVADA (que tem id da trilha atual; com as 2 datas
+  -- no Salvar da decisao - peca_teste_sem_datas abaixo)
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(_trilhas) x, jsonb_array_elements(coalesce(x->'tentativas', '[]'::jsonb)) t
+              WHERE t->>'id' IS NULL AND t->>'aprovacao' IS NOT NULL) THEN
+    RAISE EXCEPTION 'peca_teste_sem_datas: tentativa nova nao nasce aprovada ou reprovada - salve as datas antes de decidir' USING ERRCODE = 'P0001';
   END IF;
   -- data no formato mas inexistente (ex.: 2026-02-30) = o mesmo P0001 com prefixo (nao o 22008 cru)
   BEGIN
@@ -577,7 +585,7 @@ BEGIN
       ('public._peca_teste_aprovada(uuid,uuid,uuid)', '417fa9850a5a52204f62476818dc408c', '417fa9850a5a52204f62476818dc408c', false),
       ('public._peca_teste_trilhas_core(uuid,uuid)', '5ae0f7025744d63508d7617e6e3a7487', '5ae0f7025744d63508d7617e6e3a7487', false),
       ('public.peca_teste_modelo(uuid)', '9f5e9a528d3cac6deaf3c34133f5d56b', '693da711ec898bdbbc078439ecd1c46e', true),
-      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', '4b3b1586f5f4ede33d5427a10d7af20a', '4b3b1586f5f4ede33d5427a10d7af20a', false),
+      ('public._salvar_peca_teste_core(uuid,jsonb,jsonb)', 'eccde92e1c6687045f8f7c9ae61caf8f', 'eccde92e1c6687045f8f7c9ae61caf8f', false),
       ('public.salvar_peca_teste(uuid,jsonb,jsonb)', '74edd9a64f98101476de545ac8361a81', '4c501cdcdbf99aed1da1aef6d82f853f', true),
       ('public._peca_teste_quadro_core(uuid)', '6e191644f2fb4acfea04e4ff76a6f5de', '1821c151ef5963eb95d90167c75ba249', false),
       ('public.peca_teste_quadro()', 'ad45b8479fb46de11ea265b7ef5a728a', 'd208d91fc9846fd221da953481966968', true)
