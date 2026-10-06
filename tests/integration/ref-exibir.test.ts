@@ -32,9 +32,15 @@ async function lerRef(c: Client, modeloId: string) {
 async function modeloComSigla(c: Client): Promise<string | null> {
   const m = await um<{ id: string }>(
     c,
-    `SELECT id FROM public.modelos
-      WHERE tenant_id = $1 AND coalesce(ordem_criacao_enviada,false) = true
-        AND categoria_principal_id IS NOT NULL
+    // Determinístico (ORDER BY id) e SEM integração viva: a trava da Integração (integracao_travado: ref_sku) recusa mexer
+    // em ref/ref_auto de modelo integrável/integrado — sem o filtro, a ordem física do heap (ex.: depois de um pg_restore)
+    // decidia se o teste pegava o único integrado da Loja Teste.
+    `SELECT m.id FROM public.modelos m
+      WHERE m.tenant_id = $1 AND coalesce(m.ordem_criacao_enviada,false) = true
+        AND m.categoria_principal_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM public.integracao_produtos ip
+                         WHERE ip.modelo_id = m.id AND ip.estado IN ('integravel', 'integrado'))
+      ORDER BY m.id
       LIMIT 1`,
     [T],
   );
