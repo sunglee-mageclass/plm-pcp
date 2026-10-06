@@ -35,6 +35,7 @@ import { CONDICOES, CONDICAO_KEYS } from "../../src/lib/kanban-condicoes";
 import { rotuloColecao } from "../../src/lib/colecao-rotulo";
 import { dropUrgbSePreciso } from "./urgb-helpers"; // [urg r4b] _servicos_da_mo_criar cita _tenant_modulo_ligado: o _down_drop dela vem antes (LIFO)
 import { dropUrgAExtratoSePreciso } from "./urg-a-helpers"; // [urg R3 T14] extrato 177000 cita _exige_modulos (LIFO)
+import { voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9 T2] o core do quadro da Peca Teste (193000) cita _modelo_colecao_rotulo: o _down dele (texto neutro) vem antes (LIFO)
 
 const RODA = hasDb && ehBancoLocal();
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -61,6 +62,7 @@ const md5 = async (c: Client, sig: string): Promise<string | null> =>
 /** Estado "antes" da T3 nesta txn (T1/T2 seguem vivas): _down da T3 se ela estiver viva (auxiliares ficam). */
 async function semT3(c: Client): Promise<void> {
   await c.query("SET LOCAL statement_timeout = '180s'");
+  await voltaUrgcSePreciso(c); // [urg R9 T2] LIFO: a R9 (por cima desta frente) sai antes da volta da T3
   await aplicaMod(c, 2);
   if (await modViva(c, 3)) await aplicarArquivo(c, MOD_DOWN);
   await c.query("SET LOCAL transaction_timeout = 0");

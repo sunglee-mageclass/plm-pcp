@@ -39,6 +39,7 @@ type Bloco = {
   URGC_NOVAS?: Record<string, string>; // funções CRIADAS pelo bloco: md5 de DEPOIS
   URGC_NEUTRAS?: Record<string, string>; // funções criadas que o _down NEUTRALIZA: md5 do texto neutro
   URGC_DEPS?: Record<string, string>; // funções FIXADAS (não redefinidas): md5 que a guarda da ida exige
+  URGC_WRAPPERS?: string[]; // funções NOVAS que são wrapper (authenticated executa; o _down tira o EXECUTE)
   URGC_GATILHOS?: UrgcGatilho[];
   URGC_TABELAS?: string[];
   URGC_COLUNAS?: string[]; // "schema.tabela.coluna"
@@ -175,6 +176,30 @@ export async function dropUrgcSePreciso(c: Client): Promise<void> {
     }
   }
   await zeraTimeouts(c);
+}
+
+/**
+ * LIFO dos `_down_drop` DENTRO da frente: antes de testar o `_down_drop` de um bloco, roda o `_down_drop` dos blocos POSTERIORES a
+ * ele que ainda têm objeto novo (ex.: a 193000 cria funções que citam a tabela da 192000 — o `_down_drop` da 192000 recusa enquanto
+ * elas existirem). Exige os `_down` já rodados (o `_down_drop` de cada bloco confere). DDL na txn do teste — só na cópia local.
+ */
+export async function dropUrgcPosteriores(c: Client, bloco: UrgcId): Promise<void> {
+  exigeBancoLocal();
+  const depois = ORDEM.slice(ORDEM.indexOf(bloco) + 1);
+  for (const { id, b } of [...URGC_MIGS].reverse()) {
+    if (!depois.includes(id) || !(await existeAlgo(c, b))) continue;
+    if (b.URGC_DROP_GUC) {
+      const ant = (await c.query("SELECT current_setting($1, true) AS v", [b.URGC_DROP_GUC])).rows[0]?.v ?? "";
+      await c.query("SELECT set_config($1, 'sim', true)", [b.URGC_DROP_GUC]);
+      try {
+        await aplicarArquivo(c, b.drop);
+      } finally {
+        await c.query("SELECT set_config($1, $2, true)", [b.URGC_DROP_GUC, ant]);
+      }
+    } else {
+      await aplicarArquivo(c, b.drop);
+    }
+  }
 }
 
 /**

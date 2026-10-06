@@ -14,6 +14,7 @@ export type UrgcBloco = {
   URGC_NOVAS?: Record<string, string>;
   URGC_NEUTRAS?: Record<string, string>;
   URGC_DEPS?: Record<string, string>;
+  URGC_WRAPPERS?: string[];
   URGC_GATILHOS?: { tabela: string; nome: string; antes: string | null; depois: string }[];
   URGC_TABELAS?: string[];
   URGC_COLUNAS?: string[];
@@ -109,6 +110,48 @@ export const URGC_BLOCOS: Record<string, UrgcBloco> = /* URGC_JSON_INICIO */
       "public.categorias_terceirizado.exige_peca_teste"
     ],
     "URGC_DROP_GUC": "app.confirmo_apagar_peca_teste"
+  },
+  "r9b": {
+    "mig": "supabase/migrations/20261103193000_urg_r9_peca_teste_rpcs.sql",
+    "down": "supabase/rollback/20261103193000_urg_r9_peca_teste_rpcs_down.sql",
+    "drop": "supabase/rollback/20261103193000_urg_r9_peca_teste_rpcs_down_drop.sql",
+    "URGC_SENTINELA": "public.fn_peca_teste_trava_fornecedor()",
+    "URGC_MD5": {
+      "public.fn_peca_teste_trava_fornecedor()": {
+        "antes": "eda05ebed95f51f554afe210a5f28c89",
+        "depois": "982769d4384a04d9a35d53db654667da"
+      }
+    },
+    "URGC_ACL": {
+      "public.fn_peca_teste_trava_fornecedor()": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    "URGC_NOVAS": {
+      "public._peca_teste_aprovada(uuid,uuid,uuid)": "417fa9850a5a52204f62476818dc408c",
+      "public._peca_teste_trilhas_core(uuid,uuid)": "5ae0f7025744d63508d7617e6e3a7487",
+      "public.peca_teste_modelo(uuid)": "9f5e9a528d3cac6deaf3c34133f5d56b",
+      "public._salvar_peca_teste_core(uuid,jsonb,jsonb)": "64edd2faa3956ac80165bbeafd5d47db",
+      "public.salvar_peca_teste(uuid,jsonb,jsonb)": "74edd9a64f98101476de545ac8361a81",
+      "public._peca_teste_quadro_core(uuid)": "27285b960b59386ff5372a0058561a41",
+      "public.peca_teste_quadro()": "ad45b8479fb46de11ea265b7ef5a728a"
+    },
+    "URGC_NEUTRAS": {
+      "public.peca_teste_modelo(uuid)": "693da711ec898bdbbc078439ecd1c46e",
+      "public.salvar_peca_teste(uuid,jsonb,jsonb)": "4c501cdcdbf99aed1da1aef6d82f853f",
+      "public._peca_teste_quadro_core(uuid)": "1821c151ef5963eb95d90167c75ba249",
+      "public.peca_teste_quadro()": "d208d91fc9846fd221da953481966968"
+    },
+    "URGC_WRAPPERS": [
+      "public.peca_teste_modelo(uuid)",
+      "public.salvar_peca_teste(uuid,jsonb,jsonb)",
+      "public.peca_teste_quadro()"
+    ],
+    "URGC_DEPS": {
+      "public._exige_modulos(text[])": "b1d4958f65df2c593366926e2b56903e",
+      "public._seg_exige_pagina(text[])": "85eff0037e61fdecefb46154ac9479d2",
+      "public.user_can_view(text)": "643c9aa7ef41d52e3193b1e1561e1375",
+      "public.enforce_servico_mo_aprovacao()": "1643b69db26e2034905866356b80232e",
+      "public._modelo_colecao_rotulo(uuid,uuid,text)": "e9220bc3a67b82ddcd768b8ad5a81a46"
+    }
   }
 }
 /* URGC_JSON_FIM */;

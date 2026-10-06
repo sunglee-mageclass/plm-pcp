@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, semJwt, TENANT_TESTE, ehBancoLocal } from "./db";
-import { aplicaUrgc, voltaUrgc, urgcViva, URGC_BLOCOS } from "./urgc-helpers";
+import { aplicaUrgc, voltaUrgc, urgcViva, URGC_BLOCOS, md5UrgcSucessor, dropUrgcPosteriores } from "./urgc-helpers";
 import { aplicarArquivo, semTransacao } from "./mig-txn";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -301,9 +301,10 @@ describe.skipIf(!RODA)("urg R9a — base da Peça Teste (20261103192000)", () =>
       // 9 gatilhos com o triggerdef gerado (o redefinido: md5 DEPOIS)
       for (const g of BLOCO!.URGC_GATILHOS!) expect(await md5Gat(c, g.tabela, g.nome), g.nome).toBe(g.depois);
       expect(await md5Gat(c, "public.categorias_terceirizado", "trg_kanban_fila_upd")).not.toBe(GAT_ANTES);
-      // 2 funções novas: DEPOIS, DEFINER, search_path=public, ACL só postgres/service_role
+      // 2 funções novas: DEPOIS (ou o de um bloco posterior da R9 que a redefine por cima — a 193000 redefine a trava), DEFINER,
+      // search_path=public, ACL só postgres/service_role
       for (const [sig, m] of Object.entries(BLOCO!.URGC_NOVAS!)) {
-        expect(await md5Fn(c, sig), sig).toBe(m);
+        expect(md5UrgcSucessor(sig, m), sig).toContain(await md5Fn(c, sig));
         const f = await um<{ sd: boolean; cfg: string; acl: string; a: boolean; u: boolean }>(
           c,
           `SELECT p.prosecdef AS sd, array_to_string(p.proconfig, '|') AS cfg, p.proacl::text AS acl,
@@ -636,6 +637,8 @@ describe.skipIf(!RODA)("urg R9a — base da Peça Teste (20261103192000)", () =>
       );
       expect((await falha(c, readSemTxn(BLOCO!.drop))).message).toMatch(/_r9a_teste_cita/);
       await c.query("DROP FUNCTION public._r9a_teste_cita()");
+      // LIFO dos drops: as funções da 193000 (r9b) citam a tabela — o _down_drop delas sai antes
+      await dropUrgcPosteriores(c, "r9a");
       const antesBkp = (await existe(c, "public._bkp_r9_tentativas_drop"))
         ? (await um<{ n: number }>(c, "SELECT count(*)::int AS n FROM public._bkp_r9_tentativas_drop")).n
         : 0;
