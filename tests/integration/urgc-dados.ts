@@ -7,7 +7,7 @@
 export type UrgcBloco = {
   mig: string;
   down: string;
-  drop: string;
+  drop?: string;
   URGC_SENTINELA: string;
   URGC_MD5: Record<string, { antes: string; depois: string }>;
   URGC_ACL: Record<string, string>;
@@ -151,6 +151,25 @@ export const URGC_BLOCOS: Record<string, UrgcBloco> = /* URGC_JSON_INICIO */
       "public.user_can_view(text)": "643c9aa7ef41d52e3193b1e1561e1375",
       "public.enforce_servico_mo_aprovacao()": "1643b69db26e2034905866356b80232e",
       "public._modelo_colecao_rotulo(uuid,uuid,text)": "e9220bc3a67b82ddcd768b8ad5a81a46"
+    }
+  },
+  "r9c": {
+    "mig": "supabase/migrations/20261103194000_urg_r9_kanban_peca_teste.sql",
+    "down": "supabase/rollback/20261103194000_urg_r9_kanban_peca_teste_down.sql",
+    "URGC_SENTINELA": "public._avaliar_condicoes_kanban_core(uuid,uuid[])",
+    "URGC_MD5": {
+      "public._avaliar_condicoes_kanban_core(uuid,uuid[])": {
+        "antes": "394578c15aecc303224356a554380de1",
+        "depois": "a95b92f0020667c4e1d38cc771d49212"
+      }
+    },
+    "URGC_ACL": {
+      "public._avaliar_condicoes_kanban_core(uuid,uuid[])": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    "URGC_DEPS": {
+      "public._peca_teste_aprovada(uuid,uuid,uuid)": "417fa9850a5a52204f62476818dc408c",
+      "public.avaliar_condicoes_kanban(uuid[])": "855db089af9e12d6d16201d7ed490cc6",
+      "public._kanban_cond_modulos()": "e8196983de17cc5b8cf52c1810e53af2"
     }
   }
 }

@@ -994,21 +994,23 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
   it("13b) _down_drop: recusa com a ida viva e com função citando as novas; com o _down rodado apaga as 7; 2× no-op; ida recria", async () => {
     await withTx(async (c) => {
       await prepara(c);
-      expect((await falha(c, readSemTxn(BLOCO!.drop))).message).toMatch(/urg_r9b_down_drop: .*_down antes/);
+      expect((await falha(c, readSemTxn(BLOCO!.drop!))).message).toMatch(/urg_r9b_down_drop: .*_down antes/);
+      // [urg R9 T3] LIFO: a 194000 (r9c) cita o helper desta — o _down dela sai antes (senão o _down_drop daqui recusa)
+      if (await urgcViva(c, "r9c")) await aplicarArquivo(c, URGC_BLOCOS.r9c!.down);
       await aplicarArquivo(c, BLOCO!.down);
       await c.query(
         "CREATE FUNCTION public._r9b_teste_cita() RETURNS boolean LANGUAGE sql AS $$ SELECT public._peca_teste_aprovada(NULL, NULL, NULL) $$",
       );
-      expect((await falha(c, readSemTxn(BLOCO!.drop))).message).toMatch(/_r9b_teste_cita/);
+      expect((await falha(c, readSemTxn(BLOCO!.drop!))).message).toMatch(/_r9b_teste_cita/);
       await c.query("DROP FUNCTION public._r9b_teste_cita()");
-      await aplicarArquivo(c, BLOCO!.drop);
+      await aplicarArquivo(c, BLOCO!.drop!);
       for (const sig of NOVAS) expect(await md5Fn(c, sig), sig).toBeNull();
       expect(await md5Fn(c, TRAVA)).toBe(BLOCO!.URGC_MD5[TRAVA].antes);
-      await aplicarArquivo(c, BLOCO!.drop); // 2× = no-op
+      await aplicarArquivo(c, BLOCO!.drop!); // 2× = no-op
       // a r9a pode sair inteira agora (LIFO dos drops)
       await aplicarArquivo(c, BLOCO_A!.down);
       await c.query("SET LOCAL app.confirmo_apagar_peca_teste = 'sim'");
-      await aplicarArquivo(c, BLOCO_A!.drop);
+      await aplicarArquivo(c, BLOCO_A!.drop!);
       await c.query("SET LOCAL app.confirmo_apagar_peca_teste = ''");
       expect((await um<{ ok: boolean }>(c, "SELECT to_regclass($1) IS NULL AS ok", [TAB])).ok).toBe(true);
       // ida das duas de novo

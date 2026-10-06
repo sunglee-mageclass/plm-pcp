@@ -73,6 +73,10 @@ export const CONDICOES: Condicao[] = [
   { key: "servico_aprovado", label: "Aprovação de custo — aprovada", modulo: "planejamento", secao: "s5", descricao: "Toda a mão de obra foi aprovada (nenhuma pendente ou reprovada).", aviso: "Modelo sem mão de obra conta como liberado. Revenda não tem MO — sempre satisfaz." },
   { key: "servico_mo_decidido", label: "Aprovação de custo — decidida", modulo: "planejamento", secao: "s5", descricao: "Toda a mão de obra foi decidida — nenhuma pendente.", aviso: "Uma linha reprovada já conta como decidida (diferente de 'aprovada')." },
   { key: "servico_mo_preenchido", label: "Aprovação de custo — valor preenchido", modulo: "planejamento", secao: "s5", descricao: "Tem ao menos uma mão de obra com valor lançado.", aviso: "Só verifica se há valor — não garante que foi aprovada." },
+  // R9 (P-310 A + P-319 A): Peça Teste — sem `secao` (o selo do Sheet vem de CONDICOES_SECAO_SHEET), sem `requer` (vale em
+  // qualquer loja; não exige módulo) e FORA de REVENDA_COND_NA (Ruling 13: comprado sem serviço que exige = cumprido). Espelho
+  // TS da RPC: `pecaTesteAprovadaModelo` em src/lib/peca-teste.ts (anti-drift SQL × TS em tests/integration/urgc-r9-kanban.test.ts).
+  { key: "peca_teste_aprovada", label: "Peça teste aprovada", modulo: "planejamento", descricao: "Todo serviço da mão de obra cujo tipo exige peça teste tem a M.O. aprovada E a peça teste aprovada.", aviso: "Modelo sem serviço que exige peça teste conta como cumprido." },
 
   // ── Desenvolvimento ───────────────────────────────────────────
   { key: "modelista_definido", label: "Modelista definido", modulo: "desenvolvimento", secao: "s1", descricao: "Tem Modelista escolhido." },

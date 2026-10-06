@@ -626,23 +626,23 @@ describe.skipIf(!RODA)("urg R9a — base da Peça Teste (20261103192000)", () =>
       const nTab = (await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM ${TAB}`)).n;
       // ida viva (sem o _down): recusa
       await c.query("SET LOCAL app.confirmo_apagar_peca_teste = 'sim'");
-      expect((await falha(c, readSemTxn(BLOCO!.drop))).message).toMatch(/_down antes/);
+      expect((await falha(c, readSemTxn(BLOCO!.drop!))).message).toMatch(/_down antes/);
       await voltaUrgc(c);
       await c.query("SET LOCAL app.confirmo_apagar_peca_teste = ''");
-      expect((await falha(c, readSemTxn(BLOCO!.drop))).message).toMatch(/confirmo_apagar_peca_teste/);
+      expect((await falha(c, readSemTxn(BLOCO!.drop!))).message).toMatch(/confirmo_apagar_peca_teste/);
       await c.query("SET LOCAL app.confirmo_apagar_peca_teste = 'sim'");
       // uma função de public (fora as 2 de gatilho) que cite a tabela = 193000/194000 vivas → recusa
       await c.query(
         "CREATE FUNCTION public._r9a_teste_cita() RETURNS int LANGUAGE sql AS $$ SELECT count(*)::int FROM public.modelo_peca_teste_tentativas $$",
       );
-      expect((await falha(c, readSemTxn(BLOCO!.drop))).message).toMatch(/_r9a_teste_cita/);
+      expect((await falha(c, readSemTxn(BLOCO!.drop!))).message).toMatch(/_r9a_teste_cita/);
       await c.query("DROP FUNCTION public._r9a_teste_cita()");
       // LIFO dos drops: as funções da 193000 (r9b) citam a tabela — o _down_drop delas sai antes
       await dropUrgcPosteriores(c, "r9a");
       const antesBkp = (await existe(c, "public._bkp_r9_tentativas_drop"))
         ? (await um<{ n: number }>(c, "SELECT count(*)::int AS n FROM public._bkp_r9_tentativas_drop")).n
         : 0;
-      await aplicarArquivo(c, BLOCO!.drop);
+      await aplicarArquivo(c, BLOCO!.drop!);
       expect(await existe(c, TAB)).toBe(false);
       expect(await temColuna(c)).toBe(false);
       for (const sig of Object.keys(BLOCO!.URGC_NOVAS!)) expect(await md5Fn(c, sig), sig).toBeNull();
@@ -657,7 +657,7 @@ describe.skipIf(!RODA)("urg R9a — base da Peça Teste (20261103192000)", () =>
       );
       expect(bk).toEqual({ n: antesBkp + nTab, rls: true, a: false, u: false });
       // drop 2× = no-op; ida de novo recria tudo (tabela vazia)
-      await aplicarArquivo(c, BLOCO!.drop);
+      await aplicarArquivo(c, BLOCO!.drop!);
       await aplicaUrgc(c, "r9a");
       expect(await urgcViva(c, "r9a")).toBe(true);
       expect((await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM ${TAB}`)).n).toBe(0);

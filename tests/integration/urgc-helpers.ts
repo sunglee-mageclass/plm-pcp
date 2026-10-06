@@ -6,7 +6,7 @@
  * `md5UrgcSucessor`.
  *
  * Contrato do `urgc-dados.ts` GERADO por `mig/gerar-c.mjs` (um gerador para os blocos r9a/r9b/r9c; r9d/r9e = DMLs à mão da T4):
- * `URGC_BLOCOS[bloco]` com `mig`/`down`/`drop`, `URGC_SENTINELA` (assinatura de função: bloco vivo = md5 dela = o "depois" — de
+ * `URGC_BLOCOS[bloco]` com `mig`/`down`/`drop` (sem `drop` = bloco sem objeto novo), `URGC_SENTINELA` (assinatura de função: bloco vivo = md5 dela = o "depois" — de
  * `URGC_MD5` se redefinida, de `URGC_NOVAS` se criada pelo bloco), `URGC_MD5`/`URGC_ACL` (funções existentes redefinidas),
  * `URGC_NOVAS` (funções criadas), `URGC_NEUTRAS` (funções criadas que o `_down` NEUTRALIZA — md5 do texto neutro),
  * `URGC_GATILHOS` (md5 de `pg_get_triggerdef`; `antes` null = gatilho novo), `URGC_TABELAS`/`URGC_COLUNAS` (objetos novos que só o
@@ -32,7 +32,7 @@ export type UrgcGatilho = { tabela: string; nome: string; antes: string | null; 
 type Bloco = {
   mig: string;
   down: string;
-  drop: string;
+  drop?: string; // ausente = bloco sem objeto novo (r9c: só redefine função) — nada a apagar
   URGC_SENTINELA: string;
   URGC_MD5: Record<string, { antes: string; depois: string }>;
   URGC_ACL: Record<string, string>;
@@ -153,6 +153,21 @@ async function existeAlgo(c: Client, b: Bloco): Promise<boolean> {
   return false;
 }
 
+/** Aplica o `_down_drop` do bloco com a GUC de confirmação dele (`URGC_DROP_GUC`) ligada só durante o arquivo e restaurada depois. */
+async function aplicarDrop(c: Client, b: Bloco, drop: string): Promise<void> {
+  if (!b.URGC_DROP_GUC) {
+    await aplicarArquivo(c, drop);
+    return;
+  }
+  const ant = (await c.query("SELECT current_setting($1, true) AS v", [b.URGC_DROP_GUC])).rows[0]?.v ?? "";
+  await c.query("SELECT set_config($1, 'sim', true)", [b.URGC_DROP_GUC]);
+  try {
+    await aplicarArquivo(c, drop);
+  } finally {
+    await c.query("SELECT set_config($1, $2, true)", [b.URGC_DROP_GUC, ant]);
+  }
+}
+
 /**
  * LIFO dos `_down_drop`: quem testa o `_down_drop` (ou um inverso destrutivo) de uma frente ANTIGA roda isto antes — volta os
  * blocos e aplica o `_down_drop` de quem ainda tem objeto novo (função/tabela/coluna; DDL na txn do teste — só na cópia local). A
@@ -162,18 +177,8 @@ export async function dropUrgcSePreciso(c: Client): Promise<void> {
   exigeBancoLocal();
   await voltaUrgcSePreciso(c);
   for (const { b } of [...URGC_MIGS].reverse()) {
-    if (!(await existeAlgo(c, b))) continue;
-    if (b.URGC_DROP_GUC) {
-      const ant = (await c.query("SELECT current_setting($1, true) AS v", [b.URGC_DROP_GUC])).rows[0]?.v ?? "";
-      await c.query("SELECT set_config($1, 'sim', true)", [b.URGC_DROP_GUC]);
-      try {
-        await aplicarArquivo(c, b.drop);
-      } finally {
-        await c.query("SELECT set_config($1, $2, true)", [b.URGC_DROP_GUC, ant]);
-      }
-    } else {
-      await aplicarArquivo(c, b.drop);
-    }
+    if (!b.drop || !(await existeAlgo(c, b))) continue;
+    await aplicarDrop(c, b, b.drop);
   }
   await zeraTimeouts(c);
 }
@@ -187,18 +192,8 @@ export async function dropUrgcPosteriores(c: Client, bloco: UrgcId): Promise<voi
   exigeBancoLocal();
   const depois = ORDEM.slice(ORDEM.indexOf(bloco) + 1);
   for (const { id, b } of [...URGC_MIGS].reverse()) {
-    if (!depois.includes(id) || !(await existeAlgo(c, b))) continue;
-    if (b.URGC_DROP_GUC) {
-      const ant = (await c.query("SELECT current_setting($1, true) AS v", [b.URGC_DROP_GUC])).rows[0]?.v ?? "";
-      await c.query("SELECT set_config($1, 'sim', true)", [b.URGC_DROP_GUC]);
-      try {
-        await aplicarArquivo(c, b.drop);
-      } finally {
-        await c.query("SELECT set_config($1, $2, true)", [b.URGC_DROP_GUC, ant]);
-      }
-    } else {
-      await aplicarArquivo(c, b.drop);
-    }
+    if (!depois.includes(id) || !b.drop || !(await existeAlgo(c, b))) continue;
+    await aplicarDrop(c, b, b.drop);
   }
 }
 

@@ -726,6 +726,7 @@ describe.skipIf(!RODA)(
     it("guarda: função mexida por outra frente → a ida e o _down recusam e nada muda", async () => {
       await withTx(async (c) => {
         await c.query("SET LOCAL statement_timeout = '180s'");
+        await voltaUrgcSePreciso(c); // [urg R9 T3] LIFO: a 194000 redefine o avaliador por cima da T3 — sai antes (a guarda testada é a do salvar_loja)
         await comT3(c);
         const def = (
           await um<{ d: string }>(
