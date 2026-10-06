@@ -470,7 +470,7 @@ export const MENSAGENS_PECA_TESTE = {
   peca_teste_sem_datas: "Preencha a Data de saída e a Data de entrada para aprovar ou reprovar.",
   peca_teste_historico: "Tentativa reprovada é só leitura.",
   peca_teste_aprovada_travada: "Peça aprovada: as datas ficam travadas. Desfaça a aprovação para mudar.",
-  peca_teste_fornecedor_travado: "Peça teste aprovada: o fornecedor deste serviço está travado.",
+  peca_teste_fornecedor_travado: "A peça teste deste serviço já foi aprovada com este fornecedor; para trocar, reabra a peça teste.",
   peca_teste_fornecedor_invalido: "Fornecedor de serviço inválido.",
   peca_teste_sem_fornecedor: "Defina o fornecedor da mão de obra deste serviço antes de aprovar ou reprovar a peça teste.",
   peca_teste_formato: "Não foi possível salvar a Peça Teste: os dados enviados estão incompletos. Recarregue o card e tente de novo.",

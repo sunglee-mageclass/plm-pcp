@@ -752,8 +752,23 @@ function PlanejamentoDetailConteudo({
     }
     return Object.keys(out).length > 0 ? out : null;
   }, [moBlocoVisivel, podeEditarMO, moLinhas, moLinhasBase]);
+  // R9 — linhas de M.O. do RASCUNHO cujo tipo exige peça teste mas que o servidor ainda não conhece como trilha: linha NOVA, ou linha
+  // salva que TROCOU de tipo (Ruling 4: a trilha do tipo antigo fica escondida; a nova nasce no Salvar). "Salve o card para lançar…" (Ruling 12).
+  const exigePecaTestePorTipo = new Map(catsServico.map((c) => [c.id, !!c.exige_peca_teste]));
+  const ptLinhasNovas: string[] = [];
+  const ptBloqueadasPorTipo = new Set<string>();
+  if (isEdit && podeVerPT) {
+    for (const l of moLinhas) {
+      const b = l.id ? moLinhasBase.find((x) => x.id === l.id) : undefined;
+      const tipoMudou = !!b && (l.categoria_terceirizado_id ?? null) !== (b.categoria_terceirizado_id ?? null);
+      if (tipoMudou && l.id) ptBloqueadasPorTipo.add(l.id);
+      if ((!l.id || tipoMudou) && l.categoria_terceirizado_id && exigePecaTestePorTipo.get(l.categoria_terceirizado_id)) {
+        ptLinhasNovas.push(catsServico.find((c) => c.id === l.categoria_terceirizado_id)?.nome ?? l.nome ?? "serviço");
+      }
+    }
+  }
   // Peça Teste (R9): o rascunho da seção vive aqui (nada grava antes do Salvar); `pt.pecaTesteSave` entra na cadeia do Salvar do card.
-  const pt = usePecaTeste({ modeloId, habilitado: isEdit, podeEditar: podeEditarPT, fornecedorMo });
+  const pt = usePecaTeste({ modeloId, habilitado: isEdit, podeEditar: podeEditarPT, fornecedorMo, linhasIgnoradas: ptBloqueadasPorTipo });
   const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty || pt.dirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: !hostGuardaNavegacao, navPermitida });
   requestCloseRef.current = requestClose;
@@ -1053,6 +1068,15 @@ function PlanejamentoDetailConteudo({
   const espelharFornecedorNaMO = (linhaId: string, empresaId: string | null, empresaNome: string | null) => {
     if (!(moBlocoVisivel && podeEditarMO)) return;
     setMoLinhas((ls) => ls.map((l) => (l.id === linhaId ? { ...l, empresa_id: empresaId, empresa_nome: empresaNome } : l)));
+  };
+  // Fornecedor ÚNICO nos DOIS sentidos: trocar (ou desfazer a troca) no editor da M.O. também grava no rascunho da seção — a última edição vale nas duas vistas.
+  const aoMudarLinhasMO = (ls: MaoObraEditorLinha[]) => {
+    for (const l of ls) {
+      if (!l.id) continue;
+      const antes = moLinhasRef.current.find((x) => x.id === l.id);
+      if (antes && (antes.empresa_id ?? null) !== (l.empresa_id ?? null)) pt.trocarFornecedor(l.id, l.empresa_id ?? null, l.empresa_nome ?? null);
+    }
+    setMoLinhas(ls);
   };
   const trocarFornecedorPT = (linhaId: string, empresaId: string | null, empresaNome: string | null) => {
     pt.trocarFornecedor(linhaId, empresaId, empresaNome);
@@ -1378,21 +1402,6 @@ function PlanejamentoDetailConteudo({
       return (data ?? []) as { id: string; nome_fantasia: string }[];
     },
   });
-  // R9 — linhas de M.O. do RASCUNHO cujo tipo exige peça teste mas que o servidor ainda não conhece como trilha: linha NOVA, ou linha
-  // salva que TROCOU de tipo (Ruling 4: a trilha do tipo antigo fica escondida; a nova nasce no Salvar). "Salve o card para lançar…" (Ruling 12).
-  const exigePecaTestePorTipo = new Map(catsServico.map((c) => [c.id, !!c.exige_peca_teste]));
-  const ptLinhasNovas: string[] = [];
-  const ptBloqueadasPorTipo = new Set<string>();
-  if (isEdit && podeVerPT) {
-    for (const l of moLinhas) {
-      const b = l.id ? moLinhasBase.find((x) => x.id === l.id) : undefined;
-      const tipoMudou = !!b && (l.categoria_terceirizado_id ?? null) !== (b.categoria_terceirizado_id ?? null);
-      if (tipoMudou && l.id) ptBloqueadasPorTipo.add(l.id);
-      if ((!l.id || tipoMudou) && l.categoria_terceirizado_id && exigePecaTestePorTipo.get(l.categoria_terceirizado_id)) {
-        ptLinhasNovas.push(catsServico.find((c) => c.id === l.categoria_terceirizado_id)?.nome ?? l.nome ?? "serviço");
-      }
-    }
-  }
   // Linhas cuja peça teste está APROVADA (no rascunho): o fornecedor delas trava também no editor da M.O.
   const fornecedorTravadoMO = new Set<string>(
     (pt.estado?.trilhas ?? [])
@@ -1423,7 +1432,8 @@ function PlanejamentoDetailConteudo({
     mao_obra_novo: !isEdit && moBlocoVisivel,
     preco: isEdit,
     // R9 — "Peça Teste": logo depois de "Preço e Custos"; SOME quando nenhum serviço da M.O. exige peça teste (nem trilha salva, nem linha nova do rascunho).
-    peca_teste: isEdit && !!modeloId && podeVerPT && ((pt.estado?.trilhas.length ?? 0) > 0 || ptLinhasNovas.length > 0),
+    // (erro de leitura NÃO esconde a seção — "nunca decidir vazio de uma query que falhou": ela mostra "Não foi possível carregar · Tentar de novo")
+    peca_teste: isEdit && !!modeloId && podeVerPT && ((pt.estado?.trilhas.length ?? 0) > 0 || ptLinhasNovas.length > 0 || pt.erro),
     // F3.4 — a mesma chave serve à seção do produto do IMPORTADO ("Produto Importado").
     produto_acabado: isEdit && ((isRevenda && paOn) || (draft.origem === "importado" && piOn)),
     // F3.4 — decisão F3 #4: a grade cor × tamanho é A grade do comprado (revenda E importado), pela seção "s4".
@@ -1568,7 +1578,7 @@ function PlanejamentoDetailConteudo({
         categorias={catsServico}
         podeVerCustos={veCustos}
         podeAprovar={isEdit && podeAprovarMaoObra}
-        onChangeLinhas={(ls) => setMoLinhas(ls)}
+        onChangeLinhas={aoMudarLinhasMO}
         onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
         onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
         pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}

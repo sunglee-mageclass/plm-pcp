@@ -383,3 +383,50 @@ describe("path e leitura do servidor", () => {
     expect(e?.outros).toEqual([{ categoria_nome: "Lavanderia", empresa_nome: "Lava Tudo" }]);
   });
 });
+
+// ───────── fix round 1 (revisão T6) ─────────
+describe("achado 1 — trilha = (linha, TIPO): nada do tipo antigo migra para o tipo novo", () => {
+  const CAT_B = "00000000-0000-4000-8000-00000000ca02";
+  const decidida = (cat: string) => trilha({
+    categoria_id: cat, tentativas: [{ ...tentativaVirtual(1), data_saida: "2026-10-01", data_entrada: "2026-10-03", aprovacao: "aprovado", empresa_id: F1, empresa_nome: "Oficina Um" }],
+  });
+
+  it("(sonda do revisor) o servidor devolve a linha com OUTRO tipo (trocado por mim ou por outra pessoa): vale a trilha dele, sem as minhas tentativas e sem aprovação herdada", () => {
+    const base = estado(trilha({ categoria_id: CAT }));
+    const meu = estado(decidida(CAT));
+    const dele = estado(trilha({ categoria_id: CAT_B, categoria_nome: "Bordado" }));
+    const m = mergePecaTeste(base, meu, dele);
+    expect(m.conflitos).toEqual([]);
+    expect(m.valor.trilhas[0]).toMatchObject({ categoria_id: CAT_B, categoria_nome: "Bordado", tentativas: [] });
+    // o payload do retry não leva nada
+    expect(payloadPecaTeste(m.valor, dele)._trilhas).toEqual([]);
+  });
+
+  it("payloadPecaTeste: cada trilha leva categoria_id; trilha cujo tipo difere da base não entra; `ignorar` tira a linha (datas, decisão e fornecedor)", () => {
+    const base = estado(trilha({ categoria_id: CAT }));
+    const draft = estado({ ...decidida(CAT), empresa_id: F2, empresa_nome: "Oficina Dois" });
+    const p = payloadPecaTeste(draft, base);
+    expect(p._trilhas[0].categoria_id).toBe(CAT);
+    expect(payloadPecaTeste(draft, base, undefined, new Set([L1]))._trilhas).toEqual([]);
+    expect(ptDirty(draft, base, undefined, new Set([L1]))).toBe(false);
+    const outroTipo = estado({ ...decidida(CAT_B), categoria_id: CAT_B });
+    expect(payloadPecaTeste(outroTipo, base)._trilhas).toEqual([]);
+  });
+});
+
+describe("achado 3 — a troca de fornecedor é MINHA (via editor da M.O.): minha decisão não vira conflito falso", () => {
+  it("(sonda do revisor) base E1; eu troquei para E2 e reprovei; o servidor já tem E2 (meu Salvar da M.O.): sem conflito", () => {
+    const t1 = { ...tentativaVirtual(1), id: T1, data_saida: "2026-10-01", data_entrada: "2026-10-03", rev: 2 };
+    const base = estado(trilha({ empresa_id: F1, empresa_nome: "F1", tentativas: [t1] }));
+    const meu = estado(trilha({ empresa_id: F2, empresa_nome: "F2", tentativas: [{ ...t1, aprovacao: "reprovado", empresa_id: F1, empresa_nome: "F1" }] }));
+    const dele = estado(trilha({ empresa_id: F2, empresa_nome: "F2", mo_aprovado: null, tentativas: [{ ...t1 }] }));
+    expect(mergePecaTeste(base, meu, dele).conflitos).toEqual([]);
+  });
+  it("já a troca DELE continua gerando o conflito (outro fornecedor, que eu não vi)", () => {
+    const t1 = { ...tentativaVirtual(1), id: T1, data_saida: "2026-10-01", data_entrada: "2026-10-03", rev: 2 };
+    const base = estado(trilha({ empresa_id: F1, tentativas: [t1] }));
+    const meu = estado(trilha({ empresa_id: F1, tentativas: [{ ...t1, aprovacao: "reprovado", empresa_id: F1 }] }));
+    const dele = estado(trilha({ empresa_id: F2, empresa_nome: "F2", tentativas: [{ ...t1 }] }));
+    expect(mergePecaTeste(base, meu, dele).conflitos).toHaveLength(1);
+  });
+});

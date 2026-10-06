@@ -292,11 +292,14 @@ export function payloadPecaTeste(
   draft: EstadoPT,
   base: EstadoPT,
   fornecedorEfetivo?: Readonly<Record<string, string | null>>,
+  /** Linhas cujo TIPO mudou no rascunho da M.O. (a trilha atual é do tipo antigo): NADA delas vai (nem datas, nem decisão, nem fornecedor). */
+  ignorar?: ReadonlySet<string>,
 ): PayloadPT {
   const out: PayloadPT = { _trilhas: [], _rev_base: { tentativas: {}, fornecedor: {} } };
   for (const dt of draft.trilhas) {
-    const bt = base.trilhas.find((x) => x.mo_linha_id === dt.mo_linha_id);
-    if (!bt) continue; // trilha que o servidor ainda não tem: nada a gravar
+    if (ignorar?.has(dt.mo_linha_id)) continue;
+    const bt = base.trilhas.find((x) => x.mo_linha_id === dt.mo_linha_id && x.categoria_id === dt.categoria_id);
+    if (!bt) continue; // trilha que o servidor ainda não tem (ou de outro tipo): nada a gravar
     const forn = fornecedorEfetivo && dt.mo_linha_id in fornecedorEfetivo ? fornecedorEfetivo[dt.mo_linha_id] : dt.empresa_id;
     const trocou = (forn ?? null) !== (bt.empresa_id ?? null);
     const tentativas: PayloadPT["_trilhas"][number]["tentativas"] = [];
@@ -325,8 +328,8 @@ export function payloadPecaTeste(
 }
 
 /** "Não salvo" da seção: o delta contra a base não é vazio. */
-export function ptDirty(draft: EstadoPT, base: EstadoPT, fornecedorEfetivo?: Readonly<Record<string, string | null>>): boolean {
-  return payloadPecaTeste(draft, base, fornecedorEfetivo)._trilhas.length > 0;
+export function ptDirty(draft: EstadoPT, base: EstadoPT, fornecedorEfetivo?: Readonly<Record<string, string | null>>, ignorar?: ReadonlySet<string>): boolean {
+  return payloadPecaTeste(draft, base, fornecedorEfetivo, ignorar)._trilhas.length > 0;
 }
 
 // ───────────────────────── merge 3 vias (base / meu / dele) ─────────────────────────
@@ -358,15 +361,18 @@ export function mergePecaTeste(base: EstadoPT, meu: EstadoPT, dele: EstadoPT): R
   const trilhas: TrilhaPT[] = [];
   for (const d of dele.trilhas) {
     const m = meu.trilhas.find((x) => x.mo_linha_id === d.mo_linha_id);
-    if (!m) { trilhas.push(d); continue; }
-    const b = base.trilhas.find((x) => x.mo_linha_id === d.mo_linha_id);
+    // a trilha é (linha, TIPO): se o tipo da linha mudou (por mim ou por outra pessoa) a do servidor é uma trilha NOVA — nada do tipo antigo
+    // (datas, decisão) migra para o tipo novo (Ruling 4: as tentativas do tipo antigo ficam escondidas)
+    if (!m || m.categoria_id !== d.categoria_id) { trilhas.push(d); continue; }
+    const b = base.trilhas.find((x) => x.mo_linha_id === d.mo_linha_id && x.categoria_id === d.categoria_id);
     // — fornecedor da linha
     const bf = b?.empresa_id ?? null, mf = m.empresa_id ?? null, df = d.empresa_id ?? null;
     let emp = { id: d.empresa_id, nome: d.empresa_nome };
     if (mf === bf) { if (df !== mf) atualizados++; }
     else if (df === bf || mf === df) emp = { id: m.empresa_id, nome: m.empresa_nome ?? d.empresa_nome };
     else { conflitos.push({ path: pathPT(d.mo_linha_id, "fornecedor"), meu: m.empresa_nome ?? "—", dele: d.empresa_nome ?? "—" }); emp = { id: m.empresa_id, nome: m.empresa_nome }; }
-    const dele_trocou_fornecedor = df !== bf;
+    // só conta como troca DELE se não foi a minha (df === mf: a troca veio do meu editor da M.O. — o conflito seria falso)
+    const dele_trocou_fornecedor = df !== bf && df !== mf;
     // — tentativas, por número
     const atualM = tentativaAtualPT(m).numero;
     const nums = [...new Set([...(b?.tentativas ?? []), ...m.tentativas, ...d.tentativas].map((x) => x.numero))].sort((x, y) => x - y);

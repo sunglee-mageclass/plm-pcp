@@ -16,7 +16,7 @@ describe("mensagemErro — Peça Teste", () => {
     ["peca_teste_sem_datas", "P0001", "peca_teste_sem_datas: aprovar ou reprovar exige data de saida e data de entrada", "Preencha a Data de saída e a Data de entrada para aprovar ou reprovar."],
     ["peca_teste_historico", "P0001", "peca_teste_historico: tentativa reprovada e so leitura", "Tentativa reprovada é só leitura."],
     ["peca_teste_aprovada_travada", "P0001", "peca_teste_aprovada_travada: datas da peca aprovada nao mudam (desfaca a aprovacao antes)", "Peça aprovada: as datas ficam travadas. Desfaça a aprovação para mudar."],
-    ["peca_teste_fornecedor_travado", "P0001", "peca_teste_fornecedor_travado: peca teste aprovada trava o fornecedor", "Peça teste aprovada: o fornecedor deste serviço está travado."],
+    ["peca_teste_fornecedor_travado", "P0001", "peca_teste_fornecedor_travado: peca teste aprovada trava o fornecedor", "A peça teste deste serviço já foi aprovada com este fornecedor; para trocar, reabra a peça teste."],
     ["peca_teste_fornecedor_invalido", "P0001", "peca_teste_fornecedor_invalido: fornecedor de servico invalido", "Fornecedor de serviço inválido."],
     ["peca_teste_sem_fornecedor", "P0001", "peca_teste_sem_fornecedor: defina o fornecedor da M.O. antes de aprovar ou reprovar a peca teste", "Defina o fornecedor da mão de obra deste serviço antes de aprovar ou reprovar a peça teste."],
     ["peca_teste_formato", "P0001", "peca_teste_formato: trilha invalida ou repetida", "Não foi possível salvar a Peça Teste: os dados enviados estão incompletos. Recarregue o card e tente de novo."],

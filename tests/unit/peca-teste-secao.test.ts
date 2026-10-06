@@ -222,10 +222,22 @@ describe("PecaTesteSecao — histórico, linhas novas, rodapé, conflito e só l
   it("sem permissão de EDITAR a seção: tudo só leitura (fieldset desabilitado e controles desabilitados), sem dicas de edição", () => {
     const t = trilha({ tentativas: [tent(1, { data_saida: "2026-09-22" })] });
     const html = render({ estado: estado(t), somenteLeitura: true });
-    const tagFs = /<fieldset[^>]*data-testid="peca-teste-secao"[^>]*>/.exec(html)?.[0] ?? "";
+    const tagFs = /<fieldset[^>]*data-testid="peca-teste-grade"[^>]*>/.exec(html)?.[0] ?? "";
     expect(desabilitado(tagFs)).toBe(true);
     for (const c of ["fornecedor", "data_saida", "data_entrada", "aprovacao"]) expect(desabilitado(tagDoCampo(html, L1, c)), c).toBe(true);
     expect(html).not.toContain("Preencha a Data de saída");
+  });
+
+  it("achado 2 — quem só VÊ: o histórico colapsável e o 'Tentar de novo' ficam FORA de qualquer fieldset desabilitado", () => {
+    const reprovada = tent(1, { aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15", empresa_id: F1, empresa_nome: "Oficina Um" });
+    const html = render({ estado: estado(trilha({ tentativas: [reprovada, tent(2, { data_saida: "2026-09-22" })] })), somenteLeitura: true });
+    expect(html).toContain("Tentativas anteriores (1)");
+    for (const m of html.matchAll(/<fieldset[^>]*>([\s\S]*?)<\/fieldset>/g)) {
+      expect(m[1]).not.toContain("Tentativas anteriores");
+    }
+    const err = render({ estado: null, erro: true, somenteLeitura: true });
+    expect(/<fieldset/.test(err)).toBe(false);
+    expect(err).toContain("Tentar de novo");
   });
 });
 
@@ -265,7 +277,7 @@ describe("numeração, ordem e selo da seção", () => {
 
 describe("fiação no Sheet (fonte)", () => {
   it("vis.peca_teste: card salvo + permissão de ver + (trilha OU linha nova que exige); a seção fica entre 'Preço e Custos' e as seções seguintes", () => {
-    expect(FONTE_SHEET).toMatch(/peca_teste:\s*isEdit && !!modeloId && podeVerPT && \(\(pt\.estado\?\.trilhas\.length \?\? 0\) > 0 \|\| ptLinhasNovas\.length > 0\)/);
+    expect(FONTE_SHEET).toMatch(/peca_teste:\s*isEdit && !!modeloId && podeVerPT && \(\(pt\.estado\?\.trilhas\.length \?\? 0\) > 0 \|\| ptLinhasNovas\.length > 0 \|\| pt\.erro\)/);
     const iPreco = FONTE_SHEET.indexOf("{vis.preco && (");
     const iPT = FONTE_SHEET.indexOf("{vis.peca_teste && (");
     const iPA = FONTE_SHEET.indexOf("{vis.produto_acabado && (isRevenda");
@@ -321,6 +333,13 @@ describe("fiação no Sheet (fonte)", () => {
     expect(FONTE_SHEET).toMatch(/fornecedorTravado=\{fornecedorTravadoMO\}/);
     expect(FONTE_SHEET).toMatch(/const espelharFornecedorNaMO[\s\S]*?if \(!\(moBlocoVisivel && podeEditarMO\)\) return;[\s\S]*?setMoLinhas/);
     expect(FONTE_SHEET).toMatch(/fornecedorMo/);
+  });
+
+  it("achado 5 — erro de leitura NÃO esconde a seção; achado 4 — o editor da M.O. também escreve no rascunho da seção", () => {
+    expect(FONTE_SHEET).toMatch(/ptLinhasNovas\.length > 0 \|\| pt\.erro/);
+    expect(FONTE_SHEET).toMatch(/onChangeLinhas=\{aoMudarLinhasMO\}/);
+    expect(FONTE_SHEET).toMatch(/const aoMudarLinhasMO[\s\S]*?pt\.trocarFornecedor\(l\.id[\s\S]*?setMoLinhas\(ls\)/);
+    expect(FONTE_SHEET).toMatch(/linhasIgnoradas: ptBloqueadasPorTipo/);
   });
 
   it("a lista de tipos de serviço lê exige_peca_teste (para 'Salve o card para lançar…')", () => {

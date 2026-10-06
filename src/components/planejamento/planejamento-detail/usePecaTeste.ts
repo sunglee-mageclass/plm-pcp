@@ -65,7 +65,7 @@ export function comFornecedoresDaMo(e: EstadoPT, mo: Readonly<Record<string, For
   return mudou ? { ...e, trilhas } : e;
 }
 
-export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo }: {
+export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, linhasIgnoradas }: {
   modeloId: string | null;
   /** Card salvo e seção aplicável (o Sheet de card novo não tem a seção). */
   habilitado: boolean;
@@ -73,6 +73,8 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo }:
   podeEditar: boolean;
   /** Linhas cujo fornecedor foi trocado NO EDITOR DA M.O. (linha -> novo fornecedor). null = o editor da M.O. não está visível/editável. */
   fornecedorMo?: Readonly<Record<string, FornecedorMo>> | null;
+  /** Linhas cujo TIPO mudou no rascunho da M.O.: a trilha da tela é do tipo antigo — nada dela é capturado/gravado (nem conta como "não salvo"). */
+  linhasIgnoradas?: ReadonlySet<string> | null;
 }) {
   const { canView } = useAuth();
   const qc = useQueryClient();
@@ -102,6 +104,8 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo }:
   const enviadoOkRef = useRef<EstadoPT | null>(null);
   const fornecedorMoRef = useRef(fornecedorMo ?? null);
   fornecedorMoRef.current = fornecedorMo ?? null;
+  const ignoradasRef = useRef<ReadonlySet<string> | undefined>(linhasIgnoradas ?? undefined);
+  ignoradasRef.current = linhasIgnoradas ?? undefined;
   const podeEditarRef = useRef(podeEditar);
   podeEditarRef.current = podeEditar;
 
@@ -124,14 +128,14 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo }:
     if (salvandoRef.current) return;
     const b = baseRef.current, d = draftRef.current;
     if (!b || !d) { aplicar(data, data); return; }
-    if (!ptDirty(d, b)) { aplicar(data, data); guardarConflitos(() => []); return; }
+    if (!ptDirty(d, b, undefined, ignoradasRef.current)) { aplicar(data, data); guardarConflitos(() => []); return; }
     const r = mergePecaTeste(b, d, data);
     aplicar(r.valor, data);
     if (r.conflitos.length > 0) guardarConflitos((prev) => juntar(prev, r.conflitos));
   }, [query.data, aplicar, guardarConflitos]);
 
   const estado = useMemo(() => (draft ? comFornecedoresDaMo(draft, fornecedorMo) : null), [draft, fornecedorMo]);
-  const dirty = !!podeEditar && !!estado && !!base && ptDirty(estado, base);
+  const dirty = !!podeEditar && !!estado && !!base && ptDirty(estado, base, undefined, linhasIgnoradas ?? undefined);
 
   // ───────── edição do rascunho ─────────
   const mutar = useCallback((linhaId: string, fn: (t: TrilhaPT) => TrilhaPT) => {
@@ -184,7 +188,7 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo }:
     const d = draftRef.current, b = baseRef.current;
     if (!d || !b) return null;
     const ef = comFornecedoresDaMo(d, fornecedorMoRef.current);
-    const payload = payloadPecaTeste(ef, b);
+    const payload = payloadPecaTeste(ef, b, undefined, ignoradasRef.current);
     if (payload._trilhas.length === 0) return null;
     return { payload, enviado: ef };
   }, []);
@@ -249,7 +253,7 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo }:
     dirty: () => {
       if (!podeEditarRef.current) return false;
       const d = draftRef.current, b = baseRef.current;
-      return !!d && !!b && ptDirty(comFornecedoresDaMo(d, fornecedorMoRef.current), b);
+      return !!d && !!b && ptDirty(comFornecedoresDaMo(d, fornecedorMoRef.current), b, undefined, ignoradasRef.current);
     },
     conflitos: () => conflitosRef.current.length,
     capturar, salvar, aposSalvar,

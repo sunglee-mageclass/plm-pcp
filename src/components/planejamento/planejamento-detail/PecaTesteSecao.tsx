@@ -92,7 +92,9 @@ export function PecaTesteSecao({
   return (
     <ReadOnlyScope value={somenteLeitura}>
       <Secao id="peca_teste" titulo="Peça Teste" numero={numero} selo={selo} defaultOpen>
-        <fieldset disabled={somenteLeitura} className="contents" data-testid="peca-teste-secao">
+        {/* só a GRADE editável da tentativa atual fica sob `fieldset disabled` (por trilha, abaixo): o histórico colapsável e o
+            "Tentar de novo" funcionam para quem só VÊ a seção (um <button> dentro de fieldset desabilitado não clica). */}
+        <>
           {carregando && !estado ? (
             <p className="text-sm text-muted-foreground">Carregando a peça teste…</p>
           ) : erro && !estado ? (
@@ -179,7 +181,7 @@ export function PecaTesteSecao({
               )}
             </>
           )}
-        </fieldset>
+        </>
         {dialog}
       </Secao>
     </ReadOnlyScope>
@@ -257,6 +259,7 @@ function TrilhaCard({
 
       <div key={at.numero} className="flex flex-col gap-2.5 p-3">
         <div className="text-xs font-semibold text-muted-foreground">Tentativa {at.numero}{hist.length > 0 ? " (atual)" : ""}</div>
+        <fieldset disabled={somenteLeitura} className="contents" data-testid="peca-teste-grade">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="grid min-w-0 gap-1.5">
             <Label htmlFor={`${uid}-forn`} className="text-xs">Fornecedor</Label>
@@ -332,6 +335,7 @@ function TrilhaCard({
             )}
           </div>
         </div>
+        </fieldset>
 
         {mudou && !somenteLeitura && (
           <Banner tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>

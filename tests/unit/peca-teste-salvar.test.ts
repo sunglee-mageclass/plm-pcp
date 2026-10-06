@@ -75,7 +75,7 @@ const servidor = (o: { empresa?: string; rev?: number; data_entrada?: string | n
 
 type Cfg = {
   somente?: boolean; inerte?: boolean; fornecedorMo?: Record<string, FornecedorMo> | null;
-  moMudou?: boolean; bomGravar?: boolean;
+  moMudou?: boolean; bomGravar?: boolean; ignoradas?: Set<string>;
 };
 type Api = { pt: ReturnType<typeof usePecaTeste>; save: ReturnType<typeof usePlanejamentoSave>["save"]; spies: Record<string, any> };
 let api: Api;
@@ -83,7 +83,7 @@ let root: Root;
 let qc: QueryClient;
 
 function Sonda({ cfg }: { cfg: Cfg }) {
-  const pt = usePecaTeste({ modeloId: "m1", habilitado: true, podeEditar: true, fornecedorMo: cfg.fornecedorMo ?? null });
+  const pt = usePecaTeste({ modeloId: "m1", habilitado: true, podeEditar: true, fornecedorMo: cfg.fornecedorMo ?? null, linhasIgnoradas: cfg.ignoradas ?? null });
   const draft = { ...emptyDraft(), nome: "Vestido", origem: "interno" as const };
   const refs = useRefs(draft, cfg);
   const spies = refs.spies;
@@ -306,6 +306,34 @@ describe("Salvar do card — etapa da Peça Teste", () => {
       "update:modelos", "persistirBom", "rpc:salvar_modelo_servico_mo", "rpc:marcar_revisao_por_mudanca",
     ]);
     expect(r.pecaTeste).toBeNull();
+  });
+});
+
+describe("fix round 1 — tipo da linha trocado (achado 1)", () => {
+  it("linha ignorada (tipo trocado no rascunho da M.O.): a seção não fica suja e o Salvar NÃO manda a trilha", async () => {
+    await montar({ ignoradas: new Set([L1]) });
+    await editarEntrada("2026-09-29");
+    expect(api.pt.dirty).toBe(false);
+    const r = await salvar();
+    expect(chamadasSalvarPT()).toHaveLength(0);
+    expect(r.pecaTeste).toBeNull();
+  });
+
+  it("P0409 `desatualizada` porque o tipo mudou: o retry NÃO leva minha aprovação/datas para o tipo novo (nenhuma 2ª chamada)", async () => {
+    await montar({});
+    await act(async () => { api.pt.editarAtual(L1, { data_entrada: "2026-09-29" }); });
+    await act(async () => { api.pt.aprovarAtual(L1); });
+    await assentar();
+    h.respostasSalvarPT.push({ code: "P0409", message: "peca_teste_desatualizada: servico da mao de obra mudou" });
+    const fresh = servidor();
+    fresh.trilhas[0].categoria_id = "00000000-0000-4000-8000-00000000ca02";
+    fresh.trilhas[0].categoria_nome = "Bordado";
+    fresh.trilhas[0].tentativas = [];
+    h.lerPT.atual = fresh;
+    const r = await salvar();
+    expect(chamadasSalvarPT()).toHaveLength(1);
+    expect(r.pecaTeste.resultado).toEqual({ ok: true });
+    expect(api.pt.estado?.trilhas[0].tentativas).toEqual([]);
   });
 });
 
