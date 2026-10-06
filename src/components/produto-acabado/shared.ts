@@ -4,9 +4,10 @@
 // isso é só da OC, ver design spec §2: "tabela de variantes ... SÓ POR COR — sem
 // tamanho aqui").
 import { format } from "date-fns";
-import { splitMaiorResto } from "@/lib/produto-acabado";
+import { splitMaiorResto, cadeiaValores, ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { brl } from "@/lib/format";
 import type { TamanhoTipo } from "@/lib/tamanho";
+import { TEXTO_CONFLITO_PEDIDO, motivosForaDoPedido, type EntradaPedido, type ItemPedidoLote } from "@/lib/pedido-em-lote";
 
 export type Opt = { id: string; nome: string };
 export type CatOpt = Opt & { grupo_id: string | null };
@@ -205,6 +206,100 @@ export function somaGradeCampo(grade: GradeDetalheOc | null | undefined, campo: 
 
 export function hojeISO(): string {
   return format(new Date(), "yyyy-MM-dd");
+}
+
+// ── "Fazer pedido" (OC do Produto Acabado) — FONTE ÚNICA do card (`ProdutoCard`) e do pedido em lote ([urg R13]) ──
+
+/** O que o "Fazer pedido" JÁ recusa no card, na ordem de sempre: conflito de edição pendente na coleção e soma das variantes
+ *  ≠ Qtd total (NUNCA redistribui em silêncio — fix round 1 item 3). `null` = pode seguir. Texto idêntico ao do card. */
+export function erroDoPedidoAcabado(
+  produto: Pick<ProdutoDraft, "variantes" | "qtd_total">,
+  conflitoPendente?: boolean,
+): string | null {
+  if (conflitoPendente) return TEXTO_CONFLITO_PEDIDO;
+  if (!variantesBatemComTotal(produto)) {
+    return `A soma das variantes (${somaPecas(produto)}) precisa bater com a Qtd total (${produto.qtd_total}) antes de fazer o pedido — use "Redistribuir por peso" ou ajuste manualmente.`;
+  }
+  return null;
+}
+
+/** `_dados` de `salvar_oc_p_acabado` ao criar a OC a partir do produto — o MESMO payload do "Fazer pedido" do card.
+ *  `hoje` = `hojeISO()` (parâmetro só para o teste não depender do relógio). */
+export function montarDadosOcAcabado(produto: ProdutoDraft, hoje: string): Record<string, unknown> {
+  return {
+    nome_produto: produto.nome,
+    grupo_id: produto.grupo_id,
+    categoria_id: produto.categoria_id,
+    subcategoria1_id: produto.subcategoria1_id,
+    subcategoria2_id: produto.subcategoria2_id,
+    empresa_id: produto.empresa_id,
+    representante_id: produto.representante_id,
+    ref_fornecedor: produto.ref_fornecedor || null,
+    composicao: produto.composicao || null,
+    data_pedido: hoje,
+    prazo_pagamento: "30",
+    parcelas_entrega: 1,
+    grade_proporcao: produto.grade_proporcao,
+    variantes: produto.variantes,
+    qtd_total: produto.qtd_total,
+    valor_unitario: produto.valor_unitario,
+    desconto_pct: produto.desconto_pct,
+    produto_acabado_id: produto.id,
+  };
+}
+
+/** Linha de `ocs_p_acabado` que o "Fazer pedido" relê logo depois de criar (nº/status reais, gerados por trigger). */
+export type OcRowCriadaAcabado = {
+  id: string; numero: string | null; status: "encomendado" | "recebido"; qtd_total: number;
+  valor_unitario_real: number; grade_detalhe: OcVinculadaInfo["grade_detalhe"];
+  valor_unitario: number; desconto_pct: number;
+};
+
+/** A OC recém-criada no shape do rascunho (`produto.oc`) — o patch local que faz o card mostrar a OC sem esperar o refetch.
+ *  "Fazer pedido" cria a OC A PARTIR dos valores atuais do produto, e o servidor confirma o mesmo valor de volta (sync na
+ *  criação), então `valor_unitario`/`desconto_pct` são idênticos aos do produto neste instante. */
+export function ocInfoDeRow(ocRow: OcRowCriadaAcabado): OcVinculadaInfo {
+  return {
+    id: ocRow.id,
+    numero: ocRow.numero,
+    status: ocRow.status,
+    qtd_total: ocRow.qtd_total ?? 0,
+    valor_unitario_real: Number(ocRow.valor_unitario_real) || 0,
+    grade_detalhe: ocRow.grade_detalhe ?? {},
+    valor_unitario: Number(ocRow.valor_unitario) || 0,
+    desconto_pct: Number(ocRow.desconto_pct) || 0,
+  };
+}
+
+/** Elegibilidade do produto no pedido em lote ([urg R13]) + a conta de valor do card (`cadeiaValores`: total com desconto). */
+export function itemPedidoAcabado(
+  p: ProdutoDraft,
+  o: { grupoNome: string; conflitoPendente: boolean; conflitoDoProduto: boolean },
+): ItemPedidoLote {
+  const acessorio = ehGrupoAcessorio(o.grupoNome);
+  const entrada: EntradaPedido = {
+    temOc: !!p.oc,
+    ocNumero: p.oc?.numero ?? null,
+    nome: p.nome ?? "",
+    empresaId: p.empresa_id,
+    valorUnitario: Number(p.valor_unitario) || 0,
+    qtdTotal: Number(p.qtd_total) || 0,
+    somaVariantes: somaPecas(p),
+    nVariantes: p.variantes.length,
+    precisaGrade: !acessorio,
+    somaPesosGrade: Object.values(p.grade_proporcao ?? {}).reduce((s, v) => s + (Number(v) > 0 ? Number(v) : 0), 0),
+    erroDaFamilia: null,
+    conflitoDoProduto: o.conflitoDoProduto,
+  };
+  const { totalDesc } = cadeiaValores(Number(p.qtd_total) || 0, Number(p.valor_unitario) || 0, Number(p.desconto_pct) || 0);
+  return {
+    id: p.id,
+    nome: p.nome?.trim() ? p.nome : "Produto sem nome",
+    ref: p.ref ?? null,
+    pecas: somaPecas(p),
+    valor: totalDesc,
+    motivos: motivosForaDoPedido(entrada, { conflitoPendente: o.conflitoPendente }),
+  };
 }
 
 /** `_dados` de `salvar_produto_acabado` — FONTE ÚNICA (achado do fix round 1: o Salvar em

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus, Users } from "lucide-react";
+import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,20 @@ import { erroValidacao, produtosParaSalvar, baselinePatchDoServidor } from "@/co
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
+import { criarOcProdutoImportado, lerOcImportado } from "./pedido";
+import { PedidoEmLoteDialog } from "@/components/shared/PedidoEmLoteDialog";
+import { toastResultadoLote } from "@/lib/pedido-em-lote-toast";
+import { criarPedidoDoProduto, type ItemPedidoLote, type OcCriada, type ResultadoLote } from "@/lib/pedido-em-lote";
+import { useAuth } from "@/hooks/useAuth";
+import { podeVerCustosServidor } from "@/lib/mao-obra";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import {
   chaveDirty, emptyDraft, montarPayload, validarDraft, etapasComCotacaoRef, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
+  erroDoPedidoImportado, itemPedidoImportado, type OcImportadoInfo,
   acoplarParVarejo, acoplarParAtacado,
   aplicarResolucaoConflito,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
@@ -57,7 +65,9 @@ const SELECT_PRODUTO_IMPORTADO =
   "*, modelo_id, " +
   "variantes:produto_importado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd), " +
   "etapas:produto_importado_etapas(ordem, rotulo, base, percentual, data_vencimento, cotacao), " +
-  "modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))";
+  "modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))" +
+  // [urg R13] OC vinculada (1 ativa por produto): o card mostra o vínculo e o pedido em lote sabe quem já tem OC.
+  ", ocs:ocs_importado(id, numero, status)";
 
 // Agrupamento das lanes do canvas — MESMO padrão combinável do Produto Acabado
 // (`ProdutoAcabadoSheet.tsx`): "Grupo" e "Categoria" marcáveis juntos → lane por Grupo com
@@ -135,6 +145,8 @@ type ProdutoImportadoRow = {
   /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))`
    *  (SELECT acima; os 2 campos novos são da Tarefa 6). */
   modelo?: { preco_venda: number | string | null; tamanho_tipo?: string | null; modelo_skus?: { count: number }[] | null } | null;
+  /** [urg R13] embed `ocs:ocs_importado(id, numero, status)` — no máximo 1 (gatilho `trg_oci_vinculo_unico`). */
+  ocs?: OcImportadoInfo[] | null;
   variantes: (VarianteImportadoDraft & { ordem: number })[] | null;
   etapas: (EtapaImportadoDraft & { ordem: number })[] | null;
 };
@@ -194,6 +206,7 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     tamanho_tipo: tamanhoTipo,
     tamanho_tipo_base: tamanhoTipo,
     modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
+    oc: Array.isArray(r.ocs) && r.ocs.length > 0 ? { id: r.ocs[0].id, numero: r.ocs[0].numero ?? null, status: r.ocs[0].status } : null,
     variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
     // B2 (L8, P-207 A): produto sem etapas no banco (criado pelo Planejamento com `_etapas: []`, "Limpar", novo) recebe
     // as etapas PADRÃO — as de mercadoria já com a cotação de referência gravada (se houver), como uma etapa nova.
@@ -250,6 +263,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // (espelha `PlanTecidoSheet`, Plan. Tecido). `replicarPayload` guarda os ids ELEGÍVEIS
   // (já persistidos e com modelo_id) + o nº ignorados até o dialog confirmar o destino.
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
+  // [urg R13] Pedido em lote: `null` = fechado. A lista (`itens`) é um retrato do momento da abertura; o que vale na hora de
+  // criar é o estado VIVO (`draftsRef`/`baselineRef`/`temConflitoRef`, lidos em `criarPedidoDeUm`).
+  const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados"; itens: ItemPedidoLote[]; jaTemOc: number } | null>(null);
+  const { canView } = useAuth();
+  const podeVerValores = podeVerCustosServidor(canView);
   const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; modeloIds: string[]; nIgnorados: number } | null>(null);
   const [replicando, setReplicando] = useState(false);
   // Baseline de dirty POR PRODUTO (id → snapshot serializado dos campos de `chaveDirty`) —
@@ -512,6 +530,14 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const dirty = drafts.some((d) => JSON.stringify(chaveDirty(d)) !== (d.id ? baseline[d.id] : undefined));
   // Item 7 (espelha P.Acabado): QUALQUER produto com conflito pendente barra Salvar/Fazer pedido.
   const temConflitoPendente = Object.values(conflitosPorProduto).some((cs) => cs.length > 0);
+  // [urg R13] leituras VIVAS para o laço do pedido em lote (vários awaits depois do clique): o closure do render que abriu o
+  // diálogo ficaria velho. Atribuídas a cada render.
+  const draftsRef = useRef<ProdutoImportadoDraft[]>([]);
+  draftsRef.current = drafts;
+  const baselineRef = useRef<Record<string, string>>({});
+  baselineRef.current = baseline;
+  const temConflitoRef = useRef(false);
+  temConflitoRef.current = temConflitoPendente;
   const fecharDeVez = () => {
     setBaseline((b) => ({ ...b, ...Object.fromEntries(drafts.filter((d) => d.id).map((d) => [d.id as string, JSON.stringify(chaveDirty(d))])) }));
     onClose();
@@ -718,6 +744,53 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   }
 
   const produtosDeSub = (nome: string | null) => drafts.filter((d) => (d.subcolecao ?? null) === nome);
+
+  // ── Pedido em lote ([urg R13]) ──────────────────────────────────────────────────────────────────────────────────────
+  // Reusa o "Fazer pedido" do card: as MESMAS recusas (`erroDoPedidoImportado`), o MESMO salvar (`salvarUmProduto`, só se o
+  // produto está sujo ou ainda é rascunho local) e a MESMA criação da OC (`criarOcProdutoImportado` = payload
+  // `montarDadosOcImportado` + RPC `salvar_oc_importado`). Moeda/cotação/etapas já vêm no draft — nada é recalculado aqui.
+  const grupoNomeDe = (grupoId: string | null) => grupos.find((g) => g.id === grupoId)?.nome ?? "";
+  const abrirPedidoLote = (origem: "rodape" | "selecionados") => {
+    const base = origem === "rodape" ? produtosSub.filter((d) => !d.oc) : drafts.filter((d) => d.id && selecao.has(d.id));
+    const itens = base.map((d) => itemPedidoImportado(d, {
+      grupoNome: grupoNomeDe(d.grupo_id),
+      conflitoPendente: temConflitoPendente,
+      conflitoDoProduto: !!d.id && (conflitosPorProduto[d.id]?.length ?? 0) > 0,
+    }));
+    setPedidoLote({ origem, itens, jaTemOc: origem === "rodape" ? produtosSub.length - base.length : 0 });
+  };
+  const criarPedidoDeUm = (item: { id: string; nome: string }): Promise<OcCriada> =>
+    criarPedidoDoProduto<ProdutoImportadoDraft, string, OcCriada>({
+      produto: draftsRef.current.find((x) => x.id === item.id),
+      // Mesmas recusas do card, no estado de AGORA (conflito pendente em QUALQUER produto, `validarParaPedido`, soma) + já tem OC.
+      recusa: (d) => (d.oc
+        ? (d.oc.numero ? `Este produto já tem a OC ${d.oc.numero} vinculada.` : "Este produto já tem OC vinculada.")
+        : erroDoPedidoImportado(d, temConflitoRef.current)),
+      // Salva se há edição pendente — ou se ainda é rascunho local ("novo-…", sem linha no banco: `salvarUmProduto` o cria e
+      // devolve o id).
+      sujo: (d) => !d.id || d.id.startsWith("novo-") || JSON.stringify(chaveDirty(d)) !== baselineRef.current[d.id],
+      salvar: (d) => salvarUmProduto(d),
+      criar: async (d, salvoId) => {
+        const produtoId = salvoId ?? (d.id as string);
+        const ocId = await criarOcProdutoImportado(d, produtoId, ehGrupoAcessorio(grupoNomeDe(d.grupo_id)));
+        // A OC JÁ existe: reler nº/status só enfeita o card — se falhar, o pedido continua valendo (não vira "falha").
+        let oc: OcImportadoInfo | null = null;
+        try { oc = await lerOcImportado(ocId); } catch { oc = null; }
+        const info: OcImportadoInfo = oc ?? { id: ocId, numero: null, status: "encomendado" };
+        patchDraft(produtoId, { oc: info }); // o card já mostra a OC vinculada, sem esperar o refetch
+        const base = baseServidorRef.current[produtoId];
+        if (base) baseServidorRef.current = { ...baseServidorRef.current, [produtoId]: { ...base, oc: info } };
+        return { ocId, ocNumero: info.numero };
+      },
+      erro: erroValidacao,
+    });
+  const concluirPedidoLote = (r: ResultadoLote) => {
+    qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+    qc.invalidateQueries({ queryKey: ["ocs_importado"] });
+    const criados = new Set(r.itens.filter((i) => i.ok).map((i) => i.id));
+    if (criados.size > 0) setSelecao((s) => new Set([...s].filter((id) => !criados.has(id))));
+    toastResultadoLote(r);
+  };
 
   const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };
   const abrirCanvasDe = (sub: { id: string | null; nome: string | null }) => {
@@ -1130,6 +1203,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
               <div className="flex flex-row flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 max-sm:gap-1.5">
                 <span className="font-medium max-sm:text-xs sm:text-sm">{selecao.size} selecionado(s)</span>
                 <div className="ml-auto flex flex-wrap items-center gap-2 max-sm:gap-1.5">
+                  <Button size="sm" variant="outline" aria-label={`Fazer pedido dos ${selecao.size} selecionado${selecao.size === 1 ? "" : "s"}`} className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={replicando} onClick={() => abrirPedidoLote("selecionados")}>
+                    <ShoppingCart className="h-4 w-4" /><span className="max-sm:sr-only"> Fazer pedido dos {selecao.size} selecionado{selecao.size === 1 ? "" : "s"}</span>
+                  </Button>
                   <Button size="sm" variant="outline" aria-label="Criar card(s) no Planejamento" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={replicando} onClick={criarCardsClick}>
                     <ClipboardList className="h-4 w-4" /><span className="max-sm:sr-only"> Criar card</span>
                   </Button>
@@ -1301,6 +1377,13 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
           <div className="ml-auto" />
+          {view === "canvas" && (
+            <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => abrirPedidoLote("rodape")}>
+              <ShoppingCart className="mr-1 h-4 w-4" />
+              <span className="hidden sm:inline">Fazer pedido</span>
+              <span className="sm:hidden">Pedido</span>
+            </Button>
+          )}
           <Button
             disabled={!dirty || salvarMut.isPending || temConflitoPendente}
             title={temConflitoPendente ? "Resolva os conflitos de edição pendentes antes de salvar." : undefined}
@@ -1311,6 +1394,22 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         </div>
 
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no planejador de Produto Importado." />
+
+        {/* Fazer pedido (rodapé / selecionados) — [urg R13]: cria a OC de VÁRIOS produtos de uma vez. Monta só aberto, pra nascer
+            limpo a cada abertura. */}
+        {pedidoLote && (
+          <PedidoEmLoteDialog
+            familia="importado"
+            origem={pedidoLote.origem}
+            contexto={subAtual?.nome ?? null}
+            itens={pedidoLote.itens}
+            jaTemOc={pedidoLote.jaTemOc}
+            mostrarValor={podeVerValores}
+            criar={criarPedidoDeUm}
+            onFechar={() => setPedidoLote(null)}
+            onConcluido={concluirPedidoLote}
+          />
+        )}
 
         <NovoProdutoImportadoDialog
           open={novoOpen}

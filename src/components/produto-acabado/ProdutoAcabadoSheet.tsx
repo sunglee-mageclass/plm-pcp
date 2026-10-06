@@ -7,7 +7,12 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PedidoEmLoteDialog } from "@/components/shared/PedidoEmLoteDialog";
+import { toastResultadoLote } from "@/lib/pedido-em-lote-toast";
+import { criarPedidoDoProduto, type ItemPedidoLote, type OcCriada, type ResultadoLote } from "@/lib/pedido-em-lote";
+import { useAuth } from "@/hooks/useAuth";
+import { podeVerCustosServidor } from "@/lib/mao-obra";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { AgrupamentoButton } from "@/components/shared/filters";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
@@ -21,6 +26,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 import { ProdutoCard } from "./ProdutoCard";
+import { criarOcProdutoAcabado } from "./pedido";
 import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
@@ -28,6 +34,7 @@ import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
+  erroDoPedidoAcabado, itemPedidoAcabado, ocInfoDeRow,
   resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar,
   baselinePatchDoServidor,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
@@ -224,7 +231,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; modeloIds: string[]; nIgnorados: number } | null>(null);
   const [replicando, setReplicando] = useState(false);
-  const [pedidoPickerOpen, setPedidoPickerOpen] = useState(false);
+  // [urg R13] Pedido em lote: `null` = fechado. A lista (`itens`) é um retrato do momento da abertura; o que vale na hora de
+  // criar é o estado VIVO (`draftsRef`/`baselineRef`/`temConflitoRef`, lidos em `criarPedidoDeUm`).
+  const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados"; itens: ItemPedidoLote[]; jaTemOc: number } | null>(null);
+  const { canView } = useAuth();
+  const podeVerValores = podeVerCustosServidor(canView);
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
   // Sheet) em vez de navegar — ele monta seu PRÓPRIO Sheet/guarda de unsaved (não duplicar aqui).
   const [planModeloId, setPlanModeloId] = useState<string | null>(null);
@@ -397,6 +408,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // Item 7: QUALQUER produto com conflito pendente barra Salvar/Fazer pedido — via disabled
   // (async, primeiro freio) E o guard síncrono no `mutationFn` de `salvarMut` (item 4, acima).
   const temConflitoPendente = Object.values(conflitosPorProduto).some((cs) => cs.length > 0);
+  // [urg R13] leituras VIVAS para o laço do pedido em lote (que roda vários awaits depois do clique): o closure do render que
+  // abriu o diálogo ficaria velho. Atribuídas a cada render.
+  const draftsRef = useRef<ProdutoDraft[] | null>(null);
+  draftsRef.current = drafts;
+  const baselineRef = useRef<Record<string, string>>({});
+  baselineRef.current = baseline;
+  const temConflitoRef = useRef(false);
+  temConflitoRef.current = temConflitoPendente;
   // Saída real confirmada ("Descartar"): arma `justClosingRef` (comentário acima, ao lado de
   // `navPermitida`) ANTES de navegar — sem isso a navegação do próprio `onClose` seria bloqueada
   // de novo pelo mesmo guarda. Também zera o dirty "de verdade" (baseline = estado atual dos
@@ -871,6 +890,49 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     },
   });
 
+  // ── Pedido em lote ([urg R13]) ──────────────────────────────────────────────────────────────────────────────────────
+  // Reusa o "Fazer pedido" do card: as MESMAS recusas (`erroDoPedidoAcabado`), o MESMO salvar (`salvarUmProduto`, só se o
+  // produto está sujo) e a MESMA criação da OC (`criarOcProdutoAcabado` = payload `montarDadosOcAcabado` + RPC + releitura).
+  const grupoNomeDe = (grupoId: string | null) => grupos.find((g) => g.id === grupoId)?.nome ?? "";
+  const abrirPedidoLote = (origem: "rodape" | "selecionados") => {
+    const todos = drafts ?? [];
+    const base = origem === "rodape" ? produtosSub.filter((p) => !p.oc) : todos.filter((d) => selecao.has(d.id));
+    const itens = base.map((p) => itemPedidoAcabado(p, {
+      grupoNome: grupoNomeDe(p.grupo_id),
+      conflitoPendente: temConflitoPendente,
+      conflitoDoProduto: (conflitosPorProduto[p.id]?.length ?? 0) > 0,
+    }));
+    setPedidoLote({ origem, itens, jaTemOc: origem === "rodape" ? produtosSub.length - base.length : 0 });
+  };
+  const criarPedidoDeUm = (item: { id: string; nome: string }): Promise<OcCriada> =>
+    criarPedidoDoProduto({
+      produto: draftsRef.current?.find((d) => d.id === item.id),
+      // Mesmas recusas do card, no estado de AGORA (conflito pendente em QUALQUER produto, soma das variantes) + já tem OC.
+      recusa: (p) => (p.oc
+        ? (p.oc.numero ? `Este produto já tem a OC ${p.oc.numero} vinculada.` : "Este produto já tem OC vinculada.")
+        : erroDoPedidoAcabado(p, temConflitoRef.current)),
+      sujo: (p) => JSON.stringify(chaveDirty(p)) !== baselineRef.current[p.id],
+      salvar: (p) => salvarUmProduto(p),
+      criar: async (p) => {
+        const ocRow = await criarOcProdutoAcabado(p, ehGrupoAcessorio(grupoNomeDe(p.grupo_id)));
+        if (ocRow) {
+          const info = ocInfoDeRow(ocRow);
+          patchProduto(p.id, { oc: info }); // o card já mostra a OC vinculada, sem esperar o refetch
+          const base = baseServidorRef.current[p.id];
+          if (base) baseServidorRef.current = { ...baseServidorRef.current, [p.id]: { ...base, oc: info } };
+        }
+        return { ocId: ocRow?.id ?? null, ocNumero: ocRow?.numero ?? null };
+      },
+      erro: erroValidacao,
+    });
+  const concluirPedidoLote = (r: ResultadoLote) => {
+    qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+    qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
+    const criados = new Set(r.itens.filter((i) => i.ok).map((i) => i.id));
+    if (criados.size > 0) setSelecao((s) => new Set([...s].filter((id) => !criados.has(id))));
+    toastResultadoLote(r);
+  };
+
   const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };
 
   const abrirCanvasDe = (sub: { id: string | null; nome: string | null }) => {
@@ -1019,7 +1081,6 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
 
   const bucketAtual = subAtual ? bucketDe(subAtual.nome) : null;
   const vagasAtual = subAtual ? vagasDe(subAtual.nome) : 0;
-  const semOc = produtosSub.filter((p) => !p.oc);
 
   return (
     <>
@@ -1151,6 +1212,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                   <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
                     <span className="text-sm font-medium">{selecao.size} selecionado(s)</span>
                     <div className="ml-auto flex flex-wrap items-center gap-2">
+                      <Button size="sm" variant="outline" className="gap-1" disabled={replicando} onClick={() => abrirPedidoLote("selecionados")}>
+                        <ShoppingCart className="h-3.5 w-3.5" /> Fazer pedido dos {selecao.size} selecionado{selecao.size === 1 ? "" : "s"}
+                      </Button>
                       <Button size="sm" variant="outline" className="gap-1" disabled={replicando} onClick={criarCardsClick}>
                         <ClipboardList className="h-3.5 w-3.5" /> Criar card
                       </Button>
@@ -1298,7 +1362,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
           </Button>
           <div className="ml-auto" />
           {view === "canvas" && (
-            <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => setPedidoPickerOpen(true)}>
+            <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => abrirPedidoLote("rodape")}>
               <ShoppingCart className="mr-1 h-4 w-4" />
               <span className="hidden sm:inline">Fazer pedido</span>
               <span className="sm:hidden">Pedido</span>
@@ -1388,32 +1452,21 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
           />
         )}
 
-        {/* Fazer pedido (rodapé): escolhe um produto da subcoleção sem OC vinculada e abre o
-            card dele — a criação em si acontece no botão "Fazer pedido" da seção 3 do card
-            (mesma ação; evita duplicar a construção do payload da OC). */}
-        <Dialog open={pedidoPickerOpen} onOpenChange={setPedidoPickerOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Fazer pedido</DialogTitle></DialogHeader>
-            {semOc.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Todos os produtos desta subcoleção já têm OC vinculada.</p>
-            ) : (
-              <div className="max-h-72 space-y-1 overflow-y-auto">
-                {semOc.map((p) => (
-                  <button key={p.id} type="button"
-                    onClick={() => {
-                      setPedidoPickerOpen(false);
-                      setOpenCards((s) => new Set([...s, p.id]));
-                      requestAnimationFrame(() => document.getElementById(`produto-card-${p.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-                    }}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border p-2 text-left text-sm hover:bg-muted">
-                    <span className="min-w-0 truncate"><b>{p.nome}</b> {p.ref ? `· ${p.ref}` : ""}</span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{somaPecas(p)} pç</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* Fazer pedido (rodapé / selecionados) — [urg R13]: cria a OC de VÁRIOS produtos de uma vez (antes só abria o card).
+            Monta só aberto, pra nascer limpo a cada abertura. */}
+        {pedidoLote && (
+          <PedidoEmLoteDialog
+            familia="acabado"
+            origem={pedidoLote.origem}
+            contexto={subAtual?.nome ?? null}
+            itens={pedidoLote.itens}
+            jaTemOc={pedidoLote.jaTemOc}
+            mostrarValor={podeVerValores}
+            criar={criarPedidoDeUm}
+            onFechar={() => setPedidoLote(null)}
+            onConcluido={concluirPedidoLote}
+          />
+        )}
       </SheetContent>
     </Sheet>
 

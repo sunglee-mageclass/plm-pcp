@@ -41,10 +41,12 @@ import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
-  redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
+  redistribuirVariantesPorPeso, ehDistribuicaoProporcional, somaGradeCampo, somaPecas, fmtMoney,
   variantesBatemComTotal, erroValidacao, markupCanalIntocado, limparEnviadoSeServidorMudou, proximaOrdemVariante, type MarkupEnviado,
+  erroDoPedidoAcabado, ocInfoDeRow,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
+import { criarOcProdutoAcabado } from "./pedido";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
 import { tipoEfetivo, tamanhosVisiveis } from "@/lib/tamanho-exibicao";
 
@@ -455,78 +457,26 @@ export function ProdutoCard({
       // pendente — "Fazer pedido" persiste a Compra por baixo (`onSalvarProduto`), a mesma
       // classe de risco do Salvar em lote. O `disabled` do botão (abaixo) é o primeiro freio,
       // mas é async — lição do projeto (guard síncrono no mutationFn é o que conta de verdade).
-      if (conflitoPendente) {
-        throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de fazer o pedido.");
-      }
       // NUNCA redistribui silenciosamente (fix round 1 item 3) — usa as qtds ATUAIS das
       // variantes tal como o usuário deixou; se Σ ≠ qtd_total, bloqueia com mensagem clara
       // (ação: "Redistribuir por peso" explícito ou ajuste manual) em vez de gerar uma OC com
       // grade inconsistente ou deixar o servidor rejeitar com um erro genérico.
-      if (!variantesBatemComTotal(produto)) {
-        throw erroValidacao(
-          `A soma das variantes (${somaPecas(produto)}) precisa bater com a Qtd total (${produto.qtd_total}) antes de fazer o pedido — use "Redistribuir por peso" ou ajuste manualmente.`,
-        );
-      }
+      // [urg R13] as 2 recusas moram em `erroDoPedidoAcabado` (shared.ts) — o pedido em lote usa a MESMA função.
+      const erro = erroDoPedidoAcabado(produto, conflitoPendente);
+      if (erro) throw erroValidacao(erro);
       setFazendoPedido(true);
       // Persiste a Compra ANTES de gerar a OC (fix round 1 item 4a) — sem isto, um "Fazer
       // pedido" com rascunho sujo (ex.: qtd/valor editados sem clicar Salvar) criava a OC com
       // os dados certos mas deixava o PRODUTO com dado velho no servidor.
       await onSalvarProduto(produto);
-      const grade = gradePedidaDeVariantes(produto.variantes, produto.grade_proporcao, acessorio);
-      const dados = {
-        nome_produto: produto.nome,
-        grupo_id: produto.grupo_id,
-        categoria_id: produto.categoria_id,
-        subcategoria1_id: produto.subcategoria1_id,
-        subcategoria2_id: produto.subcategoria2_id,
-        empresa_id: produto.empresa_id,
-        representante_id: produto.representante_id,
-        ref_fornecedor: produto.ref_fornecedor || null,
-        composicao: produto.composicao || null,
-        data_pedido: hojeISO(),
-        prazo_pagamento: "30",
-        parcelas_entrega: 1,
-        grade_proporcao: produto.grade_proporcao,
-        variantes: produto.variantes,
-        qtd_total: produto.qtd_total,
-        valor_unitario: produto.valor_unitario,
-        desconto_pct: produto.desconto_pct,
-        produto_acabado_id: produto.id,
-      };
-      const { data: ocId, error } = await supabase.rpc("salvar_oc_p_acabado" as any, { _id: null, _dados: dados, _grade: grade });
-      if (error) throw error;
-      // Busca a OC recém-criada (nº/status reais, gerados por trigger) pra patchear o card na
-      // hora — fix round 1 item 4b: sem isto, o card ficava mostrando "Nenhuma OC vinculada"
-      // até um reload, mesmo com a OC já criada e vinculada no servidor.
-      const { data: ocRow, error: fetchErr } = await supabase
-        .from("ocs_p_acabado" as any)
-        .select("id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct")
-        .eq("id", ocId)
-        .maybeSingle();
-      if (fetchErr) throw fetchErr;
-      return ocRow as unknown as {
-        id: string; numero: string | null; status: "encomendado" | "recebido"; qtd_total: number;
-        valor_unitario_real: number; grade_detalhe: OcVinculadaInfo["grade_detalhe"];
-        valor_unitario: number; desconto_pct: number;
-      } | null;
+      // [urg R13] payload + RPC + releitura da OC em `criarOcProdutoAcabado` (pedido.ts), a MESMA chamada do lote. Releitura:
+      // nº/status reais (gerados por trigger) pra patchear o card na hora — fix round 1 item 4b: sem isto, o card ficava
+      // mostrando "Nenhuma OC vinculada" até um reload, mesmo com a OC já criada e vinculada no servidor.
+      return criarOcProdutoAcabado(produto, acessorio);
     },
     onSuccess: (ocRow) => {
       toast.success("Pedido criado e vinculado.");
-      if (ocRow) {
-        onOcVinculada({
-          id: ocRow.id,
-          numero: ocRow.numero,
-          status: ocRow.status,
-          qtd_total: ocRow.qtd_total ?? 0,
-          valor_unitario_real: Number(ocRow.valor_unitario_real) || 0,
-          grade_detalhe: ocRow.grade_detalhe ?? {},
-          // "Fazer pedido" cria a OC A PARTIR dos valores atuais do produto (dados acima) —
-          // servidor confirma o mesmo valor de volta (sync na criação), então isto é
-          // idêntico a `produto.valor_unitario`/`desconto_pct` neste instante.
-          valor_unitario: Number(ocRow.valor_unitario) || 0,
-          desconto_pct: Number(ocRow.desconto_pct) || 0,
-        });
-      }
+      if (ocRow) onOcVinculada(ocInfoDeRow(ocRow));
       qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
       qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
       navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: ocRow?.id } as any });

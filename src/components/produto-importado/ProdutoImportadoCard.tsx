@@ -1,13 +1,13 @@
 import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Eraser, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, ShoppingCart, Trash2, X } from "lucide-react";
+import { ChevronRight, Eraser, ExternalLink, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { erroValidacao, gradePedidaDeVariantes, variantesBatemComTotal, proximaOrdemVariante } from "@/components/produto-acabado/shared";
+import { erroValidacao, proximaOrdemVariante } from "@/components/produto-acabado/shared";
 import { CategoriaTecidoField } from "@/components/produto-acabado/CategoriaTecidoField";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { DateField } from "@/components/shared/DateField";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
@@ -40,10 +41,11 @@ import { colunasTravadas, textoExcluirTravado, TEXTO_SKU_TRAVADO } from "@/lib/i
 import { InfoHover } from "@/components/shared/InfoHover";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
-  custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
+  custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, erroDoPedidoImportado,
   markupVarejoExibido, markupAtacadoExibido, novaEtapaImportado, etapasComCotacaoRef, etapaSemCotacao, patchTrocaBase,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
+import { criarOcProdutoImportado } from "./pedido";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
 import { tipoEfetivo, tamanhosVisiveis } from "@/lib/tamanho-exibicao";
 
@@ -310,66 +312,27 @@ export function ProdutoImportadoCard({
 
   // ── "Fazer pedido" — cria a OC de Produto Importado a partir deste card ──
   // Espelha `fazerPedidoMut` do `ProdutoCard` (revenda): persiste o produto ANTES (nunca gera
-  // OC em cima de rascunho sujo), então chama `salvar_oc_importado(null, dados, grade, [])` —
+  // OC em cima de rascunho sujo), então cria a OC (`criarOcProdutoImportado`, pedido.ts: RPC de salvar OC com `_id` nulo) —
   // `_etapas` vazio faz a RPC COPIAR o cronograma atual do card (`produto_importado_etapas`)
   // pra OC (snapshot; a OC pode divergir depois). Grade "pedida" vem das variantes/proporção
-  // atuais via `gradePedidaDeVariantes` (mesmo helper puro da revenda — shape de VarianteDraft
+  // atuais via `gradePedidaDeVariantes` (em `criarOcProdutoImportado`; mesmo helper puro da revenda — shape de VarianteDraft
   // compatível, `_touched` é só um campo extra ignorado pela função).
   const fazerPedidoMut = useMutation({
     mutationFn: async () => {
       // Guard SÍNCRONO (item 7, colab Fase 3): não gerar pedido enquanto há conflito de merge
       // pendente — "Fazer pedido" persiste o produto por baixo (`onSalvarProduto`), a mesma
       // classe de risco do Salvar em lote. Espelha `ProdutoCard.fazerPedidoMut` (revenda).
-      if (conflitoPendente) {
-        throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de fazer o pedido.");
-      }
-      const erro = validarParaPedido(draft);
+      // [urg R13] as recusas (conflito → `validarParaPedido` → soma das variantes ≠ Qtd total) moram em `erroDoPedidoImportado`
+      // (shared.ts) — o pedido em lote usa a MESMA função.
+      const erro = erroDoPedidoImportado(draft, conflitoPendente);
       if (erro) throw erroValidacao(erro);
-      if (!variantesBatemComTotal(draft)) {
-        throw erroValidacao(
-          `A soma das variantes (${draft.variantes.reduce((s, v) => s + (Number(v.qtd) || 0), 0)}) precisa bater com a Qtd total (${draft.qtd_total}) antes de fazer o pedido — use o rateio por peso ou ajuste manualmente.`,
-        );
-      }
       setFazendoPedido(true);
       if (!onSalvarProduto) throw new Error("Ação de salvar não disponível.");
       const produtoId = await onSalvarProduto(draft);
-      const grade = gradePedidaDeVariantes(draft.variantes, draft.grade_proporcao, acessorio);
-      // `_dados` da OC — só os campos que `_salvar_oc_importado_core` lê (espelha `montarDados`
-      // de `entrada-saida.oc-p-importado.tsx`); `_etapas: []` faz a RPC COPIAR o cronograma
-      // atual do card (`produto_importado_etapas`) pra OC.
-      const dadosOc = {
-        nome_produto: draft.nome,
-        grupo_id: draft.grupo_id,
-        categoria_id: draft.categoria_id,
-        subcategoria1_id: draft.subcategoria1_id,
-        subcategoria2_id: draft.subcategoria2_id,
-        empresa_id: draft.empresa_id,
-        representante_id: draft.representante_id,
-        ref_fornecedor: draft.ref_fornecedor || null,
-        composicao: draft.composicao || null,
-        data_pedido: draft.data_pedido ?? new Date().toISOString().slice(0, 10),
-        data_prevista: draft.data_prevista,
-        grade_proporcao: draft.grade_proporcao,
-        variantes: draft.variantes,
-        qtd_total: draft.qtd_total,
-        moeda_compra: draft.moeda_compra,
-        moeda_intermediaria: draft.moeda_intermediaria,
-        valor_unitario_m1: draft.valor_unitario_m1,
-        cotacao_ref: draft.cotacao_ref,
-        peso_kg: draft.peso_kg,
-        transporte_m2: draft.transporte_m2,
-        desconto_pct: draft.desconto_pct,
-        cotacao_final: draft.cotacao_final,
-        produto_importado_id: produtoId,
-      };
-      const { data: ocId, error } = await supabase.rpc("salvar_oc_importado" as any, {
-        _id: null,
-        _dados: dadosOc,
-        _grade: grade,
-        _etapas: [],
-      });
-      if (error) throw error;
-      return { produtoId, ocId: ocId as string };
+      // [urg R13] `_dados` da OC (`montarDadosOcImportado`) + RPC (`criarOcProdutoImportado`, pedido.ts) são os MESMOS do lote;
+      // `_etapas: []` faz a RPC COPIAR o cronograma atual do card (`produto_importado_etapas`) pra OC.
+      const ocId = await criarOcProdutoImportado(draft, produtoId, acessorio);
+      return { produtoId, ocId };
     },
     onSuccess: ({ produtoId, ocId }) => {
       toast.success("Pedido criado.");
@@ -855,7 +818,19 @@ export function ProdutoImportadoCard({
                       card e navega pra ela. Espelha `ProdutoCard` (revenda, seção "3 · OC
                       vinculada") — aqui sem seção própria de OC ainda (card de câmbio não tem
                       o conceito de "vincular OC existente" nesta fase), só o botão de criar. */}
-                  {onSalvarProduto && (
+                  {onSalvarProduto && draft.oc && (
+                    // [urg R13] produto COM OC (criada aqui, no pedido em lote ou na tela da OC): mostra o vínculo em vez do botão
+                    // (a RPC recusa a 2ª OC — 1 OC ativa por produto).
+                    <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
+                      <span className="text-muted-foreground">OC vinculada</span>
+                      <button type="button" className="inline-flex items-center gap-1 text-primary hover:underline"
+                        onClick={() => navigate({ to: "/entrada-saida/oc-p-importado", search: { oc: draft.oc!.id } as any })}>
+                        {draft.oc.numero ?? "—"} <ExternalLink className="h-3 w-3" />
+                      </button>
+                      <StatusBadge tone={draft.oc.status === "recebido" ? "success" : "warning"}>{draft.oc.status === "recebido" ? "Recebido" : "Encomendado"}</StatusBadge>
+                    </div>
+                  )}
+                  {onSalvarProduto && !draft.oc && (
                     <div className="flex justify-end">
                       <Button
                         type="button"

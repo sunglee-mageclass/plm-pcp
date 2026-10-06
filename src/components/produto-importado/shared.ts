@@ -10,6 +10,8 @@ import { ratearPorPeso, custoLanded, cadeiaMarkup, type EntradaLanded, type Etap
 import type { Conflito } from "@/lib/colab/merge";
 import type { TamanhoTipo } from "@/lib/tamanho";
 import { erroCotacaoEtapas } from "@/lib/importado-etapas";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { TEXTO_CONFLITO_PEDIDO, motivosForaDoPedido, type EntradaPedido, type ItemPedidoLote } from "@/lib/pedido-em-lote";
 
 export type VarianteImportadoDraft = {
   ordem: number;
@@ -31,6 +33,10 @@ export type EtapaImportadoDraft = {
   data_vencimento: string | null;
   cotacao: number;
 };
+
+/** OC de Produto Importado vinculada ao produto (embed `ocs:ocs_importado` do SELECT do Sheet) — READ-ONLY, nunca entra em
+ *  `chaveDirty` nem no payload. Alimenta o selo/link do card e o "já tem OC" do pedido em lote ([urg R13]). */
+export type OcImportadoInfo = { id: string; numero: string | null; status: "encomendado" | "recebido" | string };
 
 export type ProdutoImportadoDraft = {
   id?: string | null;
@@ -108,6 +114,8 @@ export type ProdutoImportadoDraft = {
   // Nº de SKUs já gerados p/ o card (`modelo_skus`, embed `(count)`) — mesmo campo do Produto Acabado
   // (`ProdutoDraft.modeloSkusCount`); alimenta o aviso âmbar "SKUs já gerados não mudam...".
   modeloSkusCount: number;
+  /** [urg R13] OC vinculada (1 ativa por produto) — `undefined`/`null` = sem OC. Só leitura. */
+  oc?: OcImportadoInfo | null;
   variantes: VarianteImportadoDraft[];
   etapas: EtapaImportadoDraft[];
 };
@@ -376,6 +384,90 @@ export function validarParaPedido(draft: ProdutoImportadoDraft): string | null {
   if (base) return base;
   if (!(Number(draft.qtd_total) > 0)) return "Qtd total precisa ser maior que zero.";
   return null;
+}
+
+// ── "Fazer pedido" (OC do Produto Importado) — FONTE ÚNICA do card (`ProdutoImportadoCard`) e do pedido em lote ([urg R13]) ──
+
+/** O que o "Fazer pedido" JÁ recusa no card, na ordem de sempre: conflito de edição pendente na coleção, `validarParaPedido`
+ *  (nome, Σ% das etapas, cotação das etapas, Qtd > 0) e soma das variantes ≠ Qtd total. `null` = pode seguir. Textos idênticos
+ *  aos do card. */
+export function erroDoPedidoImportado(draft: ProdutoImportadoDraft, conflitoPendente?: boolean): string | null {
+  if (conflitoPendente) return TEXTO_CONFLITO_PEDIDO;
+  const erro = validarParaPedido(draft);
+  if (erro) return erro;
+  if (!variantesBatemComTotalImportado(draft)) {
+    return `A soma das variantes (${qtdTotalDeVariantes(draft.variantes)}) precisa bater com a Qtd total (${draft.qtd_total}) antes de fazer o pedido — use o rateio por peso ou ajuste manualmente.`;
+  }
+  return null;
+}
+
+/** Σ qtd das variantes = Qtd total (a mesma regra de `variantesBatemComTotal` do Produto Acabado, aplicada ao draft do Importado). */
+function variantesBatemComTotalImportado(d: Pick<ProdutoImportadoDraft, "variantes" | "qtd_total">): boolean {
+  return qtdTotalDeVariantes(d.variantes) === d.qtd_total;
+}
+
+/** `_dados` de `salvar_oc_importado` ao criar a OC a partir do card — o MESMO payload do "Fazer pedido" (só os campos que
+ *  `_salvar_oc_importado_core` lê, espelha `montarDados` de `entrada-saida.oc-p-importado.tsx`). `_etapas: []` na chamada faz a
+ *  RPC COPIAR o cronograma atual do card pra OC. `hoje` = `YYYY-MM-DD` (parâmetro só para o teste não depender do relógio). */
+export function montarDadosOcImportado(draft: ProdutoImportadoDraft, produtoId: string, hoje: string): Record<string, unknown> {
+  return {
+    nome_produto: draft.nome,
+    grupo_id: draft.grupo_id,
+    categoria_id: draft.categoria_id,
+    subcategoria1_id: draft.subcategoria1_id,
+    subcategoria2_id: draft.subcategoria2_id,
+    empresa_id: draft.empresa_id,
+    representante_id: draft.representante_id,
+    ref_fornecedor: draft.ref_fornecedor || null,
+    composicao: draft.composicao || null,
+    data_pedido: draft.data_pedido ?? hoje,
+    data_prevista: draft.data_prevista,
+    grade_proporcao: draft.grade_proporcao,
+    variantes: draft.variantes,
+    qtd_total: draft.qtd_total,
+    moeda_compra: draft.moeda_compra,
+    moeda_intermediaria: draft.moeda_intermediaria,
+    valor_unitario_m1: draft.valor_unitario_m1,
+    cotacao_ref: draft.cotacao_ref,
+    peso_kg: draft.peso_kg,
+    transporte_m2: draft.transporte_m2,
+    desconto_pct: draft.desconto_pct,
+    cotacao_final: draft.cotacao_final,
+    produto_importado_id: produtoId,
+  };
+}
+
+/** Elegibilidade do produto no pedido em lote ([urg R13]) + a conta de valor do card (`custoDoDraft(...).totalBrl` = "Valor bruto
+ *  (BRL)"). O valor/moeda/cotação/etapas seguem a validação do card (`validarDraft`) — nada de conta nova. */
+export function itemPedidoImportado(
+  d: ProdutoImportadoDraft,
+  o: { grupoNome: string; conflitoPendente: boolean; conflitoDoProduto: boolean },
+): ItemPedidoLote {
+  const acessorio = ehGrupoAcessorio(o.grupoNome);
+  const nomeOk = !!d.nome.trim();
+  const entrada: EntradaPedido = {
+    temOc: !!d.oc,
+    ocNumero: d.oc?.numero ?? null,
+    nome: d.nome,
+    empresaId: d.empresa_id,
+    valorUnitario: Number(d.valor_unitario_m1) || 0,
+    qtdTotal: Number(d.qtd_total) || 0,
+    somaVariantes: qtdTotalDeVariantes(d.variantes),
+    nVariantes: d.variantes.length,
+    precisaGrade: !acessorio,
+    somaPesosGrade: Object.values(d.grade_proporcao ?? {}).reduce((s, v) => s + (Number(v) > 0 ? Number(v) : 0), 0),
+    // nome vazio já tem o motivo próprio (`sem_nome`) — não repete o "Informe o nome" do `validarDraft`.
+    erroDaFamilia: nomeOk ? validarDraft(d) : null,
+    conflitoDoProduto: o.conflitoDoProduto,
+  };
+  return {
+    id: d.id ?? "",
+    nome: nomeOk ? d.nome : "Produto sem nome",
+    ref: d.ref ?? null,
+    pecas: Number(d.qtd_total) || 0,
+    valor: custoDoDraft(d).totalBrl,
+    motivos: motivosForaDoPedido(entrada, { conflitoPendente: o.conflitoPendente }),
+  };
 }
 
 // ── Integração F4 — Fix round 1 (I-1/I-2/M-1/M-3/M-4) ────────────────────────────────────────

@@ -1078,6 +1078,20 @@ e verifique** — o repo muda rápido.
     2 produtos — excluir categoria/material em uso é bloqueado pela FK. Volta: `_down` devolve os 6 textos e NEUTRALIZA o gatilho
     (colunas e valores ficam); `_down_drop` separado (DROP TRIGGER prende auth/storage — horário calmo; exige o `_down_drop` da
     I3b antes, porque `_integracao_extras` lê as colunas).
+    **Pedido em LOTE (R13, out/2026, SÓ front — as RPCs de OC já existiam; P-351 A/P-352 A):** UM diálogo `PedidoEmLoteDialog`
+    (`src/components/shared`, `mobileFull`) para o Produto Acabado E o Importado, aberto pelo rodapé "Fazer pedido" (compra total: todos
+    os produtos da subcoleção SEM OC, todos marcados) ou pela barra de selecionados ("Fazer pedido dos N selecionados"). Lista com
+    checkbox, peças e (SÓ com `podeVerCustosServidor`) o R$ do pedido; quem não entra fica desmarcado/desabilitado com o motivo em PT
+    (já tem OC, conflito de edição, falta fornecedor/valor/quantidade/cor/grade, soma das variantes, validação do Importado). Confirmar =
+    AlertDialog; depois cria UM por vez (`executarPedidosEmSequencia`: a falha de um NÃO para os outros), mostra "X pedidos criados · Y
+    falharam" + o motivo de cada falha NO diálogo e NÃO navega. **Fonte única com o card** (nunca montar o payload da OC de novo):
+    `erroDoPedido{Acabado,Importado}` (recusas do card: conflito → validação → soma), `montarDadosOc{Acabado,Importado}` (payload) nos
+    `shared.ts` e `criarOcProduto{Acabado,Importado}` (RPC) em `pedido.ts` de cada família — `ProdutoCard`/`ProdutoImportadoCard` e o lote
+    usam as MESMAS; a regra do lote (elegibilidade, resumo, sequência, `criarPedidoDoProduto` = recusas → salvar SÓ se sujo → criar) é
+    pura em `src/lib/pedido-em-lote.ts`. O produto sujo é salvo por `salvarUmProduto` antes (como o card) e quem não mexeu NÃO é
+    regravado (P-135 B). O draft do Importado ganhou `oc` (embed `ocs:ocs_importado`, só leitura, fora de `chaveDirty`): o card mostra
+    o vínculo no lugar do botão "Fazer pedido" quando já há OC (a RPC recusa a 2ª — `trg_oci_vinculo_unico`). Testes:
+    `pedido-em-lote.test.ts` (puro + anti-drift) e `pedido-em-lote-render.test.ts` (diálogo + os 2 cards com supabase mockado).
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
     super admin + quem ELE deu a permissão `integracao` no próprio usuário — admin da loja NÃO passa sozinho, P-107 A; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
