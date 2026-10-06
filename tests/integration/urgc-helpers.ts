@@ -5,7 +5,9 @@
  * `voltaUrgcSePreciso` PRIMEIRO, `dropUrgbSePreciso` chama `dropUrgcSePreciso` primeiro e `md5UrgbSucessor` continua em
  * `md5UrgcSucessor`.
  *
- * Contrato do `urgc-dados.ts` GERADO por `mig/gerar-c.mjs` (um gerador para os blocos r9a/r9b/r9c; r9d/r9e = DMLs à mão da T4):
+ * Contrato do `urgc-dados.ts` GERADO por `mig/gerar-c.mjs` (um gerador para os blocos r9a/r9b/r9c; r9d/r9e = DMLs à mão da T4,
+ * escritos à mão no mesmo JSON — o gerador preserva blocos que não gera — com `URGC_DADOS` no lugar da função sentinela:
+ * vivo = "o `_down` tem efeito", pendente = "a ida tem trabalho"; ver o tipo `Bloco`):
  * `URGC_BLOCOS[bloco]` com `mig`/`down`/`drop` (sem `drop` = bloco sem objeto novo), `URGC_SENTINELA` (assinatura de função: bloco vivo = md5 dela = o "depois" — de
  * `URGC_MD5` se redefinida, de `URGC_NOVAS` se criada pelo bloco), `URGC_MD5`/`URGC_ACL` (funções existentes redefinidas),
  * `URGC_NOVAS` (funções criadas), `URGC_NEUTRAS` (funções criadas que o `_down` NEUTRALIZA — md5 do texto neutro),
@@ -44,6 +46,10 @@ type Bloco = {
   URGC_TABELAS?: string[];
   URGC_COLUNAS?: string[]; // "schema.tabela.coluna"
   URGC_DROP_GUC?: string;
+  // bloco de DADOS (r9d/r9e = DMLs à mão da T4, padrão I3c/R8b — sem função sentinela): `backups` = tabelas que precisam existir
+  // para as 2 consultas rodarem (ausente = bloco nunca rodou); `vivo` = SQL "o `_down` tem efeito" (`AS ok`); `pendente` = SQL
+  // "a ida tem trabalho" (`AS ok`; só então o aplicaUrgc roda o arquivo — idempotente de qualquer jeito).
+  URGC_DADOS?: { backups?: string[]; vivo: string; pendente: string };
 };
 
 const TODOS: Record<string, Bloco> = existsSync(`${ROOT}tests/integration/urgc-dados.ts`)
@@ -59,14 +65,35 @@ const URGC_IDA_TRAVA = [
   "public.mpt_trilha_numero_ux", "public.mpt_legado_ux", "public.mpt_modelo_idx", "public.mpt_tenant_idx", "public.mpt_empresa_idx",
   "public.mpt_categoria_idx", "public.modelos", "public.modelo_servico_mo", "public.empresas", "public.tenants",
 ];
+// Relações que a volta LIFO da 196000 (r9e `_down`: devolve o switch PL) trava — SÓ LINHAS (RowExclusive/RowShare) de
+// categorias_terceirizado (+ os 2 índices) e do backup _bkp_r9_exige_pl (o `_down` tira de lá o que devolveu). Medido (T4).
+const URGC_VOLTA_DADOS_TRAVA = [
+  "public.categorias_terceirizado", "public.categorias_terceirizado_pkey", "public.categorias_terceirizado_tenant_id_nome_key",
+  "public._bkp_r9_exige_pl", "public._bkp_r9_exige_pl_pkey",
+];
+// Relações que a IDA das 2 DMLs (195000 r9d / 196000 r9e) trava — só aparecem na txn com `URGC_TXN=1` numa cópia SEM elas (medido, T4):
+// linhas de permissões/usuários (r9d), backups novos (AccessExclusive: tabelas da própria migration), tentativas, blocos (FOR SHARE),
+// categorias (switch PL) e a auditoria.
+const URGC_IDA_DADOS_TRAVA = [
+  ...URGC_VOLTA_DADOS_TRAVA, "public._bkp_r9_pt_legado", "public._bkp_r9_pt_legado_pkey", "public.audit_log",
+  "public.user_permissions", "public.user_permissions_pkey", "public.user_permissions_user_id_pagina_key", "public.papel_permissoes",
+  "public.papel_permissoes_pkey", "public.papel_permissoes_papel_id_pagina_key", "public.papel_permissoes_papel_idx", "public.users",
+  "public.users_pkey", "public.users_papel_id_idx", "public.idx_users_tenant", "public.tenants", "public.tenants_pkey",
+  "public.modelo_peca_teste_tentativas", "public.modelo_peca_teste_tentativas_pkey", "public.mpt_categoria_idx", "public.mpt_empresa_idx",
+  "public.mpt_legado_ux", "public.mpt_modelo_idx", "public.mpt_tenant_idx", "public.mpt_trilha_numero_ux",
+  "public.producao_terceirizados", "public.producao_terceirizados_pkey", "public.producao_terceirizados_mo_linha_idx",
+  "public.idx_prod_terc_cad", "public.idx_prod_terc_empresa",
+];
 /**
  * Trava que é dos GANCHOS da R9, não da frente medida (para as medições de trava das frentes antigas que aceitam uma lista "de
  * gancho", como seg-s3a/seg-s3b). Estrito: SÓ o par medido da volta LIFO da 192000 (`_down`: CREATE OR REPLACE TRIGGER =
- * {categorias_terceirizado, ShareRowExclusiveLock}) e, SÓ com `URGC_TXN=1`, as relações da ida.
+ * {categorias_terceirizado, ShareRowExclusiveLock}), o da 196000 (`_down`: só LINHAS — RowExclusive/RowShare — de
+ * categorias_terceirizado e do backup do switch) e, SÓ com `URGC_TXN=1`, as relações da ida.
  */
 export function travaDeGanchoUrgc(t: { rel: string; mode: string }): boolean {
   if (t.rel === "public.categorias_terceirizado" && t.mode === "ShareRowExclusiveLock") return true;
-  return process.env.URGC_TXN === "1" && URGC_IDA_TRAVA.includes(t.rel);
+  if (URGC_VOLTA_DADOS_TRAVA.includes(t.rel) && (t.mode === "RowExclusiveLock" || t.mode === "RowShareLock")) return true;
+  return process.env.URGC_TXN === "1" && (URGC_IDA_TRAVA.includes(t.rel) || URGC_IDA_DADOS_TRAVA.includes(t.rel));
 }
 
 /** Todos os blocos do contrato (com ou sem arquivo) — para o teste acusar "bloco ausente". */
@@ -88,6 +115,24 @@ async function zeraTimeouts(c: Client): Promise<void> {
   await c.query("SET LOCAL lock_timeout = '3s'");
 }
 
+async function sqlOk(c: Client, sql: string): Promise<boolean> {
+  return (await c.query(sql)).rows[0]?.ok === true;
+}
+async function backupsExistem(c: Client, d: NonNullable<Bloco["URGC_DADOS"]>): Promise<boolean> {
+  for (const t of d.backups ?? []) {
+    if ((await c.query("SELECT to_regclass($1) IS NULL AS ok", [t])).rows[0]?.ok === true) return false;
+  }
+  return true;
+}
+/** Bloco de DADOS: vivo = os backups existem E o `_down` ainda tem efeito (o backup sozinho não conta: ele FICA depois do `_down`). */
+async function dadosVivo(c: Client, d: NonNullable<Bloco["URGC_DADOS"]>): Promise<boolean> {
+  return (await backupsExistem(c, d)) && (await sqlOk(c, d.vivo));
+}
+/** Bloco de DADOS: a ida tem trabalho = backup ausente (nunca rodou) OU a consulta `pendente`. */
+async function dadosPendente(c: Client, d: NonNullable<Bloco["URGC_DADOS"]>): Promise<boolean> {
+  return !(await backupsExistem(c, d)) || (await sqlOk(c, d.pendente));
+}
+
 /** md5 de "depois" da sentinela do bloco (redefinida → URGC_MD5; criada → URGC_NOVAS). */
 function depoisDaSentinela(b: Bloco): string {
   const s = b.URGC_SENTINELA;
@@ -103,6 +148,7 @@ function depoisDaSentinela(b: Bloco): string {
 export async function urgcViva(c: Client, bloco: UrgcId): Promise<boolean> {
   const e = URGC_MIGS.find((x) => x.id === bloco);
   if (!e) return false;
+  if (e.b.URGC_DADOS) return dadosVivo(c, e.b.URGC_DADOS);
   const s = e.b.URGC_SENTINELA;
   const atual = await md5Fn(c, s);
   return atual !== null && md5UrgcSucessor(s, depoisDaSentinela(e.b)).includes(atual);
@@ -112,7 +158,9 @@ export async function urgcViva(c: Client, bloco: UrgcId): Promise<boolean> {
 export async function aplicaUrgc(c: Client, ate?: UrgcId): Promise<void> {
   exigeBancoLocal();
   for (const { id, b } of URGC_MIGS) {
-    if (!(await urgcViva(c, id))) await aplicarArquivo(c, b.mig);
+    // bloco de DADOS: só roda com trabalho pendente (idempotente; evita escrita à toa em toda txn com URGC_TXN=1)
+    const aplicar = b.URGC_DADOS ? await dadosPendente(c, b.URGC_DADOS) : !(await urgcViva(c, id));
+    if (aplicar) await aplicarArquivo(c, b.mig);
     if (id === ate) break;
   }
   await zeraTimeouts(c);

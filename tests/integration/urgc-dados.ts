@@ -19,6 +19,7 @@ export type UrgcBloco = {
   URGC_TABELAS?: string[];
   URGC_COLUNAS?: string[];
   URGC_DROP_GUC?: string;
+  URGC_DADOS?: { backups?: string[]; vivo: string; pendente: string };
 };
 export const URGC_BLOCOS: Record<string, UrgcBloco> = /* URGC_JSON_INICIO */
 {
@@ -170,6 +171,38 @@ export const URGC_BLOCOS: Record<string, UrgcBloco> = /* URGC_JSON_INICIO */
       "public._peca_teste_aprovada(uuid,uuid,uuid)": "417fa9850a5a52204f62476818dc408c",
       "public.avaliar_condicoes_kanban(uuid[])": "855db089af9e12d6d16201d7ed490cc6",
       "public._kanban_cond_modulos()": "e8196983de17cc5b8cf52c1810e53af2"
+    }
+  },
+  "r9d": {
+    "mig": "supabase/migrations/20261103195000_urg_r9_permissao_secao.sql",
+    "down": "supabase/rollback/20261103195000_urg_r9_permissao_secao_down.sql",
+    "URGC_SENTINELA": "user_permissions/papel_permissoes pagina = 'criacao_planejamento:peca_teste'",
+    "URGC_MD5": {},
+    "URGC_ACL": {},
+    "URGC_DADOS": {
+      "vivo": "SELECT (EXISTS (SELECT 1 FROM public.user_permissions WHERE pagina = 'criacao_planejamento:peca_teste') OR EXISTS (SELECT 1 FROM public.papel_permissoes WHERE pagina = 'criacao_planejamento:peca_teste')) AS ok",
+      "pendente": "SELECT NOT (EXISTS (SELECT 1 FROM public.user_permissions WHERE pagina = 'criacao_planejamento:peca_teste') OR EXISTS (SELECT 1 FROM public.papel_permissoes WHERE pagina = 'criacao_planejamento:peca_teste')) AS ok"
+    }
+  },
+  "r9e": {
+    "mig": "supabase/migrations/20261103196000_urg_r9_pt_legado.sql",
+    "down": "supabase/rollback/20261103196000_urg_r9_pt_legado_down.sql",
+    "drop": "supabase/rollback/20261103196000_urg_r9_pt_legado_down_drop.sql",
+    "URGC_SENTINELA": "public._bkp_r9_pt_legado",
+    "URGC_MD5": {},
+    "URGC_ACL": {},
+    "URGC_TABELAS": [
+      "public._bkp_r9_pt_legado",
+      "public._bkp_r9_exige_pl"
+    ],
+    "URGC_DROP_GUC": "app.confirmo_apagar_backup_r9",
+    "URGC_DADOS": {
+      "backups": [
+        "public._bkp_r9_pt_legado",
+        "public._bkp_r9_exige_pl"
+      ],
+      "vivo": "SELECT EXISTS (SELECT 1 FROM public._bkp_r9_exige_pl b JOIN public.categorias_terceirizado c ON c.id = b.categoria_id WHERE c.exige_peca_teste AND NOT b.antes) AS ok",
+      "pendente": "SELECT (EXISTS (SELECT 1 FROM public.producao_terceirizados pt WHERE (pt.pt_data_saida IS NOT NULL OR pt.pt_data_entrada IS NOT NULL OR pt.pt_aprovacao IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM public._bkp_r9_pt_legado b WHERE b.bloco_id = pt.id)) OR EXISTS (SELECT 1 FROM public.categorias_terceirizado c WHERE lower(btrim(c.nome)) = 'pl' AND NOT c.exige_peca_teste AND public._tenant_modulo_ligado(c.tenant_id, 'etapas_pl') AND NOT EXISTS (SELECT 1 FROM public._bkp_r9_exige_pl b WHERE b.categoria_id = c.id))) AS ok"
     }
   }
 }
