@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicaUrgc, voltaUrgc, urgcViva, URGC_BLOCOS } from "./urgc-helpers";
+import { dropUrgdSePreciso } from "./urgd-helpers";
 import { aplicarArquivo, semTransacao } from "./mig-txn";
 import { readFileSync } from "node:fs";
 import {
@@ -1137,7 +1138,8 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
       for (const sig of NOVAS) expect(await md5Fn(c, sig), sig).toBeNull();
       expect(await md5Fn(c, TRAVA)).toBe(BLOCO!.URGC_MD5[TRAVA].antes);
       await aplicarArquivo(c, BLOCO!.drop!); // 2× = no-op
-      // a r9a pode sair inteira agora (LIFO dos drops)
+      // a r9a pode sair inteira agora (LIFO dos drops) — [urg R11] antes, os _down_drop da R11 (FKs para a tabela de tentativas)
+      await dropUrgdSePreciso(c);
       await aplicarArquivo(c, BLOCO_A!.down);
       await c.query("SET LOCAL app.confirmo_apagar_peca_teste = 'sim'");
       await aplicarArquivo(c, BLOCO_A!.drop!);

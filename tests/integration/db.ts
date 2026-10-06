@@ -168,6 +168,13 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaUrgc(client);
     }
+    // Urgentes R11 (plan-r11, mini explosão da Peça Teste; mesmo ensaio): com URGD_TXN=1 os blocos da frente que existem no
+    // repositório (199000..199400; urgd-helpers) são aplicados DENTRO desta txn, DEPOIS da R9 (os já vivos na cópia são pulados).
+    if (process.env.URGD_TXN === "1") {
+      const { aplicaUrgd } = await import("./urgd-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaUrgd(client);
+    }
     await fn(client);
   } finally {
     try {

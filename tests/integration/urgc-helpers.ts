@@ -3,7 +3,9 @@
  * DENTRO da transação do teste (mig-txn: sem BEGIN/COMMIT, nunca \i) — só na cópia local. Usado pelos testes urgc-*.test.ts, pelo
  * gancho `URGC_TXN=1` de `db.ts` e pela cadeia LIFO das urgentes (camada → urg-a → urgb → urgc): `voltaUrgbSePreciso` chama
  * `voltaUrgcSePreciso` PRIMEIRO, `dropUrgbSePreciso` chama `dropUrgcSePreciso` primeiro e `md5UrgbSucessor` continua em
- * `md5UrgcSucessor`.
+ * `md5UrgcSucessor`. Frente por CIMA desta no kit: urgentes R11 (plan-r11, 199000..199400; `urgd-helpers.ts`) — cadeia
+ * … → urgc → urgd: `voltaUrgc`/`voltaUrgcSePreciso` tiram a R11 PRIMEIRO, `dropUrgcSePreciso` roda o `dropUrgdSePreciso` primeiro e
+ * `md5UrgcSucessor` continua em `md5UrgdSucessor`.
  *
  * Contrato do `urgc-dados.ts` GERADO por `mig/gerar-c.mjs` (um gerador para os blocos r9a/r9b/r9c; r9d/r9e = DMLs à mão da T4,
  * escritos à mão no mesmo JSON — o gerador preserva blocos que não gera — com `URGC_DADOS` no lugar da função sentinela:
@@ -26,6 +28,22 @@ import { fileURLToPath } from "node:url";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+// [urg R11] frente sucessora (plan-r11): import dinâmico tolerante a ausência (igual urgb → urgc)
+type Sucessora = {
+  voltaSePreciso: (c: Client) => Promise<void>;
+  dropSePreciso: (c: Client) => Promise<void>;
+  md5Sucessor: (sig: string, pinado?: string) => string[];
+  travaDeGancho: (t: { rel: string; mode: string }) => boolean;
+};
+const SUCESSORA: Sucessora | null = existsSync(`${ROOT}tests/integration/urgd-helpers.ts`)
+  ? await import(/* @vite-ignore */ "./urgd-helpers.ts").then((m) => ({
+      voltaSePreciso: m.voltaUrgdSePreciso as Sucessora["voltaSePreciso"],
+      dropSePreciso: m.dropUrgdSePreciso as Sucessora["dropSePreciso"],
+      md5Sucessor: m.md5UrgdSucessor as Sucessora["md5Sucessor"],
+      travaDeGancho: m.travaDeGanchoUrgd as Sucessora["travaDeGancho"],
+    }))
+  : null;
 
 export type UrgcId = "r9a" | "r9b" | "r9c" | "r9d" | "r9e";
 const ORDEM: UrgcId[] = ["r9a", "r9b", "r9c", "r9d", "r9e"];
@@ -93,6 +111,7 @@ const URGC_IDA_DADOS_TRAVA = [
 export function travaDeGanchoUrgc(t: { rel: string; mode: string }): boolean {
   if (t.rel === "public.categorias_terceirizado" && t.mode === "ShareRowExclusiveLock") return true;
   if (URGC_VOLTA_DADOS_TRAVA.includes(t.rel) && (t.mode === "RowExclusiveLock" || t.mode === "RowShareLock")) return true;
+  if (SUCESSORA?.travaDeGancho(t)) return true; // [urg R11] o gancho da R11 (URGD_TXN=1) por cima
   return process.env.URGC_TXN === "1" && (URGC_IDA_TRAVA.includes(t.rel) || URGC_IDA_DADOS_TRAVA.includes(t.rel));
 }
 
@@ -169,6 +188,7 @@ export async function aplicaUrgc(c: Client, ate?: UrgcId): Promise<void> {
 /** Volta TODOS os blocos vivos, LIFO, pelos `_down` NEUTROS. */
 export async function voltaUrgc(c: Client): Promise<void> {
   exigeBancoLocal();
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a R11 (por cima) sai antes
   for (const { id, b } of [...URGC_MIGS].reverse()) {
     if (await urgcViva(c, id)) await aplicarArquivo(c, b.down);
   }
@@ -177,6 +197,7 @@ export async function voltaUrgc(c: Client): Promise<void> {
 
 /** LIFO: quem volta (ou reaplica) o plan-b ou qualquer release anterior dentro da txn tira esta frente antes. */
 export async function voltaUrgcSePreciso(c: Client): Promise<void> {
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a R11 (por cima desta frente) sai antes, mesmo com esta frente fora
   let viva = false;
   for (const { id } of URGC_MIGS) if (await urgcViva(c, id)) viva = true;
   if (!viva) return;
@@ -223,6 +244,7 @@ async function aplicarDrop(c: Client, b: Bloco, drop: string): Promise<void> {
  */
 export async function dropUrgcSePreciso(c: Client): Promise<void> {
   exigeBancoLocal();
+  if (SUCESSORA) await SUCESSORA.dropSePreciso(c); // LIFO dos drops: os da R11 (FKs/tabelas que dependem desta frente) antes
   await voltaUrgcSePreciso(c);
   for (const { b } of [...URGC_MIGS].reverse()) {
     if (!b.drop || !(await existeAlgo(c, b))) continue;
@@ -238,6 +260,7 @@ export async function dropUrgcSePreciso(c: Client): Promise<void> {
  */
 export async function dropUrgcPosteriores(c: Client, bloco: UrgcId): Promise<void> {
   exigeBancoLocal();
+  if (SUCESSORA) await SUCESSORA.dropSePreciso(c); // a R11 (FKs para a tabela de tentativas) é posterior a TODO bloco da R9
   const depois = ORDEM.slice(ORDEM.indexOf(bloco) + 1);
   for (const { id, b } of [...URGC_MIGS].reverse()) {
     if (!depois.includes(id) || !b.drop || !(await existeAlgo(c, b))) continue;
@@ -256,6 +279,11 @@ export function md5UrgcSucessor(sig: string, pinado?: string): string[] {
     const s = b.URGC_MD5[k];
     if (!s) continue;
     if (!pinado || out.includes(s.antes)) out.push(s.depois);
+  }
+  // cadeia urgc -> urgd: o "depois" da R11 que sucede o último texto desta cadeia
+  if (SUCESSORA) {
+    const ultimo = out.length ? out[out.length - 1] : undefined;
+    for (const m of SUCESSORA.md5Sucessor(k, ultimo)) if (!out.includes(m)) out.push(m);
   }
   return out;
 }
