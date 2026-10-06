@@ -20,6 +20,7 @@ import type { Client } from "pg";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
+import { voltaUrgR1bSePreciso } from "./urg-r1b-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -130,6 +131,7 @@ export async function aplicaUrgb(c: Client, ate?: UrgbId): Promise<void> {
 /** Volta TODOS os blocos vivos, LIFO, pelos `_down` NEUTROS. */
 export async function voltaUrgb(c: Client): Promise<void> {
   exigeBancoLocal();
+  await voltaUrgR1bSePreciso(c); // LIFO: a 198000 sai antes de tudo
   if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a R9 (por cima) sai antes
   for (const { id, b } of [...URGB_MIGS].reverse()) {
     if (await urgbViva(c, id)) await aplicarArquivo(c, b.down);
@@ -139,7 +141,10 @@ export async function voltaUrgb(c: Client): Promise<void> {
 
 /** LIFO: quem volta (ou reaplica) a Camada ou qualquer release anterior dentro da txn tira esta frente antes. */
 export async function voltaUrgbSePreciso(c: Client): Promise<void> {
-  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a R9 (por cima) sai antes, mesmo com esta frente fora
+  // [urg R1b] LIFO: a 198000 (por cima de tudo) sai PRIMEIRO — o _down dela neutraliza as 2 funcoes que citam os helpers da 170000;
+  // so desfaz o que esta presente (idempotente). Depois a R9 (urgc 192000..196000), tambem so se presente.
+  await voltaUrgR1bSePreciso(c);
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a R9 (por cima desta frente) sai antes, mesmo com esta frente fora
   let viva = false;
   for (const { id } of URGB_MIGS) if (await urgbViva(c, id)) viva = true;
   if (!viva) return;
@@ -156,6 +161,7 @@ export async function voltaUrgbSePreciso(c: Client): Promise<void> {
  */
 export async function dropUrgbSePreciso(c: Client): Promise<void> {
   exigeBancoLocal();
+  await voltaUrgR1bSePreciso(c); // a 198000 (cita helpers da 170000) sai antes dos drops
   if (SUCESSORA) await SUCESSORA.dropSePreciso(c); // LIFO dos drops: os da R9 (gatilhos/tabela que dependem desta frente) antes
   await voltaUrgbSePreciso(c);
   for (const { b } of [...URGB_MIGS].reverse()) {
