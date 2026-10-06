@@ -249,11 +249,10 @@ describe.skipIf(!RODA)(
           ])
         ).o;
 
+        // [R9] a edição rápida só grava a Data Enviado; os `pt_*` das linhas voltam como foram lidos (a comparação abaixo cobre TODAS as colunas).
         for (const [campo, valor] of [
-          ["pt_data_entrada", "2026-10-06"],
-          ["pt_aprovacao", "aprovado"],
           ["data_enviado", "2026-10-07"],
-          ["pt_data_saida", null],
+          ["data_enviado", null],
         ] as const) {
           const base = await linhasDoCad(c, s.cad);
           const { _blocos, _rev_base } = montarPayloadEdicaoRapida({
@@ -311,7 +310,7 @@ describe.skipIf(!RODA)(
         const { _blocos, _rev_base } = montarPayloadEdicaoRapida({
           linhas: base,
           blocoId: s.a,
-          campo: "pt_data_entrada",
+          campo: "data_enviado",
           valor: "2026-10-06",
         });
         expect(_rev_base._molde_tocado).toBe(false);
@@ -340,8 +339,8 @@ describe.skipIf(!RODA)(
         const { _blocos, _rev_base } = montarPayloadEdicaoRapida({
           linhas: base,
           blocoId: s.a,
-          campo: "pt_aprovacao",
-          valor: "reprovado",
+          campo: "data_enviado",
+          valor: "2026-10-08",
         });
         // "outra pessoa" salva o serviço B depois da leitura (rev de B sobe)
         await semJwt(c, () =>

@@ -42,7 +42,10 @@ export type Props = {
   etapas: EtapaCfg[];
   collapsedCols: Set<EtapaKey>;
   onToggleCol: (key: EtapaKey) => void;
+  /** Abre o Sheet de PCP › Serviços (cards de bloco). */
   onAbrir: (modeloId: string) => void;
+  /** [R9] Abre o Sheet do Planejamento (card da coluna Peça Teste). `undefined` = sem acesso: o card PT não é clicável. */
+  onAbrirProduto?: (modeloId: string) => void;
   /** "Recolher cards" global (header da página) — minimiza TODOS os cards do quadro. */
   minimizedCards: boolean;
 };
@@ -53,6 +56,7 @@ export function EtapasBoard({
   collapsedCols,
   onToggleCol,
   onAbrir,
+  onAbrirProduto,
   minimizedCards,
 }: Props) {
   const colunas = etapas.filter((e) => e.ativa);
@@ -176,6 +180,7 @@ export function EtapasBoard({
                           minimized={isMinimized(c.blocoId)}
                           onToggleMin={() => toggleMin(c.blocoId)}
                           onAbrir={onAbrir}
+                          onAbrirProduto={onAbrirProduto}
                         />
                       ))
                     )}
@@ -237,6 +242,7 @@ export function EtapasBoard({
                       minimized={isMinimized(c.blocoId)}
                       onToggleMin={() => toggleMin(c.blocoId)}
                       onAbrir={onAbrir}
+                      onAbrirProduto={onAbrirProduto}
                     />
                   ))
                 )}
@@ -267,6 +273,7 @@ export function EtapasBoard({
                 minimized={isMinimized(c.blocoId)}
                 onToggleMin={() => toggleMin(c.blocoId)}
                 onAbrir={onAbrir}
+                onAbrirProduto={onAbrirProduto}
               />
             ))
           )}

@@ -62,8 +62,8 @@ export type BlocoServico = {
   // Quantidade por tamanho × variante (opt-in). Quando `detalhado`, os 3 totais viram Σ da grade.
   detalhado: boolean;
   grade_detalhe: GradeDetalhe;
-  // Etapas PL (Fase 1, módulo opt-in `etapas_pl`): campos da etapa "Peça Teste" — alimentam
-  // etapaDoBloco (src/lib/pcp-etapas.ts) no painel EtapasPlPanel.
+  // Etapas PL (Fase 1): colunas LEGADAS da "Peça Teste" do bloco. [R9] Ninguém as lê nem as edita (a peça teste vive no card do
+  // produto); ficam aqui só para o payload as devolver como foram lidas (`salvar_terceirizados` é estado completo).
   pt_data_saida: string | null;
   pt_data_entrada: string | null;
   pt_aprovacao: "aprovado" | "reprovado" | null;
@@ -151,8 +151,8 @@ export function blocoParaPayload(b: BlocoServico) {
     observacao: b.observacao,
     aviamentos_enviados: b.aviamentos_enviados,
     tecidos_enviados: b.tecidos_enviados,
-    // Etapas PL (Fase 1): só faz sentido pra bloco PL, mas grava sempre (interno fica null
-    // nos 3 — mesmo padrão de empresa_id/representante_id acima).
+    // [R9] pass-through dos `pt_*` LIDOS da linha (a tela não os edita mais; interno fica null nos 3 — mesmo padrão de
+    // empresa_id/representante_id acima, como o banco sempre recebeu).
     pt_data_saida: b.interno ? null : b.pt_data_saida,
     pt_data_entrada: b.interno ? null : b.pt_data_entrada,
     pt_aprovacao: b.interno ? null : b.pt_aprovacao,
@@ -166,8 +166,10 @@ export function blocoParaPayload(b: BlocoServico) {
 }
 export type BlocoPayload = ReturnType<typeof blocoParaPayload>;
 
-// Campos editáveis pela edição rápida do card de Etapas PL.
-export type CampoRapido = "pt_data_saida" | "pt_data_entrada" | "pt_aprovacao" | "data_enviado";
+// Campos editáveis pela edição rápida do card de Etapas PL. [R9] SÓ a Data Enviado (Separação de Materiais): a Peça Teste vive no
+// card do produto (seção "Peça Teste" do Planejamento) — a edição rápida NUNCA grava `pt_*`; o `blocoParaPayload` só devolve os
+// `pt_*` LIDOS da linha (pass-through: o `salvar_terceirizados` segue estado completo e o servidor não mudou).
+export type CampoRapido = "data_enviado";
 
 /** O serviço do card não existe mais no servidor (outra pessoa o excluiu): nada é gravado. `mensagemErro` devolve o texto. */
 export class ServicoSumiuError extends RecusaEsperadaError {

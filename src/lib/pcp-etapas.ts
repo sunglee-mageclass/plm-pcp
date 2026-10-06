@@ -23,8 +23,10 @@ export const ETAPAS_DEFAULT: EtapaCfg[] = [
 ];
 
 export type BlocoEtapa = {
-  pt_data_saida: string | null; pt_data_entrada: string | null;
-  pt_aprovacao: "aprovado" | "reprovado" | null;
+  // [R9] `pt_*` (colunas legadas de `producao_terceirizados`) são OPCIONAIS e IGNORADAS: a peça teste vive no CARD do produto
+  // (seção "Peça Teste"). Ficam no tipo só para quem ainda carrega a linha crua (pass-through do `salvar_terceirizados`).
+  pt_data_saida?: string | null; pt_data_entrada?: string | null;
+  pt_aprovacao?: "aprovado" | "reprovado" | null;
   data_enviado: string | null; data_entregue: string | null; qtd_recebida: number | null;
   grade_detalhe?: Record<string, Record<string, { cortada?: number }>> | null;
 };
@@ -38,7 +40,9 @@ function cortadaRetornou(gd: BlocoEtapa["grade_detalhe"]): boolean {
 // true = a etapa está COMPLETA (o card já saiu dela).
 function completa(key: EtapaKey, b: BlocoEtapa): boolean {
   switch (key) {
-    case "peca_teste":    return Boolean(b.pt_data_saida && b.pt_data_entrada && b.pt_aprovacao === "aprovado");
+    // [R9] a Peça Teste é alimentada pelo CARD do produto (montarCardsPecaTeste); para o BLOCO de serviço ela já passou
+    // (o bloco só existe depois da Explosão) — conta como cumprida e o bloco começa em Separação de Materiais.
+    case "peca_teste":    return true;
     case "separacao":     return Boolean(b.data_enviado);
     case "retorno_grade": return cortadaRetornou(b.grade_detalhe);
     case "oficina":       return Boolean(b.data_entregue && (b.qtd_recebida ?? 0) > 0);
@@ -49,8 +53,9 @@ function completa(key: EtapaKey, b: BlocoEtapa): boolean {
   }
 }
 
-export function etapaDoBloco(b: BlocoEtapa, etapas: EtapaCfg[]): { key: EtapaKey | null; reprovada: boolean } {
-  if (b.pt_aprovacao === "reprovado") return { key: "peca_teste", reprovada: true };
+export function etapaDoBloco(b: BlocoEtapa, etapas: EtapaCfg[]): { key: EtapaKey | null; reprovada: false } {
+  // [R9] nunca devolve `reprovada: true`: a reprovação da peça teste mora no card do produto (o servidor tira o card do quadro);
+  // `pt_aprovacao='reprovado'` legado num bloco NÃO o tira mais do quadro.
   const ativas = etapas.filter((e) => e.ativa);
   let atual: EtapaKey | null = ativas[0]?.key ?? null;
   for (const e of ativas) {

@@ -6,16 +6,16 @@ const modelo = (over = {}) => ({
   id:"m1", ref:"FEVLO-1", nome:"Vestido", fotos_modelo:["f.jpg"], desenho_tecnico_url:null, croqui_url:null,
   cad:[{ id:"c1", enviado_corte:true, producao_terceirizados:[
     { id:"b1", ativo:true, interno:false, categoria_terceirizado_id:"cat_pl", categorias_terceirizado:{ nome:"PL" },
-      empresa:{ nome_fantasia:"Bela Vista" }, pt_data_saida:null, pt_data_entrada:null, pt_aprovacao:null,
+      empresa:{ nome_fantasia:"Bela Vista" },
       data_enviado:null, data_entregue:null, quantidade_recebida:null, grade_detalhe:null },
   ]}], ...over,
 });
 
 describe("montarCards", () => {
-  it("bloco PL vira 1 card na etapa peca_teste", () => {
+  it("bloco PL vira 1 card (tipo bloco) na etapa separacao — a peça teste vem do card do produto [R9]", () => {
     const cards = montarCards([modelo() as any], ETAPAS_DEFAULT);
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ blocoId:"b1", modeloId:"m1", empresa:"Bela Vista", etapa:"peca_teste" });
+    expect(cards[0]).toMatchObject({ tipo:"bloco", blocoId:"b1", modeloId:"m1", empresa:"Bela Vista", etapa:"separacao" });
   });
   it("bloco interno (não-PL) é ignorado", () => {
     const m = modelo(); (m as any).cad[0].producao_terceirizados[0].interno = true;
@@ -25,10 +25,16 @@ describe("montarCards", () => {
     const m = modelo(); (m as any).cad[0].producao_terceirizados[0].categorias_terceirizado.nome = "Oficina";
     expect(montarCards([m as any], ETAPAS_DEFAULT)).toHaveLength(0);
   });
-  it("reprovada é EXCLUÍDA do kanban", () => {
+  it("[R9] pt_aprovacao='reprovado' legado no bloco NÃO tira o bloco do quadro (a reprovação mora no card do produto)", () => {
     const m = modelo(); const b = (m as any).cad[0].producao_terceirizados[0];
     b.pt_data_saida="a"; b.pt_data_entrada="b"; b.pt_aprovacao="reprovado";
-    expect(montarCards([m as any], ETAPAS_DEFAULT)).toHaveLength(0);
+    const cards = montarCards([m as any], ETAPAS_DEFAULT);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].etapa).toBe("separacao");
+  });
+  it("[R9] produto na lista `suprimir` (card de Peça Teste em teste) não repete os blocos", () => {
+    expect(montarCards([modelo() as any], ETAPAS_DEFAULT, new Set(["m1"]))).toHaveLength(0);
+    expect(montarCards([modelo() as any], ETAPAS_DEFAULT, new Set(["outro"]))).toHaveLength(1);
   });
   it("cad não enviado ao corte é ignorado", () => {
     const m = modelo(); (m as any).cad[0].enviado_corte = false;

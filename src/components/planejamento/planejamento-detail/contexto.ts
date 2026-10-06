@@ -3,11 +3,12 @@
 //  - "produto-acabado": Sheet por cima do planejador Produto Acabado.
 //  - "integracao": Sheet por cima da Integração (R14, P-199 A).
 //  - "desenvolvimento": card do quadro do Desenvolvimento (R7). Só muda o breadcrumb; o resto age como "planejamento".
-export type ContextoDetalhe = "planejamento" | "produto-acabado" | "integracao" | "desenvolvimento";
+//  - "pcp-etapas": card da coluna Peça Teste do quadro PCP › Etapas (R9, T7). Aberto POR CIMA do quadro (como "integracao").
+export type ContextoDetalhe = "planejamento" | "produto-acabado" | "integracao" | "desenvolvimento" | "pcp-etapas";
 export const CONTEXTO_PADRAO: ContextoDetalhe = "planejamento";
 
 /** Aberto POR CIMA de outra tela? Então "Criar produto acabado" fecha o Sheet em vez de navegar para fora dela. */
-export const abertoPorCima = (c: ContextoDetalhe): boolean => c === "produto-acabado" || c === "integracao";
+export const abertoPorCima = (c: ContextoDetalhe): boolean => c === "produto-acabado" || c === "integracao" || c === "pcp-etapas";
 /** "Ver no Produto Acabado" só faz sentido fora do próprio planejador Produto Acabado. */
 export const mostraVerNoProdutoAcabado = (c: ContextoDetalhe): boolean => c !== "produto-acabado";
 /** Rótulo da tela no breadcrumb do Sheet ("Estilo & Engenharia › <tela> › nome"). */
