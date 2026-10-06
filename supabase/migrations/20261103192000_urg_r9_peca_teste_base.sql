@@ -21,15 +21,19 @@
 -- Pos-condicao: coluna; tabela com colunas/defaults, constraints e indices do DDL (md5), RLS ligada, 0 policies, ACL
 -- {postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres} (nem anon nem authenticated), fora da publicacao supabase_realtime; os 9 gatilhos com o
 -- pg_get_triggerdef gerado; as 2 funcoes DEFINER, search_path=public, ACL {postgres=X,service_role=X}; trg_kanban_fila_upd = DEPOIS.
--- Trava (MEDIDA na copia local, supautils carregado, diferenca de pg_locks numa txn REVERTIDA, DDL digitada): ~33 ms no total.
---   categorias_terceirizado: AccessExclusive (ADD COLUMN com DEFAULT constante = so catalogo; LEITURA do Cadastro de servicos e da
---     fila do kanban espera os ms) + ShareRowExclusive (CREATE OR REPLACE TRIGGER trg_kanban_fila_upd e a FK nova);
---   modelo_peca_teste_tentativas (nova) e os 5 indices dela: AccessExclusive (ninguem a usa ainda);
---   modelos, modelo_servico_mo, empresas, tenants: ShareRowExclusive (FKs novas + CREATE TRIGGER da trava) - ESCRITA nessas 4
---     tabelas espera os ms; LEITURA segue. NENHUMA trava em auth/storage/realtime (contagem 0: nenhuma policy criada).
---   Reaplicar a ida com tudo ja aplicado: AccessExclusive em categorias_terceirizado (o ADD COLUMN IF NOT EXISTS trava antes de
---     ver que existe) e ShareRowExclusive em modelo_servico_mo; nada em modelos/empresas/tenants nem em auth/storage/realtime.
--- HORARIO CALMO. lock_timeout 1500ms: 55P03 = nada mudou, rodar o arquivo de novo. Idempotente (2a vez = NOTICEs, mesmos md5).
+-- Trava (MEDIDA na copia local, supautils carregado, diferenca de pg_locks numa txn REVERTIDA, DDL digitada): ~35 ms no total.
+--   ORDEM (de proposito): (1) CREATE TABLE = ShareRowExclusive nas referenciadas pelas FKs (tenants, modelos, modelo_servico_mo,
+--     categorias_terceirizado, empresas) + AccessExclusive na tabela nova e nos 7 indices dela (ninguem a usa ainda);
+--     (2) CREATE TRIGGER da trava = ShareRowExclusive em modelo_servico_mo; (3) ADD COLUMN SO se a coluna nao existe =
+--     AccessExclusive em categorias_terceirizado (a ULTIMA trava pesada; LEITURA do Cadastro de servicos e da fila do kanban espera
+--     os ms); (4) CREATE OR REPLACE TRIGGER trg_kanban_fila_upd = ShareRowExclusive em categorias_terceirizado.
+--   Enquanto a txn dura: ESCRITA em modelos/modelo_servico_mo/empresas/tenants/categorias_terceirizado espera; LEITURA segue (exceto
+--     categorias_terceirizado depois do passo 3). NENHUMA trava em auth/storage/realtime (contagem 0: nenhuma policy criada).
+--   Reaplicar a ida com tudo ja aplicado: SEM AccessExclusive em categorias_terceirizado (o ADD COLUMN e pulado); so as
+--     ShareRowExclusive dos CREATE OR REPLACE TRIGGER (~17 ms).
+-- HORARIO CALMO. lock_timeout 1500ms. 55P03 OU 40P01 (deadlock com um Salvar que ja escreveu em modelos/M.O. e le
+--   categorias_terceirizado no COMMIT, pela fila do kanban) = NADA mudou: rodar o arquivo de novo; um Salvar no mesmo instante pode
+--   falhar 1x (o usuario salva de novo). Idempotente (2a vez = NOTICEs, mesmos md5).
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.fn_peca_teste_regredir() (NOVA)
 --     ANTES  ausente
@@ -50,7 +54,7 @@
 --   gatilho trg_peca_teste_fila_del ON public.modelo_peca_teste_tentativas (NOVO)  DEPOIS feb9c988298b2d2b4febb46f03e7f311
 --   gatilho trg_peca_teste_regredir ON public.modelo_peca_teste_tentativas (NOVO)  DEPOIS e11d48b36b01b420616c78df17b05c04
 --   gatilho trg_peca_teste_trava_fornecedor ON public.modelo_servico_mo (NOVO)  DEPOIS 1a6977ae9829a7725c3c53ed2467dbfa
---   tabela public.modelo_peca_teste_tentativas (NOVA): colunas 2f8ac5920d24485af979ee9a988837c7  constraints dab2afbd30384894aa1d25706796f803  indices af347cb0afcf183520b9fb68aa727685
+--   tabela public.modelo_peca_teste_tentativas (NOVA): colunas 2f8ac5920d24485af979ee9a988837c7  constraints dab2afbd30384894aa1d25706796f803  indices 01174a02aade17acf2501dbc7e661815
 --   dependencias FIXADAS (nao redefinidas):
 --     public.enforce_servico_mo_aprovacao() 1643b69db26e2034905866356b80232e
 --     public._salvar_modelo_servico_mo_core(uuid,jsonb) 1a4c045651694a64c3a99de522b7be53
@@ -135,14 +139,7 @@ BEGIN
 END
 $guarda$;
 
--- 1) coluna
--- [urg r9a] coluna nova com DEFAULT constante (PG11+: so catalogo, sem reescrita). O Cadastro grava direto pela policy
--- existente de categorias_terceirizado (a coluna herda o GRANT de tabela do authenticated).
-ALTER TABLE public.categorias_terceirizado ADD COLUMN IF NOT EXISTS exige_peca_teste boolean NOT NULL DEFAULT false;
-COMMENT ON COLUMN public.categorias_terceirizado.exige_peca_teste IS
-  'R9: o tipo de servico exige peca teste - cada linha de M.O. com este tipo ganha uma trilha na secao Peca Teste do card.';
-
--- 2) tabela
+-- 1) tabela nova (FKs: ShareRowExclusive nas referenciadas) + gatilhos dela
 -- [urg r9a] 1 linha = 1 tentativa. Trilha = (linha de M.O., tipo de servico da linha) com exige_peca_teste; tentativa atual = a
 -- de maior numero da trilha se ela NAO for 'reprovado'; senao a atual e VIRTUAL (numero = max+1, sem linha ate ganhar dado).
 CREATE TABLE IF NOT EXISTS public.modelo_peca_teste_tentativas (
@@ -171,6 +168,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS mpt_trilha_numero_ux ON public.modelo_peca_tes
 CREATE UNIQUE INDEX IF NOT EXISTS mpt_legado_ux ON public.modelo_peca_teste_tentativas (legado_bloco_id) WHERE legado_bloco_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS mpt_modelo_idx ON public.modelo_peca_teste_tentativas (modelo_id);
 CREATE INDEX IF NOT EXISTS mpt_tenant_idx ON public.modelo_peca_teste_tentativas (tenant_id);
+-- [fix round 1, achado 7] FKs de fornecedor (NO ACTION) e de tipo (RESTRICT): o DELETE em empresas/categorias_terceirizado confere
+-- a tabela nova por indice, nao por varredura (padrao das FKs da casa).
+CREATE INDEX IF NOT EXISTS mpt_empresa_idx ON public.modelo_peca_teste_tentativas (empresa_id) WHERE empresa_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS mpt_categoria_idx ON public.modelo_peca_teste_tentativas (categoria_terceirizado_id);
 ALTER TABLE public.modelo_peca_teste_tentativas ENABLE ROW LEVEL SECURITY;   -- SEM policy: leitura/escrita so pelas RPCs (193000)
 REVOKE ALL ON TABLE public.modelo_peca_teste_tentativas FROM PUBLIC, anon, authenticated;
 COMMENT ON TABLE public.modelo_peca_teste_tentativas IS 'R9: tentativas de peca teste por linha de M.O.; escrita so por salvar_peca_teste.';
@@ -190,7 +191,7 @@ CREATE OR REPLACE TRIGGER trg_peca_teste_fila_upd AFTER UPDATE ON public.modelo_
 CREATE OR REPLACE TRIGGER trg_peca_teste_fila_del AFTER DELETE ON public.modelo_peca_teste_tentativas
   REFERENCING OLD TABLE AS antigas FOR EACH STATEMENT EXECUTE FUNCTION public.fn_kanban_fila_por_modelo();
 
--- 3) funcoes de gatilho NOVAS (texto canonico) + gatilhos
+-- 2) funcoes de gatilho NOVAS (texto canonico) + gatilhos
 CREATE OR REPLACE FUNCTION public.fn_peca_teste_regredir()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -230,6 +231,23 @@ CREATE OR REPLACE TRIGGER trg_peca_teste_trava_fornecedor BEFORE UPDATE OF empre
 
 REVOKE EXECUTE ON FUNCTION public.fn_peca_teste_regredir(), public.fn_peca_teste_trava_fornecedor() FROM PUBLIC, anon, authenticated;
 
+-- 3) coluna nova (so se ausente; AccessExclusive em categorias_terceirizado = a ultima trava pesada)
+-- [urg r9a] coluna nova com DEFAULT constante (PG11+: so catalogo, sem reescrita). O Cadastro grava direto pela policy
+-- existente de categorias_terceirizado (a coluna herda o GRANT de tabela do authenticated). [fix round 1, achado 3] SO quando a coluna
+-- ainda NAO existe (checagem antes): reaplicar a ida nao pega AccessExclusive (nem a ShareUpdateExclusive do COMMENT) a toa. Vem
+-- DEPOIS da tabela/gatilhos (ordem de travas no cabecalho): a AccessExclusive em categorias_terceirizado e a ULTIMA trava pesada.
+DO $coluna$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'categorias_terceirizado'
+                   AND column_name = 'exige_peca_teste') THEN
+    ALTER TABLE public.categorias_terceirizado ADD COLUMN exige_peca_teste boolean NOT NULL DEFAULT false;
+    COMMENT ON COLUMN public.categorias_terceirizado.exige_peca_teste IS
+      'R9: o tipo de servico exige peca teste - cada linha de M.O. com este tipo ganha uma trilha na secao Peca Teste do card.';
+  END IF;
+END
+$coluna$;
+
+-- 4) gatilho existente redefinido
 -- Gatilho existente redefinido (ANTES 35a23318): + exige_peca_teste no WHEN (mudar o switch enfileira a loja inteira, como etapa/nome/ativo).
 CREATE OR REPLACE TRIGGER trg_kanban_fila_upd AFTER UPDATE ON public.categorias_terceirizado FOR EACH ROW WHEN (((old.etapa IS DISTINCT FROM new.etapa) OR ((old.nome)::text IS DISTINCT FROM (new.nome)::text) OR (old.ativo IS DISTINCT FROM new.ativo) OR (old.exige_peca_teste IS DISTINCT FROM new.exige_peca_teste))) EXECUTE FUNCTION public.fn_kanban_fila_categoria();
 
@@ -257,7 +275,7 @@ BEGIN
   END IF;
   SELECT md5(string_agg(pg_get_indexdef(i.indexrelid), E'\n' ORDER BY i.indexrelid::regclass::text)) INTO v
     FROM pg_index i WHERE i.indrelid = to_regclass('public.modelo_peca_teste_tentativas') AND i.indisvalid;
-  IF v IS DISTINCT FROM 'af347cb0afcf183520b9fb68aa727685' THEN
+  IF v IS DISTINCT FROM '01174a02aade17acf2501dbc7e661815' THEN
     RAISE EXCEPTION 'urg_r9a: pos-condicao falhou nos indices de public.modelo_peca_teste_tentativas (md5 %)', v USING ERRCODE = 'P0001';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.oid = to_regclass('public.modelo_peca_teste_tentativas') AND c.relrowsecurity

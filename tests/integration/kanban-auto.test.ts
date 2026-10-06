@@ -27,6 +27,7 @@ import {
   boardDaLoja, derivarModelo, destinoDrop, faltandoPara, fluxoDoModelo, lerKanbanAutoConfig, statusDerivado,
 } from "../../src/lib/kanban-auto";
 import { normalizeKanbanStatuses } from "../../src/lib/kanban-status";
+import { dropUrgcSePreciso } from "./urgc-helpers"; // [urg R9]
 
 // ─────────────────────────────── Harness (Task 4) ───────────────────────────────
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -1650,6 +1651,7 @@ async function gatilhosNovos(c: Client): Promise<number> {
 describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inverso da migration 3 (Task 14)", () => {
   it("desfaz 3: as 4 redefinidas voltam BYTE-A-BYTE; os 44 gatilhos novos e as 13 funções novas somem", async () => {
     await withTx(async (c) => {
+      await dropUrgcSePreciso(c); // [urg R9] gatilhos da 192000 dependem de fn_kanban_fila_*: o _down_drop da R9 antes do inverso 3 (LIFO)
       const antes: Record<string, string | null> = {};
       for (const f of REDEFINIDAS_M3) antes[f] = await defFuncao(c, f);
       await prepara(c, 3);
@@ -2142,6 +2144,7 @@ async function contagens(c: Client) {
 describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — round-trip das 4 migrations (Task 17)", () => {
   it("ida 2× (idempotente) + volta 4→1: contagens, redefinidas BYTE-A-BYTE (= snapshot) e nada sobra", async () => {
     await withTx(async (c) => {
+      await dropUrgcSePreciso(c); // [urg R9] gatilhos da 192000 dependem de fn_kanban_fila_*: o _down_drop da R9 antes do inverso 3 (LIFO)
       const antes = await contagens(c);
       const defs: Record<string, string | null> = {};
       for (const f of [...REDEFINIDAS_M3, "_kanban_status_rows(uuid)"]) defs[f] = await defFuncao(c, f);
@@ -2181,6 +2184,7 @@ async function inversoRecusado(c: Client, n: 1 | 2 | 3, msg: RegExp): Promise<vo
 describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inversos: guarda de ordem e cadeia 3→2→1 (fix round final)", () => {
   it("fora de ordem RECUSA com a mensagem certa e não muda nada; a ordem certa 4→3→2→1 passa", async () => {
     await withTx(async (c) => {
+      await dropUrgcSePreciso(c); // [urg R9] gatilhos da 192000 dependem de fn_kanban_fila_*: o _down_drop da R9 antes do inverso 3 (LIFO)
       const antes = await contagens(c);
       await prepara(c, 4);
       const ida = await contagens(c);
@@ -2200,6 +2204,7 @@ describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inversos: guarda de ordem e
 
   it("cadeia 3→2→1 (a partir de 1→3 aplicadas) volta ao retrato de antes (contagens)", async () => {
     await withTx(async (c) => {
+      await dropUrgcSePreciso(c); // [urg R9] gatilhos da 192000 dependem de fn_kanban_fila_*: o _down_drop da R9 antes do inverso 3 (LIFO)
       const antes = await contagens(c);
       await prepara(c, 3);
       expect(await contagens(c)).not.toEqual(antes);
@@ -2246,6 +2251,7 @@ describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — guardas da Task 18: ida for
 
   it("inverso 1 RECUSA com chave ligada ou lote de snapshot pendente (lote restaurado não trava); app.kanban_inverso_forcar='sim' força com WARNING", async () => {
     await withTx(async (c) => {
+      await dropUrgcSePreciso(c); // [urg R9] gatilhos da 192000 dependem de fn_kanban_fila_*: o _down_drop da R9 antes do inverso 3 (LIFO)
       const avisos: string[] = [];
       const ouvir = (n: { message?: string }) => avisos.push(String(n.message));
       c.on("notice", ouvir);

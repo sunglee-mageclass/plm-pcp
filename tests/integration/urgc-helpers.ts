@@ -52,16 +52,21 @@ for (const k of Object.keys(TODOS)) {
   if (!ORDEM.includes(k as UrgcId)) throw new Error(`urgc-helpers: bloco desconhecido em urgc-dados.ts: ${k}`);
 }
 
-/**
- * Tabelas que os ganchos da R9 TRAVAM dentro da txn do teste (para as medições de trava das frentes antigas que aceitam uma lista
- * "de gancho", como seg-s3a/seg-s3b): a volta LIFO da 192000 (`_down`: CREATE OR REPLACE TRIGGER = ShareRowExclusive em
- * categorias_terceirizado) e, com `URGC_TXN=1` numa cópia SEM a 192000, a ida (ADD COLUMN + tabela nova + FKs + índices).
- */
-export const URGC_TABELAS_TRAVA = [
+// Relações que a IDA da 192000 trava (tabela nova + FKs + índices + coluna) — só aparecem na txn com `URGC_TXN=1` numa cópia SEM ela.
+const URGC_IDA_TRAVA = [
   "public.categorias_terceirizado", "public.modelo_peca_teste_tentativas", "public.modelo_peca_teste_tentativas_pkey",
-  "public.mpt_trilha_numero_ux", "public.mpt_legado_ux", "public.mpt_modelo_idx", "public.mpt_tenant_idx",
-  "public.modelos", "public.modelo_servico_mo", "public.empresas", "public.tenants",
+  "public.mpt_trilha_numero_ux", "public.mpt_legado_ux", "public.mpt_modelo_idx", "public.mpt_tenant_idx", "public.mpt_empresa_idx",
+  "public.mpt_categoria_idx", "public.modelos", "public.modelo_servico_mo", "public.empresas", "public.tenants",
 ];
+/**
+ * Trava que é dos GANCHOS da R9, não da frente medida (para as medições de trava das frentes antigas que aceitam uma lista "de
+ * gancho", como seg-s3a/seg-s3b). Estrito: SÓ o par medido da volta LIFO da 192000 (`_down`: CREATE OR REPLACE TRIGGER =
+ * {categorias_terceirizado, ShareRowExclusiveLock}) e, SÓ com `URGC_TXN=1`, as relações da ida.
+ */
+export function travaDeGanchoUrgc(t: { rel: string; mode: string }): boolean {
+  if (t.rel === "public.categorias_terceirizado" && t.mode === "ShareRowExclusiveLock") return true;
+  return process.env.URGC_TXN === "1" && URGC_IDA_TRAVA.includes(t.rel);
+}
 
 /** Todos os blocos do contrato (com ou sem arquivo) — para o teste acusar "bloco ausente". */
 export const URGC_BLOCOS: Record<string, Bloco> = TODOS;

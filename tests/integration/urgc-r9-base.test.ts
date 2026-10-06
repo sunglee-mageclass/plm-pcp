@@ -286,11 +286,15 @@ describe.skipIf(!RODA)("urg R9a — base da Peça Teste (20261103192000)", () =>
       ).rows as { n: string; d: string }[];
       expect(idx.map((i) => i.n)).toEqual([
         "modelo_peca_teste_tentativas_pkey",
+        "mpt_categoria_idx",
+        "mpt_empresa_idx",
         "mpt_legado_ux",
         "mpt_modelo_idx",
         "mpt_tenant_idx",
         "mpt_trilha_numero_ux",
       ]);
+      expect(idx.find((i) => i.n === "mpt_empresa_idx")!.d).toMatch(/\(empresa_id\) WHERE \(empresa_id IS NOT NULL\)/);
+      expect(idx.find((i) => i.n === "mpt_categoria_idx")!.d).toMatch(/\(categoria_terceirizado_id\)$/);
       expect(idx.find((i) => i.n === "mpt_trilha_numero_ux")!.d).toMatch(
         /UNIQUE INDEX .* \(mo_linha_id, categoria_terceirizado_id, numero\) WHERE \(mo_linha_id IS NOT NULL\)/,
       );

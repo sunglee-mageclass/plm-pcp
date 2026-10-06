@@ -26,7 +26,7 @@
 --   gatilho trg_peca_teste_fila_del ON public.modelo_peca_teste_tentativas (NOVO)  DEPOIS feb9c988298b2d2b4febb46f03e7f311
 --   gatilho trg_peca_teste_regredir ON public.modelo_peca_teste_tentativas (NOVO)  DEPOIS e11d48b36b01b420616c78df17b05c04
 --   gatilho trg_peca_teste_trava_fornecedor ON public.modelo_servico_mo (NOVO)  DEPOIS 1a6977ae9829a7725c3c53ed2467dbfa
---   tabela public.modelo_peca_teste_tentativas (NOVA): colunas 2f8ac5920d24485af979ee9a988837c7  constraints dab2afbd30384894aa1d25706796f803  indices af347cb0afcf183520b9fb68aa727685
+--   tabela public.modelo_peca_teste_tentativas (NOVA): colunas 2f8ac5920d24485af979ee9a988837c7  constraints dab2afbd30384894aa1d25706796f803  indices 01174a02aade17acf2501dbc7e661815
 --   dependencias FIXADAS (nao redefinidas):
 --     public.enforce_servico_mo_aprovacao() 1643b69db26e2034905866356b80232e
 --     public._salvar_modelo_servico_mo_core(uuid,jsonb) 1a4c045651694a64c3a99de522b7be53

@@ -12,7 +12,7 @@ import { S3B_MD5, S3B_PAGINAS, S3B_ETAPAS, S3B_ETAPA_OUTRA, S3B_GATILHOS, S3B_AC
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { S4_TABELAS_TRAVA } from "./seg-s4-helpers";
-import { URGC_TABELAS_TRAVA } from "./urgc-helpers"; // [urg R9] travas da volta LIFO / gancho da R9
+import { travaDeGanchoUrgc, voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9] volta LIFO / gancho da R9
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -216,6 +216,7 @@ describe.skipIf(!RODA)("seg S3b — md5, ACL, idempotência e volta (LIFO)", () 
 describe.skipIf(!RODA)("seg S3b — trava medida (pg_locks na txn revertida)", () => {
   it("RPCs e grants: catálogo; gatilhos: ShareRowExclusive SÓ em cad, controle_qualidade e producao_oficina; nada em auth/storage", async () => {
     await withTx(async (c) => {
+      await voltaUrgcSePreciso(c); // [urg R9] volta LIFO da R9 ANTES da medicao (o par dela sai em travaDeGanchoUrgc)
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
@@ -245,13 +246,12 @@ describe.skipIf(!RODA)("seg S3b — trava medida (pg_locks na txn revertida)", (
         expect((await travas()).filter(s3b)).toEqual(seguradasNoInicio);
       }
       // fora das 3 da S3b só pode haver as da S3a (4 OCs) e a da S2 (parcelas) — ganchos/camada de baixo
-      const outras = (await travas()).filter((t) => !s3b(t)).map((t) => t.rel);
+      const outras = (await travas()).filter((t) => !s3b(t) && !travaDeGanchoUrgc(t)).map((t) => t.rel); // [urg R9] so o par/URGC_TXN
       // (+ S3C_TXN=1: modelo_etiquetas/modelo_observacoes, gatilhos da S3c)
       expect(outras.every((r) => ["public.ocs_tecido", "public.ocs_tecido_itens", "public.ocs_aviamento", "public.ocs_etiqueta", "public.parcelas",
         "public.modelo_etiquetas", "public.modelo_observacoes", "public.modelos", "public.produtos_acabados", "public.produtos_importados",
         ...S4_TABELAS_TRAVA, "public.producao_terceirizados",
-        "public.modelo_servico_mo", "public.empresas", "public.producao_terceirizados_mo_linha_idx",
-        ...URGC_TABELAS_TRAVA].includes(r)), outras.join(",")).toBe(true); // (+ S4_TXN=1: as 13 do OTB/mix; + a R9 (volta LIFO/URGC_TXN=1);
+        "public.modelo_servico_mo", "public.empresas", "public.producao_terceirizados_mo_linha_idx"].includes(r)), outras.join(",")).toBe(true); // (+ S4_TXN=1: as 13 do OTB/mix;
       // + CAMADA_TXN=1 numa cópia sem a C1: o CREATE TRIGGER da 161000 em producao_terceirizados;
       // + URGB_TXN=1 numa cópia sem os urgentes: o ADD COLUMN da 180000 (modelo_servico_mo, empresas) e o ADD COLUMN + índice da 181000)
       const auth = await c.query(
