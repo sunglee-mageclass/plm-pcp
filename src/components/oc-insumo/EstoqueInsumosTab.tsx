@@ -8,6 +8,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Boxes, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { fmtNum } from "@/lib/format";
+import { HistoricoButton } from "@/components/estoque/HistoricoButton";
+import { ExtratoEstoqueSheet } from "@/components/estoque/ExtratoEstoqueSheet";
 
 // Posição de estoque de INSUMOS — 3ª aba "Estoque" do OC Insumo. Fonte ÚNICA: RPC
 // `estoque_etiqueta`. Preservar a queryKey ["estoque-insumos"]. Os CONTROLES (busca,
@@ -71,6 +73,33 @@ export function useEstoqueInsumos(enabled: boolean) {
   return { search, setSearch, filtros, grouped, isLoading };
 }
 
+/** Uma linha (insumo × cor × tamanho) com o botão "Histórico". O Sheet monta só aberto → nasce limpo. */
+function LinhaInsumo({ r, insumoNome, cor }: { r: any; insumoNome: string; cor: string | null }) {
+  const [hist, setHist] = useState(false);
+  const titulo = `${insumoNome}${cor ? ` — ${cor}` : ""}${r.tamanho ? ` — ${fmtTamInsumo(r.tamanho)}` : ""}`;
+  return (
+    <>
+      <tr className="border-t">
+        <td className="py-2 pr-3" data-label="Tamanho">{r.tamanho ? fmtTamInsumo(r.tamanho) : "Geral"}</td>
+        <td className="py-2 pr-3 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
+        <td className="py-2 pr-3 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
+        <td className="py-2 pr-3 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
+        <td className="py-2 pr-3 text-right font-medium" data-label="Físico">{fmt(r.fisico)}</td>
+        <td className="py-2 text-right"><HistoricoButton onOpen={() => setHist(true)} /></td>
+      </tr>
+      {hist && (
+        <ExtratoEstoqueSheet
+          familia="insumo"
+          itemId={r.etiquetaId}
+          bucket={{ tamanho: r.tamanho ?? null, corNome: r.corNome ?? null }}
+          titulo={titulo}
+          onClose={() => setHist(false)}
+        />
+      )}
+    </>
+  );
+}
+
 /** Tabela agrupada (insumo → cor → tamanho) + área de impressão. Recebe o estado do hook. */
 export function EstoqueInsumosTable({ state }: { state: ReturnType<typeof useEstoqueInsumos> }) {
   const { grouped, isLoading } = state;
@@ -120,17 +149,12 @@ export function EstoqueInsumosTable({ state }: { state: ReturnType<typeof useEst
                           <th className="py-2 pr-3 text-right">Recebido</th>
                           <th className="py-2 pr-3 text-right">Baixa</th>
                           <th className="py-2 pr-3 text-right">Físico</th>
+                          <th className="py-2" aria-label="Histórico"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {c.rows.map((r: any, i: number) => (
-                          <tr key={i} className="border-t">
-                            <td className="py-2 pr-3" data-label="Tamanho">{r.tamanho ? fmtTamInsumo(r.tamanho) : "Geral"}</td>
-                            <td className="py-2 pr-3 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
-                            <td className="py-2 pr-3 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
-                            <td className="py-2 pr-3 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
-                            <td className="py-2 pr-3 text-right font-medium" data-label="Físico">{fmt(r.fisico)}</td>
-                          </tr>
+                          <LinhaInsumo key={i} r={r} insumoNome={g.nome} cor={c.cor} />
                         ))}
                       </tbody>
                     </table>

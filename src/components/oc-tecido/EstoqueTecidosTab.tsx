@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { useSort, SortTh } from "@/components/shared/sort";
+import { HistoricoButton } from "@/components/estoque/HistoricoButton";
+import { ExtratoEstoqueSheet } from "@/components/estoque/ExtratoEstoqueSheet";
 import { useEnderecosRollup, agruparEnderecos, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 
 // Posição de estoque de TECIDOS — antes era a aba "Tecidos" da tela Estoque (removida);
@@ -262,12 +264,13 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
                 <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
                   <colgroup>
                     <col style={{ width: "4%" }} />
-                    <col style={{ width: "26%" }} />
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "25%" }} />
+                    <col style={{ width: "13%" }} />
+                    <col style={{ width: "13%" }} />
+                    <col style={{ width: "13%" }} />
+                    <col style={{ width: "13%" }} />
+                    <col style={{ width: "13%" }} />
+                    <col style={{ width: "6%" }} />
                   </colgroup>
                   <thead className="text-left text-muted-foreground">
                     <tr className="border-b">
@@ -278,6 +281,7 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
                       <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.fisico} />
                       <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.reservado} />
                       <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.previsto} />
+                      <th className="py-2" aria-label="Histórico"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -576,10 +580,25 @@ function useEstoqueVarianteDetalhe(varId: string, open: boolean, reservadoTotal:
   return { ocRows, reservaSemOc, isLoading };
 }
 
+/** Sheet "Histórico" desta variante de tecido. Montado só aberto → nasce limpo. */
+function HistoricoLinha({ row, onClose }: { row: any; onClose: () => void }) {
+  return (
+    <ExtratoEstoqueSheet
+      familia="tecido"
+      itemId={row.varId}
+      bucket={{ varianteId: row.varId }}
+      titulo={`${row.artigoNome} — ${row.nomeVariante}`}
+      kg={!!row.isKg}
+      onClose={onClose}
+    />
+  );
+}
+
 function VarianteRow({ row, enderecos, selectable, selected, onToggleSelect }: {
   row: any; enderecos: EnderecoRollup[]; selectable?: boolean; selected?: boolean; onToggleSelect?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [hist, setHist] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
   const loadingPend = false;
 
@@ -624,11 +643,13 @@ function VarianteRow({ row, enderecos, selectable, selected, onToggleSelect }: {
         <td className="py-2 pr-3 text-right font-medium">{fmt(row.fisico)} m</td>
         <td className="py-2 pr-3 text-right">{fmt(row.reservado)} m</td>
         <td className="py-2 pr-3 text-right">{fmt(row.previsto)} m</td>
+        <td className="py-2 text-right"><HistoricoButton onOpen={() => setHist(true)} /></td>
       </tr>
+      {hist && <HistoricoLinha row={row} onClose={() => setHist(false)} />}
       {open && (
         <tr className="bg-muted/30">
           <td></td>
-          <td colSpan={6} className="py-2 pr-3 space-y-2">
+          <td colSpan={7} className="py-2 pr-3 space-y-2">
             <div className="text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-semibold text-muted-foreground">Endereços:</span>
               {enderecos.length > 0
@@ -693,6 +714,7 @@ function VarianteCard({ row, enderecos, selectable, selected, onToggleSelect }: 
   row: any; enderecos: EnderecoRollup[]; selectable?: boolean; selected?: boolean; onToggleSelect?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [hist, setHist] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
   return (
     <div className="rounded-lg border p-3">
@@ -731,7 +753,9 @@ function VarianteCard({ row, enderecos, selectable, selected, onToggleSelect }: 
         </div>
         <div className="mt-1 text-[10px] text-muted-foreground">{open ? "▾ ocultar OCs / endereços" : "▸ ver OCs / endereços"}</div>
         </button>
+        <HistoricoButton onOpen={() => setHist(true)} />
       </div>
+      {hist && <HistoricoLinha row={row} onClose={() => setHist(false)} />}
       {open && (
         <div className="mt-2 space-y-2 border-t pt-2">
           <div className="text-xs">
