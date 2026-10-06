@@ -17,6 +17,7 @@ import type { Client } from "pg";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
+import { voltaUrgR1bSePreciso } from "./urg-r1b-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -121,6 +122,8 @@ export async function voltaUrgb(c: Client): Promise<void> {
 
 /** LIFO: quem volta (ou reaplica) a Camada ou qualquer release anterior dentro da txn tira esta frente antes. */
 export async function voltaUrgbSePreciso(c: Client): Promise<void> {
+  // [urg R1b] LIFO: a 198000 (por cima desta frente) sai antes — o _down dela neutraliza as 2 funcoes que citam os helpers da 170000
+  await voltaUrgR1bSePreciso(c);
   let viva = false;
   for (const { id } of URGB_MIGS) if (await urgbViva(c, id)) viva = true;
   if (!viva) return;
