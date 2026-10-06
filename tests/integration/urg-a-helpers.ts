@@ -44,11 +44,13 @@ type Bloco = {
 // Frente por CIMA desta no kit (urgentes plan-b, 180000..199000). Import dinâmico tolerante a ausência.
 type Sucessora = {
   voltaSePreciso: (c: Client) => Promise<void>;
+  dropSePreciso: (c: Client) => Promise<void>;
   md5Sucessor: (sig: string, pinado?: string) => string[];
 };
 const SUCESSORA: Sucessora | null = existsSync(`${ROOT}tests/integration/urgb-helpers.ts`)
   ? await import(/* @vite-ignore */ "./urgb-helpers.ts").then((m) => ({
       voltaSePreciso: m.voltaUrgbSePreciso as Sucessora["voltaSePreciso"],
+      dropSePreciso: m.dropUrgbSePreciso as Sucessora["dropSePreciso"],
       md5Sucessor: m.md5UrgbSucessor as Sucessora["md5Sucessor"],
     }))
   : null;
@@ -92,6 +94,10 @@ export async function urgAViva(c: Client, bloco: UrgAId): Promise<boolean> {
 /** Aplica os blocos que existem e ainda não estão vivos, NA ORDEM (idempotente); `ate` = último bloco a aplicar. */
 export async function aplicaUrgA(c: Client, ate?: UrgAId): Promise<void> {
   exigeBancoLocal();
+  // LIFO: uma frente POR CIMA (plan-b → … → R11) que REDEFINE funções desta frente (ex.: a R11c redefine _estoque_etiqueta_core
+  // e os 3 extratos) deixa a sentinela desta frente com o md5 DELA, não o desta — e reaplicar aqui bateria no md5 de ANTES. Volta a
+  // sucessora primeiro (na txn do teste; restaura esta frente ao próprio "depois"). Quem precisa da sucessora reaplica depois.
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c);
   for (const { id, b } of URG_A_MIGS) {
     if (!(await urgAViva(c, id))) await aplicarArquivo(c, b.mig);
     if (id === ate) break;
@@ -102,6 +108,8 @@ export async function aplicaUrgA(c: Client, ate?: UrgAId): Promise<void> {
 /** Volta, LIFO, os blocos vivos cujo `_down` desfaz algo (`volta`); os no-op (170000) ficam. */
 export async function voltaUrgA(c: Client): Promise<void> {
   exigeBancoLocal();
+  // LIFO: a sucessora (R11 etc.) redefine funções desta frente — sai ANTES, senão o _down desta frente bate no md5 dela.
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c);
   // o _down da 171000 faz SET LOCAL check_function_bodies = off (devolve o texto que ja estava vivo, sem trava de tabela); na txn do
   // teste o SET LOCAL vazaria para o resto do teste (re-aplicar migration antiga sem validar corpo) - devolve o valor de antes.
   const cfb = (await c.query("SELECT current_setting('check_function_bodies') AS v")).rows[0].v as string;
@@ -112,6 +120,12 @@ export async function voltaUrgA(c: Client): Promise<void> {
   await zeraTimeouts(c);
 }
 
+/** LIFO: volta a frente POR CIMA desta (plan-b → … → R11), se viva — para quem rola o `_down`/ida de UM bloco desta frente à mão
+ * (ex.: `semBloco` de urg-a1) e precisa que a sucessora que redefine funções desta frente saia antes. No-op sem sucessora. */
+export async function voltaSucessoraUrgASePreciso(c: Client): Promise<void> {
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c);
+}
+
 /**
  * LIFO DENTRO desta frente: tira (pelos `_down`, na ordem inversa) os blocos POR CIMA de `bloco` que estejam vivos — quem testa o
  * `_down`/`_down_drop` de um bloco com os de cima vivos na cópia (ex.: a 174000 com a 175000, cujas funções citam
@@ -119,6 +133,8 @@ export async function voltaUrgA(c: Client): Promise<void> {
  */
 export async function voltaUrgAAcima(c: Client, bloco: UrgAId): Promise<void> {
   exigeBancoLocal();
+  // LIFO: a sucessora (R11 etc.) por cima de TODA esta frente sai antes (ela não distingue blocos internos desta frente).
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c);
   const cfb = (await c.query("SELECT current_setting('check_function_bodies') AS v")).rows[0].v as string;
   const limite = ORDEM.indexOf(bloco);
   for (const { id, b } of [...URG_A_MIGS].reverse()) {
@@ -168,6 +184,9 @@ export function md5UrgASucessor(sig: string, pinado?: string): string[] {
  */
 export async function dropUrgAExtratoSePreciso(c: Client): Promise<void> {
   exigeBancoLocal();
+  // LIFO: a R11c (199200) REDEFINE os 3 extratos da 177000 — o _down_drop da 177000 confere o md5 deles e recusa com a R11c viva.
+  // Volta/dropa a sucessora primeiro (restaura os extratos ao "depois" da 177000, o que o _down_drop exige).
+  if (SUCESSORA) await SUCESSORA.dropSePreciso(c);
   const e = URG_A_MIGS.find((x) => x.id === "177000");
   if (!e) return;
   let existe = false;

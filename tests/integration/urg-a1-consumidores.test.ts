@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, ehBancoLocal, TENANT_TESTE } from "./db";
-import { aplicaUrgA, urgAViva, URG_A_MIGS, zeraVinculosTamanhoNaTxn } from "./urg-a-helpers";
+import { aplicaUrgA, urgAViva, URG_A_MIGS, zeraVinculosTamanhoNaTxn, voltaSucessoraUrgASePreciso } from "./urg-a-helpers";
 import { aplicarArquivo } from "./mig-txn";
 
 const RODA = hasDb && ehBancoLocal();
@@ -39,6 +39,9 @@ async function md5s(c: Client): Promise<Record<string, string | null>> {
 }
 const depois = (): Record<string, string> => Object.fromEntries(SIGS.map((s) => [s, bloco()!.MD5[s]?.depois]));
 async function semBloco(c: Client): Promise<void> {
+  // LIFO: a R11c (199200) redefine _estoque_etiqueta_core (um dos 4 consumidores); sai ANTES, senão a sentinela 171000 traz o md5
+  // dela e o _down/ida desta frente bateria no md5 inesperado.
+  await voltaSucessoraUrgASePreciso(c);
   if (await urgAViva(c, "171000")) await aplicarArquivo(c, bloco()!.down);
   await c.query("SET LOCAL transaction_timeout = 0");
   // o _down desliga check_function_bodies (SET LOCAL): a ida medida/aplicada depois valida o corpo como no deploy (arquivo proprio)

@@ -151,9 +151,17 @@ export async function aplicaUrgd(c: Client, ate?: UrgdId): Promise<void> {
 /** Volta TODOS os blocos vivos, LIFO, pelos `_down` NEUTROS (o bloco `downNoop` fica: o `_down` dele não muda nada). */
 export async function voltaUrgd(c: Client): Promise<void> {
   exigeBancoLocal();
-  for (const { id, b } of [...URGD_MIGS].reverse()) {
-    if (b.URGD_ESTADO?.downNoop) continue;
-    if (await urgdViva(c, id)) await aplicarArquivo(c, b.down);
+  // o _down da r11c (199200) RECUSA sem esta GUC quando o ledger novo tem linhas (Ruling 16); em teste/manutenção a volta é
+  // intencional. Setada LOCAL (restaurada no fim da txn do teste); só a r11c a lê.
+  const antGuc = (await c.query("SELECT current_setting('app.confirmo_volta_estoque_peca_teste', true) AS v")).rows[0]?.v ?? "";
+  await c.query("SELECT set_config('app.confirmo_volta_estoque_peca_teste', 'sim', true)");
+  try {
+    for (const { id, b } of [...URGD_MIGS].reverse()) {
+      if (b.URGD_ESTADO?.downNoop) continue;
+      if (await urgdViva(c, id)) await aplicarArquivo(c, b.down);
+    }
+  } finally {
+    await c.query("SELECT set_config('app.confirmo_volta_estoque_peca_teste', $1, true)", [antGuc]);
   }
   await zeraTimeouts(c);
 }

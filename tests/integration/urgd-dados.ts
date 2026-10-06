@@ -109,6 +109,45 @@ export const URGD_BLOCOS: Record<string, UrgdBloco> = /* URGD_JSON_INICIO */
       "pendente": "SELECT NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.estoque_tecido_baixas'::regclass AND attname = 'peca_teste_tentativa_id' AND NOT attisdropped) AS ok",
       "downNoop": true
     }
+  },
+  "r11c": {
+    "mig": "supabase/migrations/20261103199200_urg_r11_estoque_fonte_unica.sql",
+    "down": "supabase/rollback/20261103199200_urg_r11_estoque_fonte_unica_down.sql",
+    "URGD_SENTINELA": "public._estoque_aviamento_core(uuid)",
+    "URGD_MD5": {
+      "public._estoque_aviamento_core(uuid)": {
+        "antes": "f6eea9360a5fee924824a323de47c53f",
+        "depois": "439093c8501001c17e71f283b1dcef92"
+      },
+      "public._estoque_etiqueta_core(uuid)": {
+        "antes": "e7681ebd0e2a32144ca41795735182fc",
+        "depois": "de6eeb18e1e15cf8137a6560e451fa0f"
+      },
+      "public._estoque_extrato_tecido_core(uuid,uuid)": {
+        "antes": "bccc3cb6423a88d4942921f2e72c03fb",
+        "depois": "0c73603f23ad1d74022457d699f7d834"
+      },
+      "public._estoque_extrato_aviamento_core(uuid,uuid)": {
+        "antes": "c86981af6abf8129f5142e3636083483",
+        "depois": "00759c836dd9ee40a4dcf1db427c9276"
+      },
+      "public._estoque_extrato_insumo_core(uuid,uuid)": {
+        "antes": "9f2013ad56ec77e0601d51b32b793708",
+        "depois": "808b80ed2183c812533d3ee92978bddd"
+      }
+    },
+    "URGD_ACL": {
+      "public._estoque_aviamento_core(uuid)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public._estoque_etiqueta_core(uuid)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public._estoque_extrato_tecido_core(uuid,uuid)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public._estoque_extrato_aviamento_core(uuid,uuid)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public._estoque_extrato_insumo_core(uuid,uuid)": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    "URGD_DEPS": {
+      "public._estoque_tecido_core(uuid)": "9140c253a8b62fa143de052d84a1c329",
+      "public._insumo_pecas(text,jsonb,numeric)": "2e1b701be975366933e9ad704cb25c18",
+      "public._insumo_tamanho_de(uuid)": "46fd6f65599f7de2d3ab12777fefa7d1"
+    }
   }
 }
 /* URGD_JSON_FIM */;

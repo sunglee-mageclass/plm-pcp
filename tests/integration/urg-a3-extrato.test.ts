@@ -10,6 +10,7 @@ import { hasDb, withTx, comoUsuario, um, semJwt, ehBancoLocal, TENANT_TESTE, USE
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { aplicaUrgA, dropUrgAExtratoSePreciso, md5UrgASucessor, URG_A_MIGS } from "./urg-a-helpers";
+import { aplicaUrgd, URGD_MIGS } from "./urgd-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { filtrarBucket, montarExtrato, movDeLinhaRpc, type MovEstoque, type FamiliaEstoque } from "@/lib/estoque-extrato";
 
@@ -497,22 +498,22 @@ describe.skipIf(!RODA)("urg R3 T14 — extrato de estoque por item (177000)", ()
     });
   });
 
-  it("[fix 1, L4] anti-drift: os 3 cores que o extrato ESPELHA tem o md5 que a 177000 exige (fim da cadeia de sucessores urg-a/urgb e o vivo) - mudou um core = regere a 177000 e rode a varredura", async () => {
-    const txt = readFileSync(ROOT + bloco()!.mig, "utf8");
-    const pin = Object.fromEntries(
-      [...txt.matchAll(/^--   (public\._estoque_\w+_core\(uuid\))  \(espelhado; exigido\) ([0-9a-f]{32})$/gm)].map((x) => [x[1], x[2]]));
-    // md5 de ANTES desta frente (fatos do plan-a); a cadeia acrescenta os "depois" de quem os redefine (171000 no insumo; plan-b, se vier)
-    const BASE: Record<string, string> = {
-      "public._estoque_tecido_core(uuid)": "9140c253a8b62fa143de052d84a1c329",
-      "public._estoque_aviamento_core(uuid)": "f6eea9360a5fee924824a323de47c53f",
-      "public._estoque_etiqueta_core(uuid)": "28aa308d297cc18b653c6290a5b3b958",
-    };
-    expect(Object.keys(pin).sort()).toEqual(Object.keys(BASE).sort());
-    const msg = (sig: string) => `${sig} mudou: o extrato (177000) espelha as regras deste core - regere a 177000 (mig/gerar-a3.mjs) e rode a varredura`;
-    for (const sig of Object.keys(BASE)) expect(md5UrgASucessor(sig, BASE[sig]).at(-1), msg(sig)).toBe(pin[sig]);
+  it("[fix 1, L4 + R11] anti-drift: o pino dos 3 cores ESPELHADOS e lido da ULTIMA migration com as linhas (espelhado; exigido) = a 199200 (R11c). O extrato espelha os cores; mudou um core = regere a 199200 e rode a varredura", async () => {
+    // Ruling 3 (R11): o espelho agora e a R11 (199200 redefine aviamento/etiqueta + os extratos). O pino passa a ser lido do
+    // ULTIMO arquivo com as linhas (espelhado; exigido) - a 199200 quando existe, senao a 177000. A guarda continua "md5 da cadeia
+    // = o do arquivo" e, com o bloco aplicado, "md5 vivo = o do arquivo".
+    const espelho = (mig: string) => Object.fromEntries(
+      [...readFileSync(ROOT + mig, "utf8").matchAll(/^--   (public\._estoque_\w+_core\(uuid\))  \(espelhado; exigido\) ([0-9a-f]{32})$/gm)]
+        .map((x) => [x[1], x[2]]));
+    const r11c = URGD_MIGS.find((x) => x.id === "r11c")?.b;
+    const ultima = r11c ? r11c.mig : bloco()!.mig;  // 199200 e a ultima com (espelhado; exigido); sem a R11, cai na 177000
+    const pin = espelho(ultima);
+    expect(Object.keys(pin).sort(), `${ultima} tem de pinar os 3 cores espelhados`).toEqual(
+      ["public._estoque_aviamento_core(uuid)", "public._estoque_etiqueta_core(uuid)", "public._estoque_tecido_core(uuid)"]);
+    const msg = (sig: string) => `${sig} mudou: o extrato espelha as regras deste core - regere a 199200 (mig/gerar-d.mjs r11c) e rode a varredura`;
     await withTx(async (c) => {
-      await aplicaUrgA(c, "177000");
-      for (const sig of Object.keys(BASE)) {
+      await aplicaUrgd(c, "r11c");  // aplica 177000 (via urg-a, dentro do urgd) + o ledger + a R11c: os cores ficam no estado ESPELHADO
+      for (const sig of Object.keys(pin)) {
         const vivo = (await um<{ m: string }>(c, "SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [sig])).m;
         expect(vivo, msg(sig)).toBe(pin[sig]);
       }

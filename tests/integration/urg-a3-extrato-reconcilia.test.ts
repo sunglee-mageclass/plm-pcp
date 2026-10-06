@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, ehBancoLocal, comoUsuario, um, semJwt, TENANT_TESTE } from "./db";
 import { aplicaUrgA } from "./urg-a-helpers";
+import { aplicaUrgd } from "./urgd-helpers";
 import { filtrarBucket, montarExtrato, movDeLinhaRpc, type FamiliaEstoque } from "@/lib/estoque-extrato";
 
 const RODA = hasDb && ehBancoLocal();
@@ -61,7 +62,7 @@ const CHECA = `,
      WHERE e.quantidade = 0 OR e.tipo NOT IN ('entrada', 'saida') OR (e.tipo = 'entrada') <> (e.quantidade > 0)
         OR (e.quando IS NULL) <> (e.quando_fonte = 'sem_data')
         OR e.quando_fonte NOT IN ('registro', 'data_oc', 'data_envio', 'data_os', 'sem_data')
-        OR e.origem NOT IN ('oc', 'reposicao_troca', 'rolo_entrada', 'separacao_rolo', 'corte', 'ajuste', 'os', 'explosao', 'explosao_ajuste', 'revenda')
+        OR e.origem NOT IN ('oc', 'reposicao_troca', 'rolo_entrada', 'separacao_rolo', 'corte', 'ajuste', 'os', 'explosao', 'explosao_ajuste', 'revenda', 'peca_teste', 'peca_teste_estorno')
     UNION ALL
     SELECT 'contagem', NULL, NULL, NULL, (SELECT count(*) FROM core), (SELECT count(*) FROM ext)
      WHERE (SELECT count(*) FROM core) = 0`;
@@ -203,4 +204,28 @@ describe.skipIf(!RODA)("urg R3 T14 — extrato: saldo negativo e revenda de impo
       expect([ex.saldoFinal, ex.confere, ex.negativo]).toEqual([-15, true, true]);
     });
   });
+});
+
+// [R11c] caso NOVO: com o ledger estoque_peca_teste_baixas SEMEADO (peca_teste + estorno), a reconciliacao continua 0 em todas as lojas
+// e itens (aviamento e insumo) — o core soma o ledger e o extrato mostra as linhas, Σ = recebido - baixa POR CONSTRUCAO (Rulings 2 e 3).
+describe.skipIf(!RODA)("urg R11c — extrato reconcilia com baixas de peca teste semeadas (aviamento/insumo)", () => {
+  const T = TENANT_TESTE;
+  it("aviamento e insumo: Σ por bucket = recebido - baixa do core mesmo com peca_teste + estorno no ledger novo", async () => {
+    await withTx(async (c) => {
+      await c.query("SET LOCAL statement_timeout = '600s'");
+      await aplicaUrgd(c, "r11c");  // 177000 (via urg-a) + o ledger (r11a/b) + a R11c
+      const av = (await um<{ id: string }>(c,
+        `SELECT a.id FROM public.aviamentos a WHERE a.tenant_id = $1
+           AND (SELECT count(*) FROM public.variantes_aviamento va WHERE va.aviamento_id = a.id) = 1 ORDER BY a.id LIMIT 1`, [T])).id;
+      const etq = (await um<{ id: string }>(c, `SELECT id FROM public.etiquetas WHERE tenant_id = $1 ORDER BY id LIMIT 1`, [T])).id;
+      await c.query(`INSERT INTO public.estoque_peca_teste_baixas (tenant_id, familia, aviamento_id, origem, quantidade, rotulo)
+                     VALUES ($1,'aviamento',$2,'peca_teste',5,'rc'),($1,'aviamento',$2,'peca_teste_estorno',-2,'rc est')`, [T, av]);
+      await c.query(`INSERT INTO public.estoque_peca_teste_baixas (tenant_id, familia, etiqueta_id, origem, quantidade, rotulo)
+                     VALUES ($1,'insumo',$2,'peca_teste',4,'rc')`, [T, etq]);
+      for (const fam of ["aviamento", "insumo"] as FamiliaEstoque[]) {
+        const { rows } = await c.query(SQL[fam] + CHECA);
+        expect(rows, `${fam} nao reconcilia com peca teste semeada`).toEqual([]);
+      }
+    });
+  }, 600_000);
 });
