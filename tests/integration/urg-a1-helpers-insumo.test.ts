@@ -5,7 +5,13 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, um, ehBancoLocal, TENANT_TESTE } from "./db";
-import { aplicaUrgA, voltaUrgASePreciso, dropUrgAExtratoSePreciso, URG_A_MIGS } from "./urg-a-helpers";
+import {
+  aplicaUrgA,
+  voltaUrgASePreciso,
+  dropUrgAExtratoSePreciso,
+  zeraVinculosTamanhoNaTxn,
+  URG_A_MIGS,
+} from "./urg-a-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { CASOS_INSUMO_TAMANHO, type CasoInsumoTamanho } from "../fixtures/insumo-tamanho-casos";
 
@@ -291,6 +297,7 @@ describe.skipIf(!RODA)("urg R1 T2 — helpers SQL do insumo por tamanho (170000)
     const b = bloco();
     expect(b).toBeTruthy();
     await withTx(async (c) => {
+      await zeraVinculosTamanhoNaTxn(c); // vinculo pre-existente na copia (QA) vira 'sem vinculo' so nesta txn
       await aplicaUrgA(c, "170000");
       await voltaUrgASePreciso(c); // LIFO: blocos por cima (urgb, 170500…) neutralizados antes
       // LIFO (urg R3 T14): o extrato da 177000 (so leitura, _down no-op) CITA _insumo_pecas/_insumo_tamanho_de/_grade_mapa_cad - o

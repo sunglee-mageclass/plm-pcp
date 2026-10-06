@@ -176,3 +176,19 @@ export async function dropUrgAExtratoSePreciso(c: Client): Promise<void> {
   await zeraTimeouts(c);
 }
 // ======================== FIM secao R3 T14 (extrato 177000) ========================
+
+/**
+ * Insumos com vínculo de tamanho JÁ gravados na cópia (ex.: criados pela QA de navegador) viram "sem vínculo" DENTRO da txn
+ * revertida do teste — os testes da R1 que medem "insumo sem vínculo = idêntico" e o `_down_drop` da 170000 (que recusa com
+ * vínculo gravado) ficam independentes do dado da cópia. Nada sai da txn; só na cópia local.
+ */
+export async function zeraVinculosTamanhoNaTxn(c: Client): Promise<void> {
+  exigeBancoLocal();
+  const col = await c.query(
+    `SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'etiquetas' AND column_name = 'tamanho_vinculado'`,
+  );
+  if (col.rowCount === 0) return;
+  await c.query(
+    `UPDATE public.etiquetas SET tamanho_vinculado = NULL WHERE nullif(btrim(tamanho_vinculado), '') IS NOT NULL`,
+  );
+}

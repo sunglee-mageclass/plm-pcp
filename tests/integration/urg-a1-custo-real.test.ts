@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, ehBancoLocal, TENANT_TESTE, USER_TESTE } from "./db";
-import { aplicaUrgA, urgAViva, URG_A_MIGS } from "./urg-a-helpers";
+import { aplicaUrgA, urgAViva, URG_A_MIGS, zeraVinculosTamanhoNaTxn } from "./urg-a-helpers";
 import { aplicarArquivo } from "./mig-txn";
 
 const RODA = hasDb && ehBancoLocal();
@@ -273,6 +273,7 @@ describe.skipIf(!RODA)("urg R1 T5 — custo REAL do insumo vinculado rateado (17
 
   it("diff-validacao: insumo SEM vinculo = identico em TODAS as lojas (estado real e com todo CAD cortado); com os 18 vinculos legados so o 'real' de card com insumo vinculado muda, para menos", async () => {
     await withTx(async (c) => {
+      await zeraVinculosTamanhoNaTxn(c); // vinculo pre-existente na copia (QA) vira 'sem vinculo' so nesta txn
       await c.query("SET LOCAL statement_timeout = '300s'");
       await semBloco(c);
       expect(await md5Fn(c, SIG)).toBe(ANTES);

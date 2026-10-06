@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, ehBancoLocal, TENANT_TESTE } from "./db";
-import { aplicaUrgA, urgAViva, URG_A_MIGS } from "./urg-a-helpers";
+import { aplicaUrgA, urgAViva, URG_A_MIGS, zeraVinculosTamanhoNaTxn } from "./urg-a-helpers";
 import { aplicarArquivo } from "./mig-txn";
 
 const RODA = hasDb && ehBancoLocal();
@@ -143,6 +143,7 @@ describe.skipIf(!RODA)("urg R1 T3 — consumidores SQL do insumo por tamanho (17
 
   it("diff-validacao: insumo SEM vinculo = identico — _estoque_etiqueta_core e _custo_calcular de TODAS as lojas antes x depois", async () => {
     await withTx(async (c) => {
+      await zeraVinculosTamanhoNaTxn(c); // vinculo pre-existente na copia (QA) vira 'sem vinculo' so nesta txn
       await c.query("SET LOCAL statement_timeout = '300s'");
       await semBloco(c);
       expect(await md5s(c)).toEqual(ANTES);
