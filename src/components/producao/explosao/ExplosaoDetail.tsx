@@ -1055,7 +1055,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           <div className="flex items-start gap-3">
             <Breadcrumb
               items={[
-                { label: "Entrada e Saída" },
+                { label: "PCP" },
                 { label: "Explosão" },
                 { label: modelo?.ref ?? "…" },
               ]}

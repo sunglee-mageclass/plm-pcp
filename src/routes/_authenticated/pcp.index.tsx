@@ -7,5 +7,5 @@ export const Route = createFileRoute("/_authenticated/pcp/")({
 
 
 function PcpIndex() {
-  return <SectionHub module="pcp" subtitle="Serviços terceirizados de produção." />;
+  return <SectionHub module="pcp" subtitle="Explosão, serviços terceirizados e etapas da produção." />;
 }

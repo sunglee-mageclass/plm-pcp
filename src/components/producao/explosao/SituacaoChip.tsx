@@ -1,4 +1,4 @@
-// Chip de Situação da Explosão — usado na lista (entrada-saida.explosao.index.tsx) e no
+// Chip de Situação da Explosão — usado na lista (pcp.explosao.index.tsx) e no
 // detalhe (ExplosaoDetail.tsx), sobre a MESMA regra `situacaoExplosao` (src/lib/explosao.ts).
 import { AlertTriangle, Check, Clock } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";

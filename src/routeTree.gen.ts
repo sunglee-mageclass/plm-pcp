@@ -33,6 +33,7 @@ import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authen
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as AuthenticatedPcpServicosRouteImport } from './routes/_authenticated/pcp.servicos'
 import { Route as AuthenticatedPcpOficinaRouteImport } from './routes/_authenticated/pcp.oficina'
+import { Route as AuthenticatedPcpExplosaoRouteImport } from './routes/_authenticated/pcp.explosao'
 import { Route as AuthenticatedPcpEtapasRouteImport } from './routes/_authenticated/pcp.etapas'
 import { Route as AuthenticatedExpedicaoLancamentosRouteImport } from './routes/_authenticated/expedicao.lancamentos'
 import { Route as AuthenticatedExpedicaoDirecionamentoRouteImport } from './routes/_authenticated/expedicao.direcionamento'
@@ -69,9 +70,9 @@ import { Route as AuthenticatedAdminConfiguracoesRouteImport } from './routes/_a
 import { Route as AuthenticatedAdminAuditoriaRouteImport } from './routes/_authenticated/admin/auditoria'
 import { Route as AuthenticatedPcpServicosIndexRouteImport } from './routes/_authenticated/pcp.servicos.index'
 import { Route as AuthenticatedPcpOficinaIndexRouteImport } from './routes/_authenticated/pcp.oficina.index'
+import { Route as AuthenticatedPcpExplosaoIndexRouteImport } from './routes/_authenticated/pcp.explosao.index'
 import { Route as AuthenticatedExpedicaoDirecionamentoIndexRouteImport } from './routes/_authenticated/expedicao.direcionamento.index'
 import { Route as AuthenticatedExpedicaoCqIndexRouteImport } from './routes/_authenticated/expedicao.cq.index'
-import { Route as AuthenticatedEntradaSaidaExplosaoIndexRouteImport } from './routes/_authenticated/entrada-saida.explosao.index'
 import { Route as AuthenticatedCadastroTecidosIndexRouteImport } from './routes/_authenticated/cadastro.tecidos.index'
 import { Route as ApiIntegracaoV1ProdutosRouteImport } from './routes/api.integracao.v1.produtos'
 import { Route as AuthenticatedPcpServicosModeloIdRouteImport } from './routes/_authenticated/pcp.servicos.$modeloId'
@@ -206,6 +207,12 @@ const AuthenticatedPcpOficinaRoute = AuthenticatedPcpOficinaRouteImport.update({
   path: '/oficina',
   getParentRoute: () => AuthenticatedPcpRoute,
 } as any)
+const AuthenticatedPcpExplosaoRoute =
+  AuthenticatedPcpExplosaoRouteImport.update({
+    id: '/explosao',
+    path: '/explosao',
+    getParentRoute: () => AuthenticatedPcpRoute,
+  } as any)
 const AuthenticatedPcpEtapasRoute = AuthenticatedPcpEtapasRouteImport.update({
   id: '/etapas',
   path: '/etapas',
@@ -420,6 +427,12 @@ const AuthenticatedPcpOficinaIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedPcpOficinaRoute,
   } as any)
+const AuthenticatedPcpExplosaoIndexRoute =
+  AuthenticatedPcpExplosaoIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedPcpExplosaoRoute,
+  } as any)
 const AuthenticatedExpedicaoDirecionamentoIndexRoute =
   AuthenticatedExpedicaoDirecionamentoIndexRouteImport.update({
     id: '/',
@@ -431,12 +444,6 @@ const AuthenticatedExpedicaoCqIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedExpedicaoCqRoute,
-  } as any)
-const AuthenticatedEntradaSaidaExplosaoIndexRoute =
-  AuthenticatedEntradaSaidaExplosaoIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedEntradaSaidaExplosaoRoute,
   } as any)
 const AuthenticatedCadastroTecidosIndexRoute =
   AuthenticatedCadastroTecidosIndexRouteImport.update({
@@ -517,7 +524,7 @@ export interface FileRoutesByFullPath {
   '/criacao/produto-acabado': typeof AuthenticatedCriacaoProdutoAcabadoRoute
   '/criacao/produto-importado': typeof AuthenticatedCriacaoProdutoImportadoRoute
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
-  '/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoRouteWithChildren
+  '/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoRoute
   '/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   '/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/entrada-saida/oc-p-acabado': typeof AuthenticatedEntradaSaidaOcPAcabadoRoute
@@ -529,6 +536,7 @@ export interface FileRoutesByFullPath {
   '/expedicao/direcionamento': typeof AuthenticatedExpedicaoDirecionamentoRouteWithChildren
   '/expedicao/lancamentos': typeof AuthenticatedExpedicaoLancamentosRoute
   '/pcp/etapas': typeof AuthenticatedPcpEtapasRoute
+  '/pcp/explosao': typeof AuthenticatedPcpExplosaoRouteWithChildren
   '/pcp/oficina': typeof AuthenticatedPcpOficinaRouteWithChildren
   '/pcp/servicos': typeof AuthenticatedPcpServicosRouteWithChildren
   '/admin/': typeof AuthenticatedAdminIndexRoute
@@ -545,9 +553,9 @@ export interface FileRoutesByFullPath {
   '/pcp/servicos/$modeloId': typeof AuthenticatedPcpServicosModeloIdRoute
   '/api/integracao/v1/produtos': typeof ApiIntegracaoV1ProdutosRoute
   '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/entrada-saida/explosao/': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/expedicao/cq/': typeof AuthenticatedExpedicaoCqIndexRoute
   '/expedicao/direcionamento/': typeof AuthenticatedExpedicaoDirecionamentoIndexRoute
+  '/pcp/explosao/': typeof AuthenticatedPcpExplosaoIndexRoute
   '/pcp/oficina/': typeof AuthenticatedPcpOficinaIndexRoute
   '/pcp/servicos/': typeof AuthenticatedPcpServicosIndexRoute
 }
@@ -581,6 +589,7 @@ export interface FileRoutesByTo {
   '/criacao/produto-acabado': typeof AuthenticatedCriacaoProdutoAcabadoRoute
   '/criacao/produto-importado': typeof AuthenticatedCriacaoProdutoImportadoRoute
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
+  '/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoRoute
   '/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   '/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/entrada-saida/oc-p-acabado': typeof AuthenticatedEntradaSaidaOcPAcabadoRoute
@@ -604,9 +613,9 @@ export interface FileRoutesByTo {
   '/pcp/servicos/$modeloId': typeof AuthenticatedPcpServicosModeloIdRoute
   '/api/integracao/v1/produtos': typeof ApiIntegracaoV1ProdutosRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/expedicao/cq': typeof AuthenticatedExpedicaoCqIndexRoute
   '/expedicao/direcionamento': typeof AuthenticatedExpedicaoDirecionamentoIndexRoute
+  '/pcp/explosao': typeof AuthenticatedPcpExplosaoIndexRoute
   '/pcp/oficina': typeof AuthenticatedPcpOficinaIndexRoute
   '/pcp/servicos': typeof AuthenticatedPcpServicosIndexRoute
 }
@@ -649,7 +658,7 @@ export interface FileRoutesById {
   '/_authenticated/criacao/produto-acabado': typeof AuthenticatedCriacaoProdutoAcabadoRoute
   '/_authenticated/criacao/produto-importado': typeof AuthenticatedCriacaoProdutoImportadoRoute
   '/_authenticated/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
-  '/_authenticated/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoRouteWithChildren
+  '/_authenticated/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoRoute
   '/_authenticated/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   '/_authenticated/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/_authenticated/entrada-saida/oc-p-acabado': typeof AuthenticatedEntradaSaidaOcPAcabadoRoute
@@ -661,6 +670,7 @@ export interface FileRoutesById {
   '/_authenticated/expedicao/direcionamento': typeof AuthenticatedExpedicaoDirecionamentoRouteWithChildren
   '/_authenticated/expedicao/lancamentos': typeof AuthenticatedExpedicaoLancamentosRoute
   '/_authenticated/pcp/etapas': typeof AuthenticatedPcpEtapasRoute
+  '/_authenticated/pcp/explosao': typeof AuthenticatedPcpExplosaoRouteWithChildren
   '/_authenticated/pcp/oficina': typeof AuthenticatedPcpOficinaRouteWithChildren
   '/_authenticated/pcp/servicos': typeof AuthenticatedPcpServicosRouteWithChildren
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
@@ -677,9 +687,9 @@ export interface FileRoutesById {
   '/_authenticated/pcp/servicos/$modeloId': typeof AuthenticatedPcpServicosModeloIdRoute
   '/api/integracao/v1/produtos': typeof ApiIntegracaoV1ProdutosRoute
   '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/_authenticated/entrada-saida/explosao/': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/_authenticated/expedicao/cq/': typeof AuthenticatedExpedicaoCqIndexRoute
   '/_authenticated/expedicao/direcionamento/': typeof AuthenticatedExpedicaoDirecionamentoIndexRoute
+  '/_authenticated/pcp/explosao/': typeof AuthenticatedPcpExplosaoIndexRoute
   '/_authenticated/pcp/oficina/': typeof AuthenticatedPcpOficinaIndexRoute
   '/_authenticated/pcp/servicos/': typeof AuthenticatedPcpServicosIndexRoute
 }
@@ -734,6 +744,7 @@ export interface FileRouteTypes {
     | '/expedicao/direcionamento'
     | '/expedicao/lancamentos'
     | '/pcp/etapas'
+    | '/pcp/explosao'
     | '/pcp/oficina'
     | '/pcp/servicos'
     | '/admin/'
@@ -750,9 +761,9 @@ export interface FileRouteTypes {
     | '/pcp/servicos/$modeloId'
     | '/api/integracao/v1/produtos'
     | '/cadastro/tecidos/'
-    | '/entrada-saida/explosao/'
     | '/expedicao/cq/'
     | '/expedicao/direcionamento/'
+    | '/pcp/explosao/'
     | '/pcp/oficina/'
     | '/pcp/servicos/'
   fileRoutesByTo: FileRoutesByTo
@@ -786,6 +797,7 @@ export interface FileRouteTypes {
     | '/criacao/produto-acabado'
     | '/criacao/produto-importado'
     | '/entrada-saida/alertas-tecido'
+    | '/entrada-saida/explosao'
     | '/entrada-saida/oc-aviamento'
     | '/entrada-saida/oc-insumo'
     | '/entrada-saida/oc-p-acabado'
@@ -809,9 +821,9 @@ export interface FileRouteTypes {
     | '/pcp/servicos/$modeloId'
     | '/api/integracao/v1/produtos'
     | '/cadastro/tecidos'
-    | '/entrada-saida/explosao'
     | '/expedicao/cq'
     | '/expedicao/direcionamento'
+    | '/pcp/explosao'
     | '/pcp/oficina'
     | '/pcp/servicos'
   id:
@@ -865,6 +877,7 @@ export interface FileRouteTypes {
     | '/_authenticated/expedicao/direcionamento'
     | '/_authenticated/expedicao/lancamentos'
     | '/_authenticated/pcp/etapas'
+    | '/_authenticated/pcp/explosao'
     | '/_authenticated/pcp/oficina'
     | '/_authenticated/pcp/servicos'
     | '/_authenticated/admin/'
@@ -881,9 +894,9 @@ export interface FileRouteTypes {
     | '/_authenticated/pcp/servicos/$modeloId'
     | '/api/integracao/v1/produtos'
     | '/_authenticated/cadastro/tecidos/'
-    | '/_authenticated/entrada-saida/explosao/'
     | '/_authenticated/expedicao/cq/'
     | '/_authenticated/expedicao/direcionamento/'
+    | '/_authenticated/pcp/explosao/'
     | '/_authenticated/pcp/oficina/'
     | '/_authenticated/pcp/servicos/'
   fileRoutesById: FileRoutesById
@@ -1064,6 +1077,13 @@ declare module '@tanstack/react-router' {
       path: '/oficina'
       fullPath: '/pcp/oficina'
       preLoaderRoute: typeof AuthenticatedPcpOficinaRouteImport
+      parentRoute: typeof AuthenticatedPcpRoute
+    }
+    '/_authenticated/pcp/explosao': {
+      id: '/_authenticated/pcp/explosao'
+      path: '/explosao'
+      fullPath: '/pcp/explosao'
+      preLoaderRoute: typeof AuthenticatedPcpExplosaoRouteImport
       parentRoute: typeof AuthenticatedPcpRoute
     }
     '/_authenticated/pcp/etapas': {
@@ -1318,6 +1338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPcpOficinaIndexRouteImport
       parentRoute: typeof AuthenticatedPcpOficinaRoute
     }
+    '/_authenticated/pcp/explosao/': {
+      id: '/_authenticated/pcp/explosao/'
+      path: '/'
+      fullPath: '/pcp/explosao/'
+      preLoaderRoute: typeof AuthenticatedPcpExplosaoIndexRouteImport
+      parentRoute: typeof AuthenticatedPcpExplosaoRoute
+    }
     '/_authenticated/expedicao/direcionamento/': {
       id: '/_authenticated/expedicao/direcionamento/'
       path: '/'
@@ -1331,13 +1358,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/expedicao/cq/'
       preLoaderRoute: typeof AuthenticatedExpedicaoCqIndexRouteImport
       parentRoute: typeof AuthenticatedExpedicaoCqRoute
-    }
-    '/_authenticated/entrada-saida/explosao/': {
-      id: '/_authenticated/entrada-saida/explosao/'
-      path: '/'
-      fullPath: '/entrada-saida/explosao/'
-      preLoaderRoute: typeof AuthenticatedEntradaSaidaExplosaoIndexRouteImport
-      parentRoute: typeof AuthenticatedEntradaSaidaExplosaoRoute
     }
     '/_authenticated/cadastro/tecidos/': {
       id: '/_authenticated/cadastro/tecidos/'
@@ -1494,24 +1514,9 @@ const AuthenticatedCriacaoRouteChildren: AuthenticatedCriacaoRouteChildren = {
 const AuthenticatedCriacaoRouteWithChildren =
   AuthenticatedCriacaoRoute._addFileChildren(AuthenticatedCriacaoRouteChildren)
 
-interface AuthenticatedEntradaSaidaExplosaoRouteChildren {
-  AuthenticatedEntradaSaidaExplosaoIndexRoute: typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
-}
-
-const AuthenticatedEntradaSaidaExplosaoRouteChildren: AuthenticatedEntradaSaidaExplosaoRouteChildren =
-  {
-    AuthenticatedEntradaSaidaExplosaoIndexRoute:
-      AuthenticatedEntradaSaidaExplosaoIndexRoute,
-  }
-
-const AuthenticatedEntradaSaidaExplosaoRouteWithChildren =
-  AuthenticatedEntradaSaidaExplosaoRoute._addFileChildren(
-    AuthenticatedEntradaSaidaExplosaoRouteChildren,
-  )
-
 interface AuthenticatedEntradaSaidaRouteChildren {
   AuthenticatedEntradaSaidaAlertasTecidoRoute: typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
-  AuthenticatedEntradaSaidaExplosaoRoute: typeof AuthenticatedEntradaSaidaExplosaoRouteWithChildren
+  AuthenticatedEntradaSaidaExplosaoRoute: typeof AuthenticatedEntradaSaidaExplosaoRoute
   AuthenticatedEntradaSaidaOcAviamentoRoute: typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   AuthenticatedEntradaSaidaOcInsumoRoute: typeof AuthenticatedEntradaSaidaOcInsumoRoute
   AuthenticatedEntradaSaidaOcPAcabadoRoute: typeof AuthenticatedEntradaSaidaOcPAcabadoRoute
@@ -1527,7 +1532,7 @@ const AuthenticatedEntradaSaidaRouteChildren: AuthenticatedEntradaSaidaRouteChil
     AuthenticatedEntradaSaidaAlertasTecidoRoute:
       AuthenticatedEntradaSaidaAlertasTecidoRoute,
     AuthenticatedEntradaSaidaExplosaoRoute:
-      AuthenticatedEntradaSaidaExplosaoRouteWithChildren,
+      AuthenticatedEntradaSaidaExplosaoRoute,
     AuthenticatedEntradaSaidaOcAviamentoRoute:
       AuthenticatedEntradaSaidaOcAviamentoRoute,
     AuthenticatedEntradaSaidaOcInsumoRoute:
@@ -1607,6 +1612,20 @@ const AuthenticatedExpedicaoRouteWithChildren =
     AuthenticatedExpedicaoRouteChildren,
   )
 
+interface AuthenticatedPcpExplosaoRouteChildren {
+  AuthenticatedPcpExplosaoIndexRoute: typeof AuthenticatedPcpExplosaoIndexRoute
+}
+
+const AuthenticatedPcpExplosaoRouteChildren: AuthenticatedPcpExplosaoRouteChildren =
+  {
+    AuthenticatedPcpExplosaoIndexRoute: AuthenticatedPcpExplosaoIndexRoute,
+  }
+
+const AuthenticatedPcpExplosaoRouteWithChildren =
+  AuthenticatedPcpExplosaoRoute._addFileChildren(
+    AuthenticatedPcpExplosaoRouteChildren,
+  )
+
 interface AuthenticatedPcpOficinaRouteChildren {
   AuthenticatedPcpOficinaModeloIdRoute: typeof AuthenticatedPcpOficinaModeloIdRoute
   AuthenticatedPcpOficinaIndexRoute: typeof AuthenticatedPcpOficinaIndexRoute
@@ -1642,6 +1661,7 @@ const AuthenticatedPcpServicosRouteWithChildren =
 
 interface AuthenticatedPcpRouteChildren {
   AuthenticatedPcpEtapasRoute: typeof AuthenticatedPcpEtapasRoute
+  AuthenticatedPcpExplosaoRoute: typeof AuthenticatedPcpExplosaoRouteWithChildren
   AuthenticatedPcpOficinaRoute: typeof AuthenticatedPcpOficinaRouteWithChildren
   AuthenticatedPcpServicosRoute: typeof AuthenticatedPcpServicosRouteWithChildren
   AuthenticatedPcpIndexRoute: typeof AuthenticatedPcpIndexRoute
@@ -1649,6 +1669,7 @@ interface AuthenticatedPcpRouteChildren {
 
 const AuthenticatedPcpRouteChildren: AuthenticatedPcpRouteChildren = {
   AuthenticatedPcpEtapasRoute: AuthenticatedPcpEtapasRoute,
+  AuthenticatedPcpExplosaoRoute: AuthenticatedPcpExplosaoRouteWithChildren,
   AuthenticatedPcpOficinaRoute: AuthenticatedPcpOficinaRouteWithChildren,
   AuthenticatedPcpServicosRoute: AuthenticatedPcpServicosRouteWithChildren,
   AuthenticatedPcpIndexRoute: AuthenticatedPcpIndexRoute,

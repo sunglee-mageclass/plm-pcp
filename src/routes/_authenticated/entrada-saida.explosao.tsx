@@ -1,10 +1,8 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { RequirePermission } from "@/components/RequirePermission";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// Rota ANTIGA — a Explosão agora é a 1ª página do PCP (urgentes R9). Mantém links/bookmarks antigos funcionando.
 export const Route = createFileRoute("/_authenticated/entrada-saida/explosao")({
-  component: () => (
-    <RequirePermission page="producao_explosao">
-      <Outlet />
-    </RequirePermission>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: "/pcp/explosao" });
+  },
 });

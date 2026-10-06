@@ -16,7 +16,9 @@ export type SectionDef = { key: PageKey; label: string };
 // do `ModuleDef.gate`, mas por página dentro de um módulo já ligado (ex.: `produto_acabado`
 // dentro de `criacao`/`entrada_saida`, opt-in, sem ModuleDef próprio). Ausente = só o gate
 // do módulo vale.
-export type PageDef = { key: PageKey; label: string; shortLabel?: string; description?: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean; gate?: string };
+export type PageDef = { key: PageKey; label: string; shortLabel?: string; description?: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean; gate?: string; notaEditor?: string };
+// `notaEditor`: texto curto mostrado em cinza ao lado do rótulo da página no editor de permissões (usuário e papel) — só
+// informativo (ex.: de onde a página veio quando mudou de grupo); não afeta nada além do editor.
 // `gate`: chave de CONTRATAÇÃO (tenant_config.modules) usada p/ habilitar o nível. Ausente = usa o
 // próprio `module`. Permite 2 níveis de navegação (ex.: PCP e Expedição) compartilharem a MESMA flag
 // de contratação (`producao`) sem virar 2 módulos separados no banco.
@@ -132,9 +134,6 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Entrada e Saída",
     basePath: "/entrada-saida",
     pages: [
-      // Explosão (baixa de estoque/corte) — realocada de Estilo & Engenharia; 1ª da lista.
-      // `modes: ["full"]` preserva o comportamento de ficar oculta no modo só-estoque.
-      { key: "producao_explosao", label: "Explosão", description: "Baixa de estoque / envio ao corte.", modes: ["full"], gate: "criacao" },
       { key: "entrada_oc_tecido", label: "OC Tecido", description: "Ordens de compra de tecidos e recebimento." },
       { key: "entrada_alertas_tecido", label: "Alertas de Tecido", description: "CQ de tecido reprovado: trocar ou cancelar.", modes: ["full"] },
       { key: "entrada_oc_p_acabado", label: "OC P. Acabado", description: "Ordens de compra de produto acabado (revenda) e recebimento.", modes: ["full"], gate: "produto_acabado" },
@@ -171,13 +170,18 @@ export const PAGES_CATALOG: ModuleDef[] = [
     ],
   },
   {
-    // PCP = o próprio Serviços (nível de página única, como o OTB). Oficina é permissão
+    // PCP = Explosão → Serviços → Etapas (hub, nessa ordem). Oficina é permissão
     // sem tela na sidebar (acessada dentro de Serviços) — fica aqui.
     module: "pcp",
     label: "PCP",
     basePath: "/pcp",
     gate: "producao",
     pages: [
+      // Explosão (baixa de estoque/corte) — urgentes R9: saiu de Entrada e Saída e é a 1ª página do PCP. MESMA key
+      // (`producao_explosao`, permissões gravadas seguem valendo), `gate: "criacao"` e `modes: ["full"]` (oculta no modo
+      // só-estoque). A tela exige Criação + Produção (módulo do PCP); o portão das RPCs no banco segue `entrada_saida`
+      // (implícito: Produção exige E&S em MODULE_DEPS). `notaEditor` avisa no editor de onde ela veio.
+      { key: "producao_explosao", label: "Explosão", description: "Baixa de estoque / envio ao corte.", modes: ["full"], gate: "criacao", notaEditor: "veio de Entrada e Saída" },
       { key: "producao_terceirizados", label: "Serviços",
         sections: [{ key: "producao_terceirizados:precos", label: "Preços" }] },
       // Permissão-só (sem tela): "Editar" = pode aprovar/reprovar a mão de obra terceirizada
@@ -191,7 +195,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "producao_oficina", label: "Oficina" },
       // Etapas PL (Fase 2, Task 1) — quadro de PL dentro do hub PCP; opt-in (gate próprio,
       // igual a produto_acabado dentro de criacao/entrada_saida).
-      { key: "producao_etapas", label: "Etapas", gate: "etapas_pl" },
+      { key: "producao_etapas", label: "Etapas", description: "Quadro de Etapas PL — Peça Teste vem do card do produto.", gate: "etapas_pl" },
     ],
   },
   {
@@ -295,7 +299,7 @@ const MODULOS_DA_PAGINA: ReadonlyMap<string, string[]> = new Map(
 );
 
 /** Chaves de contratação que a página exige, a da PRÓPRIA página (`gate`) primeiro e depois a do bloco/módulo dela
- *  (ex.: Explosão → ["criacao", "entrada_saida"]; Plan. Tecido → ["otb", "criacao"]). Para o texto "esta área precisa de…". */
+ *  (ex.: Explosão → ["criacao", "producao"]; Plan. Tecido → ["otb", "criacao"]). Para o texto "esta área precisa de…". */
 export function modulosExigidosDaPagina(pageKey: PageKey): string[] {
   return [...(MODULOS_DA_PAGINA.get(pageKey) ?? [])].reverse();
 }

@@ -174,8 +174,12 @@ describe.skipIf(!RODA)(
       const planTecido = paginas.find((p) => p.key === "criacao_plan_tecido")!;
       const explosao = paginas.find((p) => p.key === "producao_explosao")!;
       expect(planTecido.gate).toBe("otb"); // Plan. Tecido = OTB (P-253 A)
-      expect(explosao.modulo).toBe("entrada_saida"); // a página mora em Entrada e Saída
-      expect(explosao.gate).toBe("criacao"); // Explosão = Criação + E&S (T1): a Criação é o `gate`, o módulo da página é o E&S
+      // urgentes R9 (Ruling 23): a Explosão mora no PCP (módulo de contratação `producao`); a Criação segue sendo o `gate`
+      expect(explosao.modulo).toBe("pcp");
+      expect(explosao.gate).toBe("criacao");
+      // o portão das RPCs da Explosão NÃO mudou no banco (`entrada_saida`) e tem de ser coerente com a tela: a Produção
+      // (PCP) exige Entrada e Saída em MODULE_DEPS — quem vê a tela tem o módulo que as RPCs pedem
+      const PORTAO_RPCS_EXPLOSAO = "entrada_saida";
       await withTx(async (c) => {
         await aplicaMod(c);
         const { rows } = await c.query<{ proname: string; prosrc: string }>(
@@ -194,7 +198,8 @@ describe.skipIf(!RODA)(
         for (const n of rpcsPlanTecido) expect(portoes(n), n).toContain(planTecido.gate);
         const rpcsExplosao = doDono("entrada_saida");
         expect(rpcsExplosao.length).toBeGreaterThanOrEqual(7);
-        for (const n of rpcsExplosao) expect(portoes(n), n).toContain(explosao.modulo);
+        for (const n of rpcsExplosao) expect(portoes(n), n).toContain(PORTAO_RPCS_EXPLOSAO);
+        expect(MODULE_DEPS.producao!.exige).toContain(PORTAO_RPCS_EXPLOSAO);
       });
     });
 
