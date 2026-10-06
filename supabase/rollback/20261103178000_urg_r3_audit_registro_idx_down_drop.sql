@@ -1,10 +1,13 @@
 -- DROP opcional de supabase/migrations/20261103178000_urg_r3_audit_registro_idx.sql - GERADO por .superpowers/sdd/2026-10-05-urgentes/mig/gerar-a3.mjs (nunca editar a mao).
 -- !! FORA DE TRANSACAO (DROP INDEX CONCURRENTLY): psql -v ON_ERROR_STOP=1 -f <este arquivo>; sem BEGIN/COMMIT de proposito.
 -- Apaga public.idx_audit_log_registro (valido ou INVALIDO) so se a definicao for a da ida (indice homonimo de outra frente = recusa).
--- Trava: ShareUpdateExclusiveLock em public.audit_log + espera as transacoes abertas (nao bloqueia escrita). lock_timeout 1500ms
--- (55P03 = nada mudou, rodar de novo). Idempotente. Vem ANTES do _down_drop da 20261103177000 (LIFO).
+-- Trava: ShareUpdateExclusiveLock em public.audit_log + espera as transacoes abertas (nao bloqueia escrita). lock_timeout 60s +
+-- statement_timeout 15min (como a ida: a espera pelas transacoes abertas tambem conta no lock_timeout; rodar o Passo 0
+-- supabase/consultas/urg_r3_178000_passo0.sql antes). 55P03/57014 = nada mudou, rodar de novo. Idempotente. Vem ANTES do _down_drop
+-- da 20261103177000 (LIFO).
 SET client_encoding = 'UTF8';
-SET lock_timeout = '1500ms';
+SET lock_timeout = '60s';
+SET statement_timeout = '15min';
 
 DO $guarda$
 DECLARE
@@ -29,3 +32,4 @@ END
 $pos$;
 
 RESET lock_timeout;
+RESET statement_timeout;

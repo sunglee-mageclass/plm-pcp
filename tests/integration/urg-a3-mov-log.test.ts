@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, ehBancoLocal, TENANT_TESTE, USER_TESTE } from "./db";
-import { aplicaUrgA, urgAViva, URG_A_MIGS } from "./urg-a-helpers";
+import { aplicaUrgA, urgAViva, dropUrgAExtratoSePreciso, URG_A_MIGS } from "./urg-a-helpers";
 import { aplicarArquivo } from "./mig-txn";
 
 const RODA = hasDb && ehBancoLocal();
@@ -37,6 +37,7 @@ async function semBloco(c: Client): Promise<void> {
   const b = bloco()!;
   if (await urgAViva(c, "176000")) await aplicarArquivo(c, b.down);
   if ((await md5Fn(c, FN)) !== null || (await existeTabela(c))) {
+    await dropUrgAExtratoSePreciso(c); // [urg R3 T14 fix 1, L1] o extrato (177000) le a tabela: o _down_drop dele vem antes (LIFO)
     await c.query("SELECT set_config('app.confirmo_apagar_estoque_mov_log', 'sim', true)");
     await aplicarArquivo(c, b.drop);
     await c.query("SELECT set_config('app.confirmo_apagar_estoque_mov_log', '', true)");
@@ -434,6 +435,7 @@ describe.skipIf(!RODA)("urg R3 T13 — estoque_mov_log (176000)", () => {
     expect(b).toBeTruthy();
     await withTx(async (c) => {
       await aplicaUrgA(c, "176000");
+      await dropUrgAExtratoSePreciso(c); // [urg R3 T14 fix 1, L1] LIFO: o extrato (177000) le a tabela
       const { cad, av } = await cenario(c, true);
       await c.query(`INSERT INTO public.cad_aviamentos (cad_id, aviamento_id, numero, quantidade_separar) VALUES ($1, $2, 1, 7)`, [cad, av]);
       expect(await nLog(c, cad)).toBe(1);
@@ -496,6 +498,7 @@ describe.skipIf(!RODA)("urg R3 T13 — estoque_mov_log (176000)", () => {
     });
     await withTx(async (c) => {
       await aplicaUrgA(c, "176000");
+      await dropUrgAExtratoSePreciso(c); // [urg R3 T14 fix 1, L1] LIFO: o extrato (177000) le a tabela
       let antes = await locks(c);
       await aplicarArquivo(c, b!.down);
       await zera(c);

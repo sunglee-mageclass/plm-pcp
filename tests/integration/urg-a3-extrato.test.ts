@@ -7,7 +7,10 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, semJwt, ehBancoLocal, TENANT_TESTE, USER_TESTE } from "./db";
-import { aplicaUrgA, URG_A_MIGS } from "./urg-a-helpers";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { aplicaUrgA, dropUrgAExtratoSePreciso, md5UrgASucessor, URG_A_MIGS } from "./urg-a-helpers";
+import { aplicarArquivo } from "./mig-txn";
 import { filtrarBucket, montarExtrato, movDeLinhaRpc, type MovEstoque, type FamiliaEstoque } from "@/lib/estoque-extrato";
 
 const RODA = hasDb && ehBancoLocal();
@@ -34,6 +37,7 @@ let seq = 0;
 const suf = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;
 /** meia-noite do dia no fuso de Sao Paulo (UTC-3, sem horario de verao desde 2019) */
 const meiaNoiteSP = (dia: string) => Date.parse(`${dia}T03:00:00Z`);
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 type Res = { ok: true; rows: any[] } | { ok: false; code: string; msg: string };
 async function tenta(c: Client, sql: string, params: unknown[] = [], antes?: string): Promise<Res> {
@@ -448,6 +452,69 @@ describe.skipIf(!RODA)("urg R3 T14 — extrato de estoque por item (177000)", ()
       expect(k3.map((k) => `${k.tamanho}|${k.baixa}`)).toEqual(["null|8"]); // 2 x 4 pecas do M (grade real)
       for (const k of k3) confereBucket(filtrarBucket(m3, { tamanho: k.tamanho, corNome: k.cor_nome }, "insumo"), "insumo", k);
       expect(m3.map((m) => [m.origem, m.quantidade, m.refModelo, m.refId])).toEqual([["revenda", -8, rv.nome, rv.cad]]);
+    });
+  });
+  it("[fix 1, L2] data so-DIA = meia-noite no fuso DA LOJA (America/Manaus = 04:00Z, nao o padrao); fuso invalido ou vazio cai em America/Sao_Paulo", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const s = suf();
+      const art = (await um<{ id: string }>(c,
+        `INSERT INTO public.artigos (tenant_id, nome, unidade_medida) VALUES ($1, $2, 'metro') RETURNING id`, [T, `ITEST-R3 tz ${s}`])).id;
+      const vari = (await um<{ id: string }>(c,
+        `INSERT INTO public.variantes_tecido (tenant_id, artigo_id, nome_variante) VALUES ($1, $2, 'ITEST-R3 tz') RETURNING id`, [T, art])).id;
+      const oc = (await um<{ id: string }>(c,
+        `INSERT INTO public.ocs_tecido (tenant_id, status, numero_pedido, data_entrega) VALUES ($1, 'recebido', 'ITEST-R3-TZ', '2026-03-10') RETURNING id`, [T])).id;
+      await c.query(`INSERT INTO public.ocs_tecido_itens (oc_tecido_id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida)
+                     VALUES ($1, $2, $3, 2, 2)`, [oc, art, vari]);
+      const fuso = (tz: string) => semJwt(c, () => c.query(`UPDATE public.tenant_config SET timezone = $2 WHERE tenant_id = $1`, [T, tz]));
+      await fuso("America/Manaus");
+      let [m] = await rpc(c, "tecido", vari);
+      expect([m.quandoFonte, Date.parse(m.quando!)]).toEqual(["data_oc", Date.parse("2026-03-10T04:00:00Z")]);
+      // a lib (fuso da loja) poe a linha no MESMO dia
+      const ex = montarExtrato([m], { fuso: "America/Manaus", de: "2026-03-10", ate: "2026-03-10" });
+      expect(ex.linhas).toHaveLength(1);
+      for (const tz of ["Mars/Base", ""]) {
+        await fuso(tz);
+        [m] = await rpc(c, "tecido", vari);
+        expect(Date.parse(m.quando!), tz).toBe(meiaNoiteSP("2026-03-10"));
+      }
+    });
+  });
+
+  it("[fix 1, L1] o _down_drop da 176000 RECUSA enquanto o extrato (177000) le estoque_mov_log; depois do _down_drop da 177000, passa (LIFO)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const b176 = URG_A_MIGS.find((x) => x.id === "176000")!.b;
+      await aplicarArquivo(c, b176.down);
+      await expect(aplicarArquivo(c, b176.drop)).rejects.toThrow(
+        /urg_r3_176000_down_drop: outras funcoes leem public\.estoque_mov_log: .*_estoque_extrato_aviamento_core\(uuid,uuid\).*_estoque_extrato_insumo_core\(uuid,uuid\)/);
+      await dropUrgAExtratoSePreciso(c);
+      await aplicarArquivo(c, b176.drop);
+      await c.query("SET LOCAL transaction_timeout = 0");
+      expect((await um<{ f: string | null }>(c, `SELECT to_regprocedure('public.fn_estoque_mov_log()')::text AS f`)).f).toBeNull();
+      expect((await um<{ t: string | null }>(c, `SELECT to_regclass('public.estoque_mov_log')::text AS t`)).t).toBe("estoque_mov_log"); // sem a GUC, fica
+    });
+  });
+
+  it("[fix 1, L4] anti-drift: os 3 cores que o extrato ESPELHA tem o md5 que a 177000 exige (fim da cadeia de sucessores urg-a/urgb e o vivo) - mudou um core = regere a 177000 e rode a varredura", async () => {
+    const txt = readFileSync(ROOT + bloco()!.mig, "utf8");
+    const pin = Object.fromEntries(
+      [...txt.matchAll(/^--   (public\._estoque_\w+_core\(uuid\))  \(espelhado; exigido\) ([0-9a-f]{32})$/gm)].map((x) => [x[1], x[2]]));
+    // md5 de ANTES desta frente (fatos do plan-a); a cadeia acrescenta os "depois" de quem os redefine (171000 no insumo; plan-b, se vier)
+    const BASE: Record<string, string> = {
+      "public._estoque_tecido_core(uuid)": "9140c253a8b62fa143de052d84a1c329",
+      "public._estoque_aviamento_core(uuid)": "f6eea9360a5fee924824a323de47c53f",
+      "public._estoque_etiqueta_core(uuid)": "28aa308d297cc18b653c6290a5b3b958",
+    };
+    expect(Object.keys(pin).sort()).toEqual(Object.keys(BASE).sort());
+    const msg = (sig: string) => `${sig} mudou: o extrato (177000) espelha as regras deste core - regere a 177000 (mig/gerar-a3.mjs) e rode a varredura`;
+    for (const sig of Object.keys(BASE)) expect(md5UrgASucessor(sig, BASE[sig]).at(-1), msg(sig)).toBe(pin[sig]);
+    await withTx(async (c) => {
+      await aplicaUrgA(c, "177000");
+      for (const sig of Object.keys(BASE)) {
+        const vivo = (await um<{ m: string }>(c, "SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [sig])).m;
+        expect(vivo, msg(sig)).toBe(pin[sig]);
+      }
     });
   });
 });

@@ -5,14 +5,19 @@
 -- (NUNCA -1/--single-transaction; NUNCA \i dentro de BEGIN). Sem BEGIN/COMMIT de proposito.
 -- Trava: ShareUpdateExclusiveLock em public.audit_log (NAO bloqueia leitura nem escrita - o fn_audit segue gravando; bloqueia so
 -- VACUUM/ANALYZE/outro DDL na tabela) durante a construcao; espera as transacoes abertas terminarem (fases 2/3 do CONCURRENTLY).
--- lock_timeout 1500ms: 55P03 ANTES da construcao = nada mudou, rodar de novo; 55P03/cancelamento NO MEIO deixa o indice INVALIDO
--- (a guarda/pos-condicao avisam) - saida: supabase/rollback/20261103178000_urg_r3_audit_registro_idx_down_drop.sql e este arquivo de novo. Qualquer hora; conferir pg_index.indisvalid
--- no fim (a pos-condicao recusa se invalido). Idempotente (IF NOT EXISTS + guarda da definicao).
+-- [fix round 1, M1] lock_timeout = '60s' + statement_timeout = '15min' (NAO 1500ms): o lock_timeout vale TAMBEM para a espera das
+-- transacoes abertas (MEDIDO na copia2: com 1500ms uma transacao aberta ha 4 s derrubava o CREATE no meio e deixava o indice INVALIDO).
+-- Esperar e seguro: a ShareUpdateExclusive (concedida ou na fila) NAO conflita com leitura/escrita do app. Passo 0 (so leitura) logo
+-- ANTES: supabase/consultas/urg_r3_178000_passo0.sql (transacoes abertas ha mais de 30 s; idle in transaction / backup = esperar ou
+-- tratar antes). 55P03/57014 ANTES da construcao = nada mudou, rodar de novo; cancelamento NO MEIO deixa o indice INVALIDO (a
+-- guarda/pos-condicao avisam) - saida: supabase/rollback/20261103178000_urg_r3_audit_registro_idx_down_drop.sql e este arquivo de novo. Conferir pg_index.indisvalid no fim (a pos-condicao
+-- recusa se invalido). Qualquer hora; preferir calma. Idempotente (IF NOT EXISTS + guarda da definicao).
 -- Definicao exigida: CREATE INDEX idx_audit_log_registro ON public.audit_log USING btree (registro_id) WHERE (registro_id IS NOT NULL)
 -- Volta (LIFO): supabase/rollback/20261103178000_urg_r3_audit_registro_idx_down.sql (no-op: o indice fica) - ANTES do 20261103177000_down. DROP de verdade: supabase/rollback/20261103178000_urg_r3_audit_registro_idx_down_drop.sql
 -- (DROP INDEX CONCURRENTLY, fora de transacao, opcional) - ANTES do _down_drop da 177000.
 SET client_encoding = 'UTF8';
-SET lock_timeout = '1500ms';
+SET lock_timeout = '60s';
+SET statement_timeout = '15min';
 
 DO $guarda$
 DECLARE
@@ -56,3 +61,4 @@ END
 $pos$;
 
 RESET lock_timeout;
+RESET statement_timeout;

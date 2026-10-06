@@ -6,7 +6,8 @@
 -- confirmacao) trava SO a propria tabela (+ indices/toast; medido sozinho: nada em auth/storage/realtime).
 -- A TABELA public.estoque_mov_log (o historico das mudancas; NAO se reconstroi) SO cai com a confirmacao explicita na MESMA transacao:
 --   SET LOCAL app.confirmo_apagar_estoque_mov_log = 'sim';   (EXTRA_SQL do aplica_v2, logo depois do BEGIN; ou PGOPTIONS)
--- sem ela a tabela FICA (NOTICE com a contagem de linhas). Idempotente. Vem DEPOIS do _down_drop da 177000 (LIFO): o extrato le a tabela.
+-- sem ela a tabela FICA (NOTICE com a contagem de linhas). Idempotente. Vem DEPOIS do _down_drop da 177000 (LIFO): o extrato le a
+-- tabela - RECUSA enquanto alguma funcao de public (fora a do gatilho) citar estoque_mov_log.
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -27,6 +28,15 @@ BEGIN
      AND NOT (t.tgrelid IN ('public.cad_aviamentos'::regclass, 'public.cad_etiquetas'::regclass) AND t.tgname IN ('trg_estoque_mov_log_ins', 'trg_estoque_mov_log_upd', 'trg_estoque_mov_log_del'));
   IF v IS NOT NULL THEN
     RAISE EXCEPTION 'urg_r3_176000_down_drop: outros gatilhos usam public.fn_estoque_mov_log(): %', v USING ERRCODE = 'P0001';
+  END IF;
+  -- [fix round 1, L1] quem LE a tabela (o extrato da 20261103177000) sai antes: plpgsql nao registra dependencia, o DROP passaria
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v
+    FROM pg_proc p
+   WHERE p.pronamespace = 'public'::regnamespace
+     AND p.oid IS DISTINCT FROM to_regprocedure('public.fn_estoque_mov_log()')
+     AND p.prosrc ~ '\yestoque_mov_log\y';
+  IF v IS NOT NULL THEN
+    RAISE EXCEPTION 'urg_r3_176000_down_drop: outras funcoes leem public.estoque_mov_log: % - rode o _down_drop delas antes (LIFO: 20261103177000_down_drop)', v USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
