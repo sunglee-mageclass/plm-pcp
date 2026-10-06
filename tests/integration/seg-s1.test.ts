@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicaS1, voltaS1, S1_MD5, S1_RPCS, S1_GATILHOS, S1_AUX_RLS } from "./seg-s1-helpers";
+import { voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9] volta LIFO da R9 na linha de base da medição de trava
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -108,6 +109,9 @@ describe.skipIf(!RODA)("seg S1 — trava: só catálogo", () => {
           WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND n.nspname NOT IN ('pg_catalog', 'pg_toast')
             AND l.mode <> 'AccessShareLock'`,
       )).rows;
+      // [urg R9] a cadeia LIFO do aplicaS1 volta as frentes POR CIMA dela; o _down NEUTRO da R9a (192000) reescreve o
+      // trg_kanban_fila_upd (ShareRowExclusive em categorias_terceirizado) — trava da VOLTA da R9, não da S1: entra na linha de base.
+      await voltaUrgcSePreciso(c);
       // o que a txn já segurava ANTES (ex.: gancho S2_TXN=1 — CREATE TRIGGER da S2 em parcelas) não é da S1
       const antes = new Set((await travas()).map((r) => JSON.stringify(r)));
       await aplicaS1(c);

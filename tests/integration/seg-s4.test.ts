@@ -10,6 +10,7 @@ import { aplicaS4, voltaS4, s4Viva, S4_MIGS, S4_DOWNS, S4_DOWN_DROP, S4_TABELAS_
 import { S4_FUNCOES, S4_ACL, S4_OTB, S4_MIX, S4_PLAN_TECIDO, S4_POLICIES_ANTES } from "./seg-s4-dados";
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9] volta LIFO da R9 na linha de base da medicao de trava
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -243,6 +244,10 @@ describe.skipIf(!RODA)("seg S4 — fix round: ordem de volta (S5 → S4 → S3d)
 describe.skipIf(!RODA)("seg S4 — trava medida (pg_locks na txn revertida) e Realtime", () => {
   it("grants: catálogo; gatilhos: ShareRowExclusive SÓ nas 13 tabelas; nada em auth/storage/realtime; nenhuma AccessExclusive", async () => {
     await withTx(async (c) => {
+      // [urg R9] a cadeia LIFO dos aplica*/volta* das frentes antigas volta as urgentes POR CIMA delas; o _down NEUTRO da R9a
+      // (192000) reescreve o trg_kanban_fila_upd (ShareRowExclusive em categorias_terceirizado) - trava da VOLTA da R9, nao desta
+      // frente: entra na linha de base.
+      await voltaUrgcSePreciso(c);
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
