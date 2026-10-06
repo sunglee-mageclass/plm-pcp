@@ -486,8 +486,9 @@ describe.skipIf(!RODA)("urg R3 T14 — extrato de estoque por item (177000)", ()
       await prepara(c);
       const b176 = URG_A_MIGS.find((x) => x.id === "176000")!.b;
       await aplicarArquivo(c, b176.down);
+      // a guarda da 176000 monta a lista com string_agg SEM ORDER BY (ordem = plano/posicao fisica em pg_proc): as 2 funcoes, em qualquer ordem
       await expect(aplicarArquivo(c, b176.drop)).rejects.toThrow(
-        /urg_r3_176000_down_drop: outras funcoes leem public\.estoque_mov_log: .*_estoque_extrato_aviamento_core\(uuid,uuid\).*_estoque_extrato_insumo_core\(uuid,uuid\)/);
+        /^urg_r3_176000_down_drop: outras funcoes leem public\.estoque_mov_log: (?=.*_estoque_extrato_aviamento_core\(uuid,uuid\))(?=.*_estoque_extrato_insumo_core\(uuid,uuid\))/);
       await dropUrgAExtratoSePreciso(c);
       await aplicarArquivo(c, b176.drop);
       await c.query("SET LOCAL transaction_timeout = 0");
