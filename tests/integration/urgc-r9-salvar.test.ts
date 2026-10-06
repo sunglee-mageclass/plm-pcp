@@ -756,6 +756,36 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
     });
   });
 
+  it("16) revisão T2, achado 8 — reprovar pela cadeia 'M.O. primeiro' só congela base = fornecedor de SERVIÇO da loja (material/outra loja/inexistente = P0001, nada gravado)", async () => {
+    await withTx(async (c) => {
+      const s = await cenario(c);
+      expect(txt(await salvar(c, U_ED, s.modelo, [
+        { mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] },
+      ]))).toBe("PASSOU");
+      const t1 = (await tentativas(c, s.linhaA))[0];
+      // a etapa da M.O. do Sheet grava a troca F1 -> F2 ANTES (a linha já está em F2; a tela manda a base que ela leu)
+      await jwt(c, SUPER);
+      const linhasMo = (
+        await c.query("SELECT id, categoria_terceirizado_id AS cat, valor, empresa_id FROM public.modelo_servico_mo WHERE modelo_id = $1", [s.modelo])
+      ).rows.map((l) => ({ id: l.id, categoria_terceirizado_id: l.cat, valor: Number(l.valor), observacoes: null, empresa_id: l.id === s.linhaA ? s.f2 : l.empresa_id }));
+      await c.query("SELECT public._salvar_modelo_servico_mo_core($1, $2::jsonb)", [s.modelo, JSON.stringify(linhasMo)]);
+      await jwt(c, null);
+      expect((await linhaMo(c, s.linhaA)).empresa_id).toBe(s.f2);
+      const reprovar = (base: string) =>
+        salvar(c, U_ED, s.modelo, [
+          { mo_linha_id: s.linhaA, categoria_id: s.catA, empresa_id: s.f2, tentativas: [tp({ id: t1.id, data_saida: D1, data_entrada: D2, aprovacao: "reprovado" })] },
+        ], { tentativas: { [t1.id]: t1.rev }, fornecedor: { [s.linhaA]: base } });
+      const INVALIDO = "P0001 peca_teste_fornecedor_invalido: fornecedor de servico invalido";
+      expect(txt(await reprovar(s.fMat)), "empresa de MATERIAL da loja").toBe(INVALIDO);
+      expect(txt(await reprovar(s.fOutra)), "fornecedor de OUTRA loja").toBe(INVALIDO);
+      expect(txt(await reprovar("5e9a0054-0000-4000-8000-00000000dead")), "inexistente").toBe(INVALIDO);
+      expect(await tentativas(c, s.linhaA), "nada gravado").toEqual([t1]);
+      // base = fornecedor de serviço da loja (o de antes): passa e congela o de antes, como no teste 15
+      expect(txt(await reprovar(s.f1))).toBe("PASSOU");
+      expect((await tentativas(c, s.linhaA))[0]).toMatchObject({ aprovacao: "reprovado", empresa_id: s.f1 });
+    });
+  });
+
   it("8) desatualizada: tipo da linha trocado por outra pessoa / switch desligado / linha apagada = P0409 peca_teste_desatualizada", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
