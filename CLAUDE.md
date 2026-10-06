@@ -294,7 +294,17 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   + categoria de fornecedor casada por **TOKEN flexível** (`src/lib/fornecedor-categoria.ts`:
   normaliza sem acento/minúsculo + substring; `FABRIC_TOKENS` inclui `artigo`) — NÃO casar o nome
   exato da categoria (é texto livre por loja; hard-coded `["Tecido"...]` sumia quando a loja renomeava).
-  `artigos`/`aviamentos` têm `representante_id` (FK `representantes`)
+  `artigos`/`aviamentos` têm `representante_id` (FK `representantes`).
+  **Insumos › "Vincular a um tamanho" (R1, out/2026, `cadastro.etiquetas.tsx`):** coluna NOVA `etiquetas.tamanho_vinculado` (texto =
+  chave EXATA de `tamanhos_grade`, ex. `"40|M"`; NÃO a legada `etiquetas.tamanho`, que continua sem leitor — a ligação dela é a
+  correção única 170500, ver "Urgentes R1–R8"). Switch + Select do tamanho. **Regra "sem tamanho" (A2):** o vínculo só vale em insumo
+  com formato `nenhum` OU sem nenhuma variante com tamanho (mesma regra da Ficha/`ce_sem`); nos demais é IGNORADO pelos helpers e o Salvar
+  do cadastro o limpa; Switch ligado sem tamanho escolhido = recusa na tela. **Fonte única TS ⇄ SQL:** `src/lib/insumo-tamanho.ts`
+  (`tamanhoEfetivoInsumo`, `pecasDoInsumo`, `fatorCustoInsumo`, `vinculoDisponivel`, `tamanhoVinculadoParaSalvar`, `mapaTamanhoVinculado`)
+  ⇄ helpers `_insumo_tamanho_efetivo`/`_insumo_pecas`/`_insumo_fator_custo`/`_insumo_tamanho_de`/`_grade_mapa_modelo`/`_grade_mapa_cad`
+  (`20261103170000`; INVOKER, REVOKE dos 3), anti-drift pela fixture `tests/fixtures/insumo-tamanho-casos.ts` (`CASOS_INSUMO_TAMANHO`,
+  31 casos — mexeu na regra, mexe nos dois lados e na fixture). Peças = células da grade DAQUELE tamanho (chave exata; célula 0 conta como
+  fora da grade); tamanho fora da grade = 0 + aviso âmbar. Não reimplementar: todo consumidor de insumo chama os helpers (ver inv. 15).
 - **criacao**: **plan-tecido** (Plan. Tecido — planejamento de TECIDO por coleção, acima de Plan. Produto;
   ver [[project_plan_tecido]] e docs/mapeamento §2C. NÃO mesclado — branch `feature/plan-tecido-a1`;
   ganhou o dialog **"Distribuir por loja"** por produto, set/2026 — ver seção "Sheet unificado do
@@ -535,6 +545,16 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   presença é POR BLOCO (`data-colab-path` em cada card/seção da página, não por controle
   individual). `<ColabPresenceOverlay>` ganhou a opção `abaixoDeModal` (usada pelo 2º overlay
   dentro do dialog Nomenclaturas, que fica acima da página mas abaixo do próprio modal).
+  **"Insumos padrão" da loja (R2, out/2026, `20261103174000`):** a página passa a ter **17 colunas** colaborativas
+  (`COLUNAS_PAGINA` em `src/lib/config-loja-colab.ts`; a 17ª = `insumos_padrao`): coluna NOVA `tenant_config.insumos_padrao jsonb NOT
+  NULL DEFAULT '[]'`, entrada na lista branca e no CAS por coluna de `salvar_config_loja` (md5 27fdf9f2; mesmo `P0409
+  conflito_versao: config_loja`, DETAIL `insumos_padrao`; anel de presença `cfg:insumos_padrao` por bloco). Forma normalizada ESTÁVEL
+  `[{etiqueta_id, cor_id|null, consumo}]` (3 chaves, uuid minúsculo, cor ausente/`""` = null, consumo = número JSON); a RPC RECUSA
+  (P0001 PT `Lista de insumos padrão inválida: …`, nada grava) lista > **20** itens, consumo fora de 0..9999 ou com > 4 casas, consumo em
+  TEXTO, par (insumo, cor) repetido, insumo/cor de outra loja. ⚠️ `authenticated` tem UPDATE de tabela em `tenant_config` (RLS = admin
+  da loja): a coluna também pode ser gravada CRUA pela API fora da validação (como as outras 16) — **todo LEITOR re-filtra** (A12; ver
+  "Urgentes R1–R8 › R2"). Card `InsumosPadraoCard` (Config da Loja › Planejamento; só com módulo Criação e fora do só-estoque); linha
+  órfã aparece como "Insumo removido"/"Cor removida" e trava o Salvar SÓ se a lista foi tocada.
 
 ## Invariantes a preservar (não regredir)
 
@@ -630,6 +650,26 @@ e verifique** — o repo muda rápido.
    é **NO ACTION** de propósito (era CASCADE — apagava o ledger em silêncio); NÃO voltar p/ CASCADE.
    Índice único parcial `(artigo,cor,apelido)` barra variante duplicada; categorias via
    `set_artigo_categorias` (atômico).
+   ⚠️ **Histórico (extrato) de movimentação por item (R3, out/2026; `20261103176000`/`177000`/`178000`):** botão "Histórico" por linha
+   nas 3 abas do Estoque (Tecido, Aviamento, Insumo) abre um Sheet SÓ LEITURA (`src/components/estoque/ExtratoEstoqueSheet.tsx` +
+   `useExtratoEstoque`, queryKey `["estoque-extrato", família, item]`; lib pura `src/lib/estoque-extrato.ts` — `montarExtrato`, fuso da
+   loja OBRIGATÓRIO; `ReadOnlyScope value={false}` por dentro para quem só VÊ a página da OC não herdar o fieldset desabilitado).
+   **O extrato é DERIVADO — nenhum ledger novo no tecido** e nenhuma conta nova: as RPCs `estoque_extrato_tecido/_aviamento/_insumo`
+   (wrapper STABLE DEFINER: login → `_exige_modulos('entrada_saida')` → `user_can_view(<página da aba>)` → `42501 sem_permissao_ver:`;
+   `_estoque_extrato_*_core` com EXECUTE revogado dos 3) leem as MESMAS fontes dos cores `_estoque_tecido_core`/`_estoque_aviamento_core`/
+   `_estoque_etiqueta_core` (a ida da 177000 confere o md5 dos 3: 9140c253/f6eea936/e7681ebd) e o **saldo final do extrato = físico da
+   linha** (reconciliação por construção: linha-base por fonte absorve o que o log não explica; `core_*` repetidos em todas as linhas do
+   bucket → `confere`). Tecido: recebimento de OC (kg × rendimento do artigo do ITEM) + ledger `estoque_tecido_baixas` (origem
+   `separacao_rolo`/`corte`/`ajuste`; separação de rolo = 2 linhas, soma 0) + OS baixada. **Aviamento/Insumo NÃO têm ledger:** a baixa é
+   a Explosão ("a separar/a enviar" do CAD enviado ao corte); mudanças DEPOIS do envio ficam na tabela nova **`estoque_mov_log`**
+   (`fn_estoque_mov_log`, 6 gatilhos AFTER STATEMENT com transição em `cad_aviamentos`/`cad_etiquetas`, só CAD `enviado_corte`; troca de
+   chave no UPDATE = 2 linhas, sai/entra; RLS sem policy + REVOKE ALL; sem FK; nada retroativo; append-only por convenção). Datas
+   antigas: `audit_log` (OC recebida, envio ao PCP, OS baixada) → coluna de data → "sem data" honesto (OC Insumo só tem a data de
+   entrega); data só-DIA = meia-noite **NO FUSO DA LOJA** (`(d::timestamp AT TIME ZONE tz)`, NUNCA `d::timestamptz`); "Quem" = só o
+   NOME. Saldo negativo: o extrato mostra o calculado e explica que a tela mostra 0 (físico nunca negativo). Fora do extrato: reservado,
+   previsto e OC encomendada. Índice `idx_audit_log_registro (registro_id) WHERE registro_id IS NOT NULL` (178000, `CREATE INDEX
+   CONCURRENTLY`, arquivo SOZINHO fora de txn). **Mudou a conta de um dos 3 cores → o anti-drift `urg-a3-extrato-reconcilia` falha
+   ("regere a 177000 e rode a varredura").** Kit/volta/`_down_drop`: ver "Urgentes R1–R8".
 5. **Rolos** — `ocs_tecido.is_rolo` (estoque físico por rolo); RPC `criar_rolo`; separar =
    baixa `separacao_rolo` (reversível); `modo_oc_rolo` filtra o que aparece no Desenvolvimento.
    ⚠️ **Excluir rolo é SÓ via RPC com guarda** `excluir_rolo` (`_rolo_em_uso` = EXISTS baixa no
@@ -742,6 +782,44 @@ e verifique** — o repo muda rápido.
    "MO Aprovada (planejada)" = `modelo_mo_resumo().total_aprovado` (Σ só linhas `aprovado=true`).
    **Markup/Preço seguem no custo TOTAL** — não mexer em `preco.ts`. Ver invariante #12
    (permissão por linha) e memória `project_mo_por_servico`.
+   **M.O. com FORNECEDOR + blocos de Serviços que NASCEM dela (R4, out/2026; `20261103180000` + `181000`):** a linha da M.O. =
+   tipo de serviço + fornecedor. `modelo_servico_mo.empresa_id` (FK `empresas` NO ACTION: fornecedor em uso não se exclui — a tela
+   traduz o 23503; NULL = sem fornecedor; só empresa `tipo='servico'` da MESMA loja, senão P0001 `Fornecedor de serviço inválido`;
+   TODAS as empresas de serviço, não só PL/da categoria) é editado SÓ no Sheet do Planejamento (`MaoObraEditor`, select "Fornecedor";
+   cards PA/PI e Plan. Tecido não mexem). `salvar_modelo_servico_mo`: **chave `empresa_id` AUSENTE = MANTÉM** (site antigo/PA/PI não
+   apaga), `null`/`''` apaga; a tela só manda a chave em linha NOVA ou quando mudou vs a base (`moLinhaParaPayload`,
+   `src/lib/mao-obra.ts`); **trocar o fornecedor de linha já decidida volta a pendente** (mesma regra do valor/serviço, inv. 12;
+   `moLinhaVaiReabrir` avisa em âmbar). `modelo_mo_resumo` devolve `empresa_id`/`empresa_nome`. **Blocos nascem no Enviar à
+   Explosão:** `_enviar_modelo_para_cad_core` chama `_servicos_da_mo_criar(modelo, cad)` ANTES do UPDATE de `modelos.enviado_cad`
+   (os 2 caminhos, CAD novo e CAD já existente). Cria 1 bloco por linha de M.O. SÓ se o CAD não tem NENHUM bloco em
+   `producao_terceirizados` (ativo OU inativo — apagou tudo e reenviou = renascem), a loja tem o módulo Produção (`_tenant_modulo_ligado`) e
+   o CQ Pré do CAD não está confirmado; categoria ativa da MESMA loja (a linha "Geral (legado)", sem categoria, não vira bloco). Bloco
+   nasce externo ("PL"), sem representante, 1 parcela, `mo_linha_id` = a linha (read-only p/ o cliente: fora do `blocoParaPayload`),
+   fornecedor só se `tipo='servico'` da loja, preço = valor da M.O. **APROVADA**; M.O. não aprovada = bloco SEM preço + selo "M.O. não
+   aprovada" no PCP (derivado na tela, sem coluna); `created_at = now() + n µs` na ordem da M.O. (a leitura dos blocos no PCP ordena
+   por `created_at, id`). O preço entra na aprovação: `_aprovar_servico_mo_core` chama `_servico_mo_preencher_preco(linha)` — só bloco
+   ativo, externo e com preço NULL **ou 0**; NUNCA sobrescreve preço > 0 (reabrir/reaprovar não altera); reprovar não mexe. Já há
+   blocos = nada é criado nem apagado. Apagar a linha de M.O. = `mo_linha_id` vira NULL (o bloco fica; sobe o `rev` dele → PCP aberto
+   leva P0409 no próximo Salvar). **ORDEM ÚNICA DE TRAVAS (anti-deadlock; provada com 2 conexões nos testes
+   `urgb-r4-servicos-da-mo`): advisory do CARD (`hashtext('cad:modelo_id:'||modelo_id)`) → advisory do CAD (`hashtext(cad_id)`, a MESMA
+   do `salvar_terceirizados`) → linha do `cad` → linhas de M.O. (`FOR KEY SHARE`) → blocos → `modelos`.** Seguem-na
+   `_enviar_modelo_para_cad_core` (card→CAD no caminho "CAD já existia"), `_aprovar_servico_mo_core` (card→CAD),
+   `_salvar_modelo_servico_mo_core` (card) e `excluir_cad` (card→CAD, e RELÊ o CAD `FOR UPDATE` depois das chaves); o
+   `salvar_terceirizados` só pega a do CAD. ⚠️ **Função NOVA que mexa em blocos/M.O./`modelos` do mesmo card segue essa ordem.**
+   Residual ACEITO: `_salvar_cq_core` não pega a chave do CAD (ciclo só com bloco nascido da M.O., detalhado e ainda sem preço).
+   Efeitos para avisar: o aprovar passa a ESPERAR (ms) envio/Salvar do PCP abertos no mesmo card/CAD; Replicar do Plan. Tecido NÃO copia o
+   fornecedor (nasce vazio); mesmo par (serviço, fornecedor) repetido é permitido (2 blocos).
+   **Peça de foto — previsão de entrega + alerta de atraso (R5, out/2026; `20261103185000`):** coluna nova
+   `producao_terceirizados.peca_foto_previsao date` (bloco PL com "Peça de foto", só `isServicoPL` + módulo `etapas_pl`).
+   `peca_foto_data` passa a ser a data REAL entregue (rótulos "Previsão de entrega (peça de foto)" e "Data entregue (peça de foto)";
+   datas antigas ficam). `salvar_terceirizados` ganha a única EXCEÇÃO ao "estado completo": **chave `peca_foto_previsao` AUSENTE =
+   MANTÉM** (aba/site antigo não apaga; `''`/`null` zera; a tela SEMPRE manda a chave — `blocoParaPayload`; bloco que vira INTERNO manda
+   null, como `peca_foto`/`peca_foto_data`); entra no merge 3-vias do PCP e na edição rápida das Etapas (`montarPayloadEdicaoRapida`).
+   **Alerta de atraso** (`src/lib/servico-atraso.ts`, puro, fuso da loja; `ServicoAtrasoBadge`, estilo do `oc-prazo-badge`): serviço
+   (QUALQUER bloco ativo, inclusive interno) = `data_prevista` passou e sem `data_entregue`; peça de foto = previsão passou e sem a data
+   entregue da peça. Atrasado a partir do DIA SEGUINTE à previsão ("Atrasado N dias"); no próprio dia âmbar "Vence hoje"; sem "Faltam N
+   dias". Aparece no cabeçalho de cada bloco do Sheet do PCP, no badge do PIOR atraso da lista de PCP › Serviços (o ícone de câmera passa
+   a significar `peca_foto` marcada) e no card do quadro Etapas PL (`prazos`; `atrasoServico`/`atrasoPecaFoto` aceitam card sem `prazos`).
 9. **Segurança / RPC** — padrão **wrapper + `_core`**: o wrapper checa
    `user_can_view(_pagina)` (dashboards) ou `tenant_module_enabled(_module)` (módulos
    desligáveis) e o `_core` tem EXECUTE revogado. **RPC de ESCRITA em área sensível (Reforço S3, P-231 = D2 A):** o wrapper
@@ -1141,6 +1219,33 @@ e verifique** — o repo muda rápido.
     ida e até as LEITURAS esperam atrás do `_down_drop`. `_down` é no-op (o índice fica). ⚠️ Índice homônimo INVÁLIDO (CREATE
     interrompido): a ida só dá NOTICE e cai no `bk4_pos`; saída = `143000_down_drop` (remove o inválido porque a definição bate) e
     reaplicar a ida.
+    **Release R8 — título das sublinhas (out/2026, P-301 B/P-302 A/P-303 A; `20261103190000` + `20261103191000`):** o `titulo` da
+    sublinha (variante×tamanho), na Integração › Produtos e na API, = título EFETIVO do PAI com a COR inserida antes do ÚLTIMO `" | "`
+    (sem `" | "` → cor no fim; sem cor → igual ao pai; sem tamanho). A cor é a MESMA do nome da sublinha (`_integracao_cor_no_nome`:
+    cor base | apelido, apelido vazio → cor base). **Calculado, não editável na filha** (a tela só mostra o texto do servidor + o "i" de
+    sublinhas). Fonte única `_integracao_titulo_sublinha(titulo, cor_base, apelido, modo)` (SQL IMMUTABLE, sem definer, REVOKE dos 3) ⇄ TS
+    `tituloSublinha` (`src/lib/integracao/titulo-sublinha.ts`; fixture `tests/fixtures/titulo-sublinha-casos.ts`, 31 casos; anti-drift
+    SQL×TS, fuzz de 4000 casos = 0 diferença). `_integracao_nome_sublinha` NÃO mudou. `_integracao_retrato_core` grava o título no retrato
+    (e `integracao_marcar` em `integracao_linhas.titulo`); `_integracao_exemplo` (modo teste) mantém o título do produto
+    ("Produto Exemplo N - exemplo") e a sublinha vira "… - exemplo Cor Exemplo". **O marcador do retrato vai a `v=4`** (era 3; o único
+    leitor de `v` segue sendo `integracao_listar`): ela compara o título da sublinha **SÓ com retrato v≥4** — integrado v=3 não acende
+    aviso falso (a API dele já entregou o herdado). ⚠️ Num integrável v=4, mudar o TÍTULO do produto acende `titulo` E `sublinhas` no
+    "i"; mudar a cor da variante acende `sublinhas` mesmo com Cor base/Apelido desmarcados. **Reprocesso (191000, ida automática,
+    padrão I3c):** todo INTEGRÁVEL v=2/3 ganha `v=4`, assinatura refeita, `rev+1` e 1 Log 'editar' "Sistema (título das sublinhas)" —
+    mesmo sem `titulo` marcado (então `sublinhas: 0`); com `titulo` marcado só o TÍTULO das filhas é refeito (base = título do RETRATO,
+    nunca o vivo; cor pela P-129; modo = escolha ATUAL da loja). **INTEGRADOS intocados** (byte a byte). Backup `_bkp_r8_titulo_sublinha`
+    (RLS sem policy + REVOKE ALL; FICA depois da volta). Trava: `LOCK TABLE integracao_produtos, integracao_linhas IN EXCLUSIVE MODE`
+    (leituras passam; marcar/voltar/desfazer/confirmar/Gerar JSON esperam), `lock_timeout 500ms` (55P03 = nada mudou), teto 1000.
+    **A ida RECUSA inteira (P0001, nada muda)** se algum integrável tem retrato v=1/sem v (ou v ∉ {2,3}), variante de sublinha que precisa
+    da cor viva e não existe mais no cadastro, ou `integracao_linhas.titulo` ≠ retrato numa linha que ela não reescreve — o **Passo 0
+    `supabase/consultas/urg_r8b_passo0.sql`** (1 linha por loja) conta os 3 abortos: **PARE se `total_aborta > 0` ou
+    `total_a_reprocessar > 1000`**; anotar os integrados (têm de ser os mesmos depois). Idempotente. **Volta LIFO:** SITE → `191000_down`
+    (devolve retrato/assinatura/títulos só de quem SEGUE integrável com a assinatura do reprocesso; integrado/voltado/re-marcado depois FICA
+    e é relatado) → `190000_down` (devolve as 3 funções; o helper e os v=4 já gravados ficam) → inversos da A2/I3. ⚠️ O
+    `volta-producao.sh` da Integração TEM de começar por esses 2 (função `passo0d_urg_r8`: "viva" = o reprocesso ainda tem EFEITO, não "o
+    backup existe"). ⚠️ O `_down` da I3a (`20261030100000_down`) NÃO recusa com a R8 viva (guarda negativa): só a LIFO protege; integrável
+    marcado DEPOIS da 190000 (nasce v=4, sem backup) não é revertido por nenhum `_down` (mantém "título + cor" até ser re-marcado).
+    Banco ANTES do site (site velho + banco novo = ok).
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
@@ -1327,6 +1432,32 @@ revenda/importado (fluxo próprio de `etapaDoModelo`).
     `_bkp_custo_previsto` e os valores gravados**; devolver os custos antigos é passo explícito à parte
     (`supabase/rollback/20261019310000_custo_previsto_restaurar.sql`, só com decisão do dono; pode deixar uma linha do BOM
     fora de passo com os totais até a próxima edição — inofensivo, R-C2d).
+    **Insumo vinculado a UM tamanho no custo e na baixa (R1, out/2026; `20261103171000`/`172000`/`173000`; regra e helpers no bloco
+    Cadastro › Insumos):** TODA conta que antes usava "consumo × grade TOTAL" para insumo passa a usar os helpers da `170000` — insumo
+    sem vínculo = idêntico ao de hoje (fator 1; diff-validado byte a byte nas 7 lojas da cópia), vínculo = consumo × peças DAQUELE
+    tamanho. (1) **Custo PREVISTO rateado (A3):** `_custo_calcular` usa `consumo × _insumo_fator_custo(...)` = preço × consumo × (1+perda)
+    × (peças do tamanho ÷ grade total do modelo); grade vazia ⇒ fator 1 (custo cheio, como hoje, até existir grade); tamanho fora da
+    grade ⇒ 0. (2) **Fila:** `fn_custo_fila_preco` enfileira também ao mudar `tamanho_vinculado`/`formato_tamanho` do insumo e o `tamanho`
+    de `variantes_etiqueta`; **`fn_custo_fila_grade`** (3 gatilhos AFTER STATEMENT em `modelo_grades`, `trg_custo_fila_grade_ins/upd/del`)
+    enfileira o card interno COM insumo vinculado quando a grade muda (só linha que mudou de verdade; ≤1 card por Salvar — o 2º
+    enfileiramento da mesma txn não rearma) — ambos chamam `_custo_enfileirar(…, true)`: **o CONGELADO vale (A4): card já enviado ao
+    corte NÃO é movido** por mudar vínculo/grade (ficou com o rateio antigo; é o R-CD1). (3) **Custo REAL (A5):** `_custo_unitario_modelos_core`
+    (CTE `mat`, soma de `cad_etiquetas`) rateia pela grade do CAD (`_grade_mapa_cad(cad, true)`, real senão planejada por linha; total =
+    o MESMO da coluna `grade`); só muda a chave `real` de card cortado com insumo vinculado, e sempre para MENOS ou igual. (4) **Baixa de
+    estoque da revenda:** `_estoque_etiqueta_core` (`baixa_revenda`) por peças recebidas do tamanho; `_receber_oc_p_acabado_core`
+    materializa `cad_etiquetas` pela mesma regra (sem baixa em dobro depois do "Enviar para PCP"). (5) **Explosão/Fichas/Sheet:**
+    `quantidade_planejada`/`quantidade_enviar` do `cad_etiquetas` (`montarCadPayload` + `tamanhoPorEtiquetaDe`), Explosão (chip "Só tam. M",
+    aviso âmbar fora da grade, "a enviar" gravado vale — A6) e impressões (UMA linha por insumo vinculado). **Revenda/importado: o
+    PREVISTO no TS usa fator 1 (A7 — a grade cor×tamanho do comprado mora em `useGradeComprado`, fora do `useFichaBom`); o servidor
+    (baixa/materialização) segue a regra.** ⚠️ **A6 — SEM retroatividade:** `cad_etiquetas.quantidade_enviar` já gravado não muda ao ligar o
+    vínculo; o 1º Salvar do Sheet num CAD AINDA NÃO enviado ao PCP regrava `cad_etiquetas` (o "a enviar" manual é refeito); depois de
+    "Enviar para PCP" a trava impede. Limites: `_grade_mapa_cad` usa a grade PLANEJADA nas linhas de `cad_grades` com
+    `grade_total_real` NULL (CAD de revenda com variante que saiu antes da 2ª OC pode contar células a mais); CAD cortado cujo
+    `grade_total_real` ≠ Σ do mapa (legado; 20 de 485 na cópia, todos não cortados) subestima/superestima o `real` do insumo vinculado.
+    Em `_custo_calcular` os helpers (`SET search_path`, não inlináveis) rodam por linha de insumo mesmo sem vínculo (medido: < 0,5 s nas 7
+    lojas; orçamento do processador 3 s/lote de 25). Anti-drift: fixtures `GRADE_FATOR`/`CASOS_ETIQUETA_FATOR`/`CASO_MODELO_FATOR` em
+    `tests/fixtures/custo-bom-casos.ts` (TS `recomputeEtiqueta(r, map, fator)` ⇄ SQL; `custo-bom-antidrift` + `custo-previsto-servidor` (h)).
+    O `custo_previsto` ao vivo do Sheet é só prévia (o do servidor vale).
 
 ## Sheet unificado do Planejamento (F3, set/2026)
 
@@ -1354,7 +1485,14 @@ do Dev aberto em paralelo não escuta; o Dev não recarrega o CAD sozinho. A eta
 `modelos.descricao_produto` (seção 1, migration `20260930180000`) editável nos dois Sheets.
 
 **Sheet do Dev SÓ LEITURA + trava por seção (P-53 → F5a P-104/P-110/P-113, set/2026):**
-**R7 (05/out): o card do Desenvolvimento abre o `PlanejamentoDetail` (`SHEET_DEV_SOMENTE_LEITURA = false`); o texto abaixo descreve o Sheet antigo, que fica oculto (não apagado) até a faxina.**
+**R7 (05/out, P-48 A de volta): HOJE `const SHEET_DEV_SOMENTE_LEITURA = false` em `criacao.desenvolvimento.tsx` — o card do kanban do
+Desenvolvimento abre o MESMO `PlanejamentoDetail` do Planejamento (único editor do card; montado SÓ com `openId`, senão abriria o Dialog de
+"Novo"), com `contexto="desenvolvimento"` (`planejamento-detail/contexto.ts`): o contexto SÓ troca o rótulo do breadcrumb para
+"Desenvolvimento" (`rotuloTelaBreadcrumb`; antes saía "Planejamento de Produto" — fix L-1, `452d876d`); `abertoPorCima` e o resto agem
+como "planejamento". Fechar/salvar invalida o quadro (`invalidarQuadro`). A trava por seção pelas 2 permissões ("nem ganha nem perde")
+vale. O ramo `ModeloDetailPanel somenteLeitura` segue no código ATRÁS da chave, OCULTO (NÃO apagado — faxina depois): o texto abaixo
+descreve esse Sheet antigo e só volta a valer se a chave for religada para `true` (teste `tests/unit/dev-sheet-oculto.test.ts` fixa a
+chave `false` + os 2 ramos).**
 o Sheet antigo do Dev (`ModeloDetailPanel`) VOLTOU a abrir ao clicar no card do kanban do
 Desenvolvimento, mas SÓ PARA LEITURA: `criacao.desenvolvimento.tsx` passa
 `somenteLeitura` (`const SHEET_DEV_SOMENTE_LEITURA = true`; substitui o antigo
@@ -2002,6 +2140,107 @@ está em "Convenções de código". Onda 2 = backlog no fim desta seção.
     Oficina ainda grava o molde sem rev;
   - menores: `scope: { id: card.cadId }` na `useSalvarEtapaRapida` (2 edições rápidas em cards diferentes do mesmo CAD ao mesmo tempo dão P0409
     "outra pessoa"; falha segura) e lista "efetivamente vazia" nas OCs (lista não vazia sem as chaves do item ainda apaga tudo; a tela sempre manda as chaves).
+
+## Urgentes R1–R8 (out/2026; plano/relatórios/kit em `.superpowers/sdd/2026-10-05-urgentes/`; branch `camada/lote`)
+
+Pedidos urgentes do dono (05/out; spec `spec.md`, plano `plan-a.md` = R1–R3, `plan-b.md` = R4–R8, decisões em `progress.md`). **Kit por
+migration (o que faz, travas, hora, Passo 0 em SQL só-leitura, pós-ida, volta, drops): `kit-a.md` (R1–R3) e `kit-b.md` (R4–R8) NA MESMA
+PASTA, fora do git** (junto com geradores `mig/gerar-a1|a2|a3|b.mjs`, `md5-*.txt` e `mig/<bloco>/{antes,depois}`). Cada regra de negócio mora
+no bloco que ela altera (R1 → "Cadastro › Insumos" + inv. 15; R2 → "Config da Loja colaborativa" + abaixo; R3 → inv. 4; R4/R5 → inv. 8;
+R6/R7 → mapa de rotas + "Sheet do Dev"; R8 → inv. 14); aqui só o mapa de ida/volta.
+
+- **R1** insumo vinculado a UM tamanho (`170000` colunas+helpers, `170500` correção única do legado, `171000` consumidores, `172000` fila da
+  grade, `173000` custo real); **R2** insumos padrão da loja (`174000` coluna + `salvar_config_loja`, `175000` criação do card);
+  **R3** extrato de estoque (`176000` `estoque_mov_log`, `177000` RPCs, `178000` índice); **R4** M.O. com fornecedor + blocos de Serviços
+  (`180000`, `181000`); **R5** previsão da peça de foto (`185000`); **R6** campos fora do PCP › Serviços e **R7** card do Dev abre o Sheet do
+  Planejamento (SÓ front); **R8** título das sublinhas (`190000` regra, `191000` reprocesso). Todas `20261103…`; cada uma com `_down`
+  NEUTRO (sem DROP) e `_down_drop` separado em `supabase/rollback/`; geradas por troca de texto exata sobre o `pg_get_functiondef` vivo com
+  guarda md5 antes/depois (o gerador PARA se o vivo divergir).
+- **Ida (banco ANTES do site; RODA DEPOIS do deploy único — P-322 A; P-329 A: onda 1 = R1–R8 logo depois dele, R9 só depois em ramo
+  próprio):** `170000 → 170500 → 171000 → 172000 → 173000 → 174000 → 175000 → 176000 → 177000 → 178000 → 180000 → 181000 → 185000 → 190000
+  → 191000` → SITE. Nenhuma toca auth/storage/realtime na ida (medido, supautils carregado). **Horário calmo** (pegam trava de tabela):
+  `170000` (AccessExclusive `etiquetas`, ~20 ms), `172000` (ShareRowExclusive `modelo_grades`: bloqueia ESCRITA de grade ≤1,5 s),
+  **`174000` (AccessExclusive `tenant_config`, ~8 ms: TODA checagem de RLS/`tenant_module_enabled` lê esta tabela — fila de ≤1,5 s no app
+  inteiro; laço de 3 tentativas)**, `176000` (ShareRowExclusive `cad_aviamentos`/`cad_etiquetas`), `178000` (CONCURRENTLY: espera
+  transação aberta; `lock_timeout 60s`, `statement_timeout 15min`; rodar o Passo 0 `supabase/consultas/urg_r3_178000_passo0.sql` e conferir
+  `indisvalid`), `180000` (AccessExclusive `modelo_servico_mo` + ShareRowExclusive `empresas`), `181000`/`185000` (AccessExclusive
+  `producao_terceirizados`; mesma janela), `191000` (LOCK EXCLUSIVE `integracao_produtos`/`integracao_linhas`, `lock_timeout 500ms`) e a
+  CORREÇÃO do `170500` (ShareLock `variantes_etiqueta`, ~25 ms). **55P03 (ou 40P01) = nada mudou, rodar o arquivo de novo — e a reexecução
+  também em horário calmo.** `171000`/`173000`/`175000`/`177000`/`190000` = só catálogo. `178000` é arquivo SOZINHO, fora de txn
+  (`psql -v ON_ERROR_STOP=1 -f`, nunca `-1`). `181000` EXIGE a `180000`; `172000` exige a `171000` viva; `191000` exige a `190000`.
+- **Volta (LIFO pela aplicação):** SITE → `191000_down` → `190000_down` → `185000_down` → `181000_down` → `180000_down` → `178000_down`
+  (no-op) → `177000_down` (no-op) → `176000_down` (neutraliza o gatilho) → `175000_down` → `174000_down` (devolve o texto 2d43c259;
+  a coluna FICA) → `173000_down` → `172000_down` (neutraliza; sem trava) → `171000_down` → `170500_down` → `170000_down` (no-op) →
+  inversos do deploy único. **`_down_drop` (opcionais, DEPOIS de todos os `_down`, SITE já voltado, horário calmo, LIFO):** `191000` →
+  `190000` → `185000` → `181000` → `180000` → `178000` (`DROP INDEX CONCURRENTLY`, fora de txn) → `177000` (só catálogo) → `176000` →
+  `175000` → `174000` → `172000` → `170500` → `170000`. Travas dos drops: `172000` e `176000` (DROP TRIGGER) prendem **~23 tabelas de
+  auth/storage/realtime até o COMMIT** (supautils); `174000` AccessExclusive `tenant_config`; `170000` `etiquetas`; `180000` `modelo_servico_mo`
+  + `empresas`; `181000`/`185000` `producao_terceirizados`. Ordem entre drops: **`177000_down_drop` ANTES dos `_down_drop` da `170000` e da
+  Modularidade `20261103100000`** (os `_core` do extrato citam `_insumo_pecas…`/`_exige_modulos`) **e ANTES do `171000_down` se o SITE novo
+  estiver no ar** (senão o Histórico de insumo vinculado da revenda mostra "não confere"); `176000_down_drop` recusa sozinho enquanto o
+  extrato existir; `181000_down_drop` antes do `180000_down_drop` e do Mod `100000_down_drop`; `175000_down_drop` antes do `174000_down_drop`
+  (e do S3a `20261101100000_down_drop`/Mod `100000_down_drop`, que recusam enquanto a RPC viva citar `_seg_exige_pagina`/`_exige_modulos`);
+  `172000_down_drop` antes do `170000_down_drop` (este recusa com QUALQUER função citando `tamanho_vinculado`/helpers, e com vínculo gravado
+  exige `SET LOCAL app.confirmo_apagar_vinculo_tamanho='sim'`). Dados só caem com GUC: `app.confirmo_apagar_insumos_padrao` (174000),
+  `app.confirmo_apagar_backup_tamanho_legado` (170500), `app.confirmo_apagar_estoque_mov_log` (176000, a TABELA; sem ela fica).
+- **Inversos ANTIGOS que RECUSAM (md5) com o lote vivo — desfazer o nosso antes:** com a `171000`: `20261019300000_down`/`_down_neutraliza`
+  (`fn_custo_fila_preco`), `20261026300000_down` (`_estoque_etiqueta_core`) e reaplicar as idas `20261019300000`/`20261019310000`/
+  `20261026300000`; ⚠️ **`_custo_backfill_rodar` (P-166, correção única do custo) recusa com a `171000` viva — se ainda tiver de rodar,
+  rode ANTES**. Com a `173000`: `20261026200000_down` (`_custo_unitario_modelos_core` 4bf2770e) e reaplicar `20261026200000`/
+  `20261028200000` (o `20261028200000_down` da L8 NÃO recusa). Com a `174000`: `20261027130000_down` (`salvar_config_loja` 2d43c259) e
+  reaplicar `20261027110000`/`130000`. Com a `175000`: `20261014100000_down` (`_plan_tecido_criar_card_core` fceac02c) e
+  `20261101190000_down` (S3d, `importar_modelo_linha` db0c3dcb) e reaplicar essas idas + a `20261019300000`. Com a `180000`:
+  `20261019110000_down` (`enforce_servico_mo_aprovacao` a2115ce0); o `180000_down` recusa com a `181000` viva. Com a `181000`: S1
+  `20261031120000_down` (`_enviar_modelo_para_cad_core` bf28796b), S3c `20261101160000_down` (`excluir_cad` ba41974b) e a L3
+  `20261027100000_down`. Com a `185000`: Camada `20261103160000_down` (`salvar_terceirizados` fe253087; recusa provada) — atrás dele S3b
+  `20261101130000_down` e `20261023100000_down`. Com a `190000`: I3b `20261030110000_down`, R14 `20261024200000_down` e reaplicar as idas da
+  I3b/I3c; **I3a `100000_down` NÃO recusa** (só a LIFO protege). Regerar a `171000` ⇒ regerar a `172000` (a guarda exige `_custo_calcular`
+  d10bf139). Quem nenhum inverso guarda: `_receber_oc_p_acabado_core`, `177000`, `176000`.
+- **Correções únicas:** (1) **`170500` — tamanho LEGADO do insumo (P-305 A + P-307 B):** a migration só cria `_urg_r1_tamanho_legado_lista()`/
+  `_rodar()` e o backup `_bkp_urg_r1_tamanho_legado` (NÃO liga nada sozinha). A coluna legada `etiquetas.tamanho` (18 insumos da Ave Rara
+  no formato da grade, "34|PPP"…) é ligada a `tamanho_vinculado` SÓ item a item, com a **LISTA APROVADA pelo dono** (prévia
+  `supabase/consultas/urg_r1_tamanho_legado_previa.sql` → `hash_lista`/`n`; regras: valor ∈ `tamanhos_grade` da loja, insumo sem variante
+  com tamanho, número/sigla do NOME bate; aprovação pode ser PARCIAL), em `BEGIN; SET LOCAL app.confirmo_tamanho_legado='sim'; SELECT
+  public._urg_r1_tamanho_legado_rodar('<array jsonb>', '<hash>', <n>); COMMIT;` — **rodar a prévia e a correção no MESMO passo** (o hash
+  inclui nome e nº de modelos; `lista_mudou` não grava nada). Idempotente: 2ª rodada = 0 ligados (`ja_corrigido_antes`/`ja_vinculado`; o que
+  a pessoa desligou depois não é religado); `_down` devolve só o que ainda é o "depois" e relata o que a pessoa mudou. **Rodando DEPOIS da
+  `171000`, o gatilho enfileira o custo dos cards internos NÃO cortados que usam os insumos ligados (cópia: 106 modelos, 0 cortados)** →
+  Passo 0 conta `custo_recalculo_fila` e os cortados. A prévia mostra POR INSUMO os modelos que cairiam a 0 peças (grade com total e sem
+  células: cópia 23 pares/12 modelos, ex. SAIA MARY, VESTIDO BEATRIX). (2) **`191000` — reprocesso R8** (automático na ida; ver inv. 14).
+  Nenhuma outra migration do lote muda valor gravado (a `175000`/`177000` só criam função; a `176000` começa com o log vazio).
+- **Dados que NÃO voltam sozinhos:** vínculos de tamanho e listas de insumos padrão gravados (colunas inertes); custo previsto recalculado
+  pela regra nova (fica até a próxima edição do card); `cad_etiquetas` regravado/materializado; linhas do `estoque_mov_log`; `empresa_id`/
+  `mo_linha_id`/`peca_foto_previsao` e os blocos de Serviços criados da M.O.; backups `_bkp_urg_r1_tamanho_legado` e `_bkp_r8_titulo_sublinha`.
+- **Site velho + banco novo: inofensivo** (colunas novas ignoradas; nenhuma RPC antiga mudou de assinatura; `empresa_id`/`peca_foto_previsao`
+  ausentes = mantêm). **Site novo + banco velho: QUEBRA** (cadastro de insumo grava `tamanho_vinculado`; Histórico, Insumos padrão,
+  fornecedor da M.O. e previsão da peça de foto chamam RPC/coluna que não existe) ⇒ banco ANTES do site. Aba aberta antes do deploy:
+  RECARREGAR (a aba velha do PCP mantém a previsão porque não manda a chave; Config da Loja velha não manda `insumos_padrao` — nada se perde,
+  CAS por coluna).
+- **R2 — onde os insumos padrão entram (P-306 B; SÓ origem INTERNO; produto existente não muda):** (a) "+ Novo" do Planejamento: a seção
+  "Insumos" (sem número, entre Tecidos e Mão de obra) nasce pré-preenchida com a lista da loja como RASCUNHO (não acende "não salvo"); o 1º
+  Salvar grava via `salvar_insumos_iniciais(_modelo_id, _linhas)` logo após o INSERT (DEFINER; só card interno SEM nenhum insumo; ≤20 linhas,
+  consumo 0..9999 ≤4 casas, `loss_percent` 0..100 ≤2 casas opcional; portão `_seg_exige_pagina('criacao_planejamento','criacao_desenvolvimento')`;
+  nunca apaga); falha de rede ao carregar a lista TRAVA o Salvar ("Tentar de novo", P-57); falha da RPC deixa o card criado e o toast nomeia
+  o passo (`etapaFalha="insumos"`, `criacao-card-passos.ts`). (b) "Criar vários cards": `insert(…).select("id")` + 1 RPC por card (falha de
+  um não para os outros; 1 toast). (c) Plan. Tecido "Criar card(s)" e Importar (planilha, ramo `criado`): `_plan_tecido_criar_card_core` e
+  `importar_modelo_linha` chamam o helper `_insumos_padrao_aplicar(modelo)` (RE-VALIDA a lista crua: insumo de outra loja/apagado, consumo
+  inválido, par repetido → ignora; cor que não é variante do insumo → sem cor; ≤20; 3 SELECTs sem subtransação quando vazia; **NUNCA derruba a
+  criação** — EXCEPTION vira WARNING ASCII e 0). Espelho TS `normalizarInsumosPadraoParaCard` (`insumos-padrao-normalizadores.ts`) ⇄ SQL,
+  fixture `CASOS_APLICAR` (18 casos; `urg-a2-insumos-aplicar-casos.test.ts`). **NÃO recebem:** Duplicar/Nova versão (copiam o BOM da origem),
+  Replicar do Plan. Tecido, Revenda/Importado, `criar_card_simulacao` (RPC morta) e a confirmação do OTB (`otb_confirmar*` só muda
+  `colecoes.status` desde jul/2026 — "grava junto da criação" não tem caminho). Órfão (insumo apagado, cor que saiu do insumo, `reset_loja`
+  mantém `tenant_config`) = ignorado no prefill (aviso âmbar com a contagem) e "Insumo removido" na Config.
+- **R3 front:** Histórico por item nas 3 abas (inv. 4); `sem_permissao_ver:` traduzido em `mensagemSegS3`. **R6/R7:** só front (descritos no mapa
+  de rotas e em "Sheet do Dev"); sem migration. **R8 front:** `titulo` da filha só leitura + "i"; Manual da API usa `tituloSublinha`.
+- **Testes/harness:** ganchos `URG_A_TXN=1` (plan-a) e `URGB_TXN=1` (plan-b) em `tests/integration/db.ts`, cadeia LIFO camada → urg-a → urgb
+  (`urg-a-helpers.ts`, `urgb-helpers.ts`; `md5UrgASucessor`/`md5UrgbSucessor` — pino antigo aceita o SUCESSOR, nunca trocar número à mão;
+  `dropUrgAExtratoSePreciso`/`dropUrgbSePreciso` antes dos `_down_drop` de Mod/170000). `tests/integration/urg-a-dados.ts` é GERADO: a seção
+  R3 fica DEPOIS de `URG_A_JSON_FIM` — rodar o `gerar-a1.mjs` de novo a APAGA (re-rodar `gerar-a3.mjs`). Testes R1 não dependem de vínculo
+  pré-existente (`zeraVinculosTamanhoNaTxn`, só dentro da txn revertida: a QA no navegador grava vínculos na cópia). Teste de trava mede por
+  DIFERENÇA de `pg_locks`. Cópia local: suíte de integração só com a cópia QUIETA (suítes simultâneas dão 55P03/40P01 falsos).
+- **Avisos ao dono (ao ligar/deploy):** cards em curso — o 1º Salvar do Sheet num CAD ainda não enviado ao PCP regrava os insumos vinculados;
+  card cortado fica com o previsto cheio (congelado, A4); grade com total e SEM células → insumo vinculado vai a 0 + aviso (não é bug);
+  num integrável v=4 mudar o título acende `titulo` e `sublinhas`; aprovar a M.O. passa a esperar (ms) um Salvar do PCP aberto no mesmo card.
 
 ## O que NÃO fazer
 
