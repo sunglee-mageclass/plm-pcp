@@ -39,7 +39,7 @@ const TRANSLATE_ACENTOS_PT: Record<string, string> = {
  *  PT-BR acima — acento fora dela NÃO converte, e cai fora no filtro seguinte), mantém
  *  só letras A-Z, maiúsculo, 3 primeiras — espelha `_norm3(text)` byte-a-byte (translate
  *  + regexp_replace + substr + upper). */
-function norm3(s: string | null | undefined): string {
+export function norm3(s: string | null | undefined): string {
   const traduzido = Array.from(s ?? "")
     .map((ch) => TRANSLATE_ACENTOS_PT[ch] ?? ch)
     .join("");
