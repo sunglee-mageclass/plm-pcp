@@ -19,7 +19,7 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public._urg_r1b_enviar_previa()', '1158cdbfeaf90192295dfc9f4fdd9295', 'db45b0b5ef1f5d901d6d916231d7b922'),
-      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', 'a2e58118486c39206fbcf31f192f1e06', 'ee1f3f18beed61a257e00937e543ac29')
+      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', 'd82b6115a4a511149e7cd9bab7274716', 'ee1f3f18beed61a257e00937e543ac29')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
@@ -56,7 +56,8 @@ BEGIN
     RAISE NOTICE 'urg_r1b_198000_down: nada pendente no backup (ja devolvido ou vazio) - no-op';
     RETURN;
   END IF;
-  IF current_setting('lock_timeout') IN ('0', '0ms') THEN
+  -- espera de trava = o MENOR entre a do chamador e 3 s (sem nenhuma = 3 s)
+  IF (SELECT s.setting::bigint FROM pg_settings s WHERE s.name = 'lock_timeout') NOT BETWEEN 1 AND 3000 THEN
     PERFORM set_config('lock_timeout', '3s', true);
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || x.modelo_id::text))

@@ -18,12 +18,15 @@
 -- 20261103170000 (_insumo_tamanho_de, _insumo_pecas, _grade_mapa_cad) - a regra do vinculo nao e reimplementada.
 -- Efeito DA CORRECAO (nao desta migration): so CAD NAO enviado ao PCP muda; estoque/extrato nao mudam (a baixa de insumo e o
 -- estoque_mov_log so leem CAD enviado); sobe o rev do CAD (Explosao aberta recarrega via P0409) e enfileira o kanban do card.
+-- Fora do escopo (residuo do R1, documentado - L3 da revisao): cad_etiquetas.quantidade_planejada NAO e corrigida (fica no total
+-- antigo; nenhum leitor hoje - as fichas recalculam a planejada) e o Sheet antigo do Dev (ModeloDetailPanel, OCULTO desde a R7)
+-- ainda gravaria consumo x grade total se fosse religado. Os dois ficam como estao.
 -- Trava desta migration: so catalogo e a tabela NOVA (CREATE TABLE/FUNCTION; AccessShare em cad_etiquetas, cad, etiquetas, modelos,
 -- cad_grades pela validacao do corpo SQL da previa - nao bloqueia leitura nem escrita). MEDIDO na copia (por diferenca de
 -- pg_locks): nada em auth/storage/realtime. Qualquer hora. Idempotente.
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public._urg_r1b_enviar_previa()  DEPOIS 1158cdbfeaf90192295dfc9f4fdd9295  NEUTRO db45b0b5ef1f5d901d6d916231d7b922
---   public._urg_r1b_enviar_rodar(jsonb,text,integer)  DEPOIS a2e58118486c39206fbcf31f192f1e06  NEUTRO ee1f3f18beed61a257e00937e543ac29
+--   public._urg_r1b_enviar_rodar(jsonb,text,integer)  DEPOIS d82b6115a4a511149e7cd9bab7274716  NEUTRO ee1f3f18beed61a257e00937e543ac29
 --   (ANTES: ausentes) - exige a 20261103170000 viva (md5 dos 4 helpers usados conferidos abaixo)
 -- ====================================================================================
 -- Volta (LIFO): supabase/rollback/20261103198000_urg_r1b_enviar_tamanho_down.sql (devolve o "antes" SO onde ainda vale o "depois" e o
@@ -58,7 +61,7 @@ BEGIN
   END IF;
   FOR r IN SELECT * FROM (VALUES
       ('public._urg_r1b_enviar_previa()', '1158cdbfeaf90192295dfc9f4fdd9295', 'db45b0b5ef1f5d901d6d916231d7b922'),
-      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', 'a2e58118486c39206fbcf31f192f1e06', 'ee1f3f18beed61a257e00937e543ac29')
+      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', 'd82b6115a4a511149e7cd9bab7274716', 'ee1f3f18beed61a257e00937e543ac29')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
@@ -251,8 +254,8 @@ BEGIN
     RAISE EXCEPTION 'lista_invalida: linha repetida na lista aprovada' USING ERRCODE = 'P0001';
   END IF;
 
-  -- espera de trava: a do chamador (o rodador do kit poe 1500ms); sem nenhuma (0), no maximo 3 s
-  IF current_setting('lock_timeout') IN ('0', '0ms') THEN
+  -- espera de trava = o MENOR entre a do chamador (o rodador do kit poe 1500ms) e 3 s; sem nenhuma (0) = 3 s
+  IF (SELECT s.setting::bigint FROM pg_settings s WHERE s.name = 'lock_timeout') NOT BETWEEN 1 AND 3000 THEN
     PERFORM set_config('lock_timeout', '3s', true);
   END IF;
   SELECT coalesce(array_agg(DISTINCT c.id), '{}'::uuid[]) INTO v_cads
@@ -333,7 +336,7 @@ DECLARE
   r record;
 BEGIN
   IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_previa()'))) IS DISTINCT FROM '1158cdbfeaf90192295dfc9f4fdd9295'
-     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_rodar(jsonb,text,integer)'))) IS DISTINCT FROM 'a2e58118486c39206fbcf31f192f1e06' THEN
+     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_rodar(jsonb,text,integer)'))) IS DISTINCT FROM 'd82b6115a4a511149e7cd9bab7274716' THEN
     RAISE EXCEPTION 'urg_r1b_198000: pos-condicao falhou no texto das funcoes' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES ('public._urg_r1b_enviar_previa()'), ('public._urg_r1b_enviar_rodar(jsonb,text,integer)')) AS x(f) LOOP

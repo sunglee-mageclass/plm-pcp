@@ -11,7 +11,7 @@ export const URG_R1B = {
   BKP: "public._bkp_urg_r1b_enviar",
   DEPOIS: {
     "public._urg_r1b_enviar_previa()": "1158cdbfeaf90192295dfc9f4fdd9295",
-    "public._urg_r1b_enviar_rodar(jsonb,text,integer)": "a2e58118486c39206fbcf31f192f1e06",
+    "public._urg_r1b_enviar_rodar(jsonb,text,integer)": "d82b6115a4a511149e7cd9bab7274716",
   } as Record<string, string>,
   NEUTRO: {
     "public._urg_r1b_enviar_previa()": "db45b0b5ef1f5d901d6d916231d7b922",

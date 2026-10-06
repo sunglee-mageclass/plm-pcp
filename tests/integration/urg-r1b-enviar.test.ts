@@ -6,9 +6,12 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hasDb, withTx, um, ehBancoLocal, TENANT_TESTE } from "./db";
+import { hasDb, withTx, um, ehBancoLocal, dbUrl, TENANT_TESTE } from "./db";
 import { aplicarArquivo } from "./mig-txn";
 import { URG_R1B } from "./urg-r1b-dados";
 import { aplicaUrgR1b, urgR1bViva, voltaUrgR1bSePreciso } from "./urg-r1b-helpers";
@@ -209,6 +212,11 @@ async function semeia(c: Client) {
   const k7 = await insCad(c, "URG-R1B Modelo grade nao fecha", "interno", false, [
     { n: 1, g: { "40|M": 10, "38|P": 5 }, t: 20 },
   ]);
+  // N3: 2 variantes, uma COERENTE (10 de 10) e outra que NAO fecha (5 de 8) -> a linha INTEIRA e grade_incompleta (nao so a variante)
+  const k8 = await insCad(c, "URG-R1B Modelo 2 variantes uma incompleta", "interno", false, [
+    { n: 1, g: { "40|M": 10 }, t: 10 },
+    { n: 2, g: { "40|M": 5 }, t: 8 },
+  ]);
   const ce = {
     auto: await insCe(c, k1.cad, eM, 1, 50), // automatico antigo 1 x 50 -> 25
     mao: await insCe(c, k1.cad, eM, 2, 77), // editado a mao (antigo seria 100)
@@ -222,9 +230,10 @@ async function semeia(c: Client) {
     revenda: await insCe(c, k3.cad, eM, 1, 50),
     semCelulas: await insCe(c, k4.cad, eM, 1, 40), // grade so com total -> grade_incompleta (NAO vai a 0)
     naoFecha: await insCe(c, k7.cad, eM, 1, 20), // celulas != total -> grade_incompleta
+    duasVar: await insCe(c, k8.cad, eM, 1, 18), // variante 1 coerente + variante 2 incompleta -> grade_incompleta (linha inteira)
     outraGrade: await insCe(c, k1.cad, eM, 1, 40), // consumo x 40 (grade antiga de 40 pecas) -> editado_a_mao + info
   };
-  return { eM, eXG, eProprio, eSem, k1, k2, k3, k4, k7, ce };
+  return { eM, eXG, eProprio, eSem, k1, k2, k3, k4, k7, k8, ce };
 }
 
 const daFixture = (f: Fix, l: Linha[]) => {
@@ -272,6 +281,12 @@ describe.skipIf(!RODA)(
           elegivel: false,
           motivo: "grade_incompleta",
           info: "variante 1: celulas 15 de total 20",
+        });
+        // N3: so a variante 2 fura, mas a linha inteira sai (nunca grava com metade da grade conhecida); info cita SO a que fura
+        expect(l[f.ce.duasVar]).toMatchObject({
+          elegivel: false,
+          motivo: "grade_incompleta",
+          info: "variante 2: celulas 5 de total 8",
         });
         // L1: editado a mao com o automatico antigo x gravado (e o palpite de outra grade quando o gravado e consumo x N)
         expect(l[f.ce.mao].info).toBe("gravado 77.00 x automatico antigo 100.00");
@@ -459,6 +474,8 @@ describe.skipIf(!RODA)(
         expect(pul[f.ce.revenda]).toBe("revenda_importado_sem_paridade");
         expect(pul[f.ce.semCelulas]).toBe("grade_incompleta");
         expect(pul[f.ce.naoFecha]).toBe("grade_incompleta");
+        expect(pul[f.ce.duasVar]).toBe("grade_incompleta");
+        expect(await enviar(c, f.ce.duasVar)).toBe(18);
         expect(pul[f.ce.semVinculo]).toBeUndefined();
         expect(pul[f.ce.auto]).toBeUndefined();
         const bk = (
@@ -646,13 +663,99 @@ describe.skipIf(!RODA)(
         expect(cmd, t).toContain(t);
       }
       expect(r).toContain("public._urg_r1b_enviar_rodar(:'lista'::jsonb, :'hash', :n)");
+      // N2: lista truncada = erro ANTES do BEGIN (confere jsonb_array_length(lista) = n_aprovado E n_aprovado = n)
       const iBegin = cmd.indexOf("BEGIN;");
+      const iConf = cmd.findIndex((x) =>
+        x.includes("jsonb_array_length(:'lista'::jsonb) = CAST(:'n_aprovado' AS integer)"),
+      );
+      const iNn = cmd.findIndex((x) =>
+        x.includes("CAST(:'n_aprovado' AS integer) = CAST(:'n' AS integer)"),
+      );
+      const iIf = cmd.indexOf("\\if :r1b_lista_inteira");
+      const iTrunc = cmd.findIndex((x) => x.includes("r1b_lista_truncada"));
+      for (const i of [iConf, iNn, iIf, iTrunc]) {
+        expect(i).toBeGreaterThan(-1);
+        expect(i).toBeLessThan(iBegin);
+      }
       const iSel = cmd.findIndex((x) => x.includes("_urg_r1b_enviar_rodar("));
       expect(iSel).toBeGreaterThan(iBegin);
       expect(cmd.indexOf("COMMIT;")).toBeGreaterThan(iSel);
     });
 
-    it("rodar respeita o lock_timeout do chamador (o kit poe 1500ms); sem nenhum, usa 3s", async () => {
+    it("N2/N3: o RODADOR de verdade (psql -f, copia com ROLLBACK no lugar do COMMIT): lista inteira grava n; truncada / n_aprovado != n / hash errado param e NADA fica", async (ctx) => {
+      // Fora de txn de teste (o arquivo abre a propria). Usa o estado COMMITADO da copia: so roda com a 198000 viva nela.
+      const psql = (args: string[]) =>
+        spawnSync("psql", [dbUrl()!, "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", ...args], {
+          encoding: "utf8",
+        });
+      const viva = psql([
+        "-c",
+        `SELECT md5(pg_get_functiondef(to_regprocedure('${URG_R1B.RODAR}'))) = '${URG_R1B.DEPOIS[URG_R1B.RODAR]}'
+            AND to_regclass('${URG_R1B.BKP}') IS NOT NULL`,
+      ]);
+      if (viva.error || viva.status !== 0) ctx.skip(); // sem psql no PATH
+      if (viva.stdout.trim() !== "t") ctx.skip(); // copia sem a 198000 (ou outro texto): nada a provar aqui
+      const original = readFileSync(`${ROOT}supabase/consultas/urg_r1b_enviar_rodar.sql`, "utf8");
+      expect(original.split("\n").filter((x) => x === "COMMIT;")).toHaveLength(1);
+      const dir = mkdtempSync(join(tmpdir(), "urg-r1b-rodador-"));
+      const arq = join(dir, "rodar_rollback.sql");
+      writeFileSync(arq, original.replace(/^COMMIT;$/m, "ROLLBACK;"));
+      try {
+        const linhas = psql([
+          "-c",
+          `SELECT linha FROM ${URG_R1B.PREVIA} WHERE elegivel ORDER BY tenant_id, cad_id, cad_etiqueta_id`,
+        ]);
+        expect(linhas.status, linhas.stderr).toBe(0);
+        const el = linhas.stdout.split("\n").filter((x) => x !== "");
+        const hash = md5(el.join("\n"));
+        const n = el.length;
+        const bkp = () => psql(["-c", `SELECT count(*) FROM ${URG_R1B.BKP}`]).stdout.trim();
+        const bk0 = bkp();
+        const roda = (lista: string[], nAprovado: number, h: string, nPrevia: number) =>
+          psql([
+            "-v",
+            `lista=${JSON.stringify(lista)}`,
+            "-v",
+            `n_aprovado=${nAprovado}`,
+            "-v",
+            `hash=${h}`,
+            "-v",
+            `n=${nPrevia}`,
+            "-f",
+            arq,
+          ]);
+        // lista inteira: chega ao _rodar e grava as n (o ROLLBACK da copia desfaz)
+        const ok = roda(el, n, hash, n);
+        expect(ok.status, ok.stderr).toBe(0);
+        const res = ok.stdout.split("\n").find((x) => x.startsWith("r1b_correcao_resultado "));
+        expect(res, ok.stdout).toBeDefined();
+        const r = JSON.parse(res!.slice("r1b_correcao_resultado ".length)) as Resultado;
+        expect([r.gravados, r.n, r.hash]).toEqual([n, n, hash]);
+        // truncada (colada pela metade): para ANTES do BEGIN, nada chega ao _rodar
+        if (n > 0) {
+          const tr = roda(el.slice(0, n - 1), n, hash, n);
+          expect(tr.status).not.toBe(0);
+          expect(tr.stderr).toMatch(/r1b_lista_truncada/);
+          expect(tr.stdout).not.toMatch(/r1b_correcao_resultado/);
+        }
+        // n_aprovado coerente com a lista mas != n da previa (aprovacao parcial pelo rodador) tambem para
+        const parcial = roda(el.slice(0, Math.max(0, n - 1)), Math.max(0, n - 1), hash, n);
+        if (n > 0) {
+          expect(parcial.status).not.toBe(0);
+          expect(parcial.stderr).toMatch(/r1b_lista_truncada/);
+        }
+        // hash errado: passa a conferencia do arquivo, o _rodar recusa (lista_mudou) e nada grava
+        const hx = roda(el, n, "0".repeat(32), n);
+        expect(hx.status).not.toBe(0);
+        expect(hx.stderr).toMatch(/lista_mudou/);
+        expect(hx.stdout).not.toMatch(/r1b_correcao_resultado/);
+        expect(bkp()).toBe(bk0);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("N1: rodar usa o MENOR entre o lock_timeout do chamador e 3s (kit 1500ms fica; 0, 5min e 3001ms viram 3s)", async () => {
       await withTx(async (c) => {
         await aplicaUrgR1b(c);
         const p = await previa(c);
@@ -666,7 +769,26 @@ describe.skipIf(!RODA)(
         expect((await um<{ v: string }>(c, "SELECT current_setting('lock_timeout') AS v")).v).toBe(
           "3s",
         );
+        // N1: teto = o MENOR entre o do chamador e 3 s (chamador com 5 min nao espera 5 min)
+        await c.query("SET LOCAL lock_timeout = '5min'");
+        await rodar(c, [], p.hash, p.n);
+        expect((await um<{ v: string }>(c, "SELECT current_setting('lock_timeout') AS v")).v).toBe(
+          "3s",
+        );
+        await c.query("SET LOCAL lock_timeout = '3001ms'");
+        await rodar(c, [], p.hash, p.n);
+        expect((await um<{ v: string }>(c, "SELECT current_setting('lock_timeout') AS v")).v).toBe(
+          "3s",
+        );
       });
+      // o _down usa o MESMO teto (texto identico ao do _rodar); o arquivo do _down poe 1500ms antes
+      const teto =
+        "IF (SELECT s.setting::bigint FROM pg_settings s WHERE s.name = 'lock_timeout') NOT BETWEEN 1 AND 3000 THEN";
+      for (const arq of [URG_R1B.mig, URG_R1B.down]) {
+        const t = readFileSync(`${ROOT}${arq}`, "utf8");
+        expect(t, arq).toContain(teto);
+        expect(t, arq).toContain("PERFORM set_config('lock_timeout', '3s', true);");
+      }
     });
 
     it("_down sem nada pendente nao toca cad_etiquetas (sem RowExclusive): a cadeia LIFO dos testes o chama a toda hora", async () => {

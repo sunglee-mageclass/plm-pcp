@@ -4,9 +4,12 @@
 -- aberta seguraria as travas do _rodar - linhas de cad/cad_etiquetas dos CADs candidatos e SHARE em variantes_etiqueta de TODAS as
 -- lojas - enquanto alguem le a tela):
 --   psql <url> -X -v ON_ERROR_STOP=1 -A -t \
---        -v lista='<array jsonb das linhas canonicas aprovadas>' -v hash='<hash_lista da previa>' -v n=<n da previa> \
+--        -v lista='<array jsonb das linhas canonicas aprovadas>' -v n_aprovado=<quantas linhas o dono aprovou> \
+--        -v hash='<hash_lista da previa>' -v n=<n da previa> \
 --        -f supabase/consultas/urg_r1b_enviar_rodar.sql
--- (as variaveis do psql so sao trocadas em arquivo -f; o kit confere ANTES o sha256 da lista aprovada). Receita (molde da correcao
+-- (as variaveis do psql so sao trocadas em arquivo -f; o kit confere ANTES o sha256 da lista aprovada). Lista TRUNCADA (colada pela
+-- metade): o arquivo confere ANTES de abrir a transacao que a lista tem EXATAMENTE n_aprovado linhas e que n_aprovado = n (a
+-- previa inteira) - senao para com r1b_lista_truncada e NADA grava. Receita (molde da correcao
 -- unica da release 8 e da correcao-r1 da Onda 1): BEGIN, timeouts LOCAIS, SET LOCAL app.confirmo_enviar_tamanho = 'sim',
 -- SELECT _urg_r1b_enviar_rodar(...), COMMIT. A confirmacao e LOCAL (morre no COMMIT/ROLLBACK). Se a funcao recusar (P0001
 -- lista_mudou / fora_da_lista / confirmacao_ausente / lista_invalida / pos_condicao) ou estourar um tempo, NADA fica gravado (uma
@@ -17,6 +20,13 @@
 -- _bkp_urg_r1b_enviar).
 \set ON_ERROR_STOP on
 SET client_encoding = 'UTF8';
+SELECT (jsonb_typeof(:'lista'::jsonb) = 'array'
+        AND jsonb_array_length(:'lista'::jsonb) = CAST(:'n_aprovado' AS integer)
+        AND CAST(:'n_aprovado' AS integer) = CAST(:'n' AS integer)) AS r1b_lista_inteira \gset
+\if :r1b_lista_inteira
+\else
+DO $trunc$ BEGIN RAISE EXCEPTION 'r1b_lista_truncada: a lista colada nao tem n_aprovado linhas ou n_aprovado difere do n da previa - nada gravado' USING ERRCODE = 'P0001'; END $trunc$;
+\endif
 BEGIN;
 SET LOCAL idle_in_transaction_session_timeout = '15s';
 SET LOCAL statement_timeout = '60s';
