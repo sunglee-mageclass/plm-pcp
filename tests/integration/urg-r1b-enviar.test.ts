@@ -37,6 +37,7 @@ type Linha = {
   motivo: string | null;
   situacao: string | null;
   aviso: string | null;
+  info: string | null;
   linha: string;
 };
 type Resultado = {
@@ -204,6 +205,10 @@ async function semeia(c: Client) {
   const k4 = await insCad(c, "URG-R1B Modelo sem celulas", "interno", false, [
     { n: 1, g: {}, t: 40 },
   ]);
+  // grade que NAO fecha: celulas somam 15, total 20 (pecas do tamanho desconhecidas)
+  const k7 = await insCad(c, "URG-R1B Modelo grade nao fecha", "interno", false, [
+    { n: 1, g: { "40|M": 10, "38|P": 5 }, t: 20 },
+  ]);
   const ce = {
     auto: await insCe(c, k1.cad, eM, 1, 50), // automatico antigo 1 x 50 -> 25
     mao: await insCe(c, k1.cad, eM, 2, 77), // editado a mao (antigo seria 100)
@@ -215,9 +220,11 @@ async function semeia(c: Client) {
     ept: await insCe(c, k1.cad, eM, 1, 50, { "40|M": 25 }), // enviar_por_tamanho preenchido
     enviado: await insCe(c, k2.cad, eM, 1, 50),
     revenda: await insCe(c, k3.cad, eM, 1, 50),
-    semCelulas: await insCe(c, k4.cad, eM, 1, 40), // grade so com total -> 0 (aviso grade_sem_celulas)
+    semCelulas: await insCe(c, k4.cad, eM, 1, 40), // grade so com total -> grade_incompleta (NAO vai a 0)
+    naoFecha: await insCe(c, k7.cad, eM, 1, 20), // celulas != total -> grade_incompleta
+    outraGrade: await insCe(c, k1.cad, eM, 1, 40), // consumo x 40 (grade antiga de 40 pecas) -> editado_a_mao + info
   };
-  return { eM, eXG, eProprio, eSem, k1, k2, k3, k4, ce };
+  return { eM, eXG, eProprio, eSem, k1, k2, k3, k4, k7, ce };
 }
 
 const daFixture = (f: Fix, l: Linha[]) => {
@@ -254,8 +261,25 @@ describe.skipIf(!RODA)(
         expect(Number(l[f.ce.fora].depois)).toBe(0);
         expect(l[f.ce.frac]).toMatchObject({ elegivel: true });
         expect([Number(l[f.ce.frac].antes), Number(l[f.ce.frac].depois)]).toEqual([16.67, 8.33]);
-        expect(l[f.ce.semCelulas]).toMatchObject({ elegivel: true, aviso: "grade_sem_celulas" });
-        expect(Number(l[f.ce.semCelulas].depois)).toBe(0);
+        // M1: grade sem celulas / que nao fecha = NAO elegivel (pecas desconhecidas, nao 0); so fora da grade COERENTE vai a 0
+        expect(l[f.ce.semCelulas]).toMatchObject({
+          elegivel: false,
+          motivo: "grade_incompleta",
+          aviso: "grade_sem_celulas",
+          info: "variante 1: celulas 0 de total 40",
+        });
+        expect(l[f.ce.naoFecha]).toMatchObject({
+          elegivel: false,
+          motivo: "grade_incompleta",
+          info: "variante 1: celulas 15 de total 20",
+        });
+        // L1: editado a mao com o automatico antigo x gravado (e o palpite de outra grade quando o gravado e consumo x N)
+        expect(l[f.ce.mao].info).toBe("gravado 77.00 x automatico antigo 100.00");
+        expect(l[f.ce.outraGrade]).toMatchObject({
+          elegivel: false,
+          motivo: "editado_a_mao",
+          info: "gravado 40.00 x automatico antigo 50.00 (= consumo x 40 pecas: parece automatico de outra grade)",
+        });
         expect(l[f.ce.mao]).toMatchObject({
           elegivel: false,
           motivo: "editado_a_mao",
@@ -433,7 +457,8 @@ describe.skipIf(!RODA)(
         expect(pul[f.ce.enviado]).toBe("enviado_ao_pcp");
         expect(pul[f.ce.proprio]).toBe("sem_vinculo_efetivo");
         expect(pul[f.ce.revenda]).toBe("revenda_importado_sem_paridade");
-        expect(pul[f.ce.semCelulas]).toBe("nao_aprovado");
+        expect(pul[f.ce.semCelulas]).toBe("grade_incompleta");
+        expect(pul[f.ce.naoFecha]).toBe("grade_incompleta");
         expect(pul[f.ce.semVinculo]).toBeUndefined();
         expect(pul[f.ce.auto]).toBeUndefined();
         const bk = (
@@ -531,8 +556,22 @@ describe.skipIf(!RODA)(
         expect((await rodar(c, aprov, p.hash, p.n)).gravados).toBe(4);
         await c.query("UPDATE cad_etiquetas SET quantidade_enviar = 3 WHERE id = $1", [f.ce.fora]); // a pessoa mudou depois
         await c.query("UPDATE cad SET enviado_corte = true WHERE id = $1", [k5.cad]); // foi ao PCP depois da correcao
+        await c.query("UPDATE cad_etiquetas SET quantidade_enviar = 16.67 WHERE id = $1", [
+          f.ce.frac,
+        ]); // voltou ao antes a mao
+        const avisos: string[] = [];
+        const ouvir = (m: { message?: string }) => avisos.push(String(m.message ?? ""));
+        c.on("notice", ouvir);
         await aplicarArquivo(c, URG_R1B.down);
+        c.off("notice", ouvir);
         await c.query("SET LOCAL transaction_timeout = 0");
+        // L5: as contagens do que FICA usam o mesmo predicado da lista de ids (3 ids = 1 + 1 + 1 + 0)
+        const aviso = avisos.find((m) => m.startsWith("urg_r1b_198000_down:"));
+        expect(aviso).toContain(
+          "1 linha(s) devolvida(s) ao valor de antes; ficam: 1 mudada(s) pela pessoa, 1 ja no valor de antes, 1 de CAD ja enviado ao PCP, 0 que sumiram",
+        );
+        for (const id of [f.ce.fora, f.ce.frac, pcp]) expect(aviso).toContain(id);
+        expect(aviso).not.toContain(f.ce.auto);
         expect([
           await enviar(c, f.ce.auto),
           await enviar(c, f.ce.frac),
@@ -566,6 +605,70 @@ describe.skipIf(!RODA)(
       });
     });
 
+    it("L2: aviso_kanban lista o CAD com linha que vai a 0 numa loja cujo kanban usa separar_enviar_preenchido", async () => {
+      await withTx(async (c) => {
+        await aplicaUrgR1b(c);
+        const f = await semeia(c);
+        // CAD so com a linha que vai a 0 (fora da grade, grade coerente) => a condicao fica falsa
+        const k6 = await insCad(c, "URG-R1B Modelo so XG", "interno", false, GRADES);
+        await insCe(c, k6.cad, f.eXG, 1, 50);
+        const secao = async (s: string) =>
+          (await c.query(PREVIA_SQL)).rows.filter(
+            (r) => r.secao === s && r.tenant_id === TENANT_TESTE,
+          );
+        expect(await secao("aviso_kanban")).toEqual([]); // loja sem a condicao no kanban: nada
+        await c.query(
+          `UPDATE tenant_config SET kanban_requisitos = jsonb_build_object('pcp', jsonb_build_array('separar_enviar_preenchido'))
+            WHERE tenant_id = $1`,
+          [TENANT_TESTE],
+        );
+        const av = Object.fromEntries(
+          (await secao("aviso_kanban")).map((r) => [r.cad_id, r.situacao]),
+        );
+        expect(av[k6.cad]).toBe("fica_falso");
+        expect(av[f.k1.cad]).toBe("continua_verdadeiro"); // o CAD 1 tem outras linhas > 0 depois da correcao
+        expect(av[f.k4.cad]).toBeUndefined(); // grade_incompleta nao e elegivel: nao vai a 0
+      });
+    });
+
+    it("M2: rodador do kit = UM arquivo nao interativo com timeouts locais, a GUC e BEGIN/COMMIT proprios", () => {
+      const r = readFileSync(`${ROOT}supabase/consultas/urg_r1b_enviar_rodar.sql`, "utf8");
+      const cmd = r.split("\n").filter((x) => !x.startsWith("--"));
+      expect(cmd.filter((x) => /^BEGIN;$/.test(x))).toHaveLength(1);
+      expect(cmd.filter((x) => /^COMMIT;$/.test(x))).toHaveLength(1);
+      for (const t of [
+        "SET LOCAL idle_in_transaction_session_timeout = '15s';",
+        "SET LOCAL statement_timeout = '60s';",
+        "SET LOCAL lock_timeout = '1500ms';",
+        "SET LOCAL app.confirmo_enviar_tamanho = 'sim';",
+        "\\set ON_ERROR_STOP on",
+      ]) {
+        expect(cmd, t).toContain(t);
+      }
+      expect(r).toContain("public._urg_r1b_enviar_rodar(:'lista'::jsonb, :'hash', :n)");
+      const iBegin = cmd.indexOf("BEGIN;");
+      const iSel = cmd.findIndex((x) => x.includes("_urg_r1b_enviar_rodar("));
+      expect(iSel).toBeGreaterThan(iBegin);
+      expect(cmd.indexOf("COMMIT;")).toBeGreaterThan(iSel);
+    });
+
+    it("rodar respeita o lock_timeout do chamador (o kit poe 1500ms); sem nenhum, usa 3s", async () => {
+      await withTx(async (c) => {
+        await aplicaUrgR1b(c);
+        const p = await previa(c);
+        await c.query("SET LOCAL lock_timeout = '1500ms'");
+        await rodar(c, [], p.hash, p.n);
+        expect((await um<{ v: string }>(c, "SELECT current_setting('lock_timeout') AS v")).v).toBe(
+          "1500ms",
+        );
+        await c.query("SET LOCAL lock_timeout = 0");
+        await rodar(c, [], p.hash, p.n);
+        expect((await um<{ v: string }>(c, "SELECT current_setting('lock_timeout') AS v")).v).toBe(
+          "3s",
+        );
+      });
+    });
+
     it("_down sem nada pendente nao toca cad_etiquetas (sem RowExclusive): a cadeia LIFO dos testes o chama a toda hora", async () => {
       await withTx(async (c) => {
         await aplicaUrgR1b(c);
@@ -594,8 +697,13 @@ describe.skipIf(!RODA)(
         await c.query("SET LOCAL transaction_timeout = 0");
         e = await falha(c, () => aplicarArquivo(c, URG_R1B.drop));
         expect(e.message).toMatch(/urg_r1b_198000_down_drop/);
+        // L4: a instrucao e GUC de SESSAO (PGOPTIONS) - o arquivo abre o proprio BEGIN, um SET LOCAL de fora nao vale
+        expect(e.message).toContain("PGOPTIONS=-c app.confirmo_apagar_backup_enviar_tamanho=sim");
+        expect(readFileSync(`${ROOT}${URG_R1B.drop}`, "utf8")).not.toMatch(
+          /SET LOCAL app\.confirmo_apagar_backup/,
+        );
         await c.query(
-          "SELECT set_config('app.confirmo_apagar_backup_enviar_tamanho', 'sim', true)",
+          "SELECT set_config('app.confirmo_apagar_backup_enviar_tamanho', 'sim', false)",
         );
         await aplicarArquivo(c, URG_R1B.drop);
         await c.query("SET LOCAL transaction_timeout = 0");

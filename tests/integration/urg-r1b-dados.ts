@@ -10,11 +10,11 @@ export const URG_R1B = {
   RODAR: "public._urg_r1b_enviar_rodar(jsonb,text,integer)",
   BKP: "public._bkp_urg_r1b_enviar",
   DEPOIS: {
-    "public._urg_r1b_enviar_previa()": "9d84152d6b374b20fe56d3e7f62fb0f6",
-    "public._urg_r1b_enviar_rodar(jsonb,text,integer)": "9ce45cc6527928966d66c748f67f83bd",
+    "public._urg_r1b_enviar_previa()": "1158cdbfeaf90192295dfc9f4fdd9295",
+    "public._urg_r1b_enviar_rodar(jsonb,text,integer)": "a2e58118486c39206fbcf31f192f1e06",
   } as Record<string, string>,
   NEUTRO: {
-    "public._urg_r1b_enviar_previa()": "406373740d9a3d37e407b0336102fbde",
+    "public._urg_r1b_enviar_previa()": "db45b0b5ef1f5d901d6d916231d7b922",
     "public._urg_r1b_enviar_rodar(jsonb,text,integer)": "ee1f3f18beed61a257e00937e543ac29",
   } as Record<string, string>,
 } as const;

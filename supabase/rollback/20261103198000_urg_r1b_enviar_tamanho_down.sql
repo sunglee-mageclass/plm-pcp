@@ -18,8 +18,8 @@ DECLARE
   v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public._urg_r1b_enviar_previa()', '9d84152d6b374b20fe56d3e7f62fb0f6', '406373740d9a3d37e407b0336102fbde'),
-      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', '9ce45cc6527928966d66c748f67f83bd', 'ee1f3f18beed61a257e00937e543ac29')
+      ('public._urg_r1b_enviar_previa()', '1158cdbfeaf90192295dfc9f4fdd9295', 'db45b0b5ef1f5d901d6d916231d7b922'),
+      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', 'a2e58118486c39206fbcf31f192f1e06', 'ee1f3f18beed61a257e00937e543ac29')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
@@ -45,6 +45,7 @@ DECLARE
   v_mud_ids text;
   v_sum integer := 0;
   v_pcp integer := 0;
+  v_ja_antes integer := 0;
 BEGIN
   IF to_regclass('public._bkp_urg_r1b_enviar') IS NULL THEN
     RAISE NOTICE 'urg_r1b_198000_down: sem tabela de backup - nada a devolver';
@@ -55,7 +56,9 @@ BEGIN
     RAISE NOTICE 'urg_r1b_198000_down: nada pendente no backup (ja devolvido ou vazio) - no-op';
     RETURN;
   END IF;
-  PERFORM set_config('lock_timeout', '3s', true);
+  IF current_setting('lock_timeout') IN ('0', '0ms') THEN
+    PERFORM set_config('lock_timeout', '3s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || x.modelo_id::text))
      FROM (SELECT DISTINCT c.modelo_id FROM public.cad c
             WHERE c.id IN (SELECT k.cad_id FROM public._bkp_urg_r1b_enviar k WHERE k.restaurado_em IS NULL) AND c.modelo_id IS NOT NULL
@@ -75,9 +78,10 @@ BEGIN
   SELECT count(*) FILTER (WHERE ce.id IS NULL)::integer,
          count(*) FILTER (WHERE ce.id IS NOT NULL AND ce.quantidade_enviar IS NOT DISTINCT FROM u.depois AND coalesce(c.enviado_corte, false))::integer,
          count(*) FILTER (WHERE ce.id IS NOT NULL AND ce.quantidade_enviar IS DISTINCT FROM u.depois AND ce.quantidade_enviar IS DISTINCT FROM u.antes)::integer,
+         count(*) FILTER (WHERE ce.id IS NOT NULL AND ce.quantidade_enviar IS DISTINCT FROM u.depois AND ce.quantidade_enviar IS NOT DISTINCT FROM u.antes)::integer,
          string_agg(CAST(u.cad_etiqueta_id AS text), ', ' ORDER BY u.cad_etiqueta_id)
            FILTER (WHERE ce.id IS NULL OR ce.quantidade_enviar IS DISTINCT FROM u.depois OR coalesce(c.enviado_corte, false))
-    INTO v_sum, v_pcp, v_mud, v_mud_ids
+    INTO v_sum, v_pcp, v_mud, v_ja_antes, v_mud_ids
     FROM ult u
     LEFT JOIN public.cad_etiquetas ce ON ce.id = u.cad_etiqueta_id
     LEFT JOIN public.cad c ON c.id = ce.cad_id;
@@ -97,13 +101,14 @@ BEGIN
   )
   SELECT count(*)::integer INTO v_dev FROM dev;
   UPDATE public._bkp_urg_r1b_enviar SET restaurado_em = now() WHERE restaurado_em IS NULL;
-  RAISE NOTICE 'urg_r1b_198000_down: % linha(s) devolvida(s) ao valor de antes; ficam: % mudada(s) pela pessoa, % de CAD ja enviado ao PCP, % que sumiram (CAD regravado): %',
-    v_dev, v_mud, v_pcp, v_sum, coalesce(v_mud_ids, '-');
+  -- as 4 contagens do que FICA usam o MESMO predicado da lista de ids (soma = n de ids)
+  RAISE NOTICE 'urg_r1b_198000_down: % linha(s) devolvida(s) ao valor de antes; ficam: % mudada(s) pela pessoa, % ja no valor de antes, % de CAD ja enviado ao PCP, % que sumiram (CAD regravado): %',
+    v_dev, v_mud, v_ja_antes, v_pcp, v_sum, coalesce(v_mud_ids, '-');
 END
 $volta$;
 
 CREATE OR REPLACE FUNCTION public._urg_r1b_enviar_previa()
- RETURNS TABLE(tenant_id uuid, cad_id uuid, cad_etiqueta_id uuid, modelo_id uuid, modelo text, insumo text, tamanho text, consumo numeric, total numeric, pecas numeric, antigo numeric, necessaria numeric, atual numeric, antes numeric, depois numeric, elegivel boolean, motivo text, situacao text, aviso text, linha text)
+ RETURNS TABLE(tenant_id uuid, cad_id uuid, cad_etiqueta_id uuid, modelo_id uuid, modelo text, insumo text, tamanho text, consumo numeric, total numeric, pecas numeric, antigo numeric, necessaria numeric, atual numeric, antes numeric, depois numeric, elegivel boolean, motivo text, situacao text, aviso text, info text, linha text)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
@@ -132,7 +137,7 @@ DO $pos$
 DECLARE
   r record;
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_previa()'))) IS DISTINCT FROM '406373740d9a3d37e407b0336102fbde'
+  IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_previa()'))) IS DISTINCT FROM 'db45b0b5ef1f5d901d6d916231d7b922'
      OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_rodar(jsonb,text,integer)'))) IS DISTINCT FROM 'ee1f3f18beed61a257e00937e543ac29' THEN
     RAISE EXCEPTION 'urg_r1b_198000_down: pos-condicao falhou (funcoes nao estao no texto neutro)' USING ERRCODE = 'P0001';
   END IF;

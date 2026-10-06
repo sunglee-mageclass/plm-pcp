@@ -6,10 +6,12 @@
 -- Esta migration NAO muda dado e NAO redefine nenhuma funcao existente: cria
 --   1) public._bkp_urg_r1b_enviar (backup antes/depois por linha de cad_etiquetas; RLS ligada SEM policy; REVOKE ALL de PUBLIC, anon,
 --      authenticated, service_role);
---   2) _urg_r1b_enviar_previa() (STABLE, DEFINER): a lista com o veredito por linha, a linha canonica e o aviso (fora_da_grade /
---      grade_sem_celulas, so informativo) - lida pelo Passo 0 do kit em supabase/consultas/urg_r1b_enviar_previa.sql;
+--   2) _urg_r1b_enviar_previa() (STABLE, DEFINER): a lista com o veredito por linha (grade do CAD que nao fecha = grade_incompleta,
+--      NAO elegivel), a linha canonica e aviso/info (so informativos) - lida pelo Passo 0 do kit em
+--      supabase/consultas/urg_r1b_enviar_previa.sql;
 --   3) _urg_r1b_enviar_rodar(_aprovado jsonb, _hash text, _n int) (DEFINER): a correcao, que o KIT roda com a lista aprovada:
---        BEGIN, SET LOCAL app.confirmo_enviar_tamanho = 'sim', SELECT public._urg_r1b_enviar_rodar(...), COMMIT
+--        psql -X -v ON_ERROR_STOP=1 -v lista=... -v hash=... -v n=... -f supabase/consultas/urg_r1b_enviar_rodar.sql
+--      (UM comando nao interativo: BEGIN, timeouts, SET LOCAL app.confirmo_enviar_tamanho = 'sim', SELECT _rodar(...), COMMIT)
 --      (sem a GUC recusa; hash/n da lista de agora diferentes do aprovado = P0001 lista_mudou e nada grava; grava SO os aprovados
 --      que ainda passam; trava card -> CAD -> cad -> cad_etiquetas como a R4; idempotente).
 -- As 2 funcoes: SECURITY DEFINER, search_path=public, EXECUTE revogado de PUBLIC, anon, authenticated. Usam SO os helpers da
@@ -20,14 +22,15 @@
 -- cad_grades pela validacao do corpo SQL da previa - nao bloqueia leitura nem escrita). MEDIDO na copia (por diferenca de
 -- pg_locks): nada em auth/storage/realtime. Qualquer hora. Idempotente.
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
---   public._urg_r1b_enviar_previa()  DEPOIS 9d84152d6b374b20fe56d3e7f62fb0f6  NEUTRO 406373740d9a3d37e407b0336102fbde
---   public._urg_r1b_enviar_rodar(jsonb,text,integer)  DEPOIS 9ce45cc6527928966d66c748f67f83bd  NEUTRO ee1f3f18beed61a257e00937e543ac29
+--   public._urg_r1b_enviar_previa()  DEPOIS 1158cdbfeaf90192295dfc9f4fdd9295  NEUTRO db45b0b5ef1f5d901d6d916231d7b922
+--   public._urg_r1b_enviar_rodar(jsonb,text,integer)  DEPOIS a2e58118486c39206fbcf31f192f1e06  NEUTRO ee1f3f18beed61a257e00937e543ac29
 --   (ANTES: ausentes) - exige a 20261103170000 viva (md5 dos 4 helpers usados conferidos abaixo)
 -- ====================================================================================
 -- Volta (LIFO): supabase/rollback/20261103198000_urg_r1b_enviar_tamanho_down.sql (devolve o "antes" SO onde ainda vale o "depois" e o
 -- CAD segue fora do PCP, relata o resto e NEUTRALIZA as 2 funcoes; a tabela de backup fica). DROP:
 -- supabase/rollback/20261103198000_urg_r1b_enviar_tamanho_down_drop.sql (opcional, depois; apagar o backup com linhas exige
--- SET LOCAL app.confirmo_apagar_backup_enviar_tamanho = 'sim').
+-- a GUC app.confirmo_apagar_backup_enviar_tamanho = 'sim' na SESSAO: PGOPTIONS='-c app.confirmo_apagar_backup_enviar_tamanho=sim'
+-- psql ... -f <_down_drop> - o arquivo abre o proprio BEGIN, um SET LOCAL de fora nao vale).
 -- Aplicar fora de transacao: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -54,8 +57,8 @@ BEGIN
     RAISE EXCEPTION 'urg_r1b_198000: coluna etiquetas.tamanho_vinculado ausente - a 20261103170000 tem de estar viva' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public._urg_r1b_enviar_previa()', '9d84152d6b374b20fe56d3e7f62fb0f6', '406373740d9a3d37e407b0336102fbde'),
-      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', '9ce45cc6527928966d66c748f67f83bd', 'ee1f3f18beed61a257e00937e543ac29')
+      ('public._urg_r1b_enviar_previa()', '1158cdbfeaf90192295dfc9f4fdd9295', 'db45b0b5ef1f5d901d6d916231d7b922'),
+      ('public._urg_r1b_enviar_rodar(jsonb,text,integer)', 'a2e58118486c39206fbcf31f192f1e06', 'ee1f3f18beed61a257e00937e543ac29')
     ) AS x(f, a, b) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NOT NULL AND v NOT IN (r.a, r.b) THEN
@@ -88,7 +91,7 @@ REVOKE ALL ON TABLE public._bkp_urg_r1b_enviar FROM PUBLIC, anon, authenticated,
 REVOKE ALL ON SEQUENCE public._bkp_urg_r1b_enviar_id_seq FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public._urg_r1b_enviar_previa()
- RETURNS TABLE(tenant_id uuid, cad_id uuid, cad_etiqueta_id uuid, modelo_id uuid, modelo text, insumo text, tamanho text, consumo numeric, total numeric, pecas numeric, antigo numeric, necessaria numeric, atual numeric, antes numeric, depois numeric, elegivel boolean, motivo text, situacao text, aviso text, linha text)
+ RETURNS TABLE(tenant_id uuid, cad_id uuid, cad_etiqueta_id uuid, modelo_id uuid, modelo text, insumo text, tamanho text, consumo numeric, total numeric, pecas numeric, antigo numeric, necessaria numeric, atual numeric, antes numeric, depois numeric, elegivel boolean, motivo text, situacao text, aviso text, info text, linha text)
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
@@ -99,6 +102,10 @@ AS $function$
   --       sem paridade provada => revenda_importado_sem_paridade); CAD com modelo (cad_sem_modelo); insumo da mesma loja do CAD;
   --   (1) CAD NAO enviado ao PCP (enviado_ao_pcp);
   --   (2) vinculo EFETIVO pelo helper da 170000 (_insumo_tamanho_de; insumo com tamanho proprio => sem_vinculo_efetivo);
+  --   (2a) grade do CAD COERENTE (grade_incompleta): toda linha de cad_grades tem soma das celulas validas (numero >= 0 em texto, a
+  --        regra de celula dos helpers) = grade_total_planejada, tolerancia 0,0001 - grade so com total (sem celulas) ou que nao fecha
+  --        deixa as pecas do tamanho DESCONHECIDAS (nao 0): nao corrige; quando a grade for completada no Sheet, o Salvar pos-R1
+  --        regrava o "a enviar" pela regra nova. So "fora da grade" com grade coerente (o modelo nao tem a peca) pode ir a 0;
   --   (2b) enviar_por_tamanho vazio (enviar_por_tamanho_preenchido) e "a enviar" gravado (a_enviar_vazio: a Explosao ja mostra
   --        a necessaria nova como padrao);
   --   (3) "a enviar" = o AUTOMATICO ANTIGO round(consumo x grade total planejada do CAD, 2) (o Sheet/Dev gravavam round4(consumo x
@@ -110,7 +117,10 @@ AS $function$
   -- antes = o valor gravado; se a linha ja foi corrigida (gravacao EM VIGOR no backup e o valor de hoje = o "depois" dela) antes = o
   -- "antes" do backup e situacao = ja_corrigido: a lista (e o hash) seguem iguais depois da correcao => 2a execucao = 0 (idempotente).
   -- aviso (SO informativo, fora do hash): fora_da_grade (tamanho sem pecas na grade do CAD => depois 0) | grade_sem_celulas (grade so
-  -- com total, sem celula por tamanho => depois 0).
+  -- com total, sem celula por tamanho; com a regra (2a) so aparece em linha NAO elegivel).
+  -- info (SO informativo, fora do hash): editado_a_mao => gravado x automatico antigo (e, se o gravado e consumo x N inteiro, "parece
+  -- automatico de outra grade": grade mudou depois sem regravar o CAD - corrigir pelo Sheet); grade_incompleta => as variantes que nao
+  -- fecham (celulas x total).
   -- linha = tenant_id|cad_id|cad_etiqueta_id|modelo (ref ou nome)|insumo|tamanho|antes|depois (2 casas); o hash aprovado = md5 das
   -- linhas elegiveis unidas por quebra de linha na ordem (tenant_id, cad_id, cad_etiqueta_id). Previa: supabase/consultas/urg_r1b_enviar_previa.sql.
   WITH base AS (
@@ -130,6 +140,14 @@ AS $function$
            coalesce(ce.enviar_por_tamanho, '{}'::jsonb) AS ept,
            (SELECT coalesce(sum(coalesce(g.grade_total_planejada, 0)), 0) FROM public.cad_grades g WHERE g.cad_id = ce.cad_id) AS total,
            public._grade_mapa_cad(ce.cad_id, false) AS mapa,
+           (SELECT string_agg('variante ' || g.variante_numero || ': celulas ' || trim_scale(s.soma) || ' de total '
+                              || coalesce(g.grade_total_planejada, 0), '; ' ORDER BY g.variante_numero)
+              FROM public.cad_grades g
+              CROSS JOIN LATERAL (SELECT coalesce(sum(kv.value::numeric), 0) AS soma
+                                    FROM jsonb_each_text(CASE WHEN jsonb_typeof(g.grades_planejadas) = 'object'
+                                                              THEN g.grades_planejadas ELSE '{}'::jsonb END) kv
+                                   WHERE kv.value ~ '^[0-9]+(\.[0-9]+)?$') s
+             WHERE g.cad_id = ce.cad_id AND abs(s.soma - coalesce(g.grade_total_planejada, 0)) > 0.0001) AS grade_furo,
            k.antes AS k_antes,
            k.depois AS k_depois
       FROM public.cad_etiquetas ce
@@ -158,6 +176,7 @@ AS $function$
                 WHEN x.origem <> 'interno' THEN 'revenda_importado_sem_paridade'
                 WHEN x.enviado THEN 'enviado_ao_pcp'
                 WHEN x.tam IS NULL THEN 'sem_vinculo_efetivo'
+                WHEN x.grade_furo IS NOT NULL THEN 'grade_incompleta'
                 WHEN x.ept <> '{}'::jsonb THEN 'enviar_por_tamanho_preenchido'
                 WHEN x.antes IS NULL THEN 'a_enviar_vazio'
                 WHEN abs(x.antes - x.depois) <= 0.0001 THEN 'ja_no_valor_novo'
@@ -172,6 +191,12 @@ AS $function$
          CASE WHEN c.motivo IS NOT NULL THEN NULL WHEN c.corrigido THEN 'ja_corrigido' ELSE 'a_corrigir' END,
          CASE WHEN c.tam IS NOT NULL AND c.total > 0 AND c.pecas = 0
               THEN CASE WHEN c.mapa = '{}'::jsonb THEN 'grade_sem_celulas' ELSE 'fora_da_grade' END END,
+         CASE WHEN c.motivo = 'editado_a_mao'
+              THEN 'gravado ' || CAST(round(c.antes, 2) AS text) || ' x automatico antigo ' || CAST(c.antigo AS text)
+                   || CASE WHEN c.consumo > 0 AND mod(c.antes, c.consumo) = 0
+                           THEN ' (= consumo x ' || trim_scale(c.antes / c.consumo) || ' pecas: parece automatico de outra grade)'
+                           ELSE '' END
+              WHEN c.motivo = 'grade_incompleta' THEN c.grade_furo END,
          coalesce(CAST(c.tenant_id AS text), '') || '|' || CAST(c.cad_id AS text) || '|' || CAST(c.cad_etiqueta_id AS text) || '|'
            || c.modelo || '|' || c.insumo || '|' || coalesce(c.tam, '') || '|' || coalesce(CAST(round(c.antes, 2) AS text), '') || '|'
            || CAST(c.depois AS text)
@@ -187,7 +212,9 @@ CREATE OR REPLACE FUNCTION public._urg_r1b_enviar_rodar(_aprovado jsonb, _hash t
 AS $function$
 -- [urg r1b] correcao UNICA do "a enviar" (cad_etiquetas.quantidade_enviar) dos insumos vinculados a UM tamanho (P-337 A), SO com a
 -- lista aprovada pelo dono (padrao da 170500 / P-166):
---   BEGIN, SET LOCAL app.confirmo_enviar_tamanho = 'sim', SELECT _urg_r1b_enviar_rodar(<linhas>, <hash_lista>, <n>), COMMIT.
+--   BEGIN, SET LOCAL app.confirmo_enviar_tamanho = 'sim', SELECT _urg_r1b_enviar_rodar(<linhas>, <hash_lista>, <n>), COMMIT -
+--   SEMPRE pelo rodador NAO interativo supabase/consultas/urg_r1b_enviar_rodar.sql (psql -f, com idle_in_transaction/statement/lock
+--   timeouts): as travas abaixo (inclusive SHARE em variantes_etiqueta de TODAS as lojas) nao podem ficar presas numa txn aberta.
 -- _aprovado = array jsonb das linhas canonicas aprovadas (todas ou parte das elegiveis da previa); _hash/_n = o hash_lista e o n da
 -- previa INTEIRA. 1) sem a GUC: recusa. 2) travas, na ORDEM UNICA da R4 (anti-deadlock): advisory do CARD
 -- (hashtext('cad:modelo_id:'||modelo_id), por modelo_id) -> advisory do CAD (hashtext(cad_id), por cad_id) -> linhas de cad FOR
@@ -224,7 +251,10 @@ BEGIN
     RAISE EXCEPTION 'lista_invalida: linha repetida na lista aprovada' USING ERRCODE = 'P0001';
   END IF;
 
-  PERFORM set_config('lock_timeout', '3s', true);
+  -- espera de trava: a do chamador (o rodador do kit poe 1500ms); sem nenhuma (0), no maximo 3 s
+  IF current_setting('lock_timeout') IN ('0', '0ms') THEN
+    PERFORM set_config('lock_timeout', '3s', true);
+  END IF;
   SELECT coalesce(array_agg(DISTINCT c.id), '{}'::uuid[]) INTO v_cads
     FROM public.cad_etiquetas ce
     JOIN public.cad c ON c.id = ce.cad_id
@@ -302,8 +332,8 @@ DO $pos$
 DECLARE
   r record;
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_previa()'))) IS DISTINCT FROM '9d84152d6b374b20fe56d3e7f62fb0f6'
-     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_rodar(jsonb,text,integer)'))) IS DISTINCT FROM '9ce45cc6527928966d66c748f67f83bd' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_previa()'))) IS DISTINCT FROM '1158cdbfeaf90192295dfc9f4fdd9295'
+     OR md5(pg_get_functiondef(to_regprocedure('public._urg_r1b_enviar_rodar(jsonb,text,integer)'))) IS DISTINCT FROM 'a2e58118486c39206fbcf31f192f1e06' THEN
     RAISE EXCEPTION 'urg_r1b_198000: pos-condicao falhou no texto das funcoes' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES ('public._urg_r1b_enviar_previa()'), ('public._urg_r1b_enviar_rodar(jsonb,text,integer)')) AS x(f) LOOP
