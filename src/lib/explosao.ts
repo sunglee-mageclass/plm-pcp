@@ -1,4 +1,4 @@
-// Fonte ÚNICA da Situação da Explosão — lista (pcp.explosao.index.tsx) e
+// Fonte ÚNICA da Situação da Explosão — lista (entrada-saida.explosao.index.tsx) e
 // detalhe (ExplosaoDetail.tsx) usam a MESMA regra, pra nunca divergir (ex.: lista mostra
 // "Faltou estoque" mas o Sheet abre como se estivesse tudo certo).
 export type ExplosaoSituacao = "aguardando" | "enviado" | "faltou_estoque";

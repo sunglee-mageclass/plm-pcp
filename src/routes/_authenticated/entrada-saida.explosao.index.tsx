@@ -36,7 +36,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { fmtNum } from "@/lib/format";
 
-export const Route = createFileRoute("/_authenticated/pcp/explosao/")({
+export const Route = createFileRoute("/_authenticated/entrada-saida/explosao/")({
   component: ExplosaoListPage,
 });
 

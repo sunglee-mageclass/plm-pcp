@@ -45,8 +45,7 @@ export const PAGE_URLS: Record<string, string> = {
   criacao_produto_importado: "/criacao/produto-importado",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
-  // Explosão = 1ª página do PCP (urgentes R9); a URL antiga (Entrada e Saída) só redireciona.
-  producao_explosao: "/pcp/explosao",
+  producao_explosao: "/entrada-saida/explosao",
   // PCP virou hub multi-página (Serviços + Etapas, gate `etapas_pl`) — Serviços/Etapas entram em
   // PAGE_URLS como cards do hub / sub-itens da sidebar, igual às demais páginas de setor.
   // Oficina e CAD são acessados dentro de outras telas — também sem item próprio na navegação.

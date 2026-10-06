@@ -18,23 +18,17 @@ describe("paginaComModuloDesligado", () => {
     expect(ALL_PAGE_KEYS.filter((k) => paginaComModuloDesligado(k, null))).toEqual([]);
   });
 
-  it("sem Entrada e Saída: as páginas do módulo ficam desligadas; a Explosão (agora no PCP) NÃO desliga mais por aqui (Ruling 23)", () => {
+  it("sem Entrada e Saída: as páginas do módulo e a Explosão (gate criacao dentro de E&S) ficam desligadas", () => {
     const m = { ...COMPLETO, entrada_saida: false };
     const mod = PAGES_CATALOG.find((x) => x.module === "entrada_saida")!;
     for (const p of mod.pages) expect(paginaComModuloDesligado(p.key, m), p.key).toBe(true);
-    // a tela da Explosão segue o PCP (Produção) + Criação; o portão das RPCs (E&S) é do banco, não da tela
-    expect(paginaComModuloDesligado("producao_explosao", m)).toBe(false);
+    expect(paginaComModuloDesligado("producao_explosao", m)).toBe(true);
     // outros módulos não são afetados
     expect(paginaComModuloDesligado("otb", m)).toBe(false);
     expect(paginaComModuloDesligado("criacao_desenvolvimento", m)).toBe(false);
   });
 
-  it("Explosão segue o PCP: desliga com Produção desligada", () => {
-    expect(paginaComModuloDesligado("producao_explosao", { ...COMPLETO, producao: false })).toBe(true);
-    expect(modulosDesligadosDaPagina("producao_explosao", { ...COMPLETO, producao: false })).toEqual(["producao"]);
-  });
-
-  it("gate da PRÓPRIA página: Plan. Tecido sem OTB (Criação ligada) e Explosão sem Criação (Produção ligada)", () => {
+  it("gate da PRÓPRIA página: Plan. Tecido sem OTB (Criação ligada) e Explosão sem Criação (E&S ligada)", () => {
     expect(modulosDesligadosDaPagina("criacao_plan_tecido", { ...COMPLETO, otb: false })).toEqual(["otb"]);
     expect(modulosDesligadosDaPagina("producao_explosao", { ...COMPLETO, criacao: false })).toEqual(["criacao"]);
     expect(modulosDesligadosDaPagina("criacao_plan_tecido", COMPLETO)).toEqual([]);

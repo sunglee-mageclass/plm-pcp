@@ -301,7 +301,6 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                   <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">
                     {p.label}
                     {desligada(p.key) && <SeloModuloDesligado />}
-                    {p.notaEditor && <span className="ml-1.5 text-xs text-muted-foreground">({p.notaEditor})</span>}
                     {/* F5c review (I-1): hint só na linha-aba Leadtime — a mesma permissão também
                         libera os números de leadtime dentro da aba Desenvolvimento. */}
                     {p.key === "dashboard_leadtime" && (
@@ -610,7 +609,6 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                     <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">
                       {p.label}
                       {desligada(p.key) && <SeloModuloDesligado />}
-                      {p.notaEditor && <span className="ml-1.5 text-xs text-muted-foreground">({p.notaEditor})</span>}
                       {p.key === "dashboard_leadtime" && (
                         <span className="block text-xs text-muted-foreground">{DASHBOARD_LEADTIME_HINT}</span>
                       )}
