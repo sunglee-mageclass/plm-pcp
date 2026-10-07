@@ -92,8 +92,9 @@ import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-d
 import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
-import { PERM_PECA_TESTE, usePecaTeste, type FornecedorMo } from "@/components/planejamento/planejamento-detail/usePecaTeste";
+import { PERM_PECA_TESTE, salvarComConfirmacaoEstorno, usePecaTeste, type FornecedorMo } from "@/components/planejamento/planejamento-detail/usePecaTeste";
 import { PecaTesteSecao } from "@/components/planejamento/planejamento-detail/PecaTesteSecao";
+import { useMiniExplosao } from "@/components/planejamento/planejamento-detail/useMiniExplosao";
 import { pecaTesteAprovadaTrilha, requisitoDoEstado, tentativaAtualPT } from "@/lib/peca-teste";
 import { useFichaTecnica } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
@@ -768,7 +769,9 @@ function PlanejamentoDetailConteudo({
     }
   }
   // Peça Teste (R9): o rascunho da seção vive aqui (nada grava antes do Salvar); `pt.pecaTesteSave` entra na cadeia do Salvar do card.
-  const pt = usePecaTeste({ modeloId, habilitado: isEdit, podeEditar: podeEditarPT, fornecedorMo, linhasIgnoradas: ptBloqueadasPorTipo });
+  // R11 — mini explosão (1 peça) de cada tentativa: o cálculo nasce da FICHA do Sheet; `pt` usa o mesmo cálculo para o `confere` do Salvar.
+  const miniEx = useMiniExplosao({ modeloId, habilitado: isEdit && podeVerPT, ficha, tamanhoTipo: draft.tamanho_tipo });
+  const pt = usePecaTeste({ modeloId, habilitado: isEdit, podeEditar: podeEditarPT, fornecedorMo, linhasIgnoradas: ptBloqueadasPorTipo, mini: miniEx });
   const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty || pt.dirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: !hostGuardaNavegacao, navPermitida });
   requestCloseRef.current = requestClose;
@@ -1025,7 +1028,13 @@ function PlanejamentoDetailConteudo({
   });
   // F3.3 — Enviar à Explosão (Dev :2402-2433): Salvar + `enviar_modelo_para_cad`; pós-envio re-trava e avisa a lista.
   const enviarExplosao = useEnviarExplosao({
-    modeloId, qc, salvarAntes, draftLiveRef,
+    modeloId, qc,
+    // R11 — o "Salvar por dentro" do Enviar não pergunta: se esse Salvar estornaria a baixa da peça teste, recusa e manda usar o Salvar (com a confirmação).
+    salvarAntes: async () => {
+      if (pt.pecaTesteSave.estornosPendentes().length > 0) throw new Error("Há um estorno de baixa da peça teste pendente — clique em Salvar e confirme antes de enviar à Explosão.");
+      await salvarAntes();
+    },
+    draftLiveRef,
     bloqueioModulo: requerEs.ok ? null : requerEs.motivo,
     onEnviado: () => { setEditandoDev(false); onSaved(); },
   });
@@ -1191,6 +1200,10 @@ function PlanejamentoDetailConteudo({
   });
   // [camada C2 · P-263 A] "Cancelar Lançamento" desfaz: pede "Tem certeza?" antes. "Lançar" segue direto (Seção 2 não implementada).
   const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao(lancar.isPending);
+  // [R11 · estorno da baixa da Peça Teste] o clique do Salvar pergunta ANTES de enviar qualquer coisa quando o Salvar vai estornar a baixa de
+  // estoque de uma mini (Data de saída apagada, ou mini mudada com a data = estorna e refaz). Cancelar = nada é enviado; Confirmar = o Salvar normal.
+  const { pedir: pedirEstorno, dialog: dialogEstorno } = useConfirmacao();
+  const salvarComConfirmacaoPT = () => salvarComConfirmacaoEstorno(pt.pecaTesteSave, pedirEstorno, handleSave);
 
   const duplicate = useMutation({
     mutationFn: async () => {
@@ -2055,6 +2068,9 @@ function PlanejamentoDetailConteudo({
               onDesfazer={pt.desfazerAtual}
               onReprovar={pt.reprovarAtual}
               onTrocarFornecedor={trocarFornecedorPT}
+              mini={miniEx}
+              onEditarMini={pt.editarMini}
+              avisos={pt.avisos}
             />
           )}
 
@@ -2364,13 +2380,14 @@ function PlanejamentoDetailConteudo({
           {/* P-53 A: Salvar habilitado com !perm.sheetSomenteLeitura (antes dependia só da trava da página).
               Fix hidratação (P-57 A): + trava até o seed (isEdit && !semeado) — sem isso o Salvar fica
               habilitado em cima do emptyDraft() e grava vazio por cima do servidor. */}
-          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={(perm.sheetSomenteLeitura && !(podeEditarPT && pt.dirty)) || save.isPending || enviarExplosao.isPending || (isEdit && !semeado) || secaoInsumosNovo.bloqueiaSalvar}>
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={salvarComConfirmacaoPT} disabled={(perm.sheetSomenteLeitura && !(podeEditarPT && pt.dirty)) || save.isPending || enviarExplosao.isPending || (isEdit && !semeado) || secaoInsumosNovo.bloqueiaSalvar}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
         </div>
 
         {dialogConfirmacao}
+        {dialogEstorno}
 
         <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
           <AlertDialogContent>

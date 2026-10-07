@@ -207,6 +207,9 @@ export function invalidarAposPecaTeste(qc: QueryClient, modeloId: string | null)
   for (const k of [
     ["peca-teste", modeloId], ["mo-resumo", modeloId], ["mo-resumo-list"], ["modelo-mo-resumo"], ["plan-kanban-cond", modeloId],
     ["modelo-condicoes-kanban", modeloId], ["modelo"], ["etapas-cards"], ["etapas-peca-teste"],
+    // R11 — a baixa/estorno da mini mexe no estoque: o saldo da própria mini, o extrato (prefixo) e as 3 abas do Estoque (+ a reserva/dashboard)
+    ["peca-teste-mini-estoque", modeloId], ["estoque-extrato"], ["estoque-tecidos"], ["estoque-aviamentos"], ["estoque-insumos"],
+    ["estoque-tecido-por-artigo"], ["dash-estoque"],
   ] as const) qc.invalidateQueries({ queryKey: [...k] });
 }
 

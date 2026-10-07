@@ -756,3 +756,112 @@ export function resumoPosSalvar(antes: readonly TrilhaDoResumo[], depois: readon
   }
   return out;
 }
+
+// ───────────────────────────── adaptador da ficha do Sheet (R11 T6) ─────────────────────────────
+
+/** O que o adaptador lê da ficha do Sheet (`useFichaTecnica`): a mesma forma do `EstadoBom` + os catálogos. PURO (sem React). */
+export type FichaParaMini = {
+  blocks: {
+    tipo: string; numero: number; artigo_id: string | null; consumo: number; loss_percent: number;
+    variantes: (string | null)[]; multiplicadores: number[]; complementas: (string[] | null)[];
+  }[];
+  aviamentos: { aviamento_id: string | null; variante_aviamento_id?: string | null; consumo: number }[];
+  etiquetas: { etiqueta_id: string | null; cor_id: string | null; consumo: number }[];
+  nomeVarianteTecido?: (id: string) => string | null;
+  nomeAviamento?: (id: string) => string | null;
+  variantesAviamento?: (id: string) => LinhaAviamentoBom["variantes"];
+  etiqueta?: (id: string) => { nome: string | null; formato_tamanho: string | null; tamanho_vinculado: string | null; variantes: { tamanho: string | null }[] } | undefined;
+};
+
+/** Ordem (slot + 1) da variante V no Tecido 1 do card; `null` = card sem Tecido 1 ou V fora dele. */
+export function ordemDaVariante(f: Pick<FichaParaMini, "blocks">, varianteV: string | null): number | null {
+  if (!varianteV) return null;
+  const t1 = f.blocks.find((b) => b.tipo === "tecido" && b.numero === 1);
+  const i = t1 ? t1.variantes.findIndex((v) => v === varianteV) : -1;
+  return i >= 0 ? i + 1 : null;
+}
+
+/** Variantes (cores) do Tecido 1 do card, em ordem de slot: as opções do Select "Cor da peça". */
+export function variantesDoTecido1(f: Pick<FichaParaMini, "blocks">): { id: string; ordem: number }[] {
+  const t1 = f.blocks.find((b) => b.tipo === "tecido" && b.numero === 1);
+  if (!t1) return [];
+  const out: { id: string; ordem: number }[] = [];
+  t1.variantes.forEach((v, i) => { if (v) out.push({ id: v, ordem: i + 1 }); });
+  return out;
+}
+
+/**
+ * BOM do card para 1 PEÇA a partir do estado da ficha do Sheet (o MESMO que o Salvar grava antes da Peça Teste). Espelha o que
+ * `_peca_teste_mini_linhas` lê do banco: tecido por bloco (só bloco com artigo) × variante (slot não nulo; ordem = slot + 1), aviamento e
+ * insumo (só linha com cadastro). `numero` das linhas = posição (o servidor ordena por `numero`, que é a ordem do array salvo).
+ */
+export function bomUmaPecaDaFicha(f: FichaParaMini, corDeV: string | null): ModeloBom {
+  const tecidos: BlocoTecido[] = f.blocks
+    .filter((b) => !!b.artigo_id)
+    .map((b) => ({
+      tipo: b.tipo, numero: b.numero, consumo: num(b.consumo), loss_percent: num(b.loss_percent),
+      variantes: b.variantes.flatMap((vid, i) => (vid ? [{
+        ordem: i + 1, variante_tecido_id: vid, multiplicador: b.multiplicadores[i] ?? 1,
+        complementa_variante_ids: b.complementas[i] ?? null, nome_variante: f.nomeVarianteTecido?.(vid) ?? null,
+      }] : [])),
+    }));
+  const aviamentos: LinhaAviamentoBom[] = f.aviamentos.flatMap((a, i) => (a.aviamento_id ? [{
+    aviamento_id: a.aviamento_id, numero: i + 1, consumo: num(a.consumo), variante_aviamento_id: a.variante_aviamento_id ?? null,
+    variantes: f.variantesAviamento?.(a.aviamento_id) ?? [], nome: f.nomeAviamento?.(a.aviamento_id) ?? null,
+  }] : []));
+  const insumos: LinhaInsumoBom[] = f.etiquetas.flatMap((e, i) => {
+    if (!e.etiqueta_id) return [];
+    const info = f.etiqueta?.(e.etiqueta_id);
+    return [{
+      etiqueta_id: e.etiqueta_id, cor_id: e.cor_id ?? null, numero: i + 1, consumo: num(e.consumo),
+      tamanho_vinculado: info?.tamanho_vinculado ?? null, formato_tamanho: info?.formato_tamanho ?? null,
+      variantes_etiqueta: info?.variantes ?? [], nome: info?.nome ?? null,
+    }];
+  });
+  return { tecidos, aviamentos, insumos, corDeV };
+}
+
+/** Quantos insumos do card ficam FORA da peça por estarem vinculados a OUTRO tamanho (o rodapé "N insumos … não entram nesta peça"). */
+export function insumosForaDoTamanho(bom: ModeloBom, tamanho: string | null): number {
+  if (!tamanho) return 0;
+  let n = 0;
+  for (const l of bom.insumos) {
+    const tam = tamanhoEfetivoInsumo({ tamanho_vinculado: l.tamanho_vinculado, formato_tamanho: l.formato_tamanho, variantes: l.variantes_etiqueta });
+    if (tam != null && tam !== tamanho) n++;
+  }
+  return n;
+}
+
+/** Mapa chave -> ajuste da mini (o formato que `linhasUmaPeca` recebe). */
+export function ajustesParaMapa(m: MiniPT | null | undefined): Record<string, AjusteLinha> {
+  const out: Record<string, AjusteLinha> = {};
+  for (const l of ajustesDe(m)) {
+    out[l.chave] = {
+      consumo: l.consumo, loss_percent: l.loss_percent, a_enviar: l.a_enviar,
+      // `undefined` = segue a variante padrão; `null` explícito = "sem variante" escolhida à mão (o servidor distingue pela PRESENÇA da chave,
+      // mas o payload só guarda NULL = segue). Aqui NULL = segue o padrão.
+      ...(l.variante_aviamento_id !== null ? { variante_aviamento_id: l.variante_aviamento_id } : {}),
+      oc_tecido_item_id: l.oc_tecido_item_id,
+    };
+  }
+  return out;
+}
+
+/** Valor digitado -> ajuste: igual ao do BOM/calculado = `null` (volta a seguir). 4 casas. */
+export function ajusteOuNull(digitado: number | null, padrao: number): number | null {
+  if (digitado === null || !Number.isFinite(digitado)) return null;
+  const d = arredondar(digitado, 4);
+  return Math.abs(d - arredondar(padrao, 4)) < 1e-9 ? null : d;
+}
+
+/** chave da linha de insumo -> tamanho a que o insumo está vinculado (só os vinculados; o chip "Só tam. M"). */
+export function tamanhoVinculadoPorChave(bom: ModeloBom, linhas: readonly MiniLinha[]): Record<string, string> {
+  const porEtiqueta = new Map<string, string>();
+  for (const l of bom.insumos) {
+    const tam = tamanhoEfetivoInsumo({ tamanho_vinculado: l.tamanho_vinculado, formato_tamanho: l.formato_tamanho, variantes: l.variantes_etiqueta });
+    if (tam != null) porEtiqueta.set(l.etiqueta_id, tam);
+  }
+  const out: Record<string, string> = {};
+  for (const l of linhas) if (l.familia === "insumo" && l.etiqueta_id && porEtiqueta.has(l.etiqueta_id)) out[l.chave] = porEtiqueta.get(l.etiqueta_id) as string;
+  return out;
+}

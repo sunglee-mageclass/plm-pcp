@@ -366,6 +366,31 @@ export function payloadPecaTeste(
   return out;
 }
 
+/** Tentativas cujo Salvar vai ESTORNAR a baixa da mini (data de saída apagada, ou mini mudada com a data preenchida = estorna e refaz).
+ *  Mesma regra do `payloadPecaTeste` (só tentativa que mudou; decisão salva = mini imutável). `refaz` = estorno + nova baixa (P-365 A). */
+export function estornosPendentes(
+  draft: EstadoPT,
+  base: EstadoPT,
+  ignorar?: ReadonlySet<string>,
+  opcoes: OpcoesPayloadPT = {},
+): { mo_linha_id: string; servico: string; numero: number; refaz: boolean }[] {
+  const out: { mo_linha_id: string; servico: string; numero: number; refaz: boolean }[] = [];
+  for (const dt of draft.trilhas) {
+    if (ignorar?.has(dt.mo_linha_id)) continue;
+    const bt = base.trilhas.find((x) => x.mo_linha_id === dt.mo_linha_id && x.categoria_id === dt.categoria_id);
+    if (!bt) continue;
+    for (const a of ordenadas(dt)) {
+      const b = a.id ? bt.tentativas.find((x) => x.id === a.id) : undefined;
+      if (!b) continue;
+      const mudou = vazio(a.data_saida) !== vazio(b.data_saida) || vazio(a.data_entrada) !== vazio(b.data_entrada) || (a.aprovacao ?? null) !== (b.aprovacao ?? null) || !miniIgual(a.mini, b.mini);
+      if (!mudou) continue;
+      const acao = acaoNoSalvar(a, b, opcoes);
+      if (acao === "estorno" || acao === "estorno_e_baixa") out.push({ mo_linha_id: dt.mo_linha_id, servico: dt.categoria_nome, numero: a.numero, refaz: acao === "estorno_e_baixa" });
+    }
+  }
+  return out;
+}
+
 /** "Não salvo" da seção: o delta contra a base não é vazio. */
 export function ptDirty(draft: EstadoPT, base: EstadoPT, fornecedorEfetivo?: Readonly<Record<string, string | null>>, ignorar?: ReadonlySet<string>, opcoes?: OpcoesPayloadPT): boolean {
   return payloadPecaTeste(draft, base, fornecedorEfetivo, ignorar, opcoes)._trilhas.length > 0;

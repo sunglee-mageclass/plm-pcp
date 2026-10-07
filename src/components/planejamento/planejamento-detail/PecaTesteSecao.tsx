@@ -14,6 +14,9 @@ import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { ReadOnlyScope } from "@/components/RequirePermission";
 import { Secao } from "@/components/planejamento/planejamento-detail/campos";
 import { textoReprovarTentativa } from "@/lib/confirmacoes-textos";
+import { MiniExplosaoBloco } from "@/components/planejamento/planejamento-detail/MiniExplosaoBloco";
+import type { MiniApi } from "@/components/planejamento/planejamento-detail/useMiniExplosao";
+import type { MiniPT } from "@/lib/peca-teste-mini";
 import { cn } from "@/lib/utils";
 import type { Conflito } from "@/lib/colab/merge";
 import {
@@ -46,7 +49,7 @@ const dataBR = (iso: string | null) => {
 export function PecaTesteSecao({
   numero, selo, estado, base, fornecedores, somenteLeitura = false, carregando = false, erro = false, onTentarDeNovo,
   linhasNovas = [], bloqueadasPorTipo, conflitos = [], onResolverConflito, historicoAberto = false,
-  onEditarAtual, onAprovar, onDesfazer, onReprovar, onTrocarFornecedor,
+  onEditarAtual, onAprovar, onDesfazer, onReprovar, onTrocarFornecedor, mini, onEditarMini, avisos = [], miniAbertaInicial = false,
 }: {
   numero?: number;
   selo?: ReactNode;
@@ -73,6 +76,13 @@ export function PecaTesteSecao({
   onDesfazer: (linhaId: string) => void;
   onReprovar: (linhaId: string) => void;
   onTrocarFornecedor: (linhaId: string, empresaId: string | null, empresaNome: string | null) => void;
+  /** R11 — mini explosão (1 peça) de cada tentativa. Ausente = a seção fica como na R9 (sem o bloco). */
+  mini?: MiniApi;
+  onEditarMini?: (linhaId: string, mini: MiniPT) => void;
+  /** R11 — mudanças alheias adotadas SEM escolha no merge (baixa/estorno feitos por outra pessoa). */
+  avisos?: string[];
+  /** Estado inicial do colapsável da mini (fechado por padrão; a prop existe para o render estático). */
+  miniAbertaInicial?: boolean;
 }) {
   const { pedir, dialog } = useConfirmacao();
   const trilhas = estado?.trilhas ?? [];
@@ -130,6 +140,9 @@ export function PecaTesteSecao({
               )}
 
               <ColabBanner presentes={[]} ultimoMerge={null} conflitos={conflitos} onResolver={onResolverConflito} rotulo={rotuloConflito} />
+              {avisos.map((a) => (
+                <Banner key={a} tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>{a}</Banner>
+              ))}
 
               {trilhas.map((t) => {
                 const b = baseDe(t.mo_linha_id);
@@ -155,6 +168,9 @@ export function PecaTesteSecao({
                     onAprovar={onAprovar}
                     onDesfazer={onDesfazer}
                     onTrocarFornecedor={onTrocarFornecedor}
+                    mini={mini}
+                    onEditarMini={onEditarMini}
+                    miniAbertaInicial={miniAbertaInicial}
                     onPedirReprovar={(at, fornecedorNome) =>
                       pedir({
                         ...textoReprovarTentativa({ numero: at.numero, servico: t.categoria_nome, fornecedor: fornecedorNome }),
@@ -213,6 +229,7 @@ function Banner({ tone, icon, children }: { tone: "ok" | "info" | "warn"; icon: 
 
 function TrilhaCard({
   trilha, base, moAprovado, historicoAberto, fornecedores, somenteLeitura, onEditarAtual, onAprovar, onDesfazer, onTrocarFornecedor, onPedirReprovar,
+  mini, onEditarMini, miniAbertaInicial,
 }: {
   trilha: TrilhaPT;
   base: TrilhaPT | undefined;
@@ -225,6 +242,9 @@ function TrilhaCard({
   onDesfazer: (linhaId: string) => void;
   onTrocarFornecedor: (linhaId: string, empresaId: string | null, empresaNome: string | null) => void;
   onPedirReprovar: (at: TentativaPT, fornecedorNome: string | null) => void;
+  mini?: MiniApi;
+  onEditarMini?: (linhaId: string, mini: MiniPT) => void;
+  miniAbertaInicial: boolean;
 }) {
   const uid = useId();
   const [histAberto, setHistAberto] = useState(historicoAberto);
@@ -353,6 +373,13 @@ function TrilhaCard({
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{TEXTO_ENTRADA_ANTES_DA_SAIDA}
           </p>
         )}
+        {mini && (
+          <MiniExplosaoBloco
+            linhaId={linha} pathNumero={null} tentativa={at} base={base?.tentativas.find((x) => x.numero === at.numero) ?? null}
+            historico={false} podeEditar={!somenteLeitura} api={mini} abertoInicial={miniAbertaInicial}
+            onChange={(m) => onEditarMini?.(linha, m)}
+          />
+        )}
       </div>
 
       {hist.length > 0 && (
@@ -370,6 +397,14 @@ function TrilhaCard({
                   <span><span className="block text-xs text-muted-foreground">Data de saída</span><span className="tabular-nums">{dataBR(h.data_saida)}</span></span>
                   <span><span className="block text-xs text-muted-foreground">Data de entrada</span><span className="tabular-nums">{dataBR(h.data_entrada)}</span></span>
                   <StatusBadge tone="danger" className="ml-auto gap-1 normal-case tracking-normal"><X className="h-3 w-3" />Reprovado</StatusBadge>
+                  {mini && h.mini && (h.mini.tamanho !== null || h.mini.baixa_em !== null || h.mini.linhas.some((l) => !!l.foto)) && (
+                    <div className="basis-full">
+                      <MiniExplosaoBloco
+                        linhaId={linha} pathNumero={h.numero} tentativa={h} base={base?.tentativas.find((x) => x.numero === h.numero) ?? null}
+                        historico podeEditar={false} api={mini} abertoInicial={miniAbertaInicial} onChange={() => {}}
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

@@ -7,6 +7,8 @@ import { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicaUrgd, urgdViva, URGD_BLOCOS } from "./urgd-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { bomUmaPecaDaFicha, confereDasLinhas, linhasUmaPeca, miniNova, type FichaParaMini } from "../../src/lib/peca-teste-mini";
+import { chaveConfere, payloadPecaTeste, tentativaVirtual, type EstadoPT } from "../../src/lib/peca-teste";
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -463,6 +465,37 @@ describe.skipIf(!RODA)("urgd-r11-salvar: Salvar da Peça Teste com a mini (máqu
                   LEFT JOIN LATERAL (SELECT sum(quantidade) s FROM public._estoque_extrato_aviamento_core($1, c.id) e WHERE e.bucket_variante_id IS NOT DISTINCT FROM c.variante_id) x ON true
                  WHERE coalesce(x.s,0) <> c.recebido - c.baixa)::int AS diverge`, [T]));
       expect(Number(rec.diverge)).toBe(0);
+    });
+  });
+
+  it("18) o payload montado pela LIB (payloadPecaTeste + linhasUmaPeca/confereDasLinhas do BOM da ficha) passa o `confere` do servidor e baixa", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const f = await seed(c, { tecConsumo: 2, aviConsumo: 3, insConsumo: 4 });
+      const tent = await tentativa1(c, f, null);
+      // o BOM como o Sheet o tem (ficha) — os mesmos números do seed
+      const ficha: FichaParaMini = {
+        blocks: [{ tipo: "tecido", numero: 1, artigo_id: "a", consumo: 2, loss_percent: 0, variantes: [f.vt], multiplicadores: [1], complementas: [null] }],
+        aviamentos: [{ aviamento_id: f.avi, variante_aviamento_id: f.av, consumo: 3 }],
+        etiquetas: [{ etiqueta_id: f.etq, cor_id: null, consumo: 4 }],
+        etiqueta: () => ({ nome: "ins", formato_tamanho: "nenhum", tamanho_vinculado: null, variantes: [] }),
+        variantesAviamento: () => [{ variante_aviamento_id: f.av, cor_id: null, rotulo: "a" }],
+      };
+      const linhas = linhasUmaPeca(bomUmaPecaDaFicha(ficha, null), "M", 1, f.vt, {});
+      // as chaves da lib = as do servidor
+      expect(linhas.map((l) => l.chave).sort()).toEqual([f.chaveTec, f.chaveAvi, f.chaveIns].sort());
+      const confere = confereDasLinhas(linhas);
+      const mini = { ...miniNova(), tamanho: "M", variante_tecido_id: f.vt };
+      const trilha = { mo_linha_id: f.moLinha, categoria_id: f.cat, categoria_nome: "PL", empresa_id: f.forn, empresa_nome: "forn", mo_aprovado: null };
+      const base: EstadoPT = { outros: [], trilhas: [{ ...trilha, tentativas: [{ ...tentativaVirtual(1), id: tent, rev: await rev(c, tent) }] }] };
+      const draft: EstadoPT = { outros: [], trilhas: [{ ...trilha, tentativas: [{ ...base.trilhas[0].tentativas[0], data_saida: "2026-01-05", mini }] }] };
+      const p = payloadPecaTeste(draft, base, undefined, undefined, { confere: { [chaveConfere(f.moLinha, 1)]: confere }, semTecido1: false });
+      expect(p._trilhas[0].tentativas[0].mini?.confere).toEqual(confere);
+      const r = await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]);
+      expect(txt(r)).toBe("PASSOU");
+      expect(await baixaEm(c, tent)).not.toBeNull();
+      expect(await somaEtb(c, tent)).toBeCloseTo(2, 4); // tecido: 1 peça x consumo 2
+      expect(await somaLed(c, tent)).toBeCloseTo(7, 4); // aviamento 3 + insumo 4
     });
   });
 });
