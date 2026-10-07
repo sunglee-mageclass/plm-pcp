@@ -1853,6 +1853,103 @@ export type Database = {
           },
         ]
       }
+      estoque_peca_teste_baixas: {
+        Row: {
+          aviamento_id: string | null
+          cor_id: string | null
+          created_at: string
+          created_by: string | null
+          etiqueta_id: string | null
+          familia: string
+          id: string
+          modelo_id: string | null
+          origem: string
+          quantidade: number
+          rotulo: string
+          tamanho: string | null
+          tenant_id: string
+          tentativa_id: string | null
+          variante_aviamento_id: string | null
+        }
+        Insert: {
+          aviamento_id?: string | null
+          cor_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          etiqueta_id?: string | null
+          familia: string
+          id?: string
+          modelo_id?: string | null
+          origem: string
+          quantidade: number
+          rotulo: string
+          tamanho?: string | null
+          tenant_id: string
+          tentativa_id?: string | null
+          variante_aviamento_id?: string | null
+        }
+        Update: {
+          aviamento_id?: string | null
+          cor_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          etiqueta_id?: string | null
+          familia?: string
+          id?: string
+          modelo_id?: string | null
+          origem?: string
+          quantidade?: number
+          rotulo?: string
+          tamanho?: string | null
+          tenant_id?: string
+          tentativa_id?: string | null
+          variante_aviamento_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estoque_peca_teste_baixas_aviamento_id_fkey"
+            columns: ["aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "aviamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_peca_teste_baixas_cor_id_fkey"
+            columns: ["cor_id"]
+            isOneToOne: false
+            referencedRelation: "cores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_peca_teste_baixas_etiqueta_id_fkey"
+            columns: ["etiqueta_id"]
+            isOneToOne: false
+            referencedRelation: "etiquetas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_peca_teste_baixas_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_peca_teste_baixas_tentativa_id_fkey"
+            columns: ["tentativa_id"]
+            isOneToOne: false
+            referencedRelation: "modelo_peca_teste_tentativas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_peca_teste_baixas_variante_aviamento_id_fkey"
+            columns: ["variante_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_aviamento"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       estoque_tecido_baixas: {
         Row: {
           cad_id: string | null
@@ -1862,6 +1959,7 @@ export type Database = {
           motivo: string | null
           oc_tecido_item_id: string
           origem: string
+          peca_teste_tentativa_id: string | null
           quantidade: number
           rolo_id: string | null
           tenant_id: string
@@ -1875,6 +1973,7 @@ export type Database = {
           motivo?: string | null
           oc_tecido_item_id: string
           origem: string
+          peca_teste_tentativa_id?: string | null
           quantidade: number
           rolo_id?: string | null
           tenant_id: string
@@ -1888,12 +1987,20 @@ export type Database = {
           motivo?: string | null
           oc_tecido_item_id?: string
           origem?: string
+          peca_teste_tentativa_id?: string | null
           quantidade?: number
           rolo_id?: string | null
           tenant_id?: string
           variante_tecido_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "estoque_tecido_baixas_peca_teste_tentativa_id_fkey"
+            columns: ["peca_teste_tentativa_id"]
+            isOneToOne: false
+            referencedRelation: "modelo_peca_teste_tentativas"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "estoque_tecido_baixas_cad_id_fkey"
             columns: ["cad_id"]
@@ -2606,6 +2713,172 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_peca_teste_mini: {
+        Row: {
+          baixa_em: string | null
+          baixa_por: string | null
+          created_at: string
+          mesma_oc: boolean
+          modelo_id: string
+          tamanho: string | null
+          tenant_id: string
+          tentativa_id: string
+          updated_at: string
+          variante_tecido_id: string | null
+        }
+        Insert: {
+          baixa_em?: string | null
+          baixa_por?: string | null
+          created_at?: string
+          mesma_oc?: boolean
+          modelo_id: string
+          tamanho?: string | null
+          tenant_id: string
+          tentativa_id: string
+          updated_at?: string
+          variante_tecido_id?: string | null
+        }
+        Update: {
+          baixa_em?: string | null
+          baixa_por?: string | null
+          created_at?: string
+          mesma_oc?: boolean
+          modelo_id?: string
+          tamanho?: string | null
+          tenant_id?: string
+          tentativa_id?: string
+          updated_at?: string
+          variante_tecido_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_peca_teste_mini_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_mini_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_mini_tentativa_id_fkey"
+            columns: ["tentativa_id"]
+            isOneToOne: true
+            referencedRelation: "modelo_peca_teste_tentativas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_mini_variante_tecido_id_fkey"
+            columns: ["variante_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_peca_teste_mini_linhas: {
+        Row: {
+          a_enviar: number | null
+          b_a_enviar: number | null
+          b_baixado: number | null
+          b_consumo: number | null
+          b_faltou: number | null
+          b_fontes: Json | null
+          b_loss_percent: number | null
+          b_necessaria: number | null
+          b_rotulo: string | null
+          b_unidade: string | null
+          b_variante: string | null
+          chave: string
+          consumo: number | null
+          familia: string
+          id: string
+          loss_percent: number | null
+          oc_tecido_item_id: string | null
+          tenant_id: string
+          tentativa_id: string
+          variante_aviamento_id: string | null
+        }
+        Insert: {
+          a_enviar?: number | null
+          b_a_enviar?: number | null
+          b_baixado?: number | null
+          b_consumo?: number | null
+          b_faltou?: number | null
+          b_fontes?: Json | null
+          b_loss_percent?: number | null
+          b_necessaria?: number | null
+          b_rotulo?: string | null
+          b_unidade?: string | null
+          b_variante?: string | null
+          chave: string
+          consumo?: number | null
+          familia: string
+          id?: string
+          loss_percent?: number | null
+          oc_tecido_item_id?: string | null
+          tenant_id: string
+          tentativa_id: string
+          variante_aviamento_id?: string | null
+        }
+        Update: {
+          a_enviar?: number | null
+          b_a_enviar?: number | null
+          b_baixado?: number | null
+          b_consumo?: number | null
+          b_faltou?: number | null
+          b_fontes?: Json | null
+          b_loss_percent?: number | null
+          b_necessaria?: number | null
+          b_rotulo?: string | null
+          b_unidade?: string | null
+          b_variante?: string | null
+          chave?: string
+          consumo?: number | null
+          familia?: string
+          id?: string
+          loss_percent?: number | null
+          oc_tecido_item_id?: string | null
+          tenant_id?: string
+          tentativa_id?: string
+          variante_aviamento_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_peca_teste_mini_linhas_oc_tecido_item_id_fkey"
+            columns: ["oc_tecido_item_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_mini_linhas_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_mini_linhas_tentativa_id_fkey"
+            columns: ["tentativa_id"]
+            isOneToOne: false
+            referencedRelation: "modelo_peca_teste_mini"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_peca_teste_mini_linhas_variante_aviamento_id_fkey"
+            columns: ["variante_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_aviamento"
             referencedColumns: ["id"]
           },
         ]
@@ -8153,6 +8426,7 @@ export type Database = {
       otb_importar_colecoes: { Args: never; Returns: Json }
       otb_orcamento: { Args: { _colecao_id?: string }; Returns: Json }
       otb_salvar_colecao: { Args: { _payload: Json }; Returns: string }
+      peca_teste_mini_estoque: { Args: { _modelo_id: string }; Returns: Json }
       peca_teste_modelo: { Args: { _modelo_id: string }; Returns: Json }
       peca_teste_quadro: { Args: never; Returns: Json }
       plan_tecido_aplicar_ao_modelo: {

@@ -403,3 +403,36 @@ export function textoReprovarTentativa(a: {
     destrutivo: true,
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Seção 6 — Estorno da baixa de estoque da Peça Teste (urgentes R11, mini explosão; mockup v4 aprovado)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** 6.1 Salvar vai ESTORNAR a baixa da mini explosão (a Data de saída foi apagada). `itens` = "<serviço> · tentativa N" (vazio = frase sem o
+ *  parêntese). Texto do mockup v4 aprovado; botão vermelho (desfaz). */
+export function textoEstornarPecaTeste(itens: readonly string[]): TextoConfirmacao {
+  const lista = itens.map(txt).filter(presente);
+  return {
+    titulo: "Estornar a baixa da peça teste?",
+    descricao:
+      `Salvar vai estornar a baixa de estoque da peça teste${lista.length ? ` (${lista.join("; ")})` : ""}: o material baixado volta ao estoque. ` +
+      "Para fazer a baixa de novo, preencha a Data de saída e salve.",
+    confirmar: "Estornar e salvar",
+    cancelar: CANCELAR,
+    destrutivo: true,
+  };
+}
+
+/** 6.2 Variante da P-365 A (dono, 06/out): a Data de saída segue preenchida e a mini mudou — o mesmo Salvar estorna e REFAZ a baixa com as
+ *  quantidades novas. */
+export function textoEstornarERefazerPecaTeste(itens: readonly string[]): TextoConfirmacao {
+  const lista = itens.map(txt).filter(presente);
+  return {
+    titulo: "Estornar a baixa da peça teste?",
+    descricao:
+      `Salvar vai estornar a baixa de estoque da peça teste${lista.length ? ` (${lista.join("; ")})` : ""} e fazer a baixa de novo com as quantidades novas.`,
+    confirmar: "Estornar e salvar",
+    cancelar: CANCELAR,
+    destrutivo: true,
+  };
+}

@@ -13,6 +13,10 @@
 // Anti-drift SQL × TS: `tests/fixtures/peca-teste-casos.ts` (unit + `tests/integration/urgc-r9-kanban.test.ts`).
 
 import type { Conflito } from "@/lib/colab/merge";
+import {
+  acaoNoSalvar, herdarMini, miniDoServidor, miniIgual, miniParaPayload, miniVazia, resumoMini,
+  type MiniPayload, type MiniPT,
+} from "@/lib/peca-teste-mini";
 
 export type AprovacaoPecaTeste = "aprovado" | "reprovado" | null;
 
@@ -75,6 +79,8 @@ export type TentativaPT = {
   aprovacao: AprovacaoPecaTeste;
   decidido_em: string | null;
   rev: number;
+  /** Mini explosão (1 peça) da tentativa (R11); `null` = sem cabeçalho (nada escolhido). */
+  mini: MiniPT | null;
 };
 /** Trilha = linha de M.O. cujo tipo exige peça teste. `empresa_id`/`empresa_nome` = fornecedor da LINHA (o que a tela mostra). */
 export type TrilhaPT = {
@@ -122,6 +128,7 @@ export function estadoPTDoServidor(raw: unknown): EstadoPT | null {
         aprovacao: t.aprovacao === "aprovado" ? "aprovado" : t.aprovacao === "reprovado" ? "reprovado" : null,
         decidido_em: t.decidido_em ?? null,
         rev: Number(t.rev ?? 0),
+        mini: miniDoServidor(t.mini),
       }))
       .sort((a: TentativaPT, b: TentativaPT) => a.numero - b.numero),
   }));
@@ -137,8 +144,8 @@ function ordenadas(t: Pick<TrilhaPT, "tentativas">): TentativaPT[] {
 }
 
 /** Tentativa virtual: ainda não existe no banco (a 1ª nasce com o serviço e o fornecedor da linha; a seguinte a uma reprovada idem). */
-export function tentativaVirtual(numero: number): TentativaPT {
-  return { id: null, numero, empresa_id: null, empresa_nome: null, data_saida: null, data_entrada: null, aprovacao: null, decidido_em: null, rev: 0 };
+export function tentativaVirtual(numero: number, mini: MiniPT | null = null): TentativaPT {
+  return { id: null, numero, empresa_id: null, empresa_nome: null, data_saida: null, data_entrada: null, aprovacao: null, decidido_em: null, rev: 0, mini };
 }
 
 /** A tentativa ATUAL da trilha COM virtual: a última, se não está reprovada; senão a virtual de número max+1 (1 sem nenhuma).
@@ -147,7 +154,7 @@ export function tentativaAtualPT(t: Pick<TrilhaPT, "tentativas">): TentativaPT {
   const ord = ordenadas(t);
   const ult = ord[ord.length - 1];
   if (!ult) return tentativaVirtual(1);
-  return ult.aprovacao === "reprovado" ? tentativaVirtual(ult.numero + 1) : ult;
+  return ult.aprovacao === "reprovado" ? tentativaVirtual(ult.numero + 1, herdarMini(ult.mini)) : ult;
 }
 
 /** Tentativas anteriores (reprovadas), da mais antiga para a mais nova. Só leitura. */
@@ -160,8 +167,9 @@ export function statusTrilha(t: Pick<TrilhaPT, "tentativas">): StatusTrilhaPT {
   const at = tentativaAtualPT(t);
   if (at.aprovacao === "aprovado") return "aprovada";
   if (!at.data_saida) {
-    const ord = ordenadas(t);
-    return ord.length > 0 && ord[ord.length - 1].aprovacao === "reprovado" ? "reprovada_nova" : "aguardando_saida";
+    // a atual sem saída vem depois de uma reprovada (a virtual ou a que já nasceu só com a mini herdada, P-347) = "nova tentativa"
+    const anterior = ordenadas(t).filter((x) => x.numero < at.numero).pop();
+    return anterior?.aprovacao === "reprovado" ? "reprovada_nova" : "aguardando_saida";
   }
   return "em_teste";
 }
@@ -205,13 +213,15 @@ export function entradaAntesDaSaida(at: Pick<TentativaPT, "data_saida" | "data_e
   return !!at.data_saida && !!at.data_entrada && at.data_entrada < at.data_saida;
 }
 
-const SEM_CAMPOS = (a: Pick<TentativaPT, "data_saida" | "data_entrada" | "aprovacao">) => !a.data_saida && !a.data_entrada && !a.aprovacao;
+/** Tentativa "sem nada": sem datas, sem decisão e sem mini com dado (a mini com tamanho/cor/ajuste/baixa conta como dado). */
+const SEM_CAMPOS = (a: Pick<TentativaPT, "data_saida" | "data_entrada" | "aprovacao" | "mini">) =>
+  !a.data_saida && !a.data_entrada && !a.aprovacao && miniVazia(a.mini);
 
 /** Troca a trilha por uma cópia com a tentativa ATUAL editada. Virtual que ganha dado entra na lista; local nova (sem id) que volta a ficar
  *  vazia sai; a GRAVADA que fica vazia continua (o Salvar a apaga — volta a virtual). Reprovada nunca é editada. */
 export function editarAtual(
   t: TrilhaPT,
-  patch: Partial<Pick<TentativaPT, "data_saida" | "data_entrada" | "aprovacao" | "empresa_id" | "empresa_nome">>,
+  patch: Partial<Pick<TentativaPT, "data_saida" | "data_entrada" | "aprovacao" | "empresa_id" | "empresa_nome" | "mini">>,
 ): TrilhaPT {
   const at = tentativaAtualPT(t);
   if (at.aprovacao === "reprovado") return t;
@@ -239,7 +249,12 @@ export function reprovar(t: TrilhaPT, fornecedorCongelado: { id: string | null; 
   if (at.aprovacao === "reprovado") return t;
   const novo: TentativaPT = { ...at, aprovacao: "reprovado", empresa_id: fornecedorCongelado.id, empresa_nome: fornecedorCongelado.nome };
   const naLista = t.tentativas.some((x) => x.numero === at.numero);
-  return { ...t, tentativas: naLista ? t.tentativas.map((x) => (x.numero === at.numero ? novo : x)) : [...t.tentativas, novo] };
+  const lista = naLista ? t.tentativas.map((x) => (x.numero === at.numero ? novo : x)) : [...t.tentativas, novo];
+  // P-347: a próxima herda tamanho, cor, "mesma OC" e o item de OC/rolo escolhido. Com o que herdar, ela já entra na lista (o Salvar a
+  // grava só com a mini); sem nada a herdar continua virtual, como na R9.
+  const herdada = herdarMini(at.mini);
+  const proxima = lista.some((x) => x.numero === at.numero + 1) || !herdada ? null : { ...tentativaVirtual(at.numero + 1, herdada) };
+  return { ...t, tentativas: proxima ? [...lista, proxima] : lista };
 }
 
 /** Resumo do requisito do kanban para a tela, antes de salvar. `fornecedores` = fornecedor EFETIVO por linha (rascunho);
@@ -288,16 +303,24 @@ export type PayloadPT = {
     mo_linha_id: string;
     categoria_id: string;
     empresa_id?: string | null;
-    tentativas: { id: string | null; numero: number; data_saida: string | null; data_entrada: string | null; aprovacao: AprovacaoPecaTeste }[];
+    tentativas: { id: string | null; numero: number; data_saida: string | null; data_entrada: string | null; aprovacao: AprovacaoPecaTeste; mini?: MiniPayload }[];
   }[];
   _rev_base: { tentativas: Record<string, number>; fornecedor: Record<string, string | null> };
 };
+/** Opções do payload sobre a mini (R11). `confere[chaveConfere(linha, nº)]` = o "a enviar" EFETIVO que a pessoa VIU, por chave (4 casas;
+ *  `confereDasLinhas`): vai junto da mini quando o Salvar fará a baixa (sem ele o servidor usa o próprio cálculo). `semTecido1` = o card não
+ *  tem Tecido 1 (a cor não é exigida para a baixa). */
+export type OpcoesPayloadPT = { confere?: Readonly<Record<string, Record<string, number>>>; semTecido1?: boolean };
+/** Chave do mapa `confere`: "<mo_linha_id>:<nº da tentativa>". */
+export const chaveConfere = (linhaId: string, numero: number): string => `${linhaId}:${numero}`;
+
 export function payloadPecaTeste(
   draft: EstadoPT,
   base: EstadoPT,
   fornecedorEfetivo?: Readonly<Record<string, string | null>>,
   /** Linhas cujo TIPO mudou no rascunho da M.O. (a trilha atual é do tipo antigo): NADA delas vai (nem datas, nem decisão, nem fornecedor). */
   ignorar?: ReadonlySet<string>,
+  opcoes: OpcoesPayloadPT = {},
 ): PayloadPT {
   const out: PayloadPT = { _trilhas: [], _rev_base: { tentativas: {}, fornecedor: {} } };
   for (const dt of draft.trilhas) {
@@ -312,16 +335,28 @@ export function payloadPecaTeste(
     for (const a of ordenadas(dt)) {
       const b = a.id ? bt.tentativas.find((x) => x.id === a.id) : undefined;
       if (a.id && !b) continue;
+      // A mini vai quando MUDOU vs a base OU quando o Salvar mexe no estoque (baixa/estorno; só se algo da tentativa mudou — abrir o card não
+      // dispara baixa). Mudar SÓ a data com a baixa ativa mantém a baixa: nada da mini vai.
+      let mini: MiniPayload | undefined;
       if (b) {
-        const mudou = vazio(a.data_saida) !== vazio(b.data_saida) || vazio(a.data_entrada) !== vazio(b.data_entrada) || (a.aprovacao ?? null) !== (b.aprovacao ?? null);
+        const miniMudou = !miniIgual(a.mini, b.mini);
+        const mudou = vazio(a.data_saida) !== vazio(b.data_saida) || vazio(a.data_entrada) !== vazio(b.data_entrada) || (a.aprovacao ?? null) !== (b.aprovacao ?? null) || miniMudou;
         if (!mudou) continue;
         revs[a.id as string] = b.rev;
         if (a.aprovacao && a.aprovacao !== b.aprovacao) decisao = true;
+        const acao = acaoNoSalvar(a, b, opcoes);
+        if (miniMudou || acao === "baixa" || acao === "estorno" || acao === "estorno_e_baixa") {
+          mini = miniParaPayload(a.mini, acao === "baixa" || acao === "estorno_e_baixa" ? opcoes.confere?.[chaveConfere(dt.mo_linha_id, a.numero)] : undefined);
+        }
       } else {
         if (SEM_CAMPOS(a)) continue;
         if (a.aprovacao) decisao = true;
+        const acao = acaoNoSalvar(a, undefined, opcoes);
+        if (!miniVazia(a.mini) || acao === "baixa") {
+          mini = miniParaPayload(a.mini, acao === "baixa" ? opcoes.confere?.[chaveConfere(dt.mo_linha_id, a.numero)] : undefined);
+        }
       }
-      tentativas.push({ id: a.id, numero: a.numero, data_saida: vazio(a.data_saida), data_entrada: vazio(a.data_entrada), aprovacao: a.aprovacao ?? null });
+      tentativas.push({ id: a.id, numero: a.numero, data_saida: vazio(a.data_saida), data_entrada: vazio(a.data_entrada), aprovacao: a.aprovacao ?? null, ...(mini ? { mini } : {}) });
     }
     if (tentativas.length === 0 && !trocou) continue;
     out._trilhas.push({ mo_linha_id: dt.mo_linha_id, categoria_id: dt.categoria_id, ...(trocou ? { empresa_id: forn ?? null } : {}), tentativas });
@@ -332,16 +367,18 @@ export function payloadPecaTeste(
 }
 
 /** "Não salvo" da seção: o delta contra a base não é vazio. */
-export function ptDirty(draft: EstadoPT, base: EstadoPT, fornecedorEfetivo?: Readonly<Record<string, string | null>>, ignorar?: ReadonlySet<string>): boolean {
-  return payloadPecaTeste(draft, base, fornecedorEfetivo, ignorar)._trilhas.length > 0;
+export function ptDirty(draft: EstadoPT, base: EstadoPT, fornecedorEfetivo?: Readonly<Record<string, string | null>>, ignorar?: ReadonlySet<string>, opcoes?: OpcoesPayloadPT): boolean {
+  return payloadPecaTeste(draft, base, fornecedorEfetivo, ignorar, opcoes)._trilhas.length > 0;
 }
 
 // ───────────────────────── merge 3 vias (base / meu / dele) ─────────────────────────
-export type ResultadoMergePT = { valor: EstadoPT; conflitos: Conflito[]; atualizados: number };
+/** `avisos`: mudanças alheias adotadas SEM escolha (hoje: baixa/estorno de estoque feitos por outra pessoa) — a tela mostra como aviso. */
+export type ResultadoMergePT = { valor: EstadoPT; conflitos: Conflito[]; atualizados: number; avisos: string[] };
 export const CAMPOS_TENTATIVA_PT = ["data_saida", "data_entrada", "aprovacao"] as const;
 type CampoTentativaPT = (typeof CAMPOS_TENTATIVA_PT)[number];
 
-/** `pt:<linha>:<campo>` (tentativa ATUAL e `fornecedor`); campo de outra tentativa = `pt:<linha>:t<n>:<campo>`. */
+/** `pt:<linha>:<campo>` (tentativa ATUAL e `fornecedor`; `mini` = a mini explosão, UMA unidade de merge); campo de outra tentativa =
+ *  `pt:<linha>:t<n>:<campo>` (ex.: `pt:<linha>:t2:mini`). */
 export function pathPT(linha: string, campo: string, numero?: number | null): string {
   return numero == null ? `pt:${linha}:${campo}` : `pt:${linha}:t${numero}:${campo}`;
 }
@@ -359,8 +396,15 @@ function rotuloCampo(campo: CampoTentativaPT, v: string | null): string {
   return dataBR(v);
 }
 
+/** Minha mini com os campos que SÓ o servidor decide (baixa, quem baixou, histórico) vindos da dele. */
+function miniMinhaComMetaDele(minha: MiniPT | null, dele: MiniPT | null): MiniPT | null {
+  if (!minha) return minha;
+  return { ...minha, baixa_em: dele?.baixa_em ?? null, baixa_por_nome: dele?.baixa_por_nome ?? null, tem_historico: dele?.tem_historico ?? minha.tem_historico };
+}
+
 export function mergePecaTeste(base: EstadoPT, meu: EstadoPT, dele: EstadoPT): ResultadoMergePT {
   const conflitos: Conflito[] = [];
+  const avisos: string[] = [];
   let atualizados = 0;
   const trilhas: TrilhaPT[] = [];
   for (const d of dele.trilhas) {
@@ -388,7 +432,7 @@ export function mergePecaTeste(base: EstadoPT, meu: EstadoPT, dele: EstadoPT): R
       if (!mt) { if (dt) { tentativas.push(dt); atualizados++; } continue; }
       if (!dt) {
         if (bt) { // ele a apagou (voltou a virtual): sem edição minha ela some; com edição minha sobrevive como NOVA
-          if (CAMPOS_TENTATIVA_PT.every((c) => vazio(mt[c] as string | null) === vazio(bt[c] as string | null))) { atualizados++; continue; }
+          if (CAMPOS_TENTATIVA_PT.every((c) => vazio(mt[c] as string | null) === vazio(bt[c] as string | null)) && miniIgual(mt.mini, bt.mini)) { atualizados++; continue; }
           tentativas.push({ ...mt, id: null, rev: 0 });
         } else tentativas.push(mt);
         continue;
@@ -409,6 +453,25 @@ export function mergePecaTeste(base: EstadoPT, meu: EstadoPT, dele: EstadoPT): R
         }
         (merged as Record<string, unknown>)[campo] = val;
       }
+      // — a mini explosão é UMA unidade (path `pt:<linha>[:t<n>]:mini`). Só eu mudei → a minha; só ele → a dele; os dois diferentes →
+      // conflito "Mini explosão". Baixa/estorno de estoque feitos por OUTRA pessoa (baixa_em dele ≠ a da base) → a dele, sem escolha, + aviso.
+      {
+        const mm = mt.mini, bm = bb.mini, dm = dt.mini;
+        const baixaDele = (dm?.baixa_em ?? null) !== (bm?.baixa_em ?? null);
+        if (baixaDele) {
+          merged.mini = dm;
+          atualizados++;
+          avisos.push(`A baixa de estoque da peça teste (tentativa ${n}) foi ${dm?.baixa_em ? "feita" : "estornada"} por outra pessoa — a mini explosão foi atualizada.`);
+        } else if (miniIgual(mm, bm)) {
+          merged.mini = dm;
+          if (!miniIgual(dm, mm)) atualizados++;
+        } else if (miniIgual(dm, bm) || miniIgual(mm, dm)) {
+          merged.mini = miniMinhaComMetaDele(mm, dm);
+        } else {
+          merged.mini = miniMinhaComMetaDele(mm, dm);
+          conflitos.push({ path: pathPT(d.mo_linha_id, "mini", numPath), meu: `Mini explosão: ${resumoMini(mm)}`, dele: `Mini explosão: ${resumoMini(dm)}` });
+        }
+      }
       // minha DECISÃO (Aprovado/Reprovado) vale (não é a mesma dele) e foi tomada vendo o fornecedor da BASE: se ele o trocou no meio,
       // quem decidiu confirma (manter o meu = decidir para o fornecedor novo, sabendo; usar o novo = descartar a decisão)
       const minhaDecisaoVale = merged.aprovacao !== null && merged.aprovacao === vazio(mt.aprovacao) && merged.aprovacao !== vazio(bb.aprovacao) && merged.aprovacao !== dt.aprovacao;
@@ -423,7 +486,7 @@ export function mergePecaTeste(base: EstadoPT, meu: EstadoPT, dele: EstadoPT): R
     }
     trilhas.push({ ...d, empresa_id: emp.id, empresa_nome: emp.nome, tentativas });
   }
-  return { valor: { trilhas, outros: dele.outros }, conflitos, atualizados };
+  return { valor: { trilhas, outros: dele.outros }, conflitos, atualizados, avisos };
 }
 
 /** "Usar o novo" de um conflito: o campo do rascunho passa a valer o do servidor (`fresh`). Devolve também o fornecedor, para a tela
@@ -437,6 +500,7 @@ export function aplicarCampoDele(draft: EstadoPT, fresh: EstadoPT, path: string)
     if (p.campo === "fornecedor") return { ...t, empresa_id: f.empresa_id, empresa_nome: f.empresa_nome };
     const n = p.numero ?? tentativaAtualPT(t).numero;
     const ft = f.tentativas.find((x) => x.numero === n);
+    if (p.campo === "mini") return { ...t, tentativas: t.tentativas.map((x) => (x.numero === n ? { ...x, mini: ft ? ft.mini : null } : x)) };
     const campo = p.campo as CampoTentativaPT;
     if (!CAMPOS_TENTATIVA_PT.includes(campo)) return t;
     const lista = t.tentativas.map((x) => {
