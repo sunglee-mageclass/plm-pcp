@@ -230,6 +230,8 @@ export async function dropUrgdPosteriores(c: Client, bloco: UrgdId): Promise<voi
   const depois = ORDEM.slice(ORDEM.indexOf(bloco) + 1);
   for (const { id, b } of [...URGD_MIGS].reverse()) {
     if (!depois.includes(id) || !b.drop || !(await existeAlgo(c, b))) continue;
+    // o `_down_drop` de um bloco com wrapper (r11d) RECUSA enquanto o wrapper não está no NEUTRO: roda o `_down` dele antes.
+    if (!b.URGD_ESTADO?.downNoop && (await urgdViva(c, id))) await aplicarArquivo(c, b.down);
     await aplicarDrop(c, b, b.drop);
   }
 }

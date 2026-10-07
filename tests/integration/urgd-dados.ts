@@ -148,6 +148,37 @@ export const URGD_BLOCOS: Record<string, UrgdBloco> = /* URGD_JSON_INICIO */
       "public._insumo_pecas(text,jsonb,numeric)": "2e1b701be975366933e9ad704cb25c18",
       "public._insumo_tamanho_de(uuid)": "46fd6f65599f7de2d3ab12777fefa7d1"
     }
+  },
+  "r11d": {
+    "mig": "supabase/migrations/20261103199300_urg_r11_regras_mini.sql",
+    "down": "supabase/rollback/20261103199300_urg_r11_regras_mini_down.sql",
+    "drop": "supabase/rollback/20261103199300_urg_r11_regras_mini_down_drop.sql",
+    "URGD_SENTINELA": "public.peca_teste_mini_estoque(uuid)",
+    "URGD_MD5": {},
+    "URGD_ACL": {},
+    "URGD_NOVAS": {
+      "public._peca_teste_variante_aviamento_padrao(uuid,uuid,uuid)": "5dae1386c608628edcd6f8362ba996e7",
+      "public._peca_teste_insumo_tam_bucket(uuid,text)": "cabea631702567f1e3a5199e8a272746",
+      "public._peca_teste_mini_linhas(uuid,text,uuid,jsonb)": "3d73d0db8fc0902c5bd07edfbfa2fe70",
+      "public._peca_teste_tecido_baixar(uuid,uuid,uuid,text,integer,integer,uuid,numeric,boolean,uuid,text)": "e03a4d616e7ae297386a5e0e6bb83ff7",
+      "public._peca_teste_mini_baixar(uuid,jsonb)": "444861eae9b28bc09ec3bfd80bc01033",
+      "public._peca_teste_mini_estornar(uuid)": "c8f160a73b3a30a6105c7a45aff9c89d",
+      "public._peca_teste_mini_tem_historico(uuid)": "10c05fae5041077c6dc23436d66f7d44",
+      "public._peca_teste_mini_feita(uuid,uuid)": "f81421e9b3aa27f34ab426f6b0783f96",
+      "public._peca_teste_mini_estoque_core(uuid,uuid)": "2a3527c28b3486d5f86587d9af169f72",
+      "public.peca_teste_mini_estoque(uuid)": "8a1d492a40993a582b7978080a1fff2d"
+    },
+    "URGD_NEUTRAS": {
+      "public.peca_teste_mini_estoque(uuid)": "a94ba498dee379436f45577f790a5b8d"
+    },
+    "URGD_WRAPPERS": [
+      "public.peca_teste_mini_estoque(uuid)"
+    ],
+    "URGD_DEPS": {
+      "public._estoque_aviamento_core(uuid)": "439093c8501001c17e71f283b1dcef92",
+      "public._estoque_etiqueta_core(uuid)": "de6eeb18e1e15cf8137a6560e451fa0f",
+      "public._insumo_tamanho_de(uuid)": "46fd6f65599f7de2d3ab12777fefa7d1"
+    }
   }
 }
 /* URGD_JSON_FIM */;

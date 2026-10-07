@@ -1125,6 +1125,9 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
   it("13b) _down_drop: recusa com a ida viva e com função citando as novas; com o _down rodado apaga as 7; 2× no-op; ida recria", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      // [urg R11] LIFO: a R11 (199000..199300) é posterior a TODA a R9 e cita a tabela de tentativas/o helper `_peca_teste_aprovada` —
+      // os `_down`/`_down_drop` dela saem ANTES, senão o `_down_drop` da r9b recusa por "funcoes ainda citam".
+      await dropUrgdSePreciso(c);
       expect((await falha(c, readSemTxn(BLOCO!.drop!))).message).toMatch(/urg_r9b_down_drop: .*_down antes/);
       // [urg R9 T3] LIFO: a 194000 (r9c) cita o helper desta — o _down dela sai antes (senão o _down_drop daqui recusa)
       if (await urgcViva(c, "r9c")) await aplicarArquivo(c, URGC_BLOCOS.r9c!.down);

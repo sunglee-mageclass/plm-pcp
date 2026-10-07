@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
-import { aplicaUrgd, voltaUrgd, urgdViva, URGD_BLOCOS } from "./urgd-helpers";
+import { aplicaUrgd, voltaUrgd, dropUrgdPosteriores, urgdViva, URGD_BLOCOS } from "./urgd-helpers";
 import { aplicarArquivo, semTransacao } from "./mig-txn";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -524,6 +524,8 @@ describe.skipIf(!RODA)("urg R11a/R11b — mini explosão: tabelas + ledgers (199
       }
       await c.query("SET LOCAL transaction_timeout = 0");
       expect((await falha(c, `UPDATE ${EPB} SET rotulo = 'x' WHERE id = $1`, [e1])).code).toBe("P0001"); // voltou a morder
+      // LIFO: a 199200/199300 (r11c/r11d, que citam a coluna/origem nova) saem ANTES de testar o _down_drop da 199100.
+      await dropUrgdPosteriores(c, "r11b");
       // _down_drop da 199100: RECUSA com linha de peça teste no ledger do tecido; sem ela devolve o CHECK antigo e tira a coluna
       const t1 = (await um<{ id: string }>(c, SQL_ETB, etb(s, "peca_teste", 0.8))).id;
       expect((await falha(c, readSemTxn(B!.drop!))).message).toMatch(/urg_r11b_down_drop: 1 linha\(s\) de peca teste/);

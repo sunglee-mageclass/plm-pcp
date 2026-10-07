@@ -69,6 +69,8 @@ const DONOS: { re: RegExp; dono: string; extras?: string[] }[] = [
   // Urgentes R9 T2 (20261103193000): seção Peça Teste do card = Criação; coluna Peça Teste do quadro de Etapas = Etapas PL.
   { re: /^(peca_teste_modelo|salvar_peca_teste)$/, dono: "criacao" },
   { re: /^peca_teste_quadro$/, dono: "etapas_pl" },
+  // Urgentes R11 T3 (20261103199300): leitura do estoque da mini explosao (wrapper peca_teste_mini_estoque = modulo Criacao).
+  { re: /^peca_teste_mini_estoque$/, dono: "criacao" },
 ];
 
 const ASSINATURA_CHAMADA = /\b_exige_modulos\(([^)]*)\)/g;

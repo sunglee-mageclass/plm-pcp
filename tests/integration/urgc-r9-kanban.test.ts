@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, comoUsuario, TENANT_TESTE } from "./db";
 import { aplicaUrgc, urgcViva, md5UrgcSucessor, URGC_BLOCOS } from "./urgc-helpers";
+import { dropUrgdSePreciso } from "./urgd-helpers";
 import { aplicarArquivo, semTransacao } from "./mig-txn";
 import { MOD_MD5 } from "./mod-3-dados";
 import { CASOS_PECA_TESTE, entradaDoCaso, type CasoPecaTeste } from "../fixtures/peca-teste-casos";
@@ -532,6 +533,9 @@ describe.skipIf(!RODA)("urg R9c — condição Peça teste aprovada (banco)", ()
   it("6b) LIFO: com a r9c viva o _down da Mod T3 recusa e o _down_drop da r9b recusa (o core cita o helper); depois do _down da r9c, passam", async () => {
     await withTx(async (c) => {
       await prepara(c);
+      // [urg R11] LIFO: a R11 (199000..199300) cita `_peca_teste_aprovada`/a tabela de tentativas e é posterior a TODA a R9 —
+      // sai ANTES, senão o `_down_drop` da r9b lista as funcoes da R11 junto e a mensagem difere.
+      await dropUrgdSePreciso(c);
       expect((await falha(c, readSemTxn(MOD3_DOWN))).message).toMatch(/_avaliar_condicoes_kanban_core.* com texto inesperado/);
       await aplicarArquivo(c, BLOCO_B!.down);
       expect((await falha(c, readSemTxn(BLOCO_B!.drop!))).message).toMatch(
