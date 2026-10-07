@@ -13,7 +13,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { cn } from "@/lib/utils";
 import {
-  acaoNoSalvar, ajusteOuNull, ajustarLinha, arredondar, miniNova, trocarTamanhoOuCor, voltarAoCalculado,
+  acaoNoSalvar, ajusteOuNull, ajustarLinha, arredondar, miniIgual, miniNova, trocarTamanhoOuCor, voltarAoCalculado,
   type MiniAjuste, type MiniLinha, type MiniPT,
 } from "@/lib/peca-teste-mini";
 import { pathPT, type TentativaPT } from "@/lib/peca-teste";
@@ -60,11 +60,22 @@ export type MiniBlocoProps = {
   abertoInicial?: boolean;
 };
 
-/** Travada = sem inputs: histórico, tentativa decidida (aprovada) ou baixa salva com a Data de saída ainda preenchida. */
+/** Travada = sem inputs: histórico, tentativa decidida (aprovada) ou baixa salva com a Data de saída ainda preenchida E a mini igual à da baixa.
+ *  Fluxo "apagar a data → editar → preencher a data de novo" (Q2=A): a mini do rascunho DIFERE da que gerou a baixa, então o Salvar vai
+ *  estornar e baixar os números NOVOS — o bloco destrava e mostra o cálculo ao vivo (não a foto velha) para a pessoa conferir. */
 export function miniEstaTravada(t: TentativaPT, base: TentativaPT | null, historico: boolean): boolean {
   if (historico) return true;
   if (base && base.aprovacao !== null) return true;
-  return !!base?.mini?.baixa_em && !!t.data_saida;
+  if (!base?.mini?.baixa_em || !t.data_saida) return false;
+  return miniIgual(t.mini, base.mini);
+}
+
+/** Limite de cada campo numérico da mini (espelho dos CHECKs do servidor, `peca_teste_mini_formato`): consumo 0..9999, % loss 0..100,
+ *  a enviar 0..99999. Negativo/vazio/inválido vira 0; acima do teto vira o teto. */
+export const LIMITE_MINI = { consumo: 9999, loss_percent: 100, a_enviar: 99999 } as const;
+export function limitarMini(n: number, max: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n > max ? max : n;
 }
 
 export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, historico, podeEditar, api, onChange, onTentarDeNovo, abertoInicial = false }: MiniBlocoProps) {
@@ -92,7 +103,9 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
   const selos: { txt: string; tom: StatusTone; icone?: ReactNode }[] = [];
   if (historico) {
     if (baixaSalva) selos.push({ txt: "Baixa mantida (peça gasta)", tom: "neutral", icone: <Lock className="h-3 w-3" /> });
-  } else if (baixaSalva && dataSaida) selos.push({ txt: `Baixa feita em ${dataBR(dataSaida)}`, tom: "success", icone: <Check className="h-3 w-3" /> });
+  } else if (baixaSalva && dataSaida && acao === "estorno_e_baixa") selos.push({ txt: "Vai estornar e baixar de novo", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
+  else if (baixaSalva && dataSaida && acao === "estorno") selos.push({ txt: "Estorno ao Salvar", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
+  else if (baixaSalva && dataSaida) selos.push({ txt: `Baixa feita em ${dataBR(dataSaida)}`, tom: "success", icone: <Check className="h-3 w-3" /> });
   else if (baixaSalva && !dataSaida) selos.push({ txt: "Estorno ao Salvar", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
   else if (!calc && !mostraFoto) selos.push({ txt: "Escolha tamanho e cor", tom: "neutral" });
   else selos.push({ txt: "Baixa ao Salvar", tom: "neutral" });
@@ -105,7 +118,11 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
     <Collapsible open={aberto} onOpenChange={setAberto} className="overflow-hidden rounded-md border bg-background" data-colab-path={pathPT(linhaId, "mini", pathNumero)} data-testid="peca-teste-mini">
       {/* NÃO é <button>: quem só LÊ o Sheet tem um `fieldset disabled` (SheetContent) acima, que desabilita todo <button> descendente */}
       <CollapsibleTrigger asChild>
-        <div role="button" tabIndex={0} className="flex min-h-10 w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left">
+        <div
+          role="button" tabIndex={0}
+          onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setAberto((v) => !v); } }}
+          className="flex min-h-10 w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left"
+        >
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", aberto && "rotate-90")} />
           <span className="flex items-center gap-1.5 text-sm font-semibold">
             <Scissors className="h-3.5 w-3.5 text-muted-foreground" />Mini explosão (1 peça){historico ? " · somente leitura" : ""}
@@ -135,12 +152,12 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
 
           {api.erro && !api.pronta && !mostraFoto ? (
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-destructive">Não foi possível carregar o estoque da mini explosão.</span>
+              <span className="text-destructive">Não foi possível carregar os dados.</span>
               <span
-                role="button" tabIndex={0} className="cursor-pointer underline underline-offset-2"
+                role="button" tabIndex={0} aria-disabled={api.tentando || undefined} className={cn("underline underline-offset-2", api.tentando ? "pointer-events-none opacity-60" : "cursor-pointer")}
                 onClick={onTentarDeNovo ?? api.tentarDeNovo}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (onTentarDeNovo ?? api.tentarDeNovo)(); } }}
-              >Tentar de novo</span>
+              >{api.tentando ? "Tentando…" : "Tentar de novo"}</span>
             </div>
           ) : !mostraFoto && api.fichaIndisponivel ? (
             <p className="text-xs text-muted-foreground">A mini explosão usa o BOM do card, que o seu perfil não pode ver.</p>
@@ -309,12 +326,12 @@ function Secao({ icone, titulo, dica, totais, children }: { icone: ReactNode; ti
   );
 }
 
-function Num({ valor, onValor, rotulo, desabilitado }: { valor: number; onValor: (n: number) => void; rotulo: string; desabilitado: boolean }) {
+function Num({ valor, onValor, rotulo, desabilitado, max }: { valor: number; onValor: (n: number) => void; rotulo: string; desabilitado: boolean; max: number }) {
   if (desabilitado) return <span className="tabular-nums">{fq(valor)}</span>;
   return (
     <NumberInput
       aria-label={rotulo} value={valor} className="h-8 w-full text-right tabular-nums"
-      onChange={(e) => onValor(Number(e.target.value))}
+      onChange={(e) => onValor(limitarMini(Number(e.target.value), max))}
     />
   );
 }
@@ -379,11 +396,11 @@ function Calculo({ mini, calc, api, editavel, onChange }: { mini: MiniPT; calc: 
             return (
               <div role="row" key={l.chave} className={cn(GRID_TEC, "rounded-md border border-dashed p-2 xl:rounded-none xl:border-0 xl:border-b xl:p-0 xl:pb-2")}>
                 <Celula rotulo="Tecido"><span className="min-w-0"><b>{l.rotulo}</b>{l.variante_rotulo && <span className="block text-xs text-muted-foreground">{l.variante_rotulo}</span>}</span></Celula>
-                <Celula rotulo="Consumo (m)"><Num valor={l.consumo} rotulo={`Consumo de ${rotuloLinha(l)} (m)`} desabilitado={!editavel} onValor={(n) => patch(l, { consumo: ajusteOuNull(n, calc.padrao[l.chave]?.consumo ?? l.consumo) })} /></Celula>
-                <Celula rotulo="% Loss"><Num valor={l.loss_percent} rotulo={`% Loss de ${rotuloLinha(l)}`} desabilitado={!editavel} onValor={(n) => patch(l, { loss_percent: ajusteOuNull(n, calc.padrao[l.chave]?.loss_percent ?? l.loss_percent) })} /></Celula>
+                <Celula rotulo="Consumo (m)"><Num valor={l.consumo} rotulo={`Consumo de ${rotuloLinha(l)} (m)`} max={LIMITE_MINI.consumo} desabilitado={!editavel} onValor={(n) => patch(l, { consumo: ajusteOuNull(n, calc.padrao[l.chave]?.consumo ?? l.consumo) })} /></Celula>
+                <Celula rotulo="% Loss"><Num valor={l.loss_percent} rotulo={`% Loss de ${rotuloLinha(l)}`} max={LIMITE_MINI.loss_percent} desabilitado={!editavel} onValor={(n) => patch(l, { loss_percent: ajusteOuNull(n, calc.padrao[l.chave]?.loss_percent ?? l.loss_percent) })} /></Celula>
                 <Celula rotulo="Metragem necessária (m)"><span className="tabular-nums" data-testid="mini-necessaria">{f2(l.necessaria)}</span></Celula>
                 <Celula rotulo="Metragem a enviar (m)" className="xl:space-y-1">
-                  <Num valor={l.a_enviar} rotulo={`Metragem a enviar de ${rotuloLinha(l)} (m)`} desabilitado={!editavel} onValor={(n) => enviarNum(l, n)} />
+                  <Num valor={l.a_enviar} rotulo={`Metragem a enviar de ${rotuloLinha(l)} (m)`} max={LIMITE_MINI.a_enviar} desabilitado={!editavel} onValor={(n) => enviarNum(l, n)} />
                   {editavel && dif(l) && <Desfazer texto={f2(l.necessaria)} onClick={() => onChange(voltarAoCalculado(mini, l.chave, ["a_enviar"]))} />}
                 </Celula>
                 <Celula rotulo="Sai de (OC / rolo)" className="xl:space-y-1">
@@ -422,7 +439,7 @@ function Calculo({ mini, calc, api, editavel, onChange }: { mini: MiniPT; calc: 
                 </Celula>
                 <Celula rotulo="Necessária (1 peça)"><span className="tabular-nums">{fq(l.necessaria)}</span></Celula>
                 <Celula rotulo="A separar/enviar (un)" className="xl:space-y-1">
-                  <Num valor={l.a_enviar} rotulo={`A separar/enviar de ${l.rotulo}`} desabilitado={!editavel} onValor={(n) => enviarNum(l, n)} />
+                  <Num valor={l.a_enviar} rotulo={`A separar/enviar de ${l.rotulo}`} max={LIMITE_MINI.a_enviar} desabilitado={!editavel} onValor={(n) => enviarNum(l, n)} />
                   {editavel && dif(l) && <Desfazer texto={fq(l.necessaria)} onClick={() => onChange(voltarAoCalculado(mini, l.chave, ["a_enviar"]))} />}
                 </Celula>
                 <Celula rotulo="Em estoque"><span className="tabular-nums">{est === null ? "—" : `${fq(est)} un`}</span></Celula>
@@ -450,7 +467,7 @@ function Calculo({ mini, calc, api, editavel, onChange }: { mini: MiniPT; calc: 
                 </Celula>
                 <Celula rotulo="Necessária (1 peça)"><span className="tabular-nums">{fq(l.necessaria)}</span></Celula>
                 <Celula rotulo="A enviar (un)" className="xl:space-y-1">
-                  <Num valor={l.a_enviar} rotulo={`A enviar de ${l.rotulo}`} desabilitado={!editavel} onValor={(n) => enviarNum(l, n)} />
+                  <Num valor={l.a_enviar} rotulo={`A enviar de ${l.rotulo}`} max={LIMITE_MINI.a_enviar} desabilitado={!editavel} onValor={(n) => enviarNum(l, n)} />
                   {editavel && dif(l) && <Desfazer texto={fq(l.necessaria)} onClick={() => onChange(voltarAoCalculado(mini, l.chave, ["a_enviar"]))} />}
                 </Celula>
                 <Celula rotulo="Em estoque"><span className="tabular-nums">{est === null ? "—" : `${fq(est)} un`}</span></Celula>

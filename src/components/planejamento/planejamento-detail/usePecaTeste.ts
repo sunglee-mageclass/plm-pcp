@@ -75,6 +75,12 @@ export function salvarComConfirmacaoEstorno(
   pedir({ ...(pt.estornoRefazBaixa() ? textoEstornarERefazerPecaTeste(itens) : textoEstornarPecaTeste(itens)), onConfirmar: () => salvar() });
 }
 
+/** P0409 `peca_teste_mini_desatualizada` (o BOM ou a mini mudou entre a leitura e o Salvar). */
+export function ehMiniDesatualizada(e: unknown): boolean {
+  const msg = e && typeof e === "object" && "message" in e ? String((e as { message?: unknown }).message ?? "") : "";
+  return codigoDoErro(e) === "P0409" && msg.startsWith("peca_teste_mini_desatualizada");
+}
+
 function codigoDoErro(e: unknown): string | null {
   return e && typeof e === "object" && "code" in e ? String((e as { code?: unknown }).code ?? "") : null;
 }
@@ -256,8 +262,11 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     if (payload._trilhas.length === 0) return null;
     // P-57: sem a ficha hidratada a mini NÃO é capturada (o "a enviar" que a pessoa viu não existe) — recusa em vez de gravar às cegas.
     const api = miniRef.current;
+    // Erro de carga NÃO é "carregando": o aviso diz a verdade (o bloco da mini mostra "Não foi possível carregar os dados." + "Tentar de novo").
     if (api?.ativo && !api.fichaIndisponivel && !api.pronta && payload._trilhas.some((t) => t.tentativas.some((x) => x.mini))) {
-      throw new Error("A ficha do card ainda está carregando — aguarde um instante e salve de novo.");
+      throw new Error(api.erro
+        ? "Não foi possível carregar os dados da mini explosão — use “Tentar de novo” no bloco da Peça Teste e salve de novo."
+        : "A ficha do card ainda está carregando — aguarde um instante e salve de novo.");
     }
     return { payload, enviado: ef, antes: b };
   }, [opcoesPT]);
@@ -291,7 +300,9 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
           guardarConflitos((prev) => juntar(prev, m.conflitos));
           return { conflito: m.conflitos };
         }
-        if (tentativa === 1) return { conflito: [] };
+        // 2º P0409 sem conflito: se for a mini desatualizada devolve o erro (o texto específico "O BOM ou a mini explosão mudou…" chega ao toast);
+        // qualquer outro P0409 segue como "alterada por outra pessoa" (conflito vazio).
+        if (tentativa === 1) return ehMiniDesatualizada(erro) ? { erro } : { conflito: [] };
         const nova = capturar();
         if (!nova) { enviadoOkRef.current = fresh; return { ok: true }; } // o servidor já tem tudo o que eu ia mandar
         cap = nova;

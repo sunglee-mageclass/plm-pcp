@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MiniExplosaoBloco, miniEstaTravada, TEXTO_DICA_TROCA, TEXTO_SEM_TAMANHO_COR, type MiniBlocoProps } from "../../src/components/planejamento/planejamento-detail/MiniExplosaoBloco";
+import { MiniExplosaoBloco, limitarMini, LIMITE_MINI, miniEstaTravada, TEXTO_DICA_TROCA, TEXTO_SEM_TAMANHO_COR, type MiniBlocoProps } from "../../src/components/planejamento/planejamento-detail/MiniExplosaoBloco";
 import { PecaTesteSecao } from "../../src/components/planejamento/planejamento-detail/PecaTesteSecao";
 import type { CalculoMini, MiniApi } from "../../src/components/planejamento/planejamento-detail/useMiniExplosao";
 import {
@@ -198,6 +198,26 @@ describe("MiniExplosaoBloco — cabeçalho, selos e avisos por estado", () => {
     const draft = { ...base, mini: { ...base.mini!, mesma_oc: false } };
     expect(render({ tentativa: draft, base })).toContain("a baixa será estornada e refeita");
   });
+  it("Q2=A (apagar a data → editar → preencher a data de novo): DESTRAVA, mostra o cálculo AO VIVO (não a foto velha) e o selo 'Vai estornar e baixar de novo'", () => {
+    const fotoVelha = foto({ necessaria: 9.99, a_enviar: 9.99, baixado: 9.99 });
+    const base = tent(1, { data_saida: "2026-10-07", mini: pronta({ baixa_em: "2026-10-07T10:00:00Z", linhas: [ajuste(KEY_T, { foto: fotoVelha })] }) });
+    // a pessoa editou o "a enviar" com a data apagada e preencheu a data de novo: mini do rascunho ≠ mini da baixa, data presente
+    const draft = { ...base, mini: { ...base.mini!, linhas: [ajuste(KEY_T, { a_enviar: 2 })] } };
+    expect(miniEstaTravada(draft, base, false)).toBe(false);
+    const html = render({ tentativa: draft, base });
+    expect(html).toContain("Vai estornar e baixar de novo");
+    expect(html).not.toContain("Baixa feita em");
+    expect(html).not.toContain('data-testid="mini-foto-tecido"');
+    expect(html).not.toContain("9,99");
+    expect(html).toContain('aria-label="Metragem a enviar de Tecido 1 · Preto (m)"'); // inputs de volta
+    expect(html).toContain("a baixa será estornada e refeita");
+  });
+  it("mini igual à da baixa, com a data de volta (nada mudou): segue TRAVADA com a foto e o selo verde", () => {
+    const m = pronta({ baixa_em: "2026-10-07T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
+    const base = tent(1, { data_saida: "2026-10-07", mini: m });
+    expect(miniEstaTravada({ ...base }, base, false)).toBe(true);
+    expect(render({ tentativa: base, base })).toContain("Baixa feita em 07/10/2026");
+  });
   it("histórico (reprovada): 'Baixa mantida (peça gasta)', somente leitura, sem inputs nem seletores editáveis", () => {
     const m = pronta({ baixa_em: "2026-10-05T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
     const t = tent(1, { aprovacao: "reprovado", data_saida: "2026-10-05", mini: m });
@@ -211,6 +231,32 @@ describe("MiniExplosaoBloco — cabeçalho, selos e avisos por estado", () => {
     const base = tent(1, { aprovacao: "aprovado", data_entrada: "2026-10-09", data_saida: "2026-10-05", mini: pronta() });
     expect(miniEstaTravada(base, base, false)).toBe(true);
     expect(temInput(render({ tentativa: base, base }))).toBe(false);
+  });
+});
+
+describe("limites dos campos numéricos (espelho dos CHECKs do servidor)", () => {
+  it("negativo/NaN viram 0; acima do teto vira o teto; dentro da faixa passa", () => {
+    expect(limitarMini(-1, LIMITE_MINI.a_enviar)).toBe(0);
+    expect(limitarMini(Number.NaN, LIMITE_MINI.consumo)).toBe(0);
+    expect(limitarMini(100000, LIMITE_MINI.a_enviar)).toBe(99999);
+    expect(limitarMini(10000, LIMITE_MINI.consumo)).toBe(9999);
+    expect(limitarMini(101, LIMITE_MINI.loss_percent)).toBe(100);
+    expect(limitarMini(12.3456, LIMITE_MINI.a_enviar)).toBe(12.3456);
+    expect(limitarMini(0, LIMITE_MINI.consumo)).toBe(0);
+  });
+  it("os tetos batem com as migrations (consumo 9999, loss 100, a enviar 99999) e todo <Num> declara o seu", () => {
+    expect(LIMITE_MINI).toEqual({ consumo: 9999, loss_percent: 100, a_enviar: 99999 });
+    const src = ler("src/components/planejamento/planejamento-detail/MiniExplosaoBloco.tsx");
+    const usos = src.match(/<Num [^>]*>/g) ?? [];
+    expect(usos.length).toBeGreaterThanOrEqual(5);
+    for (const u of usos) expect(u).toContain("max=");
+  });
+});
+
+describe("a11y do cabeçalho do colapsável", () => {
+  it("o 'botão' do cabeçalho abre/fecha também com Enter e Espaço (onKeyDown)", () => {
+    const src = ler("src/components/planejamento/planejamento-detail/MiniExplosaoBloco.tsx");
+    expect(src).toMatch(/onKeyDown=\{\(e\) => \{ if \(e\.target === e\.currentTarget && \(e\.key === "Enter" \|\| e\.key === " "\)\) \{ e\.preventDefault\(\); setAberto\(\(v\) => !v\); \} \}\}/);
   });
 });
 
@@ -276,8 +322,12 @@ describe("MiniExplosaoBloco — tabelas, ↺, OC do card, faltas e mobile", () =
     expect(render({ tentativa: tent(1, { mini: pronta() }), api: fakeApi({ pronta: false, carregando: true, calcular: () => null }) })).toContain("Carregando…");
     expect(render({ tentativa: tent(1), api: fakeApi({ pronta: false, fichaIndisponivel: true, calcular: () => null }) })).toContain("que o seu perfil não pode ver");
     const e = render({ tentativa: tent(1), api: fakeApi({ pronta: false, erro: true, calcular: () => null }) });
-    expect(e).toContain("Não foi possível carregar o estoque da mini explosão.");
+    expect(e).toContain("Não foi possível carregar os dados.");
     expect(e).toContain("Tentar de novo");
+    expect(e).not.toContain("Carregando…");
+    // durante a releitura o botão vira "Tentando…" (e fica desabilitado)
+    const t = render({ tentativa: tent(1), api: fakeApi({ pronta: false, erro: true, tentando: true, calcular: () => null }) });
+    expect(t).toContain("Tentando…");
   });
   it("mobile: tabela vira cartões empilhados (grid-cols-1, rótulo por célula, colunas só em xl) e inputs w-full", () => {
     const html = render({ tentativa: tent(1, { mini: pronta() }) });
@@ -338,7 +388,9 @@ describe("fiação do Sheet (fonte)", () => {
   const HOOK = ler("src/components/planejamento/planejamento-detail/usePecaTeste.ts");
   const SAVE = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
   it("o Sheet monta a mini com a ficha, passa ao usePecaTeste e à seção (com os avisos do merge)", () => {
-    expect(SHEET).toMatch(/useMiniExplosao\(\{ modeloId, habilitado: isEdit && podeVerPT, ficha, tamanhoTipo: draft\.tamanho_tipo \}\)/);
+    // só carrega quando há Peça Teste de fato (serviço que exige peça teste OU trilha já devolvida pelo servidor)
+    expect(SHEET).toMatch(/useMiniExplosao\(\{ modeloId, habilitado: isEdit && podeVerPT && \(ptTemTrilha \|\| algumServicoExigePT\), ficha, tamanhoTipo: draft\.tamanho_tipo \}\)/);
+    expect(SHEET).toMatch(/setPtTemTrilha\(ptTrilhasN > 0\)/);
     expect(SHEET).toMatch(/usePecaTeste\(\{[^}]*mini: miniEx/);
     expect(SHEET).toContain("mini={miniEx}");
     expect(SHEET).toContain("onEditarMini={pt.editarMini}");

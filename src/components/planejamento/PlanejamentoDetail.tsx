@@ -770,8 +770,15 @@ function PlanejamentoDetailConteudo({
   }
   // Peça Teste (R9): o rascunho da seção vive aqui (nada grava antes do Salvar); `pt.pecaTesteSave` entra na cadeia do Salvar do card.
   // R11 — mini explosão (1 peça) de cada tentativa: o cálculo nasce da FICHA do Sheet; `pt` usa o mesmo cálculo para o `confere` do Salvar.
-  const miniEx = useMiniExplosao({ modeloId, habilitado: isEdit && podeVerPT, ficha, tamanhoTipo: draft.tamanho_tipo });
+  // A mini só carrega (RPC de estoque + variantes) quando há Peça Teste de fato: algum serviço da M.O. (salva ou no rascunho) exige peça teste, ou o
+  // servidor já devolveu trilha. Sem isso, abrir qualquer card varreria o estoque da loja à toa. `ptTemTrilha` espelha `pt.estado` (declarado abaixo,
+  // pois o `pt` consome a `miniEx`): a trilha que passa a existir no meio da sessão religa o `enabled`.
+  const [ptTemTrilha, setPtTemTrilha] = useState(false);
+  const algumServicoExigePT = [...moLinhas, ...moLinhasBase].some((l) => !!l.categoria_terceirizado_id && exigePecaTestePorTipo.get(l.categoria_terceirizado_id));
+  const miniEx = useMiniExplosao({ modeloId, habilitado: isEdit && podeVerPT && (ptTemTrilha || algumServicoExigePT), ficha, tamanhoTipo: draft.tamanho_tipo });
   const pt = usePecaTeste({ modeloId, habilitado: isEdit, podeEditar: podeEditarPT, fornecedorMo, linhasIgnoradas: ptBloqueadasPorTipo, mini: miniEx });
+  const ptTrilhasN = pt.estado?.trilhas.length ?? 0;
+  useEffect(() => { setPtTemTrilha(ptTrilhasN > 0); }, [ptTrilhasN]);
   const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty || pt.dirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: !hostGuardaNavegacao, navPermitida });
   requestCloseRef.current = requestClose;

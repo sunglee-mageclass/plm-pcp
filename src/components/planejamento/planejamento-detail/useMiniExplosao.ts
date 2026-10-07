@@ -34,7 +34,10 @@ export type CalculoMini = {
 export type MiniApi = {
   ativo: boolean;
   carregando: boolean;
+  /** A 1ª carga do estoque OU das variantes do Tecido 1 falhou (sem dado nenhum): "Não foi possível carregar os dados." + "Tentar de novo". */
   erro: boolean;
+  /** Releitura em curso depois de um "Tentar de novo" (o botão vira "Tentando…"). */
+  tentando?: boolean;
   tentarDeNovo: () => void;
   /** Sem permissão de ver a ficha do card: o BOM não está disponível (só a foto da baixa aparece). */
   fichaIndisponivel: boolean;
@@ -52,10 +55,12 @@ export type MiniApi = {
 };
 
 const SEM_IDS: string[] = [];
+/** O estoque da mini varre os saldos da loja por linha do BOM (RPC pesada): não refaz a cada foco da janela; o Salvar invalida a chave. */
+const STALE_MINI_MS = 30_000;
 
 export function useMiniExplosao({ modeloId, habilitado, ficha, tamanhoTipo }: {
   modeloId: string | null;
-  /** Card salvo e permissão de VER a seção. */
+  /** Card salvo, permissão de VER a seção E pelo menos um serviço que exige Peça Teste (trilha existente ou por nascer) — sem isso nada é carregado. */
   habilitado: boolean;
   ficha: Pick<FichaTecnica, "habilitada" | "carregado" | "estado" | "dados">;
   tamanhoTipo: string | null | undefined;
@@ -68,6 +73,8 @@ export function useMiniExplosao({ modeloId, habilitado, ficha, tamanhoTipo }: {
     queryKey: ["peca-teste-mini-estoque", modeloId],
     enabled: on,
     retry: 1,
+    staleTime: STALE_MINI_MS,
+    refetchOnWindowFocus: false,
     queryFn: async (): Promise<EstoqueMini | null> => {
       const { data, error } = await supabase.rpc("peca_teste_mini_estoque" as any, { _modelo_id: modeloId as string });
       if (error) throw error;
@@ -85,6 +92,9 @@ export function useMiniExplosao({ modeloId, habilitado, ficha, tamanhoTipo }: {
   const qVariantes = useQuery({
     queryKey: ["peca-teste-mini-variantes", idsVariantes.join(",")],
     enabled: on && ficha.habilitada && idsVariantes.length > 0,
+    retry: 1,
+    staleTime: STALE_MINI_MS,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
@@ -99,7 +109,8 @@ export function useMiniExplosao({ modeloId, habilitado, ficha, tamanhoTipo }: {
   });
   const variantes = useMemo(() => new Map((qVariantes.data ?? []).map((v) => [v.id, v])), [qVariantes.data]);
 
-  const fichaPronta = ficha.habilitada && ficha.carregado && (idsVariantes.length === 0 || qVariantes.isSuccess);
+  // `data !== undefined` (não `isSuccess`): um refetch que falha depois de uma carga boa mantém o último dado e a ficha segue pronta
+  const fichaPronta = ficha.habilitada && ficha.carregado && (idsVariantes.length === 0 || qVariantes.data !== undefined);
 
   const fm: FichaParaMini = useMemo(() => ({
     blocks: ficha.estado.blocks,
@@ -170,12 +181,18 @@ export function useMiniExplosao({ modeloId, habilitado, ficha, tamanhoTipo }: {
     return null;
   }, [estoque]);
 
+  const erro = on && ((qEstoque.isError && qEstoque.data === undefined) || (qVariantes.isError && qVariantes.data === undefined));
   return {
     // sem Entrada e Saída, ou o servidor devolveu NULL (sem permissão de ver / outra loja): o bloco some
     ativo: on && !(qEstoque.isSuccess && estoque === null),
-    carregando: on && (qEstoque.isLoading || (ficha.habilitada && !fichaPronta)),
-    erro: on && qEstoque.isError,
-    tentarDeNovo: () => { void qEstoque.refetch(); },
+    carregando: on && !erro && (qEstoque.isLoading || (ficha.habilitada && !fichaPronta)),
+    // erro = a 1ª carga de QUALQUER das duas leituras falhou (sem dado): nunca "Carregando…" para sempre. Falha de refetch com dado mantém o dado.
+    erro,
+    tentando: on && (qEstoque.isFetching || qVariantes.isFetching),
+    tentarDeNovo: () => {
+      if (qEstoque.isError) void qEstoque.refetch();
+      if (qVariantes.isError) void qVariantes.refetch();
+    },
     fichaIndisponivel: !ficha.habilitada,
     pronta: fichaPronta && !!estoque,
     semTecido1,

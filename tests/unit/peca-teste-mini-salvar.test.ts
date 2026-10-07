@@ -194,6 +194,18 @@ describe("Salvar com a mini — payload, ordem e confere", () => {
     await expect(act(async () => { await api.save.mutateAsync(undefined); })).rejects.toThrow(/ficha do card ainda está carregando/);
     expect(chamadasSalvarPT()).toHaveLength(0);
   });
+  it("(e2) ERRO de carga (estoque ou variantes) não é 'carregando': o Salvar recusa com o aviso honesto, sem gravar a Peça Teste", async () => {
+    const comErro = apiMini({ pronta: false, carregando: false, erro: true, calcular: () => null });
+    await montar({ mini: comErro });
+    await setMini({ tamanho: "40|M", variante_tecido_id: V1, mesma_oc: true, baixa_em: null, baixa_por_nome: null, tem_historico: false, linhas: [] });
+    await expect(act(async () => { await api.save.mutateAsync(undefined); })).rejects.toThrow(/Não foi possível carregar os dados da mini explosão/);
+    expect(chamadasSalvarPT()).toHaveLength(0);
+    // sem mini nenhuma na Peça Teste o erro de carga NÃO trava o Salvar do card
+    await montar({ mini: comErro });
+    await editar({ data_entrada: "2026-10-09" });
+    await salvar();
+    expect(chamadasSalvarPT()).toHaveLength(1);
+  });
   it("(e) sem permissão de ver a ficha (fichaIndisponivel) o servidor usa o próprio cálculo: salva sem `confere`", async () => {
     await montar({ mini: apiMini({ pronta: false, fichaIndisponivel: true, calcular: () => null }) });
     await setMini({ tamanho: "40|M", variante_tecido_id: V1, mesma_oc: true, baixa_em: null, baixa_por_nome: null, tem_historico: false, linhas: [] });
@@ -276,6 +288,30 @@ describe("P0409 da mini", () => {
     expect(r.pecaTeste.resultado).toEqual({ ok: true });
     expect(eventos().filter((e) => e === "update:modelos")).toHaveLength(1);
     expect(toast.warning).not.toHaveBeenCalledWith(expect.stringContaining("outra pessoa"));
+  });
+});
+
+describe("2º P0409 sem conflito", () => {
+  const mini0 = { tamanho: "40|M", variante_tecido_id: V1, mesma_oc: true, baixa_em: null, baixa_por_nome: null, tem_historico: false, linhas: [] };
+  it("`peca_teste_mini_desatualizada` 2× seguidas: devolve o erro e o toast mostra o texto específico (não o genérico 'alterada por outra pessoa')", async () => {
+    await montar({ mini: apiMini() });
+    await setMini(mini0);
+    h.respostasSalvarPT.push({ code: "P0409", message: "peca_teste_mini_desatualizada: o BOM mudou" }, { code: "P0409", message: "peca_teste_mini_desatualizada: o BOM mudou" });
+    h.lerPT.atual = servidor({ rev: 2 });
+    const r = await salvar();
+    expect(chamadasSalvarPT()).toHaveLength(2);
+    expect(r.pecaTeste.resultado).toHaveProperty("erro");
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("O BOM ou a mini explosão mudou"));
+    expect(toast.warning).not.toHaveBeenCalledWith(expect.stringContaining("outra pessoa"));
+  });
+  it("outro P0409 2× seguidas (sem conflito): segue como antes — 'alterada por outra pessoa'", async () => {
+    await montar({ mini: apiMini() });
+    await setMini(mini0);
+    h.respostasSalvarPT.push({ code: "P0409", message: "conflito_versao: peca_teste" }, { code: "P0409", message: "conflito_versao: peca_teste" });
+    h.lerPT.atual = servidor({ rev: 2 });
+    const r = await salvar();
+    expect(r.pecaTeste.resultado).toEqual({ conflito: [] });
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("outra pessoa"));
   });
 });
 
