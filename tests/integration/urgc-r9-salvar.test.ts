@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicaUrgc, voltaUrgc, urgcViva, URGC_BLOCOS } from "./urgc-helpers";
-import { dropUrgdSePreciso } from "./urgd-helpers";
+import { dropUrgdSePreciso, urgdViva } from "./urgd-helpers";
 import { aplicarArquivo, semTransacao } from "./mig-txn";
 import { readFileSync } from "node:fs";
 import {
@@ -385,8 +385,10 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
       });
       expect(await tentativas(c, s.linhaB)).toEqual([]);
       const lido = await ler(c, U_ED, s.modelo);
+      // [urg R11] a 199400 acrescenta a chave `mini` (null sem cabecalho) a cada tentativa na leitura das trilhas.
+      const mini = (await urgdViva(c, "r11e")) ? { mini: null } : {};
       expect(lido.trilhas[0].tentativas).toEqual([
-        { id: ta[0].id, numero: 1, empresa_id: null, empresa_nome: null, data_saida: D1, data_entrada: null, aprovacao: null, decidido_em: null, rev: 0 },
+        { id: ta[0].id, numero: 1, empresa_id: null, empresa_nome: null, data_saida: D1, data_entrada: null, aprovacao: null, decidido_em: null, rev: 0, ...mini },
       ]);
       expect(lido.trilhas[1].tentativas).toEqual([]);
       // payload vazio = nada; formato errado = P0001
@@ -1098,6 +1100,9 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
         );
         expect(citam.n).toBe(0);
       };
+      // [urg R11] LIFO: a R11 (199400) redefine _salvar_peca_teste_core/_peca_teste_trilhas_core por cima da R9 — o _down da r9b
+      // recusaria ("outra frente mexeu"). Volta a R11 ANTES (restaura os cores da R9), como manda a cadeia LIFO urgd -> urgc.
+      await dropUrgdSePreciso(c);
       await aplicarArquivo(c, BLOCO!.down);
       await confereVolta();
       expect(txt(await salvar(c, U_ED, s.modelo, []))).toMatch(/^42501 permission denied for function salvar_peca_teste/);

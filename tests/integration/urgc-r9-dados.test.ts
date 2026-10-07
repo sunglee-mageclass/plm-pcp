@@ -12,6 +12,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, TENANT_TESTE, USER_TESTE } from "./db";
 import { URGC_BLOCOS, URGC_MIGS, urgcViva, aplicaUrgc } from "./urgc-helpers";
+import { dropUrgdSePreciso } from "./urgd-helpers";
 import { aplicarArquivo } from "./mig-txn";
 
 const RODA = hasDb && ehBancoLocal();
@@ -268,6 +269,8 @@ describe.skipIf(!RODA)("urg R9d — 195000 backfill da permissão de seção Pe�
       await prepara(c);
       await antesR9d(c);
       await usuario(c, U(21), null, [[PL, true, true]]);
+      // [urg R11] a 199400 redefine os cores da R9 por cima da R9 — volta a R11 ANTES do _down da r9b (LIFO urgd -> urgc).
+      await dropUrgdSePreciso(c);
       if (await urgcViva(c, "r9c")) await aplica(c, URGC_BLOCOS.r9c!.down);
       await aplica(c, URGC_BLOCOS.r9b!.down);
       const r = await tenta(c, D!.mig);
@@ -766,6 +769,8 @@ describe.skipIf(!RODA)("urg R9e — 196000 pt_* legados viram a 1ª tentativa + 
       expect(txt(await tenta(c, E!.drop!))).toBe("PASSOU");
       await c.query("SELECT set_config('app.confirmo_apagar_backup_r9', '', true)");
       // sem a 193000 viva
+      // [urg R11] a 199400 redefine os cores da R9 por cima da R9 — volta a R11 ANTES do _down da r9b (LIFO urgd -> urgc).
+      await dropUrgdSePreciso(c);
       if (await urgcViva(c, "r9c")) await aplica(c, URGC_BLOCOS.r9c!.down);
       await aplica(c, URGC_BLOCOS.r9b!.down);
       const r = await tenta(c, E!.mig);

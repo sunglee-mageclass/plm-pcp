@@ -179,6 +179,39 @@ export const URGD_BLOCOS: Record<string, UrgdBloco> = /* URGD_JSON_INICIO */
       "public._estoque_etiqueta_core(uuid)": "de6eeb18e1e15cf8137a6560e451fa0f",
       "public._insumo_tamanho_de(uuid)": "46fd6f65599f7de2d3ab12777fefa7d1"
     }
+  },
+  "r11e": {
+    "mig": "supabase/migrations/20261103199400_urg_r11_salvar_mini.sql",
+    "down": "supabase/rollback/20261103199400_urg_r11_salvar_mini_down.sql",
+    "drop": "supabase/rollback/20261103199400_urg_r11_salvar_mini_down_drop.sql",
+    "URGD_SENTINELA": "public._peca_teste_mini_aplicar(uuid,uuid,jsonb)",
+    "URGD_MD5": {
+      "public._salvar_peca_teste_core(uuid,jsonb,jsonb)": {
+        "antes": "eccde92e1c6687045f8f7c9ae61caf8f",
+        "depois": "3e3b9db2d04dd176a4712898293f8545"
+      },
+      "public._peca_teste_trilhas_core(uuid,uuid)": {
+        "antes": "5ae0f7025744d63508d7617e6e3a7487",
+        "depois": "ef860a61e25750d2d12131062a23202d"
+      }
+    },
+    "URGD_ACL": {
+      "public._salvar_peca_teste_core(uuid,jsonb,jsonb)": "{postgres=X/postgres,service_role=X/postgres}",
+      "public._peca_teste_trilhas_core(uuid,uuid)": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    "URGD_NOVAS": {
+      "public._peca_teste_trilha_mini(uuid)": "348c7e9978e7f6c0a48812baccc65a5e",
+      "public._peca_teste_mini_aplicar(uuid,uuid,jsonb)": "86573744c113efe92fec638b0db89fe6"
+    },
+    "URGD_NEUTRAS": {
+      "public._peca_teste_mini_aplicar(uuid,uuid,jsonb)": "2dbec37294d192919e72a0a9ae52ef7a"
+    },
+    "URGD_DEPS": {
+      "public._peca_teste_mini_baixar(uuid,jsonb)": "444861eae9b28bc09ec3bfd80bc01033",
+      "public._peca_teste_mini_estornar(uuid)": "c8f160a73b3a30a6105c7a45aff9c89d",
+      "public._peca_teste_mini_linhas(uuid,text,uuid,jsonb)": "3d73d0db8fc0902c5bd07edfbfa2fe70",
+      "public._peca_teste_mini_tem_historico(uuid)": "10c05fae5041077c6dc23436d66f7d44"
+    }
   }
 }
 /* URGD_JSON_FIM */;
