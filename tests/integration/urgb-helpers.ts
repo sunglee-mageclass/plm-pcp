@@ -20,6 +20,18 @@ import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
+// Frente por CIMA desta no kit (R13, onda 2). Import dinâmico tolerante a ausência: a cadeia md5/LIFO continua nela.
+type Sucessora = {
+  voltaSePreciso: (c: Client) => Promise<void>;
+  md5Sucessor: (sig: string, pinado?: string) => string[];
+};
+const SUCESSORA: Sucessora | null = existsSync(`${ROOT}tests/integration/urg-r13-helpers.ts`)
+  ? await import(/* @vite-ignore */ "./urg-r13-helpers.ts").then((m) => ({
+      voltaSePreciso: m.voltaR13SePreciso as Sucessora["voltaSePreciso"],
+      md5Sucessor: m.md5R13Sucessor as Sucessora["md5Sucessor"],
+    }))
+  : null;
+
 export type UrgbId = "r4a" | "r4b" | "r5" | "r8a" | "r8b";
 const ORDEM: UrgbId[] = ["r4a", "r4b", "r5", "r8a", "r8b"];
 
@@ -121,6 +133,7 @@ export async function voltaUrgb(c: Client): Promise<void> {
 
 /** LIFO: quem volta (ou reaplica) a Camada ou qualquer release anterior dentro da txn tira esta frente antes. */
 export async function voltaUrgbSePreciso(c: Client): Promise<void> {
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a R13 (por cima) sai antes, mesmo com esta frente fora
   let viva = false;
   for (const { id } of URGB_MIGS) if (await urgbViva(c, id)) viva = true;
   if (!viva) return;
@@ -158,6 +171,10 @@ export function md5UrgbSucessor(sig: string, pinado?: string): string[] {
     const s = b.URGB_MD5[k];
     if (!s) continue;
     if (!pinado || out.includes(s.antes)) out.push(s.depois);
+  }
+  if (SUCESSORA) {
+    const ultimo = out.length ? out[out.length - 1] : undefined;
+    for (const m of SUCESSORA.md5Sucessor(k, ultimo)) if (!out.includes(m)) out.push(m);
   }
   return out;
 }
