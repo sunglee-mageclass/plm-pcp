@@ -7,7 +7,7 @@
 --   docker exec -i supabase_db_banco-local psql -U postgres -d copia4 -v ON_ERROR_STOP=1 \
 --     < supabase/migrations/20261105100000_urg_r13_oc_itens.sql
 -- Destrutiva (move o produto do cabecalho para itens, zera o ponteiro) => BEGIN..COMMIT atomico, idempotente onde da.
--- 55P03/40P01 = NADA mudou, rodar de novo (horario calmo). Nenhuma trava em auth/storage na ida.
+-- 55P03/40P01 = NADA mudou, rodar de novo (horario calmo). ATENCAO: a ida TOCA auth/storage/realtime (CREATE POLICY -> hook supautils -> AccessExclusive em ~22 tabelas ate o COMMIT): bloco 3 SO em horario calmo.
 -- ============================================================================
 SET client_encoding = 'UTF8';
 BEGIN;
