@@ -56,7 +56,7 @@ function separar(dados: Record<string, any>, cab: readonly string[]) {
   const item: Record<string, any> = {};
   const receb: Record<string, any> = {};
   for (const [k, v] of Object.entries(dados ?? {})) {
-    if (k === "numero") continue; // R13: o numero e SEMPRE gerado pelo servidor (nunca vem do payload)
+    if (k === "numero") { c.numero = v; continue; } // P-382: o nº da OC e gerado por padrao, mas EDITAVEL (vem no `_dados`)
     if (cab.includes(k)) c[k] = v;
     else if (k in RECEB) receb[RECEB[k]] = v;
     else item[k] = v;

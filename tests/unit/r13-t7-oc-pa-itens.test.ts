@@ -58,12 +58,12 @@ describe("payloads — o contrato de salvar_oc_p_acabado_itens", () => {
   it("lista de itens = estado COMPLETO na ordem da tela (item ausente = tirado)", () => {
     expect(itensParaPayload([item({ id: "a", tempId: "a" }), item({ id: "b", tempId: "b" })]).map((x) => x.id)).toEqual(["a", "b"]);
   });
-  it("cabeçalho: sem produto, sem nº da OC; data da nota vai SEMPRE ('' limpa)", () => {
+  it("cabeçalho: sem produto; o nº da OC (editável, P-382) vai SEMPRE, aparado ('' = o servidor gera/mantém); data da nota vai SEMPRE ('' limpa)", () => {
     const c = { ...emptyCabecalho(), empresa_id: "e1", data_pedido: "2026-10-01", prazo_pagamento: "30/60", parcelas_entrega: 2, data_nota_entrada: "" };
     const pl = cabecalhoParaPayload(c);
-    expect(pl).toEqual({ empresa_id: "e1", representante_id: null, data_pedido: "2026-10-01", data_prevista: null, prazo_pagamento: "30/60", parcelas_entrega: 2, data_nota_entrada: null, anexo_pedido_url: null });
-    expect(pl).not.toHaveProperty("numero");
+    expect(pl).toEqual({ numero: "", empresa_id: "e1", representante_id: null, data_pedido: "2026-10-01", data_prevista: null, prazo_pagamento: "30/60", parcelas_entrega: 2, data_nota_entrada: null, anexo_pedido_url: null });
     expect(pl).not.toHaveProperty("nome_produto");
+    expect(cabecalhoParaPayload({ ...c, numero: "  BELDIV-00123 " }).numero).toBe("BELDIV-00123");
     expect(cabecalhoParaPayload({ ...c, data_nota_entrada: "2026-10-05" }).data_nota_entrada).toBe("2026-10-05");
   });
   it("receber: cabeçalho + chaves item_* (as que a RPC lê)", () => {

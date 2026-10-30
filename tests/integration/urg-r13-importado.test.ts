@@ -421,3 +421,83 @@ async function conferirLandedRateado(c: any, ocId: string) {
     });
   });
 });
+
+// P-382 #3 (dono, out/2026): item AVULSO NOVO (sem id, sem do_produto) valida grade negativa / Σ pedida <> qtd no servidor, como o existente.
+// P-382 #1: o nº da OC e gerado por padrao mas EDITAVEL (`numero` do `_dados`; vazio = gera/mantem; repetido na loja = 23505).
+(rodar ? describe : describe.skip)("P-382 — OC de Produto Importado: avulso valida grade/Σ + nº editável", () => {
+  const avulso = (o: { qtd: number; grade: any }) => ({
+    nome_produto: "Avulso Imp P382", qtd_total: o.qtd, valor_unitario_m1: 10, peso_kg: 1, transporte_m2: 0, grade_proporcao: { P: 1, M: 1 },
+    variantes: [{ ordem: 0, peso: 1, qtd: o.qtd }], grade_detalhe: o.grade,
+  });
+  const cab = (emp: string, numero?: string) => ({ empresa_id: emp, moeda_compra: "RMB", cotacao_ref: 1, cotacao_final: 1, ...(numero === undefined ? {} : { numero }) });
+  async function salvar(c: any, id: string | null, dados: any, itens: any[], rev: number | null = null): Promise<string> {
+    return (await um<any>(c, `select public.salvar_oc_importado_itens($1, $2::jsonb, $3::jsonb, null, $4) as id`, [id, JSON.stringify(dados), JSON.stringify(itens), rev])).id;
+  }
+  async function tentar(c: any, sp: string, id: string | null, dados: any, itens: any[], rev: number | null = null): Promise<string> {
+    await c.query(`SAVEPOINT ${sp}`);
+    let msg = "";
+    try { await salvar(c, id, dados, itens, rev); } catch (e: any) { msg = String(e?.message ?? ""); }
+    await c.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+    return msg;
+  }
+  const numeroDe = async (c: any, id: string) => (await um<any>(c, `select numero from ocs_importado where id=$1`, [id])).numero as string;
+
+  it("avulso novo: celula negativa recusa; Σ pedida <> qtd recusa; avulso valido passa", async () => {
+    await withTx(async (c) => {
+      const { emp } = await base(c);
+      expect(await tentar(c, "sp1", null, cab(emp), [avulso({ qtd: 1, grade: { "0": { P: { pedida: 3 }, M: { pedida: -2 } } } })]))
+        .toMatch(/quantidades da grade nao podem ser negativas/);
+      expect(await tentar(c, "sp1b", null, cab(emp), [avulso({ qtd: 5, grade: { "0": { P: { pedida: 5, recebida: -1 } } } })]))
+        .toMatch(/quantidades da grade nao podem ser negativas/);
+      expect(await tentar(c, "sp2", null, cab(emp), [avulso({ qtd: 5, grade: { "0": { P: { pedida: 2 } } } })]))
+        .toMatch(/A soma da grade pedida \(2\) difere da quantidade total \(5\)/);
+      expect(Number((await um<any>(c, `select count(*)::int n from ocs_importado_itens where nome_produto='Avulso Imp P382' and tenant_id='${TENANT_TESTE}'`)).n)).toBe(0);
+      const ok = await salvar(c, null, cab(emp), [avulso({ qtd: 5, grade: { "0": { P: { pedida: 2 }, M: { pedida: 3 } } } })]);
+      expect(Number((await um<any>(c, `select qtd_total from ocs_importado where id=$1`, [ok])).qtd_total)).toBe(5);
+    });
+  });
+
+  it("avulso novo numa OC existente tambem valida (o item existente fica intacto)", async () => {
+    await withTx(async (c) => {
+      const { emp } = await base(c);
+      const oc = await salvar(c, null, cab(emp), [avulso({ qtd: 5, grade: { "0": { P: { pedida: 2 }, M: { pedida: 3 } } } })]);
+      const existente = (await c.query(`select id, nome_produto, qtd_total, valor_unitario_m1, peso_kg, transporte_m2, desconto_pct, grade_detalhe, variantes, grade_proporcao from ocs_importado_itens where oc_id=$1`, [oc])).rows
+        .map((r: any) => ({ id: r.id, nome_produto: r.nome_produto, qtd_total: Number(r.qtd_total), valor_unitario_m1: Number(r.valor_unitario_m1), peso_kg: Number(r.peso_kg),
+          transporte_m2: Number(r.transporte_m2), desconto_pct: Number(r.desconto_pct), grade_detalhe: r.grade_detalhe, variantes: r.variantes, grade_proporcao: r.grade_proporcao }));
+      const rev = Number((await um<any>(c, `select rev from ocs_importado where id=$1`, [oc])).rev);
+      expect(await tentar(c, "sp3", oc, cab(emp), [...existente, avulso({ qtd: 4, grade: { "0": { P: { pedida: 5 }, M: { pedida: -1 } } } })], rev))
+        .toMatch(/quantidades da grade nao podem ser negativas/);
+      expect(await tentar(c, "sp4", oc, cab(emp), [...existente, avulso({ qtd: 4, grade: { "0": { P: { pedida: 1 } } } })], rev))
+        .toMatch(/A soma da grade pedida \(1\) difere da quantidade total \(4\)/);
+      expect(Number((await um<any>(c, `select count(*)::int n from ocs_importado_itens where oc_id=$1`, [oc])).n)).toBe(1);
+    });
+  });
+
+  it("nº da OC: gerado por padrao, EDITAVEL (honrado na criacao e na edicao; vazio gera/mantem; repetido = 23505)", async () => {
+    await withTx(async (c) => {
+      const { emp } = await base(c);
+      const item = avulso({ qtd: 5, grade: { "0": { P: { pedida: 2 }, M: { pedida: 3 } } } });
+      // gerado por padrao (ausente / vazio / so espacos)
+      for (const n of [undefined, "", "   "]) {
+        const id = await salvar(c, null, cab(emp, n), [item]);
+        expect(await numeroDe(c, id)).toMatch(/^[A-Z0-9]{3,}-\d{5}$/);
+      }
+      // editavel na criacao
+      const a = await salvar(c, null, cab(emp, "IMPNUM-001"), [item]);
+      expect(await numeroDe(c, a)).toBe("IMPNUM-001");
+      // edicao: renomeia (espacos das pontas saem), em branco/ausente preserva
+      const itemA = (await c.query(`select id from ocs_importado_itens where oc_id=$1`, [a])).rows[0].id;
+      const estado = [{ ...item, id: itemA }];
+      await salvar(c, a, cab(emp, "  IMPNUM-002 "), estado);
+      expect(await numeroDe(c, a)).toBe("IMPNUM-002");
+      await salvar(c, a, cab(emp, ""), estado);
+      expect(await numeroDe(c, a)).toBe("IMPNUM-002");
+      await salvar(c, a, cab(emp), estado);
+      expect(await numeroDe(c, a)).toBe("IMPNUM-002");
+      // repetido na mesma loja
+      await c.query(`SAVEPOINT sp_dup`);
+      await expect(salvar(c, null, cab(emp, "IMPNUM-002"), [item])).rejects.toThrow(/ux_ocs_importado_tenant_numero/);
+      await c.query(`ROLLBACK TO SAVEPOINT sp_dup`);
+    });
+  });
+});

@@ -37,9 +37,15 @@ export function OcPaCabecalho({
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="grid gap-1">
           <Label>Nº do pedido</Label>
-          <Input value={numeroOc ?? (numeroPrevia ? `Automático — ${numeroPrevia}` : "Automático")} disabled readOnly />
+          <Input
+            value={draft.numero}
+            onChange={(e) => setDraft((d) => ({ ...d, numero: e.target.value }))}
+            placeholder={numeroOc ?? (numeroPrevia ? `Automático — ${numeroPrevia}` : "Automático")}
+            maxLength={40}
+            disabled={disabled}
+          />
           <p className="text-xs text-muted-foreground">
-            {isEdit ? "O número é gerado ao criar e não muda." : "Gerado automaticamente ao criar a OC."}
+            {isEdit ? "Você pode trocar o número. Em branco, mantém o atual." : "Gerado automaticamente ao criar. Digite para usar outro número."}
           </p>
         </div>
         <div className="grid gap-1">

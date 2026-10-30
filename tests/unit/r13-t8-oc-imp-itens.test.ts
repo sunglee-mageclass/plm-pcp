@@ -78,14 +78,14 @@ describe("payloads — o contrato de salvar_oc_importado_itens", () => {
   it("lista de itens = estado COMPLETO na ordem da tela (item ausente = tirado)", () => {
     expect(itensParaPayload([item({ id: "a", tempId: "a" }), item({ id: "b", tempId: "b" })]).map((x) => x.id)).toEqual(["a", "b"]);
   });
-  it("cabeçalho: moeda e cotações SEMPRE vão; sem produto, sem nº da OC; data da nota vai sempre ('' limpa)", () => {
+  it("cabeçalho: moeda e cotações SEMPRE vão; sem produto; o nº da OC (editável, P-382) vai SEMPRE, aparado ('' = o servidor gera/mantém); data da nota vai sempre ('' limpa)", () => {
     const c = { ...emptyCabecalho(), empresa_id: "e1", data_pedido: "2026-10-01", moeda_compra: "RMB", moeda_intermediaria: null, cotacao_ref: 5, cotacao_final: 5.5 };
     const pl = cabecalhoParaPayload(c);
     expect(pl).toEqual({
-      empresa_id: "e1", representante_id: null, data_pedido: "2026-10-01", data_prevista: null, moeda_compra: "RMB", moeda_intermediaria: null,
+      numero: "", empresa_id: "e1", representante_id: null, data_pedido: "2026-10-01", data_prevista: null, moeda_compra: "RMB", moeda_intermediaria: null,
       cotacao_ref: 5, cotacao_final: 5.5, data_nota_entrada: null, anexo_pedido_url: null,
     });
-    expect(pl).not.toHaveProperty("numero");
+    expect(cabecalhoParaPayload({ ...c, numero: "  SHEDIV-00123 " }).numero).toBe("SHEDIV-00123");
     expect(pl).not.toHaveProperty("etapas"); // o cronograma vai em `_etapas`, não em `_dados`
     expect(cabecalhoParaPayload({ ...c, data_nota_entrada: "2026-10-05" }).data_nota_entrada).toBe("2026-10-05");
   });

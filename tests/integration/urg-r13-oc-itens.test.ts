@@ -353,3 +353,70 @@ async function pedir(c: any, emp: string, produtoIds: string[]): Promise<string>
     });
   });
 });
+
+// P-382 #3 (dono, out/2026): a validacao de grade negativa / Σ pedida <> qtd valia so no item EXISTENTE; o item AVULSO NOVO
+// (sem id, sem do_produto — digitado a mao) so era validado pela tela. O servidor agora recusa tambem esse ramo (mesma mensagem/ERRCODE).
+(rodar ? describe : describe.skip)("P-382 #3 — item avulso NOVO valida grade/Σ no servidor (PA)", () => {
+  const avulso = (o: { qtd: number; grade: any }) => ({
+    nome_produto: "Avulso P382", qtd_total: o.qtd, valor_unitario: 10, grade_proporcao: { P: 1, M: 1 }, variantes: [{ ordem: 0, peso: 1, qtd: o.qtd }],
+    grade_detalhe: o.grade,
+  });
+  async function tentar(c: any, sp: string, id: string | null, emp: string, itens: any[], rev: number | null = null): Promise<string> {
+    await c.query(`SAVEPOINT ${sp}`);
+    let msg = "";
+    try {
+      await c.query(`select public.salvar_oc_p_acabado_itens($1, $2::jsonb, $3::jsonb, $4)`, [id, JSON.stringify({ empresa_id: emp }), JSON.stringify(itens), rev]);
+    } catch (e: any) { msg = String(e?.message ?? ""); }
+    await c.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+    return msg;
+  }
+
+  it("OC nova com avulso: celula negativa recusa; Σ pedida <> qtd recusa; recebida/defeito negativos recusam", async () => {
+    await withTx(async (c) => {
+      const { emp } = await base(c);
+      // Σ pedida = 3 + (-2) = 1 = qtd: so a NEGATIVA pode recusar (prova que a checagem de negativo roda sozinha)
+      expect(await tentar(c, "sp1", null, emp, [avulso({ qtd: 1, grade: { "0": { P: { pedida: 3 }, M: { pedida: -2 } } } })]))
+        .toMatch(/quantidades da grade nao podem ser negativas/);
+      expect(await tentar(c, "sp1b", null, emp, [avulso({ qtd: 5, grade: { "0": { P: { pedida: 5, recebida: -1 } } } })]))
+        .toMatch(/quantidades da grade nao podem ser negativas/);
+      expect(await tentar(c, "sp1c", null, emp, [avulso({ qtd: 5, grade: { "0": { P: { pedida: 5, defeito: -1 } } } })]))
+        .toMatch(/quantidades da grade nao podem ser negativas/);
+      // Σ pedida (2) <> qtd (5)
+      expect(await tentar(c, "sp2", null, emp, [avulso({ qtd: 5, grade: { "0": { P: { pedida: 2 } } } })]))
+        .toMatch(/A soma da grade pedida \(2\) difere da quantidade total \(5\)/);
+      // nada foi gravado pelas tentativas recusadas
+      const n = (await um<any>(c, `select count(*)::int n from ocs_p_acabado_itens i join ocs_p_acabado o on o.id=i.oc_id where i.nome_produto='Avulso P382' and o.tenant_id='${TENANT_TESTE}'`)).n;
+      expect(n).toBe(0);
+    });
+  });
+
+  it("avulso NOVO numa OC que ja existe (add a um pedido) tambem valida; o item existente fica intacto", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const p1 = await prod(c, { nome: "P1", grupo: g, cat, empresa: emp, qtd: 10, valor: 20 });
+      const oc = await pedir(c, emp, [p1]);
+      const existente = (await c.query(`select id, produto_acabado_id, qtd_total, valor_unitario, desconto_pct, grade_detalhe, variantes from ocs_p_acabado_itens where oc_id=$1`, [oc])).rows
+        .map((r: any) => ({ id: r.id, produto_acabado_id: r.produto_acabado_id, qtd_total: Number(r.qtd_total), valor_unitario: Number(r.valor_unitario),
+          desconto_pct: Number(r.desconto_pct), grade_detalhe: r.grade_detalhe, variantes: r.variantes }));
+      const rev = Number((await um<any>(c, `select rev from ocs_p_acabado where id=$1`, [oc])).rev);
+      expect(await tentar(c, "sp3", oc, emp, [...existente, avulso({ qtd: 4, grade: { "0": { P: { pedida: 5 }, M: { pedida: -1 } } } })], rev))
+        .toMatch(/quantidades da grade nao podem ser negativas/);
+      expect(await tentar(c, "sp4", oc, emp, [...existente, avulso({ qtd: 4, grade: { "0": { P: { pedida: 1 } } } })], rev))
+        .toMatch(/A soma da grade pedida \(1\) difere da quantidade total \(4\)/);
+      expect(Number((await um<any>(c, `select count(*)::int n from ocs_p_acabado_itens where oc_id=$1`, [oc])).n)).toBe(1);
+    });
+  });
+
+  it("avulso VALIDO ainda passa (Σ pedida = qtd; sem grade e qtd 0 como antes) e entra no total da OC", async () => {
+    await withTx(async (c) => {
+      const { emp } = await base(c);
+      const rev = await um<any>(c, `select public.salvar_oc_p_acabado_itens(null, $1::jsonb, $2::jsonb, null) as id`, [
+        JSON.stringify({ empresa_id: emp }),
+        JSON.stringify([avulso({ qtd: 5, grade: { "0": { P: { pedida: 2 }, M: { pedida: 3 } } } }), { nome_produto: "Avulso vazio P382", qtd_total: 0, valor_unitario: 0 }]),
+      ]);
+      const itens = (await c.query(`select nome_produto, qtd_total from ocs_p_acabado_itens where oc_id=$1 order by ordem`, [rev.id])).rows;
+      expect(itens.map((i: any) => [i.nome_produto, Number(i.qtd_total)])).toEqual([["Avulso P382", 5], ["Avulso vazio P382", 0]]);
+      expect(Number((await um<any>(c, `select qtd_total from ocs_p_acabado where id=$1`, [rev.id])).qtd_total)).toBe(5);
+    });
+  });
+});

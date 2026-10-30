@@ -155,9 +155,10 @@ export function linhaDeItem(i: ItemOcPa): ItemLinha {
 
 // ── Payloads (o único lugar que monta o que vai para as RPCs) ──────────────────────────────────────────────────────
 
-/** `_dados` do Salvar: SÓ o cabeçalho (o nº da OC é do servidor e nunca muda). `data_nota_entrada` vai SEMPRE ("" limpa). */
+/** `_dados` do Salvar: SÓ o cabeçalho. O `numero` vai SEMPRE (P-382: o nº da OC é editável; "" = o servidor gera na criação e mantém o atual na edição). `data_nota_entrada` vai SEMPRE ("" limpa). */
 export function cabecalhoParaPayload(d: CabecalhoDraft): Record<string, unknown> {
   return {
+    numero: (d.numero ?? "").trim(),
     empresa_id: d.empresa_id,
     representante_id: d.representante_id,
     data_pedido: d.data_pedido || null,

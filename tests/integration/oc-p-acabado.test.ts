@@ -412,24 +412,22 @@ describe.skipIf(!hasDb)("estoque_etiqueta — ramo revenda (Task 7 fix)", () => 
   });
 });
 
-// Refino onda 2 (ago/2026), item 1 (nº do pedido editável) — SUBSTITUIDO pelo contrato da R13: o numero da OC e SEMPRE gerado
-// pelo servidor (`_oc_numero_proximo`, com sigla do lote e advisory lock por loja) e "nao muda" depois (a tela mostra o campo
-// desabilitado: "O número é gerado ao criar e não muda."). `salvar_oc_p_acabado_itens` NAO le `numero` do payload. Os 4 testes
-// abaixo fixam o contrato novo (mesma intencao: o numero e estavel e nunca fica vazio), no lugar do "editavel" antigo.
-describe.skipIf(!hasDb)("OC Produto Acabado — nº do pedido gerado e estável (R13; antes: editável)", () => {
+// Refino onda 2 (ago/2026), item 1 + P-382 #1 (out/2026): o nº do pedido e GERADO por padrao (`_oc_numero_proximo`: sigla do lote +
+// advisory lock por loja), mas EDITAVEL — o `numero` do `_dados` de `salvar_oc_p_acabado_itens` e honrado na criacao e na edicao;
+// vazio/ausente = o servidor gera (criacao) ou mantem o atual (edicao). Repetido na loja = 23505 no indice (loja, numero).
+describe.skipIf(!hasDb)("OC Produto Acabado — nº do pedido gerado e editável (R13; P-382)", () => {
   const NUM = /^[A-Z0-9]{3,}-\d{5}$/; // SIGLA-NNNNN (sigla de lote: fornecedor+G/C, ACE ou DIV)
 
-  it("numero mandado no payload é IGNORADO na criação (o servidor gera o seu)", async () => {
+  it("numero customizado no payload é honrado na criação (bypassa a geração automática)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero custom R13", numero: "MEUNUM-001" });
       const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
-      expect(row.numero).not.toBe("MEUNUM-001");
-      expect(row.numero).toMatch(NUM);
+      expect(row.numero).toBe("MEUNUM-001");
     });
   });
 
-  it("sem numero no payload a OC nasce com numero gerado (nunca vazio)", async () => {
+  it("sem numero no payload a OC nasce com numero GERADO (nunca vazio)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero auto R13" });
@@ -439,26 +437,67 @@ describe.skipIf(!hasDb)("OC Produto Acabado — nº do pedido gerado e estável 
     });
   });
 
-  it("editar uma OC existente e mandar numero novo NÃO renomeia (numero fixo depois de criado)", async () => {
+  it("numero vazio ou só espaços na criação também gera automaticamente", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      for (const vazio of ["", "   "]) {
+        const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero vazio R13", numero: vazio });
+        const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
+        expect(row.numero).toMatch(NUM);
+      }
+    });
+  });
+
+  it("editar uma OC existente e mandar numero novo RENOMEIA (UPDATE grava a coluna; espaços das pontas saem)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero renomear R13" });
       const antes = (await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId])).numero;
-      await ocPaSalvar(c, ocId, { nome_produto: "OC numero renomear R13", numero: "RENOMEADO-9" });
+      expect(antes).toMatch(NUM);
+      await ocPaSalvar(c, ocId, { nome_produto: "OC numero renomear R13", numero: "  RENOMEADO-9 " });
       const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
-      expect(row.numero).toBe(antes);
-      expect(row.numero).not.toBe("RENOMEADO-9");
+      expect(row.numero).toBe("RENOMEADO-9");
     });
   });
 
-  it("editar sem mandar numero PRESERVA o número atual", async () => {
+  it("editar sem mandar numero (ou com campo em branco) PRESERVA o número atual", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero preservar R13" });
-      const antes = (await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId])).numero;
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero preservar R13", numero: "FIXO-7" });
       await ocPaSalvar(c, ocId, { nome_produto: "OC numero preservar R13 (editada)" });
+      expect((await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId])).numero).toBe("FIXO-7");
+      await ocPaSalvar(c, ocId, { nome_produto: "OC numero preservar R13 (editada 2)", numero: "" });
+      expect((await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId])).numero).toBe("FIXO-7");
+    });
+  });
+
+  it("numero repetido na mesma loja é recusado pelo índice único (23505), na criação e na edição", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await ocPaSalvar(c, null, { nome_produto: "OC numero dup A R13", numero: "DUP-001" });
+      await c.query(`SAVEPOINT sp_dup1`);
+      await expect(ocPaSalvar(c, null, { nome_produto: "OC numero dup B R13", numero: "DUP-001" })).rejects.toThrow(/ux_ocs_p_acabado_tenant_numero/);
+      await c.query(`ROLLBACK TO SAVEPOINT sp_dup1`);
+      const outra = await ocPaSalvar(c, null, { nome_produto: "OC numero dup C R13" });
+      await c.query(`SAVEPOINT sp_dup2`);
+      await expect(ocPaSalvar(c, outra, { nome_produto: "OC numero dup C R13", numero: "DUP-001" })).rejects.toThrow(/ux_ocs_p_acabado_tenant_numero/);
+      await c.query(`ROLLBACK TO SAVEPOINT sp_dup2`);
+    });
+  });
+
+  it("o numero também vale no Receber (o cabeçalho do receber passa pelo mesmo escritor)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const { produtoId } = await criarProdutoComCard(c, "NumRec PA3Test", 20);
+      const grade = { "0": { P: { pedida: 10 }, M: { pedida: 10 } }, "1": { P: { pedida: 10 }, M: { pedida: 10 } } };
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero receber R13", produto_acabado_id: produtoId, numero: "REC-001" }, grade);
+      const recebida = {
+        "0": { P: { pedida: 10, recebida: 10, defeito: 0 }, M: { pedida: 10, recebida: 10, defeito: 0 } },
+        "1": { P: { pedida: 10, recebida: 10, defeito: 0 }, M: { pedida: 10, recebida: 10, defeito: 0 } },
+      };
+      await ocPaReceber(c, ocId, { numero: "REC-002", data_entrega: "2026-03-10", nota_fiscal: "NF-1" }, recebida);
       const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
-      expect(row.numero).toBe(antes); // não some/reseta
+      expect(row.numero).toBe("REC-002");
     });
   });
 });

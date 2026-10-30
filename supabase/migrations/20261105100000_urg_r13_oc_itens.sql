@@ -762,7 +762,7 @@ BEGIN
       data_pedido, data_prevista, prazo_pagamento, parcelas_entrega, data_nota_entrada, anexo_pedido_url,
       qtd_total, valor_bruto, valor_total_desconto, valor_unitario_real
     ) VALUES (
-      v_tenant, public._oc_numero_proximo('ocs_p_acabado', v_tenant, v_sig), NULL, v_empresa, nullif(_dados->>'representante_id','')::uuid,
+      v_tenant, coalesce(nullif(btrim(_dados->>'numero'),''), public._oc_numero_proximo('ocs_p_acabado', v_tenant, v_sig)), NULL, v_empresa, nullif(_dados->>'representante_id','')::uuid,
       coalesce(nullif(_dados->>'data_pedido','')::date, current_date), nullif(_dados->>'data_prevista','')::date,
       coalesce(nullif(_dados->>'prazo_pagamento',''), '30'), coalesce(nullif(_dados->>'parcelas_entrega','')::int, 1),
       nullif(_dados->>'data_nota_entrada','')::date, _dados->>'anexo_pedido_url', 0, 0, 0, 0
@@ -776,6 +776,7 @@ BEGIN
     END IF;
     v_oc_id := _id;
     UPDATE public.ocs_p_acabado SET
+      numero = coalesce(nullif(btrim(_dados->>'numero'),''), numero),
       empresa_id = nullif(_dados->>'empresa_id','')::uuid,
       representante_id = nullif(_dados->>'representante_id','')::uuid,
       data_pedido = coalesce(nullif(_dados->>'data_pedido','')::date, data_pedido),
@@ -891,6 +892,16 @@ BEGIN
       v_qtd := coalesce(nullif(it->>'qtd_total','')::int, 0);
       v_vu := coalesce(nullif(it->>'valor_unitario','')::numeric, 0);
       v_dp := coalesce(nullif(it->>'desconto_pct','')::numeric, 0);
+      -- [P-382 #3] mesma validacao do item existente (grade negativa / soma pedida <> qtd) tambem no avulso novo
+      SELECT coalesce(bool_or(coalesce(nullif(t.value->>'pedida','')::numeric,0) < 0
+             or coalesce(nullif(t.value->>'recebida','')::numeric,0) < 0 or coalesce(nullif(t.value->>'defeito','')::numeric,0) < 0), false),
+             coalesce(sum(coalesce(nullif(t.value->>'pedida','')::numeric,0)),0)
+        INTO v_tem_neg, v_soma_pedida
+        FROM jsonb_each(coalesce(it->'grade_detalhe','{}'::jsonb)) o CROSS JOIN LATERAL jsonb_each(o.value) t;
+      IF v_tem_neg THEN raise exception 'As quantidades da grade nao podem ser negativas.' using errcode = 'P0001'; END IF;
+      IF v_qtd > 0 AND v_soma_pedida <> v_qtd THEN
+        raise exception 'A soma da grade pedida (%) difere da quantidade total (%)', v_soma_pedida, v_qtd using errcode = 'P0001';
+      END IF;
       v_bruto := round(v_qtd * v_vu, 2); v_vtd := round(v_bruto * (1 - v_dp / 100.0), 2);
       v_vur := CASE WHEN v_qtd > 0 THEN round(v_vtd / v_qtd, 2) ELSE 0 END;
       INSERT INTO public.ocs_p_acabado_itens (
@@ -2688,7 +2699,7 @@ BEGIN
       anexo_pedido_url, moeda_compra, moeda_intermediaria, cotacao_ref, cotacao_final,
       qtd_total, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real
     ) VALUES (
-      v_tenant, public._oc_numero_proximo('ocs_importado', v_tenant, v_sig), NULL, v_empresa, nullif(_dados->>'representante_id','')::uuid,
+      v_tenant, coalesce(nullif(btrim(_dados->>'numero'),''), public._oc_numero_proximo('ocs_importado', v_tenant, v_sig)), NULL, v_empresa, nullif(_dados->>'representante_id','')::uuid,
       coalesce(nullif(_dados->>'data_pedido','')::date, current_date), nullif(_dados->>'data_prevista','')::date,
       nullif(_dados->>'data_nota_entrada','')::date, _dados->>'anexo_pedido_url',
       coalesce(nullif(_dados->>'moeda_compra',''), 'RMB'), nullif(_dados->>'moeda_intermediaria',''),
@@ -2703,6 +2714,7 @@ BEGIN
     END IF;
     v_oc_id := _id;
     UPDATE public.ocs_importado SET
+      numero = coalesce(nullif(btrim(_dados->>'numero'),''), numero),
       empresa_id = nullif(_dados->>'empresa_id','')::uuid,
       representante_id = nullif(_dados->>'representante_id','')::uuid,
       data_pedido = coalesce(nullif(_dados->>'data_pedido','')::date, data_pedido),
@@ -2827,6 +2839,16 @@ BEGIN
       v_dp := coalesce(nullif(it->>'desconto_pct','')::numeric, 0);
       v_peso := coalesce(nullif(it->>'peso_kg','')::numeric, 0);
       v_tr := coalesce(nullif(it->>'transporte_m2','')::numeric, 0);
+      -- [P-382 #3] mesma validacao do item existente (grade negativa / soma pedida <> qtd) tambem no avulso novo
+      SELECT coalesce(bool_or(coalesce(nullif(t.value->>'pedida','')::numeric,0) < 0
+             or coalesce(nullif(t.value->>'recebida','')::numeric,0) < 0 or coalesce(nullif(t.value->>'defeito','')::numeric,0) < 0), false),
+             coalesce(sum(coalesce(nullif(t.value->>'pedida','')::numeric,0)),0)
+        INTO v_tem_neg, v_soma_pedida
+        FROM jsonb_each(coalesce(it->'grade_detalhe','{}'::jsonb)) o CROSS JOIN LATERAL jsonb_each(o.value) t;
+      IF v_tem_neg THEN raise exception 'As quantidades da grade nao podem ser negativas.' using errcode = 'P0001'; END IF;
+      IF v_qtd > 0 AND v_soma_pedida <> v_qtd THEN
+        raise exception 'A soma da grade pedida (%) difere da quantidade total (%)', v_soma_pedida, v_qtd using errcode = 'P0001';
+      END IF;
       v_bruto := round(v_qtd * v_vu, 2); v_vtd := round(v_bruto * (1 - v_dp / 100.0), 2);
       v_vur := CASE WHEN v_qtd > 0 THEN round(v_vtd / v_qtd, 2) ELSE 0 END;
       INSERT INTO public.ocs_importado_itens (

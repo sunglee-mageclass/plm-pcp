@@ -356,6 +356,7 @@ export const TEXTOS_NAO_ENCONTRADO: Record<string, string> = {
   // [urg R13 T9] o produto (item) da OC sumiu entre abrir a OC e agir (outra pessoa o tirou ou excluiu a OC).
   item: "Este produto não está mais nesta OC (outra pessoa pode tê-lo tirado). Recarregue a tela.",
 };
+export const TEXTO_OC_NUMERO_DUPLICADO = "Já existe uma OC com esse número nesta loja. Escolha outro número ou deixe em branco para gerar automaticamente.";
 export const TEXTO_NAO_ENCONTRADO_GENERICO = "Este registro não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.";
 export function mensagemBackend(code: string, msg: string): string | null {
   if (code === "P0002" && msg.startsWith(PREFIXO_NAO_ENCONTRADO)) {
@@ -367,6 +368,9 @@ export function mensagemBackend(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("lancado_protegido:")) return TEXTO_LANCADO_PROTEGIDO;
   if (code === "23505" && msg.includes("integracao_linhas_produto_unico"))
     return TEXTO_INTEGRACAO_PRODUTO_DUPLICADO;
+  // [P-382] nº da OC de Produto Acabado/Importado é editável: o índice único (loja, numero) barra repetido.
+  if (code === "23505" && (msg.includes("ux_ocs_p_acabado_tenant_numero") || msg.includes("ux_ocs_importado_tenant_numero")))
+    return TEXTO_OC_NUMERO_DUPLICADO;
   return null;
 }
 

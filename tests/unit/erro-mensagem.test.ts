@@ -40,6 +40,14 @@ describe("mensagemErro", () => {
     ).toBe("O lançamento só muda pelo botão Lançar (foguete) do card.");
   });
 
+  it("P-382: 23505 nos índices do nº da OC (PA e Importado) vira texto PT próprio", () => {
+    for (const ix of ["ux_ocs_p_acabado_tenant_numero", "ux_ocs_importado_tenant_numero"]) {
+      expect(
+        mensagemErro({ code: "23505", message: `duplicate key value violates unique constraint "${ix}"` }, "fb"),
+      ).toBe("Já existe uma OC com esse número nesta loja. Escolha outro número ou deixe em branco para gerar automaticamente.");
+    }
+  });
+
   it("Backend B4: 23505 no índice integracao_linhas_produto_unico vira texto PT próprio; outro 23505 segue o genérico", () => {
     expect(
       mensagemErro(

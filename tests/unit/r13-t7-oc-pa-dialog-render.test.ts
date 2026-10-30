@@ -341,3 +341,37 @@ describe("OC nova", () => {
     expect(toastMock.error).toHaveBeenCalled();
   });
 });
+
+// P-382 #1 (dono): o nº do pedido é GERADO por padrão, mas EDITÁVEL na tela (antes: campo desabilitado, "gerado ao criar e não muda").
+describe("nº do pedido — gerado, mas editável (P-382)", () => {
+  const numeroInput = () => campoPorRotulo("Nº do pedido");
+  it("OC existente: o campo vem preenchido com o número da OC, está habilitado e o que se digita vai em _dados.numero", async () => {
+    dados.tabelas.ocs_p_acabado = ocBase([itemRow("A", "Vestido Midi", 1), itemRow("B", "Blusa Lia", 2)]);
+    await montar();
+    const campo = numeroInput()!;
+    expect(campo).toBeTruthy();
+    expect(campo.disabled).toBe(false);
+    expect(campo.readOnly).toBe(false);
+    expect(campo.value).toBe("BELDIV-00123");
+    await digitar(campo, "MEU-NUM-9");
+    await clicar(botao("Salvar"));
+    await tick(20);
+    expect(chamadas("salvar_oc_p_acabado_itens")[0][1]._dados.numero).toBe("MEU-NUM-9");
+  });
+  it("OC existente sem mexer no campo: manda o número atual (o servidor mantém); campo em branco manda '' (o servidor mantém o atual)", async () => {
+    dados.tabelas.ocs_p_acabado = ocBase([itemRow("A", "Vestido Midi", 1), itemRow("B", "Blusa Lia", 2)]);
+    await montar();
+    await digitar(numeroInput()!, "");
+    await clicar(botao("Salvar"));
+    await tick(20);
+    expect(chamadas("salvar_oc_p_acabado_itens")[0][1]._dados.numero).toBe("");
+  });
+  it("OC nova: campo habilitado e vazio, com a prévia 'Automático' no placeholder (vazio no Salvar = o servidor gera)", async () => {
+    await montar(null);
+    const campo = numeroInput()!;
+    expect(campo.disabled).toBe(false);
+    expect(campo.value).toBe("");
+    expect(campo.placeholder).toMatch(/^Autom/);
+    expect(texto()).toContain("Gerado automaticamente ao criar. Digite para usar outro número.");
+  });
+});
