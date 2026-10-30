@@ -7,12 +7,11 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { PedidoEmLoteDialog } from "@/components/shared/PedidoEmLoteDialog";
-import { toastResultadoLote } from "@/lib/pedido-em-lote-toast";
-import { criarPedidoDoProduto, type ItemPedidoLote, type OcCriada, type ResultadoLote } from "@/lib/pedido-em-lote";
+import { PedidoOcLoteWizard } from "@/components/shared/PedidoOcLoteWizard";
+import { TEXTO_CONFLITO_PEDIDO, type OcCriadaLote, type PedidoOc, type ProdutoPedido } from "@/lib/pedido-oc-lote";
+import { EMBED_OC_ITEM_PA, nomeDoFornecedor, ocInfoDeItens } from "@/lib/oc-produto-vinculo";
 import { useAuth } from "@/hooks/useAuth";
 import { podeVerCustosServidor } from "@/lib/mao-obra";
-import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { AgrupamentoButton } from "@/components/shared/filters";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
@@ -26,7 +25,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 import { ProdutoCard } from "./ProdutoCard";
-import { criarOcProdutoAcabado } from "./pedido";
+import { fazerPedidoAcabado, lerOcsDosProdutosAcabados } from "./pedido";
 import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
@@ -34,7 +33,7 @@ import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
-  erroDoPedidoAcabado, itemPedidoAcabado, ocInfoDeRow,
+  produtoPedidoAcabado,
   resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar,
   baselinePatchDoServidor,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
@@ -88,7 +87,6 @@ function useOptCat(table: string, fk: string) {
 }
 
 function rowToDraft(row: any): ProdutoDraft {
-  const oc = Array.isArray(row.ocs) && row.ocs.length > 0 ? row.ocs[0] : null;
   const variantes: VarianteDraft[] = ((row.variantes ?? []) as any[])
     .map((v) => ({ ordem: v.ordem, cor_id: v.cor_id, cor_apelido_id: v.cor_apelido_id, peso: Number(v.peso) || 0, qtd: Number(v.qtd) || 0 }))
     .sort((a, b) => a.ordem - b.ordem);
@@ -141,18 +139,8 @@ function rowToDraft(row: any): ProdutoDraft {
       row.modelo?.desenho_tecnico_url ?? null,
       row.modelo?.croqui_url ?? null,
     ],
-    oc: oc
-      ? {
-          id: oc.id,
-          numero: oc.numero,
-          status: oc.status,
-          qtd_total: oc.qtd_total ?? 0,
-          valor_unitario_real: Number(oc.valor_unitario_real) || 0,
-          grade_detalhe: oc.grade_detalhe ?? {},
-          valor_unitario: Number(oc.valor_unitario) || 0,
-          desconto_pct: Number(oc.desconto_pct) || 0,
-        }
-      : null,
+    // [urg R13 T6] a OC do produto = o ITEM dele (embed `oc_item`) + o cabeçalho + o nº de produtos da OC. Fora do `chaveDirty`.
+    oc: ocInfoDeItens(row.oc_item, "acabado"),
   };
 }
 
@@ -163,7 +151,7 @@ const SELECT_PRODUTO = `
   markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
   modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus(count)),
-  ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct)
+  ${EMBED_OC_ITEM_PA}
 `;
 
 // Rótulo PT de cada campo de `chaveDirty` — consumido pelo `rotulo` do ColabBanner (colab Fase
@@ -231,9 +219,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; modeloIds: string[]; nIgnorados: number } | null>(null);
   const [replicando, setReplicando] = useState(false);
-  // [urg R13] Pedido em lote: `null` = fechado. A lista (`itens`) é um retrato do momento da abertura; o que vale na hora de
-  // criar é o estado VIVO (`draftsRef`/`baselineRef`/`temConflitoRef`, lidos em `criarPedidoDeUm`).
-  const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados"; itens: ItemPedidoLote[]; jaTemOc: number } | null>(null);
+  // [urg R13 T6] Assistente "Fazer pedido" (`PedidoOcLoteWizard`): `null` = fechado. A lista de produtos é um retrato do momento da
+  // abertura (o assistente a congela); o que vale na hora de criar é o estado VIVO (`draftsRef`/`baselineRef`/`temConflitoRef`).
+  const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados" | "card"; produtos: ProdutoPedido[]; jaTemOc: number } | null>(null);
   const { canView } = useAuth();
   const podeVerValores = podeVerCustosServidor(canView);
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
@@ -890,47 +878,67 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     },
   });
 
-  // ── Pedido em lote ([urg R13]) ──────────────────────────────────────────────────────────────────────────────────────
-  // Reusa o "Fazer pedido" do card: as MESMAS recusas (`erroDoPedidoAcabado`), o MESMO salvar (`salvarUmProduto`, só se o
-  // produto está sujo) e a MESMA criação da OC (`criarOcProdutoAcabado` = payload `montarDadosOcAcabado` + RPC + releitura).
+  // ── Fazer pedido ([urg R13 T6]) ──────────────────────────────────────────────────────────────────────────────────────
+  // UM assistente para os 3 caminhos (rodapé = compra total da subcoleção, barra de selecionados e o botão do card = 1 produto,
+  // P-363). Ele agrupa por fornecedor, mostra a prévia, e cria TODAS as OCs numa transação (`fazer_pedido_p_acabado`); o servidor
+  // monta o item de cada produto a partir do produto SALVO — por isso o produto com edição pendente é salvo ANTES (`salvarUmProduto`,
+  // a mesma função do Salvar e do "Criar card").
   const grupoNomeDe = (grupoId: string | null) => grupos.find((g) => g.id === grupoId)?.nome ?? "";
-  const abrirPedidoLote = (origem: "rodape" | "selecionados") => {
+  const abrirPedidoLote = (origem: "rodape" | "selecionados" | "card", idDoCard?: string) => {
     const todos = drafts ?? [];
-    const base = origem === "rodape" ? produtosSub.filter((p) => !p.oc) : todos.filter((d) => selecao.has(d.id));
-    const itens = base.map((p) => itemPedidoAcabado(p, {
-      grupoNome: grupoNomeDe(p.grupo_id),
-      conflitoPendente: temConflitoPendente,
-      conflitoDoProduto: (conflitosPorProduto[p.id]?.length ?? 0) > 0,
-    }));
-    setPedidoLote({ origem, itens, jaTemOc: origem === "rodape" ? produtosSub.length - base.length : 0 });
-  };
-  const criarPedidoDeUm = (item: { id: string; nome: string }): Promise<OcCriada> =>
-    criarPedidoDoProduto({
-      produto: draftsRef.current?.find((d) => d.id === item.id),
-      // Mesmas recusas do card, no estado de AGORA (conflito pendente em QUALQUER produto, soma das variantes) + já tem OC.
-      recusa: (p) => (p.oc
-        ? (p.oc.numero ? `Este produto já tem a OC ${p.oc.numero} vinculada.` : "Este produto já tem OC vinculada.")
-        : erroDoPedidoAcabado(p, temConflitoRef.current)),
-      sujo: (p) => JSON.stringify(chaveDirty(p)) !== baselineRef.current[p.id],
-      salvar: (p) => salvarUmProduto(p),
-      criar: async (p) => {
-        const ocRow = await criarOcProdutoAcabado(p, ehGrupoAcessorio(grupoNomeDe(p.grupo_id)));
-        if (ocRow) {
-          const info = ocInfoDeRow(ocRow);
-          patchProduto(p.id, { oc: info }); // o card já mostra a OC vinculada, sem esperar o refetch
-          const base = baseServidorRef.current[p.id];
-          if (base) baseServidorRef.current = { ...baseServidorRef.current, [p.id]: { ...base, oc: info } };
-        }
-        return { ocId: ocRow?.id ?? null, ocNumero: ocRow?.numero ?? null };
-      },
-      erro: erroValidacao,
+    const base = origem === "rodape"
+      ? produtosSub.filter((p) => !p.oc)
+      : origem === "card" ? todos.filter((d) => d.id === idDoCard) : todos.filter((d) => selecao.has(d.id));
+    const produtos = base.map((p) => {
+      const forn = nomeDoFornecedor(empresas, p.empresa_id, p.representante_id);
+      return produtoPedidoAcabado(p, {
+        grupoNome: grupoNomeDe(p.grupo_id),
+        categoriaNome: categorias.find((c) => c.id === p.categoria_id)?.nome ?? "",
+        fornecedorNome: forn.fornecedorNome,
+        empresaNome: forn.empresaNome,
+        cores: p.variantes.map((v) => cores.find((c) => c.id === v.cor_id)?.nome).filter((n): n is string => !!n),
+        sujo: JSON.stringify(chaveDirty(p)) !== baselineRef.current[p.id],
+        conflitoDoProduto: (conflitosPorProduto[p.id]?.length ?? 0) > 0,
+      });
     });
-  const concluirPedidoLote = (r: ResultadoLote) => {
-    qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
-    qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
-    const criados = new Set(r.itens.filter((i) => i.ok).map((i) => i.id));
-    if (criados.size > 0) setSelecao((s) => new Set([...s].filter((id) => !criados.has(id))));
-    toastResultadoLote(r);
+    setPedidoLote({ origem, produtos, jaTemOc: origem === "rodape" ? produtosSub.length - base.length : 0 });
+  };
+  // Aviso "já tem a OC X encomendada" do passo 0 — select leve, só com o assistente aberto.
+  const { data: ocsEncomendadas = [] } = useQuery({
+    queryKey: ["ocs-encomendadas-aviso-pa", colecaoId],
+    enabled: !!pedidoLote,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("ocs_p_acabado" as any).select("id, numero, empresa_id").eq("status", "encomendado");
+      if (error) throw error;
+      return ((data ?? []) as unknown as Array<{ id: string; numero: string | null; empresa_id: string | null }>)
+        .filter((o) => !!o.numero && !!o.empresa_id)
+        .map((o) => ({ id: o.id, numero: o.numero as string, empresaId: o.empresa_id as string }));
+    },
+  });
+  /** Salva o produto com edição pendente — a MESMA função do Salvar (trava da Integração, P0409/merge, baseline por produto). */
+  const salvarProdutoDoPedido = async (pp: ProdutoPedido) => {
+    const d = draftsRef.current?.find((x) => x.id === pp.id);
+    if (!d) throw erroValidacao("Este produto não está mais na lista.");
+    if (temConflitoRef.current) throw erroValidacao(TEXTO_CONFLITO_PEDIDO);
+    await salvarUmProduto(d);
+  };
+  /** UMA chamada cria todas as OCs (tudo ou nada). Depois, relê a OC dos produtos para o card mostrar o chip na hora. */
+  const criarPedidosDoLote = async (pedidos: PedidoOc[]): Promise<OcCriadaLote[]> => {
+    if (temConflitoRef.current) throw erroValidacao(TEXTO_CONFLITO_PEDIDO); // o conflito pode ter nascido depois da abertura
+    const criadas = await fazerPedidoAcabado(pedidos);
+    try {
+      const lidos = await lerOcsDosProdutosAcabados(criadas.flatMap((c) => c.produto_ids));
+      for (const l of lidos) {
+        patchProduto(l.id, { oc: l.oc, rev: l.rev }); // o servidor sincronizou valor/desconto do produto (rev sobe): o próximo Salvar não dá P0409
+        const base = baseServidorRef.current[l.id];
+        if (base) baseServidorRef.current = { ...baseServidorRef.current, [l.id]: { ...base, oc: l.oc, rev: l.rev } };
+      }
+    } catch { /* o refetch (invalidate do assistente) cobre */ }
+    return criadas;
+  };
+  const concluirPedidoLote = (criadas: OcCriadaLote[]) => {
+    const ids = new Set(criadas.flatMap((c) => c.produto_ids));
+    if (ids.size > 0) setSelecao((s) => new Set([...s].filter((id) => !ids.has(id))));
   };
 
   const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };
@@ -1039,7 +1047,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             markupAtacadoServidor={baseServidorRef.current[p.id]?.markup_atacado}
             ordensVariantesServidor={baseServidorRef.current[p.id]?.variantes.map((v) => v.ordem)}
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
-            onOcVinculada={(oc) => patchProduto(p.id, { oc })}
+            onOcVinculada={(oc) => {
+              patchProduto(p.id, { oc });
+              const base = baseServidorRef.current[p.id];
+              if (base) baseServidorRef.current = { ...baseServidorRef.current, [p.id]: { ...base, oc } };
+            }}
+            onFazerPedido={() => abrirPedidoLote("card", p.id)}
             onExcluido={() => removeProduto(p.id)}
             onLimpo={() => {
               // RPC já zerou no banco: zera o draft local (mesmos campos; preserva id/col/sub/ref/mix)
@@ -1452,19 +1465,23 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
           />
         )}
 
-        {/* Fazer pedido (rodapé / selecionados) — [urg R13]: cria a OC de VÁRIOS produtos de uma vez (antes só abria o card).
+        {/* Fazer pedido (rodapé / selecionados / card) — [urg R13 T6]: o assistente cria UMA OC por fornecedor com VÁRIOS produtos.
             Monta só aberto, pra nascer limpo a cada abertura. */}
         {pedidoLote && (
-          <PedidoEmLoteDialog
+          <PedidoOcLoteWizard
             familia="acabado"
             origem={pedidoLote.origem}
             contexto={subAtual?.nome ?? null}
-            itens={pedidoLote.itens}
+            produtos={pedidoLote.produtos}
+            conflitoPendente={temConflitoPendente}
             jaTemOc={pedidoLote.jaTemOc}
             mostrarValor={podeVerValores}
-            criar={criarPedidoDeUm}
-            onFechar={() => setPedidoLote(null)}
+            ocsEncomendadas={ocsEncomendadas}
+            onCriar={criarPedidosDoLote}
+            onSalvarProduto={salvarProdutoDoPedido}
+            onAbrirOc={(ocId) => navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: ocId } as any })}
             onConcluido={concluirPedidoLote}
+            onFechar={() => setPedidoLote(null)}
           />
         )}
       </SheetContent>

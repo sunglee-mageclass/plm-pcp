@@ -5,7 +5,7 @@
  *      fornecedor `norm3(nome_fantasia)` (ou 'FOR') + ( 'ACE' se TODOS acessorios | G1+C2 se todos mesmo grupo E mesma
  *      categoria | 'DIV' ). Com 1 item reproduz `previewNumeroOc` (fn_oc_p_acabado_numero). Testado no urg-r13-pedido.
  *  - MOTIVOS: os codigos que o SQL `_oc_produto_motivos('pa'|'pi', _produto)` emite sao um SUBCONJUNTO dos de
- *      `motivosForaDoPedido` (src/lib/pedido-em-lote.ts) — o servidor confere so o que depende do DADO salvo (sem conflito
+ *      `motivosForaDoPedido` (src/lib/pedido-oc-lote.ts) — o servidor confere so o que depende do DADO salvo (sem conflito
  *      de edicao nem validacao da familia, que sao do card). Este mapa fixa a correspondencia de codigos SQL -> TS.
  *
  * O teste de integracao (urg-r13-oc-itens / urg-r13-pedido) semeia produtos e compara o SQL com estes casos.

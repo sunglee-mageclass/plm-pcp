@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { ChevronRight, MoreHorizontal, ExternalLink, RefreshCw, Plus, Trash2, ShoppingCart, Link2, Eraser, ImagePlus, Loader2, Paperclip, X } from "lucide-react";
+import { ChevronRight, MoreHorizontal, ExternalLink, RefreshCw, Plus, Trash2, Eraser, ImagePlus, Loader2, Paperclip, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
-import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { CategoriaTecidoField } from "./CategoriaTecidoField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -26,7 +25,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { OcChipProduto, OcVinculadaSecao } from "@/components/shared/OcVinculadaProduto";
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
@@ -41,27 +40,12 @@ import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
-  redistribuirVariantesPorPeso, ehDistribuicaoProporcional, somaGradeCampo, somaPecas, fmtMoney,
+  redistribuirVariantesPorPeso, ehDistribuicaoProporcional, somaPecas, fmtMoney,
   variantesBatemComTotal, erroValidacao, markupCanalIntocado, limparEnviadoSeServidorMudou, proximaOrdemVariante, type MarkupEnviado,
-  erroDoPedidoAcabado, ocInfoDeRow,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
-import { criarOcProdutoAcabado } from "./pedido";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
 import { tipoEfetivo, tamanhosVisiveis } from "@/lib/tamanho-exibicao";
-
-type OcAvulsa = {
-  id: string;
-  numero: string | null;
-  nome_produto: string;
-  status: "encomendado" | "recebido";
-  qtd_total: number | null;
-  valor_total_desconto: number | null;
-  valor_unitario_real: number | null;
-  grade_detalhe: OcVinculadaInfo["grade_detalhe"] | null;
-  valor_unitario: number | null;
-  desconto_pct: number | null;
-};
 
 export function ProdutoCard({
   produto,
@@ -86,6 +70,7 @@ export function ProdutoCard({
   conflitoPendente,
   onCardCriado,
   onOcVinculada,
+  onFazerPedido,
   onExcluido,
   onLimpo,
   onAbrirPlanejamento,
@@ -127,7 +112,10 @@ export function ProdutoCard({
   /** Patch local imediato (sem esperar refetch) após criar o card espelho — preserva edições
    *  não salvas de OUTROS cards (a tela não tem colab/merge — Fora de escopo, ver design spec). */
   onCardCriado: (modeloId: string) => void;
+  /** A OC do produto mudou (vincular/desvincular): a OC relida do servidor (item + cabeçalho + nº de produtos; `null` = sem OC). */
   onOcVinculada: (oc: OcVinculadaInfo | null) => void;
+  /** "Fazer pedido deste produto" — o Sheet abre o assistente (`PedidoOcLoteWizard`) com 1 produto (P-363, [urg R13 T6]). */
+  onFazerPedido: () => void;
   onExcluido: () => void;
   /** Após limpar (#4c): o Sheet zera o draft no estado E rebaseline (produto já limpo no banco). */
   onLimpo: () => void;
@@ -171,10 +159,8 @@ export function ProdutoCard({
   const travaIntegracao = colunasTravadas(estadoIntegracao);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [confirmLimpar, setConfirmLimpar] = useState(false);
-  const [vincularOpen, setVincularOpen] = useState(false);
   const [criandoCard, setCriandoCard] = useState(false);
   const [aplicando, setAplicando] = useState(false);
-  const [fazendoPedido, setFazendoPedido] = useState(false);
   // Foto do produto = FOTO DO MODELO (set/2026): sobe no bucket "modelos" (prefixo fotos_modelo) e
   // vira a capa de `modelos.fotos_modelo` do espelho via trigger `_sync_foto_modelo_do_produto`
   // (migração 20260915120000). Assim aparece no Planejamento sem re-upload. A URL assinada (bucket
@@ -428,81 +414,6 @@ export function ProdutoCard({
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao limpar.")),
   });
 
-  // ── OC vinculada (seção 3) ──
-  const vincularMut = useMutation({
-    mutationFn: async (oc: OcAvulsa | null) => {
-      const { error } = await supabase.rpc("vincular_oc_p_acabado" as any, { _oc_id: oc?.id ?? null, _produto_id: produto.id });
-      if (error) throw error;
-      return oc;
-    },
-    onSuccess: (oc) => {
-      toast.success(oc ? "OC vinculada." : "OC desvinculada.");
-      setVincularOpen(false);
-      onOcVinculada(oc ? {
-        id: oc.id, numero: oc.numero, status: oc.status, qtd_total: oc.qtd_total ?? 0,
-        valor_unitario_real: Number(oc.valor_unitario_real) || 0, grade_detalhe: oc.grade_detalhe ?? {},
-        // Vincular já sincroniza produtos_acabados.valor_unitario/desconto_pct no servidor
-        // (_vincular_oc_p_acabado_core) — patch local com os MESMOS valores da OC escolhida
-        // pra não esperar o refetch de ["produtos-acabados"] pra travar/atualizar os campos.
-        valor_unitario: Number(oc.valor_unitario) || 0, desconto_pct: Number(oc.desconto_pct) || 0,
-      } : null);
-      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao vincular OC.")),
-  });
-
-  const fazerPedidoMut = useMutation({
-    mutationFn: async () => {
-      // Guard SÍNCRONO (item 7, colab Fase 3): não gerar pedido enquanto há conflito de merge
-      // pendente — "Fazer pedido" persiste a Compra por baixo (`onSalvarProduto`), a mesma
-      // classe de risco do Salvar em lote. O `disabled` do botão (abaixo) é o primeiro freio,
-      // mas é async — lição do projeto (guard síncrono no mutationFn é o que conta de verdade).
-      // NUNCA redistribui silenciosamente (fix round 1 item 3) — usa as qtds ATUAIS das
-      // variantes tal como o usuário deixou; se Σ ≠ qtd_total, bloqueia com mensagem clara
-      // (ação: "Redistribuir por peso" explícito ou ajuste manual) em vez de gerar uma OC com
-      // grade inconsistente ou deixar o servidor rejeitar com um erro genérico.
-      // [urg R13] as 2 recusas moram em `erroDoPedidoAcabado` (shared.ts) — o pedido em lote usa a MESMA função.
-      const erro = erroDoPedidoAcabado(produto, conflitoPendente);
-      if (erro) throw erroValidacao(erro);
-      setFazendoPedido(true);
-      // Persiste a Compra ANTES de gerar a OC (fix round 1 item 4a) — sem isto, um "Fazer
-      // pedido" com rascunho sujo (ex.: qtd/valor editados sem clicar Salvar) criava a OC com
-      // os dados certos mas deixava o PRODUTO com dado velho no servidor.
-      await onSalvarProduto(produto);
-      // [urg R13] payload + RPC + releitura da OC em `criarOcProdutoAcabado` (pedido.ts), a MESMA chamada do lote. Releitura:
-      // nº/status reais (gerados por trigger) pra patchear o card na hora — fix round 1 item 4b: sem isto, o card ficava
-      // mostrando "Nenhuma OC vinculada" até um reload, mesmo com a OC já criada e vinculada no servidor.
-      return criarOcProdutoAcabado(produto, acessorio);
-    },
-    onSuccess: (ocRow) => {
-      toast.success("Pedido criado e vinculado.");
-      if (ocRow) onOcVinculada(ocInfoDeRow(ocRow));
-      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
-      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
-      navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: ocRow?.id } as any });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar pedido.")),
-    onSettled: () => setFazendoPedido(false),
-  });
-
-  const { data: ocsAvulsas = [] } = useQuery({
-    queryKey: ["ocs-p-acabado-avulsas"],
-    enabled: vincularOpen,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ocs_p_acabado" as any)
-        .select("id, numero, nome_produto, status, qtd_total, valor_total_desconto, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct")
-        .is("produto_acabado_id", null)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as unknown as OcAvulsa[];
-    },
-  });
-  const [buscaOc, setBuscaOc] = useState("");
-  const ocsFiltradas = ocsAvulsas.filter((o) => !buscaOc || `${o.numero ?? ""} ${o.nome_produto}`.toLowerCase().includes(buscaOc.toLowerCase()));
-
-  const somaPedida = somaGradeCampo(produto.oc?.grade_detalhe, "pedida");
-  const somaRecebida = somaGradeCampo(produto.oc?.grade_detalhe, "recebida");
 
   // Refino imediato (decisão do dono, ago/2026): produto COM OC vinculada não pode editar
   // identidade — o nº da OC deriva de fornecedor+grupo+categoria, então mudar depois divergiria
@@ -626,6 +537,13 @@ export function ProdutoCard({
           </PopoverContent>
         </Popover>
       </button>
+
+      {/* [urg R13 T6] chip "Na OC BELDIV-00123 (com 3 produtos)" — FORA do botão do cabeçalho (botão dentro de botão não existe em HTML). */}
+      {produto.oc && (
+        <div className={`px-3 pb-2 ${onToggleSelect ? "pl-8" : ""}`}>
+          <OcChipProduto oc={produto.oc} familia="acabado" />
+        </div>
+      )}
 
       {open && (
         <div className="border-t px-3 pb-3">
@@ -768,7 +686,7 @@ export function ProdutoCard({
                         >
                           {produto.oc!.numero ?? "—"} <ExternalLink className="h-3 w-3" />
                         </button>
-                        {" "}— identidade travada (desvincule a OC para editar).
+                        {" "}— identidade travada ({(produto.oc?.nProdutos ?? 1) > 1 ? "abra a OC e tire o produto dela para editar" : "desvincule a OC para editar"}).
                       </p>
                     )}
                   </div>
@@ -1126,36 +1044,18 @@ export function ProdutoCard({
             {/* ── 3 · OC vinculada ──────────────────────────────────── */}
             <AccordionItem value="oc">
               <AccordionTrigger className="text-xs font-semibold">3 · OC vinculada</AccordionTrigger>
-              <AccordionContent className="space-y-3">
-                {produto.oc ? (
-                  <InfoStrip itens={[
-                    {
-                      label: "Nº",
-                      valor: (
-                        <button type="button" className="inline-flex items-center gap-1 text-primary hover:underline"
-                          onClick={() => navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: produto.oc!.id } as any })}>
-                          {produto.oc.numero ?? "—"} <ExternalLink className="h-3 w-3" />
-                        </button>
-                      ),
-                    },
-                    { label: "Status", valor: <StatusBadge tone={produto.oc.status === "recebido" ? "success" : "warning"}>{produto.oc.status === "recebido" ? "Recebido" : "Encomendado"}</StatusBadge> },
-                    { label: "Pedida", valor: somaPedida },
-                    { label: "Recebida", valor: somaRecebida },
-                    { label: "V. unit. real", valor: fmtMoney(produto.oc.valor_unitario_real), hi: true },
-                  ]} />
-                ) : (
-                  <p className="text-sm text-muted-foreground">Nenhuma OC vinculada ainda.</p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setVincularOpen(true)}>
-                    <Link2 className="mr-1 h-3.5 w-3.5" /> Vincular OC existente
-                  </Button>
-                  {!produto.oc && (
-                    <Button type="button" size="sm" disabled={fazendoPedido || conflitoPendente} title={conflitoPendente ? "Resolva os conflitos de edição pendentes antes de fazer o pedido." : undefined} onClick={() => fazerPedidoMut.mutate()}>
-                      <ShoppingCart className="mr-1 h-3.5 w-3.5" /> {fazendoPedido ? "Criando…" : "Fazer pedido"}
-                    </Button>
-                  )}
-                </div>
+              <AccordionContent>
+                {/* [urg R13 T6] seção 3 do mockup aprovado: status/pedida/recebida DO ITEM, "divide a OC com N", identidade travada,
+                    vincular (só encomendadas do mesmo fornecedor) e desvincular (só OC de 1 produto). */}
+                <OcVinculadaSecao
+                  familia="acabado"
+                  produto={{ id: produto.id, empresaId: produto.empresa_id }}
+                  oc={produto.oc}
+                  podeVerValor={podeVerCustosMO}
+                  conflitoPendente={conflitoPendente}
+                  onFazerPedido={onFazerPedido}
+                  onVinculada={(oc) => onOcVinculada(oc)}
+                />
               </AccordionContent>
             </AccordionItem>
           </Accordion>
@@ -1170,7 +1070,7 @@ export function ProdutoCard({
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm text-muted-foreground">
                 {produto.oc ? (
-                  <p>Este produto tem a OC {produto.oc.numero ?? ""} vinculada — desvincule antes (aba "3 · OC vinculada" → Vincular OC existente → nenhuma) para poder excluir.</p>
+                  <p>Este produto tem a OC {produto.oc.numero ?? ""} vinculada — desvincule antes (aba "3 · OC vinculada" → Desvincular OC; numa OC com vários produtos, abra a OC para tirar o produto) para poder excluir.</p>
                 ) : (
                   <>
                     <p>Esta ação não pode ser desfeita. O produto e suas variantes serão removidos.</p>
@@ -1214,27 +1114,6 @@ export function ProdutoCard({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Vincular OC existente */}
-      <Dialog open={vincularOpen} onOpenChange={setVincularOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Vincular OC existente</DialogTitle></DialogHeader>
-          <Input placeholder="Buscar por nº ou nome…" value={buscaOc} onChange={(e) => setBuscaOc(e.target.value)} />
-          <div className="max-h-72 space-y-1 overflow-y-auto">
-            {produto.oc && (
-              <button type="button" onClick={() => vincularMut.mutate(null)} className="flex w-full items-center gap-2 rounded-md border border-dashed p-2 text-left text-sm text-muted-foreground hover:bg-muted">
-                Desvincular OC atual
-              </button>
-            )}
-            {ocsFiltradas.length === 0 && <p className="p-2 text-sm text-muted-foreground">Nenhuma OC avulsa encontrada.</p>}
-            {ocsFiltradas.map((o) => (
-              <button key={o.id} type="button" onClick={() => vincularMut.mutate(o)} className="flex w-full items-center justify-between gap-2 rounded-md border p-2 text-left text-sm hover:bg-muted">
-                <span className="min-w-0 truncate"><b>{o.numero ?? "—"}</b> · {o.nome_produto}</span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">{fmtMoney(o.valor_total_desconto)}</span>
-              </button>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

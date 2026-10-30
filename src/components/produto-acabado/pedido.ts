@@ -1,25 +1,25 @@
-// "Fazer pedido" do Produto Acabado — a CHAMADA que cria a OC. FONTE ÚNICA do card (`ProdutoCard.fazerPedidoMut`) e do pedido em
-// lote ([urg R13], `ProdutoAcabadoSheet`): o payload sai de `montarDadosOcAcabado` e a grade de `gradePedidaDeVariantes`
-// (puros, em `shared.ts`) — nada é montado duas vezes. Quem chama decide ANTES o que o card já decidia (guardas, salvar o
-// produto sujo) e DEPOIS o que fazer com a OC (patch do rascunho, invalidar queries, navegar).
+// "Fazer pedido" do Produto Acabado — as CHAMADAS ao servidor ([urg R13 T6]). O pedido nasce no assistente
+// (`PedidoOcLoteWizard`, rodapé / selecionados / card): UMA chamada `fazer_pedido_p_acabado` cria TODAS as OCs numa transação
+// (tudo ou nada); o servidor monta o item de cada produto a partir do produto SALVO — aqui só vão ids e cabeçalho.
 import { supabase } from "@/integrations/supabase/client";
-import {
-  gradePedidaDeVariantes, hojeISO, montarDadosOcAcabado,
-  type OcRowCriadaAcabado, type ProdutoDraft,
-} from "./shared";
+import type { OcCriadaLote, PedidoOc } from "@/lib/pedido-oc-lote";
+import { EMBED_OC_ITEM_PA, ocInfoDeItens, type OcItemEmbedRow, type OcProdutoInfo } from "@/lib/oc-produto-vinculo";
 
-/** Cria a OC do produto (`salvar_oc_p_acabado`, `_id: null`) e relê a linha (nº/status reais, gerados por trigger) — sem isso o
- *  card ficaria mostrando "Nenhuma OC vinculada" até um reload, mesmo com a OC criada e vinculada no servidor (fix round 1 item 4b). */
-export async function criarOcProdutoAcabado(produto: ProdutoDraft, acessorio: boolean): Promise<OcRowCriadaAcabado | null> {
-  const grade = gradePedidaDeVariantes(produto.variantes, produto.grade_proporcao, acessorio);
-  const dados = montarDadosOcAcabado(produto, hojeISO());
-  const { data: ocId, error } = await supabase.rpc("salvar_oc_p_acabado" as any, { _id: null, _dados: dados, _grade: grade });
+/** `fazer_pedido_p_acabado(_pedidos)` → `[{oc_id, numero, produto_ids}]`. Lança o erro da RPC (nada é criado). */
+export async function fazerPedidoAcabado(pedidos: PedidoOc[]): Promise<OcCriadaLote[]> {
+  const { data, error } = await supabase.rpc("fazer_pedido_p_acabado" as any, { _pedidos: pedidos });
   if (error) throw error;
-  const { data: ocRow, error: fetchErr } = await supabase
-    .from("ocs_p_acabado" as any)
-    .select("id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct")
-    .eq("id", ocId)
-    .maybeSingle();
-  if (fetchErr) throw fetchErr;
-  return ocRow as unknown as OcRowCriadaAcabado | null;
+  return ((data ?? []) as OcCriadaLote[]).map((o) => ({ oc_id: o.oc_id, numero: o.numero, produto_ids: o.produto_ids ?? [] }));
+}
+
+/** Relê a OC (item + cabeçalho + nº de produtos) dos produtos — o patch local que faz o card mostrar o chip sem esperar o refetch. */
+export async function lerOcsDosProdutosAcabados(ids: string[]): Promise<Array<{ id: string; rev: number; oc: OcProdutoInfo | null }>> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("produtos_acabados" as any).select(`id, rev, ${EMBED_OC_ITEM_PA}`).in("id", ids);
+  if (error) throw error;
+  return ((data ?? []) as unknown as Array<{ id: string; rev: number | string | null; oc_item?: OcItemEmbedRow[] | null }>).map((r) => ({
+    id: r.id,
+    rev: Number(r.rev) || 0,
+    oc: ocInfoDeItens(r.oc_item, "acabado"),
+  }));
 }

@@ -1,29 +1,25 @@
-// "Fazer pedido" do Produto Importado — a CHAMADA que cria a OC. FONTE ÚNICA do card (`ProdutoImportadoCard.fazerPedidoMut`) e do
-// pedido em lote ([urg R13], `ProdutoImportadoSheet`): o payload sai de `montarDadosOcImportado` e a grade de
-// `gradePedidaDeVariantes` (puros) — nada é montado duas vezes. Quem chama decide ANTES as guardas e o salvar do produto sujo,
-// e DEPOIS o que fazer com a OC (navegar no card; patch do rascunho no lote).
+// "Fazer pedido" do Produto Importado — as CHAMADAS ao servidor ([urg R13 T6]). O pedido nasce no assistente
+// (`PedidoOcLoteWizard`, rodapé / selecionados / card): UMA chamada `fazer_pedido_importado` cria TODAS as OCs numa transação
+// (tudo ou nada; um pedido por fornecedor E moeda). Moeda, cotações e etapas vêm do 1º produto de cada OC.
 import { supabase } from "@/integrations/supabase/client";
-import { gradePedidaDeVariantes } from "@/components/produto-acabado/shared";
-import { montarDadosOcImportado, type OcImportadoInfo, type ProdutoImportadoDraft } from "./shared";
+import type { OcCriadaLote, PedidoOc } from "@/lib/pedido-oc-lote";
+import { EMBED_OC_ITEM_PI, ocInfoDeItens, type OcItemEmbedRow, type OcProdutoInfo } from "@/lib/oc-produto-vinculo";
 
-/** Cria a OC do produto importado (`salvar_oc_importado`, `_id: null`, `_etapas: []` = a RPC COPIA o cronograma atual do card) e
- *  devolve o id. Grade "pedida" = variantes/proporção atuais, pelo mesmo helper puro da revenda. */
-export async function criarOcProdutoImportado(draft: ProdutoImportadoDraft, produtoId: string, acessorio: boolean): Promise<string> {
-  const grade = gradePedidaDeVariantes(draft.variantes, draft.grade_proporcao, acessorio);
-  const dadosOc = montarDadosOcImportado(draft, produtoId, new Date().toISOString().slice(0, 10));
-  const { data: ocId, error } = await supabase.rpc("salvar_oc_importado" as any, {
-    _id: null,
-    _dados: dadosOc,
-    _grade: grade,
-    _etapas: [],
-  });
+/** `fazer_pedido_importado(_pedidos)` → `[{oc_id, numero, produto_ids}]`. Lança o erro da RPC (nada é criado). */
+export async function fazerPedidoImportado(pedidos: PedidoOc[]): Promise<OcCriadaLote[]> {
+  const { data, error } = await supabase.rpc("fazer_pedido_importado" as any, { _pedidos: pedidos });
   if (error) throw error;
-  return ocId as string;
+  return ((data ?? []) as OcCriadaLote[]).map((o) => ({ oc_id: o.oc_id, numero: o.numero, produto_ids: o.produto_ids ?? [] }));
 }
 
-/** Relê nº/status da OC recém-criada (gerados por trigger) — só o pedido em lote precisa (o card navega pra OC). */
-export async function lerOcImportado(ocId: string): Promise<OcImportadoInfo | null> {
-  const { data, error } = await supabase.from("ocs_importado" as any).select("id, numero, status").eq("id", ocId).maybeSingle();
+/** Relê a OC (item + cabeçalho + nº de produtos) dos produtos — o patch local que faz o card mostrar o chip sem esperar o refetch. */
+export async function lerOcsDosProdutosImportados(ids: string[]): Promise<Array<{ id: string; rev: number; oc: OcProdutoInfo | null }>> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("produtos_importados" as any).select(`id, rev, ${EMBED_OC_ITEM_PI}`).in("id", ids);
   if (error) throw error;
-  return (data as unknown as OcImportadoInfo | null) ?? null;
+  return ((data ?? []) as unknown as Array<{ id: string; rev: number | string | null; oc_item?: OcItemEmbedRow[] | null }>).map((r) => ({
+    id: r.id,
+    rev: Number(r.rev) || 0,
+    oc: ocInfoDeItens(r.oc_item, "importado"),
+  }));
 }

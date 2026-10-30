@@ -70,9 +70,8 @@ describe("R13 — SQL: ponteiro do cabecalho so nos blocos permitidos", () => {
 describe("R13 — Front: embed/filtro do ponteiro do cabecalho (baseline a esvaziar em T6/T9)", () => {
   // BASELINE: arquivos que AINDA embedam ocs:ocs_* a partir do produto ou filtram from("ocs_*") por produto_*_id.
   // A migracao do front e T6/T9; esta lista NAO pode CRESCER e deve chegar a vazio quando o front migrar.
+  // T6 (canvas/cards de Produto Acabado e Importado) migrou: os 2 Sheets leem o `oc_item` e SAIRAM da baseline.
   const BASELINE = new Set<string>([
-    "src/components/produto-acabado/ProdutoAcabadoSheet.tsx",
-    "src/components/produto-importado/ProdutoImportadoSheet.tsx",
     "src/components/planejamento/PlanejamentoDetail.tsx",
     "src/lib/categoria-card-produto.ts",
   ]);

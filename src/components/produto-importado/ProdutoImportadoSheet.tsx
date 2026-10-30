@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,20 +24,19 @@ import { erroValidacao, produtosParaSalvar, baselinePatchDoServidor } from "@/co
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
-import { criarOcProdutoImportado, lerOcImportado } from "./pedido";
-import { PedidoEmLoteDialog } from "@/components/shared/PedidoEmLoteDialog";
-import { toastResultadoLote } from "@/lib/pedido-em-lote-toast";
-import { criarPedidoDoProduto, type ItemPedidoLote, type OcCriada, type ResultadoLote } from "@/lib/pedido-em-lote";
+import { fazerPedidoImportado, lerOcsDosProdutosImportados } from "./pedido";
+import { PedidoOcLoteWizard } from "@/components/shared/PedidoOcLoteWizard";
+import { TEXTO_CONFLITO_PEDIDO, type OcCriadaLote, type PedidoOc, type ProdutoPedido } from "@/lib/pedido-oc-lote";
+import { EMBED_OC_ITEM_PI, nomeDoFornecedor, ocInfoDeItens, type OcItemEmbedRow } from "@/lib/oc-produto-vinculo";
 import { useAuth } from "@/hooks/useAuth";
 import { podeVerCustosServidor } from "@/lib/mao-obra";
-import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import {
   chaveDirty, emptyDraft, montarPayload, validarDraft, etapasComCotacaoRef, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
-  erroDoPedidoImportado, itemPedidoImportado, type OcImportadoInfo,
+  produtoPedidoImportado,
   acoplarParVarejo, acoplarParAtacado,
   aplicarResolucaoConflito,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
@@ -66,8 +66,9 @@ const SELECT_PRODUTO_IMPORTADO =
   "variantes:produto_importado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd), " +
   "etapas:produto_importado_etapas(ordem, rotulo, base, percentual, data_vencimento, cotacao), " +
   "modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))" +
-  // [urg R13] OC vinculada (1 ativa por produto): o card mostra o vínculo e o pedido em lote sabe quem já tem OC.
-  ", ocs:ocs_importado(id, numero, status)";
+  // [urg R13 T6] OC do produto = o ITEM dele (`oc_item`) + o cabeçalho + o nº de produtos da OC: o card mostra o chip e o assistente
+  // sabe quem já tem OC. Fora do `chaveDirty`.
+  ", " + EMBED_OC_ITEM_PI;
 
 // Agrupamento das lanes do canvas — MESMO padrão combinável do Produto Acabado
 // (`ProdutoAcabadoSheet.tsx`): "Grupo" e "Categoria" marcáveis juntos → lane por Grupo com
@@ -145,8 +146,8 @@ type ProdutoImportadoRow = {
   /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))`
    *  (SELECT acima; os 2 campos novos são da Tarefa 6). */
   modelo?: { preco_venda: number | string | null; tamanho_tipo?: string | null; modelo_skus?: { count: number }[] | null } | null;
-  /** [urg R13] embed `ocs:ocs_importado(id, numero, status)` — no máximo 1 (gatilho `trg_oci_vinculo_unico`). */
-  ocs?: OcImportadoInfo[] | null;
+  /** [urg R13 T6] embed `oc_item` — o item deste produto na OC (no máximo 1: gatilho de 1 OC por produto). */
+  oc_item?: OcItemEmbedRow[] | null;
   variantes: (VarianteImportadoDraft & { ordem: number })[] | null;
   etapas: (EtapaImportadoDraft & { ordem: number })[] | null;
 };
@@ -206,7 +207,7 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     tamanho_tipo: tamanhoTipo,
     tamanho_tipo_base: tamanhoTipo,
     modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
-    oc: Array.isArray(r.ocs) && r.ocs.length > 0 ? { id: r.ocs[0].id, numero: r.ocs[0].numero ?? null, status: r.ocs[0].status } : null,
+    oc: ocInfoDeItens(r.oc_item, "importado"),
     variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
     // B2 (L8, P-207 A): produto sem etapas no banco (criado pelo Planejamento com `_etapas: []`, "Limpar", novo) recebe
     // as etapas PADRÃO — as de mercadoria já com a cotação de referência gravada (se houver), como uma etapa nova.
@@ -263,9 +264,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // (espelha `PlanTecidoSheet`, Plan. Tecido). `replicarPayload` guarda os ids ELEGÍVEIS
   // (já persistidos e com modelo_id) + o nº ignorados até o dialog confirmar o destino.
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
-  // [urg R13] Pedido em lote: `null` = fechado. A lista (`itens`) é um retrato do momento da abertura; o que vale na hora de
-  // criar é o estado VIVO (`draftsRef`/`baselineRef`/`temConflitoRef`, lidos em `criarPedidoDeUm`).
-  const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados"; itens: ItemPedidoLote[]; jaTemOc: number } | null>(null);
+  // [urg R13 T6] Assistente "Fazer pedido" (`PedidoOcLoteWizard`): `null` = fechado. A lista de produtos é um retrato do momento da
+  // abertura (o assistente a congela); o que vale na hora de criar é o estado VIVO (`draftsRef`/`baselineRef`/`temConflitoRef`).
+  const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados" | "card"; produtos: ProdutoPedido[]; jaTemOc: number } | null>(null);
   const { canView } = useAuth();
   const podeVerValores = podeVerCustosServidor(canView);
   const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; modeloIds: string[]; nIgnorados: number } | null>(null);
@@ -276,6 +277,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const [carregado, setCarregado] = useState(false);
   const resolvedInicialRef = useRef({ done: false });
   const qc = useQueryClient();
+  const navigate = useNavigate();
   // Presença por campo NO CANVAS (ring nos campos inline dos N cards abertos — molde do canvas do
   // Planejamento). Canal único por COLEÇÃO (colecaoId é prop deste Sheet); o `campoFocado` codifica
   // `card:<idDoCard>:<campo>` — namespaced pelo id do card, já que N cards editáveis ao mesmo tempo.
@@ -745,51 +747,72 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
 
   const produtosDeSub = (nome: string | null) => drafts.filter((d) => (d.subcolecao ?? null) === nome);
 
-  // ── Pedido em lote ([urg R13]) ──────────────────────────────────────────────────────────────────────────────────────
-  // Reusa o "Fazer pedido" do card: as MESMAS recusas (`erroDoPedidoImportado`), o MESMO salvar (`salvarUmProduto`, só se o
-  // produto está sujo ou ainda é rascunho local) e a MESMA criação da OC (`criarOcProdutoImportado` = payload
-  // `montarDadosOcImportado` + RPC `salvar_oc_importado`). Moeda/cotação/etapas já vêm no draft — nada é recalculado aqui.
+  // ── Fazer pedido ([urg R13 T6]) ──────────────────────────────────────────────────────────────────────────────────────
+  // UM assistente para os 3 caminhos (rodapé = compra total da subcoleção, barra de selecionados e o botão do card = 1 produto,
+  // P-363). Agrupa por fornecedor E moeda, mostra a prévia e cria TODAS as OCs numa transação (`fazer_pedido_importado`); moeda,
+  // cotações e etapas vêm do 1º produto de cada OC. O servidor monta o item a partir do produto SALVO — por isso o produto com edição
+  // pendente (ou ainda rascunho local "novo-…") é salvo ANTES (`salvarUmProduto`, a mesma função do Salvar).
   const grupoNomeDe = (grupoId: string | null) => grupos.find((g) => g.id === grupoId)?.nome ?? "";
-  const abrirPedidoLote = (origem: "rodape" | "selecionados") => {
-    const base = origem === "rodape" ? produtosSub.filter((d) => !d.oc) : drafts.filter((d) => d.id && selecao.has(d.id));
-    const itens = base.map((d) => itemPedidoImportado(d, {
-      grupoNome: grupoNomeDe(d.grupo_id),
-      conflitoPendente: temConflitoPendente,
-      conflitoDoProduto: !!d.id && (conflitosPorProduto[d.id]?.length ?? 0) > 0,
-    }));
-    setPedidoLote({ origem, itens, jaTemOc: origem === "rodape" ? produtosSub.length - base.length : 0 });
-  };
-  const criarPedidoDeUm = (item: { id: string; nome: string }): Promise<OcCriada> =>
-    criarPedidoDoProduto<ProdutoImportadoDraft, string, OcCriada>({
-      produto: draftsRef.current.find((x) => x.id === item.id),
-      // Mesmas recusas do card, no estado de AGORA (conflito pendente em QUALQUER produto, `validarParaPedido`, soma) + já tem OC.
-      recusa: (d) => (d.oc
-        ? (d.oc.numero ? `Este produto já tem a OC ${d.oc.numero} vinculada.` : "Este produto já tem OC vinculada.")
-        : erroDoPedidoImportado(d, temConflitoRef.current)),
-      // Salva se há edição pendente — ou se ainda é rascunho local ("novo-…", sem linha no banco: `salvarUmProduto` o cria e
-      // devolve o id).
-      sujo: (d) => !d.id || d.id.startsWith("novo-") || JSON.stringify(chaveDirty(d)) !== baselineRef.current[d.id],
-      salvar: (d) => salvarUmProduto(d),
-      criar: async (d, salvoId) => {
-        const produtoId = salvoId ?? (d.id as string);
-        const ocId = await criarOcProdutoImportado(d, produtoId, ehGrupoAcessorio(grupoNomeDe(d.grupo_id)));
-        // A OC JÁ existe: reler nº/status só enfeita o card — se falhar, o pedido continua valendo (não vira "falha").
-        let oc: OcImportadoInfo | null = null;
-        try { oc = await lerOcImportado(ocId); } catch { oc = null; }
-        const info: OcImportadoInfo = oc ?? { id: ocId, numero: null, status: "encomendado" };
-        patchDraft(produtoId, { oc: info }); // o card já mostra a OC vinculada, sem esperar o refetch
-        const base = baseServidorRef.current[produtoId];
-        if (base) baseServidorRef.current = { ...baseServidorRef.current, [produtoId]: { ...base, oc: info } };
-        return { ocId, ocNumero: info.numero };
-      },
-      erro: erroValidacao,
+  const abrirPedidoLote = (origem: "rodape" | "selecionados" | "card", idDoCard?: string) => {
+    const base = origem === "rodape"
+      ? produtosSub.filter((d) => !d.oc)
+      : origem === "card" ? drafts.filter((d) => d.id === idDoCard) : drafts.filter((d) => d.id && selecao.has(d.id));
+    const produtos = base.map((d) => {
+      const forn = nomeDoFornecedor(empresas, d.empresa_id, d.representante_id);
+      return produtoPedidoImportado(d, {
+        grupoNome: grupoNomeDe(d.grupo_id),
+        categoriaNome: categorias.find((c) => c.id === d.categoria_id)?.nome ?? "",
+        fornecedorNome: forn.fornecedorNome,
+        empresaNome: forn.empresaNome,
+        cores: d.variantes.map((v) => cores.find((c) => c.id === v.cor_id)?.nome).filter((n): n is string => !!n),
+        sujo: !d.id || d.id.startsWith("novo-") || JSON.stringify(chaveDirty(d)) !== baselineRef.current[d.id],
+        conflitoDoProduto: !!d.id && (conflitosPorProduto[d.id]?.length ?? 0) > 0,
+      });
     });
-  const concluirPedidoLote = (r: ResultadoLote) => {
-    qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
-    qc.invalidateQueries({ queryKey: ["ocs_importado"] });
-    const criados = new Set(r.itens.filter((i) => i.ok).map((i) => i.id));
-    if (criados.size > 0) setSelecao((s) => new Set([...s].filter((id) => !criados.has(id))));
-    toastResultadoLote(r);
+    setPedidoLote({ origem, produtos, jaTemOc: origem === "rodape" ? produtosSub.length - base.length : 0 });
+  };
+  // Aviso "já tem a OC X encomendada" do passo 0 — select leve, só com o assistente aberto.
+  const { data: ocsEncomendadas = [] } = useQuery({
+    queryKey: ["ocs-encomendadas-aviso-pi", colecaoId],
+    enabled: !!pedidoLote,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("ocs_importado" as any).select("id, numero, empresa_id").eq("status", "encomendado");
+      if (error) throw error;
+      return ((data ?? []) as unknown as Array<{ id: string; numero: string | null; empresa_id: string | null }>)
+        .filter((o) => !!o.numero && !!o.empresa_id)
+        .map((o) => ({ id: o.id, numero: o.numero as string, empresaId: o.empresa_id as string }));
+    },
+  });
+  // Rascunho local ("novo-…") ganha id de verdade ao ser salvo: o assistente segue falando o id LOCAL, o servidor o id REAL.
+  const idRealDoLocalRef = useRef<Record<string, string>>({});
+  /** Salva o produto com edição pendente (ou ainda local) — a MESMA função do Salvar. */
+  const salvarProdutoDoPedido = async (pp: ProdutoPedido) => {
+    const d = draftsRef.current.find((x) => x.id === pp.id);
+    if (!d) throw erroValidacao("Este produto não está mais na lista.");
+    if (temConflitoRef.current) throw erroValidacao(TEXTO_CONFLITO_PEDIDO);
+    const idReal = await salvarUmProduto(d);
+    if (idReal && idReal !== pp.id) idRealDoLocalRef.current[pp.id] = idReal;
+  };
+  /** UMA chamada cria todas as OCs (tudo ou nada). Depois, relê a OC dos produtos para o card mostrar o chip na hora. */
+  const criarPedidosDoLote = async (pedidos: PedidoOc[]): Promise<OcCriadaLote[]> => {
+    if (temConflitoRef.current) throw erroValidacao(TEXTO_CONFLITO_PEDIDO); // o conflito pode ter nascido depois da abertura
+    const real = idRealDoLocalRef.current;
+    const localDoReal = Object.fromEntries(Object.entries(real).map(([local, idReal]) => [idReal, local]));
+    const criadas = await fazerPedidoImportado(pedidos.map((p) => ({ ...p, produto_ids: p.produto_ids.map((id) => real[id] ?? id) })));
+    try {
+      const lidos = await lerOcsDosProdutosImportados(criadas.flatMap((c) => c.produto_ids));
+      for (const l of lidos) {
+        patchDraft(l.id, { oc: l.oc, rev: l.rev }); // o servidor mexeu no produto (rev sobe): o próximo Salvar não dá P0409
+        const base = baseServidorRef.current[l.id];
+        if (base) baseServidorRef.current = { ...baseServidorRef.current, [l.id]: { ...base, oc: l.oc, rev: l.rev } };
+      }
+    } catch { /* o refetch (invalidate do assistente) cobre */ }
+    // o assistente conhece os ids LOCAIS (nomes no resultado, seleção): devolve no mesmo idioma
+    return criadas.map((c) => ({ ...c, produto_ids: c.produto_ids.map((id) => localDoReal[id] ?? id) }));
+  };
+  const concluirPedidoLote = (criadas: OcCriadaLote[]) => {
+    const ids = new Set(criadas.flatMap((c) => c.produto_ids));
+    if (ids.size > 0) setSelecao((s) => new Set([...s].filter((id) => !ids.has(id))));
   };
 
   const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };
@@ -1094,12 +1117,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             // Item 7 (espelha P.Acabado): "Fazer pedido" (dentro do card) chama `onSalvarProduto`
             // — bloqueia enquanto ESTE produto (ou qualquer outro) tiver conflito pendente.
             conflitoPendente={temConflitoPendente}
-            onPedidoCriado={() => {
-              // A navegação pra OC (`/entrada-saida/oc-p-importado?oc=<id>`) acontece dentro do
-              // próprio card (tem `useNavigate`); aqui só a higiene de cache dos vizinhos —
-              // espelha `invalidarVizinhos` do `ProdutoCard` (revenda).
-              qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
-            }}
+            onFazerPedido={() => abrirPedidoLote("card", d.id!)}
           />
         </div>
         );
@@ -1395,19 +1413,23 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
 
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no planejador de Produto Importado." />
 
-        {/* Fazer pedido (rodapé / selecionados) — [urg R13]: cria a OC de VÁRIOS produtos de uma vez. Monta só aberto, pra nascer
-            limpo a cada abertura. */}
+        {/* Fazer pedido (rodapé / selecionados / card) — [urg R13 T6]: o assistente cria UMA OC por fornecedor e moeda com VÁRIOS
+            produtos. Monta só aberto, pra nascer limpo a cada abertura. */}
         {pedidoLote && (
-          <PedidoEmLoteDialog
+          <PedidoOcLoteWizard
             familia="importado"
             origem={pedidoLote.origem}
             contexto={subAtual?.nome ?? null}
-            itens={pedidoLote.itens}
+            produtos={pedidoLote.produtos}
+            conflitoPendente={temConflitoPendente}
             jaTemOc={pedidoLote.jaTemOc}
             mostrarValor={podeVerValores}
-            criar={criarPedidoDeUm}
-            onFechar={() => setPedidoLote(null)}
+            ocsEncomendadas={ocsEncomendadas}
+            onCriar={criarPedidosDoLote}
+            onSalvarProduto={salvarProdutoDoPedido}
+            onAbrirOc={(ocId) => navigate({ to: "/entrada-saida/oc-p-importado", search: { oc: ocId } as any })}
             onConcluido={concluirPedidoLote}
+            onFechar={() => setPedidoLote(null)}
           />
         )}
 
