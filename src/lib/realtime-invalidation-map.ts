@@ -207,8 +207,10 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
   // Fase 2 — OCs de compra (só keys de LISTA; detalhe = ["oc-*", id] fica de fora)
   ocs_aviamento: ["oc-avi", "ocs-avi-totals", "ocs_aviamento", "estoque-aviamentos", "dash-estoque"],
   ocs_etiqueta: ["etiquetas-oc-insumo", "ocs-insumo-totals", "ocs_etiqueta"],
-  ocs_p_acabado: ["ocs_p_acabado", "estoque_p_acabado"],
-  ocs_importado: ["ocs_importado", "estoque_p_importado"],
+  // [urg R13 T9] O produto saiu do cabeçalho da OC (vive nos ITENS): o chip "OC vinculada" do card PA/PI e o "tem pedido" dos
+  // pickers vêm das keys de produto — sem elas, vincular/tirar um produto numa OC só aparece no refetch/foco.
+  ocs_p_acabado: ["ocs_p_acabado", "estoque_p_acabado", "produtos-acabados"],
+  ocs_importado: ["ocs_importado", "estoque_p_importado", "produtos-importados"],
   produtos_acabados: ["produtos-acabados", "produtos-acabados-estoque", "produto-acabado-variantes-estoque"],
   produtos_importados: ["produtos-importados", "produtos-importados-estoque", "produto-importado-variantes-estoque"],
   // Fase 2 — Financeiro (a pagar/receber + serviços). `parcelas` alimenta a lista de contas e

@@ -175,6 +175,13 @@ export async function withTx(fn: TxFn): Promise<void> {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await aplicaUrgd(client);
     }
+    // R13 (OC por fornecedor com VARIOS produtos; onda 2): com URG_R13_TXN=1 a migration da R13 e aplicada DENTRO desta txn,
+    // DEPOIS da cadeia (a copia4 ja e R11-final como base — o gancho so aplica/reverte o elo R13). Os ja vivos sao pulados.
+    if (process.env.URG_R13_TXN === "1") {
+      const { aplicaR13 } = await import("./urg-r13-helpers");
+      await client.query("SET LOCAL lock_timeout = '3s'");
+      await aplicaR13(client);
+    }
     await fn(client);
   } finally {
     try {

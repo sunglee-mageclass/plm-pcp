@@ -9,8 +9,8 @@
 // segurança; a tela traduz o prefixo em `erro-mensagem.ts` (texto do caminho do banco, sem apontar tela).
 //
 // Regra (idêntica ao gatilho): só quando a CATEGORIA do card muda para um valor não-nulo (NULL nunca é copiado), a
-// categoria nova tem grupo, o card é comprado (revenda → produtos_acabados/ocs_p_acabado; importado →
-// produtos_importados/ocs_importado), o produto tem OC, o grupo do produto é DIFERENTE do grupo da categoria nova e
+// categoria nova tem grupo, o card é comprado (revenda → produtos_acabados/ocs_p_acabado_itens (R13: o produto mora nos ITENS da OC); importado →
+// produtos_importados/ocs_importado_itens), o produto tem OC, o grupo do produto é DIFERENTE do grupo da categoria nova e
 // só um dos dois é Acessórios (`ehGrupoAcessorio` ⇄ `_grupo_eh_acessorio`).
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { ehOrigemComprada } from "@/lib/origem";
@@ -165,9 +165,9 @@ export async function conferirCategoriaAcessorioPedido(
   const ocPi = cruzam.filter((p) => p.tipo === "PI").map((p) => p.id);
   const comPedido = new Set<string>([
     ...(ocPa.length ? await ler<{ produto_acabado_id: string }>(
-      client.from("ocs_p_acabado").select("produto_acabado_id").in("produto_acabado_id", ocPa)) : []).map((r) => r.produto_acabado_id),
+      client.from("ocs_p_acabado_itens").select("produto_acabado_id").in("produto_acabado_id", ocPa)) : []).map((r) => r.produto_acabado_id),
     ...(ocPi.length ? await ler<{ produto_importado_id: string }>(
-      client.from("ocs_importado").select("produto_importado_id").in("produto_importado_id", ocPi)) : []).map((r) => r.produto_importado_id),
+      client.from("ocs_importado_itens").select("produto_importado_id").in("produto_importado_id", ocPi)) : []).map((r) => r.produto_importado_id),
   ]);
 
   const card = new Map(mudam.map((m) => [m.id, m]));

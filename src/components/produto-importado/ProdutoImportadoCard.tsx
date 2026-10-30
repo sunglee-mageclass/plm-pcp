@@ -1,13 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Eraser, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, ShoppingCart, Trash2, X } from "lucide-react";
+import { ChevronRight, Eraser, ExternalLink, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { erroValidacao, gradePedidaDeVariantes, variantesBatemComTotal, proximaOrdemVariante } from "@/components/produto-acabado/shared";
+import { proximaOrdemVariante } from "@/components/produto-acabado/shared";
 import { CategoriaTecidoField } from "@/components/produto-acabado/CategoriaTecidoField";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Button } from "@/components/ui/button";
@@ -16,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
+import { OcChipProduto, OcVinculadaSecao } from "@/components/shared/OcVinculadaProduto";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { DateField } from "@/components/shared/DateField";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
@@ -40,7 +40,7 @@ import { colunasTravadas, textoExcluirTravado, TEXTO_SKU_TRAVADO } from "@/lib/i
 import { InfoHover } from "@/components/shared/InfoHover";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
-  custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
+  custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase,
   markupVarejoExibido, markupAtacadoExibido, novaEtapaImportado, etapasComCotacaoRef, etapaSemCotacao, patchTrocaBase,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
@@ -117,7 +117,7 @@ export function ProdutoImportadoCard({
   onLimpar,
   onSalvarProduto,
   conflitoPendente,
-  onPedidoCriado,
+  onFazerPedido,
   ordensVariantesServidor,
 }: {
   draft: ProdutoImportadoDraft;
@@ -150,9 +150,9 @@ export function ProdutoImportadoCard({
    *  classe de risco do Salvar em lote). Espelha `ProdutoCard.conflitoPendente` (revenda).
    *  Opcional/retrocompatível — ausente = nunca bloqueia. */
   conflitoPendente?: boolean;
-  /** Chamado depois que a OC é criada com sucesso — o id do produto (já persistido) e o id da
-   *  OC recém-criada. O chamador decide navegar (`/entrada-saida/oc-p-importado?oc=<id>`). */
-  onPedidoCriado?: (produtoId: string, ocId: string) => void;
+  /** "Fazer pedido deste produto" — o Sheet abre o assistente (`PedidoOcLoteWizard`) com 1 produto (P-363, [urg R13 T6]).
+   *  Ausente (usos futuros deste card sem fluxo de OC) esconde o bloco "OC vinculada". */
+  onFazerPedido?: () => void;
   /** sku #22 (L8) — ordens das variantes GRAVADAS (última leitura do servidor, `baseServidorRef` do Sheet): a variante
    *  nova nunca reusa a ordem de uma apagada nesta edição (senão herdaria a grade dela). Ausente = só o rascunho. */
   ordensVariantesServidor?: readonly number[];
@@ -169,7 +169,6 @@ export function ProdutoImportadoCard({
   const mo = useMaoObraModelo(draft.modelo_id, podeVerCustosMO);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [confirmLimpar, setConfirmLimpar] = useState(false);
-  const [fazendoPedido, setFazendoPedido] = useState(false);
   // Accordion CONTROLADO (state próprio) — com `defaultValue` (uncontrolled) a seção fechava
   // ao editar um campo (re-render do card resetava o estado interno do Radix). Controlar aqui
   // fixa quais seções estão abertas independentemente de re-renders do draft.
@@ -308,80 +307,6 @@ export function ProdutoImportadoCard({
   };
   const removeEtapa = (ordem: number) => onChange({ etapas: draft.etapas.filter((e) => e.ordem !== ordem) });
 
-  // ── "Fazer pedido" — cria a OC de Produto Importado a partir deste card ──
-  // Espelha `fazerPedidoMut` do `ProdutoCard` (revenda): persiste o produto ANTES (nunca gera
-  // OC em cima de rascunho sujo), então chama `salvar_oc_importado(null, dados, grade, [])` —
-  // `_etapas` vazio faz a RPC COPIAR o cronograma atual do card (`produto_importado_etapas`)
-  // pra OC (snapshot; a OC pode divergir depois). Grade "pedida" vem das variantes/proporção
-  // atuais via `gradePedidaDeVariantes` (mesmo helper puro da revenda — shape de VarianteDraft
-  // compatível, `_touched` é só um campo extra ignorado pela função).
-  const fazerPedidoMut = useMutation({
-    mutationFn: async () => {
-      // Guard SÍNCRONO (item 7, colab Fase 3): não gerar pedido enquanto há conflito de merge
-      // pendente — "Fazer pedido" persiste o produto por baixo (`onSalvarProduto`), a mesma
-      // classe de risco do Salvar em lote. Espelha `ProdutoCard.fazerPedidoMut` (revenda).
-      if (conflitoPendente) {
-        throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de fazer o pedido.");
-      }
-      const erro = validarParaPedido(draft);
-      if (erro) throw erroValidacao(erro);
-      if (!variantesBatemComTotal(draft)) {
-        throw erroValidacao(
-          `A soma das variantes (${draft.variantes.reduce((s, v) => s + (Number(v.qtd) || 0), 0)}) precisa bater com a Qtd total (${draft.qtd_total}) antes de fazer o pedido — use o rateio por peso ou ajuste manualmente.`,
-        );
-      }
-      setFazendoPedido(true);
-      if (!onSalvarProduto) throw new Error("Ação de salvar não disponível.");
-      const produtoId = await onSalvarProduto(draft);
-      const grade = gradePedidaDeVariantes(draft.variantes, draft.grade_proporcao, acessorio);
-      // `_dados` da OC — só os campos que `_salvar_oc_importado_core` lê (espelha `montarDados`
-      // de `entrada-saida.oc-p-importado.tsx`); `_etapas: []` faz a RPC COPIAR o cronograma
-      // atual do card (`produto_importado_etapas`) pra OC.
-      const dadosOc = {
-        nome_produto: draft.nome,
-        grupo_id: draft.grupo_id,
-        categoria_id: draft.categoria_id,
-        subcategoria1_id: draft.subcategoria1_id,
-        subcategoria2_id: draft.subcategoria2_id,
-        empresa_id: draft.empresa_id,
-        representante_id: draft.representante_id,
-        ref_fornecedor: draft.ref_fornecedor || null,
-        composicao: draft.composicao || null,
-        data_pedido: draft.data_pedido ?? new Date().toISOString().slice(0, 10),
-        data_prevista: draft.data_prevista,
-        grade_proporcao: draft.grade_proporcao,
-        variantes: draft.variantes,
-        qtd_total: draft.qtd_total,
-        moeda_compra: draft.moeda_compra,
-        moeda_intermediaria: draft.moeda_intermediaria,
-        valor_unitario_m1: draft.valor_unitario_m1,
-        cotacao_ref: draft.cotacao_ref,
-        peso_kg: draft.peso_kg,
-        transporte_m2: draft.transporte_m2,
-        desconto_pct: draft.desconto_pct,
-        cotacao_final: draft.cotacao_final,
-        produto_importado_id: produtoId,
-      };
-      const { data: ocId, error } = await supabase.rpc("salvar_oc_importado" as any, {
-        _id: null,
-        _dados: dadosOc,
-        _grade: grade,
-        _etapas: [],
-      });
-      if (error) throw error;
-      return { produtoId, ocId: ocId as string };
-    },
-    onSuccess: ({ produtoId, ocId }) => {
-      toast.success("Pedido criado.");
-      // Patch local no pai (higiene de cache — espelha `ProdutoCard.onOcVinculada`) ANTES de
-      // navegar, pra a lista/card já refletir o id do produto persistido se o usuário voltar.
-      onPedidoCriado?.(produtoId, ocId);
-      navigate({ to: "/entrada-saida/oc-p-importado", search: { oc: ocId } as any });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar pedido.")),
-    onSettled: () => setFazendoPedido(false),
-  });
-
   return (
     <div className="relative rounded-lg border bg-card">
       {/* Checkbox de seleção múltipla (barra de seleção do Sheet) — canto sup. esquerdo,
@@ -461,6 +386,13 @@ export function ProdutoImportadoCard({
           </PopoverContent>
         </Popover>
       </button>
+
+      {/* [urg R13 T6] chip "Na OC BELDIV-00123 (com 3 produtos)" — FORA do botão do cabeçalho (botão dentro de botão não existe em HTML). */}
+      {draft.oc && (
+        <div className={`px-3 pb-2 ${onToggleSelect ? "pl-8" : ""}`}>
+          <OcChipProduto oc={draft.oc} familia="importado" />
+        </div>
+      )}
 
       {open && (
         <div className="border-t px-3 pb-3">
@@ -851,21 +783,27 @@ export function ProdutoImportadoCard({
                   <InfoStrip itens={[
                     { label: "Valor bruto (BRL)", hint: "(valor final × qtd)", valor: fmtMoeda(resultado.totalBrl, "BRL"), hi: true },
                   ]} />
-                  {/* "Fazer pedido" — cria a OC de Produto Importado (Fase 2) a partir deste
-                      card e navega pra ela. Espelha `ProdutoCard` (revenda, seção "3 · OC
-                      vinculada") — aqui sem seção própria de OC ainda (card de câmbio não tem
-                      o conceito de "vincular OC existente" nesta fase), só o botão de criar. */}
-                  {onSalvarProduto && (
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={fazendoPedido || conflitoPendente}
-                        title={conflitoPendente ? "Resolva os conflitos de edição pendentes antes de fazer o pedido." : undefined}
-                        onClick={() => fazerPedidoMut.mutate()}
-                      >
-                        <ShoppingCart className="mr-1 h-3.5 w-3.5" /> {fazendoPedido ? "Criando…" : "Fazer pedido"}
-                      </Button>
+                  {/* [urg R13 T6] OC do produto (mesmo bloco da seção 3 do Produto Acabado): status/pedida/recebida DO ITEM, "divide a OC com
+                      N", Abrir a OC, Vincular a uma OC existente (encomendadas do mesmo fornecedor E moeda), Desvincular (só OC de 1
+                      produto) e Fazer pedido deste produto (assistente com 1 produto). */}
+                  {onFazerPedido && (
+                    <div className="space-y-2 rounded-md border p-3" data-testid="pi-oc-bloco">
+                      <div className="text-xs font-semibold">OC vinculada</div>
+                      <OcVinculadaSecao
+                        familia="importado"
+                        produto={{
+                          id: draft.id ?? "",
+                          empresaId: draft.empresa_id,
+                          moedaCompra: draft.moeda_compra,
+                          moedaIntermediaria: draft.moeda_intermediaria,
+                        }}
+                        oc={draft.oc ? { ...draft.oc, status: draft.oc.status === "recebido" ? "recebido" : "encomendado", valor_unitario_real: draft.oc.valor_unitario_real ?? 0 } : null}
+                        podeVerValor={podeVerCustosMO}
+                        conflitoPendente={conflitoPendente}
+                        mostrarIdentidadeTravada={false}
+                        onFazerPedido={onFazerPedido}
+                        onVinculada={(oc) => onChange({ oc })}
+                      />
                     </div>
                   )}
                 </div>

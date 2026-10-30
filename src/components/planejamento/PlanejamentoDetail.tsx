@@ -697,7 +697,7 @@ function PlanejamentoDetailConteudo({
       let acabados: { ocs: { id: string }[] | null }[] | null = null;
       if (paOn) {
         const pa = await (supabase.from("produtos_acabados" as any) as any)
-          .select("id, ocs:ocs_p_acabado(id)")
+          .select("id, ocs:ocs_p_acabado_itens(id)")
           .eq("modelo_id", modeloId);
         if (pa.error) throw pa.error;
         acabados = pa.data ?? [];
@@ -705,7 +705,7 @@ function PlanejamentoDetailConteudo({
       let pi: { ocs: { id: string }[] | null }[] | null = null;
       if (piOn) {
         const r = await (supabase.from("produtos_importados" as any) as any)
-          .select("id, ocs:ocs_importado(id)")
+          .select("id, ocs:ocs_importado_itens(id)")
           .eq("modelo_id", modeloId);
         if (r.error) throw r.error;
         pi = r.data ?? [];

@@ -47,7 +47,8 @@ export type OcDocModelo = {
   dados: OcDocKV[];                    // Responsável / Datas / Pagamento
   colunasItem?: { nome: string; variante: string; qtd: string; preco?: string; subtotal?: string };
   itens?: OcDocItem[];                 // tecido/aviamento/insumo
-  grade?: OcDocGrade;                  // produto acabado
+  grade?: OcDocGrade;                  // produto acabado / importado (1 produto)
+  grades?: OcDocGrade[];               // OC com VÁRIOS produtos (R13): uma matriz por produto + os valores e o total do pedido. Vence `grade`.
   totalPrevisto?: ReactNode;           // formatado
   observacoes?: { titulo: string; texto: ReactNode }[];
 };
@@ -65,6 +66,8 @@ export function OcDocumentoPrint({ modelo }: { modelo: OcDocModelo }) {
   const loja = useTenantBranding();
   const nomeLoja = loja.nome ?? "WISH360";
   const col = modelo.colunasItem;
+  const gradesLista: OcDocGrade[] = modelo.grades && modelo.grades.length > 0 ? modelo.grades : modelo.grade ? [modelo.grade] : [];
+  const valoresLista = gradesLista.flatMap((g) => g.valores ?? []);
 
   return (
     <PrintArea>
@@ -144,44 +147,49 @@ export function OcDocumentoPrint({ modelo }: { modelo: OcDocModelo }) {
           </>
         )}
 
-        {/* GRADE (produto acabado) */}
-        {modelo.grade && (
+        {/* GRADE(S) (produto acabado): `grades` (R13, vários produtos) vence `grade` (1 produto — os outros usos). Uma matriz por produto;
+            a tabela de Valores é UMA só, com a linha de cada produto e o total do pedido. Com 1 produto o resultado é o de sempre. */}
+        {gradesLista.length > 0 && (
           <>
-            <div style={secTitle}>{modelo.grade.produtoTitulo}</div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th style={th}>Cor / Variante</th>
-                  {modelo.grade.tamanhos.map((t) => <th key={t} style={{ ...th, ...center }}>{t}</th>)}
-                  <th style={{ ...th, ...num }}>Total</th>
-                </tr>
-                {modelo.grade.proporcao && (
-                  <tr>
-                    <td style={{ ...td, background: AZ, fontSize: 10, fontWeight: 600, color: "#555", whiteSpace: "nowrap" }} title="Proporção de grade (peso por tamanho)">Peso · proporção</td>
-                    {modelo.grade.tamanhos.map((t) => <td key={t} style={{ ...td, ...center, background: AZ, fontSize: 10, fontWeight: 600, color: "#555" }}>{modelo.grade!.proporcao![t] ?? "—"}</td>)}
-                    <td style={{ ...td, background: AZ }} />
-                  </tr>
-                )}
-              </thead>
-              <tbody>
-                {modelo.grade.linhas.map((r, i) => (
-                  <tr key={i} className={i % 2 === 1 ? "rel-az" : undefined}>
-                    <td style={td}>{r.cor}</td>
-                    {modelo.grade!.tamanhos.map((t) => <td key={t} style={{ ...td, ...center }}>{r.celulas[t] ?? "—"}</td>)}
-                    <td style={{ ...td, ...num, fontWeight: 700 }}>{r.total}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td style={{ ...td, fontWeight: 700, background: "#fafafa" }}>Total por tamanho</td>
-                  {modelo.grade.tamanhos.map((t) => <td key={t} style={{ ...td, ...center, fontWeight: 700, background: "#fafafa" }}>{modelo.grade!.totalPorTamanho[t] ?? "—"}</td>)}
-                  <td style={{ ...td, ...num, fontWeight: 700, background: "#fafafa" }}>{modelo.grade.totalGeral}</td>
-                </tr>
-              </tfoot>
-            </table>
+            {gradesLista.map((g, gi) => (
+              <div key={gi}>
+                <div style={secTitle}>{g.produtoTitulo}</div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Cor / Variante</th>
+                      {g.tamanhos.map((t) => <th key={t} style={{ ...th, ...center }}>{t}</th>)}
+                      <th style={{ ...th, ...num }}>Total</th>
+                    </tr>
+                    {g.proporcao && (
+                      <tr>
+                        <td style={{ ...td, background: AZ, fontSize: 10, fontWeight: 600, color: "#555", whiteSpace: "nowrap" }} title="Proporção de grade (peso por tamanho)">Peso · proporção</td>
+                        {g.tamanhos.map((t) => <td key={t} style={{ ...td, ...center, background: AZ, fontSize: 10, fontWeight: 600, color: "#555" }}>{g.proporcao![t] ?? "—"}</td>)}
+                        <td style={{ ...td, background: AZ }} />
+                      </tr>
+                    )}
+                  </thead>
+                  <tbody>
+                    {g.linhas.map((r, i) => (
+                      <tr key={i} className={i % 2 === 1 ? "rel-az" : undefined}>
+                        <td style={td}>{r.cor}</td>
+                        {g.tamanhos.map((t) => <td key={t} style={{ ...td, ...center }}>{r.celulas[t] ?? "—"}</td>)}
+                        <td style={{ ...td, ...num, fontWeight: 700 }}>{r.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ ...td, fontWeight: 700, background: "#fafafa" }}>Total por tamanho</td>
+                      {g.tamanhos.map((t) => <td key={t} style={{ ...td, ...center, fontWeight: 700, background: "#fafafa" }}>{g.totalPorTamanho[t] ?? "—"}</td>)}
+                      <td style={{ ...td, ...num, fontWeight: 700, background: "#fafafa" }}>{g.totalGeral}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ))}
 
-            {modelo.grade.valores && modelo.grade.valores.length > 0 && (
+            {valoresLista.length > 0 && (
               <>
                 <div style={secTitle}>Valores</div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -194,7 +202,7 @@ export function OcDocumentoPrint({ modelo }: { modelo: OcDocModelo }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {modelo.grade.valores.map((v, i) => (
+                    {valoresLista.map((v, i) => (
                       <tr key={i}>
                         <td style={td}>{v.descricao}</td>
                         <td style={{ ...td, ...num }}>{v.qtd}</td>

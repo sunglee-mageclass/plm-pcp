@@ -219,6 +219,11 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
     expect(matchesTable("ocs_importado", ["ocs_importado"])).toBe(true);
     expect(matchesTable("produtos_acabados", ["produtos-acabados"])).toBe(true);
     expect(matchesTable("produtos_importados", ["produtos-importados-estoque", ["x"]])).toBe(true);
+    // [urg R13 T9] OC multiproduto: evento da OC também atualiza o chip/"tem pedido" do produto (e só da própria família)
+    expect(matchesTable("ocs_p_acabado", ["produtos-acabados"])).toBe(true);
+    expect(matchesTable("ocs_importado", ["produtos-importados"])).toBe(true);
+    expect(matchesTable("ocs_p_acabado", ["produtos-importados"])).toBe(false);
+    expect(matchesTable("ocs_importado", ["produtos-acabados"])).toBe(false);
     // não cruza: uma OC não casa a key de outra
     expect(matchesTable("ocs_aviamento", ["ocs_importado"])).toBe(false);
     expect(matchesTable("produtos_acabados", ["produtos-importados"])).toBe(false);

@@ -1,51 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Plus, ArrowLeft, Trash2, Check, Printer } from "lucide-react";
-import { printWithImages } from "@/lib/print";
-import { OcDocumentoPrint, type OcDocModelo, type OcDocGrade } from "@/components/shared/OcDocumentoPrint";
+import { ShoppingCart, Plus, Trash2 } from "lucide-react";
+import { OcDocumentoPrint, type OcDocModelo } from "@/components/shared/OcDocumentoPrint";
 import { OcImprimirLinhaButton } from "@/components/shared/OcImprimirLinhaButton";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
-import { AvisoFaltaNota, BolinhaFaltaNota, useValidarDataNota } from "@/components/shared/NotaEntrada";
+import { faltaNotaEntrada } from "@/lib/nota-entrada";
+import { BolinhaFaltaNota } from "@/components/shared/NotaEntrada";
 import { supabase } from "@/integrations/supabase/client";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Breadcrumb } from "@/components/shared/Breadcrumb";
-import { OcModalShell } from "@/components/shared/OcModalShell";
-import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
-import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
-import { ColabBanner } from "@/components/shared/ColabBanner";
-import { useColabRegistro } from "@/hooks/useColabRegistro";
-import { mergeDraft, type Conflito } from "@/lib/colab/merge";
-import { mergeGradeGenerico, type GradeGenerica } from "@/lib/colab/merge-grade-generico";
-
-// Campos da célula da grade do Produto Acabado (diferente do CQ, que é enviada/cortada/recebida/defeito).
-const CAMPOS_GRADE_PA = ["pedida", "recebida", "defeito"] as const;
-import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
-import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { varianteLabel } from "@/lib/variante";
-import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
-import { erroValidacao } from "@/components/produto-acabado/shared";
-import { useRequerModulo } from "@/hooks/useRequerModulo";
-import { InfoHover } from "@/components/shared/InfoHover";
-import { OcPaForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-acabado/OcPaForm";
-import { OcPaRecebimento, type ColaboradorOpt } from "@/components/oc-p-acabado/OcPaRecebimento";
-import {
-  emptyDraft, fmtMoney, fmtDate, uploadFile, contarParcelasPrazo, DEFAULT_TAMANHOS, TAM_ACESSORIO,
-  type Draft, type GradeDetalhe, type CelulaGrade, type OcPaRow, type OcPaTab, type OcPaStatus,
-} from "@/components/oc-p-acabado/shared";
+import { contarRecebidos, motivoNaoExcluirOc, produtosTexto, textoProdutosDaOc, textoRecebidos } from "@/lib/oc-multi-itens";
+import { textoExcluirOc } from "@/lib/confirmacoes-textos";
+import { OcPaDialog } from "@/components/oc-p-acabado/OcPaDialog";
+import { montarDocModeloOcPa } from "@/components/oc-p-acabado/doc-modelo";
+import { buscarTamanhosLoja, lerOcComItens } from "@/components/oc-p-acabado/queries";
+import { fmtMoney, fmtDate, type OcPaRow, type OcPaTab, type OcPaStatus } from "@/components/oc-p-acabado/shared";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 
@@ -66,18 +44,20 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-acabado
   ),
 });
 
+// Lista (abas): o produto saiu do cabeçalho (R13) — a coluna "Produtos" vem do embed dos ITENS.
+const SELECT_LISTA =
+  "id, numero, empresa_id, data_pedido, data_prevista, data_entrega, data_nota_entrada, qtd_total, valor_total_desconto, status, " +
+  "itens:ocs_p_acabado_itens(id, ordem, nome_produto, status)";
+
 function OcPaPage() {
   const qc = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  // Item 5 (refino onda 2): default "recebido" — espelha OC Aviamento/OC Insumo
-  // (`entrada-saida.oc-aviamento.tsx`/`entrada-saida.oc-insumo.tsx`, ambas abrem em
-  // "recebido"); a ordem das abas na UI abaixo também virou Recebidas · Encomendadas ·
-  // Estoque, pedido explícito do dono.
+  // Item 5 (refino onda 2): default "recebido" — espelha OC Aviamento/OC Insumo; a ordem das abas é Recebidas · Encomendadas · Estoque.
   const [tab, setTab] = useState<OcPaTab>(search.tab ?? "recebido");
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<OcPaRow | null>(null);
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
   // Deep-link `?oc=<id>` — abre a OC direto uma vez ao montar (ver Route.validateSearch acima).
   const deepLinkAbertoRef = useRef(false);
   useEffect(() => {
@@ -94,7 +74,7 @@ function OcPaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_p_acabado" as any)
-        .select("id, numero, nome_produto, produto_acabado_id, empresa_id, data_pedido, data_prevista, data_entrega, data_nota_entrada, qtd_total, valor_total_desconto, status")
+        .select(SELECT_LISTA)
         .eq("status", tab as OcPaStatus)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -142,67 +122,48 @@ function OcPaPage() {
     },
   });
 
-  // Monta o documento imprimível de UMA OC de produto acabado (busca a OC completa — grade jsonb).
+  // Monta o documento imprimível de UMA OC de produto acabado: relê a OC COM os itens (grade jsonb de cada produto) e usa o MESMO
+  // construtor do Sheet — uma matriz por produto + o total do pedido.
   const montarDocModeloPa = async (ocId: string): Promise<OcDocModelo> => {
-    const { data: oc, error } = await supabase.from("ocs_p_acabado" as any).select("*, grupo:grupo_id(nome)").eq("id", ocId).maybeSingle();
-    if (error) throw error;
-    const o = oc as any;
-    const acessorioP = ehGrupoAcessorio(o?.grupo?.nome ?? null);
-    const tams: string[] = acessorioP ? [TAM_ACESSORIO] : DEFAULT_TAMANHOS;
-    const variantes = (o?.variantes ?? []) as { ordem: number; cor_id: string | null; cor_apelido_id: string | null }[];
-    const gradeD = (o?.grade_detalhe ?? {}) as Record<string, Record<string, { pedida?: number }>>;
-    const linhas = variantes.map((v) => {
-      const g = gradeD[String(v.ordem)] ?? {};
-      const celulas: Record<string, React.ReactNode> = {};
-      let totalLin = 0;
-      for (const t of tams) { const ped = Number(g[t]?.pedida ?? 0); celulas[t] = ped || "—"; totalLin += ped; }
-      const nome = varianteLabel({ cor: (coresDoc as any).base?.[v.cor_id ?? ""] ?? null, apelido: (coresDoc as any).apel?.[v.cor_apelido_id ?? ""] ?? null });
-      return { cor: nome || `Variante ${v.ordem}`, celulas, total: totalLin };
-    });
-    const totalPorTamanho: Record<string, React.ReactNode> = {};
-    let geral = 0;
-    for (const t of tams) { let s = 0; for (const v of variantes) s += Number(gradeD[String(v.ordem)]?.[t]?.pedida ?? 0); totalPorTamanho[t] = s; geral += s; }
-    const proporcao: Record<string, React.ReactNode> = {};
-    const gp = (o?.grade_proporcao ?? {}) as Record<string, number>;
-    for (const t of tams) proporcao[t] = gp[t] ?? "—";
-    const { totalDesc, unitReal } = cadeiaValores(Number(o?.qtd_total ?? 0), Number(o?.valor_unitario ?? 0), Number(o?.desconto_pct ?? 0));
-    const empresa = o?.empresa_id ? empresas.find((e) => e.id === o.empresa_id) : null;
-    const rep = empresa?.representantes?.find((r) => r.id === o?.representante_id)?.nome ?? null;
-    return {
-      numero: o?.numero || "—",
-      familiaLabel: "Produto Acabado (Revenda)",
+    const [dados, tamanhos, grupos] = await Promise.all([
+      lerOcComItens(ocId),
+      buscarTamanhosLoja(),
+      supabase.from("grupos_produto").select("id, nome").then(({ data, error }) => { if (error) throw error; return (data ?? []) as { id: string; nome: string }[]; }),
+    ]);
+    if (!dados) throw new Error("OC não encontrada.");
+    const o = dados.oc;
+    const empresa = o.empresa_id ? empresas.find((e) => e.id === o.empresa_id) : null;
+    const rep = empresa?.representantes?.find((r) => r.id === o.representante_id)?.nome ?? null;
+    return montarDocModeloOcPa({
+      numero: o.numero ?? null,
+      cabecalho: { data_pedido: o.data_pedido ?? "", data_prevista: o.data_prevista ?? "", prazo_pagamento: o.prazo_pagamento ?? "", parcelas_entrega: o.parcelas_entrega ?? 0 },
+      empresaNome: empresa?.nome_fantasia ?? null,
+      representanteNome: rep,
+      itens: dados.itens,
+      tamanhos,
+      grupoNome: (id) => grupos.find((g) => g.id === id)?.nome ?? null,
+      corNome: (id) => (coresDoc as any).base?.[id ?? ""] ?? null,
+      apelidoNome: (id) => (coresDoc as any).apel?.[id ?? ""] ?? null,
       emitidoEm: fmtDate(new Date().toISOString()),
-      fornecedor: [{ k: "Empresa", v: empresa?.nome_fantasia ?? "—" }, { k: "Representante", v: rep ?? "—" }],
-      dados: [
-        { k: "Data do pedido", v: o?.data_pedido ? fmtDate(o.data_pedido) : "—" },
-        { k: "Entrega prevista", v: o?.data_prevista ? fmtDate(o.data_prevista) : "—" },
-        { k: "Pagamento", v: o?.prazo_pagamento ? `${o.prazo_pagamento}${o?.parcelas_entrega ? ` · ${o.parcelas_entrega} parcela(s)` : ""}` : "—" },
-      ],
-      grade: {
-        produtoTitulo: `Produto: ${o?.nome_produto || "—"}${o?.numero ? ` (REF ${o.numero})` : ""}`,
-        tamanhos: tams, proporcao, linhas, totalPorTamanho, totalGeral: geral,
-        valores: [{ descricao: o?.nome_produto || "Produto — todas as cores/tamanhos", qtd: `${geral} pç`, precoUnit: fmtMoney(unitReal), subtotal: fmtMoney(totalDesc) }],
-      },
-      totalPrevisto: fmtMoney(totalDesc),
-    };
+    });
   };
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      // RPC (não .delete() cru): excluir_oc_p_acabado bloqueia (P0001) OC já recebida
-      // (materializou cad/CQ) ou com parcela paga — a guarda "só encomendada" no botão
-      // (rodapé do OcPaDialog) é só a primeira camada, redundante de propósito; a real
-      // é no servidor. Migration 20260807180000 (Task 5 fix round 1).
+      // RPC (não .delete() cru): excluir_oc_p_acabado recusa (P0001) OC com QUALQUER produto recebido (materializou cad/CQ) ou com parcela
+      // paga — a guarda do botão (desabilitado) é só a primeira camada, redundante de propósito; a real é no servidor.
       const { error } = await supabase.rpc("excluir_oc_p_acabado" as any, { _oc_id: id });
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("OC excluída.");
-      setDeleting(null);
       qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] }); // os produtos da OC voltam a ficar sem OC (chip do card)
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
+  const pedirExcluir = (oc: OcPaRow) =>
+    pedirConfirmacao({ ...textoExcluirOc(), onConfirmar: () => deleteMutation.mutate(oc.id) });
 
   // Módulo Produto Acabado: guardado pelo `RequirePermission` (PageDef.gate) — a tela só monta com o módulo ligado.
   return (
@@ -220,8 +181,8 @@ function OcPaPage() {
         </Button>
       </header>
 
-      {/* Item 5 (refino onda 2): ordem Recebidas · Encomendadas · Estoque (pedido explícito
-          do dono) — espelha a ordem já usada em OC Aviamento/OC Insumo. */}
+      {/* Ordem Recebidas · Encomendadas · Estoque (pedido do dono) — espelha OC Aviamento/OC Insumo. OC PARCIALMENTE recebida
+          (alguns produtos recebidos, outros não) continua em Encomendadas até o último produto chegar. */}
       <Tabs value={tab} onValueChange={(v) => setTab(v as OcPaTab)}>
         <TabsList>
           <TabsTrigger value="recebido">Recebidas{tabCounts ? ` ${tabCounts.recebido}` : ""}</TabsTrigger>
@@ -255,7 +216,7 @@ function OcPaPage() {
             dataCol={{ label: "Data Prevista", get: (o) => fmtDate(o.data_prevista) }}
             onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
             montarDocModelo={montarDocModeloPa}
-            onDelete={(o) => setDeleting(o)}
+            onDelete={pedirExcluir}
           />
         </TabsContent>
 
@@ -271,39 +232,20 @@ function OcPaPage() {
           onClose={() => {
             setOpenDialog(false);
             setEditingId(null);
-            // Deep-link `?oc=<id>` consumido (FF4): limpa da URL ao fechar — senão um F5/
-            // "voltar" do browser reabre a mesma OC sozinha (mantém o resto do search, ex. tab).
+            // Deep-link `?oc=<id>` consumido (FF4): limpa da URL ao fechar — senão um F5/"voltar" do browser reabre a mesma OC sozinha.
             if (search.oc) navigate({ search: (prev) => ({ ...prev, oc: undefined }), replace: true, resetScroll: false });
           }}
           onSaved={() => qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] })}
           onDelete={(oc) => {
             setOpenDialog(false);
             setEditingId(null);
-            setDeleting(oc);
             if (search.oc) navigate({ search: (prev) => ({ ...prev, oc: undefined }), replace: true, resetScroll: false });
+            pedirExcluir(oc);
           }}
         />
       )}
 
-      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir OC?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação não pode ser desfeita. A OC "{deleting?.numero || deleting?.nome_produto || "sem número"}" será removida.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => deleting && deleteMutation.mutate(deleting.id)}
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {dialogConfirmacao}
 
       <MobileActionBar>
         <Button className="ml-auto" onClick={() => { setEditingId(null); setOpenDialog(true); }}>
@@ -322,16 +264,38 @@ function OcPaListaTable({
   empresaMap: Record<string, string>;
   isLoading: boolean;
   emptyLabel: string;
-  // Item 6a (refino onda 2): status da ABA (não da linha — todas as linhas aqui têm o
-  // mesmo `status` de OcPaRow) — alimenta o chip de prazo (`OcPrazoBadge`, mesmo
-  // componente compartilhado por OC Tecido/Aviamento/Insumo): atrasada (encomendado +
-  // hoje > prevista) / adiantada (recebido + entrega < prevista) / no prazo.
+  // Status da ABA (não da linha) — alimenta o chip de prazo (`OcPrazoBadge`, compartilhado por OC Tecido/Aviamento/Insumo):
+  // atrasada (encomendado + hoje > prevista) / adiantada (recebido + entrega < prevista) / no prazo.
   status: OcPaStatus;
   dataCol: { label: string; get: (o: OcPaRow) => string };
   onRowClick: (id: string) => void;
   onDelete?: (o: OcPaRow) => void;
   montarDocModelo?: (ocId: string) => Promise<OcDocModelo>;
 }) {
+  // "Vestido Midi +2" + (OC parcialmente recebida) "1 de 3 produtos recebidos".
+  const celulaProdutos = (o: OcPaRow) => {
+    const { recebidos, total } = contarRecebidos(o.itens ?? []);
+    return (
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge tone="neutral" className="normal-case tracking-normal">{produtosTexto(total)}</StatusBadge>
+          <span className="truncate text-sm text-muted-foreground" title={textoProdutosDaOc(o.itens ?? [])}>{textoProdutosDaOc(o.itens ?? [])}</span>
+        </div>
+        {status === "encomendado" && recebidos > 0 && <div className="mt-0.5 text-xs text-muted-foreground">{textoRecebidos(recebidos, total)}</div>}
+      </div>
+    );
+  };
+  const botaoExcluir = (o: OcPaRow) => {
+    if (!onDelete) return null;
+    const motivo = motivoNaoExcluirOc(o.itens ?? []);
+    return (
+      <Button size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive" aria-label="Excluir OC"
+        disabled={!!motivo} title={motivo ?? "Excluir OC"}
+        onClick={(e) => { e.stopPropagation(); onDelete(o); }}>
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    );
+  };
   return (
     <>
       {/* Mobile: cards */}
@@ -346,7 +310,7 @@ function OcPaListaTable({
                 <span className="font-medium">{o.numero ?? "—"}</span><BolinhaFaltaNota show={faltaNotaEntrada("p_acabado", o)} />
                 <OcPrazoBadge dataPrevista={o.data_prevista} dataEntrega={o.data_entrega} status={status} />
               </div>
-              <div className="text-sm text-muted-foreground truncate mt-0.5">{o.nome_produto}</div>
+              <div className="mt-0.5">{celulaProdutos(o)}</div>
               <div className="text-xs text-muted-foreground truncate mt-0.5">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</div>
               <div className="text-xs text-muted-foreground mt-1">
                 {dataCol.label} {dataCol.get(o)} · {fmtMoney(o.valor_total_desconto)}
@@ -362,7 +326,7 @@ function OcPaListaTable({
           <TableHeader>
             <TableRow>
               <TableHead>Nº</TableHead>
-              <TableHead>Produto</TableHead>
+              <TableHead>Produtos</TableHead>
               <TableHead>Fornecedor</TableHead>
               <TableHead>{dataCol.label}</TableHead>
               <TableHead>Prazo</TableHead>
@@ -377,7 +341,7 @@ function OcPaListaTable({
             {ocs.map((o) => (
               <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
                 <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("p_acabado", o)} /></span></TableCell>
-                <TableCell className="max-w-[16rem] truncate" title={o.nome_produto}>{o.nome_produto}</TableCell>
+                <TableCell className="max-w-[18rem]">{celulaProdutos(o)}</TableCell>
                 <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                 <TableCell>{dataCol.get(o)}</TableCell>
                 <TableCell><OcPrazoBadge dataPrevista={o.data_prevista} dataEntrega={o.data_entrega} status={status} /></TableCell>
@@ -385,12 +349,7 @@ function OcPaListaTable({
                 <TableCell className="w-16 py-0 text-right">
                   <div className="flex items-center justify-end">
                   {montarDocModelo && <OcImprimirLinhaButton ocId={o.id} montarModelo={montarDocModelo} />}
-                  {onDelete && (
-                    <Button size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive"
-                      onClick={(e) => { e.stopPropagation(); onDelete(o); }}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                  {botaoExcluir(o)}
                   </div>
                 </TableCell>
               </TableRow>
@@ -491,696 +450,4 @@ function EstoquePaTable() {
       </Table>
     </Card>
   );
-}
-
-// ── Sheet/Dialog de edição/criação (OcModalShell — editar=Sheet 70vw, novo=Dialog) ──
-function draftFromOc(oc: any): Draft {
-  return {
-    numero: oc.numero ?? "",
-    nome_produto: oc.nome_produto ?? "",
-    produto_acabado_id: oc.produto_acabado_id ?? null,
-    grupo_id: oc.grupo_id ?? null,
-    categoria_id: oc.categoria_id ?? null,
-    subcategoria1_id: oc.subcategoria1_id ?? null,
-    subcategoria2_id: oc.subcategoria2_id ?? null,
-    empresa_id: oc.empresa_id ?? null,
-    representante_id: oc.representante_id ?? null,
-    ref_fornecedor: oc.ref_fornecedor ?? "",
-    composicao: oc.composicao ?? "",
-    data_pedido: oc.data_pedido ?? "",
-    data_prevista: oc.data_prevista ?? "",
-    prazo_pagamento: oc.prazo_pagamento ?? "30",
-    // Item 2: SEMPRE derivado do prazo_pagamento (nunca confia no valor persistido, que
-    // pode ser de antes desta mudança/editado fora do fluxo) — mesma fonte que o
-    // onChange do campo usa ao vivo (contarParcelasPrazo, espelha o trigger do banco).
-    parcelas_entrega: contarParcelasPrazo(oc.prazo_pagamento ?? "30"),
-    grade_proporcao: oc.grade_proporcao ?? {},
-    variantes: Array.isArray(oc.variantes) ? oc.variantes : [],
-    qtd_total: oc.qtd_total ?? 0,
-    valor_unitario: Number(oc.valor_unitario ?? 0),
-    desconto_pct: Number(oc.desconto_pct ?? 0),
-    data_nota_entrada: oc.data_nota_entrada ?? "",
-    data_entrega: oc.data_entrega ?? "",
-    nota_fiscal: oc.nota_fiscal ?? "",
-    responsavel_recebimento_id: oc.responsavel_recebimento_id ?? null,
-    devolucao: oc.devolucao ?? "",
-    revisao: oc.revisao ?? "",
-    anexo_pedido_url: oc.anexo_pedido_url ?? null,
-    anexo_nf_url: oc.anexo_nf_url ?? null,
-  };
-}
-
-function OcPaDialog({
-  ocId, empresas, onClose, onSaved, onDelete,
-}: {
-  ocId: string | null;
-  empresas: { id: string; nome_fantasia: string; representantes: { id: string; nome: string | null }[] }[];
-  onClose: () => void;
-  onSaved: () => void;
-  onDelete: (oc: OcPaRow) => void;
-}) {
-  const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set; trava do pedido REVOGADA 25/set): só não futura
-  const qc = useQueryClient();
-  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
-  const colabScopeRef = useRef<HTMLDivElement>(null);
-  const [draft, setDraftRaw] = useState<Draft>(emptyDraft());
-  const [grade, setGradeRaw] = useState<GradeDetalhe>({});
-  const [status, setStatus] = useState<OcPaStatus>("encomendado");
-  const [numeroReal, setNumeroReal] = useState<string | null>(null);
-  const [secAtiva, setSecAtiva] = useState("ocpa-sec-pedido");
-  const [confirmReceber, setConfirmReceber] = useState(false);
-
-  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, grade });
-
-  // ── Colaboração em tempo real (merge de AGREGADO + GRADE) ─────────────────────
-  // Esta tela combina os DOIS moldes: o cabeçalho escalar funde por `mergeDraft` (como a
-  // OC Aviamento) e a grade jsonb funde POR CÉLULA por `mergeGrade` (como o CQ). base =
-  // último visto do servidor · touched(Ref/GradeRef) = o que EU editei · revRef = rev da
-  // OC · conflitos barram Salvar.
-  const touchedRef = useRef<Set<string>>(new Set());
-  // Células tocadas da grade: path `grade:${ordem}:${tam}:${campo}` (ordem/vid primeiro,
-  // campo por último — MESMA ordem que o mergeGrade usa, `grade:${vid}:${tam}:${campo}`;
-  // NÃO a ordem do data-colab-path das células, que é só do ring de presença).
-  const touchedGradeRef = useRef<Set<string>>(new Set());
-  const baseRef = useRef<{ draft: Draft; grade: GradeDetalhe } | null>(null);
-  const revRef = useRef<number | null>(null);
-  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
-  const [conflitos, setConflitos] = useState<Conflito[]>([]);
-  const conflitosRef = useRef<Conflito[]>([]);
-  // Espelhos SEMPRE atualizados de draft/grade p/ o merge no onError do save (roda após um
-  // await; ler da closure descartaria teclas digitadas na janela). Espelha OC Aviamento.
-  const draftLiveRef = useRef(draft); draftLiveRef.current = draft;
-  const gradeLiveRef = useRef(grade); gradeLiveRef.current = grade;
-
-  // setDraft rastreado: difere prev→next e marca o campo tocado (assinatura idêntica ao
-  // setter cru — os filhos não mudam). Passado ao form/recebimento como `setDraft`.
-  const setDraft: typeof setDraftRaw = (upd) =>
-    setDraftRaw((prev) => {
-      const next = typeof upd === "function" ? (upd as (p: Draft) => Draft)(prev) : upd;
-      for (const k of Object.keys(next) as (keyof Draft)[])
-        if (next[k] !== prev[k]) touchedRef.current.add(String(k));
-      return next;
-    });
-
-  // setGrade rastreado: difere célula a célula (por ordem×tam×campo) e marca o path tocado
-  // ANTES de aplicar — assim o mergeGrade preserva minha edição de célula. Assinatura
-  // idêntica ao setter cru (o GradeDestrinchada/recebimento não mudam).
-  const CAMPOS_CEL: (keyof CelulaGrade)[] = ["pedida", "recebida", "defeito"];
-  const setGrade: typeof setGradeRaw = (upd) =>
-    setGradeRaw((prev) => {
-      const next = typeof upd === "function" ? (upd as (p: GradeDetalhe) => GradeDetalhe)(prev) : upd;
-      const ordens = new Set<string>([...Object.keys(prev), ...Object.keys(next)]);
-      for (const ordem of ordens) {
-        const tams = new Set<string>([...Object.keys(prev[ordem] ?? {}), ...Object.keys(next[ordem] ?? {})]);
-        for (const tam of tams) {
-          for (const campo of CAMPOS_CEL) {
-            const a = Number(prev[ordem]?.[tam]?.[campo] ?? 0);
-            const b = Number(next[ordem]?.[tam]?.[campo] ?? 0);
-            if (a !== b) touchedGradeRef.current.add(`grade:${ordem}:${tam}:${campo}`);
-          }
-        }
-      }
-      return next;
-    });
-
-  const { presentes: presentesColab } = useColabRegistro({
-    canal: ocId ? `colab:oc-pa:${ocId}` : null,
-    tabela: "ocs_p_acabado",
-    registroId: ocId ?? null,
-    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["oc-p-acabado", ocId] }),
-    campoFocado: campoFocadoColab,
-  });
-
-  // ── Opções (taxonomia, cores, tamanhos, colaboradores) ──
-  const { data: grupos = [] } = useOpt("grupos_produto");
-  const { data: categorias = [] } = useOptCat("categorias_produto", "grupo_id");
-  const { data: subcats1 = [] } = useOptCat("subcategorias1_produto", "categoria_id");
-  const { data: subcats2 = [] } = useOptCat("subcategorias2_produto", "categoria_id");
-  const { data: cores = [] } = useOpt("cores");
-  const { data: coresApelido = [] } = useOptCat("cores_apelido", "cor_base_id");
-  const { data: colaboradores = [] } = useQuery({
-    queryKey: ["colaboradores-todos-ocpa"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("colaboradores").select("id, nome").order("nome");
-      if (error) throw error;
-      return (data ?? []) as ColaboradorOpt[];
-    },
-  });
-  const { data: tamanhos = DEFAULT_TAMANHOS } = useQuery({
-    queryKey: ["tenant-config-tamanhos-ocpa"],
-    queryFn: async () => {
-      const { data } = await supabase.rpc("get_user_tenant_id" as any);
-      if (!data) return DEFAULT_TAMANHOS;
-      const { data: cfg } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", data as string).maybeSingle();
-      const raw = (cfg as any)?.tamanhos_grade;
-      return Array.isArray(raw) && raw.length > 0 ? raw.map(String) : DEFAULT_TAMANHOS;
-    },
-  });
-
-  // Acessório = grade única "UN" (mesma fonte da Seção 2, OcPaForm) — a Seção 4
-  // (Recebimento) tinha ficado com os 6 tamanhos completos mesmo pro grupo Acessórios
-  // (achado SPEC GAP do review, fix round 1): as grades Recebida/Defeito e o InfoStrip
-  // de somas precisam da MESMA coluna única "UN", senão o usuário digita numa célula
-  // (ex. "34|PPP") que a RPC de recebimento ignora (só lê o que bate com a grade pedida).
-  const grupoNomeAtual = (grupos as Opt[]).find((g) => g.id === draft.grupo_id)?.nome ?? "";
-  const acessorioAtual = ehGrupoAcessorio(grupoNomeAtual);
-  const tamanhosAtivos = acessorioAtual ? [TAM_ACESSORIO] : tamanhos;
-
-  // A query só BUSCA (retorna a OC crua); o seed/merge acontece no useEffect abaixo (padrão
-  // OC Aviamento) — assim um refetch alheio (Realtime) faz MERGE em vez de sobrescrever às cegas.
-  const { data: ocQueryData } = useQuery({
-    queryKey: ["oc-p-acabado", ocId],
-    enabled: !!ocId,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("ocs_p_acabado" as any).select("*").eq("id", ocId!).maybeSingle();
-      if (error) throw error;
-      return data as any;
-    },
-  });
-
-  // Seed (1ª carga) OU merge combinado (refetch alheio): cabeçalho por `mergeDraft`, grade por
-  // `mergeGrade`. Espelha o padrão da OC Aviamento (escalar) + CQ (grade por célula).
-  useEffect(() => {
-    if (!ocQueryData) return;
-    const freshDraft = draftFromOc(ocQueryData);
-    const freshGrade = (ocQueryData.grade_detalhe ?? {}) as GradeDetalhe;
-    revRef.current = (ocQueryData as any).rev ?? null;
-
-    if (!baseRef.current) {
-      // 1ª carga: seed normal (setters CRUS — não marcar nada como tocado).
-      baseRef.current = { draft: freshDraft, grade: freshGrade };
-      setDraftRaw(freshDraft);
-      setGradeRaw(freshGrade);
-      setStatus((ocQueryData.status as OcPaStatus) ?? "encomendado");
-      setNumeroReal(ocQueryData.numero ?? null);
-      touchedRef.current = new Set();
-      touchedGradeRef.current = new Set();
-      conflitosRef.current = [];
-      setConflitos([]);
-      resetBaseline({ draft: freshDraft, grade: freshGrade });
-      return;
-    }
-
-    // Refetch: MERGE em vez de sobrescrever. mergeGradeGenerico funde TODAS as células por campo
-    // (pedida/recebida/defeito — o shape do Produto Acabado), preservando minhas edições e
-    // sinalizando conflito por célula onde EU e o servidor divergimos.
-    const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
-    const mg = mergeGradeGenerico({ base: baseRef.current.grade as unknown as GradeGenerica, meu: grade as unknown as GradeGenerica, fresh: freshGrade as unknown as GradeGenerica, tocadas: touchedGradeRef.current, campos: CAMPOS_GRADE_PA });
-    const semResultado =
-      md.atualizados.length === 0 && md.conflitos.length === 0 &&
-      mg.atualizados.length === 0 && mg.conflitos.length === 0;
-    if (semResultado) {
-      // No-op (inclui o refetch que o onError do P0409 já processou): não tocar em nenhum state.
-      baseRef.current = { draft: freshDraft, grade: freshGrade };
-      return;
-    }
-    if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraftRaw(md.valor);
-    if (mg.atualizados.length > 0 || mg.conflitos.length > 0) setGradeRaw(mg.valor as unknown as GradeDetalhe);
-    const todosConflitos = [...md.conflitos, ...mg.conflitos];
-    conflitosRef.current = todosConflitos;
-    setConflitos(todosConflitos);
-    setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todosConflitos });
-    baseRef.current = { draft: freshDraft, grade: freshGrade };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ocQueryData]);
-
-  // ── Resolução de conflito (ColabBanner) ──────────────────────────────────────
-  // "usar o novo" (dele) grava o valor do servidor e tira do touched; "manter meu" só
-  // descarta o aviso. path de grade = `grade:${ordem}:${tam}:${campo}`; senão escalar.
-  const CAMPO_PT: Record<string, string> = { pedida: "Pedida", recebida: "Recebida", defeito: "Defeito" };
-  const ROTULO_CONFLITO_PA: Record<string, string> = {
-    numero: "Número", nome_produto: "Nome do Produto", grupo_id: "Grupo", categoria_id: "Categoria",
-    subcategoria1_id: "Subcategoria 1", subcategoria2_id: "Subcategoria 2", empresa_id: "Fornecedor",
-    representante_id: "Representante", ref_fornecedor: "Ref. Fornecedor", composicao: "Composição",
-    data_pedido: "Data do Pedido", data_prevista: "Data Prevista", prazo_pagamento: "Prazo de Pagamento",
-    parcelas_entrega: "Nº de parcelas", grade_proporcao: "Proporção da grade", variantes: "Variantes",
-    qtd_total: "Quantidade total", valor_unitario: "Valor unitário", desconto_pct: "Desconto (%)",
-    data_nota_entrada: ROTULO_DATA_NOTA, data_entrega: "Data de Entrega", nota_fiscal: "Nota Fiscal", devolucao: "Devolução",
-    revisao: "Revisão", anexo_pedido_url: "Anexo do pedido", anexo_nf_url: "Anexo da NF",
-  };
-  const rotuloConflito = (path: string) => {
-    if (path.startsWith("grade:")) {
-      const [, vid, tam, campo] = path.split(":");
-      return `${CAMPO_PT[campo] ?? campo} · ${tam} (var ${vid})`;
-    }
-    return ROTULO_CONFLITO_PA[path] ?? path;
-  };
-  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
-    const c = conflitosRef.current.find((x) => x.path === path);
-    if (c && escolha === "dele") {
-      if (path.startsWith("grade:")) {
-        const [, vid, tam, campo] = path.split(":");
-        setGradeRaw((prev) => {
-          const linha = { ...(prev[vid] ?? {}) };
-          linha[tam] = { ...(linha[tam] ?? { pedida: 0, recebida: 0, defeito: 0 }), [campo]: Number(c.dele) || 0 };
-          return { ...prev, [vid]: linha };
-        });
-        touchedGradeRef.current.delete(path);
-      } else {
-        setDraftRaw((d) => ({ ...d, [path]: c.dele as any }));
-        touchedRef.current.delete(path);
-      }
-    }
-    conflitosRef.current = conflitosRef.current.filter((x) => x.path !== path);
-    setConflitos(conflitosRef.current);
-    if (conflitosRef.current.length === 0) setUltimoMerge(null);
-  };
-  const temConflito = conflitos.length > 0;
-
-  const { data: produtoVinculado } = useQuery({
-    queryKey: ["produto-acabado-vinculado", draft.produto_acabado_id],
-    enabled: !!draft.produto_acabado_id,
-    queryFn: async (): Promise<ProdutoVinculadoInfo> => {
-      const { data, error } = await supabase
-        .from("produtos_acabados" as any)
-        .select("nome, ref, empresa_id")
-        .eq("id", draft.produto_acabado_id!)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) return null;
-      const empresaId = (data as any).empresa_id as string | null;
-      const fornecedor = empresaId ? empresas.find((e) => e.id === empresaId)?.nome_fantasia ?? null : null;
-      return { nome: (data as any).nome, ref: (data as any).ref, fornecedor };
-    },
-  });
-
-  // Documento imprimível da OC (pedido pro fornecedor) — grade matriz + proporção + valores.
-  const docModelo: OcDocModelo = useMemo(() => {
-    const acessorioP = ehGrupoAcessorio(grupos.find((g) => g.id === draft.grupo_id)?.nome ?? null);
-    const tams = acessorioP ? [TAM_ACESSORIO] : tamanhos;
-    const corNomeP = (id: string | null) => cores.find((c) => c.id === id)?.nome ?? null;
-    const apelidoNomeP = (id: string | null) => coresApelido.find((c) => c.id === id)?.nome ?? null;
-    const linhas = draft.variantes.map((v) => {
-      const g = grade[String(v.ordem)] ?? {};
-      const celulas: Record<string, React.ReactNode> = {};
-      let totalLin = 0;
-      for (const t of tams) { const ped = Number(g[t]?.pedida ?? 0); celulas[t] = ped || "—"; totalLin += ped; }
-      return { cor: varianteLabel({ cor: corNomeP(v.cor_id), apelido: apelidoNomeP(v.cor_apelido_id) }) || `Variante ${v.ordem}`, celulas, total: totalLin };
-    });
-    const totalPorTamanho: Record<string, React.ReactNode> = {};
-    let geral = 0;
-    for (const t of tams) { let s = 0; for (const v of draft.variantes) s += Number(grade[String(v.ordem)]?.[t]?.pedida ?? 0); totalPorTamanho[t] = s; geral += s; }
-    const proporcao: Record<string, React.ReactNode> = {};
-    for (const t of tams) proporcao[t] = draft.grade_proporcao[t] ?? "—";
-    const { bruto, totalDesc, unitReal } = cadeiaValores(draft.qtd_total, draft.valor_unitario, draft.desconto_pct);
-    const gradeDoc: OcDocGrade = {
-      produtoTitulo: `Produto: ${draft.nome_produto || produtoVinculado?.nome || "—"}${numeroReal ? ` (REF ${numeroReal})` : ""}`,
-      tamanhos: tams,
-      proporcao,
-      linhas,
-      totalPorTamanho,
-      totalGeral: geral,
-      valores: [{ descricao: draft.nome_produto || "Produto — todas as cores/tamanhos", qtd: `${geral} pç`, precoUnit: fmtMoney(unitReal), subtotal: fmtMoney(totalDesc) }],
-    };
-    const empresaSelP = empresas.find((e) => e.id === draft.empresa_id);
-    const repNomeP = empresaSelP?.representantes?.find((r) => r.id === draft.representante_id)?.nome ?? null;
-    return {
-      numero: numeroReal || draft.numero || "—",
-      familiaLabel: "Produto Acabado (Revenda)",
-      emitidoEm: fmtDate(new Date().toISOString()),
-      fornecedor: [
-        { k: "Empresa", v: empresaSelP?.nome_fantasia ?? "—" },
-        { k: "Representante", v: repNomeP ?? "—" },
-      ],
-      dados: [
-        { k: "Data do pedido", v: draft.data_pedido ? fmtDate(draft.data_pedido) : "—" },
-        { k: "Entrega prevista", v: draft.data_prevista ? fmtDate(draft.data_prevista) : "—" },
-        { k: "Pagamento", v: draft.prazo_pagamento ? `${draft.prazo_pagamento}${draft.parcelas_entrega ? ` · ${draft.parcelas_entrega} parcela(s)` : ""}` : "—" },
-      ],
-      grade: gradeDoc,
-      totalPrevisto: fmtMoney(totalDesc),
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, grade, grupos, tamanhos, cores, coresApelido, empresas, produtoVinculado, numeroReal]);
-
-  const handleUpload = async (file: File, key: "anexo_pedido_url" | "anexo_nf_url") => {
-    try {
-      const path = await uploadFile(file, key);
-      setDraft((d) => ({ ...d, [key]: path }));
-      toast.success("Arquivo enviado");
-    } catch (e: any) {
-      toast.error(mensagemErro(e));
-    }
-  };
-
-  const montarDados = () => ({
-    // Item 1: "" vira NULL no servidor (nullif) — auto-gera ao criar / mantém o valor
-    // atual ao editar; preenchido bypassa a geração (trigger só gera quando vazio).
-    numero: draft.numero || null,
-    nome_produto: draft.nome_produto,
-    grupo_id: draft.grupo_id,
-    categoria_id: draft.categoria_id,
-    subcategoria1_id: draft.subcategoria1_id,
-    subcategoria2_id: draft.subcategoria2_id,
-    empresa_id: draft.empresa_id,
-    representante_id: draft.representante_id,
-    ref_fornecedor: draft.ref_fornecedor || null,
-    composicao: draft.composicao || null,
-    data_pedido: draft.data_pedido || null,
-    data_prevista: draft.data_prevista || null,
-    prazo_pagamento: draft.prazo_pagamento || null,
-    data_nota_entrada: payloadDataNota(draft.data_nota_entrada), // chave SEMPRE presente: "" limpa
-    parcelas_entrega: draft.parcelas_entrega,
-    grade_proporcao: draft.grade_proporcao,
-    variantes: draft.variantes,
-    qtd_total: draft.qtd_total,
-    valor_unitario: draft.valor_unitario,
-    desconto_pct: draft.desconto_pct,
-    nota_fiscal: draft.nota_fiscal || null,
-    responsavel_recebimento_id: draft.responsavel_recebimento_id,
-    devolucao: draft.devolucao || null,
-    revisao: draft.revisao || null,
-    anexo_pedido_url: draft.anexo_pedido_url,
-    anexo_nf_url: draft.anexo_nf_url,
-    // produto_acabado_id só é aplicado NA CRIAÇÃO pela RPC (update não toca — decisão da
-    // Task 2, ver task-2-report.md): tudo bem mandar sempre, o servidor ignora em update.
-    produto_acabado_id: draft.produto_acabado_id,
-  });
-
-  // Reconcilia um P0409 (alguém salvou no meio): recarrega o servidor e funde (mantém minhas
-  // edições, sinaliza conflito onde EU e o servidor divergem). Compartilhado pelo save e pelo
-  // receber (cujo save intermediário também pode tomar P0409). Lê draft/grade dos *LiveRef*
-  // (roda após await — a closure descartaria teclas digitadas na janela).
-  const reconciliarP0409 = async () => {
-    toast.warning("Alguém salvou esta OC agora — confira os itens em conflito.");
-    const { data: oc } = await supabase.from("ocs_p_acabado" as any).select("*").eq("id", ocId!).maybeSingle();
-    if (!oc) return;
-    const freshDraft = draftFromOc(oc);
-    const freshGrade = ((oc as any).grade_detalhe ?? {}) as GradeDetalhe;
-    const base = baseRef.current ?? { draft: freshDraft, grade: freshGrade };
-    const md = mergeDraft({ base: base.draft, draft: draftLiveRef.current, fresh: freshDraft, touched: touchedRef.current });
-    const mg = mergeGradeGenerico({ base: base.grade as unknown as GradeGenerica, meu: gradeLiveRef.current as unknown as GradeGenerica, fresh: freshGrade as unknown as GradeGenerica, tocadas: touchedGradeRef.current, campos: CAMPOS_GRADE_PA });
-    setDraftRaw(md.valor);
-    setGradeRaw(mg.valor as unknown as GradeDetalhe);
-    const todos = [...md.conflitos, ...mg.conflitos];
-    conflitosRef.current = todos;
-    setConflitos(todos);
-    setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
-    baseRef.current = { draft: freshDraft, grade: freshGrade };
-    revRef.current = (oc as any).rev ?? null;
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      // Guard SÍNCRONO contra salvar com conflito pendente (o disabled do botão é state async).
-      if (conflitosRef.current.length > 0)
-        throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de salvar.");
-      if (!draft.nome_produto.trim()) throw erroValidacao("Informe o nome do produto.");
-      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
-      const { data: savedId, error } = await supabase.rpc("salvar_oc_p_acabado" as any, {
-        _id: isEdit ? ocId : null,
-        _dados: montarDados(),
-        _grade: grade,
-        _rev_base: isEdit ? revRef.current : null, // P0409 se outra pessoa salvou no meio
-      });
-      if (error) throw error;
-      return savedId as string;
-    },
-    onSuccess: (savedId) => {
-      toast.success("OC salva.");
-      markClean();
-      invalidarVencimentos(qc); // o save regenera as parcelas do Acabado (gatilho) — antes não invalidava o Financeiro
-      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
-      qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
-      // Paridade com OC Tecido (L1227, review R2): editar data_prevista aqui muda se a OC
-      // entra/sai do badge "atrasada" da sidebar — sem isto, o badge só corrige depois do
-      // staleTime da query (["sidebar-badges"]) vencer sozinho.
-      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
-      // Refino ago/2026: `_salvar_oc_p_acabado_core` sincroniza valor_unitario/desconto_pct
-      // no produto vinculado (migração 20260812100000) — sem invalidar aqui, o card do
-      // produto (Plan. Produto) só pegaria o valor novo no próximo refetch espontâneo.
-      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
-      onSaved();
-      onClose();
-    },
-    onError: async (e: any) => {
-      if (e?.code === "P0409") await reconciliarP0409();
-      else toast.error(mensagemErro(e, "Erro ao salvar"));
-    },
-  });
-
-  // [modularidade F2, m6] receber (T1/P9) exige Criação E Produção no servidor (card + CQ): sem elas o botão fica desabilitado com o motivo
-  // (e o InfoHover cobre o celular) em vez de salvar e falhar na transição.
-  const requerRecebimento = useRequerModulo("criacao", "producao");
-  const receberMutation = useMutation({
-    mutationFn: async () => {
-      if (!requerRecebimento.ok) throw erroValidacao(requerRecebimento.motivo);
-      // Guard SÍNCRONO: não receber com conflito pendente (senão o save intermediário sobrescreveria).
-      if (conflitosRef.current.length > 0)
-        throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de receber.");
-      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
-      // Recebimento exige a OC já salva (RPC recebe id) — salva primeiro (persiste
-      // TODO o rascunho, inclusive edições de seção 2 ainda não gravadas) e então
-      // aplica a transição (materializa cad/cad_grades/CQ + parcelas — Task 3).
-      const { data: savedId, error: saveErr } = await supabase.rpc("salvar_oc_p_acabado" as any, {
-        _id: isEdit ? ocId : null,
-        _dados: montarDados(),
-        _grade: grade,
-        _rev_base: isEdit ? revRef.current : null,
-      });
-      if (saveErr) throw saveErr;
-      // O save intermediário JÁ persistiu (savedId existe no servidor com o rascunho
-      // atual) mesmo que o passo de recebimento falhe a seguir (ex.: "Crie o card no
-      // Planejamento antes de receber") — sem isto, o selo "alterações não salvas"
-      // continuava aceso após um save que na verdade teve sucesso (achado em QA).
-      markClean();
-      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
-      qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
-      const { error: recErr } = await supabase.rpc("receber_oc_p_acabado" as any, {
-        _oc_id: savedId,
-        _dados: {
-          data_entrega: draft.data_entrega || null,
-          nota_fiscal: draft.nota_fiscal || null,
-          responsavel_recebimento_id: draft.responsavel_recebimento_id,
-          devolucao: draft.devolucao || null,
-          revisao: draft.revisao || null,
-        },
-        _grade: grade,
-      });
-      if (recErr) throw recErr;
-      return savedId as string;
-    },
-    onSuccess: (savedId) => {
-      toast.success("OC marcada como recebida.");
-      setConfirmReceber(false);
-      markClean();
-      invalidarVencimentos(qc);
-      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
-      qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
-      qc.invalidateQueries({ queryKey: ["estoque_p_acabado"] });
-      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
-      // O save intermediário (dentro de mutationFn, acima) já passou por
-      // `_salvar_oc_p_acabado_core` — mesmo sync de valor_unitario/desconto_pct do produto
-      // vinculado que o saveMutation faz (ver comentário lá).
-      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
-      onSaved();
-      onClose();
-    },
-    onError: async (e: any) => {
-      setConfirmReceber(false);
-      if (e?.code === "P0409") {
-        // P0409 do SAVE intermediário (alguém salvou de verdade no meio): funde + banner, igual
-        // ao saveMutation. O usuário resolve os conflitos e tenta receber de novo.
-        await reconciliarP0409();
-        return;
-      }
-      toast.error(mensagemErro(e, "Erro ao marcar recebido"));
-      // O save intermediário já pode ter regenerado as parcelas (gatilho reage a data_nota_entrada)
-      // mesmo a transição tendo falhado — invalida o Financeiro/dashboard/visão da OC também aqui.
-      invalidarVencimentos(qc);
-      // Se o SAVE intermediário teve SUCESSO mas a TRANSIÇÃO (receber_oc_p_acabado) falhou
-      // (ex.: "Crie o card no Planejamento antes de receber"), o servidor já bumpou o rev — mas
-      // revRef.current ficou no valor antigo. Sem re-baselinar, a próxima tentativa mandaria o
-      // _rev_base velho e tomaria um P0409 ESPÚRIO contra o próprio save anterior (achado da
-      // revisão adversarial). Invalida a query p/ o refetch→useEffect re-baselinar revRef/baseRef
-      // (o guard `semResultado` evita reintroduzir estado velho quando não há divergência).
-      if (ocId) qc.invalidateQueries({ queryKey: ["oc-p-acabado", ocId] });
-    },
-  });
-
-  const canMarkReceived = isEdit && status === "encomendado" && !!draft.data_entrega;
-
-  const secoes: SecaoOc[] = [
-    { id: "ocpa-sec-pedido", n: 1, label: "Dados do pedido" },
-    { id: "ocpa-sec-grade", n: 2, label: "Grade & valores" },
-    { id: "ocpa-sec-anexos", n: 3, label: "Anexos" },
-    { id: "ocpa-sec-recebimento", n: 4, label: "Recebimento", locked: !isEdit },
-  ];
-  const irParaSecao = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setSecAtiva(id);
-  };
-  const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const topo = e.currentTarget.getBoundingClientRect().top;
-    let atual = secoes[0]?.id ?? "ocpa-sec-pedido";
-    for (const s of secoes) {
-      if (s.locked) continue;
-      const el = document.getElementById(s.id);
-      if (el && el.getBoundingClientRect().top - topo <= 40) atual = s.id;
-    }
-    if (atual !== secAtiva) setSecAtiva(atual);
-  };
-
-  return (
-    <>
-      <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de produto acabado.">
-        <div className="shrink-0 space-y-1">
-          <Breadcrumb items={[{ label: "Entrada e Saída" }, { label: "OC P. Acabado" }, { label: numeroReal ?? draft.nome_produto ?? "OC" }]} />
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <DialogTitle>{isEdit ? `OC ${numeroReal ?? ""}` : "Novo Pedido"}</DialogTitle>
-              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
-            </div>
-          </DialogHeader>
-          {/* Banner de colaboração: presença + "alguém salvou agora" + resolução de conflito. */}
-          <ColabBanner
-            presentes={presentesColab}
-            ultimoMerge={ultimoMerge}
-            conflitos={conflitos}
-            onResolver={resolverPorPath}
-            rotulo={rotuloConflito}
-          />
-        </div>
-
-        <div className="flex min-h-0 gap-4">
-          <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
-          <div
-            ref={colabScopeRef}
-            className="min-w-0 flex-1 space-y-6 overflow-y-auto"
-            onScroll={onBodyScroll}
-            onFocusCapture={(e) => {
-              const scope = colabScopeRef.current;
-              setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
-            }}
-            onBlurCapture={() => setCampoFocadoColab(null)}
-          >
-            <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
-            <AvisoFaltaNota show={faltaNotaEntrada("p_acabado", { status, data_nota_entrada: draft.data_nota_entrada })} familia="p_acabado" ocId={ocId} />
-            <OcPaForm
-              draft={draft}
-              setDraft={setDraft}
-              grade={grade}
-              setGrade={setGrade}
-              empresas={empresas}
-              grupos={grupos as Opt[]}
-              categorias={categorias as CatOpt[]}
-              subcats1={subcats1 as SubOpt[]}
-              subcats2={subcats2 as SubOpt[]}
-              cores={cores as Opt[]}
-              coresApelido={coresApelido as CorApelidoOpt[]}
-              tamanhos={tamanhos}
-              produtoVinculado={produtoVinculado ?? null}
-              handleUpload={handleUpload}
-              isEdit={isEdit}
-              // Item 4: preço congela ao receber (paridade com a decisão do dono p/
-              // tecido) — o servidor já rejeita (P0001, migração 20260811150000); isto
-              // só evita o usuário digitar pra descobrir na hora do Salvar.
-              valoresTravados={status === "recebido"}
-            />
-
-            {!isEdit && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
-                <span>O <b>Recebimento</b> fica disponível depois de salvar a OC (salvou → reabra e registre a chegada).</span>
-              </div>
-            )}
-
-            {isEdit && (
-              <OcPaRecebimento
-                draft={draft}
-                setDraft={setDraft}
-                grade={grade}
-                setGrade={setGrade}
-                tamanhos={tamanhosAtivos}
-                cores={cores as Opt[]}
-                coresApelido={coresApelido as CorApelidoOpt[]}
-                colaboradores={colaboradores}
-                readOnly={status === "recebido"}
-              />
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4 max-md:shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
-          <Button variant="outline" onClick={onClose} aria-label="Voltar">
-            <ArrowLeft className="h-4 w-4 md:mr-1" />
-            <span className="max-md:sr-only">Voltar</span>
-          </Button>
-          <Button variant="outline" onClick={() => printWithImages()} aria-label="Imprimir pedido">
-            <Printer className="h-4 w-4 md:mr-1" />
-            <span className="max-md:sr-only">Imprimir</span>
-          </Button>
-          {isEdit && status === "encomendado" && (
-            <Button
-              variant="destructive"
-              aria-label="Excluir"
-              onClick={() => onDelete({ id: ocId!, numero: numeroReal, nome_produto: draft.nome_produto, produto_acabado_id: draft.produto_acabado_id, empresa_id: draft.empresa_id, data_pedido: draft.data_pedido, data_prevista: draft.data_prevista, data_entrega: draft.data_entrega, qtd_total: draft.qtd_total, valor_total_desconto: null, status })}
-            >
-              <Trash2 className="h-4 w-4 md:mr-1" />
-              <span className="max-md:sr-only">Excluir</span>
-            </Button>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            {canMarkReceived && (
-              <>
-                {!requerRecebimento.ok && requerRecebimento.faltam.length > 0 && (
-                  <InfoHover ariaLabel="Por que não recebe">{requerRecebimento.motivo}</InfoHover>
-                )}
-                <Button variant="outline" onClick={() => setConfirmReceber(true)} disabled={receberMutation.isPending || temConflito || !requerRecebimento.ok} title={!requerRecebimento.ok ? requerRecebimento.motivo : temConflito ? "Resolva os conflitos antes de receber" : undefined}>
-                  Marcar Recebido
-                </Button>
-              </>
-            )}
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>
-              <Check className="h-4 w-4 mr-1" />
-              Salvar
-            </Button>
-          </div>
-        </div>
-        <OcDocumentoPrint modelo={docModelo} />
-      </OcModalShell>
-
-      <AlertDialog open={confirmReceber} onOpenChange={(o) => !o && setConfirmReceber(false)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Marcar como recebido?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Isto salva a OC, registra a entrada e libera o CQ/Direcionamento para este produto. A grade real vira recebida − defeito.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => receberMutation.mutate()} disabled={receberMutation.isPending}>
-              Confirmar recebimento
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
-}
-
-// FIX WAVE (B1-irmão): mesmo bug/fix do planejador Produto Acabado (ProdutoAcabadoSheet.tsx)
-// — grupo/categoria são gerenciados no Cadastro; staleTime aqui fazia um item recém-criado
-// não aparecer no dropdown desta tela (de criar OC avulsa) se reaberta dentro da janela de
-// 5min. Sem staleTime = default 0 = sempre refetch no mount, igual às telas irmãs.
-function useOpt(table: string) {
-  return useQuery({
-    queryKey: ["opt-ocpa", table],
-    queryFn: async () => {
-      const { data, error } = await supabase.from(table as any).select("id, nome").order("nome");
-      if (error) throw error;
-      return (data ?? []) as unknown as { id: string; nome: string }[];
-    },
-  });
-}
-function useOptCat(table: string, fk: string) {
-  return useQuery({
-    queryKey: ["opt-ocpa-cat", table, fk],
-    queryFn: async () => {
-      const { data, error } = await supabase.from(table as any).select(`id, nome, ${fk}`).order("nome");
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
 }

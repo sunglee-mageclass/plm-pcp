@@ -4,9 +4,10 @@
 // isso é só da OC, ver design spec §2: "tabela de variantes ... SÓ POR COR — sem
 // tamanho aqui").
 import { format } from "date-fns";
-import { splitMaiorResto } from "@/lib/produto-acabado";
+import { splitMaiorResto, ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { brl } from "@/lib/format";
 import type { TamanhoTipo } from "@/lib/tamanho";
+import { type EntradaPedido, type ProdutoPedido } from "@/lib/pedido-oc-lote";
 
 export type Opt = { id: string; nome: string };
 export type CatOpt = Opt & { grupo_id: string | null };
@@ -42,6 +43,11 @@ export type OcVinculadaInfo = {
   // que o embed da OC, ainda que na prática os dois venham juntos do mesmo SELECT).
   valor_unitario: number;
   desconto_pct: number;
+  // [urg R13 T6] A OC agora pode ter VÁRIOS produtos: `status`/`qtd_total`/`valor_*`/`grade_detalhe` acima são DO ITEM deste produto
+  // (embed `oc_item`, ver `ocInfoDeItens` em `@/lib/oc-produto-vinculo`); `ocStatus` = o da OC inteira, `nProdutos` = quantos
+  // produtos ela tem (chip "com N produtos"). Ausentes = OC de 1 produto / mesmo status do item.
+  ocStatus?: "encomendado" | "recebido";
+  nProdutos?: number;
 };
 
 export type ProdutoDraft = {
@@ -177,24 +183,6 @@ export function redistribuirVariantesPorPeso(variantes: VarianteDraft[], qtdTota
   return variantes.map((v) => ({ ...v, qtd: split[String(v.ordem)] ?? 0 }));
 }
 
-/** Monta a grade_detalhe "pedida" de uma OC nova a partir das variantes do produto (Fazer
- *  pedido) — espelha `_pa_grade_variante`/`_split_maior_resto` do banco. Acessório = célula
- *  única "UN"; senão, cada variante é destrinchada pela proporção de tamanho do produto. */
-export function gradePedidaDeVariantes(
-  variantes: VarianteDraft[],
-  gradeProporcao: Record<string, number>,
-  acessorio: boolean,
-): GradeDetalheOc {
-  const out: GradeDetalheOc = {};
-  for (const v of variantes) {
-    const split = acessorio ? { UN: v.qtd } : splitMaiorResto(v.qtd, gradeProporcao);
-    const linha: Record<string, CelulaGradeOc> = {};
-    for (const [tam, pedida] of Object.entries(split)) linha[tam] = { pedida: Number(pedida) || 0, recebida: 0, defeito: 0 };
-    out[String(v.ordem)] = linha;
-  }
-  return out;
-}
-
 /** Soma de um campo (pedida/recebida/defeito) através de toda a grade_detalhe de uma OC. */
 export function somaGradeCampo(grade: GradeDetalheOc | null | undefined, campo: keyof CelulaGradeOc): number {
   if (!grade) return 0;
@@ -205,6 +193,54 @@ export function somaGradeCampo(grade: GradeDetalheOc | null | undefined, campo: 
 
 export function hojeISO(): string {
   return format(new Date(), "yyyy-MM-dd");
+}
+
+// ── "Fazer pedido" (OC do Produto Acabado) — o produto como o assistente (`PedidoOcLoteWizard`) o vê ([urg R13 T6]) ──
+
+/** O rascunho VIVO do produto no formato do assistente: elegibilidade (`motivosForaDoPedido`, espelho de `_oc_produto_motivos`),
+ *  fornecedor/grupo/categoria (para o nº da OC), cores, peças e a conta de valor do card (`cadeiaValores`: total com desconto).
+ *  O servidor monta o item da OC a partir do produto SALVO — por isso `sujo` avisa que o produto é salvo ANTES do pedido. */
+export function produtoPedidoAcabado(
+  p: ProdutoDraft,
+  o: {
+    grupoNome: string; categoriaNome: string; fornecedorNome: string; empresaNome: string | null;
+    cores: string[]; sujo: boolean; conflitoDoProduto: boolean;
+  },
+): ProdutoPedido {
+  const acessorio = ehGrupoAcessorio(o.grupoNome);
+  const entrada: EntradaPedido = {
+    temOc: !!p.oc,
+    ocNumero: p.oc?.numero ?? null,
+    nome: p.nome ?? "",
+    empresaId: p.empresa_id,
+    valorUnitario: Number(p.valor_unitario) || 0,
+    qtdTotal: Number(p.qtd_total) || 0,
+    somaVariantes: somaPecas(p),
+    nVariantes: p.variantes.length,
+    precisaGrade: !acessorio,
+    somaPesosGrade: Object.values(p.grade_proporcao ?? {}).reduce((s, v) => s + (Number(v) > 0 ? Number(v) : 0), 0),
+    erroDaFamilia: null,
+    conflitoDoProduto: o.conflitoDoProduto,
+  };
+  return {
+    id: p.id,
+    nome: p.nome?.trim() ? p.nome : "Produto sem nome",
+    ref: p.ref ?? null,
+    fornecedorNome: o.fornecedorNome,
+    empresaNome: o.empresaNome,
+    empresaId: p.empresa_id,
+    representanteId: p.representante_id,
+    grupoNome: o.grupoNome,
+    categoriaNome: o.categoriaNome,
+    grupoId: p.grupo_id,
+    categoriaId: p.categoria_id,
+    cores: o.cores,
+    pecas: somaPecas(p),
+    valorUnitario: Number(p.valor_unitario) || 0,
+    descontoPct: Number(p.desconto_pct) || 0,
+    sujo: o.sujo,
+    entrada,
+  };
 }
 
 /** `_dados` de `salvar_produto_acabado` — FONTE ÚNICA (achado do fix round 1: o Salvar em

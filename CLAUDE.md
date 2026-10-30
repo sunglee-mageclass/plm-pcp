@@ -947,8 +947,9 @@ e verifique** — o repo muda rápido.
     Acessórios** (nome normalizado contém `'acessor'`, `_grupo_eh_acessorio`/`ehGrupoAcessorio`
     espelhados banco↔TS) tem regra própria: grade única `"UN"` (sem tamanho), REF no formato
     2G+3CAT (em vez de 2G+1C+2S) e nº de OC terminando em `ACE`. **OC** (`ocs_p_acabado`):
-    **1 OC ativa por produto** (trigger `enforce_oc_pa_vinculo_unico`); grade em
-    **`grade_detalhe` jsonb** `{"<ordem_variante>":{"<tamanho>":{pedida,recebida,defeito}}}` —
+    **OC com VÁRIOS produtos (R13, out/2026 — parágrafo "OC com vários produtos" abaixo)**: o produto mora na tabela de ITENS
+    `ocs_p_acabado_itens`, NÃO no cabeçalho; 1 OC por produto garantida por gatilho de ITEM (`trg_ocpa_item_produto_unico`); grade, **por
+    item**, em **`grade_detalhe` jsonb** `{"<ordem_variante>":{"<tamanho>":{pedida,recebida,defeito}}}` —
     **estado COMPLETO por save** (o cliente manda o objeto inteiro, sem merge no servidor,
     mesmo padrão de `producao_terceirizados.grade_detalhe`); derivados
     (`valor_bruto`/`valor_total_desconto`/`valor_unitario_real`) **re-derivados no servidor**
@@ -958,7 +959,7 @@ e verifique** — o repo muda rápido.
     cheio; usar o `_core` como referência ao tocar essa família). **Excluir só via RPC com
     guarda** (`excluir_oc_p_acabado` bloqueia OC `recebido`/parcela paga;
     `excluir_produto_acabado` bloqueia produto com OC vinculada — nenhum `.delete()` cru).
-    **Receber** (`receber_oc_p_acabado`, atômico): materializa `cad` **BARE** (sem
+    **Receber** (`receber_oc_p_acabado`, atômico; desde a R13 recebe-se POR ITEM, `receber_item_oc_p_acabado`, e o escritor antigo recusa `versao_antiga:`): materializa `cad` **BARE** (sem
     `cad_tecidos` — não é fluxo de tecido) + `cad_grades` (`grades_planejadas`=pedida,
     `grades_reais`=`max(0,recebida−defeito)`) + `controle_qualidade` **pendente** (só cria se
     não existir — nunca sobrescreve CQ já confirmado; reedições posteriores no PCP só
@@ -1078,6 +1079,51 @@ e verifique** — o repo muda rápido.
     2 produtos — excluir categoria/material em uso é bloqueado pela FK. Volta: `_down` devolve os 6 textos e NEUTRALIZA o gatilho
     (colunas e valores ficam); `_down_drop` separado (DROP TRIGGER prende auth/storage — horário calmo; exige o `_down_drop` da
     I3b antes, porque `_integracao_extras` lê as colunas).
+    **OC com VÁRIOS produtos (R13, out/2026; migration `20261105100000_urg_r13_oc_itens`, plano/relatórios em
+    `.superpowers/sdd/2026-10-06-r14/`; branch `r13/oc-multi-produto`):** a OC de Produto Acabado (`ocs_p_acabado`) e a de Importado
+    (`ocs_importado`) passam a ter **cabeçalho + N itens** (`ocs_p_acabado_itens`/`ocs_importado_itens`, 1 linha por produto, `UNIQUE
+    (oc_id, ordem)`; produto avulso = `produto_*_id` NULL). **O produto NÃO mora mais no cabeçalho**: nome, taxonomia, REF do fornecedor,
+    composição, variantes, `grade_proporcao`/`grade_detalhe`, valores, desconto, status e o recebimento (data/NF/responsável/devolução/revisão) são
+    do ITEM; o cabeçalho guarda o que é da OC inteira (nº, fornecedor, datas, prazo, Data da Nota, moeda/cotações/etapas do Importado) e os
+    **totais derivados = Σ dos itens**. Parcelas continuam saindo do cabeçalho (geradoras intocadas). **1 OC por produto = GATILHO de ITEM**
+    (`fn_oc_item_produto_unico` + `fn_oc_item_tenant`, com `FOR UPDATE` no produto; nunca `UNIQUE`/FK-única, regra "O que NÃO fazer").
+    Colunas de produto do cabeçalho ficam **LEGADAS** (`COMMENT … LEGADO R13: nao ler`; o `DROP` vai para a Faxina) e o ponteiro
+    `produto_acabado_id`/`produto_importado_id` do cabeçalho foi COPIADO para o item único, guardado em `_bkp_r13_oc_vinculo` e ZERADO — um
+    leitor esquecido devolve "sem OC" em vez de dado errado. **OCs que já existiam viram OC de 1 produto** (valores copiados, não recalculados;
+    nenhum gatilho de parcela dispara). **Escrita só pelas RPCs** (DEFINER; o cliente só LÊ os itens): `fazer_pedido_p_acabado`/
+    `fazer_pedido_importado` (1 transação, tudo ou nada; montador único no servidor `_ocpa_item_de_produto`/`_oci_item_de_produto`; nº da
+    OC por fornecedor: sigla `_oc_lote_sigla` = fornecedor+`ACE`/`G+C`/`DIV`, `_oc_numero_proximo` com advisory lock), `salvar_oc_*_itens`
+    (estado COMPLETO com diff por `id`; `{produto_*_id, do_produto:true}` = "Adicionar produto"), `receber_item_oc_*` (recebe UM produto: `cad`/
+    `cad_grades`/`cad_etiquetas`/CQ SÓ daquele modelo; status do cabeçalho derivado; `data_entrega` = máx.), `vincular_oc_*` (a avulsa legada /
+    adicionar / desvincular só em OC de 1 produto). Os escritores ANTIGOS (`salvar_oc_*`, `receber_oc_*`) recusam `versao_antiga:` /
+    `oc_produto_por_item:` (aba velha não grava calado). **Recusas P0001 em ASCII, traduzidas em `mensagemR13` (`erro-mensagem.ts`;
+    `useColabRegistro` NÃO muda — a raiz do canal continua `ocs_p_acabado`/`ocs_importado`):** `versao_antiga`, `oc_sem_produtos`,
+    `item_recebido_nao_sai`, `oc_recebida_nao_adiciona`, `fornecedor_diferente`, `moeda_diferente`, `pedido_recusado: <produto>: <motivos>`,
+    `oc_varios_produtos`, `oc_produto_por_item` e `nao_encontrado: item` (P0002). **Front:** o **pedido em lote** é o assistente
+    **`PedidoOcLoteWizard`** (`src/components/shared`; lógica pura em `src/lib/pedido-oc-lote.ts`: elegibilidade ⇄ `_oc_produto_motivos`,
+    agrupamento por fornecedor [PA: empresa+representante; PI: + moeda], sigla ⇄ `_oc_lote_sigla`, herança do cabeçalho; fixtures
+    `tests/fixtures/oc-lote-casos.ts`) — aberto pelo rodapé "Fazer pedido" (todos os produtos da subcoleção SEM OC) ou pela barra de
+    selecionados, e pelo atalho do card; **o `PedidoEmLoteDialog` (e `pedido-em-lote.ts`) foi REMOVIDO**. O canvas/card lê o item do produto
+    num embed só (`oc_item:ocs_*_itens(…, oc:ocs_*(…, itens:ocs_*_itens(count)))`, `src/lib/oc-produto-vinculo.ts`): chip "Na OC … (com N
+    produtos)", "divide a OC com N", identidade travada enquanto estiver na OC; desvincular só em OC de 1 produto. A tela da OC
+    (`entrada-saida.oc-p-acabado`/`oc-p-importado`; `components/oc-p-acabado/`, `oc-p-importado/`) é lista acordeão de itens
+    (`OcPaCabecalho` + `OcPaItem`/`OcImpCabecalho` + `OcImpItem`): "X de N produtos recebidos", Adicionar produto (picker filtrado por fornecedor
+    [+ moeda] e SEM OC, embed `ocs_*_itens(id)`), Tirar da OC (`ConfirmarAcaoDialog`; recebido e o único produto não saem), receber POR
+    produto; colaboração: cabeçalho `mergeDraft`, itens `mergeLinhas({removidasIds})`, grade por item `mergeGrade` (caminho
+    `item:{id}:grade:{ordem}:{tam}:{campo}`); regras puras em `src/lib/oc-multi-itens.ts`. **Leitores migrados para os ITENS (T9):** a janela da OC
+    no Financeiro (`achatarGradeItensOc`: `nome do item · variante · tamanho`), os espelhos do card no `PlanejamentoDetail`
+    (`ocs:ocs_*_itens(id)`) e a pré-checagem de Acessórios com pedido (`categoria-card-produto.ts`); evento Realtime de `ocs_*` também invalida
+    `produtos-acabados`/`produtos-importados` (chip). **Anti-drift:** `tests/unit/r13-sem-ponteiro-cabecalho.test.ts` — ZERO embed
+    `ocs:ocs_p_acabado(`/`ocs:ocs_importado(` a partir do produto e ZERO filtro `produto_*_id` em `from("ocs_p_acabado"|"ocs_importado")`; a
+    **baseline de exceções está VAZIA** (leitor novo que precise do ponteiro = justificar por escrito na lista branca); lado SQL: nenhuma
+    função viva lê o ponteiro do cabeçalho fora da lista branca. ⚠️ **Avisos:** (a) o Importado é mostrado na lista/tela em moeda de COMPRA
+    (M1); o custo landed em BRL por item só aparece na impressão quando o servidor o calculou (`_imp_recalcular_landed_real_oc`, rateado:
+    Σ(landed × q) dos itens = Σ BRL das etapas, ±0,01); (b) na tela da OC, campos de recebimento do produto editados ANTES de "Marcar este
+    produto como recebido" **não persistem** (só entram em `receber_item_oc_*`) e voltam ao valor do servidor num refetch — a tela avisa ("Estes
+    dados são gravados ao marcar este produto como recebido."); (c) "Fazer pedido" do card passa pelo assistente e exige fornecedor + valor
+    unitário; "Vincular" lista só OCs encomendadas do mesmo fornecedor (e moeda); R$ do assistente/card ocultos sem a permissão de custos;
+    (d) OC parcialmente recebida continua em Encomendadas. Testes: `tests/unit/r13-*.test.ts` (puros/render) e `tests/integration/urg-r13-*`
+    (cópia local, txn revertida; gancho `URG_R13_TXN=1`). Ida/volta/Passo 0: ver "Onda 2 › R13" na seção da Camada intermediária.
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
     super admin + quem ELE deu a permissão `integracao` no próprio usuário — admin da loja NÃO passa sozinho, P-107 A; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
@@ -2130,6 +2176,25 @@ está em "Convenções de código". Onda 2 = backlog no fim desta seção.
   (só leitura): `c1-passo0.sql` (md5/ACL dos 6, gatilho ausente, parcelas pagas por loja, **3b** Direcionamento com todas as grades `'{}'` e
   **3c** serviços `ativo IS NOT TRUE` — se > 0, PARE e leve ao controlador) e `bk5-passo0.sql`. ACL ≠ `md5-*.txt` = PARE. QA limpando
   serviços/itens por lista vazia passa a exigir a marca.
+- **R13 — OC com vários produtos (Onda 2; kit único, ordem e volta):** uma migration `20261105100000_urg_r13_oc_itens` (BEGIN…COMMIT atômica,
+  `lock_timeout 1500ms`; fotos de ANTES na própria txn e pós-condições de identidade: `_imp_etapas_brl_oc`, parcelas, custo real, ponteiros), gerada
+  por `mig/gerar-r13.mjs` + `md5-r13.txt` (FORA do git, vão com o kit). **Passo 0 (só leitura, 1 linha por loja): `supabase/consultas/urg_r13_passo0.sql`
+  — PARE se `pa_dup`/`pi_dup` > 0 (produto em mais de 1 OC), `pa_ptr_outra`/`pi_ptr_outra` > 0 (ponteiro de outra loja), `itens_ja_existem` > 0 ou
+  `md5_divergente` > 0; avisar o dono das OCs encomendadas (seguem como OC de 1 produto).** **Ida (banco ANTES do site):** R9 `20261103192000 → 196000` →
+  R11 `20261103199000 → 199400` → **R13 `20261105100000`** → SITE (a R1b `20261103198000` já está em producao, fora do kit). Horário calmo (AccessExclusive por instantes em `ocs_p_acabado`/`ocs_importado`, ShareRowExclusive
+  nas tabelas das FKs novas); **55P03/40P01 = nada mudou, rodar de novo**; não toca auth/storage na ida. **Volta (LIFO):** SITE →
+  `supabase/rollback/20261105100000_urg_r13_oc_itens_down.sql` (NEUTRO: devolve as funções de antes, repõe o ponteiro do cabeçalho a partir do item
+  único e as colunas legadas só onde `IS DISTINCT FROM`; as TABELAS de itens FICAM; **RECUSA** com OC de 2+ produtos [`r13_down_oc_varios_produtos: N`] e
+  se o vivo não for o "depois" da R13 [md5]) → inversos da R11 → inversos da R9. `_down_drop` (opcional, DEPOIS, horário calmo — o DROP TABLE prende
+  auth/storage até o COMMIT; só com `SET app.confirmo_apagar_itens_oc_r13='sim'` e `app.confirmo_apagar_backup_r13='sim'`; exige o `_down` antes;
+  R13 primeiro entre os drops). **Inversos ANTIGOS que RECUSAM (md5) com a R13 viva — desfazer a R13 antes:** `20261002100000_down` (Nota),
+  `20261028200000_down` (L8), `20261103147000_down` (B3), `20261103173000_down` (`_custo_unitario_modelos_core`), `20261022100000_down` (R12),
+  `20261017100000_down` (P-137), `20261030100000_down` (I3a), `20260905190000`/`130000` (`_imp_*`). ⚠️ **`20261103171000_down` NÃO tem guarda para
+  `_receber_oc_p_acabado_core`**: rodado com a R13 viva devolveria o escritor antigo — só a LIFO protege. **Site velho + banco novo (minutos):** produtos
+  legados aparecem "sem OC" no canvas velho, a lista de OCs segue certa, e qualquer gravação de OC pela tela velha dá `versao_antiga:` (nada se
+  perde). **Site novo + banco velho: QUEBRA** (RPC/tabela inexistente) ⇒ banco antes do site; aba aberta antes do deploy: RECARREGAR. Dados que NÃO voltam
+  sozinhos: OCs criadas/alteradas com 2+ produtos (o `_down` recusa), números gerados, `_bkp_r13_oc_vinculo`. Ensaio: `URG_R13_TXN=1` (cadeia LIFO R13 → R11 →
+  R9 → …; `urg-r13-helpers.ts`), suíte de integração só com a cópia QUIETA.
 - **Onda 2 (backlog, nada disto está feito):**
   - **Salvar por card** (C6/C7; mockup aprovado em P-269..P-271: "Aplicar a todas" → rascunho, foto/endereços na hora; decisão P-260 A);
   - **Salvar único do Planejamento**;

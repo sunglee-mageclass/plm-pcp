@@ -10,6 +10,8 @@ import { ratearPorPeso, custoLanded, cadeiaMarkup, type EntradaLanded, type Etap
 import type { Conflito } from "@/lib/colab/merge";
 import type { TamanhoTipo } from "@/lib/tamanho";
 import { erroCotacaoEtapas } from "@/lib/importado-etapas";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { type EntradaPedido, type ProdutoPedido } from "@/lib/pedido-oc-lote";
 
 export type VarianteImportadoDraft = {
   ordem: number;
@@ -30,6 +32,24 @@ export type EtapaImportadoDraft = {
   percentual: number;
   data_vencimento: string | null;
   cotacao: number;
+};
+
+/** OC de Produto Importado vinculada ao produto (embed `ocs:ocs_importado` do SELECT do Sheet) — READ-ONLY, nunca entra em
+ *  `chaveDirty` nem no payload. Alimenta o selo/link do card e o "já tem OC" do pedido em lote ([urg R13]). */
+export type OcImportadoInfo = {
+  id: string;
+  numero: string | null;
+  /** O status do ITEM (do produto) na OC. */
+  status: "encomendado" | "recebido" | string;
+  // [urg R13 T6] A OC agora pode ter VÁRIOS produtos (embed `oc_item`, ver `ocInfoDeItens` em `@/lib/oc-produto-vinculo`).
+  // Ausentes = só nº/status (OC de 1 produto, sem o detalhe do item).
+  ocStatus?: "encomendado" | "recebido";
+  nProdutos?: number;
+  qtd_total?: number;
+  valor_unitario_real?: number;
+  grade_detalhe?: Record<string, Record<string, { pedida: number; recebida: number; defeito: number }>>;
+  valor_unitario?: number;
+  desconto_pct?: number;
 };
 
 export type ProdutoImportadoDraft = {
@@ -108,6 +128,8 @@ export type ProdutoImportadoDraft = {
   // Nº de SKUs já gerados p/ o card (`modelo_skus`, embed `(count)`) — mesmo campo do Produto Acabado
   // (`ProdutoDraft.modeloSkusCount`); alimenta o aviso âmbar "SKUs já gerados não mudam...".
   modeloSkusCount: number;
+  /** [urg R13] OC vinculada (1 ativa por produto) — `undefined`/`null` = sem OC. Só leitura. */
+  oc?: OcImportadoInfo | null;
   variantes: VarianteImportadoDraft[];
   etapas: EtapaImportadoDraft[];
 };
@@ -376,6 +398,65 @@ export function validarParaPedido(draft: ProdutoImportadoDraft): string | null {
   if (base) return base;
   if (!(Number(draft.qtd_total) > 0)) return "Qtd total precisa ser maior que zero.";
   return null;
+}
+
+// ── "Fazer pedido" (OC do Produto Importado) — o produto como o assistente (`PedidoOcLoteWizard`) o vê ([urg R13 T6]) ──
+
+/** Σ qtd das variantes = Qtd total (a mesma regra de `variantesBatemComTotal` do Produto Acabado, aplicada ao draft do Importado). */
+function variantesBatemComTotalImportado(d: Pick<ProdutoImportadoDraft, "variantes" | "qtd_total">): boolean {
+  return qtdTotalDeVariantes(d.variantes) === d.qtd_total;
+}
+
+/** O rascunho VIVO do produto no formato do assistente: elegibilidade (`motivosForaDoPedido`, espelho de `_oc_produto_motivos`) +
+ *  a validação do card (`validarDraft`: Σ% das etapas, cotação das etapas) como motivo próprio da família, fornecedor/moeda (um
+ *  pedido por fornecedor E moeda, P-363), grupo/categoria (nº da OC) e a conta de valor do card (`custoDoDraft(...).totalBrl` =
+ *  "Valor bruto (BRL)"). O servidor monta o item da OC a partir do produto SALVO — por isso `sujo` avisa que ele é salvo ANTES. */
+export function produtoPedidoImportado(
+  d: ProdutoImportadoDraft,
+  o: {
+    grupoNome: string; categoriaNome: string; fornecedorNome: string; empresaNome: string | null;
+    cores: string[]; sujo: boolean; conflitoDoProduto: boolean;
+  },
+): ProdutoPedido {
+  const acessorio = ehGrupoAcessorio(o.grupoNome);
+  const nomeOk = !!d.nome.trim();
+  const entrada: EntradaPedido = {
+    temOc: !!d.oc,
+    ocNumero: d.oc?.numero ?? null,
+    nome: d.nome,
+    empresaId: d.empresa_id,
+    valorUnitario: Number(d.valor_unitario_m1) || 0,
+    qtdTotal: Number(d.qtd_total) || 0,
+    somaVariantes: qtdTotalDeVariantes(d.variantes),
+    nVariantes: d.variantes.length,
+    precisaGrade: !acessorio,
+    somaPesosGrade: Object.values(d.grade_proporcao ?? {}).reduce((s, v) => s + (Number(v) > 0 ? Number(v) : 0), 0),
+    // nome vazio já tem o motivo próprio (`sem_nome`) — não repete o "Informe o nome" do `validarDraft`.
+    erroDaFamilia: nomeOk ? validarDraft(d) : null,
+    conflitoDoProduto: o.conflitoDoProduto,
+  };
+  return {
+    id: d.id ?? "",
+    nome: nomeOk ? d.nome : "Produto sem nome",
+    ref: d.ref ?? null,
+    fornecedorNome: o.fornecedorNome,
+    empresaNome: o.empresaNome,
+    empresaId: d.empresa_id,
+    representanteId: d.representante_id,
+    // Como o servidor agrupa (`fazer_pedido_importado`): sem moeda de compra = RMB; intermediária vazia = cadeia direta.
+    moedaCompra: d.moeda_compra && d.moeda_compra.trim() ? d.moeda_compra : "RMB",
+    moedaIntermediaria: d.moeda_intermediaria && d.moeda_intermediaria.trim() ? d.moeda_intermediaria : null,
+    grupoNome: o.grupoNome,
+    categoriaNome: o.categoriaNome,
+    grupoId: d.grupo_id,
+    categoriaId: d.categoria_id,
+    cores: o.cores,
+    pecas: Number(d.qtd_total) || 0,
+    valorUnitario: Number(d.valor_unitario_m1) || 0,
+    descontoPct: 0,
+    sujo: o.sujo,
+    entrada,
+  };
 }
 
 // ── Integração F4 — Fix round 1 (I-1/I-2/M-1/M-3/M-4) ────────────────────────────────────────
