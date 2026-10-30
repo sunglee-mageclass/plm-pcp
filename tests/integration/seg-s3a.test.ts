@@ -15,6 +15,7 @@ import { S3B_TABELAS_TRAVA } from "./seg-s3b-helpers";
 import { S3C_TABELAS_TRAVA } from "./seg-s3c-helpers";
 import { S3D_TABELAS_TRAVA } from "./seg-s3d-helpers";
 import { S4_TABELAS_TRAVA } from "./seg-s4-helpers";
+import { travaDeGanchoUrgc, voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9] volta LIFO / gancho da R9
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -233,6 +234,7 @@ describe.skipIf(!RODA)("seg S3a — md5, ACL, idempotência e volta (LIFO)", () 
 describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", () => {
   it("helper+wrappers e grants: catálogo; gatilhos: ShareRowExclusive SÓ nas 4 OCs; nada em auth/storage/realtime", async () => {
     await withTx(async (c) => {
+      await voltaUrgcSePreciso(c); // [urg R9] volta LIFO da R9 ANTES da medicao (o par dela sai em travaDeGanchoUrgc)
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
@@ -243,8 +245,8 @@ describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", (
       // S3B_TXN=1: o CREATE TRIGGER da S3b (cad, controle_qualidade, producao_oficina) já pegou trava no começo da txn — não é da S3a
       // (idem S3C_TXN=1: modelo_etiquetas, modelo_observacoes)
       // (+ CAMADA_TXN=1 numa cópia sem a C1: o CREATE TRIGGER da 161000 em producao_terceirizados)
-      const foraS3b = (t: { rel: string }) => ![...S3B_TABELAS_TRAVA, ...S3C_TABELAS_TRAVA, ...S3D_TABELAS_TRAVA, ...S4_TABELAS_TRAVA,
-        "public.producao_terceirizados"].includes(t.rel); // + S3D/S4_TXN=1
+      const foraS3b = (t: { rel: string; mode: string }) => ![...S3B_TABELAS_TRAVA, ...S3C_TABELAS_TRAVA, ...S3D_TABELAS_TRAVA, ...S4_TABELAS_TRAVA,
+        "public.producao_terceirizados"].includes(t.rel) && !travaDeGanchoUrgc(t); // + S3D/S4_TXN=1; + R9: so o par da volta LIFO / URGC_TXN=1
       const antes = (await travas()).filter(foraS3b); // S2_TXN=1 (parcelas) / S3A_TXN=1 (as 4) já aplicados no começo da txn
       if (!(await s3aViva(c)) && antes.length === 0) {
         await aplicarArquivo(c, S3A_MIGS[0]);

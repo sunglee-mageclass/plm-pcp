@@ -4,6 +4,7 @@ import {
   filtrarBucket,
   montarExtrato,
   movDeLinhaRpc,
+  rotuloOrigem,
   type MovEstoque,
 } from "../../src/lib/estoque-extrato";
 
@@ -41,7 +42,7 @@ function comCore(movs: MovEstoque[], core: { recebido: number; baixa: number; fi
 }
 
 describe("ORIGEM_ROTULO", () => {
-  it("tem os 10 rótulos PT-BR do plano", () => {
+  it("tem os 12 rótulos PT-BR (10 do plano + 2 da peça teste, R11)", () => {
     expect(ORIGEM_ROTULO).toEqual({
       oc: "Recebimento de OC",
       reposicao_troca: "Reposição de troca",
@@ -53,7 +54,29 @@ describe("ORIGEM_ROTULO", () => {
       explosao: "Envio à Explosão",
       explosao_ajuste: "Ajuste depois do envio",
       revenda: "Revenda (peças recebidas)",
+      peca_teste: "Peça teste",
+      peca_teste_estorno: "Peça teste (estorno)",
     });
+  });
+
+  it("R11: baixa e estorno da peça teste entram no extrato como linhas próprias e o saldo fecha com o físico", () => {
+    expect(rotuloOrigem("peca_teste")).toBe("Peça teste");
+    expect(rotuloOrigem("peca_teste_estorno")).toBe("Peça teste (estorno)");
+    const movs = comCore(
+      [
+        mov({ refId: "e", quando: "2026-09-01T12:00:00Z", tipo: "entrada", origem: "oc", quantidade: 100 }),
+        mov({ refId: "b", quando: "2026-09-02T12:00:00Z", tipo: "saida", origem: "peca_teste", quantidade: -6, refModelo: "VE00000123", detalhe: "VE00000123 · tentativa 1 · PL · saída 02/09/2026" }),
+        mov({ refId: "x", quando: "2026-09-03T12:00:00Z", tipo: "entrada", origem: "peca_teste_estorno", quantidade: 6, refModelo: "VE00000123", detalhe: "estorno" }),
+      ],
+      { recebido: 100, baixa: 0, fisico: 100 },
+    );
+    const ext = montarExtrato(movs, { fuso: FUSO });
+    expect(ext.linhas.map((l) => [l.origem, l.refModelo, l.saldo])).toEqual([
+      ["oc", null, 100],
+      ["peca_teste", "VE00000123", 94],
+      ["peca_teste_estorno", "VE00000123", 100],
+    ]);
+    expect(ext.confere).toBe(true);
   });
 });
 

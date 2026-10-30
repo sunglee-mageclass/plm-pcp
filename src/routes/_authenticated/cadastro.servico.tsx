@@ -1105,9 +1105,14 @@ const emptyEmpresaForm = {
 // o DELETE falha com 23503 — e a contagem de uso (startDelete) NÃO enxerga essa tabela (sem policy de leitura direta). Texto PT próprio.
 const TEXTO_EMPRESA_EM_USO_NA_MO =
   "Este fornecedor está em uso na mão de obra de algum produto. Troque o fornecedor nessas linhas antes de excluir.";
+// [urg R9] O fornecedor CONGELADO nas tentativas da Peça Teste (`modelo_peca_teste_tentativas.empresa_id`, FK NO ACTION, Ruling 29): histórico
+// de peça teste de algum produto também segura a exclusão. Mesma situação do 23503 acima — a contagem de uso da tela não enxerga a tabela.
+const TEXTO_EMPRESA_EM_USO_NA_PECA_TESTE =
+  "Este fornecedor está no histórico de peça teste de algum produto e não pode ser excluído.";
 function mensagemExcluirEmpresa(e: any): string {
   const code = String(e?.code ?? e?.error?.code ?? "");
   const msg = String(e?.message ?? e?.error?.message ?? "");
+  if (code === "23503" && /modelo_peca_teste_tentativas_empresa_id_fkey|on table "modelo_peca_teste_tentativas"/.test(msg)) return TEXTO_EMPRESA_EM_USO_NA_PECA_TESTE;
   if (code === "23503" && /modelo_servico_mo_empresa_id_fkey|on table "modelo_servico_mo"/.test(msg)) return TEXTO_EMPRESA_EM_USO_NA_MO;
   return mensagemErro(e, "Erro ao excluir.");
 }

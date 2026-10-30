@@ -334,7 +334,10 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     regra da página-mãe, caso uma seção `integracao:*` apareça no futuro). */}
                 {p.sections?.map((s) => (
                   <div key={s.key} className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
-                    <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
+                    <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">
+                      ↳ {s.label}
+                      {s.hint && <span className="block text-xs font-normal text-muted-foreground/80">{s.hint}</span>}
+                    </Label>
                     <div className="flex justify-center">
                       <Checkbox
                         id={`${s.key}-ver`}
@@ -623,7 +626,10 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                   </div>
                   {p.sections?.map((s) => (
                     <div key={s.key} className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
-                      <Label htmlFor={`papel-${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
+                      <Label htmlFor={`papel-${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">
+                        ↳ {s.label}
+                        {s.hint && <span className="block text-xs font-normal text-muted-foreground/80">{s.hint}</span>}
+                      </Label>
                       <div className="flex justify-center">
                         <Checkbox id={`papel-${s.key}-ver`} disabled={travada(p.key)} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
                       </div>

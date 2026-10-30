@@ -3,42 +3,28 @@ import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DateField } from "@/components/shared/DateField";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
-import { textoReprovarPecaTeste } from "@/lib/confirmacoes-textos";
-import type { EtapaCard } from "@/lib/pcp-etapas-kanban";
+import type { EtapaCard, EtapaCardBloco, EtapaCardPecaTeste } from "@/lib/pcp-etapas-kanban";
 import { ServicoAtrasoBadge } from "@/components/shared/ServicoAtrasoBadge";
 import { atrasoServico, atrasoPecaFoto } from "@/lib/servico-atraso";
 import { todayISOInStoreTZ } from "@/lib/timezone";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { useSalvarEtapaRapida, type CampoRapido } from "./useSalvarEtapaRapida";
 
-// Card rico do kanban de Etapas PL (Fase 2, Task 4). Substitui o `CardMinimo` do Task 3 em
-// AMBOS os lugares (colunas desktop + lista mobile do EtapasBoard) — mesma estrutura de
-// grid/colapso do board, só o conteúdo do card muda.
-//
-// Edição rápida por etapa (o campo que faz a etapa AVANÇAR — ver `etapaDoBloco`,
-// `src/lib/pcp-etapas.ts` — espelha os rótulos de `EtapasPlPanel.tsx` usado no sheet do PCP):
-// - peca_teste: Data de Saída + Data de Entrada + Aprovação (Aprovar/Reprovar)
-// - separacao: Data Enviado
-// - retorno_grade / oficina / finalizacao: READ-ONLY (vêm da grade detalhada/recebimento —
-//   editar no sheet do PCP; aqui só mostra progresso resumido)
-//
-// Cada onChange dispara `salvarCampo` (useSalvarEtapaRapida) — grava e ressincroniza com o
-// sheet do PCP via invalidação de `["etapas-cards"]` + `["producao-terc-list"]`. Reprovar faz
-// o card sumir do quadro no próximo fetch (montarCards exclui bloco reprovado).
-function progressoRetornoGrade(gd: EtapaCard["bloco"]["grade_detalhe"]): string {
+// Card rico do kanban de Etapas PL (Fase 2, Task 4). 2 tipos de card (R9):
+// - BLOCO de serviço PL (`tipo: "bloco"`, depois da Explosão): edição rápida só onde a etapa AVANÇA por um campo do bloco —
+//   separacao: Data Enviado; retorno_grade / oficina / finalizacao: READ-ONLY (vêm da grade detalhada/recebimento — editar no
+//   sheet do PCP; aqui só mostra progresso resumido). Cada onChange dispara `salvarCampo` (useSalvarEtapaRapida) — grava e
+//   ressincroniza com o sheet do PCP via invalidação de `["etapas-cards"]` + `["producao-terc-list"]`.
+// - PEÇA TESTE (`tipo: "peca_teste"`, 1 por produto, vem do card do produto): SEM edição rápida — mostra "em teste · saída dd/mm" ou
+//   o selo verde "Aprovada — aguardando Explosão"; o clique abre o Sheet do PLANEJAMENTO (onde a seção Peça Teste se edita), só para
+//   quem tem acesso a esse Sheet.
+function progressoRetornoGrade(gd: EtapaCardBloco["bloco"]["grade_detalhe"]): string {
   if (!gd) return "Sem grade cortada ainda";
   let total = 0;
   for (const v of Object.values(gd)) for (const c of Object.values(v)) total += c?.cortada ?? 0;
@@ -61,10 +47,8 @@ function CardFoto({ card }: { card: EtapaCard }) {
   return <ModeloResumoFoto fontes={card.fotoFontes} nome={card.nome} className="h-14 w-14" />;
 }
 
-export function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
+export function CampoRapidoEtapa({ card }: { card: EtapaCardBloco }) {
   const salvar = useSalvarEtapaRapida();
-  // [camada C2 · P-265 A] "Reprovado" tira o card do quadro (DESFAZ): "Tem certeza?" antes. "Aprovado" segue direto.
-  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
 
   // Último valor mandado gravar por campo: Enter seguido de blur (ao desabilitar o input) não grava
   // duas vezes; ao terminar (ok ou erro) libera — no erro, redigitar a mesma data tenta de novo.
@@ -79,60 +63,16 @@ export function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
       },
     );
   };
-  const commitData = (campo: "pt_data_saida" | "pt_data_entrada" | "data_enviado", atual: string | null, iso: string) => {
+  const commitData = (campo: CampoRapido, atual: string | null, iso: string) => {
     if (iso === (atual ?? "") || ultimo.current[campo] === iso) return;
     onChange(campo, iso || null);
   };
 
   const { bloco, etapa } = card;
 
+  // [R9] a Peça Teste não se edita aqui (nem no bloco): vive no card do produto. Só aparece num bloco se a Peça Teste for a ÚNICA etapa ativa.
   if (etapa === "peca_teste") {
-    return (
-      <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-        <div>
-          <Label className="text-[11px] text-muted-foreground">Peça Teste — Saída</Label>
-          <DateField
-            value={bloco.pt_data_saida ?? ""}
-            onCommit={(iso) => commitData("pt_data_saida", bloco.pt_data_saida, iso)}
-            disabled={salvar.isPending}
-          />
-        </div>
-        <div>
-          <Label className="text-[11px] text-muted-foreground">Peça Teste — Entrada</Label>
-          <DateField
-            value={bloco.pt_data_entrada ?? ""}
-            onCommit={(iso) => commitData("pt_data_entrada", bloco.pt_data_entrada, iso)}
-            disabled={salvar.isPending}
-          />
-        </div>
-        <div>
-          <Label className="text-[11px] text-muted-foreground">Aprovação</Label>
-          <Select
-            value={bloco.pt_aprovacao ?? ""}
-            onValueChange={(v) => {
-              if (v === "reprovado") {
-                pedirConfirmacao({
-                  ...textoReprovarPecaTeste({ nome: card.nome, ref: card.ref, empresa: card.empresa }),
-                  onConfirmar: () => onChange("pt_aprovacao", "reprovado"),
-                });
-                return;
-              }
-              onChange("pt_aprovacao", v || null);
-            }}
-            disabled={salvar.isPending}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder="Selecione…" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="aprovado">Aprovado</SelectItem>
-              <SelectItem value="reprovado">Reprovado</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {dialogConfirmacao}
-      </div>
-    );
+    return <p className="text-xs text-muted-foreground">A peça teste é acompanhada no card do produto (Planejamento).</p>;
   }
 
   if (etapa === "separacao") {
@@ -162,13 +102,129 @@ export function CampoRapidoEtapa({ card }: { card: EtapaCard }) {
   return <p className="text-xs text-muted-foreground">{progresso}</p>;
 }
 
+/** "2026-10-05" → "05/10" (dia/mês). Valor fora do formato = devolve como veio. */
+function ddmm(iso: string | null): string | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}` : iso;
+}
+
+/** Texto do `title` quando a pessoa não tem acesso ao Sheet do Planejamento (card PT não clicável). */
+export const TITULO_SEM_ACESSO_PRODUTO = "Abra pelo Planejamento de Produto (sem acesso ao card)";
+
+function EtapaCardPecaTesteView({
+  card,
+  minimized,
+  onToggleMin,
+  onAbrirProduto,
+}: {
+  card: EtapaCardPecaTeste;
+  minimized: boolean;
+  onToggleMin: () => void;
+  onAbrirProduto?: (modeloId: string) => void;
+}) {
+  const { pecaTeste: pt } = card;
+  const abrir = onAbrirProduto ? () => onAbrirProduto(card.modeloId) : null;
+  const identificacao = (
+    <>
+      <p className="truncate font-semibold">{card.ref ?? "—"}</p>
+      <p className="truncate text-muted-foreground">{card.nome ?? "—"}</p>
+      {card.empresa && <p className="truncate text-xs text-muted-foreground">{card.empresa}</p>}
+    </>
+  );
+  return (
+    <div
+      className={`w-full rounded-md border bg-card p-2.5 text-left text-sm shadow-sm transition-colors ${abrir ? "hover:border-primary/50" : ""}`}
+      title={abrir ? undefined : TITULO_SEM_ACESSO_PRODUTO}
+      data-card-tipo="peca_teste"
+    >
+      <div className="flex items-start gap-2">
+        <CardFoto card={card} />
+        <div className="min-w-0 flex-1">
+          {abrir ? (
+            <button type="button" onClick={abrir} className="block w-full min-w-0 text-left">{identificacao}</button>
+          ) : (
+            <div className="min-w-0 cursor-default" aria-disabled="true">{identificacao}</div>
+          )}
+          <div className="mt-1.5">
+            {pt.status === "aprovada" ? (
+              <StatusBadge tone="success" className="h-auto whitespace-normal leading-tight">Aprovada — aguardando Explosão</StatusBadge>
+            ) : (
+              <StatusBadge tone="info" className="h-auto whitespace-normal leading-tight">
+                Em teste{pt.dataSaida ? ` · saída ${ddmm(pt.dataSaida)}` : ""}
+              </StatusBadge>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-col gap-1">
+          {abrir && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="iconSm"
+              title="Abrir o card do produto"
+              onClick={(e) => {
+                e.stopPropagation();
+                abrir();
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="iconSm"
+            title={minimized ? "Expandir card" : "Minimizar card"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMin();
+            }}
+          >
+            {minimized ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
+      </div>
+
+      {!minimized && pt.servicos.length > 0 && (
+        <ul className="mt-2.5 space-y-0.5 border-t pt-2.5 text-xs text-muted-foreground">
+          {pt.servicos.map((sv) => (
+            <li key={sv} className="truncate">{sv}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function EtapaCardView({
   card,
   minimized,
   onToggleMin,
   onAbrir,
+  onAbrirProduto,
 }: {
   card: EtapaCard;
+  minimized: boolean;
+  onToggleMin: () => void;
+  /** Abre o Sheet de PCP › Serviços do produto (cards de bloco). */
+  onAbrir: (modeloId: string) => void;
+  /** Abre o Sheet do Planejamento (card da coluna Peça Teste). `undefined` = sem acesso: o card não é clicável. */
+  onAbrirProduto?: (modeloId: string) => void;
+}) {
+  if (card.tipo === "peca_teste") {
+    return <EtapaCardPecaTesteView card={card} minimized={minimized} onToggleMin={onToggleMin} onAbrirProduto={onAbrirProduto} />;
+  }
+  return <EtapaCardBlocoView card={card} minimized={minimized} onToggleMin={onToggleMin} onAbrir={onAbrir} />;
+}
+
+function EtapaCardBlocoView({
+  card,
+  minimized,
+  onToggleMin,
+  onAbrir,
+}: {
+  card: EtapaCardBloco;
   minimized: boolean;
   onToggleMin: () => void;
   onAbrir: (modeloId: string) => void;

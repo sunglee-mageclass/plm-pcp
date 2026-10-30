@@ -95,6 +95,9 @@ export const ORIGEM_ROTULO: Record<string, string> = {
   explosao: "Envio à Explosão",
   explosao_ajuste: "Ajuste depois do envio",
   revenda: "Revenda (peças recebidas)",
+  // R11: baixa da mini explosão da Peça Teste (a linha mostra "Peça teste" + o card, via refModelo, e o detalhe) e o estorno dela
+  peca_teste: "Peça teste",
+  peca_teste_estorno: "Peça teste (estorno)",
 };
 
 /** Rótulo PT-BR da origem; origem desconhecida volta como veio (nunca esconde linha). */

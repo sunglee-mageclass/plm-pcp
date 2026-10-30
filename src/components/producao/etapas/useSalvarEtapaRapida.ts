@@ -1,14 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { EtapaCard } from "@/lib/pcp-etapas-kanban";
+import type { EtapaCardBloco } from "@/lib/pcp-etapas-kanban";
 import {
   montarPayloadEdicaoRapida,
   ServicoSumiuError,
   type CampoRapido,
 } from "@/lib/servicos-payload";
 
-// Campos editáveis pela edição rápida do card (Task 4). `pt_aprovacao` grava Aprovar/Reprovar
-// (reprovar faz o card sumir do quadro — `montarCards` exclui — no próximo fetch de "etapas-cards").
+// Campo editável pela edição rápida do card de bloco. [R9] SÓ `data_enviado`: a Peça Teste (saída/entrada/aprovação) vive no card do
+// produto e é editada no Sheet do Planejamento — esta mutação nunca grava `pt_*` (os do bloco só voltam como foram lidos).
 export type { CampoRapido };
 
 /**
@@ -32,7 +32,7 @@ export function useSalvarEtapaRapida() {
       campo,
       valor,
     }: {
-      card: EtapaCard;
+      card: EtapaCardBloco;
       campo: CampoRapido;
       valor: string | null;
     }) => {

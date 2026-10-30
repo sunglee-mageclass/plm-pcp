@@ -2417,12 +2417,17 @@ function EtapasPLCard({
         <ul className="space-y-2">
           {etapas.map((etapa, idx) => (
             <li key={etapa.key} className="flex items-center gap-2 rounded-md border bg-card p-2">
-              <Input
-                value={etapa.label}
-                onChange={(e) => update(idx, { label: e.target.value })}
-                className="h-8 max-md:h-11"
-                maxLength={60}
-              />
+              <div className="min-w-0 flex-1">
+                <Input
+                  value={etapa.label}
+                  onChange={(e) => update(idx, { label: e.target.value })}
+                  className="h-8 max-md:h-11"
+                  maxLength={60}
+                />
+                {etapa.key === "peca_teste" && (
+                  <p className="mt-1 text-xs text-muted-foreground">vem do card do produto (seção Peça Teste)</p>
+                )}
+              </div>
               <div className="flex shrink-0 items-center gap-2 pl-1">
                 <Switch
                   checked={etapa.ativa}

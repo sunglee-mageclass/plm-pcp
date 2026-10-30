@@ -70,9 +70,6 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { isServicoPL } from "@/lib/servico-confeccao";
-import { EtapasPlPanel } from "@/components/producao/EtapasPlPanel";
-import { ReprovadasPl } from "@/components/producao/ReprovadasPl";
-import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 import { NfList, type NfItem } from "@/components/oc-tecido/NfList";
 import { type AviamentoEnviado, type BlocoServico, blocoDeLinha, blocoParaPayload } from "@/lib/servicos-payload";
 import { tenantPrefix, sanitizeStorageName } from "@/lib/storage-tenant";
@@ -175,27 +172,13 @@ export function TerceirizadosDetail({
   const { canView } = useAuth();
   const podeVerPrecos = canView("producao_terceirizados:precos");
 
-  // Etapas PL (Fase 1, módulo opt-in): painel só aparece quando a loja ligou `etapas_pl`.
+  // Etapas PL (módulo opt-in): Notas Fiscais, Peça de foto e o alerta de atraso só aparecem quando a loja ligou `etapas_pl`.
+  // [R9] O painel "Etapas PL" (Peça Teste/Separação/Retorno/Oficina/Finalização) SAIU deste bloco: a peça teste vive no card do
+  // produto (seção "Peça Teste" do Planejamento) e as colunas `pt_*` ficam só como pass-through do Salvar.
   const { isModuleEnabled } = useTenantModules();
   const tenantId = useActiveTenantId();
   // [urg R5] "hoje" no fuso da loja — base dos alertas de atraso (Vence hoje / Atrasado N dias) no cabeçalho do bloco.
   const hoje = todayISOInStoreTZ(useStoreTimezone());
-  const { data: pcpEtapasCfg } = useQuery({
-    queryKey: ["tenant_config", "pcp_etapas", tenantId],
-    enabled: !!tenantId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("tenant_config")
-        .select("pcp_etapas")
-        .eq("tenant_id", tenantId)
-        .maybeSingle();
-      if (error) throw error;
-      const raw = (data as any)?.pcp_etapas;
-      return Array.isArray(raw) && raw.length ? (raw as EtapaCfg[]) : ETAPAS_DEFAULT;
-    },
-    staleTime: 5 * 60_000,
-  });
-  const etapasCfg = pcpEtapasCfg ?? ETAPAS_DEFAULT;
 
   const { data: modelo } = useQuery({
     queryKey: ["terc-modelo", modeloId],
@@ -1101,25 +1084,6 @@ export function TerceirizadosDetail({
   // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
   // não trava o pós (que ainda nem aconteceu), e vice-versa.
   const blocosDaAba = blocos.filter((b) => catEtapa(b.categoria_terceirizado_id) === tabEtapa);
-  // Etapas PL (Fase 1, fix-round 1): blocos PL reprovados na Peça Teste, da aba corrente
-  // (espelha o filtro da lista de blocos abaixo) — SAEM da lista principal (renderBlocoCard)
-  // e vivem só no colapsável "PLs reprovadas na peça teste" (ReprovadasPl), onde o MESMO card
-  // editável abre dentro de cada item colapsado. `idx` é o índice em `blocos` (não em
-  // `blocosDaAba`) — updateBloco/removeBloco endereçam por ele.
-  const reprovadosPl = blocos
-    .map((b, idx) => ({ b, idx }))
-    .filter(({ b }) => {
-      if (catEtapa(b.categoria_terceirizado_id) !== tabEtapa) return false;
-      const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "";
-      return !b.interno && isServicoPL(catNome) && b.pt_aprovacao === "reprovado";
-    })
-    .map(({ b, idx }) => ({
-      _key: b._key,
-      idx,
-      empresa: (empresasServico as any[]).find((e) => e.id === b.empresa_id)?.nome_fantasia ?? "—",
-      pt_data_saida: b.pt_data_saida,
-    }));
-  const reprovadosPlIds = new Set(reprovadosPl.map((r) => r._key));
   // Botões "Categorias do Serviço" (só p/ ADICIONAR bloco novo): categoria inativa some,
   // exceto se já existir um bloco dela no modelo (aí some esmaecida — permite editar o
   // existente, mas não convida a criar outro).
@@ -1176,13 +1140,9 @@ export function TerceirizadosDetail({
     </Button>
   );
 
-  // Corpo COMPLETO do card de edição de UM bloco — extraído (Etapas PL Fase 1, fix-round 1)
-  // p/ ser reusado tanto na lista principal quanto, colapsado por default, dentro de cada item
-  // do colapsável "PLs reprovadas na peça teste" (ReprovadasPl): o usuário edita ali dentro a
-  // Aprovação (de volta pra pendente/aprovado) e/ou lança uma nova Data de Saída, e ao deixar
-  // de casar `pt_aprovacao==='reprovado'` o bloco some do colapsável e volta pra lista principal
-  // no próximo render — sem ação extra. `idx` é sempre o índice em `blocos` (não em
-  // `blocosDaAba`/`reprovadosPl`), pois é o que `updateBloco`/`removeBloco` esperam.
+  // Corpo COMPLETO do card de edição de UM bloco. `idx` é sempre o índice em `blocos` (não em `blocosDaAba`), pois é o que
+  // `updateBloco`/`removeBloco` esperam. [R9] O colapsável "PLs reprovadas na peça teste" saiu: bloco com `pt_aprovacao='reprovado'`
+  // legado volta à lista principal como qualquer outro.
   function renderBlocoCard(b: Bloco, idx: number) {
     const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
     // [urg R4b / fix round 1 L3] o aviso só vale se o resumo da M.O. trouxe a linha do bloco (resumo vazio = sem acesso ou ainda
@@ -1504,23 +1464,6 @@ export function TerceirizadosDetail({
         </div>
 
         {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
-          <EtapasPlPanel
-            bloco={{
-              pt_data_saida: b.pt_data_saida,
-              pt_data_entrada: b.pt_data_entrada,
-              pt_aprovacao: b.pt_aprovacao,
-              data_enviado: b.data_enviado,
-              data_entregue: b.data_entregue,
-              qtd_recebida: b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : b.quantidade_recebida,
-              grade_detalhe: b.grade_detalhe,
-            }}
-            etapasCfg={etapasCfg}
-            onChange={(campo, valor) => updateBloco(idx, { [campo]: valor } as Partial<Bloco>)}
-            readOnly={readOnly}
-          />
-        )}
-
-        {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
           <div className="col-span-full rounded-md border border-primary/30 bg-primary/5 p-3 space-y-3">
             <div className="text-sm font-medium">Notas Fiscais</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1818,18 +1761,11 @@ export function TerceirizadosDetail({
         </div>
       </Card>
 
-      {/* Blocos (só os da etapa da aba; idx preservado p/ updateBloco). PL reprovado
-          na Peça Teste NÃO aparece aqui — vive só no colapsável ReprovadasPl abaixo
-          (renderBlocoCard é compartilhada pelos dois lugares, editável nos dois). */}
+      {/* Blocos (só os da etapa da aba; idx preservado p/ updateBloco). */}
       {blocos.map((b, idx) => {
         if (catEtapa(b.categoria_terceirizado_id) !== tabEtapa) return null;
-        if (reprovadosPlIds.has(b._key)) return null;
         return renderBlocoCard(b, idx);
       })}
-
-      {reprovadosPl.length > 0 && isModuleEnabled("etapas_pl") && (
-        <ReprovadasPl blocos={reprovadosPl} renderBloco={(idx) => renderBlocoCard(blocos[idx], idx)} />
-      )}
 
       {blocos.length === 0 && (
         <Card className="p-8 text-center text-sm text-muted-foreground">

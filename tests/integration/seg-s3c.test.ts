@@ -10,6 +10,7 @@ import { aplicaS3c, voltaS3c, s3cViva, S3C_MIGS, S3C_DOWNS, S3C_DOWN_DROP, S3C_T
 import { S3C_MD5, S3C_PAGINAS, S3C_PAGINA_MO, S3C_GATILHOS, S3C_ACL, S3C_DIRETAS, S3C_SO_RPC } from "./seg-s3c-dados";
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9] volta LIFO da R9 na linha de base da medicao de trava
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -203,6 +204,10 @@ describe.skipIf(!RODA)("seg S3c — md5, ACL, idempotência e volta (LIFO)", () 
 describe.skipIf(!RODA)("seg S3c — trava medida (pg_locks na txn revertida)", () => {
   it("RPCs e grants: catálogo; gatilhos: ShareRowExclusive SÓ em modelo_etiquetas e modelo_observacoes; nada em auth/storage", async () => {
     await withTx(async (c) => {
+      // [urg R9] a cadeia LIFO dos aplica*/volta* das frentes antigas volta as urgentes POR CIMA delas; o _down NEUTRO da R9a
+      // (192000) reescreve o trg_kanban_fila_upd (ShareRowExclusive em categorias_terceirizado) - trava da VOLTA da R9, nao desta
+      // frente: entra na linha de base.
+      await voltaUrgcSePreciso(c);
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace

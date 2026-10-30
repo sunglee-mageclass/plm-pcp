@@ -142,11 +142,10 @@ const linhas = [linhaA, linhaB, linhaC];
 /** O que o sheet do PCP › Serviços mandaria para a linha (sem edição). */
 const doSheet = (r: Record<string, unknown>) => blocoParaPayload(blocoDeLinha(r));
 
+// [R9] a edição rápida só grava a Data Enviado; a peça teste vive no card do produto. Os `pt_*` do bloco voltam como foram lidos.
 const CAMPOS: [CampoRapido, string | null][] = [
-  ["pt_data_saida", "2026-10-05"],
-  ["pt_data_entrada", "2026-10-06"],
-  ["pt_aprovacao", "aprovado"],
   ["data_enviado", "2026-10-07"],
+  ["data_enviado", null],
 ];
 
 describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo alterado", () => {
@@ -178,8 +177,8 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
     const { _blocos } = montarPayloadEdicaoRapida({
       linhas,
       blocoId: A,
-      campo: "pt_aprovacao",
-      valor: "reprovado",
+      campo: "data_enviado",
+      valor: "2026-10-09",
     });
     const [a, b, c] = _blocos;
     // literal (não tautológico): o bloco do card
@@ -200,7 +199,7 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
       desconto_total: 10,
       multa_total: 3,
       numero_parcelas: 2,
-      data_enviado: "2026-10-01",
+      data_enviado: "2026-10-09",
       data_prevista: "2026-10-20",
       data_entregue: null,
       observacao: "obs A",
@@ -208,7 +207,7 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
       tecidos_enviados: ["tec-1"],
       pt_data_saida: "2026-09-25",
       pt_data_entrada: null,
-      pt_aprovacao: "reprovado",
+      pt_aprovacao: null,
       nf_saida: [{ url: "loja/nf-saida-a.pdf", data: "2026-10-01" }],
       nf_entrada: [{ url: "loja/nf-entrada-a.pdf", data: "2026-10-03" }],
       peca_foto: true,
@@ -265,16 +264,16 @@ describe("edição rápida de Etapas PL — payload = sheet do PCP com 1 campo a
       montarPayloadEdicaoRapida({
         linhas: [linhaB, linhaC],
         blocoId: A,
-        campo: "pt_data_saida",
+        campo: "data_enviado",
         valor: null,
       }),
     ).toThrow(ServicoSumiuError);
     expect(() =>
-      montarPayloadEdicaoRapida({ linhas: [], blocoId: A, campo: "pt_data_saida", valor: null }),
+      montarPayloadEdicaoRapida({ linhas: [], blocoId: A, campo: "data_enviado", valor: null }),
     ).toThrow(ServicoSumiuError);
     let erro: unknown;
     try {
-      montarPayloadEdicaoRapida({ linhas: [], blocoId: A, campo: "pt_data_saida", valor: null });
+      montarPayloadEdicaoRapida({ linhas: [], blocoId: A, campo: "data_enviado", valor: null });
     } catch (e) {
       erro = e;
     }
@@ -313,8 +312,8 @@ describe("[urg R5] peca_foto_previsao — roundtrip linha -> bloco -> payload", 
     const { _blocos } = montarPayloadEdicaoRapida({
       linhas,
       blocoId: A,
-      campo: "pt_aprovacao",
-      valor: "aprovado",
+      campo: "data_enviado",
+      valor: "2026-10-09",
     });
     expect(_blocos.map((b) => b.peca_foto_previsao)).toEqual(["2026-10-02", null, null]);
   });

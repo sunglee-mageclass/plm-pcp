@@ -1,3 +1,4 @@
+// R9: oculto — substituído pela seção "Peça Teste" do card do produto (Planejamento); o PCP › Serviços não renderiza mais este componente. NÃO apagar (faxina depois).
 import { useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/card";

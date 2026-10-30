@@ -15,6 +15,7 @@ import { S3B_TABELAS_TRAVA } from "./seg-s3b-helpers";
 import { S3C_TABELAS_TRAVA } from "./seg-s3c-helpers";
 import { S3D_TABELAS_TRAVA } from "./seg-s3d-helpers";
 import { S4_TABELAS_TRAVA } from "./seg-s4-helpers";
+import { voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9] volta LIFO da R9 na linha de base da medicao de trava
 const S3A_TABELAS_TRAVA = ["public.ocs_aviamento", "public.ocs_etiqueta", "public.ocs_tecido", "public.ocs_tecido_itens"];
 
 const RODA = hasDb && ehBancoLocal();
@@ -260,6 +261,10 @@ describe.skipIf(!RODA)("seg S2 — B1 (fix round 1): grants só sobre a ACL medi
 describe.skipIf(!RODA)("seg S2 — trava medida (pg_locks na txn revertida)", () => {
   it("grants: nenhuma tabela fora do pg_catalog acima de AccessShare; financeiro_aba: só ShareRowExclusive em parcelas", async () => {
     await withTx(async (c) => {
+      // [urg R9] a cadeia LIFO dos aplica*/volta* das frentes antigas volta as urgentes POR CIMA delas; o _down NEUTRO da R9a
+      // (192000) reescreve o trg_kanban_fila_upd (ShareRowExclusive em categorias_terceirizado) - trava da VOLTA da R9, nao desta
+      // frente: entra na linha de base.
+      await voltaUrgcSePreciso(c);
       // Ruling R6 (frente Backend): travas que os ganchos MOD_TXN/BK_TXN já pegaram no começo da txn (ex.: o índice novo da B4
       // numa cópia sem ela) não são da S2. As de public.parcelas ficam de fora da subtração (o S2_TXN=1 as mostra em jaTinha).
       const inicio = new Set(

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useAuth } from "@/hooks/useAuth";
 import { buscarOpcoesColecao } from "@/lib/opcoes-colecao";
 import { supabase } from "@/integrations/supabase/client";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
@@ -20,6 +21,7 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$modeloId";
+import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 import { FilterButton } from "@/components/shared/filters";
 import { useFilterState } from "@/hooks/useFilterState";
 import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
@@ -28,6 +30,10 @@ import { useEtapasCards } from "@/components/producao/etapas/useEtapasCards";
 import { EtapasBoard } from "@/components/producao/etapas/EtapasBoard";
 import { ETAPA_FINALIZADO, type EtapaKey } from "@/lib/pcp-etapas";
 
+// [R9] A coluna "Peça Teste" é alimentada pelo CARD do produto (RPC `peca_teste_quadro`, 1 card por produto, mesmo antes da Explosão); o
+// clique nesse card abre o Sheet do PLANEJAMENTO (onde a seção "Peça Teste" se edita) — só para quem vê Planejamento ou Desenvolvimento
+// (as telas que já abrem esse Sheet); os blocos de serviço seguem abrindo o PCP › Serviços (`TerceirizadosDetail`).
+//
 // Etapas PL (Fase 2, Task 1) — página ÚNICA (sem sub-rota de detalhe ainda), então o
 // componente renderiza direto (sem <Outlet/>), diferente de pcp.servicos.tsx que envolve
 // as sub-rotas $modeloId/index. O módulo `etapas_pl` (opt-in) é guardado pelo `RequirePermission` (PageDef.gate, com
@@ -68,6 +74,15 @@ function EtapasPlPage() {
   };
   const { requestClose, confirm } = useUnsavedGuard({ dirty: overlayDirty, onClose: closeOverlay });
 
+  // [R9] Sheet do Planejamento aberto pelo card da coluna Peça Teste. Fechar OU salvar relê o quadro (a seção grava no Salvar do card).
+  const { canView } = useAuth();
+  const podeAbrirProduto = canView("criacao_planejamento") || canView("criacao_desenvolvimento");
+  const [produtoId, setProdutoId] = useState<string | null>(null);
+  const invalidarQuadro = () => {
+    qc.invalidateQueries({ queryKey: ["etapas-cards"] });
+    qc.invalidateQueries({ queryKey: ["etapas-peca-teste"] });
+  };
+
   const [busca, setBusca] = useState("");
   const [fColecao, setFColecao] = useFilterState("pcp-etapas", "Coleção", []);
   const [fFornecedor, setFFornecedor] = useFilterState("pcp-etapas", "Fornecedor", []);
@@ -83,6 +98,9 @@ function EtapasPlPage() {
     cards: filteredCards,
     etapas,
     isLoading: cardsLoading,
+    ptErro,
+    ptTentando,
+    ptRecarregar,
   } = useEtapasCards({
     busca,
     colecao: fColecao,
@@ -270,6 +288,15 @@ function EtapasPlPage() {
         </div>
       </div>
 
+      {ptErro && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" role="alert">
+          <span>Não foi possível carregar a coluna Peça Teste. Os produtos em teste podem não aparecer.</span>
+          <Button type="button" variant="outline" size="sm" onClick={ptRecarregar} disabled={ptTentando}>
+            {ptTentando ? "Tentando…" : "Tentar de novo"}
+          </Button>
+        </div>
+      )}
+
       {!cardsLoading && cards.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Nenhum PL encontrado.</p>
       ) : (
@@ -279,7 +306,21 @@ function EtapasPlPage() {
           collapsedCols={collapsedCols}
           onToggleCol={toggleCol}
           onAbrir={onAbrir}
+          onAbrirProduto={podeAbrirProduto ? setProdutoId : undefined}
           minimizedCards={minimizedCards}
+        />
+      )}
+
+      {/* [R9] card da coluna Peça Teste → Sheet do Planejamento (montado SÓ com id, senão abriria o Dialog de "Novo"). */}
+      {produtoId && podeAbrirProduto && (
+        <PlanejamentoDetail
+          modeloId={produtoId}
+          contexto="pcp-etapas"
+          onClose={() => {
+            setProdutoId(null);
+            invalidarQuadro();
+          }}
+          onSaved={invalidarQuadro}
         />
       )}
 

@@ -113,7 +113,11 @@ export async function modViva(c: Client, n: number): Promise<boolean> {
   const r = await c.query("SELECT md5(pg_get_functiondef(to_regprocedure($1))) AS m", [
     d.MOD_SENTINELA,
   ]);
-  return r.rows[0]?.m === d.MOD_MD5[d.MOD_SENTINELA]?.depois;
+  const depois = d.MOD_MD5[d.MOD_SENTINELA]?.depois;
+  // [urg R9 T3] o bloco segue vivo quando uma frente POR CIMA redefine a sentinela mantendo tudo dele (cadeia md5ModSucessor:
+  // ex.: a 20261103194000 acrescenta 'peca_teste_aprovada' ao _avaliar_condicoes_kanban_core da T3) — senão aplicaMod tentaria
+  // reaplicar a T3 e a guarda dela recusaria. voltaMod tira as frentes de cima ANTES (voltaBkSePreciso → … → urgc, LIFO).
+  return !!r.rows[0]?.m && !!depois && md5ModSucessor(d.MOD_SENTINELA, depois).includes(r.rows[0].m);
 }
 
 /** Aplica os blocos 1..`ate` que existem e ainda não estão vivos, NA ORDEM (idempotente). */

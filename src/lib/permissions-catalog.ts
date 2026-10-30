@@ -7,7 +7,8 @@ export type PageKey = string;
 export type StoreProfile = "full" | "stock";
 // `sections`: sub-permissões de uma tela (ex.: esconder Custos/Preço). Cada uma é uma key
 // própria em user_permissions (Ver/Editar), gateada no front (e no banco quando sensível).
-export type SectionDef = { key: PageKey; label: string };
+// `hint`: 1 frase mostrada em texto muted sob a seção no editor de permissões (o que Leitor/Editor fazem nela).
+export type SectionDef = { key: PageKey; label: string; hint?: string };
 // `soEdicao`: permissão-só (sem tela/menu) em que apenas "Editar" tem efeito — o modal
 // esconde o "Leitor" e mostra um toggle único (ex.: aprovar/reprovar mão de obra).
 // `shortLabel`: forma curta p/ superfícies apertadas (sidebar); `description`: 1 linha de
@@ -165,6 +166,8 @@ export const PAGES_CATALOG: ModuleDef[] = [
         sections: [
           { key: "criacao_planejamento:custos", label: "Custos / Preço" },
           { key: "criacao_planejamento:preco_venda", label: "Editar preço de venda" },
+          // R9: seção "Peça Teste" do Sheet do Planejamento (conferida no servidor, `salvar_peca_teste`; backfill 195000).
+          { key: "criacao_planejamento:peca_teste", label: "Peça Teste", hint: "Leitor vê a seção no card; Editor lança tentativas, datas e aprovação. Sem Leitor, a seção some do card." },
         ] },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento", description: "Modelos aprovados: ficha técnica, BOM e kanban.",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },

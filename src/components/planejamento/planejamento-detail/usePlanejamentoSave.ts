@@ -11,6 +11,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { type Conflito } from "@/lib/colab/merge";
 import { moLinhasEqual, moLinhaParaPayload } from "@/lib/mao-obra";
+import { PECA_TESTE_INERTE, type CapturaPT, type PecaTesteSave, type ResultadoSalvarPT } from "@/components/planejamento/planejamento-detail/usePecaTeste";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
@@ -193,7 +194,27 @@ export type UsePlanejamentoSaveArgs = {
   /** urg R2 T12 — rascunho da seção "Insumos" do Dialog "Novo Modelo" (pré-preenchido com os insumos padrão da loja). Lido SÓ no INSERT real
    *  do card novo interno; espelho SÍNCRONO (o mutationFn não fecha sobre render velho). Ausente/vazio => nada a gravar. */
   insumosIniciaisRef?: RefObject<ModeloEtiquetaRow[]>;
+  /** R9 (Peça Teste) — API da seção para o Salvar: etapa NOVA logo depois da M.O. (antes do `marcar_revisao_por_mudanca`). Ausente = inerte
+   *  (o Salvar fica idêntico ao de antes). */
+  pecaTeste?: PecaTesteSave;
+  /** R9 (Ruling 11) — quem só edita a seção (`sheetSomenteLeitura && podeEditarPT`): o `mutationFn` NÃO toca header/BOM/CAD/M.O./PA/PI, só a Peça Teste. */
+  somentePecaTeste?: boolean;
 };
+
+/** R9 — as queries que mudam quando a Peça Teste grava (a trava do fornecedor sobe o `rev` do card, reabre a M.O. e pode mover o card no kanban
+ *  automático; o quadro PCP › Etapas lê a seção). */
+export function invalidarAposPecaTeste(qc: QueryClient, modeloId: string | null) {
+  for (const k of [
+    ["peca-teste", modeloId], ["mo-resumo", modeloId], ["mo-resumo-list"], ["modelo-mo-resumo"], ["plan-kanban-cond", modeloId],
+    ["modelo-condicoes-kanban", modeloId], ["modelo"], ["etapas-cards"], ["etapas-peca-teste"],
+    // R11 — a baixa/estorno da mini mexe no estoque: o saldo da própria mini, o extrato (prefixo) e as 3 abas do Estoque (+ a reserva/dashboard)
+    ["peca-teste-mini-estoque", modeloId], ["estoque-extrato"], ["estoque-tecidos"], ["estoque-aviamentos"], ["estoque-insumos"],
+    ["estoque-tecido-por-artigo"], ["dash-estoque"],
+  ] as const) qc.invalidateQueries({ queryKey: [...k] });
+}
+
+/** R9 — o que o `mutationFn` devolve da etapa da Peça Teste (o `onSuccess` decide aviso e rebase por ele). */
+type EtapaPT = { captura: CapturaPT; resultado: ResultadoSalvarPT } | null;
 
 export function usePlanejamentoSave({
   modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, refEditavel, travaIntegracao, categorias,
@@ -202,8 +223,13 @@ export function usePlanejamentoSave({
   setEnviada, setLancado,
   moLinhasRef, moBaseRef, setMoLinhasBase,
   gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda, gradeCompradoPeloBom,
-  qc, onSaved, onCreated, ficha, resetDraftBaseline, insumosIniciaisRef,
+  qc, onSaved, onCreated, ficha, resetDraftBaseline, insumosIniciaisRef, pecaTeste, somentePecaTeste,
 }: UsePlanejamentoSaveArgs) {
+  // R9 — espelhos SÍNCRONOS (o mutationFn/onSuccess não fecham sobre um render velho; mesma razão do `fichaRef`).
+  const pecaTesteRef = useRef<PecaTesteSave>(pecaTeste ?? PECA_TESTE_INERTE);
+  pecaTesteRef.current = pecaTeste ?? PECA_TESTE_INERTE;
+  const somentePecaTesteRef = useRef(!!somentePecaTeste);
+  somentePecaTesteRef.current = !!somentePecaTeste;
   // F3.1 — card NOVO: id do INSERT já feito neste detalhe. Um 2º Salvar (ou o retry depois de um erro nas
   // gravações seguintes) NUNCA insere de novo; o detalhe vira o Sheet desse id (`onCreated`).
   const criadoIdRef = useRef<string | null>(null);
@@ -236,6 +262,21 @@ export function usePlanejamentoSave({
     draft: Draft; moLinhas: MaoObraEditorLinha[] | null; bom: BomCapturado | null;
     enviadoCadNaCaptura: boolean; podeGravarColunasDevNaCaptura: boolean; temCamposDevNoPayloadNaCaptura: boolean;
   } | null>(null);
+  const avisarPecaTeste = (etapa: NonNullable<EtapaPT>, cardSalvo: boolean) => {
+    const r = etapa.resultado;
+    if ("ok" in r) {
+      pecaTesteRef.current.aposSalvar(etapa.captura);
+      if (!cardSalvo) toast.success("Peça teste salva");
+    } else if ("conflito" in r) {
+      toast.warning(cardSalvo
+        ? "Card salvo. A Peça Teste foi alterada por outra pessoa — confira a seção."
+        : "A Peça Teste foi alterada por outra pessoa — confira a seção.");
+    } else {
+      toast.error(cardSalvo
+        ? `Card salvo, mas a Peça Teste não: ${mensagemErro(r.erro, "erro desconhecido")}`
+        : `Não foi possível salvar a Peça Teste: ${mensagemErro(r.erro, "erro desconhecido")}`);
+    }
+  };
   const save = useMutation({
     mutationFn: async () => {
       // Fix round 3 (R-1/R-4) — resultado de `resolverColunasTravadas`, populado logo antes de
@@ -266,12 +307,22 @@ export function usePlanejamentoSave({
       // o retry segue protegido) → −1 (onSettled do retry, chega a 0). Um booleano simples zerava no meio do
       // retry (o `onSettled` do 1º ciclo desligava a flag enquanto o retry ainda rodava `persistirBom`/MO).
       fichaRef.current.marcarSaveEmVoo(true);
+      // R9 (Ruling 11) — quem SÓ edita a Peça Teste: este Salvar grava SÓ a seção (nada de header/BOM/CAD/M.O./PA/PI; o `onSuccess` é mínimo).
+      // Fica DEPOIS do `marcarSaveEmVoo(true)` para o contador do `onSettled` fechar certo.
+      if (somentePecaTesteRef.current) {
+        if (pecaTesteRef.current.conflitos() > 0) throw new Error("Resolva os conflitos da Peça Teste listados na seção antes de salvar.");
+        const capturaPT = pecaTesteRef.current.capturar();
+        const etapaPT: EtapaPT = capturaPT ? { captura: capturaPT, resultado: await pecaTesteRef.current.salvar(capturaPT) } : null;
+        return { somentePecaTeste: true as const, pecaTeste: etapaPT };
+      }
       // Colab (Task 2): com conflitos pendentes na tela, o save NÃO pode passar — mesmo que
       // o rev já bata, o usuário precisa resolver ("manter meu"/"usar o novo") primeiro. Mesmo
       // guard do piloto OC Tecido/Desenvolvimento (sem isto, um 2º clique sobrescreveria a
       // versão da outra pessoa em silêncio). F3.2: soma o conflito de SEÇÃO "Tecidos & BOM".
       if (conflitosRef.current.length > 0 || fichaRef.current.conflitoBomRef.current)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      // R9 — conflito PENDENTE da Peça Teste (aviso inline na seção) também segura o Salvar, como os demais (nada é gravado antes).
+      if (pecaTesteRef.current.conflitos() > 0) throw new Error("Resolva os conflitos da Peça Teste listados na seção antes de salvar.");
       // R5 — rev novo com o BOM tocado: a ficha está conferindo se o BOM do SERVIDOR mudou. Salvar agora poderia passar
       // o `.eq("rev")` e sobrescrever um BOM alheio ainda não detectado.
       // Item F (fix round 2): a mensagem original ("Conferindo se outra pessoa mudou o BOM deste card — salve
@@ -414,6 +465,8 @@ export function usePlanejamentoSave({
         throw conflito;
       }
       const moLinhasEnviadas = moLinhasRef.current;
+      // R9 — captura da Peça Teste SÍNCRONA, junto da da M.O. (nada digitado depois entra neste Salvar; fica "não salvo"). null = nada a gravar.
+      const capturaPT = isEdit ? pecaTesteRef.current.capturar() : null;
       // Fix round 1 (I1) — completa a captura (síncrona, sem `await` desde a linha acima) com `bom`/`moLinhas`
       // agora disponíveis. Os 3 campos do Item C já estavam corretos desde ANTES do await — só reafirma o
       // objeto inteiro (mesmos valores, `enviadoCadNaCaptura`/`podeGravarColunasDevNaCaptura`/
@@ -678,6 +731,11 @@ export function usePlanejamentoSave({
         if (moErr && !isEdit) falhasCriacao.push({ etapa: "mo", erro: moErr });
         else if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }
       }
+      // R9 — PEÇA TESTE: etapa NOVA, logo DEPOIS da M.O. (a troca de fornecedor pode ter sido gravada por ela — o servidor da Peça Teste é
+      // compare-and-set idempotente) e DEPOIS do cabeçalho (a troca sobe o `modelos.rev`). NUNCA lança: P0409 é tratado dentro (relê, merge 3 vias,
+      // re-tenta 1x; com conflito devolve `{ conflito }`) e qualquer erro vira `{ erro }` — o resto do card JÁ gravou.
+      let etapaPT: EtapaPT = null;
+      if (isEdit && savedId && capturaPT) etapaPT = { captura: capturaPT, resultado: await pecaTesteRef.current.salvar(capturaPT) };
       // F3.2 — #Erro nas etapas seguintes quando o BOM gravado mudou grade/consumo/aviamento (Dev :2198-2213).
       // A RPC só marca com CAD e etapas existentes; erro aqui NÃO derruba o save (paridade: o Dev ignora).
       let etapasMarcadas: string[] = [];
@@ -908,10 +966,18 @@ export function usePlanejamentoSave({
         // "alguém salvou agora".
         autoProduto, savedDraft: normalizarDraftSalvo(d, podeEditarPreco), savedId, etapasMarcadas,
         consumoOuAviamento: bom.gravar && (bom.flags.consumo || bom.flags.aviamentos),
-        resolucaoTrava, precosServidorPosRpc,
+        resolucaoTrava, precosServidorPosRpc, pecaTeste: etapaPT,
       };
     },
     onSuccess: async (result) => {
+      // R9 (Ruling 11) — Salvar da Peça Teste SOZINHA: onSuccess mínimo (não re-baseia o draft do card nem chama o `onSaved` do host).
+      if (result && "somentePecaTeste" in result) {
+        const etapa = result.pecaTeste;
+        if (!etapa) { toast.info("Nenhuma alteração da Peça Teste para salvar."); return; }
+        avisarPecaTeste(etapa, false);
+        invalidarAposPecaTeste(qc, modeloId);
+        return;
+      }
       const etapasMarcadas = result?.etapasMarcadas ?? [];
       if (etapasMarcadas.length > 0) {
         const nomes = etapasMarcadas.map((k) => STAGE_LABEL[k] ?? k).join(", ");
@@ -1120,6 +1186,11 @@ export function usePlanejamentoSave({
       conflitosRef.current = [];
       setConflitos([]);
       setUltimoMerge(null);
+      // R9 — Peça Teste: re-baseia SÓ quando gravou (conflito/erro deixam a seção suja, com o aviso); o resto do card já está salvo.
+      if (result?.pecaTeste) {
+        avisarPecaTeste(result.pecaTeste, true);
+        invalidarAposPecaTeste(qc, modeloId);
+      }
       // MO por serviço: o que acabei de persistir vira o novo baseline (limpa o indicador de
       // "não salvo" das linhas de MO). F3.2 — usa o ENVIADO (mesma razão do draft acima: uma edição em
       // voo durante o save não pode ser confundida com o que já foi persistido).

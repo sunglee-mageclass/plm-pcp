@@ -460,6 +460,53 @@ export function mensagemModularidade(code: string, msg: string): string | null {
   return null;
 }
 
+// Urgentes R9 (Peça Teste, migrations 20261103192000..196000): recusas ASCII com prefixo `peca_teste_*:` → texto PT. Dois códigos
+// são P0409 (`peca_teste_conflito`, `peca_teste_desatualizada` — a tela recarrega a seção e refaz o merge; o texto genérico de
+// P0409 falaria de "registro", não da Peça Teste), `peca_teste_sem_login` é 42501 e os demais P0001. `peca_teste_fornecedor_travado`
+// vem do salvar da Peça Teste E do gatilho de `modelo_servico_mo` (trocar o fornecedor da linha da M.O. com a peça aprovada).
+export const MENSAGENS_PECA_TESTE = {
+  peca_teste_conflito: "Outra pessoa salvou a Peça Teste deste card agora — conferimos as mudanças.",
+  peca_teste_desatualizada: "O serviço da mão de obra mudou — a Peça Teste foi recarregada.",
+  peca_teste_sem_datas: "Preencha a Data de saída e a Data de entrada para aprovar ou reprovar.",
+  peca_teste_historico: "Tentativa reprovada é só leitura.",
+  peca_teste_aprovada_travada: "Peça aprovada: as datas ficam travadas. Desfaça a aprovação para mudar.",
+  peca_teste_fornecedor_travado: "A peça teste deste serviço já foi aprovada com este fornecedor; para trocar, reabra a peça teste.",
+  peca_teste_fornecedor_invalido: "Fornecedor de serviço inválido.",
+  peca_teste_sem_fornecedor: "Defina o fornecedor da mão de obra deste serviço antes de aprovar ou reprovar a peça teste.",
+  peca_teste_formato: "Não foi possível salvar a Peça Teste: os dados enviados estão incompletos. Recarregue o card e tente de novo.",
+  peca_teste_modelo: "Este produto não foi encontrado (outra pessoa pode tê-lo excluído). Recarregue a tela.",
+  peca_teste_sem_login: TEXTO_SESSAO_EXPIRADA,
+} as const;
+/** Mini explosão da Peça Teste (urg R11, migrations 20261103199000..199400): recusas ASCII `peca_teste_mini_*:` → texto PT. `peca_teste_mini_desatualizada`
+ *  é P0409 (a tela relê, refaz o merge e confere as quantidades); as demais são P0001. Anti-drift contra as migrations: `peca-teste-mini-mensagens.test.ts`. */
+export const MENSAGENS_PECA_TESTE_MINI = {
+  peca_teste_mini_travada: "Baixa feita: a mini explosão está travada. Para mudar, apague a Data de saída e salve (a baixa é estornada).",
+  peca_teste_mini_desatualizada: "O BOM ou a mini explosão mudou — conferimos as quantidades; confira e salve de novo.",
+  peca_teste_mini_formato: "Não foi possível salvar a mini explosão: os dados enviados estão incompletos. Recarregue o card e tente de novo.",
+  peca_teste_mini_tamanho_invalido: "O tamanho escolhido na mini explosão não está na grade da loja. Escolha outro tamanho.",
+  peca_teste_mini_variante_invalida: "A cor ou a variante escolhida na mini explosão não é mais do BOM deste produto. Escolha de novo.",
+  peca_teste_mini_fonte_invalida: "A OC ou o rolo escolhido na mini explosão não está disponível. Escolha de novo.",
+  peca_teste_mini_baixa_imutavel: "A baixa de estoque da peça teste não se altera nem se apaga: para desfazer, apague a Data de saída e salve (o estorno entra como nova linha).",
+  peca_teste_mini_sem_estoque: "A mini explosão (baixa de estoque da peça teste) precisa do módulo Entrada e Saída, que esta loja não tem.",
+} as const;
+/** FK dos ledgers de estoque que a peça teste usa (`estoque_peca_teste_baixas`, `estoque_tecido_baixas.peca_teste_tentativa_id`): excluir o
+ *  aviamento/variante/insumo/cor que teve baixa de peça teste é barrado (histórico; nada de apagar o que saiu do estoque). */
+export const TEXTO_ITEM_COM_BAIXA_PECA_TESTE = "Este item tem baixa de peça teste registrada e não pode ser excluído.";
+const FK_BAIXA_PECA_TESTE = /update or delete on table "[a-z_]+" violates foreign key constraint "estoque_peca_teste_baixas_[a-z_]+_fkey"/;
+/** `peca_teste_sem_datas` por TENTATIVA NOVA decidida (id nulo + aprovação): a tela agora desabilita a decisão nesse caso; este é o texto da rede. */
+export const TEXTO_PECA_TESTE_NAO_SALVA = "A peça teste ainda não foi salva: salve as datas antes de aprovar ou reprovar.";
+export function mensagemPecaTeste(code: string, msg: string): string | null {
+  if (code !== "P0001" && code !== "P0409" && code !== "42501") return null;
+  const m = /^(peca_teste_[a-z_]+):/.exec(msg);
+  if (!m) return null;
+  if (m[1] === "peca_teste_sem_datas" && /tentativa nova/.test(msg)) return TEXTO_PECA_TESTE_NAO_SALVA;
+  return (MENSAGENS_PECA_TESTE as Record<string, string>)[m[1]] ?? (MENSAGENS_PECA_TESTE_MINI as Record<string, string>)[m[1]] ?? null;
+}
+/** 23503 ao excluir cadastro (aviamento, variante, insumo, cor) com baixa de peça teste no ledger. */
+export function mensagemFkBaixaPecaTeste(code: string, msg: string): string | null {
+  return code === "23503" && FK_BAIXA_PECA_TESTE.test(msg) ? TEXTO_ITEM_COM_BAIXA_PECA_TESTE : null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -532,6 +579,12 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Leves L3: prefixos ASCII (P0001) do reprovado na Explosão e do Formato da REF → texto PT.
   const levesL3 = mensagemLevesL3(code, msg);
   if (levesL3) return levesL3;
+
+  // Urgentes R9: Peça Teste (`peca_teste_*:`, P0001/P0409/42501) → texto PT (antes do P0409 genérico e do ramo "P0001 = já em PT").
+  const pecaTeste = mensagemPecaTeste(code, msg);
+  if (pecaTeste) return pecaTeste;
+  const fkPecaTeste = mensagemFkBaixaPecaTeste(code, msg);
+  if (fkPecaTeste) return fkPecaTeste;
 
   // Reforço de segurança S1: prefixos ASCII (42501/P0001) das guardas novas → texto PT.
   const segS1 = mensagemSegS1(code, msg);

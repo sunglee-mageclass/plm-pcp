@@ -10,6 +10,7 @@ import { moLinhaVaiReabrir, somaAprovadaVigente, TEXTO_MO_VAI_REABRIR, TEXTO_MO_
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
 const NENHUM_FORNECEDOR = "__nenhum__";
+const TEXTO_FORNECEDOR_TRAVADO_MO = "Peça teste aprovada: fornecedor travado";
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
 export type FornecedorServicoOpt = { id: string; nome_fantasia: string };
 export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; valor_padrao?: number | null };
@@ -26,7 +27,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; v
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
   onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase,
-  readOnly = false, podeEditarValor, fornecedores,
+  readOnly = false, podeEditarValor, fornecedores, fornecedorTravado,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -61,6 +62,9 @@ export function MaoObraEditor({
    * `editaValor`; senão texto). SÓ o Sheet do Planejamento passa — o Dev (somente leitura) e o `MaoObraCardMini` dos cards PA/PI
    * NÃO passam e ficam idênticos a antes. Trocar o fornecedor de linha decidida reabre a aprovação (a dica âmbar já cobre). */
   fornecedores?: FornecedorServicoOpt[];
+  /** [urg R9] ids das linhas cuja PEÇA TESTE está aprovada: o fornecedor delas fica travado (o servidor também recusa trocá-lo) — o Select
+   * vira desabilitado com a dica "Peça teste aprovada: fornecedor travado". Ausente/vazio = comportamento de sempre. */
+  fornecedorTravado?: ReadonlySet<string>;
 }) {
   const editaValor = podeEditarValor && !readOnly;
   const [addSel, setAddSel] = useState<string>("");
@@ -101,8 +105,15 @@ export function MaoObraEditor({
             {fornecedores && (
               editaValor ? (
                 <div className="w-full sm:w-48">
-                  <Select value={l.empresa_id ?? NENHUM_FORNECEDOR} onValueChange={(v) => setFornecedorAt(idx, v === NENHUM_FORNECEDOR ? null : v)}>
-                    <SelectTrigger aria-label="Fornecedor" data-colab-path={`mo:${linhaId ?? `nova-${idx}`}:fornecedor`}><SelectValue placeholder="Sem fornecedor" /></SelectTrigger>
+                  <Select
+                    value={l.empresa_id ?? NENHUM_FORNECEDOR}
+                    onValueChange={(v) => setFornecedorAt(idx, v === NENHUM_FORNECEDOR ? null : v)}
+                    disabled={linhaId != null && !!fornecedorTravado?.has(linhaId)}
+                  >
+                    <SelectTrigger
+                      aria-label="Fornecedor"
+                      title={linhaId != null && fornecedorTravado?.has(linhaId) ? TEXTO_FORNECEDOR_TRAVADO_MO : undefined}
+                      data-colab-path={`mo:${linhaId ?? `nova-${idx}`}:fornecedor`}><SelectValue placeholder="Sem fornecedor" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NENHUM_FORNECEDOR}>Sem fornecedor</SelectItem>
                       {l.empresa_id && !fornecedores.some((f) => f.id === l.empresa_id) && (

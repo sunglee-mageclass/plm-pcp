@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-// [camada C2 · P-265 A / 4.1] Etapas PL: escolher "Reprovado" na Aprovação da peça-teste (card do quadro) pede "Tem certeza?" — o card
-// SAI do quadro. Card REAL (`EtapaCardView`) + hook real de gravação + Supabase falso: abrir o diálogo não grava; Cancelar não grava
-// (o Select segue como estava); Confirmar grava UMA vez; "Aprovado" segue direto, sem diálogo.
+// [camada C2 · P-265 A / 4.1 → R9] Etapas PL: o card do quadro NÃO edita mais a peça teste (Saída/Entrada/Aprovação saíram — a peça teste
+// vive no card do produto, seção "Peça Teste" do Planejamento, onde "Reprovado" pede "Tem certeza?"). Card REAL (`EtapaCardView`) + Supabase
+// falso: o card da coluna Peça Teste não tem campo nem grava nada e só abre o card do produto (com acesso); o card de bloco em Separação
+// segue com a Data Enviado e NUNCA oferece Aprovação.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -14,10 +15,10 @@ vi.mock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
 vi.mock("@/hooks/useSignedUrl", () => ({ useSignedUrl: () => null }));
 vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastMock), Toaster: () => null }));
 
-import { act, createElement } from "react";
+import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
-import { montar, esperar, aguardar, clicar } from "./dom-helpers";
+import { montar, esperar, clicar } from "./dom-helpers";
 import { EtapaCardView } from "@/components/producao/etapas/EtapaCardView";
 
 let desmontar: (() => Promise<void>) | null = null;
@@ -29,59 +30,62 @@ beforeEach(() => {
 });
 afterEach(async () => { await desmontar?.(); desmontar = null; document.body.innerHTML = ""; });
 
-const CARD: any = {
-  blocoId: "b1", cadId: "c1", modeloId: "m1", ref: "R1", nome: "BLUSA", fotoFontes: [], empresa: "Oficina X", origem: "interno", etapa: "peca_teste",
-  bloco: { id: "b1", categoria_terceirizado_id: "cat1", pt_data_saida: null, pt_data_entrada: null, pt_aprovacao: null },
+const CARD_PT: any = {
+  tipo: "peca_teste", blocoId: "pt:m1", modeloId: "m1", ref: "R1", nome: "BLUSA", fotoFontes: [], empresa: "Oficina X", origem: "interno", etapa: "peca_teste",
+  pecaTeste: { status: "em_teste", dataSaida: "2026-10-05", servicos: ["PL · Oficina X"] },
 };
-const dialogo = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
-const botaoDialogo = (t: string) => Array.from(dialogo()?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((b) => (b.textContent ?? "").trim() === t) ?? null;
+const CARD_BLOCO: any = {
+  tipo: "bloco", blocoId: "b1", cadId: "c1", modeloId: "m1", ref: "R1", nome: "BLUSA", fotoFontes: [], empresa: "Oficina X", origem: "interno", etapa: "separacao",
+  bloco: { categoria_terceirizado_id: "cat1", data_enviado: null, data_entregue: null, qtd_recebida: null, grade_detalhe: null },
+  prazos: { data_prevista: null, data_entregue: null, peca_foto: false, peca_foto_previsao: null, peca_foto_data: null },
+};
 const rpcs = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_terceirizados");
-const gatilho = () => document.querySelector<HTMLElement>('[role="combobox"]');
-const opcao = (t: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((o) => (o.textContent ?? "").trim() === t) ?? null;
 
-async function escolher(rotulo: string) {
-  await act(async () => { gatilho()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
-  await aguardar(() => !!opcao(rotulo), `opção ${rotulo}`);
-  await act(async () => { opcao(rotulo)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
-}
-async function abrir() {
+async function abrir(card: any, props: Record<string, unknown> = {}) {
   const m = await montar(createElement(QueryClientProvider, { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
-    createElement(EtapaCardView, { card: CARD, minimized: false, onToggleMin: () => {}, onAbrir: () => {} })));
+    createElement(EtapaCardView, { card, minimized: false, onToggleMin: () => {}, onAbrir: () => {}, ...props })));
   desmontar = m.desmontar;
-  await aguardar(() => !!gatilho(), "Select de Aprovação");
+  await esperar(20);
 }
 
-describe("[camada C2 · 4.1] Etapas PL — Reprovado", () => {
-  it("escolher Reprovado abre o diálogo aprovado sem gravar; Cancelar não grava e o Select continua vazio; Reprovar grava UMA vez", async () => {
-    await abrir();
-    await escolher("Reprovado");
-    await aguardar(() => !!dialogo(), "diálogo aberto");
-    expect(dialogo()!.textContent).toContain("Reprovar a peça-teste de “BLUSA”?");
-    expect(dialogo()!.textContent).toContain("O card R1 · Oficina X sai do quadro de Etapas. Para reabrir, abra o modelo em PCP › Serviços, vá em “PLs reprovadas na peça teste” e mude a Aprovação.");
-    expect(botaoDialogo("Reprovar")!.className).toContain("destructive");
+describe("[R9] Etapas PL — card da coluna Peça Teste", () => {
+  it("em teste: mostra 'em teste · saída dd/mm' + o serviço; NENHUM campo de edição (sem Select, sem data), nada grava", async () => {
+    await abrir(CARD_PT, { onAbrirProduto: () => {} });
+    const txt = document.body.textContent ?? "";
+    expect(txt).toMatch(/Em teste · saída 05\/10/i);
+    expect(txt).toContain("PL · Oficina X");
+    expect(document.querySelector('[role="combobox"]')).toBeNull();
+    expect(document.querySelector("input")).toBeNull();
+    expect(txt).not.toContain("Aprovação");
     expect(rpcs()).toHaveLength(0);
-
-    await clicar(botaoDialogo("Cancelar")!);
-    await aguardar(() => !dialogo(), "diálogo fechado");
-    await esperar(80);
-    expect(rpcs()).toHaveLength(0); // Cancelar não grava
-    expect(gatilho()!.textContent).not.toContain("Reprovado"); // o Select continua como estava
-
-    await escolher("Reprovado");
-    await aguardar(() => !!dialogo(), "diálogo reaberto");
-    await clicar(botaoDialogo("Reprovar")!);
-    await aguardar(() => rpcs().length === 1, "salvar_terceirizados chamada");
-    const bl = (rpcs()[0].payload as any)._blocos[0];
-    expect(bl.pt_aprovacao).toBe("reprovado");
-    await esperar(80);
-    expect(rpcs()).toHaveLength(1);
   });
+  it("aprovada: selo 'Aprovada — aguardando Explosão'", async () => {
+    await abrir({ ...CARD_PT, pecaTeste: { status: "aprovada", dataSaida: null, servicos: ["PL · Oficina X"] } }, { onAbrirProduto: () => {} });
+    expect(document.body.textContent).toMatch(/Aprovada — aguardando Explosão/i);
+  });
+  it("com acesso: clicar abre o card do PRODUTO (Planejamento), não o de Serviços", async () => {
+    const produto = vi.fn(); const servicos = vi.fn();
+    await abrir(CARD_PT, { onAbrirProduto: produto, onAbrir: servicos });
+    await clicar(document.querySelector<HTMLElement>("button.block")!);
+    expect(produto).toHaveBeenCalledWith("m1");
+    expect(servicos).not.toHaveBeenCalled();
+  });
+  it("sem acesso ao Sheet do Planejamento: não clicável e explica no title", async () => {
+    const servicos = vi.fn();
+    await abrir(CARD_PT, { onAbrir: servicos });
+    expect(document.querySelector("button.block")).toBeNull();
+    expect(document.querySelector('[title="Abra pelo Planejamento de Produto (sem acesso ao card)"]')).not.toBeNull();
+    expect(servicos).not.toHaveBeenCalled();
+  });
+});
 
-  it("escolher Aprovado segue DIRETO (sem diálogo)", async () => {
-    await abrir();
-    await escolher("Aprovado");
-    await aguardar(() => rpcs().length === 1, "salvar_terceirizados chamada");
-    expect(dialogo()).toBeNull();
-    expect((rpcs()[0].payload as any)._blocos[0].pt_aprovacao).toBe("aprovado");
+describe("[R9] Etapas PL — card de bloco", () => {
+  it("em Separação: só a Data Enviado; sem Aprovação nem Peça Teste", async () => {
+    await abrir(CARD_BLOCO);
+    const txt = document.body.textContent ?? "";
+    expect(txt).toContain("Data Enviado");
+    expect(txt).not.toContain("Aprovação");
+    expect(txt).not.toContain("Peça Teste");
+    expect(document.querySelector('[role="combobox"]')).toBeNull();
   });
 });

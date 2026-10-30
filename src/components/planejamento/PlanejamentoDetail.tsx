@@ -92,6 +92,10 @@ import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-d
 import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
+import { PERM_PECA_TESTE, salvarComConfirmacaoEstorno, usePecaTeste, type FornecedorMo } from "@/components/planejamento/planejamento-detail/usePecaTeste";
+import { PecaTesteSecao } from "@/components/planejamento/planejamento-detail/PecaTesteSecao";
+import { useMiniExplosao } from "@/components/planejamento/planejamento-detail/useMiniExplosao";
+import { pecaTesteAprovadaTrilha, requisitoDoEstado, tentativaAtualPT } from "@/lib/peca-teste";
 import { useFichaTecnica } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
 import { opcoesMoverHoje } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
@@ -198,6 +202,9 @@ function PlanejamentoDetailConteudo({
   const podeVerDev = canView("criacao_desenvolvimento");
   // F3.6 (seção "4. Códigos" — F3.5b do SKU): SKUs = ver/editar o Planejamento (spec SKU §4.4; o servidor confere no wrapper).
   const podeVerPlanejamento = canView("criacao_planejamento");
+  // R9 (Peça Teste): seção com permissão PRÓPRIA — Leitor vê, Editor lança tentativas/datas/aprovação/fornecedor (o servidor confere: portão S3).
+  const podeVerPT = canView(PERM_PECA_TESTE);
+  const podeEditarPT = canEdit(PERM_PECA_TESTE);
   const podeEditarPlanejamento = canEdit("criacao_planejamento");
   // P-53 A (fix 1, m-3) — a permissão de preço (`criacao_planejamento:preco_venda`) é uma seção À PARTE,
   // mas o Salvar do Planejamento é quem grava o valor digitado — sem TAMBÉM exigir `podeEditarPlanejamento`,
@@ -423,9 +430,9 @@ function PlanejamentoDetailConteudo({
     queryKey: ["cats-servico-ativas"],
     queryFn: async () => {
       const { data, error } = await supabase.from("categorias_terceirizado")
-        .select("id, nome, ativo, valor_padrao").order("ordem").order("nome");
+        .select("id, nome, ativo, valor_padrao, exige_peca_teste").order("ordem").order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; ativo: boolean; valor_padrao: number | null }[];
+      return (data ?? []) as { id: string; nome: string; ativo: boolean; valor_padrao: number | null; exige_peca_teste: boolean }[];
     },
   });
   // Resumo da MO por serviço (RPC mascara valor/total p/ quem não vê custos; {} p/ quem não vê
@@ -730,7 +737,49 @@ function PlanejamentoDetailConteudo({
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
-  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty;
+  // F3.6 (Parte A — spec §5.1): a Mão de obra deixa de ser seção no Sheet e vira o bloco da linha "Mão de obra" DENTRO de
+  // "Preço e Custos"; a condição de exibir é a MESMA de antes (ver custos OU aprovar; comprado só com o card salvo).
+  // (R9: sobe para cá — a seção Peça Teste precisa saber se o editor da M.O. está visível/editável para casar o fornecedor.)
+  const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));
+  // R9 — FORNECEDOR ÚNICO (Ruling 9): a troca feita no editor da M.O. (linha editável e visível) vale como o fornecedor efetivo da trilha da
+  // Peça Teste. Só entram as linhas cujo fornecedor a pessoa MUDOU (≠ da base da M.O.): as demais seguem o rascunho da própria seção.
+  const fornecedorMo = useMemo<Record<string, FornecedorMo> | null>(() => {
+    if (!(moBlocoVisivel && podeEditarMO)) return null;
+    const out: Record<string, FornecedorMo> = {};
+    for (const l of moLinhas) {
+      if (!l.id) continue;
+      const b = moLinhasBase.find((x) => x.id === l.id);
+      if (b && (l.empresa_id ?? null) !== (b.empresa_id ?? null)) out[l.id] = { id: l.empresa_id ?? null, nome: l.empresa_nome ?? null };
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }, [moBlocoVisivel, podeEditarMO, moLinhas, moLinhasBase]);
+  // R9 — linhas de M.O. do RASCUNHO cujo tipo exige peça teste mas que o servidor ainda não conhece como trilha: linha NOVA, ou linha
+  // salva que TROCOU de tipo (Ruling 4: a trilha do tipo antigo fica escondida; a nova nasce no Salvar). "Salve o card para lançar…" (Ruling 12).
+  const exigePecaTestePorTipo = new Map(catsServico.map((c) => [c.id, !!c.exige_peca_teste]));
+  const ptLinhasNovas: string[] = [];
+  const ptBloqueadasPorTipo = new Set<string>();
+  if (isEdit && podeVerPT) {
+    for (const l of moLinhas) {
+      const b = l.id ? moLinhasBase.find((x) => x.id === l.id) : undefined;
+      const tipoMudou = !!b && (l.categoria_terceirizado_id ?? null) !== (b.categoria_terceirizado_id ?? null);
+      if (tipoMudou && l.id) ptBloqueadasPorTipo.add(l.id);
+      if ((!l.id || tipoMudou) && l.categoria_terceirizado_id && exigePecaTestePorTipo.get(l.categoria_terceirizado_id)) {
+        ptLinhasNovas.push(catsServico.find((c) => c.id === l.categoria_terceirizado_id)?.nome ?? l.nome ?? "serviço");
+      }
+    }
+  }
+  // Peça Teste (R9): o rascunho da seção vive aqui (nada grava antes do Salvar); `pt.pecaTesteSave` entra na cadeia do Salvar do card.
+  // R11 — mini explosão (1 peça) de cada tentativa: o cálculo nasce da FICHA do Sheet; `pt` usa o mesmo cálculo para o `confere` do Salvar.
+  // A mini só carrega (RPC de estoque + variantes) quando há Peça Teste de fato: algum serviço da M.O. (salva ou no rascunho) exige peça teste, ou o
+  // servidor já devolveu trilha. Sem isso, abrir qualquer card varreria o estoque da loja à toa. `ptTemTrilha` espelha `pt.estado` (declarado abaixo,
+  // pois o `pt` consome a `miniEx`): a trilha que passa a existir no meio da sessão religa o `enabled`.
+  const [ptTemTrilha, setPtTemTrilha] = useState(false);
+  const algumServicoExigePT = [...moLinhas, ...moLinhasBase].some((l) => !!l.categoria_terceirizado_id && exigePecaTestePorTipo.get(l.categoria_terceirizado_id));
+  const miniEx = useMiniExplosao({ modeloId, habilitado: isEdit && podeVerPT && (ptTemTrilha || algumServicoExigePT), ficha, tamanhoTipo: draft.tamanho_tipo });
+  const pt = usePecaTeste({ modeloId, habilitado: isEdit, podeEditar: podeEditarPT, fornecedorMo, linhasIgnoradas: ptBloqueadasPorTipo, mini: miniEx });
+  const ptTrilhasN = pt.estado?.trilhas.length ?? 0;
+  useEffect(() => { setPtTemTrilha(ptTrilhasN > 0); }, [ptTrilhasN]);
+  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty || pt.dirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: !hostGuardaNavegacao, navPermitida });
   requestCloseRef.current = requestClose;
   const setSim = (patch: Partial<CustoSimInput>) =>
@@ -980,10 +1029,19 @@ function PlanejamentoDetailConteudo({
     gradeCompradoPeloBom: origemComprado === "importado",
     qc, onSaved: aoSalvar, onCreated, ficha: ficha.save, resetDraftBaseline,
     insumosIniciaisRef: insumosNovosRef,
+    // R9 — Peça Teste: etapa do Salvar logo DEPOIS da M.O.; `somentePecaTeste` = quem só edita a seção (grava SÓ ela, sem tocar o resto do card).
+    pecaTeste: pt.pecaTesteSave,
+    somentePecaTeste: perm.sheetSomenteLeitura && podeEditarPT,
   });
   // F3.3 — Enviar à Explosão (Dev :2402-2433): Salvar + `enviar_modelo_para_cad`; pós-envio re-trava e avisa a lista.
   const enviarExplosao = useEnviarExplosao({
-    modeloId, qc, salvarAntes, draftLiveRef,
+    modeloId, qc,
+    // R11 — o "Salvar por dentro" do Enviar não pergunta: se esse Salvar estornaria a baixa da peça teste, recusa e manda usar o Salvar (com a confirmação).
+    salvarAntes: async () => {
+      if (pt.pecaTesteSave.estornosPendentes().length > 0) throw new Error("Há um estorno de baixa da peça teste pendente — clique em Salvar e confirme antes de enviar à Explosão.");
+      await salvarAntes();
+    },
+    draftLiveRef,
     bloqueioModulo: requerEs.ok ? null : requerEs.motivo,
     onEnviado: () => { setEditandoDev(false); onSaved(); },
   });
@@ -1021,6 +1079,29 @@ function PlanejamentoDetailConteudo({
   // Resolução GENÉRICA a partir do ColabBanner (mesmo padrão do piloto/Desenvolvimento): todo
   // conflito ganha "manter meu · usar o novo" — sem isso o guard do save deadlockaria em
   // campos sem UI de resolução inline.
+  // R9 — Peça Teste: trocar o fornecedor na seção troca também na linha da M.O. (quando o editor da M.O. está visível e editável: mostra a
+  // troca e o aviso `moLinhaVaiReabrir`); sem o editor, só o rascunho da seção.
+  const espelharFornecedorNaMO = (linhaId: string, empresaId: string | null, empresaNome: string | null) => {
+    if (!(moBlocoVisivel && podeEditarMO)) return;
+    setMoLinhas((ls) => ls.map((l) => (l.id === linhaId ? { ...l, empresa_id: empresaId, empresa_nome: empresaNome } : l)));
+  };
+  // Fornecedor ÚNICO nos DOIS sentidos: trocar (ou desfazer a troca) no editor da M.O. também grava no rascunho da seção — a última edição vale nas duas vistas.
+  const aoMudarLinhasMO = (ls: MaoObraEditorLinha[]) => {
+    for (const l of ls) {
+      if (!l.id) continue;
+      const antes = moLinhasRef.current.find((x) => x.id === l.id);
+      if (antes && (antes.empresa_id ?? null) !== (l.empresa_id ?? null)) pt.trocarFornecedor(l.id, l.empresa_id ?? null, l.empresa_nome ?? null);
+    }
+    setMoLinhas(ls);
+  };
+  const trocarFornecedorPT = (linhaId: string, empresaId: string | null, empresaNome: string | null) => {
+    pt.trocarFornecedor(linhaId, empresaId, empresaNome);
+    espelharFornecedorNaMO(linhaId, empresaId, empresaNome);
+  };
+  const resolverConflitoPT = (path: string, escolha: "meu" | "dele") => {
+    const f = pt.resolverConflito(path, escolha);
+    if (f) espelharFornecedorNaMO(f.linhaId, f.empresaId, f.empresaNome);
+  };
   const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
     // F3.2 — conflito de SEÇÃO do BOM: "manter meu" fecha o aviso (o próximo Salvar sobrescreve); "usar o novo"
     // descarta as edições do BOM e recarrega do servidor (Dev :1819-1838).
@@ -1126,6 +1207,10 @@ function PlanejamentoDetailConteudo({
   });
   // [camada C2 · P-263 A] "Cancelar Lançamento" desfaz: pede "Tem certeza?" antes. "Lançar" segue direto (Seção 2 não implementada).
   const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao(lancar.isPending);
+  // [R11 · estorno da baixa da Peça Teste] o clique do Salvar pergunta ANTES de enviar qualquer coisa quando o Salvar vai estornar a baixa de
+  // estoque de uma mini (Data de saída apagada, ou mini mudada com a data = estorna e refaz). Cancelar = nada é enviado; Confirmar = o Salvar normal.
+  const { pedir: pedirEstorno, dialog: dialogEstorno } = useConfirmacao();
+  const salvarComConfirmacaoPT = () => salvarComConfirmacaoEstorno(pt.pecaTesteSave, pedirEstorno, handleSave);
 
   const duplicate = useMutation({
     mutationFn: async () => {
@@ -1326,20 +1411,29 @@ function PlanejamentoDetailConteudo({
   const motivoSemProdutoComprado: string | null = !podeEditarPlanejamento
     ? "Este card ainda não tem produto vinculado — quem edita o Planejamento o cria ao salvar."
     : origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
-  // F3.6 (Parte A — spec §5.1): a Mão de obra deixa de ser seção no Sheet e vira o bloco da linha "Mão de obra" DENTRO de
-  // "Preço e Custos"; a condição de exibir é a MESMA de antes (ver custos OU aprovar; comprado só com o card salvo).
-  const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));
   // [urg R4] fornecedores de serviço do Select por linha de M.O.: TODAS as empresas tipo 'servico' da loja (P-289 C — não só as
   // vinculadas à categoria do serviço). Só carrega quando o bloco de M.O. aparece; a loja entra na key (super admin troca de loja).
   const { data: empresasServicoMO = [] } = useQuery({
     queryKey: ["empresas-servico-mo", tenantIdAtivo],
-    enabled: moBlocoVisivel && !!tenantIdAtivo,
+    enabled: (moBlocoVisivel || pt.ativo) && !!tenantIdAtivo,
     queryFn: async () => {
       const { data, error } = await supabase.from("empresas").select("id, nome_fantasia").eq("tipo", "servico").order("nome_fantasia");
       if (error) throw error;
       return (data ?? []) as { id: string; nome_fantasia: string }[];
     },
   });
+  // Linhas cuja peça teste está APROVADA (no rascunho): o fornecedor delas trava também no editor da M.O.
+  const fornecedorTravadoMO = new Set<string>(
+    (pt.estado?.trilhas ?? [])
+      .filter((t) => tentativaAtualPT(t).aprovacao === "aprovado" && pecaTesteAprovadaTrilha({
+        categoria_id: t.categoria_id, empresa_id: pt.base?.trilhas.find((b) => b.mo_linha_id === t.mo_linha_id)?.empresa_id ?? t.empresa_id,
+        tentativas: t.tentativas.map((x) => ({ categoria_id: t.categoria_id, numero: x.numero, aprovacao: x.aprovacao, empresa_id: x.empresa_id })),
+      }))
+      .map((t) => t.mo_linha_id),
+  );
+  // Quem SÓ edita a Peça Teste: o `disabled` do fieldset não impede o Radix (Select/Menu/Popover) de abrir no `pointerdown` (lição R1) — as
+  // áreas FORA da seção levam `pointer-events-none` nesse modo (herdado pelos filhos, inclusive através de `contents`).
+  const barraPonteiroFora = perm.sheetSomenteLeitura && podeEditarPT ? "pointer-events-none" : undefined;
   const vis: Record<SecaoSheetKey, boolean> = {
     info: true,
     colecao: true,
@@ -1357,6 +1451,9 @@ function PlanejamentoDetailConteudo({
     // própria como `tecidos_novo`. No Sheet ela mora dentro de "Preço e Custos" (`moBlocoVisivel`).
     mao_obra_novo: !isEdit && moBlocoVisivel,
     preco: isEdit,
+    // R9 — "Peça Teste": logo depois de "Preço e Custos"; SOME quando nenhum serviço da M.O. exige peça teste (nem trilha salva, nem linha nova do rascunho).
+    // (erro de leitura NÃO esconde a seção — "nunca decidir vazio de uma query que falhou": ela mostra "Não foi possível carregar · Tentar de novo")
+    peca_teste: isEdit && !!modeloId && podeVerPT && ((pt.estado?.trilhas.length ?? 0) > 0 || ptLinhasNovas.length > 0 || pt.erro),
     // F3.4 — a mesma chave serve à seção do produto do IMPORTADO ("Produto Importado").
     produto_acabado: isEdit && ((isRevenda && paOn) || (draft.origem === "importado" && piOn)),
     // F3.4 — decisão F3 #4: a grade cor × tamanho é A grade do comprado (revenda E importado), pela seção "s4".
@@ -1404,6 +1501,11 @@ function PlanejamentoDetailConteudo({
     maoObraAviso: moBlocoVisivel && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null,
     anexos: { fotoModelo: draft.fotos_modelo.length > 0, fotoReferencia: draft.fotos_referencia.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
     lancamento: { lancado, data: draft.data_lancamento },
+    // R9 — "N de M aprovadas" (requisito local do rascunho); sem trilha nenhuma, sem selo.
+    pecaTeste: pt.estado && pt.estado.trilhas.length > 0 ? (() => {
+      const r = requisitoDoEstado(pt.estado, pt.base);
+      return { aprovadas: r.aprovadas, total: r.exigem, ok: r.ok };
+    })() : null,
   });
   // F3.4 — selo da grade cor × tamanho (comprado): requisito `grade_preenchida` do fluxo de comprado, senão informativo.
   selos.grade_revenda = seloGradeComprado({
@@ -1496,7 +1598,7 @@ function PlanejamentoDetailConteudo({
         categorias={catsServico}
         podeVerCustos={veCustos}
         podeAprovar={isEdit && podeAprovarMaoObra}
-        onChangeLinhas={(ls) => setMoLinhas(ls)}
+        onChangeLinhas={aoMudarLinhasMO}
         onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
         onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
         pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
@@ -1504,6 +1606,7 @@ function PlanejamentoDetailConteudo({
         linhasBase={moLinhasBase}
         podeEditarValor={podeEditarMO}
         fornecedores={empresasServicoMO}
+        fornecedorTravado={fornecedorTravadoMO}
       />
     </fieldset>
   );
@@ -1522,6 +1625,11 @@ function PlanejamentoDetailConteudo({
   // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
   const conteudo = (
     <PedidoSecaoContext.Provider value={pedidoSecao}>
+        {/* R9 (Ruling 11) — SÓ-LEITURA POR SEÇÃO: o `ReadOnlyScope` do Sheet passa a `sheetSomenteLeitura && !podeEditarPT` (quem só edita a
+            Peça Teste não fica com o Sheet inteiro desabilitado); TODO o resto (cabeçalho, seções antes e depois da Peça Teste, ações do rodapé)
+            volta a ser desabilitado aqui, pelo `sheetSomenteLeitura` de sempre. Sem a permissão da seção os dois valores são iguais (nada muda). */}
+        <ReadOnlyScope value={perm.sheetSomenteLeitura}>
+        <fieldset disabled={perm.sheetSomenteLeitura} className={cn("contents", barraPonteiroFora)} data-testid="sheet-fora-peca-teste-cabecalho">
         <div className="shrink-0 px-6 pt-4 pb-0">
           <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: rotuloTelaBreadcrumb(contexto) }, { label: draft.nome || "Novo modelo" }]} />
         </div>
@@ -1600,6 +1708,8 @@ function PlanejamentoDetailConteudo({
             rotulo={rotuloConflitoPlan}
           />
         </DialogHeader>
+        </fieldset>
+        </ReadOnlyScope>
 
         <div
           ref={colabScopeRef}
@@ -1662,6 +1772,10 @@ function PlanejamentoDetailConteudo({
           )
         ) : (
         <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
+          {/* R9 — grupo A (do início até "Preço e Custos"): trava por `sheetSomenteLeitura` (a Peça Teste, logo depois, tem a própria permissão).
+              `space-y-6` no próprio grupo (um `contents` perderia o espaçamento entre as seções — lição B1). */}
+          <ReadOnlyScope value={perm.sheetSomenteLeitura}>
+          <fieldset disabled={perm.sheetSomenteLeitura} className={cn("space-y-6 min-w-0 border-0 p-0 m-0", barraPonteiroFora)} data-testid="sheet-grupo-antes-peca-teste">
           {/* SETOR 1 — Informações Gerais do Produto */}
           <InfoGeraisSecao numero={numeros.info} selo={seloDe("info")} travaIntegracao={travaIntegracao}
             draft={draft} setDraftTracked={setDraftTracked}
@@ -1937,6 +2051,39 @@ function PlanejamentoDetailConteudo({
           </Secao>
           )}
 
+          </fieldset>
+          </ReadOnlyScope>
+
+          {/* R9 — Peça Teste (logo depois de "Preço e Custos"): permissão PRÓPRIA; some quando nenhum serviço da M.O. exige peça teste. */}
+          {vis.peca_teste && (
+            <PecaTesteSecao
+              numero={numeros.peca_teste}
+              selo={seloDe("peca_teste")}
+              estado={pt.estado}
+              base={pt.base}
+              fornecedores={empresasServicoMO}
+              somenteLeitura={!podeEditarPT}
+              carregando={pt.carregando}
+              erro={pt.erro}
+              onTentarDeNovo={pt.tentarDeNovo}
+              linhasNovas={ptLinhasNovas}
+              bloqueadasPorTipo={ptBloqueadasPorTipo}
+              conflitos={pt.conflitos}
+              onResolverConflito={resolverConflitoPT}
+              onEditarAtual={pt.editarAtual}
+              onAprovar={pt.aprovarAtual}
+              onDesfazer={pt.desfazerAtual}
+              onReprovar={pt.reprovarAtual}
+              onTrocarFornecedor={trocarFornecedorPT}
+              mini={miniEx}
+              onEditarMini={pt.editarMini}
+              avisos={pt.avisos}
+            />
+          )}
+
+          {/* R9 — grupo B (depois da Peça Teste até o fim): mesma trava do grupo A. */}
+          <ReadOnlyScope value={perm.sheetSomenteLeitura}>
+          <fieldset disabled={perm.sheetSomenteLeitura} className={cn("space-y-6 min-w-0 border-0 p-0 m-0", barraPonteiroFora)} data-testid="sheet-grupo-depois-peca-teste">
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
           {vis.produto_acabado && (isRevenda ? (
             <ProdutoAcabadoSecao rv={revenda} contexto={contexto} modeloId={modeloId} navigate={navigate} numero={numeros.produto_acabado} podeAcoesPlanejamento={perm.podeAcoesPlanejamento} />
@@ -2101,6 +2248,8 @@ function PlanejamentoDetailConteudo({
               ))}
             </p>
           )}
+          </fieldset>
+          </ReadOnlyScope>
         </fieldset>
         )}
         </div>
@@ -2114,6 +2263,9 @@ function PlanejamentoDetailConteudo({
             <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />
             <span className="max-sm:sr-only">Voltar</span>
           </Button>
+          {/* R9 — o resto do rodapé (Excluir, ⋯, Enviar…, Editar) segue a trava de sempre; Voltar e Salvar ficam FORA (quem só edita a Peça Teste usa os dois). */}
+          <ReadOnlyScope value={perm.sheetSomenteLeitura}>
+          <fieldset disabled={perm.sheetSomenteLeitura} className={cn("contents", barraPonteiroFora)} data-testid="sheet-rodape-acoes">
           {/* Excluir: logo ao lado do Voltar (só no modo edição). P-53 A: ação de ciclo do Planejamento. */}
           {isEdit && perm.podeAcoesPlanejamento && (
             <Button variant="destructive" disabled={!!estadoIntegracao} onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
@@ -2230,16 +2382,19 @@ function PlanejamentoDetailConteudo({
               <span className="max-sm:sr-only">Editar</span>
             </Button>
           )}
+          </fieldset>
+          </ReadOnlyScope>
           {/* P-53 A: Salvar habilitado com !perm.sheetSomenteLeitura (antes dependia só da trava da página).
               Fix hidratação (P-57 A): + trava até o seed (isEdit && !semeado) — sem isso o Salvar fica
               habilitado em cima do emptyDraft() e grava vazio por cima do servidor. */}
-          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={perm.sheetSomenteLeitura || save.isPending || enviarExplosao.isPending || (isEdit && !semeado) || secaoInsumosNovo.bloqueiaSalvar}>
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={salvarComConfirmacaoPT} disabled={(perm.sheetSomenteLeitura && !(podeEditarPT && pt.dirty)) || save.isPending || enviarExplosao.isPending || (isEdit && !semeado) || secaoInsumosNovo.bloqueiaSalvar}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
         </div>
 
         {dialogConfirmacao}
+        {dialogEstorno}
 
         <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
           <AlertDialogContent>
@@ -2404,7 +2559,7 @@ function PlanejamentoDetailConteudo({
       {isEdit ? (
         // P-53 A: ReadOnlyScope decide o fieldset do SheetContent pelas 2 permissões deste Sheet —
         // NÃO herda mais a trava da PÁGINA onde foi aberto (RequirePermission/useReadOnly da rota).
-        <ReadOnlyScope value={perm.sheetSomenteLeitura}>
+        <ReadOnlyScope value={perm.sheetSomenteLeitura && !podeEditarPT}>
           <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
             <SheetContent
               side="right"

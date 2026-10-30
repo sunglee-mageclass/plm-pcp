@@ -1,3 +1,4 @@
+// R9: oculto — substituído pela seção "Peça Teste" do card do produto (Planejamento); o PCP › Serviços não renderiza mais este componente. NÃO apagar (faxina depois).
 import { Milestone } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
