@@ -2182,7 +2182,7 @@ está em "Convenções de código". Onda 2 = backlog no fim desta seção.
   — PARE se `pa_dup`/`pi_dup` > 0 (produto em mais de 1 OC), `pa_ptr_outra`/`pi_ptr_outra` > 0 (ponteiro de outra loja), `itens_ja_existem` > 0 ou
   `md5_divergente` > 0; avisar o dono das OCs encomendadas (seguem como OC de 1 produto).** **Ida (banco ANTES do site):** R9 `20261103192000 → 196000` →
   R11 `20261103199000 → 199400` → **R13 `20261105100000`** → SITE (a R1b `20261103198000` já está em producao, fora do kit). Horário calmo (AccessExclusive por instantes em `ocs_p_acabado`/`ocs_importado`, ShareRowExclusive
-  nas tabelas das FKs novas); **55P03/40P01 = nada mudou, rodar de novo**; não toca auth/storage na ida. **Volta (LIFO):** SITE →
+  nas tabelas das FKs novas); **55P03/40P01 = nada mudou, rodar de novo**. ⚠️ **A ida TOCA auth/storage/realtime** (corrigido 30/out, medido no ensaio da Onda 2): o `CREATE POLICY tenant_select` nas 2 tabelas de itens dispara o hook supautils (`policy_grants`) → **AccessExclusive nas ~23 tabelas de auth/storage/realtime até o COMMIT** (ver `reference_policy_ddl_trava_auth`), e a txn é atômica (inclui a cópia dos itens) → **o login pode esperar durante a txn: HORÁRIO CALMO obrigatório**. **Volta (LIFO):** SITE →
   `supabase/rollback/20261105100000_urg_r13_oc_itens_down.sql` (NEUTRO: devolve as funções de antes, repõe o ponteiro do cabeçalho a partir do item
   único e as colunas legadas só onde `IS DISTINCT FROM`; as TABELAS de itens FICAM; **RECUSA** com OC de 2+ produtos [`r13_down_oc_varios_produtos: N`] e
   se o vivo não for o "depois" da R13 [md5]) → inversos da R11 → inversos da R9. `_down_drop` (opcional, DEPOIS, horário calmo — o DROP TABLE prende
