@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtInt } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
+import { achatarGradeItensOc } from "@/lib/oc-multi-itens";
 import { printWithImages } from "@/lib/print";
 import { RelatorioPrint, REL_COR_SUCESSO, REL_COR_PERIGO } from "@/components/shared/RelatorioPrint";
 import { ComprovantePagamentoPrint } from "@/components/financeiro/ComprovantePagamentoPrint";
@@ -2062,26 +2063,27 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
         return data as any;
       }
       if (view!.tipo === "p_acabado") {
-        // Fora do types.ts (feature Revenda). Sem tabela de itens filha — a grade mora em
-        // `grade_detalhe` jsonb ({ordem:{tamanho:{pedida,recebida,defeito}}}); `numero`/
-        // `data_prevista` são aliased pra `numero_pedido`/`data_prevista_entrega` (nomes
-        // genéricos usados pelo resto deste componente p/ tecido/aviamento/etiqueta).
-        const { data } = await supabase
+        // Fora do types.ts (feature Revenda). R13: a OC tem VÁRIOS produtos (`ocs_p_acabado_itens`); a grade mora em
+        // `grade_detalhe` jsonb de CADA item ({ordem:{tamanho:{pedida,recebida,defeito}}}). `numero`/`data_prevista` são
+        // aliased pra `numero_pedido`/`data_prevista_entrega` (nomes genéricos usados pelo resto deste componente).
+        const { data, error } = await supabase
           .from("ocs_p_acabado" as any)
-          .select("*, empresas:empresa_id(nome_fantasia)")
+          .select("*, empresas:empresa_id(nome_fantasia), itens:ocs_p_acabado_itens(ordem, nome_produto, grade_detalhe)")
           .eq("id", view!.id)
           .maybeSingle();
+        if (error) throw error;
         if (!data) return null;
         const d = data as any;
         return { ...d, numero_pedido: d.numero, data_prevista_entrega: d.data_prevista } as any;
       }
       if (view!.tipo === "p_importado") {
-        // Fora do types.ts (mesma classe do p_acabado); `numero` aliased pra `numero_pedido`.
-        const { data } = await supabase
+        // Fora do types.ts (mesma classe do p_acabado); `numero` aliased pra `numero_pedido`. R13: itens em `ocs_importado_itens`.
+        const { data, error } = await supabase
           .from("ocs_importado" as any)
-          .select("*, empresas:empresa_id(nome_fantasia)")
+          .select("*, empresas:empresa_id(nome_fantasia), itens:ocs_importado_itens(ordem, nome_produto, grade_detalhe)")
           .eq("id", view!.id)
           .maybeSingle();
+        if (error) throw error;
         if (!data) return null;
         const d = data as any;
         return { ...d, numero_pedido: d.numero, data_prevista_entrega: d.data_prevista } as any;
@@ -2095,33 +2097,16 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
     },
   });
 
-  // p_acabado não tem tabela de itens filha: achata `grade_detalhe` (ordem×tamanho) em
-  // linhas {pedida,recebida} — mesmo shape {quantidade_pedida,quantidade_recebida} das demais.
-  const itensPAcabado = useMemo(() => {
-    if (view?.tipo !== "p_acabado" || !oc?.grade_detalhe) return [];
-    return Object.entries(oc.grade_detalhe as Record<string, Record<string, { pedida?: number; recebida?: number }>>)
-      .flatMap(([ordem, porTamanho]) =>
-        Object.entries(porTamanho ?? {}).map(([tamanho, g]) => ({
-          _nome: `${oc?.nome_produto ?? "—"} · variante ${ordem}${tamanho && tamanho !== "UN" ? ` · ${tamanho}` : ""}`,
-          quantidade_pedida: Number(g?.pedida ?? 0),
-          quantidade_recebida: Number(g?.recebida ?? 0),
-        })),
-      );
-  }, [view?.tipo, oc]);
-
-  // p_importado espelha p_acabado byte-a-byte: mesmo shape de `grade_detalhe` (ver
-  // 20260905120000_ocs_importado_tabelas.sql).
-  const itensPImportado = useMemo(() => {
-    if (view?.tipo !== "p_importado" || !oc?.grade_detalhe) return [];
-    return Object.entries(oc.grade_detalhe as Record<string, Record<string, { pedida?: number; recebida?: number }>>)
-      .flatMap(([ordem, porTamanho]) =>
-        Object.entries(porTamanho ?? {}).map(([tamanho, g]) => ({
-          _nome: `${oc?.nome_produto ?? "—"} · variante ${ordem}${tamanho && tamanho !== "UN" ? ` · ${tamanho}` : ""}`,
-          quantidade_pedida: Number(g?.pedida ?? 0),
-          quantidade_recebida: Number(g?.recebida ?? 0),
-        })),
-      );
-  }, [view?.tipo, oc]);
+  // R13: p_acabado/p_importado têm vários produtos (tabelas de itens): achata a `grade_detalhe` de CADA item (ordem×tamanho) em
+  // linhas {pedida,recebida} — mesmo shape {quantidade_pedida,quantidade_recebida} das demais (`nome do item · variante · tamanho`).
+  const itensPAcabado = useMemo(
+    () => (view?.tipo === "p_acabado" ? achatarGradeItensOc(oc?.itens) : []),
+    [view?.tipo, oc],
+  );
+  const itensPImportado = useMemo(
+    () => (view?.tipo === "p_importado" ? achatarGradeItensOc(oc?.itens) : []),
+    [view?.tipo, oc],
+  );
 
   const itens: any[] = view?.tipo === "tecido" ? (oc?.ocs_tecido_itens ?? []) : view?.tipo === "etiqueta" ? (oc?.ocs_etiqueta_itens ?? []) : view?.tipo === "p_acabado" ? itensPAcabado : view?.tipo === "p_importado" ? itensPImportado : (oc?.ocs_aviamento_itens ?? []);
   const tipoTxt = view?.tipo === "tecido" ? "de Tecido" : view?.tipo === "etiqueta" ? "de Insumo" : view?.tipo === "p_acabado" ? "de Produto Acabado" : view?.tipo === "p_importado" ? "de Produto Importado" : "de Aviamento";

@@ -115,8 +115,8 @@ const DB = (): Record<string, Linha[]> => ({
   ],
   produtos_acabados: [{ id: "p1", modelo_id: "m1", grupo_id: "gV" }, { id: "p2", modelo_id: "m2", grupo_id: "gV" }],
   produtos_importados: [{ id: "i3", modelo_id: "m3", grupo_id: "gV" }],
-  ocs_p_acabado: [{ produto_acabado_id: "p1" }],
-  ocs_importado: [{ produto_importado_id: "i3" }],
+  ocs_p_acabado_itens: [{ produto_acabado_id: "p1" }],
+  ocs_importado_itens: [{ produto_importado_id: "i3" }],
 });
 
 describe("conferirCategoriaAcessorioPedido (pré-checagem só-leitura)", () => {
@@ -145,7 +145,7 @@ describe("conferirCategoriaAcessorioPedido (pré-checagem só-leitura)", () => {
     const db2 = DB();
     db2.modelos[3].origem = "interno";
     db2.produtos_acabados.push({ id: "p4", modelo_id: "m4", grupo_id: "gV" });
-    db2.ocs_p_acabado.push({ produto_acabado_id: "p4" });
+    db2.ocs_p_acabado_itens.push({ produto_acabado_id: "p4" });
     const f2 = fake(db2);
     expect(await conferirCategoriaAcessorioPedido(f2.client, { modeloIds: ["m4"], categoriaNova: "cA" })).toEqual([]);
     expect(await conferirCategoriaAcessorioPedido(f2.client, { modeloIds: ["m4"], categoriaNova: "cA", origemNova: "revenda" }))

@@ -5,9 +5,8 @@
  *  (2) SQL: no arquivo da migration da R13, `produto_acabado_id`/`produto_importado_id` do CABECALHO so aparece nos blocos
  *      permitidos (copia, backup, zerar, guardas de vinculo, pos-condicoes) — nenhum leitor NOVO filtra pela coluna legada.
  *  (3) Front (T6/T9): zero embed `ocs:ocs_p_acabado(` / `ocs:ocs_importado(` a partir do produto e zero filtro por
- *      `produto_*_id` em `from("ocs_p_acabado"|"ocs_importado")`. A migracao do front e T6/T9: aqui mantemos a LISTA BRANCA
- *      dos arquivos ainda nao migrados (BASELINE) — o teste falha se um arquivo NOVO entrar, e a baseline deve ESVAZIAR quando
- *      o front migrar. Ajustar a baseline e parte de T6/T9 (nunca crescer).
+ *      `produto_*_id` em `from("ocs_p_acabado"|"ocs_importado")`. A BASELINE de excecoes ficou VAZIA na T9 (todos os leitores
+ *      migraram para os itens); se sobrar um leitor legitimo, documente arquivo + razao na lista branca.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
@@ -67,14 +66,12 @@ describe("R13 — SQL: ponteiro do cabecalho so nos blocos permitidos", () => {
   });
 });
 
-describe("R13 — Front: embed/filtro do ponteiro do cabecalho (baseline a esvaziar em T6/T9)", () => {
-  // BASELINE: arquivos que AINDA embedam ocs:ocs_* a partir do produto ou filtram from("ocs_*") por produto_*_id.
-  // A migracao do front e T6/T9; esta lista NAO pode CRESCER e deve chegar a vazio quando o front migrar.
-  // T6 (canvas/cards de Produto Acabado e Importado) migrou: os 2 Sheets leem o `oc_item` e SAIRAM da baseline.
-  const BASELINE = new Set<string>([
-    "src/components/planejamento/PlanejamentoDetail.tsx",
-    "src/lib/categoria-card-produto.ts",
-  ]);
+describe("R13 — Front: embed/filtro do ponteiro do cabecalho (baseline VAZIA desde a T9)", () => {
+  // BASELINE VAZIA (T9): todos os leitores migraram para os ITENS (`ocs_p_acabado_itens`/`ocs_importado_itens`). T6 migrou os
+  // Sheets/canvas PA e PI; T7/T8 as telas de OC e seus pickers; T9 o Financeiro (janela da OC), o PlanejamentoDetail (espelhos do
+  // card) e `categoria-card-produto.ts` (pre-checagem de Acessorios com pedido). NAO ha leitor legitimo que precise do ponteiro:
+  // se um dia aparecer, documente AQUI (arquivo + razao) — esta lista nunca deve crescer sem justificativa escrita.
+  const BASELINE = new Map<string, string>([]);
 
   function listarTsx(dir: string, out: string[]): void {
     for (const nome of readdirSync(dir)) {
@@ -87,21 +84,52 @@ describe("R13 — Front: embed/filtro do ponteiro do cabecalho (baseline a esvaz
     }
   }
 
-  it("nenhum arquivo NOVO embeda/filtra o ponteiro do cabecalho (so a baseline conhecida)", () => {
+  function violadores(): string[] {
     const src = join(ROOT, "src");
-    if (!existsSync(src)) return;
     const arquivos: string[] = [];
     listarTsx(src, arquivos);
-    const violadores = new Set<string>();
+    const v = new Set<string>();
     for (const abs of arquivos) {
       const rel = abs.slice(ROOT.length);
+      if (rel === "src/integrations/supabase/types.ts") continue; // tipos gerados (colunas legadas seguem la)
       const txt = readFileSync(abs, "utf8");
+      // (a) embed do cabecalho com alias `ocs:` (a partir do produto)
       const embed = /ocs:\s*ocs_(p_acabado|importado)\s*\(/.test(txt);
+      // (b) select de produtos_* que embeda o cabecalho da OC direto (sem passar pelos itens)
+      const embedDireto =
+        /from\(\s*["']produtos_(acabados|importados)["'][\s\S]{0,300}?\bocs_(p_acabado|importado)\s*\(/.test(txt);
+      // (c) filtro/coluna do ponteiro lido do cabecalho. O embed legitimo dos ITENS (`itens:ocs_*_itens(produto_*_id, ...)`) e
+      //     retirado antes: ali `produto_*_id` e coluna do ITEM, nao do cabecalho.
+      const semItens = txt.replace(/ocs_(p_acabado|importado)_itens\([^)]*\)/g, "ocs_itens()");
       const filtro =
-        /from\(\s*["']ocs_(p_acabado|importado)["']\s*\)[\s\S]{0,200}?produto_(acabado|importado)_id/.test(txt);
-      if (embed || filtro) violadores.add(rel);
+        /from\(\s*["']ocs_(p_acabado|importado)["']\s*(as any)?\s*\)[\s\S]{0,200}?produto_(acabado|importado)_id/.test(semItens);
+      if (embed || embedDireto || filtro) v.add(rel);
     }
-    const novos = [...violadores].filter((v) => !BASELINE.has(v)).sort();
-    expect(novos, "arquivos NOVOS usando o ponteiro do cabecalho (migre para os itens)").toEqual([]);
+    return [...v].sort();
+  }
+
+  it("nenhum arquivo embeda/filtra o ponteiro do cabecalho (so a baseline documentada)", () => {
+    if (!existsSync(join(ROOT, "src"))) return;
+    const novos = violadores().filter((f) => !BASELINE.has(f));
+    expect(novos, "arquivos usando o ponteiro do cabecalho (migre para os itens)").toEqual([]);
+  });
+
+  it("a baseline esta VAZIA (todos os leitores migrados) — sobra so com razao escrita", () => {
+    expect([...BASELINE.keys()]).toEqual([]);
+    for (const [arq, razao] of BASELINE) expect(razao.length, arq).toBeGreaterThan(20);
+  });
+
+  it("os leitores migrados na T9 leem os ITENS", () => {
+    const le = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
+    const plan = le("src/components/planejamento/PlanejamentoDetail.tsx");
+    expect(plan).toContain("ocs:ocs_p_acabado_itens(id)");
+    expect(plan).toContain("ocs:ocs_importado_itens(id)");
+    const cat = le("src/lib/categoria-card-produto.ts");
+    expect(cat).toMatch(/from\("ocs_p_acabado_itens"\)\.select\("produto_acabado_id"\)/);
+    expect(cat).toMatch(/from\("ocs_importado_itens"\)\.select\("produto_importado_id"\)/);
+    const fin = le("src/routes/_authenticated/financeiro.tsx");
+    expect(fin).toContain("itens:ocs_p_acabado_itens(");
+    expect(fin).toContain("itens:ocs_importado_itens(");
+    expect(fin).not.toMatch(/oc\??\.nome_produto|oc\??\.grade_detalhe/);
   });
 });

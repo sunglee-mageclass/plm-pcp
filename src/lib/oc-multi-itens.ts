@@ -46,3 +46,30 @@ export function textoProdutosDaOc(
   const nome = (ord[0].nome_produto ?? "").trim() || "Sem nome";
   return itens.length > 1 ? `${nome} +${itens.length - 1}` : nome;
 }
+
+type CelulaGrade = { pedida?: number | string | null; recebida?: number | string | null };
+type ItemComGrade = {
+  nome_produto: string | null;
+  ordem?: number | null;
+  grade_detalhe?: Record<string, Record<string, CelulaGrade | null | undefined> | null | undefined> | null;
+};
+
+/**
+ * [urg R13 T9] Janela read-only da OC no Financeiro: achata a grade de CADA item (`grade_detalhe` = {ordem: {tamanho: {pedida,recebida}}})
+ * em linhas `{ _nome, quantidade_pedida, quantidade_recebida }` — mesmo shape das OCs de tecido/aviamento/insumo.
+ * Nome da linha = `nome do item · variante N · tamanho` (tamanho "UN" some). Itens na ordem da OC; sem grade = nenhuma linha.
+ */
+export function achatarGradeItensOc(
+  itens: ReadonlyArray<ItemComGrade> | null | undefined,
+): { _nome: string; quantidade_pedida: number; quantidade_recebida: number }[] {
+  const ord = [...(itens ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+  return ord.flatMap((it) =>
+    Object.entries(it.grade_detalhe ?? {}).flatMap(([variante, porTamanho]) =>
+      Object.entries(porTamanho ?? {}).map(([tamanho, g]) => ({
+        _nome: `${(it.nome_produto ?? "").trim() || "—"} · variante ${variante}${tamanho && tamanho !== "UN" ? ` · ${tamanho}` : ""}`,
+        quantidade_pedida: Number(g?.pedida ?? 0) || 0,
+        quantidade_recebida: Number(g?.recebida ?? 0) || 0,
+      })),
+    ),
+  );
+}

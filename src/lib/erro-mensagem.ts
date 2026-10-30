@@ -353,6 +353,8 @@ export const TEXTOS_NAO_ENCONTRADO: Record<string, string> = {
   modelo: "Este card não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.",
   config_loja: "A configuração da loja não foi encontrada. Recarregue a tela.",
   lote_kanban: "Este lote de colunas do Kanban não existe mais. Recarregue a tela.",
+  // [urg R13 T9] o produto (item) da OC sumiu entre abrir a OC e agir (outra pessoa o tirou ou excluiu a OC).
+  item: "Este produto não está mais nesta OC (outra pessoa pode tê-lo tirado). Recarregue a tela.",
 };
 export const TEXTO_NAO_ENCONTRADO_GENERICO = "Este registro não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.";
 export function mensagemBackend(code: string, msg: string): string | null {
@@ -365,6 +367,61 @@ export function mensagemBackend(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("lancado_protegido:")) return TEXTO_LANCADO_PROTEGIDO;
   if (code === "23505" && msg.includes("integracao_linhas_produto_unico"))
     return TEXTO_INTEGRACAO_PRODUTO_DUPLICADO;
+  return null;
+}
+
+// [urg R13 T9] OC com VÁRIOS produtos (migration 20261105100000): recusas P0001 em ASCII `codigo: detalhe` → texto PT. O nome do
+// produto (quando vem) é o do cadastro e pode ter acento (P0001 é 400, sem o problema do 5xx). `nao_encontrado: item` é P0002
+// (mesmo mecanismo do B3, ver TEXTOS_NAO_ENCONTRADO.item). Código desconhecido passa (cai nos ramos seguintes).
+export const TEXTOS_R13 = {
+  versao_antiga: "Esta tela está desatualizada (as OCs agora têm vários produtos). Recarregue a página e tente de novo.",
+  oc_sem_produtos: "A OC precisa ter ao menos um produto. Para tirar o único produto, exclua a OC.",
+  item_recebido_nao_sai: "Há produto já recebido na OC e ele não pode ser tirado. Recarregue a tela e confira.",
+  oc_recebida_nao_adiciona: "Esta OC já foi totalmente recebida e não aceita produtos novos.",
+  oc_varios_produtos: "Esta OC tem mais de um produto: abra a OC e tire o produto por lá.",
+  oc_produto_por_item: "O produto da OC agora fica nos itens da OC. Recarregue a página e edite o produto dentro da OC.",
+} as const;
+/** Motivos do servidor (`_oc_produto_motivos`) → PT; código desconhecido passa como veio. */
+export const MOTIVOS_PEDIDO_R13: Record<string, string> = {
+  ja_tem_oc: "já tem OC vinculada",
+  sem_nome: "falta o nome do produto",
+  sem_fornecedor: "falta escolher o fornecedor",
+  sem_quantidade: "falta a quantidade total",
+  sem_variante: "falta ao menos uma cor (variante)",
+  soma_variantes: "a soma das variantes não bate com a quantidade total",
+  grade_vazia: "falta a proporção de grade (tamanhos)",
+  sem_valor: "falta o valor unitário",
+};
+const nomeEntre = (detalhe: string): string => {
+  const n = detalhe.trim();
+  // Nome com "?" = acento perdido em ASCII: melhor sem nome do que um nome truncado.
+  return n && !n.includes("?") ? `“${n}”` : "";
+};
+export function mensagemR13(code: string, msg: string): string | null {
+  if (code === "P0002") return /^nao_encontrado:\s*item\b/.test(msg) ? TEXTOS_NAO_ENCONTRADO.item : null;
+  if (code !== "P0001") return null;
+  const m = /^([a-z_]+):\s*([\s\S]*)$/.exec(msg);
+  if (!m) return null;
+  const [, cod, resto] = m;
+  if (Object.prototype.hasOwnProperty.call(TEXTOS_R13, cod)) return TEXTOS_R13[cod as keyof typeof TEXTOS_R13];
+  if (cod === "fornecedor_diferente") {
+    // `<nome> nao e do fornecedor do pedido` (pedido/vincular em lote) OU `o produto e de outro fornecedor` (vincular).
+    const nome = nomeEntre(resto.replace(/\s+nao e do fornecedor do pedido\s*$/, "").replace(/^o produto e de outro fornecedor$/, ""));
+    return nome ? `${nome} não é do fornecedor desta OC. Use um produto do mesmo fornecedor.` : "O produto é de outro fornecedor: use produtos do mesmo fornecedor da OC.";
+  }
+  if (cod === "moeda_diferente") {
+    const nome = nomeEntre(resto.replace(/\s+tem moeda diferente da do pedido\s*$/, "").replace(/^o produto tem moeda diferente da OC$/, ""));
+    return nome ? `${nome} tem moeda diferente da desta OC. Use produtos na mesma moeda.` : "O produto tem moeda diferente da da OC: use produtos na mesma moeda.";
+  }
+  if (cod === "pedido_recusado") {
+    // `<nome>: <motivo>, <motivo>` — o nome pode ter ": "; os motivos não (separa no ÚLTIMO ": ").
+    const i = resto.lastIndexOf(": ");
+    const nome = nomeEntre(i >= 0 ? resto.slice(0, i) : "");
+    const motivos = (i >= 0 ? resto.slice(i + 2) : resto).split(",").map((x) => x.trim()).filter(Boolean)
+      .map((c) => MOTIVOS_PEDIDO_R13[c] ?? c);
+    const quem = nome || "O produto";
+    return motivos.length ? `${quem} não pode entrar no pedido: ${motivos.join("; ")}.` : `${quem} não pode entrar no pedido.`;
+  }
   return null;
 }
 
@@ -545,6 +602,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   // Frente Backend: prefixos ASCII das guardas novas (B1 lancado_protegido), o índice único da Integração (B4) e o
   // "não encontrado" P0002 (B3 nao_encontrado:) → texto PT.
+  // [urg R13 T9] OC com vários produtos: prefixos ASCII (P0001) e `nao_encontrado: item` (P0002) → texto PT. ANTES do backend
+  // (que daria o texto genérico para a entidade `item`).
+  const r13 = mensagemR13(code, msg);
+  if (r13) return r13;
   const backend = mensagemBackend(code, msg);
   if (backend) return backend;
 
