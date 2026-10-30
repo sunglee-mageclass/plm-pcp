@@ -9,6 +9,7 @@
 // bug já coberta por `enforce_empresa_tenant`/`enforce_representante_tenant`.
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { ocPaSalvar } from "./oc-itens-helpers";
 
 // Ave Rara: único tenant com módulo `produto_acabado` ligado E usuários reais não-
 // super_admin (a conta-padrão dos testes, USER_TESTE, é sempre super_admin — não dá pra
@@ -176,7 +177,7 @@ describe.skipIf(!hasDb)("FF2-fix — tenant_module_enabled trata produto_acabado
   });
 });
 
-describe.skipIf(!hasDb)("FF3 — tenant-match (produto_acabado.modelo_id / ocs_p_acabado.produto_acabado_id)", () => {
+describe.skipIf(!hasDb)("FF3 — tenant-match (produto_acabado.modelo_id / item de OC .produto_acabado_id — R13)", () => {
   it("produtos_acabados.modelo_id de OUTRA loja no INSERT → rejeita (P0001, PT)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c); // super_admin em TENANT_TESTE
@@ -217,35 +218,52 @@ describe.skipIf(!hasDb)("FF3 — tenant-match (produto_acabado.modelo_id / ocs_p
     });
   });
 
-  it("ocs_p_acabado.produto_acabado_id de OUTRA loja no INSERT → rejeita (P0001, PT)", async () => {
+  // R13 (OC com varios produtos): o produto da OC mora no ITEM (`ocs_p_acabado_itens`), nao mais no ponteiro do cabecalho. O
+  // tenant-match do vinculo passa a ser do item (`fn_oc_item_tenant`: item, OC e produto da MESMA loja) e o ponteiro do cabecalho
+  // fica LEGADO: gravar nao-nulo e recusado (`enforce_oc_pa_vinculo_unico` -> P0001 `oc_produto_por_item`).
+  it("ITEM de OC com produto_acabado_id de OUTRA loja → rejeita (P0001, fn_oc_item_tenant)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const produtoOutraLoja = await novoProdutoAcabado(c, AVE_RARA);
       await expect(
-        c.query(`insert into ocs_p_acabado (nome_produto, produto_acabado_id) values ('ITEST cross', $1)`, [produtoOutraLoja]),
+        ocPaSalvar(c, null, { nome_produto: "ITEST cross", produto_acabado_id: produtoOutraLoja }, {}),
       ).rejects.toThrow(/outra loja/);
     });
   });
 
-  it("ocs_p_acabado.produto_acabado_id da MESMA loja → funciona", async () => {
+  it("ITEM de OC com produto_acabado_id da MESMA loja → funciona", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const produtoMesmaLoja = await novoProdutoAcabado(c);
-      const r = await um<{ id: string }>(
-        c,
-        `insert into ocs_p_acabado (nome_produto, produto_acabado_id) values ('ITEST same', $1) returning id`,
-        [produtoMesmaLoja],
-      );
-      expect(r.id).toBeTruthy();
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "ITEST same", produto_acabado_id: produtoMesmaLoja }, {});
+      expect(ocId).toBeTruthy();
+      const r = await um<{ produto_acabado_id: string }>(c, `select produto_acabado_id from ocs_p_acabado_itens where oc_id=$1`, [ocId]);
+      expect(r.produto_acabado_id).toBe(produtoMesmaLoja);
     });
   });
 
-  it("ocs_p_acabado.produto_acabado_id = NULL → não dispara a guarda", async () => {
+  it("ITEM de OC com produto_acabado_id = NULL (item avulso) → não dispara a guarda", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "ITEST sem produto" }, {});
+      expect(ocId).toBeTruthy();
+      const r = await um<{ produto_acabado_id: string | null }>(c, `select produto_acabado_id from ocs_p_acabado_itens where oc_id=$1`, [ocId]);
+      expect(r.produto_acabado_id).toBeNull();
+    });
+  });
+
+  it("ponteiro LEGADO do cabeçalho (ocs_p_acabado.produto_acabado_id) não-nulo → rejeita oc_produto_por_item; NULL segue valendo", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const produtoMesmaLoja = await novoProdutoAcabado(c);
+      await c.query("SAVEPOINT sp_ptr");
+      await expect(
+        c.query(`insert into ocs_p_acabado (nome_produto, produto_acabado_id) values ('ITEST ptr', $1)`, [produtoMesmaLoja]),
+      ).rejects.toThrow(/oc_produto_por_item/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_ptr");
       const r = await um<{ id: string }>(
         c,
-        `insert into ocs_p_acabado (nome_produto, produto_acabado_id) values ('ITEST sem produto', NULL) returning id`,
+        `insert into ocs_p_acabado (nome_produto, produto_acabado_id) values ('ITEST sem ptr', NULL) returning id`,
       );
       expect(r.id).toBeTruthy();
     });

@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal, dbUrl } from "./db";
 import { md5OuSucessorS2 } from "./seg-s2-helpers";
+import { ocPaSalvar } from "./oc-itens-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 
@@ -166,13 +167,9 @@ async function ocPAcabado(c: Client, fx: Fix, qtd: number, id: string | null = n
     variantes: [],
   };
   const grade = { "1": { P: { pedida: qtd, recebida: 0, defeito: 0 } } };
-  return (
-    await um<{ id: string }>(
-      c,
-      `select public._salvar_oc_p_acabado_core($1::uuid, $2::jsonb, $3::jsonb, null::int) as id`,
-      [id, JSON.stringify(dados), JSON.stringify(grade)],
-    )
-  ).id;
+  // R13: o escritor antigo (1 produto no cabecalho) e recusado; salva pelo contrato novo (cabecalho + ITEM). O complemento nasce
+  // do gatilho de parcelas do cabecalho quando o total sobe (a regra e a mesma).
+  return ocPaSalvar(c, id, dados, grade);
 }
 async function voltarOc(c: Client, id: string) {
   return (

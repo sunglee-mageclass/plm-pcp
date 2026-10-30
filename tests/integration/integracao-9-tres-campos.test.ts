@@ -12,6 +12,7 @@ import type { Client } from "pg";
 import { createHash } from "node:crypto";
 import { hasDb, withTx, comoUsuario, um } from "./db";
 import { exigeBancoLocal } from "./mig-txn";
+import { ocPaSalvar } from "./oc-itens-helpers";
 import {
   CAMPOS_PADRAO, CAMPOS_PADRAO_I3, I3A_TENANT_DEPOIS, I3A_TENANT_NEUTRA, I3B_RETRATO_DEPOIS, I3_SUCESSOR, INV_I3A, INV_I3B, INV_I3C,
   LAYOUT_I3, LOCAL, MARCAS, MIG_I3A, MIG_I3B, MIG_I3C, T, U, aplica, aplicaI3, i3aViva, i3bViva, keywordsLoja, ler, modeloInterno,
@@ -512,7 +513,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao 9 — 3 campos não obrigatórios 
       expect(await falha(c, "UPDATE public.produtos_acabados SET categoria_tecido_id = $2 WHERE id = $1", [pa, ctFora]))
         .toMatchObject({ code: "P0001", message: "Categoria do tecido de outra loja não pode ser usada aqui." });
       // com OC vinculada: trocar a categoria do tecido NÃO bloqueia (fora da trava de identidade)
-      await c.query("INSERT INTO public.ocs_p_acabado (tenant_id, nome_produto, produto_acabado_id) VALUES ($1, 'I3 OC', $2)", [T, pa]);
+      // R13: "ter OC vinculada" = ter um ITEM de OC com o produto (o ponteiro do cabecalho e legado e recusa gravacao)
+      await ocPaSalvar(c, null, { nome_produto: "I3 OC", produto_acabado_id: pa }, {});
       await salvaPA(pa, { categoria_tecido_id: ct, material_aviamento_id: ma });
       expect(await col("produtos_acabados", pa)).toEqual({ ct, ma });
       // importado: mesma regra

@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { md5OuSucessorI3 } from "./integracao-helpers";
+import { ocPaSalvar, ocImpSalvar } from "./oc-itens-helpers";
 import { CAMPOS, LAYOUT_KEYS } from "@/lib/integracao/campos";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -197,11 +198,35 @@ async function sheet(c: Client, mid: string, cols: Record<string, unknown>) {
   const ks = Object.keys(cols);
   await c.query(`UPDATE public.modelos SET ${ks.map((k, i) => `${k} = $${i + 2}`).join(", ")} WHERE id = $1`, [mid, ...ks.map((k) => cols[k])]);
 }
+// R13: o produto da OC mora no ITEM (`ocs_*_itens.produto_*_id`); o ponteiro do cabecalho e legado e o banco RECUSA gravar
+// (`oc_produto_por_item`). "Produto com pedido" = ter um ITEM de OC — criado pelo escritor novo (`salvar_oc_*_itens`).
 async function comOc(c: Client, tipo: Tipo, pid: string) {
   if (tipo === "PA") {
-    await c.query("INSERT INTO public.ocs_p_acabado (tenant_id, nome_produto, produto_acabado_id) VALUES ($1, 'P137 Produto', $2)", [T, pid]);
+    await ocPaSalvar(c, null, { nome_produto: "P137 Produto", produto_acabado_id: pid }, {});
   } else {
-    await c.query("INSERT INTO public.ocs_importado (tenant_id, nome_produto, produto_importado_id) VALUES ($1, 'P137 Produto', $2)", [T, pid]);
+    await ocImpSalvar(c, null, { nome_produto: "P137 Produto", produto_importado_id: pid }, {});
+  }
+}
+/**
+ * "Pedido" do produto para o BACKFILL P-137 (`_p137_backfill_rodar`/`_desfazer`). Cria o pedido REAL (item de OC, como acima) e, ALEM
+ * disso, repoe o ponteiro LEGADO do cabecalho. Motivo: essas 2 funcoes (correcao unica P-137, ja rodada em producao) NAO foram
+ * migradas pela R13 e ainda detectam "produto com pedido" lendo `ocs_*.produto_*_id` (agora zerado e recusado pelo
+ * `enforce_oc_*_vinculo_unico`). Para o teste continuar cobrindo a regra DO BACKFILL ("Acessorio + pedido = pula / nao devolve") o
+ * ponteiro e gravado com o gatilho-guarda desligado SO nesta txn (copia local; precedente: nota-entrada.test.ts). Quando o backfill
+ * passar a ler os itens, o item real ja satisfaz o teste — pode-se tirar o ponteiro daqui. (Achado reportado ao controlador.)
+ */
+async function comOcParaBackfill(c: Client, tipo: Tipo, pid: string) {
+  await comOc(c, tipo, pid);
+  const [tab, col, itens, trg] =
+    tipo === "PA"
+      ? ["ocs_p_acabado", "produto_acabado_id", "ocs_p_acabado_itens", "trg_ocpa_vinculo_unico"]
+      : ["ocs_importado", "produto_importado_id", "ocs_importado_itens", "trg_oci_vinculo_unico"];
+  const oc = (await um<{ oc: string }>(c, `SELECT oc_id AS oc FROM public.${itens} WHERE ${col} = $1`, [pid])).oc;
+  await c.query(`ALTER TABLE public.${tab} DISABLE TRIGGER ${trg}`);
+  try {
+    await c.query(`UPDATE public.${tab} SET ${col} = $2 WHERE id = $1`, [oc, pid]);
+  } finally {
+    await c.query(`ALTER TABLE public.${tab} ENABLE TRIGGER ${trg}`);
   }
 }
 async function falha(c: Client, sql: string, params: unknown[] = []): Promise<string> {
@@ -236,7 +261,10 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       // Release I3a (20261030100000) redefine o core POR CIMA da L8 (só Categoria do tecido / Material do aviamento; o trecho da
       // P-136 fica) — sucessor aceito.
       expect([MD5_CORE_P136, ...md5OuSucessorI3("_salvar_produto_acabado_core(uuid,jsonb,jsonb)", MD5_CORE_L8)]).toContain(r.core);
-      expect({ ...r, core: null }).toEqual({ fn: MD5_FN, trg: MD5_TRG, ntrg: 1, rodar: MD5_RODAR, desfazer: MD5_DESFAZER, core: null });
+      // R13 (20261105100000) redefine fn_modelo_espelho_categoria POR CIMA (o "produto tem pedido" passa a olhar os ITENS da OC;
+      // o resto da funcao fica) — sucessor aceito pela cadeia (md5 pos-R13 conferido contra o vivo; o pino segue sendo guard).
+      expect(md5OuSucessorI3("fn_modelo_espelho_categoria()", MD5_FN)).toContain(r.fn);
+      expect({ ...r, core: null, fn: null }).toEqual({ fn: null, trg: MD5_TRG, ntrg: 1, rodar: MD5_RODAR, desfazer: MD5_DESFAZER, core: null });
       for (const f of ["public.fn_modelo_espelho_categoria()", "public._p137_backfill_rodar()", "public._p137_backfill_desfazer()"]) {
         const a = await um<any>(c, `SELECT has_function_privilege('public', $1, 'EXECUTE') AS p,
             has_function_privilege('anon', $1, 'EXECUTE') AS a, has_function_privilege('authenticated', $1, 'EXECUTE') AS u`, [f]);
@@ -512,7 +540,7 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       const p3 = await div("PA", { grupo: k.gV, cat: k.catV1 }, { cat: null });                                           // pula: card sem categoria
       const p4 = await div("PA", { grupo: k.gV, cat: k.catV1 }, { cat: k.catSemGrupo });                                  // pula: categoria sem grupo
       const p5 = await div("PA", { grupo: k.gV, cat: k.catV1 }, { cat: k.catA });                                         // pula: Acessórios + pedido
-      await comOc(c, "PA", p5.pid);
+      await comOcParaBackfill(c, "PA", p5.pid);
       const p7 = await div("PA", { grupo: k.gV, cat: k.catV1 }, { cat: k.catT, origem: "interno" });                    // origem não casa: fora
       const rev1 = (await prod(c, "PA", p1.pid)).rev;
       const tax = async () => {
@@ -594,7 +622,7 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       expect(r.arrumados_ids).toEqual(expect.arrayContaining([a.pid, b.pid]));
       expect(await prod(c, "PA", a.pid)).toMatchObject({ grupo: k.gA, cat: k.catA });
       // depois alguém cria a OC (grade UN) do PA; o PI segue sem pedido
-      await comOc(c, "PA", a.pid);
+      await comOcParaBackfill(c, "PA", a.pid);
       const a0 = await prod(c, "PA", a.pid);
       const v = (await um<{ v: any }>(c, "SELECT public._p137_backfill_desfazer() AS v")).v;
       expect(v.acessorio_pedido_ids).toContain(a.pid);

@@ -235,6 +235,10 @@ describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", (
   it("helper+wrappers e grants: catálogo; gatilhos: ShareRowExclusive SÓ nas 4 OCs; nada em auth/storage/realtime", async () => {
     await withTx(async (c) => {
       await voltaUrgcSePreciso(c); // [urg R9] volta LIFO da R9 ANTES da medicao (o par dela sai em travaDeGanchoUrgc)
+      const authLocks = `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
+           JOIN pg_namespace n ON n.oid = k.relnamespace
+          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`;
+      const authBase = new Set((await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`)); // [urg R13] linha de base (gancho)
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
@@ -265,11 +269,10 @@ describe.skipIf(!RODA)("seg S3a — trava medida (pg_locks na txn revertida)", (
         const depois = seguras(await travas());
         expect(depois).toEqual(seguras(antes));
       }
-      const auth = await c.query(
-        `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
-           JOIN pg_namespace n ON n.oid = k.relnamespace
-          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`);
-      expect(auth.rows).toEqual([]);
+      // [urg R13] por DIFERENCA: a ida da R13 (gancho URG_R13_TXN=1) tem CREATE POLICY e prende auth/storage/realtime NESTA txn desde o
+      // comeco — o que a S3a nao pode fazer e pegar trava NOVA ali (a linha de base e tirada depois da volta LIFO, antes da medicao).
+      const auth = (await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`).filter((k: string) => !authBase.has(k));
+      expect(auth).toEqual([]);
     });
   });
 });

@@ -217,6 +217,10 @@ describe.skipIf(!RODA)("seg S3b — trava medida (pg_locks na txn revertida)", (
   it("RPCs e grants: catálogo; gatilhos: ShareRowExclusive SÓ em cad, controle_qualidade e producao_oficina; nada em auth/storage", async () => {
     await withTx(async (c) => {
       await voltaUrgcSePreciso(c); // [urg R9] volta LIFO da R9 ANTES da medicao (o par dela sai em travaDeGanchoUrgc)
+      const authLocks = `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
+           JOIN pg_namespace n ON n.oid = k.relnamespace
+          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`;
+      const authBase = new Set((await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`)); // [urg R13] linha de base (gancho)
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
@@ -254,11 +258,10 @@ describe.skipIf(!RODA)("seg S3b — trava medida (pg_locks na txn revertida)", (
         "public.modelo_servico_mo", "public.empresas", "public.producao_terceirizados_mo_linha_idx"].includes(r)), outras.join(",")).toBe(true); // (+ S4_TXN=1: as 13 do OTB/mix;
       // + CAMADA_TXN=1 numa cópia sem a C1: o CREATE TRIGGER da 161000 em producao_terceirizados;
       // + URGB_TXN=1 numa cópia sem os urgentes: o ADD COLUMN da 180000 (modelo_servico_mo, empresas) e o ADD COLUMN + índice da 181000)
-      const auth = await c.query(
-        `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
-           JOIN pg_namespace n ON n.oid = k.relnamespace
-          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`);
-      expect(auth.rows).toEqual([]);
+      // [urg R13] por DIFERENCA: a ida da R13 (gancho URG_R13_TXN=1) tem CREATE POLICY e prende auth/storage/realtime NESTA txn desde o
+      // comeco — a S3b nao pode pegar trava NOVA ali (linha de base tirada depois da volta LIFO, antes da medicao).
+      const auth = (await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`).filter((k: string) => !authBase.has(k));
+      expect(auth).toEqual([]);
     });
   });
 });

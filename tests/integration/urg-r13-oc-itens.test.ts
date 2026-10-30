@@ -303,3 +303,53 @@ async function pedir(c: any, emp: string, produtoIds: string[]): Promise<string>
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Catálogo das tabelas NOVAS de itens (R13): ACL, RLS e índices (inv. 9 / S2 "tabela nova de dinheiro: REVOKE na mesma migration" /
+// S5 "anon sem nenhum privilégio de tabela em public"). Os testes de trava seg-s3a/b/d (que medem pg_locks na mesma txn do gancho)
+// seguem a trava do gancho da R13 em `travaDeGanchoR13`; aqui fica a PROVA de que o catálogo novo é o correto.
+(rodar ? describe : describe.skip)("R13 — catálogo das tabelas de itens: ACL (só SELECT p/ authenticated; anon nada), RLS e índices", () => {
+  const ITENS: Array<{ tab: string; idx: string[]; parcial: { nome: string; col: string } }> = [
+    { tab: "ocs_p_acabado_itens", idx: ["ocs_p_acabado_itens_pkey", "ocs_p_acabado_itens_oc_ordem_ux", "ocpa_itens_oc_idx", "ocpa_itens_produto_idx"],
+      parcial: { nome: "ocpa_itens_produto_idx", col: "produto_acabado_id" } },
+    { tab: "ocs_importado_itens", idx: ["ocs_importado_itens_pkey", "ocs_importado_itens_oc_ordem_ux", "oci_itens_oc_idx", "oci_itens_produto_idx"],
+      parcial: { nome: "oci_itens_produto_idx", col: "produto_importado_id" } },
+  ];
+
+  it("ACL: authenticated só SELECT (nem coluna, nem TRUNCATE/REFERENCES/TRIGGER); anon nenhum privilégio; service_role escreve", async () => {
+    await withTx(async (c) => {
+      for (const { tab } of ITENS) {
+        const t = `public.${tab}`;
+        const priv = async (papel: string, p: string) => Boolean((await um<any>(c, `select has_table_privilege($1, $2, $3) as b`, [papel, t, p])).b);
+        const colPriv = async (papel: string, p: string) => Boolean((await um<any>(c, `select has_any_column_privilege($1, $2, $3) as b`, [papel, t, p])).b);
+        // authenticated: SELECT e mais nada (REVOKE de escrita na mesma migration — inv. 9/S2; S5 tira TRUNCATE/REFERENCES/TRIGGER)
+        expect({ tab, sel: await priv("authenticated", "SELECT") }).toEqual({ tab, sel: true });
+        for (const p of ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"])
+          expect({ tab, p, auth: await priv("authenticated", p) }).toEqual({ tab, p, auth: false });
+        for (const p of ["INSERT", "UPDATE"]) expect({ tab, p, col: await colPriv("authenticated", p) }).toEqual({ tab, p, col: false });
+        // anon: nada (S5) — nem SELECT, nem por coluna
+        for (const p of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"])
+          expect({ tab, p, anon: await priv("anon", p) }).toEqual({ tab, p, anon: false });
+        expect({ tab, anonCol: await colPriv("anon", "SELECT") }).toEqual({ tab, anonCol: false });
+        // service_role (RPCs DEFINER rodam como o dono; o papel de servico mantem o DML)
+        for (const p of ["SELECT", "INSERT", "UPDATE", "DELETE"]) expect({ tab, p, svc: await priv("service_role", p) }).toEqual({ tab, p, svc: true });
+      }
+    });
+  });
+
+  it("RLS ligada com UMA policy tenant_select (PERMISSIVE, só SELECT, sem modgate); índices: pkey, UNIQUE(oc_id, ordem), por OC e parcial por produto", async () => {
+    await withTx(async (c) => {
+      for (const { tab, idx, parcial } of ITENS) {
+        const rls = await um<any>(c, `select relrowsecurity as rls, relforcerowsecurity as forca from pg_class where oid = to_regclass($1)`, [`public.${tab}`]);
+        expect({ tab, rls: rls.rls }).toEqual({ tab, rls: true });
+        const pol = (await c.query(`select polname, polpermissive, polcmd from pg_policy where polrelid = to_regclass($1) order by 1`, [`public.${tab}`])).rows;
+        expect({ tab, pol }).toEqual({ tab, pol: [{ polname: "tenant_select", polpermissive: true, polcmd: "r" }] });
+        const ixs = (await c.query(`select indexname, indexdef from pg_indexes where schemaname = 'public' and tablename = $1`, [tab])).rows;
+        expect({ tab, nomes: ixs.map((r: any) => r.indexname).sort() }).toEqual({ tab, nomes: [...idx].sort() });
+        const def = (n: string) => ixs.find((r: any) => r.indexname === n)!.indexdef as string;
+        expect(def(idx[1])).toMatch(/UNIQUE INDEX .* \(oc_id, ordem\)/);
+        expect(def(parcial.nome)).toMatch(new RegExp(`\\(${parcial.col}\\) WHERE \\(${parcial.col} IS NOT NULL\\)`));
+      }
+    });
+  });
+});

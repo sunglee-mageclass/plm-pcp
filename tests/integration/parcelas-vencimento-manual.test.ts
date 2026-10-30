@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { ocPaSalvar } from "./oc-itens-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const COL = {
@@ -245,13 +246,9 @@ async function ocPAcabado(
     ...extra,
   };
   const grade = { "1": { P: { pedida: 10, recebida: 0, defeito: 0 } } };
-  return (
-    await um<{ id: string }>(
-      c,
-      `select public._salvar_oc_p_acabado_core($1::uuid, $2::jsonb, $3::jsonb, null::int) as id`,
-      [id, JSON.stringify(dados), JSON.stringify(grade)],
-    )
-  ).id;
+  // R13: o escritor antigo (1 produto no cabecalho) e recusado; salva pelo contrato novo (cabecalho + ITEM). O prazo e o
+  // vencimento ajustado a mao seguem sendo do cabecalho/parcelas (a geradora de parcelas nao mudou).
+  return ocPaSalvar(c, id, dados, grade);
 }
 
 describe.skipIf(!RODA)(

@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { ocPaSalvar, ocPaReceber } from "./oc-itens-helpers";
 
+// R13 (OC por fornecedor com VARIOS produtos): estas OCs de 1 produto agora sao montadas/salvas/recebidas pelo contrato novo
+// (`salvar_oc_p_acabado_itens` / `receber_item_oc_p_acabado`, via ./oc-itens-helpers) — o escritor antigo
+// (`salvar_oc_p_acabado`/`receber_oc_p_acabado`) e RECUSADO de proposito (`versao_antiga`). A intencao dos testes e a mesma
+// (recebimento, parcelas, preco congelado, sync com o produto...); o que muda e onde moram os dados: nome/valores/grade/NF no
+// ITEM, fornecedor/datas/prazo no cabecalho.
+//
 // Task 3/8 do plano produto-acabado-revenda: recebimento da OC (materializa o espelho
 // de produção — cad/cad_grades/controle_qualidade), parcelas a pagar por prazo de
 // pagamento e leitura da aba Estoque. Fixtures com sufixo " PA3Test" (padrão das
@@ -40,17 +47,12 @@ async function criarProdutoComCard(
   return { produtoId: prod.id, modeloId: modelo.id };
 }
 
-describe.skipIf(!hasDb)("OC Produto Acabado — receber_oc_p_acabado (Task 3)", () => {
+describe.skipIf(!hasDb)("OC Produto Acabado — receber_item_oc_p_acabado (Task 3; contrato R13)", () => {
   it("receber sem produto vinculado à OC → P0001 'Crie o card'", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC sem vinculo PA3Test"}'::jsonb, '{}'::jsonb) as id`,
-      );
-      await expect(c.query(`select receber_oc_p_acabado($1, '{}'::jsonb, '{}'::jsonb)`, [oc.id])).rejects.toThrow(
-        /Crie o card no Planejamento antes de receber/,
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC sem vinculo PA3Test" });
+      await expect(ocPaReceber(c, ocId)).rejects.toThrow(/Crie o card no Planejamento antes de receber/);
     });
   });
 
@@ -72,14 +74,8 @@ describe.skipIf(!hasDb)("OC Produto Acabado — receber_oc_p_acabado (Task 3)", 
         `select salvar_produto_acabado(null, $1::jsonb, '[]'::jsonb) as id`,
         [JSON.stringify({ nome: "V PA3Test-b", grupo_id: g.id, categoria_id: cat.id })],
       );
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb) as id`,
-        [JSON.stringify({ nome_produto: "OC PA3Test-b", produto_acabado_id: prod.id })],
-      );
-      await expect(c.query(`select receber_oc_p_acabado($1, '{}'::jsonb, '{}'::jsonb)`, [oc.id])).rejects.toThrow(
-        /Crie o card no Planejamento antes de receber/,
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC PA3Test-b", produto_acabado_id: prod.id });
+      await expect(ocPaReceber(c, ocId)).rejects.toThrow(/Crie o card no Planejamento antes de receber/);
     });
   });
 
@@ -92,28 +88,22 @@ describe.skipIf(!hasDb)("OC Produto Acabado — receber_oc_p_acabado (Task 3)", 
         "0": { P: { pedida: 10 }, M: { pedida: 10 } },
         "1": { P: { pedida: 10 }, M: { pedida: 10 } },
       };
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [JSON.stringify({ nome_produto: "OC PA3Test-c", produto_acabado_id: produtoId }), JSON.stringify(grade)],
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC PA3Test-c", produto_acabado_id: produtoId }, grade);
 
       const gradeRecebimento = {
         "0": { P: { pedida: 10, recebida: 9, defeito: 1 }, M: { pedida: 10, recebida: 10, defeito: 0 } },
         "1": { P: { pedida: 10, recebida: 10, defeito: 2 }, M: { pedida: 10, recebida: 9, defeito: 0 } },
       };
-      const resultado = await um<{ cad_id: string; total_real: string }>(
-        c,
-        `select (v->>'cad_id') as cad_id, (v->>'total_real') as total_real
-           from (select receber_oc_p_acabado($1, $2::jsonb, $3::jsonb) as v) s`,
-        [oc.id, JSON.stringify({ data_entrega: "2026-08-10", nota_fiscal: "NF-PA3Test-c" }), JSON.stringify(gradeRecebimento)],
-      );
+      const resultado = await ocPaReceber(c, ocId, { data_entrega: "2026-08-10", nota_fiscal: "NF-PA3Test-c" }, gradeRecebimento);
       // var0: P 9-1=8, M 10-0=10 → 18; var1: P 10-2=8, M 9-0=9 → 17; total 35
       expect(Number(resultado.total_real)).toBe(35);
 
-      const ocRow = await um<{ status: string; nota_fiscal: string }>(c, `select status, nota_fiscal from ocs_p_acabado where id = $1`, [oc.id]);
+      // status do cabecalho e DERIVADO (recebido <=> todos os itens recebidos); a NF do recebimento mora no ITEM
+      const ocRow = await um<{ status: string }>(c, `select status from ocs_p_acabado where id = $1`, [ocId]);
       expect(ocRow.status).toBe("recebido");
-      expect(ocRow.nota_fiscal).toBe("NF-PA3Test-c");
+      const itRow = await um<{ status: string; nota_fiscal: string }>(c, `select status, nota_fiscal from ocs_p_acabado_itens where oc_id = $1`, [ocId]);
+      expect(itRow.status).toBe("recebido");
+      expect(itRow.nota_fiscal).toBe("NF-PA3Test-c");
 
       const cadRow = await um<{ id: string }>(c, `select id from cad where modelo_id = $1`, [modeloId]);
       expect(cadRow.id).toBe(resultado.cad_id);
@@ -141,24 +131,16 @@ describe.skipIf(!hasDb)("OC Produto Acabado — receber_oc_p_acabado (Task 3)", 
       await comoUsuario(c);
       const { produtoId } = await criarProdutoComCard(c, "PA3Test-d", 10);
       const grade = { "0": { UN: { pedida: 10 } }, "1": { UN: { pedida: 10 } } };
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [JSON.stringify({ nome_produto: "OC PA3Test-d", produto_acabado_id: produtoId }), JSON.stringify(grade)],
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC PA3Test-d", produto_acabado_id: produtoId }, grade);
       const grade1 = { "0": { UN: { pedida: 10, recebida: 10, defeito: 0 } }, "1": { UN: { pedida: 10, recebida: 10, defeito: 0 } } };
-      const r1 = await um<{ cad_id: string }>(
-        c,
-        `select (v->>'cad_id') as cad_id from (select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb) as v) s`,
-        [oc.id, JSON.stringify(grade1)],
-      );
+      const r1 = await ocPaReceber(c, ocId, {}, grade1);
 
       // Confirma o CQ manualmente (fora do escopo desta RPC — só simula o estado).
       await c.query(`update controle_qualidade set status='confirmado', confirmado_at=now() where cad_id=$1`, [r1.cad_id]);
 
       // Recebimento corrigido (ex.: achou mais defeito depois) regrava grades_reais.
       const grade2 = { "0": { UN: { pedida: 10, recebida: 10, defeito: 3 } }, "1": { UN: { pedida: 10, recebida: 10, defeito: 0 } } };
-      await c.query(`select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb)`, [oc.id, JSON.stringify(grade2)]);
+      await ocPaReceber(c, ocId, {}, grade2);
 
       const cq = await um<{ status: string }>(c, `select status from controle_qualidade where cad_id = $1`, [r1.cad_id]);
       expect(cq.status).toBe("confirmado"); // não foi tocado
@@ -177,17 +159,15 @@ describe.skipIf(!hasDb)("OC Produto Acabado — parcelas por prazo de pagamento 
   it("3 parcelas a_pagar somando o total (198×99−20% → 15.681,60 / 3 = 5.227,20)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
+      const ocId = await ocPaSalvar(
         c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [
-          JSON.stringify({ nome_produto: "OC parcelas PA3Test", qtd_total: 198, valor_unitario: 99, desconto_pct: 20, prazo_pagamento: "30/60/90" }),
-          JSON.stringify({ "0": { UN: { pedida: 198 } } }),
-        ],
+        null,
+        { nome_produto: "OC parcelas PA3Test", qtd_total: 198, valor_unitario: 99, desconto_pct: 20, prazo_pagamento: "30/60/90" },
+        { "0": { UN: { pedida: 198 } } },
       );
       const parcelas = await c.query(
         `select numero_parcela, valor, status from parcelas where oc_p_acabado_id = $1 order by numero_parcela`,
-        [oc.id],
+        [ocId],
       );
       expect(parcelas.rows).toHaveLength(3);
       expect(parcelas.rows.every((r: any) => r.status === "a_pagar")).toBe(true);
@@ -200,17 +180,15 @@ describe.skipIf(!hasDb)("OC Produto Acabado — parcelas por prazo de pagamento 
   it("prazo sem barra ('30', default) gera 1 parcela; vencimento = data_pedido + dias", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
+      const ocId = await ocPaSalvar(
         c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [
-          JSON.stringify({ nome_produto: "OC prazo único PA3Test", qtd_total: 10, valor_unitario: 100, data_pedido: "2026-01-01" }),
-          JSON.stringify({ "0": { UN: { pedida: 10 } } }),
-        ],
+        null,
+        { nome_produto: "OC prazo único PA3Test", qtd_total: 10, valor_unitario: 100, data_pedido: "2026-01-01" },
+        { "0": { UN: { pedida: 10 } } },
       );
       const parcelas = await c.query(
         `select numero_parcela, valor, data_vencimento from parcelas where oc_p_acabado_id = $1 order by numero_parcela`,
-        [oc.id],
+        [ocId],
       );
       expect(parcelas.rows).toHaveLength(1);
       expect(Number(parcelas.rows[0].valor)).toBeCloseTo(1000, 2);
@@ -221,27 +199,26 @@ describe.skipIf(!hasDb)("OC Produto Acabado — parcelas por prazo de pagamento 
   it("editar desconto regera as NÃO-pagas DESCONTANDO o que já foi pago (Σ TODAS as parcelas === novo total — fix round 1)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
+      const ocId = await ocPaSalvar(
         c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [
-          JSON.stringify({ nome_produto: "OC regera PA3Test", qtd_total: 198, valor_unitario: 99, desconto_pct: 20, prazo_pagamento: "30/60/90" }),
-          JSON.stringify({ "0": { UN: { pedida: 198 } } }),
-        ],
+        null,
+        { nome_produto: "OC regera PA3Test", qtd_total: 198, valor_unitario: 99, desconto_pct: 20, prazo_pagamento: "30/60/90" },
+        { "0": { UN: { pedida: 198 } } },
       );
-      await c.query(`update parcelas set status='pago', data_pagamento=current_date where oc_p_acabado_id=$1 and numero_parcela=1`, [oc.id]);
+      await c.query(`update parcelas set status='pago', data_pagamento=current_date where oc_p_acabado_id=$1 and numero_parcela=1`, [ocId]);
 
-      await c.query(`select salvar_oc_p_acabado($1, $2::jsonb, $3::jsonb)`, [
-        oc.id,
-        JSON.stringify({ nome_produto: "OC regera PA3Test", qtd_total: 198, valor_unitario: 99, desconto_pct: 10, prazo_pagamento: "30/60/90" }),
-        JSON.stringify({ "0": { UN: { pedida: 198 } } }),
-      ]);
+      await ocPaSalvar(
+        c,
+        ocId,
+        { nome_produto: "OC regera PA3Test", qtd_total: 198, valor_unitario: 99, desconto_pct: 10, prazo_pagamento: "30/60/90" },
+        { "0": { UN: { pedida: 198 } } },
+      );
 
       const parcelas = await c.query(
         `select numero_parcela, valor, status from parcelas where oc_p_acabado_id = $1 order by numero_parcela`,
-        [oc.id],
+        [ocId],
       );
-      const ocRow = await um<{ valor_total_desconto: string }>(c, `select valor_total_desconto from ocs_p_acabado where id = $1`, [oc.id]);
+      const ocRow = await um<{ valor_total_desconto: string }>(c, `select valor_total_desconto from ocs_p_acabado where id = $1`, [ocId]);
 
       expect(parcelas.rows).toHaveLength(3);
       expect(parcelas.rows[0].status).toBe("pago");
@@ -266,20 +243,12 @@ describe.skipIf(!hasDb)("OC Produto Acabado — estoque_p_acabado (Task 3)", () 
       await comoUsuario(c);
       const { produtoId } = await criarProdutoComCard(c, "PA3Test-estoque", 15);
       const grade = { "0": { UN: { pedida: 15 } }, "1": { UN: { pedida: 15 } } };
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [JSON.stringify({ nome_produto: "OC estoque PA3Test", produto_acabado_id: produtoId }), JSON.stringify(grade)],
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC estoque PA3Test", produto_acabado_id: produtoId }, grade);
       const grade1 = {
         "0": { UN: { pedida: 15, recebida: 15, defeito: 0 } },
         "1": { UN: { pedida: 15, recebida: 15, defeito: 0 } },
       };
-      const r = await um<{ cad_id: string }>(
-        c,
-        `select (v->>'cad_id') as cad_id from (select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb) as v) s`,
-        [oc.id, JSON.stringify(grade1)],
-      );
+      const r = await ocPaReceber(c, ocId, {}, grade1);
 
       const antes = await um<{ e: any }>(c, `select estoque_p_acabado() as e`);
       expect(antes.e[produtoId]["0"]).toEqual({ real: 15, direcionado: 0, em_maos: 15 });
@@ -318,22 +287,22 @@ describe.skipIf(!hasDb)("OC Produto Acabado — excluir_oc_p_acabado (Task 5 fix
   it("exclui OC encomendada sem parcela paga; cascade limpa as parcelas (não-pagas) junto", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
+      const ocId = await ocPaSalvar(
         c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [
-          JSON.stringify({ nome_produto: "OC excluir PA5Test-a", qtd_total: 10, valor_unitario: 50, prazo_pagamento: "30" }),
-          JSON.stringify({ "0": { UN: { pedida: 10 } } }),
-        ],
+        null,
+        { nome_produto: "OC excluir PA5Test-a", qtd_total: 10, valor_unitario: 50, prazo_pagamento: "30" },
+        { "0": { UN: { pedida: 10 } } },
       );
-      const antes = await c.query(`select count(*)::int as n from parcelas where oc_p_acabado_id = $1`, [oc.id]);
+      const antes = await c.query(`select count(*)::int as n from parcelas where oc_p_acabado_id = $1`, [ocId]);
       expect(antes.rows[0].n).toBeGreaterThan(0); // trigger gerou parcela(s) a_pagar
 
-      await c.query(`select excluir_oc_p_acabado($1)`, [oc.id]);
+      await c.query(`select excluir_oc_p_acabado($1)`, [ocId]);
 
-      const ocDepois = await c.query(`select id from ocs_p_acabado where id = $1`, [oc.id]);
+      const ocDepois = await c.query(`select id from ocs_p_acabado where id = $1`, [ocId]);
       expect(ocDepois.rows).toHaveLength(0);
-      const parcelasDepois = await c.query(`select id from parcelas where oc_p_acabado_id = $1`, [oc.id]);
+      const itensDepois = await c.query(`select id from ocs_p_acabado_itens where oc_id = $1`, [ocId]);
+      expect(itensDepois.rows).toHaveLength(0); // cascade dos itens (R13)
+      const parcelasDepois = await c.query(`select id from parcelas where oc_p_acabado_id = $1`, [ocId]);
       expect(parcelasDepois.rows).toHaveLength(0); // cascade
     });
   });
@@ -341,17 +310,17 @@ describe.skipIf(!hasDb)("OC Produto Acabado — excluir_oc_p_acabado (Task 5 fix
   it("OC recebida (status='recebido') → P0001, não exclui", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC excluir PA5Test-b"}'::jsonb, '{}'::jsonb) as id`,
-      );
-      await c.query(`update ocs_p_acabado set status = 'recebido' where id = $1`, [oc.id]);
+      // OC recebida DE VERDADE (R13: o status do cabecalho e derivado do recebimento do item, nao se grava direto)
+      const { produtoId } = await criarProdutoComCard(c, "PA5Test-b", 5);
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC excluir PA5Test-b", produto_acabado_id: produtoId });
+      await ocPaReceber(c, ocId);
+      expect((await um<{ status: string }>(c, `select status from ocs_p_acabado where id = $1`, [ocId])).status).toBe("recebido");
 
       await c.query("SAVEPOINT sp_excluir_recebida");
-      await expect(c.query(`select excluir_oc_p_acabado($1)`, [oc.id])).rejects.toThrow(/já recebida/);
+      await expect(c.query(`select excluir_oc_p_acabado($1)`, [ocId])).rejects.toThrow(/Ha produto recebido na OC/);
       await c.query("ROLLBACK TO SAVEPOINT sp_excluir_recebida");
 
-      const aindaExiste = await c.query(`select id from ocs_p_acabado where id = $1`, [oc.id]);
+      const aindaExiste = await c.query(`select id from ocs_p_acabado where id = $1`, [ocId]);
       expect(aindaExiste.rows).toHaveLength(1);
     });
   });
@@ -359,24 +328,22 @@ describe.skipIf(!hasDb)("OC Produto Acabado — excluir_oc_p_acabado (Task 5 fix
   it("OC com parcela paga → P0001, não exclui (mesmo status='encomendado')", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
+      const ocId = await ocPaSalvar(
         c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [
-          JSON.stringify({ nome_produto: "OC excluir PA5Test-c", qtd_total: 10, valor_unitario: 50, prazo_pagamento: "30" }),
-          JSON.stringify({ "0": { UN: { pedida: 10 } } }),
-        ],
+        null,
+        { nome_produto: "OC excluir PA5Test-c", qtd_total: 10, valor_unitario: 50, prazo_pagamento: "30" },
+        { "0": { UN: { pedida: 10 } } },
       );
       await c.query(
         `update parcelas set status = 'pago', data_pagamento = current_date where oc_p_acabado_id = $1 and numero_parcela = 1`,
-        [oc.id],
+        [ocId],
       );
 
       await c.query("SAVEPOINT sp_excluir_parcela_paga");
-      await expect(c.query(`select excluir_oc_p_acabado($1)`, [oc.id])).rejects.toThrow(/parcela paga/);
+      await expect(c.query(`select excluir_oc_p_acabado($1)`, [ocId])).rejects.toThrow(/parcela paga/);
       await c.query("ROLLBACK TO SAVEPOINT sp_excluir_parcela_paga");
 
-      const aindaExiste = await c.query(`select id from ocs_p_acabado where id = $1`, [oc.id]);
+      const aindaExiste = await c.query(`select id from ocs_p_acabado where id = $1`, [ocId]);
       expect(aindaExiste.rows).toHaveLength(1);
     });
   });
@@ -386,7 +353,7 @@ describe.skipIf(!hasDb)("OC Produto Acabado — excluir_oc_p_acabado (Task 5 fix
 // só a partir de `cad_etiquetas` de um `cad` com `enviado_corte=true`, que um modelo
 // revenda NUNCA seta (não passa pela Explosão/corte de tecido). Fix aditivo
 // `baixa_revenda`: consumo de insumo revenda = modelo_etiquetas.consumo × peças
-// recebidas (cad_grades.grade_total_real do cad-espelho de receber_oc_p_acabado).
+// recebidas (cad_grades.grade_total_real do cad-espelho de receber_item_oc_p_acabado).
 describe.skipIf(!hasDb)("estoque_etiqueta — ramo revenda (Task 7 fix)", () => {
   it("consumo de insumo revenda entra na 'baixa' via peças recebidas, sem depender de enviado_corte", async () => {
     await withTx(async (c) => {
@@ -407,16 +374,12 @@ describe.skipIf(!hasDb)("estoque_etiqueta — ramo revenda (Task 7 fix)", () => 
         "0": { P: { pedida: 10 }, M: { pedida: 10 } },
         "1": { P: { pedida: 10 }, M: { pedida: 10 } },
       };
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [JSON.stringify({ nome_produto: "OC PA7Test-etq", produto_acabado_id: produtoId }), JSON.stringify(grade)],
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC PA7Test-etq", produto_acabado_id: produtoId }, grade);
       const gradeRecebimento = {
         "0": { P: { pedida: 10, recebida: 9, defeito: 1 }, M: { pedida: 10, recebida: 10, defeito: 0 } },
         "1": { P: { pedida: 10, recebida: 10, defeito: 2 }, M: { pedida: 10, recebida: 9, defeito: 0 } },
       };
-      await c.query(`select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb)`, [oc.id, JSON.stringify(gradeRecebimento)]);
+      await ocPaReceber(c, ocId, {}, gradeRecebimento);
 
       // Peças recebidas: var0 8+10=18, var1 8+9=17 → total 35. Consumo 2/peça → baixa = 70.
       const depois = await um<{ baixa: string; fisico: string; tamanho: string | null }>(
@@ -449,92 +412,80 @@ describe.skipIf(!hasDb)("estoque_etiqueta — ramo revenda (Task 7 fix)", () => 
   });
 });
 
-// Refino onda 2 (ago/2026), item 1: nº do pedido editável — a trigger
-// `fn_oc_p_acabado_numero` já só gerava quando vazio; o gap era `_salvar_oc_p_acabado_
-// core` nunca passar `numero` do payload pro INSERT/UPDATE. Migração 20260811160000.
-describe.skipIf(!hasDb)("OC Produto Acabado — nº do pedido editável (refino onda 2, item 1)", () => {
-  it("numero customizado no payload é honrado no INSERT (bypassa a geração automática)", async () => {
+// Refino onda 2 (ago/2026), item 1 (nº do pedido editável) — SUBSTITUIDO pelo contrato da R13: o numero da OC e SEMPRE gerado
+// pelo servidor (`_oc_numero_proximo`, com sigla do lote e advisory lock por loja) e "nao muda" depois (a tela mostra o campo
+// desabilitado: "O número é gerado ao criar e não muda."). `salvar_oc_p_acabado_itens` NAO le `numero` do payload. Os 4 testes
+// abaixo fixam o contrato novo (mesma intencao: o numero e estavel e nunca fica vazio), no lugar do "editavel" antigo.
+describe.skipIf(!hasDb)("OC Produto Acabado — nº do pedido gerado e estável (R13; antes: editável)", () => {
+  const NUM = /^[A-Z0-9]{3,}-\d{5}$/; // SIGLA-NNNNN (sigla de lote: fornecedor+G/C, ACE ou DIV)
+
+  it("numero mandado no payload é IGNORADO na criação (o servidor gera o seu)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero custom Onda2","numero":"MEUNUM-001"}'::jsonb, '{}'::jsonb) as id`,
-      );
-      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
-      expect(row.numero).toBe("MEUNUM-001");
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero custom R13", numero: "MEUNUM-001" });
+      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
+      expect(row.numero).not.toBe("MEUNUM-001");
+      expect(row.numero).toMatch(NUM);
     });
   });
 
-  it("numero vazio no payload continua gerando automaticamente (trigger)", async () => {
+  it("sem numero no payload a OC nasce com numero gerado (nunca vazio)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero auto Onda2"}'::jsonb, '{}'::jsonb) as id`,
-      );
-      const row = await um<{ numero: string | null }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero auto R13" });
+      const row = await um<{ numero: string | null }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
       expect(row.numero).toBeTruthy();
-      expect(row.numero).not.toBe("");
+      expect(row.numero).toMatch(NUM);
     });
   });
 
-  it("editar uma OC existente e mandar numero novo RENOMEIA (UPDATE grava a coluna)", async () => {
+  it("editar uma OC existente e mandar numero novo NÃO renomeia (numero fixo depois de criado)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero renomear Onda2"}'::jsonb, '{}'::jsonb) as id`,
-      );
-      await c.query(`select salvar_oc_p_acabado($1, '{"nome_produto":"OC numero renomear Onda2","numero":"RENOMEADO-9"}'::jsonb, '{}'::jsonb)`, [oc.id]);
-      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
-      expect(row.numero).toBe("RENOMEADO-9");
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero renomear R13" });
+      const antes = (await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId])).numero;
+      await ocPaSalvar(c, ocId, { nome_produto: "OC numero renomear R13", numero: "RENOMEADO-9" });
+      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
+      expect(row.numero).toBe(antes);
+      expect(row.numero).not.toBe("RENOMEADO-9");
     });
   });
 
-  it("editar sem mandar numero (campo em branco) PRESERVA o número atual", async () => {
+  it("editar sem mandar numero PRESERVA o número atual", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero preservar Onda2","numero":"FIXO-7"}'::jsonb, '{}'::jsonb) as id`,
-      );
-      await c.query(`select salvar_oc_p_acabado($1, '{"nome_produto":"OC numero preservar Onda2"}'::jsonb, '{}'::jsonb)`, [oc.id]);
-      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
-      expect(row.numero).toBe("FIXO-7"); // não some/reseta
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC numero preservar R13" });
+      const antes = (await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId])).numero;
+      await ocPaSalvar(c, ocId, { nome_produto: "OC numero preservar R13 (editada)" });
+      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [ocId]);
+      expect(row.numero).toBe(antes); // não some/reseta
     });
   });
 });
 
-// Refino onda 2 (ago/2026), item 4: preço congela ao receber (paridade com a decisão do
-// dono p/ tecido) — migração 20260811150000. `_salvar_oc_p_acabado_core` rejeita (P0001)
-// mudança de valor_unitario/desconto_pct/qtd_total/grade_detalhe(campo pedida) quando a
-// OC já está 'recebido'; NF/revisão/devolução/anexos/nome/categorias/fornecedor/datas/
-// prazo continuam editáveis normalmente.
-describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refino onda 2, item 4)", () => {
+// Refino onda 2 (ago/2026), item 4: preço congela ao receber (paridade com a decisão do dono p/ tecido). R13: o congelamento
+// vale POR ITEM — o escritor (`_salvar_oc_p_acabado_itens_core`) rejeita (P0001 "Item recebido - desfaca o recebimento para
+// alterar valores") mudanca de valor_unitario/desconto_pct/qtd_total/grade_detalhe (campo pedida) de um item JA RECEBIDO;
+// NF/revisao/devolucao (campos de recebimento, do item) seguem editaveis pelo proprio recebimento; nome/categorias/fornecedor/
+// datas/prazo continuam editaveis normalmente.
+describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refino onda 2, item 4; por item na R13)", () => {
+  const DADOS = (sufixo: string) => ({ nome_produto: `OC congela ${sufixo}`, qtd_total: 10, valor_unitario: 50, desconto_pct: 0, prazo_pagamento: "30" });
+  const GRADE = { "0": { UN: { pedida: 10 } } };
+  // OC recebida DE VERDADE: produto com card + receber_item_oc_p_acabado (R13: o status do item/cabecalho nao se grava direto)
   async function criarOcRecebida(c: any, sufixo: string) {
-    const oc = await um<{ id: string }>(
-      c,
-      `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-      [
-        JSON.stringify({ nome_produto: `OC congela ${sufixo}`, qtd_total: 10, valor_unitario: 50, desconto_pct: 0, prazo_pagamento: "30" }),
-        JSON.stringify({ "0": { UN: { pedida: 10 } } }),
-      ],
-    );
-    await c.query(`update ocs_p_acabado set status = 'recebido' where id = $1`, [oc.id]);
-    return oc.id;
+    const { produtoId } = await criarProdutoComCard(c, `Congela-${sufixo}`, 5);
+    const ocId = await ocPaSalvar(c, null, { ...DADOS(sufixo), produto_acabado_id: produtoId }, GRADE);
+    await ocPaReceber(c, ocId, { data_entrega: "2026-08-10", nota_fiscal: "NF-orig" }, { "0": { UN: { pedida: 10, recebida: 10, defeito: 0 } } });
+    return { ocId, produtoId };
   }
+  const RECUSA = /Item recebido/;
 
-  it("editar valor_unitario numa OC recebida → P0001 'OC recebida'", async () => {
+  it("editar valor_unitario numa OC recebida → P0001 'Item recebido'", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const ocId = await criarOcRecebida(c, "Onda2-a");
+      const { ocId } = await criarOcRecebida(c, "Onda2-a");
       await c.query("SAVEPOINT sp_valor");
-      await expect(
-        c.query(
-          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-a","qtd_total":10,"valor_unitario":99,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
-          [ocId],
-        ),
-      ).rejects.toThrow(/OC recebida/);
+      await expect(ocPaSalvar(c, ocId, { valor_unitario: 99 })).rejects.toThrow(RECUSA);
       await c.query("ROLLBACK TO SAVEPOINT sp_valor");
     });
   });
@@ -542,14 +493,9 @@ describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refin
   it("editar desconto_pct numa OC recebida → P0001", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const ocId = await criarOcRecebida(c, "Onda2-b");
+      const { ocId } = await criarOcRecebida(c, "Onda2-b");
       await c.query("SAVEPOINT sp_desconto");
-      await expect(
-        c.query(
-          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-b","qtd_total":10,"valor_unitario":50,"desconto_pct":15,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
-          [ocId],
-        ),
-      ).rejects.toThrow(/OC recebida/);
+      await expect(ocPaSalvar(c, ocId, { desconto_pct: 15 })).rejects.toThrow(RECUSA);
       await c.query("ROLLBACK TO SAVEPOINT sp_desconto");
     });
   });
@@ -557,14 +503,9 @@ describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refin
   it("editar qtd_total (+ grade pedida coerente) numa OC recebida → P0001", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const ocId = await criarOcRecebida(c, "Onda2-c");
+      const { ocId } = await criarOcRecebida(c, "Onda2-c");
       await c.query("SAVEPOINT sp_qtd");
-      await expect(
-        c.query(
-          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-c","qtd_total":20,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":20}}}'::jsonb)`,
-          [ocId],
-        ),
-      ).rejects.toThrow(/OC recebida/);
+      await expect(ocPaSalvar(c, ocId, { qtd_total: 20 }, { "0": { UN: { pedida: 20, recebida: 10, defeito: 0 } } })).rejects.toThrow(RECUSA);
       await c.query("ROLLBACK TO SAVEPOINT sp_qtd");
     });
   });
@@ -572,14 +513,11 @@ describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refin
   it("editar só a grade PEDIDA (qtd_total intacto) numa OC recebida → P0001", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const ocId = await criarOcRecebida(c, "Onda2-d");
+      const { ocId } = await criarOcRecebida(c, "Onda2-d");
       await c.query("SAVEPOINT sp_grade");
       await expect(
-        c.query(
-          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-d","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":4}},"1":{"UN":{"pedida":6}}}'::jsonb)`,
-          [ocId],
-        ),
-      ).rejects.toThrow(/OC recebida/);
+        ocPaSalvar(c, ocId, {}, { "0": { UN: { pedida: 4, recebida: 4, defeito: 0 } }, "1": { UN: { pedida: 6, recebida: 6, defeito: 0 } } }),
+      ).rejects.toThrow(RECUSA);
       await c.query("ROLLBACK TO SAVEPOINT sp_grade");
     });
   });
@@ -587,13 +525,10 @@ describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refin
   it("reenviar os MESMOS valores (nenhuma mudança real) numa OC recebida → OK, não dispara o guard", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const ocId = await criarOcRecebida(c, "Onda2-e");
-      // Mesmo payload que criou a OC — um Salvar comum sem tocar em $/qtd não deve falhar.
-      await c.query(
-        `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-e (renomeada)","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
-        [ocId],
-      );
-      const row = await um<{ nome_produto: string }>(c, `select nome_produto from ocs_p_acabado where id = $1`, [ocId]);
+      const { ocId } = await criarOcRecebida(c, "Onda2-e");
+      // Mesmos $/qtd/grade pedida — um Salvar comum sem tocar nisso não deve falhar.
+      await ocPaSalvar(c, ocId, { nome_produto: "OC congela Onda2-e (renomeada)" });
+      const row = await um<{ nome_produto: string }>(c, `select nome_produto from ocs_p_acabado_itens where oc_id = $1`, [ocId]);
       expect(row.nome_produto).toBe("OC congela Onda2-e (renomeada)"); // nome NÃO é congelado, só $/qtd
     });
   });
@@ -601,47 +536,45 @@ describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refin
   it("editar NF/revisão/devolução (campos de recebimento) numa OC recebida → OK, guard não se aplica", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const ocId = await criarOcRecebida(c, "Onda2-f");
-      await c.query(
-        `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-f","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30","nota_fiscal":"NF-9988","revisao":"revisado ok","devolucao":"sem devolução"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
-        [ocId],
-      );
-      const row = await um<{ nota_fiscal: string; revisao: string; devolucao: string }>(
+      const { ocId } = await criarOcRecebida(c, "Onda2-f");
+      // R13: NF/revisao/devolucao sao do ITEM e so entram pelo recebimento do item (`item_*` em receber_item_oc_p_acabado) — o
+      // re-receber de um item recebido (mesmos $/qtd/grade pedida) regrava esses campos sem acionar o congelamento.
+      await ocPaReceber(c, ocId, { nota_fiscal: "NF-9988", revisao: "revisado ok", devolucao: "sem devolução", data_entrega: "2026-08-10" });
+      const row = await um<{ nota_fiscal: string; revisao: string; devolucao: string; status: string }>(
         c,
-        `select nota_fiscal, revisao, devolucao from ocs_p_acabado where id = $1`,
+        `select nota_fiscal, revisao, devolucao, status from ocs_p_acabado_itens where oc_id = $1`,
         [ocId],
       );
       expect(row.nota_fiscal).toBe("NF-9988");
       expect(row.revisao).toBe("revisado ok");
       expect(row.devolucao).toBe("sem devolução");
+      expect(row.status).toBe("recebido");
     });
   });
 
-  it("OC 'encomendado' (não recebida) aceita mudança normal de valor_unitario/qtd — guard só vale pra 'recebido'", async () => {
+  it("OC 'encomendado' (não recebida) aceita mudança normal de valor_unitario/qtd — guard só vale pra item 'recebido'", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC congela Onda2-g","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb) as id`,
-      );
-      await c.query(
-        `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-g","qtd_total":20,"valor_unitario":80,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":20}}}'::jsonb)`,
-        [oc.id],
-      );
+      const ocId = await ocPaSalvar(c, null, DADOS("Onda2-g"), GRADE);
+      await ocPaSalvar(c, ocId, { qtd_total: 20, valor_unitario: 80 }, { "0": { UN: { pedida: 20 } } });
       const row = await um<{ qtd_total: number; valor_unitario: string }>(
         c,
-        `select qtd_total, valor_unitario from ocs_p_acabado where id = $1`,
-        [oc.id],
+        `select qtd_total, valor_unitario from ocs_p_acabado_itens where oc_id = $1`,
+        [ocId],
       );
       expect(Number(row.qtd_total)).toBe(20);
       expect(Number(row.valor_unitario)).toBe(80);
+      // e o cabecalho (derivado dos itens) acompanha
+      const cab = await um<{ qtd_total: number; valor_bruto: string }>(c, `select qtd_total, valor_bruto from ocs_p_acabado where id = $1`, [ocId]);
+      expect(Number(cab.qtd_total)).toBe(20);
+      expect(Number(cab.valor_bruto)).toBe(1600);
     });
   });
 });
 
 // Refino ago/2026: "o valor unitário e desconto no card devem ser atualizados de acordo
-// com a OC" (migração 20260812100000). `_salvar_oc_p_acabado_core` empurra valor_unitario/
-// desconto_pct pra `produtos_acabados` sempre que a OC salva TEM produto_acabado_id (criação
+// com a OC" (migração 20260812100000). R13: `_salvar_oc_p_acabado_itens_core` empurra valor_unitario/
+// desconto_pct do ITEM pra `produtos_acabados` sempre que o item salvo TEM produto_acabado_id (criação
 // OU edição); `_vincular_oc_p_acabado_core` faz o mesmo ao VINCULAR (não ao desvincular).
 // qtd_total NÃO sincroniza (decisão registrada no cabeçalho da migração).
 describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct → produto (refino ago/2026)", () => {
@@ -672,34 +605,29 @@ describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct
     );
   }
 
-  it("salvar_oc_p_acabado: OC AVULSA (sem produto_acabado_id) não toca em produto nenhum", async () => {
+  it("salvar_oc_p_acabado_itens: OC AVULSA (item sem produto_acabado_id) não toca em produto nenhum", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const prodId = await criarProduto(c, "Avulsa");
-      await c.query(
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC avulsa SyncOcPaTest","valor_unitario":123,"desconto_pct":50}'::jsonb, '{}'::jsonb)`,
-      );
+      await ocPaSalvar(c, null, { nome_produto: "OC avulsa SyncOcPaTest", valor_unitario: 123, desconto_pct: 50 }, {});
       const row = await valoresProduto(c, prodId);
       expect(Number(row.valor_unitario)).toBe(0);
       expect(Number(row.desconto_pct)).toBe(0);
     });
   });
 
-  it("salvar_oc_p_acabado: criar OC COM produto_acabado_id sincroniza valor/desconto na hora", async () => {
+  it("salvar_oc_p_acabado_itens: criar OC COM produto_acabado_id (no item) sincroniza valor/desconto na hora", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const prodId = await criarProduto(c, "Criacao");
-      await c.query(
-        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb)`,
-        [JSON.stringify({ nome_produto: "OC vinc criacao SyncOcPaTest", valor_unitario: 55.5, desconto_pct: 10, produto_acabado_id: prodId })],
-      );
+      await ocPaSalvar(c, null, { nome_produto: "OC vinc criacao SyncOcPaTest", valor_unitario: 55.5, desconto_pct: 10, produto_acabado_id: prodId }, {});
       const row = await valoresProduto(c, prodId);
       expect(Number(row.valor_unitario)).toBe(55.5);
       expect(Number(row.desconto_pct)).toBe(10);
     });
   });
 
-  it("salvar_oc_p_acabado: EDITAR uma OC já vinculada re-sincroniza o produto (e qtd_total do produto fica intocado)", async () => {
+  it("salvar_oc_p_acabado_itens: EDITAR uma OC já vinculada re-sincroniza o produto (e qtd_total do produto fica intocado)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const prodId = await criarProduto(c, "Edicao");
@@ -707,20 +635,14 @@ describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct
       // nunca deve ser sobrescrito pelo sync.
       await c.query(`update produtos_acabados set qtd_total = 42 where id = $1`, [prodId]);
 
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb) as id`,
-        [JSON.stringify({ nome_produto: "OC vinc edicao SyncOcPaTest", valor_unitario: 10, desconto_pct: 0, produto_acabado_id: prodId })],
-      );
-      // qtd_total da OC muda (com grade pedida coerente, senão a validação da própria OC
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC vinc edicao SyncOcPaTest", valor_unitario: 10, desconto_pct: 0, produto_acabado_id: prodId }, {});
+      // qtd_total do item muda (com grade pedida coerente, senão a validação do próprio item
       // rejeita) — o ponto do teste é que o qtd_total do PRODUTO não segue essa mudança.
-      await c.query(
-        `select salvar_oc_p_acabado($1, $2::jsonb, $3::jsonb)`,
-        [
-          oc.id,
-          JSON.stringify({ nome_produto: "OC vinc edicao SyncOcPaTest", valor_unitario: 77.77, desconto_pct: 25, qtd_total: 999 }),
-          JSON.stringify({ "0": { UN: { pedida: 999 } } }),
-        ],
+      await ocPaSalvar(
+        c,
+        ocId,
+        { nome_produto: "OC vinc edicao SyncOcPaTest", valor_unitario: 77.77, desconto_pct: 25, qtd_total: 999 },
+        { "0": { UN: { pedida: 999 } } },
       );
       const row = await valoresProduto(c, prodId);
       expect(Number(row.valor_unitario)).toBe(77.77);
@@ -733,14 +655,11 @@ describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct
     await withTx(async (c) => {
       await comoUsuario(c);
       const prodId = await criarProduto(c, "Vincular");
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC pre-vinculo SyncOcPaTest","valor_unitario":33.33,"desconto_pct":5}'::jsonb, '{}'::jsonb) as id`,
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC pre-vinculo SyncOcPaTest", valor_unitario: 33.33, desconto_pct: 5 }, {});
       const antes = await valoresProduto(c, prodId);
       expect(Number(antes.valor_unitario)).toBe(0);
 
-      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc.id, prodId]);
+      await c.query(`select vincular_oc_p_acabado($1, $2)`, [ocId, prodId]);
       const depois = await valoresProduto(c, prodId);
       expect(Number(depois.valor_unitario)).toBe(33.33);
       expect(Number(depois.desconto_pct)).toBe(5);
@@ -751,12 +670,9 @@ describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct
     await withTx(async (c) => {
       await comoUsuario(c);
       const prodId = await criarProduto(c, "Desvincular");
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC desvinculo SyncOcPaTest","valor_unitario":20,"desconto_pct":8}'::jsonb, '{}'::jsonb) as id`,
-      );
-      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc.id, prodId]);
-      await c.query(`select vincular_oc_p_acabado($1, null)`, [oc.id]);
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC desvinculo SyncOcPaTest", valor_unitario: 20, desconto_pct: 8 }, {});
+      await c.query(`select vincular_oc_p_acabado($1, $2)`, [ocId, prodId]);
+      await c.query(`select vincular_oc_p_acabado($1, null)`, [ocId]);
       const row = await valoresProduto(c, prodId);
       expect(Number(row.valor_unitario)).toBe(20);
       expect(Number(row.desconto_pct)).toBe(8);
@@ -797,10 +713,7 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
     await withTx(async (c) => {
       await comoUsuario(c);
       const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "a");
-      await c.query(
-        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb)`,
-        [JSON.stringify({ nome_produto: "OC MkOc-a", valor_unitario: 100, desconto_pct: 0, produto_acabado_id: produtoId })],
-      );
+      await ocPaSalvar(c, null, { nome_produto: "OC MkOc-a", valor_unitario: 100, desconto_pct: 0, produto_acabado_id: produtoId }, {});
       // custo = 100 + 0 insumos = 100; atacado = 100×2 = 200; varejo = 100×1.5 = 150
       const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(m.preco_atacado)).toBe(200);
@@ -812,18 +725,11 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
     await withTx(async (c) => {
       await comoUsuario(c);
       const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "b");
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb) as id`,
-        [JSON.stringify({ nome_produto: "OC MkOc-b", valor_unitario: 100, desconto_pct: 0, produto_acabado_id: produtoId })],
-      );
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC MkOc-b", valor_unitario: 100, desconto_pct: 0, produto_acabado_id: produtoId }, {});
       const antes = await um<{ preco_atacado: string }>(c, `select preco_atacado from modelos where id = $1`, [modeloId]);
       expect(Number(antes.preco_atacado)).toBe(200);
 
-      await c.query(
-        `select salvar_oc_p_acabado($1, $2::jsonb, '{}'::jsonb)`,
-        [oc.id, JSON.stringify({ nome_produto: "OC MkOc-b", valor_unitario: 60, desconto_pct: 50 })],
-      );
+      await ocPaSalvar(c, ocId, { nome_produto: "OC MkOc-b", valor_unitario: 60, desconto_pct: 50 }, {});
       // custo = 60×(1−50%) = 30; atacado = 30×2 = 60; varejo = 30×1.5 = 45
       const depois = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(depois.preco_atacado)).toBe(60);
@@ -835,11 +741,8 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
     await withTx(async (c) => {
       await comoUsuario(c);
       const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "c");
-      const oc = await um<{ id: string }>(
-        c,
-        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC MkOc-c avulsa","valor_unitario":40,"desconto_pct":0}'::jsonb, '{}'::jsonb) as id`,
-      );
-      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc.id, produtoId]);
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC MkOc-c avulsa", valor_unitario: 40, desconto_pct: 0 }, {});
+      await c.query(`select vincular_oc_p_acabado($1, $2)`, [ocId, produtoId]);
       // custo = 40; atacado = 80; varejo = 40×1.5 = 60
       const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(m.preco_atacado)).toBe(80);
@@ -847,22 +750,17 @@ describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (
     });
   });
 
-  it("receber_oc_p_acabado também recomputa (defensivo — custo previsto não muda ao receber, mas o recompute roda)", async () => {
+  it("receber_item_oc_p_acabado também recomputa (defensivo — custo previsto não muda ao receber, mas o recompute roda)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "d");
-      const oc = await um<{ id: string }>(
+      const ocId = await ocPaSalvar(
         c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [
-          JSON.stringify({ nome_produto: "OC MkOc-d", valor_unitario: 50, desconto_pct: 0, produto_acabado_id: produtoId }),
-          JSON.stringify({ "0": { UN: { pedida: 10 } } }),
-        ],
+        null,
+        { nome_produto: "OC MkOc-d", valor_unitario: 50, desconto_pct: 0, produto_acabado_id: produtoId },
+        { "0": { UN: { pedida: 10 } } },
       );
-      await c.query(
-        `select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb)`,
-        [oc.id, JSON.stringify({ "0": { UN: { pedida: 10, recebida: 10, defeito: 0 } } })],
-      );
+      await ocPaReceber(c, ocId, {}, { "0": { UN: { pedida: 10, recebida: 10, defeito: 0 } } });
       // custo = 50; atacado = 100; varejo = 50×1.5 = 75
       const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
       expect(Number(m.preco_atacado)).toBe(100);

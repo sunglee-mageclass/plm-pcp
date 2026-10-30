@@ -8,6 +8,7 @@ import type { Client } from "pg";
 import { hasDb, withTx, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { aplicaUrgd, URGD_BLOCOS } from "./urgd-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { voltaR13SePreciso } from "./urg-r13-helpers"; // [urg R13] LIFO: a R13 sai antes do _down da r11c
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -227,6 +228,9 @@ describe.skipIf(!RODA)("urg R11c — fonte única do estoque + Histórico (19920
   it("[5] _down recusa com linhas no ledger sem app.confirmo_volta_estoque_peca_teste; passa com a GUC", async () => {
     await withTx(async (c) => {
       await aplica(c);
+      // LIFO: a R13 (por cima da R11; redefine _estoque_extrato_insumo_core, que o _down da r11c confere por md5) sai ANTES do _down
+      // da r11c — no kit real a volta e R13 -> R11e..R11c. Sem o gancho URG_R13_TXN (R13 fora) e no-op.
+      await voltaR13SePreciso(c);
       const { av } = await umAviamento(c);
       await c.query(`INSERT INTO estoque_peca_teste_baixas (tenant_id, familia, aviamento_id, origem, quantidade, rotulo)
                      VALUES ($1,'aviamento',$2,'peca_teste',1,'d')`, [T, av]);

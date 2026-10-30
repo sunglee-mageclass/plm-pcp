@@ -13,6 +13,7 @@ import { S3D_MD5, S3D_PAGINAS, S3D_GATILHOS, S3D_ACL, S3D_COLUNAS_PRODUTO, S3D_S
 import { aclTabela } from "./seg-s2-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { voltaUrgcSePreciso } from "./urgc-helpers"; // [urg R9] volta LIFO da R9 na linha de base da medicao de trava
+import { travaDeGanchoR13 } from "./urg-r13-helpers"; // [urg R13] trava que e do gancho da R13 (ida na txn do teste)
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
@@ -210,6 +211,10 @@ describe.skipIf(!RODA)("seg S3d — trava medida (pg_locks na txn revertida)", (
       // (192000) reescreve o trg_kanban_fila_upd (ShareRowExclusive em categorias_terceirizado) - trava da VOLTA da R9, nao desta
       // frente: entra na linha de base.
       await voltaUrgcSePreciso(c);
+      const authLocks = `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
+           JOIN pg_namespace n ON n.oid = k.relnamespace
+          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`;
+      const authBase = new Set((await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`)); // [urg R13] linha de base (gancho)
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
@@ -235,19 +240,21 @@ describe.skipIf(!RODA)("seg S3d — trava medida (pg_locks na txn revertida)", (
         // Regra medida (inalterada): a ida/reaplicação não pega trava nova e nunca mais forte que ShareRowExclusive; o que estava seguro no começo
         // da txn é exatamente as TRES ou nada.
         const seguradasNoInicio = (await travas()).filter((t) => S3D_TABELAS_TRAVA.includes(t.rel));
-        expect([[], TRES]).toContainEqual(seguradasNoInicio);
+        // [urg R13] a ida da R13 (gancho URG_R13_TXN=1) segura ShareRowExclusive em produtos_acabados/produtos_importados NESTA txn desde o
+        // comeco (FKs dos itens de OC) — nao e da S3d: compara os dois lados SEM a trava do gancho.
+        const semR13 = (ts: { rel: string; mode: string }[]) => ts.filter((t) => !travaDeGanchoR13(t));
+        expect([[], TRES].map(semR13)).toContainEqual(semR13(seguradasNoInicio));
         base = new Set((await travas()).map(chave));
         await aplicaS3d(c);
         expect(await novas()).toEqual([]);
         expect((await travas()).filter((t) => S3D_TABELAS_TRAVA.includes(t.rel))).toEqual(seguradasNoInicio);
       }
       // a de modelos é ShareRowExclusive (bloqueia INSERT/UPDATE/DELETE, não SELECT) — nada mais forte, em nenhuma tabela
-      expect((await travas()).filter((t) => /AccessExclusive|^ExclusiveLock/.test(t.mode))).toEqual([]);
-      const auth = await c.query(
-        `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
-           JOIN pg_namespace n ON n.oid = k.relnamespace
-          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`);
-      expect(auth.rows).toEqual([]);
+      // [urg R13] sem a trava do gancho da R13 (a ida criou as tabelas/indices de itens: AccessExclusive nelas, e o CREATE POLICY prende auth/storage)
+      expect((await travas()).filter((t) => /AccessExclusive|^ExclusiveLock/.test(t.mode) && !travaDeGanchoR13(t))).toEqual([]);
+      // por DIFERENCA (linha de base tirada depois da volta LIFO, antes da medicao): a S3d nao pega trava NOVA em auth/storage/realtime
+      const auth = (await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`).filter((k: string) => !authBase.has(k));
+      expect(auth).toEqual([]);
     });
   });
 

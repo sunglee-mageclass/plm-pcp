@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { s3aViva } from "./seg-s3a-helpers";
+import { ocPaSalvar, ocImpSalvar } from "./oc-itens-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261002100000_oc_data_nota_entrada.sql";
@@ -252,25 +253,23 @@ async function ocPAcabado(c: Client, fx: Fix, extra: Record<string, unknown> = {
     valor_unitario: 100, desconto_pct: 0, grade_proporcao: {}, variantes: [], ...extra,
   };
   const grade = { "1": { P: { pedida: 10, recebida: 0, defeito: 0 } } };
-  return (await um<{ id: string }>(c, `select public._salvar_oc_p_acabado_core($1::uuid, $2::jsonb, $3::jsonb, null::int) as id`,
-    [id, JSON.stringify(dados), JSON.stringify(grade)])).id;
+  // R13: o escritor antigo (1 produto no cabecalho) e recusado; salva pelo contrato novo (cabecalho + ITEM). A Nota de Entrada
+  // (`data_nota_entrada`) segue sendo do CABECALHO e a base dos vencimentos.
+  return ocPaSalvar(c, id, dados, grade);
 }
 
-/** Re-salva a OC de importado com os dados ATUAIS dela (+ extra) — pelo core, igual ao front. */
+/** Re-salva a OC de importado com os dados ATUAIS dela (+ extra) — pelo contrato novo (`salvar_oc_importado_itens`, R13), igual
+ *  ao front: cabecalho atual + itens atuais (estado completo) + etapas atuais. `semChave` = manda o cabecalho SEM a chave da Nota. */
 async function salvarImportado(c: Client, ocId: string, extra: Record<string, unknown> = {}, semChave = false): Promise<void> {
-  const r = await um<{ j: Record<string, unknown>; g: unknown; e: unknown }>(
+  const r = await um<{ e: unknown }>(
     c,
-    `select to_jsonb(o) j, o.grade_detalhe g,
-            coalesce((select jsonb_agg(jsonb_build_object('ordem', e.ordem, 'rotulo', e.rotulo, 'base', e.base,
+    `select coalesce((select jsonb_agg(jsonb_build_object('ordem', e.ordem, 'rotulo', e.rotulo, 'base', e.base,
                         'percentual', e.percentual, 'data_vencimento', e.data_vencimento, 'cotacao', e.cotacao) order by e.ordem)
                         from ocs_importado_etapas e where e.oc_importado_id = o.id), '[]'::jsonb) e
        from ocs_importado o where o.id = $1`,
     [ocId],
   );
-  const dados: Record<string, unknown> = { ...r.j, ...extra };
-  if (semChave) delete dados.data_nota_entrada;
-  await c.query(`select public._salvar_oc_importado_core($1::uuid, $2::jsonb, $3::jsonb, $4::jsonb, null::int)`,
-    [ocId, JSON.stringify(dados), JSON.stringify(r.g), JSON.stringify(r.e)]);
+  await ocImpSalvar(c, ocId, extra, undefined, r.e as any[], semChave ? { omitirCab: ["data_nota_entrada"] } : undefined);
 }
 
 const totalAviamento = async (c: Client, id: string) => centavosDe((await um<{ t: string }>(c,

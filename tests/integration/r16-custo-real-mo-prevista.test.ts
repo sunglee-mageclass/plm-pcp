@@ -321,9 +321,11 @@ describe.skipIf(!RODA)("R16 caronas na fonte única do custo: R12 INFO 6 + preç
       { modelo: string; oc: string; vu: string; dp: string; vur: string | null; ins: string } | undefined
     >(
       c,
+      // R13: a OC e achada pelo ITEM (`ocs_p_acabado_itens.produto_acabado_id`) — o ponteiro do cabecalho foi zerado. `oc` = o ITEM:
+      // status e valor_unitario_real (o que o custo real le) moram nele.
       `select m.id modelo, oc.id oc, p.valor_unitario::text vu, p.desconto_pct::text dp, oc.valor_unitario_real::text vur,
               (select coalesce(sum(coalesce(me.custo_previsto,0)),0) from modelo_etiquetas me where me.modelo_id = m.id)::text ins
-         from produtos_acabados p join modelos m on m.id = p.modelo_id join ocs_p_acabado oc on oc.produto_acabado_id = p.id
+         from produtos_acabados p join modelos m on m.id = p.modelo_id join ocs_p_acabado_itens oc on oc.produto_acabado_id = p.id
         where m.tenant_id = $1 and m.nome = 'Vestido Teste' and m.origem = 'revenda' limit 1`,
       [TENANT_TESTE],
     );
@@ -337,13 +339,13 @@ describe.skipIf(!RODA)("R16 caronas na fonte única do custo: R12 INFO 6 + preç
       const bruto = Number(r.vu) * (1 - Number(r.dp) / 100);
       const ins = Number(r.ins);
       expect((await custo(c, r.modelo)).real).toBeNull(); // encomendada: real nulo (intocado)
-      await c.query(`update ocs_p_acabado set status = 'recebido', valor_unitario_real = 0 where id = $1`, [r.oc]);
+      await c.query(`update ocs_p_acabado_itens set status = 'recebido', valor_unitario_real = 0 where id = $1`, [r.oc]);
       let k = await custo(c, r.modelo);
       expect(k.confirmado).toBe(true);
       expect(k.real).toBeCloseTo(bruto + ins, 6);
       expect(k.real).toBeGreaterThan(0);
       // com valor real: ele manda (como antes)
-      await c.query(`update ocs_p_acabado set valor_unitario_real = 31.5 where id = $1`, [r.oc]);
+      await c.query(`update ocs_p_acabado_itens set valor_unitario_real = 31.5 where id = $1`, [r.oc]);
       k = await custo(c, r.modelo);
       expect(k.real).toBeCloseTo(31.5 + ins, 6);
       // previsto intocado pela regra
@@ -354,21 +356,22 @@ describe.skipIf(!RODA)("R16 caronas na fonte única do custo: R12 INFO 6 + preç
   it("INFO 6 importado: OC RECEBIDA sem landed real (NOT NULL DEFAULT 0 → 0) → real = landed do card (antes: 0)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      // R13: `oc` = o ITEM da OC do produto importado (status e landed real moram nele; o ponteiro do cabecalho foi zerado)
       const r = await um<{ modelo: string; oc: string; pi: string } | undefined>(
         c,
         `select m.id modelo, oc.id oc, p.id pi from produtos_importados p join modelos m on m.id = p.modelo_id
-           join ocs_importado oc on oc.produto_importado_id = p.id
+           join ocs_importado_itens oc on oc.produto_importado_id = p.id
           where m.tenant_id = $1 and m.nome = 'QA T25 importado' limit 1`,
         [TENANT_TESTE],
       );
       if (!r) throw new Error("fixture ausente: QA T25 importado (com OC) na Loja Teste");
       const landed = Number((await um<{ l: string }>(c, `select public._imp_custo_landed($1)::text l`, [r.pi])).l);
       expect(landed).toBeGreaterThan(0);
-      await c.query(`update ocs_importado set status = 'recebido', custo_unitario_landed_real = 0 where id = $1`, [r.oc]);
+      await c.query(`update ocs_importado_itens set status = 'recebido', custo_unitario_landed_real = 0 where id = $1`, [r.oc]);
       let k = await custo(c, r.modelo);
       expect(k.confirmado).toBe(true);
       expect(k.real).toBeCloseTo(landed, 6);
-      await c.query(`update ocs_importado set custo_unitario_landed_real = 99.5 where id = $1`, [r.oc]);
+      await c.query(`update ocs_importado_itens set custo_unitario_landed_real = 99.5 where id = $1`, [r.oc]);
       k = await custo(c, r.modelo);
       expect(k.real).toBeCloseTo(99.5, 6);
     });

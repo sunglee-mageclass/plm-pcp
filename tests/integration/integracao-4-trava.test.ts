@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import type { Client as ClientType } from "pg";
 import { hasDb, withTx, comoUsuario, um, dbUrl } from "./db";
+import { ocPaSalvar, ocPaReceber } from "./oc-itens-helpers";
 import {
   CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIG_TXN, MIGRACOES, T, U, aplica, camposLoja, imediato, importado, keywordsLoja,
   ler, modeloInterno, prepara, revenda,
@@ -430,11 +431,11 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
         .toEqual({ v: "159.90", a: "80.00" });
       expect(await falha(c, `INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, valor) VALUES ($1, $2, 5)`, [T, m.id])).toBe("PASSOU");
       expect((await um<{ v: string }>(c, `SELECT preco_venda::text AS v FROM public.modelos WHERE id = $1`, [m.id])).v).toBe("159.90");
-      const oc = (await um<{ id: string }>(c,
-        `INSERT INTO public.ocs_p_acabado (tenant_id, nome_produto, produto_acabado_id, qtd_total, valor_unitario, valor_unitario_real,
-                grade_detalhe) VALUES ($1, 'OC teste', $2, 5, 45, 45, '{"1": {"38|P": {"pedida": 2, "recebida": 2, "defeito": 0}}}')
-         RETURNING id`, [T, m.produtoId])).id;
-      expect(await falha(c, `SELECT public.receber_oc_p_acabado($1, '{}'::jsonb, NULL)`, [oc])).toBe("PASSOU");
+      // R13: a OC e criada pelo escritor novo (cabecalho + ITEM com o produto) e o item e recebido por `receber_item_oc_p_acabado`
+      // (o receber_oc_p_acabado antigo recusa `versao_antiga`). Mesmo cenario: grade pedida/recebida 2, valor 45.
+      const oc = await ocPaSalvar(c, null, { nome_produto: "OC teste", produto_acabado_id: m.produtoId, qtd_total: 2, valor_unitario: 45, desconto_pct: 0 },
+        { "1": { "38|P": { pedida: 2, recebida: 2, defeito: 0 } } });
+      await ocPaReceber(c, oc); // receber o item recalcula o preco derivado e NAO pode tocar o preco de venda travado (nao lanca)
       expect((await um<{ v: string }>(c, `SELECT preco_venda::text AS v FROM public.modelos WHERE id = $1`, [m.id])).v).toBe("159.90");
     });
   });

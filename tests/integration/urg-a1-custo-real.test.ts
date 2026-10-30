@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, ehBancoLocal, TENANT_TESTE, USER_TESTE } from "./db";
-import { aplicaUrgA, urgAViva, URG_A_MIGS, zeraVinculosTamanhoNaTxn } from "./urg-a-helpers";
+import { aplicaUrgA, urgAViva, URG_A_MIGS, zeraVinculosTamanhoNaTxn, voltaSucessoraUrgASePreciso } from "./urg-a-helpers";
 import { aplicarArquivo } from "./mig-txn";
 
 const RODA = hasDb && ehBancoLocal();
@@ -27,6 +27,9 @@ async function md5Fn(c: Client, sig: string): Promise<string | null> {
 }
 const depois = (): string => bloco()!.MD5[SIG]?.depois;
 async function semBloco(c: Client): Promise<void> {
+  // LIFO: frentes POR CIMA (plan-b → R9 → R11 → R13) que redefinem `_custo_unitario_modelos_core` saem ANTES do `_down` da 173000 — a R13
+  // (T2) redefine esta funcao e o `_down` da 173000 recusa o texto dela (guarda md5). Sem a R13 viva e no-op.
+  await voltaSucessoraUrgASePreciso(c);
   if (await urgAViva(c, "173000")) await aplicarArquivo(c, bloco()!.down);
   await c.query("SET LOCAL transaction_timeout = 0");
   // o _down desliga check_function_bodies (SET LOCAL): a ida aplicada depois valida o corpo como no deploy (arquivo proprio)

@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
+import { ocPaSalvar } from "./oc-itens-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 
@@ -28,13 +29,9 @@ async function ocPA(c: Client, prazo: string | null): Promise<string> {
     variantes: [],
   };
   const grade = { "1": { P: { pedida: 10, recebida: 0, defeito: 0 } } };
-  return (
-    await um<{ id: string }>(
-      c,
-      `select public._salvar_oc_p_acabado_core(null::uuid, $1::jsonb, $2::jsonb, null::int) as id`,
-      [JSON.stringify(dados), JSON.stringify(grade)],
-    )
-  ).id;
+  // R13: o escritor antigo (`_salvar_oc_p_acabado_core`, 1 produto no cabecalho) e recusado (`versao_antiga`); a OC e salva pelo
+  // contrato novo — fornecedor/data/prazo no cabecalho, o produto (nome, qtd, valor, grade) num ITEM. O parser do prazo e o mesmo.
+  return ocPaSalvar(c, null, dados, grade);
 }
 async function parcelas(c: Client, oc: string) {
   return (

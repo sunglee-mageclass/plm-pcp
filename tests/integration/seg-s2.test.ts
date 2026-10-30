@@ -297,11 +297,13 @@ describe.skipIf(!RODA)("seg S2 — trava medida (pg_locks na txn revertida)", ()
         await aplicarArquivo(c, "supabase/migrations/20261031220000_seg_s2_gate_financeiro.sql");
       }
       expect(await travas()).toEqual(esperado);
+      // [urg R13] por DIFERENCA: a ida da R13 (gancho URG_R13_TXN=1) tem CREATE POLICY e prende auth/storage/realtime NESTA txn desde o
+      // comeco — esta frente nao pode pegar trava NOVA ali (linha de base = o que ja estava seguro quando a medicao comecou).
       const auth = await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
            JOIN pg_namespace n ON n.oid = k.relnamespace
           WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`);
-      expect(auth.rows).toEqual([]);
+      expect(auth.rows.filter((r: any) => !inicio.has(`${r.rel}|${r.mode}`))).toEqual([]);
     });
   });
 });

@@ -12,6 +12,7 @@ import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 import { md5OuSucessorI3 } from "./integracao-helpers";
 import { md5OuSucessorS1 } from "./seg-s1-helpers";
+import { ocImpSalvar } from "./oc-itens-helpers";
 import { totaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import {
   recomputeEtiqueta,
@@ -401,10 +402,11 @@ describe.skipIf(!RODA)(
         cotacao_final: 5,
         valor_unitario_m1: valor,
       };
-      return c.query(`select salvar_oc_importado(null, $1::jsonb, '{}'::jsonb, $2::jsonb) as id`, [
-        JSON.stringify(dados),
-        JSON.stringify(etapas),
-      ]);
+      // R13: o escritor antigo (`salvar_oc_importado`, 1 produto no cabecalho) e recusado (`versao_antiga`); a OC e salva pelo
+      // contrato novo — cotacoes no cabecalho, produto (nome/valor M1) num ITEM, etapas de cambio em `_etapas`. A regra P-207 A
+      // (mercadoria com % > 0 e cotacao 0 so recusa quando ha valor de compra) e a mesma, agora checada sobre os itens.
+      const id = await ocImpSalvar(c, null, dados, {}, etapas as any[]);
+      return { rows: [{ id }] };
     }
     const et = (o: Record<string, unknown>) => ({
       ordem: 1,

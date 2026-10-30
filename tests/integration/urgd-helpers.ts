@@ -30,7 +30,7 @@ import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 // [onda 2 / R13] frente sucessora (OC por fornecedor com vários produtos): import dinâmico tolerante a ausência (igual urgc → urgd).
-// A R13 não tem trava de gancho própria (`travaDeGancho` opcional) e expõe volta/drop/md5 como `...R13...`.
+// A R13 expõe volta/drop/md5/trava de gancho como `...R13...` (a trava de gancho existe: a ida tem CREATE POLICY e prende auth/storage).
 type Sucessora = {
   voltaSePreciso: (c: Client) => Promise<void>;
   dropSePreciso?: (c: Client) => Promise<void>;
@@ -42,6 +42,7 @@ const SUCESSORA: Sucessora | null = existsSync(`${ROOT}tests/integration/urg-r13
       voltaSePreciso: m.voltaR13SePreciso as Sucessora["voltaSePreciso"],
       dropSePreciso: m.dropR13SePreciso as Sucessora["dropSePreciso"],
       md5Sucessor: m.md5R13Sucessor as Sucessora["md5Sucessor"],
+      travaDeGancho: m.travaDeGanchoR13 as Sucessora["travaDeGancho"],
     }))
   : null;
 
@@ -93,7 +94,7 @@ const URGD_IDA_TRAVA = [
  * SÓ catálogo: nada a excluir. SÓ com `URGD_TXN=1`, as relações da ida.
  */
 export function travaDeGanchoUrgd(t: { rel: string; mode: string }): boolean {
-  if (SUCESSORA?.travaDeGancho?.(t)) return true; // [R13] o gancho da R13 (URG_R13_TXN=1) por cima, se um dia tiver trava própria
+  if (SUCESSORA?.travaDeGancho?.(t)) return true; // [R13] o gancho da R13 (URG_R13_TXN=1) por cima
   return process.env.URGD_TXN === "1" && URGD_IDA_TRAVA.includes(t.rel);
 }
 

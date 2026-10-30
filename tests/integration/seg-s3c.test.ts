@@ -208,6 +208,10 @@ describe.skipIf(!RODA)("seg S3c — trava medida (pg_locks na txn revertida)", (
       // (192000) reescreve o trg_kanban_fila_upd (ShareRowExclusive em categorias_terceirizado) - trava da VOLTA da R9, nao desta
       // frente: entra na linha de base.
       await voltaUrgcSePreciso(c);
+      const authLocks = `SELECT n.nspname || '.' || k.relname AS rel, l.mode FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
+           JOIN pg_namespace n ON n.oid = k.relnamespace
+          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`;
+      const authBase = new Set((await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`)); // [urg R13] linha de base (gancho)
       const travas = async () => (await c.query(
         `SELECT n.nspname || '.' || k.relname AS rel, l.mode
            FROM pg_locks l JOIN pg_class k ON k.oid = l.relation JOIN pg_namespace n ON n.oid = k.relnamespace
@@ -239,11 +243,10 @@ describe.skipIf(!RODA)("seg S3c — trava medida (pg_locks na txn revertida)", (
         expect(await novas()).toEqual([]);
         expect((await travas()).filter((t) => S3C_TABELAS_TRAVA.includes(t.rel))).toEqual(seguradasNoInicio);
       }
-      const auth = await c.query(
-        `SELECT n.nspname || '.' || k.relname AS rel FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
-           JOIN pg_namespace n ON n.oid = k.relnamespace
-          WHERE l.pid = pg_backend_pid() AND n.nspname IN ('auth', 'storage', 'realtime') AND l.mode <> 'AccessShareLock'`);
-      expect(auth.rows).toEqual([]);
+      // [urg R13] por DIFERENCA: a ida da R13 (gancho URG_R13_TXN=1) tem CREATE POLICY e prende auth/storage/realtime NESTA txn desde o
+      // comeco — esta frente nao pode pegar trava NOVA ali (linha de base = o que ja estava seguro quando a medicao comecou).
+      const auth = (await c.query(authLocks)).rows.map((r: any) => `${r.rel}|${r.mode}`).filter((k: string) => !authBase.has(k));
+      expect(auth).toEqual([]);
     });
   });
 });

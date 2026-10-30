@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, ehBancoLocal, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+// R13 (OC com varios produtos): a OC e montada/salva/recebida pelo contrato novo (`salvar_oc_p_acabado_itens` /
+// `receber_item_oc_p_acabado`); o produto da OC mora no ITEM (`ocs_p_acabado_itens`), nao mais no ponteiro do cabecalho.
+import { ocPaSalvar, ocPaReceber } from "./oc-itens-helpers";
 
 describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — códigos automáticos", () => {
   it("REF não-acessório = 2G+1C+2S + nº de dígitos da loja (8 por padrão); acessório = 2G+3CAT; nº OC usa ACE p/ grupo Acessórios", async () => {
@@ -26,14 +29,14 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — códigos automá
       expect(oc.numero).toMatch(/^BELACE-\d{5}$/);
     });
   });
-  it("vínculo único: 2ª OC no mesmo produto dá P0001", async () => {
+  it("vínculo único: 2ª OC no mesmo produto dá P0001 (guarda por ITEM, R13)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem2 PATest') returning id`);
       const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Calça PATest') returning id`);
       const p = await um<any>(c, `insert into produtos_acabados (tenant_id, nome, grupo_id, categoria_id) values ('${TENANT_TESTE}','P','${g.id}','${cat.id}') returning id`);
-      await c.query(`insert into ocs_p_acabado (tenant_id, nome_produto, produto_acabado_id) values ('${TENANT_TESTE}','P','${p.id}')`);
-      await expect(c.query(`insert into ocs_p_acabado (tenant_id, nome_produto, produto_acabado_id) values ('${TENANT_TESTE}','P','${p.id}')`)).rejects.toThrow(/vinculada/);
+      await ocPaSalvar(c, null, { nome_produto: "P", produto_acabado_id: p.id }, {});
+      await expect(ocPaSalvar(c, null, { nome_produto: "P", produto_acabado_id: p.id }, {})).rejects.toThrow(/vinculada/);
     });
   });
 });
@@ -245,55 +248,57 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — RPCs de escrita 
       const dados = { nome: "Vestido T2f", grupo_id: g.id, categoria_id: cat.id };
       const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, '[]'::jsonb) as id`, [JSON.stringify(dados)]);
 
-      const oc1 = await um<any>(c, `select salvar_oc_p_acabado(null, '{"nome_produto":"OC1 PATest"}'::jsonb, '{}'::jsonb) as id`);
-      const oc2 = await um<any>(c, `select salvar_oc_p_acabado(null, '{"nome_produto":"OC2 PATest"}'::jsonb, '{}'::jsonb) as id`);
+      const oc1 = await ocPaSalvar(c, null, { nome_produto: "OC1 PATest" }, {});
+      const oc2 = await ocPaSalvar(c, null, { nome_produto: "OC2 PATest" }, {});
 
-      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc1.id, prod.id]);
-      const check = await um<any>(c, `select produto_acabado_id from ocs_p_acabado where id = $1`, [oc1.id]);
+      // R13: o produto vinculado e o do ITEM (o ponteiro do cabecalho e legado e fica NULL)
+      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc1, prod.id]);
+      const check = await um<any>(c, `select produto_acabado_id from ocs_p_acabado_itens where oc_id = $1`, [oc1]);
       expect(check.produto_acabado_id).toBe(prod.id);
+      const cab = await um<any>(c, `select produto_acabado_id from ocs_p_acabado where id = $1`, [oc1]);
+      expect(cab.produto_acabado_id).toBeNull();
 
       await c.query("SAVEPOINT sp_vinculo_duplo");
-      await expect(c.query(`select vincular_oc_p_acabado($1, $2)`, [oc2.id, prod.id])).rejects.toThrow(/vinculada/);
+      await expect(c.query(`select vincular_oc_p_acabado($1, $2)`, [oc2, prod.id])).rejects.toThrow(/vinculada/);
       await c.query("ROLLBACK TO SAVEPOINT sp_vinculo_duplo");
 
-      // desvincular (NULL) funciona
-      await c.query(`select vincular_oc_p_acabado($1, null)`, [oc1.id]);
-      const check2 = await um<any>(c, `select produto_acabado_id from ocs_p_acabado where id = $1`, [oc1.id]);
+      // desvincular (NULL) funciona (OC de 1 item)
+      await c.query(`select vincular_oc_p_acabado($1, null)`, [oc1]);
+      const check2 = await um<any>(c, `select produto_acabado_id from ocs_p_acabado_itens where oc_id = $1`, [oc1]);
       expect(check2.produto_acabado_id).toBeNull();
     });
   });
 
-  it("salvar_oc_p_acabado deriva bruto/total-com-desconto/unit-real (198×99−20% → 19.602/15.681,60/79,20)", async () => {
+  it("salvar_oc_p_acabado_itens deriva bruto/total-com-desconto/unit-real (198×99−20% → 19.602/15.681,60/79,20)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const dados = { nome_produto: "OC T2g PATest", qtd_total: 198, valor_unitario: 99, desconto_pct: 20 };
       const grade = { "0": { UN: { pedida: 198 } } };
-      const oc = await um<any>(c, `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`, [
-        JSON.stringify(dados),
-        JSON.stringify(grade),
-      ]);
+      const ocId = await ocPaSalvar(c, null, dados, grade);
+      // R13: bruto/total-com-desconto/unit-real sao derivados POR ITEM; o cabecalho guarda os totais (Σ dos itens)
       const row = await um<any>(
         c,
-        `select valor_bruto, valor_total_desconto, valor_unitario_real from ocs_p_acabado where id = $1`,
-        [oc.id],
+        `select valor_bruto, valor_total_desconto, valor_unitario_real from ocs_p_acabado_itens where oc_id = $1`,
+        [ocId],
       );
       expect(Number(row.valor_bruto)).toBe(19602);
       expect(Number(row.valor_total_desconto)).toBe(15681.6);
       expect(Number(row.valor_unitario_real)).toBe(79.2);
+      const cab = await um<any>(c, `select valor_bruto, valor_total_desconto from ocs_p_acabado where id = $1`, [ocId]);
+      expect(Number(cab.valor_bruto)).toBe(19602);
+      expect(Number(cab.valor_total_desconto)).toBe(15681.6);
     });
   });
 
-  it("salvar_oc_p_acabado: célula negativa e Σ pedida ≠ qtd_total rejeitam (P0001)", async () => {
+  it("salvar_oc_p_acabado_itens: célula negativa e Σ pedida ≠ qtd_total do item rejeitam (P0001)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      // R13: a validacao de grade roda ao SALVAR o item existente (estado completo por id) — cria um item valido e edita.
+      const ocId = await ocPaSalvar(c, null, { nome_produto: "OC grade PATest", qtd_total: 10 }, { "0": { P: { pedida: 10 } } });
       await c.query("SAVEPOINT sp_neg");
-      await expect(
-        c.query(`select salvar_oc_p_acabado(null, '{"nome_produto":"OC neg PATest","qtd_total":10}'::jsonb, '{"0":{"P":{"pedida":-5}}}'::jsonb)`),
-      ).rejects.toThrow(/negativas/);
+      await expect(ocPaSalvar(c, ocId, { qtd_total: 10 }, { "0": { P: { pedida: -5 } } })).rejects.toThrow(/negativas/);
       await c.query("ROLLBACK TO SAVEPOINT sp_neg");
-      await expect(
-        c.query(`select salvar_oc_p_acabado(null, '{"nome_produto":"OC soma PATest","qtd_total":100}'::jsonb, '{"0":{"P":{"pedida":40}}}'::jsonb)`),
-      ).rejects.toThrow(/A soma da grade pedida/);
+      await expect(ocPaSalvar(c, ocId, { qtd_total: 100 }, { "0": { P: { pedida: 40 } } })).rejects.toThrow(/A soma da grade pedida/);
     });
   });
 });
@@ -340,13 +345,11 @@ describe.skipIf(!hasDb || !ehBancoLocal())("custo_unitario_modelos — ramo reve
       expect(antes.real).toBeNull();
       expect(antes.confirmado).toBe(false);
 
-      const oc = await um<any>(
+      const ocId = await ocPaSalvar(
         c,
-        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
-        [
-          JSON.stringify({ nome_produto: "OC T4 PATest", produto_acabado_id: prod.id, qtd_total: 198, valor_unitario: 99, desconto_pct: 20 }),
-          JSON.stringify({ "0": { UN: { pedida: 198 } } }),
-        ],
+        null,
+        { nome_produto: "OC T4 PATest", produto_acabado_id: prod.id, qtd_total: 198, valor_unitario: 99, desconto_pct: 20 },
+        { "0": { UN: { pedida: 198 } } },
       );
 
       // OC vinculada mas ainda 'encomendado' (não recebida): real continua null, previsto igual
@@ -355,13 +358,11 @@ describe.skipIf(!hasDb || !ehBancoLocal())("custo_unitario_modelos — ramo reve
       expect(encomendado.real).toBeNull();
       expect(encomendado.confirmado).toBe(false);
 
-      await c.query(
-        `select receber_oc_p_acabado($1::uuid, $2::jsonb, $3::jsonb)`,
-        [
-          oc.id,
-          JSON.stringify({ data_entrega: new Date().toISOString().slice(0, 10), nota_fiscal: "NF-T4" }),
-          JSON.stringify({ "0": { UN: { pedida: 198, recebida: 198, defeito: 0 } } }),
-        ],
+      await ocPaReceber(
+        c,
+        ocId,
+        { data_entrega: new Date().toISOString().slice(0, 10), nota_fiscal: "NF-T4" },
+        { "0": { UN: { pedida: 198, recebida: 198, defeito: 0 } } },
       );
 
       // Recebida (status='recebido'): real = valor_unitario_real (79,20) + insumos (1,5) = 80,70; confirmado=true
@@ -552,7 +553,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Produto Acabado — excluir_produto_
     await withTx(async (c) => {
       await comoUsuario(c);
       const p = await novoProduto(c, "PA6Test-b");
-      await c.query(`insert into ocs_p_acabado (tenant_id, nome_produto, produto_acabado_id) values ('${TENANT_TESTE}','OC excluir PA6Test-b','${p.id}')`);
+      await ocPaSalvar(c, null, { nome_produto: "OC excluir PA6Test-b", produto_acabado_id: p.id }, {});
 
       await c.query("SAVEPOINT sp_excluir_produto_com_oc");
       await expect(c.query(`select excluir_produto_acabado($1)`, [p.id])).rejects.toThrow(/Desvincule a OC/);

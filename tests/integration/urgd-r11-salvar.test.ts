@@ -531,13 +531,21 @@ describe.skipIf(!RODA)("urgd-r11-salvar: duas conexões (travas reais)", () => {
   }
   const codigo = (r: PromiseSettledResult<unknown>) => (r.status === "rejected" ? String((r.reason as { code?: string }).code) : "ok");
   /** Card + tipo + M.O.(c/ fornecedor) + Tecido 1 (1 variante) + OC recebida com saldo, DESCARTÁVEIS, gravados por uma 3ª conexão
-   * em `replica` (sem gatilho) e apagados no finally. As 2 conexões do ensaio precisam VER o card. */
+   * em `replica` (sem gatilho) e apagados no finally. As 2 conexões do ensaio precisam VER o card.
+   *
+   * SEM RESIDUO (achado 3 da Onda 2): a fixture e COMMITADA de proposito (as 2 conexoes do ensaio, em outras sessoes, precisam ve-la), entao o
+   * `finally` desfaz TUDO que ela cria — inclusive (a) o `tenant_config` da Loja Teste (modo_baixa_estoque/tamanhos_grade), restaurado
+   * aos valores LIDOS antes do UPDATE, e (b) os FILHOS do card (`modelo_tecido_variantes`/`modelo_tecidos`), que em `replica` NAO caem em
+   * cascata com o `DELETE FROM modelos` e ficavam orfaos. O restauro vem PRIMEIRO e os DELETEs rodam mesmo se ele falhar (try/finally
+   * aninhado). Prova: contagem de linhas de TODAS as tabelas de public + tenant_config iguais antes/depois da corrida. */
   async function comFixture(saldo: number, fn: (f: Fx) => Promise<void>): Promise<void> {
     const s = new Client({ connectionString: dbUrl()!, ssl: false });
     await s.connect();
     const id: Partial<Fx> & { oc?: string; mt?: string } = {};
+    let cfgAntes: { modo_baixa_estoque: string | null; tamanhos_grade: unknown } | null = null;
     try {
       await s.query("SET session_replication_role = replica");
+      cfgAntes = (await s.query(`SELECT modo_baixa_estoque, tamanhos_grade FROM public.tenant_config WHERE tenant_id=$1`, [T])).rows[0] ?? null;
       await s.query("SELECT set_config('app.kanban_sistema','teste',true)");
       const suf = Math.random().toString(36).slice(2, 8);
       id.cat = (await um<{ id: string }>(s, `INSERT INTO public.categorias_terceirizado (tenant_id, nome, exige_peca_teste, ativo) VALUES ($1,$2,true,true) RETURNING id`, [T, `R11e trava ${suf}`])).id;
@@ -553,18 +561,29 @@ describe.skipIf(!RODA)("urgd-r11-salvar: duas conexões (travas reais)", () => {
       await s.query(`UPDATE public.tenant_config SET modo_baixa_estoque='automatico', tamanhos_grade='["P","M","G"]'::jsonb WHERE tenant_id=$1`, [T]);
       await fn(id as Fx);
     } finally {
-      if (id.item) await s.query(`DELETE FROM public.estoque_tecido_baixas WHERE oc_tecido_item_id = $1`, [id.item]).catch(() => {});
-      if (id.m) await s.query(`DELETE FROM public.estoque_peca_teste_baixas WHERE modelo_id = $1`, [id.m]).catch(() => {});
-      if (id.linha) await s.query(`DELETE FROM public.modelo_peca_teste_tentativas WHERE mo_linha_id = $1`, [id.linha]).catch(() => {});
-      if (id.linha) await s.query(`DELETE FROM public.modelo_servico_mo WHERE id = $1`, [id.linha]).catch(() => {});
-      if (id.m) await s.query(`DELETE FROM public.modelos WHERE id = $1`, [id.m]).catch(() => {});
-      if (id.item) await s.query(`DELETE FROM public.ocs_tecido_itens WHERE id = $1`, [id.item]).catch(() => {});
-      if (id.oc) await s.query(`DELETE FROM public.ocs_tecido WHERE id = $1`, [id.oc]).catch(() => {});
-      if (id.vt) await s.query(`DELETE FROM public.variantes_tecido WHERE id = $1`, [id.vt]).catch(() => {});
-      if (id.art) await s.query(`DELETE FROM public.artigos WHERE id = $1`, [id.art]).catch(() => {});
-      if (id.cat) await s.query(`DELETE FROM public.categorias_terceirizado WHERE id = $1`, [id.cat]).catch(() => {});
-      if (id.forn) await s.query(`DELETE FROM public.empresas WHERE id = $1`, [id.forn]).catch(() => {});
-      await s.end();
+      try {
+        if (cfgAntes) {
+          await s.query(`UPDATE public.tenant_config SET modo_baixa_estoque = $2, tamanhos_grade = $3::jsonb WHERE tenant_id = $1`, [
+            T, cfgAntes.modo_baixa_estoque, cfgAntes.tamanhos_grade == null ? null : JSON.stringify(cfgAntes.tamanhos_grade),
+          ]);
+        }
+      } finally {
+        if (id.item) await s.query(`DELETE FROM public.estoque_tecido_baixas WHERE oc_tecido_item_id = $1`, [id.item]).catch(() => {});
+        if (id.m) await s.query(`DELETE FROM public.estoque_peca_teste_baixas WHERE modelo_id = $1`, [id.m]).catch(() => {});
+        if (id.linha) await s.query(`DELETE FROM public.modelo_peca_teste_tentativas WHERE mo_linha_id = $1`, [id.linha]).catch(() => {});
+        if (id.linha) await s.query(`DELETE FROM public.modelo_servico_mo WHERE id = $1`, [id.linha]).catch(() => {});
+        // filhos do card: em `replica` o DELETE de modelos NAO cascateia (os 2 ficavam orfaos); apaga antes do pai e pelo id da fixture
+        if (id.mt) await s.query(`DELETE FROM public.modelo_tecido_variantes WHERE modelo_tecido_id = $1`, [id.mt]).catch(() => {});
+        if (id.mt) await s.query(`DELETE FROM public.modelo_tecidos WHERE id = $1`, [id.mt]).catch(() => {});
+        if (id.m) await s.query(`DELETE FROM public.modelos WHERE id = $1`, [id.m]).catch(() => {});
+        if (id.item) await s.query(`DELETE FROM public.ocs_tecido_itens WHERE id = $1`, [id.item]).catch(() => {});
+        if (id.oc) await s.query(`DELETE FROM public.ocs_tecido WHERE id = $1`, [id.oc]).catch(() => {});
+        if (id.vt) await s.query(`DELETE FROM public.variantes_tecido WHERE id = $1`, [id.vt]).catch(() => {});
+        if (id.art) await s.query(`DELETE FROM public.artigos WHERE id = $1`, [id.art]).catch(() => {});
+        if (id.cat) await s.query(`DELETE FROM public.categorias_terceirizado WHERE id = $1`, [id.cat]).catch(() => {});
+        if (id.forn) await s.query(`DELETE FROM public.empresas WHERE id = $1`, [id.forn]).catch(() => {});
+        await s.end();
+      }
     }
   }
   /** Salvar da Peça Teste com baixa ativa (data + tamanho + cor): o core pega o advisory corte_tenant na baixa. */
