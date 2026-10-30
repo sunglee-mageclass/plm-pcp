@@ -66,12 +66,17 @@ describe("Extras do review F1", () => {
     expect(ler("src/components/shared/ModuloDesligadoAviso.tsx")).toContain('from "@/components/shared/EmptyState"');
   });
   it("m6 — Receber de OC P. Acabado/Importado pede Criação e Produção (botão + mutationFn)", () => {
-    for (const f of ["entrada-saida.oc-p-acabado", "entrada-saida.oc-p-importado"]) {
+    for (const f of ["entrada-saida.oc-p-importado"]) {
       const t = ler(`src/routes/_authenticated/${f}.tsx`);
       expect(t, f).toContain('useRequerModulo("criacao", "producao")');
       expect(t, f).toContain("if (!requerRecebimento.ok) throw erroValidacao(requerRecebimento.motivo);");
       expect(t, f).toContain("|| !requerRecebimento.ok}");
     }
+    // R13 T7: OC P. Acabado recebe POR PRODUTO — o Sheet moveu para `OcPaDialog` (o botão desabilitado vem do motivo em `OcPaItem`).
+    const pa = ler("src/components/oc-p-acabado/OcPaDialog.tsx");
+    expect(pa).toContain('useRequerModulo("criacao", "producao")');
+    expect(pa).toContain("if (!requerRecebimento.ok) throw erroValidacao(requerRecebimento.motivo);");
+    expect(pa).toContain("!requerRecebimento.ok ? requerRecebimento.motivo");
   });
   it("m8 — HomeLogado não decide por módulo antes de `pronto`", () => {
     expect(ler("src/components/home/HomeLogado.tsx")).toContain("const modules: Partial<Record<ModuleKey, boolean>> = pronto ? modulosLoja : {};");

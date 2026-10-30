@@ -61,7 +61,7 @@ describe("Config da Loja (fonte): esconder não apaga o salvo", () => {
 });
 
 describe("Marcar Recebido (OC Produto Acabado / Importado): motivo lista TODOS os módulos que faltam", () => {
-  for (const arq of ["entrada-saida.oc-p-acabado.tsx", "entrada-saida.oc-p-importado.tsx"]) {
+  for (const arq of ["entrada-saida.oc-p-importado.tsx"]) {
     it(`${arq}: exige Criação E Produção (o servidor também) e mostra o motivo no botão e no InfoHover`, () => {
       const src = ler(`src/routes/_authenticated/${arq}`);
       expect(src).toContain('useRequerModulo("criacao", "producao")');
@@ -69,6 +69,16 @@ describe("Marcar Recebido (OC Produto Acabado / Importado): motivo lista TODOS o
       expect(src).toContain("<InfoHover ariaLabel=\"Por que não recebe\">{requerRecebimento.motivo}</InfoHover>");
     });
   }
+  // R13 T7: a OC de P. Acabado recebe POR PRODUTO (a tela mudou para o Sheet `OcPaDialog` + `OcPaItem`): o botão "Marcar este produto como
+  // recebido" fica desabilitado com o motivo (tooltip + frase ao lado) e o `mutationFn` recusa o mesmo (render: r13-t7-oc-pa-dialog-render).
+  it("OC P. Acabado (por produto, R13): exige Criação E Produção (o servidor também) e mostra o motivo no botão", () => {
+    const dlg = ler("src/components/oc-p-acabado/OcPaDialog.tsx");
+    const item = ler("src/components/oc-p-acabado/OcPaItem.tsx");
+    expect(dlg).toContain('useRequerModulo("criacao", "producao")');
+    expect(dlg).toContain("!requerRecebimento.ok ? requerRecebimento.motivo");
+    expect(item).toContain("title={motivoNaoRecebe ?? undefined}");
+    expect(item).toContain("disabled={somenteLeitura || recebendo || !!motivoNaoRecebe}");
+  });
 
   it("o texto: faltando os dois → 'Criação e Produção'; faltando um → só ele", () => {
     const faltam = (mods: Record<string, boolean>) => ["criacao", "producao"].filter((k) => !mods[k]);

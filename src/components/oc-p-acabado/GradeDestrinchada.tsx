@@ -17,6 +17,7 @@ export function GradeDestrinchada({
   labelFor,
   disabled = false,
   emptyLabel = "Nenhuma variante — adicione ao menos uma na tabela acima.",
+  pathPrefix = "",
 }: {
   variantes: VarianteDraft[];
   tamanhos: string[];
@@ -26,6 +27,9 @@ export function GradeDestrinchada({
   labelFor: (ordem: number) => string;
   disabled?: boolean;
   emptyLabel?: string;
+  /** Prefixo do `data-colab-path` das células. Com VÁRIOS produtos na tela (R13) cada item passa `item:<id>:` — senão as células de itens
+   *  diferentes teriam o MESMO caminho de presença. */
+  pathPrefix?: string;
 }) {
   const cel = (ordem: number, tam: string): CelulaGrade => grade[String(ordem)]?.[tam] ?? CELULA_VAZIA;
 
@@ -49,7 +53,7 @@ export function GradeDestrinchada({
           integer
           disabled={disabled}
           className="h-8 max-md:h-11 w-full border-0 text-center"
-          data-colab-path={`grade:${campo}:${num}:${t}`}
+          data-colab-path={`${pathPrefix}grade:${campo}:${num}:${t}`}
           value={cel(num, t)[campo]}
           onChange={(e) => set(num, t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
         />

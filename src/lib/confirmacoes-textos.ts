@@ -379,3 +379,58 @@ export function textoReprovarPecaTeste(a: {
     destrutivo: true,
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Seção 5 — OC com VÁRIOS produtos (R13, mockup R13 superfície 3 · "OC com vários produtos"; P-263 A: só o que DESFAZ pede
+// confirmação — "Tirar da OC" desfaz o vínculo; "Marcar como recebido" já tinha diálogo e segue com ele; "Excluir OC" desfaz).
+// Valores em R$ chegam JÁ formatados (`brl()` da tela) — este módulo não formata moeda.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const PENDENTES_JUNTO = " As alterações pendentes da OC são salvas junto.";
+
+/** 5.1 Tirar UM produto da OC (volta a ficar sem OC; total e parcelas refeitos; os outros não mudam). */
+export function textoTirarProdutoDaOc(a: {
+  nome?: string | null;
+  /** Total da OC antes e depois de tirar, já formatados ("R$ 1.234,00"). Sem os dois: "é recalculado". */
+  totalAntes?: string | null;
+  totalDepois?: string | null;
+  /** A OC tem alteração pendente (rascunho) que o mesmo Salvar leva junto. */
+  pendentes?: boolean;
+}): TextoConfirmacao {
+  const total = presente(a.totalAntes) && presente(a.totalDepois) ? `passa de ${txt(a.totalAntes)} para ${txt(a.totalDepois)}` : "é recalculado";
+  return {
+    titulo: presente(a.nome) ? `Tirar ${aspas(txt(a.nome))} da OC?` : "Tirar este produto da OC?",
+    descricao:
+      "O produto volta a ficar sem OC e pode entrar em outro pedido. " +
+      `O total da OC ${total} e as parcelas são refeitas. Os outros produtos não mudam.` +
+      (a.pendentes ? PENDENTES_JUNTO : ""),
+    confirmar: "Tirar da OC",
+    cancelar: CANCELAR,
+    destrutivo: true,
+  };
+}
+
+/** 5.2 Marcar UM produto como recebido (registra a entrada só dele; libera CQ/Direcionamento para ele). */
+export function textoMarcarProdutoRecebido(a: { nome?: string | null; pendentes?: boolean }): TextoConfirmacao {
+  return {
+    titulo: presente(a.nome) ? `Marcar ${aspas(txt(a.nome))} como recebido?` : "Marcar este produto como recebido?",
+    descricao:
+      "Isto registra a entrada só deste produto e libera o CQ/Direcionamento para ele. " +
+      "A grade real vira recebida − defeito. Os outros produtos da OC seguem aguardando." +
+      (a.pendentes ? PENDENTES_JUNTO : ""),
+    confirmar: "Confirmar recebimento",
+    cancelar: CANCELAR,
+    destrutivo: false,
+  };
+}
+
+/** 5.3 Excluir a OC (sem produto recebido — com recebido o botão fica desabilitado e o servidor recusa). */
+export function textoExcluirOc(): TextoConfirmacao {
+  return {
+    titulo: "Excluir OC?",
+    descricao: "Esta ação não pode ser desfeita. Os produtos voltam a ficar sem OC.",
+    confirmar: "Excluir",
+    cancelar: CANCELAR,
+    destrutivo: true,
+  };
+}

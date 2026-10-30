@@ -1,0 +1,48 @@
+// [urg R13 T7] Regras PURAS da OC com VÁRIOS produtos, comuns às duas famílias (Produto Acabado e Importado — a T8 reusa).
+// Sem React e sem supabase: a tela só desenha o que estas funções devolvem. O servidor confere tudo de novo
+// (`item_recebido_nao_sai:`, `oc_sem_produtos:`, `excluir_oc_*`); aqui só se evita oferecer o que ele recusaria.
+
+export type StatusItemOc = "encomendado" | "recebido";
+
+/** Textos aprovados no mockup R13 (superfície 3 · OC com vários produtos). */
+export const TEXTO_ITEM_RECEBIDO_NAO_SAI = "Já recebido — não sai da OC";
+export const TEXTO_UNICO_PRODUTO = "Único produto — exclua a OC para desvincular";
+export const TEXTO_OC_COM_RECEBIDO_NAO_EXCLUI = "Há produto recebido — não dá para excluir a OC";
+export const TEXTO_GRAVA_AO_RECEBER = "Estes dados são gravados ao marcar este produto como recebido.";
+
+export const produtosTexto = (n: number): string => `${n} ${n === 1 ? "produto" : "produtos"}`;
+
+/** Topo da OC: "X de N produtos recebidos" (singular com N = 1). */
+export function textoRecebidos(recebidos: number, total: number): string {
+  return `${recebidos} de ${total} ${total === 1 ? "produto recebido" : "produtos recebidos"}`;
+}
+
+export function contarRecebidos(itens: ReadonlyArray<{ status: StatusItemOc }>): { recebidos: number; total: number } {
+  return { recebidos: itens.filter((i) => i.status === "recebido").length, total: itens.length };
+}
+
+/**
+ * "Tirar da OC": `null` = pode; senão o motivo (texto do botão desabilitado). Recebido não sai (o servidor recusa
+ * `item_recebido_nao_sai:`); o ÚNICO produto não sai — o caminho é excluir a OC (`oc_sem_produtos:`).
+ * `nItens` conta os produtos da OC no rascunho (inclui os ainda não salvos).
+ */
+export function motivoNaoTirar(item: { status: StatusItemOc }, nItens: number): string | null {
+  if (item.status === "recebido") return TEXTO_ITEM_RECEBIDO_NAO_SAI;
+  if (nItens <= 1) return TEXTO_UNICO_PRODUTO;
+  return null;
+}
+
+/** "Excluir OC": `null` = pode; com QUALQUER produto recebido o servidor recusa. */
+export function motivoNaoExcluirOc(itens: ReadonlyArray<{ status: StatusItemOc }>): string | null {
+  return itens.some((i) => i.status === "recebido") ? TEXTO_OC_COM_RECEBIDO_NAO_EXCLUI : null;
+}
+
+/** Coluna "Produtos" da lista: "Vestido Midi +2" (1º produto na ordem da OC + quantos mais). Sem produto = "—". */
+export function textoProdutosDaOc(
+  itens: ReadonlyArray<{ nome_produto: string | null; ordem?: number | null }>,
+): string {
+  if (itens.length === 0) return "—";
+  const ord = [...itens].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+  const nome = (ord[0].nome_produto ?? "").trim() || "Sem nome";
+  return itens.length > 1 ? `${nome} +${itens.length - 1}` : nome;
+}

@@ -30,11 +30,13 @@ export type VarianteDraft = {
   qtd: number;
 };
 
+/** Resumo de UM produto (item) da OC, como a lista (abas) o vê — vem do embed `itens:ocs_p_acabado_itens(...)`. */
+export type OcPaItemResumo = { id: string; ordem: number | null; nome_produto: string | null; status: OcPaStatus };
+
+/** Uma linha da lista (abas Encomendadas/Recebidas). O produto saiu do cabeçalho (R13): vem dos ITENS. */
 export type OcPaRow = {
   id: string;
   numero: string | null;
-  nome_produto: string;
-  produto_acabado_id: string | null;
   empresa_id: string | null;
   data_pedido: string | null;
   data_prevista: string | null;
@@ -43,74 +45,37 @@ export type OcPaRow = {
   qtd_total: number | null;
   valor_total_desconto: number | null;
   status: OcPaStatus;
+  itens: OcPaItemResumo[];
 };
 
-export type Draft = {
-  // Refino onda 2, item 1: campo EDITÁVEL — a trigger `fn_oc_p_acabado_numero` só gera
-  // quando vazio (`new.numero is null or ''`); "" aqui vira NULL no payload (auto-gera
-  // ao criar / mantém o valor atual ao editar), preenchido bypassa a geração.
+/**
+ * Rascunho do CABEÇALHO da OC (o que é da OC inteira). O produto saiu daqui (R13, P-355): cada produto é um ITEM
+ * (`ItemOcPa`, em `./itens`). O nº da OC é gerado pelo servidor na criação e nunca muda (P-361) — só exibição.
+ */
+export type CabecalhoDraft = {
   numero: string;
-  nome_produto: string;
-  produto_acabado_id: string | null;
-  grupo_id: string | null;
-  categoria_id: string | null;
-  subcategoria1_id: string | null;
-  subcategoria2_id: string | null;
   empresa_id: string | null;
   representante_id: string | null;
-  ref_fornecedor: string;
-  composicao: string;
   data_pedido: string;
   data_prevista: string;
   prazo_pagamento: string;
   parcelas_entrega: number;
-  grade_proporcao: Record<string, number>;
-  variantes: VarianteDraft[];
-  qtd_total: number;
-  valor_unitario: number;
-  desconto_pct: number;
   // Data da Nota de Entrada (spec 2026-09-24): base do vencimento — no cabeçalho, editável mesmo com a OC recebida.
   data_nota_entrada: string;
-  // Recebimento (seção 4 — locked até salvar).
-  data_entrega: string;
-  nota_fiscal: string;
-  responsavel_recebimento_id: string | null;
-  devolucao: string;
-  revisao: string;
   anexo_pedido_url: string | null;
-  anexo_nf_url: string | null;
 };
 
-export function emptyDraft(): Draft {
+export function emptyCabecalho(): CabecalhoDraft {
   return {
     numero: "",
-    nome_produto: "",
-    produto_acabado_id: null,
-    grupo_id: null,
-    categoria_id: null,
-    subcategoria1_id: null,
-    subcategoria2_id: null,
     empresa_id: null,
     representante_id: null,
-    ref_fornecedor: "",
-    composicao: "",
     data_pedido: format(new Date(), "yyyy-MM-dd"),
     data_prevista: "",
     prazo_pagamento: "30",
     parcelas_entrega: 1,
-    grade_proporcao: {},
-    variantes: [],
-    qtd_total: 0,
-    valor_unitario: 0,
-    desconto_pct: 0,
     data_nota_entrada: "",
-    data_entrega: "",
-    nota_fiscal: "",
-    responsavel_recebimento_id: null,
-    devolucao: "",
-    revisao: "",
     anexo_pedido_url: null,
-    anexo_nf_url: null,
   };
 }
 
