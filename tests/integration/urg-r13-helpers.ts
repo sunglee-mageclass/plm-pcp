@@ -71,11 +71,11 @@ export async function dropR13SePreciso(c: Client): Promise<void> {
   await zeraTimeouts(c);
 }
 
-/** md5 que a R13 deixa (sucessor dos pinos antigos). Na T1 a R13 nao redefine leitor nenhum => nada a acrescentar ainda. */
+/** md5 que a R13 deixa (sucessor dos pinos antigos). T2: a R13 redefine os leitores compartilhados (lado PA + PI no JOIN); o md5
+ * POS-R13 vem de mig/md5-r13.txt (POS_R13) e sobe pela cadeia urg-a -> urgb -> aqui ate os pinos 173000/177000. */
 const R13_SUCESSOR: Record<string, string> = {
-  // T2/T3 acrescentarao aqui, p.ex.:
-  // "public._custo_unitario_modelos_core(uuid[])": "<md5 depois da R13>",
-  // "public._estoque_extrato_insumo_core(uuid,uuid)": "<md5 depois da R13>",
+  "public._custo_unitario_modelos_core(uuid[])": "81de3239233d2efb3565ed3c5ce8cfb3", // pino 173000
+  "public._estoque_extrato_insumo_core(uuid,uuid)": "227331479ecf99b9e39eeca40bbf4512", // pino 177000
 };
 export function md5R13Sucessor(sig: string, pinado?: string): string[] {
   const k = sig.startsWith("public.") ? sig : `public.${sig}`;

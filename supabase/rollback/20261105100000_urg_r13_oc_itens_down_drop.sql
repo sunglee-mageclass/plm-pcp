@@ -34,6 +34,21 @@ END $drop$;
 DROP FUNCTION IF EXISTS public.fn_oc_item_produto_unico();
 DROP FUNCTION IF EXISTS public.fn_oc_item_tenant();
 
+-- limpa os COMMENT 'LEGADO R13' das colunas do cabecalho (as colunas voltam a ser as fontes do produto; sem comentario, como antes).
+DO $cmt$
+DECLARE c text; t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['ocs_p_acabado','ocs_importado'] LOOP
+    FOR c IN
+      SELECT a.attname FROM pg_description d JOIN pg_class cl ON cl.oid = d.objoid
+        JOIN pg_attribute a ON a.attrelid = cl.oid AND a.attnum = d.objsubid
+       WHERE cl.relname = t AND d.description LIKE 'LEGADO R13%'
+    LOOP
+      EXECUTE format('COMMENT ON COLUMN public.%I.%I IS NULL', t, c);
+    END LOOP;
+  END LOOP;
+END $cmt$;
+
 -- SET NOT NULL de volta em nome_produto (recusa se houver NULL)
 DO $nn$
 BEGIN
