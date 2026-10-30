@@ -281,4 +281,25 @@ async function pedir(c: any, emp: string, produtoIds: string[]): Promise<string>
       }
     });
   });
+
+  it("RLS: outra loja NAO ve os itens da OC de outra loja (tenant_select PERMISSIVE)", async () => {
+    await withTx(async (c) => {
+      const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979";
+      const USER_AVE = "174518a5-569f-4954-9010-24204b345508"; // usuario da Ave Rara (loja != TENANT_TESTE)
+      const { g, cat, emp } = await base(c);
+      const p = await prod(c, { nome: uq("P"), grupo: g, cat, empresa: emp });
+      const oc = await pedir(c, emp, [p]); // OC + 1 item em TENANT_TESTE
+      // como postgres (bypass RLS) o item existe:
+      expect(Number((await um<any>(c, `select count(*) n from public.ocs_p_acabado_itens where oc_id='${oc}'`)).n)).toBe(1);
+      // agora como o PAPEL authenticated, com JWT de um usuario da OUTRA loja -> RLS filtra: 0 linhas visiveis.
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_AVE, role: "authenticated" })]);
+      await c.query("SET LOCAL ROLE authenticated");
+      const visiveisOutra = Number((await um<any>(c, `select count(*) n from public.ocs_p_acabado_itens where oc_id='${oc}'`)).n);
+      // e o proprio get_user_tenant_id() da sessao e a Ave Rara (confirma que o JWT trocou de loja)
+      const minhaLoja = (await um<any>(c, `select public.get_user_tenant_id()::text t`)).t;
+      await c.query("RESET ROLE");
+      expect(visiveisOutra, "a Ave Rara nao pode ver itens de OC da Loja Teste").toBe(0);
+      expect(minhaLoja).toBe(AVE_RARA);
+    });
+  });
 });

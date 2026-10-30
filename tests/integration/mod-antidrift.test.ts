@@ -62,6 +62,10 @@ const DONOS: { re: RegExp; dono: string; extras?: string[] }[] = [
   // Revenda / Importado (P9).
   { re: /^(criar_cards?_produto_acabado|receber_oc_p_acabado)$/, dono: "produto_acabado" },
   { re: /^(criar_cards?_produto_importado|receber_oc_importado)$/, dono: "produto_importado" },
+  // R13 (OC por fornecedor com varios produtos): o receber POR ITEM usa _exige_modulos('criacao','producao') como o receber_oc_*
+  // de antes (mesmo dono/MODULE_DEPS); fazer_pedido/salvar_oc_*_itens/vincular_oc_* NAO usam _exige_modulos (so tenant_module_enabled).
+  { re: /^receber_item_oc_p_acabado$/, dono: "produto_acabado" },
+  { re: /^receber_item_oc_importado$/, dono: "produto_importado" },
   // Urgentes R2 T10 (20261103175000): BOM inicial de insumo do card interno novo = Criacao.
   { re: /^salvar_insumos_iniciais$/, dono: "criacao" },
   // Extrato de estoque por item (urg R3 T14, 177000): mesmo módulo dos estoque_* (aba Estoque das OCs de Entrada e Saída).
