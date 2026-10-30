@@ -2470,6 +2470,1269 @@ BEGIN
 END
 $function$;
 
+-- ============================ Passo 7c (T3 PI): applier dos derivados + RPCs novas de Produto Importado ============================
+-- Emitido DEPOIS da copia (Passo 5/6) e do bloco 35 (PA), ANTES das redefinicoes T3 (que incluem o cambio/landed por item).
+-- Padrao de sempre (invariante 9): wrapper (login -> modulo -> _seg_exige_pagina antes de qualquer busca) + _core REVOKE dos 3.
+-- Mensagens 5xx (P0001/P0002/P0409) em ASCII. Ordem unica de travas: cabecalho FOR UPDATE + rev -> produtos FOR UPDATE ORDER BY id -> itens.
+-- Moeda/cotacoes/etapas sao do cabecalho (OC inteira, do 1o produto); qtd/valor/peso/transporte/desconto/grade/landed sao POR ITEM.
+
+-- Applier: recalcula os derivados do cabecalho a partir dos itens (Σ + status + data_entrega + grupo/categoria + landed) num
+-- UNICO UPDATE. O cambio/landed por item ja foi gravado por _imp_recalcular_landed_real_oc ANTES; aqui so consolida o cabecalho.
+CREATE OR REPLACE FUNCTION public._oci_aplicar_derivados(_oc_id uuid)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE d jsonb;
+BEGIN
+  d := public._oci_cabecalho_derivados(_oc_id);
+  UPDATE public.ocs_importado SET
+    qtd_total = coalesce((d->>'qtd_total')::int, 0),
+    valor_bruto = coalesce((d->>'valor_bruto')::numeric, 0),
+    valor_total_desconto = coalesce((d->>'valor_total_desconto')::numeric, 0),
+    valor_unitario_real = CASE WHEN coalesce((d->>'qtd_total')::int, 0) > 0
+                               THEN round(coalesce((d->>'valor_total_desconto')::numeric, 0) / (d->>'qtd_total')::int, 2) ELSE 0 END,
+    status = coalesce(d->>'status', 'encomendado'),
+    data_entrega = nullif(d->>'data_entrega','')::date,
+    grupo_id = nullif(d->>'grupo_id','')::uuid,
+    categoria_id = nullif(d->>'categoria_id','')::uuid,
+    custo_unitario_landed_real = coalesce((d->>'custo_unitario_landed_real')::numeric, 0),
+    updated_at = now()
+  WHERE id = _oc_id;
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public._oci_aplicar_derivados(uuid) FROM PUBLIC, anon, authenticated;
+
+-- Copia as etapas do 1o produto para a OC (ocs_importado_etapas) — mesma logica do _salvar_oc_importado_core com _etapas vazio.
+CREATE OR REPLACE FUNCTION public._oci_copiar_etapas_do_produto(_tenant uuid, _oc_id uuid, _produto_id uuid)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+BEGIN
+  DELETE FROM public.ocs_importado_etapas WHERE oc_importado_id = _oc_id;
+  INSERT INTO public.ocs_importado_etapas (tenant_id, oc_importado_id, ordem, rotulo, base, percentual, data_vencimento, cotacao)
+  SELECT _tenant, _oc_id, coalesce(e.ordem,0), nullif(e.rotulo,''), coalesce(nullif(e.base,''),'mercadoria'),
+         coalesce(e.percentual,0), e.data_vencimento, coalesce(e.cotacao,0)
+    FROM public.produto_importado_etapas e
+   WHERE e.produto_importado_id = _produto_id;
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public._oci_copiar_etapas_do_produto(uuid,uuid,uuid) FROM PUBLIC, anon, authenticated;
+
+-- ── fazer_pedido_importado: cria TODAS as OCs numa transacao (tudo-ou-nada), 1 por pedido do assistente ──
+-- Agrupamento (do front) separa por (empresa, representante, moeda_compra, moeda_intermediaria). Cada pedido ja e um grupo.
+CREATE OR REPLACE FUNCTION public._fazer_pedido_importado_core(_pedidos jsonb)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_tenant uuid;
+  v_out jsonb := '[]'::jsonb;
+  ped jsonb;
+  v_prod_ids uuid[];
+  v_empresa uuid;
+  v_rep uuid;
+  v_moeda_compra text;
+  v_moeda_inter text;
+  v_sig text;
+  v_numero text;
+  v_oc_id uuid;
+  v_itens_sigla jsonb;
+  v_primeiro uuid;
+  pid uuid;
+  v_item jsonb;
+  v_ordem int;
+  v_mot text[];
+  v_prod record;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'nao_autenticado' USING ERRCODE = '42501'; END IF;
+  v_tenant := public.get_user_tenant_id();
+  IF v_tenant = '00000000-0000-0000-0000-000000000000'::uuid THEN
+    RAISE EXCEPTION 'Loja inativa ou sem tenant' USING ERRCODE = '42501';
+  END IF;
+  IF _pedidos IS NULL OR jsonb_typeof(_pedidos) <> 'array' THEN RETURN v_out; END IF;
+
+  FOR ped IN SELECT jsonb_array_elements(_pedidos) LOOP
+    SELECT array_agg(x::uuid) INTO v_prod_ids FROM jsonb_array_elements_text(coalesce(ped->'produto_ids','[]'::jsonb)) x;
+    IF v_prod_ids IS NULL OR array_length(v_prod_ids, 1) IS NULL THEN CONTINUE; END IF;
+    v_empresa := nullif(ped->>'empresa_id','')::uuid;
+    v_rep := nullif(ped->>'representante_id','')::uuid;
+    v_moeda_compra := coalesce(nullif(ped->>'moeda_compra',''), 'RMB');
+    v_moeda_inter := nullif(ped->>'moeda_intermediaria','');
+
+    -- (1) produtos FOR UPDATE ORDER BY id (ordem unica de travas; fecha o pedido simultaneo do mesmo produto)
+    FOR v_prod IN
+      SELECT * FROM public.produtos_importados WHERE id = ANY(v_prod_ids) AND tenant_id = v_tenant ORDER BY id FOR UPDATE
+    LOOP NULL; END LOOP;
+
+    -- (2) cada produto: existe na loja? motivos? fornecedor == do pedido? MOEDA == a do pedido?
+    FOREACH pid IN ARRAY v_prod_ids LOOP
+      SELECT * INTO v_prod FROM public.produtos_importados WHERE id = pid AND tenant_id = v_tenant;
+      IF NOT FOUND THEN RAISE EXCEPTION 'nao_encontrado: produto' USING ERRCODE = 'P0002'; END IF;
+      v_mot := public._oc_produto_motivos('pi', pid);
+      IF array_length(v_mot, 1) IS NOT NULL THEN
+        RAISE EXCEPTION 'pedido_recusado: %: %', v_prod.nome, array_to_string(v_mot, ', ') USING ERRCODE = 'P0001';
+      END IF;
+      IF v_prod.empresa_id IS DISTINCT FROM v_empresa THEN
+        RAISE EXCEPTION 'fornecedor_diferente: % nao e do fornecedor do pedido', v_prod.nome USING ERRCODE = 'P0001';
+      END IF;
+      IF coalesce(v_prod.moeda_compra,'RMB') IS DISTINCT FROM v_moeda_compra
+         OR nullif(v_prod.moeda_intermediaria,'') IS DISTINCT FROM v_moeda_inter THEN
+        RAISE EXCEPTION 'moeda_diferente: % tem moeda diferente da do pedido', v_prod.nome USING ERRCODE = 'P0001';
+      END IF;
+    END LOOP;
+
+    -- (3) sigla do lote + (4) numero (helper com advisory lock por loja)
+    SELECT coalesce(jsonb_agg(jsonb_build_object('grupo_id', pi.grupo_id, 'categoria_id', pi.categoria_id) ORDER BY pi.id), '[]'::jsonb)
+      INTO v_itens_sigla FROM public.produtos_importados pi WHERE pi.id = ANY(v_prod_ids) AND pi.tenant_id = v_tenant;
+    v_sig := public._oc_lote_sigla(v_empresa, v_itens_sigla);
+    v_numero := public._oc_numero_proximo('ocs_importado', v_tenant, v_sig);
+
+    -- 1o produto (menor id, = ordem dos travados): fonte das cotacoes + cronograma do cabecalho
+    SELECT id INTO v_primeiro FROM public.produtos_importados WHERE id = ANY(v_prod_ids) AND tenant_id = v_tenant ORDER BY id LIMIT 1;
+    SELECT * INTO v_prod FROM public.produtos_importados WHERE id = v_primeiro;
+
+    -- (5) INSERT do cabecalho (numero ja calculado => fn_oc_importado_numero nao recalcula; produto_importado_id NULL = LEGADO)
+    --     moeda/cotacoes do 1o produto; qtd/valores/landed derivados ficam 0 ate o applier.
+    INSERT INTO public.ocs_importado (
+      tenant_id, numero, nome_produto, empresa_id, representante_id,
+      data_pedido, data_prevista, moeda_compra, moeda_intermediaria, cotacao_ref, cotacao_final,
+      qtd_total, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real
+    ) VALUES (
+      v_tenant, v_numero, NULL, v_empresa, v_rep,
+      coalesce(nullif(ped->>'data_pedido','')::date, current_date), nullif(ped->>'data_prevista','')::date,
+      v_moeda_compra, v_moeda_inter,
+      coalesce(v_prod.cotacao_ref, 0), coalesce(v_prod.cotacao_final, 0),
+      0, 0, 0, 0, 0
+    ) RETURNING id INTO v_oc_id;
+
+    -- cronograma do 1o produto -> ocs_importado_etapas
+    PERFORM public._oci_copiar_etapas_do_produto(v_tenant, v_oc_id, v_primeiro);
+
+    -- (6) INSERT dos itens (um por produto, na ordem dos ids travados)
+    v_ordem := 0;
+    FOR pid IN SELECT unnest(v_prod_ids) ORDER BY 1 LOOP
+      v_ordem := v_ordem + 1;
+      v_item := public._oci_item_de_produto(v_tenant, pid);
+      INSERT INTO public.ocs_importado_itens (
+        tenant_id, oc_id, ordem, produto_importado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
+        ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario_m1, peso_kg, transporte_m2,
+        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real)
+      VALUES (
+        v_tenant, v_oc_id, v_ordem, pid, v_item->>'nome_produto', nullif(v_item->>'grupo_id','')::uuid, nullif(v_item->>'categoria_id','')::uuid,
+        nullif(v_item->>'subcategoria1_id','')::uuid, nullif(v_item->>'subcategoria2_id','')::uuid,
+        v_item->>'ref_fornecedor', v_item->>'composicao', coalesce(v_item->'grade_proporcao','{}'::jsonb),
+        coalesce(v_item->'grade_detalhe','{}'::jsonb), coalesce(v_item->'variantes','[]'::jsonb),
+        coalesce((v_item->>'qtd_total')::int, 0), coalesce((v_item->>'valor_unitario_m1')::numeric, 0),
+        coalesce((v_item->>'peso_kg')::numeric, 0), coalesce((v_item->>'transporte_m2')::numeric, 0),
+        coalesce((v_item->>'desconto_pct')::numeric, 0), coalesce((v_item->>'valor_bruto')::numeric, 0),
+        coalesce((v_item->>'valor_total_desconto')::numeric, 0), coalesce((v_item->>'valor_unitario_real')::numeric, 0), 0);
+    END LOOP;
+
+    -- cambio/landed por item + derivados do cabecalho + parcelas EXPLICITAS (o gatilho escuta colunas legadas que nao mudam aqui)
+    PERFORM public._imp_recalcular_landed_real_oc(v_oc_id);
+    PERFORM public._oci_aplicar_derivados(v_oc_id);
+    PERFORM public._gerar_parcelas_importado(v_oc_id);
+
+    v_out := v_out || jsonb_build_array(jsonb_build_object(
+      'oc_id', v_oc_id, 'numero', v_numero, 'produto_ids', to_jsonb(v_prod_ids)));
+  END LOOP;
+
+  RETURN v_out;
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public._fazer_pedido_importado_core(jsonb) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fazer_pedido_importado(_pedidos jsonb)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+BEGIN
+  IF NOT public.tenant_module_enabled('produto_importado') THEN
+    RAISE EXCEPTION 'Módulo Produto Importado não habilitado para esta loja' USING ERRCODE = '42501';
+  END IF;
+  PERFORM public._seg_exige_pagina('entrada_oc_p_importado', 'criacao_produto_importado');
+  RETURN public._fazer_pedido_importado_core(_pedidos);
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public.fazer_pedido_importado(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fazer_pedido_importado(jsonb) TO authenticated;
+
+-- ── salvar_oc_importado_itens: estado completo, diff por id (invariante 3, IDs preservados) + etapas (estado completo) ──
+CREATE OR REPLACE FUNCTION public._salvar_oc_importado_itens_core(_id uuid, _dados jsonb, _itens jsonb, _etapas jsonb, _rev_base integer DEFAULT NULL)
+ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_tenant uuid;
+  v_oc_id uuid;
+  v_rev int;
+  v_oc_status text;
+  it jsonb;
+  v_item_id uuid;
+  v_ids_mantidos uuid[] := ARRAY[]::uuid[];
+  v_ordem int := 0;
+  v_prod_id uuid;
+  v_montado jsonb;
+  v_mot text[];
+  v_empresa uuid;
+  v_atual record;
+  v_bruto numeric; v_vtd numeric; v_vur numeric;
+  v_qtd int; v_vu numeric; v_dp numeric; v_peso numeric; v_tr numeric;
+  v_soma_pedida numeric; v_tem_neg boolean;
+  v_sig text;
+  v_etapas jsonb; rec jsonb; v_soma_merc numeric; v_soma_frete numeric;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'nao_autenticado' USING ERRCODE = '42501'; END IF;
+  v_tenant := public.get_user_tenant_id();
+  IF v_tenant = '00000000-0000-0000-0000-000000000000'::uuid THEN
+    RAISE EXCEPTION 'Loja inativa ou sem tenant' USING ERRCODE = '42501';
+  END IF;
+
+  IF _id IS NULL THEN
+    -- OC avulsa nova: numero pelo helper; cabecalho em branco (produtos vem nos itens; moeda/cotacoes vem em _dados).
+    v_empresa := nullif(_dados->>'empresa_id','')::uuid;
+    v_sig := public._oc_lote_sigla(v_empresa, '[]'::jsonb);
+    INSERT INTO public.ocs_importado (
+      tenant_id, numero, nome_produto, empresa_id, representante_id, data_pedido, data_prevista, data_nota_entrada,
+      anexo_pedido_url, moeda_compra, moeda_intermediaria, cotacao_ref, cotacao_final,
+      qtd_total, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real
+    ) VALUES (
+      v_tenant, public._oc_numero_proximo('ocs_importado', v_tenant, v_sig), NULL, v_empresa, nullif(_dados->>'representante_id','')::uuid,
+      coalesce(nullif(_dados->>'data_pedido','')::date, current_date), nullif(_dados->>'data_prevista','')::date,
+      nullif(_dados->>'data_nota_entrada','')::date, _dados->>'anexo_pedido_url',
+      coalesce(nullif(_dados->>'moeda_compra',''), 'RMB'), nullif(_dados->>'moeda_intermediaria',''),
+      coalesce(nullif(_dados->>'cotacao_ref','')::numeric, 0), coalesce(nullif(_dados->>'cotacao_final','')::numeric, 0),
+      0, 0, 0, 0, 0
+    ) RETURNING id INTO v_oc_id;
+  ELSE
+    SELECT rev, status INTO v_rev, v_oc_status FROM public.ocs_importado WHERE id = _id AND tenant_id = v_tenant FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'nao_encontrado: oc' USING ERRCODE = 'P0002'; END IF;
+    IF _rev_base IS NOT NULL AND v_rev IS DISTINCT FROM _rev_base THEN
+      RAISE EXCEPTION 'conflito_versao: o registro foi salvo por outra pessoa' USING ERRCODE = 'P0409';
+    END IF;
+    v_oc_id := _id;
+    UPDATE public.ocs_importado SET
+      empresa_id = nullif(_dados->>'empresa_id','')::uuid,
+      representante_id = nullif(_dados->>'representante_id','')::uuid,
+      data_pedido = coalesce(nullif(_dados->>'data_pedido','')::date, data_pedido),
+      data_prevista = nullif(_dados->>'data_prevista','')::date,
+      anexo_pedido_url = _dados->>'anexo_pedido_url',
+      -- moeda/cotacoes sao do cabecalho (OC inteira): so sobrescreve quando a chave vem em _dados (chave ausente = mantem).
+      moeda_compra = CASE WHEN _dados ? 'moeda_compra' THEN coalesce(nullif(_dados->>'moeda_compra',''), moeda_compra) ELSE moeda_compra END,
+      moeda_intermediaria = CASE WHEN _dados ? 'moeda_intermediaria' THEN nullif(_dados->>'moeda_intermediaria','') ELSE moeda_intermediaria END,
+      cotacao_ref = CASE WHEN _dados ? 'cotacao_ref' THEN coalesce(nullif(_dados->>'cotacao_ref','')::numeric, 0) ELSE cotacao_ref END,
+      cotacao_final = CASE WHEN _dados ? 'cotacao_final' THEN coalesce(nullif(_dados->>'cotacao_final','')::numeric, 0) ELSE cotacao_final END,
+      data_nota_entrada = CASE WHEN _dados ? 'data_nota_entrada' THEN nullif(_dados->>'data_nota_entrada','')::date ELSE data_nota_entrada END,
+      updated_at = now()
+    WHERE id = v_oc_id;
+  END IF;
+
+  SELECT empresa_id INTO v_empresa FROM public.ocs_importado WHERE id = v_oc_id;
+
+  -- Evita colisao do UNIQUE(oc_id, ordem) ao renumerar na ordem do payload (faixa alta antes do loop; igual PA).
+  UPDATE public.ocs_importado_itens SET ordem = ordem + 1000000 WHERE oc_id = v_oc_id;
+
+  -- diff por id: percorre os itens enviados (estado completo)
+  FOR it IN SELECT jsonb_array_elements(coalesce(_itens, '[]'::jsonb)) LOOP
+    v_ordem := v_ordem + 1;
+    v_item_id := nullif(it->>'id','')::uuid;
+
+    IF v_item_id IS NOT NULL THEN
+      SELECT status, valor_unitario_m1, desconto_pct, qtd_total, grade_detalhe, produto_importado_id
+        INTO v_atual FROM public.ocs_importado_itens WHERE id = v_item_id AND oc_id = v_oc_id;
+      IF NOT FOUND THEN RAISE EXCEPTION 'nao_encontrado: item' USING ERRCODE = 'P0002'; END IF;
+
+      v_prod_id := coalesce(nullif(it->>'produto_importado_id','')::uuid, v_atual.produto_importado_id);
+      v_qtd := coalesce(nullif(it->>'qtd_total','')::int, 0);
+      v_vu := coalesce(nullif(it->>'valor_unitario_m1','')::numeric, 0);
+      v_dp := coalesce(nullif(it->>'desconto_pct','')::numeric, 0);
+      v_peso := coalesce(nullif(it->>'peso_kg','')::numeric, 0);
+      v_tr := coalesce(nullif(it->>'transporte_m2','')::numeric, 0);
+
+      IF v_atual.status = 'recebido' THEN
+        IF v_vu IS DISTINCT FROM v_atual.valor_unitario_m1 OR v_dp IS DISTINCT FROM v_atual.desconto_pct
+           OR v_qtd IS DISTINCT FROM v_atual.qtd_total
+           OR public._pa_grade_pedida_only(coalesce(it->'grade_detalhe','{}'::jsonb)) IS DISTINCT FROM public._pa_grade_pedida_only(v_atual.grade_detalhe) THEN
+          raise exception 'Item recebido - desfaca o recebimento para alterar valores.' using errcode = 'P0001';
+        END IF;
+      END IF;
+
+      SELECT coalesce(bool_or(coalesce(nullif(t.value->>'pedida','')::numeric,0) < 0
+             or coalesce(nullif(t.value->>'recebida','')::numeric,0) < 0 or coalesce(nullif(t.value->>'defeito','')::numeric,0) < 0), false),
+             coalesce(sum(coalesce(nullif(t.value->>'pedida','')::numeric,0)),0)
+        INTO v_tem_neg, v_soma_pedida
+        FROM jsonb_each(coalesce(it->'grade_detalhe','{}'::jsonb)) o CROSS JOIN LATERAL jsonb_each(o.value) t;
+      IF v_tem_neg THEN raise exception 'As quantidades da grade nao podem ser negativas.' using errcode = 'P0001'; END IF;
+      IF v_qtd > 0 AND v_soma_pedida <> v_qtd THEN
+        raise exception 'A soma da grade pedida (%) difere da quantidade total (%)', v_soma_pedida, v_qtd using errcode = 'P0001';
+      END IF;
+
+      v_bruto := round(v_qtd * v_vu, 2);
+      v_vtd := round(v_bruto * (1 - v_dp / 100.0), 2);
+      v_vur := CASE WHEN v_qtd > 0 THEN round(v_vtd / v_qtd, 2) ELSE 0 END;
+
+      UPDATE public.ocs_importado_itens SET
+        ordem = v_ordem,
+        produto_importado_id = v_prod_id,
+        nome_produto = coalesce(nullif(it->>'nome_produto',''), nome_produto),
+        grupo_id = nullif(it->>'grupo_id','')::uuid,
+        categoria_id = nullif(it->>'categoria_id','')::uuid,
+        subcategoria1_id = nullif(it->>'subcategoria1_id','')::uuid,
+        subcategoria2_id = nullif(it->>'subcategoria2_id','')::uuid,
+        ref_fornecedor = it->>'ref_fornecedor',
+        composicao = it->>'composicao',
+        grade_proporcao = coalesce(it->'grade_proporcao','{}'::jsonb),
+        grade_detalhe = coalesce(it->'grade_detalhe','{}'::jsonb),
+        variantes = coalesce(it->'variantes','[]'::jsonb),
+        qtd_total = v_qtd, valor_unitario_m1 = v_vu, desconto_pct = v_dp, peso_kg = v_peso, transporte_m2 = v_tr,
+        valor_bruto = v_bruto, valor_total_desconto = v_vtd, valor_unitario_real = v_vur,
+        updated_at = now()
+      WHERE id = v_item_id AND oc_id = v_oc_id;
+      v_ids_mantidos := v_ids_mantidos || v_item_id;
+
+    ELSIF coalesce((it->>'do_produto')::boolean, false) AND nullif(it->>'produto_importado_id','') IS NOT NULL THEN
+      v_prod_id := (it->>'produto_importado_id')::uuid;
+      SELECT status INTO v_oc_status FROM public.ocs_importado WHERE id = v_oc_id;
+      IF v_oc_status = 'recebido' THEN
+        RAISE EXCEPTION 'oc_recebida_nao_adiciona: OC recebida nao aceita produtos novos' USING ERRCODE = 'P0001';
+      END IF;
+      PERFORM 1 FROM public.produtos_importados WHERE id = v_prod_id AND tenant_id = v_tenant FOR UPDATE;
+      IF NOT FOUND THEN RAISE EXCEPTION 'nao_encontrado: produto' USING ERRCODE = 'P0002'; END IF;
+      IF v_empresa IS DISTINCT FROM (SELECT empresa_id FROM public.produtos_importados WHERE id = v_prod_id) THEN
+        RAISE EXCEPTION 'fornecedor_diferente: o produto e de outro fornecedor' USING ERRCODE = 'P0001';
+      END IF;
+      IF coalesce((SELECT moeda_compra FROM public.produtos_importados WHERE id = v_prod_id),'RMB')
+           IS DISTINCT FROM (SELECT coalesce(moeda_compra,'RMB') FROM public.ocs_importado WHERE id = v_oc_id)
+         OR nullif((SELECT moeda_intermediaria FROM public.produtos_importados WHERE id = v_prod_id),'')
+           IS DISTINCT FROM (SELECT nullif(moeda_intermediaria,'') FROM public.ocs_importado WHERE id = v_oc_id) THEN
+        RAISE EXCEPTION 'moeda_diferente: o produto tem moeda diferente da OC' USING ERRCODE = 'P0001';
+      END IF;
+      v_mot := public._oc_produto_motivos('pi', v_prod_id);
+      IF array_length(v_mot, 1) IS NOT NULL THEN
+        RAISE EXCEPTION 'pedido_recusado: %: %', (SELECT nome FROM public.produtos_importados WHERE id = v_prod_id),
+          array_to_string(v_mot, ', ') USING ERRCODE = 'P0001';
+      END IF;
+      v_montado := public._oci_item_de_produto(v_tenant, v_prod_id);
+      INSERT INTO public.ocs_importado_itens (
+        tenant_id, oc_id, ordem, produto_importado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
+        ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario_m1, peso_kg, transporte_m2,
+        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real)
+      VALUES (
+        v_tenant, v_oc_id, v_ordem, v_prod_id, v_montado->>'nome_produto', nullif(v_montado->>'grupo_id','')::uuid, nullif(v_montado->>'categoria_id','')::uuid,
+        nullif(v_montado->>'subcategoria1_id','')::uuid, nullif(v_montado->>'subcategoria2_id','')::uuid,
+        v_montado->>'ref_fornecedor', v_montado->>'composicao', coalesce(v_montado->'grade_proporcao','{}'::jsonb),
+        coalesce(v_montado->'grade_detalhe','{}'::jsonb), coalesce(v_montado->'variantes','[]'::jsonb),
+        coalesce((v_montado->>'qtd_total')::int, 0), coalesce((v_montado->>'valor_unitario_m1')::numeric, 0),
+        coalesce((v_montado->>'peso_kg')::numeric, 0), coalesce((v_montado->>'transporte_m2')::numeric, 0),
+        coalesce((v_montado->>'desconto_pct')::numeric, 0), coalesce((v_montado->>'valor_bruto')::numeric, 0),
+        coalesce((v_montado->>'valor_total_desconto')::numeric, 0), coalesce((v_montado->>'valor_unitario_real')::numeric, 0), 0)
+      RETURNING id INTO v_item_id;
+      v_ids_mantidos := v_ids_mantidos || v_item_id;
+
+    ELSE
+      -- item avulso digitado (sem id, sem do_produto)
+      v_qtd := coalesce(nullif(it->>'qtd_total','')::int, 0);
+      v_vu := coalesce(nullif(it->>'valor_unitario_m1','')::numeric, 0);
+      v_dp := coalesce(nullif(it->>'desconto_pct','')::numeric, 0);
+      v_peso := coalesce(nullif(it->>'peso_kg','')::numeric, 0);
+      v_tr := coalesce(nullif(it->>'transporte_m2','')::numeric, 0);
+      v_bruto := round(v_qtd * v_vu, 2); v_vtd := round(v_bruto * (1 - v_dp / 100.0), 2);
+      v_vur := CASE WHEN v_qtd > 0 THEN round(v_vtd / v_qtd, 2) ELSE 0 END;
+      INSERT INTO public.ocs_importado_itens (
+        tenant_id, oc_id, ordem, produto_importado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
+        ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario_m1, peso_kg, transporte_m2,
+        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real)
+      VALUES (
+        v_tenant, v_oc_id, v_ordem, nullif(it->>'produto_importado_id','')::uuid, coalesce(nullif(it->>'nome_produto',''), ''),
+        nullif(it->>'grupo_id','')::uuid, nullif(it->>'categoria_id','')::uuid, nullif(it->>'subcategoria1_id','')::uuid,
+        nullif(it->>'subcategoria2_id','')::uuid, it->>'ref_fornecedor', it->>'composicao', coalesce(it->'grade_proporcao','{}'::jsonb),
+        coalesce(it->'grade_detalhe','{}'::jsonb), coalesce(it->'variantes','[]'::jsonb), v_qtd, v_vu, v_peso, v_tr, v_dp, v_bruto, v_vtd, v_vur, 0)
+      RETURNING id INTO v_item_id;
+      v_ids_mantidos := v_ids_mantidos || v_item_id;
+    END IF;
+  END LOOP;
+
+  -- itens AUSENTES = tirar. Item recebido nao sai; lista final vazia com itens no servidor recusa.
+  IF EXISTS (SELECT 1 FROM public.ocs_importado_itens WHERE oc_id = v_oc_id AND status = 'recebido'
+             AND NOT (id = ANY(v_ids_mantidos))) THEN
+    RAISE EXCEPTION 'item_recebido_nao_sai: ha produto recebido que nao pode ser tirado' USING ERRCODE = 'P0001';
+  END IF;
+  IF array_length(v_ids_mantidos, 1) IS NULL AND EXISTS (SELECT 1 FROM public.ocs_importado_itens WHERE oc_id = v_oc_id) THEN
+    RAISE EXCEPTION 'oc_sem_produtos: exclua a OC' USING ERRCODE = 'P0001';
+  END IF;
+  DELETE FROM public.ocs_importado_itens WHERE oc_id = v_oc_id AND NOT (id = ANY(v_ids_mantidos));
+
+  -- Etapas: estado completo (delete+reinsere), como _salvar_oc_importado_core. Σ%=100 por base (quando ha etapa daquela base);
+  -- etapa de mercadoria com % > 0 e cotacao <= 0 recusa (so quando ha valor de compra = ha item com valor_unitario_m1 > 0).
+  IF _etapas IS NOT NULL THEN
+    v_etapas := coalesce(_etapas, '[]'::jsonb);
+    SELECT coalesce(sum((e->>'percentual')::numeric),0) INTO v_soma_merc
+      FROM jsonb_array_elements(v_etapas) e WHERE e->>'base' = 'mercadoria';
+    SELECT coalesce(sum((e->>'percentual')::numeric),0) INTO v_soma_frete
+      FROM jsonb_array_elements(v_etapas) e WHERE e->>'base' = 'frete';
+    IF exists(select 1 from jsonb_array_elements(v_etapas) e where e->>'base'='mercadoria') AND round(v_soma_merc,2) <> 100 THEN
+      RAISE EXCEPTION 'A soma das etapas de mercadoria (%) precisa fechar 100%%.', round(v_soma_merc,2) USING ERRCODE = 'P0001';
+    END IF;
+    IF exists(select 1 from jsonb_array_elements(v_etapas) e where e->>'base'='frete') AND round(v_soma_frete,2) <> 100 THEN
+      RAISE EXCEPTION 'A soma das etapas de frete (%) precisa fechar 100%%.', round(v_soma_frete,2) USING ERRCODE = 'P0001';
+    END IF;
+    IF exists(select 1 from public.ocs_importado_itens where oc_id = v_oc_id and coalesce(valor_unitario_m1,0) > 0)
+       AND exists(select 1 from jsonb_array_elements(v_etapas) e
+                  where coalesce(nullif(e->>'base',''),'mercadoria') = 'mercadoria'
+                    and coalesce(nullif(e->>'percentual','')::numeric, 0) > 0
+                    and coalesce(nullif(e->>'cotacao','')::numeric, 0) <= 0) THEN
+      RAISE EXCEPTION 'Informe a cotacao da etapa de mercadoria (percentual maior que zero e cotacao zerada).' USING ERRCODE = 'P0001';
+    END IF;
+    DELETE FROM public.ocs_importado_etapas WHERE oc_importado_id = v_oc_id;
+    FOR rec IN SELECT * FROM jsonb_array_elements(v_etapas) LOOP
+      INSERT INTO public.ocs_importado_etapas (tenant_id, oc_importado_id, ordem, rotulo, base, percentual, data_vencimento, cotacao)
+      VALUES (v_tenant, v_oc_id, coalesce((rec->>'ordem')::int,0), nullif(rec->>'rotulo',''),
+        coalesce(nullif(rec->>'base',''),'mercadoria'), coalesce((rec->>'percentual')::numeric,0),
+        nullif(rec->>'data_vencimento','')::date, coalesce((rec->>'cotacao')::numeric,0));
+    END LOOP;
+  END IF;
+
+  -- cambio/landed por item + UPDATE unico do cabecalho + parcelas EXPLICITAS (idempotente; o gatilho nao escuta estas colunas).
+  PERFORM public._imp_recalcular_landed_real_oc(v_oc_id);
+  PERFORM public._oci_aplicar_derivados(v_oc_id);
+  PERFORM public._gerar_parcelas_importado(v_oc_id);
+
+  RETURN v_oc_id;
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public._salvar_oc_importado_itens_core(uuid,jsonb,jsonb,jsonb,integer) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.salvar_oc_importado_itens(_id uuid, _dados jsonb, _itens jsonb, _etapas jsonb, _rev_base integer DEFAULT NULL)
+ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+BEGIN
+  IF NOT public.tenant_module_enabled('produto_importado') THEN
+    RAISE EXCEPTION 'Módulo Produto Importado não habilitado para esta loja' USING ERRCODE = '42501';
+  END IF;
+  PERFORM public._seg_exige_pagina('entrada_oc_p_importado', 'criacao_produto_importado');
+  RETURN public._salvar_oc_importado_itens_core(_id, _dados, _itens, _etapas, _rev_base);
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public.salvar_oc_importado_itens(uuid,jsonb,jsonb,jsonb,integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.salvar_oc_importado_itens(uuid,jsonb,jsonb,jsonb,integer) TO authenticated;
+
+-- ── receber_item_oc_importado: salva pendencias (via o _core do salvar) e recebe o item + landed por item ──
+CREATE OR REPLACE FUNCTION public._receber_item_oc_importado_core(_oc_id uuid, _item_id uuid, _dados jsonb, _itens jsonb, _etapas jsonb, _rev_base integer DEFAULT NULL)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_tenant uuid;
+  v_item record;
+  v_produto record;
+  v_cad_id uuid;
+  v_grade_final jsonb;
+  rec record; tam_rec record;
+  v_var_grade jsonb; v_planejadas jsonb; v_reais jsonb;
+  v_tot_plan int; v_tot_real int; v_grand_total int := 0;
+  v_pedida numeric; v_recebida numeric; v_defeito numeric;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'nao_autenticado' USING ERRCODE = '42501'; END IF;
+  v_tenant := public.get_user_tenant_id();
+  IF v_tenant = '00000000-0000-0000-0000-000000000000'::uuid THEN
+    RAISE EXCEPTION 'Loja inativa ou sem tenant' USING ERRCODE = '42501';
+  END IF;
+
+  -- 1) salva as pendencias (estado completo da OC + etapas) ANTES de receber — atomico; "CRITICAL" da inv.1 garantido pela txn.
+  PERFORM public._salvar_oc_importado_itens_core(_oc_id, _dados, _itens, _etapas, _rev_base);
+
+  -- 2) recebe o item
+  SELECT * INTO v_item FROM public.ocs_importado_itens WHERE id = _item_id AND oc_id = _oc_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'nao_encontrado: item' USING ERRCODE = 'P0002'; END IF;
+  IF v_item.produto_importado_id IS NULL THEN
+    RAISE EXCEPTION 'Crie o card no Planejamento antes de receber.' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT * INTO v_produto FROM public.produtos_importados WHERE id = v_item.produto_importado_id AND tenant_id = v_tenant;
+  IF NOT FOUND OR v_produto.modelo_id IS NULL THEN
+    RAISE EXCEPTION 'Crie o card no Planejamento antes de receber.' USING ERRCODE = 'P0001';
+  END IF;
+
+  v_grade_final := coalesce(v_item.grade_detalhe, '{}'::jsonb);
+
+  UPDATE public.ocs_importado_itens SET
+    data_entrega = nullif(_dados->>'item_data_entrega','')::date,
+    nota_fiscal = _dados->>'item_nota_fiscal',
+    responsavel_recebimento_id = nullif(_dados->>'item_responsavel_recebimento_id','')::uuid,
+    devolucao = _dados->>'item_devolucao',
+    revisao = _dados->>'item_revisao',
+    status = 'recebido',
+    updated_at = now()
+  WHERE id = _item_id;
+
+  -- upsert cad BARE (1 por modelo)
+  SELECT id INTO v_cad_id FROM public.cad WHERE modelo_id = v_produto.modelo_id AND tenant_id = v_tenant;
+  IF v_cad_id IS NULL THEN
+    INSERT INTO public.cad (tenant_id, modelo_id) VALUES (v_tenant, v_produto.modelo_id) RETURNING id INTO v_cad_id;
+  END IF;
+
+  -- cad_grades por variante: planejada = pedida; real = max(0, recebida-defeito)
+  FOR rec IN SELECT ordem FROM public.produto_importado_variantes WHERE produto_importado_id = v_produto.id ORDER BY ordem LOOP
+    v_var_grade := coalesce(v_grade_final -> rec.ordem::text, '{}'::jsonb);
+    v_planejadas := '{}'::jsonb; v_reais := '{}'::jsonb; v_tot_plan := 0; v_tot_real := 0;
+    FOR tam_rec IN SELECT key, value FROM jsonb_each(v_var_grade) LOOP
+      v_pedida := coalesce(nullif(tam_rec.value->>'pedida','')::numeric, 0);
+      v_recebida := coalesce(nullif(tam_rec.value->>'recebida','')::numeric, 0);
+      v_defeito := coalesce(nullif(tam_rec.value->>'defeito','')::numeric, 0);
+      v_planejadas := v_planejadas || jsonb_build_object(tam_rec.key, v_pedida::int);
+      v_reais := v_reais || jsonb_build_object(tam_rec.key, greatest(0, v_recebida - v_defeito)::int);
+      v_tot_plan := v_tot_plan + v_pedida::int;
+      v_tot_real := v_tot_real + greatest(0, v_recebida - v_defeito)::int;
+    END LOOP;
+    INSERT INTO public.cad_grades (cad_id, variante_numero, grades_planejadas, grades_reais, grade_total_planejada, grade_total_real)
+    VALUES (v_cad_id, rec.ordem, v_planejadas, v_reais, v_tot_plan, v_tot_real)
+    ON CONFLICT (cad_id, variante_numero) DO UPDATE SET
+      grades_planejadas = excluded.grades_planejadas, grades_reais = excluded.grades_reais,
+      grade_total_planejada = excluded.grade_total_planejada, grade_total_real = excluded.grade_total_real;
+    v_grand_total := v_grand_total + v_tot_real;
+  END LOOP;
+
+  -- cad_etiquetas com os helpers da R1 (insumo por tamanho); idempotente
+  DELETE FROM public.cad_etiquetas WHERE cad_id = v_cad_id;
+  INSERT INTO public.cad_etiquetas (cad_id, etiqueta_id, cor_id, consumo, quantidade_planejada, quantidade_enviar)
+  SELECT v_cad_id, me.etiqueta_id, me.cor_id, me.consumo,
+         round(coalesce(me.consumo,0) * public._insumo_pecas(public._insumo_tamanho_de(me.etiqueta_id), public._grade_mapa_cad(v_cad_id, true), v_grand_total), 2),
+         round(coalesce(me.consumo,0) * public._insumo_pecas(public._insumo_tamanho_de(me.etiqueta_id), public._grade_mapa_cad(v_cad_id, true), v_grand_total), 2)
+  FROM public.modelo_etiquetas me WHERE me.modelo_id = v_produto.modelo_id;
+
+  -- CQ pendente so se nao existir
+  IF NOT EXISTS (SELECT 1 FROM public.controle_qualidade WHERE cad_id = v_cad_id) THEN
+    INSERT INTO public.controle_qualidade (cad_id, tenant_id, status) VALUES (v_cad_id, v_tenant, 'pendente');
+  END IF;
+
+  PERFORM public._imp_recomputar_precos_modelo(v_produto.id);
+
+  -- cambio/landed por item (chegou custo real) + status do cabecalho derivado + data_entrega = max; outros itens intocados.
+  PERFORM public._imp_recalcular_landed_real_oc(_oc_id);
+  PERFORM public._oci_aplicar_derivados(_oc_id);
+
+  RETURN jsonb_build_object('cad_id', v_cad_id, 'item_id', _item_id, 'total_real', v_grand_total);
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public._receber_item_oc_importado_core(uuid,uuid,jsonb,jsonb,jsonb,integer) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.receber_item_oc_importado(_oc_id uuid, _item_id uuid, _dados jsonb, _itens jsonb, _etapas jsonb, _rev_base integer DEFAULT NULL)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+BEGIN
+  IF NOT public.tenant_module_enabled('produto_importado') THEN
+    RAISE EXCEPTION 'Módulo Produto Importado não habilitado para esta loja' USING ERRCODE = '42501';
+  END IF;
+  PERFORM public._exige_modulos('criacao', 'producao');
+  PERFORM public._seg_exige_pagina('entrada_oc_p_importado');
+  RETURN public._receber_item_oc_importado_core(_oc_id, _item_id, _dados, _itens, _etapas, _rev_base);
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public.receber_item_oc_importado(uuid,uuid,jsonb,jsonb,jsonb,integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.receber_item_oc_importado(uuid,uuid,jsonb,jsonb,jsonb,integer) TO authenticated;
+
+-- ── vincular_oc_importado (NOVO, P-363): semantica a/b/c do _vincular_oc_p_acabado_core + checagem de MOEDA ──
+CREATE OR REPLACE FUNCTION public._vincular_oc_importado_core(_oc_id uuid, _produto_id uuid)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_tenant uuid; v_ok boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'nao_autenticado' USING ERRCODE = '42501'; END IF;
+  v_tenant := public.get_user_tenant_id();
+  IF v_tenant = '00000000-0000-0000-0000-000000000000'::uuid THEN
+    RAISE EXCEPTION 'Loja inativa ou sem tenant' USING ERRCODE = '42501';
+  END IF;
+
+  -- trava: cabecalho -> produto (ordem unica). O produto agora e um ITEM (ocs_importado_itens).
+  PERFORM 1 FROM public.ocs_importado WHERE id = _oc_id AND tenant_id = v_tenant FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'nao_encontrado: oc' USING ERRCODE = 'P0002'; END IF;
+
+  IF _produto_id IS NULL THEN
+    -- (c) DESVINCULAR: OC de 1 item -> item.produto = NULL (legado). 2+ itens -> recusa.
+    DECLARE v_n int; v_item uuid;
+    BEGIN
+      SELECT count(*) INTO v_n FROM public.ocs_importado_itens WHERE oc_id = _oc_id;
+      IF v_n >= 2 THEN
+        RAISE EXCEPTION 'oc_varios_produtos: abra a OC para tirar o produto' USING ERRCODE = 'P0001';
+      END IF;
+      SELECT id INTO v_item FROM public.ocs_importado_itens WHERE oc_id = _oc_id LIMIT 1;
+      IF v_item IS NOT NULL THEN
+        UPDATE public.ocs_importado_itens SET produto_importado_id = NULL, updated_at = now() WHERE id = v_item;
+      END IF;
+    END;
+    RETURN;
+  END IF;
+
+  SELECT exists(SELECT 1 FROM public.produtos_importados WHERE id = _produto_id AND tenant_id = v_tenant FOR UPDATE) INTO v_ok;
+  IF NOT v_ok THEN RAISE EXCEPTION 'nao_encontrado: produto' USING ERRCODE = 'P0002'; END IF;
+
+  DECLARE
+    v_oc record; v_n int; v_item uuid; v_vu numeric; v_dp numeric; v_peso numeric; v_tr numeric; v_item_jsonb jsonb;
+  BEGIN
+    SELECT empresa_id, status, numero, coalesce(moeda_compra,'RMB') AS moeda_compra, nullif(moeda_intermediaria,'') AS moeda_inter
+      INTO v_oc FROM public.ocs_importado WHERE id = _oc_id;
+    SELECT count(*) INTO v_n FROM public.ocs_importado_itens WHERE oc_id = _oc_id;
+
+    IF v_n = 1 THEN
+      SELECT id INTO v_item FROM public.ocs_importado_itens WHERE oc_id = _oc_id AND produto_importado_id IS NULL LIMIT 1;
+    END IF;
+
+    IF v_item IS NOT NULL THEN
+      -- (a) VINCULAR item avulso legado: o unico item (sem produto) recebe o produto; o produto herda valor/peso/transporte/desconto do item.
+      SELECT valor_unitario_m1, desconto_pct, peso_kg, transporte_m2 INTO v_vu, v_dp, v_peso, v_tr
+        FROM public.ocs_importado_itens WHERE id = v_item;
+      UPDATE public.ocs_importado_itens SET produto_importado_id = _produto_id, updated_at = now() WHERE id = v_item;
+      UPDATE public.produtos_importados SET valor_unitario_m1 = coalesce(v_vu,0), desconto_pct = coalesce(v_dp,0),
+        peso_kg = coalesce(v_peso,0), transporte_m2 = coalesce(v_tr,0), updated_at = now()
+        WHERE id = _produto_id AND tenant_id = v_tenant;
+    ELSE
+      -- (b) ADICIONAR o produto como item NOVO. OC encomendada + mesmo fornecedor + MESMA MOEDA + passa pelos motivos.
+      IF v_oc.status = 'recebido' THEN
+        RAISE EXCEPTION 'oc_recebida_nao_adiciona: OC recebida nao aceita produtos novos' USING ERRCODE = 'P0001';
+      END IF;
+      IF v_oc.empresa_id IS DISTINCT FROM (SELECT empresa_id FROM public.produtos_importados WHERE id = _produto_id) THEN
+        RAISE EXCEPTION 'fornecedor_diferente: o produto e de outro fornecedor' USING ERRCODE = 'P0001';
+      END IF;
+      IF v_oc.moeda_compra IS DISTINCT FROM coalesce((SELECT moeda_compra FROM public.produtos_importados WHERE id = _produto_id),'RMB')
+         OR v_oc.moeda_inter IS DISTINCT FROM nullif((SELECT moeda_intermediaria FROM public.produtos_importados WHERE id = _produto_id),'') THEN
+        RAISE EXCEPTION 'moeda_diferente: o produto tem moeda diferente da OC' USING ERRCODE = 'P0001';
+      END IF;
+      DECLARE v_mot text[]; BEGIN
+        v_mot := public._oc_produto_motivos('pi', _produto_id);
+        IF array_length(v_mot, 1) IS NOT NULL THEN
+          RAISE EXCEPTION 'pedido_recusado: %: %', (SELECT nome FROM public.produtos_importados WHERE id = _produto_id),
+            array_to_string(v_mot, ', ') USING ERRCODE = 'P0001';
+        END IF;
+      END;
+      v_item_jsonb := public._oci_item_de_produto(v_tenant, _produto_id);
+      INSERT INTO public.ocs_importado_itens (
+        tenant_id, oc_id, ordem, produto_importado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
+        ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario_m1, peso_kg, transporte_m2,
+        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real)
+      VALUES (
+        v_tenant, _oc_id, coalesce((SELECT max(ordem) FROM public.ocs_importado_itens WHERE oc_id = _oc_id), 0) + 1,
+        _produto_id, v_item_jsonb->>'nome_produto', nullif(v_item_jsonb->>'grupo_id','')::uuid, nullif(v_item_jsonb->>'categoria_id','')::uuid,
+        nullif(v_item_jsonb->>'subcategoria1_id','')::uuid, nullif(v_item_jsonb->>'subcategoria2_id','')::uuid,
+        v_item_jsonb->>'ref_fornecedor', v_item_jsonb->>'composicao', coalesce(v_item_jsonb->'grade_proporcao','{}'::jsonb),
+        coalesce(v_item_jsonb->'grade_detalhe','{}'::jsonb), coalesce(v_item_jsonb->'variantes','[]'::jsonb),
+        coalesce((v_item_jsonb->>'qtd_total')::int, 0), coalesce((v_item_jsonb->>'valor_unitario_m1')::numeric, 0),
+        coalesce((v_item_jsonb->>'peso_kg')::numeric, 0), coalesce((v_item_jsonb->>'transporte_m2')::numeric, 0),
+        coalesce((v_item_jsonb->>'desconto_pct')::numeric, 0), coalesce((v_item_jsonb->>'valor_bruto')::numeric, 0),
+        coalesce((v_item_jsonb->>'valor_total_desconto')::numeric, 0), coalesce((v_item_jsonb->>'valor_unitario_real')::numeric, 0), 0);
+    END IF;
+
+    -- cambio/landed por item + UPDATE unico do cabecalho + parcelas (idempotente).
+    PERFORM public._imp_recalcular_landed_real_oc(_oc_id);
+    PERFORM public._oci_aplicar_derivados(_oc_id);
+    PERFORM public._gerar_parcelas_importado(_oc_id);
+    PERFORM public._imp_recomputar_precos_modelo(_produto_id);
+  END;
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public._vincular_oc_importado_core(uuid,uuid) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.vincular_oc_importado(_oc_id uuid, _produto_id uuid)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+BEGIN
+  IF NOT public.tenant_module_enabled('produto_importado') THEN
+    RAISE EXCEPTION 'Módulo Produto Importado não habilitado para esta loja' USING ERRCODE = '42501';
+  END IF;
+  PERFORM public._seg_exige_pagina('entrada_oc_p_importado', 'criacao_produto_importado');
+  PERFORM public._vincular_oc_importado_core(_oc_id, _produto_id);
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public.vincular_oc_importado(uuid,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.vincular_oc_importado(uuid,uuid) TO authenticated;
+
+-- ===== funcoes redefinidas T3 (geradas por troca exata sobre o vivo; md5 em mig/md5-r13.txt) =====
+
+CREATE OR REPLACE FUNCTION public._salvar_oc_importado_core(_id uuid, _dados jsonb, _grade jsonb, _etapas jsonb, _rev_base integer DEFAULT NULL::integer)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_tenant uuid;
+  v_id uuid;
+  v_nome text;
+  v_qtd_total int;
+  v_valor_unitario_m1 numeric;
+  v_desconto_pct numeric;
+  v_bruto numeric;
+  v_total_desc numeric;
+  v_unit_real numeric;
+  v_soma_pedida numeric := 0;
+  v_tem_negativo boolean := false;
+  v_produto_id uuid;
+  v_etapas jsonb;
+  v_soma_merc numeric;
+  v_soma_frete numeric;
+  rec jsonb;
+  -- Estado atual da OC (só preenchido quando _id is not null) — guarda de congelamento.
+  v_atual_status text;
+  v_atual_valor_unitario_m1 numeric;
+  v_atual_desconto_pct numeric;
+  v_atual_qtd_total int;
+  v_atual_grade jsonb;
+begin
+  -- [r13] escritor antigo de 1 produto por cabecalho: o produto agora mora em ocs_importado_itens (salvar_oc_importado_itens).
+  -- Recusa: site velho + banco novo nao grava nada errado. Mensagem ASCII (P0001 = 400).
+  raise exception 'versao_antiga: recarregue a pagina' using errcode = 'P0001';
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  v_tenant := public.get_user_tenant_id();
+  if v_tenant = '00000000-0000-0000-0000-000000000000'::uuid then
+    raise exception 'Loja inativa ou sem tenant — operação não permitida' using errcode = '42501';
+  end if;
+
+  -- trava otimista (Fase 3) — P0409 se outra pessoa salvou no meio. _rev_base null = bypass.
+  if _rev_base is not null then
+    declare v_rev int;
+    begin
+      select rev into v_rev from public.ocs_importado
+        where id = _id and tenant_id = v_tenant for update;
+      if v_rev is distinct from _rev_base then
+        raise exception 'conflito_versao: o registro foi salvo por outra pessoa'
+          using errcode = 'P0409';
+      end if;
+    end;
+  end if;
+
+  v_nome := nullif(_dados->>'nome_produto', '');
+  if _id is null then
+    if v_nome is null then
+      raise exception 'Informe o nome do produto.' using errcode = 'P0001';
+    end if;
+  else
+    select status, valor_unitario_m1, desconto_pct, qtd_total, grade_detalhe, produto_importado_id
+      into v_atual_status, v_atual_valor_unitario_m1, v_atual_desconto_pct, v_atual_qtd_total, v_atual_grade, v_produto_id
+      from public.ocs_importado where id = _id and tenant_id = v_tenant;
+    if not found then
+      raise exception 'OC não encontrada';
+    end if;
+  end if;
+
+  v_qtd_total := coalesce(nullif(_dados->>'qtd_total', '')::int, 0);
+  v_valor_unitario_m1 := coalesce(nullif(_dados->>'valor_unitario_m1', '')::numeric, 0);
+  v_desconto_pct := coalesce(nullif(_dados->>'desconto_pct', '')::numeric, 0);
+
+  -- Congela ao receber: valor/qtd pedida e a grade "pedida" não mudam mais por este
+  -- caminho (recebida/defeito seguem editáveis via receber_oc_importado). NF/revisão/
+  -- devolução/anexos/nome/categorias/fornecedor/datas seguem editáveis normalmente.
+  if _id is not null and v_atual_status = 'recebido' then
+    if v_valor_unitario_m1 is distinct from v_atual_valor_unitario_m1
+       or v_desconto_pct is distinct from v_atual_desconto_pct
+       or v_qtd_total is distinct from v_atual_qtd_total
+       or public._pa_grade_pedida_only(_grade) is distinct from public._pa_grade_pedida_only(v_atual_grade)
+    then
+      raise exception 'OC recebida — desfaça o recebimento para alterar valores.' using errcode = 'P0001';
+    end if;
+  end if;
+
+  -- Valida células (nenhuma negativa) e soma da grade "pedida" contra qtd_total.
+  select
+    coalesce(bool_or(
+      coalesce(nullif(t.value->>'pedida', '')::numeric, 0) < 0
+      or coalesce(nullif(t.value->>'recebida', '')::numeric, 0) < 0
+      or coalesce(nullif(t.value->>'defeito', '')::numeric, 0) < 0
+    ), false),
+    coalesce(sum(coalesce(nullif(t.value->>'pedida', '')::numeric, 0)), 0)
+  into v_tem_negativo, v_soma_pedida
+  from jsonb_each(coalesce(_grade, '{}'::jsonb)) o
+  cross join lateral jsonb_each(o.value) t;
+
+  if v_tem_negativo then
+    raise exception 'As quantidades da grade não podem ser negativas.' using errcode = 'P0001';
+  end if;
+  if v_qtd_total > 0 and v_soma_pedida <> v_qtd_total then
+    raise exception 'A soma da grade pedida (%) difere da quantidade total (%)', v_soma_pedida, v_qtd_total
+      using errcode = 'P0001';
+  end if;
+
+  -- Derivados (só exibição — o custo real é o landed, recalculado no final).
+  v_bruto := v_qtd_total * v_valor_unitario_m1;
+  v_total_desc := v_bruto * (1 - v_desconto_pct / 100);
+  v_unit_real := case when v_qtd_total > 0 then v_total_desc / v_qtd_total else 0 end;
+
+  if _id is null then
+    v_produto_id := nullif(_dados->>'produto_importado_id', '')::uuid;
+    if v_produto_id is not null then
+      perform 1 from public.produtos_importados where id = v_produto_id and tenant_id = v_tenant;
+      if not found then
+        raise exception 'Produto não encontrado';
+      end if;
+    end if;
+
+    insert into public.ocs_importado (
+      tenant_id, produto_importado_id, numero, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
+      empresa_id, representante_id, ref_fornecedor, composicao,
+      data_pedido, data_prevista, data_entrega,
+      grade_proporcao, grade_detalhe, variantes,
+      qtd_total, valor_bruto, valor_total_desconto, valor_unitario_real,
+      nota_fiscal, responsavel_recebimento_id, devolucao, revisao,
+      anexo_pedido_url, anexo_nf_url,
+      moeda_compra, moeda_intermediaria, valor_unitario_m1, cotacao_ref, peso_kg, transporte_m2,
+      desconto_pct, cotacao_final, data_nota_entrada
+    ) values (
+      v_tenant, v_produto_id, nullif(_dados->>'numero', ''), v_nome, nullif(_dados->>'grupo_id', '')::uuid, nullif(_dados->>'categoria_id', '')::uuid,
+      nullif(_dados->>'subcategoria1_id', '')::uuid, nullif(_dados->>'subcategoria2_id', '')::uuid,
+      nullif(_dados->>'empresa_id', '')::uuid, nullif(_dados->>'representante_id', '')::uuid,
+      _dados->>'ref_fornecedor', _dados->>'composicao',
+      coalesce(nullif(_dados->>'data_pedido', '')::date, current_date),
+      nullif(_dados->>'data_prevista', '')::date, nullif(_dados->>'data_entrega', '')::date,
+      coalesce(_dados->'grade_proporcao', '{}'::jsonb), coalesce(_grade, '{}'::jsonb), coalesce(_dados->'variantes', '[]'::jsonb),
+      v_qtd_total, v_bruto, v_total_desc, v_unit_real,
+      _dados->>'nota_fiscal', nullif(_dados->>'responsavel_recebimento_id', '')::uuid, _dados->>'devolucao', _dados->>'revisao',
+      _dados->>'anexo_pedido_url', _dados->>'anexo_nf_url',
+      coalesce(nullif(_dados->>'moeda_compra', ''), 'RMB'), nullif(_dados->>'moeda_intermediaria', ''),
+      v_valor_unitario_m1, coalesce(nullif(_dados->>'cotacao_ref', '')::numeric, 0),
+      coalesce(nullif(_dados->>'peso_kg', '')::numeric, 0), coalesce(nullif(_dados->>'transporte_m2', '')::numeric, 0),
+      v_desconto_pct, coalesce(nullif(_dados->>'cotacao_final', '')::numeric, 0), nullif(_dados->>'data_nota_entrada', '')::date
+    ) returning id into v_id;
+
+    -- "Fazer pedido": se _etapas não veio (vazio/null) e há produto vinculado, copia o
+    -- cronograma do CARD (snapshot — a OC pode divergir depois). Se _etapas veio
+    -- preenchido, usa ele (ramo comum abaixo).
+    if (_etapas is null or jsonb_array_length(_etapas) = 0) and v_produto_id is not null then
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'ordem', e.ordem, 'rotulo', e.rotulo, 'base', e.base,
+        'percentual', e.percentual, 'data_vencimento', e.data_vencimento, 'cotacao', e.cotacao
+      ) order by e.ordem), '[]'::jsonb)
+      into v_etapas
+      from public.produto_importado_etapas e
+      where e.produto_importado_id = v_produto_id;
+    else
+      v_etapas := coalesce(_etapas, '[]'::jsonb);
+    end if;
+  else
+    update public.ocs_importado set
+      numero = coalesce(nullif(_dados->>'numero', ''), numero),
+      nome_produto = coalesce(v_nome, nome_produto),
+      grupo_id = nullif(_dados->>'grupo_id', '')::uuid,
+      categoria_id = nullif(_dados->>'categoria_id', '')::uuid,
+      subcategoria1_id = nullif(_dados->>'subcategoria1_id', '')::uuid,
+      subcategoria2_id = nullif(_dados->>'subcategoria2_id', '')::uuid,
+      empresa_id = nullif(_dados->>'empresa_id', '')::uuid,
+      representante_id = nullif(_dados->>'representante_id', '')::uuid,
+      ref_fornecedor = _dados->>'ref_fornecedor',
+      composicao = _dados->>'composicao',
+      data_pedido = coalesce(nullif(_dados->>'data_pedido', '')::date, data_pedido),
+      data_prevista = nullif(_dados->>'data_prevista', '')::date,
+      data_entrega = nullif(_dados->>'data_entrega', '')::date,
+      grade_proporcao = coalesce(_dados->'grade_proporcao', '{}'::jsonb),
+      grade_detalhe = coalesce(_grade, '{}'::jsonb),
+      variantes = coalesce(_dados->'variantes', '[]'::jsonb),
+      qtd_total = v_qtd_total,
+      valor_bruto = v_bruto,
+      valor_total_desconto = v_total_desc,
+      valor_unitario_real = v_unit_real,
+      nota_fiscal = _dados->>'nota_fiscal',
+      responsavel_recebimento_id = nullif(_dados->>'responsavel_recebimento_id', '')::uuid,
+      devolucao = _dados->>'devolucao',
+      revisao = _dados->>'revisao',
+      anexo_pedido_url = _dados->>'anexo_pedido_url',
+      anexo_nf_url = _dados->>'anexo_nf_url',
+      moeda_compra = coalesce(nullif(_dados->>'moeda_compra', ''), moeda_compra),
+      moeda_intermediaria = nullif(_dados->>'moeda_intermediaria', ''),
+      valor_unitario_m1 = v_valor_unitario_m1,
+      cotacao_ref = coalesce(nullif(_dados->>'cotacao_ref', '')::numeric, 0),
+      peso_kg = coalesce(nullif(_dados->>'peso_kg', '')::numeric, 0),
+      transporte_m2 = coalesce(nullif(_dados->>'transporte_m2', '')::numeric, 0),
+      desconto_pct = v_desconto_pct,
+      cotacao_final = coalesce(nullif(_dados->>'cotacao_final', '')::numeric, 0),
+      data_nota_entrada = CASE WHEN _dados ? 'data_nota_entrada' THEN NULLIF(_dados->>'data_nota_entrada', '')::date ELSE data_nota_entrada END,  -- chave ausente (front antigo) = mantém
+      updated_at = now()
+    where id = _id and tenant_id = v_tenant;
+    v_id := _id;
+    v_etapas := coalesce(_etapas, '[]'::jsonb);
+  end if;
+
+  -- Etapas: estado completo (delete+reinsere, como _salvar_produto_importado_core).
+  -- Valida Σ%=100 por base (só quando há etapas daquela base).
+  select coalesce(sum((e->>'percentual')::numeric),0) into v_soma_merc
+    from jsonb_array_elements(v_etapas) e where e->>'base' = 'mercadoria';
+  select coalesce(sum((e->>'percentual')::numeric),0) into v_soma_frete
+    from jsonb_array_elements(v_etapas) e where e->>'base' = 'frete';
+  if exists(select 1 from jsonb_array_elements(v_etapas) e where e->>'base'='mercadoria') and round(v_soma_merc,2) <> 100 then
+    raise exception 'A soma das etapas de mercadoria (%) precisa fechar 100%%.', round(v_soma_merc,2) using errcode = 'P0001';
+  end if;
+  if exists(select 1 from jsonb_array_elements(v_etapas) e where e->>'base'='frete') and round(v_soma_frete,2) <> 100 then
+    raise exception 'A soma das etapas de frete (%) precisa fechar 100%%.', round(v_soma_frete,2) using errcode = 'P0001';
+  end if;
+  -- [leves L8, P-207 A + Q1] etapa de MERCADORIA (base vazia = mercadoria) com % > 0 e cotacao <= 0 vira parcela 0 e
+  -- _gerar_parcelas_importado a pula em silencio (fin #10): recusa - SO quando a compra tem valor (valor_unitario_m1 > 0;
+  -- Q2). Mesma regra do card (_salvar_produto_importado_core) e da tela (erroCotacaoEtapas). Frete com 0 = identidade.
+  if v_valor_unitario_m1 > 0 and exists(select 1 from jsonb_array_elements(v_etapas) e
+             where coalesce(nullif(e->>'base',''),'mercadoria') = 'mercadoria'
+               and coalesce(nullif(e->>'percentual','')::numeric, 0) > 0
+               and coalesce(nullif(e->>'cotacao','')::numeric, 0) <= 0) then
+    raise exception 'Informe a cotacao da etapa de mercadoria (percentual maior que zero e cotacao zerada).' using errcode = 'P0001';
+  end if;
+
+  delete from public.ocs_importado_etapas where oc_importado_id = v_id;
+  for rec in select * from jsonb_array_elements(v_etapas) loop
+    insert into public.ocs_importado_etapas (tenant_id, oc_importado_id, ordem, rotulo, base, percentual, data_vencimento, cotacao)
+    values (v_tenant, v_id, coalesce((rec->>'ordem')::int,0), nullif(rec->>'rotulo',''),
+      coalesce(nullif(rec->>'base',''),'mercadoria'), coalesce((rec->>'percentual')::numeric,0),
+      nullif(rec->>'data_vencimento','')::date, coalesce((rec->>'cotacao')::numeric,0));
+  end loop;
+
+  perform public._imp_recalcular_landed_real_oc(v_id);
+  return v_id;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public._receber_oc_importado_core(_oc_id uuid, _dados jsonb, _grade jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_tenant uuid;
+  v_oc record;
+  v_produto record;
+  v_cad_id uuid;
+  v_grade_final jsonb;
+  rec record;
+  tam_rec record;
+  v_var_grade jsonb;
+  v_planejadas jsonb;
+  v_reais jsonb;
+  v_tot_plan int;
+  v_tot_real int;
+  v_grand_total int := 0;
+  v_pedida numeric;
+  v_recebida numeric;
+  v_defeito numeric;
+begin
+  -- [r13] recebimento antigo por OC inteira: agora e POR ITEM (receber_item_oc_importado). Recusa (ASCII, P0001).
+  raise exception 'versao_antiga: recarregue a pagina' using errcode = 'P0001';
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  v_tenant := public.get_user_tenant_id();
+  if v_tenant = '00000000-0000-0000-0000-000000000000'::uuid then
+    raise exception 'Loja inativa ou sem tenant — operação não permitida' using errcode = '42501';
+  end if;
+
+  select * into v_oc from public.ocs_importado where id = _oc_id and tenant_id = v_tenant for update;
+  if not found then
+    raise exception 'OC não encontrada';
+  end if;
+
+  if v_oc.produto_importado_id is null then
+    raise exception 'Crie o card no Planejamento antes de receber — o recebimento alimenta CQ e Direcionamento.'
+      using errcode = 'P0001';
+  end if;
+
+  select * into v_produto from public.produtos_importados
+    where id = v_oc.produto_importado_id and tenant_id = v_tenant;
+  if not found or v_produto.modelo_id is null then
+    raise exception 'Crie o card no Planejamento antes de receber — o recebimento alimenta CQ e Direcionamento.'
+      using errcode = 'P0001';
+  end if;
+
+  v_grade_final := coalesce(_grade, v_oc.grade_detalhe, '{}'::jsonb);
+
+  update public.ocs_importado set
+    data_entrega = nullif(_dados->>'data_entrega', '')::date,
+    nota_fiscal = _dados->>'nota_fiscal',
+    responsavel_recebimento_id = nullif(_dados->>'responsavel_recebimento_id', '')::uuid,
+    devolucao = _dados->>'devolucao',
+    revisao = _dados->>'revisao',
+    grade_detalhe = v_grade_final,
+    status = 'recebido',
+    updated_at = now()
+  where id = _oc_id;
+
+  -- upsert cad (1 por modelo — trigger enforce_unique_fk('modelo_id') garante a
+  -- invariante; aqui só evitamos o INSERT redundante quando já existe).
+  select id into v_cad_id from public.cad where modelo_id = v_produto.modelo_id and tenant_id = v_tenant;
+  if v_cad_id is null then
+    insert into public.cad (tenant_id, modelo_id) values (v_tenant, v_produto.modelo_id)
+      returning id into v_cad_id;
+  end if;
+
+  -- upsert cad_grades por variante: variante_numero = ordem; grades_planejadas = pedida
+  -- por tamanho; grades_reais = max(0, recebida−defeito) por tamanho.
+  for rec in
+    select ordem from public.produto_importado_variantes
+    where produto_importado_id = v_produto.id
+    order by ordem
+  loop
+    v_var_grade := coalesce(v_grade_final -> rec.ordem::text, '{}'::jsonb);
+    v_planejadas := '{}'::jsonb;
+    v_reais := '{}'::jsonb;
+    v_tot_plan := 0;
+    v_tot_real := 0;
+
+    for tam_rec in select key, value from jsonb_each(v_var_grade) loop
+      v_pedida := coalesce(nullif(tam_rec.value->>'pedida', '')::numeric, 0);
+      v_recebida := coalesce(nullif(tam_rec.value->>'recebida', '')::numeric, 0);
+      v_defeito := coalesce(nullif(tam_rec.value->>'defeito', '')::numeric, 0);
+
+      v_planejadas := v_planejadas || jsonb_build_object(tam_rec.key, v_pedida::int);
+      v_reais := v_reais || jsonb_build_object(tam_rec.key, greatest(0, v_recebida - v_defeito)::int);
+      v_tot_plan := v_tot_plan + v_pedida::int;
+      v_tot_real := v_tot_real + greatest(0, v_recebida - v_defeito)::int;
+    end loop;
+
+    insert into public.cad_grades (cad_id, variante_numero, grades_planejadas, grades_reais, grade_total_planejada, grade_total_real)
+    values (v_cad_id, rec.ordem, v_planejadas, v_reais, v_tot_plan, v_tot_real)
+    on conflict (cad_id, variante_numero) do update set
+      grades_planejadas = excluded.grades_planejadas,
+      grades_reais = excluded.grades_reais,
+      grade_total_planejada = excluded.grade_total_planejada,
+      grade_total_real = excluded.grade_total_real;
+
+    v_grand_total := v_grand_total + v_tot_real;
+  end loop;
+
+  -- upsert controle_qualidade: mantém 'pendente' (default da coluna) se não existe;
+  -- se já existe (inclusive 'confirmado'), NÃO toca — o cad_grades acima já regravou
+  -- grades_reais e o trigger trg_rebaixa_direcionamento_grade (AFTER UPDATE OF
+  -- grades_reais ON cad_grades) cuida da rebaixa do Direcionamento sozinho.
+  if not exists (select 1 from public.controle_qualidade where cad_id = v_cad_id) then
+    insert into public.controle_qualidade (cad_id, tenant_id, status) values (v_cad_id, v_tenant, 'pendente');
+  end if;
+
+  -- Custo real chegou — recalcula o landed real da OC a partir das etapas.
+  perform public._imp_recalcular_landed_real_oc(_oc_id);
+
+  return jsonb_build_object('cad_id', v_cad_id, 'total_real', v_grand_total);
+end $function$;
+
+CREATE OR REPLACE FUNCTION public._excluir_oc_importado_core(_oc_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_tenant uuid;
+  v_status text;
+begin
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  v_tenant := public.get_user_tenant_id();
+  if v_tenant = '00000000-0000-0000-0000-000000000000'::uuid then
+    raise exception 'Loja inativa ou sem tenant — operação não permitida' using errcode = '42501';
+  end if;
+
+  select status into v_status from public.ocs_importado where id = _oc_id and tenant_id = v_tenant for update;
+  if not found then
+    raise exception 'nao_encontrado: oc' using errcode = 'P0002';
+  end if;
+
+  -- [r13] recusa se QUALQUER item foi recebido (o status do cabecalho e derivado = todos recebidos; um item recebido ja basta).
+  if v_status = 'recebido'
+     or exists (select 1 from public.ocs_importado_itens where oc_id = _oc_id and status = 'recebido') then
+    raise exception 'Ha produto recebido na OC - estorne o recebimento antes de excluir.'
+      using errcode = 'P0001';
+  end if;
+
+  if exists (select 1 from public.parcelas where oc_importado_id = _oc_id and status = 'pago') then
+    raise exception 'Não é possível excluir: a OC tem parcela paga no financeiro.' using errcode = 'P0001';
+  end if;
+
+  -- Parcelas NÃO pagas somem via ON DELETE CASCADE (oc_importado_id); a paga já foi
+  -- barrada acima. Etapas somem via ON DELETE CASCADE (ocs_importado_etapas.oc_importado_id).
+  delete from public.ocs_importado where id = _oc_id and tenant_id = v_tenant;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public._excluir_produto_importado_core(_produto_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_tenant uuid; v_modelo_id uuid; v_oc_id uuid; v_oc_numero text;
+begin
+  if auth.uid() is null then raise exception 'Não autenticado'; end if;
+  v_tenant := public.get_user_tenant_id();
+  select modelo_id into v_modelo_id from public.produtos_importados where id = _produto_id and tenant_id = v_tenant;
+  if not found then raise exception 'Produto não encontrado'; end if;
+  -- [r13] o produto agora e um item; junta ao cabecalho para o numero.
+  select o.id, o.numero into v_oc_id, v_oc_numero
+    from public.ocs_importado_itens it join public.ocs_importado o on o.id = it.oc_id
+    where it.produto_importado_id = _produto_id and o.tenant_id = v_tenant limit 1;
+  if v_oc_id is not null then
+    raise exception 'Desvincule a OC % antes de excluir.', coalesce(v_oc_numero, 'sem número') using errcode = 'P0001';
+  end if;
+  delete from public.produtos_importados where id = _produto_id and tenant_id = v_tenant;
+  -- o modelo espelho (se houver) vira modelo comum (modelo_id já é on delete set null); NÃO apaga.
+end $function$;
+
+CREATE OR REPLACE FUNCTION public._limpar_produto_importado_core(_produto_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_tenant uuid;
+  v_modelo_id uuid;
+  v_oc_id uuid; v_oc_numero text;
+begin
+  if auth.uid() is null then raise exception 'Não autenticado'; end if;
+  v_tenant := public.get_user_tenant_id();
+  if v_tenant = '00000000-0000-0000-0000-000000000000'::uuid then
+    raise exception 'Loja inativa ou sem tenant — operação não permitida' using errcode = '42501';
+  end if;
+
+  select modelo_id into v_modelo_id from public.produtos_importados where id = _produto_id and tenant_id = v_tenant;
+  if not found then raise exception 'nao_encontrado: produto' using errcode = 'P0002'; end if;
+  if v_modelo_id is not null then
+    raise exception 'Este produto já tem card no Planejamento — não pode ser limpo.' using errcode = 'P0001';
+  end if;
+  -- [r13] o produto agora e um item; junta ao cabecalho para o numero.
+  select o.id, o.numero into v_oc_id, v_oc_numero
+    from public.ocs_importado_itens it join public.ocs_importado o on o.id = it.oc_id
+    where it.produto_importado_id = _produto_id and o.tenant_id = v_tenant limit 1;
+  if v_oc_id is not null then
+    raise exception 'Desvincule a OC % antes de limpar.', coalesce(v_oc_numero, 'sem número') using errcode = 'P0001';
+  end if;
+
+  -- Zera escalares + câmbio; PRESERVA id/colecao_id/subcolecao/ref/mix_id/modelo_id(null).
+  -- moeda_compra/intermediaria voltam ao DEFAULT do emptyDraft (RMB/USD) — mantém o banco COERENTE
+  -- com o reset do front (que parte de emptyDraft) e respeita o NOT NULL de moeda_compra.
+  update public.produtos_importados set
+    nome = '',
+    grupo_id = null, categoria_id = null, subcategoria1_id = null, subcategoria2_id = null,
+    semana = null, empresa_id = null, representante_id = null,
+    ref_fornecedor = null, composicao = null, foto_url = null,
+    data_pedido = null, data_prevista = null, data_entrega = null,
+    grade_proporcao = '{}'::jsonb, qtd_total = 0,
+    moeda_compra = 'RMB', moeda_intermediaria = 'USD',
+    valor_unitario_m1 = 0, cotacao_ref = 0, peso_kg = 0, transporte_m2 = 0,
+    desconto_pct = 0, cotacao_final = 0, markup_atacado = null, markup_varejo = null,
+    tamanho_tipo = null,  -- [tamanho-em v1]
+    categoria_tecido_id = null, material_aviamento_id = null,  -- [i3 v1] (ruling do controlador)
+    updated_at = now()
+  where id = _produto_id and tenant_id = v_tenant;
+
+  delete from public.produto_importado_variantes where produto_importado_id = _produto_id;
+  delete from public.produto_importado_etapas where produto_importado_id = _produto_id;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public._imp_etapas_brl_oc(_oc_id uuid)
+ RETURNS TABLE(ordem integer, rotulo text, base text, data_vencimento date, valor_brl numeric)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  o record;
+  v_desc numeric;
+  v_merc_liq_m1 numeric;
+  v_frete_liq_m2 numeric;
+  v_tem_etapa_frete boolean;
+  v_prox_ordem int;
+begin
+  -- [r13] moeda/cotacoes/etapas sao do cabecalho (OC inteira); qtd/valor/peso/transporte/desconto sao POR ITEM. O SELECT abaixo
+  -- da estrutura ao record o (cotacao_final/data_pedido vem dai); as colunas legadas valor_unitario_m1/peso/transporte/desconto
+  -- do cabecalho NAO sao mais usadas (ficam no record mas ignoradas); as liquidas vem da SOMA por item. O GUARD e por Soma das
+  -- pecas dos ITENS, NAO pelo cabecalho.qtd_total (derivado, pode estar stale quando o pedido ainda nao rodou o applier).
+  select valor_unitario_m1, qtd_total, peso_kg, transporte_m2, desconto_pct, cotacao_final, data_pedido
+    into o from public.ocs_importado where id = _oc_id;
+  if not found then
+    return;
+  end if;
+  -- as liquidas sao a SOMA por item (merc em M1, frete em M2); cada item tem seu proprio desconto. Com 1 item = identico ao de antes.
+  select coalesce(sum(coalesce(it.qtd_total,0)), 0),
+         coalesce(sum(coalesce(it.valor_unitario_m1,0) * coalesce(it.qtd_total,0) * (1 - coalesce(it.desconto_pct,0) / 100.0)), 0),
+         coalesce(sum(coalesce(it.peso_kg,0) * coalesce(it.transporte_m2,0) * coalesce(it.qtd_total,0) * (1 - coalesce(it.desconto_pct,0) / 100.0)), 0)
+    into o.qtd_total, v_merc_liq_m1, v_frete_liq_m2
+    from public.ocs_importado_itens it where it.oc_id = _oc_id;
+  if coalesce(o.qtd_total,0) <= 0 then
+    return;
+  end if;
+
+  -- etapas reais
+  return query
+  select e.ordem, e.rotulo::text, e.base::text, e.data_vencimento,
+    round(
+      case
+        when e.base = 'mercadoria' then
+          case when coalesce(e.cotacao,0) > 0
+            then (v_merc_liq_m1 * (coalesce(e.percentual,0)/100.0)) / e.cotacao
+            else 0 end
+        else -- frete: já em M2
+          case when coalesce(e.cotacao,0) > 0 and e.cotacao <> 1
+            then (v_frete_liq_m2 * (coalesce(e.percentual,0)/100.0)) / e.cotacao
+            else (v_frete_liq_m2 * (coalesce(e.percentual,0)/100.0)) end
+      end * coalesce(o.cotacao_final,0)
+    , 2) as valor_brl
+  from public.ocs_importado_etapas e
+  where e.oc_importado_id = _oc_id
+  order by e.ordem;
+
+  -- Frete IMPLÍCITO: há frete mas nenhuma etapa de frete → emite 100% do frete (sem conversão,
+  -- já em M2), espelhando o fallback do _imp_custo_landed. Vence na data do pedido.
+  select exists(select 1 from public.ocs_importado_etapas ie where ie.oc_importado_id = _oc_id and ie.base = 'frete')
+    into v_tem_etapa_frete;
+  if not v_tem_etapa_frete and v_frete_liq_m2 > 0 then
+    select coalesce(max(ie.ordem),0)+1 into v_prox_ordem from public.ocs_importado_etapas ie where ie.oc_importado_id = _oc_id;
+    return query select v_prox_ordem, 'Frete'::text, 'frete'::text, o.data_pedido,
+      round(v_frete_liq_m2 * coalesce(o.cotacao_final,0), 2);
+  end if;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public._imp_recalcular_landed_real_oc(_oc_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_qtd int; v_total_brl numeric;
+  v_n_itens int; v_n_q int;
+begin
+  -- [r13] landed POR ITEM: cada etapa (base mercadoria|frete) e rateada pela fatia do item na base daquela etapa.
+  --   base_item(merc)  = vu_m1 x q x (1-d/100);  base_item(frete) = peso x tr x q x (1-d/100)
+  --   brl_item = Soma_etapa valor_brl x (base_item / base_total da etapa);  landed_item = round(brl_item / q_item, 4)
+  --   base_total 0 numa etapa -> divisao IGUAL entre os itens com q>0 (nunca perde a parcela).
+  -- O cabecalho continua round(Soma_brl / Soma_q, 4) (= igual a hoje; aplicado por _oci_aplicar_derivados / _oci_cabecalho_derivados).
+  -- qtd = Soma das pecas dos ITENS (NAO o cabecalho ocs_importado.qtd_total, que e derivado e pode estar stale quando esta
+  -- funcao roda ANTES do applier do cabecalho, ordem: INSERT itens -> recalcular landed -> aplicar derivados).
+  select coalesce(sum(coalesce(qtd_total,0)),0) into v_qtd from public.ocs_importado_itens where oc_id = _oc_id;
+  if coalesce(v_qtd,0) <= 0 then
+    update public.ocs_importado set custo_unitario_landed_real = 0 where id = _oc_id;
+    update public.ocs_importado_itens set custo_unitario_landed_real = 0 where oc_id = _oc_id;
+    return;
+  end if;
+
+  select coalesce(sum(valor_brl),0) into v_total_brl from public._imp_etapas_brl_oc(_oc_id);
+  select count(*), count(*) filter (where coalesce(qtd_total,0) > 0)
+    into v_n_itens, v_n_q from public.ocs_importado_itens where oc_id = _oc_id;
+
+  -- landed por item: percorre as etapas e rateia; grava em ocs_importado_itens.custo_unitario_landed_real.
+  update public.ocs_importado_itens it set custo_unitario_landed_real = coalesce(x.landed, 0)
+  from (
+    select i.id,
+           case when coalesce(i.qtd_total,0) > 0
+                then round(coalesce(sum(
+                  e.valor_brl * (
+                    case when bt.base_total > 0 then (bi.base_item / bt.base_total)
+                         -- base total 0 na etapa: divide igual entre os itens com q>0 (ou todos se nenhum tem q)
+                         else (case when v_n_q > 0 then (case when coalesce(i.qtd_total,0) > 0 then 1.0 else 0 end) / v_n_q
+                                    else 1.0 / greatest(v_n_itens,1) end) end)
+                ), 0) / i.qtd_total, 4)
+                else 0 end as landed
+    from public.ocs_importado_itens i
+    cross join lateral public._imp_etapas_brl_oc(_oc_id) e
+    cross join lateral (
+      select case when e.base = 'frete'
+                  then coalesce(i.peso_kg,0) * coalesce(i.transporte_m2,0) * coalesce(i.qtd_total,0) * (1 - coalesce(i.desconto_pct,0)/100.0)
+                  else coalesce(i.valor_unitario_m1,0) * coalesce(i.qtd_total,0) * (1 - coalesce(i.desconto_pct,0)/100.0) end as base_item
+    ) bi
+    cross join lateral (
+      select coalesce(sum(
+               case when e.base = 'frete'
+                    then coalesce(j.peso_kg,0) * coalesce(j.transporte_m2,0) * coalesce(j.qtd_total,0) * (1 - coalesce(j.desconto_pct,0)/100.0)
+                    else coalesce(j.valor_unitario_m1,0) * coalesce(j.qtd_total,0) * (1 - coalesce(j.desconto_pct,0)/100.0) end
+             ), 0) as base_total
+      from public.ocs_importado_itens j where j.oc_id = _oc_id
+    ) bt
+    where i.oc_id = _oc_id
+    group by i.id, i.qtd_total
+  ) x
+  where it.id = x.id and it.oc_id = _oc_id;
+
+  -- cabecalho = round(Soma_brl / Soma_q, 4) (igual a hoje).
+  update public.ocs_importado
+    set custo_unitario_landed_real = round(v_total_brl / v_qtd, 4)
+    where id = _oc_id;
+end $function$;
+
 -- ============================ Passo 8: pos-condicoes (P0001 ASCII 'r13_pos:', desfaz tudo em caso de falha) ============================
 DO $pos$
 DECLARE
@@ -2628,6 +3891,41 @@ BEGIN
   END LOOP;
 END $postdois$;
 
+-- ============================ Passo 8c (T3): seguranca das RPCs novas de Produto Importado ============================
+DO $posttres$
+DECLARE r record;
+BEGIN
+  -- (l) os _core/helper novos da T3 revogados dos 3 (invariante 9)
+  FOR r IN SELECT unnest(ARRAY[
+      'public._oci_aplicar_derivados(uuid)',
+      'public._oci_copiar_etapas_do_produto(uuid,uuid,uuid)',
+      'public._fazer_pedido_importado_core(jsonb)',
+      'public._salvar_oc_importado_itens_core(uuid,jsonb,jsonb,jsonb,integer)',
+      'public._receber_item_oc_importado_core(uuid,uuid,jsonb,jsonb,jsonb,integer)',
+      'public._vincular_oc_importado_core(uuid,uuid)'
+    ]) AS sig
+  LOOP
+    IF has_function_privilege('anon', r.sig, 'EXECUTE') OR has_function_privilege('authenticated', r.sig, 'EXECUTE') THEN
+      RAISE EXCEPTION 'r13_pos: % (core T3) ainda executavel por anon/authenticated', r.sig USING ERRCODE='P0001';
+    END IF;
+  END LOOP;
+  -- (m) os 4 wrappers novos: EXECUTE para authenticated, NUNCA para anon
+  FOR r IN SELECT unnest(ARRAY[
+      'public.fazer_pedido_importado(jsonb)',
+      'public.salvar_oc_importado_itens(uuid,jsonb,jsonb,jsonb,integer)',
+      'public.receber_item_oc_importado(uuid,uuid,jsonb,jsonb,jsonb,integer)',
+      'public.vincular_oc_importado(uuid,uuid)'
+    ]) AS sig
+  LOOP
+    IF has_function_privilege('anon', r.sig, 'EXECUTE') THEN
+      RAISE EXCEPTION 'r13_pos: wrapper % executavel por anon', r.sig USING ERRCODE='P0001';
+    END IF;
+    IF NOT has_function_privilege('authenticated', r.sig, 'EXECUTE') THEN
+      RAISE EXCEPTION 'r13_pos: wrapper % SEM EXECUTE para authenticated', r.sig USING ERRCODE='P0001';
+    END IF;
+  END LOOP;
+END $posttres$;
+
 -- (k) md5 das funcoes redefinidas (T1 + T2) = o DEPOIS canonico (= mig/md5-r13.txt)
 DO $posfuncs$
 DECLARE r record; v text;
@@ -2647,7 +3945,14 @@ BEGIN
     ('public._custo_unitario_modelos_core(uuid[])', '81de3239233d2efb3565ed3c5ce8cfb3'),
     ('public._dashboard_leadtime_itens_core(uuid,text,text)', '6a8e9b7662e56356ec5602179636c24c'),
     ('public._estoque_extrato_insumo_core(uuid,uuid)', '227331479ecf99b9e39eeca40bbf4512'),
-    ('public.fn_modelo_espelho_categoria()', '2e0c70f661e42610e87da2b934dec962')
+    ('public.fn_modelo_espelho_categoria()', '2e0c70f661e42610e87da2b934dec962'),
+    ('public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)', '386051cfffa78f354555cc05721f6cf6'),
+    ('public._receber_oc_importado_core(uuid,jsonb,jsonb)', '7f2c60f6e863450b149304c9dde6e5d3'),
+    ('public._excluir_oc_importado_core(uuid)', 'edf21a91a5c17830550111db37e18172'),
+    ('public._excluir_produto_importado_core(uuid)', '44472997492c854cdbc88fc76febc89a'),
+    ('public._limpar_produto_importado_core(uuid)', 'd863544b621523cf9c1d4532b4909759'),
+    ('public._imp_etapas_brl_oc(uuid)', '18301e31b0f01b31cb6158afc9556ef3'),
+    ('public._imp_recalcular_landed_real_oc(uuid)', 'd9d8b3f88aadc5b30bfae20646d612a6')
   ) AS x(f, m) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.m THEN
