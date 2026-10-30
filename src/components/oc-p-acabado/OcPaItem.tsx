@@ -22,7 +22,7 @@ export type SubOpt = Opt & { categoria_id: string | null };
 export type CorApelidoOpt = Opt & { cor_base_id: string | null };
 
 /** Select simples id→nome (sem cascata) — usado nos 4 níveis de taxonomia do produto. */
-function CatSelect({
+export function CatSelect({
   label, value, onChange, options, placeholder = "Selecione…", disabled, colabPath,
 }: {
   label: string; value: string | null; onChange: (v: string | null) => void; options: Opt[]; placeholder?: string; disabled?: boolean; colabPath: string;
