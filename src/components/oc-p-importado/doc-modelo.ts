@@ -3,6 +3,7 @@ import type { OcDocGrade, OcDocModelo } from "@/components/shared/OcDocumentoPri
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { varianteLabel } from "@/lib/variante";
 import { fmtMoeda } from "@/lib/moeda";
+import { moedaDoItem, moedaDoTotalDaOc } from "@/lib/moeda-campo";
 import { totaisDaOc, totaisDoItem, type ItemOcImp } from "./itens";
 import { fmtDate, TAM_ACESSORIO, type CabecalhoImpDraft } from "./shared";
 
@@ -21,7 +22,7 @@ export function montarDocModeloOcImp(o: {
   landedUnitarioOc: number | null;
   empresaNome: string | null;
   representanteNome: string | null;
-  itens: ReadonlyArray<Pick<ItemOcImp, "nome_produto" | "produtoRef" | "grupo_id" | "variantes" | "grade" | "grade_proporcao" | "qtd_total" | "valor_unitario_m1" | "desconto_pct">>;
+  itens: ReadonlyArray<Pick<ItemOcImp, "nome_produto" | "produtoRef" | "grupo_id" | "variantes" | "grade" | "grade_proporcao" | "qtd_total" | "valor_unitario_m1" | "desconto_pct" | "moedas">>;
   /** Colunas de tamanho da loja (item acessório usa só "UN"). */
   tamanhos: ReadonlyArray<string>;
   grupoNome: (id: string | null) => string | null;
@@ -29,7 +30,11 @@ export function montarDocModeloOcImp(o: {
   apelidoNome: (id: string | null) => string | null;
   emitidoEm: string;
 }): OcDocModelo {
+  // [#17 Onda 2] Moeda-RÓTULO por campo: cada produto sai na moeda em que o valor unitário foi registrado (padrão: a da compra no cabeçalho);
+  // o total, na comum dos produtos (ou na da compra se divergem). Só rótulo — a conta do pedido não converte nada.
   const moeda = o.cabecalho.moeda_compra;
+  const ocMoedas = { moedaCompra: o.cabecalho.moeda_compra, moedaIntermediaria: o.cabecalho.moeda_intermediaria };
+  const moedaTotal = moedaDoTotalDaOc(o.itens, ocMoedas);
   const grades: OcDocGrade[] = o.itens.map((it) => {
     const tams = ehGrupoAcessorio(o.grupoNome(it.grupo_id)) ? [TAM_ACESSORIO] : [...o.tamanhos];
     const linhas = it.variantes.map((v) => {
@@ -55,7 +60,7 @@ export function montarDocModeloOcImp(o: {
     return {
       produtoTitulo: `Produto: ${it.nome_produto || "—"}${it.produtoRef ? ` (REF ${it.produtoRef})` : ""}`,
       tamanhos: tams, proporcao, linhas, totalPorTamanho, totalGeral: geral,
-      valores: [{ descricao: it.nome_produto || "Produto — todas as cores/tamanhos", qtd: `${geral} pç`, precoUnit: fmtMoeda(tt.unitReal, moeda), subtotal: fmtMoeda(tt.total, moeda) }],
+      valores: [{ descricao: it.nome_produto || "Produto — todas as cores/tamanhos", qtd: `${geral} pç`, precoUnit: fmtMoeda(tt.unitReal, moedaDoItem(it, "valor_unitario", ocMoedas)), subtotal: fmtMoeda(tt.total, moedaDoItem(it, "valor_unitario", ocMoedas)) }],
     };
   });
   const c = o.cabecalho;
@@ -72,6 +77,6 @@ export function montarDocModeloOcImp(o: {
     fornecedor: [{ k: "Empresa", v: o.empresaNome ?? "—" }, { k: "Representante", v: o.representanteNome ?? "—" }],
     dados,
     grades,
-    totalPrevisto: fmtMoeda(totaisDaOc(o.itens).total, moeda),
+    totalPrevisto: fmtMoeda(totaisDaOc(o.itens).total, moedaTotal),
   };
 }

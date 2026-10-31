@@ -13,6 +13,7 @@ import { cadeiaValores } from "@/lib/produto-acabado";
 import { payloadDataNota } from "@/lib/nota-entrada";
 import { novoTempId, pathCelulaItem, CAMPOS_GRADE_PA } from "@/components/oc-p-acabado/itens";
 import type { CabecalhoImpDraft, EtapaDraft, GradeDetalhe, OcImportadoStatus, VarianteDraft } from "./shared";
+import type { MoedasCampos } from "@/lib/moeda-campo";
 import type { ProdutoImportadoSelecionado } from "./ProdutoImportadoPicker";
 
 export { novoTempId, pathCelulaItem };
@@ -58,10 +59,13 @@ export type ItemOcImp = {
   // Só exibição (do produto vinculado).
   produtoRef: string | null;
   fotoPath: string | null;
+  /** [#17 Onda 2] Moeda-RÓTULO escolhida por campo de valor (valor unit./transporte). SÓ UI: não vai no Salvar, não entra no merge e não muda conta
+   *  alguma (a conversão segue as cotações do cabeçalho/etapas). Ausente = sem escolha → segue o slot do cabeçalho. Ver `@/lib/moeda-campo`. */
+  moedas?: MoedasCampos;
 };
 
 /** O item SEM a grade e sem o que é do servidor/exibição: é o que o `mergeLinhas` compara (a grade funde por CÉLULA à parte). */
-export type ItemLinha = Omit<ItemOcImp, "grade" | "status" | "doProduto" | "produtoRef" | "fotoPath" | "custo_unitario_landed_real">;
+export type ItemLinha = Omit<ItemOcImp, "grade" | "status" | "doProduto" | "produtoRef" | "fotoPath" | "custo_unitario_landed_real" | "moedas">;
 
 const str = (v: unknown): string => (v == null ? "" : String(v));
 const num = (v: unknown): number => Number(v) || 0;
@@ -149,6 +153,13 @@ export function itemDoProduto(p: ProdutoImportadoSelecionado): ItemOcImp {
     qtd_total: p.qtd_total, valor_unitario_m1: p.valor_unitario_m1, peso_kg: p.peso_kg, transporte_m2: p.transporte_m2, desconto_pct: p.desconto_pct,
     produtoRef: p.ref, fotoPath: p.fotoPath,
   };
+}
+
+/** Re-semeio do servidor (depois de tirar/receber um produto): os itens vêm sem `moedas` (campo só de UI) — devolve a cada um, por `id`, a escolha
+ *  de moeda-rótulo que a pessoa tinha na tela, para o rótulo não "voltar" sozinho. */
+export function preservarMoedas(novos: ReadonlyArray<ItemOcImp>, atuais: ReadonlyArray<ItemOcImp>): ItemOcImp[] {
+  const porId = new Map(atuais.filter((i) => i.id && i.moedas).map((i) => [i.id as string, i.moedas as MoedasCampos]));
+  return novos.map((n) => (n.id && porId.has(n.id) ? { ...n, moedas: porId.get(n.id) } : n));
 }
 
 /** O que o merge compara de um item (ver `ItemLinha`). */

@@ -8,9 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { varianteLabel } from "@/lib/variante";
 import { fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/moeda";
+import { gravarUltimaMoeda, moedaDoItem, moedaPadraoDoSlot, type CampoMoedaEditavel, type MoedasOc } from "@/lib/moeda-campo";
 import { GradeDestrinchada } from "@/components/oc-p-acabado/GradeDestrinchada";
 import { OcPaRecebimento, type ColaboradorOpt } from "@/components/oc-p-acabado/OcPaRecebimento";
 import { CatSelect, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt } from "@/components/oc-p-acabado/OcPaItem";
+import { MoedaSelect } from "./OcImpCabecalho";
 import { totaisDoItem, type ItemOcImp } from "./itens";
 import {
   redistribuirPedida, redistribuirVariantesPorPeso, TAM_ACESSORIO,
@@ -67,7 +69,20 @@ export function OcImpItem({
   const { bruto, total, unitReal, desconto } = totaisDoItem(item);
   const moedaM2 = moedaIntermediaria ?? moedaCompra;
   const valorProdutoM2 = m1ParaM2(item.valor_unitario_m1, cotacaoRef);
-  const valorTranspM2 = (Number(item.peso_kg) || 0) * (Number(item.transporte_m2) || 0);
+  const valorTransp = (Number(item.peso_kg) || 0) * (Number(item.transporte_m2) || 0);
+
+  // [#17 Onda 2] Moeda-RÓTULO por campo de valor: só registra/exibe em que moeda o número foi digitado. NÃO reconverte e NÃO escolhe cotação —
+  // "Valor produto" abaixo e o landed do servidor seguem as cotações do cabeçalho/etapas, exatamente como antes.
+  const oc: MoedasOc = { moedaCompra, moedaIntermediaria };
+  const moedaValor = moedaDoItem(item, "valor_unitario", oc);
+  const moedaTransp = moedaDoItem(item, "transporte", oc);
+  /** Valor CRU do seletor: o escolhido (inclusive "" enquanto digita a moeda livre) ou o slot do cabeçalho. */
+  const valorSeletor = (campo: CampoMoedaEditavel) => item.moedas?.[campo] ?? moedaPadraoDoSlot(campo, oc);
+  const escolherMoeda = (campo: CampoMoedaEditavel, v: string | null) => {
+    const code = (v ?? "").toUpperCase();
+    onItemChange((it) => ({ ...it, moedas: { ...it.moedas, [campo]: code } }));
+    gravarUltimaMoeda(campo, code); // vira o padrão do PRÓXIMO item neste campo (código incompleto é ignorado)
+  };
 
   const patch = (p: Partial<ItemOcImp>) => onItemChange((it) => ({ ...it, ...p }));
   const setGrade = (grade: GradeDetalhe) => patch({ grade });
@@ -228,26 +243,30 @@ export function OcImpItem({
       </div>
 
       {/* Bloco de valores — EMPILHADO 1 campo/linha, rótulo ~150px (§N: formato da planilha de referência do dono). */}
-      <div className="max-w-sm space-y-2 rounded-md border p-3">
+      <div className="max-w-md space-y-2 rounded-md border p-3">
         <div className="flex items-center gap-3">
           <Label className="w-[150px] shrink-0 text-sm">Qtd total</Label>
           <NumberInput integer disabled={valoresTravados} className="flex-1" value={item.qtd_total} data-colab-path={cp("qtd_total")}
             onChange={(e) => patch({ qtd_total: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
         </div>
-        <div className="flex items-center gap-3">
-          <Label className="w-[150px] shrink-0 text-sm">Valor unit. ({simboloMoeda(moedaCompra)})</Label>
-          <NumberInput blankZero disabled={valoresTravados} className="flex-1" placeholder="0,00" value={item.valor_unitario_m1} data-colab-path={cp("valor_unitario_m1")}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Label className="w-[150px] shrink-0 text-sm">Valor unit. ({simboloMoeda(moedaValor)})</Label>
+          <NumberInput blankZero disabled={valoresTravados} className="min-w-20 flex-1" placeholder="0,00" value={item.valor_unitario_m1} data-colab-path={cp("valor_unitario_m1")}
             onChange={(e) => patch({ valor_unitario_m1: Number(e.target.value) || 0 })} />
+          <MoedaSelect compacto ariaLabel="Moeda do valor unitário" value={valorSeletor("valor_unitario")} disabled={bloqueado}
+            onChange={(v) => escolherMoeda("valor_unitario", v)} />
         </div>
         <div className="flex items-center gap-3">
           <Label className="w-[150px] shrink-0 text-sm">Peso (kg)</Label>
           <NumberInput blankZero disabled={bloqueado} className="flex-1" placeholder="0,00" value={item.peso_kg} data-colab-path={cp("peso_kg")}
             onChange={(e) => patch({ peso_kg: Number(e.target.value) || 0 })} />
         </div>
-        <div className="flex items-center gap-3">
-          <Label className="w-[150px] shrink-0 text-sm">Transporte ({simboloMoeda(moedaM2)}/kg)</Label>
-          <NumberInput blankZero disabled={bloqueado} className="flex-1" placeholder="0,00" value={item.transporte_m2} data-colab-path={cp("transporte_m2")}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Label className="w-[150px] shrink-0 text-sm">Transporte ({simboloMoeda(moedaTransp)}/kg)</Label>
+          <NumberInput blankZero disabled={bloqueado} className="min-w-20 flex-1" placeholder="0,00" value={item.transporte_m2} data-colab-path={cp("transporte_m2")}
             onChange={(e) => patch({ transporte_m2: Number(e.target.value) || 0 })} />
+          <MoedaSelect compacto ariaLabel="Moeda do transporte" value={valorSeletor("transporte")} disabled={bloqueado}
+            onChange={(v) => escolherMoeda("transporte", v)} />
         </div>
         <div className="flex items-center gap-3">
           <Label className="w-[150px] shrink-0 text-sm">Desconto (%)</Label>
@@ -259,11 +278,11 @@ export function OcImpItem({
       <InfoStrip
         itens={[
           { label: "Valor produto", hint: "(unit. ÷ cotação de ref.)", valor: fmtMoeda(valorProdutoM2, moedaM2) },
-          { label: "Valor transp.", hint: "(peso × transporte)", valor: fmtMoeda(valorTranspM2, moedaM2) },
-          { label: "Bruto", valor: fmtMoeda(bruto, moedaCompra) },
-          { label: "Desconto", valor: fmtMoeda(desconto, moedaCompra) },
-          { label: "Total c/ desconto", valor: fmtMoeda(total, moedaCompra) },
-          { label: "V. unit. real", valor: fmtMoeda(unitReal, moedaCompra) },
+          { label: "Valor transp.", hint: "(peso × transporte)", valor: fmtMoeda(valorTransp, moedaTransp) },
+          { label: "Bruto", valor: fmtMoeda(bruto, moedaValor) },
+          { label: "Desconto", valor: fmtMoeda(desconto, moedaValor) },
+          { label: "Total c/ desconto", valor: fmtMoeda(total, moedaValor) },
+          { label: "V. unit. real", valor: fmtMoeda(unitReal, moedaValor) },
         ]}
       />
       {/* Landed REAL do item: SÓ LEITURA. O servidor o recalcula a partir das etapas ao salvar/receber; esta tela nunca faz a conta. */}

@@ -9,6 +9,7 @@ import { invalidarVencimentos, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { varianteLabel } from "@/lib/variante";
 import { fmtMoeda } from "@/lib/moeda";
+import { moedaDoItem, moedaDoTotalDaOc, moedasParaItemNovo } from "@/lib/moeda-campo";
 import { erroCotacaoEtapas } from "@/lib/importado-etapas";
 import { previewSiglaOcLote, numeroPrevia } from "@/lib/pedido-oc-lote";
 import { contarRecebidos, motivoNaoExcluirOc, motivoNaoTirar, textoRecebidos } from "@/lib/oc-multi-itens";
@@ -43,7 +44,7 @@ import { OcImpItem, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt } fro
 import { ProdutoImportadoPicker, type ProdutoImportadoSelecionado } from "./ProdutoImportadoPicker";
 import {
   cabecalhoParaPayload, celulasTocadas, dadosDoRecebimento, erroDeItensParaSalvar, etapasParaPayload, idsTocados, itemAvulsoVazio,
-  itemDoProduto, itensParaPayload, linhaDeItem, motivoNaoReceber, totaisDaOc, totaisDoItem, valorM1DaCompra, type ItemOcImp,
+  itemDoProduto, itensParaPayload, linhaDeItem, motivoNaoReceber, preservarMoedas, totaisDaOc, totaisDoItem, valorM1DaCompra, type ItemOcImp,
 } from "./itens";
 import {
   baseAposMerge, baseDe, mesclarOcItens, mesclarParaRetryP0409Imp, resolverConflitoLinha, rotuloConflitoOc, type BaseOc,
@@ -129,7 +130,9 @@ export function OcImpDialog({
   // P-57: o Salvar/Receber só liga DEPOIS da 1ª carga semear o rascunho — salvar antes gravaria um cabeçalho em branco por cima da OC.
   const [hidratado, setHidratado] = useState(!ocId);
 
-  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, items });
+  // [#17 Onda 2] A moeda-rótulo por campo (`item.moedas`) é só de tela e não é gravada: mudar SÓ ela não deixa a OC "não salva".
+  const itemsParaDirty = items.map(({ moedas: _moedas, ...resto }) => resto);
+  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, items: itemsParaDirty });
 
   // ── Colaboração ──────────────────────────────────────────────────────────────────────────────────────────────────
   const touchedRef = useRef<Set<string>>(new Set());          // campos do CABEÇALHO que EU editei
@@ -210,9 +213,11 @@ export function OcImpDialog({
     const fd = cabecalhoDeOc(d.oc, d.etapas);
     baseRef.current = baseDe(fd, d.itens);
     ultimoFreshRef.current = { draft: fd, items: d.itens };
-    draftLiveRef.current = fd; itemsLiveRef.current = d.itens;
+    // O re-semeio (depois de tirar/receber um produto) não pode "desescolher" a moeda-rótulo que a pessoa pôs nos itens (campo só de UI).
+    const itensTela = preservarMoedas(d.itens, itemsLiveRef.current);
+    draftLiveRef.current = fd; itemsLiveRef.current = itensTela;
     setDraftRaw(fd);
-    setItemsRaw(d.itens);
+    setItemsRaw(itensTela);
     setStatus((d.oc.status as OcImportadoStatus) ?? "encomendado");
     setNumeroReal(d.oc.numero ?? null);
     setDataEntregaOc(d.oc.data_entrega ?? null);
@@ -488,7 +493,9 @@ export function OcImpDialog({
   };
 
   // ── Ações de ciclo por produto ───────────────────────────────────────────────────────────────────────────────────
-  const moedaCompra = draft.moeda_compra;
+  const ocMoedas = { moedaCompra: draft.moeda_compra, moedaIntermediaria: draft.moeda_intermediaria };
+  /** Moeda do total da OC: a comum dos itens (se todos iguais) ou a do cabeçalho — a soma não converte nada (ver `moedaDoTotalDaOc`). */
+  const moedaTotal = moedaDoTotalDaOc(items, ocMoedas);
   const tirarProduto = (it: ItemOcImp) => {
     if (!it.id) { // ainda não salvo (pendente do picker ou avulso novo): sai da lista sem confirmar — nada foi gravado
       setItemsTracked((prev) => prev.filter((x) => x.tempId !== it.tempId));
@@ -497,7 +504,7 @@ export function OcImpDialog({
     const antes = totaisDaOc(itemsLiveRef.current).total;
     const depois = totaisDaOc(itemsLiveRef.current.filter((x) => x.tempId !== it.tempId)).total;
     pedirConfirmacao({
-      ...textoTirarProdutoDaOc({ nome: it.nome_produto, totalAntes: fmtMoeda(antes, moedaCompra), totalDepois: fmtMoeda(depois, moedaCompra), pendentes: dirty }),
+      ...textoTirarProdutoDaOc({ nome: it.nome_produto, totalAntes: fmtMoeda(antes, moedaTotal), totalDepois: fmtMoeda(depois, moedaTotal), pendentes: dirty }),
       onConfirmar: () => disparar({ tipo: "tirar", itemTempId: it.tempId }),
     });
   };
@@ -525,13 +532,14 @@ export function OcImpDialog({
         etapas: p.etapas.length > 0 ? p.etapas : d.etapas,
       }));
     }
-    const novos = produtos.map(itemDoProduto);
+    const padraoMoedas = moedasParaItemNovo(); // [#17] o último usado em cada campo vira o padrão do item novo
+    const novos = produtos.map((p) => ({ ...itemDoProduto(p), moedas: { ...padraoMoedas } }));
     setItemsTracked((prev) => [...prev, ...novos]);
     setAbertos((prev) => new Set([...prev, ...novos.map((n) => n.tempId)]));
     toast.success(`${produtos.length} ${produtos.length === 1 ? "produto adicionado" : "produtos adicionados"} — entram na OC ao Salvar.`);
   };
   const adicionarAvulso = () => {
-    const novo = itemAvulsoVazio();
+    const novo = { ...itemAvulsoVazio(), moedas: moedasParaItemNovo() };
     setItemsTracked((prev) => [...prev, novo]);
     setAbertos((prev) => new Set([...prev, novo.tempId]));
   };
@@ -565,7 +573,7 @@ export function OcImpDialog({
 
   const subtituloItem = (it: ItemOcImp) => {
     const nomes = it.variantes.map((v) => varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })).filter(Boolean).join(" · ");
-    return [it.produtoRef, nomes, `${it.qtd_total} pç`, fmtMoeda(totaisDoItem(it).total, moedaCompra)].filter(Boolean).join(" · ");
+    return [it.produtoRef, nomes, `${it.qtd_total} pç`, fmtMoeda(totaisDoItem(it).total, moedaDoItem(it, "valor_unitario", ocMoedas))].filter(Boolean).join(" · ");
   };
 
   // O picker só restringe a MOEDA quando a OC já tem produto (salvo ou pendente); a OC sem produto herda a do 1º que entrar.
@@ -596,7 +604,7 @@ export function OcImpDialog({
                 { label: "Moeda", valor: `${draft.moeda_compra}${draft.moeda_intermediaria ? ` → ${draft.moeda_intermediaria}` : ""}` },
                 { label: "Produtos", valor: nItens },
                 { label: "Peças", valor: totais.pecas },
-                { label: "Total da OC", valor: fmtMoeda(totais.total, moedaCompra), hi: true },
+                { label: "Total da OC", valor: fmtMoeda(totais.total, moedaTotal), hi: true },
               ]}
             />
           )}

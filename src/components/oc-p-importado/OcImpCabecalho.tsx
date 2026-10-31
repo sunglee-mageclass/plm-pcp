@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DICA_CAMPO_NOTA_IMPORTADO } from "@/lib/nota-entrada";
 import { MOEDAS, fmtMoeda, simboloMoeda } from "@/lib/moeda";
+import { moedaDoItem, moedaDoTotalDaOc } from "@/lib/moeda-campo";
 import { novaEtapaImportado, etapaSemCotacao, erroCotacaoEtapas, patchTrocaBase } from "@/lib/importado-etapas";
 import { totaisDaOc, totaisDoItem, valorM1DaCompra, type ItemOcImp } from "./itens";
 import { fmtDate, somaPercentualPorBase, type CabecalhoImpDraft, type EtapaDraft } from "./shared";
@@ -27,7 +28,15 @@ const DIRETA = "__direta__";
  *  "Direta (sem M2)" para a moeda intermediária — espelha byte-a-byte o `MoedaSelect` de
  *  `ProdutoImportadoCard.tsx` (não exportado de lá; duplicado aqui de propósito, mesmo
  *  precedente de pequenos helpers de UI duplicados entre telas irmãs no código). */
-export function MoedaSelect({ value, onChange, permitirDireta, disabled }: { value: string | null; onChange: (v: string | null) => void; permitirDireta?: boolean; disabled?: boolean }) {
+export function MoedaSelect({
+  value, onChange, permitirDireta, disabled, compacto = false, ariaLabel,
+}: {
+  value: string | null; onChange: (v: string | null) => void; permitirDireta?: boolean; disabled?: boolean;
+  /** [#17 Onda 2] Variante para ficar ao lado de um campo de valor: o gatilho mostra só o código (US$/USD…) e ocupa pouco. A lista é a mesma. */
+  compacto?: boolean;
+  /** Nome acessível do gatilho (o seletor por campo precisa dizer de QUAL campo é a moeda). */
+  ariaLabel?: string;
+}) {
   const ehDireta = permitirDireta && value === null;
   const naLista = value != null && value !== "" && MOEDAS.some((m) => m.code === value);
   const ehLivre = value != null && value !== "" && !naLista;
@@ -49,7 +58,12 @@ export function MoedaSelect({ value, onChange, permitirDireta, disabled }: { val
             sem min-w-0 o flex item não encolhe e estoura a largura do card (bug medido:
             body.scrollWidth > clientWidth em 360/390px). O trigger cede primeiro; o input do
             código (w-24, shrink-0) mantém tamanho fixo — 6 caracteres não cabem menor. */}
-        <SelectTrigger className={adicionando ? "w-32 min-w-0 shrink" : "w-full"}><SelectValue placeholder="Moeda" /></SelectTrigger>
+        <SelectTrigger
+          aria-label={ariaLabel}
+          className={compacto ? (adicionando ? "w-24 min-w-0 shrink" : "w-24") : adicionando ? "w-32 min-w-0 shrink" : "w-full"}
+        >
+          <SelectValue placeholder="Moeda">{compacto ? (adicionando ? "Outra" : value || undefined) : undefined}</SelectValue>
+        </SelectTrigger>
         <SelectContent>
           {permitirDireta && <SelectItem value={DIRETA}>Direta (sem M2)</SelectItem>}
           {MOEDAS.map((m) => <SelectItem key={m.code} value={m.code}>{m.nome} ({m.code})</SelectItem>)}
@@ -184,7 +198,10 @@ export function OcImpTotais({
   aviso?: ReactNode;
 }) {
   const t = totaisDaOc(itens);
-  const moeda = draft.moeda_compra;
+  // [#17 Onda 2] cada linha mostra o valor na moeda-RÓTULO do valor unitário do produto; o total, na comum dos itens (ou na do cabeçalho se
+  // divergem) — só rótulo: nenhuma conversão entre elas.
+  const ocMoedas = { moedaCompra: draft.moeda_compra, moedaIntermediaria: draft.moeda_intermediaria };
+  const moeda = moedaDoTotalDaOc(itens, ocMoedas);
   const valorCompra = valorM1DaCompra(itens);
 
   const setEtapa = (ordem: number, patch: Partial<EtapaDraft>) =>
@@ -275,7 +292,7 @@ export function OcImpTotais({
               <TableRow key={it.tempId}>
                 <TableCell className="font-medium">{it.nome_produto || "Sem nome"}</TableCell>
                 <TableCell className="text-right tabular-nums">{x.pecas}</TableCell>
-                <TableCell className="text-right tabular-nums">{fmtMoeda(x.total, moeda)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtMoeda(x.total, moedaDoItem(it, "valor_unitario", ocMoedas))}</TableCell>
                 <TableCell className="text-right tabular-nums">{it.id && it.custo_unitario_landed_real > 0 ? fmtMoeda(it.custo_unitario_landed_real, "BRL") : "—"}</TableCell>
                 <TableCell>
                   {it.status === "recebido"
