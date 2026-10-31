@@ -42,11 +42,20 @@ describe("payloads — o contrato de salvar_oc_p_acabado_itens", () => {
     expect(itemParaPayload(p)).toEqual({ produto_acabado_id: "px", do_produto: true });
     expect(totaisDoItem(p).total).toBe(1200); // a tela mostra o que o servidor vai montar
   });
-  it("item salvo: manda o id (diff por id), os campos de compra e a grade INTEIRA; NÃO manda status nem recebimento", () => {
+  it("item salvo: manda o id (diff por id), os campos de compra, a grade INTEIRA E os campos de recebimento (#16: gravam no Salvar); NÃO manda status", () => {
     const pl = itemParaPayload(item());
     expect(pl).toMatchObject({ id: "i1", produto_acabado_id: "p1", nome_produto: "Vestido Midi", qtd_total: 10, valor_unitario: 62, desconto_pct: 5, ref_fornecedor: "RF1" });
     expect(Object.keys(pl)).toEqual(expect.arrayContaining(["grade_detalhe", "variantes", "grade_proporcao"]));
-    for (const k of ["status", "data_entrega", "nota_fiscal", "responsavel_recebimento_id", "devolucao", "revisao", "do_produto", "tempId"]) expect(pl).not.toHaveProperty(k);
+    // os 5 campos de recebimento vão SEMPRE (vazio = null = limpa; o servidor trata chave ausente como "mantém")
+    expect(pl).toMatchObject({ data_entrega: null, nota_fiscal: null, responsavel_recebimento_id: null, devolucao: null, revisao: null });
+    for (const k of ["status", "do_produto", "tempId"]) expect(pl).not.toHaveProperty(k);
+  });
+  it("#16: o recebimento digitado (NF/data/responsável/devolução/revisão) entra no payload do SALVAR do item, sem precisar receber", () => {
+    const pl = itemParaPayload(item({ data_entrega: "2026-10-05", nota_fiscal: "4512", responsavel_recebimento_id: "u1", devolucao: "2 peças", revisao: "ok" }));
+    expect(pl).toMatchObject({ id: "i1", data_entrega: "2026-10-05", nota_fiscal: "4512", responsavel_recebimento_id: "u1", devolucao: "2 peças", revisao: "ok" });
+    expect(pl).not.toHaveProperty("status"); // nunca marca recebido
+    // pendente do picker (o servidor monta do produto) continua só com a identidade do produto
+    expect(itemParaPayload(item({ id: null, tempId: "novo-1", doProduto: true, data_entrega: "2026-10-05", nota_fiscal: "x" }))).toEqual({ produto_acabado_id: "p1", do_produto: true });
   });
   it("item avulso novo: sem id; texto vazio vira null", () => {
     const a = { ...itemAvulsoVazio(), nome_produto: "Cinto", ref_fornecedor: "", composicao: "" };

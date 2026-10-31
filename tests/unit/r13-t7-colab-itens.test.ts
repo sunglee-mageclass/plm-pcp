@@ -131,6 +131,18 @@ describe("itens — mergeLinhas({removidasIds})", () => {
     expect(r.conflitos).toEqual([expect.objectContaining({ path: "linha:A" })]);
     expect(r.items[0].valor_unitario).toBe(51);
   });
+  it("#16: NF/data/responsável/devolução/revisão são campos NORMAIS da linha: o outro gravou a NF e eu não toquei → adoto (sem receber, status igual); os dois editamos → conflito de linha", () => {
+    const dele = { ...A0, nota_fiscal: "NF-DELE", data_entrega: "2026-10-05", responsavel_recebimento_id: "u9", revisao: "ok", devolucao: "2 peças" };
+    const r1 = merge({ live: [A0, B0], fresh: [dele, B0] });
+    const a = r1.items.find((i) => i.id === "A")!;
+    expect(a).toMatchObject({ nota_fiscal: "NF-DELE", data_entrega: "2026-10-05", responsavel_recebimento_id: "u9", revisao: "ok", devolucao: "2 peças", status: "encomendado" });
+    expect(r1.conflitos).toEqual([]);
+    expect(r1.mudouItens).toBe(true);
+    // eu mexi na NF dele também (mesma linha, campos diferentes do que ela mexeu NA LINHA): conflito de linha; o meu fica
+    const r2 = merge({ live: [{ ...A0, nota_fiscal: "NF-MINHA" }, B0], fresh: [{ ...A0, nota_fiscal: "NF-DELE" }, B0], ids: set("A") });
+    expect(r2.conflitos).toEqual([expect.objectContaining({ path: "linha:A" })]);
+    expect(r2.items[0].nota_fiscal).toBe("NF-MINHA");
+  });
   it("nada mudou: resultado vazio (a tela não toca em nenhum state)", () => {
     const r = merge({ live: [A0, B0], fresh: [A0, B0] });
     expect(r).toMatchObject({ conflitos: [], atualizados: 0, mudouDraft: false, mudouItens: false });

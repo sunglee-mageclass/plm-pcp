@@ -440,7 +440,7 @@ BEGIN
   SELECT coalesce(sum(qtd_total),0) AS qtd, coalesce(sum(valor_bruto),0) AS bruto,
          coalesce(sum(valor_total_desconto),0) AS vtd,
          CASE WHEN count(*) > 0 AND bool_and(status = 'recebido') THEN 'recebido' ELSE 'encomendado' END AS status,
-         max(data_entrega) AS data_entrega,
+         max(data_entrega) FILTER (WHERE status = 'recebido') AS data_entrega,
          CASE WHEN count(DISTINCT coalesce(grupo_id::text,'')) = 1 THEN (array_agg(grupo_id))[1] ELSE NULL END AS grupo,
          CASE WHEN count(DISTINCT coalesce(categoria_id::text,'')) = 1 THEN (array_agg(categoria_id))[1] ELSE NULL END AS cat
     INTO r FROM public.ocs_p_acabado_itens WHERE oc_id = _oc_id;
@@ -457,7 +457,7 @@ BEGIN
   SELECT coalesce(sum(qtd_total),0) AS qtd, coalesce(sum(valor_bruto),0) AS bruto,
          coalesce(sum(valor_total_desconto),0) AS vtd,
          CASE WHEN count(*) > 0 AND bool_and(status = 'recebido') THEN 'recebido' ELSE 'encomendado' END AS status,
-         max(data_entrega) AS data_entrega,
+         max(data_entrega) FILTER (WHERE status = 'recebido') AS data_entrega,
          CASE WHEN count(DISTINCT coalesce(grupo_id::text,'')) = 1 THEN (array_agg(grupo_id))[1] ELSE NULL END AS grupo,
          CASE WHEN count(DISTINCT coalesce(categoria_id::text,'')) = 1 THEN (array_agg(categoria_id))[1] ELSE NULL END AS cat,
          CASE WHEN coalesce(sum(qtd_total),0) > 0
@@ -746,6 +746,7 @@ DECLARE
   v_qtd int; v_vu numeric; v_dp numeric;
   v_soma_pedida numeric; v_tem_neg boolean;
   v_sig text; v_itens_sigla jsonb;
+  v_resp uuid;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'nao_autenticado' USING ERRCODE = '42501'; END IF;
   v_tenant := public.get_user_tenant_id();
@@ -799,6 +800,11 @@ BEGIN
   FOR it IN SELECT jsonb_array_elements(coalesce(_itens, '[]'::jsonb)) LOOP
     v_ordem := v_ordem + 1;
     v_item_id := nullif(it->>'id','')::uuid;
+    -- [#16] responsavel do recebimento: mesma loja (a FK so garante que o colaborador existe). Chave ausente = nada a conferir.
+    v_resp := CASE WHEN it ? 'responsavel_recebimento_id' THEN nullif(it->>'responsavel_recebimento_id','')::uuid END;
+    IF v_resp IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.colaboradores WHERE id = v_resp AND tenant_id = v_tenant) THEN
+      RAISE EXCEPTION 'responsavel_loja_diferente: o responsavel pelo recebimento e de outra loja' USING ERRCODE = 'P0001';
+    END IF;
 
     IF v_item_id IS NOT NULL THEN
       -- item EXISTENTE: atualiza. Recebido trava valor/qtd/grade pedida.
@@ -850,6 +856,13 @@ BEGIN
         variantes = coalesce(it->'variantes','[]'::jsonb),
         qtd_total = v_qtd, valor_unitario = v_vu, desconto_pct = v_dp,
         valor_bruto = v_bruto, valor_total_desconto = v_vtd, valor_unitario_real = v_vur,
+        -- [#16] recebimento do produto grava no Salvar (chave AUSENTE = mantem; vazio/null = limpa). NAO muda status nem materializa CAD/CQ.
+        data_entrega = CASE WHEN it ? 'data_entrega' THEN nullif(it->>'data_entrega','')::date ELSE data_entrega END,
+        nota_fiscal = CASE WHEN it ? 'nota_fiscal' THEN nullif(it->>'nota_fiscal','') ELSE nota_fiscal END,
+        anexo_nf_url = CASE WHEN it ? 'anexo_nf_url' THEN nullif(it->>'anexo_nf_url','') ELSE anexo_nf_url END,
+        responsavel_recebimento_id = CASE WHEN it ? 'responsavel_recebimento_id' THEN v_resp ELSE responsavel_recebimento_id END,
+        devolucao = CASE WHEN it ? 'devolucao' THEN nullif(it->>'devolucao','') ELSE devolucao END,
+        revisao = CASE WHEN it ? 'revisao' THEN nullif(it->>'revisao','') ELSE revisao END,
         updated_at = now()
       WHERE id = v_item_id AND oc_id = v_oc_id;
       v_ids_mantidos := v_ids_mantidos || v_item_id;
@@ -875,7 +888,8 @@ BEGIN
       INSERT INTO public.ocs_p_acabado_itens (
         tenant_id, oc_id, ordem, produto_acabado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
         ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario, desconto_pct,
-        valor_bruto, valor_total_desconto, valor_unitario_real)
+        valor_bruto, valor_total_desconto, valor_unitario_real,
+        data_entrega, nota_fiscal, anexo_nf_url, responsavel_recebimento_id, devolucao, revisao)
       VALUES (
         v_tenant, v_oc_id, v_ordem, v_prod_id, v_montado->>'nome_produto', nullif(v_montado->>'grupo_id','')::uuid, nullif(v_montado->>'categoria_id','')::uuid,
         nullif(v_montado->>'subcategoria1_id','')::uuid, nullif(v_montado->>'subcategoria2_id','')::uuid,
@@ -883,7 +897,8 @@ BEGIN
         coalesce(v_montado->'grade_detalhe','{}'::jsonb), coalesce(v_montado->'variantes','[]'::jsonb),
         coalesce((v_montado->>'qtd_total')::int, 0), coalesce((v_montado->>'valor_unitario')::numeric, 0),
         coalesce((v_montado->>'desconto_pct')::numeric, 0), coalesce((v_montado->>'valor_bruto')::numeric, 0),
-        coalesce((v_montado->>'valor_total_desconto')::numeric, 0), coalesce((v_montado->>'valor_unitario_real')::numeric, 0))
+        coalesce((v_montado->>'valor_total_desconto')::numeric, 0), coalesce((v_montado->>'valor_unitario_real')::numeric, 0),
+        nullif(it->>'data_entrega','')::date, nullif(it->>'nota_fiscal',''), nullif(it->>'anexo_nf_url',''), v_resp, nullif(it->>'devolucao',''), nullif(it->>'revisao',''))
       RETURNING id INTO v_item_id;
       v_ids_mantidos := v_ids_mantidos || v_item_id;
 
@@ -907,12 +922,14 @@ BEGIN
       INSERT INTO public.ocs_p_acabado_itens (
         tenant_id, oc_id, ordem, produto_acabado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
         ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario, desconto_pct,
-        valor_bruto, valor_total_desconto, valor_unitario_real)
+        valor_bruto, valor_total_desconto, valor_unitario_real,
+        data_entrega, nota_fiscal, anexo_nf_url, responsavel_recebimento_id, devolucao, revisao)
       VALUES (
         v_tenant, v_oc_id, v_ordem, nullif(it->>'produto_acabado_id','')::uuid, coalesce(nullif(it->>'nome_produto',''), ''),
         nullif(it->>'grupo_id','')::uuid, nullif(it->>'categoria_id','')::uuid, nullif(it->>'subcategoria1_id','')::uuid,
         nullif(it->>'subcategoria2_id','')::uuid, it->>'ref_fornecedor', it->>'composicao', coalesce(it->'grade_proporcao','{}'::jsonb),
-        coalesce(it->'grade_detalhe','{}'::jsonb), coalesce(it->'variantes','[]'::jsonb), v_qtd, v_vu, v_dp, v_bruto, v_vtd, v_vur)
+        coalesce(it->'grade_detalhe','{}'::jsonb), coalesce(it->'variantes','[]'::jsonb), v_qtd, v_vu, v_dp, v_bruto, v_vtd, v_vur,
+        nullif(it->>'data_entrega','')::date, nullif(it->>'nota_fiscal',''), nullif(it->>'anexo_nf_url',''), v_resp, nullif(it->>'devolucao',''), nullif(it->>'revisao',''))
       RETURNING id INTO v_item_id;
       v_ids_mantidos := v_ids_mantidos || v_item_id;
     END IF;
@@ -994,12 +1011,14 @@ BEGIN
 
   v_grade_final := coalesce(v_item.grade_detalhe, '{}'::jsonb);
 
+  -- [#16] os campos de recebimento JA foram gravados pelo Salvar acima (itens). As chaves item_* do _dados, quando presentes,
+  -- valem por cima (compatibilidade); AUSENTES = mantem o que o Salvar gravou (antes zeravam).
   UPDATE public.ocs_p_acabado_itens SET
-    data_entrega = nullif(_dados->>'item_data_entrega','')::date,
-    nota_fiscal = _dados->>'item_nota_fiscal',
-    responsavel_recebimento_id = nullif(_dados->>'item_responsavel_recebimento_id','')::uuid,
-    devolucao = _dados->>'item_devolucao',
-    revisao = _dados->>'item_revisao',
+    data_entrega = CASE WHEN _dados ? 'item_data_entrega' THEN nullif(_dados->>'item_data_entrega','')::date ELSE data_entrega END,
+    nota_fiscal = CASE WHEN _dados ? 'item_nota_fiscal' THEN nullif(_dados->>'item_nota_fiscal','') ELSE nota_fiscal END,
+    responsavel_recebimento_id = CASE WHEN _dados ? 'item_responsavel_recebimento_id' THEN nullif(_dados->>'item_responsavel_recebimento_id','')::uuid ELSE responsavel_recebimento_id END,
+    devolucao = CASE WHEN _dados ? 'item_devolucao' THEN nullif(_dados->>'item_devolucao','') ELSE devolucao END,
+    revisao = CASE WHEN _dados ? 'item_revisao' THEN nullif(_dados->>'item_revisao','') ELSE revisao END,
     status = 'recebido',
     updated_at = now()
   WHERE id = _item_id;
@@ -2043,11 +2062,12 @@ BEGIN
     UNION ALL
     -- COMPRA (revenda): OC feita → recebimento. Liga ocs_p_acabado → produtos_acabados → modelo.
     -- [r13] "compra" = it.data_entrega (ITEM) - oc.data_pedido (cabecalho). Item de 1 produto = identico ao de antes.
+    -- [#16] SO item RECEBIDO conta (a data de entrega agora grava no Salvar, antes de receber).
     SELECT pa.modelo_id, 'compra', (it.data_entrega - oc.data_pedido)::numeric
       FROM public.ocs_p_acabado_itens it
       JOIN public.ocs_p_acabado oc ON oc.id = it.oc_id
       JOIN public.produtos_acabados pa ON pa.id = it.produto_acabado_id AND pa.tenant_id = v_tenant
-      WHERE oc.data_pedido IS NOT NULL AND it.data_entrega IS NOT NULL AND pa.modelo_id IS NOT NULL
+      WHERE oc.data_pedido IS NOT NULL AND it.data_entrega IS NOT NULL AND it.status = 'recebido' AND pa.modelo_id IS NOT NULL
     UNION ALL
     -- COMPRA (importado): OC feita → recebimento (inclui trânsito/câmbio; etapas de câmbio são
     -- financeiras, sem marco de tempo próprio). Liga ocs_importado → produtos_importados → modelo.
@@ -2056,7 +2076,7 @@ BEGIN
       FROM public.ocs_importado_itens it
       JOIN public.ocs_importado oc ON oc.id = it.oc_id
       JOIN public.produtos_importados pi ON pi.id = it.produto_importado_id AND pi.tenant_id = v_tenant
-      WHERE oc.data_pedido IS NOT NULL AND it.data_entrega IS NOT NULL AND pi.modelo_id IS NOT NULL
+      WHERE oc.data_pedido IS NOT NULL AND it.data_entrega IS NOT NULL AND it.status = 'recebido' AND pi.modelo_id IS NOT NULL
     UNION ALL
     SELECT c.modelo_id, 'cad_corte', (c.data_enviado_corte - c.created_at::date)::numeric
       FROM public.cad c
@@ -2683,6 +2703,7 @@ DECLARE
   v_soma_pedida numeric; v_tem_neg boolean;
   v_sig text;
   v_etapas jsonb; rec jsonb; v_soma_merc numeric; v_soma_frete numeric;
+  v_resp uuid;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'nao_autenticado' USING ERRCODE = '42501'; END IF;
   v_tenant := public.get_user_tenant_id();
@@ -2739,6 +2760,11 @@ BEGIN
   FOR it IN SELECT jsonb_array_elements(coalesce(_itens, '[]'::jsonb)) LOOP
     v_ordem := v_ordem + 1;
     v_item_id := nullif(it->>'id','')::uuid;
+    -- [#16] responsavel do recebimento: mesma loja (a FK so garante que o colaborador existe). Chave ausente = nada a conferir.
+    v_resp := CASE WHEN it ? 'responsavel_recebimento_id' THEN nullif(it->>'responsavel_recebimento_id','')::uuid END;
+    IF v_resp IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.colaboradores WHERE id = v_resp AND tenant_id = v_tenant) THEN
+      RAISE EXCEPTION 'responsavel_loja_diferente: o responsavel pelo recebimento e de outra loja' USING ERRCODE = 'P0001';
+    END IF;
 
     IF v_item_id IS NOT NULL THEN
       SELECT status, valor_unitario_m1, desconto_pct, qtd_total, grade_detalhe, produto_importado_id
@@ -2789,6 +2815,13 @@ BEGIN
         variantes = coalesce(it->'variantes','[]'::jsonb),
         qtd_total = v_qtd, valor_unitario_m1 = v_vu, desconto_pct = v_dp, peso_kg = v_peso, transporte_m2 = v_tr,
         valor_bruto = v_bruto, valor_total_desconto = v_vtd, valor_unitario_real = v_vur,
+        -- [#16] recebimento do produto grava no Salvar (chave AUSENTE = mantem; vazio/null = limpa). NAO muda status nem materializa CAD/CQ.
+        data_entrega = CASE WHEN it ? 'data_entrega' THEN nullif(it->>'data_entrega','')::date ELSE data_entrega END,
+        nota_fiscal = CASE WHEN it ? 'nota_fiscal' THEN nullif(it->>'nota_fiscal','') ELSE nota_fiscal END,
+        anexo_nf_url = CASE WHEN it ? 'anexo_nf_url' THEN nullif(it->>'anexo_nf_url','') ELSE anexo_nf_url END,
+        responsavel_recebimento_id = CASE WHEN it ? 'responsavel_recebimento_id' THEN v_resp ELSE responsavel_recebimento_id END,
+        devolucao = CASE WHEN it ? 'devolucao' THEN nullif(it->>'devolucao','') ELSE devolucao END,
+        revisao = CASE WHEN it ? 'revisao' THEN nullif(it->>'revisao','') ELSE revisao END,
         updated_at = now()
       WHERE id = v_item_id AND oc_id = v_oc_id;
       v_ids_mantidos := v_ids_mantidos || v_item_id;
@@ -2819,7 +2852,8 @@ BEGIN
       INSERT INTO public.ocs_importado_itens (
         tenant_id, oc_id, ordem, produto_importado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
         ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario_m1, peso_kg, transporte_m2,
-        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real)
+        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real,
+        data_entrega, nota_fiscal, anexo_nf_url, responsavel_recebimento_id, devolucao, revisao)
       VALUES (
         v_tenant, v_oc_id, v_ordem, v_prod_id, v_montado->>'nome_produto', nullif(v_montado->>'grupo_id','')::uuid, nullif(v_montado->>'categoria_id','')::uuid,
         nullif(v_montado->>'subcategoria1_id','')::uuid, nullif(v_montado->>'subcategoria2_id','')::uuid,
@@ -2828,7 +2862,8 @@ BEGIN
         coalesce((v_montado->>'qtd_total')::int, 0), coalesce((v_montado->>'valor_unitario_m1')::numeric, 0),
         coalesce((v_montado->>'peso_kg')::numeric, 0), coalesce((v_montado->>'transporte_m2')::numeric, 0),
         coalesce((v_montado->>'desconto_pct')::numeric, 0), coalesce((v_montado->>'valor_bruto')::numeric, 0),
-        coalesce((v_montado->>'valor_total_desconto')::numeric, 0), coalesce((v_montado->>'valor_unitario_real')::numeric, 0), 0)
+        coalesce((v_montado->>'valor_total_desconto')::numeric, 0), coalesce((v_montado->>'valor_unitario_real')::numeric, 0), 0,
+        nullif(it->>'data_entrega','')::date, nullif(it->>'nota_fiscal',''), nullif(it->>'anexo_nf_url',''), v_resp, nullif(it->>'devolucao',''), nullif(it->>'revisao',''))
       RETURNING id INTO v_item_id;
       v_ids_mantidos := v_ids_mantidos || v_item_id;
 
@@ -2854,12 +2889,14 @@ BEGIN
       INSERT INTO public.ocs_importado_itens (
         tenant_id, oc_id, ordem, produto_importado_id, nome_produto, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
         ref_fornecedor, composicao, grade_proporcao, grade_detalhe, variantes, qtd_total, valor_unitario_m1, peso_kg, transporte_m2,
-        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real)
+        desconto_pct, valor_bruto, valor_total_desconto, valor_unitario_real, custo_unitario_landed_real,
+        data_entrega, nota_fiscal, anexo_nf_url, responsavel_recebimento_id, devolucao, revisao)
       VALUES (
         v_tenant, v_oc_id, v_ordem, nullif(it->>'produto_importado_id','')::uuid, coalesce(nullif(it->>'nome_produto',''), ''),
         nullif(it->>'grupo_id','')::uuid, nullif(it->>'categoria_id','')::uuid, nullif(it->>'subcategoria1_id','')::uuid,
         nullif(it->>'subcategoria2_id','')::uuid, it->>'ref_fornecedor', it->>'composicao', coalesce(it->'grade_proporcao','{}'::jsonb),
-        coalesce(it->'grade_detalhe','{}'::jsonb), coalesce(it->'variantes','[]'::jsonb), v_qtd, v_vu, v_peso, v_tr, v_dp, v_bruto, v_vtd, v_vur, 0)
+        coalesce(it->'grade_detalhe','{}'::jsonb), coalesce(it->'variantes','[]'::jsonb), v_qtd, v_vu, v_peso, v_tr, v_dp, v_bruto, v_vtd, v_vur, 0,
+        nullif(it->>'data_entrega','')::date, nullif(it->>'nota_fiscal',''), nullif(it->>'anexo_nf_url',''), v_resp, nullif(it->>'devolucao',''), nullif(it->>'revisao',''))
       RETURNING id INTO v_item_id;
       v_ids_mantidos := v_ids_mantidos || v_item_id;
     END IF;
@@ -2964,12 +3001,14 @@ BEGIN
 
   v_grade_final := coalesce(v_item.grade_detalhe, '{}'::jsonb);
 
+  -- [#16] os campos de recebimento JA foram gravados pelo Salvar acima (itens). As chaves item_* do _dados, quando presentes,
+  -- valem por cima (compatibilidade); AUSENTES = mantem o que o Salvar gravou (antes zeravam).
   UPDATE public.ocs_importado_itens SET
-    data_entrega = nullif(_dados->>'item_data_entrega','')::date,
-    nota_fiscal = _dados->>'item_nota_fiscal',
-    responsavel_recebimento_id = nullif(_dados->>'item_responsavel_recebimento_id','')::uuid,
-    devolucao = _dados->>'item_devolucao',
-    revisao = _dados->>'item_revisao',
+    data_entrega = CASE WHEN _dados ? 'item_data_entrega' THEN nullif(_dados->>'item_data_entrega','')::date ELSE data_entrega END,
+    nota_fiscal = CASE WHEN _dados ? 'item_nota_fiscal' THEN nullif(_dados->>'item_nota_fiscal','') ELSE nota_fiscal END,
+    responsavel_recebimento_id = CASE WHEN _dados ? 'item_responsavel_recebimento_id' THEN nullif(_dados->>'item_responsavel_recebimento_id','')::uuid ELSE responsavel_recebimento_id END,
+    devolucao = CASE WHEN _dados ? 'item_devolucao' THEN nullif(_dados->>'item_devolucao','') ELSE devolucao END,
+    revisao = CASE WHEN _dados ? 'item_revisao' THEN nullif(_dados->>'item_revisao','') ELSE revisao END,
     status = 'recebido',
     updated_at = now()
   WHERE id = _item_id;
@@ -3965,7 +4004,7 @@ BEGIN
     ('public._limpar_produto_acabado_core(uuid)', 'da3d5e8e14c3609fc97f9e73bc8db08d'),
     ('public._salvar_produto_acabado_core(uuid,jsonb,jsonb)', '43a9ec5e03ddd9d85e016cb1ca516843'),
     ('public._custo_unitario_modelos_core(uuid[])', '81de3239233d2efb3565ed3c5ce8cfb3'),
-    ('public._dashboard_leadtime_itens_core(uuid,text,text)', '6a8e9b7662e56356ec5602179636c24c'),
+    ('public._dashboard_leadtime_itens_core(uuid,text,text)', '2f563c9fcf2587abd3d5442e647f59ee'),
     ('public._estoque_extrato_insumo_core(uuid,uuid)', '227331479ecf99b9e39eeca40bbf4512'),
     ('public.fn_modelo_espelho_categoria()', '2e0c70f661e42610e87da2b934dec962'),
     ('public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)', '386051cfffa78f354555cc05721f6cf6'),

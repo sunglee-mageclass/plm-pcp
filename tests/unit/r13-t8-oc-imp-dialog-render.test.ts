@@ -468,3 +468,68 @@ describe("nº do pedido — gerado, mas editável (P-382)", () => {
     expect(texto()).toContain("Gerado automaticamente ao criar. Digite para usar outro número.");
   });
 });
+
+describe("#16 — recebimento do produto grava no SALVAR (sem receber)", () => {
+  const campo = (path: string) => document.querySelector(`[data-colab-path="${path}"]`) as HTMLInputElement | null;
+  it("aviso novo: gravam ao salvar a OC; receber é ação à parte (o texto antigo 'só ao receber' sumiu)", async () => {
+    dados.tabelas.ocs_importado = ocBase([itemRow("A", "Vestido Midi", 1), itemRow("B", "Blusa Lia", 2)]);
+    await montar();
+    await abrir("Vestido Midi");
+    expect(texto()).toContain("Estes dados são gravados ao salvar a OC.");
+    expect(texto()).toContain("Marcar este produto como recebido é uma ação à parte");
+    expect(texto()).not.toContain("gravados ao marcar este produto como recebido");
+  });
+  it("NF digitada vai no _itens do Salvar (e SÓ no Salvar: nada de RPC de receber); a OC fecha como num Salvar normal", async () => {
+    dados.tabelas.ocs_importado = ocBase([itemRow("A", "Vestido Midi", 1), itemRow("B", "Blusa Lia", 2)]);
+    await montar();
+    await abrir("Vestido Midi");
+    await digitar(campo("item:A:nota_fiscal")!, "NF-4512");
+    await act(async () => {   // Revisão é <textarea>
+      const el = campo("item:A:revisao") as unknown as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(el, "conferido");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await clicar(botao("Salvar"));
+    await tick(20);
+    expect(chamadas("receber_item_oc_importado")).toHaveLength(0);
+    const c = chamadas("salvar_oc_importado_itens");
+    expect(c).toHaveLength(1);
+    const a = c[0][1]._itens.find((i: any) => i.id === "A");
+    expect(a).toMatchObject({ nota_fiscal: "NF-4512", revisao: "conferido", data_entrega: null, responsavel_recebimento_id: null, devolucao: null });
+    expect(a).not.toHaveProperty("status");
+    const b = c[0][1]._itens.find((i: any) => i.id === "B");
+    expect(b).toMatchObject({ nota_fiscal: null, data_entrega: null });
+    expect(onSaved).toHaveBeenCalled();
+  });
+  it("o que veio gravado do servidor volta no Salvar (não é zerado) e um refetch alheio NÃO reverte o que digitei", async () => {
+    dados.tabelas.ocs_importado = ocBase([itemRow("A", "Vestido Midi", 1, { nota_fiscal: "NF-GRAVADA", data_entrega: "2026-10-06" }), itemRow("B", "Blusa Lia", 2)]);
+    const qc = await montar();
+    await abrir("Vestido Midi");
+    expect(campo("item:A:nota_fiscal")!.value).toBe("NF-GRAVADA");
+    await digitar(campo("item:A:nota_fiscal")!, "NF-EDITADA");
+    // outra pessoa salva OUTRA coisa (B) -> refetch do Realtime
+    dados.tabelas.ocs_importado = ocBase([itemRow("A", "Vestido Midi", 1, { nota_fiscal: "NF-GRAVADA", data_entrega: "2026-10-06" }), itemRow("B", "Blusa Lia", 2, { revisao: "dela" })], { rev: 6 });
+    await act(async () => { await qc.invalidateQueries({ queryKey: ["oc-importado", "oc1"] }); });
+    await tick(30);
+    expect(campo("item:A:nota_fiscal")!.value).toBe("NF-EDITADA");
+    await clicar(botao("Salvar"));
+    await tick(20);
+    const a = chamadas("salvar_oc_importado_itens")[0][1]._itens.find((i: any) => i.id === "A");
+    expect(a).toMatchObject({ nota_fiscal: "NF-EDITADA", data_entrega: "2026-10-06" });
+    expect(chamadas("salvar_oc_importado_itens")[0][1]._itens.find((i: any) => i.id === "B")).toMatchObject({ revisao: "dela" });
+  });
+  it("RECEBER leva os mesmos campos no _itens (o servidor os grava junto, na mesma transação)", async () => {
+    const A = itemRow("A", "Vestido Midi", 1, { data_entrega: "2026-10-06", nota_fiscal: "NF-7", grade_detalhe: grade(5) });
+    dados.tabelas.ocs_importado = ocBase([A, itemRow("B", "Blusa Lia", 2)]);
+    await montar();
+    await abrir("Vestido Midi");
+    await clicar(botao("Marcar este produto como recebido"));
+    dados.tabelas.ocs_importado = ocBase([{ ...A, status: "recebido" }, itemRow("B", "Blusa Lia", 2)], { rev: 6 });
+    await clicar(botao("Confirmar recebimento"));
+    await tick(20);
+    const c = chamadas("receber_item_oc_importado");
+    expect(c).toHaveLength(1);
+    expect(c[0][1]._itens.find((i: any) => i.id === "A")).toMatchObject({ nota_fiscal: "NF-7", data_entrega: "2026-10-06" });
+    expect(c[0][1]._dados.item_nota_fiscal).toBe("NF-7");
+  });
+});

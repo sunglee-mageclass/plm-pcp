@@ -6,7 +6,7 @@ import { DateField } from "@/components/shared/DateField";
 import { InfoStrip } from "@/components/shared/InfoStrip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GradeDestrinchada } from "./GradeDestrinchada";
-import { TEXTO_GRAVA_AO_RECEBER } from "@/lib/oc-multi-itens";
+import { TEXTO_GRAVA_AO_SALVAR } from "@/lib/oc-multi-itens";
 import { somaGrade, type GradeDetalhe, type VarianteDraft } from "./shared";
 
 export type ColaboradorOpt = { id: string; nome: string };
@@ -29,7 +29,7 @@ export type RecebimentoValor = {
  */
 export function OcPaRecebimento({
   valor, onChange, variantes, tamanhos, grade, onGradeChange, labelVariante, colaboradores, readOnly = false, pathPrefix = "", rodape,
-  mostrarAvisoGravaAoReceber = false,
+  mostrarAvisoGravaAoSalvar = false,
 }: {
   valor: RecebimentoValor;
   onChange: (patch: Partial<RecebimentoValor>) => void;
@@ -43,8 +43,8 @@ export function OcPaRecebimento({
   pathPrefix?: string;
   /** Botão de marcar recebido + dica do que falta. */
   rodape?: ReactNode;
-  /** Item ainda não recebido: avisa que NF/responsável/revisão/devolução/data só são gravados ao receber (o Salvar não os grava). */
-  mostrarAvisoGravaAoReceber?: boolean;
+  /** Item ainda não recebido: avisa que NF/responsável/revisão/devolução/data são gravados no Salvar e que "recebido" é uma ação à parte. */
+  mostrarAvisoGravaAoSalvar?: boolean;
 }) {
   const somaPedida = somaGrade(grade, tamanhos, "pedida");
   const somaRecebida = somaGrade(grade, tamanhos, "recebida");
@@ -58,7 +58,7 @@ export function OcPaRecebimento({
   return (
     <div className="space-y-4">
       <div className="text-xs font-semibold tracking-wide text-muted-foreground">Recebimento deste produto</div>
-      {mostrarAvisoGravaAoReceber && !readOnly && <p className="text-xs text-muted-foreground">{TEXTO_GRAVA_AO_RECEBER}</p>}
+      {mostrarAvisoGravaAoSalvar && !readOnly && <p className="text-xs text-muted-foreground">{TEXTO_GRAVA_AO_SALVAR}</p>}
 
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="grid gap-1">

@@ -8,7 +8,7 @@ export type StatusItemOc = "encomendado" | "recebido";
 export const TEXTO_ITEM_RECEBIDO_NAO_SAI = "Já recebido — não sai da OC";
 export const TEXTO_UNICO_PRODUTO = "Único produto — exclua a OC para desvincular";
 export const TEXTO_OC_COM_RECEBIDO_NAO_EXCLUI = "Há produto recebido — não dá para excluir a OC";
-export const TEXTO_GRAVA_AO_RECEBER = "Estes dados são gravados ao marcar este produto como recebido.";
+export const TEXTO_GRAVA_AO_SALVAR = "Estes dados são gravados ao salvar a OC. Marcar este produto como recebido é uma ação à parte (só ela libera o CQ e o Direcionamento).";
 
 export const produtosTexto = (n: number): string => `${n} ${n === 1 ? "produto" : "produtos"}`;
 

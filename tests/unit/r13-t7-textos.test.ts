@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { textoTirarProdutoDaOc, textoMarcarProdutoRecebido, textoExcluirOc } from "@/lib/confirmacoes-textos";
 import {
   contarRecebidos, motivoNaoExcluirOc, motivoNaoTirar, produtosTexto, textoProdutosDaOc, textoRecebidos,
-  TEXTO_GRAVA_AO_RECEBER, TEXTO_ITEM_RECEBIDO_NAO_SAI, TEXTO_OC_COM_RECEBIDO_NAO_EXCLUI, TEXTO_UNICO_PRODUTO,
+  TEXTO_GRAVA_AO_SALVAR, TEXTO_ITEM_RECEBIDO_NAO_SAI, TEXTO_OC_COM_RECEBIDO_NAO_EXCLUI, TEXTO_UNICO_PRODUTO,
 } from "@/lib/oc-multi-itens";
 
 describe("[R13 T7] confirmacoes-textos — Seção 5 (OC com vários produtos)", () => {
@@ -45,7 +45,8 @@ describe("[R13 T7] oc-multi-itens — textos e regras puras", () => {
     expect(TEXTO_ITEM_RECEBIDO_NAO_SAI).toBe("Já recebido — não sai da OC");
     expect(TEXTO_UNICO_PRODUTO).toBe("Único produto — exclua a OC para desvincular");
     expect(TEXTO_OC_COM_RECEBIDO_NAO_EXCLUI).toBe("Há produto recebido — não dá para excluir a OC");
-    expect(TEXTO_GRAVA_AO_RECEBER).toContain("gravados ao marcar este produto como recebido");
+    expect(TEXTO_GRAVA_AO_SALVAR).toContain("gravados ao salvar a OC");
+    expect(TEXTO_GRAVA_AO_SALVAR).toContain("ação à parte");
   });
   it("topo 'X de N produtos recebidos' (singular com 1)", () => {
     expect(textoRecebidos(1, 3)).toBe("1 de 3 produtos recebidos");

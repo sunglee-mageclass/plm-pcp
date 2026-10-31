@@ -99,7 +99,7 @@ const R13_SUCESSOR: Record<string, string> = {
   "public._limpar_produto_acabado_core(uuid)": "da3d5e8e14c3609fc97f9e73bc8db08d",
   "public._salvar_produto_acabado_core(uuid,jsonb,jsonb)": "43a9ec5e03ddd9d85e016cb1ca516843",
   "public._custo_unitario_modelos_core(uuid[])": "81de3239233d2efb3565ed3c5ce8cfb3", // pino 173000
-  "public._dashboard_leadtime_itens_core(uuid,text,text)": "6a8e9b7662e56356ec5602179636c24c",
+  "public._dashboard_leadtime_itens_core(uuid,text,text)": "2f563c9fcf2587abd3d5442e647f59ee",
   "public._estoque_extrato_insumo_core(uuid,uuid)": "227331479ecf99b9e39eeca40bbf4512", // pino 177000
   "public.fn_modelo_espelho_categoria()": "2e0c70f661e42610e87da2b934dec962",
   // T3 — Produto Importado

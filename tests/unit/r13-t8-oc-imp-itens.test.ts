@@ -61,13 +61,19 @@ describe("payloads — o contrato de salvar_oc_importado_itens", () => {
     expect(totaisDoItem(p).total).toBe(1200); // a tela mostra o que o servidor vai montar
     expect(p.custo_unitario_landed_real).toBe(0); // landed só existe depois de salvo
   });
-  it("item salvo: manda id, compra (M1, peso, transporte, desconto) e a grade INTEIRA; NUNCA status, landed nem recebimento", () => {
+  it("item salvo: manda id, compra (M1, peso, transporte, desconto), a grade INTEIRA e o recebimento (#16: grava no Salvar); NUNCA status nem landed", () => {
     const pl = itemParaPayload(item());
     expect(pl).toMatchObject({ id: "i1", produto_importado_id: "p1", nome_produto: "Vestido Midi", qtd_total: 10, valor_unitario_m1: 62.5, peso_kg: 0.4, transporte_m2: 12, desconto_pct: 5, ref_fornecedor: "RF1" });
     expect(Object.keys(pl)).toEqual(expect.arrayContaining(["grade_detalhe", "variantes", "grade_proporcao"]));
-    for (const k of ["status", "custo_unitario_landed_real", "data_entrega", "nota_fiscal", "responsavel_recebimento_id", "devolucao", "revisao", "do_produto", "tempId", "valor_unitario"]) {
+    expect(pl).toMatchObject({ data_entrega: null, nota_fiscal: null, responsavel_recebimento_id: null, devolucao: null, revisao: null });
+    for (const k of ["status", "custo_unitario_landed_real", "do_produto", "tempId", "valor_unitario"]) {
       expect(pl).not.toHaveProperty(k);
     }
+  });
+  it("#16: o recebimento digitado (NF/data/responsável/devolução/revisão) entra no payload do SALVAR do item, sem precisar receber", () => {
+    const pl = itemParaPayload(item({ data_entrega: "2026-10-05", nota_fiscal: "4512", responsavel_recebimento_id: "u1", devolucao: "2 peças", revisao: "ok" }));
+    expect(pl).toMatchObject({ id: "i1", data_entrega: "2026-10-05", nota_fiscal: "4512", responsavel_recebimento_id: "u1", devolucao: "2 peças", revisao: "ok" });
+    expect(pl).not.toHaveProperty("status");
   });
   it("item avulso novo: sem id; texto vazio vira null", () => {
     const pl = itemParaPayload({ ...itemAvulsoVazio(), nome_produto: "Cinto" });

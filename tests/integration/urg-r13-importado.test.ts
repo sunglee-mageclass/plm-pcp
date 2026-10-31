@@ -501,3 +501,178 @@ async function conferirLandedRateado(c: any, ocId: string) {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// #16 (Onda 2): os campos de recebimento DO ITEM (NF, responsavel, data de entrega, devolucao, revisao, anexo da NF) gravam no
+// SALVAR normal da OC, ANTES de marcar recebido. Receber continua ACAO SEPARADA (so ela muda status e materializa CAD/CQ).
+(rodar ? describe : describe.skip)("#16 — recebimento do item grava no Salvar, sem receber (PI)", () => {
+  const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979";
+  const colab = async (c: any, tenant: string) =>
+    (await um<any>(c, `insert into colaboradores (tenant_id, nome, tipo) values ($1,$2,'ITEST #16') returning id`, [tenant, uq("Recebedor Imp")])).id as string;
+  const pedirUm = async (c: any, emp: string, produtoIds: string[]) =>
+    (await pedir(c, [{ empresa_id: emp, data_pedido: "2026-02-01", data_prevista: "2026-03-01", moeda_compra: "RMB", moeda_intermediaria: "USD", produto_ids: produtoIds }]))[0].oc_id as string;
+
+  const estadoComRec = async (c: any, oc: string, rec: Record<string, any>) => {
+    const r = (await c.query(`select id, produto_importado_id, qtd_total, valor_unitario_m1, peso_kg, transporte_m2, desconto_pct, grade_detalhe, variantes from ocs_importado_itens where oc_id=$1 order by ordem`, [oc])).rows;
+    return r.map((x: any) => ({ id: x.id, produto_importado_id: x.produto_importado_id, qtd_total: Number(x.qtd_total), valor_unitario_m1: Number(x.valor_unitario_m1),
+      peso_kg: Number(x.peso_kg), transporte_m2: Number(x.transporte_m2), desconto_pct: Number(x.desconto_pct), grade_detalhe: x.grade_detalhe, variantes: x.variantes, ...rec }));
+  };
+  const salvar = async (c: any, oc: string, emp: string, itens: any[]) => {
+    const rev = Number((await um<any>(c, `select rev from ocs_importado where id=$1`, [oc])).rev);
+    await c.query(`select public.salvar_oc_importado_itens($1, $2::jsonb, $3::jsonb, null, $4)`, [oc, JSON.stringify({ empresa_id: emp }), JSON.stringify(itens), rev]);
+  };
+  const item = async (c: any, oc: string) =>
+    um<any>(c, `select status, data_entrega::text as data_entrega, nota_fiscal, responsavel_recebimento_id, devolucao, revisao, anexo_nf_url, valor_unitario_m1, qtd_total from ocs_importado_itens where oc_id=$1`, [oc]);
+  const receber = async (c: any, oc: string, itId: string, dados: any) => {
+    const rev = Number((await um<any>(c, `select rev from ocs_importado where id=$1`, [oc])).rev);
+    await c.query(`select public.receber_item_oc_importado($1, $2, $3::jsonb, $4::jsonb, null, $5)`, [oc, itId, JSON.stringify(dados), JSON.stringify(await estadoComRec(c, oc, {})), rev]);
+  };
+
+  it("salvar NF/responsavel/data/devolucao/revisao/anexo SEM receber: ficam gravados; item e OC seguem encomendados; nada de CAD/CQ; cabecalho sem data de entrega", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const p1 = await prodImp(c, { nome: "P1", grupo: g, cat, empresa: emp, qtd: 2, vu: 50 });
+      const m1 = await comCard(c, p1);
+      const oc = await pedirUm(c, emp, [p1]);
+      const resp = await colab(c, TENANT_TESTE);
+      const parcAntes = (await um<any>(c, `select coalesce(sum(valor),0)::text s from parcelas where oc_importado_id=$1 and tipo_oc='p_importado'`, [oc])).s;
+
+      await salvar(c, oc, emp, await estadoComRec(c, oc, {
+        data_entrega: "2026-03-10", nota_fiscal: "NF-1234", responsavel_recebimento_id: resp, devolucao: "2 pecas", revisao: "ok", anexo_nf_url: "tenant/nf.pdf",
+      }));
+
+      const it = await item(c, oc);
+      expect(it).toMatchObject({ data_entrega: "2026-03-10", nota_fiscal: "NF-1234", responsavel_recebimento_id: resp, devolucao: "2 pecas", revisao: "ok", anexo_nf_url: "tenant/nf.pdf" });
+      expect(it.status).toBe("encomendado");
+      const cab = await um<any>(c, `select status, data_entrega from ocs_importado where id=$1`, [oc]);
+      expect(cab.status).toBe("encomendado");
+      expect(cab.data_entrega).toBeNull();
+      expect(Number((await um<any>(c, `select count(*) n from cad where modelo_id=$1`, [m1])).n)).toBe(0);
+      expect(Number((await um<any>(c, `select count(*) n from controle_qualidade where cad_id in (select id from cad where modelo_id=$1)`, [m1])).n)).toBe(0);
+      expect((await um<any>(c, `select coalesce(sum(valor),0)::text s from parcelas where oc_importado_id=$1 and tipo_oc='p_importado'`, [oc])).s).toBe(parcAntes);
+    });
+  });
+
+  it("chave AUSENTE mantem; vazio/null limpa; editar a NF e salvar de novo persiste", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const p1 = await prodImp(c, { nome: "P1", grupo: g, cat, empresa: emp });
+      const oc = await pedirUm(c, emp, [p1]);
+      const resp = await colab(c, TENANT_TESTE);
+      await salvar(c, oc, emp, await estadoComRec(c, oc, { data_entrega: "2026-03-10", nota_fiscal: "NF-1", responsavel_recebimento_id: resp, revisao: "r1", devolucao: "d1" }));
+
+      await salvar(c, oc, emp, await estadoComRec(c, oc, {}));
+      expect(await item(c, oc)).toMatchObject({ data_entrega: "2026-03-10", nota_fiscal: "NF-1", responsavel_recebimento_id: resp, revisao: "r1", devolucao: "d1" });
+
+      await salvar(c, oc, emp, await estadoComRec(c, oc, { nota_fiscal: "NF-2" }));
+      expect(await item(c, oc)).toMatchObject({ data_entrega: "2026-03-10", nota_fiscal: "NF-2", responsavel_recebimento_id: resp, revisao: "r1" });
+
+      await salvar(c, oc, emp, await estadoComRec(c, oc, { data_entrega: "", nota_fiscal: "", responsavel_recebimento_id: null, revisao: null, devolucao: "" }));
+      const it = await item(c, oc);
+      expect(it.data_entrega).toBeNull();
+      expect(it.nota_fiscal).toBeNull();
+      expect(it.responsavel_recebimento_id).toBeNull();
+      expect(it.revisao).toBeNull();
+      expect(it.devolucao).toBeNull();
+      expect(it.status).toBe("encomendado");
+    });
+  });
+
+  it("depois, RECEBER materializa (CAD/CQ, status) e preserva o que o Salvar gravou; receber sem item_* no _dados nao zera a NF", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const p1 = await prodImp(c, { nome: "P1", grupo: g, cat, empresa: emp, qtd: 2, vu: 50 });
+      const m1 = await comCard(c, p1);
+      const oc = await pedirUm(c, emp, [p1]);
+      const resp = await colab(c, TENANT_TESTE);
+      await salvar(c, oc, emp, await estadoComRec(c, oc, { data_entrega: "2026-03-10", nota_fiscal: "NF-PRE", responsavel_recebimento_id: resp }));
+      expect(Number((await um<any>(c, `select count(*) n from cad where modelo_id=$1`, [m1])).n)).toBe(0);
+
+      const itId = (await um<any>(c, `select id from ocs_importado_itens where oc_id=$1`, [oc])).id;
+      await receber(c, oc, itId, {});
+      expect(await item(c, oc)).toMatchObject({ status: "recebido", data_entrega: "2026-03-10", nota_fiscal: "NF-PRE", responsavel_recebimento_id: resp });
+      expect(Number((await um<any>(c, `select count(*) n from cad where modelo_id=$1`, [m1])).n)).toBe(1);
+      expect(Number((await um<any>(c, `select count(*) n from controle_qualidade where cad_id in (select id from cad where modelo_id=$1)`, [m1])).n)).toBe(1);
+      expect(await um<any>(c, `select status, data_entrega::text as data_entrega from ocs_importado where id=$1`, [oc])).toMatchObject({ status: "recebido", data_entrega: "2026-03-10" });
+    });
+  });
+
+  it("item JA recebido: editar NF/revisao e salvar persiste (valor/qtd seguem travados) e o status nao muda", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const p1 = await prodImp(c, { nome: "P1", grupo: g, cat, empresa: emp, qtd: 2, vu: 50 });
+      await comCard(c, p1);
+      const oc = await pedirUm(c, emp, [p1]);
+      const itId = (await um<any>(c, `select id from ocs_importado_itens where oc_id=$1`, [oc])).id;
+      await receber(c, oc, itId, { item_data_entrega: "2026-03-10", item_nota_fiscal: "NF-A" });
+      expect((await item(c, oc)).status).toBe("recebido");
+
+      await salvar(c, oc, emp, await estadoComRec(c, oc, { nota_fiscal: "NF-B", revisao: "revisado depois" }));
+      expect(await item(c, oc)).toMatchObject({ status: "recebido", nota_fiscal: "NF-B", revisao: "revisado depois", data_entrega: "2026-03-10" });
+
+      await c.query(`SAVEPOINT sp`);
+      let msg = "";
+      try { await salvar(c, oc, emp, await estadoComRec(c, oc, { valor_unitario_m1: 999 })); } catch (e: any) { msg = String(e?.message ?? ""); }
+      await c.query(`ROLLBACK TO SAVEPOINT sp`);
+      expect(msg).toMatch(/Item recebido/i);
+    });
+  });
+
+  it("item NOVO (avulso, OC nova e OC existente; e do_produto) ja nasce com os campos de recebimento", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const resp = await colab(c, TENANT_TESTE);
+      const avulso = { nome_produto: "Avulso Imp #16", qtd_total: 4, valor_unitario_m1: 10, peso_kg: 1, transporte_m2: 0, grade_proporcao: { P: 1, M: 3 },
+        variantes: [{ ordem: 0, peso: 1, qtd: 4 }], grade_detalhe: { "0": { P: { pedida: 1 }, M: { pedida: 3 } } },
+        nota_fiscal: "NF-NOVA", data_entrega: "2026-05-02", responsavel_recebimento_id: resp, revisao: "nova", devolucao: "nada", anexo_nf_url: "t/x.pdf" };
+      const novo = (await um<any>(c, `select public.salvar_oc_importado_itens(null, $1::jsonb, $2::jsonb, null, null) as id`,
+        [JSON.stringify({ empresa_id: emp, moeda_compra: "RMB", cotacao_ref: 1, cotacao_final: 1 }), JSON.stringify([avulso])])).id;
+      expect(await item(c, novo)).toMatchObject({ status: "encomendado", nota_fiscal: "NF-NOVA", data_entrega: "2026-05-02", responsavel_recebimento_id: resp, revisao: "nova", devolucao: "nada", anexo_nf_url: "t/x.pdf" });
+
+      const p1 = await prodImp(c, { nome: "P1", grupo: g, cat, empresa: emp, qtd: 5, vu: 20 });
+      const oc = await pedirUm(c, emp, [await prodImp(c, { nome: "P0", grupo: g, cat, empresa: emp })]);
+      const estado = await estadoComRec(c, oc, {});
+      await salvar(c, oc, emp, [...estado,
+        { produto_importado_id: p1, do_produto: true, nota_fiscal: "NF-DOP", data_entrega: "2026-06-01" },
+        { ...avulso, nome_produto: "Avulso Imp 2 #16", nota_fiscal: "NF-AV2" }]);
+      const linhas = (await c.query(`select nota_fiscal, data_entrega::text as d from ocs_importado_itens where oc_id=$1 order by ordem`, [oc])).rows;
+      expect(linhas.map((l: any) => l.nota_fiscal)).toEqual([null, "NF-DOP", "NF-AV2"]);
+      expect(linhas[1].d).toBe("2026-06-01");
+      expect(Number((await um<any>(c, `select count(*) n from ocs_importado_itens where oc_id=$1 and status='recebido'`, [oc])).n)).toBe(0);
+    });
+  });
+
+  it("responsavel de OUTRA loja e recusado (P0001, ASCII) e nada grava", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const p1 = await prodImp(c, { nome: "P1", grupo: g, cat, empresa: emp });
+      const oc = await pedirUm(c, emp, [p1]);
+      const outro = await colab(c, AVE_RARA);
+      await c.query(`SAVEPOINT sp`);
+      let msg = "";
+      try { await salvar(c, oc, emp, await estadoComRec(c, oc, { nota_fiscal: "NF-X", responsavel_recebimento_id: outro })); } catch (e: any) { msg = String(e?.message ?? ""); }
+      await c.query(`ROLLBACK TO SAVEPOINT sp`);
+      expect(msg).toMatch(/responsavel_loja_diferente/);
+      expect(/^[\x00-\x7f]*$/.test(msg)).toBe(true);
+      expect((await item(c, oc)).nota_fiscal).toBeNull();
+    });
+  });
+
+  it("Leadtime 'compra': so conta item RECEBIDO (data de entrega pre-gravada no Salvar nao vira recebimento)", async () => {
+    await withTx(async (c) => {
+      const { g, cat, emp } = await base(c);
+      const p1 = await prodImp(c, { nome: "P1", grupo: g, cat, empresa: emp, qtd: 2, vu: 50 });
+      const m1 = await comCard(c, p1);
+      const oc = await pedirUm(c, emp, [p1]); // data_pedido 2026-02-01
+      await salvar(c, oc, emp, await estadoComRec(c, oc, { data_entrega: "2026-03-10" }));
+      const compra = async () => {
+        const itens: any[] = (await um<any>(c, `select public._dashboard_leadtime_itens_core() as r`)).r.itens ?? [];
+        return itens.find((i: any) => i.modelo_id === m1)?.duracoes?.compra;
+      };
+      expect(await compra()).toBeUndefined();
+      const itId = (await um<any>(c, `select id from ocs_importado_itens where oc_id=$1`, [oc])).id;
+      await receber(c, oc, itId, {});
+      expect(Number(await compra())).toBe(37);
+    });
+  });
+});

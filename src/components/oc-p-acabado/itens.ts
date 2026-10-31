@@ -6,8 +6,9 @@
 // Contrato do servidor (migration 20261105100000, lido, não inventado):
 //   - `salvar_oc_p_acabado_itens(_id,_dados,_itens,_rev_base)`: estado COMPLETO com diff por `id`; item sem `id` + `{produto_acabado_id,
 //     do_produto:true}` = "Adicionar produto" (o servidor monta do produto); item sem `id` e sem `do_produto` = avulso digitado.
-//     Item ausente = tirado. O UPDATE de um item NÃO grava os campos de recebimento (data/NF/responsável/devolução/revisão): esses
-//     só entram em `receber_item_oc_p_acabado` (chaves `item_*` do `_dados`).
+//     Item ausente = tirado. O item TAMBÉM leva os campos de recebimento (data de entrega/NF/responsável/devolução/revisão — [#16 Onda 2]):
+//     gravam no Salvar normal, antes de receber (chave ausente = mantém; vazio = limpa). `receber_item_oc_p_acabado` segue AÇÃO SEPARADA:
+//     só ela muda o status do item e materializa CAD/CQ — preencher a NF NÃO recebe.
 //   - `status` do item e do cabeçalho NÃO são do rascunho: seguem sempre o servidor.
 import { cadeiaValores } from "@/lib/produto-acabado";
 import { payloadDataNota } from "@/lib/nota-entrada";
@@ -41,7 +42,7 @@ export type ItemOcPa = {
   grade: GradeDetalhe;
   /** Do servidor — só leitura (nunca vai no Salvar). */
   status: OcPaStatus;
-  // Recebimento do produto (rascunho; só vai em `receber_item_oc_p_acabado`).
+  // Recebimento do produto: campos normais do item (vão no Salvar; [#16 Onda 2]). Receber é ação à parte.
   data_entrega: string;
   nota_fiscal: string;
   responsavel_recebimento_id: string | null;
@@ -189,12 +190,18 @@ export function itemParaPayload(i: ItemOcPa): Record<string, unknown> {
     valor_unitario: i.valor_unitario,
     desconto_pct: i.desconto_pct,
     grade_detalhe: i.grade,
+    // [#16 Onda 2] recebimento do produto grava no Salvar (vazio = limpa). NÃO recebe: o estado do item e o CAD/CQ são só do "Marcar como recebido".
+    data_entrega: i.data_entrega || null,
+    nota_fiscal: i.nota_fiscal || null,
+    responsavel_recebimento_id: i.responsavel_recebimento_id,
+    devolucao: i.devolucao || null,
+    revisao: i.revisao || null,
   };
 }
 
 export const itensParaPayload = (itens: ReadonlyArray<ItemOcPa>): Record<string, unknown>[] => itens.map(itemParaPayload);
 
-/** `_dados` do Receber: o cabeçalho + as chaves `item_*` do produto que está sendo recebido. */
+/** `_dados` do Receber: o cabeçalho + as chaves `item_*` do produto que está sendo recebido (os mesmos valores que o Salvar do `_itens` já grava). */
 export function dadosDoRecebimento(d: CabecalhoDraft, item: ItemOcPa): Record<string, unknown> {
   return {
     ...cabecalhoParaPayload(d),

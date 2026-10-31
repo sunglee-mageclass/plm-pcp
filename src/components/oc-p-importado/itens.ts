@@ -4,8 +4,9 @@
 // Contrato do servidor (migration 20261105100000, lido, não inventado):
 //   - `salvar_oc_importado_itens(_id,_dados,_itens,_etapas,_rev_base)`: estado COMPLETO com diff por `id`; item sem `id` + `{produto_importado_id,
 //     do_produto:true}` = "Adicionar produto" (o servidor monta do produto SALVO); item sem `id` e sem `do_produto` = avulso digitado.
-//     Item ausente = tirado. `_etapas` = estado completo do cronograma (delete+reinsert). O UPDATE de um item NÃO grava os campos de
-//     recebimento (data/NF/responsável/devolução/revisão): esses só entram em `receber_item_oc_importado` (chaves `item_*` do `_dados`).
+//     Item ausente = tirado. `_etapas` = estado completo do cronograma (delete+reinsert). O item TAMBÉM leva os campos de recebimento
+//     (data de entrega/NF/responsável/devolução/revisão — [#16 Onda 2]): gravam no Salvar normal, antes de receber (chave ausente = mantém;
+//     vazio = limpa). `receber_item_oc_importado` segue AÇÃO SEPARADA: só ela muda o status do item e materializa CAD/CQ.
 //   - `status` do item e do cabeçalho NÃO são do rascunho: seguem sempre o servidor (S6). O mesmo vale para o landed: é derivado no
 //     servidor a partir das etapas (`_imp_recalcular_landed_real_oc`) — a tela NUNCA o recalcula, só o mostra.
 import { cadeiaValores } from "@/lib/produto-acabado";
@@ -48,7 +49,7 @@ export type ItemOcImp = {
   status: OcImportadoStatus;
   /** Custo landed unitário REAL do item (BRL) — derivado no servidor; só leitura (nunca vai no Salvar). 0 = ainda não calculado. */
   custo_unitario_landed_real: number;
-  // Recebimento do produto (rascunho; só vai em `receber_item_oc_importado`).
+  // Recebimento do produto: campos normais do item (vão no Salvar; [#16 Onda 2]). Receber é ação à parte.
   data_entrega: string;
   nota_fiscal: string;
   responsavel_recebimento_id: string | null;
@@ -210,6 +211,12 @@ export function itemParaPayload(i: ItemOcImp): Record<string, unknown> {
     transporte_m2: i.transporte_m2,
     desconto_pct: i.desconto_pct,
     grade_detalhe: i.grade,
+    // [#16 Onda 2] recebimento do produto grava no Salvar (vazio = limpa). NÃO recebe: o estado do item e o CAD/CQ são só do "Marcar como recebido".
+    data_entrega: i.data_entrega || null,
+    nota_fiscal: i.nota_fiscal || null,
+    responsavel_recebimento_id: i.responsavel_recebimento_id,
+    devolucao: i.devolucao || null,
+    revisao: i.revisao || null,
   };
 }
 

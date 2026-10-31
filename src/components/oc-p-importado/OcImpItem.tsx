@@ -301,7 +301,7 @@ export function OcImpItem({
           colaboradores={colaboradores}
           readOnly={somenteLeitura || recebido}
           pathPrefix={prefixo}
-          mostrarAvisoGravaAoReceber={!recebido}
+          mostrarAvisoGravaAoSalvar={!recebido}
           rodape={
             recebido ? (
               <span className="text-xs text-muted-foreground">Entrada registrada. CQ e Direcionamento liberados para este produto.</span>

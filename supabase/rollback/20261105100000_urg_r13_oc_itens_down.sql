@@ -26,7 +26,7 @@ BEGIN
     ('public._vincular_oc_p_acabado_core(uuid,uuid)','68df0a0954571d756a62f3e3c570893b'),
     ('public._custo_unitario_modelos_core(uuid[])','81de3239233d2efb3565ed3c5ce8cfb3'),
     ('public._estoque_extrato_insumo_core(uuid,uuid)','227331479ecf99b9e39eeca40bbf4512'),
-    ('public._dashboard_leadtime_itens_core(uuid,text,text)','6a8e9b7662e56356ec5602179636c24c'),
+    ('public._dashboard_leadtime_itens_core(uuid,text,text)','2f563c9fcf2587abd3d5442e647f59ee'),
     ('public.fn_modelo_espelho_categoria()','2e0c70f661e42610e87da2b934dec962'),
     -- T3: confere que o lado Produto Importado tambem esta no DEPOIS (nao desfazer fora de ordem)
     ('public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)','386051cfffa78f354555cc05721f6cf6'),
