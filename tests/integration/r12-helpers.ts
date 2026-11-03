@@ -24,7 +24,7 @@ const DROP = `supabase/rollback/${NOME}_down_drop.sql`;
 const R12_MD5: Record<string, { antes: string; depois: string }> = {
   "public.salvar_config_loja(uuid,jsonb,jsonb,boolean)": {
     antes: "27fdf9f2c9b2d1fe49577e9d30eaa574",
-    depois: "4525360afafe5fde02502dc2a5941af6",
+    depois: "43c4b4d6a658bfcbaf1c29dc615aecf0",
   },
   "public._mo_liberada(uuid)": {
     antes: "c54a262df580e35a64222eedfa5f3a50",
@@ -32,7 +32,7 @@ const R12_MD5: Record<string, { antes: string; depois: string }> = {
   },
   "public.fn_modelo_mo_flag_derivada()": {
     antes: "3a771d9f2f9fde46ee0c540c29b9a3b0",
-    depois: "0fc2e7695fa33eb1f33564d12260660c",
+    depois: "f0fc9e3547399ce9fdf592140870097e",
   },
 };
 

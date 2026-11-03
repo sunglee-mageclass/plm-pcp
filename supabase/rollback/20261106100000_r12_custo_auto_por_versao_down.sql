@@ -19,7 +19,7 @@ DECLARE
   v text;
 BEGIN
   v := md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)')));
-  IF v IS NULL OR v NOT IN ('27fdf9f2c9b2d1fe49577e9d30eaa574', '4525360afafe5fde02502dc2a5941af6') THEN
+  IF v IS NULL OR v NOT IN ('27fdf9f2c9b2d1fe49577e9d30eaa574', '43c4b4d6a658bfcbaf1c29dc615aecf0') THEN
     RAISE EXCEPTION 'r12_down: salvar_config_loja com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;
@@ -28,7 +28,7 @@ BEGIN
     RAISE EXCEPTION 'r12_down: _mo_liberada(uuid) com texto inesperado (md5 %)', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_mo_flag_derivada()')));
-  IF v IS NULL OR v NOT IN ('3a771d9f2f9fde46ee0c540c29b9a3b0', '0fc2e7695fa33eb1f33564d12260660c') THEN
+  IF v IS NULL OR v NOT IN ('3a771d9f2f9fde46ee0c540c29b9a3b0', 'f0fc9e3547399ce9fdf592140870097e') THEN
     RAISE EXCEPTION 'r12_down: fn_modelo_mo_flag_derivada com texto inesperado (md5 %)', coalesce(v, 'ausente') USING ERRCODE = 'P0001';
   END IF;
 END

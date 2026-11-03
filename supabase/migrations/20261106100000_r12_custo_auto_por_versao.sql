@@ -1,34 +1,34 @@
 -- R12 (Onda 3) - Aprovar o custo automaticamente quando a versao nao ficar mais cara (toggle por loja).
 -- GERADO por .superpowers/sdd/2026-11-03-r12/mig/gerar.py (nunca editar a mao). Brief: .superpowers/sdd/2026-11-03-r12/r12-banco-brief.md
 -- O que muda:
---   1) coluna NOVA public.tenant_config.aprovar_custo_auto_por_versao boolean NOT NULL DEFAULT false (default constante: so catalogo, sem reescrever a
---      tabela; toda loja nasce DESLIGADA = comportamento de hoje). Sem GRANT novo (authenticated ja le a tabela; quem grava e
+--   1) coluna NOVA public.tenant_config.aprovar_custo_auto_por_versao text NOT NULL DEFAULT 'nenhum' + CHECK ('nenhum','interno','todos') (default constante:
+--      so catalogo, sem reescrever a tabela; toda loja nasce em 'nenhum' = comportamento de hoje). Sem GRANT novo (authenticated ja le a tabela; quem grava e
 --      salvar_config_loja, compare-and-set por coluna, igual as outras 18 colunas da Config da Loja).
---   2) helpers NOVOS _mo_custo_auto_liberado(uuid) e _mo_custo_auto_liberado(uuid,int,numeric) (SQL STABLE SECURITY DEFINER,
---      search_path=public, EXECUTE revogado de PUBLIC/anon/authenticated): o 2o caminho da regra - toggle da loja ligado E
---      versao > 1 E sem M.O. REPROVADA (pendente nao veta) E existe versao anterior E custo_peca_previsto <= o da anterior
---      (NULL em qualquer custo = false).
+--   2) helpers NOVOS _mo_custo_auto_liberado(uuid) e _mo_custo_auto_liberado(uuid,int,numeric,text) (SQL STABLE SECURITY DEFINER,
+--      search_path=public, EXECUTE revogado de PUBLIC/anon/authenticated): o 2o caminho da regra - modo da loja 'interno' (so card de
+--      origem interno) ou 'todos' (qualquer origem; P-385: a loja decide) E versao > 1 E sem M.O. REPROVADA (pendente nao veta) E
+--      existe versao anterior E custo_peca_previsto <= o da anterior (NULL em qualquer custo = false). 'nenhum' = nunca.
 --   3) _mo_liberada(uuid) estendida: (regra de hoje) OR _mo_custo_auto_liberado(id) - assinatura/ACL/DEFINER/STABLE iguais; mais um
---      overload _mo_liberada(uuid,int,numeric) com versao e custo da linha NOVA (EXECUTE revogado dos 3).
+--      overload _mo_liberada(uuid,int,numeric,text) com versao, custo e origem da linha NOVA (EXECUTE revogado dos 3).
 --   4) fn_modelo_mo_flag_derivada (trg_modelo_mo_flag, BEFORE INSERT/UPDATE em modelos) passa a chamar o overload com
---      NEW.versao/NEW.custo_peca_previsto: um BEFORE le a linha NOVA, nao a gravada. ORDEM DOS GATILHOS: sem renomear nada - o
+--      NEW.versao/NEW.custo_peca_previsto/NEW.origem: um BEFORE le a linha NOVA, nao a gravada. ORDEM DOS GATILHOS: sem renomear nada - o
 --      Postgres dispara BEFORE por ordem alfabetica e trg_modelo_custo_derivado < trg_modelo_mo_flag ('c' < 'm'); ele ja
 --      devolveu/definiu custo_peca_previsto quando o flag e derivado. Pinado em tests/integration/r12-custo-auto-versao.test.ts.
 --      fn_modelo_servico_mo_rollup NAO muda (chama _mo_liberada(uuid), que ja cobre o caminho novo).
---   5) salvar_config_loja (1x CREATE OR REPLACE, troca EXATA sobre o vivo, 3 ancoras 1x; ACL/DEFINER/VOLATILE/search_path
---      preservados): 'aprovar_custo_auto_por_versao' entra na lista branca (booleano obrigatorio; null/texto = recusa P0001) e no UPDATE estatico; o
+--   5) salvar_config_loja (1x CREATE OR REPLACE, troca EXATA sobre o vivo, 3 ancoras 1x, uma delas insere o ramo de validacao; ACL/DEFINER/VOLATILE/search_path
+--      preservados): 'aprovar_custo_auto_por_versao' entra na lista branca (texto: so 'nenhum'/'interno'/'todos'; null/outro valor = recusa P0001) e no UPDATE estatico; o
 --      compare-and-set por coluna e o generico (P0409 conflito_versao: config_loja, DETAIL aprovar_custo_auto_por_versao).
--- Nenhum dado muda (a coluna nasce false em todas as lojas; nenhum flag de card e regravado pela migration).
--- Ligar o toggle NAO reavalia os cards sozinho (igual as outras configs): o flag acerta na proxima gravacao do card.
+-- Nenhum dado muda (a coluna nasce 'nenhum' em todas as lojas; nenhum flag de card e regravado pela migration).
+-- Mudar o modo NAO reavalia os cards sozinho (igual as outras configs): o flag acerta na proxima gravacao do card.
 -- Trava: ADD COLUMN pede AccessExclusive em public.tenant_config por ms (a tabela que todo portao de modulo/RLS le): tentativa
 -- ATOMICA (LOCK TABLE + ADD COLUMN) com lock_timeout 1500ms, ate 3x com 1s de pausa (padrao da 174000); 55P03 = nada mudou, rodar
 -- de novo. Reaplicar com a coluna ja criada NAO pega trava. As funcoes sao so catalogo. HORARIO CALMO.
 -- ATENCAO (LIFO): enquanto esta migration estiver viva, o inverso/guarda que fixa o md5 de salvar_config_loja
 -- (27fdf9f2c9b2d1fe49577e9d30eaa574) recusa - desfazer ESTA antes.
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
---   public.salvar_config_loja(uuid,jsonb,jsonb,boolean)  ANTES 27fdf9f2c9b2d1fe49577e9d30eaa574  DEPOIS 4525360afafe5fde02502dc2a5941af6
+--   public.salvar_config_loja(uuid,jsonb,jsonb,boolean)  ANTES 27fdf9f2c9b2d1fe49577e9d30eaa574  DEPOIS 43c4b4d6a658bfcbaf1c29dc615aecf0
 --   public._mo_liberada(uuid)                            ANTES c54a262df580e35a64222eedfa5f3a50  DEPOIS 9fb23d074c6cd1bda585cbb02f085605
---   public.fn_modelo_mo_flag_derivada()                  ANTES 3a771d9f2f9fde46ee0c540c29b9a3b0  DEPOIS 0fc2e7695fa33eb1f33564d12260660c
+--   public.fn_modelo_mo_flag_derivada()                  ANTES 3a771d9f2f9fde46ee0c540c29b9a3b0  DEPOIS f0fc9e3547399ce9fdf592140870097e
 -- ====================================================================================
 -- Volta: supabase/rollback/20261106100000_r12_custo_auto_por_versao_down.sql (devolve os 3 textos de antes; coluna e helpers FICAM inertes).
 -- Drops opcionais: supabase/rollback/20261106100000_r12_custo_auto_por_versao_down_drop.sql (horario calmo).
@@ -43,7 +43,7 @@ DECLARE
   v text;
 BEGIN
   v := md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)')));
-  IF v IS NULL OR v NOT IN ('27fdf9f2c9b2d1fe49577e9d30eaa574', '4525360afafe5fde02502dc2a5941af6') THEN
+  IF v IS NULL OR v NOT IN ('27fdf9f2c9b2d1fe49577e9d30eaa574', '43c4b4d6a658bfcbaf1c29dc615aecf0') THEN
     RAISE EXCEPTION 'r12: salvar_config_loja com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;
@@ -53,7 +53,7 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
   v := md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_mo_flag_derivada()')));
-  IF v IS NULL OR v NOT IN ('3a771d9f2f9fde46ee0c540c29b9a3b0', '0fc2e7695fa33eb1f33564d12260660c') THEN
+  IF v IS NULL OR v NOT IN ('3a771d9f2f9fde46ee0c540c29b9a3b0', 'f0fc9e3547399ce9fdf592140870097e') THEN
     RAISE EXCEPTION 'r12: fn_modelo_mo_flag_derivada com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;
@@ -63,7 +63,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.tenant_config'::regclass AND attname = 'aprovar_custo_auto_por_versao' AND NOT attisdropped)
      AND NOT EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
                       WHERE a.attrelid = 'public.tenant_config'::regclass AND a.attname = 'aprovar_custo_auto_por_versao' AND NOT a.attisdropped
-                        AND a.atttypid = 'boolean'::regtype AND a.attnotnull AND pg_get_expr(d.adbin, d.adrelid) = 'false') THEN
+                        AND a.atttypid = 'text'::regtype AND a.attnotnull AND pg_get_expr(d.adbin, d.adrelid) = '''nenhum''::text') THEN
     RAISE EXCEPTION 'r12: tenant_config.aprovar_custo_auto_por_versao existe com outra forma' USING ERRCODE = 'P0001';
   END IF;
 END
@@ -81,7 +81,8 @@ BEGIN
     BEGIN
       PERFORM set_config('lock_timeout', '1500ms', true);
       LOCK TABLE public.tenant_config IN ACCESS EXCLUSIVE MODE;
-      ALTER TABLE public.tenant_config ADD COLUMN aprovar_custo_auto_por_versao boolean NOT NULL DEFAULT false;
+      ALTER TABLE public.tenant_config ADD COLUMN aprovar_custo_auto_por_versao text NOT NULL DEFAULT 'nenhum';
+      ALTER TABLE public.tenant_config ADD CONSTRAINT tenant_config_aprovar_custo_auto_chk CHECK (aprovar_custo_auto_por_versao IN ('nenhum', 'interno', 'todos'));
       EXIT;
     EXCEPTION WHEN lock_not_available OR deadlock_detected THEN
       IF i = 3 THEN RAISE; END IF;
@@ -91,23 +92,25 @@ BEGIN
 END
 $col$;
 
-COMMENT ON COLUMN public.tenant_config.aprovar_custo_auto_por_versao IS 'Toggle da loja (R12): quando ligado, a Aprovacao de custo do card (custo_terceirizados_aprovado) libera tambem sozinha se a versao (>1) nao ficou mais cara que a anterior (custo_peca_previsto <=) e nao ha M.O. reprovada. Gravado SO por salvar_config_loja (compare-and-set por coluna). Ligar nao reavalia os cards: o flag acerta na proxima gravacao do card.';
+COMMENT ON COLUMN public.tenant_config.aprovar_custo_auto_por_versao IS 'Modo da loja (R12): nenhum | interno | todos. Com interno/todos, a Aprovacao de custo do card (custo_terceirizados_aprovado) libera tambem sozinha se a versao (>1) nao ficou mais cara que a anterior (custo_peca_previsto <=) e nao ha M.O. reprovada (interno = so cards de origem interno; todos = tambem revenda/importado). Gravado SO por salvar_config_loja (compare-and-set por coluna). Mudar o modo nao reavalia os cards: o flag acerta na proxima gravacao do card.';
 
-CREATE OR REPLACE FUNCTION public._mo_custo_auto_liberado(_modelo_id uuid, _versao integer, _custo numeric)
+CREATE OR REPLACE FUNCTION public._mo_custo_auto_liberado(_modelo_id uuid, _versao integer, _custo numeric, _origem text)
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
   -- [R12] 2o caminho da "Aprovacao de custo" (custo_terceirizados_aprovado): a versao nao ficou mais cara que a anterior.
-  -- Vale quando: toggle da LOJA ligado (tenant_config.aprovar_custo_auto_por_versao) E versao > 1 E custo da versao conhecido E
-  -- NENHUMA linha de M.O. REPROVADA (pendente nao veta; so aprovado = false veta) E existe versao anterior (familia/loja de
-  -- _modelo_versao_anterior) E custo_peca_previsto da anterior conhecido E custo da versao <= custo da anterior. Qualquer NULL = false.
-  -- _versao e _custo vem do chamador porque o gatilho BEFORE do card le a linha NOVA (a tabela ainda tem a de antes); o resto sai
-  -- so de _modelo_id. CASE de proposito: com o toggle desligado (padrao) nada alem da leitura do toggle roda.
+  -- MODO por loja (tenant_config.aprovar_custo_auto_por_versao): 'nenhum' (padrao) = nunca; 'interno' = so card de origem 'interno';
+  -- 'todos' = qualquer origem (interno + comprados). Alem do modo vale: versao > 1 E custo da versao conhecido E NENHUMA linha de
+  -- M.O. REPROVADA (pendente nao veta; so aprovado = false veta) E existe versao anterior (familia/loja de _modelo_versao_anterior)
+  -- E custo_peca_previsto da anterior conhecido E custo da versao <= custo da anterior. Qualquer NULL = false.
+  -- _versao, _custo e _origem vem do chamador porque o gatilho BEFORE do card le a linha NOVA (a tabela ainda tem a de antes); o
+  -- resto sai so de _modelo_id. CASE de proposito: com o modo 'nenhum' nada alem da leitura do modo roda.
   SELECT coalesce((
     SELECT CASE
-             WHEN NOT coalesce(tc.aprovar_custo_auto_por_versao, false) THEN false
+             WHEN tc.aprovar_custo_auto_por_versao NOT IN ('interno', 'todos') THEN false
+             WHEN tc.aprovar_custo_auto_por_versao = 'interno' AND _origem IS DISTINCT FROM 'interno' THEN false
              WHEN coalesce(_versao, 0) <= 1 OR _custo IS NULL THEN false
              WHEN EXISTS (SELECT 1 FROM public.modelo_servico_mo s WHERE s.modelo_id = _modelo_id AND s.aprovado = false) THEN false
              ELSE coalesce((SELECT a.custo_peca_previsto >= _custo
@@ -125,9 +128,9 @@ CREATE OR REPLACE FUNCTION public._mo_custo_auto_liberado(_modelo_id uuid)
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  -- [R12] versao do helper que le versao e custo do que esta GRAVADO no card (rollup de M.O., consultas). O gatilho do card usa a
-  -- de 3 argumentos, com os valores da linha nova.
-  SELECT coalesce((SELECT public._mo_custo_auto_liberado(m.id, m.versao, m.custo_peca_previsto)
+  -- [R12] versao do helper que le versao, custo e origem do que esta GRAVADO no card (rollup de M.O., consultas). O gatilho do card
+  -- usa a de 4 argumentos, com os valores da linha nova.
+  SELECT coalesce((SELECT public._mo_custo_auto_liberado(m.id, m.versao, m.custo_peca_previsto, m.origem)
                      FROM public.modelos m WHERE m.id = _modelo_id), false);
 $function$;
 
@@ -145,19 +148,19 @@ AS $function$
   ) OR public._mo_custo_auto_liberado(_modelo_id);
 $function$;
 
-CREATE OR REPLACE FUNCTION public._mo_liberada(_modelo_id uuid, _versao integer, _custo numeric)
+CREATE OR REPLACE FUNCTION public._mo_liberada(_modelo_id uuid, _versao integer, _custo numeric, _origem text)
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  -- [R12] mesma regra de _mo_liberada(uuid), com versao e custo da linha NOVA do card (uso do gatilho BEFORE).
+  -- [R12] mesma regra de _mo_liberada(uuid), com versao, custo e origem da linha NOVA do card (uso do gatilho BEFORE).
   SELECT (
     NOT EXISTS (
       SELECT 1 FROM public.modelo_servico_mo s
       WHERE s.modelo_id = _modelo_id AND s.aprovado IS DISTINCT FROM true
     )
-  ) OR public._mo_custo_auto_liberado(_modelo_id, _versao, _custo);
+  ) OR public._mo_custo_auto_liberado(_modelo_id, _versao, _custo, _origem);
 $function$;
 
 CREATE OR REPLACE FUNCTION public.fn_modelo_mo_flag_derivada()
@@ -167,9 +170,9 @@ CREATE OR REPLACE FUNCTION public.fn_modelo_mo_flag_derivada()
  SET search_path TO 'public'
 AS $function$
 BEGIN
-  -- [R12] versao e custo da linha NOVA: o gatilho trg_modelo_custo_derivado (BEFORE UPDATE, nome que vem ANTES na ordem
-  -- alfabetica) ja devolveu/definiu custo_peca_previsto quando este roda; ler o custo da tabela veria o valor de antes.
-  NEW.custo_terceirizados_aprovado := public._mo_liberada(NEW.id, NEW.versao, NEW.custo_peca_previsto);
+  -- [R12] versao, custo e origem da linha NOVA: o gatilho trg_modelo_custo_derivado (BEFORE UPDATE, nome que vem ANTES na ordem
+  -- alfabetica) ja devolveu/definiu custo_peca_previsto quando este roda; ler da tabela veria os valores de antes.
+  NEW.custo_terceirizados_aprovado := public._mo_liberada(NEW.id, NEW.versao, NEW.custo_peca_previsto, NEW.origem);
   RETURN NEW;
 END $function$;
 
@@ -258,11 +261,16 @@ BEGIN
         IF v_t <> 'string' OR NOT (v_v #>> '{}' = ANY (ARRAY['oc', 'rolo', 'ambos'])) THEN
           RAISE EXCEPTION 'Modo de OC/rolo inválido: %.', coalesce(v_v #>> '{}', 'vazio') USING ERRCODE = 'P0001';
         END IF;
+      WHEN 'aprovar_custo_auto_por_versao' THEN
+        -- [R12] modo da aprovacao automatica de custo por versao: texto, um dos 3 valores (a coluna tem CHECK igual)
+        IF v_t <> 'string' OR NOT (v_v #>> '{}' = ANY (ARRAY['nenhum', 'interno', 'todos'])) THEN
+          RAISE EXCEPTION 'Modo de aprovação automática de custo inválido: %.', coalesce(v_v #>> '{}', 'vazio') USING ERRCODE = 'P0001';
+        END IF;
       WHEN 'explosao_envio_status', 'ref_exibir_status', 'keywords' THEN
         IF v_t NOT IN ('string', 'null') THEN
           RAISE EXCEPTION 'Formato inválido para o campo "%".', v_k USING ERRCODE = 'P0001';
         END IF;
-      WHEN 'markup_analise_faixa', 'aprovar_custo_auto_por_versao' THEN
+      WHEN 'markup_analise_faixa' THEN
         IF v_t <> 'boolean' THEN
           RAISE EXCEPTION 'O campo "%" precisa ser verdadeiro ou falso.', v_k USING ERRCODE = 'P0001';
         END IF;
@@ -480,7 +488,7 @@ BEGIN
     campos_editaveis = CASE WHEN v_m ? 'campos_editaveis' THEN v_m -> 'campos_editaveis' ELSE campos_editaveis END,
     insumos_padrao = CASE WHEN v_m ? 'insumos_padrao' THEN v_mn -> 'insumos_padrao' ELSE insumos_padrao END,
     aprovar_custo_auto_por_versao = CASE WHEN v_m ? 'aprovar_custo_auto_por_versao'
-                                         THEN (v_m ->> 'aprovar_custo_auto_por_versao')::boolean
+                                         THEN v_m ->> 'aprovar_custo_auto_por_versao'
                                          ELSE aprovar_custo_auto_por_versao END
   WHERE tenant_id = v_tenant
   RETURNING to_jsonb(tenant_config.*) INTO v_new;
@@ -516,19 +524,19 @@ BEGIN
 END
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public._mo_custo_auto_liberado(uuid, integer, numeric) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._mo_custo_auto_liberado(uuid, integer, numeric, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._mo_custo_auto_liberado(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public._mo_liberada(uuid, integer, numeric) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._mo_liberada(uuid, integer, numeric, text) FROM PUBLIC, anon, authenticated;
 
 DO $pos$
 DECLARE
   f text;
 BEGIN
-  IF md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)'))) IS DISTINCT FROM '4525360afafe5fde02502dc2a5941af6' THEN
-    RAISE EXCEPTION 'r12: pos-condicao falhou em salvar_config_loja (esperado %)', '4525360afafe5fde02502dc2a5941af6' USING ERRCODE = 'P0001';
+  IF md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)'))) IS DISTINCT FROM '43c4b4d6a658bfcbaf1c29dc615aecf0' THEN
+    RAISE EXCEPTION 'r12: pos-condicao falhou em salvar_config_loja (esperado %)', '43c4b4d6a658bfcbaf1c29dc615aecf0' USING ERRCODE = 'P0001';
   END IF;
   IF md5(pg_get_functiondef(to_regprocedure('public._mo_liberada(uuid)'))) IS DISTINCT FROM '9fb23d074c6cd1bda585cbb02f085605'
-     OR md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_mo_flag_derivada()'))) IS DISTINCT FROM '0fc2e7695fa33eb1f33564d12260660c' THEN
+     OR md5(pg_get_functiondef(to_regprocedure('public.fn_modelo_mo_flag_derivada()'))) IS DISTINCT FROM 'f0fc9e3547399ce9fdf592140870097e' THEN
     RAISE EXCEPTION 'r12: pos-condicao falhou em _mo_liberada/fn_modelo_mo_flag_derivada' USING ERRCODE = 'P0001';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid = to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)') AND coalesce(p.proacl::text, '') = '{postgres=X/postgres,authenticated=X/postgres}'
@@ -537,8 +545,8 @@ BEGIN
     RAISE EXCEPTION 'r12: pos-condicao falhou na ACL/secdef/search_path/volatilidade de salvar_config_loja' USING ERRCODE = 'P0001';
   END IF;
   -- os 4 helpers: SECURITY DEFINER, STABLE, search_path=public, sem EXECUTE para PUBLIC/anon/authenticated
-  FOREACH f IN ARRAY ARRAY['public._mo_custo_auto_liberado(uuid,integer,numeric)', 'public._mo_custo_auto_liberado(uuid)',
-                           'public._mo_liberada(uuid,integer,numeric)', 'public._mo_liberada(uuid)'] LOOP
+  FOREACH f IN ARRAY ARRAY['public._mo_custo_auto_liberado(uuid,integer,numeric,text)', 'public._mo_custo_auto_liberado(uuid)',
+                           'public._mo_liberada(uuid,integer,numeric,text)', 'public._mo_liberada(uuid)'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid = to_regprocedure(f) AND p.prosecdef AND p.provolatile = 's'
                      AND coalesce(array_to_string(p.proconfig, '|'), '') = 'search_path=public')
        OR has_function_privilege('anon', f, 'EXECUTE') OR has_function_privilege('authenticated', f, 'EXECUTE')
@@ -548,7 +556,8 @@ BEGIN
   END LOOP;
   IF NOT EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
                   WHERE a.attrelid = 'public.tenant_config'::regclass AND a.attname = 'aprovar_custo_auto_por_versao' AND NOT a.attisdropped
-                    AND a.atttypid = 'boolean'::regtype AND a.attnotnull AND pg_get_expr(d.adbin, d.adrelid) = 'false')
+                    AND a.atttypid = 'text'::regtype AND a.attnotnull AND pg_get_expr(d.adbin, d.adrelid) = '''nenhum''::text')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = 'public.tenant_config'::regclass AND k.conname = 'tenant_config_aprovar_custo_auto_chk' AND k.contype = 'c' AND k.convalidated)
      OR NOT has_column_privilege('authenticated', 'public.tenant_config', 'aprovar_custo_auto_por_versao', 'SELECT')
      OR has_column_privilege('anon', 'public.tenant_config', 'aprovar_custo_auto_por_versao', 'SELECT') THEN
     RAISE EXCEPTION 'r12: pos-condicao falhou na coluna tenant_config.aprovar_custo_auto_por_versao' USING ERRCODE = 'P0001';

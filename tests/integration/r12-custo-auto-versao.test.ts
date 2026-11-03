@@ -1,12 +1,12 @@
 /**
- * R12 (Onda 3) - Aprovar o custo automaticamente quando a versao nao ficar mais cara (toggle por loja).
+ * R12 (Onda 3) - Aprovar o custo automaticamente quando a versao nao ficar mais cara (modo por loja: nenhum | interno | todos).
  * Migration 20261106100000_r12_custo_auto_por_versao (brief: .superpowers/sdd/2026-11-03-r12/r12-banco-brief.md).
  *
  * SO na copia local (DATABASE_URL local, porta 54422), txn revertida (withTx): NADA e gravado. A migration precisa estar
  * APLICADA na copia (psql -v ON_ERROR_STOP=1 -f); sem ela a suite se auto-pula (nenhum DDL aqui - nunca \i em txn de teste).
- *   (a) toggle OFF = regra de hoje (M.O.)               (e) ordem dos gatilhos BEFORE + "no MESMO UPDATE"
- *   (b) toggle ON, custo <= anterior, M.O. so pendente   (f) versao 1 / sem anterior / custo NULL / loja isolada
- *   (c) toggle ON + M.O. REPROVADA                       (g) ACL dos helpers (REVOKE dos 3)
+ *   (a) modo 'nenhum' = regra de hoje (M.O.)            (e) ordem dos gatilhos BEFORE + "no MESMO UPDATE"
+ *   (b) modo ligado, custo <= anterior, M.O. so pendente (f) versao 1 / sem anterior / custo NULL / loja isolada / 3 MODOS x origem
+ *   (c) modo ligado + M.O. REPROVADA                       (g) ACL dos helpers (REVOKE dos 3)
  *   (d) custo > anterior -> baixa -> libera -> sobe -> volta  (h) salvar_config_loja (coluna nova, CAS por coluna)
  */
 import { describe, it, expect } from "vitest";
@@ -37,8 +37,11 @@ async function withTx(fn: (c: Client) => Promise<void>): Promise<void> {
     await fn(c);
   });
 }
-async function setToggle(c: Client, on: boolean, tenant: string = T): Promise<void> {
-  const r = await c.query(`UPDATE public.tenant_config SET ${COL} = $1 WHERE tenant_id = $2`, [on, tenant]);
+type Modo = "nenhum" | "interno" | "todos";
+/** true = 'interno' (o card de teste nasce 'interno'), false = 'nenhum'; ou o modo por extenso. */
+async function setToggle(c: Client, modo: boolean | Modo, tenant: string = T): Promise<void> {
+  const m: Modo = modo === true ? "interno" : modo === false ? "nenhum" : modo;
+  const r = await c.query(`UPDATE public.tenant_config SET ${COL} = $1 WHERE tenant_id = $2`, [m, tenant]);
   expect(r.rowCount, "a loja de teste precisa de tenant_config").toBe(1);
 }
 
@@ -114,7 +117,7 @@ async function kanbanServicoAprovado(c: Client, id: string): Promise<boolean> {
 }
 
 // ─────────────────────────────────────── (a) toggle OFF ───────────────────────────────────────
-describe.skipIf(!PRONTO)("R12 (a) - toggle DESLIGADO = regra de hoje (so M.O.)", () => {
+describe.skipIf(!PRONTO)("R12 (a) - modo 'nenhum' (padrao) = regra de hoje (so M.O.)", () => {
   it("custo menor que o anterior + M.O. pendente: NAO libera; todas aprovadas ou sem linha: libera", async () => {
     await withTx(async (c) => {
       const { v1, v2 } = await familia(c, 100, 50, false);
@@ -130,11 +133,11 @@ describe.skipIf(!PRONTO)("R12 (a) - toggle DESLIGADO = regra de hoje (so M.O.)",
     });
   });
 
-  it("o helper e o overload de 3 argumentos dizem false com o toggle desligado", async () => {
+  it("o helper e o overload de 4 argumentos dizem false com o modo 'nenhum'", async () => {
     await withTx(async (c) => {
       const { v2 } = await familia(c, 100, 50, false);
       expect((await um<{ a: boolean }>(c, `SELECT public._mo_custo_auto_liberado($1) AS a`, [v2])).a).toBe(false);
-      expect((await um<{ a: boolean }>(c, `SELECT public._mo_custo_auto_liberado($1, 2, 1::numeric) AS a`, [v2])).a).toBe(false);
+      expect((await um<{ a: boolean }>(c, `SELECT public._mo_custo_auto_liberado($1, 2, 1::numeric, 'interno') AS a`, [v2])).a).toBe(false);
     });
   });
 });
@@ -294,10 +297,10 @@ describe.skipIf(!hasDb || !ehBancoLocal())("R12 (e) - ordem dos gatilhos BEFORE 
     });
   });
 
-  it.skipIf(!PRONTO)("o gatilho do flag le a linha NOVA (versao e custo do NEW), nao a tabela", async () => {
+  it.skipIf(!PRONTO)("o gatilho do flag le a linha NOVA (versao, custo e origem do NEW), nao a tabela", async () => {
     await withTx(async (c) => {
       const src = (await um<{ s: string }>(c, `SELECT prosrc AS s FROM pg_proc WHERE proname = 'fn_modelo_mo_flag_derivada'`)).s;
-      expect(src).toMatch(/_mo_liberada\(NEW\.id, NEW\.versao, NEW\.custo_peca_previsto\)/);
+      expect(src).toMatch(/_mo_liberada\(NEW\.id, NEW\.versao, NEW\.custo_peca_previsto, NEW\.origem\)/);
     });
   });
 });
@@ -359,6 +362,73 @@ describe.skipIf(!PRONTO)("R12 (f) - versao 1, sem anterior, custo NULL, outra lo
     });
   });
 
+  // P-385 (dono): o escopo e DECISAO DA LOJA - 'nenhum' | 'interno' | 'todos'. Custo de revenda/importado e digitado a mao (RC4b).
+  async function familiaOrigem(c: Client, modo: Modo, origem: string) {
+    await setToggle(c, modo);
+    const v1 = await novoModelo(c, { versao: 1 });
+    const v2 = await novoModelo(c, { versao: 2, base: v1 });
+    // comprado: o cliente escreve o custo; interno: so o servidor (a GUC do processador) - senao o gatilho reverte
+    const grava = (id: string, custo: number) =>
+      origem === "interno"
+        ? comoSistema(c, () => c.query(`UPDATE public.modelos SET custo_peca_previsto = $2 WHERE id = $1`, [id, custo]))
+        : c.query(`UPDATE public.modelos SET origem = $2, custo_peca_previsto = $3 WHERE id = $1`, [id, origem, custo]);
+    await grava(v1, 100);
+    await grava(v2, 50);
+    expect(Number((await um<{ c: string }>(c, `SELECT custo_peca_previsto AS c FROM public.modelos WHERE id = $1`, [v2])).c)).toBe(50);
+    await addMo(c, v2, null);
+    return { v1, v2 };
+  }
+  // [modo, origem, libera pelo caminho novo?]
+  const MATRIZ: [Modo, string, boolean][] = [
+    ["nenhum", "interno", false], ["nenhum", "revenda", false], ["nenhum", "importado", false],
+    ["interno", "interno", true], ["interno", "revenda", false], ["interno", "importado", false],
+    ["todos", "interno", true], ["todos", "revenda", true], ["todos", "importado", true],
+  ];
+  it.each(MATRIZ)("modo %s x origem %s: v2 com custo <= anterior, M.O. pendente -> libera pelo caminho novo = %s", async (modo, origem, esperado) => {
+    await withTx(async (c) => {
+      const { v2 } = await familiaOrigem(c, modo, origem);
+      expect(await flag(c, v2)).toBe(esperado);
+      expect(await kanbanServicoAprovado(c, v2)).toBe(esperado);
+      expect((await um<{ a: boolean }>(c, `SELECT public._mo_custo_auto_liberado($1) AS a`, [v2])).a).toBe(esperado);
+      // a regra de hoje segue valendo em qualquer modo/origem: M.O. toda aprovada libera
+      await c.query(`UPDATE public.modelo_servico_mo SET aprovado = true WHERE modelo_id = $1`, [v2]);
+      expect(await flag(c, v2)).toBe(true);
+    });
+  });
+
+  it.each(["interno", "todos"] as Modo[])("modo %s: M.O. REPROVADA veta tambem num comprado (revenda) e o custo maior nao libera", async (modo) => {
+    await withTx(async (c) => {
+      const { v2 } = await familiaOrigem(c, modo, "revenda");
+      const rep = await addMo(c, v2, false);
+      expect(await flag(c, v2)).toBe(false);
+      await c.query(`UPDATE public.modelo_servico_mo SET aprovado = NULL WHERE id = $1`, [rep]);
+      expect(await flag(c, v2)).toBe(modo === "todos");
+      await c.query(`UPDATE public.modelos SET custo_peca_previsto = 500 WHERE id = $1`, [v2]); // comprado: o cliente escreve o custo
+      expect(await flag(c, v2)).toBe(false);
+    });
+  });
+
+  it("trocar a ORIGEM do card re-deriva no MESMO UPDATE (o gatilho passa NEW.origem): modo 'interno'", async () => {
+    await withTx(async (c) => {
+      const { v2 } = await familiaOrigem(c, "interno", "revenda");
+      expect(await flag(c, v2)).toBe(false);
+      const r = await comoSistema(c, () =>
+        c.query(`UPDATE public.modelos SET origem = 'interno' WHERE id = $1 RETURNING custo_terceirizados_aprovado AS f`, [v2]),
+      );
+      expect(r.rows[0].f).toBe(true);
+    });
+  });
+
+  it("trocar o MODO da loja nao reavalia sozinho; a proxima gravacao do card acerta", async () => {
+    await withTx(async (c) => {
+      const { v2 } = await familiaOrigem(c, "interno", "revenda");
+      await setToggle(c, "todos");
+      expect(await flag(c, v2)).toBe(false);
+      await c.query(`UPDATE public.modelos SET nome = nome || ' ' WHERE id = $1`, [v2]);
+      expect(await flag(c, v2)).toBe(true);
+    });
+  });
+
   it("modelo inexistente: helper e _mo_liberada de 1 argumento se comportam (false / true), sem erro", async () => {
     await withTx(async (c) => {
       const nada = "00000000-0000-0000-0000-0000000000aa";
@@ -372,9 +442,9 @@ describe.skipIf(!PRONTO)("R12 (f) - versao 1, sem anterior, custo NULL, outra lo
 describe.skipIf(!PRONTO)("R12 (g) - helpers com EXECUTE revogado de PUBLIC/anon/authenticated", () => {
   const FNS = [
     "public._mo_custo_auto_liberado(uuid)",
-    "public._mo_custo_auto_liberado(uuid,integer,numeric)",
+    "public._mo_custo_auto_liberado(uuid,integer,numeric,text)",
     "public._mo_liberada(uuid)",
-    "public._mo_liberada(uuid,integer,numeric)",
+    "public._mo_liberada(uuid,integer,numeric,text)",
   ];
   it("anon/authenticated sem EXECUTE, sem entrada de PUBLIC; DEFINER + STABLE + search_path=public", async () => {
     await withTx(async (c) => {
@@ -429,8 +499,8 @@ async function linhaCfg(c: Client): Promise<Record<string, any>> {
   return (await um<{ j: Record<string, any> }>(c, "SELECT to_jsonb(tc) AS j FROM public.tenant_config tc WHERE tc.tenant_id = $1", [T])).j;
 }
 
-describe.skipIf(!PRONTO)("R12 (h) - salvar_config_loja grava o toggle (lista branca + compare-and-set por coluna)", () => {
-  it("coluna nova: boolean NOT NULL DEFAULT false, authenticated le, anon nao", async () => {
+describe.skipIf(!PRONTO)("R12 (h) - salvar_config_loja grava o modo (lista branca + validacao dos 3 valores + compare-and-set por coluna)", () => {
+  it("coluna nova: text NOT NULL DEFAULT 'nenhum' + CHECK (nenhum|interno|todos), authenticated le, anon nao", async () => {
     await withTx(async (c) => {
       const r = await um<{ t: string; nn: boolean; d: string; au: boolean; an: boolean }>(
         c,
@@ -441,65 +511,72 @@ describe.skipIf(!PRONTO)("R12 (h) - salvar_config_loja grava o toggle (lista bra
           WHERE a.attrelid = 'public.tenant_config'::regclass AND a.attname = $1`,
         [COL],
       );
-      expect(r).toEqual({ t: "boolean", nn: true, d: "false", au: true, an: false });
-      // toda loja existente nasce desligada (comportamento de hoje)
-      const ligadas = (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.tenant_config WHERE ${COL}`)).n;
+      expect(r).toEqual({ t: "text", nn: true, d: "'nenhum'::text", au: true, an: false });
+      // toda loja existente nasce em 'nenhum' (comportamento de hoje)
+      const ligadas = (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.tenant_config WHERE ${COL} <> 'nenhum'`)).n;
       expect(Number(ligadas)).toBe(0);
+      // CHECK na tabela: valor fora dos 3 e recusado MESMO por escrita direta (23514), sem passar pela RPC
+      await c.query("SAVEPOINT chk");
+      await expect(c.query(`UPDATE public.tenant_config SET ${COL} = 'qualquer' WHERE tenant_id = $1`, [T])).rejects.toMatchObject({ code: "23514" });
+      await c.query("ROLLBACK TO SAVEPOINT chk");
+      await expect(c.query(`UPDATE public.tenant_config SET ${COL} = NULL WHERE tenant_id = $1`, [T])).rejects.toMatchObject({ code: "23502" });
     });
   });
 
-  it("admin da loja liga e desliga; so a coluna enviada muda; retorno traz o valor", async () => {
+  it("admin da loja grava os 3 modos; so a coluna enviada muda; retorno traz o valor", async () => {
     await withTx(async (c) => {
       await usuarioLoja(c, UID_ADMIN, true);
       const antes = await linhaCfg(c);
-      expect(antes[COL]).toBe(false);
-      const r = await salvar(c, { [COL]: true }, { [COL]: false });
-      expect(r.erro).toBeNull();
-      expect(r.rows[0].r.gravadas).toEqual([COL]);
-      expect(r.rows[0].r.valores[COL]).toBe(true);
+      expect(antes[COL]).toBe("nenhum");
+      let atual = "nenhum";
+      for (const modo of ["interno", "todos", "nenhum", "todos", "interno"]) {
+        const r = await salvar(c, { [COL]: modo }, { [COL]: atual });
+        expect(r.erro, modo).toBeNull();
+        expect(r.rows[0].r.gravadas).toEqual([COL]);
+        expect(r.rows[0].r.valores[COL]).toBe(modo);
+        expect((await linhaCfg(c))[COL]).toBe(modo);
+        atual = modo;
+      }
       const dep = await linhaCfg(c);
-      expect(dep[COL]).toBe(true);
       expect(dep.timezone).toBe(antes.timezone);
       expect(dep.insumos_padrao).toEqual(antes.insumos_padrao);
-      expect((await salvar(c, { [COL]: false }, { [COL]: true })).erro).toBeNull();
-      expect((await linhaCfg(c))[COL]).toBe(false);
     });
   });
 
   it("compare-and-set: outra pessoa mudou -> P0409 conflito_versao com DETAIL da coluna; convergido passa", async () => {
     await withTx(async (c) => {
       await usuarioLoja(c, UID_ADMIN, true);
-      await semJwtLigaToggle(c, true); // outra pessoa ligou
-      const conf = await salvar(c, { [COL]: false }, { [COL]: false }); // eu li false, quero false... mas esta true
+      await semJwtMuda(c, "todos"); // outra pessoa mudou o modo
+      const conf = await salvar(c, { [COL]: "interno" }, { [COL]: "nenhum" }); // eu li 'nenhum', quero 'interno'... mas esta 'todos'
       expect(conf.erro?.code).toBe("P0409");
       expect(conf.erro?.message).toMatch(/^conflito_versao: config_loja$/);
       expect(conf.erro?.detail).toBe(COL);
       expect(/^[\x20-\x7E]*$/.test(conf.erro!.message)).toBe(true); // ASCII (5xx do PostgREST)
-      expect((await linhaCfg(c))[COL]).toBe(true); // nada gravado
-      const ok = await salvar(c, { [COL]: true }, { [COL]: false }); // convergiu para o mesmo valor
+      expect((await linhaCfg(c))[COL]).toBe("todos"); // nada gravado
+      const ok = await salvar(c, { [COL]: "todos" }, { [COL]: "nenhum" }); // convergiu para o mesmo valor
       expect(ok.erro).toBeNull();
     });
   });
 
-  it("recusas: null, texto e numero (boolean obrigatorio); sem a base do campo", async () => {
+  it("recusas: valor fora dos 3, maiuscula, boolean, numero, null; sem a base do campo - nada gravado", async () => {
     await withTx(async (c) => {
       await usuarioLoja(c, UID_ADMIN, true);
-      for (const v of [null, "true", 1]) {
-        const r = await salvar(c, { [COL]: v }, { [COL]: false });
+      for (const v of [null, "talvez", "Interno", "", true, false, 1]) {
+        const r = await salvar(c, { [COL]: v }, { [COL]: "nenhum" });
         expect(r.erro?.code, JSON.stringify(v)).toBe("P0001");
-        expect(r.erro?.message).toMatch(/verdadeiro ou falso/);
+        expect(r.erro?.message, JSON.stringify(v)).toMatch(/Modo de aprova/);
       }
-      const sem = await salvar(c, { [COL]: true }, {});
+      const sem = await salvar(c, { [COL]: "interno" }, {});
       expect(sem.erro?.code).toBe("P0001");
       expect(sem.erro?.message).toMatch(/Falta o valor carregado/);
-      expect((await linhaCfg(c))[COL]).toBe(false);
+      expect((await linhaCfg(c))[COL]).toBe("nenhum");
     });
   });
 
   it("usuario comum da loja (nao admin) nao grava (42501); campo desconhecido segue recusado", async () => {
     await withTx(async (c) => {
       await usuarioLoja(c, UID_COMUM, false);
-      const r = await salvar(c, { [COL]: true }, { [COL]: false });
+      const r = await salvar(c, { [COL]: "interno" }, { [COL]: "nenhum" });
       expect(r.erro?.code).toBe("42501");
       await usuarioLoja(c, UID_ADMIN, true);
       const d = await salvar(c, { campo_inexistente_r12: true }, { campo_inexistente_r12: false });
@@ -510,11 +587,11 @@ describe.skipIf(!PRONTO)("R12 (h) - salvar_config_loja grava o toggle (lista bra
 });
 
 /** Escrita de PREPARACAO como "outra pessoa" (sem JWT), restaurando os claims do admin. */
-async function semJwtLigaToggle(c: Client, on: boolean): Promise<void> {
+async function semJwtMuda(c: Client, modo: string): Promise<void> {
   const ant = (await um<{ v: string | null }>(c, "SELECT current_setting('request.jwt.claims', true) AS v")).v ?? "";
   await c.query("SELECT set_config('request.jwt.claims', '', true)");
   try {
-    await c.query(`UPDATE public.tenant_config SET ${COL} = $1 WHERE tenant_id = $2`, [on, T]);
+    await c.query(`UPDATE public.tenant_config SET ${COL} = $1 WHERE tenant_id = $2`, [modo, T]);
   } finally {
     await c.query("SELECT set_config('request.jwt.claims', $1, true)", [ant]);
   }
