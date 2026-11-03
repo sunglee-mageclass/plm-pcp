@@ -1,11 +1,15 @@
+// @vitest-environment happy-dom
 // R9 T6 — a SEÇÃO "Peça Teste" do Sheet do Planejamento: render estático do componente (aparência/regras de tela) + asserções de FONTE na
 // fiação do Sheet (ordem, permissão, trava por seção, Salvar). A lógica pura está em peca-teste.test.ts; o Salvar em peca-teste-salvar.test.ts.
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PecaTesteSecao, TEXTO_TROCA_FORNECEDOR, TEXTO_TROCA_FORNECEDOR_REABRE, TEXTO_FORNECEDOR_TRAVADO } from "../../src/components/planejamento/planejamento-detail/PecaTesteSecao";
+
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+import { PecaTesteSecao, TEXTO_TROCA_FORNECEDOR, TEXTO_TROCA_FORNECEDOR_REABRE, TEXTO_FORNECEDOR_TRAVADO, TEXTO_DESFAZER_DECISAO } from "../../src/components/planejamento/planejamento-detail/PecaTesteSecao";
 import { ORDEM_SECOES_SHEET, numerarSecoes, selosSecoesSheet, CONDICOES_SECAO_SHEET, type SecaoSheetKey, type EntradaSelosSheet } from "../../src/components/planejamento/planejamento-detail/ficha/selos-secoes";
 import { tentativaVirtual, type EstadoPT, type TentativaPT, type TrilhaPT } from "../../src/lib/peca-teste";
 
@@ -125,6 +129,38 @@ describe("PecaTesteSecao — a tentativa atual", () => {
     expect(desabilitado(tagDoCampo(html, L1, "data_entrada"))).toBe(true);
     expect(desabilitado(tagDoCampo(html, L1, "aprovacao"))).toBe(false);
     expect(html).toContain("Aprovada");
+  });
+
+  it("'Desfazer' visível ao lado do selo 'Aprovada' da tentativa ATUAL: clicar chama onDesfazer(linha) e NÃO aparece pendente, no histórico nem sem permissão", async () => {
+    const aprovada = trilha({ tentativas: [tent(1, { data_saida: "2026-09-22", data_entrada: "2026-09-29", aprovacao: "aprovado", empresa_id: F1 })] });
+    const html = render({ estado: estado(aprovada) });
+    expect(html).toContain('data-testid="peca-teste-desfazer"');
+    expect(html).toContain("Desfazer");
+    expect(TEXTO_DESFAZER_DECISAO).toContain("A baixa de material já feita não é devolvida");
+    // pendente (nada a desfazer)
+    const pend = render({ estado: estado(trilha({ tentativas: [tent(1, { data_saida: "2026-09-22", data_entrada: "2026-09-29" })] })) });
+    expect(pend).not.toContain('data-testid="peca-teste-desfazer"');
+    // sem permissão
+    expect(render({ estado: estado(aprovada), somenteLeitura: true })).not.toContain('data-testid="peca-teste-desfazer"');
+    // reprovada vai ao histórico; a atual (nova, pendente) não tem Desfazer — e o histórico não o tem
+    const repro = trilha({ tentativas: [tent(1, { data_saida: "2026-09-22", data_entrada: "2026-09-29", aprovacao: "reprovado" }), tent(2, { data_saida: "2026-10-01" })] });
+    expect(render({ estado: estado(repro) })).not.toContain('data-testid="peca-teste-desfazer"');
+    // clique real chama onDesfazer com a linha
+    const chamadas: string[] = [];
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(PecaTesteSecao, {
+        numero: 12, selo: undefined, base: estado(aprovada), estado: estado(aprovada), fornecedores: FORNS, defaultAberta: true,
+        onEditarAtual: () => {}, onAprovar: () => {}, onDesfazer: (l: string) => { chamadas.push(l); }, onReprovar: () => {}, onTrocarFornecedor: () => {},
+      } as Props));
+    });
+    const btn = container.querySelector('[data-testid="peca-teste-desfazer"]') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    await act(async () => { btn.click(); });
+    expect(chamadas).toEqual([L1]);
+    root.unmount(); container.remove();
   });
 
   it("aviso âmbar quando o fornecedor foi trocado: reabre a M.O. se a linha está decidida; senão só avisa que troca na mão de obra", () => {

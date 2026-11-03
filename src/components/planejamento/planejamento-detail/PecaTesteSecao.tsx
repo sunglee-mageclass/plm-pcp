@@ -3,7 +3,8 @@
 // entrada · Aprovação). A tentativa atual é editável; as reprovadas ficam num histórico só leitura. Nada grava aqui: o rascunho vive no
 // `usePecaTeste` e vai no Salvar do card. Componente de APRESENTAÇÃO (props), testável em render estático.
 import { useId, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ChevronRight, Info, Lock, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Info, Lock, Undo2, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -40,6 +41,7 @@ export const TEXTO_TROCA_FORNECEDOR_REABRE =
   "Trocar o fornecedor aqui troca também na mão de obra deste serviço — ela volta para pendente e precisa de nova aprovação.";
 export const TEXTO_TROCA_FORNECEDOR = "Trocar o fornecedor aqui troca também na mão de obra deste serviço.";
 export const TEXTO_FORNECEDOR_TRAVADO = "Peça aprovada: fornecedor travado.";
+export const TEXTO_DESFAZER_DECISAO = "Volta a tentativa para pendente (editável). A baixa de material já feita não é devolvida: só mudar o “a enviar” e salvar estorna e refaz a baixa.";
 export const TEXTO_ENTRADA_ANTES_DA_SAIDA = "A data de entrada está antes da data de saída — confira (não impede de salvar).";
 
 const dataBR = (iso: string | null) => {
@@ -280,11 +282,23 @@ function TrilhaCard({
             <AlertTriangle className="h-3 w-3" />{moAprovado === false ? "M.O. reprovada" : "M.O. pendente"}
           </StatusBadge>
         )}
-        <StatusBadge tone={TOM_STATUS[status]} className="ml-auto gap-1 normal-case tracking-normal">
-          {status === "aprovada" && <Check className="h-3 w-3" />}
-          {status === "reprovada_nova" && <X className="h-3 w-3" />}
-          {ROTULO_STATUS_TRILHA[status]}
-        </StatusBadge>
+        <span className="ml-auto flex flex-wrap items-center gap-1.5">
+          <StatusBadge tone={TOM_STATUS[status]} className="gap-1 normal-case tracking-normal">
+            {status === "aprovada" && <Check className="h-3 w-3" />}
+            {status === "reprovada_nova" && <X className="h-3 w-3" />}
+            {ROTULO_STATUS_TRILHA[status]}
+          </StatusBadge>
+          {/* Desfazer explícito (só a tentativa ATUAL já decidida, só quem pode editar): volta a pendente; NÃO estorna a baixa */}
+          {!somenteLeitura && !!at.aprovacao && (
+            <Button
+              type="button" variant="outline" size="sm" className="gap-1" data-testid="peca-teste-desfazer"
+              title={TEXTO_DESFAZER_DECISAO} aria-label={`Desfazer a decisão da tentativa ${at.numero}. ${TEXTO_DESFAZER_DECISAO}`}
+              onClick={() => onDesfazer(linha)}
+            >
+              <Undo2 className="h-3.5 w-3.5" />Desfazer
+            </Button>
+          )}
+        </span>
       </div>
 
       <div key={at.numero} className="flex flex-col gap-2.5 p-3">
