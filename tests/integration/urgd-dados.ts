@@ -201,7 +201,7 @@ export const URGD_BLOCOS: Record<string, UrgdBloco> = /* URGD_JSON_INICIO */
     },
     "URGD_NOVAS": {
       "public._peca_teste_trilha_mini(uuid)": "348c7e9978e7f6c0a48812baccc65a5e",
-      "public._peca_teste_mini_aplicar(uuid,uuid,jsonb)": "86573744c113efe92fec638b0db89fe6"
+      "public._peca_teste_mini_aplicar(uuid,uuid,jsonb)": "e6c43399f0a5c20c17c6255477947d2d"
     },
     "URGD_NEUTRAS": {
       "public._peca_teste_mini_aplicar(uuid,uuid,jsonb)": "2dbec37294d192919e72a0a9ae52ef7a"

@@ -318,8 +318,9 @@ describe.skipIf(!RODA)("urgd-r11-salvar: Salvar da Peça Teste com a mini (máqu
       // reprova num Salvar à parte (data já salva)
       p = payload(f, { id: tent, data_saida: "2026-01-05", aprovacao: "reprovado", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 10 }] }));
       expect(txt(await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]))).toBe("PASSOU");
-      // agora mexer SÓ na mini (a_enviar 10 -> 25) numa reprovada -> NÃO recusa: estorno da baixa antiga + baixa nova
-      p = payload(f, { id: tent, data_saida: "2026-01-05", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 25 }] }));
+      // agora mexer SÓ na mini (a_enviar 10 -> 25) numa reprovada -> NÃO recusa: estorno da baixa antiga + baixa nova.
+      // a decisão (datas/aprovacao) é reenviada IGUAL (reprovado): o core não acusa peca_teste_historico (nada mudou lá), só a mini muda
+      p = payload(f, { id: tent, data_saida: "2026-01-05", aprovacao: "reprovado", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 25 }] }));
       expect(txt(await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]))).toBe("PASSOU");
       // SUM do ledger = o NOVO valor (estorno compensatório + rebaixa); linha compensatória NEGATIVA presente
       const led1 = await somaLed(c, tent);
@@ -327,8 +328,8 @@ describe.skipIf(!RODA)("urgd-r11-salvar: Salvar da Peça Teste com a mini (máqu
       expect(led1).toBeGreaterThan(led0);  // 25 > 10
       const comp = (await um1<{ n: number }>(c, `SELECT count(*)::int n FROM public.estoque_peca_teste_baixas WHERE tentativa_id=$1 AND quantidade < 0`, [tent]));
       expect(comp.n).toBeGreaterThan(0);  // estorno = linha compensatória negativa
-      // mas mexer na DATA de uma reprovada AINDA recusa (trava de _salvar_peca_teste_core, intocada)
-      p = payload(f, { id: tent, data_saida: "2026-01-09", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 25 }] }));
+      // mas mexer na DATA de uma reprovada AINDA recusa (trava de _salvar_peca_teste_core, intocada) - só a data muda, decisão igual
+      p = payload(f, { id: tent, data_saida: "2026-01-09", aprovacao: "reprovado", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 25 }] }));
       const rData = await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]);
       expect(rData.ok).toBe(false);
       if (!rData.ok) expect(rData.msg).toMatch(/peca_teste_historico/);
@@ -680,7 +681,7 @@ describe.skipIf(!RODA)("urgd-r11-salvar: volta (LIFO) e md5", () => {
       // ida de novo: mesmos md5 de DEPOIS
       await aplicaUrgd(c, "r11e");
       expect(await md5("public._salvar_peca_teste_core(uuid,jsonb,jsonb)")).toBe("3e3b9db2d04dd176a4712898293f8545");
-      expect(await md5("public._peca_teste_mini_aplicar(uuid,uuid,jsonb)")).toBe("86573744c113efe92fec638b0db89fe6");
+      expect(await md5("public._peca_teste_mini_aplicar(uuid,uuid,jsonb)")).toBe("e6c43399f0a5c20c17c6255477947d2d");
     });
   });
 });

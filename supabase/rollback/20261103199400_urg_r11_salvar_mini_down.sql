@@ -16,7 +16,7 @@
 --     DEPOIS 348c7e9978e7f6c0a48812baccc65a5e
 --   public._peca_teste_mini_aplicar(uuid,uuid,jsonb) (NOVA)
 --     ANTES  ausente
---     DEPOIS 86573744c113efe92fec638b0db89fe6
+--     DEPOIS e6c43399f0a5c20c17c6255477947d2d
 --     NEUTRO 2dbec37294d192919e72a0a9ae52ef7a (_down)
 --   dependencias FIXADAS (nao redefinidas):
 --     public._peca_teste_mini_baixar(uuid,jsonb) 444861eae9b28bc09ec3bfd80bc01033
@@ -48,7 +48,7 @@ BEGIN
   -- funcoes NOVAS deste bloco: presentes, com o texto de DEPOIS ou o NEUTRO (2a vez) - o _down nao as cria
   FOR r IN SELECT * FROM (VALUES
       ('public._peca_teste_trilha_mini(uuid)', '348c7e9978e7f6c0a48812baccc65a5e', '348c7e9978e7f6c0a48812baccc65a5e', false),
-      ('public._peca_teste_mini_aplicar(uuid,uuid,jsonb)', '86573744c113efe92fec638b0db89fe6', '2dbec37294d192919e72a0a9ae52ef7a', false)
+      ('public._peca_teste_mini_aplicar(uuid,uuid,jsonb)', 'e6c43399f0a5c20c17c6255477947d2d', '2dbec37294d192919e72a0a9ae52ef7a', false)
     ) AS x(f, d, n, w) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS NULL THEN
@@ -396,7 +396,7 @@ BEGIN
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
       ('public._peca_teste_trilha_mini(uuid)', '348c7e9978e7f6c0a48812baccc65a5e', '348c7e9978e7f6c0a48812baccc65a5e', false),
-      ('public._peca_teste_mini_aplicar(uuid,uuid,jsonb)', '86573744c113efe92fec638b0db89fe6', '2dbec37294d192919e72a0a9ae52ef7a', false)
+      ('public._peca_teste_mini_aplicar(uuid,uuid,jsonb)', 'e6c43399f0a5c20c17c6255477947d2d', '2dbec37294d192919e72a0a9ae52ef7a', false)
     ) AS x(f, d, n, w) LOOP
     v := md5(pg_get_functiondef(to_regprocedure(r.f)));
     IF v IS DISTINCT FROM r.n THEN
