@@ -115,4 +115,20 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
     expect(pagina).toContain("colunasCruas(data.cfg");
     expect(pagina).toContain("catalogoInsumosPronto");
   });
+
+  // R12 (P-385): seletor de 3 modos da aprovação automática de custo por versão participa do Salvar colaborativo (coluna 18).
+  it("R12: aprovação automática de custo - estado, leitura segura, anel por bloco e card entre markup e Insumos padrão", () => {
+    expect(s).toContain('aprovar_custo_auto_por_versao: "nenhum" as ModoAprovarCustoAuto');
+    expect(s).toContain("aprovar_custo_auto_por_versao: modoAprovarCustoAutoDoServidor((r as any).aprovar_custo_auto_por_versao)");
+    expect(s).toContain('aprovar_custo_auto_por_versao: "cfg:aprovar_custo_auto_por_versao"');
+    expect(s).toContain('data-colab-path="cfg:aprovar_custo_auto_por_versao"');
+    expect(s).toContain('anelConflito("cfg:aprovar_custo_auto_por_versao")');
+    const iMarkup = s.indexOf("Planejamento — análise de markup</CardTitle>");
+    const iCard = s.indexOf('data-colab-path="cfg:aprovar_custo_auto_por_versao"');
+    const iInsumos = s.indexOf("<InsumosPadraoCard");
+    expect(iCard).toBeGreaterThan(iMarkup);
+    expect(iInsumos).toBeGreaterThan(iCard);
+    // o aviso do 'todos' mora no "i" (custo do comprado é digitado à mão)
+    expect(s).toContain("digitado à mão");
+  });
 });

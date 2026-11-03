@@ -6817,6 +6817,7 @@ export type Database = {
       }
       tenant_config: {
         Row: {
+          aprovar_custo_auto_por_versao: string
           campos_editaveis: Json | null
           confeccao_prioridade: Json
           corte_interno: boolean | null
@@ -6848,6 +6849,7 @@ export type Database = {
           usa_pl: boolean | null
         }
         Insert: {
+          aprovar_custo_auto_por_versao?: string
           campos_editaveis?: Json | null
           confeccao_prioridade?: Json
           corte_interno?: boolean | null
@@ -6879,6 +6881,7 @@ export type Database = {
           usa_pl?: boolean | null
         }
         Update: {
+          aprovar_custo_auto_por_versao?: string
           campos_editaveis?: Json | null
           confeccao_prioridade?: Json
           corte_interno?: boolean | null

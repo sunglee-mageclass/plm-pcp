@@ -19,10 +19,12 @@ import { KANBAN_COLS, diffKanban, jsonCanonico, pickKanban, type KanbanCol, type
 import { normalizarInsumosPadrao, type InsumoPadrao } from "./insumos-padrao";
 
 /**
- * As 17 colunas GERAIS da página (19 da lista branca da RPC menos `tab_labels`/`campos_editaveis`
+ * As 18 colunas GERAIS da página (20 da lista branca da RPC menos `tab_labels`/`campos_editaveis`
  * — essas 2 são da janela "Nomenclaturas", com upsert e RPC PRÓPRIOS, T5). As 5 colunas de kanban
- * (dentro dessas 17) NÃO entram no diff genérico — ver `montarMudancas` abaixo. A 17ª, `insumos_padrao`
- * (urg R2 T11), é a lista "Insumos padrão" da loja (`src/lib/insumos-padrao.ts`).
+ * (dentro dessas 18) NÃO entram no diff genérico — ver `montarMudancas` abaixo. A 17ª, `insumos_padrao`
+ * (urg R2 T11), é a lista "Insumos padrão" da loja (`src/lib/insumos-padrao.ts`). A 18ª,
+ * `aprovar_custo_auto_por_versao` (R12, P-385), é o modo da aprovação automática de custo por versão
+ * (texto `nenhum` | `interno` | `todos`).
  */
 export const COLUNAS_PAGINA = [
   "timezone",
@@ -42,6 +44,7 @@ export const COLUNAS_PAGINA = [
   "revenda_kanban_colunas",
   "revenda_kanban_requisitos",
   "insumos_padrao",
+  "aprovar_custo_auto_por_versao",
 ] as const;
 export type ColunaPagina = (typeof COLUNAS_PAGINA)[number];
 
@@ -67,6 +70,7 @@ export type ConfigLojaColab = {
   revenda_kanban_colunas: unknown;
   revenda_kanban_requisitos: unknown;
   insumos_padrao: InsumoPadrao[];
+  aprovar_custo_auto_por_versao: string;
   [k: string]: unknown;
 };
 
@@ -214,6 +218,7 @@ const ROTULOS: Record<string, string> = {
   revenda_kanban_colunas: "Fluxo de Revenda — colunas",
   revenda_kanban_requisitos: "Fluxo de Revenda — requisitos",
   insumos_padrao: "Insumos padrão",
+  aprovar_custo_auto_por_versao: "Aprovação automática de custo",
   tab_labels: "Nomes das abas",
   campos_editaveis: "Campos editáveis",
 };

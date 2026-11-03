@@ -31,17 +31,19 @@ function cfgBase(): ConfigLojaColab {
     revenda_kanban_colunas: [],
     revenda_kanban_requisitos: {},
     insumos_padrao: [],
+    aprovar_custo_auto_por_versao: "nenhum",
   };
 }
 
-describe("COLUNAS_PAGINA — 17 colunas (19 da lista branca da RPC menos tab_labels/campos_editaveis)", () => {
-  it("tem exatamente 17 chaves (16 + insumos_padrao), sem tab_labels/campos_editaveis", () => {
-    expect(COLUNAS_PAGINA).toHaveLength(17);
+describe("COLUNAS_PAGINA — 18 colunas (20 da lista branca da RPC menos tab_labels/campos_editaveis)", () => {
+  it("tem exatamente 18 chaves (17 + aprovar_custo_auto_por_versao), sem tab_labels/campos_editaveis", () => {
+    expect(COLUNAS_PAGINA).toHaveLength(18);
     expect(COLUNAS_PAGINA).toContain("insumos_padrao");
+    expect(COLUNAS_PAGINA).toContain("aprovar_custo_auto_por_versao");
     expect(COLUNAS_PAGINA).not.toContain("tab_labels");
     expect(COLUNAS_PAGINA).not.toContain("campos_editaveis");
   });
-  it("inclui as 5 colunas de kanban (RP3) dentro das 17", () => {
+  it("inclui as 5 colunas de kanban (RP3) dentro das 18", () => {
     for (const c of KANBAN_COLS) expect(COLUNAS_PAGINA).toContain(c);
   });
 });
@@ -292,8 +294,8 @@ describe("colunasDoErro — parsing do details do P0409 conflito_versao: config_
   });
 });
 
-describe("rotuloColuna — rótulos PT das 17 colunas + tab_labels/campos_editaveis", () => {
-  it("cobre todas as 17 colunas da página com rótulo próprio (não cai no fallback = chave)", () => {
+describe("rotuloColuna — rótulos PT das 18 colunas + tab_labels/campos_editaveis", () => {
+  it("cobre todas as 18 colunas da página com rótulo próprio (não cai no fallback = chave)", () => {
     for (const k of COLUNAS_PAGINA) {
       const r = rotuloColuna(k);
       expect(r).not.toBe(k);
@@ -318,6 +320,7 @@ describe("rotuloColuna — rótulos PT das 17 colunas + tab_labels/campos_editav
     expect(rotuloColuna("revenda_kanban_colunas")).toBe("Fluxo de Revenda — colunas");
     expect(rotuloColuna("revenda_kanban_requisitos")).toBe("Fluxo de Revenda — requisitos");
     expect(rotuloColuna("insumos_padrao")).toBe("Insumos padrão");
+    expect(rotuloColuna("aprovar_custo_auto_por_versao")).toBe("Aprovação automática de custo");
   });
   it("tab_labels/campos_editaveis (fora da página, mas usados por mensagens de Nomenclaturas) também têm rótulo", () => {
     expect(rotuloColuna("tab_labels")).toBe("Nomes das abas");

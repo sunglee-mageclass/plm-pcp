@@ -52,6 +52,10 @@ import {
   diagnosticarLinhasInsumosPadrao, normalizarInsumosPadrao, TEXTO_PROBLEMA_INSUMO_PADRAO, validarInsumosPadrao,
   type CatalogoInsumoPadrao, type InsumoPadrao,
 } from "@/lib/insumos-padrao";
+import { InfoHover } from "@/components/shared/InfoHover";
+import {
+  MODOS_APROVAR_CUSTO_AUTO, modoAprovarCustoAutoDoServidor, type ModoAprovarCustoAuto,
+} from "@/lib/aprovar-custo-auto";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -183,6 +187,9 @@ const DEFAULTS = {
   // urg R2 T11: "Insumos padrão" da loja - [{etiqueta_id, cor_id, consumo}] que pré-preenche a seção Insumos do produto INTERNO novo.
   // Lida/gravada só pelo Salvar colaborativo (`salvar_config_loja`); a base da RPC é o valor CRU (nunca este normalizado).
   insumos_padrao: [] as InsumoPadrao[],
+  // R12 (P-385): modo da aprovação automática de "Aprovação de custo" por versão. 'nenhum' (padrão) = desligado; 'interno' = só produto
+  // que a loja fabrica; 'todos' = inclui revenda/importado. A regra e a gravação são do servidor (`salvar_config_loja` valida os 3 valores).
+  aprovar_custo_auto_por_versao: "nenhum" as ModoAprovarCustoAuto,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -247,6 +254,8 @@ function normalizarConfig(row: Record<string, unknown> | null | undefined): Conf
     // Lista ruim no banco (não é array, ids de outra loja/apagados) NUNCA derruba a tela: não-lista = [], linha órfã é mostrada
     // como "Insumo removido" para a pessoa remover.
     insumos_padrao: normalizarInsumosPadrao((r as any).insumos_padrao),
+    // Valor desconhecido/ausente na linha NUNCA derruba a tela: cai em 'nenhum' (o CHECK do banco só deixa passar os 3).
+    aprovar_custo_auto_por_versao: modoAprovarCustoAutoDoServidor((r as any).aprovar_custo_auto_por_versao),
   };
 }
 
@@ -273,13 +282,13 @@ async function lerConfigServidor(tenantId: string): Promise<Record<string, unkno
   return (data ?? null) as Record<string, unknown> | null;
 }
 
-// T3 (Config colaborativa): as colunas GERAIS da página (as 17 de `COLUNAS_PAGINA` menos as 5 do
+// T3 (Config colaborativa): as colunas GERAIS da página (as 18 de `COLUNAS_PAGINA` menos as 5 do
 // kanban, que têm régua própria — `rebasearKanban`/`kanbanBase`).
 const COLUNAS_GERAIS_PAGINA: ReadonlySet<string> = new Set(
   COLUNAS_PAGINA.filter((k) => !(KANBAN_COLS as readonly string[]).includes(k)),
 );
 
-// O valor CRU (sem fallback de DEFAULTS) das 17 colunas da página — a `_base` da RPC. Loja sem
+// O valor CRU (sem fallback de DEFAULTS) das 18 colunas da página — a `_base` da RPC. Loja sem
 // linha = tudo null (a RPC exige a chave na base; `null` = "não havia valor").
 function colunasCruas(row: Record<string, unknown> | null | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -312,6 +321,7 @@ const BLOCO_DA_COLUNA: Record<string, string> = {
   markup_analise_faixa: "cfg:markup_analise_faixa",
   keywords: "cfg:keywords",
   insumos_padrao: "cfg:insumos_padrao",
+  aprovar_custo_auto_por_versao: "cfg:aprovar_custo_auto_por_versao",
 };
 
 // T4: foco em controle DENTRO de um bloco (diálogo de Requisitos, marcadores Explosão/REF por linha)
@@ -389,7 +399,7 @@ function ConfiguracoesLojaPage() {
   // Config colaborativa (T3, P-28 A): `hydrated` = a 1ª carga JÁ semeou `cfg`/`cfgBaseRef`/
   // `baseRawRef` (P-57 A — sem isso o Salvar podia sair entre a query resolver e o efeito semear).
   const [hydrated, setHydrated] = useState(false);
-  // Valor CRU do servidor (as 17 colunas da página, SEM o fallback de DEFAULTS) — vai como `_base`
+  // Valor CRU do servidor (as 18 colunas da página, SEM o fallback de DEFAULTS) — vai como `_base`
   // da RPC `salvar_config_loja` (compare-and-set por coluna). Loja sem linha = {} (base null por
   // coluna). Re-baseia a cada eco (`rebasearBaseRaw`), exceto colunas em conflito e o kanban com
   // save em voo; ZERA (adota o cru da loja nova) ao trocar de loja.
@@ -1505,6 +1515,49 @@ function ConfiguracoesLojaPage() {
               Análise de markup por faixa (Preço por faixa + M.O. que cabe)
             </Label>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card
+        data-colab-path="cfg:aprovar_custo_auto_por_versao"
+        className={anelConflito("cfg:aprovar_custo_auto_por_versao")}
+      >
+        <CardHeader>
+          <CardTitle>Planejamento — aprovação automática de custo (por versão)</CardTitle>
+          <CardDescription>
+            Quando uma versão nova do produto não ficar mais cara que a anterior, a "Aprovação de custo" do card entra aprovada sozinha.
+            Desligado por padrão.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="aprovar-custo-auto">Aprovar o custo automaticamente</Label>
+            <InfoHover ariaLabel="Como funciona a aprovação automática de custo por versão">
+              <p>
+                Vale para a versão 2 em diante. A "Aprovação de custo" do card entra aprovada sozinha quando o custo previsto por peça
+                (tecido + aviamento + insumos + mão de obra) da versão nova é IGUAL ou MENOR que o da versão anterior e não há mão de obra
+                reprovada.
+              </p>
+              <p>Se o custo subir depois, a aprovação volta a pendente sozinha.</p>
+              <p>
+                <b>Só produtos internos</b>: vale só para o que a loja fabrica. <b>Todos</b>: inclui também revenda e importado, cujo custo
+                é digitado à mão — confira se o valor está certo, porque a aprovação passa a depender dele.
+              </p>
+            </InfoHover>
+          </div>
+          <Select
+            value={cfg.aprovar_custo_auto_por_versao}
+            onValueChange={(v) =>
+              setCfg((c) => ({ ...c, aprovar_custo_auto_por_versao: modoAprovarCustoAutoDoServidor(v) }))
+            }
+          >
+            <SelectTrigger id="aprovar-custo-auto" className="w-full md:w-96"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {MODOS_APROVAR_CUSTO_AUTO.map((m) => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
