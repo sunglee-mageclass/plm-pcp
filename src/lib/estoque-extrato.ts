@@ -27,11 +27,13 @@
  *    "YYYY-MM-DD" (usado como está) ou `Date` (vale o dia desse instante NO FUSO da loja). O fuso é parâmetro
  *    OBRIGATÓRIO do filtro (IANA, ex. "America/Sao_Paulo"; o componente lê `useStoreTimezone`).
  *  • Com `de`, linhas sem data ficam escondidas (contam em `saldoAnterior`); só com `ate`, sem-data aparece.
- *  • `saldoAnterior` é null sem `de`. Linhas escondidas por período/origem NUNCA mudam o `saldo` das visíveis.
+ *  • `saldoAnterior` é null sem `de`. Linhas escondidas por período/origem/busca NUNCA mudam o `saldo` das visíveis.
  *  • Saldo acumulado é arredondado a 6 casas a cada passo (evita 0,1+0,2 = 0,30000000000000004).
  *  • Ordem: sem data primeiro; depois `quando` crescente; empate: entrada antes de saída, depois `refOc`,
  *    `refModelo` (ordem natural pt-BR, vazio primeiro); por fim a ordem de entrada (estável).
  */
+
+import { semAcento } from "./busca";
 
 export type FamiliaEstoque = "tecido" | "aviamento" | "insumo";
 
@@ -71,6 +73,12 @@ export type FiltroExtrato = {
   ate?: DiaFiltro;
   /** Vazio/ausente = todas as origens. */
   origens?: string[];
+  /**
+   * Busca por texto (R10): REF/nome do modelo, nº de OC/OS/rolo (o texto da coluna "Referência"). Substring, sem acento,
+   * sem distinção de maiúsculas. Vazio/ausente = sem filtro. Como período/origem, SÓ esconde linhas: saldo, `saldoAnterior`
+   * e o rodapé seguem sobre o TOTAL.
+   */
+  busca?: string;
 };
 
 export type LinhaExtrato = MovEstoque & { saldo: number };
@@ -222,10 +230,27 @@ function comparar(a: Item, b: Item): number {
   return a.i - b.i; // estável
 }
 
+// ───────────────────────── referência / busca ─────────────────────────
+
+/** Referência = OC nº · REF/nome do modelo · OS nº · rolo (o que a RPC mandou; "OS 12" já vem pronto em `refOc`). É o texto da coluna "Referência". */
+export function textoReferencia(m: Pick<MovEstoque, "refOc" | "origem" | "refModelo" | "detalhe">): string {
+  const oc = m.refOc
+    ? /^OS\s/i.test(m.refOc) ? m.refOc : m.origem === "rolo_entrada" ? `Rolo ${m.refOc}` : `OC ${m.refOc}`
+    : null;
+  return [oc, m.refModelo, m.detalhe].filter((x): x is string => !!x && x.trim() !== "").join(" · ");
+}
+
+/** A linha casa com a busca? Alvo = a Referência exibida + `refOc`/`refModelo` crus (ex.: "123" casa "OC 123"); busca vazia casa tudo. */
+function casaBusca(m: MovEstoque, buscaNorm: string): boolean {
+  if (buscaNorm === "") return true;
+  const alvo = semAcento([textoReferencia(m), m.refOc, m.refModelo].filter(Boolean).join(" "));
+  return alvo.includes(buscaNorm);
+}
+
 // ───────────────────────── extrato ─────────────────────────
 
 /**
- * Monta o extrato de UM bucket. Saldo corrente sobre TODOS os movimentos; período/origem só escondem linhas.
+ * Monta o extrato de UM bucket. Saldo corrente sobre TODOS os movimentos; período/origem/busca só escondem linhas.
  * Não muta `movs`.
  */
 export function montarExtrato(movs: MovEstoque[], f: FiltroExtrato): Extrato {
@@ -235,6 +260,7 @@ export function montarExtrato(movs: MovEstoque[], f: FiltroExtrato): Extrato {
   const de = diaDoFiltro(f.de, f.fuso);
   const ate = diaDoFiltro(f.ate, f.fuso);
   const origens = f.origens && f.origens.length > 0 ? new Set(f.origens) : null;
+  const busca = semAcento((f.busca ?? "").trim());
 
   let saldo = 0;
   let anterior = 0;
@@ -252,7 +278,8 @@ export function montarExtrato(movs: MovEstoque[], f: FiltroExtrato): Extrato {
     const visivel =
       !antes &&
       (ate === null || dia === null || dia <= ate) &&
-      (origens === null || origens.has(m.origem));
+      (origens === null || origens.has(m.origem)) &&
+      casaBusca(m, busca);
     if (visivel) linhas.push({ ...m, quantidade: q, saldo });
   }
 

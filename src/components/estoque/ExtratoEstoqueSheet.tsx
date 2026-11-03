@@ -6,14 +6,14 @@ import { ReadOnlyScope } from "@/components/RequirePermission";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { fmtNum } from "@/lib/format";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { cn } from "@/lib/utils";
 import {
-  filtrarBucket, montarExtrato, rotuloOrigem,
+  filtrarBucket, montarExtrato, rotuloOrigem, textoReferencia,
   type BucketEstoque, type Extrato, type FamiliaEstoque, type LinhaExtrato, type MovEstoque,
 } from "@/lib/estoque-extrato";
 import { useExtratoEstoque } from "./useExtratoEstoque";
@@ -86,14 +86,6 @@ function fmtQuando(iso: string, fuso: string, comHora: boolean): string {
 
 const fmtDiaIso = (d: string) => d.split("-").reverse().join("/");
 
-/** Referência = OC nº · REF/nome do modelo · OS nº · rolo (o que a RPC mandou; "OS 12" já vem pronto em `refOc`). */
-function referencia(m: MovEstoque): string {
-  const oc = m.refOc
-    ? /^OS\s/i.test(m.refOc) ? m.refOc : m.origem === "rolo_entrada" ? `Rolo ${m.refOc}` : `OC ${m.refOc}`
-    : null;
-  return [oc, m.refModelo, m.detalhe].filter((x): x is string => !!x && x.trim() !== "").join(" · ");
-}
-
 // ───────────────────────── componente ─────────────────────────
 
 export type ExtratoEstoqueSheetProps = {
@@ -116,6 +108,7 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
   const q = useExtratoEstoque(familia, itemId);
   const [periodo, setPeriodo] = useState<Periodo>(periodoInicial);
   const [origens, setOrigens] = useState<string[]>([]);
+  const [busca, setBusca] = useState("");
 
   const un = familia === "tecido" ? " m" : "";
   const { varianteId, tamanho, corNome } = bucket;
@@ -125,7 +118,7 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
     [q.data, familia, varianteId, tamanho, corNome],
   );
   const { de, ate } = periodoParaDias(periodo);
-  const extrato = useMemo(() => montarExtrato(movs, { fuso, de, ate, origens }), [movs, fuso, de, ate, origens]);
+  const extrato = useMemo(() => montarExtrato(movs, { fuso, de, ate, origens, busca }), [movs, fuso, de, ate, origens, busca]);
   const opcoesOrigem = useMemo(
     () => Array.from(new Set(movs.map((m) => m.origem))).map((o) => ({ id: o, nome: rotuloOrigem(o) })).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
     [movs],
@@ -183,9 +176,10 @@ export function ExtratoEstoqueSheet({ familia, itemId, bucket, titulo, onClose, 
                 <FilterButton
                   filters={[{ label: "Origem", value: origens, onChange: setOrigens, options: opcoesOrigem }]}
                 />
+                <SearchToggle value={busca} onChange={setBusca} placeholder="Buscar por REF, nome ou OC…" />
               </div>
 
-              {extrato.linhas.length === 0 && extrato.saldoAnterior === null && (
+              {extrato.linhas.length === 0 && (extrato.saldoAnterior === null || busca.trim() !== "") && (
                 <p className="text-sm text-muted-foreground">Nenhum movimento com esses filtros.</p>
               )}
 
@@ -289,7 +283,7 @@ function LinhaTabela({ l, fuso, un }: { l: LinhaExtrato; fuso: string; un: strin
     <tr className="border-b last:border-0 align-top">
       <td className="py-2 pr-3"><DataCelula m={l} fuso={fuso} /></td>
       <td className="py-2 pr-3"><MovimentoBadge l={l} /></td>
-      <td className="py-2 pr-3">{referencia(l) || <span className="text-muted-foreground">—</span>}</td>
+      <td className="py-2 pr-3">{textoReferencia(l) || <span className="text-muted-foreground">—</span>}</td>
       <td className="py-2 pr-3">{l.quem ?? <span className="text-muted-foreground">—</span>}</td>
       <td className="py-2 pr-3 text-right tabular-nums">{entrada ? `${fmtNum(l.quantidade)}${un}` : ""}</td>
       <td className="py-2 pr-3 text-right tabular-nums">{!entrada && l.quantidade < 0 ? `${fmtNum(Math.abs(l.quantidade))}${un}` : ""}</td>
@@ -299,7 +293,7 @@ function LinhaTabela({ l, fuso, un }: { l: LinhaExtrato; fuso: string; un: strin
 }
 
 function CardMovimento({ l, fuso, un }: { l: LinhaExtrato; fuso: string; un: string }) {
-  const ref = referencia(l);
+  const ref = textoReferencia(l);
   return (
     <div className="rounded-lg border p-3 text-sm">
       <div className="flex items-start justify-between gap-2">

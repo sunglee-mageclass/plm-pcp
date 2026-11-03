@@ -5,6 +5,7 @@ import {
   montarExtrato,
   movDeLinhaRpc,
   rotuloOrigem,
+  textoReferencia,
   type MovEstoque,
 } from "../../src/lib/estoque-extrato";
 
@@ -350,5 +351,84 @@ describe("movDeLinhaRpc", () => {
     expect(m.bucketVarianteId).toBeNull();
     expect(m.quem).toBeNull();
     expect(m.coreRecebido).toBe(0);
+  });
+});
+
+describe("montarExtrato — busca por texto (R10)", () => {
+  const base = () =>
+    comCore(
+      [
+        mov({ refId: "a", quando: "2026-09-01T12:00:00Z", origem: "oc", quantidade: 100, refOc: "123", refModelo: null }),
+        mov({ refId: "b", quando: "2026-09-02T12:00:00Z", tipo: "saida", origem: "corte", quantidade: -30, refModelo: "VE00000123 - Vestido Açaí" }),
+        mov({ refId: "c", quando: "2026-09-03T12:00:00Z", tipo: "saida", origem: "os", quantidade: -10, refOc: "OS 12" }),
+        mov({ refId: "d", quando: "2026-09-04T12:00:00Z", origem: "rolo_entrada", quantidade: 5, refOc: "R-77" }),
+      ],
+      { recebido: 105, baixa: 40, fisico: 65 },
+    );
+  const ids = (b?: string) => montarExtrato(base(), { fuso: FUSO, busca: b }).linhas.map((l) => l.refId);
+
+  it("vazia/ausente/só espaços = todas as linhas (comportamento de antes)", () => {
+    expect(ids(undefined)).toEqual(["a", "b", "c", "d"]);
+    expect(ids("")).toEqual(["a", "b", "c", "d"]);
+    expect(ids("   ")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("casa por REF do modelo", () => {
+    expect(ids("VE00000123")).toEqual(["b"]);
+  });
+
+  it("casa por nome do modelo (substring)", () => {
+    expect(ids("vestido")).toEqual(["b"]);
+  });
+
+  it("casa por nº de OC (cru e com o prefixo exibido), OS e rolo", () => {
+    expect(ids("123").sort()).toEqual(["a", "b"]); // OC 123 e o REF ...123
+    expect(ids("OC 123")).toEqual(["a"]);
+    expect(ids("os 12")).toEqual(["c"]);
+    expect(ids("Rolo R-77")).toEqual(["d"]);
+  });
+
+  it("ignora acento e maiúsculas, nos dois lados", () => {
+    expect(ids("ACAI")).toEqual(["b"]);
+    expect(ids("açaí")).toEqual(["b"]);
+    expect(ids("  VESTIDO AÇAÍ ")).toEqual(["b"]);
+  });
+
+  it("sem resultado = nenhuma linha", () => {
+    expect(ids("zzz")).toEqual([]);
+  });
+
+  it("a busca NÃO muda saldo final, rodapé (confere/físico) nem o saldo corrente das linhas que ficam", () => {
+    const todos = montarExtrato(base(), { fuso: FUSO });
+    for (const b of ["vestido", "123", "zzz", "os 12"]) {
+      const e = montarExtrato(base(), { fuso: FUSO, busca: b });
+      expect(e.saldoFinal).toBe(todos.saldoFinal);
+      expect(e.saldoFinal).toBe(65);
+      expect(e.confere).toBe(todos.confere);
+      expect(e.fisicoTela).toBe(todos.fisicoTela);
+      expect(e.negativo).toBe(todos.negativo);
+      for (const l of e.linhas) expect(l.saldo).toBe(todos.linhas.find((t) => t.refId === l.refId)!.saldo);
+    }
+    // o saldo da linha "b" é o corrente de TODO o histórico (100 − 30), não o de um subconjunto
+    expect(montarExtrato(base(), { fuso: FUSO, busca: "vestido" }).linhas[0].saldo).toBe(70);
+  });
+
+  it("com período: saldoAnterior (e o resto) idêntico com ou sem busca; combina com origem", () => {
+    const sem = montarExtrato(base(), { fuso: FUSO, de: "2026-09-03" });
+    const com = montarExtrato(base(), { fuso: FUSO, de: "2026-09-03", busca: "rolo" });
+    expect(com.saldoAnterior).toBe(sem.saldoAnterior);
+    expect(com.saldoAnterior).toBe(70);
+    expect(com.saldoFinal).toBe(sem.saldoFinal);
+    expect(com.linhas.map((l) => l.refId)).toEqual(["d"]);
+    const comOrigem = montarExtrato(base(), { fuso: FUSO, busca: "123", origens: ["corte"] });
+    expect(comOrigem.linhas.map((l) => l.refId)).toEqual(["b"]);
+    expect(comOrigem.saldoFinal).toBe(65);
+  });
+
+  it("textoReferencia: OC/OS/rolo + modelo + detalhe (o mesmo texto da coluna Referência)", () => {
+    expect(textoReferencia({ refOc: "123", origem: "oc", refModelo: "M1", detalhe: "x" })).toBe("OC 123 · M1 · x");
+    expect(textoReferencia({ refOc: "OS 12", origem: "os", refModelo: null, detalhe: null })).toBe("OS 12");
+    expect(textoReferencia({ refOc: "R-1", origem: "rolo_entrada", refModelo: null, detalhe: null })).toBe("Rolo R-1");
+    expect(textoReferencia({ refOc: null, origem: "corte", refModelo: null, detalhe: null })).toBe("");
   });
 });

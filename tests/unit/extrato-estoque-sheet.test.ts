@@ -231,6 +231,37 @@ describe("ExtratoEstoqueSheet — rodapé (saldo negativo, divergência) e estad
     expect(ls[0]).toContain("11,00"); // saldo corrente sobre TUDO
   });
 
+  it("R10: a lupa (Buscar) filtra por REF/OC, sem acento/maiúsculas, e NÃO muda saldo corrente nem rodapé", async () => {
+    await abrir(TECIDO_OK);
+    const lupa = document.body.querySelector('button[aria-label="Buscar"]') as HTMLButtonElement;
+    expect(lupa).toBeTruthy();
+    await act(async () => { lupa.click(); });
+    const input = document.body.querySelector('input[placeholder="Buscar por REF, nome ou OC…"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    const digitar = async (v: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, v);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    await digitar("ref-77");
+    let ls = linhasTabela();
+    expect(ls).toHaveLength(1);
+    expect(ls[0]).toContain("REF-77");
+    expect(ls[0]).toContain("11,00"); // saldo corrente sobre TUDO, não sobre o subconjunto
+    expect(corpo()).toContain("Saldo final 10,00 m = físico na tela de estoque."); // rodapé = total
+    await digitar("oc 101");
+    ls = linhasTabela();
+    expect(ls).toHaveLength(1);
+    expect(ls[0]).toContain("OC 101");
+    await digitar("zzz");
+    expect(linhasTabela()).toHaveLength(0);
+    expect(corpo()).toContain("Nenhum movimento com esses filtros.");
+    expect(corpo()).toContain("Saldo final 10,00 m = físico na tela de estoque.");
+    await digitar("");
+    expect(linhasTabela()).toHaveLength(5);
+  });
+
   it("período vigente mostra a linha 'Saldo anterior'", async () => {
     await abrir(TECIDO_OK, { periodoInicial: { from: new Date(2026, 2, 10), to: new Date(2026, 2, 31) } });
     const ls = linhasTabela();
