@@ -294,6 +294,8 @@ describe.skipIf(!PRONTO)("C1 (a) — catálogo e ACL (#9, R-CD3)", () => {
       const conhecidas = new Set([
         "_custo_unitario_modelos_core", "_dashboard_custos_core", "_replicar_cards_plan_tecido_core", // leem / INSERT da réplica
         "_custo_recalcular_modelos", "fn_modelo_custo_derivado",
+        // R12 (aprovar custo automaticamente por versao): SO LEEM custo_peca_previsto (o flag compara com o da versao anterior)
+        "_mo_custo_auto_liberado", "fn_modelo_mo_flag_derivada",
       ]);
       const fora = rows.map((r) => r.proname as string).filter((p) => !conhecidas.has(p) && !p.startsWith("_custo_"));
       expect(fora).toEqual([]);

@@ -36,6 +36,20 @@ async function r13Viva(c: Client): Promise<boolean> {
   return !!row?.tab && row.m !== null && row.m !== R13_FN_ANTES;
 }
 
+// [Onda 3 / R12] frente sucessora (aprovar custo automatico por versao): import dinamico tolerante a ausencia (igual urgd -> urg-r13).
+type Sucessora = {
+  voltaSePreciso: (c: Client) => Promise<void>;
+  dropSePreciso: (c: Client) => Promise<void>;
+  md5Sucessor: (sig: string, pinado?: string) => string[];
+};
+const SUCESSORA: Sucessora | null = existsSync(`${ROOT}tests/integration/r12-helpers.ts`)
+  ? await import(/* @vite-ignore */ "./r12-helpers.ts").then((m) => ({
+      voltaSePreciso: m.voltaR12SePreciso as Sucessora["voltaSePreciso"],
+      dropSePreciso: m.dropR12SePreciso as Sucessora["dropSePreciso"],
+      md5Sucessor: m.md5R12Sucessor as Sucessora["md5Sucessor"],
+    }))
+  : null;
+
 async function zeraTimeouts(c: Client): Promise<void> {
   await c.query("SET LOCAL transaction_timeout = 0");
   await c.query("SET LOCAL lock_timeout = '3s'");
@@ -58,6 +72,7 @@ export async function voltaR13(c: Client): Promise<void> {
 
 /** LIFO: quem volta/reaplica a R11 ou qualquer release anterior dentro da txn tira a R13 antes. */
 export async function voltaR13SePreciso(c: Client): Promise<void> {
+  if (SUCESSORA) await SUCESSORA.voltaSePreciso(c); // LIFO: a R12 (por cima desta frente) sai antes, mesmo com a R13 fora
   if (!(await r13Viva(c))) return;
   const st = (await c.query("SELECT current_setting('statement_timeout') AS v")).rows[0].v as string;
   await voltaR13(c);
@@ -70,6 +85,7 @@ export async function voltaR13SePreciso(c: Client): Promise<void> {
  */
 export async function dropR13SePreciso(c: Client): Promise<void> {
   exigeBancoLocal();
+  if (SUCESSORA) await SUCESSORA.dropSePreciso(c); // LIFO dos drops: o da R12 (helpers/coluna) antes
   await voltaR13SePreciso(c);
   if ((await c.query("SELECT to_regclass('public.ocs_p_acabado_itens') IS NOT NULL AS ok")).rows[0]?.ok) {
     await c.query("SET LOCAL app.confirmo_apagar_itens_oc_r13 = 'sim'");
@@ -116,6 +132,11 @@ export function md5R13Sucessor(sig: string, pinado?: string): string[] {
   const out: string[] = pinado ? [pinado] : [];
   const d = R13_SUCESSOR[k];
   if (d && (!pinado || out.length)) if (!out.includes(d)) out.push(d);
+  // cadeia R13 -> R12: o "depois" da R12 que sucede o ultimo texto desta cadeia
+  if (SUCESSORA) {
+    const ultimo = out.length ? out[out.length - 1] : undefined;
+    for (const m of SUCESSORA.md5Sucessor(k, ultimo)) if (!out.includes(m)) out.push(m);
+  }
   return out;
 }
 
