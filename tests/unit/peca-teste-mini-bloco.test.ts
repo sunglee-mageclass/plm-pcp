@@ -1,11 +1,15 @@
+// @vitest-environment happy-dom
 // R11 T6 — o bloco "Mini explosão (1 peça)" (render estático, aparência/regras do mockup v4) + o adaptador da ficha (`bomUmaPecaDaFicha`) + a
 // fiação do Sheet (asserções de FONTE). O estado/payload/merge está em peca-teste-mini-estado.test.ts; o Salvar em peca-teste-mini-salvar.test.ts.
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MiniExplosaoBloco, limitarMini, LIMITE_MINI, miniEstaTravada, TEXTO_DICA_TROCA, TEXTO_SEM_TAMANHO_COR, type MiniBlocoProps } from "../../src/components/planejamento/planejamento-detail/MiniExplosaoBloco";
+
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+import { MiniExplosaoBloco, limitarMini, LIMITE_MINI, miniEstaTravada, miniPodeEditarAposBaixa, TEXTO_DICA_TROCA, TEXTO_EDITANDO_APOS_BAIXA, TEXTO_SEM_TAMANHO_COR, type MiniBlocoProps } from "../../src/components/planejamento/planejamento-detail/MiniExplosaoBloco";
 import { PecaTesteSecao } from "../../src/components/planejamento/planejamento-detail/PecaTesteSecao";
 import type { CalculoMini, MiniApi } from "../../src/components/planejamento/planejamento-detail/useMiniExplosao";
 import {
@@ -224,6 +228,93 @@ describe("MiniExplosaoBloco — cabeçalho, selos e avisos por estado", () => {
     expect(miniEstaTravada(t, t, false)).toBe(false);
     // só APROVADA trava:
     expect(miniEstaTravada(t, tent(2, { aprovacao: "aprovado" }), false)).toBe(true);
+  });
+  it("botão 'Editar' pós-baixa (opção A): aparece na mini PENDENTE travada por baixa; clicar (editando) libera os campos mantendo a data e avisa que refaz a baixa", () => {
+    const m = pronta({ baixa_em: "2026-10-07T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
+    const t = tent(2, { aprovacao: null, data_saida: "2026-10-07", mini: m });
+    expect(miniPodeEditarAposBaixa(t, t, false)).toBe(true);
+    const travado = render({ tentativa: t, base: t });
+    expect(travado).toContain('data-testid="mini-editar"');
+    expect(travado).toContain("Editar");
+    expect(travado).toContain("Baixa feita em 07/10/2026");
+    expect(temInput(travado)).toBe(false); // travada: foto, sem inputs
+    const editando = render({ tentativa: t, base: t, editandoInicial: true });
+    expect(editando).not.toContain('data-testid="mini-editar"'); // já está editando
+    expect(editando).not.toContain('data-testid="mini-foto-tecido"'); // cálculo ao vivo, não a foto
+    expect(editando).toContain('aria-label="Metragem a enviar de Tecido 1 · Preto (m)"'); // inputs de volta
+    expect(temInput(editando)).toBe(true);
+    expect(editando).toContain("Editando · refaz a baixa ao Salvar");
+    expect(editando).toContain(TEXTO_EDITANDO_APOS_BAIXA);
+    expect(TEXTO_EDITANDO_APOS_BAIXA).toContain("a baixa será estornada e refeita");
+    expect(editando).not.toContain("As quantidades estão travadas");
+  });
+  it("CLIQUE REAL no 'Editar' (DOM): libera os campos mantendo a Data de saída, esconde o botão e o 'a enviar' editado vira 'Vai estornar e baixar de novo'", async () => {
+    const m = pronta({ baixa_em: "2026-10-07T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
+    const base = tent(2, { aprovacao: null, data_saida: "2026-10-07", mini: m });
+    let atual = base;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const desenhar = () => act(async () => {
+      root.render(createElement(MiniExplosaoBloco, { linhaId: L1, pathNumero: null, tentativa: atual, base, historico: false, podeEditar: true, api: fakeApi(), abertoInicial: true,
+        onChange: (novo: MiniPT) => { atual = { ...atual, mini: novo }; void desenhar(); } }));
+    });
+    await desenhar();
+    const editarBtn = () => container.querySelector('[data-testid="mini-editar"]') as HTMLButtonElement | null;
+    expect(editarBtn()).not.toBeNull();
+    expect(container.querySelector('input[aria-label^="Metragem a enviar"]')).toBeNull(); // travada: foto
+    await act(async () => { editarBtn()!.click(); });
+    expect(editarBtn()).toBeNull(); // virou "editando"
+    const campo = container.querySelector('input[aria-label^="Metragem a enviar"]') as HTMLInputElement | null;
+    expect(campo).not.toBeNull(); // os inputs voltaram
+    expect(container.textContent).toContain("Editando · refaz a baixa ao Salvar");
+    expect(container.textContent).toContain("a baixa será estornada e refeita");
+    expect(atual.data_saida).toBe("2026-10-07"); // a data NÃO foi apagada
+    expect(atual.mini).toEqual(base.mini); // nada mudou só por clicar
+    root.unmount(); container.remove();
+  });
+  it("depois do Salvar (a baixa refeita volta no base com outra baixa_em/rev) o bloco RE-TRAVA sozinho e o 'Editar' reaparece", async () => {
+    const m1 = pronta({ baixa_em: "2026-10-07T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
+    const base1 = tent(2, { aprovacao: null, data_saida: "2026-10-07", mini: m1 });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const desenhar = (t: TentativaPT) => act(async () => {
+      root.render(createElement(MiniExplosaoBloco, { linhaId: L1, pathNumero: null, tentativa: t, base: t, historico: false, podeEditar: true, api: fakeApi(), abertoInicial: true, onChange: () => {} }));
+    });
+    await desenhar(base1);
+    await act(async () => { (container.querySelector('[data-testid="mini-editar"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-testid="mini-editar"]')).toBeNull();
+    const m2 = { ...m1, baixa_em: "2026-10-08T09:00:00Z" };
+    await desenhar({ ...base1, rev: 2, mini: m2 }); // o servidor refez a baixa
+    expect(container.querySelector('[data-testid="mini-editar"]')).not.toBeNull();
+    expect(container.querySelector('input[aria-label^="Metragem a enviar"]')).toBeNull();
+    expect(container.textContent).toContain("Baixa feita em 07/10/2026");
+    root.unmount(); container.remove();
+  });
+  it("botão 'Editar' NÃO aparece em aprovada, histórico, reprovada decidida, sem permissão, sem baixa ou sem Data de saída (e editandoInicial não destrava)", () => {
+    const m = pronta({ baixa_em: "2026-10-07T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
+    const aprovada = tent(1, { aprovacao: "aprovado", data_entrada: "2026-10-09", data_saida: "2026-10-07", mini: m });
+    expect(miniPodeEditarAposBaixa(aprovada, aprovada, false)).toBe(false);
+    let html = render({ tentativa: aprovada, base: aprovada });
+    expect(html).not.toContain('data-testid="mini-editar"');
+    html = render({ tentativa: aprovada, base: aprovada, editandoInicial: true });
+    expect(temInput(html)).toBe(false); // aprovada não destrava nem forçando o estado
+    const hist = tent(1, { aprovacao: "reprovado", data_saida: "2026-10-07", mini: m });
+    expect(miniPodeEditarAposBaixa(hist, hist, true)).toBe(false);
+    html = render({ tentativa: hist, base: hist, historico: true, pathNumero: 1, editandoInicial: true });
+    expect(html).not.toContain('data-testid="mini-editar"');
+    expect(temInput(html)).toBe(false);
+    const reprovadaAtual = tent(2, { aprovacao: "reprovado", data_saida: "2026-10-07", mini: m });
+    expect(miniPodeEditarAposBaixa(reprovadaAtual, reprovadaAtual, false)).toBe(false); // o servidor congela reprovada
+    expect(render({ tentativa: reprovadaAtual, base: reprovadaAtual })).not.toContain('data-testid="mini-editar"');
+    const pend = tent(2, { aprovacao: null, data_saida: "2026-10-07", mini: m });
+    expect(render({ tentativa: pend, base: pend, podeEditar: false })).not.toContain('data-testid="mini-editar"');
+    const semBaixa = tent(2, { data_saida: "2026-10-07", mini: pronta() });
+    expect(miniPodeEditarAposBaixa(semBaixa, semBaixa, false)).toBe(false);
+    const semData = tent(2, { data_saida: null, mini: m });
+    expect(miniPodeEditarAposBaixa(semData, semData, false)).toBe(false);
+    expect(render({ tentativa: semData, base: semData })).not.toContain('data-testid="mini-editar"');
   });
   it("histórico (reprovada): 'Baixa mantida (peça gasta)', somente leitura, sem inputs nem seletores editáveis", () => {
     const m = pronta({ baixa_em: "2026-10-05T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });

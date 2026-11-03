@@ -2,8 +2,8 @@
 // Componente de APRESENTAÇÃO: recebe o `MiniPT` do rascunho + o `MiniApi` (cálculo ao vivo, estoque) e devolve o novo `MiniPT` por
 // `onChange`. Nada grava aqui (só o Salvar do card). Travada (baixa salva com a Data de saída) e histórico (reprovada) mostram a FOTO
 // registrada da baixa, sem inputs. Mobile: a "tabela" vira cartões empilhados (`grid-cols-1`, rótulo por célula).
-import { useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ChevronRight, Info, Lock, RotateCcw, Scissors } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { AlertTriangle, Check, ChevronRight, Info, Lock, Pencil, RotateCcw, Scissors } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,7 @@ import type { CalculoMini, FonteOc, MiniApi } from "@/components/planejamento/pl
 
 export const TEXTO_DICA_TROCA = "Trocar o tamanho ou a cor refaz o pré-preenchimento a partir do BOM (descarta as edições desta peça).";
 export const TEXTO_SEM_TAMANHO_COR = "Data de saída preenchida, mas falta escolher o tamanho e a cor da peça — sem eles não há baixa.";
+export const TEXTO_EDITANDO_APOS_BAIXA = "Você está editando uma mini com baixa feita. Ao Salvar com alterações, a baixa será estornada e refeita com as quantidades novas; o Salvar pede confirmação.";
 export const TEXTO_NAO_ENTRA_NO_CUSTO = "A peça teste só movimenta o estoque (tecidos, aviamentos e insumos). Não entra no custo do produto, não gera conta a pagar e não tem valor — é só controle.";
 
 const SEM_VARIANTE = "__sem_variante__";
@@ -58,6 +59,8 @@ export type MiniBlocoProps = {
   onTentarDeNovo?: () => void;
   /** Estado inicial do colapsável (fechado por padrão; a prop existe para o render estático). */
   abertoInicial?: boolean;
+  /** Estado inicial do "Editar" pós-baixa (só para o render estático dos testes; em uso, o clique no botão liga). */
+  editandoInicial?: boolean;
 };
 
 /** Travada = sem inputs: histórico, tentativa decidida (aprovada) ou baixa salva com a Data de saída ainda preenchida E a mini igual à da baixa.
@@ -72,6 +75,14 @@ export function miniEstaTravada(t: TentativaPT, base: TentativaPT | null, histor
   return miniIgual(t.mini, base.mini);
 }
 
+/** Travada POR CAUSA DA BAIXA e ainda destravável: tentativa PENDENTE (decisão salva = nenhuma), fora do histórico, com baixa salva + Data de saída + mini
+ *  igual à da baixa. Só nesse caso o botão "Editar" libera os campos SEM apagar a data (o Salvar refaz a baixa: `estorno_e_baixa`). Aprovada/reprovada
+ *  (o servidor congela a mini) e histórico nunca destravam. */
+export function miniPodeEditarAposBaixa(t: TentativaPT, base: TentativaPT | null, historico: boolean): boolean {
+  if (historico || !base || base.aprovacao !== null) return false;
+  return miniEstaTravada(t, base, historico);
+}
+
 /** Limite de cada campo numérico da mini (espelho dos CHECKs do servidor, `peca_teste_mini_formato`): consumo 0..9999, % loss 0..100,
  *  a enviar 0..99999. Negativo/vazio/inválido vira 0; acima do teto vira o teto. */
 export const LIMITE_MINI = { consumo: 9999, loss_percent: 100, a_enviar: 99999 } as const;
@@ -80,12 +91,19 @@ export function limitarMini(n: number, max: number): number {
   return n > max ? max : n;
 }
 
-export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, historico, podeEditar, api, onChange, onTentarDeNovo, abertoInicial = false }: MiniBlocoProps) {
+export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, historico, podeEditar, api, onChange, onTentarDeNovo, abertoInicial = false, editandoInicial = false }: MiniBlocoProps) {
   const [aberto, setAberto] = useState(abertoInicial);
+  // "Editar" (pós-baixa): estado só de tela, não vai ao payload. Volta a falso quando a baixa muda no servidor (Salvar refez a baixa) ou a data some.
+  const [editando, setEditando] = useState(editandoInicial);
+  const baixaEmBase = base?.mini?.baixa_em ?? null;
+  useEffect(() => { setEditando(false); }, [baixaEmBase, base?.rev]);
   if (!api.ativo) return null;
   const mini = tentativa.mini ?? null;
   const dataSaida = tentativa.data_saida;
-  const travada = miniEstaTravada(tentativa, base, historico);
+  const travadaBruta = miniEstaTravada(tentativa, base, historico);
+  const podeDestravar = podeEditar && (miniPodeEditarAposBaixa(tentativa, base, historico) || (editando && !historico && !!base && base.aprovacao === null && !!baixaEmBase && !!dataSaida));
+  const destravada = editando && podeDestravar;
+  const travada = travadaBruta && !destravada;
   const editavel = podeEditar && !travada;
   const baixaSalva = base?.mini?.baixa_em ?? (historico ? mini?.baixa_em ?? null : null);
   const fotos = (mini?.linhas ?? []).filter((l) => !!l.foto);
@@ -107,12 +125,14 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
     if (baixaSalva) selos.push({ txt: "Baixa mantida (peça gasta)", tom: "neutral", icone: <Lock className="h-3 w-3" /> });
   } else if (baixaSalva && dataSaida && acao === "estorno_e_baixa") selos.push({ txt: "Vai estornar e baixar de novo", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
   else if (baixaSalva && dataSaida && acao === "estorno") selos.push({ txt: "Estorno ao Salvar", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
+  else if (baixaSalva && dataSaida && destravada) selos.push({ txt: "Editando · refaz a baixa ao Salvar", tom: "warning", icone: <Pencil className="h-3 w-3" /> });
   else if (baixaSalva && dataSaida) selos.push({ txt: `Baixa feita em ${dataBR(dataSaida)}`, tom: "success", icone: <Check className="h-3 w-3" /> });
   else if (baixaSalva && !dataSaida) selos.push({ txt: "Estorno ao Salvar", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
   else if (!calc && !mostraFoto) selos.push({ txt: "Escolha tamanho e cor", tom: "neutral" });
   else selos.push({ txt: "Baixa ao Salvar", tom: "neutral" });
   if (nFaltas > 0) selos.push({ txt: `faltou · ${nFaltas} ${nFaltas > 1 ? "itens" : "item"}`, tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
 
+  const mostraEditar = podeEditar && !editando && miniPodeEditarAposBaixa(tentativa, base, historico);
   const rotuloTam = (v: string | null) => (v ? api.tamanhos.find((o) => o.value === v)?.label ?? (v.includes("|") ? v.split("|")[1] : v) : null);
   const rotuloCor = (v: string | null) => (v ? api.cores.find((o) => o.value === v)?.label ?? "cor escolhida" : null);
 
@@ -135,6 +155,16 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
             {selos.map((s) => (
               <StatusBadge key={s.txt} tone={s.tom} className="gap-1 normal-case tracking-normal">{s.icone}{s.txt}</StatusBadge>
             ))}
+            {mostraEditar && (
+              <button
+                type="button" data-testid="mini-editar"
+                onClick={(e) => { e.stopPropagation(); setEditando(true); setAberto(true); }}
+                onKeyDown={(e) => e.stopPropagation()}
+                className="inline-flex h-6 items-center gap-1 rounded-md border px-2 text-xs font-medium text-primary hover:bg-accent"
+              >
+                <Pencil className="h-3 w-3" />Editar
+              </button>
+            )}
           </span>
         </div>
       </CollapsibleTrigger>
@@ -149,7 +179,7 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
 
           <Aviso
             historico={historico} baixaSalva={baixaSalva} dataSaida={dataSaida} acao={acao}
-            temData={!!dataSaida} baixaEm={base?.mini?.baixa_em ?? null}
+            temData={!!dataSaida} baixaEm={base?.mini?.baixa_em ?? null} editando={destravada}
           />
 
           {api.erro && !api.pronta && !mostraFoto ? (
@@ -194,8 +224,8 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
 
 // ───────────────────────────── avisos por estado ─────────────────────────────
 
-function Aviso({ historico, baixaSalva, dataSaida, acao, temData, baixaEm }: {
-  historico: boolean; baixaSalva: string | null; dataSaida: string | null; acao: ReturnType<typeof acaoNoSalvar>; temData: boolean; baixaEm: string | null;
+function Aviso({ historico, baixaSalva, dataSaida, acao, temData, baixaEm, editando }: {
+  historico: boolean; baixaSalva: string | null; dataSaida: string | null; acao: ReturnType<typeof acaoNoSalvar>; temData: boolean; baixaEm: string | null; editando: boolean;
 }) {
   if (historico) {
     return (
@@ -219,10 +249,15 @@ function Aviso({ historico, baixaSalva, dataSaida, acao, temData, baixaEm }: {
       </Faixa>
     );
   }
+  if (editando && baixaEm && temData) {
+    return (
+      <Faixa tom="warn" icone={<AlertTriangle className="h-4 w-4" />} role="status">{TEXTO_EDITANDO_APOS_BAIXA}</Faixa>
+    );
+  }
   if (baixaEm && temData) {
     return (
       <Faixa tom="ok" icone={<Check className="h-4 w-4" />}>
-        <b>Baixa feita em {dataBR(dataSaida)}</b> (ao preencher a Data de saída), pelo <b>“a enviar”</b> de cada linha. As quantidades estão travadas; para refazer, apague a Data de saída e salve (a baixa é estornada). Aparece no Histórico do estoque como “Peça teste”, com o card.
+        <b>Baixa feita em {dataBR(dataSaida)}</b> (ao preencher a Data de saída), pelo <b>“a enviar”</b> de cada linha. As quantidades estão travadas; para refazer, clique em <b>Editar</b> (o Salvar estorna e refaz a baixa) ou apague a Data de saída e salve (a baixa é estornada). Aparece no Histórico do estoque como “Peça teste”, com o card.
       </Faixa>
     );
   }
