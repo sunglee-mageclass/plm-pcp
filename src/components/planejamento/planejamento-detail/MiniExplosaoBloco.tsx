@@ -65,7 +65,9 @@ export type MiniBlocoProps = {
  *  estornar e baixar os números NOVOS — o bloco destrava e mostra o cálculo ao vivo (não a foto velha) para a pessoa conferir. */
 export function miniEstaTravada(t: TentativaPT, base: TentativaPT | null, historico: boolean): boolean {
   if (historico) return true;
-  if (base && base.aprovacao !== null) return true;
+  // Só APROVADA trava (decisão final). Reprovada NÃO trava a mini da tentativa atual: a próxima tentativa (e a reprovada enquanto
+  // ainda é a "atual", antes de nascer a seguinte) tem de permitir editar consumo/a enviar/etc. (bug relatado pelo dono 03/nov).
+  if (base && base.aprovacao === "aprovado") return true;
   if (!base?.mini?.baixa_em || !t.data_saida) return false;
   return miniIgual(t.mini, base.mini);
 }

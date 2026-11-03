@@ -218,6 +218,13 @@ describe("MiniExplosaoBloco — cabeçalho, selos e avisos por estado", () => {
     expect(miniEstaTravada({ ...base }, base, false)).toBe(true);
     expect(render({ tentativa: base, base })).toContain("Baixa feita em 07/10/2026");
   });
+  it("tentativa ATUAL reprovada (historico=false) NÃO trava a mini — dá p/ editar consumo/a enviar (bug 03/nov)", () => {
+    // reprovada, sem baixa feita: a mini da tentativa atual (antes de nascer a próxima) tem de ficar editável.
+    const t = tent(2, { aprovacao: "reprovado", data_saida: null, mini: pronta() });
+    expect(miniEstaTravada(t, t, false)).toBe(false);
+    // só APROVADA trava:
+    expect(miniEstaTravada(t, tent(2, { aprovacao: "aprovado" }), false)).toBe(true);
+  });
   it("histórico (reprovada): 'Baixa mantida (peça gasta)', somente leitura, sem inputs nem seletores editáveis", () => {
     const m = pronta({ baixa_em: "2026-10-05T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
     const t = tent(1, { aprovacao: "reprovado", data_saida: "2026-10-05", mini: m });
