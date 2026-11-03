@@ -876,10 +876,10 @@ export function ProdutoImportadoCard({
                       transação do _rev_base). Vazio (e markup vazio) = nada muda no banco; para voltar ao markup, digite o
                       markup. Funciona com base 0. */}
                   <div className="mt-2 grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-3">
-                      <Label className="w-[120px] shrink-0 text-sm">Valor atacado</Label>
+                    <div className="grid min-w-0 gap-1">
+                      <Label className="text-sm">Valor atacado</Label>
                       <MoneyInput
-                        className="flex-1"
+                        className="w-full min-w-0"
                         fixedDecimals
                         data-colab-path={cp("preco-atacado-fixo")}
                         value={precos.atacado > 0 ? precos.atacado : ""}
@@ -890,10 +890,10 @@ export function ProdutoImportadoCard({
                         }}
                       />
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Label className="w-[120px] shrink-0 text-sm">Valor varejo</Label>
+                    <div className="grid min-w-0 gap-1">
+                      <Label className="text-sm">Valor varejo</Label>
                       <MoneyInput
-                        className="flex-1"
+                        className="w-full min-w-0"
                         fixedDecimals
                         data-colab-path={cp("preco-varejo-fixo")}
                         value={precos.varejo > 0 ? precos.varejo : ""}

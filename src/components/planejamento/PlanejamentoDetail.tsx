@@ -1771,7 +1771,9 @@ function PlanejamentoDetailConteudo({
             <p className="p-6 text-sm text-muted-foreground">Carregando o card…</p>
           )
         ) : (
-        <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
+        <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="flex flex-col gap-6 min-w-0 border-0 p-0 m-0">
+          {/* Fix visual (prévia R13): o container usa `flex flex-col gap-6` e NÃO `space-y-6` — os grupos A/B abaixo são <fieldset> com `m-0`,
+              e no Tailwind v4 o `space-y-*` (`:where(...)`, especificidade 0) perdia para o `m-0` e a Peça Teste colava na seção anterior; o `gap` não é margem. */}
           {/* R9 — grupo A (do início até "Preço e Custos"): trava por `sheetSomenteLeitura` (a Peça Teste, logo depois, tem a própria permissão).
               `space-y-6` no próprio grupo (um `contents` perderia o espaçamento entre as seções — lição B1). */}
           <ReadOnlyScope value={perm.sheetSomenteLeitura}>
