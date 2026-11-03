@@ -22,7 +22,7 @@ describe("Mão de obra DENTRO de Preço e Custos (fonte)", () => {
     expect(fonte("src/lib/lancar.ts")).toContain("(na seção Preço e Custos)");
     expect(s).not.toMatch(/maoObra: \{ estado: moEstadoLocal/);
     // R15 (item 13 do G-plano): o aviso de MO pendente/reprovada vai p/ o selo de Preço — interno E comprado.
-    expect(s).toContain('maoObraAviso: moBlocoVisivel && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null,');
+    expect(s).toContain('maoObraAviso: moBlocoVisivel && !custoLiberadoAuto && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null,');
     expect(s).toContain('label="Observação de mão de obra"'); // R34 — prop que o ObsMaoObraField JÁ tem
   });
   it("PrecoTabela: bloco logo abaixo da linha 'Mão de obra', Obs. logo abaixo do 'Custo total'; frase velha saiu", () => {

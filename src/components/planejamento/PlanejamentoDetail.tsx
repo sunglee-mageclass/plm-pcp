@@ -45,7 +45,7 @@ import { InfoHover } from "@/components/shared/InfoHover";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { TEXTO_SKU_TRAVADO, TEXTO_TRAVA_SHEET, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
-import { estadoMO, moLinhasEqual, moLinhaVaiReabrir, podeEditarValorMO, type MoLinha } from "@/lib/mao-obra";
+import { estadoMO, moLinhasEqual, moLinhaVaiReabrir, moLiberadaPorCustoAuto, podeEditarValorMO, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
@@ -837,7 +837,13 @@ function PlanejamentoDetailConteudo({
   // Contas certas item 8 (P-163 A): linha aprovada com valor/serviço mudado e AINDA NÃO salvo conta como pendente — o
   // Salvar a reabre no servidor; sem isto o Lançar (que não passa pelo Salvar) lançaria com a M.O. antiga aprovada.
   const moReabreAoSalvar = moLinhas.some((l) => l.id != null && moLinhaVaiReabrir(l, moLinhasBase.find((b) => b.id === l.id)));
-  const maoObraPendente = !(moEstadoLocal === "sem_servico" || moEstadoLocal === "aprovada") || moReabreAoSalvar;
+  // [R12 Sheet] O servidor já libera o card quando a versão não ficou mais cara (`custo_terceirizados_aprovado` = true com linha de
+  // M.O. ainda pendente) e `lancar_modelo`/kanban leem esse flag. O gate daqui olha as linhas; sem isto o Lançar continuaria pedindo M.O.
+  // Só vale sobre o estado SALVO: com M.O. editada e não salva (ou reprovação recém-feita) o flag está velho e NÃO libera.
+  const custoLiberadoAuto = moLiberadaPorCustoAuto({
+    flagServidor: (modeloData as any)?.custo_terceirizados_aprovado, linhas: moLinhas, linhasBase: moLinhasBase, reabreAoSalvar: moReabreAoSalvar,
+  });
+  const maoObraPendente = (!(moEstadoLocal === "sem_servico" || moEstadoLocal === "aprovada") || moReabreAoSalvar) && !custoLiberadoAuto;
 
   // Aprovar/reprovar POR SERVIÇO (RPC `aprovar_servico_mo`, gated no servidor por
   // `producao_servico_aprovacao`). Ação imediata (não entra no Salvar da página). Patch LOCAL
@@ -1498,7 +1504,7 @@ function PlanejamentoDetailConteudo({
     preco: isRevenda ? { efetivo: piRevenda.efetivo, markup: piRevenda.markupReal } : { efetivo: precoEfetivo, markup: markupReal },
     // F3.6 (R15 — item 13 do G-plano): MO pendente/reprovada no selo de Preço, p/ interno E comprado; o estado já está
     // carregado aqui (`moLinhas` → `moEstadoLocal`); só quando o bloco de MO é visível p/ este usuário.
-    maoObraAviso: moBlocoVisivel && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null,
+    maoObraAviso: moBlocoVisivel && !custoLiberadoAuto && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null, // [R12] liberado pelo custo: sem "MO pendente"
     anexos: { fotoModelo: draft.fotos_modelo.length > 0, fotoReferencia: draft.fotos_referencia.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
     lancamento: { lancado, data: draft.data_lancamento },
     // R9 — "N de M aprovadas" (requisito local do rascunho); sem trilha nenhuma, sem selo.
@@ -1607,6 +1613,7 @@ function PlanejamentoDetailConteudo({
         podeEditarValor={podeEditarMO}
         fornecedores={empresasServicoMO}
         fornecedorTravado={fornecedorTravadoMO}
+        custoLiberadoAuto={custoLiberadoAuto}
       />
     </fieldset>
   );

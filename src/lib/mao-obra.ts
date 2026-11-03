@@ -24,6 +24,34 @@ export function moLiberada(linhas: MoLinha[]): boolean {
   return !linhas.some((l) => l.aprovado !== true);
 }
 
+/** Texto do selo "liberado pela R12" (Sheet do Planejamento, perto da Mão de Obra). */
+export const TEXTO_CUSTO_LIBERADO_AUTO = "Custo liberado automaticamente";
+export const TEXTO_CUSTO_LIBERADO_AUTO_INFO = "A versão não ficou mais cara que a anterior, então o custo foi liberado sem precisar aprovar a mão de obra.";
+
+/**
+ * [R12, Sheet] O custo foi liberado pela regra automática (versão não ficou mais cara) e NÃO pela aprovação da M.O.?
+ *
+ * Inferência segura: no servidor `custo_terceirizados_aprovado = _mo_liberada` = (nenhuma linha com aprovado ≠ true)
+ * OU o caminho da R12 (que exige NENHUMA linha reprovada). Logo flag `true` + pelo menos uma linha PENDENTE só acontece
+ * pela R12 (flag `true` sem linha pendente = aprovação normal ou sem serviço; reprovada nunca coexiste com flag `true`).
+ *
+ * O flag é do estado SALVO. Só vale sobre o estado salvo: com edição de M.O. ainda não salva (`linhas` ≠ `linhasBase`,
+ * incluindo `reabreAoSalvar`) o flag pode estar velho — nesse caso NÃO libera (em dúvida, não libera) e o selo some.
+ * Linha reprovada no rascunho também veta (aprovação imediata acabou de reprovar e o flag ainda não foi relido).
+ */
+export function moLiberadaPorCustoAuto(e: {
+  flagServidor: boolean | null | undefined;
+  linhas: MoLinha[];
+  linhasBase: MoLinha[];
+  reabreAoSalvar?: boolean;
+}): boolean {
+  if (e.flagServidor !== true) return false;
+  if (e.reabreAoSalvar) return false;
+  if (!moLinhasEqual(e.linhas, e.linhasBase)) return false;
+  if (e.linhas.some((l) => l.aprovado === false)) return false;
+  return e.linhas.some((l) => l.aprovado == null);
+}
+
 export type EstadoMO = "sem_servico" | "reprovada" | "pendente" | "aprovada";
 
 /** Estado de exibição do modelo derivado das linhas (para o badge 3-estados). */

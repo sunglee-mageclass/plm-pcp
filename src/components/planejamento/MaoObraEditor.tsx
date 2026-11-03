@@ -6,7 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
-import { moLinhaVaiReabrir, somaAprovadaVigente, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, type MoLinha } from "@/lib/mao-obra";
+import { moLinhaVaiReabrir, somaAprovadaVigente, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, TEXTO_CUSTO_LIBERADO_AUTO, TEXTO_CUSTO_LIBERADO_AUTO_INFO, type MoLinha } from "@/lib/mao-obra";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
 const NENHUM_FORNECEDOR = "__nenhum__";
@@ -27,7 +28,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; v
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
   onChangeLinhas, onAprovar, onReprovar, pendingLinhaId, linhasPersistidas, linhasBase,
-  readOnly = false, podeEditarValor, fornecedores, fornecedorTravado,
+  readOnly = false, podeEditarValor, fornecedores, fornecedorTravado, custoLiberadoAuto = false,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -65,6 +66,9 @@ export function MaoObraEditor({
   /** [urg R9] ids das linhas cuja PEÇA TESTE está aprovada: o fornecedor delas fica travado (o servidor também recusa trocá-lo) — o Select
    * vira desabilitado com a dica "Peça teste aprovada: fornecedor travado". Ausente/vazio = comportamento de sempre. */
   fornecedorTravado?: ReadonlySet<string>;
+  /** [R12] O servidor liberou o custo porque a versão não ficou mais cara (flag `true` com linha pendente): mostra o selo
+   * "Custo liberado automaticamente". Só o Sheet do Planejamento passa; ausente = nada muda. */
+  custoLiberadoAuto?: boolean;
 }) {
   const editaValor = podeEditarValor && !readOnly;
   const [addSel, setAddSel] = useState<string>("");
@@ -92,6 +96,14 @@ export function MaoObraEditor({
 
   return (
     <div className="grid gap-2">
+      {custoLiberadoAuto && (
+        <div className="flex items-center gap-1" data-testid="mo-custo-liberado-auto">
+          <StatusBadge tone="success" className="gap-1 rounded-full px-2 py-0.5 normal-case tracking-normal">
+            <Check className="h-3 w-3" />{TEXTO_CUSTO_LIBERADO_AUTO}
+          </StatusBadge>
+          <InfoHover ariaLabel="Por que o custo foi liberado automaticamente">{TEXTO_CUSTO_LIBERADO_AUTO_INFO}</InfoHover>
+        </div>
+      )}
       {linhas.length === 0 && <p className="text-xs text-muted-foreground">{editaValor ? "Nenhum serviço de mão de obra. Adicione abaixo." : "Nenhum serviço de mão de obra."}</p>}
       {linhas.map((l, idx) => {
         const linhaId = l.id ?? null;

@@ -176,7 +176,7 @@ describe("item 8 — moLinhaVaiReabrir (P-163 A)", () => {
       /const moReabreAoSalvar = moLinhas\.some\(\(l\) => l\.id != null && moLinhaVaiReabrir\(l, moLinhasBase\.find/,
     );
     expect(det).toMatch(
-      /const maoObraPendente = !\(moEstadoLocal === "sem_servico" \|\| moEstadoLocal === "aprovada"\) \|\| moReabreAoSalvar;/,
+      /const maoObraPendente = \(!\(moEstadoLocal === "sem_servico" \|\| moEstadoLocal === "aprovada"\) \|\| moReabreAoSalvar\) && !custoLiberadoAuto;/ // [R12 Sheet] a R12 só libera sobre rascunho de M.O. limpo (sem reabertura),
     );
     // [modularidade F3] os bloqueios saíram para `bloqueiosLancar` (src/lib/lancar.ts), usado na mutation e no tooltip.
     expect(det).toMatch(/bloqueiosLancar\(\{[^}]*moReabreAoSalvar \}\)/);
