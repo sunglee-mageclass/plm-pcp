@@ -217,13 +217,14 @@ BEGIN
         RAISE EXCEPTION 'peca_teste_mini_formato: ajuste invalido ou chave repetida' USING ERRCODE = 'P0001';
       END IF;
 
-      -- estado DE ANTES deste Salvar: aprovada ou reprovada (historico) = mini IMUTAVEL. A decisao ja foi aplicada pelo core (este
-      -- passo roda DEPOIS do laco das tentativas), entao "decidida ANTES" = aprovacao gravada E decidido_em de uma txn ANTERIOR
-      -- (decidido_em <> now(), que e constante na txn). Decidir no MESMO Salvar (inclusive reprovar) tem decidido_em = now() -> NAO
-      -- e imutavel -> a baixa sai (peca gasta).
+      -- estado DE ANTES deste Salvar: SO a aprovada (em Salvar ANTERIOR) congela a mini. A reprovada cai no caminho NORMAL
+      -- (estorno_e_baixa), como a pendente: a decisao "reprovado" fica (o core trava datas/fornecedor/aprovacao), mas o material/baixa
+      -- da mini abre. A decisao ja foi aplicada pelo core (este passo roda DEPOIS do laco das tentativas), entao "aprovada ANTES" =
+      -- aprovacao gravada 'aprovado' E decidido_em de uma txn ANTERIOR (decidido_em <> now(), constante na txn). Aprovar no MESMO
+      -- Salvar tem decidido_em = now() -> NAO e imutavel -> a baixa sai (peca gasta).
       v_aprov_paga := CASE WHEN v_t.decidido_em IS DISTINCT FROM now() THEN v_t.aprovacao END;
       v_hist := v_aprov_paga IS NOT NULL AND v_aprov_paga <> 'aprovado';
-      v_imutavel := v_aprov_paga IS NOT NULL;  -- aprovado OU reprovado em Salvar ANTERIOR
+      v_imutavel := v_aprov_paga = 'aprovado';  -- SO aprovada em Salvar ANTERIOR congela a mini (reprovada e editavel)
 
       -- a mini "muda" quando o cabecalho ou os ajustes diferem do gravado
       v_mudou := (NOT v_tem_mini)
@@ -258,9 +259,9 @@ BEGIN
            );
 
       IF v_imutavel THEN
-        -- tentativa decidida: a mini e IMUTAVEL. Qualquer diferenca do gravado = recusa (aprovada trava; reprovada = historico).
-        -- A baixa feita no MESMO Salvar da reprova NAO cai aqui: o core grava a decisao DEPOIS deste passo (v_t.aprovacao e o
-        -- estado de ANTES; na reprova "no mesmo Salvar" v_aprov_paga ainda e NULL -> a baixa sai normal).
+        -- tentativa APROVADA (em Salvar ANTERIOR): a mini e IMUTAVEL. Qualquer diferenca do gravado = recusa. A reprovada NAO cai
+        -- aqui (v_imutavel = false): a mini dela e editavel e segue o caminho normal (estorno_e_baixa). Aprovar no MESMO Salvar
+        -- tambem nao cai aqui (v_aprov_paga NULL -> a baixa sai normal; a decisao vem do core DEPOIS deste passo).
         IF v_mudou THEN
           IF v_hist THEN
             RAISE EXCEPTION 'peca_teste_historico: tentativa reprovada e so leitura' USING ERRCODE = 'P0001';

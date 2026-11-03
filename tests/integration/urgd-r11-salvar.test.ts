@@ -299,30 +299,39 @@ describe.skipIf(!RODA)("urgd-r11-salvar: Salvar da Peça Teste com a mini (máqu
       expect(txt(await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]))).toBe("PASSOU");
       expect(await baixaEm(c, tent)).not.toBeNull();
       expect(await somaEtb(c, tent)).toBeGreaterThan(0);
-      // a tentativa ficou reprovada e a baixa fica (nova mexida na mini é recusada como histórico)
+      // a tentativa ficou reprovada e a baixa fica (a mini da reprovada é editável; ver 6b)
       const ap = (await um1<{ a: string }>(c, `SELECT aprovacao a FROM public.modelo_peca_teste_tentativas WHERE id=$1`, [tent]));
       expect(ap.a).toBe("reprovado");
     });
   });
 
-  it("6b) tentativa já reprovada (Salvar anterior) com baixa: mexer na mini -> P0001 peca_teste_historico", async () => {
+  it("6b) tentativa já reprovada (Salvar anterior): mexer na MINI -> estorno + rebaixa (editável); mexer na DATA -> peca_teste_historico", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const f = await seed(c);
       const tent = await tentativa1(c, f, "2026-01-05");
-      // baixa
-      let p = payload(f, { id: tent, data_saida: "2026-01-05", rev: await rev(c, tent) }, miniObj(f));
+      // baixa inicial (mini com a_enviar=10 no aviamento)
+      let p = payload(f, { id: tent, data_saida: "2026-01-05", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 10 }] }));
       expect(txt(await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]))).toBe("PASSOU");
+      const led0 = await somaLed(c, tent);
+      expect(led0).toBeGreaterThan(0);
       // reprova num Salvar à parte (data já salva)
-      p = payload(f, { id: tent, data_saida: "2026-01-05", aprovacao: "reprovado", rev: await rev(c, tent) }, miniObj(f));
+      p = payload(f, { id: tent, data_saida: "2026-01-05", aprovacao: "reprovado", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 10 }] }));
       expect(txt(await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]))).toBe("PASSOU");
-      // agora mexer na mini (muda o a_enviar) -> histórico
-      p = payload(f, { id: tent, data_saida: "2026-01-05", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 99 }] }));
-      const r = await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]);
-      expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.msg).toMatch(/peca_teste_historico/);
-      // a baixa continua lá
-      expect(await somaEtb(c, tent)).toBeGreaterThan(0);
+      // agora mexer SÓ na mini (a_enviar 10 -> 25) numa reprovada -> NÃO recusa: estorno da baixa antiga + baixa nova
+      p = payload(f, { id: tent, data_saida: "2026-01-05", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 25 }] }));
+      expect(txt(await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]))).toBe("PASSOU");
+      // SUM do ledger = o NOVO valor (estorno compensatório + rebaixa); linha compensatória NEGATIVA presente
+      const led1 = await somaLed(c, tent);
+      expect(led1).toBeGreaterThan(0);
+      expect(led1).toBeGreaterThan(led0);  // 25 > 10
+      const comp = (await um1<{ n: number }>(c, `SELECT count(*)::int n FROM public.estoque_peca_teste_baixas WHERE tentativa_id=$1 AND quantidade < 0`, [tent]));
+      expect(comp.n).toBeGreaterThan(0);  // estorno = linha compensatória negativa
+      // mas mexer na DATA de uma reprovada AINDA recusa (trava de _salvar_peca_teste_core, intocada)
+      p = payload(f, { id: tent, data_saida: "2026-01-09", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 25 }] }));
+      const rData = await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]);
+      expect(rData.ok).toBe(false);
+      if (!rData.ok) expect(rData.msg).toMatch(/peca_teste_historico/);
     });
   });
 
