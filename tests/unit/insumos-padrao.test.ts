@@ -139,17 +139,17 @@ describe("diagnosticarLinhasInsumosPadrao — o que a tela mostra por linha (cat
   });
 });
 
-describe("integracao com config-loja-colab (17 colunas, coluna insumos_padrao)", () => {
+describe("integracao com config-loja-colab (18 colunas, coluna insumos_padrao)", () => {
   function cfgBase(): ConfigLojaColab {
     return {
       timezone: "America/Sao_Paulo", modo_baixa_estoque: "por_oc", modo_oc_rolo: "ambos", explosao_envio_status: "",
       ref_exibir_status: "", markup_analise_faixa: false, leadtime: { etapas: [], slaServico: null }, pcp_etapas: [],
       revenda_campos: {}, ref_config: null, keywords: "", status_kanban: ["Em Modelagem", "Aprovado"], kanban_requisitos: {},
-      kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {}, insumos_padrao: [],
+      kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {}, insumos_padrao: [], aprovar_custo_auto_por_versao: "nenhum",
     };
   }
-  it("COLUNAS_PAGINA tem 17 e inclui insumos_padrao", () => {
-    expect(COLUNAS_PAGINA).toHaveLength(17);
+  it("COLUNAS_PAGINA tem 18 e inclui insumos_padrao", () => {
+    expect(COLUNAS_PAGINA).toHaveLength(18);
     expect(COLUNAS_PAGINA).toContain("insumos_padrao");
   });
   it('rotulo "Insumos padrão"', () => {
