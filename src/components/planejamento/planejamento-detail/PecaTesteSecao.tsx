@@ -52,7 +52,7 @@ const dataBR = (iso: string | null) => {
 export function PecaTesteSecao({
   numero, selo, estado, base, fornecedores, somenteLeitura = false, carregando = false, erro = false, onTentarDeNovo,
   linhasNovas = [], bloqueadasPorTipo, conflitos = [], onResolverConflito, historicoAberto = false,
-  onEditarAtual, onAprovar, onDesfazer, onReprovar, onTrocarFornecedor, mini, onEditarMini, avisos = [], miniAbertaInicial = false,
+  onEditarAtual, onAprovar, onDesfazer, onReprovar, onTrocarFornecedor, mini, onEditarMini, onEditarMiniTentativa, avisos = [], miniAbertaInicial = false,
   defaultAberta = false,
 }: {
   numero?: number;
@@ -83,6 +83,8 @@ export function PecaTesteSecao({
   /** R11 — mini explosão (1 peça) de cada tentativa. Ausente = a seção fica como na R9 (sem o bloco). */
   mini?: MiniApi;
   onEditarMini?: (linhaId: string, mini: MiniPT) => void;
+  /** R11 — edita a mini de uma tentativa REPROVADA do histórico (por nº); `null` = volta a ficar sem mini. */
+  onEditarMiniTentativa?: (linhaId: string, numero: number, mini: MiniPT | null) => void;
   /** R11 — mudanças alheias adotadas SEM escolha no merge (baixa/estorno feitos por outra pessoa). */
   avisos?: string[];
   /** Estado inicial do colapsável da mini (fechado por padrão; a prop existe para o render estático). */
@@ -176,6 +178,7 @@ export function PecaTesteSecao({
                     onTrocarFornecedor={onTrocarFornecedor}
                     mini={mini}
                     onEditarMini={onEditarMini}
+                    onEditarMiniTentativa={onEditarMiniTentativa}
                     miniAbertaInicial={miniAbertaInicial}
                     onPedirReprovar={(at, fornecedorNome) =>
                       pedir({
@@ -235,7 +238,7 @@ function Banner({ tone, icon, children }: { tone: "ok" | "info" | "warn"; icon: 
 
 function TrilhaCard({
   trilha, base, moAprovado, historicoAberto, fornecedores, somenteLeitura, onEditarAtual, onAprovar, onDesfazer, onTrocarFornecedor, onPedirReprovar,
-  mini, onEditarMini, miniAbertaInicial,
+  mini, onEditarMini, onEditarMiniTentativa, miniAbertaInicial,
 }: {
   trilha: TrilhaPT;
   base: TrilhaPT | undefined;
@@ -250,10 +253,14 @@ function TrilhaCard({
   onPedirReprovar: (at: TentativaPT, fornecedorNome: string | null) => void;
   mini?: MiniApi;
   onEditarMini?: (linhaId: string, mini: MiniPT) => void;
+  onEditarMiniTentativa?: (linhaId: string, numero: number, mini: MiniPT | null) => void;
   miniAbertaInicial: boolean;
 }) {
   const uid = useId();
   const [histAberto, setHistAberto] = useState(historicoAberto);
+  // reprovadas do histórico com a mini LIBERADA para edição (botão "Editar"); fechadas por padrão
+  // (guarda a `baixa_em` do servidor no momento do clique: depois do Salvar a baixa é refeita/estornada, muda, e a edição fecha sozinha)
+  const [editando, setEditando] = useState<ReadonlyMap<number, string | null>>(new Map());
   const linha = trilha.mo_linha_id;
   const at = tentativaAtualPT(trilha);
   const hist = historico(trilha);
@@ -412,23 +419,48 @@ function TrilhaCard({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <ul className="flex flex-col gap-1.5 px-3 pb-3" data-testid="peca-teste-historico">
-              {[...hist].reverse().map((h) => (
+              {[...hist].reverse().map((h) => {
+                const baseH = base?.tentativas.find((x) => x.numero === h.numero) ?? null;
+                const mostraMini = !!h.mini && (h.mini.tamanho !== null || h.mini.baixa_em !== null || h.mini.linhas.some((l) => !!l.foto));
+                // "Editar" só em reprovada que o servidor já tem (decisão SALVA como reprovada) — nunca em aprovada nem em reprovada só no rascunho
+                const podeEditarMini = !somenteLeitura && !!mini && !!onEditarMiniTentativa && baseH?.aprovacao === "reprovado";
+                const emEdicao = podeEditarMini && editando.has(h.numero) && editando.get(h.numero) === (baseH?.mini?.baixa_em ?? null);
+                return (
                 <li key={h.numero} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-dashed bg-muted/30 px-2.5 py-2 text-sm">
                   <span className="w-24 text-xs font-semibold text-muted-foreground">Tentativa {h.numero}</span>
                   <span className="min-w-0"><span className="block text-xs text-muted-foreground">Fornecedor</span>{h.empresa_nome ?? "—"}</span>
                   <span><span className="block text-xs text-muted-foreground">Data de saída</span><span className="tabular-nums">{dataBR(h.data_saida)}</span></span>
                   <span><span className="block text-xs text-muted-foreground">Data de entrada</span><span className="tabular-nums">{dataBR(h.data_entrada)}</span></span>
                   <StatusBadge tone="danger" className="ml-auto gap-1 normal-case tracking-normal"><X className="h-3 w-3" />Reprovado</StatusBadge>
-                  {mini && h.mini && (h.mini.tamanho !== null || h.mini.baixa_em !== null || h.mini.linhas.some((l) => !!l.foto)) && (
+                  {(mostraMini || emEdicao) && podeEditarMini && (
+                    emEdicao ? (
+                      <Button
+                        type="button" variant="outline" size="sm" data-testid="peca-teste-reprovada-cancelar"
+                        onClick={() => {
+                          // cancelar = a mini volta ao que o servidor tem (some o estorno pendente) e a edição fecha
+                          onEditarMiniTentativa?.(linha, h.numero, baseH?.mini ?? null);
+                          setEditando((s) => { const n = new Map(s); n.delete(h.numero); return n; });
+                        }}
+                      >Cancelar edição</Button>
+                    ) : (
+                      <Button
+                        type="button" variant="outline" size="sm" data-testid="peca-teste-reprovada-editar"
+                        onClick={() => setEditando((s) => new Map(s).set(h.numero, baseH?.mini?.baixa_em ?? null))}
+                      >Editar</Button>
+                    )
+                  )}
+                  {(mostraMini || emEdicao) && mini && (
                     <div className="basis-full">
                       <MiniExplosaoBloco
-                        linhaId={linha} pathNumero={h.numero} tentativa={h} base={base?.tentativas.find((x) => x.numero === h.numero) ?? null}
-                        historico podeEditar={false} api={mini} abertoInicial={miniAbertaInicial} onChange={() => {}}
+                        linhaId={linha} pathNumero={h.numero} tentativa={h} base={baseH}
+                        historico edicaoHistorico={emEdicao} podeEditar={podeEditarMini && emEdicao} api={mini} abertoInicial={miniAbertaInicial}
+                        onChange={(m) => onEditarMiniTentativa?.(linha, h.numero, m)}
                       />
                     </div>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </CollapsibleContent>
         </Collapsible>

@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { Conflito } from "@/lib/colab/merge";
 import {
-  aplicarCampoDele, aprovar as aprovarTrilha, chaveConfere, desfazerDecisao, editarAtual as editarAtualTrilha, estadoPTDoServidor,
+  aplicarCampoDele, aprovar as aprovarTrilha, chaveConfere, desfazerDecisao, editarAtual as editarAtualTrilha, editarMiniDaTentativa, estadoPTDoServidor,
   estornosPendentes as estornosDoEstado, mergePecaTeste, payloadPecaTeste, ptDirty, reprovar as reprovarTrilha, tentativaAtualPT,
   type EstadoPT, type OpcoesPayloadPT, type PayloadPT, type TentativaPT, type TrilhaPT,
 } from "@/lib/peca-teste";
@@ -235,6 +235,11 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
   const editarMini = useCallback((linhaId: string, novaMini: MiniPT) => {
     mutar(linhaId, (t) => editarAtualTrilha(t, { mini: miniVazia(novaMini) ? null : novaMini }));
   }, [mutar]);
+  /** Edita a mini de UMA tentativa por número — a REPROVADA do histórico (botão "Editar"): o Salvar estorna a baixa e refaz. Só a `mini`: datas,
+   *  decisão e fornecedor ficam como estão. Aprovada nunca (o servidor também recusa). Sem caminho de `editarAtualTrilha` (mira a atual e recusa reprovada). */
+  const editarMiniTentativa = useCallback((linhaId: string, numero: number, novaMini: MiniPT | null) => {
+    mutar(linhaId, (t) => editarMiniDaTentativa(t, numero, novaMini));
+  }, [mutar]);
   const trocarFornecedor = useCallback((linhaId: string, empresaId: string | null, empresaNome: string | null) => {
     mutar(linhaId, (t) => ({ ...t, empresa_id: empresaId, empresa_nome: empresaNome }));
   }, [mutar]);
@@ -381,7 +386,7 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     resolverConflito,
     /** R11 — avisos do merge (baixa/estorno feitos por outra pessoa). */
     avisos,
-    editarAtual, aprovarAtual, desfazerAtual, reprovarAtual, trocarFornecedor, editarMini,
+    editarAtual, aprovarAtual, desfazerAtual, reprovarAtual, trocarFornecedor, editarMini, editarMiniTentativa,
     pecaTesteSave,
   };
 }

@@ -17,7 +17,7 @@ import {
   variantesDoTecido1,
   type EstoqueMini, type FichaParaMini, type MiniAjuste, type MiniPT,
 } from "../../src/lib/peca-teste-mini";
-import { tentativaVirtual, type EstadoPT, type TentativaPT, type TrilhaPT } from "../../src/lib/peca-teste";
+import { editarMiniDaTentativa, estornosPendentes, payloadPecaTeste, tentativaVirtual, type EstadoPT, type TentativaPT, type TrilhaPT } from "../../src/lib/peca-teste";
 
 const ROOT = path.resolve(__dirname, "../..");
 const ler = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -287,14 +287,37 @@ describe("MiniExplosaoBloco — cabeçalho, selos e avisos por estado", () => {
     const nova = tent(3, { aprovacao: null, data_saida: null, mini: pronta() });
     expect(miniEstaTravada(nova, null, false)).toBe(false); // sem linha salva
   });
-  it("histórico (reprovada): 'Baixa mantida (peça gasta)', somente leitura, sem inputs nem seletores editáveis", () => {
+  it("histórico (reprovada) fechado: 'Baixa mantida (peça gasta)', somente leitura, sem inputs; a faixa convida a clicar em Editar (baixa estornada e refeita)", () => {
     const m = pronta({ baixa_em: "2026-10-05T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] });
     const t = tent(1, { aprovacao: "reprovado", data_saida: "2026-10-05", mini: m });
     const html = render({ tentativa: t, base: t, historico: true, pathNumero: 1 });
     expect(html).toContain("Baixa mantida (peça gasta)");
     expect(html).toContain("somente leitura");
-    expect(html).toContain("a baixa <b>não</b> é estornada");
+    expect(html).not.toContain("não</b> é estornada");
+    expect(html).toContain("clique em <b>Editar</b>");
+    expect(html).toContain("estornada e refeita</b>");
     expect(temInput(html)).toBe(false);
+  });
+  it("histórico (reprovada) com `edicaoHistorico`: destrava os inputs, mostra o cálculo ao vivo (não a foto) e a faixa de edição; APROVADA nunca destrava", () => {
+    const m = pronta({ baixa_em: "2026-10-05T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto({ necessaria: 9.99, a_enviar: 9.99, baixado: 9.99 }) })] });
+    const t = tent(1, { aprovacao: "reprovado", data_saida: "2026-10-05", mini: m });
+    expect(miniEstaTravada(t, t, true)).toBe(true);
+    expect(miniEstaTravada(t, t, true, true)).toBe(false);
+    const html = render({ tentativa: t, base: t, historico: true, edicaoHistorico: true, pathNumero: 1 });
+    expect(temInput(html)).toBe(true);
+    expect(html).toContain("Editando a mini da tentativa reprovada");
+    expect(html).toContain("editando a reprovada");
+    expect(html).not.toContain("9,99");
+    expect(html).not.toContain('data-testid="mini-foto-tecido"');
+    // mini mudada em edição = Salvar estorna e refaz
+    const mudada = { ...t, mini: { ...m, mesma_oc: false } };
+    expect(render({ tentativa: mudada, base: t, historico: true, edicaoHistorico: true, pathNumero: 1 })).toContain("Vai estornar e baixar de novo");
+    // sem permissão: edição liberada mas sem inputs
+    expect(temInput(render({ tentativa: t, base: t, historico: true, edicaoHistorico: true, podeEditar: false, pathNumero: 1 }))).toBe(false);
+    // aprovada: nem com a flag
+    const ap = tent(1, { aprovacao: "aprovado", data_saida: "2026-10-05", mini: m });
+    expect(miniEstaTravada(ap, ap, true, true)).toBe(true);
+    expect(miniEstaTravada(ap, ap, false, true)).toBe(true);
   });
   it("aprovada (decisão salva) trava a mini mesmo sem baixa", () => {
     const base = tent(1, { aprovacao: "aprovado", data_entrada: "2026-10-09", data_saida: "2026-10-05", mini: pronta() });
@@ -452,6 +475,96 @@ describe("PecaTesteSecao — o bloco sob a grade da atual e nas linhas do histó
   });
 });
 
+describe("PecaTesteSecao — Editar a mini da reprovada do histórico (fluxo completo no DOM)", () => {
+  const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({ mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: null, empresa_nome: null, mo_aprovado: true, tentativas: [], ...o });
+  const montar = (b: EstadoPT, over: Record<string, unknown> = {}) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ref = { estado: b };
+    const desenhar = () => act(async () => {
+      root.render(createElement(PecaTesteSecao, {
+        estado: ref.estado, base: b, fornecedores: [], onEditarAtual: () => {}, onAprovar: () => {}, onDesfazer: () => {}, onReprovar: () => {}, onTrocarFornecedor: () => {},
+        historicoAberto: true, miniAbertaInicial: true, defaultAberta: true, mini: fakeApi(),
+        onEditarMiniTentativa: (linhaId: string, numero: number, m: MiniPT | null) => {
+          ref.estado = { ...ref.estado, trilhas: ref.estado.trilhas.map((t) => (t.mo_linha_id === linhaId ? editarMiniDaTentativa(t, numero, m) : t)) };
+          void desenhar();
+        },
+        ...over,
+      } as never));
+    });
+    return { container, ref, desenhar, fim: () => { root.unmount(); container.remove(); } };
+  };
+  const hist = (container: HTMLElement) => container.querySelector('[data-testid="peca-teste-historico"]') as HTMLElement;
+  const baixa = pronta({ baixa_em: "2026-10-01T10:00:00Z", linhas: [ajuste(KEY_T, { a_enviar: 1.65, foto: foto() })] });
+  const reprovada = () => tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", mini: baixa });
+  const estadoBase = (): EstadoPT => ({ trilhas: [trilha({ tentativas: [reprovada(), tent(2, { mini: pronta() })] })], outros: [] });
+
+  it("começa TRAVADA (sem inputs; botão Editar presente) → clicar Editar libera → editar + Salvar gera estorno_e_baixa no payload", async () => {
+    const b = estadoBase();
+    const { container, ref, desenhar, fim } = montar(b);
+    await desenhar();
+    // (a) fechada por padrão
+    expect(hist(container).querySelectorAll("input[aria-label^='Metragem a enviar']").length).toBe(0);
+    expect(hist(container).textContent).toContain("somente leitura");
+    const editar = container.querySelector('[data-testid="peca-teste-reprovada-editar"]') as HTMLElement;
+    expect(editar).not.toBeNull();
+    // (b) clicar Editar libera os inputs (cálculo ao vivo no lugar da foto)
+    await act(async () => { editar.click(); });
+    const input = hist(container).querySelector("input[aria-label^='Metragem a enviar']") as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(container.querySelector('[data-testid="peca-teste-reprovada-cancelar"]')).not.toBeNull();
+    expect(hist(container).textContent).toContain("Editando a mini da tentativa reprovada");
+    // sem editar nada ainda: nada a salvar
+    expect(payloadPecaTeste(ref.estado, b)._trilhas).toEqual([]);
+    // (c) editar o "a enviar" pelo DOM → o estado fica diferente da base
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      input.focus();
+      set.call(input, "3");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const d = ref.estado;
+    const t1 = d.trilhas[0].tentativas[0];
+    expect(t1.mini?.linhas.find((l) => l.chave === KEY_T)?.a_enviar).toBe(3);
+    expect(t1).toMatchObject({ aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04" }); // datas/decisão seguem travadas
+    expect(hist(container).textContent).toContain("Vai estornar e baixar de novo");
+    const p = payloadPecaTeste(d, b, undefined, undefined, { confere: { [`${L1}:1`]: { [KEY_T]: 3 } } });
+    const enviado = p._trilhas[0].tentativas.find((x) => x.numero === 1)!;
+    expect(enviado.aprovacao).toBe("reprovado");
+    expect(enviado.mini?.ajustes.find((a) => a.chave === KEY_T)?.a_enviar).toBe(3);
+    expect(enviado.mini?.confere).toEqual({ [KEY_T]: 3 });
+    expect(estornosPendentes(d, b)).toEqual([{ mo_linha_id: L1, servico: "PL", numero: 1, refaz: true }]); // acaoNoSalvar === "estorno_e_baixa"
+    // Cancelar edição: volta à mini do servidor, fecha e some o estorno
+    await act(async () => { (container.querySelector('[data-testid="peca-teste-reprovada-cancelar"]') as HTMLElement).click(); });
+    expect(estornosPendentes(ref.estado, b)).toEqual([]);
+    expect(payloadPecaTeste(ref.estado, b)._trilhas).toEqual([]);
+    expect(hist(container).querySelectorAll("input[aria-label^='Metragem a enviar']").length).toBe(0);
+    fim();
+  });
+  it("sem permissão de editar (somente leitura) não há botão Editar; tentativa APROVADA nunca tem (não está no histórico)", async () => {
+    const b = estadoBase();
+    const ro = montar(b, { somenteLeitura: true });
+    await ro.desenhar();
+    expect(ro.container.querySelector('[data-testid="peca-teste-reprovada-editar"]')).toBeNull();
+    ro.fim();
+    const ap: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "aprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", mini: baixa })] })], outros: [] };
+    const a = montar(ap);
+    await a.desenhar();
+    expect(a.container.querySelector('[data-testid="peca-teste-reprovada-editar"]')).toBeNull();
+    a.fim();
+  });
+  it("reprovada que só existe no rascunho (o servidor ainda não a tem como reprovada) não ganha Editar", async () => {
+    const b: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { data_saida: "2026-10-01", mini: pronta() })] })], outros: [] };
+    const d: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", mini: baixa }), tent(2, { mini: pronta() })] })], outros: [] };
+    const m = montar(b);
+    m.ref.estado = d;
+    await m.desenhar();
+    expect(m.container.querySelector('[data-testid="peca-teste-reprovada-editar"]')).toBeNull();
+    m.fim();
+  });
+});
+
 describe("fiação do Sheet (fonte)", () => {
   const SHEET = ler("src/components/planejamento/PlanejamentoDetail.tsx");
   const HOOK = ler("src/components/planejamento/planejamento-detail/usePecaTeste.ts");
@@ -463,6 +576,7 @@ describe("fiação do Sheet (fonte)", () => {
     expect(SHEET).toMatch(/usePecaTeste\(\{[^}]*mini: miniEx/);
     expect(SHEET).toContain("mini={miniEx}");
     expect(SHEET).toContain("onEditarMini={pt.editarMini}");
+    expect(SHEET).toContain("onEditarMiniTentativa={pt.editarMiniTentativa}");
     expect(SHEET).toContain("avisos={pt.avisos}");
   });
   it("o hook passa `confere` e `semTecido1` ao payload e ao dirty, e mostra os avisos do merge", () => {

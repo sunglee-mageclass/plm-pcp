@@ -2079,6 +2079,7 @@ function PlanejamentoDetailConteudo({
               onTrocarFornecedor={trocarFornecedorPT}
               mini={miniEx}
               onEditarMini={pt.editarMini}
+              onEditarMiniTentativa={pt.editarMiniTentativa}
               avisos={pt.avisos}
             />
           )}

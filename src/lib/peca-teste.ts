@@ -217,6 +217,16 @@ export function entradaAntesDaSaida(at: Pick<TentativaPT, "data_saida" | "data_e
 const SEM_CAMPOS = (a: Pick<TentativaPT, "data_saida" | "data_entrada" | "aprovacao" | "mini">) =>
   !a.data_saida && !a.data_entrada && !a.aprovacao && miniVazia(a.mini);
 
+/** Troca SÓ a `mini` de UMA tentativa por número (a REPROVADA do histórico, botão "Editar": o Salvar estorna a baixa e refaz). Datas, decisão e
+ *  fornecedor ficam como estão. A APROVADA nunca muda (o servidor também recusa). Número que não existe = nada. `editarAtual` não serve: mira a
+ *  tentativa atual e recusa a reprovada. */
+export function editarMiniDaTentativa(t: TrilhaPT, numero: number, mini: MiniPT | null): TrilhaPT {
+  return {
+    ...t,
+    tentativas: t.tentativas.map((x) => (x.numero === numero && x.aprovacao !== "aprovado" ? { ...x, mini: mini === null || miniVazia(mini) ? null : mini } : x)),
+  };
+}
+
 /** Troca a trilha por uma cópia com a tentativa ATUAL editada. Virtual que ganha dado entra na lista; local nova (sem id) que volta a ficar
  *  vazia sai; a GRAVADA que fica vazia continua (o Salvar a apaga — volta a virtual). Reprovada nunca é editada. */
 export function editarAtual(

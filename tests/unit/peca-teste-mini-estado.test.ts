@@ -2,7 +2,7 @@
 // Salvar, ↺, prévia de falta e resumo pós-Salvar. O cálculo (linhasUmaPeca/alocarTecido) segue coberto por peca-teste-mini.test.ts.
 import { describe, it, expect } from "vitest";
 import {
-  aplicarCampoDele, chaveConfere, editarAtual, estadoPTDoServidor, mergePecaTeste, payloadPecaTeste, pathPT, ptDirty, reprovar, statusTrilha,
+  aplicarCampoDele, chaveConfere, editarAtual, editarMiniDaTentativa, estornosPendentes, estadoPTDoServidor, mergePecaTeste, payloadPecaTeste, pathPT, ptDirty, reprovar, statusTrilha,
   tentativaAtualPT, tentativaVirtual, type EstadoPT, type TentativaPT, type TrilhaPT,
 } from "../../src/lib/peca-teste";
 import {
@@ -220,15 +220,20 @@ describe("acaoNoSalvar — 6 casos + travas", () => {
   it("null: baixa salva, data mantida e mini igual (mudar só a data mantém a baixa)", () => {
     expect(acaoNoSalvar(T({ data_saida: "2026-10-09", mini: baixada }), T({ data_saida: "2026-10-05", mini: baixada }))).toBeNull();
   });
-  it("aprovada/reprovada (decisão SALVA) → null (mini imutável)", () => {
+  it("APROVADA (decisão SALVA) → null (mini imutável); a REPROVADA segue a máquina normal (estorno + rebaixa)", () => {
     expect(acaoNoSalvar(T({ data_saida: "2026-10-05", mini: pronta() }), T({ aprovacao: "aprovado", mini: pronta() }))).toBeNull();
-    expect(acaoNoSalvar(T({ data_saida: "2026-10-05", mini: pronta() }), T({ aprovacao: "reprovado", mini: pronta() }))).toBeNull();
+    expect(acaoNoSalvar(T({ data_saida: "2026-10-05", mini: pronta({ mesma_oc: false }), aprovacao: "reprovado" }), T({ data_saida: "2026-10-05", aprovacao: "aprovado", mini: baixada }))).toBeNull();
+    const rep = (o: Partial<TentativaPT>) => T({ aprovacao: "reprovado", data_saida: "2026-10-05", ...o });
+    const mudada = pronta({ baixa_em: baixada.baixa_em, linhas: [ajuste("a:1:1", { a_enviar: 7 })] });
+    expect(acaoNoSalvar(rep({ mini: mudada }), rep({ mini: baixada }))).toBe("estorno_e_baixa");
+    expect(acaoNoSalvar(rep({ mini: baixada }), rep({ mini: baixada }))).toBeNull(); // nada mudou
+    expect(acaoNoSalvar(rep({ mini: mini({ baixa_em: baixada.baixa_em }) }), rep({ mini: baixada }))).toBe("estorno"); // esvaziou tamanho/cor
   });
   it("miniTravada: baixa salva E data no rascunho; ou decidida; senão editável", () => {
     expect(miniTravada(T({ data_saida: "2026-10-05" }), T({ data_saida: "2026-10-05", mini: baixada }))).toBe(true);
     expect(miniTravada(T({ data_saida: null }), T({ data_saida: "2026-10-05", mini: baixada }))).toBe(false); // apagou a data: destrava (vai estornar)
     expect(miniTravada(T({}), T({ aprovacao: "aprovado" }))).toBe(true);
-    expect(miniTravada(T({}), T({ aprovacao: "reprovado" }))).toBe(true);
+    expect(miniTravada(T({}), T({ aprovacao: "reprovado" }))).toBe(false); // reprovada não trava mais (estorno + rebaixa)
     expect(miniTravada(T({ aprovacao: "aprovado" }), T({ mini: pronta() }))).toBe(false); // decidir só no rascunho ainda não trava
     expect(miniTravada(T({ data_saida: "2026-10-05" }), null)).toBe(false);
   });
@@ -398,5 +403,47 @@ describe("prévia de falta e resumo pós-Salvar", () => {
   it("sem nada novo → tudo vazio", () => {
     const e = trl(R(1, {}));
     expect(resumoPosSalvar(e, e)).toEqual({ baixas: [], estornos: [], faltas: [], semTamanhoCor: [] });
+  });
+});
+
+describe("mini da REPROVADA editável (R11, pedido do dono 03/nov) — estorno + rebaixa; aprovada segue imutável", () => {
+  const baixada = pronta({ baixa_em: "2026-10-05T12:00:00Z", linhas: [ajuste("a:1:1", { a_enviar: 3 })] });
+  const reprovada = () => estado(trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", empresa_id: F1, mini: baixada }), tent(2, { data_saida: "2026-10-06" })] }));
+
+  it("editarMiniDaTentativa troca SÓ a mini da tentativa pedida (datas/decisão/fornecedor intactos); mini vazia vira null; aprovada não muda", () => {
+    const t = reprovada().trilhas[0];
+    const nova = { ...baixada, linhas: [ajuste("a:1:1", { a_enviar: 7 })] };
+    const r = editarMiniDaTentativa(t, 1, nova);
+    expect(r.tentativas[0]).toMatchObject({ numero: 1, aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", empresa_id: F1, mini: nova });
+    expect(r.tentativas[1]).toEqual(t.tentativas[1]); // a outra tentativa não mexe
+    expect(editarMiniDaTentativa(t, 1, miniNova()).tentativas[0].mini).toBeNull();
+    expect(editarMiniDaTentativa(t, 1, null).tentativas[0].mini).toBeNull();
+    const aprovada = trilha({ tentativas: [tent(1, { aprovacao: "aprovado", data_saida: "2026-10-01", mini: baixada })] });
+    expect(editarMiniDaTentativa(aprovada, 1, nova)).toEqual(aprovada);
+    expect(editarMiniDaTentativa(t, 9, nova)).toEqual(t); // número inexistente
+  });
+  it("reprovada sem mexer na mini: nada no payload nem estorno", () => {
+    const b = reprovada();
+    expect(payloadPecaTeste(clone(b), b)._trilhas).toEqual([]);
+    expect(estornosPendentes(clone(b), b)).toEqual([]);
+  });
+  it("reprovada com a mini editada + Salvar: o payload leva a mini da tentativa reprovada (com o `confere`) e o Salvar estorna e refaz", () => {
+    const b = reprovada();
+    const d = estado(editarMiniDaTentativa(b.trilhas[0], 1, { ...baixada, linhas: [ajuste("a:1:1", { a_enviar: 7 })] }));
+    expect(acaoNoSalvar(d.trilhas[0].tentativas[0], b.trilhas[0].tentativas[0])).toBe("estorno_e_baixa");
+    const p = payloadPecaTeste(d, b, undefined, undefined, { confere: { [chaveConfere(L1, 1)]: { "a:1:1": 7 } } });
+    const t1 = p._trilhas[0].tentativas.find((x) => x.numero === 1)!;
+    expect(t1).toMatchObject({ id: b.trilhas[0].tentativas[0].id, aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04" });
+    expect(t1.mini?.ajustes[0]).toMatchObject({ chave: "a:1:1", a_enviar: 7 });
+    expect(t1.mini?.confere).toEqual({ "a:1:1": 7 });
+    expect(p._rev_base.tentativas[b.trilhas[0].tentativas[0].id as string]).toBe(3);
+    expect(p._rev_base.fornecedor).toEqual({}); // sem decisão nova nem troca de fornecedor
+    expect(estornosPendentes(d, b)).toEqual([{ mo_linha_id: L1, servico: "PL", numero: 1, refaz: true }]);
+  });
+  it("APROVADA com a mini editada no rascunho: acaoNoSalvar nulo — nem estorno nem baixa", () => {
+    const b = estado(trilha({ tentativas: [tent(1, { aprovacao: "aprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", mini: baixada })] }));
+    const d = clone(b); d.trilhas[0].tentativas[0].mini = { ...baixada, mesma_oc: false };
+    expect(acaoNoSalvar(d.trilhas[0].tentativas[0], b.trilhas[0].tentativas[0])).toBeNull();
+    expect(estornosPendentes(d, b)).toEqual([]);
   });
 });

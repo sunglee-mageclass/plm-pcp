@@ -2,7 +2,7 @@
 // Componente de APRESENTAÇÃO: recebe o `MiniPT` do rascunho + o `MiniApi` (cálculo ao vivo, estoque) e devolve o novo `MiniPT` por
 // `onChange`. Nada grava aqui (só o Salvar do card). Travada (baixa salva com a Data de saída) e histórico (reprovada) mostram a FOTO
 // registrada da baixa, sem inputs. Mobile: a "tabela" vira cartões empilhados (`grid-cols-1`, rótulo por célula).
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, ChevronRight, Info, Lock, RotateCcw, Scissors } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -50,8 +50,10 @@ export type MiniBlocoProps = {
   /** A tentativa como está no RASCUNHO e como o SERVIDOR a tem. */
   tentativa: TentativaPT;
   base: TentativaPT | null;
-  /** Tentativa reprovada (histórico): só leitura, "baixa mantida". */
+  /** Tentativa reprovada (histórico): começa só leitura ("baixa mantida"); só abre com `edicaoHistorico`. */
   historico: boolean;
+  /** Edição LIBERADA da mini de uma reprovada do histórico (botão "Editar" da seção): ao Salvar a baixa é estornada e refeita. A APROVADA nunca libera. */
+  edicaoHistorico?: boolean;
   /** Pode editar (permissão da seção) — a trava por baixa/decisão é calculada aqui. */
   podeEditar: boolean;
   api: MiniApi;
@@ -61,15 +63,18 @@ export type MiniBlocoProps = {
   abertoInicial?: boolean;
 };
 
-/** Travada = sem inputs: histórico ou tentativa decidida (aprovada). Tentativa PENDENTE (decisão salva = nenhuma) NUNCA trava por baixa: os inputs
+/** Travada = sem inputs: tentativa APROVADA (sempre), ou reprovada do histórico enquanto a edição não foi liberada (`edicaoHistorico`; ao liberar,
+ *  o Salvar estorna a baixa e refaz). Tentativa PENDENTE (decisão salva = nenhuma) NUNCA trava por baixa: os inputs
  *  ficam sempre editáveis e o selo "Baixa feita em…" só informa; mudar a mini faz o Salvar estornar e refazer a baixa (`estorno_e_baixa`).
  *  Só a reprovada ainda "atual" (antes de nascer a seguinte) segue travada pela baixa salva com a Data de saída e a mini igual à da baixa;
  *  se a mini do rascunho DIFERE (Q2=A: apagar a data → editar → preencher de novo) destrava e mostra o cálculo ao vivo, não a foto velha. */
-export function miniEstaTravada(t: TentativaPT, base: TentativaPT | null, historico: boolean): boolean {
-  if (historico) return true;
-  // Só APROVADA trava (decisão final). Reprovada NÃO trava a mini da tentativa atual: a próxima tentativa (e a reprovada enquanto
-  // ainda é a "atual", antes de nascer a seguinte) tem de permitir editar consumo/a enviar/etc. (bug relatado pelo dono 03/nov).
+export function miniEstaTravada(t: TentativaPT, base: TentativaPT | null, historico: boolean, edicaoHistorico = false): boolean {
+  // Só APROVADA trava de vez (decisão final), no histórico ou não.
   if (base && base.aprovacao === "aprovado") return true;
+  // Reprovada do histórico: fechada por padrão (foto da baixa); "Editar" libera os inputs (estorno + rebaixa ao Salvar).
+  if (historico) return !edicaoHistorico;
+  // Reprovada NÃO trava a mini da tentativa atual: a próxima tentativa (e a reprovada enquanto
+  // ainda é a "atual", antes de nascer a seguinte) tem de permitir editar consumo/a enviar/etc. (bug relatado pelo dono 03/nov).
   // Pendente (ou sem linha salva): sempre editável, mesmo com baixa feita (R11, ajuste do dono 03/nov — sem botão "Editar").
   if (!base || !base.aprovacao) return false;
   if (!base.mini?.baixa_em || !t.data_saida) return false;
@@ -84,18 +89,21 @@ export function limitarMini(n: number, max: number): number {
   return n > max ? max : n;
 }
 
-export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, historico, podeEditar, api, onChange, onTentarDeNovo, abertoInicial = false }: MiniBlocoProps) {
+export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, historico, edicaoHistorico = false, podeEditar, api, onChange, onTentarDeNovo, abertoInicial = false }: MiniBlocoProps) {
   const [aberto, setAberto] = useState(abertoInicial);
+  // ao clicar "Editar" na reprovada do histórico, o bloco abre sozinho (a pessoa quer mexer nos números)
+  useEffect(() => { if (edicaoHistorico) setAberto(true); }, [edicaoHistorico]);
+  const somenteLeituraHist = historico && !edicaoHistorico;
   if (!api.ativo) return null;
   const mini = tentativa.mini ?? null;
   const dataSaida = tentativa.data_saida;
-  const travada = miniEstaTravada(tentativa, base, historico);
+  const travada = miniEstaTravada(tentativa, base, historico, edicaoHistorico);
   const editavel = podeEditar && !travada;
   const baixaSalva = base?.mini?.baixa_em ?? (historico ? mini?.baixa_em ?? null : null);
   const fotos = (mini?.linhas ?? []).filter((l) => !!l.foto);
   const mostraFoto = travada && fotos.length > 0;
   const calc = mostraFoto ? null : api.calcular(mini);
-  const acao = historico ? null : acaoNoSalvar(tentativa, base, { semTecido1: api.semTecido1 });
+  const acao = somenteLeituraHist ? null : acaoNoSalvar(tentativa, base, { semTecido1: api.semTecido1 });
 
   // — faltas: registradas (foto) ou previstas (ao vivo)
   const faltasFoto = fotos.filter((l) => (l.foto?.faltou ?? 0) > 0);
@@ -107,7 +115,7 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
 
   // — selos do cabeçalho
   const selos: { txt: string; tom: StatusTone; icone?: ReactNode }[] = [];
-  if (historico) {
+  if (somenteLeituraHist) {
     if (baixaSalva) selos.push({ txt: "Baixa mantida (peça gasta)", tom: "neutral", icone: <Lock className="h-3 w-3" /> });
   } else if (baixaSalva && dataSaida && acao === "estorno_e_baixa") selos.push({ txt: "Vai estornar e baixar de novo", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
   else if (baixaSalva && dataSaida && acao === "estorno") selos.push({ txt: "Estorno ao Salvar", tom: "warning", icone: <AlertTriangle className="h-3 w-3" /> });
@@ -131,7 +139,7 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
         >
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", aberto && "rotate-90")} />
           <span className="flex items-center gap-1.5 text-sm font-semibold">
-            <Scissors className="h-3.5 w-3.5 text-muted-foreground" />Mini explosão (1 peça){historico ? " · somente leitura" : ""}
+            <Scissors className="h-3.5 w-3.5 text-muted-foreground" />Mini explosão (1 peça){somenteLeituraHist ? " · somente leitura" : historico ? " · editando a reprovada" : ""}
           </span>
           {mini?.tamanho && <StatusBadge tone="neutral" className="normal-case tracking-normal">Tam. {rotuloTam(mini.tamanho)}</StatusBadge>}
           {mini?.variante_tecido_id && <StatusBadge tone="neutral" className="normal-case tracking-normal">{rotuloCor(mini.variante_tecido_id)}</StatusBadge>}
@@ -152,7 +160,7 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
           </div>
 
           <Aviso
-            historico={historico} baixaSalva={baixaSalva} dataSaida={dataSaida} acao={acao}
+            historico={somenteLeituraHist} emEdicaoHistorico={historico && edicaoHistorico} baixaSalva={baixaSalva} dataSaida={dataSaida} acao={acao}
             temData={!!dataSaida} baixaEm={base?.mini?.baixa_em ?? null} travada={travada}
           />
 
@@ -198,14 +206,14 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
 
 // ───────────────────────────── avisos por estado ─────────────────────────────
 
-function Aviso({ historico, baixaSalva, dataSaida, acao, temData, baixaEm, travada }: {
-  historico: boolean; baixaSalva: string | null; dataSaida: string | null; acao: ReturnType<typeof acaoNoSalvar>; temData: boolean; baixaEm: string | null; travada: boolean;
+function Aviso({ historico, emEdicaoHistorico, baixaSalva, dataSaida, acao, temData, baixaEm, travada }: {
+  historico: boolean; emEdicaoHistorico: boolean; baixaSalva: string | null; dataSaida: string | null; acao: ReturnType<typeof acaoNoSalvar>; temData: boolean; baixaEm: string | null; travada: boolean;
 }) {
   if (historico) {
     return (
       <Faixa tom="info" icone={<Lock className="h-4 w-4" />}>
-        <b>Baixa mantida (peça gasta).</b> Esta tentativa foi reprovada: o material (o “a enviar” da época) já saiu do estoque e a baixa <b>não</b> é estornada.{" "}
-        {baixaSalva ? "" : "A baixa acontece ao Salvar. "}Somente leitura.
+        <b>Tentativa reprovada.</b> O material (o “a enviar” da época) já saiu do estoque (a peça foi gasta).{" "}
+        {baixaSalva ? "" : "A baixa acontece ao Salvar. "}Para ajustar a quantidade baixada, clique em <b>Editar</b>: ao Salvar, a baixa é <b>estornada e refeita</b> com os valores novos.
       </Faixa>
     );
   }
@@ -220,6 +228,13 @@ function Aviso({ historico, baixaSalva, dataSaida, acao, temData, baixaEm, trava
     return (
       <Faixa tom="warn" icone={<AlertTriangle className="h-4 w-4" />} role="status">
         <b>Ao Salvar, a baixa será estornada e refeita</b> com as quantidades novas; o Salvar pede confirmação.
+      </Faixa>
+    );
+  }
+  if (emEdicaoHistorico) {
+    return (
+      <Faixa tom="info" icone={<Info className="h-4 w-4" />}>
+        <b>Editando a mini da tentativa reprovada.</b> Se você mudar as quantidades, ao Salvar a baixa é estornada e refeita com os valores novos; o Salvar pede confirmação. Datas, fornecedor e a decisão seguem travados.
       </Faixa>
     );
   }

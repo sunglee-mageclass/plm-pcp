@@ -521,10 +521,11 @@ export function herdarMini(anterior: MiniPT | null | undefined): MiniPT | null {
 /** Visão mínima da tentativa que as regras da mini precisam (evita ciclo com `peca-teste.ts`). */
 export type TentativaDaMini = { data_saida: string | null; aprovacao: "aprovado" | "reprovado" | null; mini: MiniPT | null };
 
-/** A mini está TRAVADA (sem inputs): baixa salva E Data de saída no rascunho, ou a tentativa já foi decidida (aprovada trava; reprovada é
- *  histórico). `base` = a tentativa como o SERVIDOR a tem (decisão SALVA — decidir só no rascunho ainda não trava, como no servidor). */
+/** A mini está TRAVADA (sem inputs): baixa salva E Data de saída no rascunho, ou a tentativa já foi APROVADA (aprovada é imutável; a
+ *  REPROVADA continua editável — o Salvar estorna a baixa e refaz). `base` = a tentativa como o SERVIDOR a tem (decisão SALVA — decidir só
+ *  no rascunho ainda não trava, como no servidor). */
 export function miniTravada(draft: TentativaDaMini, base: TentativaDaMini | null | undefined): boolean {
-  if (base && base.aprovacao !== null) return true;
+  if (base && base.aprovacao === "aprovado") return true;
   return !!base?.mini?.baixa_em && !!draft.data_saida;
 }
 
@@ -536,9 +537,9 @@ export function miniPronta(m: MiniPT | null | undefined, semTecido1 = false): bo
 }
 
 /** O que o Salvar fará nesta tentativa (espelho da máquina de estados de `_peca_teste_mini_aplicar`). `semTecido1` = o card não tem Tecido 1
- *  (só o tamanho é exigido). Aprovada/reprovada (decisão SALVA) = mini imutável = `null`. */
+ *  (só o tamanho é exigido). Só a APROVADA (decisão SALVA) tem a mini imutável = `null`; a reprovada segue a máquina normal (mini mudada = `estorno_e_baixa`). */
 export function acaoNoSalvar(draft: TentativaDaMini, base: TentativaDaMini | null | undefined, opts: { semTecido1?: boolean } = {}): AcaoNoSalvar | null {
-  if (base && base.aprovacao !== null) return null;
+  if (base && base.aprovacao === "aprovado") return null;
   const pronta = miniPronta(draft.mini, opts.semTecido1);
   if (base?.mini?.baixa_em) {
     if (!draft.data_saida) return "estorno";
