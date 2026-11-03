@@ -50,6 +50,7 @@ export function PecaTesteSecao({
   numero, selo, estado, base, fornecedores, somenteLeitura = false, carregando = false, erro = false, onTentarDeNovo,
   linhasNovas = [], bloqueadasPorTipo, conflitos = [], onResolverConflito, historicoAberto = false,
   onEditarAtual, onAprovar, onDesfazer, onReprovar, onTrocarFornecedor, mini, onEditarMini, avisos = [], miniAbertaInicial = false,
+  defaultAberta = false,
 }: {
   numero?: number;
   selo?: ReactNode;
@@ -83,6 +84,8 @@ export function PecaTesteSecao({
   avisos?: string[];
   /** Estado inicial do colapsável da mini (fechado por padrão; a prop existe para o render estático). */
   miniAbertaInicial?: boolean;
+  /** Seção recolhida por padrão (igual às demais do Sheet, decisão do dono 03/nov); a prop existe para o render estático dos testes. */
+  defaultAberta?: boolean;
 }) {
   const { pedir, dialog } = useConfirmacao();
   const trilhas = estado?.trilhas ?? [];
@@ -101,7 +104,7 @@ export function PecaTesteSecao({
 
   return (
     <ReadOnlyScope value={somenteLeitura}>
-      <Secao id="peca_teste" titulo="Peça Teste" numero={numero} selo={selo} defaultOpen>
+      <Secao id="peca_teste" titulo="Peça Teste" numero={numero} selo={selo} defaultOpen={defaultAberta}>
         {/* só a GRADE editável da tentativa atual fica sob `fieldset disabled` (por trilha, abaixo): o histórico colapsável e o
             "Tentar de novo" funcionam para quem só VÊ a seção (um <button> dentro de fieldset desabilitado não clica). */}
         <>

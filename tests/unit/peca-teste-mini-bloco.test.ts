@@ -358,7 +358,7 @@ describe("PecaTesteSecao — o bloco sob a grade da atual e nas linhas do histó
   const renderSecao = (e: EstadoPT, over: Record<string, unknown> = {}) =>
     renderToStaticMarkup(createElement(PecaTesteSecao, {
       estado: e, base: e, fornecedores: [], onEditarAtual: () => {}, onAprovar: () => {}, onDesfazer: () => {}, onReprovar: () => {}, onTrocarFornecedor: () => {},
-      historicoAberto: true, miniAbertaInicial: true, ...over,
+      historicoAberto: true, miniAbertaInicial: true, defaultAberta: true, ...over,
     } as never));
 
   it("sem a prop `mini` a seção fica como na R9 (nenhum bloco)", () => {

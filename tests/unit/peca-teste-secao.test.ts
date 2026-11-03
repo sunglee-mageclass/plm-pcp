@@ -32,7 +32,8 @@ type Props = Parameters<typeof PecaTesteSecao>[0];
 function render(over: Partial<Props> & { estado: EstadoPT | null }): string {
   const noop = () => {};
   const props: Props = {
-    numero: 12, selo: undefined, base: over.estado, fornecedores: FORNS,
+    // A seção abre RECOLHIDA no Sheet (decisão do dono 03/nov, igual às outras); aqui o render estático força aberta p/ asseverar o conteúdo.
+    numero: 12, selo: undefined, base: over.estado, fornecedores: FORNS, defaultAberta: true,
     onEditarAtual: noop, onAprovar: noop, onDesfazer: noop, onReprovar: noop, onTrocarFornecedor: noop,
     ...over,
   };
