@@ -343,9 +343,9 @@ function Celula({ rotulo, children, className }: { rotulo: string; children: Rea
     </div>
   );
 }
-function Cabecalho({ grade, colunas, dividir }: { grade: string; colunas: string[]; dividir: "xl" }) {
+function Cabecalho({ grade, colunas, dividir }: { grade: string; colunas: string[]; dividir: "xl" | "sm" }) {
   return (
-    <div role="row" className={cn(grade, "hidden border-b pb-1 text-xs font-semibold text-muted-foreground", dividir === "xl" ? "xl:grid" : "xl:grid")}>
+    <div role="row" className={cn(grade, "hidden border-b pb-1 text-xs font-semibold text-muted-foreground", dividir === "xl" ? "xl:grid" : "sm:grid")}>
       {colunas.map((c) => <div key={c} role="columnheader">{c}</div>)}
     </div>
   );
@@ -582,18 +582,22 @@ function OrigemTecido({ linha, mini, fontes, editavel, onEscolher }: {
 
 // ───────────────────────────── foto da baixa (travada / histórico) ─────────────────────────────
 
+// Mesma grade no cabeçalho e nas linhas da foto: nome · Necessária · A enviar · Baixado · Situação (no celular o rótulo vai por célula).
+const GRID_FOTO = "grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))_minmax(0,1.2fr)]";
+
 function Foto({ linhas }: { linhas: MiniAjuste[] }) {
-  const grupo = (fam: MiniAjuste["familia"], titulo: string) => {
+  const grupo = (fam: MiniAjuste["familia"], titulo: string, colunaNome: string) => {
     const ls = linhas.filter((l) => l.familia === fam);
     if (ls.length === 0) return null;
     return (
       <section key={fam} className="flex flex-col gap-1.5 rounded-md border p-2.5" data-testid={`mini-foto-${fam}`}>
         <span className="text-sm font-semibold">{titulo} <span className="text-xs font-normal text-muted-foreground">(registrado na baixa)</span></span>
+        <Cabecalho grade={GRID_FOTO} dividir="sm" colunas={[colunaNome, "Necessária", "A enviar", "Baixado", "Situação"]} />
         <ul className="flex flex-col gap-1.5">
           {ls.map((l) => {
             const f = l.foto!;
             return (
-              <li key={l.chave} className="grid grid-cols-1 gap-x-3 gap-y-1 text-sm sm:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))_minmax(0,1.2fr)]">
+              <li key={l.chave} className={cn(GRID_FOTO, "text-sm")}>
                 <span className="min-w-0 font-medium">{rotuloLinha(f)}</span>
                 <span><span className="text-xs text-muted-foreground sm:hidden">Necessária </span><span className="tabular-nums">{f.necessaria === null ? "—" : qtd(f.necessaria, f.unidade)}</span></span>
                 <span><span className="text-xs text-muted-foreground sm:hidden">A enviar </span><span className="tabular-nums">{f.a_enviar === null ? "—" : qtd(f.a_enviar, f.unidade)}</span></span>
@@ -611,5 +615,5 @@ function Foto({ linhas }: { linhas: MiniAjuste[] }) {
       </section>
     );
   };
-  return <>{grupo("tecido", "Tecidos / forros / entretelas")}{grupo("aviamento", "Aviamentos")}{grupo("insumo", "Insumos / etiquetas")}</>;
+  return <>{grupo("tecido", "Tecidos / forros / entretelas", "Tecido")}{grupo("aviamento", "Aviamentos", "Aviamento")}{grupo("insumo", "Insumos / etiquetas", "Insumo")}</>;
 }

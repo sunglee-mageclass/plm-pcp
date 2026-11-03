@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { DateField } from "@/components/shared/DateField";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { ReadOnlyScope } from "@/components/RequirePermission";
@@ -291,7 +292,16 @@ function TrilhaCard({
         <fieldset disabled={somenteLeitura} className="contents" data-testid="peca-teste-grade">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor={`${uid}-forn`} className="text-xs">Fornecedor</Label>
+            {/* aprovada: a dica "fornecedor travado" mora num "i" ao lado do rótulo (InfoHover) — texto fixo embaixo empurrava este campo para fora do alinhamento com os demais */}
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor={`${uid}-forn`} className="text-xs">Fornecedor</Label>
+              {aprovada && (
+                <span className="inline-flex items-center gap-1 text-muted-foreground" data-testid="peca-teste-forn-travado">
+                  <Lock className="h-3 w-3 shrink-0" aria-hidden />
+                  <InfoHover ariaLabel={TEXTO_FORNECEDOR_TRAVADO}>{TEXTO_FORNECEDOR_TRAVADO}</InfoHover>
+                </span>
+              )}
+            </div>
             <Select
               value={trilha.empresa_id ?? ""}
               onValueChange={(v) => {
@@ -307,11 +317,6 @@ function TrilhaCard({
                 {opcoesForn.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome_fantasia}</SelectItem>)}
               </SelectContent>
             </Select>
-            {aprovada && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="peca-teste-forn-travado">
-                <Lock className="h-3 w-3 shrink-0" />{TEXTO_FORNECEDOR_TRAVADO}
-              </span>
-            )}
           </div>
 
           <div className="grid min-w-0 gap-1.5">
