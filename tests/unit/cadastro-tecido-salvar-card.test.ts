@@ -224,6 +224,9 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     const linha = () => li1.querySelector("[data-previa-linha]") as HTMLElement;
     const texto = () => li1.querySelector("[data-previa-texto]") as HTMLElement | null;
     expect(linha()).toBeTruthy(); // a linha existe (altura reservada) mesmo antes de haver texto
+    // altura reservada = a do Label vizinho (14px = h-3.5): reservar mais (ex. min-h-5) desalinharia Preço × Código no md:grid-cols-3
+    expect(linha().className).toContain("h-3.5");
+    expect(linha().className).not.toContain("min-h-");
     expect(texto()?.textContent).toContain("até 3 produtos terão o custo recalculado");
     expect(texto()?.className).not.toContain("opacity-60");
 
@@ -240,6 +243,7 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     expect(texto()?.textContent).toContain("até 3 produtos terão o custo recalculado"); // o último valor continua visível…
     expect(texto()?.className).toContain("opacity-60"); // …esmaecido
     expect(li1.querySelector("[data-previa-calculando]")).toBeTruthy(); // e há o sinal de que está recalculando
+    expect(li1.querySelector("[data-previa-calculando]")?.getAttribute("role")).toBe("status"); // acessível ao leitor de tela
 
     liberar();
     await flush(60);

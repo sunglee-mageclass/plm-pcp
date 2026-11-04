@@ -1476,24 +1476,31 @@ function VariantRow({
           {/* Preço POR VARIANTE. O preço de referência do artigo = o maior das variantes.
               Ícone de histórico AO LADO do input (label simples, alinha com o campo Código). */}
           <div className="space-y-1.5" data-rascunho>
-            {/* Altura reservada (min-h-5) e SEM quebra de linha: a prévia aparecer/sumir/recalcular não empurra o resto. */}
-            <div data-previa-linha className="flex min-h-5 flex-nowrap items-center justify-between gap-x-2">
+            {/* Altura reservada = a do Label vizinho (text-sm leading-none = 14px = h-3.5): a prévia aparecer/sumir/recalcular não empurra
+                o resto E o input de Preço continua alinhado com o de Código (md:grid-cols-3). Sem quebra de linha. */}
+            <div data-previa-linha className="flex h-3.5 flex-nowrap items-center justify-between gap-x-2">
               <Label className="shrink-0">Preço</Label>
               {textoPrevia && (
                 <span
                   data-previa-texto
                   title={`ao salvar, ${textoPrevia}`}
                   className={cn(
-                    "flex min-w-0 items-center gap-1 text-xs text-amber-700 transition-opacity dark:text-amber-400",
+                    "flex min-w-0 items-center gap-1 text-xs leading-none text-amber-700 transition-opacity dark:text-amber-400",
                     recalculandoPrevia && "opacity-60",
                   )}
                 >
                   <span className="truncate">ao salvar, {textoPrevia}</span>
-                  {recalculandoPrevia && <Loader2 data-previa-calculando aria-label="calculando o efeito" className="h-3 w-3 shrink-0 animate-spin" />}
+                  {recalculandoPrevia && (
+                    <span data-previa-calculando role="status" className="shrink-0">
+                      <Loader2 aria-hidden className="h-3 w-3 animate-spin" /><span className="sr-only">calculando o efeito</span>
+                    </span>
+                  )}
                 </span>
               )}
               {!textoPrevia && recalculandoPrevia && (
-                <Loader2 data-previa-calculando aria-label="calculando o efeito" className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                <span data-previa-calculando role="status" className="shrink-0 text-muted-foreground">
+                  <Loader2 aria-hidden className="h-3 w-3 animate-spin" /><span className="sr-only">calculando o efeito</span>
+                </span>
               )}
             </div>
             <div className="flex items-center gap-1">
