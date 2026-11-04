@@ -65,6 +65,13 @@ import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
+import { MoneyInput } from "@/components/shared/MoneyInput";
+import { CardDraftsProvider, useCardDrafts } from "@/components/shared/card-drafts/CardDraftsProvider";
+import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
+import { CardSaveControls } from "@/components/shared/card-drafts/CardSaveControls";
+import { usePreviaServidor } from "@/hooks/usePreviaServidor";
+import { mergeDraft, igual } from "@/lib/colab/merge";
+import { maskLive } from "@/lib/money-mask";
 
 // Datas antigas do histórico foram gravadas com offset '+00' (não-ISO) → new Date() dava
 // Invalid Date. Normaliza '+00' → '+00:00' antes de parsear (o trigger novo já grava certo).
@@ -147,11 +154,15 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
 
   const [form, setForm] = useState<Artigo | null>(null);
   const [catIds, setCatIds] = useState<string[]>([]);
+  // "Salvar por card": nº de cores (variantes) com rascunho não salvo — reportado pela VariantesSection (que tem o
+  // CardDraftsProvider). Entra na MESMA guarda de "alterações não salvas" do tecido (um só diálogo ao sair).
+  const [nCoresSujas, setNCoresSujas] = useState(0);
 
   // Guarda de alterações não salvas (Case C: full-page — não há open gate).
   // Snapshot cobre o form inteiro + catIds (categorias também são editáveis).
   const formSnapshot = useMemo(() => ({ form, catIds }), [form, catIds]);
-  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  const { dirty: formDirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  const dirty = formDirty || nCoresSujas > 0;
   const { requestClose, confirm } = useUnsavedGuard({
     dirty,
     onClose: useCallback(() => onClose(), [onClose]),
@@ -168,8 +179,9 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
   // de dado do servidor) o revert some e a proteção original se mantém: (re)hidrata quando o
   // servidor muda E não há edição pendente; nunca sobrescreve o que o usuário digitou e ainda
   // não salvou (invalidação alheia / refetchOnWindowFocus com staleTime=0).
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
+  // (só o `formDirty`: cores com rascunho não impedem de re-hidratar os campos do tecido)
+  const dirtyRef = useRef(formDirty);
+  dirtyRef.current = formDirty;
   useEffect(() => {
     if (artigo && !dirtyRef.current) setForm(artigo);
   }, [artigo]);
@@ -690,7 +702,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
         </CardContent>
       </Card>
 
-      <VariantesSection artigoId={artigoId} readOnly={readOnly} precoArtigo={form.preco ?? null} />
+      <VariantesSection artigoId={artigoId} readOnly={readOnly} precoArtigo={form.preco ?? null} onSujosChange={setNCoresSujas} />
     </>
   );
 
@@ -753,7 +765,11 @@ function Field({
 
 // ============= Variants =============
 
-function VariantesSection({ artigoId, readOnly, precoArtigo }: { artigoId: string; readOnly: boolean; precoArtigo: number | null }) {
+export function VariantesSection({ artigoId, readOnly, precoArtigo, onSujosChange }: {
+  artigoId: string; readOnly: boolean; precoArtigo: number | null;
+  /** nº de cores com rascunho não salvo (a tela do tecido soma à guarda de "alterações não salvas") */
+  onSujosChange?: (n: number) => void;
+}) {
   const qc = useQueryClient();
   const [removeTarget, setRemoveTarget] = useState<Variante | null>(null);
   const [addBase, setAddBase] = useState<string>("");
@@ -903,21 +919,27 @@ function VariantesSection({ artigoId, readOnly, precoArtigo }: { artigoId: strin
         {variantes.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">Nenhuma variante criada ainda.</p>
         ) : (
-          <ul className="space-y-2">
-            {variantes.map((v) => (
-              <VariantRow
-                key={v.id}
-                variante={v}
-                corLabel={v.cor_id ? coresMap.get(v.cor_id) ?? "—" : "—"}
-                apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
-                cores={cores}
-                apelidos={apelidos}
-                enderecosDaVariante={rollup?.get(v.id) ?? []}
-                onRemove={() => setRemoveTarget(v)}
-                readOnly={readOnly}
-              />
-            ))}
-          </ul>
+          // "Salvar por card": cada cor é um rascunho (✓ Salvar / ↺ Desfazer); o provider soma os sujos para a barra
+          // "Salvar todos" e para a guarda de saída. Foto e endereços continuam gravando na hora.
+          <CardDraftsProvider>
+            <RelataCoresSujas onChange={onSujosChange} />
+            {!readOnly && <BarraSalvarTodasCores />}
+            <ul className="space-y-2">
+              {variantes.map((v) => (
+                <VariantRow
+                  key={v.id}
+                  variante={v}
+                  corLabel={v.cor_id ? coresMap.get(v.cor_id) ?? "—" : "—"}
+                  apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
+                  cores={cores}
+                  apelidos={apelidos}
+                  enderecosDaVariante={rollup?.get(v.id) ?? []}
+                  onRemove={() => setRemoveTarget(v)}
+                  readOnly={readOnly}
+                />
+              ))}
+            </ul>
+          </CardDraftsProvider>
         )}
       </CardContent>
 
@@ -951,6 +973,127 @@ function VariantesSection({ artigoId, readOnly, precoArtigo }: { artigoId: strin
   );
 }
 
+// ============= Salvar por card (cores) =============
+
+/** Os 5 campos do rascunho de uma cor. "" = vazio nos textos/Selects; `preco` é NÚMERO (ou null). */
+export type VarianteDraft = {
+  cor_id: string;
+  cor_apelido_id: string;
+  nome_variante: string;
+  codigo_variante: string;
+  preco: number | null;
+};
+const CAMPOS_RASCUNHO: Array<keyof VarianteDraft> = ["cor_id", "cor_apelido_id", "nome_variante", "codigo_variante", "preco"];
+
+export function varianteParaDraft(v: Pick<Variante, "cor_id" | "cor_apelido_id" | "nome_variante" | "codigo_variante" | "preco">): VarianteDraft {
+  return {
+    cor_id: v.cor_id ?? "",
+    cor_apelido_id: v.cor_apelido_id ?? "",
+    nome_variante: v.nome_variante ?? "",
+    codigo_variante: v.codigo_variante ?? "",
+    preco: v.preco == null ? null : Number(v.preco),
+  };
+}
+
+/**
+ * Texto do MoneyInput -> número. O `MoneyInput` já emite o canônico (ponto decimal: "20.5"), mas aceitamos também o texto
+ * mascarado pt-BR ("1.234,56") pelo parser do money-mask (`maskLive`) — NUNCA `Number()` cru sobre texto com vírgula (dá NaN
+ * com centavos: bug real do projeto no blur do preço fixo do Produto Acabado). Vazio/inválido = null.
+ */
+export function canonicoParaNumero(s: string | number | null | undefined): number | null {
+  if (s == null) return null;
+  if (typeof s === "number") return Number.isFinite(s) ? s : null;
+  const t = s.trim();
+  if (t === "") return null;
+  if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
+  const { canonical } = maskLive(t, 2);
+  if (canonical === "") return null;
+  const n = Number(canonical);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Rascunho -> payload da RPC `salvar_variante_tecido`: uuid em MINÚSCULO (null quando vazio), texto vazio = null, `preco`
+ * NÚMERO JSON (nunca string). A RPC compara por valor (`_base` x banco x `_mudancas`): string/maiúscula daria conflito falso.
+ */
+export function draftParaServidor(d: Partial<VarianteDraft>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(d) as Array<keyof VarianteDraft>) {
+    const v = d[k];
+    if (k === "cor_id" || k === "cor_apelido_id") out[k] = v ? String(v).toLowerCase() : null;
+    else if (k === "preco") out[k] = v == null ? null : Number(v);
+    else out[k] = v === "" || v == null ? null : v;
+  }
+  return out;
+}
+
+/** Erro já mostrado ao usuário (toast) — o `salvar` do hook relança para a barra "Salvar todos" contar como erro. */
+class SalvarCorJaTratado extends Error {
+  constructor(m = "salvar_cor_tratado") { super(m); this.name = "SalvarCorJaTratado"; }
+}
+
+const TEXTO_COR_DUPLICADA = "Já existe uma variante com essa cor e apelido.";
+function mensagemSalvarCor(e: unknown): string {
+  // 23505 aqui só pode ser o índice único parcial (artigo, cor, apelido): o texto genérico de "valor duplicado" não diz o quê.
+  if ((e as { code?: string } | null)?.code === "23505") return TEXTO_COR_DUPLICADA;
+  return mensagemErro(e, "Erro ao salvar a cor.");
+}
+
+/** Texto da prévia de preço. `afetados` é o TETO (a conta de custo é do servidor): por isso o "até". */
+export function textoPreviaPreco(afetados: number | null | undefined): string | null {
+  if (!afetados || afetados <= 0) return null;
+  return afetados === 1
+    ? "até 1 produto terá o custo recalculado"
+    : `até ${afetados} produtos terão o custo recalculado`;
+}
+
+function RelataCoresSujas({ onChange }: { onChange?: (n: number) => void }) {
+  const { nSujos } = useCardDrafts();
+  useEffect(() => {
+    onChange?.(nSujos);
+    return () => onChange?.(0);
+  }, [nSujos, onChange]);
+  return null;
+}
+
+function BarraSalvarTodasCores() {
+  const { nSujos, salvarTodos } = useCardDrafts();
+  const [salvando, setSalvando] = useState(false);
+  if (nSujos === 0) return null;
+  const onClick = async () => {
+    setSalvando(true);
+    try {
+      const { ok, erro } = await salvarTodos();
+      if (erro > 0) toast.error(`${ok} ${ok === 1 ? "cor salva" : "cores salvas"}, ${erro} com erro.`);
+      else if (ok > 0) toast.success(`${ok} ${ok === 1 ? "cor salva" : "cores salvas"}.`);
+    } finally { setSalvando(false); }
+  };
+  return (
+    <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+      <span className="text-sm text-amber-700 dark:text-amber-400">
+        {nSujos === 1 ? "1 cor com alterações não salvas" : `${nSujos} cores com alterações não salvas`}
+      </span>
+      <Button type="button" size="sm" onClick={onClick} disabled={salvando}>
+        {salvando ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
+        Salvar todos ({nSujos})
+      </Button>
+    </div>
+  );
+}
+
+/** Conflito de UM campo (outra pessoa mudou o que eu também editei): "manter meu / usar o novo", dentro da cor. */
+function ConflitoCampo({ dele, onManter, onUsarNovo }: { dele: string; onManter: () => void; onUsarNovo: () => void }) {
+  return (
+    <div role="alert" className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+      <p className="text-amber-700 dark:text-amber-400">Outra pessoa mudou este campo para <strong>{dele}</strong>.</p>
+      <div className="flex gap-2">
+        <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={onManter}>Manter meu</Button>
+        <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={onUsarNovo}>Usar o novo</Button>
+      </div>
+    </div>
+  );
+}
+
 function VariantRow({
   variante,
   corLabel,
@@ -972,27 +1115,173 @@ function VariantRow({
 }) {
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
-  const [nome, setNome] = useState(variante.nome_variante ?? "");
-  const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
-  const [corId, setCorId] = useState(variante.cor_id ?? "");
-  const [apelidoId, setApelidoId] = useState(variante.cor_apelido_id ?? "");
-  const [preco, setPreco] = useState(variante.preco?.toString() ?? "");
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoUrl = useSignedUrl(variante.foto_url);
-  // Preço pode mudar por FORA (botão "Aplicar a todas" do tecido) → re-sincroniza o campo.
-  useEffect(() => { setPreco(variante.preco?.toString() ?? ""); }, [variante.preco]);
 
+  // ---- Salvar por card -------------------------------------------------------------------------------------------
+  // `base` = os 5 campos vindos do servidor. MEMOIZADO pelos valores: o hook compara a identidade (base nova a cada render
+  // re-ancoraria o rascunho limpo toda vez = loop de render).
+  const base = useMemo<VarianteDraft>(
+    () => varianteParaDraft(variante),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [variante.cor_id, variante.cor_apelido_id, variante.nome_variante, variante.codigo_variante, variante.preco],
+  );
+
+  // Prévia do efeito do preço (só leitura, no servidor): "até N produtos terão o custo recalculado". A assinatura dela é a
+  // que o Salvar manda de volta (o servidor confere que a lista de afetados não mudou).
+  const [previaPausa, setPreviaPausa] = useState(false); // desliga/religa para REPEDIR a prévia (previa_desatualizada)
+  const [previaMudou, setPreviaMudou] = useState(false);
+  const [vPreco, setVPreco] = useState(0); // remonta o MoneyInput ao descartar/adotar valor (ele não re-sincroniza em foco)
+  const [conflitos, setConflitos] = useState<Partial<Record<keyof VarianteDraft, { meu: unknown; dele: unknown }>>>({});
+  const conflitosRef = useRef(conflitos);
+  conflitosRef.current = conflitos;
+  const ultimoEnviadoRef = useRef<Partial<VarianteDraft>>({});
+  const previaRef = useRef<{ carregando: boolean; assinatura: string | null }>({ carregando: false, assinatura: null });
+
+  const salvarFn = useCallback(async (mudancas: Partial<VarianteDraft>, baseEnviada: VarianteDraft) => {
+    if (Object.keys(conflitosRef.current).length > 0) {
+      toast.warning("Resolva os campos em conflito desta cor (manter meu / usar o novo) antes de salvar.");
+      throw new SalvarCorJaTratado();
+    }
+    const tocouPreco = "preco" in mudancas;
+    if (tocouPreco) {
+      // Espera a prévia terminar (digitou e já clicou ✓ / "Salvar todos"): não manda assinatura velha.
+      const limite = Date.now() + 5000;
+      while (previaRef.current.carregando && Date.now() < limite) await new Promise((r) => setTimeout(r, 40));
+      if (previaRef.current.carregando || previaRef.current.assinatura == null) {
+        toast.warning("Aguarde o cálculo do efeito do preço e tente de novo.");
+        throw new SalvarCorJaTratado();
+      }
+    }
+    const { error } = await supabase.rpc("salvar_variante_tecido" as any, {
+      _id: variante.id,
+      _mudancas: draftParaServidor(mudancas),
+      _base: draftParaServidor(baseEnviada),
+      _assinatura: tocouPreco ? previaRef.current.assinatura : null, // só vai com o preço (sem preço não há o que conferir)
+    } as any);
+    if (!error) { ultimoEnviadoRef.current = { ...ultimoEnviadoRef.current, ...mudancas }; return; }
+
+    const code = (error as { code?: string }).code;
+    const msg = String((error as { message?: string }).message ?? "");
+    if (code === "P0409" && msg.startsWith("conflito_versao")) {
+      // Outra pessoa salvou esta cor no meio: relê do servidor — o efeito de `base` abaixo faz o merge 3-vias (campo que
+      // eu não toquei adota o dela; campo que os dois mexeram vira conflito "manter meu / usar o novo").
+      await qc.refetchQueries({ queryKey: ["variantes", variante.artigo_id] });
+      toast.warning("Outra pessoa alterou esta cor. Atualizei o que você não tinha mexido — confira antes de salvar de novo.");
+      throw new SalvarCorJaTratado();
+    }
+    if (code === "P0409" && msg.startsWith("previa_desatualizada")) {
+      // A lista de produtos afetados mudou desde a prévia: NÃO grava; repede a prévia e avisa.
+      setPreviaMudou(true);
+      setPreviaPausa(true);
+      await new Promise((r) => setTimeout(r, 0));
+      setPreviaPausa(false);
+      toast.warning("O resultado mudou — confira o novo número de produtos e salve de novo.");
+      throw new SalvarCorJaTratado();
+    }
+    toast.error(mensagemSalvarCor(error));
+    throw new SalvarCorJaTratado();
+  }, [variante.id, variante.artigo_id, qc]);
+
+  const onSalvo = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ["variantes", variante.artigo_id] });
+    qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
+    qc.invalidateQueries({ queryKey: ["artigos"] });
+  }, [qc, variante.artigo_id]);
+
+  const draft = useCardDraft<VarianteDraft>({ id: variante.id, base, salvarFn, onSalvo });
+  const { valor, patch } = draft;
+  const tocouPreco = !Object.is(valor.preco, base.preco);
+
+  const previa = usePreviaServidor<{ afetados: number; assinatura: string }>({
+    rpc: "variante_tecido_preco_previa",
+    args: { _id: variante.id, _preco: valor.preco },
+    habilitado: tocouPreco && !readOnly && !previaPausa,
+  });
+  previaRef.current = { carregando: previa.carregando || previaPausa, assinatura: previa.assinatura };
+  useEffect(() => { if (previa.assinatura) setPreviaMudou(false); }, [previa.assinatura]);
+  const textoPrevia = tocouPreco && !previa.carregando ? textoPreviaPreco(previa.resultado?.afetados) : null;
+
+  // Base do servidor mudou com o card SUJO (outra pessoa salvou / "Aplicar a todas" / realtime): merge 3-vias por campo.
+  // O hook já re-ancorou a base dele (o efeito dele roda antes deste), então `patch(k, base[k])` não marca como tocado.
+  const baseAnteriorRef = useRef(base);
+  useEffect(() => {
+    const anterior = baseAnteriorRef.current;
+    baseAnteriorRef.current = base;
+    if (anterior === base || !draft.dirty) return; // limpo: o hook re-ancora sozinho
+    const meu = draft.valor;
+    const enviado = ultimoEnviadoRef.current;
+    // "tocado" = difere da base ANTERIOR e não é o que eu mesmo acabei de gravar com sucesso
+    const tocados = new Set<string>(CAMPOS_RASCUNHO.filter((k) => !igual(meu[k], anterior[k]) && !(k in enviado && igual(meu[k], enviado[k]))));
+    const m = mergeDraft<VarianteDraft>({ base: anterior, draft: meu, fresh: base, touched: tocados });
+    for (const k of m.atualizados as Array<keyof VarianteDraft>) {
+      patch(k, base[k]);
+      if (k === "preco") setVPreco((n) => n + 1);
+    }
+    setConflitos((velhos) => {
+      const novos: Partial<Record<keyof VarianteDraft, { meu: unknown; dele: unknown }>> = {};
+      for (const k of CAMPOS_RASCUNHO) {
+        if (igual(meu[k], base[k])) continue; // convergiu: não há mais o que decidir
+        const novo = m.conflitos.some((c) => c.path === k);
+        // o valor do servidor é o que EU gravei há pouco = não é conflito (só uma edição minha posterior)
+        if (novo && !(k in enviado && igual(base[k], enviado[k]))) novos[k] = { meu: meu[k], dele: base[k] };
+        else if (velhos[k] && !novo) novos[k] = { meu: meu[k], dele: base[k] };
+      }
+      return novos;
+    });
+  }, [base]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rotuloValor = (k: keyof VarianteDraft, v: unknown): string => {
+    if (k === "cor_id") return cores.find((c) => c.id === v)?.nome ?? "(vazio)";
+    if (k === "cor_apelido_id") return apelidos.find((a) => a.id === v)?.nome ?? "(vazio)";
+    if (k === "preco") return v == null ? "(sem preço)" : brl(Number(v));
+    return v ? String(v) : "(vazio)";
+  };
+  const campoConflito = (k: keyof VarianteDraft) => {
+    const c = conflitos[k];
+    if (!c) return null;
+    return (
+      <ConflitoCampo
+        dele={rotuloValor(k, c.dele)}
+        onManter={() => setConflitos((o) => { const n = { ...o }; delete n[k]; return n; })}
+        onUsarNovo={() => {
+          patch(k, base[k]);
+          if (k === "preco") setVPreco((n) => n + 1);
+          setConflitos((o) => { const n = { ...o }; delete n[k]; return n; });
+        }}
+      />
+    );
+  };
+
+  const salvarClique = async () => {
+    try { await draft.salvar(); toast.success("Cor salva."); } catch { /* já tratado (toast) em salvarFn */ }
+  };
+  const descartarClique = () => {
+    draft.descartar();
+    setConflitos({});
+    setPreviaMudou(false);
+    setVPreco((n) => n + 1);
+  };
+
+  // Enter (num campo de texto, card sujo) salva; Esc desfaz. Só age em eventos que vêm dos 5 campos do rascunho
+  // (`data-rascunho`), nunca de dentro de um Select aberto (a lista é portal: o evento sobe pela árvore React, mas o alvo
+  // não está num campo marcado) nem do editor de endereços.
+  const onKeyDownCard = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (readOnly || !draft.dirty || e.defaultPrevented || e.nativeEvent.isComposing) return;
+    const alvo = e.target as HTMLElement;
+    if (!alvo.closest("[data-rascunho]") || alvo.closest('[role="listbox"]') || alvo.tagName === "TEXTAREA") return;
+    if (e.key === "Enter" && alvo.tagName === "INPUT") { e.preventDefault(); void salvarClique(); }
+    else if (e.key === "Escape") { e.preventDefault(); descartarClique(); }
+  };
+
+  // ---- Foto (grava NA HORA, fora do rascunho — P-271) -----------------------------------------------------------
   const saveMut = useMutation({
-    mutationFn: async (patch: Partial<Variante>) => {
-      const { error } = await supabase.from("variantes_tecido").update(patch as any).eq("id", variante.id);
+    mutationFn: async (patchFoto: { foto_url: string }) => {
+      const { error } = await supabase.from("variantes_tecido").update(patchFoto as any).eq("id", variante.id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["variantes", variante.artigo_id] });
-      qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
-      qc.invalidateQueries({ queryKey: ["artigos"] });
-    },
+    onSuccess: onSalvo,
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
@@ -1051,6 +1340,16 @@ function VariantRow({
               : <span className="text-muted-foreground font-normal">Sem preço</span>}
           </p>
         </div>
+        {!readOnly && (
+          <CardSaveControls
+            dirty={draft.dirty}
+            salvando={draft.salvando}
+            onSalvar={salvarClique}
+            onDescartar={descartarClique}
+            labelSalvar="Salvar esta cor"
+            labelDescartar="Desfazer esta cor"
+          />
+        )}
         <Button variant="ghost" size="icon" aria-label={expanded ? "Recolher" : "Expandir"} aria-expanded={expanded} onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}>
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </Button>
@@ -1059,18 +1358,18 @@ function VariantRow({
         </Button>
       </div>
       {expanded && (
-        <div className="grid gap-3 p-3 border-t md:grid-cols-3 bg-muted/30">
-          {/* Cor base ↔ apelido editáveis (p/ acertar variantes antigas sem apelido).
-              Salva ao mudar; escolher apelido preenche a base. */}
-          <div className="space-y-1.5">
+        <div className="grid gap-3 p-3 border-t md:grid-cols-3 bg-muted/30" onKeyDown={onKeyDownCard}>
+          {/* Cor base ↔ apelido editáveis (p/ acertar variantes antigas sem apelido). Vão para o RASCUNHO da cor (✓ Salvar /
+              ↺ Desfazer no cabeçalho); escolher apelido preenche a base. */}
+          <div className="space-y-1.5" data-rascunho>
             <Label>Cor base</Label>
             <Select
-              value={corId}
+              value={valor.cor_id}
               onValueChange={(b) => {
-                setCorId(b);
-                const keep = apelidos.some((a) => a.id === apelidoId && a.cor_base_id === b) ? apelidoId : "";
-                setApelidoId(keep);
-                saveMut.mutate({ cor_id: b, cor_apelido_id: keep || null });
+                patch("cor_id", b);
+                // apelido que não é desta base sai junto (a RPC recebe cor_id e cor_apelido_id=null no MESMO Salvar)
+                const keep = apelidos.some((a) => a.id === valor.cor_apelido_id && a.cor_base_id === b) ? valor.cor_apelido_id : "";
+                patch("cor_apelido_id", keep);
               }}
               disabled={readOnly}
             >
@@ -1079,66 +1378,62 @@ function VariantRow({
                 {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
               </SelectContent>
             </Select>
+            {campoConflito("cor_id")}
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-rascunho>
             <Label>Cor apelido</Label>
             <Select
-              value={apelidoId}
+              value={valor.cor_apelido_id}
               onValueChange={(a) => {
-                setApelidoId(a);
-                const base = apelidos.find((x) => x.id === a)?.cor_base_id ?? corId;
-                setCorId(base);
-                saveMut.mutate({ cor_apelido_id: a, cor_id: base });
+                const baseDoApelido = apelidos.find((x) => x.id === a)?.cor_base_id ?? valor.cor_id;
+                patch("cor_apelido_id", a);
+                patch("cor_id", baseDoApelido);
               }}
               disabled={readOnly}
             >
               <SelectTrigger><SelectValue placeholder="Selecione o apelido" /></SelectTrigger>
               <SelectContent>
-                {(corId ? apelidos.filter((a) => a.cor_base_id === corId) : apelidos).map((a) => (
+                {(valor.cor_id ? apelidos.filter((a) => a.cor_base_id === valor.cor_id) : apelidos).map((a) => (
                   <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {campoConflito("cor_apelido_id")}
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-rascunho>
             <Label>Nome comercial (opcional)</Label>
             <Input
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              onBlur={() =>
-                nome !== (variante.nome_variante ?? "") && saveMut.mutate({ nome_variante: nome })
-              }
+              value={valor.nome_variante}
+              onChange={(e) => patch("nome_variante", e.target.value)}
               readOnly={readOnly}
             />
+            {campoConflito("nome_variante")}
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-rascunho>
             <Label>Código</Label>
             <Input
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value)}
-              onBlur={() =>
-                codigo !== (variante.codigo_variante ?? "") &&
-                saveMut.mutate({ codigo_variante: codigo })
-              }
+              value={valor.codigo_variante}
+              onChange={(e) => patch("codigo_variante", e.target.value)}
               readOnly={readOnly}
             />
+            {campoConflito("codigo_variante")}
           </div>
           {/* Preço POR VARIANTE. O preço de referência do artigo = o maior das variantes.
               Ícone de histórico AO LADO do input (label simples, alinha com o campo Código). */}
-          <div className="space-y-1.5">
-            <Label>Preço</Label>
+          <div className="space-y-1.5" data-rascunho>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+              <Label>Preço</Label>
+              {tocouPreco && previa.carregando && <span className="text-xs text-muted-foreground">calculando o efeito…</span>}
+              {textoPrevia && <span className="text-xs text-amber-700 dark:text-amber-400">ao salvar, {textoPrevia}</span>}
+            </div>
             <div className="flex items-center gap-1">
-              <Input
-                type="number"
-                step="0.01"
+              <MoneyInput
+                key={`preco-${vPreco}`}
+                fixedDecimals
                 placeholder="0,00"
                 className="flex-1"
-                value={preco}
-                onChange={(e) => setPreco(e.target.value)}
-                onBlur={() => {
-                  const v = preco === "" ? null : Number(preco);
-                  if (v !== (variante.preco ?? null)) saveMut.mutate({ preco: v });
-                }}
+                value={valor.preco}
+                onChange={(e) => patch("preco", canonicoParaNumero(e.target.value))}
                 readOnly={readOnly}
               />
               {(variante.historico_precos?.length ?? 0) > 0 && (
@@ -1162,11 +1457,13 @@ function VariantRow({
                 </Popover>
               )}
             </div>
+            {previaMudou && <p className="text-xs text-amber-700 dark:text-amber-400">O resultado mudou — confira o número de produtos.</p>}
+            {campoConflito("preco")}
           </div>
           <div className="space-y-1.5 md:col-span-3">
             <Label>Endereços</Label>
             {/* Editor CONSOLIDADO: edita manual + por OC + por rolo aqui mesmo (cada um vai
-                pro store certo). Rótulo da origem (OC/Rolo) sob a linha. */}
+                pro store certo). Rótulo da origem (OC/Rolo) sob a linha. Grava NA HORA (fora do rascunho). */}
             <EnderecoConsolidadoEditor varianteId={variante.id} rows={enderecosDaVariante} readOnly={readOnly} />
           </div>
           <div className="space-y-1.5">

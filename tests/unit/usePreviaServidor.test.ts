@@ -49,6 +49,7 @@ describe("usePreviaServidor", () => {
     expect(r.current.resultado).toBeNull();
     await avancar(299);
     expect(rpc).not.toHaveBeenCalled();
+    expect(r.current.carregando).toBe(true); // "carregando" vale do pedido (já no atraso) até a resposta
     await avancar(1);
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith("variante_tecido_preco_previa", { _id: "v1", _preco: 10 });
