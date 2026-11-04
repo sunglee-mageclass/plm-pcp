@@ -31,7 +31,7 @@ import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, textoExcluirTravado, invalidarEstadoSeTravado, TEXTO_SKU_TRAVADO } from "@/lib/integracao/trava";
+import { colunasTravadas, textoExcluirTravado, TEXTO_SKU_TRAVADO } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
@@ -41,7 +41,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, somaPecas, fmtMoney,
-  variantesBatemComTotal, erroValidacao, markupCanalIntocado, limparEnviadoSeServidorMudou, proximaOrdemVariante, type MarkupEnviado,
+  variantesBatemComTotal, erroValidacao, proximaOrdemVariante,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
@@ -74,8 +74,6 @@ export function ProdutoCard({
   onExcluido,
   onLimpo,
   onAbrirPlanejamento,
-  markupVarejoServidor,
-  markupAtacadoServidor,
   ordensVariantesServidor,
   dirty,
 }: {
@@ -123,13 +121,6 @@ export function ProdutoCard({
    *  pra `/criacao/planejamento` — ausente (outros usos futuros do ProdutoCard) cai no navigate
    *  antigo como fallback. */
   onAbrirPlanejamento?: (modeloId: string) => void;
-  /** N-3 (Fix round 2, Integração) — `markup_varejo` da ÚLTIMA leitura confiável do servidor
-   *  (`baseServidorRef` do Sheet) — usado pelo blur do Markup ATACADO pra nunca reenviar um
-   *  `produto.markup_varejo` (draft local, pode estar divergido) quando o varejo está travado.
-   *  `null`/ausente (outros usos futuros do ProdutoCard) cai no `produto.markup_varejo` como
-   *  antes (comportamento intocado). */
-  markupVarejoServidor?: number | null;
-  markupAtacadoServidor?: number | null;
   /** sku #22 (L8) — ordens das variantes GRAVADAS (última leitura do servidor, `baseServidorRef` do Sheet): a variante
    *  nova nunca reusa a ordem de uma apagada nesta edição (senão herdaria a grade dela). Ausente = só o rascunho. */
   ordensVariantesServidor?: readonly number[];
@@ -167,29 +158,10 @@ export function ProdutoCard({
   // "modelos") dá o preview imediato; o thumb do card usa esta foto (fallback pra do modelo espelho).
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
-  // Fix round 2 (review Opus — blur do preço fixo não salvava o valor digitado): `onBlur` do
-  // <MoneyInput> recebe o EVENTO NATIVO de blur (`MoneyInput.tsx:69`, `onBlur?.(e)` sem
-  // reconstruir `e.target.value` como o `onChange` faz) — `e.target.value` ali é o TEXTO
-  // MASCARADO pt-BR (vírgula decimal + ponto de milhar, ex. "1.234,56"), nunca o canônico
-  // ("1234.56") que `onChange` emite. `Number("1.234,56")` é `NaN`; com `fixedDecimals` (sempre
-  // mostra 2 casas), praticamente todo blur reduzia `novo` a `null` — o preço digitado nunca era
-  // salvo (às vezes zerava o preço fixo existente, às vezes só não-opava). Fix: `onChange` JÁ
-  // grava o valor certo (canônico, `e.target.value` DELE é `{target:{value:canonical}}`) em
-  // `produto.preco_atacado_fixo`/`preco_varejo_fixo` a cada tecla — `onBlur` usa ESSE valor
-  // (nunca re-parseia o evento de blur), comparando contra o que o campo tinha ao ENTRAR em foco
-  // (`precoAtacadoBaseRef`/`precoVarejoBaseRef`, setados em `onFocus`) para só disparar a RPC
-  // quando o usuário de fato editou. Espelha `RevendaSetores.tsx` (Planejamento, mesmo par de
-  // campos): lá o draft já nasce como STRING canônica; aqui o draft é o NÚMERO já parseado —
-  // duas formas do mesmo princípio ("nunca re-parseie o texto mascarado do DOM").
-  const precoAtacadoBaseRef = useRef<number | null>(produto.preco_atacado_fixo ?? null);
-  const precoVarejoBaseRef = useRef<number | null>(produto.preco_varejo_fixo ?? null);
-  // Mesmo bug/fix nos 2 campos de Markup (`NumberInput`, não `MoneyInput`, mas MESMA classe:
-  // `NumberInput.tsx:62` também repassa `onBlur?.(e)` com o evento NATIVO, sem reconstruir
-  // `e.target.value` como o `onChange` dele faz — em repouso o texto tem vírgula decimal
-  // ("2,50"), que `Number()` não entende. Markup inteiro (ex. "3") passava por acidente
-  // (sem vírgula), mas qualquer markup com decimal (o caso comum — "2,50") quebrava igual.
-  const markupAtacadoBaseRef = useRef<number | null>(produto.markup_atacado ?? null);
-  const markupVarejoBaseRef = useRef<number | null>(produto.markup_varejo ?? null);
+  // Camada intermediária (P-393, nov/2026): markup e preço fixo NÃO gravam mais no blur — são RASCUNHO (`onChange` → `produto`)
+  // e gravam no Salvar em LOTE do `ProdutoAcabadoSheet` (markup vai em `salvar_produto_acabado`; o preço fixo logo depois, na
+  // MESMA passada do produto, por `salvar_precos_fixo_produto_acabado`). Mesmo molde do Produto Importado. Os valores vêm do
+  // `onChange` dos inputs (já CANÔNICOS: `MoneyInput`/`NumberInput` reconstroem `e.target.value`) — nunca do texto mascarado do DOM.
   const fotoUrl = useSignedUrl(produto.foto_url, "modelos");
   const anexarFoto = async (file: File | undefined) => {
     if (!file) return;
@@ -328,59 +300,6 @@ export function ProdutoCard({
     onSuccess: () => { toast.success("Quantidade/variantes reaplicadas ao modelo."); invalidarVizinhos(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar ao modelo.")),
     onSettled: () => setAplicando(false),
-  });
-
-  // Preço/markup de revenda (ESPELHA o Planejamento, set/2026): salva DIRETO via as RPCs dedicadas no
-  // onBlur — NÃO pelo save em lote (`salvar_produto_acabado`), que só toca markup e apagaria o preço
-  // fixo. "Última edição manda": digitar PREÇO grava o fixo (limpa markup); digitar MARKUP grava markup
-  // (limpa o fixo). Invalida `produtos-acabados` (relê o card) + as keys do Planejamento (espelho bidir).
-  const invalidarPrecoRevenda = () => {
-    qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
-    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-    qc.invalidateQueries({ queryKey: ["modelo"] });
-    qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
-    qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
-  };
-  const salvarPrecoFixoMut = useMutation({
-    mutationFn: async (p: { tocarAtacado: boolean; precoAtacado: number | null; tocarVarejo: boolean; precoVarejo: number | null }) => {
-      const { error } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
-        _produto_id: produto.id,
-        _tocar_atacado: p.tocarAtacado, _preco_atacado_fixo: p.precoAtacado,
-        _tocar_varejo: p.tocarVarejo, _preco_varejo_fixo: p.precoVarejo,
-      });
-      if (error) throw error;
-    },
-    onSuccess: invalidarPrecoRevenda,
-    onError: (e: any) => {
-      // m1 (final-review) — o preço/markup de revenda salva DIRETO (fora do lote de `salvar_produto_acabado`);
-      // um 42501 `integracao_travado:preco_venda`/`markup_varejo` aqui precisa do mesmo guard: refeta
-      // `["integracao-estado", tenantId]` pra o PRÓXIMO blur já vir com a trava certa.
-      invalidarEstadoSeTravado(qc, e);
-      toast.error(mensagemErro(e, "Erro ao salvar o preço."));
-    },
-  });
-  // Preço A2: último markup ENVIADO por canal — o canal NÃO tocado de um 2º blur (antes do refetch) reenvia isto.
-  const enviadoAtacadoRef = useRef<MarkupEnviado | null>(null);
-  const enviadoVarejoRef = useRef<MarkupEnviado | null>(null);
-  limparEnviadoSeServidorMudou(enviadoAtacadoRef, markupAtacadoServidor);
-  limparEnviadoSeServidorMudou(enviadoVarejoRef, markupVarejoServidor);
-  const salvarMarkupMut = useMutation({
-    onMutate: () => ({ atacadoAntes: markupAtacadoServidor, varejoAntes: markupVarejoServidor }),
-    mutationFn: async (p: { markupAtacado: number | null; markupVarejo: number | null }) => {
-      const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
-        _produto_id: produto.id, _markup_atacado: p.markupAtacado, _markup_varejo: p.markupVarejo,
-      });
-      if (error) throw error;
-    },
-    onSuccess: (_d, vars, ctx) => {
-      enviadoAtacadoRef.current = { valor: vars.markupAtacado, servidorAntes: ctx?.atacadoAntes };
-      enviadoVarejoRef.current = { valor: vars.markupVarejo, servidorAntes: ctx?.varejoAntes };
-      invalidarPrecoRevenda();
-    },
-    onError: (e: any) => {
-      invalidarEstadoSeTravado(qc, e);
-      toast.error(mensagemErro(e, "Erro ao salvar o markup."));
-    },
   });
 
   const excluirMut = useMutation({
@@ -906,29 +825,19 @@ export function ProdutoCard({
                       <div className="space-y-1">
                         <Label className="text-sm">Markup atacado</Label>
                         <div className="relative">
-                          {/* value = markup EFETIVO (gravado OU derivado do preço fixo). Salva no onBlur
-                              (RPC direta, destrava o preço) só se MUDOU vs o exibido — senão está só
-                              mostrando o derivado e salvar destravaria o preço à toa. */}
+                          {/* value = markup EFETIVO (gravado OU derivado do preço fixo). RASCUNHO: grava no SALVAR da tela
+                              (camada intermediária, P-393) — nada de RPC no blur. Markup digitado LIMPA o preço fixo do canal
+                              ("última edição manda", D14/R1); vazio/zero só limpa o markup. Molde: ProdutoImportadoCard. */}
                           <NumberInput
                             data-colab-path={`card:${produto.id}:markup-atac`}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
-                            disabled={salvarMarkupMut.isPending}
                             value={markupAtacadoExib ?? 0}
-                            onFocus={() => { markupAtacadoBaseRef.current = produto.markup_atacado ?? null; }}
-                            onChange={(e) => onChange({ ...produto, markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_atacado_fixo: null })}
-                            onBlur={() => {
-                              // Fix round 2: usa o valor que `onChange` já colocou no draft (correto),
-                              // nunca reparseia o evento nativo de blur (mesma classe de bug do preço
-                              // fixo — ver comentário em `markupAtacadoBaseRef`).
-                              const mk = produto.markup_atacado ?? null;
-                              if (mk === markupAtacadoBaseRef.current) return;
-                              // Preço A2: o canal NÃO tocado (varejo) manda SEMPRE o markup do SERVIDOR
-                              // (null se tem preço fixo) — nunca o draft; senão a RPC apaga o preço fixo dele.
-                              const markupVarejoParaEnviar = markupCanalIntocado(markupVarejoServidor, produto.markup_varejo, enviadoVarejoRef.current);
-                              salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: markupVarejoParaEnviar });
-                            }}
+                            onChange={(e) => onChange({
+                              ...produto,
+                              ...(Number(e.target.value) > 0 ? { markup_atacado: Number(e.target.value), preco_atacado_fixo: null } : { markup_atacado: null }),
+                            })}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
@@ -939,35 +848,24 @@ export function ProdutoCard({
                         <div className="relative">
                           <NumberInput
                             data-colab-path={`card:${produto.id}:markup-var`}
-                            disabled={travaIntegracao.has("preco_venda") || salvarMarkupMut.isPending}
+                            disabled={travaIntegracao.has("preco_venda")}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
                             value={markupVarejoExib ?? 0}
-                            onFocus={() => { markupVarejoBaseRef.current = produto.markup_varejo ?? null; }}
-                            onChange={(e) => onChange({ ...produto, markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_varejo_fixo: null })}
-                            onBlur={() => {
-                              // N-3 (Fix round 2): com o varejo travado o campo já está `disabled` (não
-                              // dá pra digitar), mas um blur ainda poderia disparar se o campo tivesse
-                              // ficado focado ANTES do lock chegar (o disabled não força blur sozinho em
-                              // todo navegador) — pula a RPC inteira nesse caso, nunca reenvia o markup
-                              // varejo travado.
-                              if (travaIntegracao.has("preco_venda")) return;
-                              // Fix round 2: mesmo padrão — usa o draft já correto (`onChange`), nunca
-                              // reparseia o evento nativo de blur.
-                              const mk = produto.markup_varejo ?? null;
-                              if (mk === markupVarejoBaseRef.current) return;
-                              salvarMarkupMut.mutate({ markupAtacado: markupCanalIntocado(markupAtacadoServidor, produto.markup_atacado, enviadoAtacadoRef.current), markupVarejo: mk });
-                            }}
+                            onChange={(e) => onChange({
+                              ...produto,
+                              ...(Number(e.target.value) > 0 ? { markup_varejo: Number(e.target.value), preco_varejo_fixo: null } : { markup_varejo: null }),
+                            })}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
                         {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {fmtNum(markupLinha)}×</p>}
                       </div>
-                      {/* Preços EDITÁVEIS = preço FIXO EXATO (set/2026, espelha o Planejamento; sem
-                          derivar do markup arredondado — fim do "298"→"297,84"). Digitar grava o preço
-                          fixo no draft + salva no onBlur (RPC, toca SÓ o canal, limpa o markup dele).
-                          Funciona com base 0 (sem `disabled`). fixedDecimals p/ sempre 2 casas. */}
+                      {/* Preços EDITÁVEIS = preço FIXO EXATO (set/2026, espelha o Planejamento; sem derivar do markup
+                          arredondado — fim do "298"→"297,84"). RASCUNHO: digitar grava o fixo no draft e LIMPA o markup do
+                          canal; o SALVAR da tela persiste (`salvar_precos_fixo_produto_acabado`, após o `salvar_produto_acabado`
+                          do lote, ver ProdutoAcabadoSheet). Funciona com base 0. fixedDecimals p/ sempre 2 casas. */}
                       <div className="col-span-2 grid grid-cols-2 gap-3 border-t pt-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Preço atacado</Label>
@@ -975,16 +873,10 @@ export function ProdutoCard({
                             fixedDecimals
                             value={precoAtacadoLive ?? ""}
                             placeholder="0,00"
-                            onFocus={() => { precoAtacadoBaseRef.current = produto.preco_atacado_fixo ?? null; }}
-                            onChange={(e) => onChange({ ...produto, preco_atacado_fixo: Number(e.target.value) > 0 ? Number(e.target.value) : null, markup_atacado: null })}
-                            onBlur={() => {
-                              // Fix round 2: nunca reparseia `e.target.value` (texto mascarado do DOM,
-                              // ver comentário acima de `precoAtacadoBaseRef`) — usa o valor que
-                              // `onChange` já colocou no draft, comparado contra o valor de ANTES desta
-                              // edição (capturado no focus).
-                              const novo = produto.preco_atacado_fixo ?? null;
-                              if (novo !== precoAtacadoBaseRef.current) salvarPrecoFixoMut.mutate({ tocarAtacado: true, precoAtacado: novo, tocarVarejo: false, precoVarejo: null });
-                            }}
+                            onChange={(e) => onChange({
+                              ...produto,
+                              ...(Number(e.target.value) > 0 ? { preco_atacado_fixo: Number(e.target.value), markup_atacado: null } : { preco_atacado_fixo: null }),
+                            })}
                           />
                         </div>
                         <div className="space-y-1">
@@ -994,12 +886,10 @@ export function ProdutoCard({
                             value={precoVarejoLive ?? ""}
                             placeholder="0,00"
                             disabled={travaIntegracao.has("preco_venda")}
-                            onFocus={() => { precoVarejoBaseRef.current = produto.preco_varejo_fixo ?? null; }}
-                            onChange={(e) => onChange({ ...produto, preco_varejo_fixo: Number(e.target.value) > 0 ? Number(e.target.value) : null, markup_varejo: null })}
-                            onBlur={() => {
-                              const novo = produto.preco_varejo_fixo ?? null;
-                              if (novo !== precoVarejoBaseRef.current) salvarPrecoFixoMut.mutate({ tocarVarejo: true, precoVarejo: novo, tocarAtacado: false, precoAtacado: null });
-                            }}
+                            onChange={(e) => onChange({
+                              ...produto,
+                              ...(Number(e.target.value) > 0 ? { preco_varejo_fixo: Number(e.target.value), markup_varejo: null } : { preco_varejo_fixo: null }),
+                            })}
                           />
                         </div>
                       </div>

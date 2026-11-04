@@ -1624,7 +1624,9 @@ describe("Tarefa 5 — Produto Acabado: SELECT + embed do Sheet", () => {
     expect(bloco.indexOf("selecionados.some((d) => (conflitosPorProduto[d.id]")).toBeLessThan(bloco.indexOf("for (const p of sujos)"));
   });
   it("Fix round (L-1): salvarUmProduto rebaseline tamanho_tipo_base = tamanho_tipo depois do save", () => {
-    expect(s).toMatch(/const salvo: ProdutoDraft = \{ \.\.\.p, rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo \};/);
+    // P-393: `noServidor` (o que o banco tem agora, preço fixo incluso) é o rascunho quando tudo gravou; senão o rascunho mantém o digitado.
+    expect(s).toMatch(/const noServidor: ProdutoDraft = \{ \.\.\.p, \.\.\.precosAposSalvar\(p, servidorAtual, plano, !erroFixo\), rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo \};/);
+    expect(s).toMatch(/const salvo: ProdutoDraft = erroFixo \? \{ \.\.\.p, rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo \} : noServidor;/);
   });
   it("Fix round (L-2): onLimpo também zera tamanho_tipo/tamanho_tipo_base no draft local", () => {
     const bloco = s.slice(s.indexOf("onLimpo={() => {"), s.indexOf("changeProduto(limpo);"));
@@ -1820,62 +1822,37 @@ describe("Tarefa 6 — produto-importado/shared.ts: campo travável + rótulo", 
   });
 });
 
-// Fix round 2 (review Opus): os 4 campos de preço/markup do Produto Acabado (ProdutoCard.tsx)
-// tinham `onBlur` reparseando `e.target.value` (o evento NATIVO de blur — texto MASCARADO pt-BR
-// com vírgula decimal/ponto de milhar) com `Number()`, que dá `NaN` pra quase todo valor real
-// ("698,00", "1.234,56"). `MoneyInput`/`NumberInput` só reconstroem o valor canônico no
-// `onChange` (ver money-mask.test.ts, describe "Fix round 2" — mecanismo puro), nunca no
-// `onBlur`, que repassa o evento do DOM sem tocar. Guarda de regressão no SOURCE: nenhum dos 4
-// `onBlur` deste arquivo reparseia `e.target.value`/`e.currentTarget.value` com `Number`/
-// `parseFloat` nunca mais — usam o valor já correto do draft (`produto.*`, escrito pelo
-// `onChange`) comparado contra um ref capturado no `onFocus`.
-describe("Fix round 2 — ProdutoCard.tsx (Produto Acabado): blur de preço/markup não reparseia o DOM", () => {
+// P-393 (camada intermediária): os 4 campos de preço/markup do Produto Acabado (ProdutoCard.tsx) deixaram de gravar no blur — são RASCUNHO
+// (`onChange` → `produto`) e gravam no Salvar em lote do Sheet (molde: ProdutoImportadoCard). Isto também encerra a classe de bug do "Fix round 2"
+// (o `onBlur` reparseava `e.target.value` — texto MASCARADO pt-BR — com `Number()` = NaN): agora o valor vem SÓ do `onChange`, que o
+// `MoneyInput`/`NumberInput` reconstroem CANÔNICO ("1234.56"). Guarda de regressão no SOURCE.
+describe("P-393 — ProdutoCard.tsx (Produto Acabado): markup/preço fixo são rascunho, nada grava no blur", () => {
   const s = ler("src/components/produto-acabado/ProdutoCard.tsx");
 
-  it("nenhum onBlur deste arquivo parseia e.target.value/e.currentTarget.value com Number()/parseFloat() (a causa raiz do bug)", () => {
-    const blocks: string[] = [];
-    const re = /onBlur=\{\s*\(?\s*e?\s*\)?\s*=>\s*\{/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(s))) {
-      let depth = 0, i = re.lastIndex - 1;
-      const start = i;
-      while (i < s.length) {
-        if (s[i] === "{") depth++;
-        else if (s[i] === "}") { depth--; if (depth === 0) break; }
-        i++;
-      }
-      blocks.push(s.slice(start, i + 1));
-    }
-    expect(blocks.length).toBeGreaterThanOrEqual(4); // markup atacado/varejo + preço atacado/varejo
-    for (const b of blocks) {
-      const parseiaValorDoBlur = /(e\.(target|currentTarget)\.value)/.test(b) && /Number\s*\(|parseFloat\s*\(/.test(b);
-      expect(parseiaValorDoBlur).toBe(false);
-    }
+  it("os 4 campos não têm onBlur/onFocus (nada de RPC solta nem ref de 'valor ao entrar em foco')", () => {
+    const secao = s.slice(s.indexOf("{/* ── 2 · Preço"), s.indexOf("{/* ── Mão de obra"));
+    expect(secao.length).toBeGreaterThan(500);
+    expect(secao).not.toMatch(/onBlur=|onFocus=/);
+    expect(s).not.toMatch(/precoAtacadoBaseRef|precoVarejoBaseRef|markupAtacadoBaseRef|markupVarejoBaseRef/);
+    expect(s).not.toMatch(/\.rpc\(\s*"salvar_(markups|precos_fixo)_produto_acabado"/);
   });
 
-  it("os 4 campos capturam o valor de referência no onFocus (base para decidir se o onBlur precisa salvar)", () => {
-    expect(s).toMatch(/onFocus=\{\(\) => \{ precoAtacadoBaseRef\.current = produto\.preco_atacado_fixo \?\? null; \}\}/);
-    expect(s).toMatch(/onFocus=\{\(\) => \{ precoVarejoBaseRef\.current = produto\.preco_varejo_fixo \?\? null; \}\}/);
-    expect(s).toMatch(/onFocus=\{\(\) => \{ markupAtacadoBaseRef\.current = produto\.markup_atacado \?\? null; \}\}/);
-    expect(s).toMatch(/onFocus=\{\(\) => \{ markupVarejoBaseRef\.current = produto\.markup_varejo \?\? null; \}\}/);
+  it("cada campo atualiza o RASCUNHO (onChange → onChange({ ...produto, ... })) com o par fixo/markup do canal (última edição manda)", () => {
+    expect(s).toMatch(/\{ markup_atacado: Number\(e\.target\.value\), preco_atacado_fixo: null \} : \{ markup_atacado: null \}/);
+    expect(s).toMatch(/\{ markup_varejo: Number\(e\.target\.value\), preco_varejo_fixo: null \} : \{ markup_varejo: null \}/);
+    expect(s).toMatch(/\{ preco_atacado_fixo: Number\(e\.target\.value\), markup_atacado: null \} : \{ preco_atacado_fixo: null \}/);
+    expect(s).toMatch(/\{ preco_varejo_fixo: Number\(e\.target\.value\), markup_varejo: null \} : \{ preco_varejo_fixo: null \}/);
   });
 
-  it("o preço atacado usa produto.preco_atacado_fixo (o valor que o onChange já calculou) no onBlur, não Number(e.target.value)", () => {
-    expect(s).toMatch(/const novo = produto\.preco_atacado_fixo \?\? null;\s*\n\s*if \(novo !== precoAtacadoBaseRef\.current\)/);
+  it("o valor vem do onChange (canônico): nada na seção de preço relê e.currentTarget.value nem usa parseFloat sobre o evento", () => {
+    const secao = s.slice(s.indexOf("{/* ── 2 · Preço"), s.indexOf("{/* ── Mão de obra"));
+    expect(secao).not.toMatch(/e\.currentTarget\.value|parseFloat\s*\(/);
+    expect(secao.match(/Number\(e\.target\.value\)/g)?.length).toBeGreaterThanOrEqual(4);
   });
 
-  it("o preço varejo usa produto.preco_varejo_fixo no onBlur", () => {
-    expect(s).toMatch(/const novo = produto\.preco_varejo_fixo \?\? null;\s*\n\s*if \(novo !== precoVarejoBaseRef\.current\)/);
-  });
-
-  it("o markup atacado usa produto.markup_atacado no onBlur e preserva a lógica de trava do varejo (N-3)", () => {
-    expect(s).toMatch(/const mk = produto\.markup_atacado \?\? null;\s*\n\s*if \(mk === markupAtacadoBaseRef\.current\) return;/);
-    // N-3 (fix round 2 anterior) continua intacto — a resolução do par travado não foi tocada.
-    expect(s).toMatch(/markupCanalIntocado\(markupVarejoServidor/);
-  });
-
-  it("o markup varejo respeita a trava de Integração (early return) e usa produto.markup_varejo no onBlur", () => {
-    expect(s).toMatch(/if \(travaIntegracao\.has\("preco_venda"\)\) return;[\s\S]*?const mk = produto\.markup_varejo \?\? null;/);
+  it("varejo travado pela Integração: Markup varejo e Preço varejo seguem disabled; atacado livre", () => {
+    const secao = s.slice(s.indexOf("{/* ── 2 · Preço"), s.indexOf("{/* ── Mão de obra"));
+    expect(secao.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)\}/g)?.length).toBe(2);
   });
 });
 
@@ -2062,10 +2039,13 @@ describe("Final-review m1 — invalidarEstadoSeTravado (trava.ts)", () => {
     expect(idxSalvarMut).toBeGreaterThan(-1);
     expect(idxChamada).toBeGreaterThan(idxSalvarMut);
   });
-  it("ProdutoCard.tsx (produto-acabado) chama invalidarEstadoSeTravado nos onError de salvarPrecoFixoMut E salvarMarkupMut", () => {
+  it("ProdutoCard.tsx (produto-acabado) NÃO grava mais preço/markup solto (P-393): sem mutation de preço, logo sem onError próprio; a trava do preço fixo é tratada no Sheet (reverterSeTravado)", () => {
     const s = ler("src/components/produto-acabado/ProdutoCard.tsx");
-    const ocorrencias = s.match(/invalidarEstadoSeTravado\(qc, e\);/g) ?? [];
-    expect(ocorrencias.length).toBe(2);
+    expect(s).not.toMatch(/invalidarEstadoSeTravado/);
+    expect(s).not.toMatch(/\.rpc\(\s*"salvar_(markups|precos_fixo)_produto_acabado"/);
+    const sh = ler("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
+    expect(sh).toMatch(/salvar_precos_fixo_produto_acabado/);
+    expect(sh).toMatch(/await reverterSeTravado\(erroFixo, noServidor\);/);
   });
   it("criacao.planejamento.tsx chama invalidarEstadoSeTravado nos onError de salvarPrecoVarejoRevenda E salvarPrecoVarejoImportado", () => {
     const s = ler("src/routes/_authenticated/criacao.planejamento.tsx");

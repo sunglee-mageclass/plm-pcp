@@ -94,9 +94,9 @@ export type ProdutoDraft = {
   tamanho_tipo_base: TamanhoTipo | null;
   // Preço FIXO por canal (set/2026): quando o usuário DIGITA um preço, ele é gravado EXATO aqui e o
   // markup do canal é limpo ("última edição manda"); o recompute usa `coalesce(preco_fixo, base×markup)`.
-  // Espelha o Planejamento de Produto — as 2 telas usam o MESMO modelo. Read-only no draft (a escrita
-  // vai pelas RPCs `salvar_precos_fixo_produto_acabado`/`salvar_markups_produto_acabado`, não pelo save
-  // em lote de `salvar_produto_acabado`, que só toca markup).
+  // Espelha o Planejamento de Produto — as 2 telas usam o MESMO modelo. RASCUNHO (P-393, camada intermediária): o
+  // card edita aqui; o Salvar em lote grava o markup em `salvar_produto_acabado` e o preço fixo em
+  // `salvar_precos_fixo_produto_acabado` logo depois (ver `planejarPrecosFixo`).
   preco_atacado_fixo: number | null;
   preco_varejo_fixo: number | null;
   // Foto PRÓPRIA do produto (#2.4) — path no bucket "oc-tecido" (como o Importado). O thumb do
@@ -169,9 +169,59 @@ export function chaveDirty(p: ProdutoDraft) {
     desconto_pct: p.desconto_pct,
     markup_atacado: p.markup_atacado,
     markup_varejo: p.markup_varejo,
+    // Camada intermediária (P-393): o preço FIXO por canal é rascunho como o markup — editar acende o "editado" e entra no Salvar em lote.
+    preco_atacado_fixo: p.preco_atacado_fixo,
+    preco_varejo_fixo: p.preco_varejo_fixo,
     variantes: p.variantes,
     tamanho_tipo: p.tamanho_tipo,
   };
+}
+
+/** Preço FIXO no Salvar em lote (P-393) — PURA. `salvar_produto_acabado` leva o MARKUP (`montarDadosProduto`) mas NÃO o preço fixo; este
+ *  vai logo depois, na mesma passada do produto, por `salvar_precos_fixo_produto_acabado` (que toca SÓ os canais pedidos). `servidor` =
+ *  última leitura confiável (`baseServidorRef`); o campo travado pela Integração já chega aqui REVERTIDO ao valor do servidor
+ *  (`aplicarResolucaoTravaAcabado`), então não diverge e o canal nem entra na RPC. Canal tocado = fixo do rascunho ≠ fixo do servidor, EXCETO
+ *  fixo vazio com markup digitado (o markup do lote já limpa o fixo no servidor — `_salvar_produto_acabado_core`). Fixo vazio e markup
+ *  vazio = destrava o canal (preço NULL limpa o fixo). `null` = nada a gravar (sem RPC). */
+export type PrecosFixoParaSalvar = { tocarAtacado: boolean; precoAtacado: number | null; tocarVarejo: boolean; precoVarejo: number | null };
+export function planejarPrecosFixo(
+  p: Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo" | "markup_atacado" | "markup_varejo">,
+  servidor: Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo"> | null | undefined,
+): PrecosFixoParaSalvar | null {
+  const canal = (fixo: number | null, markup: number | null, fixoServidor: number | null | undefined) => {
+    const f = fixo ?? null;
+    if (f === (fixoServidor ?? null)) return false;
+    if (f === null && markup != null) return false; // o markup do lote já limpou o fixo
+    return true;
+  };
+  const tocarAtacado = canal(p.preco_atacado_fixo, p.markup_atacado, servidor?.preco_atacado_fixo);
+  const tocarVarejo = canal(p.preco_varejo_fixo, p.markup_varejo, servidor?.preco_varejo_fixo);
+  if (!tocarAtacado && !tocarVarejo) return null;
+  return {
+    tocarAtacado, precoAtacado: tocarAtacado ? (p.preco_atacado_fixo ?? null) : null,
+    tocarVarejo, precoVarejo: tocarVarejo ? (p.preco_varejo_fixo ?? null) : null,
+  };
+}
+
+/** O que o SERVIDOR passa a ter em markup/preço fixo de um produto após o Salvar — PURA. Base do rebaseline (baseServidorRef + baseline de
+ *  "editado"). `fixoGravado` = a RPC de preço fixo rodou COM sucesso. Regras do banco: markup do lote não-nulo limpa o fixo do canal; fixo
+ *  gravado não-nulo limpa o markup do canal; preço NULL gravado limpa o fixo. Fixo NÃO gravado (nada a gravar OU a RPC falhou) = o que o
+ *  servidor já tinha, salvo o que o markup do lote limpou. */
+export function precosAposSalvar(
+  p: Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo" | "markup_atacado" | "markup_varejo">,
+  servidor: Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo"> | null | undefined,
+  plano: PrecosFixoParaSalvar | null,
+  fixoGravado: boolean,
+): Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo" | "markup_atacado" | "markup_varejo"> {
+  const canal = (tocou: boolean, precoGravado: number | null, fixoDraft: number | null, markup: number | null, fixoServidor: number | null | undefined) => {
+    if (fixoGravado && tocou) return { fixo: precoGravado, markup: precoGravado != null ? null : markup };
+    // sem leitura do servidor (produto sem `baseServidorRef`) cai no rascunho; com leitura, `null` do servidor é valor REAL (sem fixo)
+    const fixo = markup != null ? null : (servidor ? (fixoServidor ?? null) : fixoDraft);
+    return { fixo, markup };
+  };
+  const a = canal(!!plano?.tocarAtacado, plano?.precoAtacado ?? null, p.preco_atacado_fixo, p.markup_atacado, servidor?.preco_atacado_fixo);
+  const v = canal(!!plano?.tocarVarejo, plano?.precoVarejo ?? null, p.preco_varejo_fixo, p.markup_varejo, servidor?.preco_varejo_fixo);
+  return { preco_atacado_fixo: a.fixo, markup_atacado: a.markup, preco_varejo_fixo: v.fixo, markup_varejo: v.markup };
 }
 
 /** Redistribui qtd_total entre as variantes pelo peso de cada uma (maior resto) —

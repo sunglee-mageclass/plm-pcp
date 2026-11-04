@@ -792,22 +792,21 @@ describe("markupCanalIntocado — preço A2 (nunca reenvia markup derivado do ra
     limparEnviadoSeServidorMudou(ref, 2);          // outro usuário voltou p/ 2
     expect(markupCanalIntocado(2, 9, ref.current)).toBe(2);
   });
-  it("os 2 sites guardam o último enviado (onMutate/onSuccess) e travam a edição enquanto a mutação está pendente", () => {
+  it("o site do Planejamento guarda o último enviado (onMutate/onSuccess) e trava a edição enquanto a mutação está pendente; o Produto Acabado NÃO tem mais o blur (P-393: rascunho, grava no Salvar em lote)", () => {
     const rs = readFileSync("src/components/planejamento/planejamento-detail/useRevendaPlanejamento.ts", "utf8");
     const rsx = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
     const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");
     expect(rs).toMatch(/enviadoAtacadoRef/);
     expect(rsx).toMatch(/salvarMarkupsRevenda\.isPending/);
-    expect(pc).toMatch(/enviadoAtacadoRef/);
-    expect(pc).toMatch(/salvarMarkupMut\.isPending/);
     expect(rs).toMatch(/limparEnviadoSeServidorMudou\(enviadoAtacadoRef/);
-    expect(pc).toMatch(/limparEnviadoSeServidorMudou\(enviadoAtacadoRef/);
+    // o blur do card do Produto Acabado saiu: sem ref de "último enviado", sem mutation solta
+    expect(pc).not.toMatch(/enviadoAtacadoRef|salvarMarkupMut|salvarPrecoFixoMut/);
   });
-  it("blur do atacado e do varejo (Planejamento e Produto Acabado) usam o helper", () => {
+  it("blur do atacado e do varejo (Planejamento) usam o helper; o Produto Acabado manda o markup do rascunho pelo lote (montarDadosProduto)", () => {
     const rs = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
     const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");
     expect((rs.match(/markupCanalIntocado\(/g) ?? []).length).toBe(2);
-    expect((pc.match(/markupCanalIntocado\(/g) ?? []).length).toBe(2);
+    expect((pc.match(/markupCanalIntocado\(/g) ?? []).length).toBe(0);
   });
 });
 

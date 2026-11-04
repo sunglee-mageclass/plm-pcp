@@ -78,18 +78,23 @@ describe("fonte: os 3 Sheets (PA/PI/Plan.Tecido) revertem já no 1º erro, reusa
   it("ProdutoAcabadoSheet.tsx — no catch do RPC, com ehErroIntegracaoTravado, busca o estado fresco e roda resolverTravaAcabado de novo (com p0/servidorAtual/touchedAgora já capturados)", () => {
     const s = fonte("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
     expect(s).toContain("ehErroIntegracaoTravado, estadoIntegracaoFresco");
-    const idxIf = s.indexOf("if (ehErroIntegracaoTravado(error)) {");
+    // P-393: o bloco virou o helper `reverterSeTravado` (chamado no erro do LOTE e no do preço fixo); a lógica é a mesma.
+    const idxIf = s.indexOf("const reverterSeTravado = async (erro: any, servidor: ProdutoDraft | null | undefined) => {");
     expect(idxIf).toBeGreaterThan(-1);
-    const bloco = s.slice(idxIf, idxIf + 900);
+    const bloco = s.slice(idxIf, idxIf + 1400);
+    expect(bloco).toContain("if (!ehErroIntegracaoTravado(erro)) return;");
     expect(bloco).toContain("await estadoIntegracaoFresco(qc)");
-    expect(bloco).toContain("resolverTravaAcabado({ enviado: p0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora })");
+    expect(bloco).toContain("resolverTravaAcabado({ enviado: p0, servidor, travaAtual: travaFresca, touched: touchedAgora })");
     // Fix round 1 (L-3, review) — reusa a MESMA função pura do revert pré-save (aplicarResolucaoTravaAcabado),
     // não um spread duplicado escrito à mão.
     expect(bloco).toContain("setDrafts((ds) => (ds ? ds.map((x) => (x.id === idAlvo ? aplicarResolucaoTravaAcabado(x, resolucao2) : x)) as ProdutoDraft[] : ds));");
     expect(bloco).not.toMatch(/\.\.\.x, \.\.\.resolucao2\.paraServidor/); // NÃO o spread duplicado de antes
-    // acontece DENTRO do `if (error) { ... }`, antes do `throw error;` que devolve ao chamador (mutationFn/onError)
-    const idxThrow = s.indexOf("throw error;", idxIf);
-    expect(idxThrow).toBeGreaterThan(idxIf);
+    // o erro do LOTE chama o helper (com a base lida) ANTES do `throw error;` que devolve ao chamador (mutationFn/onError)
+    const idxChamada = s.indexOf("await reverterSeTravado(error, servidorAtual);");
+    expect(idxChamada).toBeGreaterThan(idxIf);
+    expect(s.indexOf("throw error;", idxChamada)).toBeGreaterThan(idxChamada);
+    // e o erro do PREÇO FIXO (2ª RPC do mesmo produto) tem o MESMO tratamento, com o que o servidor tem pós-lote
+    expect(s).toContain("await reverterSeTravado(erroFixo, noServidor);");
   });
   it("ProdutoImportadoSheet.tsx — mesmo padrão, com resolverTravaImportado e guarda extra pra produto isLocal (sem servidor ainda)", () => {
     const s = fonte("src/components/produto-importado/ProdutoImportadoSheet.tsx");
@@ -150,11 +155,12 @@ describe("Fix round 1 (L-4) — 1 toast só por refusal em PA/PI (não 2)", () =
     expect(idxIf).toBeGreaterThan(-1);
     const blocoMarca = s.slice(idxIf, idxIf + 200);
     expect(blocoMarca).toContain("toast.warning(`\"${p0.nome}\": ${toastTravaAcabado(resolucao2.avisos)}`);");
-    expect(blocoMarca).toContain("(error as any).revertidoLocal = true;");
+    expect(blocoMarca).toContain("erro.revertidoLocal = true;");
     const idxOnErrorMut = s.indexOf("onError: (e: any) => {", s.indexOf("const salvarMut = useMutation"));
     const idxFimOnError = s.indexOf("},\n  });", idxOnErrorMut);
     const blocoOnError = s.slice(idxOnErrorMut, idxFimOnError);
-    expect(blocoOnError).toMatch(/if \(e\?\.revertidoLocal\) return;\s*\n\s*toast\.error\(mensagemErro\(e, "Erro ao salvar\."\)\);/);
+    // P-393: o fallback ganhou a variante "preço fixo não gravou" (etapaFalha === "preco"); o resto do caminho é o mesmo.
+    expect(blocoOnError).toMatch(/if \(e\?\.revertidoLocal\) return;\s*\n\s*toast\.error\(mensagemErro\(e, e\?\.etapaFalha === "preco" \? "[^"]+" : "Erro ao salvar\."\)\);/);
   });
   it("fonte: ProdutoImportadoSheet.tsx — mesmo padrão", () => {
     const s = fonte("src/components/produto-importado/ProdutoImportadoSheet.tsx");

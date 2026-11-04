@@ -34,7 +34,7 @@ import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   produtoPedidoAcabado,
-  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar,
+  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar, planejarPrecosFixo, precosAposSalvar,
   baselinePatchDoServidor,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
@@ -161,7 +161,7 @@ const ROTULO_CAMPO_PA: Record<string, string> = {
   subcategoria2_id: "Subcategoria 2", categoria_tecido_id: "Categoria do tecido", material_aviamento_id: "Material do aviamento", empresa_id: "Fornecedor", representante_id: "Representante",
   ref_fornecedor: "Ref. Fornecedor", composicao: "Composição", grade_proporcao: "Proporção da grade",
   qtd_total: "Quantidade total", valor_unitario: "Valor unitário", desconto_pct: "Desconto (%)",
-  markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo", variantes: "Variantes",
+  markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo", preco_atacado_fixo: "Valor atacado", preco_varejo_fixo: "Valor varejo", variantes: "Variantes",
   foto_url: "Foto", tamanho_tipo: "Tamanho em",
 };
 
@@ -753,39 +753,53 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       _variantes: p.variantes,
       _rev_base: p.rev,
     });
+    // Integração (F4) — card travado DEPOIS que o Sheet abriu: o 42501 `integracao_travado:*` (do lote OU do preço fixo logo abaixo)
+    // busca o estado FRESCO e roda a MESMA `resolverTravaAcabado` de novo — reverte já, sem esperar o 2º Salvar. `p0` (não `p`) porque
+    // `p` já passou pelo revert (vazio) da 1ª tentativa; `servidor` = a referência do revert (lote: a base lida; preço fixo: o que o
+    // servidor tem agora, pós-lote).
+    const reverterSeTravado = async (erro: any, servidor: ProdutoDraft | null | undefined) => {
+      if (!ehErroIntegracaoTravado(erro)) return;
+      const travaFresca = p0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[p0.modelo_id] ?? null) : new Set<string>();
+      const resolucao2 = resolverTravaAcabado({ enviado: p0, servidor, travaAtual: travaFresca, touched: touchedAgora });
+      if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
+        const idAlvo = p0.id;
+        setDrafts((ds) => (ds ? ds.map((x) => (x.id === idAlvo ? aplicarResolucaoTravaAcabado(x, resolucao2) : x)) as ProdutoDraft[] : ds));
+        // Fix round 1 (L-4): marca `revertidoLocal` quando o toast ACIMA já avisou — o onError do salvarMut pula o genérico (sem 2 toasts).
+        if (resolucao2.avisos.length > 0) {
+          toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao2.avisos)}`);
+          erro.revertidoLocal = true;
+        }
+      }
+    };
     if (error) {
       if ((error as any).code === "P0409") {
         toast.warning(`Alguém salvou "${p.nome}" agora — o card foi recarregado e fundido com suas edições.`);
         await reconciliarProdutoP0409(p);
       }
-      // Fix round pós-QA (F3) — achado do QA: card travado DEPOIS que o Sheet abriu (estado local
-      // `estadosIntegracao` velho, `travaAtual` acima veio vazio) só revertia o rascunho no 2º Salvar — até
-      // lá o toggle ficava desabilitado mostrando o valor RECUSADO e o Salvar continuava habilitado. Agora,
-      // no PRÓPRIO erro: busca o estado FRESCO (`estadoIntegracaoFresco` — refetch de verdade, não só
-      // invalida) e roda a MESMA `resolverTravaAcabado` de novo com ele — reverte já aqui, sem esperar
-      // o 2º clique. `p0` (não `p`) porque `p` já passou pelo revert (vazio) da 1ª tentativa.
-      // Fix round 1 (L-3, review) — o patch vira `aplicarResolucaoTravaAcabado` (a MESMA função pura já usada
-      // linhas acima, no revert pré-save) em vez de reescrever o mesmo spread na mão — elimina a duplicação e
-      // ganha de graça a cobertura dos testes puros já existentes daquele helper.
-      if (ehErroIntegracaoTravado(error)) {
-        const travaFresca = p0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[p0.modelo_id] ?? null) : new Set<string>();
-        const resolucao2 = resolverTravaAcabado({ enviado: p0, servidor: servidorAtual, travaAtual: travaFresca, touched: touchedAgora });
-        if (Object.keys(resolucao2.paraServidor).length > 0 || resolucao2.variantesParaServidor) {
-          const idAlvo = p0.id;
-          setDrafts((ds) => (ds ? ds.map((x) => (x.id === idAlvo ? aplicarResolucaoTravaAcabado(x, resolucao2) : x)) as ProdutoDraft[] : ds));
-          // Fix round 1 (L-4, review) — antes disto o onError do salvarMut SEMPRE mostrava um 2º toast
-          // (`mensagemErro`, genérico) por cima deste `toastTravaAcabado` — redundante (os dois textos em PT
-          // corretos, mas duplicados). Marca o erro (`revertidoLocal`) quando o toast ACIMA já avisou algo —
-          // o onError do salvarMut (abaixo, na mutation do lote) pula o `toast.error` nesse caso. Espelha o
-          // Plan. Tecido, que já mostra só 1 toast (retorna cedo depois do revert+retry, antes de chegar no
-          // `toast.error` genérico).
-          if (resolucao2.avisos.length > 0) {
-            toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao2.avisos)}`);
-            (error as any).revertidoLocal = true;
-          }
-        }
-      }
+      await reverterSeTravado(error, servidorAtual);
       throw error;
+    }
+    // P-393 (camada intermediária) — PREÇO FIXO no mesmo Salvar: `salvar_produto_acabado` já levou o MARKUP (e limpou o fixo do canal quando
+    // o markup veio); o preço fixo vai AGORA, só dos canais que mudaram (`planejarPrecosFixo`). Depois do lote (herda o CAS `_rev_base`: se deu
+    // P0409 acima, nada daqui roda) e ANTES de reler o rev — cada UPDATE bumpa o `rev` do produto. O campo travado pela Integração (varejo) já
+    // chegou REVERTIDO em `p` → igual ao servidor → fora do plano. NÃO é atômico com o lote (2 RPCs): se esta falhar, o lote JÁ comitou — o
+    // rev/baseline abaixo refletem o que o servidor tem e o produto segue "editado" (o preço fixo digitado fica no rascunho p/ outro Salvar).
+    const plano = planejarPrecosFixo(p, servidorAtual);
+    let erroFixo: any = null;
+    if (plano) {
+      const { error: eFixo } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
+        _produto_id: (novoId as string) ?? p.id,
+        _tocar_atacado: plano.tocarAtacado, _preco_atacado_fixo: plano.precoAtacado,
+        _tocar_varejo: plano.tocarVarejo, _preco_varejo_fixo: plano.precoVarejo,
+      });
+      if (eFixo) { erroFixo = eFixo; erroFixo.etapaFalha = "preco"; }
+      else {
+        // o preço mudou fora do lote: as telas vizinhas (Planejamento, OTB) precisam reler (o `onSuccess` do `salvarMut` só cobre o Salvar em lote).
+        qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+        qc.invalidateQueries({ queryKey: ["modelo"] });
+        qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
+        qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
+      }
     }
     // rev pós-save (item 5): a RPC só retorna o `uuid` do produto, não o rev novo — busca ele
     // pontualmente (1 SELECT leve, só a coluna rev) e faz um PATCH local IMEDIATO desse único
@@ -794,15 +808,23 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     // janela um 2º Salvar (ou o "Fazer pedido" de outro card) já compararia `p.rev` contra o
     // valor CERTO, sem depender de quando o refetch em background termina.
     const { data: revRow } = await supabase.from("produtos_acabados" as any).select("rev").eq("id", (novoId as string) ?? p.id).maybeSingle();
-    const revNovo = revRow ? Number((revRow as any).rev) || 0 : p.rev + 1; // fallback otimista se o SELECT falhar por algum motivo
+    // fallback otimista se o SELECT falhar por algum motivo (+1 do lote, +1 do preço fixo quando rodou)
+    const revNovo = revRow ? Number((revRow as any).rev) || 0 : p.rev + 1 + (plano && !erroFixo ? 1 : 0);
     // Fix round (L-1): rebaseline de tamanho_tipo_base pro valor recém-salvo — sem isto, um 2º
     // Salvar (disparado por outro campo) comparava contra a base ANTIGA e reenviava a mesma
     // troca de "Tamanho em" como se fosse edição nova (montarDadosProduto manda a chave sempre
     // que tipo!==base).
-    const salvo: ProdutoDraft = { ...p, rev: revNovo, tamanho_tipo_base: p.tamanho_tipo };
-    baseServidorRef.current = { ...baseServidorRef.current, [p.id]: salvo };
+    // `noServidor` = o que o banco tem AGORA (markup/preço fixo pelas regras do banco, ver `precosAposSalvar`); com o preço fixo gravado é
+    // também o rascunho. Se o preço fixo falhou, o rascunho mantém o que o usuário digitou e o baseline (= servidor) deixa o produto "editado".
+    const noServidor: ProdutoDraft = { ...p, ...precosAposSalvar(p, servidorAtual, plano, !erroFixo), rev: revNovo, tamanho_tipo_base: p.tamanho_tipo };
+    const salvo: ProdutoDraft = erroFixo ? { ...p, rev: revNovo, tamanho_tipo_base: p.tamanho_tipo } : noServidor;
+    baseServidorRef.current = { ...baseServidorRef.current, [p.id]: noServidor };
     setDrafts((ds) => (ds ? ds.map((d) => (d.id === p.id ? salvo : d)) : ds));
-    marcarProdutoLimpo(salvo); // baseline por produto — ver comentário acima (fix round 1 item 4b)
+    marcarProdutoLimpo(noServidor); // baseline por produto — ver comentário acima (fix round 1 item 4b)
+    if (erroFixo) {
+      await reverterSeTravado(erroFixo, noServidor);
+      throw erroFixo;
+    }
   };
 
   const salvarMut = useMutation({
@@ -874,7 +896,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       // ex.: nenhuma coluna travada bateu, ou é um 42501 de outra causa), o toast genérico segue mostrando
       // como antes.
       if (e?.revertidoLocal) return;
-      toast.error(mensagemErro(e, "Erro ao salvar."));
+      toast.error(mensagemErro(e, e?.etapaFalha === "preco" ? "Os dados do produto foram salvos, mas o preço fixo não — tente salvar de novo." : "Erro ao salvar."));
     },
   });
 
@@ -1037,14 +1059,6 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             // enquanto ESTE produto (ou qualquer outro — mais simples/seguro que só o dele,
             // já que um save em lote pode disparar logo em seguida) tiver conflito pendente.
             conflitoPendente={temConflitoPendente}
-            // N-3 (Fix round 2, Integração): o blur do Markup atacado precisa reenviar o
-            // `markup_varejo` pra `salvar_markups_produto_acabado` (a RPC grava os 2 SEMPRE, sem
-            // "só toca 1"). Com o varejo TRAVADO, `produto.markup_varejo` (draft local) pode ter
-            // divergido do servidor desde a marcação — reenviar o draft reescreveria o canal
-            // travado em silêncio (a trigger só checa `preco_varejo_fixo`, nunca `markup_varejo`
-            // — D12). `baseServidorRef` é a última leitura confiável do servidor.
-            markupVarejoServidor={baseServidorRef.current[p.id]?.markup_varejo}
-            markupAtacadoServidor={baseServidorRef.current[p.id]?.markup_atacado}
             ordensVariantesServidor={baseServidorRef.current[p.id]?.variantes.map((v) => v.ordem)}
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
             onOcVinculada={(oc) => {
