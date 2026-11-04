@@ -38,7 +38,7 @@ import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
-import { OcCqSection, alertaBadge, aplicarPatchCq, chavesCqDoPayload, type CqPatch, type CqStatus, type OcCqLinha } from "@/components/oc-tecido/CqTecido";
+import { OcCqSection, alertaBadge, aplicarPatchCq, aplicarPatchCqRolo, baseCqRolos, chavesCqDoPayload, cqRolosDirty, cqRolosDoPayload, type CqPatch, type CqRoloBase, type CqRoloPatch, type CqStatus, type OcCqLinha } from "@/components/oc-tecido/CqTecido";
 import type { StatusTone } from "@/components/shared/StatusBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
@@ -700,7 +700,9 @@ export function OcDialog({
 
   // Guarda de "alterações não salvas": compara o rascunho editável (cabeçalho + itens)
   // com um baseline. Re-baseline ao semear a OC (query async) e após salvar (markClean).
-  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, items });
+  // CQ por ROLO existente (modo rolo): o rascunho mora em `rolosPorItem` (cq_tocado); entra no dirty por este valor estável (só os tocados).
+  const rolosCqDirty = useMemo(() => cqRolosDirty(rolosPorItem), [rolosPorItem]);
+  const { dirty: changed, reset: resetBaseline } = useDirtySnapshot({ draft, items, rolosCq: rolosCqDirty });
 
   // Colab (spec 2026-08-03) — piloto: rastreio do que EU editei (touched), o último
   // "fresh" visto do servidor (baseRef) e o rev otimista da OC (revRef), pra fazer
@@ -741,6 +743,12 @@ export function OcDialog({
   statusLiveRef.current = status;
   // o que o ÚLTIMO ciclo do save mandou (base do merge no onSuccess — não a closure)
   const enviadoRef = useRef<{ draft: Draft; items: ItemDraft[] } | null>(null);
+  // CQ por rolo existente: estado AO VIVO dos rolos (o mutationFn lê daqui, nunca da closure do clique), o CQ de cada rolo como foi
+  // carregado/salvo (base p/ desfazer o `cq_tocado`) e o `_cq_rolos` que o ÚLTIMO ciclo do save mandou (base nova no onSuccess).
+  const rolosLiveRef = useRef(rolosPorItem);
+  rolosLiveRef.current = rolosPorItem;
+  const rolosCqBaseRef = useRef<Record<string, CqRoloBase>>({});
+  const enviadoCqRolosRef = useRef<ReturnType<typeof cqRolosDoPayload>>([]);
 
   // Wrappers que DIFEREM prev→next e marcam o que mudou — os filhos continuam recebendo
   // a mesma assinatura (`typeof setDraft`/`typeof setItems`), zero mudança neles.
@@ -943,13 +951,14 @@ export function OcDialog({
       setOriginalItemIds(freshItems.map((m) => m.id).filter((x): x is string => !!x));
       if (ocQueryData.tecido2Aberto) setTecido2Aberto(true);
       if (Object.keys(ocQueryData.rolosPorItem).length > 0) setRolosPorItem(ocQueryData.rolosPorItem);
+      rolosCqBaseRef.current = baseCqRolos(ocQueryData.rolosPorItem); // CQ por rolo como veio do servidor (cq_tocado nunca vem da carga)
       touchedRef.current = new Set();
       touchedItemIdsRef.current = new Set();
       conflitosRef.current = [];
       setConflitos([]);
       // Re-baseline no MESMO tick com os valores semeados (o estado recém-setado ainda
       // está stale aqui). Assim uma OC recém-aberta não aparece como "não salva".
-      resetBaseline({ draft: freshDraft, items: freshItems });
+      resetBaseline({ draft: freshDraft, items: freshItems, rolosCq: [] });
       return;
     }
 
@@ -1056,7 +1065,7 @@ export function OcDialog({
     // Ao EDITAR, o preenchimento de preço vindo do cadastro é normalização de carga
     // (não edição do usuário): re-baseline p/ a OC não nascer "não salva". Fora do
     // updater do setState (não pode ter efeito colateral dentro do reducer).
-    if (isEdit) resetBaseline({ draft, items: next });
+    if (isEdit) resetBaseline({ draft, items: next, rolosCq: rolosCqDirty });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [varianteMap]);
 
@@ -1348,6 +1357,10 @@ export function OcDialog({
       }));
       // [camada C2 · P-262 A] payload vazio + o servidor TEM itens (os que seriam apagados) => exige a confirmação.
       const apagarItens = exigirConfirmacaoApagarTudo({ nPayload: itensPayload.length, nServidor: (qc.getQueryData<typeof ocQueryData>(["oc-tecido", ocId])?.its ?? ocQueryData?.its ?? []).length, confirmado: apagarTudoRef.current });
+      // CQ por ROLO existente (modo rolo): só os tocados vão no `_cq_rolos`, DENTRO do mesmo salvar_oc_tecido (rolo existente + OC no mesmo
+      // commit atômico, ANTES do gerar_rolos_recebimento dos NOVOS abaixo, que segue como estava). Sem rolo tocado a chave nem vai.
+      const cqRolos = modoOcRolo !== "oc" ? cqRolosDoPayload(rolosLiveRef.current, rolosCqBaseRef.current) : [];
+      enviadoCqRolosRef.current = cqRolos;
       const { data: savedOcId, error: saveErr } = await supabase.rpc("salvar_oc_tecido" as any, {
         _oc_id: isEdit ? ocId : null,
         _oc: apagarItens ? { ...payload, [MARCA_APAGAR_TUDO_ITENS_OC]: true } : payload,
@@ -1355,6 +1368,7 @@ export function OcDialog({
         // Colab (spec 2026-08-03): trava otimista — se outra pessoa salvou entre a
         // última carga e agora, a RPC dá P0409 (tratado no onError abaixo).
         _rev_base: revRef.current,
+        ...(cqRolos.length > 0 ? { _cq_rolos: cqRolos } : {}),
       });
       if (saveErr) throw saveErr;
       ocIdLocal = savedOcId as string;
@@ -1427,7 +1441,26 @@ export function OcDialog({
       conflitosRef.current = [];
       setConflitos([]);
       setUltimoMerge(null);
-      markClean();
+      // CQ por rolo: o que foi ENVIADO vira a base nova e o rolo deixa de ser "tocado" (se a pessoa editou o rolo durante o envio, a edição
+      // fica tocada e a OC continua com alteração pendente). O baseline do dirty passa a ter ZERO rolos tocados.
+      const enviadosCq = enviadoCqRolosRef.current;
+      enviadoCqRolosRef.current = [];
+      if (enviadosCq.length > 0) {
+        const bases = { ...rolosCqBaseRef.current };
+        for (const e of enviadosCq) {
+          const b = bases[e.item_id];
+          bases[e.item_id] = { cq_ok: e.cq_ok, cq_alerta: e.cq_alerta ?? b?.cq_alerta ?? false, obs: e.cq_observacao };
+        }
+        rolosCqBaseRef.current = bases;
+        setRolosPorItem((prev) => {
+          const next: Record<string, RoloEntry[]> = {};
+          for (const [k, arr] of Object.entries(prev)) {
+            next[k] = arr.map((e) => (e.roloItemId && bases[e.roloItemId] ? aplicarPatchCqRolo(e, {}, bases[e.roloItemId]) : e));
+          }
+          return next;
+        });
+      }
+      resetBaseline({ draft, items, rolosCq: [] });
       invalidarVencimentos(qc); // Data da Nota de Entrada: vencimentos podem ter mudado (Financeiro, dashboard, visão da OC)
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
@@ -1552,19 +1585,13 @@ export function OcDialog({
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar recebido.")),
   });
 
-  // CQ por rolo: grava direto no item do rolo (ocs_tecido_itens.cq_*) e reflete no
-  // estado local. Usado pelos toggles/observação de cada rolo recebido.
-  const onRoloCq = async (roloItemId: string, patch: { cq_ok?: boolean; cq_alerta?: boolean; obs?: string }) => {
-    const dbPatch: Record<string, any> = {};
-    if (patch.cq_ok !== undefined) dbPatch.cq_ok = patch.cq_ok;
-    if (patch.cq_alerta !== undefined) dbPatch.cq_alerta_status = patch.cq_alerta ? "alertado" : "sem_alerta";
-    if (patch.obs !== undefined) dbPatch.cq_observacao = patch.obs || null;
-    const { error } = await supabase.from("ocs_tecido_itens").update(dbPatch as any).eq("id", roloItemId);
-    if (error) { toast.error(mensagemErro(error, "Erro ao salvar CQ do rolo")); return; }
+  // CQ por rolo EXISTENTE: vira RASCUNHO. Não grava na hora — só atualiza o rolo em `rolosPorItem` e marca `cq_tocado` (volta ao valor
+  // carregado = desmarca). Quem leva ao banco é o Salvar da OC, via `_cq_rolos` do salvar_oc_tecido; o rolo tocado entra no dirty.
+  const onRoloCq = (roloItemId: string, patch: CqRoloPatch) => {
     setRolosPorItem((prev) => {
       const next: Record<string, RoloEntry[]> = {};
       for (const [k, arr] of Object.entries(prev)) {
-        next[k] = arr.map((e) => (e.roloItemId === roloItemId ? { ...e, ...patch } : e));
+        next[k] = arr.map((e) => (e.roloItemId === roloItemId ? aplicarPatchCqRolo(e, patch, rolosCqBaseRef.current[roloItemId]) : e));
       }
       return next;
     });

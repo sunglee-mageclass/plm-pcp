@@ -135,6 +135,7 @@ export type RoloEntry = {
   cancelado?: boolean;     // rolo cancelado (fora do estoque)
   usado?: boolean;         // rolo já consumido (corte) — não pode editar/cancelar/trocar
   obs?: string;            // cq_observacao do rolo
+  cq_tocado?: boolean;     // rolo EXISTENTE com CQ editado nesta sessão (rascunho): só então vai no `_cq_rolos` do Salvar da OC
 };
 
 export function emptyDraft(): Draft {

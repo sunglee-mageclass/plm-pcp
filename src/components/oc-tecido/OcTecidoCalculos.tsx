@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { CQ_ALERTA_TONE } from "./CqTecido";
+import { CQ_ALERTA_TONE, alertaAlternavel } from "./CqTecido";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { fmtNum } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -88,8 +89,8 @@ export function OcTecidoCalculos({
     setQtd(tempId, "quantidade_recebida", soma > 0 ? Math.round(soma * 100) / 100 : null);
   };
   const rolosDe = (tempId: string): RoloEntry[] => rolos[tempId] ?? [{ qtd: "" }];
-  // Observação/CQ por rolo: se o rolo JÁ existe (recebido, tem roloItemId), grava no
-  // item do rolo via onRoloCq; se é PLANEJADO (encomendado), só atualiza o estado local
+  // Observação/CQ por rolo: se o rolo JÁ existe (recebido, tem roloItemId), vira RASCUNHO no rolo via onRoloCq (não grava na hora:
+  // entra no Salvar da OC, `_cq_rolos`); se é PLANEJADO (encomendado), só atualiza o estado local
   // (vai pro rolos_planejados ao salvar e é aplicado ao rolo quando recebido).
   const setEntryCq = (tempId: string, ri: number, patch: { obs?: string; cq_ok?: boolean; cq_alerta?: boolean }) => {
     const entry = rolosDe(tempId)[ri];
@@ -215,9 +216,10 @@ export function OcTecidoCalculos({
                                 CQ ok
                               </label>
                               <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                <Switch checked={!!entry.cq_alerta} disabled={!!entry.usado} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_alerta: v })} />
+                                <Switch checked={!!entry.cq_alerta} disabled={!!entry.usado || (!!entry.roloItemId && !alertaAlternavel(entry.cqStatus))} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_alerta: v })} />
                                 Alertar estilo
                               </label>
+                              <UnsavedIndicator show={!!entry.cq_tocado} />
                               {entry.roloId && onRoloCancelar && (
                                 <label className="flex cursor-pointer items-center gap-1.5 text-xs">
                                   <Checkbox checked={!!entry.cancelado} disabled={!!entry.usado} onCheckedChange={(c) => {

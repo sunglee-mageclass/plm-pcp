@@ -268,6 +268,78 @@ export function chavesCqDoPayload(item: CqCampos): Record<string, unknown> {
   };
 }
 
+// ---- CQ por ROLO existente (modo rolo): mesmo espírito do item (rascunho + tocado + chave-ausente-mantém), mas o CQ mora no item do ROLO
+// (`roloItemId`) e vai ao banco no `_cq_rolos` do salvar_oc_tecido. Rolo NOVO (sem roloItemId) NÃO passa por aqui (vai por gerar_rolos_recebimento).
+/** O que o rascunho de um rolo carrega (subconjunto do `RoloEntry`). */
+export type CqRoloCampos = {
+  roloItemId?: string;
+  cq_ok?: boolean;
+  cq_alerta?: boolean;
+  /** cq_alerta_status cru do servidor (alertado/trocado/…): só sem_alerta/alertado deixam o toggle agir. */
+  cqStatus?: string;
+  obs?: string;
+  /** true = EU editei o CQ deste rolo nesta sessão (só então ele entra no `_cq_rolos`). */
+  cq_tocado?: boolean;
+};
+export type CqRoloPatch = { cq_ok?: boolean; cq_alerta?: boolean; obs?: string };
+/** O CQ do rolo como foi carregado/salvo (para desfazer o `cq_tocado` ao voltar ao mesmo valor). */
+export type CqRoloBase = { cq_ok: boolean; cq_alerta: boolean; obs: string };
+
+/** Base do CQ de cada rolo existente, indexada por `roloItemId`. */
+export function baseCqRolos(rolos: Record<string, CqRoloCampos[]>): Record<string, CqRoloBase> {
+  const out: Record<string, CqRoloBase> = {};
+  for (const arr of Object.values(rolos)) {
+    for (const e of arr) if (e.roloItemId) out[e.roloItemId] = { cq_ok: !!e.cq_ok, cq_alerta: !!e.cq_alerta, obs: e.obs ?? "" };
+  }
+  return out;
+}
+
+function igualBaseRolo(e: CqRoloCampos, base: CqRoloBase | null | undefined): boolean {
+  return !!base && !!e.cq_ok === base.cq_ok && !!e.cq_alerta === base.cq_alerta && (e.obs ?? "") === base.obs;
+}
+
+/** Aplica uma edição de CQ no rolo e recalcula `cq_tocado` (igual à base = não tocado: some o selo e o dirty). Alerta só alterna sem_alerta<->alertado. */
+export function aplicarPatchCqRolo<T extends CqRoloCampos>(entry: T, patch: CqRoloPatch, base?: CqRoloBase | null): T {
+  const next: T = { ...entry };
+  if (patch.cq_ok !== undefined) next.cq_ok = patch.cq_ok;
+  if (patch.cq_alerta !== undefined && alertaAlternavel(entry.cqStatus)) next.cq_alerta = patch.cq_alerta;
+  if (patch.obs !== undefined) next.obs = patch.obs;
+  if (igualBaseRolo(next, base)) delete next.cq_tocado;
+  else next.cq_tocado = true;
+  return next;
+}
+
+/** `_cq_rolos` do salvar_oc_tecido: SÓ rolo existente tocado. cq_ok/cq_observacao vão sempre (chave presente = grava); cq_alerta só quando
+ *  MUDEI o alerta vs a base E o rolo está em estado alternável (nunca rebaixa troca/estilo_ok/trocado/cancelado). */
+export function cqRolosDoPayload(
+  rolos: Record<string, CqRoloCampos[]>,
+  bases: Record<string, CqRoloBase>,
+): { item_id: string; cq_ok: boolean; cq_alerta?: boolean; cq_observacao: string }[] {
+  const out: { item_id: string; cq_ok: boolean; cq_alerta?: boolean; cq_observacao: string }[] = [];
+  for (const arr of Object.values(rolos)) {
+    for (const e of arr) {
+      if (!e.roloItemId || !e.cq_tocado) continue;
+      const mudouAlerta = !!e.cq_alerta !== !!bases[e.roloItemId]?.cq_alerta;
+      out.push({
+        item_id: e.roloItemId,
+        cq_ok: !!e.cq_ok,
+        ...(mudouAlerta && alertaAlternavel(e.cqStatus) ? { cq_alerta: !!e.cq_alerta } : {}),
+        cq_observacao: e.obs ?? "",
+      });
+    }
+  }
+  return out;
+}
+
+/** Valor ESTÁVEL do que está tocado nos rolos — entra no snapshot do dirty da OC (vazio = nada a salvar). */
+export function cqRolosDirty(rolos: Record<string, CqRoloCampos[]>): { id: string; cq_ok: boolean; cq_alerta: boolean; obs: string }[] {
+  const out: { id: string; cq_ok: boolean; cq_alerta: boolean; obs: string }[] = [];
+  for (const arr of Object.values(rolos)) {
+    for (const e of arr) if (e.roloItemId && e.cq_tocado) out.push({ id: e.roloItemId, cq_ok: !!e.cq_ok, cq_alerta: !!e.cq_alerta, obs: e.obs ?? "" });
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
 /** Uma linha da seção (montada pela OC a partir do rascunho dos itens). */
 export type OcCqLinha = {
   id: string;
