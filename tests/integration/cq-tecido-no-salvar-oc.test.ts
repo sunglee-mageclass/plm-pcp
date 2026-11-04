@@ -88,6 +88,8 @@ describe.skipIf(!hasDb)("salvar_oc_tecido — CQ de Tecido no Salvar (modo OC)",
       await comoUsuario(c);
       const s = await semeiaOc(c, "C2");
       await poeCq(c, s.itens[0], true, "alertado", "x");
+      // pré-condição explícita: o banco TEM o CQ resolvido ANTES do Salvar (não é o default)
+      expect(await cq(c, s.itens[0])).toEqual({ cq_ok: true, st: "alertado", obs: "x" });
       await salva(c, s, "C2", [itemPayload(s, s.itens[0], 1)]); // aba desatualizada: sem cq_*
       expect(await cq(c, s.itens[0])).toEqual({ cq_ok: true, st: "alertado", obs: "x" });
     });
@@ -97,12 +99,11 @@ describe.skipIf(!hasDb)("salvar_oc_tecido — CQ de Tecido no Salvar (modo OC)",
     await withTx(async (c) => {
       await comoUsuario(c);
       const s = await semeiaOc(c, "C3");
-      await poeCq(c, s.itens[0], false, "sem_alerta", "antiga");
+      // ok/alertado de partida (NÃO o default): assim "ausente mantém" se distingue de "coincide com o default"
+      await poeCq(c, s.itens[0], true, "alertado", "antiga");
+      expect(await cq(c, s.itens[0])).toEqual({ cq_ok: true, st: "alertado", obs: "antiga" });
       await salva(c, s, "C3", [itemPayload(s, s.itens[0], 1, { cq_observacao: "" })]);
-      const r = await cq(c, s.itens[0]);
-      expect(r.obs).toBeNull();
-      expect(r.cq_ok).toBe(false); // chave ausente nos outros campos mantém
-      expect(r.st).toBe("sem_alerta");
+      expect(await cq(c, s.itens[0])).toEqual({ cq_ok: true, st: "alertado", obs: null }); // só a obs vira NULL
     });
   });
 
@@ -122,6 +123,9 @@ describe.skipIf(!hasDb)("salvar_oc_tecido — CQ de Tecido no Salvar (modo OC)",
       const s = await semeiaOc(c, "C5", 2);
       await poeCq(c, s.itens[0], true, "trocado", "t");
       await poeCq(c, s.itens[1], true, "cancelado", "c");
+      // pré-condição explícita: os dois já estão resolvidos no banco ANTES do Salvar
+      expect(await cq(c, s.itens[0])).toEqual({ cq_ok: true, st: "trocado", obs: "t" });
+      expect(await cq(c, s.itens[1])).toEqual({ cq_ok: true, st: "cancelado", obs: "c" });
       // o payload pode mandar cq_ok/cq_observacao, mas NUNCA cq_alerta: o resolvido não é rebaixado
       await salva(c, s, "C5", [
         itemPayload(s, s.itens[0], 1, { cq_ok: true, cq_observacao: "t2" }),
@@ -151,6 +155,10 @@ describe.skipIf(!hasDb)("salvar_oc_tecido — CQ de Tecido no Salvar (modo OC)",
       const s = await semeiaOc(c, "C7");
       const rev = (await um<{ rev: number }>(c, `select rev from ocs_tecido where id=$1`, [s.oc])).rev;
 
+      // pré-estado conferido ANTES do savepoint (o ROLLBACK TO desfaz tudo, então reler depois dele não provaria nada);
+      // a prova de "nada gravou" é o P0409 vir da trava no INÍCIO da RPC (antes de qualquer escrita) + o 2º salva abaixo,
+      // com o rev certo, gravar o valor que o 1º tentou ("grava", não "nao-deve-gravar").
+      expect(await cq(c, s.itens[0])).toEqual({ cq_ok: false, st: "sem_alerta", obs: null });
       await c.query("SAVEPOINT sp_rev");
       let err: any = null;
       try {
@@ -161,7 +169,6 @@ describe.skipIf(!hasDb)("salvar_oc_tecido — CQ de Tecido no Salvar (modo OC)",
       await c.query("ROLLBACK TO SAVEPOINT sp_rev");
       expect(err).not.toBeNull();
       expect(err.code).toBe("P0409");
-      expect(await cq(c, s.itens[0])).toEqual({ cq_ok: false, st: "sem_alerta", obs: null });
 
       // com o rev certo, o mesmo payload grava
       await salva(c, s, "C7", [itemPayload(s, s.itens[0], 1, { cq_ok: true, cq_observacao: "grava" })], null, rev);
@@ -218,23 +225,22 @@ describe.skipIf(!hasDb)("salvar_oc_tecido — _cq_rolos (modo rolo)", () => {
       // (b) item da própria OC A (não é de rolo: ocs_tecido.is_rolo=false)
       // (c) rolo de OUTRA loja cuja origem É item da OC A (o tenant do rolo não casa)
       const outra = await um<{ id: string } | undefined>(c, `select id from tenants where id <> $1 limit 1`, [TENANT_TESTE]);
-      let rc: { rolo: string; roloItem: string } | null = null;
-      if (outra) {
-        rc = await semeiaRolo(c, a, a.itens[0], "R10C", outra.id);
-        await poeCq(c, rc.roloItem, false, "sem_alerta", "c-original");
-      }
+      // `um` devolve undefined com 0 linhas: sem 2ª loja o teste tem de QUEBRAR, nunca pular o ramo "outra loja" em silêncio
+      expect(outra, "o caso 10 precisa de um 2º tenant na cópia local").toBeTruthy();
+      const rc = await semeiaRolo(c, a, a.itens[0], "R10C", outra!.id);
+      await poeCq(c, rc.roloItem, false, "sem_alerta", "c-original");
 
       const alvos: any[] = [
         { item_id: rb.roloItem, cq_ok: true, cq_alerta: true, cq_observacao: "invasao-b" },
         { item_id: a.itens[0], cq_ok: true, cq_alerta: true, cq_observacao: "invasao-a" },
+        { item_id: rc.roloItem, cq_ok: true, cq_alerta: true, cq_observacao: "invasao-c" },
       ];
-      if (rc) alvos.push({ item_id: rc.roloItem, cq_ok: true, cq_alerta: true, cq_observacao: "invasao-c" });
 
       await salva(c, a, "R10A", [itemPayload(a, a.itens[0], 1)], alvos);
 
       expect(await cq(c, rb.roloItem)).toEqual({ cq_ok: false, st: "sem_alerta", obs: "b-original" });
       expect(await cq(c, a.itens[0])).toEqual({ cq_ok: false, st: "sem_alerta", obs: null });
-      if (rc) expect(await cq(c, rc.roloItem)).toEqual({ cq_ok: false, st: "sem_alerta", obs: "c-original" });
+      expect(await cq(c, rc.roloItem)).toEqual({ cq_ok: false, st: "sem_alerta", obs: "c-original" });
     });
   });
 });
