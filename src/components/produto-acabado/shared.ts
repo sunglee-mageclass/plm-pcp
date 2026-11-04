@@ -203,24 +203,46 @@ export function planejarPrecosFixo(
   };
 }
 
+type CamposPreco = Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo" | "markup_atacado" | "markup_varejo">;
+
+/** Markup que o LOTE (`salvar_produto_acabado`, `_dados`) manda por canal — PURA. Canal que o `planejarPrecosFixo` marcou como TOCADO com
+ *  preço fixo NÃO-nulo (troca markup→fixo) manda o markup do SERVIDOR (a base lida), nunca o `null` do rascunho: o `_core` grava o markup
+ *  incondicional e recomputa o preço do espelho; com `null` e a 2ª RPC (preço fixo) caindo depois do lote, o markup/preço que já estava salvo
+ *  SUMIRIA do banco. Com o markup do servidor o lote não muda nada naquele canal; quem seta o fixo e limpa o markup é a 2ª RPC (1 UPDATE
+ *  atômico). Canal só com markup editado manda o markup novo; canal sem mudança manda o do rascunho (= o do servidor). */
+export function markupsParaLote(
+  p: Pick<ProdutoDraft, "markup_atacado" | "markup_varejo">,
+  servidor: Pick<ProdutoDraft, "markup_atacado" | "markup_varejo"> | null | undefined,
+  plano: PrecosFixoParaSalvar | null,
+): { markup_atacado: number | null; markup_varejo: number | null } {
+  const canal = (tocou: boolean, preco: number | null, markupDraft: number | null, markupServidor: number | null | undefined) =>
+    tocou && preco != null && servidor ? (markupServidor ?? null) : markupDraft;
+  return {
+    markup_atacado: canal(!!plano?.tocarAtacado, plano?.precoAtacado ?? null, p.markup_atacado, servidor?.markup_atacado),
+    markup_varejo: canal(!!plano?.tocarVarejo, plano?.precoVarejo ?? null, p.markup_varejo, servidor?.markup_varejo),
+  };
+}
+
 /** O que o SERVIDOR passa a ter em markup/preço fixo de um produto após o Salvar — PURA. Base do rebaseline (baseServidorRef + baseline de
  *  "editado"). `fixoGravado` = a RPC de preço fixo rodou COM sucesso. Regras do banco: markup do lote não-nulo limpa o fixo do canal; fixo
  *  gravado não-nulo limpa o markup do canal; preço NULL gravado limpa o fixo. Fixo NÃO gravado (nada a gravar OU a RPC falhou) = o que o
- *  servidor já tinha, salvo o que o markup do lote limpou. */
+ *  servidor já tinha, salvo o que o markup do lote limpou; o markup é o que o LOTE mandou (`markupsParaLote`: na troca markup→fixo com a
+ *  2ª RPC falha, o markup do servidor segue de pé). */
 export function precosAposSalvar(
-  p: Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo" | "markup_atacado" | "markup_varejo">,
-  servidor: Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo"> | null | undefined,
+  p: CamposPreco,
+  servidor: CamposPreco | null | undefined,
   plano: PrecosFixoParaSalvar | null,
   fixoGravado: boolean,
-): Pick<ProdutoDraft, "preco_atacado_fixo" | "preco_varejo_fixo" | "markup_atacado" | "markup_varejo"> {
-  const canal = (tocou: boolean, precoGravado: number | null, fixoDraft: number | null, markup: number | null, fixoServidor: number | null | undefined) => {
-    if (fixoGravado && tocou) return { fixo: precoGravado, markup: precoGravado != null ? null : markup };
+): CamposPreco {
+  const enviado = markupsParaLote(p, servidor, plano);
+  const canal = (tocou: boolean, precoGravado: number | null, fixoDraft: number | null, markupEnviado: number | null, fixoServidor: number | null | undefined) => {
+    if (fixoGravado && tocou) return { fixo: precoGravado, markup: precoGravado != null ? null : markupEnviado };
     // sem leitura do servidor (produto sem `baseServidorRef`) cai no rascunho; com leitura, `null` do servidor é valor REAL (sem fixo)
-    const fixo = markup != null ? null : (servidor ? (fixoServidor ?? null) : fixoDraft);
-    return { fixo, markup };
+    const fixo = markupEnviado != null ? null : (servidor ? (fixoServidor ?? null) : fixoDraft);
+    return { fixo, markup: markupEnviado };
   };
-  const a = canal(!!plano?.tocarAtacado, plano?.precoAtacado ?? null, p.preco_atacado_fixo, p.markup_atacado, servidor?.preco_atacado_fixo);
-  const v = canal(!!plano?.tocarVarejo, plano?.precoVarejo ?? null, p.preco_varejo_fixo, p.markup_varejo, servidor?.preco_varejo_fixo);
+  const a = canal(!!plano?.tocarAtacado, plano?.precoAtacado ?? null, p.preco_atacado_fixo, enviado.markup_atacado, servidor?.preco_atacado_fixo);
+  const v = canal(!!plano?.tocarVarejo, plano?.precoVarejo ?? null, p.preco_varejo_fixo, enviado.markup_varejo, servidor?.preco_varejo_fixo);
   return { preco_atacado_fixo: a.fixo, markup_atacado: a.markup, preco_varejo_fixo: v.fixo, markup_varejo: v.markup };
 }
 

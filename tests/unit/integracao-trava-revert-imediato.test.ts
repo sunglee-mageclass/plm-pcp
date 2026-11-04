@@ -159,8 +159,9 @@ describe("Fix round 1 (L-4) — 1 toast só por refusal em PA/PI (não 2)", () =
     const idxOnErrorMut = s.indexOf("onError: (e: any) => {", s.indexOf("const salvarMut = useMutation"));
     const idxFimOnError = s.indexOf("},\n  });", idxOnErrorMut);
     const blocoOnError = s.slice(idxOnErrorMut, idxFimOnError);
-    // P-393: o fallback ganhou a variante "preço fixo não gravou" (etapaFalha === "preco"); o resto do caminho é o mesmo.
-    expect(blocoOnError).toMatch(/if \(e\?\.revertidoLocal\) return;\s*\n\s*toast\.error\(mensagemErro\(e, e\?\.etapaFalha === "preco" \? "[^"]+" : "Erro ao salvar\."\)\);/);
+    // P-393: o toast de falha do preço fixo SEMPRE diz que o produto já foi salvo (etapaFalha === "preco"); o resto do caminho é o mesmo.
+    expect(blocoOnError).toMatch(/if \(e\?\.revertidoLocal\) return;/);
+    expect(blocoOnError).toMatch(/const msg = mensagemErro\(e, "Erro ao salvar\."\);\s*\n\s*toast\.error\(e\?\.etapaFalha === "preco" \? `[^`]+\$\{msg\}` : msg\);/);
   });
   it("fonte: ProdutoImportadoSheet.tsx — mesmo padrão", () => {
     const s = fonte("src/components/produto-importado/ProdutoImportadoSheet.tsx");

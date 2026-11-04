@@ -70,7 +70,7 @@ vi.mock("@/components/plan-tecido/EditarMixDialog", () => ({ EditarMixDialog: ()
 
 const { ProdutoAcabadoSheet } = await import("@/components/produto-acabado/ProdutoAcabadoSheet");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-import { planejarPrecosFixo, precosAposSalvar } from "@/components/produto-acabado/shared";
+import { planejarPrecosFixo, precosAposSalvar, markupsParaLote } from "@/components/produto-acabado/shared";
 
 // ── utilitários ──
 let root: Root | null = null;
@@ -302,6 +302,84 @@ describe("Produto Acabado — conflito e falha parcial", () => {
   });
 });
 
+// ── 3b. troca markup -> preço fixo no MESMO canal (perda de dado se a 2ª RPC cair) ──
+describe("Produto Acabado — troca markup -> preço fixo: o lote NÃO zera o markup do servidor", () => {
+  it("lote manda o markup do SERVIDOR (2,5), nunca null; a 2ª RPC cai (P0001): nada some no banco, o aviso diz que o produto foi salvo, o fixo digitado fica sujo e re-salvável", async () => {
+    banco([rowPA("a", "Vestido", { markup_atacado: 2.5, markup_varejo: 3 })]);
+    const base = rpcMock.getMockImplementation()!;
+    let falhar = true;
+    rpcMock.mockImplementation(async (nome: string, args: any) => {
+      if (nome === "salvar_precos_fixo_produto_acabado" && falhar) return { data: null, error: { code: "P0001", message: "O preço precisa ser maior que zero." } };
+      return base(nome, args);
+    });
+    await abrirCardA();
+    await digitar(campoPreco("Preço atacado"), "300,00"); // rascunho: markup_atacado = null, fixo = 300
+    await clicar(botaoExato("Salvar"));
+    await tick(30);
+    const lote1 = chamadas("salvar_produto_acabado")[0][1];
+    expect(lote1._dados.markup_atacado).toBe(2.5); // NÃO null: o preço/markup salvos não são zerados se a 2ª RPC não rodar
+    expect(lote1._dados.markup_varejo).toBe(3);    // canal sem mudança
+    expect(chamadas("salvar_precos_fixo_produto_acabado")[0][1]).toEqual({
+      _produto_id: "a", _tocar_atacado: true, _preco_atacado_fixo: 300, _tocar_varejo: false, _preco_varejo_fixo: null,
+    });
+    // aviso completo mesmo em P0001: o produto JÁ gravou
+    expect(toastMock.error).toHaveBeenCalledTimes(1);
+    const msg = String(toastMock.error.mock.calls[0][0]);
+    expect(msg).toMatch(/foram salvos, mas o preço fixo não/);
+    expect(msg).toContain("O preço precisa ser maior que zero.");
+    // sujo e re-salvável: o digitado segue na tela
+    expect(botaoExato("Salvar")).toBeTruthy();
+    expect(campoPreco("Preço atacado").value).toBe("300,00");
+    // re-salva: o baseline do servidor ainda é markup 2,5 (nunca null) e o rev é o atual (2)
+    falhar = false;
+    rpcMock.mockClear();
+    await clicar(botaoExato("Salvar"));
+    await tick(30);
+    const lote2 = chamadas("salvar_produto_acabado")[0][1];
+    expect(lote2._rev_base).toBe(2);
+    expect(lote2._dados.markup_atacado).toBe(2.5);
+    expect(chamadas("salvar_precos_fixo_produto_acabado")).toHaveLength(1);
+    // sucesso das 2 RPCs: converge (fixo setado, markup limpo) e nada mais é enviado
+    expect(botaoExato("Salvo")).toBeTruthy();
+    rpcMock.mockClear();
+    expect(botaoExato("Salvo")!.disabled).toBe(true);
+    expect(ordemDasChamadas()).toEqual([]);
+  });
+
+  it("falha do preço fixo relê o produto e as telas vizinhas (o lote comitou)", async () => {
+    banco([rowPA("a", "Vestido", { markup_atacado: 2.5 })]);
+    const base = rpcMock.getMockImplementation()!;
+    rpcMock.mockImplementation(async (nome: string, args: any) =>
+      nome === "salvar_precos_fixo_produto_acabado" ? { data: null, error: { code: "P0001", message: "x" } } : base(nome, args));
+    const lidas: string[] = [];
+    const { QueryClient: QC } = await import("@tanstack/react-query");
+    const orig = QC.prototype.invalidateQueries;
+    QC.prototype.invalidateQueries = function (this: any, f: any, ...r: any[]) { lidas.push(JSON.stringify(f?.queryKey)); return orig.call(this, f, ...r); } as any;
+    try {
+      await abrirCardA();
+      await digitar(campoPreco("Preço atacado"), "300,00");
+      await clicar(botaoExato("Salvar"));
+      await tick(30);
+    } finally { QC.prototype.invalidateQueries = orig; }
+    for (const k of ["produtos-acabados", "modelos-planejamento", "modelo", "plan-revenda-markups", "plan-custo-unit"]) expect(lidas).toContain(JSON.stringify([k]));
+  });
+
+  it("caso normal intacto: só markup editado manda o markup NOVO; só o fixo trocado de canal que já tinha fixo manda o markup do servidor (null)", async () => {
+    banco([rowPA("a", "Vestido", { markup_atacado: 2.5, preco_varejo_fixo: 300 })]);
+    await abrirCardA();
+    await digitar(campoMarkup("atac"), "4");
+    await digitar(campoPreco("Preço varejo"), "350,00");
+    await clicar(botaoExato("Salvar"));
+    await tick(30);
+    const dados = chamadas("salvar_produto_acabado")[0][1]._dados;
+    expect(dados.markup_atacado).toBe(4);   // markup editado vai novo
+    expect(dados.markup_varejo).toBeNull(); // canal com fixo no servidor: markup do servidor = null
+    expect(chamadas("salvar_precos_fixo_produto_acabado")[0][1]).toEqual({
+      _produto_id: "a", _tocar_atacado: false, _preco_atacado_fixo: null, _tocar_varejo: true, _preco_varejo_fixo: 350,
+    });
+  });
+});
+
 // ── 4. Trava da Integração (só o VAREJO) ──
 describe("Produto Acabado — trava da Integração no Salvar em lote (cobre só o varejo)", () => {
   const travaPreco = { estado: "integravel", campos: ["preco_venda"], marcadoEm: "2026-11-01T00:00:00Z", integradoEm: null };
@@ -357,6 +435,26 @@ describe("Produto Acabado — trava da Integração no Salvar em lote (cobre só
 });
 
 // ── funções puras ──
+describe("markupsParaLote (shared.ts)", () => {
+  const plano = { tocarAtacado: true, precoAtacado: 300, tocarVarejo: false, precoVarejo: null };
+  it("canal tocado com fixo: markup do servidor; canal não tocado: o do rascunho", () => {
+    expect(markupsParaLote({ markup_atacado: null, markup_varejo: 3 }, { markup_atacado: 2.5, markup_varejo: 3 }, plano)).toEqual({ markup_atacado: 2.5, markup_varejo: 3 });
+  });
+  it("sem plano ou fixo vazio (destrava): segue o rascunho", () => {
+    expect(markupsParaLote({ markup_atacado: 4, markup_varejo: null }, { markup_atacado: 2.5, markup_varejo: null }, null)).toEqual({ markup_atacado: 4, markup_varejo: null });
+    expect(markupsParaLote({ markup_atacado: null, markup_varejo: null }, { markup_atacado: 2.5, markup_varejo: null }, { ...plano, precoAtacado: null }).markup_atacado).toBeNull();
+  });
+  it("sem leitura do servidor cai no rascunho", () => {
+    expect(markupsParaLote({ markup_atacado: null, markup_varejo: null }, undefined, plano).markup_atacado).toBeNull();
+  });
+  it("precosAposSalvar na troca markup->fixo: 2ª RPC ok => fixo, markup limpo; 2ª RPC falhou => markup do servidor preservado, sem fixo", () => {
+    const serv = { preco_atacado_fixo: null, preco_varejo_fixo: null, markup_atacado: 2.5, markup_varejo: null };
+    const p = { preco_atacado_fixo: 300, preco_varejo_fixo: null, markup_atacado: null, markup_varejo: null };
+    expect(precosAposSalvar(p, serv, plano, true)).toEqual({ preco_atacado_fixo: 300, markup_atacado: null, preco_varejo_fixo: null, markup_varejo: null });
+    expect(precosAposSalvar(p, serv, plano, false)).toEqual({ preco_atacado_fixo: null, markup_atacado: 2.5, preco_varejo_fixo: null, markup_varejo: null });
+  });
+});
+
 describe("planejarPrecosFixo / precosAposSalvar (shared.ts)", () => {
   const p = (o: Partial<Parameters<typeof planejarPrecosFixo>[0]> = {}) => ({ preco_atacado_fixo: null, preco_varejo_fixo: null, markup_atacado: null, markup_varejo: null, ...o });
 

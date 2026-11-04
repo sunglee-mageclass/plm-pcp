@@ -34,7 +34,7 @@ import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   produtoPedidoAcabado,
-  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar, planejarPrecosFixo, precosAposSalvar,
+  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar, planejarPrecosFixo, precosAposSalvar, markupsParaLote,
   baselinePatchDoServidor,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
@@ -747,9 +747,13 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
         : x)) as ProdutoDraft[]) : ds));
       if (resolucao.avisos.length > 0) toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao.avisos)}`);
     }
+    // P-393 — preço fixo planejado ANTES do lote: na troca markup→fixo de um canal o lote NÃO manda `markup: null` (manda o do servidor,
+    // `markupsParaLote`) — assim, se a 2ª RPC (preço fixo, atômica: seta o fixo e limpa o markup) não rodar, o banco fica no estado
+    // antigo consistente em vez de zerar markup e preço do espelho.
+    const plano = planejarPrecosFixo(p, servidorAtual);
     const { data: novoId, error } = await supabase.rpc("salvar_produto_acabado" as any, {
       _id: p.id,
-      _dados: montarDadosProduto(p),
+      _dados: { ...montarDadosProduto(p), ...markupsParaLote(p, servidorAtual, plano) },
       _variantes: p.variantes,
       _rev_base: p.rev,
     });
@@ -757,6 +761,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     // busca o estado FRESCO e roda a MESMA `resolverTravaAcabado` de novo — reverte já, sem esperar o 2º Salvar. `p0` (não `p`) porque
     // `p` já passou pelo revert (vazio) da 1ª tentativa; `servidor` = a referência do revert (lote: a base lida; preço fixo: o que o
     // servidor tem agora, pós-lote).
+    const invalidarPrecoVizinhos = () => {
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["modelo"] });
+      qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
+    };
     const reverterSeTravado = async (erro: any, servidor: ProdutoDraft | null | undefined) => {
       if (!ehErroIntegracaoTravado(erro)) return;
       const travaFresca = p0.modelo_id ? colunasTravadas((await estadoIntegracaoFresco(qc))[p0.modelo_id] ?? null) : new Set<string>();
@@ -784,7 +794,6 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     // P0409 acima, nada daqui roda) e ANTES de reler o rev — cada UPDATE bumpa o `rev` do produto. O campo travado pela Integração (varejo) já
     // chegou REVERTIDO em `p` → igual ao servidor → fora do plano. NÃO é atômico com o lote (2 RPCs): se esta falhar, o lote JÁ comitou — o
     // rev/baseline abaixo refletem o que o servidor tem e o produto segue "editado" (o preço fixo digitado fica no rascunho p/ outro Salvar).
-    const plano = planejarPrecosFixo(p, servidorAtual);
     let erroFixo: any = null;
     if (plano) {
       const { error: eFixo } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
@@ -795,10 +804,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       if (eFixo) { erroFixo = eFixo; erroFixo.etapaFalha = "preco"; }
       else {
         // o preço mudou fora do lote: as telas vizinhas (Planejamento, OTB) precisam reler (o `onSuccess` do `salvarMut` só cobre o Salvar em lote).
-        qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-        qc.invalidateQueries({ queryKey: ["modelo"] });
-        qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
-        qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
+        invalidarPrecoVizinhos();
       }
     }
     // rev pós-save (item 5): a RPC só retorna o `uuid` do produto, não o rev novo — busca ele
@@ -822,6 +828,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     setDrafts((ds) => (ds ? ds.map((d) => (d.id === p.id ? salvo : d)) : ds));
     marcarProdutoLimpo(noServidor); // baseline por produto — ver comentário acima (fix round 1 item 4b)
     if (erroFixo) {
+      // o lote COMITOU (rev/markup do produto mudaram): relê o produto e as telas vizinhas mesmo com o preço fixo recusado (o `onSuccess` do
+      // `salvarMut` não roda quando o Salvar falha).
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+      invalidarPrecoVizinhos();
       await reverterSeTravado(erroFixo, noServidor);
       throw erroFixo;
     }
@@ -896,7 +906,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       // ex.: nenhuma coluna travada bateu, ou é um 42501 de outra causa), o toast genérico segue mostrando
       // como antes.
       if (e?.revertidoLocal) return;
-      toast.error(mensagemErro(e, e?.etapaFalha === "preco" ? "Os dados do produto foram salvos, mas o preço fixo não — tente salvar de novo." : "Erro ao salvar."));
+      // Preço fixo recusado DEPOIS de o lote comitar: sempre diz que o resto já gravou (também em P0001 do servidor, em que o fallback não vale).
+      const msg = mensagemErro(e, "Erro ao salvar.");
+      toast.error(e?.etapaFalha === "preco" ? `Os dados do produto foram salvos, mas o preço fixo não: ${msg}` : msg);
     },
   });
 
