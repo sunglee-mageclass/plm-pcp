@@ -24,16 +24,25 @@ export function CardDraftsProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const registrar = useCallback((id: string, api: CardApi) => { mapa.current.set(id, api); recomputa(); }, [recomputa]);
   const desregistrar = useCallback((id: string) => { mapa.current.delete(id); recomputa(); }, [recomputa]);
+  // Itera um SNAPSHOT (o Map muda ao vivo quando um card re-registra) e relê cada id antes de agir: só salva/descarta
+  // quem ainda existe e continua sujo — nunca visita a mesma chave 2x.
   const salvarTodos = useCallback(async () => {
     let ok = 0, erro = 0;
-    for (const api of mapa.current.values()) {
-      if (!api.dirty) continue;
+    for (const [cid] of Array.from(mapa.current.entries())) {
+      const api = mapa.current.get(cid);
+      if (!api || !api.dirty) continue;
       try { await api.salvar(); ok++; } catch { erro++; }
     }
     recomputa();
     return { ok, erro };
   }, [recomputa]);
-  const descartarTodos = useCallback(() => { mapa.current.forEach((a) => a.dirty && a.descartar()); recomputa(); }, [recomputa]);
+  const descartarTodos = useCallback(() => {
+    for (const [cid] of Array.from(mapa.current.entries())) {
+      const api = mapa.current.get(cid);
+      if (api && api.dirty) api.descartar();
+    }
+    recomputa();
+  }, [recomputa]);
   const value = useMemo<Registry>(() => ({ registrar, desregistrar, nSujos, salvarTodos, descartarTodos }), [registrar, desregistrar, nSujos, salvarTodos, descartarTodos]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
