@@ -75,6 +75,8 @@ const DONOS: { re: RegExp; dono: string; extras?: string[] }[] = [
   { re: /^peca_teste_quadro$/, dono: "etapas_pl" },
   // Urgentes R11 T3 (20261103199300): leitura do estoque da mini explosao (wrapper peca_teste_mini_estoque = modulo Criacao).
   { re: /^peca_teste_mini_estoque$/, dono: "criacao" },
+  // Camada "Salvar por card" do Plan. Tecido (20261103165000): a cor/variante de tecido e Cadastro (Reforco D2 A: so modulo, sem portao de pagina).
+  { re: /^salvar_variante_tecido$/, dono: "cadastro" },
 ];
 
 const ASSINATURA_CHAMADA = /\b_exige_modulos\(([^)]*)\)/g;
