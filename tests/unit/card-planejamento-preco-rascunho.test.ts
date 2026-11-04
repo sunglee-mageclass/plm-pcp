@@ -145,6 +145,52 @@ describe("PrecoVendaCell — rascunho de preço por card", () => {
     expect(el.value).toBe("130,00");
   });
 
+  it("limpar o preço (revenda) + ✓ -> onSave(null); servidor devolve o DERIVADO e o campo mostra ele, limpo", async () => {
+    const onSave = vi.fn();
+    const el = await montar({ ...base, precoVenda: 300, onSave });
+    await digitar(el, "");
+    await clicar(salvarBtn());
+    expect(onSave).toHaveBeenCalledWith(null);
+    await remontar({ ...base, precoVenda: 250, onSave }); // refetch: preço volta a ser derivado
+    expect(el.value).toBe("250,00");
+    expect(salvarBtn()).toBeNull();
+    expect(desfazerBtn()).toBeNull();
+    expect(el.className).not.toContain("border-warning");
+  });
+
+  it("edição em voo depois do ✓ NÃO é sobrescrita pelo refetch do save anterior", async () => {
+    const onSave = vi.fn();
+    const el = await montar({ ...base, precoVenda: 300, onSave });
+    await digitar(el, "");
+    await clicar(salvarBtn());
+    await digitar(el, "400"); // mexeu de novo antes do refetch
+    await remontar({ ...base, precoVenda: 250, onSave });
+    expect(el.value).toBe("400,00");
+    expect(salvarBtn()).not.toBeNull();
+    await clicar(desfazerBtn());
+    expect(el.value).toBe("250,00");
+  });
+
+  it("✓ que falha (salvo não muda) mantém o rascunho e ✓ para tentar de novo", async () => {
+    const onSave = vi.fn();
+    const el = await montar({ ...base, precoVenda: 300, onSave });
+    await digitar(el, "350");
+    await clicar(salvarBtn());
+    await remontar({ ...base, precoVenda: 300, onSave });
+    expect(el.value).toBe("350,00");
+    await clicar(salvarBtn());
+    expect(onSave).toHaveBeenCalledTimes(2);
+  });
+
+  it("precoVenda=0 com campo vazio = sem ✓/↺ (0 conta como sem preço)", async () => {
+    const el = await montar({ ...base, precoVenda: 0, onSave: vi.fn() });
+    expect(el.value).toBe("");
+    expect(salvarBtn()).toBeNull();
+    expect(desfazerBtn()).toBeNull();
+    await digitar(el, "10");
+    expect(salvarBtn()).not.toBeNull();
+  });
+
   it("depois de gravar (salvo vira o rascunho) os ícones somem", async () => {
     const onSave = vi.fn();
     const el = await montar({ ...base, onSave });
