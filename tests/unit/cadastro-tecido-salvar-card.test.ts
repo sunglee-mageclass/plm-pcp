@@ -33,14 +33,14 @@ const novoArtigo = (): Linha => ({
   ncm: null, historico_precos: [], rev: 1,
 });
 
-const estado = { variantes: novasVariantes(), artigo: novoArtigo(), artigoUpdate: { data: [{ id: "art1", rev: 2 }], error: null } as any };
+const estado = { variantes: novasVariantes(), artigo: novoArtigo(), conflitoTecido: false };
 const rpc = vi.fn();
 const toast = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
 let ordem: string[] = []; // ordem das gravações (tecido ANTES das cores)
 let artigoUpdates: Linha[] = [];
 
 function chain(t: string) {
-  let op = "select"; let payload: Linha | undefined;
+  let op = "select"; let payload: Linha | undefined; let eqRev: unknown;
   const dados = () =>
     t === "artigos" ? { ...estado.artigo }
     : t === "cores" ? [{ id: COR_A, nome: "Azul" }, { id: COR_B, nome: "Verde" }]
@@ -48,13 +48,15 @@ function chain(t: string) {
     : t === "variantes_tecido" ? estado.variantes.map((v) => ({ ...v }))
     : [];
   const c: any = {
-    select: () => c, eq: () => c, order: () => c, insert: () => c, single: () => c, maybeSingle: () => c,
+    select: () => c, eq: (col: string, val: unknown) => { if (col === "rev") eqRev = val; return c; }, order: () => c, insert: () => c, single: () => c, maybeSingle: () => c,
     update: (p: Linha) => { op = "update"; payload = p; return c; },
     then: (res: (v: unknown) => unknown) => {
       if (t === "artigos" && op === "update") {
+        // `.eq("rev", ...)` de verdade: rev velho (ou conflito forçado) = 0 linhas
+        if (estado.conflitoTecido || (eqRev !== undefined && eqRev !== estado.artigo.rev)) return res({ data: [], error: null });
         ordem.push("artigos.update"); artigoUpdates.push(payload!);
-        if (estado.artigoUpdate.data?.length) Object.assign(estado.artigo, payload, { rev: estado.artigoUpdate.data[0].rev });
-        return res(estado.artigoUpdate);
+        Object.assign(estado.artigo, payload, { rev: estado.artigo.rev + 1 });
+        return res({ data: [{ id: "art1", rev: estado.artigo.rev }], error: null });
       }
       return res({ data: dados(), error: null });
     },
@@ -162,13 +164,15 @@ const previaRpcs = () => rpc.mock.calls.filter((c) => c[0] === "variante_tecido_
 const nomeTecido = (c: HTMLElement) => Array.from(c.querySelectorAll("input")).find((i) => !i.closest("ul") && i.value.length > 0 && i.type !== "file")! as HTMLInputElement;
 const salvarGeral = (c: HTMLElement) => clicar(porLabel(c, "Salvar"));
 const descartarGeral = (c: HTMLElement) => clicar(porLabel(c, "Descartar alterações"));
+const dialogoDescartar = () => Array.from(document.querySelectorAll('[role="alertdialog"]')).find((d) => d.textContent?.includes("Descartar alterações?")) as HTMLElement | undefined;
+const botaoDoDialogo = (t: string) => Array.from(dialogoDescartar()?.querySelectorAll("button") ?? []).find((b) => b.textContent === t);
 const aviso = (li: HTMLElement) => li.querySelector("[data-erro-cor]")?.textContent ?? "";
 const botoesComTexto = (c: HTMLElement, t: string) => Array.from(c.querySelectorAll("button")).filter((b) => b.textContent?.includes(t));
 
 beforeEach(() => {
   estado.variantes = novasVariantes();
   estado.artigo = novoArtigo();
-  estado.artigoUpdate = { data: [{ id: "art1", rev: 2 }], error: null };
+  estado.conflitoTecido = false;
   ordem = []; artigoUpdates = [];
   rpc.mockReset();
   Object.values(toast).forEach((f) => f.mockReset());
@@ -176,6 +180,7 @@ beforeEach(() => {
     if (nome === "variante_tecido_preco_previa") return { data: { afetados: 3, assinatura: `sig-${args._preco}` }, error: null };
     if (nome === "salvar_variante_tecido") {
       ordem.push("rpc:salvar_variante_tecido");
+      estado.artigo.rev += 1; // trigger do banco: salvar cor sobe o rev do tecido
       const v = estado.variantes.find((x) => x.id === args._id)!;
       Object.assign(v, args._mudancas);
       return { data: null, error: null };
@@ -264,7 +269,7 @@ describe("Cadastro › Tecidos — UM Salvar para o tecido e as cores", () => {
     await t.desmontar();
   });
 
-  it("Descartar alterações volta o tecido E todas as cores ao que está no banco (nenhuma RPC)", async () => {
+  it("Descartar alterações (depois de CONFIRMAR) volta o tecido E todas as cores ao que está no banco (nenhuma RPC)", async () => {
     const t = await montar();
     const [li1, li2] = lis(t.container);
     await expandir(li1); await expandir(li2);
@@ -274,6 +279,8 @@ describe("Cadastro › Tecidos — UM Salvar para o tecido e as cores", () => {
     expect(porLabel(t.container, "Descartar alterações")).toBeTruthy();
 
     await descartarGeral(t.container);
+    await flush();
+    await clicar(botaoDoDialogo("Descartar"));
     await flush();
     expect(nomeTecido(t.container).value).toBe("Tecido Teste");
     expect(campos(li1)[2].value).toBe("10,00"); // o MoneyInput remontou com o valor do banco
@@ -285,6 +292,108 @@ describe("Cadastro › Tecidos — UM Salvar para o tecido e as cores", () => {
     expect(artigoUpdates.length).toBe(0);
     await t.desmontar();
   });
+
+  it("Descartar alterações PEDE confirmação ('Descartar alterações?'): Cancelar ('Continuar editando') não descarta nada nem chama RPC; Confirmar reverte", async () => {
+    const t = await montar();
+    const [li1] = lis(t.container);
+    await expandir(li1);
+    await digitar(nomeTecido(t.container), "Tecido Novo");
+    await digitar(campos(li1)[0], "Outro");
+    await descartarGeral(t.container);
+    await flush();
+    expect(dialogoDescartar()).toBeTruthy(); // abriu, e NADA foi revertido ainda
+    expect(nomeTecido(t.container).value).toBe("Tecido Novo");
+    expect(li1.textContent).toContain("editado");
+
+    await clicar(botaoDoDialogo("Continuar editando"));
+    await flush();
+    expect(dialogoDescartar()).toBeUndefined();
+    expect(nomeTecido(t.container).value).toBe("Tecido Novo");
+    expect(campos(li1)[0].value).toBe("Outro");
+    expect(li1.textContent).toContain("editado");
+    expect(salvaRpcs().length).toBe(0);
+    expect(artigoUpdates.length).toBe(0);
+
+    await descartarGeral(t.container);
+    await flush();
+    await clicar(botaoDoDialogo("Descartar"));
+    await flush();
+    expect(dialogoDescartar()).toBeUndefined();
+    expect(nomeTecido(t.container).value).toBe("Tecido Teste");
+    expect(campos(li1)[0].value).toBe("Malha");
+    expect(t.container.textContent).not.toContain("editado");
+    expect(salvaRpcs().length).toBe(0);
+    expect(artigoUpdates.length).toBe(0);
+    await t.desmontar();
+  });
+
+  it("edição do TECIDO feita EM VOO (durante a gravação das cores) NÃO é perdida: segue suja e o refetch não a sobrescreve", async () => {
+    const t = await montar();
+    const [li1] = lis(t.container);
+    await expandir(li1);
+    await digitar(nomeTecido(t.container), "Tecido Novo");
+    await digitar(campos(li1)[0], "Malha Fria");
+    // a gravação da cor demora: dá tempo de digitar mais no tecido
+    let liberar!: () => void;
+    const segura = new Promise<void>((r) => { liberar = r; });
+    const padrao = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (nome: string, args: any) => {
+      if (nome === "salvar_variante_tecido") await segura;
+      return padrao(nome, args);
+    });
+    await salvarGeral(t.container);
+    await flush(60); // o tecido já gravou ("Tecido Novo"); a cor está em voo
+    expect(artigoUpdates.map((a) => a.nome)).toEqual(["Tecido Novo"]);
+    await digitar(nomeTecido(t.container), "Tecido Novo 2"); // edição em voo
+    liberar();
+    await flush(150);
+    expect(toast.success).toHaveBeenCalledWith("Tecido atualizado e 1 cor salva.");
+    expect(nomeTecido(t.container).value).toBe("Tecido Novo 2"); // não foi sobrescrita pelo refetch
+    expect(t.container.textContent).toContain("alterações não salvas"); // e continua suja
+    expect(porLabel(t.container, "Descartar alterações")).toBeTruthy();
+    expect(li1.textContent).not.toContain("editado"); // a cor, essa sim, gravou
+
+    // um novo Salvar grava a edição que ficou (sem P0409 falso: o rev foi relido depois das cores)
+    await salvarGeral(t.container);
+    await flush(100);
+    expect(artigoUpdates.map((a) => a.nome)).toEqual(["Tecido Novo", "Tecido Novo 2"]);
+    expect(toast.warning).not.toHaveBeenCalled();
+    await flush(80);
+    expect(t.container.textContent).not.toContain("alterações não salvas");
+    await t.desmontar();
+  });
+
+  it("2º Salvar do tecido logo depois de salvar cores NÃO dá conflito falso (o rev relido depois das cores)", async () => {
+    const t = await montar();
+    const [li1] = lis(t.container);
+    await expandir(li1);
+    await digitar(campos(li1)[0], "Malha Fria");
+    await salvarGeral(t.container); // só a cor: sobe o rev do tecido por trigger
+    await flush(100);
+    await digitar(nomeTecido(t.container), "Tecido Novo");
+    await salvarGeral(t.container);
+    await flush(100);
+    expect(artigoUpdates.map((a) => a.nome)).toEqual(["Tecido Novo"]);
+    expect(toast.warning).not.toHaveBeenCalled();
+    await t.desmontar();
+  });
+
+  it("prazo ÚNICO da prévia: com a RPC da prévia travada, 2 cores desistem juntas (~5 s), não em 5 s + 5 s", async () => {
+    const t = await montar();
+    const [li1, li2] = lis(t.container);
+    await expandir(li1); await expandir(li2);
+    rpc.mockImplementation(async (nome: string) => nome === "variante_tecido_preco_previa" ? new Promise(() => {}) : { data: null, error: null });
+    await digitar(campos(li1)[2], "11");
+    await digitar(campos(li2)[2], "21");
+    await flush(PREVIA_MS);
+    await salvarGeral(t.container);
+    await flush(5400); // um prazo só: as duas já falharam (com prazo por cor a 2ª ainda estaria esperando)
+    expect(salvaRpcs().length).toBe(0);
+    expect(aviso(li1)).toContain("Aguarde o cálculo do efeito do preço");
+    expect(aviso(li2)).toContain("Aguarde o cálculo do efeito do preço");
+    expect(toast.error).toHaveBeenCalledWith("2 cores com erro — veja o aviso na cor.");
+    await t.desmontar();
+  }, 20000);
 
   it("nada sujo: o Salvar segue gravando o tecido (comportamento de sempre)", async () => {
     const t = await montar();
@@ -301,7 +410,7 @@ describe("Cadastro › Tecidos — UM Salvar para o tecido e as cores", () => {
     await expandir(li1);
     await digitar(nomeTecido(t.container), "Tecido Novo");
     await digitar(campos(li1)[0], "Meu nome");
-    estado.artigoUpdate = { data: [], error: null }; // outra pessoa salvou o tecido: 0 linhas casam o rev
+    estado.conflitoTecido = true; // outra pessoa salvou o tecido: 0 linhas casam o rev
     await salvarGeral(t.container);
     await flush(80);
     expect(salvaRpcs().length).toBe(0);
@@ -671,11 +780,12 @@ describe("fonte da tela (pinos)", () => {
     expect(src).toContain("saveMut.mutate({ foto_url: path })");
   });
   it("o UM Salvar do cabeçalho percorre as cores sujas (registry) e a tela não usa mais ✓/↺ nem 'Salvar todos'", () => {
-    expect(src).toMatch(/await salvarTodos\(\)/);
+    expect(src).toMatch(/await salvarTodos\(ctx\)/);
     expect(src).toContain("descartarTodos()");
     expect(src).not.toMatch(/<CardSaveControls|BarraSalvarTodasCores|RelataCoresSujas/);
     expect(src).not.toMatch(/Salvar todos \(|Salvar esta cor|Desfazer esta cor/);
     expect(src).not.toMatch(/onSujosChange/);
+    expect(src).toMatch(/partes\.length > 0/); // sem toast vazio ("."), p.ex. cor que ficou limpa entre o clique e o loop
   });
   it("o preço da cor é MoneyInput (não <input type=number>)", () => {
     const linha = src.slice(src.indexOf("function VariantRow({"));

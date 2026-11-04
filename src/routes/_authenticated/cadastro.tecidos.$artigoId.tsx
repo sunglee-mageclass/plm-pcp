@@ -68,8 +68,9 @@ import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { MoneyInput } from "@/components/shared/MoneyInput";
-import { CardDraftsProvider, useCardDrafts } from "@/components/shared/card-drafts/CardDraftsProvider";
+import { CardDraftsProvider, useCardDrafts, type SalvarCtx } from "@/components/shared/card-drafts/CardDraftsProvider";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { usePreviaServidor } from "@/hooks/usePreviaServidor";
 import { cn } from "@/lib/utils";
 import { mergeDraft, igual } from "@/lib/colab/merge";
@@ -195,6 +196,8 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
   const readOnly = useReadOnly();
   // Cores (variantes) com rascunho: registry do provider. Salvar/Descartar do cabeçalho agem sobre ELAS também.
   const { nSujos: nCoresSujas, salvarTodos, descartarTodos } = useCardDrafts();
+  // Confirmação do botão "Descartar alterações" (título JÁ aprovado, o mesmo do UnsavedChangesGuard).
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
 
   const { data: artigo, isLoading } = useQuery({
     queryKey: ["artigo", artigoId],
@@ -215,7 +218,7 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
   // Guarda de alterações não salvas (Case C: full-page — não há open gate).
   // Snapshot cobre o form inteiro + catIds (categorias também são editáveis).
   const formSnapshot = useMemo(() => ({ form, catIds }), [form, catIds]);
-  const { dirty: formDirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  const { dirty: formDirty, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
   // Cor com rascunho entra na MESMA guarda de "alterações não salvas" do tecido (um só diálogo ao sair).
   const dirty = formDirty || nCoresSujas > 0;
   const { requestClose, confirm } = useUnsavedGuard({
@@ -365,20 +368,39 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
   // campo, via `salvarTodos` do registry). Cada cor é uma chamada/transação: se uma falha (conflito P0409, duplicada 23505,
   // prévia sem assinatura…), o tecido e as OUTRAS cores já gravados FICAM e a que falhou continua suja, com o aviso na própria
   // cor. Falha do TECIDO (conflito de rev) aborta antes das cores (elas seguem sujas).
-  type ResultadoSalvar = { tecidoSalvo: boolean; cores: { ok: number; erro: number } };
+  type ResultadoSalvar = {
+    tecidoSalvo: boolean;
+    cores: { ok: number; erro: number };
+    /** O que foi ENVIADO no clique (form + categorias): vira o novo baseline. Edição feita em voo (enquanto as cores gravam) continua suja. */
+    enviado: { form: Artigo; catIds: string[] };
+  };
   const saveMut = useMutation({
     mutationFn: async (): Promise<ResultadoSalvar | void> => {
       if (!form) return;
       // Só cores sujas (tecido limpo): NÃO regrava o tecido — gravar o `artigos` sem mudança não tem o que dizer e ainda
       // arriscaria um conflito de rev falso (cada cor salva bumpa o `artigos.rev` por trigger). Nada sujo = Salvar de sempre.
       const soCores = !formDirtyRef.current && nCoresSujasRef.current > 0;
+      // Foto do que está sendo enviado AGORA (o `salvarTecido` usa esta mesma closure): o Salvar leva segundos (grava as
+      // cores) e a pessoa pode seguir digitando no tecido; o baseline vira ESTA foto, não o form do momento do sucesso.
+      const enviado = { form, catIds };
       if (!soCores) await salvarTecido();
-      const cores = nCoresSujasRef.current > 0 ? await salvarTodos() : { ok: 0, erro: 0 };
-      return { tecidoSalvo: !soCores, cores };
+      // UM prazo comum para esperar as prévias de preço (não N × 5 s se a RPC da prévia travar).
+      const ctx: SalvarCtx = { limite: Date.now() + 5000 };
+      const cores = nCoresSujasRef.current > 0 ? await salvarTodos(ctx) : { ok: 0, erro: 0 };
+      // Cada cor salva sobe o `artigos.rev` por trigger: relê SÓ o rev (sem mexer no cache do artigo, para o refetch normal do
+      // onSuccess ainda rehidratar o form), assim um 2º Salvar do tecido não bate num rev velho (P0409 falso). Falha aqui é inofensiva.
+      if (cores.ok > 0) {
+        try {
+          const { data: r } = await (supabase.from("artigos") as any).select("rev").eq("id", artigoId).maybeSingle();
+          if (r?.rev != null) revRef.current = r.rev as number;
+        } catch { /* o refetch do onSuccess atualiza o revRef de qualquer jeito */ }
+      }
+      return { tecidoSalvo: !soCores, cores, enviado };
     },
     onSuccess: (r) => {
-      const res = r ?? { tecidoSalvo: true, cores: { ok: 0, erro: 0 } };
-      if (res.tecidoSalvo) markClean();
+      if (!r) return;
+      const res = r;
+      if (res.tecidoSalvo) resetBaseline({ form: res.enviado.form, catIds: res.enviado.catIds });
       const { ok, erro } = res.cores;
       const cor = (n: number, sing: string, plur: string) => `${n} ${n === 1 ? sing : plur}`;
       const partes: string[] = [];
@@ -387,7 +409,7 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
       if (erro > 0) {
         // o detalhe de CADA cor que falhou fica no aviso da própria cor (aberta e destacada)
         toast.error(`${partes.length ? `${partes.join(" e ")}; ` : ""}${cor(erro, "cor com erro", "cores com erro")} — veja o aviso na cor.`);
-      } else {
+      } else if (partes.length > 0) {
         toast.success(`${partes.join(" e ")}.`);
       }
       qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
@@ -456,6 +478,17 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
     });
     if (catErr) throw catErr;
   }
+
+  // O botão pede confirmação (no celular Excluir/Descartar/Salvar ficam lado a lado): Cancelar não descarta nada.
+  const pedirDescartar = () =>
+    pedirConfirmacao({
+      titulo: "Descartar alterações?",
+      descricao: "Há alterações não salvas neste tecido.",
+      confirmar: "Descartar",
+      cancelar: "Continuar editando",
+      destrutivo: true,
+      onConfirmar: descartarTudo,
+    });
 
   // Descartar alterações: volta o tecido E todas as cores ao que está no banco (nada foi ao servidor antes do Salvar).
   const descartarTudo = () => {
@@ -538,7 +571,7 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
       )}
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {!readOnly && dirty && (
-          <Button variant="outline" onClick={descartarTudo} disabled={saveMut.isPending} aria-label="Descartar alterações" title="Volta o tecido e as cores ao que está salvo" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+          <Button variant="outline" onClick={pedirDescartar} disabled={saveMut.isPending} aria-label="Descartar alterações" title="Volta o tecido e as cores ao que está salvo" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <Undo2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Descartar alterações</span>
           </Button>
         )}
@@ -585,6 +618,8 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {dialogConfirmacao}
 
       <UnsavedChangesGuard
         confirm={confirm}
@@ -1211,7 +1246,7 @@ function VariantRow({
   const [erroCor, setErroCor] = useState<string | null>(null);
 
   // Chamado pelo Salvar do cabeçalho (via registry), uma vez por cor suja. Falha = aviso na cor (aberta) + relança.
-  const salvarFn = useCallback(async (mudancas: Partial<VarianteDraft>, baseEnviada: VarianteDraft) => {
+  const salvarFn = useCallback(async (mudancas: Partial<VarianteDraft>, baseEnviada: VarianteDraft, ctx?: SalvarCtx) => {
     const falha = (msg: string): never => { setErroCor(msg); setExpanded(true); throw new SalvarCorJaTratado(); };
     setErroCor(null);
     if (Object.keys(conflitosRef.current).length > 0) {
@@ -1220,7 +1255,7 @@ function VariantRow({
     const tocouPreco = "preco" in mudancas;
     if (tocouPreco) {
       // Espera a prévia terminar (digitou o preço e já clicou Salvar): não manda assinatura velha NEM grava às cegas.
-      const limite = Date.now() + 5000;
+      const limite = ctx?.limite ?? Date.now() + 5000;
       while (previaRef.current.carregando && Date.now() < limite) await new Promise((r) => setTimeout(r, 40));
       if (previaRef.current.carregando) {
         falha("Aguarde o cálculo do efeito do preço e salve de novo.");

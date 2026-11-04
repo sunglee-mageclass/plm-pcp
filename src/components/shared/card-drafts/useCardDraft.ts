@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useCardDraftsRegistry } from "./CardDraftsProvider";
+import { useCardDraftsRegistry, type SalvarCtx } from "./CardDraftsProvider";
 
 /**
  * Rascunho por card ("Salvar por card", Onda 2 da Camada intermediária): estado local + campos tocados.
@@ -12,7 +12,7 @@ import { useCardDraftsRegistry } from "./CardDraftsProvider";
 export function useCardDraft<T extends Record<string, any>>(opts: {
   id: string;
   base: T;
-  salvarFn: (mudancas: Partial<T>, base: T) => Promise<void>;
+  salvarFn: (mudancas: Partial<T>, base: T, ctx?: SalvarCtx) => Promise<void>;
   onSalvo?: () => void;
   /** Chamado SEMPRE que o rascunho é descartado (botão, Esc, "Descartar tudo" do registry): a tela limpa o que é só dela
    *  (avisos, conflitos, campos mascarados que precisam remontar). */
@@ -47,13 +47,14 @@ export function useCardDraft<T extends Record<string, any>>(opts: {
 
   const descartar = useCallback(() => { aplicaValor(baseRef.current); setTocados(new Set()); onDescartarRef.current?.(); }, [aplicaValor]);
 
-  const salvar = useCallback(async () => {
+  const salvar = useCallback(async (ctx?: SalvarCtx) => {
     if (tocados.size === 0) return;
     const mudancas: Partial<T> = {};
     for (const k of tocados) mudancas[k] = valorRef.current[k];
     setSalvando(true);
     try {
-      await salvarFn(mudancas, baseRef.current);
+      if (ctx === undefined) await salvarFn(mudancas, baseRef.current);
+      else await salvarFn(mudancas, baseRef.current, ctx);
       // Sucesso: a base local passa a ser o que foi ENVIADO (só esses campos) — vale mesmo sem refetch da tela.
       baseRef.current = { ...baseRef.current, ...mudancas };
       // Só sai de `tocados` o campo enviado cujo valor atual ainda é o enviado; o editado EM VOO (ou revertido em voo
@@ -77,7 +78,7 @@ export function useCardDraft<T extends Record<string, any>>(opts: {
   salvarRef.current = salvar;
   const descartarRef = useRef(descartar);
   descartarRef.current = descartar;
-  const api = useMemo(() => ({ dirty, salvar: () => salvarRef.current(), descartar: () => descartarRef.current() }), [dirty]);
+  const api = useMemo(() => ({ dirty, salvar: (ctx?: SalvarCtx) => salvarRef.current(ctx), descartar: () => descartarRef.current() }), [dirty]);
   const reg = useCardDraftsRegistry();
   // Deps = funções ESTÁVEIS (useCallback no provider), não o `reg` inteiro (recriado a cada mudança de `nSujos`).
   const registrar = reg?.registrar;

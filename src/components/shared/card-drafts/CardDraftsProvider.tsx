@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 
-type CardApi = { dirty: boolean; salvar: () => Promise<void>; descartar: () => void };
+/** Contexto do "salvar todos", repassado a cada card (ex.: UM prazo comum para esperar prévias, em vez de um por card). */
+export type SalvarCtx = { limite?: number };
+type CardApi = { dirty: boolean; salvar: (ctx?: SalvarCtx) => Promise<void>; descartar: () => void };
 type Registry = {
   registrar: (id: string, api: CardApi) => void;
   desregistrar: (id: string) => void;
   nSujos: number;
-  salvarTodos: () => Promise<{ ok: number; erro: number }>;
+  salvarTodos: (ctx?: SalvarCtx) => Promise<{ ok: number; erro: number }>;
   descartarTodos: () => void;
 };
 const Ctx = createContext<Registry | null>(null);
@@ -26,12 +28,12 @@ export function CardDraftsProvider({ children }: { children: React.ReactNode }) 
   const desregistrar = useCallback((id: string) => { mapa.current.delete(id); recomputa(); }, [recomputa]);
   // Itera um SNAPSHOT (o Map muda ao vivo quando um card re-registra) e relê cada id antes de agir: só salva/descarta
   // quem ainda existe e continua sujo — nunca visita a mesma chave 2x.
-  const salvarTodos = useCallback(async () => {
+  const salvarTodos = useCallback(async (ctx?: SalvarCtx) => {
     let ok = 0, erro = 0;
     for (const [cid] of Array.from(mapa.current.entries())) {
       const api = mapa.current.get(cid);
       if (!api || !api.dirty) continue;
-      try { await api.salvar(); ok++; } catch { erro++; }
+      try { await api.salvar(ctx); ok++; } catch { erro++; }
     }
     recomputa();
     return { ok, erro };
