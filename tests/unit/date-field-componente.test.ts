@@ -6,7 +6,6 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { createElement, useState, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { DateField } from "@/components/shared/DateField";
-import { VencimentoCell } from "@/components/financeiro/VencimentoCell";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -243,39 +242,4 @@ describe("DateField: aviso de limite (round 2)", () => {
   });
 });
 
-describe("VencimentoCell", () => {
-  it("Enter seguido de blur salva UMA vez", async () => {
-    const onSave = vi.fn();
-    const el = await montar(
-      createElement(VencimentoCell, { value: "2026-07-15", onSave, podeEditar: true }),
-    );
-    await digitar(el, "16/07/2026", 10);
-    await enter(el);
-    await blur(el);
-    expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0][0]).toBe("2026-07-16");
-  });
-
-  it("após erro, redigitar a mesma data tenta de novo", async () => {
-    const onSave = vi.fn((_v: string, h?: { onError: () => void }) => h?.onError());
-    const el = await montar(
-      createElement(VencimentoCell, { value: "2026-07-15", onSave, podeEditar: true }),
-    );
-    await digitar(el, "16/07/2026", 10);
-    await blur(el);
-    await blur(el);
-    expect(onSave).toHaveBeenCalledTimes(2);
-  });
-
-  it("B4: limpar e sair volta à data guardada com aviso", async () => {
-    const onSave = vi.fn();
-    const el = await montar(
-      createElement(VencimentoCell, { value: "2026-07-15", onSave, podeEditar: true }),
-    );
-    await digitar(el, "", 0);
-    await blur(el);
-    expect(onSave).not.toHaveBeenCalled();
-    expect(el.value).toBe("15/07/2026");
-    expect(container!.textContent).toContain("Vencimento obrigatório");
-  });
-});
+// VencimentoCell (rascunho por linha) passou a ser testado em tests/unit/vencimento-rascunho.test.ts.
