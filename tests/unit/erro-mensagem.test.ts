@@ -166,4 +166,21 @@ describe("mensagemErro — P0002 nao_encontrado: (Backend B3)", () => {
   it("banco ainda sem a B3 (texto PT acentuado com P0002) continua passando direto", () => {
     expect(mensagemErro({ code: "P0002", message: "OC não encontrada." }, "fb")).toBe("OC não encontrada.");
   });
+
+  // Pendência #6 do 5º deploy: uma queda de rede (o pedido nem chega ao servidor) vem como TypeError sem
+  // SQLSTATE, com texto que varia por navegador. Antes, só Chrome/Firefox eram reconhecidos; o Safari caía
+  // no fallback genérico da tela ("Erro ao salvar"), como se o servidor tivesse recusado.
+  const MSG_CONEXAO = "Falha de conexão. Verifique sua internet e tente novamente.";
+  it.each([
+    ["Failed to fetch", "Chrome/Firefox"],
+    ["NetworkError when attempting to fetch resource.", "Firefox"],
+    ["Network request failed", "React Native / fetch"],
+    ["Load failed", "Safari (fetch)"],
+    ["The network connection was lost.", "Safari (conexão caiu)"],
+    ["cancelled", "Safari (pedido cancelado por queda)"],
+    ["The Internet connection appears to be offline.", "Safari offline"],
+  ])("falha de rede %j (%s) vira a mensagem de conexão, não o fallback da tela", (message) => {
+    // TypeError é o que fetch lança numa queda de rede; não tem `code`.
+    expect(mensagemErro(new TypeError(message), "Erro ao salvar")).toBe(MSG_CONEXAO);
+  });
 });

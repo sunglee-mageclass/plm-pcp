@@ -75,8 +75,8 @@ const SITUACOES: { key: Situacao; rotulo: string }[] = [
 const textoEstadoDentro = (mostraPaginacao: boolean): string =>
   'Estado filtra DENTRO da Situação escolhida acima (ex.: Situação "Não integrados" + Estado "Integrável" mostra só quem já está integrável, ainda não integrado). ' +
   (mostraPaginacao
-    ? '"Faltam dados" e "completo" valem só para os produtos desta página (ver aviso abaixo da tabela).'
-    : '"Faltam dados" e "completo" valem para toda a lista carregada.');
+    ? '"Faltam dados" e "Pronto para integrar" valem só para os produtos desta página (ver aviso abaixo da tabela).'
+    : '"Faltam dados" e "Pronto para integrar" valem para toda a lista carregada.');
 const textoOrdenacaoPagina = (mostraPaginacao: boolean): string =>
   mostraPaginacao
     ? "Ordenação e níveis de Estado valem para os produtos desta página."

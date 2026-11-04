@@ -594,7 +594,13 @@ function traduzPadrao(msg: string): string | null {
     return POR_CODIGO["42501"];
   if (m.includes("jwt") || m.includes("not authenticated") || m.includes("invalid token") || m.includes("token is expired"))
     return TEXTO_SESSAO_EXPIRADA;
-  if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("network request failed"))
+  // Falha de REDE (o pedido nem chegou ao servidor) vem como TypeError sem SQLSTATE, com texto que varia por
+  // navegador: Chrome/Firefox "failed to fetch"/"NetworkError"; Safari "load failed", "the network connection was
+  // lost" e, quando o pedido é cancelado por queda de rede, "cancelled". Sem isto, uma queda no Safari caía no
+  // fallback genérico da tela ("Erro ao salvar"), como se o servidor tivesse recusado (pendência #6 do 5º deploy).
+  if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("network request failed") ||
+      m.includes("load failed") || m.includes("the network connection was lost") ||
+      m.includes("connection appears to be offline") || m === "cancelled" || m === "canceled")
     return "Falha de conexão. Verifique sua internet e tente novamente.";
   if (m.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
   return null;
