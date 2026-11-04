@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, MoreHorizontal, ExternalLink, Boxes, Check } from "lucide-react";
+import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, MoreHorizontal, ExternalLink, Boxes } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -24,7 +24,7 @@ import { aplicarInsumosPadraoEmLote, resumoToastLote } from "@/lib/insumos-inici
 import { MoListaSection } from "@/components/planejamento/MoListaSection";
 import { type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
-import { MoneyInput } from "@/components/shared/MoneyInput";
+import { PrecoVendaCell } from "@/components/planejamento/PrecoVendaCell";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
@@ -1355,19 +1355,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
   // `onPrecoVenda` do mount converte preço→mk_varejo e grava via a RPC de markup (o banco recompõe
   // o preço). Fluxo manufaturado grava `modelos.preco_venda` direto, como antes.
   const podeEditarPreco = canEdit("criacao_planejamento:preco_venda");
-  // Rascunho local do preço editável (mesmo padrão do dtLanc). Salva no blur/Enter via onPrecoVenda.
-  const [precoDraft, setPrecoDraft] = useState<string>(precoVenda != null && precoVenda > 0 ? String(precoVenda) : "");
-  const precoBaseRef = useRef(precoVenda);
-  if (precoBaseRef.current !== precoVenda) { // re-semeia se o valor do servidor mudou (refetch)
-    precoBaseRef.current = precoVenda;
-    setPrecoDraft(precoVenda != null && precoVenda > 0 ? String(precoVenda) : "");
-  }
-  const commitPreco = () => {
-    const novo = numOr0(precoDraft) > 0 ? Number(precoDraft) : null;
-    if (novo !== (precoVenda ?? null)) onPrecoVenda(novo);
-  };
-  // "Sujo" = o rascunho difere do preço salvo (habilita o ícone de confirmar da revenda).
-  const precoDirty = (numOr0(precoDraft) > 0 ? Number(precoDraft) : null) !== (precoVenda ?? null);
+  // Preço de venda = RASCUNHO por card (camada intermediária): o estado e o ✓/↺ moram em <PrecoVendaCell>;
+  // só o ✓ chama `onPrecoVenda` (a mutation por origem). Nada grava ao digitar/sair do campo.
   // Mão de obra por serviço (estado agregado do modelo): sem_servico | pendente | reprovada |
   // aprovada. Aprovar/reprovar é POR LINHA no editor do detalhe — o card só exibe o estado.
   const moTxt = moEstado === "aprovada" ? "Mão de obra aprovada"
@@ -1511,30 +1500,10 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
                 <td className="w-[56%] text-right" onClick={(e) => e.stopPropagation()}>
                   {!podeVerCustos ? <span className="text-muted-foreground">—</span>
                     : podeEditarPreco && !precoTravado ? (
-                      // Revenda: o preço grava DIRETO no banco (recalcula o markup de varejo via RPC),
-                      // então em vez do onBlur automático mostramos um ícone de CONFIRMAR — o usuário
-                      // decide quando persistir (pedido do dono, set/2026). Manufaturado segue no blur.
-                      ehOrigemComprada(modelo.origem) ? (
-                        <div className="flex items-center justify-end gap-1">
-                          <MoneyInput value={precoDraft} fixedDecimals placeholder={preco != null ? brl(preco) : "0,00"}
-                            data-colab-path={`card-preco:${modelo.id}`}
-                            onChange={(e) => setPrecoDraft(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitPreco(); } }}
-                            className="h-7 w-full max-w-[7.5rem] text-right text-xs tabular-nums" />
-                          <Button type="button" size="iconSm" variant="outline" title="Confirmar preço"
-                            aria-label="Confirmar preço" disabled={!precoDirty} onClick={commitPreco}
-                            className={precoDirty ? "bg-background text-green-600 hover:text-green-700 hover:bg-background" : ""}>
-                            <Check className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <MoneyInput value={precoDraft} fixedDecimals placeholder={preco != null ? brl(preco) : "0,00"}
-                          data-colab-path={`card-preco:${modelo.id}`}
-                          onChange={(e) => setPrecoDraft(e.target.value)}
-                          onBlur={commitPreco}
-                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                          className="ml-auto h-7 w-full max-w-[7.5rem] text-right text-xs tabular-nums" />
-                      )
+                      // Rascunho por card: digitar/Enter/blur NÃO gravam; ✓ grava (interno/revenda/importado pela
+                      // mutation certa em `onPrecoVenda`) e ↺ desfaz. Vale para TODAS as origens.
+                      <PrecoVendaCell precoVenda={precoVenda} placeholder={preco != null ? brl(preco) : "0,00"}
+                        colabPath={`card-preco:${modelo.id}`} onSave={onPrecoVenda} />
                     ) : (
                       <span className="inline-flex items-center justify-end gap-1">
                         <span className="font-medium tabular-nums">{precoVenda != null && precoVenda > 0 ? brl(precoVenda) : preco != null ? brl(preco) : "—"}</span>
