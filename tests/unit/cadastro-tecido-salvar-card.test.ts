@@ -215,6 +215,46 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     await t.desmontar();
   });
 
+  it("M4: recalculando a prévia, o último 'até N' FICA (esmaecido) em vez de virar 'calculando…' (sem piscar); ao chegar volta ao normal", async () => {
+    const t = await montar();
+    const [li1] = lis(t.container);
+    await expandir(li1);
+    await digitar(campos(li1)[2], "12");
+    await flush(PREVIA_MS);
+    const linha = () => li1.querySelector("[data-previa-linha]") as HTMLElement;
+    const texto = () => li1.querySelector("[data-previa-texto]") as HTMLElement | null;
+    expect(linha()).toBeTruthy(); // a linha existe (altura reservada) mesmo antes de haver texto
+    expect(texto()?.textContent).toContain("até 3 produtos terão o custo recalculado");
+    expect(texto()?.className).not.toContain("opacity-60");
+
+    // a próxima prévia demora: segura a resposta até liberarmos
+    let liberar!: () => void;
+    const segura = new Promise<void>((r) => { liberar = r; });
+    rpc.mockImplementation(async (nome: string, args: any) => {
+      if (nome === "variante_tecido_preco_previa") { await segura; return { data: { afetados: 1, assinatura: `s1-${args._preco}` }, error: null }; }
+      return { data: null, error: null };
+    });
+    await digitar(campos(li1)[2], "13");
+    await flush(PREVIA_MS); // pedido já saiu e NÃO voltou: carregando
+    expect(li1.textContent).not.toContain("calculando");
+    expect(texto()?.textContent).toContain("até 3 produtos terão o custo recalculado"); // o último valor continua visível…
+    expect(texto()?.className).toContain("opacity-60"); // …esmaecido
+    expect(li1.querySelector("[data-previa-calculando]")).toBeTruthy(); // e há o sinal de que está recalculando
+
+    liberar();
+    await flush(60);
+    expect(texto()?.textContent).toContain("até 1 produto terá o custo recalculado");
+    expect(texto()?.className).not.toContain("opacity-60");
+    expect(li1.querySelector("[data-previa-calculando]")).toBeNull();
+
+    // preço de volta ao original: a linha some mas a altura continua reservada
+    await digitar(campos(li1)[2], "10");
+    await flush(PREVIA_MS);
+    expect(texto()).toBeNull();
+    expect(linha()).toBeTruthy();
+    await t.desmontar();
+  });
+
   it("✓ logo depois de digitar o preço espera a prévia (não manda assinatura velha nem nula)", async () => {
     const t = await montar();
     const [li1] = lis(t.container);

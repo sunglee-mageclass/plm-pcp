@@ -71,6 +71,7 @@ import { CardDraftsProvider, useCardDrafts } from "@/components/shared/card-draf
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
 import { CardSaveControls } from "@/components/shared/card-drafts/CardSaveControls";
 import { usePreviaServidor } from "@/hooks/usePreviaServidor";
+import { cn } from "@/lib/utils";
 import { mergeDraft, igual } from "@/lib/colab/merge";
 import { maskLive } from "@/lib/money-mask";
 
@@ -1250,7 +1251,10 @@ function VariantRow({
   });
   previaRef.current = { carregando: previa.carregando || previaPausa, assinatura: previa.assinatura };
   useEffect(() => { if (previa.assinatura) setPreviaMudou(false); }, [previa.assinatura]);
-  const textoPrevia = tocouPreco && !previa.carregando ? textoPreviaPreco(previa.resultado?.afetados) : null;
+  // M4: o hook MANTÉM o último `resultado` enquanto repede (só zera ao desabilitar/falhar) — então, recalculando, o último
+  // "até N" continua na tela (esmaecido, com spinner) em vez de trocar por "calculando…" a cada tecla (piscava e empurrava o layout).
+  const textoPrevia = tocouPreco ? textoPreviaPreco(previa.resultado?.afetados) : null;
+  const recalculandoPrevia = tocouPreco && previa.carregando;
 
   // Base do servidor mudou com o card SUJO (outra pessoa salvou / "Aplicar a todas" / realtime): merge 3-vias por campo.
   // O hook já re-ancorou a base dele (o efeito dele roda antes deste), então `patch(k, base[k])` não marca como tocado.
@@ -1472,10 +1476,25 @@ function VariantRow({
           {/* Preço POR VARIANTE. O preço de referência do artigo = o maior das variantes.
               Ícone de histórico AO LADO do input (label simples, alinha com o campo Código). */}
           <div className="space-y-1.5" data-rascunho>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-              <Label>Preço</Label>
-              {tocouPreco && previa.carregando && <span className="text-xs text-muted-foreground">calculando o efeito…</span>}
-              {textoPrevia && <span className="text-xs text-amber-700 dark:text-amber-400">ao salvar, {textoPrevia}</span>}
+            {/* Altura reservada (min-h-5) e SEM quebra de linha: a prévia aparecer/sumir/recalcular não empurra o resto. */}
+            <div data-previa-linha className="flex min-h-5 flex-nowrap items-center justify-between gap-x-2">
+              <Label className="shrink-0">Preço</Label>
+              {textoPrevia && (
+                <span
+                  data-previa-texto
+                  title={`ao salvar, ${textoPrevia}`}
+                  className={cn(
+                    "flex min-w-0 items-center gap-1 text-xs text-amber-700 transition-opacity dark:text-amber-400",
+                    recalculandoPrevia && "opacity-60",
+                  )}
+                >
+                  <span className="truncate">ao salvar, {textoPrevia}</span>
+                  {recalculandoPrevia && <Loader2 data-previa-calculando aria-label="calculando o efeito" className="h-3 w-3 shrink-0 animate-spin" />}
+                </span>
+              )}
+              {!textoPrevia && recalculandoPrevia && (
+                <Loader2 data-previa-calculando aria-label="calculando o efeito" className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+              )}
             </div>
             <div className="flex items-center gap-1">
               <MoneyInput

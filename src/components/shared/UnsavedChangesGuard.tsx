@@ -63,10 +63,10 @@ export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseU
   );
 
   // Full-page: intercepta navegação de rota. shouldBlockFn é gated por blockNav, então em
-  // modais o blocker fica inerte. `enableBeforeUnload` TAMBÉM precisa ser gated: o padrão do
-  // router é `true` e NÃO consulta o shouldBlockFn — sem isto, o prompt nativo "Sair do site?"
-  // dispararia em TODA tela com guarda, mesmo limpa. useCallback estabiliza (evita re-registrar
-  // o blocker a cada render).
+  // modais o blocker fica inerte para a ROTA. `enableBeforeUnload` NÃO consulta o shouldBlockFn
+  // (o padrão do router é `true`), então precisa de função própria: gated por `dirty` — sem isso
+  // o prompt nativo "Sair do site?" dispararia em TODA tela com guarda, mesmo limpa. useCallback
+  // estabiliza (evita re-registrar o blocker a cada render).
   const shouldBlock = useCallback(
     (args?: { next?: { pathname?: string; search?: Record<string, unknown> } }) => {
       if (!blockNav || !dirty) return false;
@@ -75,8 +75,10 @@ export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseU
     },
     [blockNav, dirty, navPermitida],
   );
-  // beforeunload não tem "next" — bloqueia sempre que sujo (F5/fechar aba perde tudo).
-  const shouldBeforeUnload = useCallback(() => !!blockNav && dirty, [blockNav, dirty]);
+  // beforeunload (aviso NATIVO ao dar F5/fechar a aba) não é navegação de rota e não tem "next":
+  // vale SEMPRE que sujo, INDEPENDENTE de `blockNav` (que só gateia a rota). Em Sheet/Dialog
+  // embutido (`blockNav:false`) F5/fechar aba também perde o rascunho — então também avisa.
+  const shouldBeforeUnload = useCallback(() => dirty, [dirty]);
   const blocker = useBlocker({
     shouldBlockFn: shouldBlock,
     enableBeforeUnload: shouldBeforeUnload,
