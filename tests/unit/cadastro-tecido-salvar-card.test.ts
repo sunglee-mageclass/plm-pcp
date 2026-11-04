@@ -239,7 +239,7 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     });
     await digitar(campos(li1)[2], "13");
     await flush(PREVIA_MS); // pedido já saiu e NÃO voltou: carregando
-    expect(li1.textContent).not.toContain("calculando");
+    expect(li1.textContent).not.toContain("calculando o efeito…"); // o texto visível antigo (o sr-only do spinner não leva reticências)
     expect(texto()?.textContent).toContain("até 3 produtos terão o custo recalculado"); // o último valor continua visível…
     expect(texto()?.className).toContain("opacity-60"); // …esmaecido
     expect(li1.querySelector("[data-previa-calculando]")).toBeTruthy(); // e há o sinal de que está recalculando
