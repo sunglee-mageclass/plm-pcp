@@ -9,5 +9,7 @@ SET LOCAL lock_timeout = '500ms';
 DROP FUNCTION IF EXISTS public.salvar_variante_tecido(uuid, jsonb, jsonb, text);
 DROP FUNCTION IF EXISTS public._salvar_variante_tecido_core(uuid, jsonb, jsonb);
 DROP FUNCTION IF EXISTS public._variante_tecido_preco_assinatura_ok(uuid, numeric, text);
+DROP FUNCTION IF EXISTS public.variante_tecido_preco_previa(uuid, numeric);
+DROP FUNCTION IF EXISTS public._variante_tecido_preco_previa_core(uuid, numeric);
 
 COMMIT;

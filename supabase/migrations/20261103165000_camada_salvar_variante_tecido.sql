@@ -1,4 +1,4 @@
--- Camada intermediaria / "Salvar por card" do Plan. Tecido — Tarefa 2 (banco).
+-- Camada intermediaria / "Salvar por card" do Plan. Tecido — Tarefas 2 e 3 (banco).
 -- RPC NOVA `salvar_variante_tecido(_id, _mudancas, _base, _assinatura)`: grava UMA cor/variante de tecido (`variantes_tecido`)
 -- so no Salvar do card, com compare-and-set POR CAMPO (mesmo desenho de `salvar_config_loja`, 20261015100000).
 --   * `variantes_tecido` NAO tem `rev` proprio (o `rev` colaborativo vive em `artigos`, pai) -> nada de `_rev_base`; a concorrencia
@@ -12,8 +12,19 @@
 --     inexistente dao o MESMO erro (P0002 nao_encontrado, sem oraculo cross-tenant).
 --   * Wrapper: login + loja ativa + modulo `cadastro` (Reforco D2 A: Cadastro NAO e trancado por pagina no servidor — decisao,
 --     nao furo). Quando `preco` esta em `_mudancas` valida a assinatura da previa por `_variante_tecido_preco_assinatura_ok`.
---   * `_variante_tecido_preco_assinatura_ok` aqui e um STUB PERMISSIVO (ruling de pre-flight T2<->T3: mesma migration); a Tarefa 3
---     o SUBSTITUI pela implementacao real e acrescenta as funcoes de previa antes dele.
+--   * Tarefa 3 (mesma migration, ruling de pre-flight T2<->T3): PREVIA DE PRECO no servidor.
+--       - `variante_tecido_preco_previa(_id, _preco)` (wrapper STABLE: login + loja + modulo `cadastro`) -> `{afetados, assinatura}`:
+--         `afetados` = quantos cards INTERNOS e NAO cortados teriam o custo previsto recalculado se o preco da cor virasse `_preco`
+--         (mesmos caminhos e mesma regra da fila do custo: linha do Tecido, variante substituta, vinculo de OC; card ja enviado ao
+--         corte fica de fora — congelado, R-CD1); `assinatura` = md5(id + preco normalizado + ids afetados ordenados). SO LEITURA:
+--         nao grava, nao enfileira, nao recalcula (so CONTA os ids).
+--       - `_variante_tecido_preco_assinatura_ok(_id, _preco, _assinatura)` (o stub da Tarefa 2 virou a conferencia real): recomputa
+--         o retrato com o preco que esta sendo gravado e, se a assinatura nao bate (ou veio NULL com preco presente),
+--         P0409 `previa_desatualizada: salvar_preco` (ASCII) — a tela repede a previa.
+--       - SEM ORACULO cross-tenant: a conferencia da assinatura so responde diferente para variante DA LOJA do chamador. Variante
+--         de outra loja, de `tenant_id` divergente e id inexistente recebem, ANTES de qualquer conferencia, o MESMO
+--         `nao_encontrado: variante` (P0002) do `_core`, com qualquer assinatura; e a propria previa devolve para esses casos a
+--         resposta "nada afetado" com o retrato de so id + preco (nada da loja alheia entra na conta).
 --   * ACL (inv. 9): `_salvar_variante_tecido_core` e o helper com REVOKE dos TRES (PUBLIC, anon, authenticated); o wrapper vai a
 --     authenticated + service_role. Mensagens de P0409/P0002 SO ASCII (PostgREST: nao-ASCII vira 500 e o code some).
 --   * ZERO DDL em tabela (so CREATE OR REPLACE FUNCTION + REVOKE/GRANT): nenhuma trava de tabela, nada em auth/storage.
@@ -36,20 +47,126 @@ BEGIN
 END
 $guarda$;
 
--- 1. STUB permissivo da assinatura da previa (Tarefa 3 substitui). Ordenado ANTES do wrapper.
+-- 1. PREVIA (so leitura). O `_core` recebe o preco por parametro e a loja vem do JWT (nunca de parametro).
+CREATE OR REPLACE FUNCTION public._variante_tecido_preco_previa_core(_id uuid, _preco numeric)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $function$
+DECLARE
+  v_tenant uuid := public.get_user_tenant_id();
+  v_art uuid;
+  v_ids uuid[];
+BEGIN
+  -- variante e artigo TEM de ser da loja do chamador (mesmo criterio do _core do salvar). Variante de outra loja, de
+  -- tenant_id divergente e id inexistente caem no MESMO ramo: nenhum card e lido, nenhum id entra no retrato.
+  SELECT vt.artigo_id INTO v_art
+    FROM public.variantes_tecido vt
+    JOIN public.artigos a ON a.id = vt.artigo_id AND a.tenant_id = v_tenant
+   WHERE vt.id = _id
+     AND (vt.tenant_id IS NULL OR vt.tenant_id = v_tenant);
+
+  IF v_art IS NOT NULL THEN
+    -- Cards INTERNOS, da loja, NAO cortados, que usam o artigo da cor: os mesmos 3 caminhos e o mesmo filtro com que a fila do
+    -- custo enfileira quando o preco do artigo muda (linha do Tecido; variante substituta de qualquer cor do artigo; vinculo
+    -- de OC). Card ja enviado ao corte fica congelado (R-CD1). Cada card conta UMA vez.
+    SELECT array_agg(DISTINCT m.id ORDER BY m.id) INTO v_ids
+      FROM (
+        SELECT mt.modelo_id
+          FROM public.modelo_tecidos mt
+         WHERE mt.artigo_id = v_art
+        UNION
+        SELECT mt.modelo_id
+          FROM public.variantes_tecido vt
+          JOIN public.modelo_tecido_variantes mtv ON mtv.variante_tecido_id = vt.id
+          JOIN public.modelo_tecidos mt ON mt.id = mtv.modelo_tecido_id
+         WHERE vt.artigo_id = v_art
+        UNION
+        SELECT l.modelo_id
+          FROM public.variantes_tecido vt
+          JOIN public.modelo_tecido_oc_links l ON l.variante_tecido_id = vt.id
+         WHERE vt.artigo_id = v_art
+      ) u
+      JOIN public.modelos m ON m.id = u.modelo_id
+     WHERE m.tenant_id = v_tenant
+       AND m.origem = 'interno'
+       AND NOT EXISTS (SELECT 1 FROM public.cad c WHERE c.modelo_id = m.id AND c.enviado_corte);
+  END IF;
+  v_ids := COALESCE(v_ids, '{}'::uuid[]);
+
+  -- retrato canonico: id + preco (trim_scale: 20, 20.0 e 20.00 sao o MESMO preco) + ids afetados em ordem
+  RETURN jsonb_build_object(
+    'afetados', COALESCE(array_length(v_ids, 1), 0),
+    'assinatura', md5(
+      COALESCE(_id::text, '') || ':' || COALESCE(trim_scale(_preco)::text, '') || ':' || array_to_string(v_ids, ',')
+    )
+  );
+END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public._variante_tecido_preco_previa_core(uuid, numeric) FROM PUBLIC, anon, authenticated;
+
+-- 2. wrapper da previa: login + loja + modulo `cadastro` (mesmo portao do salvar; leitura nao ganha portao de pagina)
+CREATE OR REPLACE FUNCTION public.variante_tecido_preco_previa(_id uuid, _preco numeric)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $function$
+DECLARE
+  c_nil constant uuid := '00000000-0000-0000-0000-000000000000';
+  v_tenant uuid := public.get_user_tenant_id();
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Faca login para ver a previa.' USING ERRCODE = '42501';
+  END IF;
+  IF v_tenant IS NULL OR v_tenant = c_nil OR NOT public.meu_tenant_ativo() THEN
+    RAISE EXCEPTION 'Loja inativa ou sem loja - operacao nao permitida.' USING ERRCODE = '42501';
+  END IF;
+  PERFORM public._exige_modulos('cadastro');
+  RETURN public._variante_tecido_preco_previa_core(_id, _preco);
+END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.variante_tecido_preco_previa(uuid, numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.variante_tecido_preco_previa(uuid, numeric) TO authenticated, service_role;
+
+-- 3. conferencia da assinatura no Salvar (substitui o stub da Tarefa 2). Ordenada ANTES do wrapper do salvar.
 CREATE OR REPLACE FUNCTION public._variante_tecido_preco_assinatura_ok(
   _id uuid, _preco numeric, _assinatura text
 ) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $function$
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $function$
+DECLARE
+  v_tenant uuid := public.get_user_tenant_id();
+  v jsonb;
 BEGIN
-  -- stub da Tarefa 2: nao valida nada ainda (a Tarefa 3 coloca a conferencia real da previa).
-  RETURN;
+  -- SEM ORACULO: a variante tem de ser da loja do chamador ANTES de qualquer resposta que dependa da assinatura. Variante de
+  -- outra loja, de tenant_id divergente e id inexistente dao o MESMO erro do _core do salvar (P0002 nao_encontrado: variante),
+  -- com assinatura certa, errada ou NULL; so quem e dono da variante chega a ouvir `previa_desatualizada`. (A previa, por
+  -- construcao, ja devolve o retrato vazio e identico para esses tres casos; esta checagem explicita impede que o Salvar
+  -- vire um canal que distingue "existe em outra loja" de "nao existe".)
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.variantes_tecido vt
+      JOIN public.artigos a ON a.id = vt.artigo_id AND a.tenant_id = v_tenant
+     WHERE vt.id = _id
+       AND (vt.tenant_id IS NULL OR vt.tenant_id = v_tenant)
+  ) THEN
+    RAISE EXCEPTION 'nao_encontrado: variante' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- preco presente sem assinatura: a tela SEMPRE manda a da previa quando mexe no preco
+  IF _assinatura IS NULL THEN
+    RAISE EXCEPTION 'previa_desatualizada: salvar_preco' USING ERRCODE = 'P0409';
+  END IF;
+
+  -- recomputa o retrato com o preco que esta sendo gravado: se a lista de cards afetados mudou desde a previa (card novo
+  -- usando a cor, afetado que foi cortado) ou o preco e outro, o md5 difere
+  v := public._variante_tecido_preco_previa_core(_id, _preco);
+  IF (v ->> 'assinatura') IS DISTINCT FROM _assinatura THEN
+    RAISE EXCEPTION 'previa_desatualizada: salvar_preco' USING ERRCODE = 'P0409';
+  END IF;
 END
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public._variante_tecido_preco_assinatura_ok(uuid, numeric, text) FROM PUBLIC, anon, authenticated;
 
--- 2. _core: faz o trabalho; EXECUTE revogado dos 3 (o wrapper chama).
+-- 4. _core: faz o trabalho; EXECUTE revogado dos 3 (o wrapper chama).
 CREATE OR REPLACE FUNCTION public._salvar_variante_tecido_core(
   _id uuid, _mudancas jsonb, _base jsonb
 ) RETURNS void
@@ -141,7 +258,7 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public._salvar_variante_tecido_core(uuid, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
 
--- 3. wrapper: login + loja + modulo cadastro (D2 A: Cadastro NAO e trancado por pagina); valida a assinatura da previa se o preco mudou.
+-- 5. wrapper: login + loja + modulo cadastro (D2 A: Cadastro NAO e trancado por pagina); valida a assinatura da previa se o preco mudou.
 CREATE OR REPLACE FUNCTION public.salvar_variante_tecido(
   _id uuid, _mudancas jsonb, _base jsonb, _assinatura text DEFAULT NULL
 ) RETURNS void
@@ -157,8 +274,9 @@ BEGIN
     RAISE EXCEPTION 'Loja inativa ou sem loja - operacao nao permitida.' USING ERRCODE = '42501';
   END IF;
   PERFORM public._exige_modulos('cadastro'); -- portao de MODULO (nao de pagina)
-  -- Valida a assinatura da previa QUANDO o preco mudou (a Tarefa 3 define o retrato). A assinatura depende do
-  -- PRECO NOVO, entao passa-se o preco de _mudancas (jsonb null ou '' vira NULL numerico).
+  -- Valida a assinatura da previa QUANDO o preco mudou. A assinatura depende do PRECO NOVO, entao passa-se o preco de
+  -- _mudancas (jsonb null ou '' vira NULL numerico). Vem ANTES do _core, mas a conferencia da assinatura recusa primeiro a
+  -- variante que nao e da loja (mesmo erro do _core), entao a ordem nao cria oraculo.
   IF jsonb_typeof(_mudancas) = 'object' AND _mudancas ? 'preco' THEN
     PERFORM public._variante_tecido_preco_assinatura_ok(
       _id,
@@ -172,15 +290,19 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.salvar_variante_tecido(uuid, jsonb, jsonb, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.salvar_variante_tecido(uuid, jsonb, jsonb, text) TO authenticated, service_role;
 
--- pos-condicao: ACL conferida (o _core e o helper nao podem ser executados por PUBLIC/anon/authenticated)
+-- pos-condicao: ACL conferida (os _core e o helper nao podem ser executados por PUBLIC/anon/authenticated)
 DO $pos$
 BEGIN
   IF has_function_privilege('anon', 'public._salvar_variante_tecido_core(uuid,jsonb,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public._salvar_variante_tecido_core(uuid,jsonb,jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public._variante_tecido_preco_assinatura_ok(uuid,numeric,text)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public._variante_tecido_preco_assinatura_ok(uuid,numeric,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public._variante_tecido_preco_previa_core(uuid,numeric)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public._variante_tecido_preco_previa_core(uuid,numeric)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.salvar_variante_tecido(uuid,jsonb,jsonb,text)', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.salvar_variante_tecido(uuid,jsonb,jsonb,text)', 'EXECUTE') THEN
+     OR has_function_privilege('anon', 'public.variante_tecido_preco_previa(uuid,numeric)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.salvar_variante_tecido(uuid,jsonb,jsonb,text)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.variante_tecido_preco_previa(uuid,numeric)', 'EXECUTE') THEN
     RAISE EXCEPTION 'camada_salvar_variante_tecido: ACL inesperada' USING ERRCODE = 'P0001';
   END IF;
 END
