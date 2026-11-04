@@ -13,6 +13,7 @@ import {
   ChevronUp,
   ChevronsUpDown,
   Plus,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -69,7 +70,6 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { CardDraftsProvider, useCardDrafts } from "@/components/shared/card-drafts/CardDraftsProvider";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
-import { CardSaveControls } from "@/components/shared/card-drafts/CardSaveControls";
 import { usePreviaServidor } from "@/hooks/usePreviaServidor";
 import { cn } from "@/lib/utils";
 import { mergeDraft, igual } from "@/lib/colab/merge";
@@ -171,13 +171,30 @@ type Variante = {
 type Cor = { id: string; nome: string };
 type Apelido = { id: string; nome: string; cor_base_id: string | null };
 
-export function TecidoDetail({ artigoId, onClose, embedded = false, registerClose }: {
+type TecidoDetailProps = {
   artigoId: string; onClose: () => void; embedded?: boolean;
   /** Entrega ao pai (o Sheet) o `requestClose` DESTA tela: Esc e clique fora do Sheet passam pela mesma guarda do Voltar. */
   registerClose?: (fn: (() => void) | null) => void;
-}) {
+};
+
+/**
+ * Detalhe do tecido. UM Salvar só (o do cabeçalho): grava o tecido e TODAS as cores com rascunho (P-392 A). O
+ * `CardDraftsProvider` fica ACIMA do corpo para o `saveMut` do cabeçalho enxergar as cores sujas (registry); a UI de
+ * "Salvar todos"/✓ por cor NÃO é usada aqui.
+ */
+export function TecidoDetail(props: TecidoDetailProps) {
+  return (
+    <CardDraftsProvider>
+      <TecidoDetailCorpo {...props} />
+    </CardDraftsProvider>
+  );
+}
+
+function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose }: TecidoDetailProps) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  // Cores (variantes) com rascunho: registry do provider. Salvar/Descartar do cabeçalho agem sobre ELAS também.
+  const { nSujos: nCoresSujas, salvarTodos, descartarTodos } = useCardDrafts();
 
   const { data: artigo, isLoading } = useQuery({
     queryKey: ["artigo", artigoId],
@@ -195,14 +212,11 @@ export function TecidoDetail({ artigoId, onClose, embedded = false, registerClos
 
   const [form, setForm] = useState<Artigo | null>(null);
   const [catIds, setCatIds] = useState<string[]>([]);
-  // "Salvar por card": nº de cores (variantes) com rascunho não salvo — reportado pela VariantesSection (que tem o
-  // CardDraftsProvider). Entra na MESMA guarda de "alterações não salvas" do tecido (um só diálogo ao sair).
-  const [nCoresSujas, setNCoresSujas] = useState(0);
-
   // Guarda de alterações não salvas (Case C: full-page — não há open gate).
   // Snapshot cobre o form inteiro + catIds (categorias também são editáveis).
   const formSnapshot = useMemo(() => ({ form, catIds }), [form, catIds]);
   const { dirty: formDirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  // Cor com rascunho entra na MESMA guarda de "alterações não salvas" do tecido (um só diálogo ao sair).
   const dirty = formDirty || nCoresSujas > 0;
   const { requestClose, confirm } = useUnsavedGuard({
     dirty,
@@ -341,58 +355,41 @@ export function TecidoDetail({ artigoId, onClose, embedded = false, registerClos
     },
   });
 
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      if (!form) return;
-      const payload: any = {
-        nome: form.nome,
-        empresa_id: form.empresa_id || null,
-        representante_id: form.representante_id || null,
-        largura_estimada: form.largura_estimada ?? null,
-        categoria_tecido_id: catIds[0] || null,
-        composicao: form.composicao || null,
-        ncm: form.ncm?.trim() || null,
-        mes_id: form.mes_id || null,
-        ano_id: form.ano_id || null,
-        preco: form.preco ?? null,
-        unidade_medida: form.unidade_medida,
-        rendimento: form.unidade_medida === "kg" ? form.rendimento ?? null : null,
-      };
-      // Colab — TRAVA LEVE (rev otimista, SEM merge campo-a-campo): `.eq("rev", revRef.current)`
-      // só casa a linha se ninguém salvou este tecido desde a última carga (o UPDATE bumpa
-      // `artigos.rev` via trigger). 0 linhas devolvidas = conflito — não é erro de rede/permissão,
-      // então NÃO joga o erro do Supabase (viraria toast genérico); sinaliza com um código próprio
-      // pro onError tratar (recarrega + avisa, sem markClean, sem chamar set_artigo_categorias).
-      // `.eq("rev", ...)`: types.ts ainda não tem a coluna `rev` (regen pendente, débito conhecido
-      // — ver CLAUDE.md) — `as any` no builder inteiro, mesmo padrão já usado em ModeloDetailPanel.
-      const { data: updRows, error } = await (supabase.from("artigos") as any)
-        .update(payload)
-        .eq("id", artigoId)
-        .eq("rev", revRef.current)
-        .select("id, rev");
-      if (error) throw error;
-      if (revRef.current != null && (!updRows || updRows.length === 0)) {
-        const conflito: any = new Error("conflito_versao: o tecido foi salvo por outra pessoa");
-        conflito.code = "P0409_LOCAL";
-        throw conflito;
-      }
-      // Re-baseliza o revRef com o rev NOVO (já bumpado por este UPDATE) IMEDIATAMENTE — sem esperar
-      // o refetch assíncrono do onSuccess. Sem isto, um 2º Salvar rápido mandaria o rev velho no
-      // WHERE → 0 linhas → P0409 FALSO contra o próprio save anterior (lição da Explosão).
-      if (updRows && updRows[0]?.rev != null) revRef.current = updRows[0].rev as number;
+  // O mutationFn lê o estado MAIS RECENTE por ref (a closure é a do render do clique).
+  const formDirtyRef = useRef(formDirty);
+  formDirtyRef.current = formDirty;
+  const nCoresSujasRef = useRef(nCoresSujas);
+  nCoresSujasRef.current = nCoresSujas;
 
-      // Junção de categorias, ATÔMICA (RPC): evita o tecido ficar sem nenhuma categoria caso o
-      // insert falhasse após o delete (antes era delete-all + insert em 2 passos no cliente).
-      // Só roda se o UPDATE acima passou (0 linhas já lançou P0409_LOCAL e abortou antes daqui).
-      const { error: catErr } = await supabase.rpc("set_artigo_categorias" as any, {
-        _artigo_id: artigoId,
-        _cat_ids: catIds,
-      });
-      if (catErr) throw catErr;
+  // UM Salvar só (P-392 A): grava o tecido (artigos) e, DEPOIS, cada cor com rascunho (RPC `salvar_variante_tecido`, CAS por
+  // campo, via `salvarTodos` do registry). Cada cor é uma chamada/transação: se uma falha (conflito P0409, duplicada 23505,
+  // prévia sem assinatura…), o tecido e as OUTRAS cores já gravados FICAM e a que falhou continua suja, com o aviso na própria
+  // cor. Falha do TECIDO (conflito de rev) aborta antes das cores (elas seguem sujas).
+  type ResultadoSalvar = { tecidoSalvo: boolean; cores: { ok: number; erro: number } };
+  const saveMut = useMutation({
+    mutationFn: async (): Promise<ResultadoSalvar | void> => {
+      if (!form) return;
+      // Só cores sujas (tecido limpo): NÃO regrava o tecido — gravar o `artigos` sem mudança não tem o que dizer e ainda
+      // arriscaria um conflito de rev falso (cada cor salva bumpa o `artigos.rev` por trigger). Nada sujo = Salvar de sempre.
+      const soCores = !formDirtyRef.current && nCoresSujasRef.current > 0;
+      if (!soCores) await salvarTecido();
+      const cores = nCoresSujasRef.current > 0 ? await salvarTodos() : { ok: 0, erro: 0 };
+      return { tecidoSalvo: !soCores, cores };
     },
-    onSuccess: () => {
-      markClean();
-      toast.success("Tecido atualizado.");
+    onSuccess: (r) => {
+      const res = r ?? { tecidoSalvo: true, cores: { ok: 0, erro: 0 } };
+      if (res.tecidoSalvo) markClean();
+      const { ok, erro } = res.cores;
+      const cor = (n: number, sing: string, plur: string) => `${n} ${n === 1 ? sing : plur}`;
+      const partes: string[] = [];
+      if (res.tecidoSalvo) partes.push("Tecido atualizado");
+      if (ok > 0) partes.push(cor(ok, "cor salva", "cores salvas"));
+      if (erro > 0) {
+        // o detalhe de CADA cor que falhou fica no aviso da própria cor (aberta e destacada)
+        toast.error(`${partes.length ? `${partes.join(" e ")}; ` : ""}${cor(erro, "cor com erro", "cores com erro")} — veja o aviso na cor.`);
+      } else {
+        toast.success(`${partes.join(" e ")}.`);
+      }
       qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigos"] });
       qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
@@ -402,13 +399,71 @@ export function TecidoDetail({ artigoId, onClose, embedded = false, registerClos
       if (e?.code === "P0409_LOCAL") {
         // Conflito: NÃO markClean (mantém o dirty p/ o usuário reaplicar a edição se quiser) —
         // só recarrega a versão do servidor (sem merge campo-a-campo, decisão do dono p/ Tecido).
-        toast.warning("Alguém salvou este tecido agora — recarreguei a versão mais recente; refaça sua alteração se necessário.");
+        toast.warning("Alguém salvou este tecido agora — recarreguei a versão mais recente; refaça sua alteração se necessário. As cores ficaram como estavam (ainda não salvas).");
         qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
       } else {
         toast.error(mensagemErro(e, "Erro ao salvar."));
       }
     },
   });
+
+  // Grava os campos do tecido (artigos + categorias). Lança P0409_LOCAL em conflito de rev.
+  async function salvarTecido() {
+    if (!form) return;
+    const payload: any = {
+      nome: form.nome,
+      empresa_id: form.empresa_id || null,
+      representante_id: form.representante_id || null,
+      largura_estimada: form.largura_estimada ?? null,
+      categoria_tecido_id: catIds[0] || null,
+      composicao: form.composicao || null,
+      ncm: form.ncm?.trim() || null,
+      mes_id: form.mes_id || null,
+      ano_id: form.ano_id || null,
+      preco: form.preco ?? null,
+      unidade_medida: form.unidade_medida,
+      rendimento: form.unidade_medida === "kg" ? form.rendimento ?? null : null,
+    };
+    // Colab — TRAVA LEVE (rev otimista, SEM merge campo-a-campo): `.eq("rev", revRef.current)`
+    // só casa a linha se ninguém salvou este tecido desde a última carga (o UPDATE bumpa
+    // `artigos.rev` via trigger). 0 linhas devolvidas = conflito — não é erro de rede/permissão,
+    // então NÃO joga o erro do Supabase (viraria toast genérico); sinaliza com um código próprio
+    // pro onError tratar (recarrega + avisa, sem markClean, sem chamar set_artigo_categorias).
+    // `.eq("rev", ...)`: types.ts ainda não tem a coluna `rev` (regen pendente, débito conhecido
+    // — ver CLAUDE.md) — `as any` no builder inteiro, mesmo padrão já usado em ModeloDetailPanel.
+    const { data: updRows, error } = await (supabase.from("artigos") as any)
+      .update(payload)
+      .eq("id", artigoId)
+      .eq("rev", revRef.current)
+      .select("id, rev");
+    if (error) throw error;
+    if (revRef.current != null && (!updRows || updRows.length === 0)) {
+      const conflito: any = new Error("conflito_versao: o tecido foi salvo por outra pessoa");
+      conflito.code = "P0409_LOCAL";
+      throw conflito;
+    }
+    // Re-baseliza o revRef com o rev NOVO (já bumpado por este UPDATE) IMEDIATAMENTE — sem esperar
+    // o refetch assíncrono do onSuccess. Sem isto, um 2º Salvar rápido mandaria o rev velho no
+    // WHERE → 0 linhas → P0409 FALSO contra o próprio save anterior (lição da Explosão).
+    if (updRows && updRows[0]?.rev != null) revRef.current = updRows[0].rev as number;
+
+    // Junção de categorias, ATÔMICA (RPC): evita o tecido ficar sem nenhuma categoria caso o
+    // insert falhasse após o delete (antes era delete-all + insert em 2 passos no cliente).
+    // Só roda se o UPDATE acima passou (0 linhas já lançou P0409_LOCAL e abortou antes daqui).
+    const { error: catErr } = await supabase.rpc("set_artigo_categorias" as any, {
+      _artigo_id: artigoId,
+      _cat_ids: catIds,
+    });
+    if (catErr) throw catErr;
+  }
+
+  // Descartar alterações: volta o tecido E todas as cores ao que está no banco (nada foi ao servidor antes do Salvar).
+  const descartarTudo = () => {
+    if (artigo) setForm(artigo);
+    if (catLinks) setCatIds(catLinks);
+    if (artigo && catLinks) resetBaseline({ form: artigo, catIds: catLinks });
+    descartarTodos();
+  };
 
   // Aplica o preço do tecido (campo Preço) a TODAS as variantes — replicar sob demanda (botão
   // ao lado do label). O trigger mantém artigos.preco = MAX(variantes). Não invalida ["artigo"]
@@ -481,10 +536,18 @@ export function TecidoDetail({ artigoId, onClose, embedded = false, registerClos
           <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
         </Button>
       )}
-      <Button className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
-        <Save className="h-4 w-4 sm:mr-1" />
-        <span className="max-sm:sr-only">{saveMut.isPending ? "Salvando…" : "Salvar"}</span>
-      </Button>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {!readOnly && dirty && (
+          <Button variant="outline" onClick={descartarTudo} disabled={saveMut.isPending} aria-label="Descartar alterações" title="Volta o tecido e as cores ao que está salvo" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Undo2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Descartar alterações</span>
+          </Button>
+        )}
+        {/* UM Salvar só: grava o tecido E todas as cores com rascunho. */}
+        <Button className="shrink-0 max-sm:aspect-square max-sm:px-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+          <Save className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">{saveMut.isPending ? "Salvando…" : "Salvar"}</span>
+        </Button>
+      </div>
     </>
   );
 
@@ -747,7 +810,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false, registerClos
         </CardContent>
       </Card>
 
-      <VariantesSection artigoId={artigoId} readOnly={readOnly} precoArtigo={form.preco ?? null} onSujosChange={setNCoresSujas} />
+      <VariantesSection artigoId={artigoId} readOnly={readOnly} precoArtigo={form.preco ?? null} />
     </>
   );
 
@@ -810,10 +873,8 @@ function Field({
 
 // ============= Variants =============
 
-export function VariantesSection({ artigoId, readOnly, precoArtigo, onSujosChange }: {
+export function VariantesSection({ artigoId, readOnly, precoArtigo }: {
   artigoId: string; readOnly: boolean; precoArtigo: number | null;
-  /** nº de cores com rascunho não salvo (a tela do tecido soma à guarda de "alterações não salvas") */
-  onSujosChange?: (n: number) => void;
 }) {
   const qc = useQueryClient();
   const [removeTarget, setRemoveTarget] = useState<Variante | null>(null);
@@ -964,27 +1025,24 @@ export function VariantesSection({ artigoId, readOnly, precoArtigo, onSujosChang
         {variantes.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">Nenhuma variante criada ainda.</p>
         ) : (
-          // "Salvar por card": cada cor é um rascunho (✓ Salvar / ↺ Desfazer); o provider soma os sujos para a barra
-          // "Salvar todos" e para a guarda de saída. Foto e endereços continuam gravando na hora.
-          <CardDraftsProvider>
-            <RelataCoresSujas onChange={onSujosChange} />
-            {!readOnly && <BarraSalvarTodasCores />}
-            <ul className="space-y-2">
-              {variantes.map((v) => (
-                <VariantRow
-                  key={v.id}
-                  variante={v}
-                  corLabel={v.cor_id ? coresMap.get(v.cor_id) ?? "—" : "—"}
-                  apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
-                  cores={cores}
-                  apelidos={apelidos}
-                  enderecosDaVariante={rollup?.get(v.id) ?? []}
-                  onRemove={() => setRemoveTarget(v)}
-                  readOnly={readOnly}
-                />
-              ))}
-            </ul>
-          </CardDraftsProvider>
+          // Cada cor é um rascunho LOCAL (selo "editado"; nada vai ao banco ao editar). Quem grava é o UM Salvar do
+          // cabeçalho do tecido (`TecidoDetail`), que percorre as cores sujas pelo registry do `CardDraftsProvider` (acima).
+          // Foto e endereços continuam gravando na hora.
+          <ul className="space-y-2">
+            {variantes.map((v) => (
+              <VariantRow
+                key={v.id}
+                variante={v}
+                corLabel={v.cor_id ? coresMap.get(v.cor_id) ?? "—" : "—"}
+                apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
+                cores={cores}
+                apelidos={apelidos}
+                enderecosDaVariante={rollup?.get(v.id) ?? []}
+                onRemove={() => setRemoveTarget(v)}
+                readOnly={readOnly}
+              />
+            ))}
+          </ul>
         )}
       </CardContent>
 
@@ -1018,7 +1076,7 @@ export function VariantesSection({ artigoId, readOnly, precoArtigo, onSujosChang
   );
 }
 
-// ============= Salvar por card (cores) =============
+// ============= Cores: rascunho local + UM Salvar (cabeçalho do tecido) =============
 
 /** Os 5 campos do rascunho de uma cor. "" = vazio nos textos/Selects; `preco` é NÚMERO (ou null). */
 export type VarianteDraft = {
@@ -1072,7 +1130,7 @@ export function draftParaServidor(d: Partial<VarianteDraft>): Record<string, unk
   return out;
 }
 
-/** Erro já mostrado ao usuário (toast) — o `salvar` do hook relança para a barra "Salvar todos" contar como erro. */
+/** Falha já explicada no aviso da própria cor — o `salvar` do hook relança para o Salvar geral contar a cor como erro. */
 class SalvarCorJaTratado extends Error {
   constructor(m = "salvar_cor_tratado") { super(m); this.name = "SalvarCorJaTratado"; }
 }
@@ -1090,40 +1148,6 @@ export function textoPreviaPreco(afetados: number | null | undefined): string | 
   return afetados === 1
     ? "até 1 produto terá o custo recalculado"
     : `até ${afetados} produtos terão o custo recalculado`;
-}
-
-function RelataCoresSujas({ onChange }: { onChange?: (n: number) => void }) {
-  const { nSujos } = useCardDrafts();
-  useEffect(() => {
-    onChange?.(nSujos);
-    return () => onChange?.(0);
-  }, [nSujos, onChange]);
-  return null;
-}
-
-function BarraSalvarTodasCores() {
-  const { nSujos, salvarTodos } = useCardDrafts();
-  const [salvando, setSalvando] = useState(false);
-  if (nSujos < 2) return null; // com 1 cor suja o ✓ da própria cor basta
-  const onClick = async () => {
-    setSalvando(true);
-    try {
-      const { ok, erro } = await salvarTodos();
-      if (erro > 0) toast.error(`${ok} ${ok === 1 ? "cor salva" : "cores salvas"}, ${erro} com erro.`);
-      else if (ok > 0) toast.success(`${ok} ${ok === 1 ? "cor salva" : "cores salvas"}.`);
-    } finally { setSalvando(false); }
-  };
-  return (
-    <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-      <span className="text-sm text-amber-700 dark:text-amber-400">
-        {`${nSujos} cores com alterações não salvas`}
-      </span>
-      <Button type="button" size="sm" onClick={onClick} disabled={salvando}>
-        {salvando ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-        Salvar todos ({nSujos})
-      </Button>
-    </div>
-  );
 }
 
 /** Conflito de UM campo (outra pessoa mudou o que eu também editei): "manter meu / usar o novo", dentro da cor. */
@@ -1183,25 +1207,27 @@ function VariantRow({
   conflitosRef.current = conflitos;
   const ultimoEnviadoRef = useRef<Partial<VarianteDraft>>({});
   const previaRef = useRef<{ carregando: boolean; assinatura: string | null }>({ carregando: false, assinatura: null });
+  // Por que ESTA cor não foi gravada no último Salvar geral (aviso na própria cor; some ao descartar/gravar/ficar limpa).
+  const [erroCor, setErroCor] = useState<string | null>(null);
 
+  // Chamado pelo Salvar do cabeçalho (via registry), uma vez por cor suja. Falha = aviso na cor (aberta) + relança.
   const salvarFn = useCallback(async (mudancas: Partial<VarianteDraft>, baseEnviada: VarianteDraft) => {
+    const falha = (msg: string): never => { setErroCor(msg); setExpanded(true); throw new SalvarCorJaTratado(); };
+    setErroCor(null);
     if (Object.keys(conflitosRef.current).length > 0) {
-      toast.warning("Resolva os campos em conflito desta cor (manter meu / usar o novo) antes de salvar.");
-      throw new SalvarCorJaTratado();
+      falha("Resolva os campos em conflito desta cor (manter meu / usar o novo) e salve de novo.");
     }
     const tocouPreco = "preco" in mudancas;
     if (tocouPreco) {
-      // Espera a prévia terminar (digitou e já clicou ✓ / "Salvar todos"): não manda assinatura velha.
+      // Espera a prévia terminar (digitou o preço e já clicou Salvar): não manda assinatura velha NEM grava às cegas.
       const limite = Date.now() + 5000;
       while (previaRef.current.carregando && Date.now() < limite) await new Promise((r) => setTimeout(r, 40));
       if (previaRef.current.carregando) {
-        toast.warning("Aguarde o cálculo do efeito do preço e tente de novo.");
-        throw new SalvarCorJaTratado();
+        falha("Aguarde o cálculo do efeito do preço e salve de novo.");
       }
       if (previaRef.current.assinatura == null) {
         // a prévia terminou e FALHOU (sem assinatura): re-editar o preço repede a prévia (args novos)
-        toast.warning("Não consegui calcular o efeito do preço. Edite o valor para tentar de novo.");
-        throw new SalvarCorJaTratado();
+        falha("Não consegui calcular o efeito do preço. Edite o valor para tentar de novo.");
       }
     }
     const { error } = await supabase.rpc("salvar_variante_tecido" as any, {
@@ -1218,8 +1244,7 @@ function VariantRow({
       // Outra pessoa salvou esta cor no meio: relê do servidor — o efeito de `base` abaixo faz o merge 3-vias (campo que
       // eu não toquei adota o dela; campo que os dois mexeram vira conflito "manter meu / usar o novo").
       await qc.refetchQueries({ queryKey: ["variantes", variante.artigo_id] });
-      toast.warning("Outra pessoa alterou esta cor. Atualizei o que você não tinha mexido — confira antes de salvar de novo.");
-      throw new SalvarCorJaTratado();
+      falha("Outra pessoa alterou esta cor. Atualizei o que você não tinha mexido — confira os campos em conflito e salve de novo.");
     }
     if (code === "P0409" && msg.startsWith("previa_desatualizada")) {
       // A lista de produtos afetados mudou desde a prévia: NÃO grava; repede a prévia e avisa.
@@ -1227,11 +1252,9 @@ function VariantRow({
       setPreviaPausa(true);
       await new Promise((r) => setTimeout(r, 0));
       setPreviaPausa(false);
-      toast.warning("O resultado mudou — confira o novo número de produtos e salve de novo.");
-      throw new SalvarCorJaTratado();
+      falha("O resultado mudou — confira o novo número de produtos e salve de novo.");
     }
-    toast.error(mensagemSalvarCor(error));
-    throw new SalvarCorJaTratado();
+    return falha(mensagemSalvarCor(error));
   }, [variante.id, variante.artigo_id, qc]);
 
   const onSalvo = useCallback(() => {
@@ -1240,8 +1263,16 @@ function VariantRow({
     qc.invalidateQueries({ queryKey: ["artigos"] });
   }, [qc, variante.artigo_id]);
 
-  const draft = useCardDraft<VarianteDraft>({ id: variante.id, base, salvarFn, onSalvo });
+  // Descartar (Esc na cor, "Descartar alterações" do cabeçalho): além do rascunho, limpa o que é só desta tela.
+  const limpaExtrasDaCor = useCallback(() => {
+    setConflitos({});
+    setPreviaMudou(false);
+    setErroCor(null);
+    setVPreco((n) => n + 1);
+  }, []);
+  const draft = useCardDraft<VarianteDraft>({ id: variante.id, base, salvarFn, onSalvo, onDescartar: limpaExtrasDaCor });
   const { valor, patch } = draft;
+  useEffect(() => { if (!draft.dirty) setErroCor(null); }, [draft.dirty]); // cor limpa (descartou/"usar o novo"/gravou): sem aviso velho
   const tocouPreco = !Object.is(valor.preco, base.preco);
 
   const previa = usePreviaServidor<{ afetados: number; assinatura: string }>({
@@ -1307,27 +1338,17 @@ function VariantRow({
     );
   };
 
-  const salvarClique = async () => {
-    try { await draft.salvar(); toast.success("Cor salva."); } catch { /* já tratado (toast) em salvarFn */ }
-  };
-  const descartarClique = () => {
-    draft.descartar();
-    setConflitos({});
-    setPreviaMudou(false);
-    setVPreco((n) => n + 1);
-  };
-
-  // Enter (num campo de texto, card sujo) salva; Esc desfaz. Só age em eventos que vêm dos 5 campos do rascunho
-  // (`data-rascunho`), nunca de dentro de um Select aberto (a lista é portal: o evento sobe pela árvore React, mas o alvo
-  // não está num campo marcado) nem do editor de endereços.
+  // Esc num campo de cor editada = DESFAZ aquela cor (não fecha o Sheet — `escapeEmCardSujo`). NÃO há Enter-para-salvar: o
+  // Salvar é UM só (cabeçalho do tecido), então Enter num campo não grava nada (evita um Salvar geral sem querer). Só age em
+  // eventos que vêm dos 5 campos do rascunho (`data-rascunho`), nunca de dentro de um Select aberto (a lista é portal: o
+  // evento sobe pela árvore React, mas o alvo não está num campo marcado) nem do editor de endereços.
   const onKeyDownCard = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (readOnly || !draft.dirty || e.nativeEvent.isComposing) return;
     const alvo = e.target as HTMLElement;
     if (!alvo.closest("[data-rascunho]") || alvo.closest('[role="listbox"]') || alvo.tagName === "TEXTAREA") return;
     // Esc NÃO checa `defaultPrevented`: dentro do Sheet o `SheetContent` já deu preventDefault (para o Radix não fechar o
-    // Sheet — ver `escapeEmCardSujo`) e é justamente aqui que a cor é desfeita. Enter: não repete durante o salvar em voo.
-    if (e.key === "Enter" && alvo.tagName === "INPUT" && !e.defaultPrevented && !draft.salvando) { e.preventDefault(); void salvarClique(); }
-    else if (e.key === "Escape") { e.preventDefault(); descartarClique(); }
+    // Sheet — ver `escapeEmCardSujo`) e é justamente aqui que a cor é desfeita.
+    if (e.key === "Escape") { e.preventDefault(); draft.descartar(); }
   };
 
   // ---- Foto (grava NA HORA, fora do rascunho — P-271) -----------------------------------------------------------
@@ -1395,15 +1416,17 @@ function VariantRow({
               : <span className="text-muted-foreground font-normal">Sem preço</span>}
           </p>
         </div>
-        {!readOnly && (
-          <CardSaveControls
-            dirty={draft.dirty}
-            salvando={draft.salvando}
-            onSalvar={salvarClique}
-            onDescartar={descartarClique}
-            labelSalvar="Salvar esta cor"
-            labelDescartar="Desfazer esta cor"
-          />
+        {/* Só um SELO (sem botão): o Salvar é o do cabeçalho do tecido, que grava esta cor junto. */}
+        {!readOnly && draft.dirty && (
+          <span
+            data-selo-editado
+            role="status"
+            title="Esta cor tem alterações que só valem ao clicar em Salvar (no rodapé)"
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-300"
+          >
+            <i className="h-[6px] w-[6px] shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" aria-hidden />
+            {draft.salvando ? "salvando…" : "editado"}
+          </span>
         )}
         <Button variant="ghost" size="icon" aria-label={expanded ? "Recolher" : "Expandir"} aria-expanded={expanded} onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}>
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1412,10 +1435,15 @@ function VariantRow({
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
       </div>
+      {draft.dirty && erroCor && (
+        <p role="alert" data-erro-cor className="border-t border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+          Não salvou esta cor: {erroCor}
+        </p>
+      )}
       {expanded && (
         <div className="grid gap-3 p-3 border-t md:grid-cols-3 bg-muted/30" onKeyDown={onKeyDownCard}>
-          {/* Cor base ↔ apelido editáveis (p/ acertar variantes antigas sem apelido). Vão para o RASCUNHO da cor (✓ Salvar /
-              ↺ Desfazer no cabeçalho); escolher apelido preenche a base. */}
+          {/* Cor base ↔ apelido editáveis (p/ acertar variantes antigas sem apelido). Vão para o RASCUNHO da cor (selo
+              "editado"; grava no Salvar do cabeçalho); escolher apelido preenche a base. */}
           <div className="space-y-1.5" data-rascunho>
             <Label>Cor base</Label>
             <Select

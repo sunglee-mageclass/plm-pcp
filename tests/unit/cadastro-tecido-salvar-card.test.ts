@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
-// "Salvar por card" no Cadastro › Tecidos (as CORES/variantes) — Tarefa 5 do plano `2026-11-04-salvar-por-card-tecido`.
-// Render de verdade de `VariantesSection` (react-dom/client + act; o projeto não tem @testing-library/react e o vitest só
-// inclui `*.test.ts` — por isso sem JSX). `supabase` é mockado (rpc + from); o Select do Radix é trocado por um stub de botões
-// (a lógica testada é a dos handlers da tela, não a do Radix).
+// UM Salvar só no Cadastro › Tecidos (P-392 A, Task 8 do plano `2026-11-04-salvar-por-card-tecido`): editar uma cor (ou o
+// tecido) fica SOLTO na tela (rascunho local, selo "editado", NADA no banco); o botão Salvar do CABEÇALHO grava o tecido E todas
+// as cores sujas (RPC `salvar_variante_tecido`, uma chamada por cor); "Descartar alterações" volta tudo ao banco. Sem ✓/↺ por
+// cor e sem "Salvar todos".
+// Render de verdade do `TecidoDetail` (react-dom/client + act; o projeto não tem @testing-library/react e o vitest só inclui
+// `*.test.ts` — por isso sem JSX). `supabase` é mockado (rpc + from); o Select do Radix é trocado por um stub de botões (a
+// lógica testada é a dos handlers da tela, não a do Radix).
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, createContext, createElement, useContext } from "react";
 import { createRoot } from "react-dom/client";
@@ -24,35 +27,66 @@ const novasVariantes = (): Linha[] => [
   { id: V1, artigo_id: "art1", cor_id: COR_A, cor_apelido_id: AP_A1, nome_variante: "Malha", codigo_variante: "C1", preco: 10, foto_url: null, historico_precos: [] },
   { id: V2, artigo_id: "art1", cor_id: COR_B, cor_apelido_id: AP_B1, nome_variante: null, codigo_variante: null, preco: 20.5, foto_url: null, historico_precos: [] },
 ];
+const novoArtigo = (): Linha => ({
+  id: "art1", nome: "Tecido Teste", empresa_id: null, representante_id: null, largura_estimada: null, categoria_tecido_id: null,
+  composicao: null, mes_id: null, ano_id: null, preco: 10, rendimento: null, preco_por_metro: null, unidade_medida: "metro",
+  ncm: null, historico_precos: [], rev: 1,
+});
 
-const estado = { variantes: novasVariantes() };
+const estado = { variantes: novasVariantes(), artigo: novoArtigo(), artigoUpdate: { data: [{ id: "art1", rev: 2 }], error: null } as any };
 const rpc = vi.fn();
 const toast = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
+let ordem: string[] = []; // ordem das gravações (tecido ANTES das cores)
+let artigoUpdates: Linha[] = [];
 
-function chain(dados: () => unknown) {
+function chain(t: string) {
+  let op = "select"; let payload: Linha | undefined;
+  const dados = () =>
+    t === "artigos" ? { ...estado.artigo }
+    : t === "cores" ? [{ id: COR_A, nome: "Azul" }, { id: COR_B, nome: "Verde" }]
+    : t === "cores_apelido" ? [{ id: AP_A1, nome: "Marinho", cor_base_id: COR_A }, { id: AP_B1, nome: "Musgo", cor_base_id: COR_B }]
+    : t === "variantes_tecido" ? estado.variantes.map((v) => ({ ...v }))
+    : [];
   const c: any = {
-    select: () => c, eq: () => c, order: () => c, update: () => c, insert: () => c,
-    then: (res: (v: unknown) => unknown) => res({ data: dados(), error: null }),
+    select: () => c, eq: () => c, order: () => c, insert: () => c, single: () => c, maybeSingle: () => c,
+    update: (p: Linha) => { op = "update"; payload = p; return c; },
+    then: (res: (v: unknown) => unknown) => {
+      if (t === "artigos" && op === "update") {
+        ordem.push("artigos.update"); artigoUpdates.push(payload!);
+        if (estado.artigoUpdate.data?.length) Object.assign(estado.artigo, payload, { rev: estado.artigoUpdate.data[0].rev });
+        return res(estado.artigoUpdate);
+      }
+      return res({ data: dados(), error: null });
+    },
   };
   return c;
 }
 const supabaseMock = {
   rpc: (...a: unknown[]) => rpc(...a),
-  from: (t: string) => chain(() =>
-    t === "cores" ? [{ id: COR_A, nome: "Azul" }, { id: COR_B, nome: "Verde" }]
-    : t === "cores_apelido" ? [{ id: AP_A1, nome: "Marinho", cor_base_id: COR_A }, { id: AP_B1, nome: "Musgo", cor_base_id: COR_B }]
-    : t === "variantes_tecido" ? estado.variantes.map((v) => ({ ...v }))
-    : []),
+  from: (t: string) => chain(t),
   storage: { from: () => ({ upload: vi.fn(), remove: vi.fn() }) },
+  channel: () => ({ on: () => ({ subscribe: () => ({}) }), subscribe: () => ({}), unsubscribe: vi.fn() }),
+  removeChannel: vi.fn(),
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function montar(props: { readOnly?: boolean } = {}) {
+function mocksComuns() {
   vi.resetModules();
   vi.doMock("@/integrations/supabase/client", () => ({ supabase: supabaseMock }));
   vi.doMock("sonner", () => ({ toast }));
+  vi.doMock("@tanstack/react-router", () => ({
+    createFileRoute: () => () => ({ useParams: () => ({ artigoId: "art1" }) }),
+    Link: (p: any) => createElement("a", null, p.children),
+    useNavigate: () => vi.fn(),
+    useBlocker: () => ({ status: "idle" as const, proceed: vi.fn(), reset: vi.fn() }),
+  }));
   vi.doMock("@/hooks/useSignedUrl", () => ({ useSignedUrl: () => null, VARIANT_BUCKET: "variantes" }));
+  vi.doMock("@/hooks/useColabRegistro", () => ({ useColabRegistro: () => ({ presentes: [] }) }));
+  vi.doMock("@/components/shared/ColabPresenceOverlay", () => ({ ColabPresenceOverlay: () => null }));
+  vi.doMock("@/components/shared/Breadcrumb", () => ({ Breadcrumb: () => null }));
+  vi.doMock("@/components/shared/FornecedorSelect", () => ({ FornecedorSelect: () => null }));
+  vi.doMock("@/components/shared/EtiquetaLavagemArtigo", () => ({ EtiquetaLavagemArtigoEditor: () => null }));
   vi.doMock("@/components/tecido/EnderecoEditor", () => ({
     EnderecoConsolidadoEditor: () => null,
     useEnderecosRollup: () => ({ data: new Map() }),
@@ -71,30 +105,48 @@ async function montar(props: { readOnly?: boolean } = {}) {
       },
     };
   });
+}
+
+/** Monta o `TecidoDetail` COMPLETO (cabeçalho com o Salvar único + cores), embutido (sem Sheet). */
+async function montar() {
+  mocksComuns();
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { TecidoDetail } = await import("@/routes/_authenticated/cadastro.tecidos.$artigoId");
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const onClose = vi.fn();
+  await act(async () => {
+    root.render(createElement(QueryClientProvider, { client: qc }, createElement(TecidoDetail, { artigoId: "art1", onClose, embedded: true })));
+  });
+  for (let i = 0; i < 40 && container.querySelectorAll("ul > li").length < 2; i++) await flush(50);
+  return { container, qc, onClose, desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
+}
+
+/** Só a `VariantesSection` (sem cabeçalho): para o modo SÓ LEITURA, que o `TecidoDetail` recebe do contexto. */
+async function montarSecao(props: { readOnly: boolean }) {
+  mocksComuns();
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { VariantesSection } = await import("@/routes/_authenticated/cadastro.tecidos.$artigoId");
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  const onSujosChange = vi.fn();
   await act(async () => {
     root.render(createElement(QueryClientProvider, { client: qc },
-      createElement(VariantesSection, { artigoId: "art1", readOnly: props.readOnly ?? false, precoArtigo: null, onSujosChange })));
+      createElement(VariantesSection, { artigoId: "art1", readOnly: props.readOnly, precoArtigo: null })));
   });
   await flush(40);
-  return {
-    container, qc, onSujosChange,
-    desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); },
-  };
+  return { container, desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
 }
 
 const flush = (ms = 30) => act(async () => { await sleep(ms); });
 const PREVIA_MS = 380; // atraso da prévia (300) + folga
 
 const lis = (c: HTMLElement) => Array.from(c.querySelectorAll("ul > li")) as HTMLElement[];
-const porLabel = (li: HTMLElement, label: string) => li.querySelector(`[aria-label="${label}"]`) as HTMLButtonElement | null;
-const clicar = (el: Element | null) => act(async () => { (el as HTMLElement).click(); });
+const porLabel = (c: HTMLElement, label: string) => c.querySelector(`[aria-label="${label}"]`) as HTMLButtonElement | null;
+const clicar = (el: Element | null | undefined) => act(async () => { (el as HTMLElement).click(); });
 const expandir = async (li: HTMLElement) => { await clicar(porLabel(li, "Expandir")); };
 function digitar(el: HTMLInputElement, valor: string) {
   const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -106,39 +158,55 @@ const item = (sel: HTMLElement, valor: string) => sel.querySelector(`[data-item=
 const tecla = (el: Element, key: string) => act(async () => { el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })); });
 const salvaRpcs = () => rpc.mock.calls.filter((c) => c[0] === "salvar_variante_tecido");
 const previaRpcs = () => rpc.mock.calls.filter((c) => c[0] === "variante_tecido_preco_previa");
+/** Nome do TECIDO (1º campo da seção "Informações", fora das cores). */
+const nomeTecido = (c: HTMLElement) => Array.from(c.querySelectorAll("input")).find((i) => !i.closest("ul") && i.value.length > 0 && i.type !== "file")! as HTMLInputElement;
+const salvarGeral = (c: HTMLElement) => clicar(porLabel(c, "Salvar"));
+const descartarGeral = (c: HTMLElement) => clicar(porLabel(c, "Descartar alterações"));
+const aviso = (li: HTMLElement) => li.querySelector("[data-erro-cor]")?.textContent ?? "";
+const botoesComTexto = (c: HTMLElement, t: string) => Array.from(c.querySelectorAll("button")).filter((b) => b.textContent?.includes(t));
 
 beforeEach(() => {
   estado.variantes = novasVariantes();
+  estado.artigo = novoArtigo();
+  estado.artigoUpdate = { data: [{ id: "art1", rev: 2 }], error: null };
+  ordem = []; artigoUpdates = [];
   rpc.mockReset();
   Object.values(toast).forEach((f) => f.mockReset());
   rpc.mockImplementation(async (nome: string, args: any) => {
     if (nome === "variante_tecido_preco_previa") return { data: { afetados: 3, assinatura: `sig-${args._preco}` }, error: null };
     if (nome === "salvar_variante_tecido") {
+      ordem.push("rpc:salvar_variante_tecido");
       const v = estado.variantes.find((x) => x.id === args._id)!;
       Object.assign(v, args._mudancas);
       return { data: null, error: null };
     }
+    if (nome === "set_artigo_categorias") { ordem.push("rpc:set_artigo_categorias"); return { data: null, error: null }; }
     return { data: null, error: null };
   });
 });
 
-describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
-  it("editar o preço: 'não salvo' + ✓/↺, NÃO chama a RPC ao digitar; ✓ manda _mudancas:{preco: NÚMERO} + _assinatura", async () => {
+describe("Cadastro › Tecidos — UM Salvar para o tecido e as cores", () => {
+  it("editar o preço de uma cor fica SOLTO: selo 'editado' (sem ✓/↺), nada vai ao banco; o Salvar do cabeçalho grava _mudancas:{preco: NÚMERO} + _assinatura", async () => {
     const t = await montar();
     const [li1] = lis(t.container);
-    expect(porLabel(li1, "Salvar esta cor")).toBeNull(); // limpo: sem controles
+    expect(li1.textContent).not.toContain("editado"); // limpa: sem selo
+    expect(porLabel(t.container, "Descartar alterações")).toBeNull(); // nada sujo: sem Descartar
     await expandir(li1);
     await digitar(campos(li1)[2], "25,5"); // centavos com vírgula: Number() cru daria NaN
-    expect(li1.textContent).toContain("não salvo");
-    expect(porLabel(li1, "Salvar esta cor")).toBeTruthy();
-    expect(porLabel(li1, "Desfazer esta cor")).toBeTruthy();
+    expect(li1.querySelector("[data-selo-editado]")?.textContent).toContain("editado");
+    // SEM botões por cor
+    expect(porLabel(t.container, "Salvar esta cor")).toBeNull();
+    expect(porLabel(t.container, "Desfazer esta cor")).toBeNull();
+    expect(t.container.textContent).toContain("alterações não salvas"); // o selo do cabeçalho conta a cor suja
     expect(salvaRpcs().length).toBe(0); // digitar não grava
+    expect(artigoUpdates.length).toBe(0);
 
     await flush(PREVIA_MS);
     expect(previaRpcs().at(-1)).toEqual(["variante_tecido_preco_previa", { _id: V1, _preco: 25.5 }]);
+    expect(salvaRpcs().length).toBe(0); // a prévia é só leitura
 
-    await clicar(porLabel(li1, "Salvar esta cor"));
-    await flush();
+    await salvarGeral(t.container);
+    await flush(60);
     expect(salvaRpcs().length).toBe(1);
     const [, args] = salvaRpcs()[0];
     expect(args._id).toBe(V1);
@@ -149,48 +217,97 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     expect(args._base).toEqual({
       cor_id: COR_A.toLowerCase(), cor_apelido_id: AP_A1.toLowerCase(), nome_variante: "Malha", codigo_variante: "C1", preco: 10,
     });
-    expect(li1.textContent).not.toContain("não salvo");
-    expect(toast.success).toHaveBeenCalledWith("Cor salva.");
+    // tecido limpo: NÃO regrava o `artigos` (nem categorias) — só as cores
+    expect(ordem).toEqual(["rpc:salvar_variante_tecido"]);
+    expect(li1.textContent).not.toContain("editado");
+    expect(t.container.textContent).not.toContain("alterações não salvas");
+    expect(toast.success).toHaveBeenCalledWith("1 cor salva.");
     await t.desmontar();
   });
 
-  it("↺ Desfazer volta ao valor salvo e some o 'não salvo'", async () => {
-    const t = await montar();
-    const [li1] = lis(t.container);
-    await expandir(li1);
-    await digitar(campos(li1)[2], "99");
-    expect(li1.textContent).toContain("não salvo");
-    await clicar(porLabel(li1, "Desfazer esta cor"));
-    await flush();
-    expect(li1.textContent).not.toContain("não salvo");
-    expect(campos(li1)[2].value).toBe("10,00");
-    expect(salvaRpcs().length).toBe(0);
-    await t.desmontar();
-  });
-
-  it("editar as 2 cores: 'Salvar todos (2)' aparece e salva as duas (só os campos tocados; sem assinatura quando o preço não mudou)", async () => {
+  it("o Salvar do cabeçalho grava o TECIDO e depois TODAS as cores sujas (cada uma com SÓ os campos tocados; sem assinatura quando o preço não mudou)", async () => {
     const t = await montar();
     const [li1, li2] = lis(t.container);
     await expandir(li1); await expandir(li2);
-    expect(t.container.textContent).not.toContain("Salvar todos");
+    await digitar(nomeTecido(t.container), "Tecido Novo");
     await digitar(campos(li1)[0], "Malha Fria");
-    expect(t.container.textContent).not.toContain("Salvar todos"); // 1 cor suja: o ✓ da própria cor basta (barra só com 2+)
     await digitar(campos(li2)[1], "X-77");
-    const botao = Array.from(t.container.querySelectorAll("button")).find((b) => b.textContent?.includes("Salvar todos (2)"));
-    expect(botao).toBeTruthy();
-    expect(t.onSujosChange).toHaveBeenLastCalledWith(2);
+    expect(salvaRpcs().length).toBe(0);
+    expect(artigoUpdates.length).toBe(0); // tudo solto até o Salvar
 
-    await clicar(botao!);
-    await flush(60);
+    await salvarGeral(t.container);
+    await flush(80);
+    expect(ordem).toEqual(["artigos.update", "rpc:set_artigo_categorias", "rpc:salvar_variante_tecido", "rpc:salvar_variante_tecido"]);
+    expect(artigoUpdates[0].nome).toBe("Tecido Novo");
     const chamadas = salvaRpcs().map((c) => c[1]);
-    expect(chamadas.length).toBe(2);
     expect(chamadas.find((a) => a._id === V1)._mudancas).toEqual({ nome_variante: "Malha Fria" });
     expect(chamadas.find((a) => a._id === V2)._mudancas).toEqual({ codigo_variante: "X-77" });
     expect(chamadas.every((a) => a._assinatura === null)).toBe(true);
-    expect(toast.success).toHaveBeenCalledWith("2 cores salvas.");
+    expect(toast.success).toHaveBeenCalledWith("Tecido atualizado e 2 cores salvas.");
     await flush(60);
-    expect(t.container.textContent).not.toContain("Salvar todos");
-    expect(t.onSujosChange).toHaveBeenLastCalledWith(0);
+    expect(t.container.textContent).not.toContain("editado");
+    expect(t.container.textContent).not.toContain("alterações não salvas");
+    expect(porLabel(t.container, "Descartar alterações")).toBeNull();
+    await t.desmontar();
+  });
+
+  it("NÃO existe mais 'Salvar todos' nem ✓/↺ por cor, com 1 ou 2 cores sujas — só UM botão Salvar", async () => {
+    const t = await montar();
+    const [li1, li2] = lis(t.container);
+    await expandir(li1); await expandir(li2);
+    await digitar(campos(li1)[0], "Malha Fria");
+    await digitar(campos(li2)[1], "X-77");
+    expect(botoesComTexto(t.container, "Salvar todos").length).toBe(0);
+    expect(t.container.querySelectorAll('[aria-label="Salvar esta cor"], [aria-label="Desfazer esta cor"]').length).toBe(0);
+    expect(t.container.querySelectorAll('[aria-label="Salvar"]').length).toBe(1);
+    expect(li1.querySelectorAll('[aria-label^="Salvar"], [aria-label^="Desfazer"]').length).toBe(0);
+    await t.desmontar();
+  });
+
+  it("Descartar alterações volta o tecido E todas as cores ao que está no banco (nenhuma RPC)", async () => {
+    const t = await montar();
+    const [li1, li2] = lis(t.container);
+    await expandir(li1); await expandir(li2);
+    await digitar(nomeTecido(t.container), "Tecido Novo");
+    await digitar(campos(li1)[2], "99");
+    await digitar(campos(li2)[1], "X-77");
+    expect(porLabel(t.container, "Descartar alterações")).toBeTruthy();
+
+    await descartarGeral(t.container);
+    await flush();
+    expect(nomeTecido(t.container).value).toBe("Tecido Teste");
+    expect(campos(li1)[2].value).toBe("10,00"); // o MoneyInput remontou com o valor do banco
+    expect(campos(li2)[1].value).toBe("");
+    expect(t.container.textContent).not.toContain("editado");
+    expect(t.container.textContent).not.toContain("alterações não salvas");
+    expect(porLabel(t.container, "Descartar alterações")).toBeNull();
+    expect(salvaRpcs().length).toBe(0);
+    expect(artigoUpdates.length).toBe(0);
+    await t.desmontar();
+  });
+
+  it("nada sujo: o Salvar segue gravando o tecido (comportamento de sempre)", async () => {
+    const t = await montar();
+    await salvarGeral(t.container);
+    await flush(60);
+    expect(ordem).toEqual(["artigos.update", "rpc:set_artigo_categorias"]);
+    expect(toast.success).toHaveBeenCalledWith("Tecido atualizado.");
+    await t.desmontar();
+  });
+
+  it("conflito do TECIDO (rev) aborta ANTES das cores: nenhuma cor é gravada e todas seguem sujas", async () => {
+    const t = await montar();
+    const [li1] = lis(t.container);
+    await expandir(li1);
+    await digitar(nomeTecido(t.container), "Tecido Novo");
+    await digitar(campos(li1)[0], "Meu nome");
+    estado.artigoUpdate = { data: [], error: null }; // outra pessoa salvou o tecido: 0 linhas casam o rev
+    await salvarGeral(t.container);
+    await flush(80);
+    expect(salvaRpcs().length).toBe(0);
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("Alguém salvou este tecido agora"));
+    expect(li1.textContent).toContain("editado");
+    expect(t.container.textContent).toContain("alterações não salvas");
     await t.desmontar();
   });
 
@@ -202,6 +319,7 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     expect(li1.textContent).not.toContain("terá o custo"); // ainda dentro do atraso
     await flush(PREVIA_MS);
     expect(li1.textContent).toContain("até 3 produtos terão o custo recalculado");
+    expect(salvaRpcs().length).toBe(0); // só mostra; o efeito real grava no Salvar
 
     rpc.mockImplementation(async (nome: string, args: any) => ({ data: { afetados: 1, assinatura: `s1-${args._preco}` }, error: null }));
     await digitar(campos(li1)[2], "13");
@@ -259,12 +377,12 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     await t.desmontar();
   });
 
-  it("✓ logo depois de digitar o preço espera a prévia (não manda assinatura velha nem nula)", async () => {
+  it("Salvar logo depois de digitar o preço ESPERA a prévia (não manda assinatura velha nem nula)", async () => {
     const t = await montar();
     const [li1] = lis(t.container);
     await expandir(li1);
     await digitar(campos(li1)[2], "31");
-    await clicar(porLabel(li1, "Salvar esta cor")); // ainda no atraso da prévia
+    await salvarGeral(t.container); // ainda no atraso da prévia
     expect(salvaRpcs().length).toBe(0);
     await flush(PREVIA_MS + 100);
     // (dentro de um `act` assíncrono o React só renderiza ao sair: o laço de espera da tela enxerga a prévia pronta depois)
@@ -274,7 +392,7 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     await t.desmontar();
   });
 
-  it("prévia FALHOU: o ✓ do preço não grava e diz a verdade (não 'aguarde'); re-editar o preço repede a prévia", async () => {
+  it("prévia FALHOU: o Salvar não grava ESSA cor (sem gravar às cegas), diz a verdade no aviso da cor; re-editar o preço repede a prévia", async () => {
     const t = await montar();
     const [li1] = lis(t.container);
     await expandir(li1);
@@ -282,11 +400,13 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
       ? { data: null, error: { message: "boom" } } : { data: null, error: null });
     await digitar(campos(li1)[2], "50");
     await flush(PREVIA_MS);
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await salvarGeral(t.container);
     await flush(60);
     expect(salvaRpcs().length).toBe(0);
-    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("Não consegui calcular o efeito do preço"));
-    expect(toast.warning).not.toHaveBeenCalledWith(expect.stringContaining("Aguarde"));
+    expect(aviso(li1)).toContain("Não consegui calcular o efeito do preço");
+    expect(aviso(li1)).not.toContain("Aguarde");
+    expect(toast.error).toHaveBeenCalledWith("1 cor com erro — veja o aviso na cor.");
+    expect(li1.textContent).toContain("editado"); // segue suja
 
     const antes = previaRpcs().length;
     rpc.mockImplementation(async (nome: string, args: any) => nome === "variante_tecido_preco_previa"
@@ -294,35 +414,37 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     await digitar(campos(li1)[2], "51");
     await flush(PREVIA_MS);
     expect(previaRpcs().length).toBeGreaterThan(antes); // re-editar repediu
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await salvarGeral(t.container);
     await flush(60);
     expect(salvaRpcs()[0][1]._assinatura).toBe("ok-51");
+    expect(aviso(li1)).toBe("");
     await t.desmontar();
   });
 
-  it("Enter (campo de texto, card sujo) salva; Esc desfaz; card limpo ou alvo fora dos campos não faz nada", async () => {
+  it("Esc numa cor editada DESFAZ só aquela cor; Enter NÃO salva nada (não há save por item)", async () => {
     const t = await montar();
-    const [li1] = lis(t.container);
-    await expandir(li1);
+    const [li1, li2] = lis(t.container);
+    await expandir(li1); await expandir(li2);
     const nome = campos(li1)[0];
-    await tecla(nome, "Enter"); // limpo
+    await tecla(nome, "Enter"); // limpa
     await tecla(nome, "Escape");
     expect(salvaRpcs().length).toBe(0);
 
     await digitar(nome, "Outro");
-    await tecla(nome, "Escape");
+    await digitar(campos(li2)[1], "X9");
+    await tecla(campos(li1)[0], "Enter"); // sujo: Enter NÃO grava (nem a cor, nem o tecido)
+    await flush();
+    expect(salvaRpcs().length).toBe(0);
+    expect(artigoUpdates.length).toBe(0);
+    expect(li1.textContent).toContain("editado");
+
+    await tecla(campos(li1)[0], "Escape");
     await flush();
     expect(campos(li1)[0].value).toBe("Malha");
-    expect(li1.textContent).not.toContain("não salvo");
-
-    await digitar(campos(li1)[0], "Outro");
-    // Enter vindo de um botão (ex.: item de um Select aberto) NÃO salva
-    await tecla(item(selects(li1)[0], COR_B), "Enter");
+    expect(li1.textContent).not.toContain("editado");
+    expect(li2.textContent).toContain("editado"); // a outra segue intacta
+    expect(campos(li2)[1].value).toBe("X9");
     expect(salvaRpcs().length).toBe(0);
-    await tecla(campos(li1)[0], "Enter");
-    await flush();
-    expect(salvaRpcs().length).toBe(1);
-    expect(salvaRpcs()[0][1]._mudancas).toEqual({ nome_variante: "Outro" });
     await t.desmontar();
   });
 
@@ -333,7 +455,7 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     await clicar(item(selects(li1)[0], COR_B)); // a1 é da cor A; B não tem a1
     expect(selects(li1)[1].getAttribute("data-value")).toBe(""); // apelido zerado no rascunho
     expect(salvaRpcs().length).toBe(0);
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await salvarGeral(t.container);
     await flush();
     expect(salvaRpcs()[0][1]._mudancas).toEqual({ cor_id: COR_B.toLowerCase(), cor_apelido_id: null });
     await t.desmontar();
@@ -344,53 +466,70 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     const [li1] = lis(t.container);
     await expandir(li1);
     await clicar(item(selects(li1)[1], AP_A1)); // mesmo apelido: nada muda
-    expect(li1.textContent).not.toContain("não salvo");
+    expect(li1.textContent).not.toContain("editado");
     // sem filtro de base não há como listar o apelido de B com A selecionada → limpa a base e escolhe
     await clicar(item(selects(li1)[0], COR_B));
     await clicar(item(selects(li1)[1], AP_B1));
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await salvarGeral(t.container);
     await flush();
     expect(salvaRpcs()[0][1]._mudancas).toEqual({ cor_id: COR_B.toLowerCase(), cor_apelido_id: AP_B1.toLowerCase() });
     await t.desmontar();
   });
 
-  it("P0409 conflito_versao: relê, adota o campo que NÃO toquei e oferece 'manter meu / usar o novo' no que os dois mexemos", async () => {
+  it("conflito P0409 numa cor NÃO perde o resto: o tecido e a outra cor ficam gravados, a cor em conflito segue suja com merge por campo", async () => {
     const t = await montar();
-    const [li1] = lis(t.container);
-    await expandir(li1);
+    const [li1, li2] = lis(t.container);
+    await expandir(li1); await expandir(li2);
+    await digitar(nomeTecido(t.container), "Tecido Novo");
     await digitar(campos(li1)[0], "Meu nome");
+    await digitar(campos(li2)[1], "X-77");
+    const padrao = rpc.getMockImplementation()!;
     rpc.mockImplementation(async (nome: string, args: any) => {
-      if (nome === "variante_tecido_preco_previa") return { data: { afetados: 0, assinatura: "s" }, error: null };
-      // outra pessoa mexeu no nome E no código antes do meu Salvar
-      estado.variantes[0].nome_variante = "Nome dela";
-      estado.variantes[0].codigo_variante = "C9";
-      return { data: null, error: { code: "P0409", message: "conflito_versao: variante_tecido", details: "nome_variante,codigo_variante" } };
+      if (nome === "salvar_variante_tecido" && args._id === V1) {
+        // outra pessoa mexeu no nome E no código desta cor antes do meu Salvar
+        estado.variantes[0].nome_variante = "Nome dela";
+        estado.variantes[0].codigo_variante = "C9";
+        return { data: null, error: { code: "P0409", message: "conflito_versao: variante_tecido", details: "nome_variante,codigo_variante" } };
+      }
+      return padrao(nome, args);
     });
-    await clicar(porLabel(li1, "Salvar esta cor"));
-    await flush(80);
-    expect(toast.warning).toHaveBeenCalled();
-    expect(campos(li1)[1].value).toBe("C9"); // não toquei o código: adota o do servidor
-    expect(campos(li1)[0].value).toBe("Meu nome"); // o meu fica
+    await salvarGeral(t.container);
+    await flush(100);
+
+    // tecido e a OUTRA cor gravados
+    expect(artigoUpdates[0].nome).toBe("Tecido Novo");
+    expect(salvaRpcs().find((c) => c[1]._id === V2)![1]._mudancas).toEqual({ codigo_variante: "X-77" });
+    expect(estado.variantes[1].codigo_variante).toBe("X-77");
+    expect(li2.textContent).not.toContain("editado");
+    expect(toast.error).toHaveBeenCalledWith("Tecido atualizado e 1 cor salva; 1 cor com erro — veja o aviso na cor.");
+    expect(nomeTecido(t.container).value).toBe("Tecido Novo");
+
+    // a cor em conflito: suja, com aviso, adotou o campo que NÃO toquei e oferece 'manter meu / usar o novo' no que os dois mexemos
+    expect(li1.textContent).toContain("editado");
+    expect(aviso(li1)).toContain("Outra pessoa alterou esta cor");
+    expect(campos(li1)[1].value).toBe("C9");
+    expect(campos(li1)[0].value).toBe("Meu nome");
     expect(li1.textContent).toContain("Outra pessoa mudou este campo para");
     expect(li1.textContent).toContain("Nome dela");
-    expect(li1.textContent).toContain("não salvo");
+    expect(t.container.textContent).toContain("alterações não salvas"); // o Salvar não 'fecha' enquanto houver cor suja
 
-    // com o conflito aberto o ✓ NÃO manda nada
+    // com o conflito aberto o Salvar NÃO manda a cor
     const antes = salvaRpcs().length;
-    await clicar(porLabel(li1, "Salvar esta cor"));
-    await flush();
+    await salvarGeral(t.container);
+    await flush(80);
     expect(salvaRpcs().length).toBe(antes);
+    expect(aviso(li1)).toContain("Resolva os campos em conflito");
 
-    // "usar o novo" adota o do servidor e o card volta a limpo
-    const usar = Array.from(li1.querySelectorAll("button")).find((b) => b.textContent === "Usar o novo")!;
-    await clicar(usar);
+    // "usar o novo" adota o do servidor e a cor volta a limpa
+    await clicar(Array.from(li1.querySelectorAll("button")).find((b) => b.textContent === "Usar o novo"));
     await flush();
     expect(campos(li1)[0].value).toBe("Nome dela");
-    expect(li1.textContent).not.toContain("não salvo");
+    expect(li1.textContent).not.toContain("editado");
+    expect(aviso(li1)).toBe("");
     await t.desmontar();
   });
 
-  it("P0409 conflito + 'manter meu': o próximo Salvar manda a base NOVA do servidor", async () => {
+  it("conflito + 'manter meu': o próximo Salvar manda a base NOVA do servidor", async () => {
     const t = await montar();
     const [li1] = lis(t.container);
     await expandir(li1);
@@ -406,54 +545,62 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
       Object.assign(estado.variantes[0], args._mudancas);
       return { data: null, error: null };
     });
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await salvarGeral(t.container);
     await flush(80);
-    await clicar(Array.from(li1.querySelectorAll("button")).find((b) => b.textContent === "Manter meu")!);
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await clicar(Array.from(li1.querySelectorAll("button")).find((b) => b.textContent === "Manter meu"));
+    await salvarGeral(t.container);
     await flush(80);
     const ultima = salvaRpcs().at(-1)![1];
     expect(ultima._mudancas).toEqual({ nome_variante: "Meu nome" });
     expect(ultima._base.nome_variante).toBe("Nome dela");
-    expect(li1.textContent).not.toContain("não salvo");
+    expect(li1.textContent).not.toContain("editado");
     await t.desmontar();
   });
 
-  it("P0409 previa_desatualizada: NÃO grava, repede a prévia e avisa 'o resultado mudou'", async () => {
+  it("previa_desatualizada: NÃO grava essa cor, repede a prévia e avisa 'o resultado mudou'", async () => {
     const t = await montar();
     const [li1] = lis(t.container);
     await expandir(li1);
     await digitar(campos(li1)[2], "40");
     await flush(PREVIA_MS);
     const previasAntes = previaRpcs().length;
-    rpc.mockImplementation(async (nome: string, args: any) => {
+    rpc.mockImplementation(async (nome: string) => {
       if (nome === "variante_tecido_preco_previa") return { data: { afetados: 5, assinatura: "nova" }, error: null };
       return { data: null, error: { code: "P0409", message: "previa_desatualizada: salvar_preco" } };
     });
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await salvarGeral(t.container);
     await flush(PREVIA_MS + 100);
     expect(previaRpcs().length).toBeGreaterThan(previasAntes);
-    expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/resultado mudou/i));
+    expect(aviso(li1)).toMatch(/resultado mudou/i);
     expect(toast.success).not.toHaveBeenCalled();
-    expect(li1.textContent).toContain("não salvo"); // segue sujo
+    expect(li1.textContent).toContain("editado"); // segue suja
     expect(li1.textContent).toContain("até 5 produtos terão o custo recalculado");
     await t.desmontar();
   });
 
-  it("23505 (cor+apelido duplicados) vira mensagem clara; o card segue sujo", async () => {
+  it("23505 (cor+apelido duplicados) numa cor vira mensagem clara NA COR; a outra cor é gravada e a duplicada segue suja", async () => {
     const t = await montar();
-    const [li1] = lis(t.container);
-    await expandir(li1);
+    const [li1, li2] = lis(t.container);
+    await expandir(li1); await expandir(li2);
     await clicar(item(selects(li1)[0], COR_B));
     await clicar(item(selects(li1)[1], AP_B1)); // v2 já é B/b1
-    rpc.mockImplementation(async () => ({ data: null, error: { code: "23505", message: 'duplicate key value violates unique constraint "uq_variantes_tecido_artigo_cor_apelido"' } }));
-    await clicar(porLabel(li1, "Salvar esta cor"));
-    await flush();
-    expect(toast.error).toHaveBeenCalledWith("Já existe uma variante com essa cor e apelido.");
-    expect(li1.textContent).toContain("não salvo");
+    await digitar(campos(li2)[1], "X-77");
+    const padrao = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (nome: string, args: any) =>
+      nome === "salvar_variante_tecido" && args._id === V1
+        ? { data: null, error: { code: "23505", message: 'duplicate key value violates unique constraint "uq_variantes_tecido_artigo_cor_apelido"' } }
+        : padrao(nome, args));
+    await salvarGeral(t.container);
+    await flush(80);
+    expect(aviso(li1)).toContain("Já existe uma variante com essa cor e apelido.");
+    expect(li1.textContent).toContain("editado");
+    expect(estado.variantes[1].codigo_variante).toBe("X-77"); // a outra gravou
+    expect(li2.textContent).not.toContain("editado");
+    expect(toast.error).toHaveBeenCalledWith("1 cor salva; 1 cor com erro — veja o aviso na cor.");
     await t.desmontar();
   });
 
-  it("outra pessoa salva (refetch) com o card SUJO: o campo que não toquei adota o do servidor sem conflito", async () => {
+  it("outra pessoa salva (refetch) com a cor SUJA: o campo que não toquei adota o do servidor sem conflito", async () => {
     const t = await montar();
     const [li1] = lis(t.container);
     await expandir(li1);
@@ -464,21 +611,23 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     expect(campos(li1)[1].value).toBe("Z9");
     expect(campos(li1)[0].value).toBe("Meu nome");
     expect(li1.textContent).not.toContain("Outra pessoa mudou este campo");
-    await clicar(porLabel(li1, "Salvar esta cor"));
+    await salvarGeral(t.container);
     await flush();
     expect(salvaRpcs()[0][1]._mudancas).toEqual({ nome_variante: "Meu nome" }); // só o meu
     expect(salvaRpcs()[0][1]._base.codigo_variante).toBe("Z9");
     await t.desmontar();
   });
+});
 
-  it("só leitura: sem ✓/↺, sem 'Salvar todos', campos travados", async () => {
-    const t = await montar({ readOnly: true });
+describe("Cores — modo só leitura", () => {
+  it("sem selo 'editado', sem Salvar todos, campos travados", async () => {
+    const t = await montarSecao({ readOnly: true });
     const [li1] = lis(t.container);
     await expandir(li1);
     expect(campos(li1).every((i) => i.readOnly)).toBe(true);
     expect(selects(li1).length).toBe(2);
     expect(item(selects(li1)[0], COR_B).disabled).toBe(true);
-    expect(porLabel(li1, "Salvar esta cor")).toBeNull();
+    expect(li1.querySelector("[data-selo-editado]")).toBeNull();
     expect(t.container.textContent).not.toContain("Salvar todos");
     await t.desmontar();
   });
@@ -520,6 +669,13 @@ describe("fonte da tela (pinos)", () => {
     expect(src).not.toMatch(/saveMut\.mutate\(\{\s*(cor_id|cor_apelido_id|nome_variante|codigo_variante|preco)/);
     expect(src.match(/saveMut\.mutate\(\{/g)?.length).toBe(1);
     expect(src).toContain("saveMut.mutate({ foto_url: path })");
+  });
+  it("o UM Salvar do cabeçalho percorre as cores sujas (registry) e a tela não usa mais ✓/↺ nem 'Salvar todos'", () => {
+    expect(src).toMatch(/await salvarTodos\(\)/);
+    expect(src).toContain("descartarTodos()");
+    expect(src).not.toMatch(/<CardSaveControls|BarraSalvarTodasCores|RelataCoresSujas/);
+    expect(src).not.toMatch(/Salvar todos \(|Salvar esta cor|Desfazer esta cor/);
+    expect(src).not.toMatch(/onSujosChange/);
   });
   it("o preço da cor é MoneyInput (não <input type=number>)", () => {
     const linha = src.slice(src.indexOf("function VariantRow({"));

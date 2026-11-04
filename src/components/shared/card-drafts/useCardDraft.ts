@@ -14,8 +14,13 @@ export function useCardDraft<T extends Record<string, any>>(opts: {
   base: T;
   salvarFn: (mudancas: Partial<T>, base: T) => Promise<void>;
   onSalvo?: () => void;
+  /** Chamado SEMPRE que o rascunho é descartado (botão, Esc, "Descartar tudo" do registry): a tela limpa o que é só dela
+   *  (avisos, conflitos, campos mascarados que precisam remontar). */
+  onDescartar?: () => void;
 }) {
-  const { id, base, salvarFn, onSalvo } = opts;
+  const { id, base, salvarFn, onSalvo, onDescartar } = opts;
+  const onDescartarRef = useRef(onDescartar);
+  onDescartarRef.current = onDescartar;
   const [valor, setValor] = useState<T>(base);
   const [tocados, setTocados] = useState<Set<keyof T>>(new Set());
   const [salvando, setSalvando] = useState(false);
@@ -40,7 +45,7 @@ export function useCardDraft<T extends Record<string, any>>(opts: {
     });
   }, [aplicaValor]);
 
-  const descartar = useCallback(() => { aplicaValor(baseRef.current); setTocados(new Set()); }, [aplicaValor]);
+  const descartar = useCallback(() => { aplicaValor(baseRef.current); setTocados(new Set()); onDescartarRef.current?.(); }, [aplicaValor]);
 
   const salvar = useCallback(async () => {
     if (tocados.size === 0) return;

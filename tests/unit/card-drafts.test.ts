@@ -231,4 +231,27 @@ describe("useCardDraft + CardDraftsProvider", () => {
     expect(again.r.c.current.valor.preco).toBe(99);
     again.unmount();
   });
+  it("onDescartar roda em QUALQUER descarte (descartar do card e descartarTodos do registry)", () => {
+    const fnA = vi.fn().mockResolvedValue(undefined);
+    const fnB = vi.fn().mockResolvedValue(undefined);
+    const onA = vi.fn(); const onB = vi.fn();
+    const baseA: V = { nome: "A", preco: 1 };
+    const baseB: V = { nome: "B", preco: 2 };
+    const { r, unmount } = renderHooks({
+      a: () => useCardDraft<V>({ id: "a", base: baseA, salvarFn: fnA, onDescartar: onA }),
+      b: () => useCardDraft<V>({ id: "b", base: baseB, salvarFn: fnB, onDescartar: onB }),
+      reg: () => useCardDrafts(),
+    });
+    act(() => r.a.current.patch("preco", 5));
+    act(() => r.a.current.descartar());
+    expect(onA).toHaveBeenCalledTimes(1);
+    act(() => r.a.current.patch("preco", 5));
+    act(() => r.b.current.patch("preco", 6));
+    act(() => r.reg.current.descartarTodos());
+    expect(onA).toHaveBeenCalledTimes(2);
+    expect(onB).toHaveBeenCalledTimes(1);
+    expect(r.a.current.valor.preco).toBe(1);
+    expect(r.b.current.valor.preco).toBe(2);
+    unmount();
+  });
 });

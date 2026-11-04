@@ -117,16 +117,16 @@ describe("TecidoDetailSheet — Esc/clique fora com cor suja (C1/C1b)", () => {
     await expandir(li1); await expandir(li2);
     await digitar(campos(li1)[0], "Outro nome");
     await digitar(campos(li2)[1], "X9");
-    expect(li1.textContent).toContain("não salvo");
-    expect(li2.textContent).toContain("não salvo");
+    expect(li1.textContent).toContain("editado");
+    expect(li2.textContent).toContain("editado");
 
     await esc(campos(li1)[0]);
     await flush();
     expect(sheetAberto()).toBe(true);          // não fechou
     expect(dialogoDescartar()).toBeUndefined(); // e nem perguntou: Esc numa cor suja = desfazer a cor
     expect(campos(li1)[0].value).toBe("Malha");
-    expect(li1.textContent).not.toContain("não salvo");
-    expect(li2.textContent).toContain("não salvo"); // a outra cor suja ficou intacta
+    expect(li1.textContent).not.toContain("editado");
+    expect(li2.textContent).toContain("editado"); // a outra cor suja ficou intacta
     expect(campos(li2)[1].value).toBe("X9");
     expect(t.onClose).not.toHaveBeenCalled();
     await t.desmontar();
@@ -148,7 +148,7 @@ describe("TecidoDetailSheet — Esc/clique fora com cor suja (C1/C1b)", () => {
     await clicar(Array.from(document.querySelectorAll("button")).find((b) => b.textContent === "Continuar editando"));
     await flush();
     expect(dialogoDescartar()).toBeUndefined();
-    expect(li1.textContent).toContain("não salvo");
+    expect(li1.textContent).toContain("editado");
 
     // clique no overlay também pergunta
     await clicarFora();
