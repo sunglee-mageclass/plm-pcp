@@ -113,6 +113,12 @@ export type ItemDraft = {
   cancelado: boolean;
   // Preço unitário desta compra (Fase A — a OC dita o preço). Default = preço atual da variante.
   preco: number | null;
+  // CQ de Tecido (modo OC) como RASCUNHO no item — entra no Salvar da OC (não grava na hora). Opcionais: linha nova / carga antiga não têm.
+  // `cq_tocado` = o CQ deste item foi editado nesta sessão (só então as chaves cq_* vão no `_itens` do salvar_oc_tecido; ver CqTecido.tsx).
+  cq_ok?: boolean;
+  cq_alerta_status?: string;
+  cq_observacao?: string;
+  cq_tocado?: boolean;
 };
 
 // Um rolo destrinchado no recebimento (modo Só Rolo). Antes era só a quantidade

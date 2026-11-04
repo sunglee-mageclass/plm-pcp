@@ -38,7 +38,7 @@ import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
-import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
+import { OcCqSection, alertaBadge, aplicarPatchCq, chavesCqDoPayload, type CqPatch, type CqStatus, type OcCqLinha } from "@/components/oc-tecido/CqTecido";
 import type { StatusTone } from "@/components/shared/StatusBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
@@ -503,6 +503,11 @@ function itemsFromRows(its: unknown): ItemDraft[] {
     rendimento: (i as any).rendimento == null ? null : Number((i as any).rendimento),
     cancelado: !!(i as any).cancelado,
     preco: (i as any).preco == null ? null : Number((i as any).preco),
+    // CQ (modo OC): semeado do servidor; cq_tocado NUNCA vem daqui (só a edição na seção 5 o liga). Observação normalizada ("" = sem texto)
+    // para que apagar o que digitei volte a ser IGUAL ao carregado (dirty/merge não veem diferença entre null e "").
+    cq_ok: !!(i as any).cq_ok,
+    cq_alerta_status: ((i as any).cq_alerta_status ?? "sem_alerta") as string,
+    cq_observacao: ((i as any).cq_observacao ?? "") as string,
   }));
 }
 
@@ -1337,6 +1342,9 @@ export function OcDialog({
         cancelado: i.cancelado,
         preco: i.preco,
         rolos_planejados: modoOcRolo !== "oc" ? roloPlan(i.tempId) : null,
+        // CQ no Salvar (modo OC): cq_ok / cq_alerta / cq_observacao SÓ no item cujo CQ eu editei (chave ausente = o banco mantém o atual,
+        // então uma aba que não mexeu no CQ nunca o zera); item em troca/resolvido nunca manda cq_alerta. Ver chavesCqDoPayload.
+        ...(modoOcRolo === "oc" ? chavesCqDoPayload(i) : {}),
       }));
       // [camada C2 · P-262 A] payload vazio + o servidor TEM itens (os que seriam apagados) => exige a confirmação.
       const apagarItens = exigirConfirmacaoApagarTudo({ nPayload: itensPayload.length, nServidor: (qc.getQueryData<typeof ocQueryData>(["oc-tecido", ocId])?.its ?? ocQueryData?.its ?? []).length, confirmado: apagarTudoRef.current });
@@ -1412,6 +1420,8 @@ export function OcDialog({
       // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime
       // (nosso próprio UPDATE) apareça como "alguém atualizou N campos" no banner.
       baseRef.current = enviadoRef.current ?? { draft, items }; // [seg s6, fix B1] o que foi ENVIADO, não a closure
+      // CQ no Salvar: o CQ enviado vira a base (sem o `cq_tocado` do rascunho).
+      baseRef.current = { ...baseRef.current, items: baseRef.current.items.map(({ cq_tocado: _t, ...resto }) => resto) };
       touchedRef.current = new Set();
       touchedItemIdsRef.current = new Set();
       conflitosRef.current = [];
@@ -1425,6 +1435,8 @@ export function OcDialog({
       qc.invalidateQueries({ queryKey: ["rolos"] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      // CQ no Salvar: o CQ da OC agora muda por aqui — relê a própria OC (re-semeia o rascunho do servidor ao reabrir) e as telas que o mostram.
+      for (const k of [["oc-tecido", ocId], ["cq-tecido"], ["alertas-tecido"], ["dash-estoque"]]) qc.invalidateQueries({ queryKey: k });
       onSaved();
       onClose();
     },
@@ -1760,6 +1772,28 @@ export function OcDialog({
     if (atual !== secAtiva) setSecAtiva(atual);
   };
 
+  // CQ de Tecido (modo OC) — EDIÇÃO SOLTA: a seção 5 não grava; cada edição vira rascunho no item (cq_* + cq_tocado) e só o Salvar da OC
+  // a leva ao banco (itensPayload). Passa por `setItemsTracked`: o item entra no `touched` do merge colaborativo (conflito por LINHA, nunca
+  // sobrescreve calado — o Salvar trava até resolver) e o `items` do dirty (`useDirtySnapshot`) já inclui o CQ => sair com CQ editado
+  // pergunta "Descartar alterações?". Voltar o CQ ao que foi carregado desfaz o `cq_tocado` (some o selo e o dirty).
+  const onCqChange = (itemId: string, patch: CqPatch) => {
+    setItemsTracked((prev) =>
+      prev.map((it) => (it.id === itemId ? aplicarPatchCq(it, patch, baseRef.current?.items.find((b) => b.id === itemId)) : it)),
+    );
+  };
+  const cqLinhas: OcCqLinha[] = items
+    .filter((i) => i.id && i.variante_tecido_id && !(i.cancelado && (i.cq_alerta_status ?? "sem_alerta") === "sem_alerta"))
+    .map((i) => ({
+      id: i.id as string,
+      artigo: (i.artigo_id && artigoMap[i.artigo_id]?.nome) || "—",
+      variante: labelVariante(varianteMap[i.variante_tecido_id]),
+      cq_ok: !!i.cq_ok,
+      cq_alerta_status: (i.cq_alerta_status ?? "sem_alerta") as CqStatus,
+      cq_observacao: i.cq_observacao ?? "",
+      tocado: !!i.cq_tocado,
+      emConflito: !!conflitoLinha(i.id),
+    }));
+
   // O OcDialog só monta quando aberto, logo `changed` já basta (sem gate por `open`).
   const dirty = changed;
 
@@ -1875,7 +1909,7 @@ export function OcDialog({
               de CQ por item da OC fica redundante. */}
           {isEdit && ocId && modoOcRolo === "oc" && (
             <section id="oc-sec-cq" className="scroll-mt-2">
-              <OcCqSection ocId={ocId} />
+              <OcCqSection itens={cqLinhas} onCqChange={onCqChange} />
             </section>
           )}
           </div>

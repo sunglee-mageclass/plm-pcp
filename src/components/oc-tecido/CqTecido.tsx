@@ -14,6 +14,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -154,6 +155,8 @@ function useFlatCqItems() {
   return { items, isLoading };
 }
 
+// Grava na hora (update direto em ocs_tecido_itens). Desde o "CQ no Salvar da OC" NÃO é mais usado pela seção de CQ da OC
+// (OcCqSection = edição solta, entra no Salvar da OC); resta só na observação dos Alertas de Tecido (`ObsField`).
 function useCqUpdate() {
   const qc = useQueryClient();
   return useMutation({
@@ -214,23 +217,79 @@ function useReceberReposicao() {
 }
 
 // ───────────────────────── CQ de Tecido (dentro da OC) ─────────────────────────
-function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean }) {
-  const update = useCqUpdate();
-  const [obs, setObs] = useState(item.cq_observacao ?? "");
+// "CQ no Salvar da OC" (nov/2026, modo OC): a seção NÃO grava na hora. Cada edição (CQ ok, Alertar estilo, observação) vira um
+// rascunho no ITEM da OC (cq_ok / cq_alerta_status / cq_observacao + cq_tocado) e só vai ao banco pelo Salvar da OC (RPC
+// salvar_oc_tecido: chave cq_* presente = grava; ausente = mantém). A RESOLUÇÃO do alerta (Estilo OK / troca / cancelar) NÃO é
+// rascunho: segue nos Alertas de Tecido, por RPC própria.
+
+/** Campos de CQ que o ItemDraft da OC carrega (todos opcionais: linha nova / carga antiga não os tem). */
+export type CqCampos = {
+  cq_ok?: boolean;
+  cq_alerta_status?: string;
+  cq_observacao?: string;
+  /** true = EU editei o CQ deste item nesta sessão (só então as chaves cq_* entram no payload do Salvar). */
+  cq_tocado?: boolean;
+};
+export type CqPatch = { cq_ok?: boolean; cq_alerta?: boolean; cq_observacao?: string };
+
+// O toggle "Alertar estilo" só alterna alertado <-> sem_alerta (é o que o servidor grava para cq_alerta true/false). Qualquer outro
+// estado (troca_pendente, estilo_ok, trocado, cancelado) vem de uma resolução nos Alertas: o toggle não o rebaixa.
+const ALERTA_ALTERNAVEL: string[] = ["sem_alerta", "alertado"];
+export function alertaAlternavel(status: string | null | undefined): boolean {
+  return ALERTA_ALTERNAVEL.includes(status ?? "sem_alerta");
+}
+
+/** Aplica uma edição de CQ no item e recalcula `cq_tocado`: igual ao que foi carregado (`base`) = não tocado (some o selo e o dirty). */
+export function aplicarPatchCq<T extends CqCampos>(item: T, patch: CqPatch, base?: CqCampos | null): T {
+  const next: T = { ...item };
+  if (patch.cq_ok !== undefined) next.cq_ok = patch.cq_ok;
+  if (patch.cq_alerta !== undefined && alertaAlternavel(item.cq_alerta_status)) {
+    next.cq_alerta_status = patch.cq_alerta ? "alertado" : "sem_alerta";
+  }
+  if (patch.cq_observacao !== undefined) next.cq_observacao = patch.cq_observacao;
+  const igualBase =
+    !!base &&
+    !!next.cq_ok === !!base.cq_ok &&
+    (next.cq_alerta_status ?? "sem_alerta") === (base.cq_alerta_status ?? "sem_alerta") &&
+    (next.cq_observacao ?? "") === (base.cq_observacao ?? "");
+  if (igualBase) delete next.cq_tocado;
+  else next.cq_tocado = true;
+  return next;
+}
+
+/** Chaves cq_* do item para o `_itens` do salvar_oc_tecido: SÓ quando tocado (chave ausente = o banco mantém o valor atual). */
+export function chavesCqDoPayload(item: CqCampos): Record<string, unknown> {
+  if (!item.cq_tocado) return {};
+  return {
+    cq_ok: !!item.cq_ok,
+    // item em estado de resolução (troca_pendente/estilo_ok/trocado/cancelado) NUNCA manda cq_alerta: o servidor o rebaixaria a sem_alerta
+    ...(alertaAlternavel(item.cq_alerta_status) ? { cq_alerta: (item.cq_alerta_status ?? "sem_alerta") === "alertado" } : {}),
+    cq_observacao: item.cq_observacao ?? "",
+  };
+}
+
+/** Uma linha da seção (montada pela OC a partir do rascunho dos itens). */
+export type OcCqLinha = {
+  id: string;
+  artigo: string;
+  variante: string;
+  cq_ok: boolean;
+  cq_alerta_status: CqStatus;
+  cq_observacao: string;
+  tocado: boolean;
+  /** conflito colaborativo pendente nesta linha (resolve-se no aviso do topo da OC; o Salvar fica travado). */
+  emConflito?: boolean;
+};
+
+function CqItemCard({ item, onCqChange }: { item: OcCqLinha; onCqChange: (itemId: string, patch: CqPatch) => void }) {
   const badge = STATUS_BADGE[item.cq_alerta_status];
   const alertado = item.cq_alerta_status !== "sem_alerta";
-
-  const saveObs = () => {
-    if ((obs || "") !== (item.cq_observacao ?? "")) {
-      update.mutate({ id: item.id, patch: { cq_observacao: obs || null } });
-    }
-  };
+  const podeAlertar = alertaAlternavel(item.cq_alerta_status);
 
   // Resumo do estado no cabeçalho colapsado: alerta (badge de status) > "CQ ok" > pendente.
   const resumo = badge ?? (item.cq_ok ? { label: "CQ ok", tone: "success" as StatusTone } : null);
 
-  // Casca COLAPSÁVEL (default fechado) — estado local, não persiste. Nenhuma lógica de
-  // CQ muda aqui: toggles/obs seguem idênticos, só movidos para dentro do conteúdo.
+  // Casca COLAPSÁVEL (default fechado) — estado local, não persiste.
   return (
     <Card className="p-3">
       <Collapsible defaultOpen={false}>
@@ -241,37 +300,45 @@ function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean })
             <span className="text-muted-foreground"> · {item.variante}</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
+            <UnsavedIndicator show={item.tocado} />
             {resumo
               ? <StatusBadge tone={resumo.tone}>{resumo.label}</StatusBadge>
               : <Badge variant="outline" className="text-muted-foreground">Pendente</Badge>}
-            {showOc && <Badge variant="outline">OC {item.oc_numero ?? "—"}</Badge>}
           </div>
         </CollapsibleTrigger>
 
         <CollapsibleContent className="space-y-3 pt-3">
+          {item.emConflito && (
+            <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+              Outra pessoa também mudou este item. Resolva o conflito no aviso do topo da OC antes de salvar.
+            </p>
+          )}
           <Textarea
-            value={obs}
-            onChange={(e) => setObs(e.target.value)}
-            onBlur={saveObs}
+            value={item.cq_observacao}
+            onChange={(e) => onCqChange(item.id, { cq_observacao: e.target.value })}
             placeholder="Observação do CQ (defeitos, encolhimento, tonalidade…)"
             className="min-h-[60px] text-sm"
           />
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Switch checked={item.cq_ok} onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_ok: v } })} />
+              <Switch checked={item.cq_ok} onCheckedChange={(v) => onCqChange(item.id, { cq_ok: v })} />
               CQ ok
             </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <label
+              className={`flex items-center gap-2 text-sm ${podeAlertar ? "cursor-pointer" : "cursor-not-allowed text-muted-foreground"}`}
+              title={podeAlertar ? undefined : "Este alerta já está em andamento ou resolvido: continue em Alertas de Tecido."}
+            >
               <Switch
                 checked={alertado}
-                onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_alerta_status: v ? "alertado" : "sem_alerta" } })}
+                disabled={!podeAlertar}
+                onCheckedChange={(v) => onCqChange(item.id, { cq_alerta: v })}
               />
               Alertar estilo
             </label>
             {alertado && (
               // Link vivo no lugar da dica-morta: a resolução (Estilo OK / troca /
-              // cancelar) acontece na página Alertas de Tecido.
+              // cancelar) acontece na página Alertas de Tecido (por RPC própria — não é rascunho).
               <Link to="/entrada-saida/alertas-tecido" className="text-xs text-primary hover:underline">
                 Resolver nos Alertas de Tecido →
               </Link>
@@ -283,36 +350,23 @@ function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean })
   );
 }
 
-// Seção de CQ dentro da OC (Encomendado/Recebido).
-export function OcCqSection({ ocId }: { ocId: string }) {
-  const { data: items = [] } = useQuery({
-    queryKey: ["cq-oc", ocId],
-    enabled: !!ocId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ocs_tecido_itens")
-        .select(SELECT_COLS)
-        .eq("oc_tecido_id", ocId);
-      if (error) throw error;
-      return ((data ?? []) as any[])
-        .filter((it) => !(it.cancelado && it.cq_alerta_status === "sem_alerta") && it.variante_tecido_id)
-        .map((it) => toCqItem(it, ocId, null));
-    },
-  });
-
-  if (items.length === 0) return null;
+// Seção de CQ dentro da OC (Encomendado/Recebido). Sem rede: lê e edita só o rascunho que a OC lhe passa.
+export function OcCqSection({ itens, onCqChange }: { itens: OcCqLinha[]; onCqChange: (itemId: string, patch: CqPatch) => void }) {
+  if (itens.length === 0) return null;
+  const algumTocado = itens.some((i) => i.tocado);
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-base font-bold tracking-tight">
-          <span className="text-primary">5 ·</span> CQ de Tecido
+        <h3 className="flex items-center gap-2 text-base font-bold tracking-tight">
+          <span><span className="text-primary">5 ·</span> CQ de Tecido</span>
+          <UnsavedIndicator show={algumTocado} />
         </h3>
         <Link to="/entrada-saida/alertas-tecido" className="text-sm text-primary hover:underline">
           ver Alertas de Tecido →
         </Link>
       </div>
-      {items.map((it) => (
-        <CqItemCard key={it.id} item={it} showOc={false} />
+      {itens.map((it) => (
+        <CqItemCard key={it.id} item={it} onCqChange={onCqChange} />
       ))}
     </div>
   );
