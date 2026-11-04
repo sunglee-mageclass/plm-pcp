@@ -224,8 +224,8 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     const linha = () => li1.querySelector("[data-previa-linha]") as HTMLElement;
     const texto = () => li1.querySelector("[data-previa-texto]") as HTMLElement | null;
     expect(linha()).toBeTruthy(); // a linha existe (altura reservada) mesmo antes de haver texto
-    // altura reservada = a do Label vizinho (14px = h-3.5): reservar mais (ex. min-h-5) desalinharia Preço × Código no md:grid-cols-3
-    expect(linha().className).toContain("h-3.5");
+    // altura reservada = a linha do Label vizinho (<label> inline: o pai struta ~24px = h-6, medido no Chromium); h-3.5/min-h-5 desalinham Preço × Código no md:grid-cols-3
+    expect(linha().className).toMatch(/(^|\s)h-6(\s|$)/);
     expect(linha().className).not.toContain("min-h-");
     expect(texto()?.textContent).toContain("até 3 produtos terão o custo recalculado");
     expect(texto()?.className).not.toContain("opacity-60");

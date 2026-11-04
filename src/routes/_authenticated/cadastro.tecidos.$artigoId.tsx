@@ -1476,9 +1476,9 @@ function VariantRow({
           {/* Preço POR VARIANTE. O preço de referência do artigo = o maior das variantes.
               Ícone de histórico AO LADO do input (label simples, alinha com o campo Código). */}
           <div className="space-y-1.5" data-rascunho>
-            {/* Altura reservada = a do Label vizinho (text-sm leading-none = 14px = h-3.5): a prévia aparecer/sumir/recalcular não empurra
+            {/* Altura reservada = a linha do Label vizinho: o <label> do Código é INLINE, então o pai (space-y-1.5) struta ~24px (line-height 1.5 do Tailwind v4) = h-6: a prévia aparecer/sumir/recalcular não empurra
                 o resto E o input de Preço continua alinhado com o de Código (md:grid-cols-3). Sem quebra de linha. */}
-            <div data-previa-linha className="flex h-3.5 flex-nowrap items-center justify-between gap-x-2">
+            <div data-previa-linha className="flex h-6 flex-nowrap items-center justify-between gap-x-2">
               <Label className="shrink-0">Preço</Label>
               {textoPrevia && (
                 <span
