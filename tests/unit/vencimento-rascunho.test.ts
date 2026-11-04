@@ -95,6 +95,59 @@ describe("VencimentoCell — rascunho por linha", () => {
     expect(onSave).toHaveBeenCalledTimes(2);
   });
 
+  it("OCs (otimista): A -> B -> rollback A no erro mantém o rascunho B e o ✓ volta", async () => {
+    let h: { onError: () => void } | undefined;
+    const onSave = vi.fn((_v: string, hh?: { onError: () => void }) => {
+      h = hh;
+    });
+    const el = await montar({ ...base, onSave });
+    await digitar(el, "16/07/2026", 10);
+    await clicar(salvarBtn());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    await remontar({ ...base, value: "2026-07-16", onSave }); // onMutate otimista
+    expect(salvarBtn()).toBeNull();
+    await remontar({ ...base, value: "2026-07-15", onSave }); // onError do mutation reverte o cache
+    await act(async () => h!.onError());
+    expect(el.value).toBe("16/07/2026");
+    expect(salvarBtn()).not.toBeNull();
+    expect(desfazerBtn()).not.toBeNull();
+    await clicar(salvarBtn()); // tenta de novo
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave.mock.calls[1][0]).toBe("2026-07-16");
+  });
+
+  it("OCs (otimista): A -> B e sucesso (value fica em B) = sem rascunho, sem ✓", async () => {
+    const onSave = vi.fn();
+    const el = await montar({ ...base, onSave });
+    await digitar(el, "16/07/2026", 10);
+    await clicar(salvarBtn());
+    await remontar({ ...base, value: "2026-07-16", onSave });
+    await remontar({ ...base, value: "2026-07-16", onSave }); // refetch confirma
+    expect(el.value).toBe("16/07/2026");
+    expect(salvarBtn()).toBeNull();
+    expect(desfazerBtn()).toBeNull();
+  });
+
+  it("mudança externa legítima (value != valor de antes da tentativa) segue o comportamento normal", async () => {
+    const onSave = vi.fn();
+    const el = await montar({ ...base, onSave });
+    await digitar(el, "16/07/2026", 10);
+    await clicar(salvarBtn());
+    await remontar({ ...base, value: "2026-07-16", onSave });
+    await remontar({ ...base, value: "2026-07-20", onSave }); // outro usuário
+    expect(el.value).toBe("20/07/2026");
+    expect(salvarBtn()).toBeNull();
+  });
+
+  it("disabled (parcela virou paga) com rascunho pendente mostra o salvo, não o rascunho", async () => {
+    const onSave = vi.fn();
+    const el = await montar({ ...base, onSave });
+    await digitar(el, "16/07/2026", 10);
+    await remontar({ ...base, disabled: true, onSave });
+    expect(el.value).toBe("15/07/2026");
+    expect(salvarBtn()).toBeNull();
+  });
+
   it("↺ volta ao salvo e os ícones somem, sem chamar onSave", async () => {
     const onSave = vi.fn();
     const el = await montar({ ...base, onSave });

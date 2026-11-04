@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button";
  * Sincronia com o servidor: se `value` muda de fora (salvou, refetch, outro usuário) e a pessoa NÃO tem
  * rascunho, o campo acompanha; com rascunho em curso o rascunho é preservado (↺ passa a voltar ao novo
  * salvo). Se `value` passa a ser igual ao rascunho (gravou), o rascunho se resolve sozinho. No erro do
- * `onSave` o rascunho fica (✓ liberado para tentar de novo). Vencimento é obrigatório: limpar e sair
+ * `onSave` o rascunho fica (✓ liberado para tentar de novo) — inclusive no rollback otimista da aba OCs
+ * (value A -> B -> A: `tentativaRef` reconhece a volta e restaura o rascunho B). Campo desabilitado mostra
+ * sempre o salvo. Vencimento é obrigatório: limpar e sair
  * volta à data guardada com aviso.
  */
 export function VencimentoCell({
@@ -32,9 +34,21 @@ export function VencimentoCell({
   const [salvando, setSalvando] = useState(false);
   const salvandoRef = useRef(false); // anti-duplo-commit: clique duplo no ✓ antes de o re-render desabilitar
   const valorAnterior = useRef(value);
+  // Última tentativa de gravar (✓): permite reconhecer o ROLLBACK otimista da aba OCs (value A -> B -> A).
+  const tentativaRef = useRef<{ de: string; para: string; em: number } | null>(null);
   useEffect(() => {
     const anterior = valorAnterior.current;
     valorAnterior.current = value;
+    const t = tentativaRef.current;
+    if (t && value === t.de && anterior === t.para && Date.now() - t.em < 60_000) {
+      // Voltou ao valor de antes da tentativa depois de passar por ela = o servidor recusou e o cache foi
+      // revertido. O rascunho NÃO se perde: continua no campo, com ✓/↺ para tentar de novo.
+      tentativaRef.current = null;
+      setV(t.para);
+      salvandoRef.current = false;
+      setSalvando(false);
+      return;
+    }
     // sem rascunho (v == antigo salvo) ou rascunho que virou o salvo → acompanha; senão preserva o rascunho.
     setV((cur) => (cur === anterior || cur === value ? value : cur));
     salvandoRef.current = false;
@@ -47,6 +61,7 @@ export function VencimentoCell({
   const salvar = () => {
     if (!sujo || salvandoRef.current) return;
     const iso = v;
+    tentativaRef.current = { de: value, para: iso, em: Date.now() };
     salvandoRef.current = true;
     setSalvando(true);
     onSave(iso, {
@@ -57,6 +72,7 @@ export function VencimentoCell({
     });
   };
   const desfazer = () => {
+    tentativaRef.current = null;
     setV(value);
     setObrigatorio(false);
   };
@@ -65,8 +81,9 @@ export function VencimentoCell({
     <>
       <div className="flex items-center gap-1">
         <DateField
-          value={v}
+          value={editavel ? v : value}
           onChange={(e) => {
+            tentativaRef.current = null;
             setV(e.target.value);
             setObrigatorio(false);
           }}
