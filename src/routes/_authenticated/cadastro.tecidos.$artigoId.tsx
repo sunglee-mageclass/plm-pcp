@@ -58,6 +58,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -94,6 +95,41 @@ function TecidoDetailPage() {
     <div className="container mx-auto p-3 sm:p-6 max-w-5xl pb-24">
       <TecidoDetail artigoId={artigoId} onClose={() => navigate({ to: "/cadastro/tecidos" })} />
     </div>
+  );
+}
+
+/**
+ * Esc dentro de um campo de uma cor com rascunho NÃO salvo: o Radix fecha o Sheet no `keydown` (listener de `document` em
+ * captura, ANTES do React) e todas as cores sujas se perderiam. Aqui o `SheetContent` cancela esse fechamento e deixa o
+ * handler do card desfazer SÓ aquela cor. Fora de card sujo (ou com Select aberto — a lista é portal, fora de `data-rascunho`)
+ * o Esc segue o fluxo normal (guarda "Descartar alterações?").
+ */
+export function escapeEmCardSujo(alvo: EventTarget | null): boolean {
+  const el = alvo as HTMLElement | null;
+  if (!el?.closest) return false;
+  return !!el.closest("[data-rascunho]") && !!el.closest("[data-card-sujo]") && !el.closest('[role="listbox"]');
+}
+
+/**
+ * Detalhe do tecido em Sheet lateral (usado pela lista). TODO fechamento — Voltar, X, Esc, clique no overlay — passa pelo
+ * `requestClose` do `TecidoDetail` (um só diálogo "Descartar alterações?" se há campo do tecido ou cor com rascunho).
+ * `onEscapeKeyDown` é prop nativa do Radix Content repassada pelo `SheetContent`: nenhuma mudança em `sheet.tsx`.
+ */
+export function TecidoDetailSheet({ openId, onClose }: { openId: string | null; onClose: () => void }) {
+  const closeRef = useRef<(() => void) | null>(null);
+  const registerClose = useCallback((fn: (() => void) | null) => { closeRef.current = fn; }, []);
+  return (
+    <Sheet open={!!openId} onOpenChange={(o) => { if (!o) (closeRef.current ?? onClose)(); }}>
+      <SheetContent
+        side="right"
+        size="editor"
+        className="p-0 [&>button]:hidden"
+        onEscapeKeyDown={(e) => { if (escapeEmCardSujo(e.target)) e.preventDefault(); }}
+      >
+        <SheetTitle className="sr-only">Detalhes do tecido</SheetTitle>
+        {openId && <TecidoDetail artigoId={openId} onClose={onClose} embedded registerClose={registerClose} />}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -134,7 +170,11 @@ type Variante = {
 type Cor = { id: string; nome: string };
 type Apelido = { id: string; nome: string; cor_base_id: string | null };
 
-export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId: string; onClose: () => void; embedded?: boolean }) {
+export function TecidoDetail({ artigoId, onClose, embedded = false, registerClose }: {
+  artigoId: string; onClose: () => void; embedded?: boolean;
+  /** Entrega ao pai (o Sheet) o `requestClose` DESTA tela: Esc e clique fora do Sheet passam pela mesma guarda do Voltar. */
+  registerClose?: (fn: (() => void) | null) => void;
+}) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
 
@@ -170,6 +210,10 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
     // (embedded=true) deixa false — o guarda já age no fechar via onClose acima.
     blockNav: !embedded,
   });
+  useEffect(() => {
+    registerClose?.(requestClose);
+    return () => registerClose?.(null);
+  }, [registerClose, requestClose]);
 
   // `dirty` é lido via ref DENTRO do effect, NÃO como dependência. Depender de `dirty`
   // fazia o effect re-disparar no instante em que `markClean()` (pós-save) zera o dirty
@@ -1059,7 +1103,7 @@ function RelataCoresSujas({ onChange }: { onChange?: (n: number) => void }) {
 function BarraSalvarTodasCores() {
   const { nSujos, salvarTodos } = useCardDrafts();
   const [salvando, setSalvando] = useState(false);
-  if (nSujos === 0) return null;
+  if (nSujos < 2) return null; // com 1 cor suja o ✓ da própria cor basta
   const onClick = async () => {
     setSalvando(true);
     try {
@@ -1071,7 +1115,7 @@ function BarraSalvarTodasCores() {
   return (
     <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
       <span className="text-sm text-amber-700 dark:text-amber-400">
-        {nSujos === 1 ? "1 cor com alterações não salvas" : `${nSujos} cores com alterações não salvas`}
+        {`${nSujos} cores com alterações não salvas`}
       </span>
       <Button type="button" size="sm" onClick={onClick} disabled={salvando}>
         {salvando ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
@@ -1149,8 +1193,13 @@ function VariantRow({
       // Espera a prévia terminar (digitou e já clicou ✓ / "Salvar todos"): não manda assinatura velha.
       const limite = Date.now() + 5000;
       while (previaRef.current.carregando && Date.now() < limite) await new Promise((r) => setTimeout(r, 40));
-      if (previaRef.current.carregando || previaRef.current.assinatura == null) {
+      if (previaRef.current.carregando) {
         toast.warning("Aguarde o cálculo do efeito do preço e tente de novo.");
+        throw new SalvarCorJaTratado();
+      }
+      if (previaRef.current.assinatura == null) {
+        // a prévia terminou e FALHOU (sem assinatura): re-editar o preço repede a prévia (args novos)
+        toast.warning("Não consegui calcular o efeito do preço. Edite o valor para tentar de novo.");
         throw new SalvarCorJaTratado();
       }
     }
@@ -1268,10 +1317,12 @@ function VariantRow({
   // (`data-rascunho`), nunca de dentro de um Select aberto (a lista é portal: o evento sobe pela árvore React, mas o alvo
   // não está num campo marcado) nem do editor de endereços.
   const onKeyDownCard = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (readOnly || !draft.dirty || e.defaultPrevented || e.nativeEvent.isComposing) return;
+    if (readOnly || !draft.dirty || e.nativeEvent.isComposing) return;
     const alvo = e.target as HTMLElement;
     if (!alvo.closest("[data-rascunho]") || alvo.closest('[role="listbox"]') || alvo.tagName === "TEXTAREA") return;
-    if (e.key === "Enter" && alvo.tagName === "INPUT") { e.preventDefault(); void salvarClique(); }
+    // Esc NÃO checa `defaultPrevented`: dentro do Sheet o `SheetContent` já deu preventDefault (para o Radix não fechar o
+    // Sheet — ver `escapeEmCardSujo`) e é justamente aqui que a cor é desfeita. Enter: não repete durante o salvar em voo.
+    if (e.key === "Enter" && alvo.tagName === "INPUT" && !e.defaultPrevented && !draft.salvando) { e.preventDefault(); void salvarClique(); }
     else if (e.key === "Escape") { e.preventDefault(); descartarClique(); }
   };
 
@@ -1309,7 +1360,7 @@ function VariantRow({
   };
 
   return (
-    <li className="rounded-lg border bg-card overflow-hidden">
+    <li className="rounded-lg border bg-card overflow-hidden" data-card-sujo={draft.dirty ? "" : undefined}>
       {/* Clicar em qualquer ponto da linha expande/recolhe (exceto a foto e os botões). */}
       <div
         className="flex items-center gap-3 p-2 cursor-pointer"

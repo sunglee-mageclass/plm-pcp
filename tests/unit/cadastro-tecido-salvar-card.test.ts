@@ -174,6 +174,7 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     await expandir(li1); await expandir(li2);
     expect(t.container.textContent).not.toContain("Salvar todos");
     await digitar(campos(li1)[0], "Malha Fria");
+    expect(t.container.textContent).not.toContain("Salvar todos"); // 1 cor suja: o ✓ da própria cor basta (barra só com 2+)
     await digitar(campos(li2)[1], "X-77");
     const botao = Array.from(t.container.querySelectorAll("button")).find((b) => b.textContent?.includes("Salvar todos (2)"));
     expect(botao).toBeTruthy();
@@ -226,6 +227,32 @@ describe("Cadastro › Tecidos — Salvar por card (cores)", () => {
     await flush(160);
     expect(salvaRpcs().length).toBe(1);
     expect(salvaRpcs()[0][1]._assinatura).toBe("sig-31");
+    await t.desmontar();
+  });
+
+  it("prévia FALHOU: o ✓ do preço não grava e diz a verdade (não 'aguarde'); re-editar o preço repede a prévia", async () => {
+    const t = await montar();
+    const [li1] = lis(t.container);
+    await expandir(li1);
+    rpc.mockImplementation(async (nome: string) => nome === "variante_tecido_preco_previa"
+      ? { data: null, error: { message: "boom" } } : { data: null, error: null });
+    await digitar(campos(li1)[2], "50");
+    await flush(PREVIA_MS);
+    await clicar(porLabel(li1, "Salvar esta cor"));
+    await flush(60);
+    expect(salvaRpcs().length).toBe(0);
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("Não consegui calcular o efeito do preço"));
+    expect(toast.warning).not.toHaveBeenCalledWith(expect.stringContaining("Aguarde"));
+
+    const antes = previaRpcs().length;
+    rpc.mockImplementation(async (nome: string, args: any) => nome === "variante_tecido_preco_previa"
+      ? { data: { afetados: 2, assinatura: `ok-${args._preco}` }, error: null } : { data: null, error: null });
+    await digitar(campos(li1)[2], "51");
+    await flush(PREVIA_MS);
+    expect(previaRpcs().length).toBeGreaterThan(antes); // re-editar repediu
+    await clicar(porLabel(li1, "Salvar esta cor"));
+    await flush(60);
+    expect(salvaRpcs()[0][1]._assinatura).toBe("ok-51");
     await t.desmontar();
   });
 
