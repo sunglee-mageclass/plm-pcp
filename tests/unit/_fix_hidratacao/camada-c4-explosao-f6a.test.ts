@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
-// [camada C4 · F6a + RULING R1] ExplosaoDetail REAL em happy-dom.
+// [camada C4 · F6a + Explosão RPC única] ExplosaoDetail REAL em happy-dom.
 // F6a (MANTIDO): uma carga que falhou nunca vira o estado inteiro gravável — erro + "Tentar de novo", Salvar/Enviar travados
 // e os dois `mutationFn` recusam.
-// R1 (05/out): a lógica de merge/eco da Explosão VOLTOU ao comportamento de antes da C4 (5f2a0e3d^). O aviso falso
-// "atualizada por outra pessoa" depois do PRÓPRIO Salvar é o comportamento conhecido (cosmético, já em produção) e só sai na
-// Onda 2 (Explosão numa RPC única + _rev_base em tudo). Os testes abaixo fixam esse comportamento — se um deles quebrar porque
-// o aviso sumiu, é a correção da Onda 2 chegando: atualize o teste junto.
+// RPC única (Onda 2, 05/nov): Salvar e Enviar são UMA chamada `salvar_explosao` (`_enviar` false/true) — uma transação, um
+// `_rev_base` real. O onSuccess do Salvar re-basa o 3-vias no que foi ENVIADO (e `cadRevRef` no `rev` devolvido), então o eco
+// do refetch é no-op: o autor NÃO recebe mais o aviso falso "atualizada por outra pessoa" (antes fixado como RULING R1).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 
@@ -120,7 +119,7 @@ describe("[camada C4 · F6a] Explosão — carga que falhou nunca vira o estado 
       expect(enviarBtn().every((b) => b.disabled)).toBe(true);
       expect(salvarBtn().every((b) => b.disabled)).toBe(true);
       await esperar(100);
-      expect(FAKE.chamadas.some((c) => c.op === "rpc" && /^rpc:salvar_explosao_|baixar_estoque/.test(c.tabela))).toBe(false);
+      expect(FAKE.chamadas.some((c) => c.op === "rpc" && /^rpc:salvar_explosao(_|$)|baixar_estoque/.test(c.tabela))).toBe(false);
 
       await clicar(tentar()!);
       await aguardar(() => !!campoMetragem() && !salvarBtn().every((b) => b.disabled), "recuperou e liberou o Salvar", 4000);
@@ -141,28 +140,79 @@ describe("[camada C4 · F6a] Explosão — carga que falhou nunca vira o estado 
   });
 });
 
-describe("[RULING R1] Explosão — merge/eco de volta ao comportamento de antes da C4 (5f2a0e3d^)", () => {
-  it("fonte: nada da janela de assentamento da C4 sobrou; o onSuccess do Salvar é o de antes (markClean + zera tocados + invalida)", () => {
+describe("[Explosão RPC única] Salvar/Enviar = UMA chamada; sem aviso falso ao autor", () => {
+  it("fonte: nada da janela de assentamento da C4; o onSuccess do Salvar re-basa o 3-vias no enviado (rev devolvido + base = enviado)", () => {
     for (const c4 of ["assentandoRef", "enviadoRef", "mergeNonce", "avaliarEAplicar", "releituraFalhou", "assentarPosSalvar", "tocadosAntesRef", "explosao-colab"]) {
       expect(SRC, c4).not.toContain(c4);
     }
     const onSuccess = SRC.slice(SRC.indexOf("const salvarMut = useMutation")).split("onSuccess:")[1].split("onError:")[0];
     expect(onSuccess).toContain("markClean();");
     expect(onSuccess).toContain("tocouMetragemRef.current = false;");
+    expect(onSuccess).toContain("cadRevRef.current = data.rev;");
+    expect(onSuccess).toContain("baseServidorRef.current = enviadoSalvarRef.current");
     expect(onSuccess).toContain('qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });');
     expect(SRC).toContain("const m = mergeDraft({ base: base as any, draft: draftBlob as any, fresh: fresh as any, touched });");
+    // a tela só fala com a RPC única (as 3 estreitas e a baixa solta não são mais chamadas)
+    expect(SRC).toContain('supabase.rpc("salvar_explosao" as any');
+    for (const velha of ["salvar_explosao_metragem", "salvar_explosao_aviamento_separar", "salvar_explosao_etiqueta_enviar"]) {
+      expect(SRC, velha).not.toContain(`rpc("${velha}"`);
+    }
+    expect(SRC).not.toContain('rpc("baixar_estoque_tecido_corte"');
   });
 
-  it("Salvar próprio: volta o aviso conhecido 'atualizada por outra pessoa' (cosmético, pré-existente — Onda 2); a tela fica com o salvo", async () => {
+  it("Salvar = UMA chamada salvar_explosao (_enviar:false) com as 3 seções; nenhuma estreita nem baixa", async () => {
     await abrir();
     await digitar(campoMetragem()!, "10");
     await salvar();
     await aguardar(() => toastMock.success.mock.calls.length > 0, "toast Salvo");
+    const unica = rpcs("salvar_explosao");
+    expect(unica).toHaveLength(1);
+    const a = unica[0].payload as any;
+    expect(a._enviar).toBe(false);
+    expect(a._cad_id).toBe("c1");
+    expect(a._rev_base).toBe(1);
+    expect(a._variantes).toEqual([expect.objectContaining({ id: "v1", metragem_enviada: 10 })]);
+    expect(Array.isArray(a._aviamentos)).toBe(true);
+    expect(Array.isArray(a._etiquetas)).toBe(true);
+    expect(FAKE.chamadas.filter((c) => c.op === "rpc" && /^rpc:(salvar_explosao_|baixar_estoque)/.test(c.tabela))).toHaveLength(0);
+    expect(FAKE.linhas.cad[0].rev).toBe(2); // 1 bump só (antes eram 3)
+    expect(FAKE.linhas.cad[0].enviado_corte).toBe(false);
+  });
+
+  it("Enviar para PCP = UMA chamada salvar_explosao (_enviar:true); sem baixa solta; sem 'Salvo' nem aviso falso", async () => {
+    await abrir();
+    await digitar(campoMetragem()!, "10");
+    await clicar(enviarBtn().find((b) => !b.disabled)!);
+    const confirmar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')).find((b) => (b.textContent ?? "").includes("para PCP")) ?? null;
+    await aguardar(() => !!confirmar(), "dialog de confirmação do envio");
+    await clicar(confirmar()!);
+    await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Enviado para PCP"), "toast Enviado para PCP");
     await esperar(200);
+    const unica = rpcs("salvar_explosao");
+    expect(unica).toHaveLength(1);
+    expect((unica[0].payload as any)._enviar).toBe(true);
+    expect((unica[0].payload as any)._variantes).toEqual([expect.objectContaining({ id: "v1", metragem_enviada: 10 })]);
+    expect(FAKE.chamadas.filter((c) => c.op === "rpc" && /^rpc:(salvar_explosao_|baixar_estoque)/.test(c.tabela))).toHaveLength(0);
+    expect(FAKE.linhas.cad[0].enviado_corte).toBe(true);
+    expect(FAKE.linhas.cad_tecidos[0].cad_tecido_variantes[0].metragem_enviada).toBe(10);
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("Salvar próprio: NENHUM toast 'atualizada por outra pessoa' (eco do refetch é no-op); a tela fica com o salvo", async () => {
+    await abrir();
+    await digitar(campoMetragem()!, "10");
+    await salvar();
+    await aguardar(() => toastMock.success.mock.calls.length > 0, "toast Salvo");
+    await esperar(300); // dá tempo do refetch (invalidate) e do eco do Realtime
+    FAKE.emitirRealtime("cad"); // eco do Realtime do PRÓPRIO Salvar
+    await esperar(300);
     expect(FAKE.linhas.cad_tecidos[0].cad_tecido_variantes[0].metragem_enviada).toBe(10);
     expect(metragemTela()).toBe(10);
-    expect(aviso()).toBe(1); // o eco do próprio Salvar (comportamento de 5f2a0e3d^)
+    expect(aviso()).toBe(0);
+    expect(toastMock.message.mock.calls.filter((c) => String(c[0]).includes("outra pessoa"))).toHaveLength(0);
     expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it("depois do meu Salvar, OUTRA pessoa grava em seção NÃO tocada: avisa de novo e a tela adota o dado", async () => {
@@ -171,10 +221,10 @@ describe("[RULING R1] Explosão — merge/eco de volta ao comportamento de antes
     await salvar();
     await aguardar(() => toastMock.success.mock.calls.length > 0, "toast Salvo");
     await esperar(200);
-    const antes = aviso();
+    expect(aviso()).toBe(0);
     await outraPessoaGrava(() => { FAKE.linhas.cad_aviamentos[0].quantidade_separar = 7; });
     await aguardar(() => aviTela() === 7, "tela adotou o aviamento alheio");
-    expect(aviso()).toBe(antes + 1);
+    expect(aviso()).toBe(1); // o aviso legítimo (OUTRA pessoa) continua funcionando
     expect(toastMock.warning).not.toHaveBeenCalled();
   });
 
@@ -195,7 +245,7 @@ describe("[RULING R1] Explosão — merge/eco de volta ao comportamento de antes
     expect(salvarBtn().every((b) => b.disabled)).toBe(true);
   });
 
-  it("P0409: alguém salvou antes do meu Salvar — toast de conflito, nenhum 'Salvo', as RPCs 2 e 3 nem rodam", async () => {
+  it("P0409: alguém salvou antes do meu Salvar — toast de conflito, nenhum 'Salvo', a RPC única recusa (nada gravado)", async () => {
     await abrir();
     await digitar(campoMetragem()!, "10");
     FAKE.linhas.cad[0].rev += 5; // outra pessoa salvou antes de mim
@@ -203,6 +253,9 @@ describe("[RULING R1] Explosão — merge/eco de volta ao comportamento de antes
     await aguardar(() => toastMock.warning.mock.calls.length > 0, "toast de P0409", 3000);
     expect(toastMock.warning.mock.calls[0][0]).toContain("Alguém salvou esta Explosão agora");
     expect(toastMock.success).not.toHaveBeenCalled();
+    expect(rpcs("salvar_explosao")).toHaveLength(1); // UMA tentativa, recusada pelo _rev_base
+    expect(FAKE.linhas.cad_tecidos[0].cad_tecido_variantes[0].metragem_enviada).toBe(3); // nada gravado
+    expect(FAKE.linhas.cad[0].rev).toBe(6); // sem bump: a RPC recusou
     expect(rpcs("salvar_explosao_aviamento_separar")).toHaveLength(0);
   });
 });

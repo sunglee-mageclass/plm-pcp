@@ -100,6 +100,7 @@ describe("[urg R1 T8] Explosão — leitura dos tamanhos vinculados", () => {
     expect(salvarBtn().every((b) => b.disabled)).toBe(true);
     expect(enviarBtn().every((b) => b.disabled)).toBe(true);
     expect(rpcs("salvar_explosao_etiqueta_enviar")).toHaveLength(0);
+    expect(rpcs("salvar_explosao")).toHaveLength(0);
 
     await clicar(tentar()!);
     await aguardar(() => !texto().includes("Não foi possível carregar os dados") && necessaria() === "2", "recuperou", 6000);
