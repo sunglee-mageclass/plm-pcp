@@ -367,6 +367,8 @@ export const TEXTOS_NAO_ENCONTRADO: Record<string, string> = {
   lote_kanban: "Este lote de colunas do Kanban não existe mais. Recarregue a tela.",
   // [urg R13 T9] o produto (item) da OC sumiu entre abrir a OC e agir (outra pessoa o tirou ou excluiu a OC).
   item: "Este produto não está mais nesta OC (outra pessoa pode tê-lo tirado). Recarregue a tela.",
+  // [Explosão RPC única] `salvar_explosao` devolve `nao_encontrado: cad` quando o CAD sumiu entre abrir a tela e salvar/enviar.
+  cad: "Este CAD não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.",
 };
 export const TEXTO_OC_NUMERO_DUPLICADO = "Já existe uma OC com esse número nesta loja. Escolha outro número ou deixe em branco para gerar automaticamente.";
 export const TEXTO_NAO_ENCONTRADO_GENERICO = "Este registro não existe mais (outra pessoa pode tê-lo excluído). Recarregue a tela.";

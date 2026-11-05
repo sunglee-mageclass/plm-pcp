@@ -347,6 +347,8 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const tocouAviRef = useRef(false);
   const tocouEtiRef = useRef(false);
   const baseServidorRef = useRef<ExplosaoColabBlob | null>(null);
+  // Foto do que o último Salvar ENVIOU (capturada no mutationFn); o onSuccess re-basa o 3-vias nela.
+  const enviadoSalvarRef = useRef<ExplosaoColabBlob | null>(null);
   const [conflitos, setConflitos] = useState<Conflito[]>([]);
   const conflitosRef = useRef<Conflito[]>([]);
   const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
@@ -875,32 +877,26 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       if (conflitosRef.current.length > 0) throw erroValidacao("Resolva os conflitos antes de salvar.");
       // F6a: nunca manda o estado INTEIRO a partir de uma carga parcial/falha (as 3 RPCs gravam tudo que está na tela).
       if (!podeGravarRef.current) throw erroValidacao("Os dados da Explosão não foram carregados por completo. Use “Tentar de novo”.");
-      // ⚠️ As 3 RPCs são UM save atômico do MESMO cad. SÓ A PRIMEIRA checa o rev: a 1ª RPC (com
-      // dados) bumpa cad.rev via trigger-de-filha, então passar o MESMO _rev_base velho na 2ª/3ª
-      // daria P0409 contra o PRÓPRIO save. As seguintes usam _rev_base: null (bypass) — já estão
-      // dentro da janela do save cuja concorrência a 1ª RPC já barrou (ou liberou).
-      const { error } = await supabase.rpc("salvar_explosao_metragem" as any, {
+      // [Explosão RPC única] UMA chamada = UMA transação: metragem + "a separar" + "a enviar" gravam juntas
+      // (ou nada), com o _rev_base REAL checado uma vez só (antes eram 3 RPCs, as 2 últimas com bypass).
+      // Foto do que está sendo ENVIADO (mesmo instante do payload): o onSuccess re-basa o 3-vias nela.
+      enviadoSalvarRef.current = {
+        metragemBlob: metragemBlobDeTecidos(tecidosLiveRef.current),
+        aviBlob: { ...aviSepararLiveRef.current },
+        etiBlob: { ...etiEnviarLiveRef.current },
+      };
+      const { data, error } = await supabase.rpc("salvar_explosao" as any, {
         _cad_id: cadRow.id,
         _variantes: buildVariantesPayload(),
+        _aviamentos: buildAviamentoSepararPayload(),
+        _etiquetas: buildEtiquetaEnviarPayload(),
         _rev_base: cadRevRef.current,
+        _enviar: false,
       });
       if (error) throw error;
-      // Persiste também a "a separar" do aviamento (RPC estreita — só quantidade_separar).
-      const { error: errAvi } = await supabase.rpc("salvar_explosao_aviamento_separar" as any, {
-        _cad_id: cadRow.id,
-        _linhas: buildAviamentoSepararPayload(),
-        _rev_base: null,
-      });
-      if (errAvi) throw errAvi;
-      // E a "a enviar" da etiqueta/insumo (RPC estreita — só cad_etiquetas.quantidade_enviar).
-      const { error: errEti } = await supabase.rpc("salvar_explosao_etiqueta_enviar" as any, {
-        _cad_id: cadRow.id,
-        _linhas: buildEtiquetaEnviarPayload(),
-        _rev_base: null,
-      });
-      if (errEti) throw errEti;
+      return data as any; // { cad_id, rev, deficit }
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       toast.success("Salvo");
       markClean(); // limpa o indicador de "alterações não salvas"
       setEditing(false); // trava a edição após salvar (o lápis reabre)
@@ -908,6 +904,15 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       tocouMetragemRef.current = false;
       tocouAviRef.current = false;
       tocouEtiRef.current = false;
+      // [Explosão RPC única · R-02] Re-basa o 3-vias no ENVIADO (receita do OC Tecido): o rev devolvido pela RPC
+      // vira a referência e a base do servidor passa a ser o que acabei de gravar — o eco do refetch (fresh ==
+      // base, rev == cadRevRef) vira no-op e some o aviso falso "atualizada por outra pessoa" ao próprio autor.
+      if (typeof data?.rev === "number") cadRevRef.current = data.rev;
+      baseServidorRef.current = enviadoSalvarRef.current ?? {
+        metragemBlob: metragemBlobDeTecidos(tecidosLiveRef.current),
+        aviBlob: { ...aviSepararLiveRef.current },
+        etiBlob: { ...etiEnviarLiveRef.current },
+      };
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
@@ -921,7 +926,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   });
 
   // --- enviar para PCP (corte) ---
-  // Salva a metragem (RPC estreita) e depois baixa o estoque.
+  // Salva a tela inteira e baixa o estoque numa RPC só (salvar_explosao, _enviar: true).
   const enviarCorte = useMutation({
     mutationFn: async () => {
       if (!cadRow?.id) throw new Error("CAD não carregado");
@@ -931,41 +936,18 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       if (conflitosRef.current.length > 0) throw erroValidacao("Resolva os conflitos antes de enviar para o PCP.");
       // F6a: o Enviar grava a tela inteira e BAIXA estoque — nunca a partir de uma carga parcial/falha.
       if (!podeGravarRef.current) throw erroValidacao("Os dados da Explosão não foram carregados por completo. Use “Tentar de novo”.");
-      // ⚠️ SÓ A PRIMEIRA RPC checa o rev — a 1ª (com dados) bumpa cad.rev via trigger-de-filha, então
-      // as seguintes (e a baixa) usam _rev_base: null (bypass) p/ não tomar P0409 contra o próprio
-      // envio. A 1ª RPC já barrou a concorrência (ninguém salvou antes de começar); daí em diante é a
-      // MESMA sequência atômica do envio. O guard síncrono acima já bloqueou conflito pendente.
-      // Primeiro persiste a metragem_enviada atual (RPC estreita — não toca grade/aviamento).
-      const { error: errSave } = await supabase.rpc("salvar_explosao_metragem" as any, {
+      // [Explosão RPC única] UMA transação: salva metragem + "a separar" + "a enviar" E baixa o estoque do corte
+      // (_enviar: true). O _rev_base REAL é checado uma vez; o retorno já traz o `deficit` por variante.
+      const { data, error } = await supabase.rpc("salvar_explosao" as any, {
         _cad_id: cadRow.id,
         _variantes: buildVariantesPayload(),
+        _aviamentos: buildAviamentoSepararPayload(),
+        _etiquetas: buildEtiquetaEnviarPayload(),
         _rev_base: cadRevRef.current,
-      });
-      if (errSave) throw errSave;
-      // E a "a separar" do aviamento (não perde a edição ao enviar; não entra na baixa do corte).
-      const { error: errAvi } = await supabase.rpc("salvar_explosao_aviamento_separar" as any, {
-        _cad_id: cadRow.id,
-        _linhas: buildAviamentoSepararPayload(),
-        _rev_base: null,
-      });
-      if (errAvi) throw errAvi;
-      // E a "a enviar" da etiqueta/insumo (idem — não entra na baixa de tecido).
-      const { error: errEti } = await supabase.rpc("salvar_explosao_etiqueta_enviar" as any, {
-        _cad_id: cadRow.id,
-        _linhas: buildEtiquetaEnviarPayload(),
-        _rev_base: null,
-      });
-      if (errEti) throw errEti;
-
-      // Depois executa a baixa de estoque (o corte que envia para PCP). _rev_base: null — os 3 saves
-      // acima já bumparam o rev; a proteção contra "enviar com metragem obsoleta" veio da 1ª RPC
-      // (rev checado no início) + do guard síncrono de conflito acima.
-      const { data, error } = await supabase.rpc("baixar_estoque_tecido_corte" as any, {
-        _cad_id: cadRow.id,
-        _rev_base: null,
+        _enviar: true,
       });
       if (error) throw error;
-      return data as any;
+      return data as any; // { cad_id, rev, deficit }
     },
     onSuccess: (res: any) => {
       const def: any[] = Array.isArray(res?.deficit) ? res.deficit : [];
