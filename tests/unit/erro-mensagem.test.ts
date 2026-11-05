@@ -3,6 +3,8 @@ import { RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "../../src
 import {
   mensagemBackend,
   mensagemErro,
+  TEXTO_BOM_INVALIDO,
+  TEXTO_HEADER_CAMPO_INVALIDO,
   PREFIXO_NAO_ENCONTRADO,
   TEXTO_NAO_ENCONTRADO_GENERICO,
   TEXTOS_NAO_ENCONTRADO,
@@ -182,5 +184,18 @@ describe("mensagemErro — P0002 nao_encontrado: (Backend B3)", () => {
   ])("falha de rede %j (%s) vira a mensagem de conexão, não o fallback da tela", (message) => {
     // TypeError é o que fetch lança numa queda de rede; não tem `code`.
     expect(mensagemErro(new TypeError(message), "Erro ao salvar")).toBe(MSG_CONEXAO);
+  });
+});
+
+describe("salvar_card_planejamento — recusas P0001 ASCII viram texto PT (Salvar único)", () => {
+  it.each([
+    ["header_campo_invalido: lancado,rev", TEXTO_HEADER_CAMPO_INVALIDO],
+    ["bom_invalido: esperado tecidos, aviamentos e grades (listas)", TEXTO_BOM_INVALIDO],
+  ])("%s → PT, sem o código cru", (message, texto) => {
+    expect(mensagemErro({ code: "P0001", message }, "fb")).toBe(texto);
+    expect(texto).not.toContain("_");
+  });
+  it("outro código P0001 com texto já em PT segue passando como veio", () => {
+    expect(mensagemErro({ code: "P0001", message: "Informe o nome do produto." }, "fb")).toBe("Informe o nome do produto.");
   });
 });

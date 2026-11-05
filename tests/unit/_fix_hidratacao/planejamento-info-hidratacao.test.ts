@@ -51,7 +51,9 @@ const linhaModelo = () => ({
 });
 
 const campo = (path: string) => document.querySelector<HTMLInputElement>(`[data-colab-path="${path}"]`);
-const updatesModelo = () => FAKE.chamadas.filter((c) => c.tabela === "modelos" && c.op === "update");
+// Salvar único (Task 3): o cabeçalho de `modelos` não é mais um `.update()` — vai no bloco `_header` da RPC `salvar_card_planejamento`.
+const chamadasNucleo = () => FAKE.chamadas.filter((c) => c.tabela === "rpc:salvar_card_planejamento");
+const headerGravado = () => (chamadasNucleo().at(-1)!.payload as { _header: Record<string, unknown> })._header;
 const getsModelo = () => FAKE.chamadas.filter((c) => c.tabela === "modelos" && c.op === "select" && c.filtros.some((f) => f.col === "id" && f.val === "m1")).length;
 const botaoSalvar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]');
 
@@ -88,7 +90,7 @@ describe("[fix hidratação] Sheet do Planejamento — seção 1: a edição sob
     await digitar(campo("ncm")!, "6204.43.00");
     await clicar(botaoSalvar()!);
     await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Modelo salvo"), "toast Modelo salvo");
-    const p = updatesModelo().at(-1)!.payload as any;
+    const p = headerGravado() as any;
     expect(p.titulo_pagina).toBe("Título QA (restaurar)"); // NÃO grava null (automático)
     expect(p.ncm).toBe("6204.43.00"); // NÃO grava o valor do servidor por cima
   });
@@ -109,7 +111,7 @@ describe("[fix hidratação] Sheet do Planejamento — seção 1: a edição sob
 
     await clicar(botaoSalvar()!);
     await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Modelo salvo"), "toast Modelo salvo");
-    const p = updatesModelo().at(-1)!.payload as any;
+    const p = headerGravado() as any;
     expect(p.titulo_pagina).toBe("Título QA (restaurar)");
     expect(p.ncm).toBe("6204.43.00");
   });

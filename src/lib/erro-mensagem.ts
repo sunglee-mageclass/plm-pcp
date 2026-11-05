@@ -212,6 +212,18 @@ export function mensagemLevesL3(code: string, msg: string): string | null {
   return null;
 }
 
+// Salvar único do Planejamento (`salvar_card_planejamento`, 20261108100000): recusas P0001 em ASCII com prefixo → texto PT. São erros de
+// versão/código (tela e banco fora de sincronia), não de uso normal: `header_campo_invalido: <colunas>` (o cabeçalho levou coluna fora da
+// lista fechada do servidor) e `bom_invalido: …` (o BOM não veio como tecidos/aviamentos/grades em listas). O servidor recusa ANTES de gravar.
+export const TEXTO_HEADER_CAMPO_INVALIDO = "O cabeçalho do card tem um campo que o servidor não reconhece. Recarregue a página e tente de novo.";
+export const TEXTO_BOM_INVALIDO = "Os dados de Tecidos e BOM do card estão em um formato inválido. Recarregue a página e tente de novo.";
+export function mensagemSalvarCard(code: string, msg: string): string | null {
+  if (code !== "P0001") return null;
+  if (msg.startsWith("header_campo_invalido:")) return TEXTO_HEADER_CAMPO_INVALIDO;
+  if (msg.startsWith("bom_invalido:")) return TEXTO_BOM_INVALIDO;
+  return null;
+}
+
 // OC de Aviamento (release L9, `_salvar_oc_aviamento_core`): recusas P0001 em ASCII com prefixo → texto PT.
 // `oc_aviamento_cor_obrigatoria: <aviamento>` (P-208 A: 2+ cores exigem a cor no item novo/editado) e
 // `oc_aviamento_preco_invalido:` (P-206 A: preço da compra negativo). O nome vem em ASCII (acento vira "?") — só é mostrado
@@ -669,6 +681,8 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // (que daria o texto genérico para a entidade `item`).
   const r13 = mensagemR13(code, msg);
   if (r13) return r13;
+  const salvarCard = mensagemSalvarCard(code, msg);
+  if (salvarCard) return salvarCard;
   const backend = mensagemBackend(code, msg);
   if (backend) return backend;
 
