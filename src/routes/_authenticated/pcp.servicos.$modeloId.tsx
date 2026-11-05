@@ -64,7 +64,7 @@ import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeLinhas, igual, type Conflito } from "@/lib/colab/merge";
-import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha } from "@/lib/colab/conflitos-pendentes";
+import { ehCorridaRemontaSemTocar, juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha } from "@/lib/colab/conflitos-pendentes";
 import { mergeGrade } from "@/lib/colab/merge-grade";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
@@ -683,6 +683,19 @@ export function TerceirizadosDetail({
       touchedGradeRef.current = new Set();
       conflitosRef.current = [];
       setConflitos([]);
+      resetBaseline({ blocos: fresh, observacoesMolde });
+      return;
+    }
+    // Corrida remonta+refetch (staleTime:0): o efeito re-dispara com `blocos` ainda STALE (closure anterior ao commit do seed),
+    // enquanto `baseBlocosRef` (ref, síncrono) já tem os blocos. Mesclar com rascunho vazio contaria cada bloco do servidor como "novo
+    // do servidor" (mergeLinhas) -> banner falso "Alguém salvou agora". Nada tocado (nem bloco, nem célula da grade) -> nada a proteger:
+    // re-semeia (e re-baseline do dirty) e sai. (Remover bloco marca o id como tocado, então esse caso não cai aqui.)
+    if (ehCorridaRemontaSemTocar({
+      linhasDoRascunho: blocos.length, linhasDaBase: baseBlocosRef.current.length,
+      camposTocados: touchedGradeRef.current.size, linhasTocadas: touchedBlocoIdsRef.current.size,
+    })) {
+      baseBlocosRef.current = fresh;
+      setBlocos(fresh);
       resetBaseline({ blocos: fresh, observacoesMolde });
       return;
     }

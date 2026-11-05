@@ -59,4 +59,78 @@ describe("corrida remonta+refetch (staleTime:0)", () => {
     expect(bloco).toContain("resetBaseline(");
     expect(bloco).toMatch(/return;/);
   });
+
+  // ---- Mesmo guard nas outras 2 telas com o merge 3-vias (varredura): OC Aviamento e PCP Serviços ----
+  describe("OC Aviamento (items/draft; touchedRef + touchedItemIdsRef)", () => {
+    it("corrida sem tocar -> guard TRUE (re-semeia)", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 3, camposTocados: 0, linhasTocadas: 0 })).toBe(true);
+    });
+    it("campo do cabeçalho tocado -> FALSE", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 3, camposTocados: 2, linhasTocadas: 0 })).toBe(false);
+    });
+    it("linha tocada/removida -> FALSE", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 3, camposTocados: 0, linhasTocadas: 3 })).toBe(false);
+    });
+    it("base vazia (OC sem itens) -> FALSE", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 0, camposTocados: 0, linhasTocadas: 0 })).toBe(false);
+    });
+    it("a tela aplica o guard depois do seed e ANTES do merge, com os refs reais da tela", () => {
+      const SRC = readFileSync(join(process.cwd(), "src/routes/_authenticated/entrada-saida.oc-aviamento.tsx"), "utf8");
+      const iSeed = SRC.indexOf("// 1ª carga: seed normal");
+      const iGuard = SRC.indexOf("ehCorridaRemontaSemTocar({");
+      const iMerge = SRC.indexOf("const md = mergeDraft({ base: baseRef.current.draft");
+      expect(iSeed).toBeGreaterThan(-1);
+      expect(iGuard).toBeGreaterThan(iSeed);
+      expect(iMerge).toBeGreaterThan(iGuard);
+      const bloco = SRC.slice(iGuard, iMerge);
+      expect(bloco).toMatch(/linhasDoRascunho: items\.length/);
+      expect(bloco).toMatch(/linhasDaBase: baseRef\.current\.items\.length/);
+      expect(bloco).toMatch(/camposTocados: touchedRef\.current\.size/);
+      expect(bloco).toMatch(/linhasTocadas: touchedItemIdsRef\.current\.size/);
+      expect(bloco).toContain("setDraft(freshDraft)");
+      expect(bloco).toContain("setItems(freshItems)");
+      expect(bloco).toContain("resetBaseline(");
+      expect(bloco).toMatch(/return;/);
+      expect(SRC).toMatch(/import \{ ehCorridaRemontaSemTocar,/);
+    });
+  });
+
+  describe("PCP Serviços (blocos; touchedGradeRef como campo + touchedBlocoIdsRef como linha)", () => {
+    const bloco = (id: string) => ({ id, preco: 10, grade_detalhe: {} });
+    it("SEM o guard o merge com rascunho vazio (closure stale) acusa os blocos como 'atualizadas'", () => {
+      const base = ["a", "b"].map(bloco);
+      const r = mergeLinhas({ base, draft: [], fresh: ["a", "b"].map(bloco), touchedIds: new Set(), removidasIds: new Set() });
+      expect(r.atualizadas.length).toBe(2);
+    });
+    it("corrida sem tocar -> guard TRUE", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 2, camposTocados: 0, linhasTocadas: 0 })).toBe(true);
+    });
+    it("célula da grade tocada -> FALSE (3º ref somado em camposTocados)", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 2, camposTocados: 1, linhasTocadas: 0 })).toBe(false);
+    });
+    it("bloco tocado/removido -> FALSE", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 2, camposTocados: 0, linhasTocadas: 2 })).toBe(false);
+    });
+    it("base vazia (CAD sem serviços) -> FALSE", () => {
+      expect(ehCorridaRemontaSemTocar({ linhasDoRascunho: 0, linhasDaBase: 0, camposTocados: 0, linhasTocadas: 0 })).toBe(false);
+    });
+    it("a tela aplica o guard depois do seed e ANTES do merge, com os refs reais da tela", () => {
+      const SRC = readFileSync(join(process.cwd(), "src/routes/_authenticated/pcp.servicos.$modeloId.tsx"), "utf8");
+      const iSeed = SRC.indexOf("// 1ª carga: seed normal");
+      const iGuard = SRC.indexOf("ehCorridaRemontaSemTocar({");
+      const iMerge = SRC.indexOf("const ml = mergeLinhas({ base: baseBlocosRef.current, draft: blocos");
+      expect(iSeed).toBeGreaterThan(-1);
+      expect(iGuard).toBeGreaterThan(iSeed);
+      expect(iMerge).toBeGreaterThan(iGuard);
+      const trecho = SRC.slice(iGuard, iMerge);
+      expect(trecho).toMatch(/linhasDoRascunho: blocos\.length/);
+      expect(trecho).toMatch(/linhasDaBase: baseBlocosRef\.current\.length/);
+      expect(trecho).toMatch(/camposTocados: touchedGradeRef\.current\.size/);
+      expect(trecho).toMatch(/linhasTocadas: touchedBlocoIdsRef\.current\.size/);
+      expect(trecho).toContain("setBlocos(fresh)");
+      expect(trecho).toContain("resetBaseline(");
+      expect(trecho).toMatch(/return;/);
+      expect(SRC).toMatch(/import \{ ehCorridaRemontaSemTocar,/);
+    });
+  });
 });
