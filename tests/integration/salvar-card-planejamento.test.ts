@@ -101,6 +101,15 @@ const SQL_RPC = `select public.salvar_card_planejamento($1::uuid, $2::jsonb, $3:
 const argsRpc = (m: string, p: P) => [m, j(p.header), p.rev ?? null, j(p.bom), j(p.etiquetas), j(p.cad), j(p.mo), j(p.gradeRevenda), j(p.revisao), j(p.flags)];
 /** Chama a RPC como `authenticated` com o JWT já definido (`jwt`). */
 const salva = (c: PgClient, m: string, p: P): Promise<Res> => como(c, "authenticated", SQL_RPC, argsRpc(m, p));
+/**
+ * Chama a RPC no NÍVEL DE TOPO da txn (sem SAVEPOINT), como UMA requisição do PostgREST. É assim que se mede o DELTA de `rev`: o `rev` do card
+ * só sobe 1× por transação nas filhas porque os gatilhos `fn_colab_bump_*` comparam o `xmin` do card com o xid de TOPO (T5/B2 do CLAUDE.md,
+ * limites (i) e (iii)) - dentro de um SAVEPOINT (o `salva`/`como`) o DELETE de cada linha do BOM bumparia 1 por linha e o delta mediria o
+ * harness, não a RPC. O papel não importa (a RPC é DEFINER; o portão lê o JWT, não o papel). Só para caminho de SUCESSO (erro aborta a txn).
+ */
+async function salvaTopo(c: PgClient, m: string, p: P): Promise<any> {
+  return (await c.query(SQL_RPC, argsRpc(m, p))).rows[0].r;
+}
 async function salvaOk(c: PgClient, m: string, p: P): Promise<any> {
   const r = await salva(c, m, p);
   if (!r.ok) throw new Error(`esperava passar: ${r.code} ${r.msg}`);
@@ -289,28 +298,26 @@ async function dump(c: PgClient, m: string): Promise<any> {
   };
 }
 
-/** A CADEIA ANTIGA do Salvar (o que a tela fazia em requisições separadas) sobre o card `y`, como o mesmo editor. */
-async function cadeiaAntiga(c: PgClient, y: string, fx: Fx, o: { cad?: any; revisao?: boolean } = {}): Promise<any> {
+/**
+ * A CADEIA ANTIGA do Salvar (o que a tela fazia em requisições separadas) sobre o card `y`, como o mesmo editor. Cada passo roda no NÍVEL DE
+ * TOPO da txn (sem SAVEPOINT) para o delta de `rev` ser comparável ao da RPC (ver `salvaTopo`).
+ */
+async function cadeiaAntiga(c: PgClient, y: string, fx: Fx, o: { cad?: any } = {}): Promise<void> {
   await c.query(`update modelos set nome = $2, ncm = $3, peso_kg = $4, observacoes_gerais = $5, subcolecao = $6 where id = $1`,
     [y, HEADER_NOVO.nome, HEADER_NOVO.ncm, HEADER_NOVO.peso_kg, HEADER_NOVO.observacoes_gerais, HEADER_NOVO.subcolecao]);
   const b = BOM_NOVO(fx);
-  await ok(c, `select public.salvar_modelo_bom($1, $2::jsonb, $3::jsonb, $4::jsonb, null)`, [y, j(b.tecidos), j(b.aviamentos), j(b.grades)]);
-  await ok(c, `select public.salvar_modelo_servico_mo($1, $2::jsonb)`, [y, j(MO_EXTRA(fx, await idMo(c, y)))]);
-  if (o.cad) {
-    const d = o.cad;
-    await ok(c, `select public.salvar_cad_completo($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::date)`,
-      [y, j(d.tecidos), j(d.grades), j(d.aviamentos), j(d.etiquetas), j(d.proporcoes), d.observacoes_molde, d.data_previsao_corte]);
-  }
-  if (o.revisao) {
-    const r = await ok(c, `select public.marcar_revisao_por_mudanca($1, true, true, true) as r`, [y]);
-    return r[0].r;
-  }
-  return null;
+  await c.query(`select public.salvar_modelo_bom($1, $2::jsonb, $3::jsonb, $4::jsonb, null)`, [y, j(b.tecidos), j(b.aviamentos), j(b.grades)]);
+  await c.query(`select public.salvar_modelo_servico_mo($1, $2::jsonb)`, [y, j(MO_EXTRA(fx, await idMo(c, y)))]);
+  if (o.cad) await salvarCadAntigo(c, y, o.cad, o.cad.proporcoes);
+}
+async function salvarCadAntigo(c: PgClient, y: string, d: any, proporcoes: any): Promise<void> {
+  await c.query(`select public.salvar_cad_completo($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::date)`,
+    [y, j(d.tecidos), j(d.grades), j(d.aviamentos), j(d.etiquetas), j(proporcoes), d.observacoes_molde, d.data_previsao_corte]);
 }
 
 // ═════════════════════════════════════════════════ 1 + 2 · PARIDADE ═════════════════════════════════════════════════
 describe.skipIf(!RODA)("salvar_card_planejamento — paridade com a cadeia antiga", () => {
-  it("1. interno: header + BOM + M.O. gravam o mesmo que a cadeia antiga; a rev sobe", async () => {
+  it("1. interno: header + BOM + M.O. gravam o mesmo que a cadeia antiga; a rev sobe EXATAMENTE +1 (1x por evento, nao +N)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const fx = await fixture(c);
@@ -319,8 +326,9 @@ describe.skipIf(!RODA)("salvar_card_planejamento — paridade com a cadeia antig
       const antes = await dump(c, x);
       expect(await dump(c, y)).toEqual(antes); // gêmeos idênticos na semente
       const rev0 = await rev(c, x);
+      const revY0 = await rev(c, y);
 
-      const r = await salvaOk(c, x, { header: HEADER_NOVO, rev: rev0, bom: BOM_NOVO(fx), mo: MO_EXTRA(fx, await idMo(c, x)) });
+      const r = await salvaTopo(c, x, { header: HEADER_NOVO, rev: rev0, bom: BOM_NOVO(fx), mo: MO_EXTRA(fx, await idMo(c, x)) });
       await cadeiaAntiga(c, y, fx);
 
       const depois = await dump(c, x);
@@ -331,33 +339,39 @@ describe.skipIf(!RODA)("salvar_card_planejamento — paridade com a cadeia antig
       expect(depois.aviamentos).toHaveLength(2);
       expect(depois.grades.map((g: any) => g.variante_numero)).toEqual([1, 2, 3]);
       expect(depois.mo).toHaveLength(2);
+      // DELTA de rev (medido): header + BOM (apaga e regrava ~dezenas de linhas) + M.O. = +1, o UPDATE do cabeçalho; as filhas não somam
+      // (T5: o card já foi escrito por esta transação). A cadeia antiga, no mesmo nível, também dá +1 (a RPC não sobe MAIS que ela).
       const rev1 = await rev(c, x);
-      expect(rev1).toBeGreaterThan(rev0);
-      expect(r).toMatchObject({ modelo_id: x, rev: rev1, revisao_marcada: {} });
+      expect(rev1 - rev0).toBe(1);
+      expect((await rev(c, y)) - revY0).toBe(1);
+      expect(r).toEqual({ modelo_id: x, rev: rev1, revisao_marcada: {} });
     });
   });
 
-  it("2. com CAD: cad / cad_tecidos / cad_grades / aviamentos / etiquetas / proporções = cadeia antiga; a grade REAL é preservada com CQ confirmado", async () => {
+  it("2. com CAD: cad / cad_tecidos / cad_grades / aviamentos / etiquetas / proporções = cadeia antiga; grade REAL preservada com CQ confirmado; #Erro marcado = o da cadeia antiga", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const fx = await fixture(c);
       const x = await novoCard(c, fx, { bom: true, mo: true, nome: "SCP cad gemeo" });
       const y = await novoCard(c, fx, { bom: true, mo: true, nome: "SCP cad gemeo" });
       const cad1 = CAD_NOVO(fx, 12);
-      const r1 = await salvaOk(c, x, {
-        header: HEADER_NOVO, rev: await rev(c, x), bom: BOM_NOVO(fx), mo: MO_EXTRA(fx, await idMo(c, x)), cad: cad1,
-        revisao: { grade: true, consumo: true, aviamentos: true },
-      });
-      const marcadasAntiga = await cadeiaAntiga(c, y, fx, { cad: cad1, revisao: true });
+      const rX0 = await rev(c, x);
+      const rY0 = await rev(c, y);
+      await salvaTopo(c, x, { header: HEADER_NOVO, rev: rX0, bom: BOM_NOVO(fx), mo: MO_EXTRA(fx, await idMo(c, x)), cad: cad1 });
+      await cadeiaAntiga(c, y, fx, { cad: cad1 });
       const dx = await dump(c, x);
       expect(dx).toEqual(await dump(c, y));
-      expect(r1.revisao_marcada).toEqual(marcadasAntiga); // o mesmo retorno do marcar_revisao_por_mudanca
+      // DELTA de rev (medido): +2 = o UPDATE do cabeçalho + o `UPDATE modelos SET proporcoes` que o `_salvar_cad_completo_core` faz
+      // (o CAD novo e as filhas do CAD não sobem o `modelos.rev`). Mesma conta da cadeia antiga (header + salvar_cad_completo).
+      expect((await rev(c, x)) - rX0).toBe(2);
+      expect((await rev(c, y)) - rY0).toBe(2);
       expect(dx.cad).toEqual([{ observacoes_molde: "molde SCP", data_previsao_corte: "2026-12-01", status_corte: "pendente" }]);
       expect(dx.cad_tecidos).toHaveLength(1);
       expect(dx.cad_grades.map((g: any) => g.variante_numero)).toEqual([1, 2, 3]);
       expect(dx.cad_aviamentos).toHaveLength(1);
       expect(dx.cad_etiquetas).toHaveLength(1);
       expect(dx.modelo.proporcoes).toEqual({ "1": { P: 1, M: 1 } });
+      expect(dx.modelo.revisao_pendente).toEqual({}); // 1º Salvar: nada a jusante, nada marcado
 
       // CQ confirmado em X e Y, com a grade REAL da variante 1 e 2 diferente da planejada
       await semJwt(c, async () => {
@@ -368,14 +382,23 @@ describe.skipIf(!RODA)("salvar_card_planejamento — paridade com a cadeia antig
           await c.query(`update cad_grades set grades_reais = '{"P":1,"M":1}'::jsonb, grade_total_real = 2 where cad_id = $1 and variante_numero = 2`, [cad]);
         }
       });
-      // 2º Salvar: a planejada da variante 1 muda (12 -> 14); sem `proporcoes` no _cad (mantém as do card)
+      // 2º Salvar: a planejada da variante 1 muda (12 -> 14); sem `proporcoes` no _cad (mantém as do card); a GRADE mudou, então pede o
+      // #Erro das etapas a jusante: o CQ (agora existe) é marcado. A cadeia antiga faz o mesmo com marcar_revisao_por_mudanca(grade=true).
       const cad2: any = CAD_NOVO(fx, 14);
       delete cad2.proporcoes;
-      await salvaOk(c, x, { rev: await rev(c, x), cad: cad2 });
-      await ok(c, `select public.salvar_cad_completo($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::date)`,
-        [y, j(cad2.tecidos), j(cad2.grades), j(cad2.aviamentos), j(cad2.etiquetas), j({ "1": { P: 1, M: 1 } }), cad2.observacoes_molde, cad2.data_previsao_corte]);
+      const rX1 = await rev(c, x);
+      const rY1 = await rev(c, y);
+      const r2 = await salvaTopo(c, x, { rev: rX1, cad: cad2, revisao: { grade: true, consumo: false, aviamentos: false } });
+      await salvarCadAntigo(c, y, cad2, { "1": { P: 1, M: 1 } });
+      const marcadasAntiga = (await c.query(`select public.marcar_revisao_por_mudanca($1, true, false, false) as r`, [y])).rows[0].r;
+      expect(marcadasAntiga).toEqual({ cq: true }); // a semente FAZ algo ser marcado: não é {} contra {}
+      expect(r2.revisao_marcada).toEqual(marcadasAntiga); // o mesmo retorno do marcar_revisao_por_mudanca
       const d2 = await dump(c, x);
       expect(d2).toEqual(await dump(c, y));
+      expect(d2.modelo.revisao_pendente).toEqual({ cq: true }); // e a coluna `revisao_pendente` gravada igual nos dois
+      // DELTA: +2 = `UPDATE modelos SET proporcoes` do _core + o UPDATE de `revisao_pendente` do marcar (idem na cadeia antiga)
+      expect((await rev(c, x)) - rX1).toBe(2);
+      expect((await rev(c, y)) - rY1).toBe(2);
       const g1 = d2.cad_grades.find((g: any) => g.variante_numero === 1);
       expect(g1).toMatchObject({ grade_total_planejada: 14, grades_reais: { P: 4, M: 5 }, grade_total_real: 9 }); // real PRESERVADA
       const g2 = d2.cad_grades.find((g: any) => g.variante_numero === 2);
@@ -441,9 +464,9 @@ describe.skipIf(!RODA)("salvar_card_planejamento — trava otimista", () => {
       const m = await novoCard(c, fx, { bom: true, mo: true, nome: "SCP trava" });
       const rev0 = await rev(c, m);
       const p1: P = { header: { nome: "SCP trava A" }, rev: rev0, bom: BOM_NOVO(fx) };
-      await salvaOk(c, m, p1);
+      await salvaTopo(c, m, p1);
       const rev1 = await rev(c, m);
-      expect(rev1).toBeGreaterThan(rev0);
+      expect(rev1 - rev0).toBe(1); // header + BOM = +1 (UPDATE do cabeçalho; as filhas do BOM não somam - ver `salvaTopo`)
       const depoisA = await dump(c, m);
 
       // alguém salvou no meio: a 2ª pessoa ainda tem a rev0
@@ -452,12 +475,12 @@ describe.skipIf(!RODA)("salvar_card_planejamento — trava otimista", () => {
       expect(await dump(c, m)).toEqual(depoisA);
       expect(await rev(c, m)).toBe(rev1);
 
-      // a rev atual passa; NULL (manutenção/teste) não trava
-      await salvaOk(c, m, { header: { nome: "SCP trava C" }, rev: rev1 });
+      // a rev atual passa (+1); NULL (manutenção/teste) não trava (+1)
+      await salvaTopo(c, m, { header: { nome: "SCP trava C" }, rev: rev1 });
       const rev2 = await rev(c, m);
-      expect(rev2).toBeGreaterThan(rev1);
-      await salvaOk(c, m, { header: { nome: "SCP trava D" }, rev: null });
-      expect(await rev(c, m)).toBeGreaterThan(rev2);
+      expect(rev2 - rev1).toBe(1);
+      await salvaTopo(c, m, { header: { nome: "SCP trava D" }, rev: null });
+      expect((await rev(c, m)) - rev2).toBe(1);
     });
   });
 });
@@ -558,7 +581,10 @@ describe.skipIf(!RODA)("salvar_card_planejamento — revenda", () => {
       const antes = await dump(c, m);
       const rp = await salva(c, m, { header: { observacoes_gerais: "nao pode ficar", preco_venda: 99 }, gradeRevenda: grade1 });
       expect(rp.ok).toBe(false);
-      if (!rp.ok) expect(rp.code).toBe("42501");
+      if (!rp.ok) {
+        expect(rp.code).toBe("42501");
+        expect(rp.msg).toBe("preco_comprado_derivado: o preco de venda do comprado vem do markup ou do preco fixo do produto"); // o gatilho B1b, não um 42501 qualquer
+      }
       expect(await dump(c, m)).toEqual(antes);
 
       // _grade_revenda num card INTERNO: o _core recusa e o header do mesmo Salvar não fica
@@ -663,11 +689,11 @@ describe.skipIf(!RODA)("salvar_card_planejamento — bloco NULL = não mexe", ()
       expect(antes.cad_tecidos).toHaveLength(1);
 
       const rev0 = await rev(c, m);
-      await salvaOk(c, m, { header: { observacoes_gerais: "so o header", ncm: "9999" }, rev: rev0 });
+      await salvaTopo(c, m, { header: { observacoes_gerais: "so o header", ncm: "9999" }, rev: rev0 });
       const depois = await dump(c, m);
       expect(depois.modelo).toMatchObject({ observacoes_gerais: "so o header", ncm: "9999" });
       expect({ ...depois, modelo: null }).toEqual({ ...antes, modelo: null }); // nada além do cabeçalho mudou
-      expect(await rev(c, m)).toBeGreaterThan(rev0);
+      expect((await rev(c, m)) - rev0).toBe(1); // só o UPDATE do cabeçalho
 
       // JSON null conta como ausente (mesma coisa que SQL NULL)
       await salvaOk(c, m, { header: "null", bom: "null", etiquetas: "null", cad: "null", mo: "null", gradeRevenda: "null", revisao: "null", flags: "null" });
@@ -764,7 +790,8 @@ describe.skipIf(!RODA)("salvar_card_planejamento — cabeçalho por lista fechad
         expect(await rev(c, m)).toBe(rev0);
       }
       // controle: uma coluna da lista passa, e chave com JSON null grava NULL
-      await salvaOk(c, m, { header: { ncm: "1234", peso_kg: null } });
+      await salvaTopo(c, m, { header: { ncm: "1234", peso_kg: null } });
+      expect((await rev(c, m)) - rev0).toBe(1);
       expect((await dump(c, m)).modelo).toMatchObject({ ncm: "1234", peso_kg: null });
       // e as recusas acima nunca tocaram as colunas protegidas
       expect((await um<{ lancado: boolean; enviado_cad: boolean }>(c, `select lancado, enviado_cad from modelos where id = $1`, [m]))).toEqual({ lancado: false, enviado_cad: false });
@@ -845,7 +872,7 @@ describe.skipIf(!RODA)("salvar_card_planejamento — 2 conexões reais (sem dead
       // B (txn ainda aberta) vê o card com o cabeçalho DELE e a rev dele (a de A foi revertida)
       const s = await um<{ obs: string; rev: number }>(b, "SELECT observacoes_gerais AS obs, rev FROM public.modelos WHERE id = $1", [x.m]);
       expect(s.obs).toBe("conc B");
-      expect(s.rev).toBeGreaterThan(x.rev);
+      expect(s.rev - x.rev).toBe(2); // header (+1) + o UPDATE de proporcoes do _core do CAD (+1); a rev de A (revertida) não conta
     } finally {
       await fecha(a, b);
     }
@@ -906,6 +933,70 @@ describe.skipIf(!RODA)("salvar_card_planejamento — 2 conexões reais (sem dead
       expect(resultados).not.toContain("40P01");
     } finally {
       await fecha(a, b, d);
+    }
+  }, 60000);
+  /**
+   * 11e - sensível à ORDEM de travas e à CHAVE exata de cada advisory. As chaves vêm do corpo da RPC (`pg_get_functiondef`):
+   *   card = hashtext('cad:modelo_id:' || _modelo_id::text)   (a MESMA do Enviar à Explosão, aprovar M.O., excluir CAD)
+   *   CAD  = hashtext(c.id::text)                             (a MESMA do salvar_terceirizados)
+   * `pg_advisory_xact_lock(bigint)` aparece em pg_locks como classid = bits altos / objid = bits baixos da chave (objsubid 1); a conta é feita
+   * no SQL (`& 4294967295`) e compara classid E objid, então outro advisory (ex.: contador de REF por loja) NÃO satisfaz por acaso.
+   */
+  it("11e. ordem de travas: com a chave do CAD presa por outra conexão, a RPC já TEM a do card (granted) e ESPERA a do CAD (not granted); e o inverso", async () => {
+    const a = await abre();
+    const b = await abre();
+    try {
+      // a ordem está mesmo escrita assim na RPC viva (guarda contra o teste testar um texto que não existe mais)
+      const def = (await um<{ d: string }>(a, "SELECT pg_get_functiondef('public.salvar_card_planejamento(uuid,jsonb,integer,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb)'::regprocedure) AS d")).d;
+      const iCard = def.indexOf("hashtext('cad:modelo_id:' || _modelo_id::text)");
+      const iCad = def.indexOf("hashtext(c.id::text)");
+      const iLinha = def.indexOf("FOR UPDATE", iCad);
+      expect(iCard, "chave do card no corpo da RPC").toBeGreaterThan(-1);
+      expect([iCard < iCad, iCad < iLinha]).toEqual([true, true]);
+
+      const x = await alvo(a);
+      const estado = async (obs: PgClient, p: number, chave: string): Promise<boolean | null> => {
+        const r = await obs.query(
+          `SELECT l.granted FROM pg_locks l, (SELECT hashtext($2::text)::bigint AS k) q
+            WHERE l.locktype = 'advisory' AND l.pid = $1 AND l.objsubid = 1
+              AND l.classid::bigint = ((q.k >> 32) & 4294967295) AND l.objid::bigint = (q.k & 4294967295)`,
+          [p, chave],
+        );
+        return r.rows.length ? (r.rows[0].granted as boolean) : null; // null = a conexão nem pediu essa chave
+      };
+      const naoConcedidas = async (obs: PgClient, p: number) =>
+        (await um<{ n: number }>(obs, "SELECT count(*)::int AS n FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted", [p])).n;
+      const chaveCard = `cad:modelo_id:${x.m}`;
+      const chaveCad = x.cad;
+
+      // (1) A = salvar_terceirizados imitado: segura SÓ a chave do CAD. B (RPC) tem de ter o card e esperar o CAD.
+      await a.query("SELECT pg_advisory_xact_lock(hashtext($1::text))", [chaveCad]);
+      const pb = settle(rpc(b, x, "B"));
+      expect(await esperaAdvisory(a, pid(b))).toBe(true);
+      expect(await estado(a, pid(b), chaveCard), "B já tem a chave do CARD").toBe(true);
+      expect(await estado(a, pid(b), chaveCad), "B espera a chave do CAD").toBe(false);
+      expect(await naoConcedidas(a, pid(b)), "e só essa").toBe(1);
+      await a.query("ROLLBACK");
+      expect(await pb).toBe("ok");
+      await b.query("ROLLBACK");
+
+      // (2) o inverso: A segura a chave do CARD (Enviar à Explosão / aprovar M.O. pegam o card primeiro). B espera o CARD e NÃO pediu o CAD ainda.
+      const a2 = await abre();
+      const b2 = await abre();
+      try {
+        await a2.query("SELECT pg_advisory_xact_lock(hashtext($1::text))", [chaveCard]);
+        const pb2 = settle(rpc(b2, x, "B2"));
+        expect(await esperaAdvisory(a2, pid(b2))).toBe(true);
+        expect(await estado(a2, pid(b2), chaveCard), "B2 espera a chave do CARD").toBe(false);
+        expect(await estado(a2, pid(b2), chaveCad), "B2 ainda não pediu a do CAD").toBeNull();
+        expect(await naoConcedidas(a2, pid(b2))).toBe(1);
+        await a2.query("ROLLBACK");
+        expect(await pb2).toBe("ok");
+      } finally {
+        await fecha(a2, b2);
+      }
+    } finally {
+      await fecha(a, b);
     }
   }, 60000);
 });
