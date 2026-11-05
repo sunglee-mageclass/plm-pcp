@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // R9 T6 — o Salvar do card com a etapa da Peça Teste (usePlanejamentoSave + usePecaTeste REAIS, supabase mockado):
-//   (a) a etapa roda DEPOIS da M.O. e ANTES de marcar_revisao_por_mudanca; (b) P0409 sem conflito = 2ª chamada com o rev novo e o resto do
+//   (Salvar único, nov/2026: M.O./BOM/#Erro/cabeçalho são UMA RPC `salvar_card_planejamento`) (a) a etapa roda DEPOIS do núcleo (que inclui a M.O.); (b) P0409 sem conflito = 2ª chamada com o rev novo e o resto do
 //   card salvo 1x; (c) P0409 com conflito = não lança, devolve o conflito, o "não salvo" da seção NÃO some; (d) só-Peça-Teste não toca o resto do
 //   card; (e) troca de fornecedor com a M.O. editável: M.O. E Peça Teste levam o empresa_id; (f) sem a seção o Salvar é idêntico ao de antes.
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -23,6 +23,8 @@ const h = vi.hoisted(() => ({
   respostasSalvarPT: [] as ({ code?: string; message: string } | null)[],
   // o que `peca_teste_modelo` devolve (muda entre chamadas para simular o outro usuário)
   lerPT: { atual: null as any },
+  // `revisao_marcada` que a RPC do núcleo devolve (etapas com #Erro)
+  revisao: { atual: {} as Record<string, unknown> },
 }));
 
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => true, canEdit: () => true }) }));
@@ -51,8 +53,11 @@ vi.mock("@/components/planejamento/planejamento-detail/ficha/persistir-bom", asy
   const orig = await importOriginal<any>();
   return {
     ...orig,
-    persistirBom: vi.fn(async () => { h.log.push({ evento: "persistirBom" }); }),
-    persistirCad: vi.fn(async () => {}),
+    // Salvar único: o núcleo é UMA chamada (o registro guarda os blocos que o hook montou).
+    salvarCardPlanejamento: vi.fn(async (i: any) => {
+      h.log.push({ evento: "rpc:salvar_card_planejamento", args: i });
+      return { modelo_id: i.modeloId, rev: 4, revisao_marcada: h.revisao.atual };
+    }),
     lerGradeServidorComprado: vi.fn(async () => null),
     invalidarAposGravarCad: vi.fn(),
   };
@@ -147,25 +152,31 @@ const chamadasSalvarPT = () => h.log.filter((c) => c.evento === "rpc:salvar_peca
 beforeEach(() => {
   h.respostasSalvarPT.length = 0;
   h.lerPT.atual = servidor();
+  h.revisao.atual = {};
   vi.mocked(toast.warning).mockClear();
   vi.mocked(toast.error).mockClear();
   vi.mocked(toast.success).mockClear();
 });
 
 describe("Salvar do card — etapa da Peça Teste", () => {
-  it("(a) a etapa roda DEPOIS da M.O. e ANTES de marcar_revisao_por_mudanca", async () => {
+  it("(a) o núcleo (cabeçalho + BOM + M.O. + #Erro) vai numa ÚNICA RPC e a etapa da Peça Teste roda DEPOIS dela", async () => {
+    h.revisao.atual = { cad: true };
     await montar({ moMudou: true, bomGravar: true });
     await editarEntrada("2026-09-29");
     const r = await salvar();
     const ev = eventos();
-    const iMO = ev.indexOf("rpc:salvar_modelo_servico_mo");
+    const iCard = ev.indexOf("rpc:salvar_card_planejamento");
     const iPT = ev.indexOf("rpc:salvar_peca_teste");
-    const iRev = ev.indexOf("rpc:marcar_revisao_por_mudanca");
-    expect(ev.indexOf("update:modelos")).toBeGreaterThanOrEqual(0);
-    expect(iMO).toBeGreaterThan(ev.indexOf("update:modelos"));
-    expect(iPT).toBeGreaterThan(iMO);
-    expect(iRev).toBeGreaterThan(iPT);
+    expect(iCard).toBeGreaterThanOrEqual(0);
+    expect(iPT).toBeGreaterThan(iCard);
+    // nada da cadeia antiga: cada pedaço do núcleo é um BLOCO da mesma chamada
+    for (const antigo of ["update:modelos", "rpc:salvar_modelo_servico_mo", "rpc:marcar_revisao_por_mudanca", "rpc:salvar_modelo_bom", "rpc:salvar_cad_completo"]) expect(ev).not.toContain(antigo);
+    const nucleo = h.log.find((c) => c.evento === "rpc:salvar_card_planejamento")!.args;
+    expect(nucleo.mo).toHaveLength(1);
+    expect(nucleo.revBase).toBe(3);
+    expect(nucleo.bom.gravar).toBe(true);
     expect(r.pecaTeste.resultado).toEqual({ ok: true });
+    expect(r.etapasMarcadas).toEqual(["cad"]);
   });
 
   it("(a) o payload da etapa = só o que mudou, com o rev da base em _rev_base.tentativas", async () => {
@@ -214,7 +225,7 @@ describe("Salvar do card — etapa da Peça Teste", () => {
     expect(cs[1].args._rev_base.tentativas[T1]).toBe(2);
     expect(cs[1].args._trilhas[0].tentativas[0].data_entrada).toBe("2026-09-29");
     expect(r.pecaTeste.resultado).toEqual({ ok: true });
-    expect(eventos().filter((e) => e === "update:modelos")).toHaveLength(1);
+    expect(eventos().filter((e) => e === "rpc:salvar_card_planejamento")).toHaveLength(1);
     expect(api.spies.onSaved).toHaveBeenCalledTimes(1);
     expect(toast.warning).not.toHaveBeenCalled();
   });
@@ -256,13 +267,13 @@ describe("Salvar do card — etapa da Peça Teste", () => {
     expect(api.pt.dirty).toBe(true);
   });
 
-  it("(d) só-Peça-Teste: NÃO chama o UPDATE do card, nem salvar_modelo_bom/salvar_modelo_servico_mo/marcar_revisao; só a etapa da seção", async () => {
+  it("(d) só-Peça-Teste: NÃO chama o núcleo do card (salvar_card_planejamento); só a etapa da seção", async () => {
     await montar({ somente: true, moMudou: true, bomGravar: true });
     await editarEntrada("2026-09-29");
     const r = await salvar();
     const ev = eventos();
+    expect(ev).not.toContain("rpc:salvar_card_planejamento");
     expect(ev).not.toContain("update:modelos");
-    expect(ev).not.toContain("persistirBom");
     expect(ev).not.toContain("rpc:salvar_modelo_bom");
     expect(ev).not.toContain("rpc:salvar_modelo_servico_mo");
     expect(ev).not.toContain("rpc:marcar_revisao_por_mudanca");
@@ -283,28 +294,26 @@ describe("Salvar do card — etapa da Peça Teste", () => {
     expect(r.pecaTeste).toBeNull();
   });
 
-  it("(e) troca de fornecedor com a M.O. editável: salvar_modelo_servico_mo leva o empresa_id E salvar_peca_teste também (idempotente)", async () => {
+  it("(e) troca de fornecedor com a M.O. editável: o núcleo (bloco mo) leva o empresa_id E salvar_peca_teste também (idempotente)", async () => {
     await montar({ moMudou: true, fornecedorMo: { [L1]: { id: F2, nome: "Oficina Dois" } } });
     await act(async () => { api.pt.trocarFornecedor(L1, F2, "Oficina Dois"); });
     await assentar();
     expect(api.pt.dirty).toBe(true);
     await salvar();
-    const mo = h.log.find((c) => c.evento === "rpc:salvar_modelo_servico_mo")!;
-    expect(mo.args._linhas[0].empresa_id).toBe(F2);
+    const nucleo = h.log.find((c) => c.evento === "rpc:salvar_card_planejamento")!;
+    expect(nucleo.args.mo[0].empresa_id).toBe(F2);
     const [pt] = chamadasSalvarPT();
     expect(pt.args._trilhas[0].empresa_id).toBe(F2);
     expect(pt.args._rev_base.fornecedor).toEqual({ [L1]: F1 }); // o fornecedor que a pessoa VIU
     const ev = eventos();
-    expect(ev.indexOf("rpc:salvar_peca_teste")).toBeGreaterThan(ev.indexOf("rpc:salvar_modelo_servico_mo"));
+    expect(ev.indexOf("rpc:salvar_peca_teste")).toBeGreaterThan(ev.indexOf("rpc:salvar_card_planejamento"));
   });
 
   it("(f) sem a seção (pecaTeste inerte) o Salvar é idêntico ao de antes: nenhuma chamada da Peça Teste e o resto na mesma ordem", async () => {
     await montar({ inerte: true, moMudou: true, bomGravar: true });
     await editarEntrada("2026-09-29"); // a seção até tem rascunho, mas o Salvar não a conhece
     const r = await salvar();
-    expect(eventos().filter((e) => e !== "rpc:peca_teste_modelo")).toEqual([
-      "update:modelos", "persistirBom", "rpc:salvar_modelo_servico_mo", "rpc:marcar_revisao_por_mudanca",
-    ]);
+    expect(eventos().filter((e) => e !== "rpc:peca_teste_modelo")).toEqual(["rpc:salvar_card_planejamento"]);
     expect(r.pecaTeste).toBeNull();
   });
 });

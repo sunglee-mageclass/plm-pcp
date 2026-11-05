@@ -150,17 +150,19 @@ describe("omitirColunasTravadas — payload do Salvar do Planejamento (usePlanej
   });
 });
 
-describe("usePlanejamentoSave.ts espelha a chamada de omitirColunasTravadas antes do UPDATE do header", () => {
-  it("a chamada acontece DEPOIS de todas as regras que montam o payload (aplicarPrecoAnterior/aplicarColunasFicha) e ANTES do .update(payload)", () => {
+describe("usePlanejamentoSave.ts espelha a chamada de omitirColunasTravadas antes da gravação do cabeçalho", () => {
+  it("a chamada acontece DEPOIS de todas as regras que montam o payload (aplicarPrecoAnterior/aplicarColunasFicha) e ANTES da RPC do núcleo (que leva o payload no _header)", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
     expect(s).toMatch(/omitirColunasTravadas\(payload, travaIntegracao\);/);
     const idxOmitir = s.indexOf("omitirColunasTravadas(payload, travaIntegracao);");
     const idxAplicarColunas = s.indexOf("aplicarColunasFicha(payload,");
-    const idxUpdate = s.indexOf('.update(payload).eq("id", modeloId).eq("rev", revParaHeader)');
+    const idxNucleo = s.indexOf("await salvarCardPlanejamento({");
     expect(idxAplicarColunas).toBeGreaterThan(-1);
-    expect(idxUpdate).toBeGreaterThan(-1);
+    expect(idxNucleo).toBeGreaterThan(-1);
     expect(idxOmitir).toBeGreaterThan(idxAplicarColunas);
-    expect(idxOmitir).toBeLessThan(idxUpdate);
+    expect(idxOmitir).toBeLessThan(idxNucleo);
+    // o cabeçalho que vai à RPC é o MESMO `payload` já filtrado pela trava
+    expect(s.slice(idxNucleo, idxNucleo + 200)).toContain("header: payload");
   });
 });
 
@@ -687,21 +689,16 @@ describe("Fix round 3 (R-5) — RENDER real de usePlanejamentoSave: o restore da
 
     let updPayloadCapturado: Record<string, unknown> | null = null;
     rpcSpy.mockClear();
-    const supabaseMod: any = await import("@/integrations/supabase/client");
-    const fromSpy = vi.fn((tabela: string) => {
-      if (tabela !== "modelos") return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
-      return {
-        update: (payload: Record<string, unknown>) => {
-          updPayloadCapturado = payload;
-          return {
-            eq: () => ({
-              eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }),
-            }),
-          };
-        },
-        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rev: 2 }, error: null }) }) }),
-      };
+    // Salvar único: o cabeçalho vai no bloco `_header` da RPC do núcleo (não há mais `.update()` de `modelos`).
+    rpcSpy.mockImplementation((nome: string, args: any) => {
+      if (nome === "salvar_card_planejamento") {
+        updPayloadCapturado = args._header;
+        return Promise.resolve({ data: { modelo_id: "m1", rev: 2, revisao_marcada: {} }, error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
     });
+    const supabaseMod: any = await import("@/integrations/supabase/client");
+    const fromSpy = vi.fn((_tabela: string) => ({ select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }));
     supabaseMod.supabase.from = fromSpy;
 
     function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
@@ -823,6 +820,8 @@ async function montarHarnessImportado(opts: {
     const rpcCalls: { nome: string; args: any }[] = [];
     rpcSpy.mockImplementation((nome: string, args: any) => {
       rpcCalls.push({ nome, args });
+      // Salvar único: o "UPDATE do cabeçalho" agora é o bloco `_header` da RPC do núcleo.
+      if (nome === "salvar_card_planejamento" && opts.capturarUpdatePayload) opts.capturarUpdatePayload.current = args._header;
       return Promise.resolve({ data: null, error: null });
     });
     const supabaseMod: any = await import("@/integrations/supabase/client");
@@ -830,7 +829,6 @@ async function montarHarnessImportado(opts: {
       if (tabela === "modelos") {
         return {
           update: (payload: Record<string, unknown>) => {
-            if (opts.capturarUpdatePayload) opts.capturarUpdatePayload.current = payload;
             return {
               eq: () => ({
                 eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }),
@@ -1123,16 +1121,16 @@ describe("Task 22 — a revenda continua salvando o preço pelo gravador própri
 
     rpcSpy.mockClear();
     const rpcCalls: { nome: string }[] = [];
-    rpcSpy.mockImplementation((nome: string) => { rpcCalls.push({ nome }); return Promise.resolve({ data: null, error: null }); });
     let updPayloadCapturado: Record<string, unknown> | null = null;
+    rpcSpy.mockImplementation((nome: string, args: any) => {
+      rpcCalls.push({ nome });
+      if (nome === "salvar_card_planejamento") updPayloadCapturado = args._header; // Salvar único: o cabeçalho é o bloco `_header` da RPC
+      return Promise.resolve({ data: null, error: null });
+    });
     const supabaseMod: any = await import("@/integrations/supabase/client");
     const fromSpy = vi.fn((tabela: string) => {
       if (tabela === "modelos") {
         return {
-          update: (payload: Record<string, unknown>) => {
-            updPayloadCapturado = payload;
-            return { eq: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }) }) };
-          },
           select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rev: 1, grades: [] }, error: null }) }) }),
         };
       }

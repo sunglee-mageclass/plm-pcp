@@ -3,7 +3,8 @@
 // `PlanejamentoDetail.tsx` SEM mudança de comportamento: o corpo abaixo é o texto MOVIDO como estava
 // (mesmas chamadas, mesma ordem, mesmas queryKeys). Refs e estados continuam sendo do orquestrador e
 // chegam por argumento com os MESMOS nomes (refs como OBJETO — o retry lê `.current` na hora). A F3.2
-// reescreve aqui a cadeia de gravação (UPDATE → salvar_modelo_bom → etiquetas → MO → marcar_revisao).
+// reescreveu aqui a cadeia de gravação (UPDATE → salvar_modelo_bom → etiquetas → MO → marcar_revisao). SALVAR ÚNICO (Task 3, nov/2026): essa cadeia
+// virou UMA chamada atômica — `salvar_card_planejamento` — no card EXISTENTE; o card NOVO continua com o INSERT + passos pós-criação.
 import { useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { useMutation, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -24,7 +25,7 @@ import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert"
 import { gravarInsumosIniciaisDoCard, validarInsumosRascunho } from "@/lib/insumos-iniciais";
 import { erroPosCriacao, executarPassosPosCriacao, falhasDoErro, garantirCardCriado, textoFalhasPosCriacao, type FalhaPosCriacao } from "@/lib/criacao-card-passos";
 import type { ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
-import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
+import { gravarTecidosIniciais, invalidarAposGravarCad, salvarCardPlanejamento } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
 import { type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import type { FichaSave } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
@@ -523,10 +524,10 @@ export function usePlanejamentoSave({
         gravaBom: bom.gravar,
         tecidosPlanejados: bom.tecidosPlanejados,
       });
-      // P-137 A (R6 do G-plano) — PRÉ-CHECAGEM SÓ-LEITURA, ANTES de QUALQUER gravação deste save (a grade da revenda,
-      // logo abaixo, comita ANTES do UPDATE do cabeçalho): o gatilho `fn_modelo_espelho_categoria` recusa (P0001) trocar
+      // P-137 A (R6 do G-plano) — PRÉ-CHECAGEM SÓ-LEITURA, ANTES de QUALQUER gravação deste save (agora o núcleo é atômico, então
+      // uma recusa do gatilho desfaria tudo; a pré-checagem só dá o texto próprio da família): o gatilho `fn_modelo_espelho_categoria` recusa (P0001) trocar
       // a Categoria de um card comprado cujo produto TEM pedido quando o grupo mudaria entre Acessórios e outro grupo —
-      // recusado só no UPDATE do cabeçalho, o card ficaria meio salvo (grade gravada, resto não). Mesma regra do banco
+      // recusado dentro da RPC do núcleo, nada seria gravado (atômico) — mas só com um texto genérico. Mesma regra do banco
       // (`src/lib/categoria-card-produto.ts`); só consulta o servidor quando ESTE save troca a categoria de um comprado
       // já salvo (argumentos montados pela função PURA `argsConferirCategoria`, testada). Recusa = texto PT próprio deste
       // caminho (nada foi gravado) → o `onError` mostra via mensagemErro.
@@ -549,46 +550,9 @@ export function usePlanejamentoSave({
       let savedId: string | null = isEdit ? modeloId : null;
       // Card NOVO: falhas dos passos pós-INSERT (tecidos/insumos/grade/M.O.), juntadas e lançadas UMA vez no fim (M1/M2).
       const falhasCriacao: FalhaPosCriacao[] = [];
+      // #Erro marcado nas etapas seguintes: vem do retorno da RPC do núcleo (`revisao_marcada`); card novo nunca marca.
+      let etapasMarcadas: string[] = [];
       if (isEdit && modeloId) {
-        // Grade cor×tamanho (revenda, fast-follow — fecha o last-write-wins do antigo
-        // delete+insert cru): grava ANTES do UPDATE do header, com `_rev_base` PRÓPRIO
-        // (`gradeRevendaRevRef`, independente de `revRef`) via RPC `salvar_grade_revenda`
-        // (rev-check no molde do `salvar_modelo_bom` + delete+insert atômico no servidor).
-        // Tem que rodar ANTES do header: a escrita em `modelo_grades` já bumpa `modelos.rev`
-        // sozinha (trigger `trg_colab_bump`, infra 2026-08-03) — se corresse DEPOIS do UPDATE
-        // do header, o bump do PRÓPRIO header já teria avançado o rev e a checagem da grade
-        // daria P0409 falso em TODO save. Conflito de grade é tratado por RECARGA (sem merge,
-        // `gradeConflict` marcado no erro, tratado à parte no onError) — não pelo retry do
-        // header abaixo, que só sabe mesclar campos escalares do draft e nunca soube de
-        // `gradeRevenda`; se caísse nesse retry, reenviaria a grade PARADA sem detectar que
-        // ficou desatualizada.
-        // Fix round 1 (C1) — `revCongelado` (não `revRef.current`, que pode ter avançado durante o await de
-        // `lerGradeServidorComprado` acima): o header tem de conferir o MESMO rev que a grade acabou de ler.
-        let revParaHeader = revCongelado;
-        if (isRevenda && gradeRevendaDirty) {
-          const { error: gradeErr } = await supabase.rpc("salvar_grade_revenda" as any, {
-            _modelo_id: modeloId,
-            _grades: buildLinhasGradeRevenda(),
-            _rev_base: gradeRevendaRevRef.current,
-          });
-          if (gradeErr) {
-            if ((gradeErr as any).code === "P0409") (gradeErr as any).gradeConflict = true;
-            throw gradeErr;
-          }
-          // A grade já gravou (e já bumpou modelos.rev sozinha) — recarrega o rev atual antes
-          // do UPDATE do header logo abaixo, senão ele veria o PRÓPRIO bump da grade como
-          // conflito (ver comentário acima).
-          const { data: revRow, error: revErr } = await (supabase.from("modelos") as any)
-            .select("rev").eq("id", modeloId).single();
-          if (revErr) throw revErr;
-          revParaHeader = (revRow as any).rev;
-          // A grade gravada é agora a verdade do servidor — zera o "não salvo" dela já aqui
-          // (não só no onSuccess do save inteiro): se o UPDATE do header logo abaixo falhar
-          // (P0409 do header, causa separada), um retry automático não pode tentar regravar a
-          // MESMA grade com um `_rev_base` velho.
-          gradeRevendaRevRef.current = revParaHeader;
-          gradeRevendaBaseRef.current = JSON.stringify(gradeRevenda);
-        }
         // Integração (F4, Task 21, RULING) — colunas travadas OMITIDAS do payload aqui, no ÚLTIMO instante
         // antes do UPDATE (depois de TODAS as regras acima já terem montado/normalizado o payload inteiro):
         // reenviar o valor canonizado do Sheet (NCM formatado, título NULL-vs-calculado, medidas, REF) pode
@@ -619,35 +583,51 @@ export function usePlanejamentoSave({
           payloadKeys: payloadKeysAntes, touched: touchedRef.current, rotuloDe: rotuloDaColuna as (c: string) => string,
         });
         omitirColunasTravadas(payload, travaIntegracao);
-        // Colab (Task 2) — contrato desta tela (spec 2026-08-03): UPDATE DIRETO com
-        // `.eq("rev", revParaHeader)` — só casa a linha se ninguém salvou desde a última
-        // carga; 0 linhas devolvidas = conflito (mesma UX do P0409 do piloto: merge síncrono +
-        // retry 1×). `persistirBom` roda DEPOIS (RPC `salvar_modelo_bom` + diff de etiquetas — F3.2,
-        // substitui o antigo sync de `modelo_tecidos`) — não precisa de trava própria: o
-        // UPDATE acima já bumpou `modelos.rev` (trigger), protegendo a sequência (mesma janela
-        // estreita aceita/documentada na adoção do Desenvolvimento). `as any` no builder: o
-        // types.ts ainda não tem a coluna `rev` (regen pendente — ver CLAUDE.md).
-        const { data: updRows, error } = await (supabase.from("modelos") as any)
-          .update(payload).eq("id", modeloId).eq("rev", revParaHeader).select("id");
-        if (error) throw error;
-        if (!updRows || updRows.length === 0) {
+        // SALVAR ÚNICO (Task 3): o NÚCLEO do Salvar do card existente — cabeçalho `modelos`, BOM, insumos, CAD, M.O. por serviço, grade
+        // da revenda e #Erro nas etapas seguintes — vai numa ÚNICA chamada, `salvar_card_planejamento`, uma transação atômica (tudo ou
+        // nada: o que falhar desfaz o resto, não há mais card "meio salvo"). Cada bloco só vai se for gravar (dirty/aplicável); senão
+        // NULL e o servidor não mexe. A trava otimista é UMA só, a do card (`_rev_base` = `revCongelado`, congelado no MESMO ponto
+        // síncrono que o rascunho `d` — fix C1): quem salvou no meio dá P0409 `conflito_versao: card` e o retry (onError) re-monta TUDO
+        // do zero e chama a RPC de novo. Os passos de FORA (Peça Teste, auto-criação PA/PI, preço fixo do importado, SKU no onSuccess,
+        // uploads) continuam DEPOIS, best-effort — uma falha neles não desfaz o núcleo já salvo.
+        // `revCongelado` null = nada para conferir: o servidor trataria `_rev_base` NULL como "sem trava" (bypass de manutenção). O
+        // UPDATE antigo (`.eq("rev", null)`) nunca casava linha; aqui vira o mesmo P0409 sintético (o retry relê o card e recomeça).
+        if (revCongelado === null) {
           const conflito: any = new Error("conflito_versao: o registro foi salvo por outra pessoa");
           conflito.code = "P0409";
           throw conflito;
         }
-        // F3.2 — BOM (substitui o sync do antigo "Tecido Planejado"): só grava quando CARREGADO E SUJO.
-        // `_rev_base: null` — a trava já validou no UPDATE acima (desenho do Dev, ModeloDetailPanel.tsx:1950-1959).
+        // M.O. por serviço (spec 2026-08-06): persiste os VALORES das linhas (estado COMPLETO; aprovação já foi imediata via RPC própria,
+        // não entra aqui). Só quando o rascunho de MO divergiu do baseline — assim um Salvar disparado ANTES de `moResumo` semear não manda
+        // um estado vazio que apagaria as linhas existentes no servidor. `moLinhasRef` = leitura síncrona (nenhuma edição feita durante
+        // o `await` acima se perde). Gated por `podeVerCustos`: quem não vê custos tem os valores MASCARADOS (null) e não deve reescrevê-los.
+        // Fix pós-rebase (item 6 — paridade com o Dev): QUALQUER uma das 2 permissões de custos — `podeVerCustos` (page-level,
+        // `criacao_planejamento:custos`) OU `fichaRef.current.podeVerCustos` (a união com `criacao_desenvolvimento:custos`). S3c (P-244 = B):
+        // e só quem pode mudar o VALOR (o servidor recusa com 42501 mao_obra_sem_permissao; o editor já fica só leitura).
+        const moParaRpc = podeEditarMO && (podeVerCustos || fichaRef.current.podeVerCustos) && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)
+          ? moLinhasEnviadas.map((l) => moLinhaParaPayload(l, moBaseRef.current))
+          : null;
+        const gradeRevendaParaRpc = isRevenda && gradeRevendaDirty ? buildLinhasGradeRevenda() : null;
+        let retornoNucleo: Awaited<ReturnType<typeof salvarCardPlanejamento>>;
+        try {
+          retornoNucleo = await salvarCardPlanejamento({
+            modeloId, header: payload, revBase: revCongelado, bom, gradeRevenda: gradeRevendaParaRpc, mo: moParaRpc,
+          });
+        } catch (eNucleo) {
+          // Falha do núcleo = NADA foi gravado (transação atômica). O `onError` mostra uma mensagem só; P0409 segue pro merge/retry.
+          if (eNucleo && typeof eNucleo === "object") (eNucleo as any).etapaFalha = "nucleo";
+          throw eNucleo;
+        }
+        etapasMarcadas = Object.keys(retornoNucleo.revisao_marcada);
+        // O núcleo gravou: as referências do "não salvo" avançam JÁ aqui (não esperam o onSuccess, que pode não rodar se um passo de
+        // FORA falhar depois) — um retry/2º Salvar não regrava o mesmo BOM/CAD/grade como "editado".
         if (bom.gravar) {
-          await persistirBom(modeloId, bom);
-          // Fix T10 m1 — a referência do BOM vira o ENVIADO AGORA, logo após o servidor confirmar o
-          // `persistirBom` — não espera o `aposSalvar` do onSuccess (que pode nunca rodar se etiqueta/MO/
-          // custo_peca falharem DEPOIS deste ponto). `aposSalvar` chama de novo no sucesso completo, mas é
-          // idempotente (mesma assinatura).
           fichaRef.current.bomGravado(bom);
-          // F3.4 — importado: a grade cor × tamanho gravou junto com o BOM ⇒ o enviado vira o baseline do rascunho da grade
-          // (mesmo cuidado do caminho da revenda acima: um retry não a regrava como "editada").
+          // F3.4 — importado: a grade cor × tamanho gravou junto com o BOM ⇒ o enviado vira o baseline do rascunho da grade.
           if (bom.gradeExterna) gradeRevendaBaseRef.current = bom.gradeExterna.estadoJson;
         }
+        if (gradeRevendaParaRpc) gradeRevendaBaseRef.current = JSON.stringify(gradeRevenda);
+        if (bom.cad.gravar) fichaRef.current.cadGravado(bom.cad);
       } else {
         // Card novo: sem concorrência possível (linha ainda não existe) — insert direto, UMA vez só (F3.1).
         // L4 (fix round 1) — `garantirCardCriado`: o INSERT acontece UMA vez só; retry/2º clique pegam o id guardado (`criadoAgora=false`)
@@ -697,54 +677,21 @@ export function usePlanejamentoSave({
           if (gradeErr) falhasCriacao.push({ etapa: "grade", erro: gradeErr });
         }
       }
-      // F3.3 — CAD no MESMO Salvar (decisão F3 #7; Dev :2062-2119): DEPOIS do BOM e das etiquetas (a RPC devolve
-      // consumo/%loss do CAD ao BOM — funcoes.sql:6878-6881 — e aqui são os MESMOS valores: plano F3.3 §3 P1–P3) e ANTES
-      // da MO. Só card existente; `bom.cad.gravar` já decidiu tudo (`deveGravarCad`). Falha aqui = o BOM já gravou e o CAD
-      // não (cadeia não atômica, como no Dev): etapa marcada p/ a mensagem própria no onError.
-      if (isEdit && modeloId && bom.cad.gravar) {
-        try {
-          await persistirCad(modeloId, bom.cad);
-        } catch (eCad) {
-          (eCad as any).etapaFalha = "cad";
-          throw eCad;
-        }
-        fichaRef.current.cadGravado(bom.cad);
-      }
-      // MO por serviço (spec 2026-08-06): persiste os VALORES das linhas (estado COMPLETO;
-      // aprovação já foi imediata via RPC própria, não entra aqui). Só quando o rascunho de MO
-      // divergiu do baseline — assim um Salvar disparado ANTES de `moResumo` semear não manda
-      // um estado vazio que apagaria as linhas existentes no servidor. `moLinhasRef` = leitura
-      // síncrona (nenhuma edição feita durante o `await` acima se perde). Gated por
-      // `podeVerCustos`: quem não vê custos tem os valores MASCARADOS (null) e não deve reescrevê-los.
-      // Fix pós-rebase (item 6 — paridade com o Dev): QUALQUER uma das 2 permissões de custos —
-      // `podeVerCustos` (page-level, `criacao_planejamento:custos`) OU `fichaRef.current.podeVerCustos` (a união com
-      // `criacao_desenvolvimento:custos`, useFichaTecnica.ts). Quem tem só a do Dev vê os valores DESMASCARADOS
-      // (`modelo_mo_resumo` usa `_pode_ver_custos()`, que a inclui) e a RPC não checa permissão de custos — seguro regravar.
-      // S3c (P-244 = B): e só quem pode mudar o VALOR (o servidor recusa com 42501 mao_obra_sem_permissao; o editor já fica só leitura).
-      if (podeEditarMO && (podeVerCustos || fichaRef.current.podeVerCustos) && savedId && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
+      // Card NOVO: M.O. por serviço logo depois do INSERT (fora da RPC do núcleo — ruling do plano: card novo continua como antes). Mesmas
+      // condições do ramo existente; a falha entra na lista e segue (M1). Card EXISTENTE: a M.O. já foi no núcleo (`_mo`).
+      if (!isEdit && podeEditarMO && (podeVerCustos || fichaRef.current.podeVerCustos) && savedId && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: savedId,
           _linhas: moLinhasEnviadas.map((l) => moLinhaParaPayload(l, moBaseRef.current)),
         });
-        // Ajuste (set/2026): marca a etapa que falhou (mão de obra) — ver comentário acima.
-        // Card NOVO: a falha entra na lista e segue (M1); card existente: lança na hora, como sempre.
-        if (moErr && !isEdit) falhasCriacao.push({ etapa: "mo", erro: moErr });
-        else if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }
+        // Ajuste (set/2026): marca a etapa que falhou (mão de obra) — o onError do card NOVO nomeia o passo.
+        if (moErr) falhasCriacao.push({ etapa: "mo", erro: moErr });
       }
       // R9 — PEÇA TESTE: etapa NOVA, logo DEPOIS da M.O. (a troca de fornecedor pode ter sido gravada por ela — o servidor da Peça Teste é
       // compare-and-set idempotente) e DEPOIS do cabeçalho (a troca sobe o `modelos.rev`). NUNCA lança: P0409 é tratado dentro (relê, merge 3 vias,
       // re-tenta 1x; com conflito devolve `{ conflito }`) e qualquer erro vira `{ erro }` — o resto do card JÁ gravou.
       let etapaPT: EtapaPT = null;
       if (isEdit && savedId && capturaPT) etapaPT = { captura: capturaPT, resultado: await pecaTesteRef.current.salvar(capturaPT) };
-      // F3.2 — #Erro nas etapas seguintes quando o BOM gravado mudou grade/consumo/aviamento (Dev :2198-2213).
-      // A RPC só marca com CAD e etapas existentes; erro aqui NÃO derruba o save (paridade: o Dev ignora).
-      let etapasMarcadas: string[] = [];
-      if (isEdit && savedId && bom.gravar && (bom.flags.grade || bom.flags.consumo || bom.flags.aviamentos)) {
-        const { data: marcadas } = await supabase.rpc("marcar_revisao_por_mudanca" as any, {
-          _modelo_id: savedId, _grade: bom.flags.grade, _consumo: bom.flags.consumo, _aviamentos: bom.flags.aviamentos,
-        });
-        etapasMarcadas = marcadas && typeof marcadas === "object" ? Object.keys(marcadas as Record<string, unknown>) : [];
-      }
       // FIX WAVE (B3-fix): card criado (ou editado pra) origem='revenda' sem produto
       // vinculado ganha o espelho AUTOMATICAMENTE — reusa exatamente a lógica do botão
       // manual `criarProdutoAcabado` abaixo (grupo via categorias_produto.grupo_id +
@@ -1282,6 +1229,25 @@ export function usePlanejamentoSave({
         onCreated?.(idCriado);
         return;
       }
+      // Salvar único (Task 3): a trava otimista agora é UMA, a do card (`conflito_versao: card`) — a grade da revenda não tem mais o
+      // `_rev_base` próprio que a marcava como `gradeConflict`. Para NÃO regravar uma grade PARADA por cima da que outra pessoa salvou
+      // (o retry do header só mescla campos escalares e nunca soube de `gradeRevenda`), num P0409 com a grade da revenda editada
+      // relê-se a grade do servidor: se difere da base com que a tela abriu, é conflito de GRADE (recarga, abaixo); se igual, segue o
+      // merge/retry normal. Falha na releitura = conservador (trata como conflito de grade: recarrega, nada se perde).
+      if (e?.code === "P0409" && !e?.gradeConflict && isRevenda && gradeRevendaDirty && modeloId) {
+        try {
+          await qc.refetchQueries({ queryKey: ["modelo-grades-revenda", modeloId] });
+          const g = qc.getQueryData<{ variante_numero: number; grades: Record<string, number> | null }[]>(["modelo-grades-revenda", modeloId]);
+          if (!g) e.gradeConflict = true;
+          else {
+            const doServidor: Record<number, Record<string, number>> = {};
+            for (const r of g) doServidor[r.variante_numero] = { ...(r.grades ?? {}) };
+            if (JSON.stringify(doServidor) !== gradeRevendaBaseRef.current) e.gradeConflict = true;
+          }
+        } catch {
+          e.gradeConflict = true;
+        }
+      }
       // Grade cor×tamanho (revenda, fast-follow): conflito tratado por RECARGA, NÃO por merge
       // — refaz o fetch da grade e deixa o usuário reaplicar (política "conflito → recarrega",
       // limitação consciente; ver comentário no `mutationFn`). Fica ANTES do branch de P0409
@@ -1413,20 +1379,12 @@ export function usePlanejamentoSave({
       // avançar o `rev`, então nada dispara essa conferência sozinho). Mesmo padrão do item H (m2) acima,
       // que já cobre o ramo do P0409 sem retry.
       fichaRef.current.invalidarBom();
-      // Rebase F3.3→3adfbd3: a invalidação da F3.2 fica ANTES do ramo do CAD (F3.3) — cobre também a falha do CAD
-      // (erro não-P0409 depois do UPDATE/BOM); invalidar de novo quando o BOM já gravou (`bomGravado`) é inócuo.
-      // F3.3 — o CAD falhou (passo DEPOIS do BOM e das etiquetas). O selo "não salvo" segue aceso (o onSuccess não rodou)
-      // e o próximo Salvar grava os dois (plano F3.3 §3 P6). R2 do G-plano F3.3: "os tecidos foram salvos" SÓ quando ESTE
-      // Salvar gravou o BOM (`bom.gravar`) — num Salvar sem toque o BOM não grava e só o CAD (regravado por paridade)
-      // falhou. As duas pedem "salve de novo antes de fechar": fechar e DESCARTAR deixa a deriva BOM × CAD, e o próximo
-      // Salvar sem toque (aqui ou no Dev) devolve ao BOM o consumo do CAD em silêncio (paridade com o Dev — §6 R11).
-      if (e?.etapaFalha === "cad") {
-        const detalhe = mensagemErro(e, "erro desconhecido");
-        // `etapaFalha==="cad"` só é setado DEPOIS de `bom` já estar capturado (o CAD grava depois do BOM no
-        // mutationFn) — `enviadoRef.current.bom` sempre existe aqui; `?.bom?.` só satisfaz o tipo (fix round 1, I1).
-        toast.error(enviadoRef.current?.bom?.gravar
-          ? `Os tecidos foram salvos, mas o CAD não — salve de novo antes de fechar. (${detalhe})`
-          : `O CAD não foi salvo — salve de novo antes de fechar. (${detalhe})`);
+      // Salvar único (Task 3): o núcleo (cabeçalho, BOM, insumos, CAD, M.O., grade da revenda, #Erro) é UMA transação — falhou, NADA foi
+      // gravado (não existem mais os estados "os tecidos foram salvos, mas o CAD não" / "M.O. não"). O selo "não salvo" segue aceso (o
+      // onSuccess não rodou) e o próximo Salvar manda tudo de novo. P0409 de card NÃO chega aqui no 1º ciclo (vai pro merge/retry acima);
+      // só o 2º P0409 (o retry também perdeu a corrida) cai neste ramo, com o texto genérico de conflito.
+      if (e?.etapaFalha === "nucleo") {
+        toast.error(`Não foi possível salvar o card — nada foi gravado. ${mensagemErro(e, "Tente de novo.")}`);
         return;
       }
       // Fix round 1 (M-3, review Task 22) — n1 (preço fixo do importado) é o ÚLTIMO passo do mutationFn: quando

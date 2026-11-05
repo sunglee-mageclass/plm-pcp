@@ -51,7 +51,7 @@ vi.mock("@/integrations/supabase/client", () => {
 });
 vi.mock("@/components/planejamento/planejamento-detail/ficha/persistir-bom", async (importOriginal) => {
   const orig = await importOriginal<any>();
-  return { ...orig, persistirBom: vi.fn(async () => { h.log.push({ evento: "persistirBom" }); }), persistirCad: vi.fn(async () => {}), lerGradeServidorComprado: vi.fn(async () => null), invalidarAposGravarCad: vi.fn() };
+  return { ...orig, salvarCardPlanejamento: vi.fn(async (i: any) => { h.log.push({ evento: "rpc:salvar_card_planejamento", args: i }); return { modelo_id: i.modeloId, rev: 4, revisao_marcada: {} }; }), lerGradeServidorComprado: vi.fn(async () => null), invalidarAposGravarCad: vi.fn() };
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
 
@@ -152,13 +152,14 @@ beforeEach(() => {
 });
 
 describe("Salvar com a mini — payload, ordem e confere", () => {
-  it("(a) a mini vai no payload da Peça Teste, DEPOIS da M.O. e ANTES de marcar_revisao_por_mudanca; com a data de saída leva `confere` do que a tela mostrou", async () => {
+  it("(a) a mini vai no payload da Peça Teste, DEPOIS do núcleo do card (UMA RPC: cabeçalho + BOM + M.O. + #Erro); com a data de saída leva `confere` do que a tela mostrou", async () => {
     await montar({ mini: apiMini(), moMudou: true });
     await setMini({ tamanho: "40|M", variante_tecido_id: V1, mesma_oc: true, baixa_em: null, baixa_por_nome: null, tem_historico: false, linhas: [] });
     await editar({ data_saida: "2026-10-07" });
     const r = await salvar();
     const ev = eventos();
-    expect(ev.indexOf("rpc:salvar_peca_teste")).toBeGreaterThan(ev.indexOf("rpc:salvar_modelo_servico_mo"));
+    expect(ev.indexOf("rpc:salvar_card_planejamento")).toBeGreaterThanOrEqual(0);
+    expect(ev.indexOf("rpc:salvar_peca_teste")).toBeGreaterThan(ev.indexOf("rpc:salvar_card_planejamento"));
     const [c] = chamadasSalvarPT();
     expect(c.args._trilhas[0].tentativas[0].mini).toEqual({
       tamanho: "40|M", variante_tecido_id: V1, mesma_oc: true, ajustes: [], confere: { [KEY]: 1.65 },
@@ -286,7 +287,7 @@ describe("P0409 da mini", () => {
     expect(cs[1].args._rev_base.tentativas[T1]).toBe(2); // o rev novo
     expect(cs[1].args._trilhas[0].tentativas[0].mini).toMatchObject({ tamanho: "40|M", variante_tecido_id: V1 }); // a mini minha segue
     expect(r.pecaTeste.resultado).toEqual({ ok: true });
-    expect(eventos().filter((e) => e === "update:modelos")).toHaveLength(1);
+    expect(eventos().filter((e) => e === "rpc:salvar_card_planejamento")).toHaveLength(1);
     expect(toast.warning).not.toHaveBeenCalledWith(expect.stringContaining("outra pessoa"));
   });
 });

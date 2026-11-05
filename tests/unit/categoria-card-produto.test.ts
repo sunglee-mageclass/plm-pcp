@@ -199,14 +199,13 @@ describe("fonte: a pré-checagem roda ANTES de qualquer gravação", () => {
     expect(inicio).toBeGreaterThan(0);
     expect(pre).toBeGreaterThan(inicio);
     const antes = src.slice(inicio, pre).split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
-    for (const escrita of ["supabase.rpc(", ".update(", ".insert(", ".delete(", ".upsert(", "persistirBom(", "persistirCad(", "gravarTecidosIniciais("]) {
+    for (const escrita of ["supabase.rpc(", ".update(", ".insert(", ".delete(", ".upsert(", "salvarCardPlanejamento(", "gravarTecidosIniciais("]) {
       expect(antes, escrita).not.toContain(escrita);
     }
-    const grade = src.indexOf('supabase.rpc("salvar_grade_revenda"', inicio);
-    const header = src.indexOf(".update(payload)", inicio);
-    expect(pre).toBeLessThan(grade);
-    expect(pre).toBeLessThan(header);
-    expect(src.slice(pre, grade)).toContain("throw new RecusaEsperadaError(textoBloqueioCategoriaCard(bloqueados[0]))");
+    // Salvar único: a grade da revenda e o cabeçalho viraram blocos da MESMA RPC do núcleo.
+    const nucleo = src.indexOf("await salvarCardPlanejamento({", inicio);
+    expect(nucleo).toBeGreaterThan(pre);
+    expect(src.slice(pre, nucleo)).toContain("throw new RecusaEsperadaError(textoBloqueioCategoriaCard(bloqueados[0]))");
     // fiação: os argumentos vêm da função PURA testada acima (não de um objeto montado à mão)
     expect(src.slice(src.lastIndexOf("argsConferirCategoria({", pre), pre)).toContain("payload,");
   });

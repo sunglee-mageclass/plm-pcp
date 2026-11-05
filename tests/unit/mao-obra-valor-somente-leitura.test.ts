@@ -74,7 +74,7 @@ describe("M.O. — valor só para quem EDITA o Planejamento E vê custos (P-244 
   it("as telas usam a regra (Sheet, cards PA/PI, Dev) e o Salvar não manda a M.O. sem ela", () => {
     expect(src("src/components/planejamento/PlanejamentoDetail.tsx")).toMatch(/const podeEditarMO = podeEditarValorMO\(canEdit, canView\);/);
     expect(src("src/components/planejamento/PlanejamentoDetail.tsx")).toMatch(/podeEditarValor=\{podeEditarMO\}/);
-    expect(src("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts")).toMatch(/if \(podeEditarMO && \(podeVerCustos/);
+    expect(src("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts")).toMatch(/podeEditarMO && \(podeVerCustos/);
     for (const f of ["src/components/produto-acabado/ProdutoCard.tsx", "src/components/produto-importado/ProdutoImportadoCard.tsx"]) {
       const t = src(f);
       expect(t, f).toMatch(/const podeVerCustosMO = podeVerCustosServidor\(canView\);/);

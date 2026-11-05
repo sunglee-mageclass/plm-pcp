@@ -1,59 +1,103 @@
-// F3.2 — gravações do BOM feitas pelo Sheet do Planejamento (fora do React). Toda escrita de BOM passa por
-// `salvar_modelo_bom` (a RPC guarda snapshot em `modelo_bom_snapshots` antes de apagar — G-inicial #7);
-// etiquetas por diff de id em `modelo_etiquetas` (MESMO caminho do Dev, ModeloDetailPanel.tsx:2038-2060 —
-// etiqueta não reserva estoque, fica fora da RPC).
+// Salvar único do Planejamento (Task 3) — MONTADORES do núcleo do Salvar. Antes este arquivo GRAVAVA (persistirBom: RPC do BOM + diff
+// de etiquetas CRU; persistirCad: RPC do CAD), cada um numa transação. Agora só MONTA o payload e o hook chama UMA vez a RPC
+// `salvar_card_planejamento` (migration 20261108100000), que grava tudo numa transação atômica (tudo ou nada). Funções PURAS — testadas
+// sem mock de Supabase (`tests/unit/salvar-card-nucleo.test.ts`).
 import type { QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
 import {
-  blocosTecidosIniciais, montarAviamentosPayload, montarGradesPayload, montarTecidosPayload, planoEtiquetas,
-  type BomCapturado, type GradeRowDb,
+  blocosTecidosIniciais, montarAviamentosPayload, montarGradesPayload, montarTecidosPayload,
+  type BomCapturado, type FlagsBom, type GradeRowDb,
 } from "./ficha-calc";
 import type { CadCapturado } from "./ficha-cad";
 import { chavesFichaBom } from "./useFichaDados";
 
-/** Grava o BOM capturado. `_rev_base: null`: a trava otimista já validou no UPDATE de `modelos` (Dev :1950-1959). */
-export async function persistirBom(modeloId: string, bom: BomCapturado): Promise<void> {
-  const { error: eBom } = await supabase.rpc("salvar_modelo_bom" as any, {
-    _modelo_id: modeloId,
-    _tecidos: montarTecidosPayload(bom.estado.blocks) as any,
-    _aviamentos: montarAviamentosPayload(bom.estado.aviamentos) as any,
+/** `_bom` da RPC: o que o `salvar_modelo_bom` recebia. Só quando `bom.gravar` (senão o bloco vai NULL = não mexe no BOM). */
+export function montarBomPayload(bom: BomCapturado): { tecidos: unknown[]; aviamentos: unknown[]; grades: unknown[] } {
+  return {
+    tecidos: montarTecidosPayload(bom.estado.blocks) as unknown[],
+    aviamentos: montarAviamentosPayload(bom.estado.aviamentos) as unknown[],
     // F3.4 — comprado: a grade cor × tamanho (a RPC apaga TODAS as grades — nunca mandar a da ficha, que é projetada fora).
     // `gradesPayload` null num comprado só existe quando o BOM NÃO grava (a captura LANÇA antes — R1 do G-plano F3.4).
-    _grades: (bom.gradesPayload ?? montarGradesPayload(bom.estado.grades)) as any,
-    _rev_base: null,
-  });
-  if (eBom) throw eBom;
-  const plano = planoEtiquetas(bom.estado.etiquetas, bom.idsEtiquetasServidor, modeloId);
-  for (const op of plano.ops) {
-    if (op.tipo === "atualizar") {
-      const { error } = await supabase.from("modelo_etiquetas" as any).update(op.row).eq("id", op.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from("modelo_etiquetas" as any).insert(op.row);
-      if (error) throw error;
-    }
-  }
-  if (plano.apagar.length > 0) {
-    const { error } = await supabase.from("modelo_etiquetas" as any).delete().in("id", plano.apagar);
-    if (error) throw error;
-  }
+    grades: (bom.gradesPayload ?? montarGradesPayload(bom.estado.grades)) as unknown[],
+  };
 }
 
 /**
- * F3.3 — grava o CAD pela MESMA RPC do Dev (`salvar_cad_completo`, ModeloDetailPanel.tsx:2092-2118). A RPC APAGA e
- * re-insere tecidos/variantes/aviamentos/etiquetas do CAD e, com grade, `cad_grades` e `modelo_grades` (preservando a
- * grade real com CQ confirmado — funcoes.sql:6779-6810), grava `modelos.proporcoes` e devolve consumo/%loss ao BOM
- * (:6878-6881 — aqui os MESMOS valores que o `salvar_modelo_bom` acabou de gravar: plano F3.3 §3 P3). `_observacoes_molde:
- * null`, `enviar_por_tamanho: {}` e as quantidades recalculadas (consumo × grade) = paridade com o Dev: num card JÁ enviado
- * (com "Editar") isso apaga os ajustes da Explosão — obs. do molde, envio por tamanho, "a separar" dos aviamentos
- * (`cad_aviamentos.quantidade_separar`, ExplosaoDetail.tsx:699/:783) e "a enviar" dos insumos
- * (`cad_etiquetas.quantidade_enviar`, ExplosaoInsumosSection.tsx:7) voltam ao cálculo —, igual ao Dev (decisão F3 #7 (a);
- * D4; correção = tarefa própria). Só com `cad.gravar` — nunca vazio (`deveGravarCad`).
+ * `_etiquetas` da RPC: o ESTADO COMPLETO dos insumos do card (linha com `id` = já existe; sem `id` = nova). A RPC faz o diff
+ * (UPDATE/INSERT/DELETE) e numera pela posição entre as linhas COM insumo — o mesmo que `planoEtiquetas` fazia no navegador.
+ * Linha sem `etiqueta_id` é ignorada (e, se tinha `id`, o insumo some do card — igual ao plano antigo).
  */
-export async function persistirCad(modeloId: string, cad: CadCapturado): Promise<void> {
-  if (!cad.gravar || !cad.payload) return;
-  const { error } = await supabase.rpc("salvar_cad_completo" as any, { _modelo_id: modeloId, ...cad.payload } as any);
+export function montarEtiquetasPayload(rows: ModeloEtiquetaRow[]): { id: string | null; etiqueta_id: string; cor_id: string | null; consumo: number; loss_percent: number; custo_previsto: number }[] {
+  return rows.filter((r) => r.etiqueta_id).map((r) => ({
+    id: r.id ?? null, etiqueta_id: r.etiqueta_id as string, cor_id: r.cor_id || null,
+    consumo: r.consumo || 0, loss_percent: r.loss_percent || 0, custo_previsto: r.custo_previsto || 0,
+  }));
+}
+
+/**
+ * `_cad` da RPC (nomes SEM underscore): o que o `salvar_cad_completo` recebia (F3.3). `null` = o CAD não grava neste Salvar
+ * (`cad.gravar` já decidiu tudo — `deveGravarCad`). ⚠️ Paridade com o Dev: num card JÁ enviado (com "Editar") isso apaga os ajustes
+ * da Explosão (obs. do molde, envio por tamanho, "a separar"/"a enviar") — decisão F3 #7 (a); correção = tarefa própria.
+ */
+export function montarCadRpcPayload(cad: CadCapturado): Record<string, unknown> | null {
+  if (!cad.gravar || !cad.payload) return null;
+  const p = cad.payload;
+  return {
+    tecidos: p._tecidos, grades: p._grades, aviamentos: p._aviamentos, etiquetas: p._etiquetas, proporcoes: p._proporcoes,
+    observacoes_molde: p._observacoes_molde, data_previsao_corte: p._data_previsao_corte,
+  };
+}
+
+/** `_revisao` da RPC: o que decidia `marcar_revisao_por_mudanca` (#Erro nas etapas seguintes). NULL = não marca. */
+export function montarRevisaoPayload(bom: Pick<BomCapturado, "gravar" | "flags">): FlagsBom | null {
+  if (!bom.gravar) return null;
+  const f = bom.flags;
+  if (!(f.grade || f.consumo || f.aviamentos)) return null;
+  return { grade: f.grade, consumo: f.consumo, aviamentos: f.aviamentos };
+}
+
+export type EntradaNucleo = {
+  modeloId: string;
+  /** Colunas de `modelos` do Salvar (o MESMO `payload` do antigo UPDATE, já passado por `omitirColunasTravadas`). */
+  header: Record<string, unknown>;
+  /** Trava otimista ÚNICA do card (`revCongelado`). NÃO pode ser null aqui — o hook trata antes (null = sem trava no servidor). */
+  revBase: number;
+  bom: BomCapturado;
+  /** Grade da revenda quando `isRevenda && gradeRevendaDirty`; senão null. */
+  gradeRevenda: unknown[] | null;
+  /** Linhas de M.O. (já em `moLinhaParaPayload`) quando a M.O. grava neste Salvar; senão null. */
+  mo: unknown[] | null;
+};
+
+/** Argumentos de `supabase.rpc("salvar_card_planejamento", …)`. Cada bloco só vai se for gravar; senão NULL (= o servidor não mexe). */
+export function montarArgsSalvarCard(i: EntradaNucleo) {
+  return {
+    _modelo_id: i.modeloId,
+    _header: i.header,
+    _rev_base: i.revBase,
+    _bom: i.bom.gravar ? montarBomPayload(i.bom) : null,
+    _etiquetas: i.bom.gravar ? montarEtiquetasPayload(i.bom.estado.etiquetas) : null,
+    _cad: montarCadRpcPayload(i.bom.cad),
+    _mo: i.mo,
+    _grade_revenda: i.gradeRevenda,
+    _revisao: montarRevisaoPayload(i.bom),
+    _flags: {},
+  };
+}
+
+export type RetornoSalvarCard = { modelo_id: string; rev: number | null; revisao_marcada: Record<string, unknown> };
+
+/**
+ * UMA chamada, UMA transação: cabeçalho + BOM + insumos + CAD + M.O. + grade da revenda + #Erro (tudo ou nada). Erro do servidor é
+ * relançado como veio (P0409 `conflito_versao: card` = a trava otimista; o hook trata). ⚠️ O `rev` devolvido é o de DENTRO da
+ * transação — o processador adiado do custo pode somar +1 no COMMIT: quem precisa do rev final RELÊ o card (refetch de `["modelo"]`).
+ */
+export async function salvarCardPlanejamento(i: EntradaNucleo): Promise<RetornoSalvarCard> {
+  const { data, error } = await supabase.rpc("salvar_card_planejamento" as any, montarArgsSalvarCard(i) as any);
   if (error) throw error;
+  const r = (data ?? {}) as Partial<RetornoSalvarCard>;
+  return { modelo_id: r.modelo_id ?? i.modeloId, rev: r.rev ?? null, revisao_marcada: r.revisao_marcada && typeof r.revisao_marcada === "object" ? r.revisao_marcada : {} };
 }
 
 /**
