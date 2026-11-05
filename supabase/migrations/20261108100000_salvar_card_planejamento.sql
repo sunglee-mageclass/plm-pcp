@@ -176,6 +176,16 @@ BEGIN
   END IF;
   PERFORM public._seg_exige_pagina('criacao_planejamento', 'criacao_desenvolvimento');
 
+  -- Posse do card (sem oraculo): o id de outra loja / inexistente e recusado AQUI, antes de qualquer leitura condicional do BOM
+  -- (a RPC e DEFINER: sem este check o v_bom_inicial leria o BOM de qualquer loja e a pagina exigida variaria com ele).
+  -- Sem trava aqui; o FOR UPDATE (uma vez so) vem no passo 2, depois das advisory.
+  SELECT m.tenant_id INTO v_tenant
+    FROM public.modelos m
+   WHERE m.id = _modelo_id AND (m.tenant_id = public.get_user_tenant_id() OR public.is_super_admin());
+  IF v_tenant IS NULL THEN
+    RAISE EXCEPTION 'nao_encontrado: modelo' USING ERRCODE = 'P0002';
+  END IF;
+
   -- JSON null (e nao so SQL NULL) tambem significa "bloco ausente".
   _header := NULLIF(_header, 'null'::jsonb);
   _bom := NULLIF(_bom, 'null'::jsonb);
@@ -255,15 +265,8 @@ BEGIN
     END IF;
   END IF;
 
-  -- 2. o card existe e e da loja do chamador (ou super admin); travas na ORDEM UNICA (card -> CAD -> linha de modelos);
-  --    trava otimista. A existencia e conferida ANTES das advisory (nao da para tomar trava de id alheio).
-  SELECT m.tenant_id INTO v_tenant
-    FROM public.modelos m
-   WHERE m.id = _modelo_id AND (m.tenant_id = public.get_user_tenant_id() OR public.is_super_admin());
-  IF v_tenant IS NULL THEN
-    RAISE EXCEPTION 'nao_encontrado: modelo' USING ERRCODE = 'P0002';
-  END IF;
-
+  -- 2. travas na ORDEM UNICA (card -> CAD -> linha de modelos) e trava otimista. A posse do card ja foi conferida no passo 1
+  --    (antes de qualquer leitura de BOM), entao nao se toma trava de id alheio.
   PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || _modelo_id::text));
   PERFORM pg_advisory_xact_lock(hashtext(c.id::text)) FROM public.cad c WHERE c.modelo_id = _modelo_id ORDER BY c.id;
 
