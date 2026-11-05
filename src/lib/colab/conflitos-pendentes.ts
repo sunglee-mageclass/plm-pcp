@@ -58,3 +58,16 @@ export function baseComLinhaResolvida<R extends LinhaId>(base: readonly R[], id:
 export function substituirLinhaNova<R extends { tempId: string }>(linhas: readonly R[], k: number, dele: R): R[] {
   return linhas.map((r, i) => (i === k ? { ...dele, tempId: r.tempId } : r));
 }
+
+/**
+ * Corrida "remonta + refetch" (staleTime:0): o efeito de merge re-dispara com o rascunho da CLOSURE ainda anterior ao commit do seed
+ * (lista VAZIA), enquanto a base (ref, síncrona) já tem as linhas. Mesclar assim conta TODA linha do servidor como "nova do servidor"
+ * (banner falso "Alguém salvou agora — N atualizados"). Se o usuário não tocou em nada (nem campo, nem linha — remover linha também
+ * marca o id), não há o que mesclar: a tela deve só re-semear do servidor. Rascunho vazio com base cheia SEM nada tocado só acontece
+ * nesta corrida (apagar linhas marca os ids removidos como tocados, e aí o merge normal roda).
+ */
+export function ehCorridaRemontaSemTocar(o: {
+  linhasDoRascunho: number; linhasDaBase: number; camposTocados: number; linhasTocadas: number;
+}): boolean {
+  return o.linhasDoRascunho === 0 && o.linhasDaBase > 0 && o.camposTocados === 0 && o.linhasTocadas === 0;
+}

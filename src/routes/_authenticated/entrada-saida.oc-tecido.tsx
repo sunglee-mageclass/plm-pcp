@@ -33,7 +33,7 @@ import { presencaDoCampo } from "@/lib/colab/presenca-cor";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
-import { juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha, substituirLinhaNova } from "@/lib/colab/conflitos-pendentes";
+import { ehCorridaRemontaSemTocar, juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha, substituirLinhaNova } from "@/lib/colab/conflitos-pendentes";
 import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
@@ -965,6 +965,20 @@ export function OcDialog({
     // [seg s6] (P-236 = D7 A) o STATUS nao e campo do rascunho: segue SEMPRE o do servidor (B recebeu enquanto A editava → A ve
     // "recebida"; o Salvar nunca a faz voltar — o servidor tambem recusa a regressao fora do "Desmarcar recebimento").
     setStatus((ocQueryData.oc.status as OCStatus) ?? "encomendado");
+    // Corrida remonta+refetch (staleTime:0): o efeito re-dispara com `items`/`draft` ainda STALE (closure anterior ao commit do seed),
+    // enquanto `baseRef` (ref, síncrono) já tem as linhas. Mesclar com rascunho vazio contaria cada linha do servidor como "nova do
+    // servidor" (mergeLinhas) -> banner falso "Alguém salvou agora". Nada tocado -> nada a proteger: re-semeia (e re-baseline do dirty) e sai.
+    // (Só linhas: o cabeçalho só muda no merge se base != fresh; e remover linha marca o id como tocado, então esse caso não cai aqui.)
+    if (ehCorridaRemontaSemTocar({
+      linhasDoRascunho: items.length, linhasDaBase: baseRef.current.items.length,
+      camposTocados: touchedRef.current.size, linhasTocadas: touchedItemIdsRef.current.size,
+    })) {
+      baseRef.current = { draft: freshDraft, items: freshItems };
+      setDraft(freshDraft);
+      setItems(freshItems);
+      resetBaseline({ draft: freshDraft, items: freshItems, rolosCq: [] });
+      return;
+    }
     // Refetch: MERGE em vez de sobrescrever. Só re-seta draft/items quando algo de fato
     // mudou (atualizado ou em conflito) — evita churn de identidade que marcaria "dirty"
     // à toa quando o merge não alterou nada visível.
