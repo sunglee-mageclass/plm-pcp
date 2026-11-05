@@ -17,8 +17,12 @@ vi.mock("@tanstack/react-router", async (orig) => ({
   Link: ({ children, to, ...r }: any) => createElement("a", { href: to, ...r }, children),
 }));
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { mergeLinhas } from "@/lib/colab/merge";
+import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import {
-  OcCqSection, aplicarPatchCq, chavesCqDoPayload, alertaAlternavel, type OcCqLinha,
+  OcCqSection, aplicarPatchCq, chavesCqDoPayload, alertaAlternavel, semEfemeros, type OcCqLinha,
 } from "@/components/oc-tecido/CqTecido";
 
 let root: Root | null = null;
@@ -172,5 +176,80 @@ describe("rascunho do CQ — aplicarPatchCq / chavesCqDoPayload", () => {
       expect(k, st).toEqual({ cq_ok: true, cq_observacao: "obs" });
       expect("cq_alerta" in k, st).toBe(false);
     }
+  });
+});
+
+// Falso "Alguém salvou agora": o merge compara a LINHA pela UNIÃO de chaves, e `cq_tocado` (efêmero de UI) só existe no rascunho. O
+// `comparavel: semEfemeros` tira `cq_tocado`/`tempId` da comparação nos 3 lados — mas cq_ok/cq_alerta_status/cq_observacao CONTINUAM nela.
+describe("merge colaborativo com CQ no item — sem falso aviso (semEfemeros)", () => {
+  const row = (id: string, o: Record<string, unknown> = {}) => ({
+    tempId: id, id, preco: 10, cq_ok: false, cq_alerta_status: "sem_alerta", cq_observacao: "", ...o,
+  });
+  const merge = (base: any[], draft: any[], fresh: any[], tocados: string[]) =>
+    mergeLinhas({ base, draft, fresh, touchedIds: new Set(tocados), removidasIds: new Set(tocados), comparavel: semEfemeros });
+
+  it("(a) seed -> edito o CQ (liga Alertar e CQ ok) -> refetch com o servidor INTACTO: nenhum 'atualizado', nenhum conflito", () => {
+    const base = [row("i1"), row("i2")];
+    let d1: any = aplicarPatchCq(row("i1"), { cq_alerta: true }, base[0]);
+    d1 = aplicarPatchCq(d1, { cq_ok: true }, base[0]);
+    expect(d1.cq_tocado).toBe(true);
+    const r = merge(base, [d1, row("i2")], [row("i1"), row("i2")], ["i1"]);
+    expect(r.atualizadas).toEqual([]);
+    expect(r.conflitos).toEqual([]);
+    expect(r.linhas[0]).toBe(d1); // o rascunho (com cq_tocado) é o que fica — a projeção só vale na comparação
+  });
+
+  it("(a2) o servidor chegou nos MESMOS valores que eu digitei: não é conflito (cq_tocado não conta como diferença)", () => {
+    const base = [row("i1")];
+    const d1: any = aplicarPatchCq(row("i1"), { cq_ok: true }, base[0]);
+    const fresh = [row("i1", { cq_ok: true })];
+    expect(merge(base, [d1], fresh, ["i1"]).conflitos).toEqual([]);
+    // sem a projeção, a chave só-do-rascunho acusaria um conflito falso
+    expect(mergeLinhas({ base, draft: [d1], fresh, touchedIds: new Set(["i1"]) }).conflitos.length).toBe(1);
+  });
+
+  it("(b) o servidor MUDOU o cq_* do item que eu também toquei: vira conflito de LINHA (não 'atualizado' calado)", () => {
+    const base = [row("i1")];
+    const d1: any = aplicarPatchCq(row("i1"), { cq_observacao: "minha" }, base[0]);
+    const fresh = [row("i1", { cq_observacao: "dele", cq_alerta_status: "alertado" })];
+    const r = merge(base, [d1], fresh, ["i1"]);
+    expect(r.atualizadas).toEqual([]);
+    expect(r.conflitos.map((c) => c.path)).toEqual(["linha:i1"]);
+    expect((r.conflitos[0].meu as any).cq_observacao).toBe("minha");
+    expect((r.conflitos[0].dele as any).cq_observacao).toBe("dele");
+    expect(r.linhas[0]).toBe(d1); // o meu fica até eu resolver
+  });
+
+  it("(c) o servidor mudou o cq_* de um item que eu NÃO toquei: 'atualizado' legítimo (o aviso real continua)", () => {
+    const base = [row("i1"), row("i2")];
+    const d1: any = aplicarPatchCq(row("i1"), { cq_ok: true }, base[0]);
+    const fresh = [row("i1"), row("i2", { cq_alerta_status: "estilo_ok", cq_ok: true })];
+    const r = merge(base, [d1, row("i2")], fresh, ["i1"]);
+    expect(r.atualizadas).toEqual(["i2"]);
+    expect(r.conflitos).toEqual([]);
+    expect(r.linhas[1]).toEqual(fresh[1]);
+    expect(r.linhas[0]).toBe(d1);
+  });
+
+  it("o retry do P0409 usa a mesma projeção: servidor intacto nos meus valores = sem conflito", () => {
+    const base = [row("i1")];
+    const d1: any = aplicarPatchCq(row("i1"), { cq_ok: true }, base[0]);
+    const fresh = [row("i1", { cq_ok: true })];
+    const dr = { x: 1 };
+    const com = mesclarParaRetryP0409({ base: { draft: dr, items: base }, live: { draft: dr, items: [d1] }, fresh: { draft: dr, items: fresh, status: "recebido" }, touched: new Set(), touchedIds: new Set(["i1"]), comparavel: semEfemeros });
+    expect(com.conflitos).toEqual([]);
+    const sem = mesclarParaRetryP0409({ base: { draft: dr, items: base }, live: { draft: dr, items: [d1] }, fresh: { draft: dr, items: fresh, status: "recebido" }, touched: new Set(), touchedIds: new Set(["i1"]) });
+    expect(sem.conflitos.length).toBe(1);
+  });
+
+  it("semEfemeros tira SÓ cq_tocado e tempId", () => {
+    expect(semEfemeros({ tempId: "t", id: "i", cq_ok: true, cq_alerta_status: "alertado", cq_observacao: "o", cq_tocado: true }))
+      .toEqual({ id: "i", cq_ok: true, cq_alerta_status: "alertado", cq_observacao: "o" });
+  });
+
+  it("a tela passa `comparavel: semEfemeros` nos DOIS merges de itens (efeito de refetch e retry do P0409)", () => {
+    const SRC = readFileSync(join(process.cwd(), "src/routes/_authenticated/entrada-saida.oc-tecido.tsx"), "utf8");
+    expect(SRC.match(/comparavel: semEfemeros/g)?.length).toBe(2);
+    expect(SRC).toMatch(/mergeLinhas\(\{[^}]*comparavel: semEfemeros/);
   });
 });

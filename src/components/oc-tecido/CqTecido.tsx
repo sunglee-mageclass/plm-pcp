@@ -239,6 +239,17 @@ export function alertaAlternavel(status: string | null | undefined): boolean {
   return ALERTA_ALTERNAVEL.includes(status ?? "sem_alerta");
 }
 
+/**
+ * Projeção do item SÓ para o merge colaborativo (`mergeLinhas.comparavel`): tira os campos EFÊMEROS de UI que existem apenas no rascunho
+ * (`cq_tocado`, `tempId`). O `igual` do merge compara pela UNIÃO de chaves; sem isto uma chave que só o rascunho tem vira diferença de
+ * graça (falso conflito/"atualizado"). NÃO tira cq_ok/cq_alerta_status/cq_observacao: dois editando o CQ do MESMO item é conflito real.
+ * Aplique IDÊNTICO nos 3 lados (base/draft/fresh) — o merge o faz por dentro; os valores devolvidos seguem sendo as linhas originais.
+ */
+export function semEfemeros<T extends { tempId?: string; cq_tocado?: boolean }>(item: T): Omit<T, "tempId" | "cq_tocado"> {
+  const { tempId: _tempId, cq_tocado: _cqTocado, ...resto } = item;
+  return resto;
+}
+
 /** Aplica uma edição de CQ no item e recalcula `cq_tocado`: igual ao que foi carregado (`base`) = não tocado (some o selo e o dirty). */
 export function aplicarPatchCq<T extends CqCampos>(item: T, patch: CqPatch, base?: CqCampos | null): T {
   const next: T = { ...item };

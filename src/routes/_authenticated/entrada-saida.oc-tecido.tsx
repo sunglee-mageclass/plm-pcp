@@ -38,7 +38,7 @@ import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
-import { OcCqSection, alertaBadge, aplicarPatchCq, aplicarPatchCqRolo, baseCqRolos, chavesCqDoPayload, cqRolosDirty, cqRolosDoPayload, type CqPatch, type CqRoloBase, type CqRoloPatch, type CqStatus, type OcCqLinha } from "@/components/oc-tecido/CqTecido";
+import { OcCqSection, alertaBadge, aplicarPatchCq, aplicarPatchCqRolo, baseCqRolos, chavesCqDoPayload, semEfemeros, cqRolosDirty, cqRolosDoPayload, type CqPatch, type CqRoloBase, type CqRoloPatch, type CqStatus, type OcCqLinha } from "@/components/oc-tecido/CqTecido";
 import type { StatusTone } from "@/components/shared/StatusBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
@@ -969,7 +969,7 @@ export function OcDialog({
     // mudou (atualizado ou em conflito) — evita churn de identidade que marcaria "dirty"
     // à toa quando o merge não alterou nada visível.
     const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
-    const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current });
+    const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current, comparavel: semEfemeros });
     const semResultado =
       md.atualizados.length === 0 && md.conflitos.length === 0 &&
       ml.atualizadas.length === 0 && ml.conflitos.length === 0;
@@ -1523,6 +1523,7 @@ export function OcDialog({
             fresh: { draft: freshDraft, items: freshItems, status: ((fresh.oc.status as OCStatus) ?? "encomendado") as OCStatus },
             touched: touchedRef.current,
             touchedIds: touchedItemIdsRef.current,
+            comparavel: semEfemeros, // cq_tocado/tempId só existem no rascunho: nunca entram na comparação
           });
           // [seg s6, fix B1] o retry abaixo roda ANTES do re-render: grava o estado MESCLADO nos refs que o mutationFn lê
           draftLiveRef.current = r.estado.draft;

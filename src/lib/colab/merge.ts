@@ -32,7 +32,14 @@ export function mergeLinhas<R extends LinhaId>(o: {
    * removida; se o servidor a MUDOU depois da base (ou eu não tenho base dela), vira conflito (`meu: null`, `dele: <linha>`) — nem restaurada nem apagada em silêncio.
    */
   removidasIds?: ReadonlySet<string>;
+  /**
+   * OPT-IN. Projeção usada SÓ nas comparações `igual` entre base/draft/fresh (os valores devolvidos em `linhas`/`conflitos` seguem sendo
+   * as linhas originais). Serve para tirar da comparação campos EFÊMEROS DE UI que existem só no rascunho (ex.: `cq_tocado`, `tempId`):
+   * como `igual` compara pela UNIÃO de chaves, uma chave presente só num dos lados virava diferença (conflito/"atualizado") de graça.
+   */
+  comparavel?: (linha: R) => unknown;
 }): { linhas: R[]; conflitos: Conflito[]; atualizadas: string[] } {
+  const cmp = (a: R | undefined, b: R | undefined) => (o.comparavel && a && b ? igual(o.comparavel(a), o.comparavel(b)) : igual(a, b));
   const byId = (rs: R[]) => new Map(rs.filter((r) => r.id).map((r) => [r.id as string, r]));
   const bBase = byId(o.base), bFresh = byId(o.fresh);
   const conflitos: Conflito[] = [];
@@ -49,9 +56,9 @@ export function mergeLinhas<R extends LinhaId>(o: {
       if (tocada) { conflitos.push({ path: `linha:${d.id}`, meu: d, dele: null }); out.push(d); }
       continue;                                          // não tocada → some
     }
-    const mudouNoServidor = !igual(b, f);
+    const mudouNoServidor = !cmp(b, f);
     if (!tocada) { out.push(mudouNoServidor ? f : d); if (mudouNoServidor) atualizadas.push(d.id); }
-    else if (mudouNoServidor && !igual(d, f)) { conflitos.push({ path: `linha:${d.id}`, meu: d, dele: f }); out.push(d); }
+    else if (mudouNoServidor && !cmp(d, f)) { conflitos.push({ path: `linha:${d.id}`, meu: d, dele: f }); out.push(d); }
     else out.push(d);
   }
   for (const f of o.fresh) {                             // linhas novas do servidor
@@ -59,7 +66,7 @@ export function mergeLinhas<R extends LinhaId>(o: {
       if (o.removidasIds?.has(f.id)) {                   // eu removi esta linha: não volta como "nova do servidor"
         const b = bBase.get(f.id);
         // o servidor a mudou depois da base — ou eu não tenho base dela (não dá p/ provar que ninguém mexeu): conflito, o lado seguro
-        if (!b || !igual(b, f)) conflitos.push({ path: `linha:${f.id}`, meu: null, dele: f });
+        if (!b || !cmp(b, f)) conflitos.push({ path: `linha:${f.id}`, meu: null, dele: f });
         continue;                                        // sem mudança alheia: segue removida (o Salvar a apaga)
       }
       out.push(f); atualizadas.push(f.id);
