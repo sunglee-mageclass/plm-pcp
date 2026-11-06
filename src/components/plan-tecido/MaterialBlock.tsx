@@ -20,6 +20,7 @@ import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { AtendeAPopover } from "./AtendeAPopover";
 import { atendimentoDoBloco } from "@/lib/plan-tecido/atendimento";
+import { ocultarNoMaterial, acharOculta, desocultarNoMaterial } from "@/lib/plan-tecido/oculta";
 import { temDistribuicao } from "@/lib/distribuicao-produto";
 
 type VarRow = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null; cor_id: string | null; cor_apelido_id: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
@@ -137,11 +138,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
   const renum = (vs: PtVariante[]) => vs.map((v, i) => ({ ...v, ordem: i + 1 }));
   // F1 A2 (dono 06/nov): o X OCULTA a cor SÓ neste card (flag `oculta` por slot) — NÃO remove do array e NÃO replica
   // pros outros cards do mesmo tecido. Oculta ⇒ peças zeradas (a cor sai da lista e da demanda; "+ adicionar cor" a re-lista).
-  const ocultarVariante = (v: PtVariante) => onChange({ ...material, variantes: material.variantes.map((x) => {
-    if (varKey(x) !== varKey(v)) return x;
-    const { distribuicao: _d, ...resto } = x;
-    return { ...resto, oculta: true, grades: {}, grade_total: 0 };
-  }) });
+  const ocultarVariante = (v: PtVariante) => onChange(ocultarNoMaterial(material, v));
   const removerDivergentes = () => onChange({ ...material, variantes: renum(material.variantes.filter((v) => !divergente(v))) });
   const setGrade = (v: PtVariante, val: number) =>
     onChange({ ...material, variantes: material.variantes.map((x) => (varKey(x) === varKey(v) ? { ...x, grade_total: val } : x)) });
@@ -230,11 +227,8 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
   };
 
   // Cor OCULTA neste card com a mesma identidade (variante ou cor+apelido): re-adicionar DESOCULTA a existente (não duplica).
-  const ocultaIgual = (varianteId: string | null, corId: string | null, apelidoId: string | null) =>
-    material.variantes.find((x) => x.oculta && ((varianteId && x.variante_tecido_id === varianteId) ||
-      (comboKey(corId, apelidoId) !== "|" && comboKey(x.cor_id, x.cor_apelido_id) === comboKey(corId, apelidoId))));
-  const desocultar = (alvo: PtVariante, ident: Partial<PtVariante>) =>
-    onChange({ ...material, variantes: renum(material.variantes.map((x) => (x === alvo ? { ...x, ...ident, oculta: false, grades: {}, grade_total: 0 } : x))) });
+  const ocultaIgual = (varianteId: string | null, corId: string | null, apelidoId: string | null) => acharOculta(material, varianteId, corId, apelidoId);
+  const desocultar = (alvo: PtVariante, ident: Partial<PtVariante>) => onChange(desocultarNoMaterial(material, alvo, ident));
   const addDoArtigo = (v: VarRow) => {
     const oculta = ocultaIgual(v.id, v.cor_id ?? null, v.cor_apelido_id ?? null);
     if (oculta) {

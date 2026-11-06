@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, normalizarCategoriasAuto, comDistribuicaoDoPlano, comAtendeDoPlano, atendeDoBom, type ModeloReal } from "@/lib/plan-tecido/engine";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, normalizarCategoriasAuto, comDistribuicaoDoPlano, comAtendeDoPlano, comOcultaDoPlano, atendeDoBom, type ModeloReal } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { atendimentoDoBloco, materiaisParaAplicar } from "@/lib/plan-tecido/atendimento";
+import { ocultarNoMaterial, acharOculta, desocultarNoMaterial } from "@/lib/plan-tecido/oculta";
+import { buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -1443,5 +1445,79 @@ describe("mergeArvore — Fix round 3 (probes do re-review R2: R, F, regressão 
     ] }] };
     const merged = mergeArvore(seed as any, salvo as any);
     expect(merged.subcolecoes[0].linhas[0].slots[0].categoria_id).toBe("CINTO_LEGADO");
+  });
+});
+
+describe("plan-tecido/engine — cor OCULTA persiste em card materializado (F1 A2, fix round 1)", () => {
+  const mr = (): ModeloReal => ({
+    id: "m1", ref: "R", nome: "N", subcolecao: null, subcolecao_id: null, linha_id: null, categoria_id: null,
+    proporcoes: null, tamanho_tipo: "numero", grade: { 1: { grades: { "38|P": 3 }, grade_total: 3 } },
+    materiais: [{ tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [
+      { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" },
+      { variante_tecido_id: "vt2", ordem: 2, multiplicador: 1, cor_id: "c2" },
+    ] }],
+  });
+  const seed = () => semearComModelos({ colecao_id: "c", tipo: "poder_venda", buckets: [], modelos: [mr()] });
+  // plano salvo: o usuário OCULTOU vt2 (a flag viaja na árvore: plan_tecido_variantes.oculta)
+  const salvoCom = (s: PtArvore, ocultaVt2: boolean): PtArvore => ({ ...s, subcolecoes: s.subcolecoes.map((sc) => ({ ...sc, linhas: sc.linhas.map((l) => ({ ...l, slots: l.slots.map((sl) => ({
+    ...sl, materiais: sl.materiais.map((m) => ({ ...m, variantes: m.variantes.map((v) => (v.variante_tecido_id === "vt2" ? { ...v, grades: {}, grade_total: 0, oculta: ocultaVt2 } : v)) })) })) })) })) });
+  const mats = (a: PtArvore) => a.subcolecoes[0].linhas[0].slots[0].materiais;
+
+  it("recarga: o BOM vivo TEM a cor, o plano salvo a tem oculta ⇒ a viva volta oculta (e zerada); a outra intacta", () => {
+    const s = seed();
+    const m = mats(mergeArvore(s, salvoCom(s, true)))[0];
+    const vt1 = m.variantes.find((v) => v.variante_tecido_id === "vt1")!;
+    const vt2 = m.variantes.find((v) => v.variante_tecido_id === "vt2")!;
+    expect(vt2.oculta).toBe(true);
+    expect(vt2.grade_total).toBe(0);
+    expect(vt1.oculta).toBeFalsy();
+    expect(vt1.grade_total).toBe(3); // peças do Dev da outra cor seguem
+  });
+
+  it("sem oculta no plano salvo ⇒ nada muda (a viva continua visível)", () => {
+    const s = seed();
+    const m = mats(mergeArvore(s, salvoCom(s, false)))[0];
+    expect(m.variantes.every((v) => !v.oculta)).toBe(true);
+  });
+
+  it("desocultar (\"+ adicionar cor\") depois da recarga: acha a oculta, volta visível com 0 pç, sem duplicar", () => {
+    const s = seed();
+    const m = mats(mergeArvore(s, salvoCom(s, true)))[0];
+    const oculta = acharOculta(m, "vt2", "c2", null)!;
+    expect(oculta).toBeTruthy();
+    const depois = desocultarNoMaterial(m, oculta, { variante_tecido_id: "vt2" });
+    expect(depois.variantes).toHaveLength(2); // não duplicou
+    expect(depois.variantes.find((v) => v.variante_tecido_id === "vt2")).toMatchObject({ oculta: false, grade_total: 0 });
+    expect(acharOculta(depois, "vt2", "c2", null)).toBeUndefined();
+  });
+
+  it("ocultar → salvar → recarregar: ciclo completo mantém oculta; a oculta NÃO vai ao BOM (buildMateriaisAplicar)", () => {
+    const s = seed();
+    const vivo = mats(s)[0];
+    const ocultado = ocultarNoMaterial(vivo, vivo.variantes.find((v) => v.variante_tecido_id === "vt2")!);
+    const slotSalvo = { ...s.subcolecoes[0].linhas[0].slots[0], materiais: [ocultado] };
+    const salvo: PtArvore = { ...s, subcolecoes: [{ ...s.subcolecoes[0], linhas: [{ ...s.subcolecoes[0].linhas[0], slots: [slotSalvo] }] }] };
+    const rec = mats(mergeArvore(seed(), salvo))[0];
+    expect(rec.variantes.find((v) => v.variante_tecido_id === "vt2")!.oculta).toBe(true);
+    const bom = buildMateriaisAplicar({ ...slotSalvo, materiais: [rec] })[0].variantes.map((v) => v.variante_tecido_id);
+    expect(bom).toEqual(["vt1"]);
+  });
+
+  it("comOcultaDoPlano: oculta salva que NÃO existe no BOM vivo não é recriada; sem salvas ⇒ o MESMO array", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 5 } ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt9", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, oculta: true } ] }];
+    expect(comOcultaDoPlano(vivos, salvos)).toBe(vivos);
+    expect(comOcultaDoPlano(vivos, [])).toBe(vivos);
+  });
+
+  it("comOcultaDoPlano: planejada oculta salva casa a viva REAL de mesma cor+apelido (única candidata)", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt2", cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 4 } ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, oculta: true } ] }];
+    const r = comOcultaDoPlano(vivos, salvos);
+    expect(r[0].variantes[0]).toMatchObject({ oculta: true, grade_total: 0 });
   });
 });

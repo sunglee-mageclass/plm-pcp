@@ -491,6 +491,40 @@ export function comAtendeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | nu
   return mudouAlgum ? out : vivos;
 }
 
+// Cor OCULTA por produto (F1 A2, dono 06/nov): a flag `oculta` mora SÓ no plano (plan_tecido_variantes.oculta) — o BOM vivo
+// nunca a tem, e "BOM vence" descartava as variantes salvas. Leva a flag SALVA para a cor viva casada (mesmo bloco:
+// tipo + número + artigo; chave `varKey`, ou cor+apelido quando a salva é PLANEJADA e a viva virou real) e zera as peças
+// (oculta ⇒ 0, a cor não conta na demanda). A cor oculta salva que NÃO existe no BOM vivo não é recriada (já está fora do
+// BOM — continua invisível e "+ adicionar cor" a oferece). Sem nada a levar ⇒ o MESMO array. Desocultar = `oculta:false` na tela.
+export function comOcultaDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  const combo = (v: PtVariante) => `${v.cor_id ?? ""}|${v.cor_apelido_id ?? ""}`;
+  let mudouAlgum = false;
+  const out = vivos.map((m) => {
+    const s = salvos.find((x) => x.tipo === m.tipo && Number(x.numero) === Number(m.numero) && (x.artigo_id ?? null) === (m.artigo_id ?? null));
+    const ocultasSalvas = (s?.variantes ?? []).filter((v) => v.oculta);
+    if (ocultasSalvas.length === 0) return m;
+    const keysSalvas = new Set((s?.variantes ?? []).map(varKey));
+    const porKey = new Set(ocultasSalvas.map(varKey));
+    // planejada salva oculta (id null) <-> viva real de mesma cor+apelido que NÃO tem chave própria entre as salvas; só se 1 candidata
+    const planejadas = ocultasSalvas.filter((v) => !v.variante_tecido_id && combo(v) !== "|");
+    let mudou = false;
+    const variantes = m.variantes.map((v) => {
+      if (v.oculta) return v;
+      const casa = porKey.has(varKey(v)) ||
+        (!keysSalvas.has(varKey(v)) && combo(v) !== "|" && planejadas.filter((p) => combo(p) === combo(v)).length === 1);
+      if (!casa) return v;
+      mudou = true;
+      const { distribuicao: _d, ...resto } = v;
+      return { ...resto, oculta: true, grades: {}, grade_total: 0 };
+    });
+    if (!mudou) return m;
+    mudouAlgum = true;
+    return { ...m, variantes };
+  });
+  return mudouAlgum ? out : vivos;
+}
+
 // artigo_id do Tecido 1 (tipo==='tecido' && numero===1) de um slot — SSOT usado por
 // moverParaFamiliaDoTecido (G2) E normalizarCategoriasAuto (bug lane congelada, ago/2026): a
 // "categoria auto" de um card é SEMPRE derivada deste mesmo artigo, nunca de forro/Tecido 2+.
@@ -656,12 +690,15 @@ function mesclarSlot(slot: PtSlot, saved: PtSlot, liveByModelo: Map<string, PtSl
     // comGradeDoPlano por ÚLTIMO porque depende das variantes já resolvidas (as que vieram do
     // plano via comVariantesDoPlano já trazem a pç; as que vieram do Dev sem grade — forro/
     // Tecido 2 ou variante nova do Tecido 1 — recebem a pç do plano aqui).
-    // … → pç → distribuição (Tecido 1) → "atende a" (demais blocos) — Distribuição por produto, spec R7.
+    // … → pç → distribuição (Tecido 1) → "atende a" (demais blocos) — Distribuição por produto, spec R7 → cor OCULTA (F1 A2, por último: zera as peças da oculta).
     materiais: effModeloId
       ? (live?.materiais?.length
-          ? comAtendeDoPlano(
-              comDistribuicaoDoPlano(
-                comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais),
+          ? comOcultaDoPlano(
+              comAtendeDoPlano(
+                comDistribuicaoDoPlano(
+                  comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais),
+                  saved.materiais,
+                ),
                 saved.materiais,
               ),
               saved.materiais,
