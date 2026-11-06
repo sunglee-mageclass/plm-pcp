@@ -115,6 +115,17 @@ export function slotPassaFiltroStatus(
   return statusEfetivoDaVaga(slot, reprovadoDoCard) !== "reprovado";
 }
 
+/** Achata a arvore em slots COM os indices ORIGINAIS (subI/li/sli) e SO DEPOIS aplica a visibilidade (filtros de
+ *  exibicao: status, familia). Os indices servem p/ o pai gravar no slot certo da arvore COMPLETA — por isso NUNCA
+ *  podar `ln.slots` antes de achatar (o `filter` desloca `sli`; F2 D fix C1). Mesmo padrao do canvas das lanes. */
+export function achatarSlotsVisiveis(
+  arvore: PtArvore, slotVisivel?: (slot: PtSlot) => boolean,
+): { slot: PtSlot; subI: number; li: number; sli: number }[] {
+  return arvore.subcolecoes
+    .flatMap((sub, subI) => sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, subI, li, sli }))))
+    .filter((f) => slotVisivel?.(f.slot) ?? true);
+}
+
 /** Navegacao por teclado na grade do dialog "Distribuir por loja" (F2 D). "Linhas" = blocos loja x cor, em ordem de
  *  tela; "colunas" = Base + tamanhos (a linha de proporcao fica de fora). Enter desce (mesma coluna; Shift+Enter
  *  sobe); Tab anda a direita e estoura para a 1a coluna da proxima linha (Shift+Tab inverso). `null` = sem destino

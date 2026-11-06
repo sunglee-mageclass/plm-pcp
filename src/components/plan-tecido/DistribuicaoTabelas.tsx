@@ -174,7 +174,7 @@ export function DistribuicaoTabelas(p: {
     const alvo = proximaCelulaTeclado({ tecla, comShift: e.shiftKey, linha, coluna, nLinhas: nLinhasGrade, nColunas: nColunasGrade });
     const path = alvo ? caminhoCelula(alvo.linha, alvo.coluna) : null;
     const raiz = e.currentTarget.closest("table") ?? document;
-    const el = path ? raiz.querySelector<HTMLInputElement>(`[data-colab-path="${path}"]`) : null;
+    const el = path ? raiz.querySelector<HTMLInputElement>(`[data-colab-path="${CSS.escape(path)}"]`) : null;
     if (!el) { if (tecla === "Enter") e.preventDefault(); return; }
     e.preventDefault();
     requestAnimationFrame(() => el.focus());

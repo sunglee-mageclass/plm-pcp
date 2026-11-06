@@ -2307,12 +2307,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                       onToggleSecoes={toggleSecoes}
                       onToggleCards={toggleTodos}
                     />
-                    {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Vale no modo
-                        Família PURO (sem Mix aninhado) E no MODO PLANO (que agrupa por nome de tecido,
-                        cada nome pertence a uma família — o filtro por família continua fazendo sentido). */}
                     {/* F2 D — filtro de status: default "Todos menos reprovado" (flagados aparecem; reprovados somem da
                         VISTA, sem apagar nada). "Todos" mostra tudo. */}
-                    <Select value={filtroStatus} onValueChange={(v) => setFiltroStatus(v as "todos" | "sem_reprovado")}>
+                    <Select value={filtroStatus} onValueChange={(v) => { setFiltroStatus(v as "todos" | "sem_reprovado"); setSelecao(new Set()); /* F2 D fix I1: ações em massa casam por chave na árvore COMPLETA — trocar o filtro limpa a seleção p/ não alterar card oculto */ }}>
                       <SelectTrigger aria-label="Filtro de status" className="h-9 w-auto min-w-[10.5rem] gap-1 text-sm max-sm:min-w-0">
                         <SelectValue />
                       </SelectTrigger>
@@ -2321,6 +2318,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                         <SelectItem value="todos">Todos</SelectItem>
                       </SelectContent>
                     </Select>
+                    {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Vale no modo
+                        Família PURO (sem Mix aninhado) E no MODO PLANO (que agrupa por nome de tecido,
+                        cada nome pertence a uma família — o filtro por família continua fazendo sentido). */}
                     {((groupByCategoria && !groupByMix) || modoPlano) && (
                       <CategoriaTecidoFilter
                         cats={cats}
@@ -2362,19 +2362,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                 </div>
                 {modoPlano ? (
                   <ModoPlanoView
-                    // No Modo Plano o canvas normal (laneCats) não roda — então o filtro por família
-                    // de tecido é aplicado AQUI, podando os slots cuja categoria_tecido_id não está
-                    // selecionada, antes de a view agrupar por nome (set/2026). Set vazio = tudo.
-                    arvore={filtroStatus === "todos" && catFilters.size === 0 ? subArvore : {
-                      ...subArvore,
-                      subcolecoes: subArvore.subcolecoes.map((s) => ({
-                        ...s,
-                        linhas: s.linhas.map((l) => ({
-                          ...l,
-                          slots: l.slots.filter((sl) => passaStatus(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))),
-                        })),
-                      })),
-                    }}
+                    // No Modo Plano o canvas normal (laneCats) não roda — então o filtro por família e o de status
+                    // entram via `slotVisivel`, aplicado DENTRO da view DEPOIS de fixar li/sli (a árvore vai COMPLETA:
+                    // podar aqui deslocaria o sli e o renderCard gravaria no slot errado — F2 D fix C1). Set vazio = tudo.
+                    arvore={subArvore}
+                    slotVisivel={(sl) => passaStatus(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))}
                     colecaoId={colecaoId}
                     recolhidos={modoPlanoRecolhidos}
                     onToggleRecolhido={(nome) => setModoPlanoRecolhidos((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; })}

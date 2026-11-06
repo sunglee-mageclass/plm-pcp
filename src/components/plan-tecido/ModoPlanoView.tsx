@@ -8,7 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido } from "@/lib/plan-tecido/calc";
+import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FotoCarrossel } from "./FotoCarrossel";
@@ -473,8 +473,12 @@ export function ModoPlanoView({
   slotOcMap,
   vinculoOcMap,
   focoDestaque,
+  slotVisivel,
 }: {
   arvore: PtArvore;
+  /** Visibilidade (filtros de status/família) aplicada DEPOIS de fixar li/sli — a árvore NÃO vem podada, senão
+      `sli` desloca e o pai grava no slot errado. Ausente = tudo visível. */
+  slotVisivel?: (slot: PtSlot) => boolean;
   colecaoId: string;
   /** Nomes de tecido recolhidos (faixa fechada) — controlado pelo pai, mesmo padrão de `lanesRecolhidas`. */
   recolhidos: Set<string>;
@@ -526,9 +530,8 @@ export function ModoPlanoView({
   };
 
   // Slots ACHATADOS (todas as subcoleções da árvore recebida — o pai já filtra pra sub ativa) com
-  // índices originais (li/sli) preservados, pro renderCard do pai gravar no lugar certo.
-  const flat = arvore.subcolecoes.flatMap((sub, subI) =>
-    sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, subI, li, sli }))));
+  // índices originais (li/sli) preservados (a visibilidade `slotVisivel` entra DEPOIS), pro renderCard do pai gravar no lugar certo.
+  const flat = achatarSlotsVisiveis(arvore, slotVisivel);
 
   // Agrupa por NOME de tecido (Tecido 1) — mesma chave usada no agrupamento "por nome" do canvas.
   const porNome = new Map<string, typeof flat>();
