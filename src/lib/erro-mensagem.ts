@@ -311,6 +311,9 @@ export const MENSAGENS_SEG_S3 = {
   // S6 (P-236 = D7 A): o Salvar nunca faz uma OC recebida voltar a encomendada — só o botão "Desmarcar recebimento"
   oc_recebida_so_desmarcar:
     "Esta OC já foi recebida (talvez por outra pessoa agora). Para voltá-la a encomendada, use \"Desmarcar recebimento\". A tela foi atualizada.",
+  // F1 C: modelo lançado + bloqueio ligado na Config da Loja (42501 ASCII 'oc_vinculo_lancado_bloqueado: ...')
+  oc_vinculo_lancado_bloqueado:
+    "Este modelo já foi lançado e a loja bloqueia a troca/remoção de OC. Um administrador pode desligar esse bloqueio em Configurações da Loja.",
 } as const;
 /** "Módulo › Página" de uma chave do catálogo (seção: "Módulo › Página › Seção"); chave desconhecida = a própria chave. */
 export function rotuloPaginaPermissao(chave: string): { modulo: string; pagina: string } {
@@ -340,6 +343,7 @@ export function mensagemSegS3(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("oc_numero_so_pela_rpc:")) return MENSAGENS_SEG_S3.oc_numero_so_pela_rpc;
   if (code === "42501" && msg.startsWith("mao_obra_sem_permissao:")) return MENSAGENS_SEG_S3.mao_obra_sem_permissao;
   if (code === "42501" && msg.startsWith("sem_permissao_ver:")) return MENSAGENS_SEG_S3.sem_permissao_ver;
+  if (code === "42501" && msg.startsWith("oc_vinculo_lancado_bloqueado:")) return MENSAGENS_SEG_S3.oc_vinculo_lancado_bloqueado;
   if (code === "P0001" && msg.startsWith("loja_diferente:")) return MENSAGENS_SEG_S3.loja_diferente;
   if (code === "P0001" && msg.startsWith("oc_recebida_so_desmarcar:")) return MENSAGENS_SEG_S3.oc_recebida_so_desmarcar;
   if (code !== "42501" || !msg.startsWith(PREFIXO_SEM_PERMISSAO_PAGINA)) return null;

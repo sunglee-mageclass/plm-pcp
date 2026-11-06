@@ -6818,6 +6818,7 @@ export type Database = {
       tenant_config: {
         Row: {
           aprovar_custo_auto_por_versao: string
+          plan_tecido_oc_bloqueia_lancado: boolean
           campos_editaveis: Json | null
           confeccao_prioridade: Json
           corte_interno: boolean | null
@@ -6850,6 +6851,7 @@ export type Database = {
         }
         Insert: {
           aprovar_custo_auto_por_versao?: string
+          plan_tecido_oc_bloqueia_lancado?: boolean
           campos_editaveis?: Json | null
           confeccao_prioridade?: Json
           corte_interno?: boolean | null
@@ -6882,6 +6884,7 @@ export type Database = {
         }
         Update: {
           aprovar_custo_auto_por_versao?: string
+          plan_tecido_oc_bloqueia_lancado?: boolean
           campos_editaveis?: Json | null
           confeccao_prioridade?: Json
           corte_interno?: boolean | null

@@ -190,6 +190,8 @@ const DEFAULTS = {
   // R12 (P-385): modo da aprovação automática de "Aprovação de custo" por versão. 'nenhum' (padrão) = desligado; 'interno' = só produto
   // que a loja fabrica; 'todos' = inclui revenda/importado. A regra e a gravação são do servidor (`salvar_config_loja` valida os 3 valores).
   aprovar_custo_auto_por_versao: "nenhum" as ModoAprovarCustoAuto,
+  // F1 C: bloqueia (no SERVIDOR) trocar/remover o vínculo de OC de modelo LANÇADO no Plan. Tecido. Default LIGADO; a loja decide desligar.
+  plan_tecido_oc_bloqueia_lancado: true as boolean,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -256,6 +258,8 @@ function normalizarConfig(row: Record<string, unknown> | null | undefined): Conf
     insumos_padrao: normalizarInsumosPadrao((r as any).insumos_padrao),
     // Valor desconhecido/ausente na linha NUNCA derruba a tela: cai em 'nenhum' (o CHECK do banco só deixa passar os 3).
     aprovar_custo_auto_por_versao: modoAprovarCustoAutoDoServidor((r as any).aprovar_custo_auto_por_versao),
+    // Ausente/nulo na linha = ligado (o default seguro do banco); só `false` explícito desliga.
+    plan_tecido_oc_bloqueia_lancado: (r as any).plan_tecido_oc_bloqueia_lancado !== false,
   };
 }
 
@@ -322,6 +326,7 @@ const BLOCO_DA_COLUNA: Record<string, string> = {
   keywords: "cfg:keywords",
   insumos_padrao: "cfg:insumos_padrao",
   aprovar_custo_auto_por_versao: "cfg:aprovar_custo_auto_por_versao",
+  plan_tecido_oc_bloqueia_lancado: "cfg:plan_tecido_oc_bloqueia_lancado",
 };
 
 // T4: foco em controle DENTRO de um bloco (diálogo de Requisitos, marcadores Explosão/REF por linha)
@@ -1558,6 +1563,35 @@ function ConfiguracoesLojaPage() {
               ))}
             </SelectContent>
           </Select>
+        </CardContent>
+      </Card>
+
+      <Card
+        data-colab-path="cfg:plan_tecido_oc_bloqueia_lancado"
+        className={anelConflito("cfg:plan_tecido_oc_bloqueia_lancado")}
+      >
+        <CardHeader>
+          <CardTitle>Plan. Tecido — OC em modelo lançado</CardTitle>
+          <CardDescription>
+            Define se dá para trocar ou remover o vínculo de OC de um modelo que já foi lançado. Ligado por padrão.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <Switch
+              id="plan-tecido-oc-bloqueia-lancado"
+              checked={cfg.plan_tecido_oc_bloqueia_lancado}
+              onCheckedChange={(v) => setCfg((c) => ({ ...c, plan_tecido_oc_bloqueia_lancado: !!v }))}
+              aria-label="Bloquear troca/remoção de OC em modelo lançado"
+            />
+            <Label htmlFor="plan-tecido-oc-bloqueia-lancado" className="cursor-pointer font-normal">
+              Bloquear troca/remoção de OC em modelo lançado
+            </Label>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Ligado: o sistema recusa mudar o vínculo de OC de um modelo lançado (no card do Plan. Tecido e por qualquer outro caminho).
+            Desligado: a troca é permitida e o custo e a reserva são recalculados.
+          </p>
         </CardContent>
       </Card>
 

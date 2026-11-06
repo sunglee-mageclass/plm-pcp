@@ -67,3 +67,12 @@ describe("erro-mensagem — Reforço de segurança S3a (permissão de página no
     }
   });
 });
+
+describe("F1 C - oc_vinculo_lancado_bloqueado", () => {
+  it("42501 ASCII vira texto PT sem vazar o prefixo", async () => {
+    const { mensagemErro } = await import("@/lib/erro-mensagem");
+    const t = mensagemErro({ code: "42501", message: "oc_vinculo_lancado_bloqueado: modelo lancado; desligue o bloqueio na Config da Loja" });
+    expect(t).toContain("modelo já foi lançado");
+    expect(t).not.toContain("oc_vinculo_lancado_bloqueado");
+  });
+});

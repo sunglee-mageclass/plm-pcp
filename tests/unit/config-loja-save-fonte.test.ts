@@ -131,4 +131,14 @@ describe("Config da Loja — Salvar principal (T3, fonte)", () => {
     // o aviso do 'todos' mora no "i" (custo do comprado é digitado à mão)
     expect(s).toContain("digitado à mão");
   });
+  // F1 C fix 1: toggle "bloquear troca/remoção de OC em modelo lançado" participa do Salvar colaborativo (coluna 19), default LIGADO.
+  it("F1 C: bloqueio de OC em modelo lançado - estado (default true), leitura segura, anel por bloco e card antes de Insumos padrão", () => {
+    expect(s).toContain("plan_tecido_oc_bloqueia_lancado: true as boolean");
+    expect(s).toContain("plan_tecido_oc_bloqueia_lancado: (r as any).plan_tecido_oc_bloqueia_lancado !== false");
+    expect(s).toContain('plan_tecido_oc_bloqueia_lancado: "cfg:plan_tecido_oc_bloqueia_lancado"');
+    expect(s).toContain('data-colab-path="cfg:plan_tecido_oc_bloqueia_lancado"');
+    expect(s).toContain('anelConflito("cfg:plan_tecido_oc_bloqueia_lancado")');
+    expect(s).toContain("checked={cfg.plan_tecido_oc_bloqueia_lancado}");
+    expect(s.indexOf("<InsumosPadraoCard")).toBeGreaterThan(s.indexOf('data-colab-path="cfg:plan_tecido_oc_bloqueia_lancado"'));
+  });
 });

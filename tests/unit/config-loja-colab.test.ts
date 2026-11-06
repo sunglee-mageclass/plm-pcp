@@ -32,18 +32,20 @@ function cfgBase(): ConfigLojaColab {
     revenda_kanban_requisitos: {},
     insumos_padrao: [],
     aprovar_custo_auto_por_versao: "nenhum",
+    plan_tecido_oc_bloqueia_lancado: true,
   };
 }
 
-describe("COLUNAS_PAGINA — 18 colunas (20 da lista branca da RPC menos tab_labels/campos_editaveis)", () => {
-  it("tem exatamente 18 chaves (17 + aprovar_custo_auto_por_versao), sem tab_labels/campos_editaveis", () => {
-    expect(COLUNAS_PAGINA).toHaveLength(18);
+describe("COLUNAS_PAGINA — 19 colunas (21 da lista branca da RPC menos tab_labels/campos_editaveis)", () => {
+  it("tem exatamente 19 chaves (18 + plan_tecido_oc_bloqueia_lancado), sem tab_labels/campos_editaveis", () => {
+    expect(COLUNAS_PAGINA).toHaveLength(19);
+    expect(COLUNAS_PAGINA).toContain("plan_tecido_oc_bloqueia_lancado");
     expect(COLUNAS_PAGINA).toContain("insumos_padrao");
     expect(COLUNAS_PAGINA).toContain("aprovar_custo_auto_por_versao");
     expect(COLUNAS_PAGINA).not.toContain("tab_labels");
     expect(COLUNAS_PAGINA).not.toContain("campos_editaveis");
   });
-  it("inclui as 5 colunas de kanban (RP3) dentro das 18", () => {
+  it("inclui as 5 colunas de kanban (RP3) dentro das 19", () => {
     for (const c of KANBAN_COLS) expect(COLUNAS_PAGINA).toContain(c);
   });
 });
