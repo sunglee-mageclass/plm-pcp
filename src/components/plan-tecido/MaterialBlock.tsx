@@ -15,7 +15,7 @@ import { corApelidoLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
-import { varKey, fmtMetros, dedupVariantes, somaTamanhosDivergente } from "@/lib/plan-tecido/calc";
+import { varKey, fmtMetros, dedupVariantes, somaTamanhosDivergente, rotuloGrupoTecido } from "@/lib/plan-tecido/calc";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { AtendeAPopover } from "./AtendeAPopover";
@@ -293,18 +293,21 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
     else aplicarRemocaoSubstituto(id);
   };
 
-  // Variantes agrupadas por FORNECEDOR do artigo (principal ou substituto) a que pertencem —
-  // descobre o artigo da variante via `variante_tecido_id` → VarRow (`realById`); cor planejada
-  // (sem variante real ainda) cai no fornecedor do PRINCIPAL (fallback, dono set/2026).
-  const fornecedorLabel = (fid: string | null) => fid ?? "Sem fornecedor definido";
-  const fornecedorDaVariante = (v: PtVariante): string => {
-    if (v.variante_tecido_id) {
-      const r = realById.get(v.variante_tecido_id);
-      if (r) return fornecedorLabel(fornecedorDe(r.artigo_id));
-    }
-    return fornecedorLabel(material.artigo_id ? fornecedorDe(material.artigo_id) : null);
-  };
   const multiFornecedor = poolArtigoIds.length > 1;
+  // F1 B1 (dono 06/nov): de qual TECIDO (artigo) é esta cor — só relevante com substituto (pool > 1).
+  // Usa `variante_artigo_id` (artigo real da cor, devolvido pela árvore); senão resolve pela variante
+  // real (`realById`); cai no artigo PRINCIPAL quando a cor é planejada (sem artigo real).
+  const artigoIdDaVariante = (v: PtVariante): string | null =>
+    v.variante_artigo_id ?? (v.variante_tecido_id ? realById.get(v.variante_tecido_id)?.artigo_id : null) ?? material.artigo_id ?? null;
+  const nomeTecidoDaVariante = (v: PtVariante): string => {
+    const id = artigoIdDaVariante(v);
+    return id ? nomeArtigoDe(id) : "Tecido";
+  };
+  // Cabeçalho do grupo = MESMO rótulo do resumo lateral (ModoPlanoView) → grupos casam em nº e ordem.
+  const rotuloGrupoDaVariante = (v: PtVariante): string => {
+    const id = artigoIdDaVariante(v);
+    return rotuloGrupoTecido(nomeTecidoDaVariante(v), id ? fornecedorDe(id) : null);
+  };
 
   return (
     <div className="mb-2 rounded border">
@@ -410,6 +413,11 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                   <span className="block truncate">{cor}</span>
                   {apelido && <span className="block truncate text-[10px] leading-tight text-muted-foreground">{apelido}</span>}
                 </span>
+                {!fantasma && multiFornecedor && (
+                  <span className="max-w-[88px] shrink-0 truncate rounded bg-primary/10 px-1 text-[9px] font-medium text-primary" title={`Cor do tecido ${nomeTecidoDaVariante(v)}`}>
+                    {nomeTecidoDaVariante(v)}
+                  </span>
+                )}
                 {fantasma ? (
                   <span className="shrink-0 rounded bg-muted px-1 text-[9px] font-medium text-muted-foreground" title="Cor de outro card do mesmo tecido — digite peças para adicioná-la aqui">do grupo</span>
                 ) : div ? (
@@ -463,25 +471,25 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
               </div>
             );
           };
-          // Sem substitutos (pool = 1 artigo): lista plana, IGUAL ao comportamento de hoje —
-          // sem cabeçalho de fornecedor.
-          if (!multiFornecedor) return ordenadas.map((row, vi) => linha(row, vi));
-          // Com substitutos: agrupa por FORNECEDOR do artigo de cada variante, preservando a
-          // ordenação alfabética DENTRO de cada grupo (a lista já veio ordenada por cmpVar).
-          const porFornecedor = new Map<string, { v: PtVariante; fantasma: boolean; espacador: boolean }[]>();
+          // Agrupa por TECIDO (artigo) de cada variante (F1 B1): principal e substituto do MESMO fornecedor
+          // ficam em grupos SEPARADOS. Preserva a ordenação alfabética DENTRO de cada grupo (a lista já
+          // veio ordenada por cmpVar). Cabeçalho só quando há >1 grupo — espelha o resumo lateral
+          // (`TabelaVariantes.mostrarFornecedor`) → mesma contagem de linhas, alinhamento linha-a-linha.
+          const porTecido = new Map<string, { v: PtVariante; fantasma: boolean; espacador: boolean }[]>();
           ordenadas.forEach((row) => {
-            const f = fornecedorDaVariante(row.v);
-            const arr = porFornecedor.get(f) ?? [];
+            const t = rotuloGrupoDaVariante(row.v);
+            const arr = porTecido.get(t) ?? [];
             arr.push(row);
-            porFornecedor.set(f, arr);
+            porTecido.set(t, arr);
           });
-          return Array.from(porFornecedor.entries())
+          if (!multiFornecedor || porTecido.size <= 1) return ordenadas.map((row, vi) => linha(row, vi));
+          return Array.from(porTecido.entries())
             .sort(([a], [b]) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }))
-            .map(([fornecedor, rows]) => (
-              <div key={fornecedor}>
-                {/* h-[var(--h-fornec,auto)]: casa a altura do cabeçalho de fornecedor com o do resumo
+            .map(([tecido, rows]) => (
+              <div key={tecido}>
+                {/* h-[var(--h-fornec,auto)]: casa a altura do cabeçalho do grupo com o do resumo
                     no Modo Plano; fora dele, altura natural. */}
-                <p className="flex h-[var(--h-fornec,auto)] items-center truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{fornecedor}</p>
+                <p className="flex h-[var(--h-fornec,auto)] items-center truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{tecido}</p>
                 {rows.map((row) => linha(row, ordenadas.indexOf(row)))}
               </div>
             ));

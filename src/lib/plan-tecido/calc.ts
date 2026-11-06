@@ -744,3 +744,25 @@ export function distribuirGrade(
   }
   return resultado;
 }
+
+/** F1 B2: artigos do Tecido 1 do grupo = principal + substitutos (`artigo_ids_extra`) de cada card.
+ *  O resumo lateral passa a cobrir o tecido substituto (nao so o principal). Dedup por id.
+ *  Substituto e ALTERNATIVA: entra como artigo adicional de COBERTURA (linhas proprias por
+ *  variante real, cada uma com `variante_tecido_id` unico), NAO soma a demanda do produto 2x. */
+export function artigosTec1DoGrupo(itens: { slot: PtSlot }[]): string[] {
+  const ids = new Set<string>();
+  for (const { slot } of itens) {
+    const m = slot.materiais.find((x) => x.tipo === "tecido" && x.artigo_id);
+    if (!m?.artigo_id) continue;
+    ids.add(m.artigo_id);
+    for (const e of m.artigo_ids_extra ?? []) if (e) ids.add(e);
+  }
+  return [...ids];
+}
+
+/** F1 B1/B2: rotulo do GRUPO por tecido (artigo) — o MESMO texto no card (MaterialBlock) e no
+ *  resumo lateral (ModoPlanoView), p/ os cabecalhos casarem em numero e ordem (alinhamento
+ *  linha-a-linha). Nome do tecido + fornecedor (mantem a distincao de artigos homonimos). */
+export function rotuloGrupoTecido(nome: string, fornecedor: string | null | undefined): string {
+  return fornecedor ? `${nome} · ${fornecedor}` : nome;
+}
