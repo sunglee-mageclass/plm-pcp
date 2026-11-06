@@ -8,8 +8,12 @@
 // Puro/testável: recebe o material ANTES e DEPOIS da edição no card de origem + o material-alvo de
 // outro slot, e devolve o material-alvo com as cores sincronizadas. O chamador (PlanTecidoSheet)
 // itera os slots de mesmo nome e casa o material por (tipo, numero).
+//
+// POLÍTICA F1 (dono 06/nov): só a ADIÇÃO replica entre cards — remover/ocultar uma cor vale SÓ no card
+// (ocultar = flag `oculta` por slot; não aparece como add nem remove). E a replicação NUNCA injeta em
+// VAGA VAZIA (slot sem `modelo_id`): isso criava "Modelos" fantasmas. `replicarAdicaoNosSlots` aplica as duas.
 
-import type { PtMaterial, PtVariante } from "./types";
+import type { PtLinha, PtMaterial, PtSlot, PtVariante } from "./types";
 import { varKey } from "./calc";
 
 /** Diferença de conjunto de cores entre antes/depois de UM material (por varKey). */
@@ -73,4 +77,48 @@ export function aplicarDifNoMaterial(
  *  ("Tecido 1", "Forro 2"). Retorna o índice no `alvo.materiais` ou -1. */
 export function indiceMaterialCorrespondente(alvoMateriais: PtMaterial[], ref: PtMaterial): number {
   return alvoMateriais.findIndex((m) => m.tipo === ref.tipo && m.numero === ref.numero);
+}
+
+/** Slot que tem card de verdade (modelo_id não-nulo). Vaga vazia (sem modelo) NÃO participa da replicação,
+ *  nem como origem nem como alvo — senão a cor/peças virariam "Modelo" fantasma (F1, vagas-fantasma). */
+export const slotTemCard = (s: PtSlot): boolean => !!s.modelo_id;
+
+/** Replica a ADIÇÃO de cores feita no card de origem (`depois` vs `antes`) nos OUTROS slots do mesmo nome de
+ *  tecido da subcoleção (`linhas`, já clonada — é mutada no lugar). Política F1: SÓ adições (nunca remoção/
+ *  ocultação) e SÓ entre slots com card (modelo_id não-nulo). `nomeDe` = nome de tecido do slot (agrupamento).
+ *  `origemNaArvore` é o slot de origem JÁ gravado na árvore (identidade por referência, para pulá-lo).
+ *  Retorna quantos slots-alvo mudaram. */
+export function replicarAdicaoNosSlots(
+  linhas: PtLinha[],
+  origemNaArvore: PtSlot,
+  antes: PtSlot,
+  depois: PtSlot,
+  nomeDe: (s: PtSlot) => string,
+): number {
+  if (!slotTemCard(origemNaArvore)) return 0;
+  const nomeAlvo = nomeDe(depois);
+  if (nomeAlvo === "Sem tecido" || nomeDe(antes) !== nomeAlvo) return 0; // trocou de tecido: outro grupo
+  const difs = depois.materiais.map((mNovo) => {
+    const mAntigo = antes.materiais.find((x) => x.tipo === mNovo.tipo && x.numero === mNovo.numero);
+    const d = difVariantes(mAntigo, mNovo);
+    return { ref: mNovo, dif: { adicionadas: d.adicionadas, removidas: [] as string[] } };
+  }).filter(({ dif }) => dif.adicionadas.length > 0);
+  if (difs.length === 0) return 0;
+  let n = 0;
+  for (const ln of linhas) for (let k = 0; k < ln.slots.length; k++) {
+    const alvoSlot = ln.slots[k];
+    if (alvoSlot === origemNaArvore) continue;
+    if (!slotTemCard(alvoSlot)) continue; // VAGA VAZIA: nunca recebe réplica
+    if (nomeDe(alvoSlot) !== nomeAlvo) continue;
+    let mudou = false;
+    const materiais = alvoSlot.materiais.slice();
+    for (const { ref, dif } of difs) {
+      const idx = indiceMaterialCorrespondente(materiais, ref);
+      if (idx < 0) continue; // o alvo não tem esse material (tipo+numero) — não força
+      const novoMat = aplicarDifNoMaterial(materiais[idx], dif);
+      if (novoMat !== materiais[idx]) { materiais[idx] = novoMat; mudou = true; }
+    }
+    if (mudou) { ln.slots[k] = { ...alvoSlot, materiais }; n++; }
+  }
+  return n;
 }

@@ -9,7 +9,11 @@ export type PtVariante = { id?: string; variante_tecido_id: string | null; varia
   grades: Record<string, number>; grade_total: number;
   // Distribuição por produto (spec 2026-09-25, R1/R2): `distribuicao` SÓ no Tecido 1 ({loja_id: {base, grades, manuais}});
   // `atende` SÓ fora do Tecido 1 (NULL = automático pela cor base; array de chaves de cor do T1 = escolhido à mão).
-  distribuicao?: Distribuicao; atende?: string[] | null };
+  distribuicao?: Distribuicao; atende?: string[] | null;
+  // F1 A2 (dono 06/nov): `oculta` = a cor está OCULTA SÓ neste card (flag POR SLOT em plan_tecido_variantes.oculta; round-trip
+  // no save/árvore). Não aparece na lista do card nem entra na união do grupo; "+ adicionar cor" a re-lista. Oculta ⇒ peças zeradas.
+  // ausente = false.
+  oculta?: boolean };
 // consumo_cad: MARCADOR de exibição (item 3c) — consumo confirmado no CAD (cad_tecidos.consumo_cad)
 // quando venceu; NÃO é gravado no plano (igual aos outros campos só-exibição artigo_nome/unidade…).
 // artigo_ids_extra: SUBSTITUTOS do material (set/2026, portado do Desenvolvimento — mesmo tecido de

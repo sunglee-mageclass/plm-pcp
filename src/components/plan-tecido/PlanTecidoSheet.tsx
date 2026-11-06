@@ -47,7 +47,7 @@ import { useRequerModulo } from "@/hooks/useRequerModulo";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 import { useReadOnly } from "@/components/RequirePermission";
-import { difVariantes, aplicarDifNoMaterial, indiceMaterialCorrespondente } from "@/lib/plan-tecido/replicar-variantes";
+import { replicarAdicaoNosSlots } from "@/lib/plan-tecido/replicar-variantes";
 import { ehOrigemComprada } from "@/lib/origem";
 import { normalizeKanbanStatuses, labelColunaKanban } from "@/lib/kanban-status";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -2130,35 +2130,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                 const subNext = next.subcolecoes[subAtiva];
                 subNext.linhas[li].slots[sli] = aplicarMoveFamilia(subNext, ns, slot);
                 // Variantes COMPARTILHADAS por nome de tecido (Fase B, set/2026): SÓ quando agrupado por
-                // nome. Add/remover uma cor num card replica o CONJUNTO (com grade 0) nos outros cards do
-                // MESMO nome de tecido na subcoleção ativa. Peças ficam por card. Detecta a dif material a
-                // material (por tipo+numero) e aplica aos slots-alvo. O slot que MUDOU DE nome de tecido
-                // (trocou o artigo do Tecido 1) não replica (o nome novo é outro grupo).
+                // nome. ADICIONAR uma cor num card replica o CONJUNTO (com grade 0) nos outros cards do
+                // MESMO nome de tecido na subcoleção ativa. Peças ficam por card. O slot que MUDOU DE nome
+                // de tecido (trocou o artigo do Tecido 1) não replica (o nome novo é outro grupo).
+                // F1 (dono 06/nov): REMOVER/OCULTAR uma cor vale SÓ no card (não replica), e a réplica NUNCA
+                // entra em VAGA VAZIA (slot sem modelo_id) — ver `replicarAdicaoNosSlots`.
                 if (groupByNome) {
-                  const nomeAlvo = tecidoNomeDoSlot(ns);
-                  if (nomeAlvo !== "Sem tecido" && tecidoNomeDoSlot(slot) === nomeAlvo) {
-                    // dif por material (o material de ORIGEM do card editado vs. o antigo)
-                    const difs = ns.materiais.map((mNovo) => {
-                      const mAntigo = slot.materiais.find((x) => x.tipo === mNovo.tipo && x.numero === mNovo.numero);
-                      return { ref: mNovo, dif: difVariantes(mAntigo, mNovo) };
-                    }).filter(({ dif }) => dif.adicionadas.length > 0 || dif.removidas.length > 0);
-                    if (difs.length > 0) {
-                      for (const ln of subNext.linhas) for (let k = 0; k < ln.slots.length; k++) {
-                        const alvoSlot = ln.slots[k];
-                        if (alvoSlot === subNext.linhas[li].slots[sli]) continue; // o próprio card já foi
-                        if (tecidoNomeDoSlot(alvoSlot) !== nomeAlvo) continue;
-                        let mudou = false;
-                        const materiais = alvoSlot.materiais.slice();
-                        for (const { ref, dif } of difs) {
-                          const idx = indiceMaterialCorrespondente(materiais, ref);
-                          if (idx < 0) continue; // o alvo não tem esse material (tipo+numero) — não força
-                          const novoMat = aplicarDifNoMaterial(materiais[idx], dif);
-                          if (novoMat !== materiais[idx]) { materiais[idx] = novoMat; mudou = true; }
-                        }
-                        if (mudou) ln.slots[k] = { ...alvoSlot, materiais };
-                      }
-                    }
-                  }
+                  replicarAdicaoNosSlots(subNext.linhas, subNext.linhas[li].slots[sli], slot, ns, tecidoNomeDoSlot);
                 }
                 patch(next);
               }}
