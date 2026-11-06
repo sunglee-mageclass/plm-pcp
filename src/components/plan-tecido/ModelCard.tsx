@@ -464,8 +464,8 @@ export function ModelCard({
               </SelectContent>
             </Select>
           </div>
-          {/* F2 E — Linha do card (eixo da Base por loja × linha). Espelha a Categoria: mesmo funil onChange→patch→
-              salvar_plan_tecido (grava modelos.linha_id; vaga avulsa mantém linha_id como chave do bucket). */}
+          {/* F2 E — Linha do card (eixo da Base por linha x quantidade). Espelha a Categoria: mesmo funil onChange→patch→
+              salvar_plan_tecido (grava a lane do plano plan_tecido_linhas.linha_id; a linha_id do slot vem do bucket). */}
           <div className="flex items-center gap-1">
             <span className="shrink-0 text-[10px] text-muted-foreground">Linha</span>
             <Select
