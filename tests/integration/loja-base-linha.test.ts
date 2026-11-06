@@ -1,4 +1,5 @@
-// F2 Tarefa A — base por loja x linha (loja_direcionamento_base_linha + RPC loja_base_linha_ler).
+// F2 Tarefa A' — base por (linha x QUANTIDADE) -> loja (loja_direcionamento_base_linha + RPC loja_base_linha_ler).
+// RPC devolve { "<quantidade>": { "<loja_id>": base } } com TODAS as quantidades da linha.
 // Tudo em txn revertida (BEGIN…ROLLBACK): nada e gravado. A ESCRITA e a RLS rodam DE VERDADE como o
 // papel do PostgREST (SET LOCAL ROLE authenticated) com o JWT de usuarios semeados DENTRO da txn —
 // o super admin fura os gates, entao os casos de RLS usam usuario comum/admin de tenant explicito.
@@ -72,25 +73,100 @@ async function seedLojaLinha(c: Client, tenantId: string, nomeLoja: string, nome
 }
 
 describe.skipIf(!RODA)("loja_direcionamento_base_linha (F2 A)", () => {
-  it("tenant_admin grava a base e a RPC le { loja_id: base } por linha", async () => {
+  it("tenant_admin grava por (linha, quantidade, loja) e a RPC le { quantidade: { loja_id: base } }", async () => {
     await withTx(async (c) => {
       await tenant(c, T1, "__ITEST_LBL_T1__");
       await usuario(c, U_ADMIN, T1, true);
-      const { lojaId, linhaId } = await seedLojaLinha(c, T1, "E-com", "Basica");
+      const { lojaId, linhaId } = await seedLojaLinha(c, T1, "E-com", "Day Chic");
+      const loja2 = await um<{ id: string }>(
+        c,
+        `INSERT INTO public.lojas_direcionamento (nome, ativo, tenant_id) VALUES ('Atacado', true, $1) RETURNING id`,
+        [T1],
+      );
 
       await jwt(c, U_ADMIN);
       // escrita DE VERDADE pela RLS (role authenticated), igual a tela faz via supabase.from(...).upsert
       const ins = await comoAuth(
         c,
-        `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, base) VALUES ($1,$2,40)`,
-        [lojaId, linhaId],
+        `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES
+           ($1,$3,100,3), ($2,$3,100,2), ($1,$3,64,1)`,
+        [lojaId, loja2.id, linhaId],
       );
       expect(ins.ok, ins.ok ? "" : `${ins.code} ${ins.msg}`).toBe(true);
 
-      // le via RPC (authenticated): { "<loja_id>": 40 }
       const r = await comoAuth(c, `SELECT public.loja_base_linha_ler($1) AS m`, [linhaId]);
       expect(r.ok, r.ok ? "" : `${r.code} ${r.msg}`).toBe(true);
-      if (r.ok) expect(r.rows[0].m[lojaId]).toBe(40);
+      if (r.ok) {
+        expect(r.rows[0].m).toEqual({
+          "100": { [lojaId]: 3, [loja2.id]: 2 },
+          "64": { [lojaId]: 1 },
+        });
+      }
+    });
+  });
+
+  it("linha sem config -> {} ; linha nula -> {}", async () => {
+    await withTx(async (c) => {
+      await tenant(c, T1, "__ITEST_LBL_T1__");
+      await usuario(c, U_ADMIN, T1, true);
+      const { linhaId } = await seedLojaLinha(c, T1, "E-com", "Vazia");
+      await jwt(c, U_ADMIN);
+      const r = await comoAuth(c, `SELECT public.loja_base_linha_ler($1) AS m, public.loja_base_linha_ler(NULL) AS n`, [linhaId]);
+      expect(r.ok, r.ok ? "" : `${r.code} ${r.msg}`).toBe(true);
+      if (r.ok) { expect(r.rows[0].m).toEqual({}); expect(r.rows[0].n).toEqual({}); }
+    });
+  });
+
+  it("UNIQUE (loja, linha, quantidade); CHECK quantidade >= 1 e base >= 0", async () => {
+    await withTx(async (c) => {
+      await tenant(c, T1, "__ITEST_LBL_T1__");
+      await usuario(c, U_ADMIN, T1, true);
+      const { lojaId, linhaId } = await seedLojaLinha(c, T1, "E-com", "Basica");
+      await jwt(c, U_ADMIN);
+      const ok1 = await comoAuth(c, `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES ($1,$2,96,0)`, [lojaId, linhaId]);
+      expect(ok1.ok, ok1.ok ? "" : `${ok1.code} ${ok1.msg}`).toBe(true); // base 0 e valida (quantidade materializada)
+      const dup = await comoAuth(c, `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES ($1,$2,96,5)`, [lojaId, linhaId]);
+      expect(dup.ok).toBe(false);
+      if (!dup.ok) expect(dup.code).toBe("23505");
+      const q0 = await comoAuth(c, `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES ($1,$2,0,1)`, [lojaId, linhaId]);
+      expect(q0.ok).toBe(false);
+      if (!q0.ok) expect(q0.code).toBe("23514");
+      const bneg = await comoAuth(c, `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES ($1,$2,48,-1)`, [lojaId, linhaId]);
+      expect(bneg.ok).toBe(false);
+      if (!bneg.ok) expect(bneg.code).toBe("23514");
+    });
+  });
+
+  it("admin renomeia/remove uma quantidade (todas as lojas); renomear p/ existente -> 23505", async () => {
+    await withTx(async (c) => {
+      await tenant(c, T1, "__ITEST_LBL_T1__");
+      await usuario(c, U_ADMIN, T1, true);
+      const { lojaId, linhaId } = await seedLojaLinha(c, T1, "E-com", "Day Chic");
+      await jwt(c, U_ADMIN);
+      await comoAuth(c, `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES ($1,$2,100,3),($1,$2,64,1)`, [lojaId, linhaId]);
+      const dup = await comoAuth(c, `UPDATE public.loja_direcionamento_base_linha SET quantidade = 64 WHERE linha_id = $1 AND quantidade = 100`, [linhaId]);
+      expect(dup.ok).toBe(false);
+      if (!dup.ok) expect(dup.code).toBe("23505");
+      const ren = await comoAuth(c, `UPDATE public.loja_direcionamento_base_linha SET quantidade = 96 WHERE linha_id = $1 AND quantidade = 100`, [linhaId]);
+      expect(ren.ok, ren.ok ? "" : `${ren.code} ${ren.msg}`).toBe(true);
+      const del = await comoAuth(c, `DELETE FROM public.loja_direcionamento_base_linha WHERE linha_id = $1 AND quantidade = 64`, [linhaId]);
+      expect(del.ok).toBe(true);
+      const r = await comoAuth(c, `SELECT public.loja_base_linha_ler($1) AS m`, [linhaId]);
+      if (r.ok) expect(r.rows[0].m).toEqual({ "96": { [lojaId]: 3 } });
+    });
+  });
+
+  it("privilegios: wrapper so authenticated (nao anon); _core revogado dos 3", async () => {
+    await withTx(async (c) => {
+      const r = await c.query(
+        `SELECT
+           has_function_privilege('anon', 'public.loja_base_linha_ler(uuid)', 'EXECUTE') AS w_anon,
+           has_function_privilege('authenticated', 'public.loja_base_linha_ler(uuid)', 'EXECUTE') AS w_auth,
+           has_function_privilege('public', 'public._loja_base_linha_ler_core(uuid,uuid)', 'EXECUTE') AS c_public,
+           has_function_privilege('anon', 'public._loja_base_linha_ler_core(uuid,uuid)', 'EXECUTE') AS c_anon,
+           has_function_privilege('authenticated', 'public._loja_base_linha_ler_core(uuid,uuid)', 'EXECUTE') AS c_auth`,
+      );
+      expect(r.rows[0]).toEqual({ w_anon: false, w_auth: true, c_public: false, c_anon: false, c_auth: false });
     });
   });
 
@@ -103,7 +179,7 @@ describe.skipIf(!RODA)("loja_direcionamento_base_linha (F2 A)", () => {
       await jwt(c, U_COMUM);
       const ins = await comoAuth(
         c,
-        `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, base) VALUES ($1,$2,10)`,
+        `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES ($1,$2,100,10)`,
         [lojaId, linhaId],
       );
       expect(ins.ok).toBe(false);
@@ -123,7 +199,7 @@ describe.skipIf(!RODA)("loja_direcionamento_base_linha (F2 A)", () => {
       await jwt(c, U_ADMIN);
       const ins = await comoAuth(
         c,
-        `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, base) VALUES ($1,$2,55)`,
+        `INSERT INTO public.loja_direcionamento_base_linha (loja_id, linha_id, quantidade, base) VALUES ($1,$2,100,55)`,
         [lojaId, linhaId],
       );
       expect(ins.ok, ins.ok ? "" : `${ins.code} ${ins.msg}`).toBe(true);

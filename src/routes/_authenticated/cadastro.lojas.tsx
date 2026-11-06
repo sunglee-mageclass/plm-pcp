@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft, Save, SlidersHorizontal } from "lucide-react";
+import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft, Save, ChevronRight, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
@@ -83,9 +83,9 @@ function LojasPage() {
     },
   });
 
-  // Linhas ATIVAS da loja (tenant) — eixo da sub-grade "Base por linha" de cada loja.
+  // TODAS as linhas da conta (a tabela `linhas` não tem coluna `ativo`) — eixo da seção "Base por linha".
   const { data: linhas = [] } = useQuery({
-    queryKey: ["linhas-ativas"],
+    queryKey: ["linhas-todas"],
     queryFn: async () => {
       const { data, error } = await (supabase.from("linhas" as any) as any)
         .select("id, nome")
@@ -288,7 +288,6 @@ function LojasPage() {
                       loja={l}
                       readOnly={readOnly}
                       podeArrastar={podeArrastar}
-                      linhas={linhas}
                       onRename={(nome) => renameMut.mutate({ id: l.id, nome })}
                       onToggle={(ativo) => toggleMut.mutate({ id: l.id, ativo })}
                       onDelete={() => setDeleteRow(l)}
@@ -304,6 +303,12 @@ function LojasPage() {
       <div className="text-xs text-muted-foreground">
         <Badge variant="secondary">{filtered.length}</Badge> loja(s)
       </div>
+
+      <BasePorLinhaSecao
+        linhas={linhas}
+        lojasAtivas={lojas.filter((l) => l.ativo)}
+        readOnly={readOnly}
+      />
 
       <AlertDialog open={!!deleteRow} onOpenChange={(o) => !o && setDeleteRow(null)}>
         <AlertDialogContent>
@@ -387,12 +392,11 @@ function LojasPage() {
 
 // ── Linha arrastável, com nome editável inline e toggle de status ────────────────
 function LojaRow({
-  loja, readOnly, podeArrastar, linhas, onRename, onToggle, onDelete,
+  loja, readOnly, podeArrastar, onRename, onToggle, onDelete,
 }: {
   loja: Loja;
   readOnly: boolean;
   podeArrastar: boolean;
-  linhas: Linha[];
   onRename: (nome: string) => void;
   onToggle: (ativo: boolean) => void;
   onDelete: () => void;
@@ -400,7 +404,6 @@ function LojaRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: loja.id, disabled: !podeArrastar });
   const style = { transform: CSS.Transform.toString(transform), transition };
-  const [aberto, setAberto] = useState(false);
 
   // Rascunho local do nome — commita no blur/Enter só se mudou.
   const [nome, setNome] = useState(loja.nome);
@@ -417,7 +420,7 @@ function LojaRow({
     if (v !== loja.nome) onRename(v);
   };
 
-  const linhaPrincipal = (
+  return (
     <TableRow
       ref={setNodeRef}
       style={style}
@@ -475,15 +478,6 @@ function LojaRow({
         <div className="flex items-center justify-end gap-1">
           <Button
             size="iconSm" variant="ghost"
-            onClick={() => setAberto((a) => !a)}
-            aria-label={aberto ? "Ocultar base por linha" : "Base por linha"}
-            aria-expanded={aberto}
-            title="Base por linha"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-          </Button>
-          <Button
-            size="iconSm" variant="ghost"
             onClick={onDelete}
             disabled={readOnly || loja.is_default}
             aria-label="Excluir"
@@ -494,145 +488,294 @@ function LojaRow({
       </TableCell>
     </TableRow>
   );
+}
 
+// ── Seção "Base por linha e quantidade" (F2 Tarefa A') ────────────────────────────
+// Config da Distribuição automática: por LINHA, uma tabelinha onde cada ROW é uma QUANTIDADE (ex.: 100, 64) e as
+// colunas são a base de cada loja ATIVA. O "Distribuir por loja" do Plan. Tecido casa a quantidade de peças de cada
+// cor com a linha do card e pré-preenche a Base (RPC loja_base_linha_ler). Grava direto em
+// loja_direcionamento_base_linha (upsert onConflict loja_id,linha_id,quantidade). A quantidade existe enquanto tiver
+// linhas na tabela: "Adicionar quantidade" materializa uma linha (base 0) por loja ativa, então base 0 É gravada
+// (≠ "sem config"). RLS de escrita exige tenant_admin/super; a página já trata não-admin como readOnly.
+type BaseCfgRow = { loja_id: string; quantidade: number; base: number };
+
+function BasePorLinhaSecao({
+  linhas, lojasAtivas, readOnly,
+}: {
+  linhas: Linha[];
+  lojasAtivas: Loja[];
+  readOnly: boolean;
+}) {
   return (
-    <>
-      {linhaPrincipal}
-      {aberto && (
-        <TableRow className={loja.ativo ? "" : "opacity-60"}>
-          <TableCell className="pr-0" />
-          <TableCell colSpan={3} className="py-3">
-            <BasePorLinhaGrade loja={loja} linhas={linhas} readOnly={readOnly} />
-          </TableCell>
-        </TableRow>
+    <section className="space-y-3">
+      <div className="space-y-0.5">
+        <h2 className="font-display text-base font-semibold tracking-tight">Base por linha e quantidade</h2>
+        <p className="text-sm text-muted-foreground">
+          Na Distribuição por loja do Plan. Tecido, a quantidade de peças de cada cor é procurada aqui, na linha do card:
+          se houver uma quantidade igual, a Base de cada loja é preenchida com estes valores. Sem quantidade igual, a Base fica 0.
+        </p>
+      </div>
+      {linhas.length === 0 ? (
+        <div className="rounded-lg border px-3 py-4 text-sm text-muted-foreground">Nenhuma linha cadastrada.</div>
+      ) : lojasAtivas.length === 0 ? (
+        <div className="rounded-lg border px-3 py-4 text-sm text-muted-foreground">Nenhuma loja ativa.</div>
+      ) : (
+        <div className="rounded-lg border divide-y">
+          {linhas.map((linha) => (
+            <BaseLinhaBloco key={linha.id} linha={linha} lojasAtivas={lojasAtivas} readOnly={readOnly} />
+          ))}
+        </div>
       )}
-    </>
+    </section>
   );
 }
 
-// ── Sub-grade "Base por linha" de uma loja (F2 Tarefa A) ─────────────────────────
-// Base FIXA por loja x linha (inteiro >= 0). Grava direto em
-// loja_direcionamento_base_linha (upsert por onConflict loja_id,linha_id; base 0 = delete:
-// nao materializa zeros). RLS de escrita exige tenant_admin/super (igual lojas_direcionamento);
-// a pagina ja trata nao-admin como readOnly. Independente do dialog "Distribuir por loja"
-// (que le a base por RPC loja_base_linha_ler).
-function BasePorLinhaGrade({
-  loja, linhas, readOnly,
+// Uma linha (recolhível): tabela quantidade x lojas ativas.
+function BaseLinhaBloco({
+  linha, lojasAtivas, readOnly,
 }: {
-  loja: Loja;
-  linhas: Linha[];
+  linha: Linha;
+  lojasAtivas: Loja[];
   readOnly: boolean;
 }) {
   const qc = useQueryClient();
+  const [aberto, setAberto] = useState(false);
+  const [novaQtd, setNovaQtd] = useState(0);
+  const [removerQtd, setRemoverQtd] = useState<number | null>(null);
 
-  const { data: basesPorLinha = {}, isLoading } = useQuery({
-    queryKey: ["loja-base-linha", loja.id],
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ["loja-base-linha-cfg", linha.id],
+    enabled: aberto,
     queryFn: async () => {
       const { data, error } = await (supabase.from("loja_direcionamento_base_linha" as any) as any)
-        .select("linha_id, base")
-        .eq("loja_id", loja.id);
+        .select("loja_id, quantidade, base")
+        .eq("linha_id", linha.id);
       if (error) throw error;
-      const mapa: Record<string, number> = {};
-      for (const r of ((data ?? []) as { linha_id: string; base: number }[])) mapa[r.linha_id] = r.base;
-      return mapa;
+      return ((data ?? []) as unknown) as BaseCfgRow[];
     },
   });
 
-  const salvarMut = useMutation({
-    mutationFn: async ({ linhaId, base }: { linhaId: string; base: number }) => {
-      if (base <= 0) {
-        // base 0 = sem valor materializado (apaga a linha, se existir)
-        const { error } = await (supabase.from("loja_direcionamento_base_linha" as any) as any)
-          .delete()
-          .eq("loja_id", loja.id)
-          .eq("linha_id", linhaId);
-        if (error) throw error;
-        return;
-      }
-      const { error } = await (supabase.from("loja_direcionamento_base_linha" as any) as any)
-        .upsert({ loja_id: loja.id, linha_id: linhaId, base }, { onConflict: "loja_id,linha_id" });
+  const { quantidades, mapa } = useMemo(() => {
+    const m: Record<string, number> = {};
+    const qs = new Set<number>();
+    for (const r of rows) { m[`${r.quantidade}|${r.loja_id}`] = r.base; qs.add(r.quantidade); }
+    return { quantidades: [...qs].sort((a, b) => a - b), mapa: m };
+  }, [rows]);
+
+  const invalida = () => {
+    qc.invalidateQueries({ queryKey: ["loja-base-linha-cfg", linha.id] });
+    qc.invalidateQueries({ queryKey: ["loja-base-linha"] }); // leitura do dialog (RPC)
+  };
+  const tabela = () => supabase.from("loja_direcionamento_base_linha" as any) as any;
+
+  const baseMut = useMutation({
+    mutationFn: async ({ quantidade, lojaId, base }: { quantidade: number; lojaId: string; base: number }) => {
+      const { error } = await tabela().upsert(
+        { loja_id: lojaId, linha_id: linha.id, quantidade, base },
+        { onConflict: "loja_id,linha_id,quantidade" },
+      );
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["loja-base-linha", loja.id] });
-    },
-    onError: (e) => toast.error(mensagemErro(e, "Nao foi possivel salvar a base.")),
+    onSuccess: invalida,
+    onError: (e) => { invalida(); toast.error(mensagemErro(e, "Não foi possível salvar a base.")); },
   });
 
-  if (isLoading) {
-    return (
-      <div className="text-xs text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1.5" /> Carregando base por linha…
-      </div>
-    );
-  }
+  const addMut = useMutation({
+    mutationFn: async (quantidade: number) => {
+      const linhasNovas = lojasAtivas.map((l) => ({ loja_id: l.id, linha_id: linha.id, quantidade, base: 0 }));
+      const { error } = await tabela().upsert(linhasNovas, { onConflict: "loja_id,linha_id,quantidade", ignoreDuplicates: true });
+      if (error) throw error;
+    },
+    onSuccess: () => { setNovaQtd(0); invalida(); },
+    onError: (e) => toast.error(mensagemErro(e, "Não foi possível adicionar a quantidade.")),
+  });
 
-  if (linhas.length === 0) {
-    return <div className="text-xs text-muted-foreground">Nenhuma linha cadastrada.</div>;
-  }
+  const renomeiaMut = useMutation({
+    mutationFn: async ({ de, para }: { de: number; para: number }) => {
+      const { error } = await tabela().update({ quantidade: para }).eq("linha_id", linha.id).eq("quantidade", de);
+      if (error) throw error;
+    },
+    onSuccess: invalida,
+    onError: (e: any) => {
+      invalida();
+      toast.error(e?.code === "23505" ? "Já existe essa quantidade nesta linha." : mensagemErro(e, "Não foi possível alterar a quantidade."));
+    },
+  });
+
+  const removeMut = useMutation({
+    mutationFn: async (quantidade: number) => {
+      const { error } = await tabela().delete().eq("linha_id", linha.id).eq("quantidade", quantidade);
+      if (error) throw error;
+    },
+    onSuccess: () => { setRemoverQtd(null); invalida(); },
+    onError: (e) => toast.error(mensagemErro(e, "Não foi possível remover a quantidade.")),
+  });
+
+  const ocupado = baseMut.isPending || addMut.isPending || renomeiaMut.isPending || removeMut.isPending;
+
+  const adicionar = () => {
+    const q = Math.trunc(Number(novaQtd) || 0);
+    if (q < 1) { toast.error("Informe uma quantidade maior que zero."); return; }
+    if (quantidades.includes(q)) { toast.error("Já existe essa quantidade nesta linha."); return; }
+    addMut.mutate(q);
+  };
 
   return (
-    <div className="space-y-2">
-      <div className="text-xs font-medium text-muted-foreground">
-        Base por linha <span className="font-normal">(quantidade fixa por linha, nesta loja)</span>
-      </div>
-      <div className="grid grid-cols-[minmax(8rem,1fr)_6rem] gap-x-4 gap-y-1.5 max-w-md">
-        {linhas.map((linha) => (
-          <BaseLinhaCelula
-            key={linha.id}
-            linha={linha}
-            base={basesPorLinha[linha.id] ?? 0}
-            readOnly={readOnly}
-            salvando={salvarMut.isPending}
-            onSalvar={(base) => salvarMut.mutate({ linhaId: linha.id, base })}
-          />
-        ))}
-      </div>
+    <div>
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium hover:bg-muted/50"
+        onClick={() => setAberto((a) => !a)}
+        aria-expanded={aberto}
+      >
+        {aberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+        <span className="truncate">{linha.nome}</span>
+        {aberto && !isLoading && (
+          <Badge variant="secondary" className="ml-auto shrink-0 text-[10px]">{quantidades.length} quantidade(s)</Badge>
+        )}
+      </button>
+      {aberto && (
+        <div className="space-y-3 px-3 pb-3">
+          {isLoading ? (
+            <div className="text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1.5" /> Carregando…
+            </div>
+          ) : (
+            <>
+              {quantidades.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nenhuma quantidade configurada para esta linha.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-28">Quantidade</TableHead>
+                        {lojasAtivas.map((l) => (
+                          <TableHead key={l.id} className="min-w-24">{l.nome}</TableHead>
+                        ))}
+                        <TableHead className="w-12" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {quantidades.map((q) => (
+                        <TableRow key={q}>
+                          <TableCell className="py-2">
+                            <CelulaInteira
+                              valor={q} minimo={1} desabilitado={readOnly || ocupado}
+                              rotulo={`Quantidade (${linha.nome})`}
+                              onCommit={(v) => renomeiaMut.mutate({ de: q, para: v })}
+                            />
+                          </TableCell>
+                          {lojasAtivas.map((l) => (
+                            <TableCell key={l.id} className="py-2">
+                              <CelulaInteira
+                                valor={mapa[`${q}|${l.id}`] ?? 0} minimo={0} desabilitado={readOnly || ocupado}
+                                rotulo={`Base de ${l.nome} (${linha.nome}, ${q} peças)`}
+                                onCommit={(v) => baseMut.mutate({ quantidade: q, lojaId: l.id, base: v })}
+                              />
+                            </TableCell>
+                          ))}
+                          <TableCell className="py-2 text-right">
+                            <Button
+                              size="iconSm" variant="ghost"
+                              onClick={() => setRemoverQtd(q)}
+                              disabled={readOnly || ocupado}
+                              aria-label={`Remover quantidade ${q}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              {!readOnly && (
+                <div className="flex items-center gap-2">
+                  <NumberInput
+                    integer blankZero
+                    value={novaQtd}
+                    placeholder="Quantidade"
+                    disabled={ocupado}
+                    onChange={(e) => setNovaQtd(Number(e.target.value) || 0)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); adicionar(); } }}
+                    className="h-8 w-28"
+                    aria-label={`Nova quantidade (${linha.nome})`}
+                  />
+                  <Button size="sm" variant="outline" onClick={adicionar} disabled={ocupado || novaQtd < 1}>
+                    <Plus className="h-4 w-4 mr-1" /> Adicionar quantidade
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      <AlertDialog open={removerQtd !== null} onOpenChange={(o) => !o && setRemoverQtd(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover quantidade?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remover a quantidade <strong>{removerQtd}</strong> da linha <strong>{linha.nome}</strong> apaga as bases de todas as lojas
+              nela. Produtos já distribuídos não mudam.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); if (removerQtd !== null) removeMut.mutate(removerQtd); }}
+              variant="destructive"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-// Uma celula (linha + input de base). Rascunho local commitado no blur/Enter se mudou.
-function BaseLinhaCelula({
-  linha, base, readOnly, salvando, onSalvar,
+// Célula inteira com rascunho local, commit no blur/Enter se mudou (Esc volta). Abaixo do mínimo = volta ao original.
+function CelulaInteira({
+  valor, minimo, desabilitado, rotulo, onCommit,
 }: {
-  linha: Linha;
-  base: number;
-  readOnly: boolean;
-  salvando: boolean;
-  onSalvar: (base: number) => void;
+  valor: number;
+  minimo: number;
+  desabilitado: boolean;
+  rotulo: string;
+  onCommit: (v: number) => void;
 }) {
-  const [valor, setValor] = useState<number>(base);
+  const [rascunho, setRascunho] = useState<number>(valor);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Reflete o servidor quando muda, desde que o usuario nao esteja editando este campo.
+  // Reflete o servidor quando muda, desde que o usuário não esteja editando este campo.
   useEffect(() => {
-    if (document.activeElement !== inputRef.current) setValor(base);
-  }, [base]);
+    if (document.activeElement !== inputRef.current) setRascunho(valor);
+  }, [valor]);
 
   const commit = () => {
-    const v = Math.max(0, Math.trunc(Number(valor) || 0));
-    if (v !== base) onSalvar(v);
+    const v = Math.trunc(Number(rascunho) || 0);
+    if (v < minimo) { setRascunho(valor); return; }
+    if (v !== valor) onCommit(v);
   };
 
   return (
-    <>
-      <div className="flex items-center text-sm truncate" title={linha.nome}>{linha.nome}</div>
-      <NumberInput
-        ref={inputRef}
-        integer
-        blankZero
-        value={valor}
-        placeholder="0"
-        disabled={readOnly || salvando}
-        onChange={(e) => setValor(Number(e.target.value) || 0)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); inputRef.current?.blur(); }
-          if (e.key === "Escape") { setValor(base); inputRef.current?.blur(); }
-        }}
-        className="h-8"
-        aria-label={`Base da linha ${linha.nome}`}
-      />
-    </>
+    <NumberInput
+      ref={inputRef}
+      integer
+      blankZero={minimo === 0}
+      value={rascunho}
+      placeholder="0"
+      disabled={desabilitado}
+      onChange={(e) => setRascunho(Number(e.target.value) || 0)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); inputRef.current?.blur(); }
+        if (e.key === "Escape") { setRascunho(valor); inputRef.current?.blur(); }
+      }}
+      className="h-8 w-24"
+      aria-label={rotulo}
+    />
   );
 }
