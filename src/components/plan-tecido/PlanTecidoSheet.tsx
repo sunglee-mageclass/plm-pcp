@@ -36,7 +36,6 @@ import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
@@ -2307,31 +2306,24 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                       onToggleSecoes={toggleSecoes}
                       onToggleCards={toggleTodos}
                     />
-                    {/* F2 D — filtro de status: default "Todos menos reprovado" (flagados aparecem; reprovados somem da
-                        VISTA, sem apagar nada). "Todos" mostra tudo. */}
-                    <Select value={filtroStatus} onValueChange={(v) => { setFiltroStatus(v as "todos" | "sem_reprovado"); setSelecao(new Set()); /* F2 D fix I1: ações em massa casam por chave na árvore COMPLETA — trocar o filtro limpa a seleção p/ não alterar card oculto */ }}>
-                      <SelectTrigger aria-label="Filtro de status" className="h-9 w-auto min-w-[10.5rem] gap-1 text-sm max-sm:min-w-0">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sem_reprovado">Todos menos reprovado</SelectItem>
-                        <SelectItem value="todos">Todos</SelectItem>
-                      </SelectContent>
-                    </Select>
                     {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Vale no modo
                         Família PURO (sem Mix aninhado) E no MODO PLANO (que agrupa por nome de tecido,
                         cada nome pertence a uma família — o filtro por família continua fazendo sentido). */}
-                    {((groupByCategoria && !groupByMix) || modoPlano) && (
-                      <CategoriaTecidoFilter
-                        cats={cats}
-                        catNome={(id) => catTecidoNome(id) ?? "?"}
-                        contagem={(id) => slotsOf(id).length}
-                        temSemCategoria={flat.some((f) => !f.slot.categoria_tecido_id)}
-                        selecionadas={catFilters}
-                        onToggle={(id) => { const n = new Set(catFilters); n.has(id) ? n.delete(id) : n.add(id); setCatFilters(n); }}
-                        onLimpar={() => setCatFilters(new Set())}
-                      />
-                    )}
+                    {/* "Filtrar" é UM popover: Status (F2 D — default "Todos menos reprovado"; reprovados somem da VISTA, sem
+                        apagar nada) + famílias de tecido (só nos modos em que o filtro de família faz sentido). Trocar o
+                        status limpa a seleção (F2 D fix I1: ações em massa casam por chave na árvore COMPLETA). */}
+                    <CategoriaTecidoFilter
+                      mostrarCategorias={(groupByCategoria && !groupByMix) || modoPlano}
+                      status={filtroStatus}
+                      onStatus={(v) => { setFiltroStatus(v); setSelecao(new Set()); }}
+                      cats={cats}
+                      catNome={(id) => catTecidoNome(id) ?? "?"}
+                      contagem={(id) => slotsOf(id).length}
+                      temSemCategoria={flat.some((f) => !f.slot.categoria_tecido_id)}
+                      selecionadas={catFilters}
+                      onToggle={(id) => { const n = new Set(catFilters); n.has(id) ? n.delete(id) : n.add(id); setCatFilters(n); }}
+                      onLimpar={() => setCatFilters(new Set())}
+                    />
                     {/* Modo Plano (set/2026): view por nome de tecido (resumo + carrossel + cards). Ligar
                         força o agrupamento por nome. Fica ao lado de Agrupar (pedido do dono). */}
                     <Button size="sm" variant={modoPlano ? "default" : "outline"} aria-label="Modo Plano"

@@ -190,6 +190,35 @@ export function aplicarBaseConfig(
   return out;
 }
 
+/** F2 B' — contrato da RPC `loja_base_linha_ler`: `{ "<quantidade>": { "<loja_id>": base } }` (todas as quantidades da
+ *  linha numa ida). Cada COR tem a sua quantidade (`pcCard` = grade_total da variante): devolve o `{loja: base}` DA
+ *  quantidade da cor. Quantidade não configurada / config vazia / lixo = `{}` (base 0 em todas as lojas). PURA. */
+export type BaseConfigLinha = Record<string, Record<string, number>>;
+export function baseDaCor(config: BaseConfigLinha | null | undefined, qtd: number): Record<string, number> {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return {};
+  const m = config[String(Math.round(Number(qtd) || 0))];
+  return m && typeof m === "object" && !Array.isArray(m) ? m : {};
+}
+
+/** F2 B' — aplica a config POR COR: cada cor de `cores` (`key` = chave em `dists`) recebe a base da SUA quantidade.
+ *  `apenas` (opcional) decide por cor se entra — o pré-preenchimento passa `devePrePreencher` (CONGELAMENTO: cor com
+ *  distribuição salva fica intocada); o "↺ recalcular pela config" não passa (fura o congelamento). Chaves de `dists`
+ *  sem cor correspondente ficam como estão. PURA. */
+export function aplicarConfigPorCor(
+  dists: Record<string, Distribuicao>, config: BaseConfigLinha | null | undefined,
+  cores: { key: string; pcCard: number }[], lojas: string[], prop: Proporcoes, tamanhos: string[], grade?: string[],
+  apenas?: (d: Distribuicao) => boolean,
+): Record<string, Distribuicao> {
+  const pcPorKey = new Map(cores.map((c) => [c.key, c.pcCard]));
+  const out: Record<string, Distribuicao> = { ...dists };
+  for (const [k, d] of Object.entries(dists)) {
+    if (!pcPorKey.has(k)) continue;
+    if (apenas && !apenas(d)) continue;
+    out[k] = aplicarBaseConfig(d, baseDaCor(config, pcPorKey.get(k)!), lojas, prop, tamanhos, grade);
+  }
+  return out;
+}
+
 /** F2 B · CONGELAMENTO — decisão pura "pré-preenche esta variante pela config?": SÓ quando NÃO tem distribuição salva.
  *  Variante/card já com distribuição salva nunca é tocada ao reabrir (a config não é relida para ela); a única forma
  *  de puxar a config nova é o botão "↺ recalcular pela config". */

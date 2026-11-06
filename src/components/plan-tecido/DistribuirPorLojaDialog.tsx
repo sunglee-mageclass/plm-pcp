@@ -31,7 +31,7 @@ import { varKey } from "@/lib/plan-tecido/calc";
 import { ehTecido1, igual } from "@/lib/plan-tecido/atendimento";
 import type { PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import {
-  TEXTO_AJUDA_DIST, aplicarBaseConfig, chaveSlot, definirBase, definirCelula, definirProporcao, devePrePreencher,
+  TEXTO_AJUDA_DIST, aplicarConfigPorCor, type BaseConfigLinha, chaveSlot, definirBase, definirCelula, definirProporcao, devePrePreencher,
   normalizarDistribuicao, pathDistAberto, pathEhDoProduto, proporcaoDoTamanho, tamanhosDoTipo, temDistribuicao,
   tipoDoProduto, totaisDaDistribuicao, voltarAoCalculado, type Distribuicao,
 } from "@/lib/distribuicao-produto";
@@ -104,15 +104,16 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
     if (lojasErro) toast.error(mensagemErro(lojasErroObj, "Não foi possível carregar as lojas."));
   }, [lojasErro, lojasErroObj]);
 
-  // F2 B — Base por loja × LINHA (Cadastro › Lojas, Task A): `{ "<loja_id>": base }`. Linha sem config → `{}` (base 0
-  // em todas, sem erro). queryKey leva a `slot.linha_id` (key única por linha). Só com linha E fora do só-leitura.
+  // F2 B' — Base por loja × LINHA × QUANTIDADE (Cadastro › Lojas): `{ "<quantidade>": { "<loja_id>": base } }` (a RPC traz
+  // TODAS as quantidades da linha numa ida; cada COR casa pela sua qtd = `pcCard`). Linha sem config → `{}` (base 0 em
+  // todas, sem erro). queryKey leva a `slot.linha_id` (key única por linha). Só com linha E fora do só-leitura.
   const { data: baseConfig } = useQuery({
     queryKey: ["loja-base-linha", slot.linha_id],
     enabled: !!tenantId && !!slot.linha_id && !readOnly,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("loja_base_linha_ler" as any, { _linha_id: slot.linha_id });
       if (error) throw error;
-      return ((data ?? {}) as unknown) as Record<string, number>;
+      return ((data ?? {}) as unknown) as BaseConfigLinha;
     },
   });
   // `isFetched` fica true depois de QUALQUER settle (sucesso OU erro) — Imprimir/impressão só quando deu certo.
@@ -171,15 +172,10 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   useEffect(() => {
     if (preencheuRef.current || readOnly || !baseConfig || !lojasProntas || lojasErro) return;
     preencheuRef.current = true;
+    // CONGELAMENTO: `devePrePreencher` pula a variante com distribuição salva; cada cor usa a base da SUA quantidade.
     setDists((atual) => {
-      const next = { ...atual };
-      let mudou = false;
-      for (const [k, d] of Object.entries(atual)) {
-        if (!devePrePreencher(d)) continue; // CONGELAMENTO: variante com distribuição salva não é tocada
-        next[k] = aplicarBaseConfig(d, baseConfig, idsLojasAtivas, prop, tamanhos, tamanhosGrade);
-        mudou = true;
-      }
-      return mudou ? next : atual;
+      const next = aplicarConfigPorCor(atual, baseConfig, cores, idsLojasAtivas, prop, tamanhos, tamanhosGrade, devePrePreencher);
+      return Object.keys(atual).some((k) => next[k] !== atual[k]) ? next : atual;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseConfig, lojasProntas, lojasErro, idsLojasAtivas]);
@@ -188,9 +184,7 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   // explícita que fura o congelamento; só com clique).
   const recalcularPelaConfig = () => {
     if (!baseConfig) return;
-    setDists((atual) => Object.fromEntries(
-      Object.entries(atual).map(([k, d]) => [k, aplicarBaseConfig(d, baseConfig, idsLojasAtivas, prop, tamanhos, tamanhosGrade)]),
-    ));
+    setDists((atual) => aplicarConfigPorCor(atual, baseConfig, cores, idsLojasAtivas, prop, tamanhos, tamanhosGrade));
   };
 
   // PR5/R10: aplica sobre o slot ATUAL (prop viva) — só as cores do T1 do rascunho e a proporção (se mudou).

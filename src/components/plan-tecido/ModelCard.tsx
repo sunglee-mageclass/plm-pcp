@@ -280,6 +280,16 @@ export function ModelCard({
       }[],
   });
 
+  // F2 E — opções do seletor de LINHA (a tabela `linhas` não tem coluna `ativo`: traz todas, por nome).
+  const { data: linhasOpts = [] } = useQuery({
+    queryKey: ["plan-tecido-linhas"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("linhas" as any) as any).select("id, nome").order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown) as { id: string; nome: string }[];
+    },
+  });
+
   const necTecidos = necessidadePorTecido({
     colecao_id: "",
     subcolecoes: [
@@ -450,6 +460,25 @@ export function ModelCard({
                 <SelectItem value="__none__">—</SelectItem>
                 {categorias.map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {/* F2 E — Linha do card (eixo da Base por loja × linha). Espelha a Categoria: mesmo funil onChange→patch→
+              salvar_plan_tecido (grava modelos.linha_id; vaga avulsa mantém linha_id como chave do bucket). */}
+          <div className="flex items-center gap-1">
+            <span className="shrink-0 text-[10px] text-muted-foreground">Linha</span>
+            <Select
+              value={slot.linha_id ?? "__none__"}
+              onValueChange={(v) => onChange({ ...slot, linha_id: v === "__none__" ? null : v })}
+            >
+              <SelectTrigger aria-label="Linha" className="h-7 min-w-0 flex-1 text-[11px] max-md:h-11 max-md:text-base">
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">—</SelectItem>
+                {linhasOpts.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>{l.nome}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
