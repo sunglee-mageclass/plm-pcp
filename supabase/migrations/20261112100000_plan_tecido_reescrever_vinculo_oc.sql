@@ -8,6 +8,7 @@
 -- Efeitos DESEJADOS: o custo congelado (inv. 15, trg_custo_fila_*) e a reserva (quantidade_m por vinculo, lida por
 -- ocs_disponiveis_variante / _plan_tecido_situacao_ocs_core) recalculam sozinhos pelos gatilhos da tabela.
 -- Dono: liberar SEMPRE (inclusive apos o corte, enviado_cad); o AVISO de recalculo e no front, aqui nao bloqueia.
+-- O wrapper tambem sincroniza o hint de OC do card (plan_tecido_slot_oc) com o conjunto desejado.
 -- _core reutilizavel internamente (Task D: vinculo no pedido): chamado com o tenant do usuario logado, nunca exposto.
 BEGIN;
 
@@ -99,12 +100,31 @@ CREATE OR REPLACE FUNCTION public.plan_tecido_reescrever_vinculo_oc(_modelo_id u
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+declare
+  v_tenant uuid;
 begin
   if not public.tenant_module_enabled('criacao') then raise exception 'Modulo criacao nao habilitado' using errcode='42501'; end if;
   PERFORM public._exige_modulos('otb');  -- Plan. Tecido faz parte do OTB (mesmo gate do plan_tecido_aplicar_ao_modelo)
   -- permissao de PAGINA no servidor (Reforco de seguranca S3): exige EDITAR criacao_plan_tecido.
   PERFORM public._seg_exige_pagina('criacao_plan_tecido');
-  perform public._plan_tecido_reescrever_vinculo_oc_core(public.get_user_tenant_id(), _modelo_id, _oc_ids);
+  v_tenant := public.get_user_tenant_id();
+  perform public._plan_tecido_reescrever_vinculo_oc_core(v_tenant, _modelo_id, _oc_ids);  -- valida modelo x loja (42501)
+
+  -- Mantem o HINT de OC do(s) card(s) deste modelo (plan_tecido_slot_oc) igual ao vinculo: senao o proximo
+  -- auto-aplicar do save (_plan_tecido_aplicar_ao_modelo_core le o hint) RE-VINCULARIA a OC que o usuario removeu.
+  -- Fica no wrapper (o _core so mexe em modelo_tecido_oc_links, reutilizavel pela Task D).
+  delete from plan_tecido_slot_oc so
+    using plan_tecido_slots sl
+   where so.slot_id = sl.id and sl.modelo_id = _modelo_id and sl.tenant_id = v_tenant;
+  insert into plan_tecido_slot_oc (tenant_id, colecao_id, slot_id, oc_tecido_id)
+  select v_tenant, p.colecao_id, sl.id, oc.id
+    from plan_tecido_slots sl
+    join plan_tecido_linhas ln on ln.id = sl.linha_ref_id
+    join plan_tecido_subcolecoes sc on sc.id = ln.sub_id
+    join plan_tecido p on p.id = sc.plan_id
+    join ocs_tecido oc on oc.id = any(coalesce(_oc_ids, '{}'::uuid[])) and oc.tenant_id = v_tenant
+   where sl.modelo_id = _modelo_id and sl.tenant_id = v_tenant
+  on conflict (slot_id, oc_tecido_id) do nothing;
 end $function$;
 
 -- ACL (inv. #9): _core fora de PUBLIC/anon/authenticated; wrapper so authenticated.

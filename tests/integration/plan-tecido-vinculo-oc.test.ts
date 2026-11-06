@@ -4,6 +4,7 @@
 // Integracao em BEGIN...ROLLBACK (withTx); fixtures mexem em artigos/OCs/links na txn revertida -> so na copia local.
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
+import { randomUUID } from "node:crypto";
 import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
 
 const RODA = hasDb && ehBancoLocal();
@@ -194,6 +195,44 @@ describe.skipIf(!RODA)("plan_tecido_reescrever_vinculo_oc (F1 C)", () => {
       await c.query(`select ${WRAP.replace("(uuid,uuid[])", "")}($1,$2::uuid[])`, [f.modeloId, [f.oc1, ...(alheia ? [alheia.id] : [])]]);
       const l = await links(c, f.modeloId);
       expect(l.map((r) => r.oc_tecido_item_id)).toEqual([f.i1]);
+    });
+  });
+
+  it("wrapper sincroniza o hint de OC do card: remover a OC NAO e desfeito pelo proximo aplicar", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c); await ligarModulos(c);
+      const f = await fixture(c); if (!f) return;
+      const slotId = randomUUID();
+      const arvore = { subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0,
+        slots: [{ id: slotId, modelo_id: f.modeloId, slot_index: 0, custos_adicionais: [],
+          materiais: [{ artigo_id: f.art, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+            variantes: [{ variante_tecido_id: f.v1, ordem: 1, multiplicador: 1, grades: { M: 5 }, grade_total: 5 },
+                        { variante_tecido_id: f.v2, ordem: 2, multiplicador: 1, grades: { M: 3 }, grade_total: 3 }] }] }] }] }] };
+      const col = await um<{ colecao_id: string }>(c, `select colecao_id from modelos where id=$1`, [f.modeloId]);
+      await um(c, `select public.salvar_plan_tecido($1,$2::jsonb) id`, [col.colecao_id, JSON.stringify(arvore)]);
+      // card com a OC1 escolhida no plano + aplicar (propaga o hint ao vinculo, como o auto-aplicar do save)
+      await um(c, `select public.plan_tecido_set_slot_oc($1,$2,$3::uuid[]) n`, [col.colecao_id, slotId, [f.oc1]]);
+      const mats = JSON.stringify([{ tipo: "tecido", numero: 1, artigo_id: f.art, consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: f.v1, ordem: 1, multiplicador: 1, grades: { M: 5 }, grade_total: 5 },
+        { variante_tecido_id: f.v2, ordem: 2, multiplicador: 1, grades: { M: 3 }, grade_total: 3 }] }]);
+      await um(c, `select public.plan_tecido_aplicar_ao_modelo($1,$2::jsonb,true) id`, [slotId, mats]);
+      expect((await links(c, f.modeloId)).map((r) => r.oc_tecido_item_id)).toEqual([f.i1]);
+
+      // X na unica OC (conjunto vazio) -> vinculo limpo E hint limpo
+      await c.query(`select public.plan_tecido_reescrever_vinculo_oc($1,$2::uuid[])`, [f.modeloId, []]);
+      expect((await links(c, f.modeloId)).length).toBe(0);
+      const h = await um<{ n: number }>(c, `select count(*)::int n from plan_tecido_slot_oc where slot_id=$1`, [slotId]);
+      expect(h.n).toBe(0);
+
+      // o proximo auto-aplicar NAO re-vincula a OC removida
+      await um(c, `select public.plan_tecido_aplicar_ao_modelo($1,$2::jsonb,true) id`, [slotId, mats]);
+      expect((await links(c, f.modeloId)).length).toBe(0);
+
+      // adicionar OC3 pelo wrapper -> hint = [OC3] e vinculo na OC3
+      await c.query(`select public.plan_tecido_reescrever_vinculo_oc($1,$2::uuid[])`, [f.modeloId, [f.oc3]]);
+      const h2 = await c.query(`select oc_tecido_id from plan_tecido_slot_oc where slot_id=$1`, [slotId]);
+      expect(h2.rows.map((r: any) => r.oc_tecido_id)).toEqual([f.oc3]);
+      expect((await links(c, f.modeloId)).map((r) => r.oc_tecido_item_id)).toEqual([f.i3]);
     });
   });
 
