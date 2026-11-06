@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser, Store, AlertTriangle } from "lucide-react";
+import { ChevronRight, Link2, Lock, Plus, ShoppingCart, MoreHorizontal, Eraser, Store, AlertTriangle, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { OcHoverResumo } from "./OcHoverResumo";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -31,6 +31,7 @@ import type { CustoCardDetalhe } from "@/lib/plan-tecido/preco-vaga";
 import type { PrecoInfo } from "@/lib/preco";
 import { ModeloThumb } from "./ModeloThumb";
 import { SlotOcHint } from "./SlotOcHint";
+import { OcRoloCombobox } from "./OcRoloCombobox";
 import { ReferenciaDialog } from "./ReferenciaDialog";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -238,6 +239,30 @@ export function ModelCard({
     if (colecaoId) void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
   };
 
+  // F1 C (dono 06/nov): o vínculo de OC do Desenvolvimento deixa de ser só-leitura — dá pra TROCAR/ADICIONAR (seletor
+  // "OC +") e REMOVER (X por OC, uma de cada vez) direto no card, inclusive após o corte (aviso, sem bloquear). A RPC recebe o
+  // CONJUNTO DESEJADO de OCs; remover uma = a lista atual sem ela (vazio só quando era a última). Recalcula custo congelado
+  // (inv. 15) e reserva; sincroniza o hint de OC do card (senão o próximo auto-aplicar do save re-vincularia a removida).
+  const [vinculoPend, setVinculoPend] = useState<{ ocIds: string[]; acao: "remover" | "adicionar"; rotulo: string } | null>(null);
+  const reescreverVinculo = useMutation({
+    mutationFn: async (ocIds: string[]) => {
+      if (!slot.modelo_id) return;
+      const { error } = await supabase.rpc("plan_tecido_reescrever_vinculo_oc" as any, { _modelo_id: slot.modelo_id, _oc_ids: ocIds });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidarModelo();
+      if (colecaoId) {
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-slot-oc", colecaoId] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId] });
+      }
+      toast.success("Vínculo de OC atualizado.");
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Não foi possível atualizar o vínculo de OC.")),
+    onSettled: () => setVinculoPend(null),
+  });
+
   const { data: categorias = [] } = useQuery({
     queryKey: ["plan-tecido-categorias"],
     queryFn: async () =>
@@ -274,6 +299,19 @@ export function ModelCard({
   const [distOpen, setDistOpen] = useState(false);
   const paginaSoLeitura = useReadOnly();
   const distSoLeitura = !!travado || paginaSoLeitura;
+  // F1 C: vínculo de OC editável no card (X por OC + "OC +"). Libera SEMPRE — inclusive pós-corte (`travado`), só com aviso —;
+  // fecha para modelo LANÇADO (o servidor do aplicar também barra) e para página só-leitura.
+  const podeEditarVinculo = !!colecaoId && !!slot.modelo_id && !lancado && !paginaSoLeitura && (vinculos?.length ?? 0) > 0;
+  const slotArtigosOc = (slot.materiais ?? []).map((m) => m.artigo_id).filter((a): a is string => !!a);
+  // Candidatas a ADICIONAR/TROCAR: OCs da coleção ainda NÃO vinculadas; com tecido escolhido, só as do MESMO tecido (como o SlotOcHint).
+  const opcoesAdicionarOc = (ocsAplicadas ?? []).filter(
+    (o) => !(vinculos ?? []).some((v) => v.oc_id === o.id) && (slotArtigosOc.length === 0 || (!!o.artigos && o.artigos.some((a) => slotArtigosOc.includes(a)))),
+  );
+  // Remover SEMPRE confirma; adicionar só confirma quando o modelo já foi ao corte (aviso de recálculo).
+  const pedirVinculo = (ocIds: string[], acao: "remover" | "adicionar", rotulo: string) => {
+    if (acao === "remover" || travado) setVinculoPend({ ocIds, acao, rotulo });
+    else reescreverVinculo.mutate(ocIds);
+  };
   const borderClass = open ? "border-primary" : "";
   // Integração (F4): produto integrável/integrado — selo no card; "Limpar slot" (apaga nome/REF/preço) e o preço travados.
   const estadoIntegracao = useIntegracaoEstado(slot.modelo_id);
@@ -570,7 +608,30 @@ export function ModelCard({
                     {(vinculos?.length ?? 0) > 0 ? (
                       <div>
                         <div className="mb-1 flex items-center gap-1 text-[10px] text-muted-foreground">
-                          <Lock className="h-3 w-3" /> OC do Desenvolvimento
+                          <Link2 className="h-3 w-3" /> OC do Desenvolvimento
+                          {/* F1 C: o seletor "OC +" aparece SEMPRE (trocar/adicionar), além do X por OC no popover. */}
+                          {podeEditarVinculo && (
+                            <OcRoloCombobox
+                              options={opcoesAdicionarOc}
+                              onSelect={(id) =>
+                                pedirVinculo([...vinculos!.map((x) => x.oc_id), id], "adicionar", ocsAplicadas?.find((o) => o.id === id)?.numero_pedido || "OC s/ nº")
+                              }
+                              disabled={reescreverVinculo.isPending}
+                              placeholder="Adicionar OC / Rolo…"
+                              emptyMessage={slotArtigosOc.length > 0 ? "Nenhuma OC deste tecido" : "Nenhuma OC disponível"}
+                              trigger={
+                                <button
+                                  type="button"
+                                  disabled={reescreverVinculo.isPending || opcoesAdicionarOc.length === 0}
+                                  aria-label="Adicionar OC"
+                                  title={opcoesAdicionarOc.length === 0 ? (slotArtigosOc.length > 0 ? "Nenhuma OC deste tecido" : "Nenhuma OC disponível") : "Adicionar OC / Rolo"}
+                                  className="flex h-4 w-4 items-center justify-center rounded border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              }
+                            />
+                          )}
                         </div>
                         {/* Modo Plano: as OCs vinculadas viram UM chip de altura FIXA (1 linha), com a
                             lista completa no popover. Empilhar N badges dava altura variável por card e
@@ -580,7 +641,7 @@ export function ModelCard({
                           <Popover>
                             <PopoverTrigger asChild>
                               <button type="button" className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-full border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/70">
-                                <Lock className="h-2.5 w-2.5 shrink-0" />
+                                <Link2 className="h-2.5 w-2.5 shrink-0" />
                                 <span className="truncate">
                                   {vinculos!.length === 1
                                     ? (vinculos![0].numero_pedido || "OC s/ nº")
@@ -591,8 +652,13 @@ export function ModelCard({
                             </PopoverTrigger>
                             <PopoverContent align="start" className="w-64 p-2">
                               <div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
-                                <Lock className="h-3 w-3" /> Vínculos do Desenvolvimento — congelam o custo
+                                <Link2 className="h-3 w-3" /> Vínculos do Desenvolvimento — congelam o custo
                               </div>
+                              {!podeEditarVinculo && (lancado || paginaSoLeitura) && (
+                                <p className="mb-1 text-[10px] text-muted-foreground">
+                                  {lancado ? "Modelo lançado — o vínculo não pode ser alterado aqui." : "Só leitura."}
+                                </p>
+                              )}
                               <div className="max-h-48 space-y-1 overflow-y-auto">
                                 {vinculos!.map((v) => {
                                   // Cada OC do Dev vira clicável (→ dialog completo) + popover no hover (só no
@@ -600,26 +666,47 @@ export function ModelCard({
                                   // Plano segue como linha estática (sem dialog nem situacaoRows disponíveis).
                                   const linha = (
                                     <div className="flex items-start gap-1.5 rounded border bg-muted/40 px-2 py-1 text-[11px]">
-                                      <Lock className="mt-0.5 h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                                      <Link2 className="mt-0.5 h-2.5 w-2.5 shrink-0 text-muted-foreground" />
                                       <span className="min-w-0">
                                         <span className="block font-medium tabular-nums">{v.numero_pedido || "OC s/ nº"}</span>
                                         {v.tecidos && <span className="block truncate text-[10px] text-muted-foreground">{v.tecidos}</span>}
                                       </span>
                                     </div>
                                   );
+                                  // F1 C: X por OC (uma de cada vez) — manda a lista atual SEM esta OC (vazio só se era a última).
+                                  const comX = (corpo: ReactNode) =>
+                                    !podeEditarVinculo ? corpo : (
+                                      <div className="flex items-start gap-1">
+                                        <div className="min-w-0 flex-1">{corpo}</div>
+                                        <button
+                                          type="button"
+                                          className="mt-1 shrink-0 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                                          disabled={reescreverVinculo.isPending}
+                                          aria-label={`Remover o vínculo da OC ${v.numero_pedido || "s/ nº"}`}
+                                          title="Remover este vínculo"
+                                          onClick={() => pedirVinculo(vinculos!.filter((x) => x.oc_id !== v.oc_id).map((x) => x.oc_id), "remover", v.numero_pedido || "OC s/ nº")}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      </div>
+                                    );
                                   // Só torna interativa se a OC EXISTE em situacaoRows — o vínculo do Dev
                                   // (`plan_tecido_vinculos_modelo`) pode apontar p/ OC ausente da situação (rolo /
                                   // item cancelado / sem variante — a RPC de situação filtra esses). Sem isto,
                                   // o clique caía no `return null` do dialog (dead-click) e o popover ficava vazio
                                   // (achado C da revisão). Nesse caso deixa a linha estática.
                                   const naSituacao = !!situacaoRows && situacaoRows.some((r) => r.oc_tecido_id === v.oc_id);
-                                  if (!onAbrirOcDialog || !situacaoRows || !naSituacao) return <div key={v.oc_id}>{linha}</div>;
+                                  if (!onAbrirOcDialog || !situacaoRows || !naSituacao) return <div key={v.oc_id}>{comX(linha)}</div>;
                                   return (
-                                    <OcHoverResumo key={v.oc_id} situacaoRows={situacaoRows} ocId={v.oc_id}>
-                                      <button type="button" onClick={() => onAbrirOcDialog(v.oc_id)} className="block w-full text-left hover:brightness-95">
-                                        {linha}
-                                      </button>
-                                    </OcHoverResumo>
+                                    <div key={v.oc_id}>
+                                      {comX(
+                                        <OcHoverResumo situacaoRows={situacaoRows} ocId={v.oc_id}>
+                                          <button type="button" onClick={() => onAbrirOcDialog(v.oc_id)} className="block w-full text-left hover:brightness-95">
+                                            {linha}
+                                          </button>
+                                        </OcHoverResumo>,
+                                      )}
+                                    </div>
                                   );
                                 })}
                               </div>
@@ -795,6 +882,38 @@ export function ModelCard({
             <AlertDialogCancel disabled={aplicandoGrade}>Cancelar</AlertDialogCancel>
             <AlertDialogAction variant="destructive" disabled={aplicandoGrade} onClick={() => aplicarAoModelo(true)}>
               Aplicar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* F1 C — trocar/remover o vínculo de OC do Desenvolvimento. Recalcula custo congelado (inv. 15) e reserva; após o corte
+          (enviado_cad = `travado`) o aviso é explícito — o dono liberou, então só avisa (não bloqueia). */}
+      <AlertDialog open={!!vinculoPend} onOpenChange={(o) => { if (!o && !reescreverVinculo.isPending) setVinculoPend(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {vinculoPend?.acao === "remover" ? `Remover o vínculo da ${vinculoPend.rotulo}?` : `Vincular a ${vinculoPend?.rotulo ?? "OC"}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {vinculoPend?.acao === "remover"
+                ? "O custo do tecido deixa de ser congelado por esta OC e a reserva de metros é liberada e recalculada. As demais OCs vinculadas continuam."
+                : "O custo do tecido passa a seguir esta OC e a reserva de metros é recalculada."}
+              {travado && (
+                <span className="mt-2 block font-medium text-amber-600 dark:text-amber-400">
+                  Atenção: este modelo já foi enviado à Explosão (corte). Trocar/remover o vínculo vai recalcular o custo já congelado.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reescreverVinculo.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant={vinculoPend?.acao === "remover" ? "destructive" : undefined}
+              disabled={reescreverVinculo.isPending}
+              onClick={() => { if (vinculoPend) reescreverVinculo.mutate(vinculoPend.ocIds); }}
+            >
+              {vinculoPend?.acao === "remover" ? "Remover" : "Vincular"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
