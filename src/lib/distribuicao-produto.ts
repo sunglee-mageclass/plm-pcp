@@ -176,6 +176,25 @@ export function definirBase(d: Distribuicao, loja: string, base: number, prop: P
   return comLinha(d, loja, recalcularLinha({ ...a, base: inteiro(base) }, prop, tamanhos, grade));
 }
 
+/** F2 B — aplica a base da config (loja → base) por CIMA de uma cor: para cada `loja` em `lojas`, sobrescreve a Base
+ *  com `basePorLoja[loja]` (ausente/lixo/NaN = 0) e recalcula as não-manuais (as corrigidas à mão ficam — é o
+ *  `definirBase`/`recalcularLinha` de hoje). Loja sem valor na config entra com base 0 → a linha não materializa
+ *  (R8). PURA. Usada no pré-preenchimento da variante vazia (congelamento) E no botão "↺ recalcular pela config"
+ *  (a ação explícita que fura o congelamento, aplicada a TODAS as cores). */
+export function aplicarBaseConfig(
+  d: Distribuicao, basePorLoja: Record<string, number> | null | undefined, lojas: string[],
+  prop: Proporcoes, tamanhos: string[], grade?: string[],
+): Distribuicao {
+  let out = d;
+  for (const loja of lojas) out = definirBase(out, loja, Number(basePorLoja?.[loja]) || 0, prop, tamanhos, grade);
+  return out;
+}
+
+/** F2 B · CONGELAMENTO — decisão pura "pré-preenche esta variante pela config?": SÓ quando NÃO tem distribuição salva.
+ *  Variante/card já com distribuição salva nunca é tocada ao reabrir (a config não é relida para ela); a única forma
+ *  de puxar a config nova é o botão "↺ recalcular pela config". */
+export const devePrePreencher = (d: Distribuicao | null | undefined): boolean => !temDistribuicao(d);
+
 /** Quadradinho digitado: vira "à mão" se ≠ calculado; igual ao calculado = volta a calculado (R9). */
 export function definirCelula(d: Distribuicao, loja: string, t: string, valor: number, prop: Proporcoes, tamanhos: string[], grade?: string[]): Distribuicao {
   const a = linhaLimpa(d[loja]);

@@ -135,6 +135,9 @@ export function DistribuicaoTabelas(p: {
   onBase?: (corKey: string, loja: string, v: number) => void;
   onCel?: (corKey: string, loja: string, t: string, v: number) => void;
   onVoltar?: (corKey: string, loja: string, t: string) => void;
+  // F2 B — "↺ recalcular pela config": aplica a Base por loja × linha (Cadastro › Lojas) por cima de TODAS as cores,
+  // só com clique (a ação explícita que fura o congelamento). Ausente = sem config/sem linha/só-leitura/impressão.
+  onRecalcularConfig?: () => void;
 }) {
   const imp = p.modo === "impressao";
   const bloqueado = imp || !!p.readOnly;
@@ -264,14 +267,25 @@ export function DistribuicaoTabelas(p: {
           ))}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded border">
-          <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">
-            {cabecalhoTabela}
-            <tbody>
-              {linhaProporcao}
-              {p.lojas.map((l) => linhasLoja(l))}
-            </tbody>
-          </table>
+        <div className="space-y-2">
+          {/* F2 B — recalcular a Base de TODAS as cores pela config de Cadastro › Lojas (só com clique: fura o
+              congelamento de propósito). Só aparece quando há config/linha e fora do só-leitura/impressão. */}
+          {!bloqueado && p.onRecalcularConfig && (
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={p.onRecalcularConfig}>
+                <RotateCcw className="h-3.5 w-3.5" />Recalcular pela config
+              </Button>
+            </div>
+          )}
+          <div className="overflow-x-auto rounded border">
+            <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">
+              {cabecalhoTabela}
+              <tbody>
+                {linhaProporcao}
+                {p.lojas.map((l) => linhasLoja(l))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       <p className="text-xs text-muted-foreground">
