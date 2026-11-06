@@ -545,7 +545,41 @@ export function moverParaFamiliaDoTecido(
 }
 
 /**
- * Bug "lane congelada" (ago/2026): `categoria_tecido_id` do slot é PERSISTIDA e o merge faz o
+ * F2 fix-linha: a "linha" de um card é a LANE (`PtLinha`) onde ele está — `slot.linha_id` só espelha a lane
+ * (o seed força `slot.linha_id = ln.linha_id`; o save persiste a estrutura de lanes, não um campo do slot).
+ * Escolher a Linha no card MOVE o slot de bucket (mesmo princípio de `moverParaFamiliaDoTecido`): tira da lane de
+ * origem, põe no FIM da lane cuja `linha_id` = `novaLinhaId` (criada, ao fim de `sub.linhas`, se não existir) e
+ * alinha `slot.linha_id`. Dados do slot preservados. PURA (devolve cópia rasa da sub; não muta a entrada).
+ * Nenhuma lane é removida/reordenada (a de origem, mesmo vazia, fica — o seed a repovoa) e a nova só ENTRA no
+ * fim: os índices `li` das demais lanes não deslocam (fix C1). Devolve `{sub, li, sli}` = posição do slot no destino;
+ * `null` se nada a fazer (índice inválido ou já na lane da linha).
+ */
+export function moverParaLinha(
+  sub: PtSub, li: number, sli: number, novaLinhaId: string | null,
+): { sub: PtSub; li: number; sli: number } | null {
+  const origem = sub.linhas[li];
+  const slot = origem?.slots[sli];
+  if (!origem || !slot) return null;
+  const alvo = novaLinhaId ?? null;
+  if ((origem.linha_id ?? null) === alvo) return null;
+  const reindexa = (slots: PtSlot[]) => slots.map((s, i) => (s.slot_index === i ? s : { ...s, slot_index: i }));
+  // mesma chave de bucket da lane de origem, trocando só a linha (no PV categoria_id é sempre null).
+  let destI = sub.linhas.findIndex((l, i) => i !== li && (l.linha_id ?? null) === alvo && (l.categoria_id ?? null) === (origem.categoria_id ?? null));
+  const linhas = sub.linhas.map((l) => ({ ...l, slots: [...l.slots] }));
+  if (destI < 0) {
+    linhas.push({ linha_id: alvo, categoria_id: origem.categoria_id ?? null, ordem: linhas.length, slots: [] });
+    destI = linhas.length - 1;
+  }
+  linhas[li].slots.splice(sli, 1);
+  linhas[li].slots = reindexa(linhas[li].slots);
+  const movido: PtSlot = { ...slot, linha_id: alvo };
+  linhas[destI].slots.push(movido);
+  linhas[destI].slots = reindexa(linhas[destI].slots);
+  return { sub: { ...sub, linhas }, li: destI, sli: linhas[destI].slots.length - 1 };
+}
+
+/**
+ * Bug "lane congelada" (ago/2026):`categoria_tecido_id` do slot é PERSISTIDA e o merge faz o
  * SALVO vencer o vivo do cadastro (linha 357 acima) — se o cadastro do artigo é corrigido DEPOIS
  * de salvar (ex.: Malha Begônia FORRO→MALHA), o card fica preso na categoria antiga pra sempre
  * (o "manual salvo vence" do merge não distingue "usuário arrastou de propósito" de "isso era só
@@ -610,9 +644,15 @@ const slotOrfaoTemDados = (s: PtSlot): boolean =>
 // tem posição própria via savedByModelo (a colocação viva vence, regra a.1); sem esse filtro, um
 // modelo que se moveu para OUTRO bucket apareceria DUAS vezes (uma na posição viva, outra
 // "preservado" na posição órfã antiga).
+// F2 fix-linha: o slot salvo NÃO traz `linha_id` (a RPC não o devolve) — a linha dele é a da LANE (o seed força isso no
+// passo 3 para as vagas do seed). Slots que o merge preserva fora do seed (sobra/lane órfã), p.ex. uma vaga MOVIDA pelo
+// seletor de Linha, recebem o `linha_id` da lane, senão o seletor mostraria "—" ao reabrir.
+const comLinhaDaLane = (l: { linha_id: string | null }, slots: PtSlot[]): PtSlot[] =>
+  l.linha_id ? slots.map((s) => (s.linha_id === l.linha_id ? s : { ...s, linha_id: l.linha_id })) : slots;
+
 function linhaOrfaComDados(l: PtLinha, liveByModelo: Map<string, PtSlot>): PtLinha | null {
   const slots = l.slots.filter((s) => slotOrfaoTemDados(s) && !(s.modelo_id && liveByModelo.has(s.modelo_id)));
-  return slots.length > 0 ? { ...l, slots } : null;
+  return slots.length > 0 ? { ...l, slots: comLinhaDaLane(l, slots) } : null;
 }
 
 /**
@@ -809,7 +849,7 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
         // nunca tem posição no `.map` acima. Acrescenta os que têm dado de verdade, intactos
         // (mesmo id) — não pode duplicar modelo (já excluídos de `restantes`).
         const sobra = restantes.slice(k).filter(slotOrfaoTemDados);
-        return { ...l, id: sl.id, slots: [...slotsMapeados, ...sobra] };
+        return { ...l, id: sl.id, slots: [...slotsMapeados, ...comLinhaDaLane(l, sobra)] };
       }), ...linhasOrfas] };
     }), ...subcolecoesOrfas],
   };

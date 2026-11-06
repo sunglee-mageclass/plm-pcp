@@ -30,7 +30,7 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, moverParaLinha, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
@@ -2169,8 +2169,17 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               onEnsureSaved={ensureSaved}
               onChange={(ns) => {
                 const next = structuredClone(arvore) as PtArvore;
-                const subNext = next.subcolecoes[subAtiva];
+                let subNext = next.subcolecoes[subAtiva];
                 subNext.linhas[li].slots[sli] = aplicarMoveFamilia(subNext, ns, slot);
+                // F2 fix-linha: a "linha" do card é a LANE (PtLinha) onde ele está — escolher a Linha MOVE o slot de bucket
+                // (mesmo princípio de `aplicarMoveFamilia`), senão o re-seed força `slot.linha_id` de volta ao da lane e a escolha
+                // "pula" para o card vizinho. Só nas lanes de PV (categoria_id null); no fluxo Orçamento a lane é de categoria.
+                // `lf`/`sf` = posição FINAL do slot (muda só se moveu), usada pela réplica de variantes logo abaixo.
+                let lf = li, sf = sli;
+                if ((ns.linha_id ?? null) !== (slot.linha_id ?? null) && (subNext.linhas[li].categoria_id ?? null) === null) {
+                  const mv = moverParaLinha(subNext, li, sli, ns.linha_id ?? null);
+                  if (mv) { next.subcolecoes[subAtiva] = mv.sub; subNext = mv.sub; lf = mv.li; sf = mv.sli; }
+                }
                 // Variantes COMPARTILHADAS por nome de tecido (Fase B, set/2026): SÓ quando agrupado por
                 // nome. ADICIONAR uma cor num card replica o CONJUNTO (com grade 0) nos outros cards do
                 // MESMO nome de tecido na subcoleção ativa. Peças ficam por card. O slot que MUDOU DE nome
@@ -2178,7 +2187,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                 // F1 (dono 06/nov): REMOVER/OCULTAR uma cor vale SÓ no card (não replica), e a réplica NUNCA
                 // entra em VAGA VAZIA (slot sem modelo_id) — ver `replicarAdicaoNosSlots`.
                 if (groupByNome) {
-                  replicarAdicaoNosSlots(subNext.linhas, subNext.linhas[li].slots[sli], slot, ns, tecidoNomeDoSlot);
+                  replicarAdicaoNosSlots(subNext.linhas, subNext.linhas[lf].slots[sf], slot, ns, tecidoNomeDoSlot);
                 }
                 patch(next);
               }}
