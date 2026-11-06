@@ -188,6 +188,37 @@ describe.skipIf(!RODA)("plan_tecido_fazer_pedido_core vincula a OC criada aos mo
     });
   });
 
+  it("F1 D fix 1: modelo ENVIADO a Explosao (enviado_cad) e pulado nos 2 caminhos; o nao enviado do mesmo tecido e vinculado", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c); await ligarModulos(c);
+      const f = await fixture(c); if (!f) return;
+      // M2 ja em producao: tem um vinculo previo (OC antiga) que nao pode mudar
+      const oldOc = await um<{ id: string }>(c, `insert into ocs_tecido (tenant_id, numero_pedido, status) values ($1,'ITEST-PEDV-ENV','encomendado') returning id`, [TENANT_TESTE]);
+      await c.query(
+        `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, artigo_numero, variante_tecido_id, quantidade_pedida) values ($1,$2,1,$3,2)`,
+        [oldOc.id, f.art, f.v1],
+      );
+      await c.query(`select ${CORE_VINC}($1,$2,$3::uuid[])`, [TENANT_TESTE, f.m2, [oldOc.id]]);
+      const antes = await links(c, f.m2);
+      expect(antes).toHaveLength(1);
+      // enviado_cad so muda com a GUC do servidor (S1 M2); liga so p/ preparar o cenario e restaura
+      await c.query(`select set_config('app.explosao_sistema','on',true)`);
+      await c.query(`update modelos set enviado_cad=true where id=$1`, [f.m2]);
+      await c.query(`select set_config('app.explosao_sistema','',true)`);
+
+      // coleção inteira
+      const oc1 = await fazerPedido(c, f, null);
+      expect((await links(c, f.m1)).map((r) => r.oc)).toEqual([oc1]); // contraprova: o nao enviado E vinculado
+      expect(await links(c, f.m2)).toEqual(antes); // enviado: inalterado
+
+      // selecao incluindo o enviado
+      const oc2 = await fazerPedido(c, f, [f.s1, f.s2]);
+      expect((await links(c, f.m1)).some((r) => r.oc === oc1)).toBe(true);
+      expect(await links(c, f.m2)).toEqual(antes);
+      expect(oc2).not.toBe(oc1);
+    });
+  });
+
   it("F1 D: so vincula modelos cujo BOM tem cor que a OC cobre (outra cor do mesmo artigo nao vincula)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c); await ligarModulos(c);
