@@ -259,4 +259,113 @@ describe.skipIf(!RODA)("plan_tecido_reescrever_vinculo_oc (F1 C)", () => {
       expect(msg).toBeTruthy();
     });
   });
+
+  // ---- F1 C fix 1: toggle da Config da Loja "bloquear troca/remocao de OC em modelo LANCADO" (default LIGADO) ----
+  describe("bloqueio de modelo lancado (tenant_config.plan_tecido_oc_bloqueia_lancado)", () => {
+    const setToggle = (c: Client, v: boolean | null) =>
+      c.query(`update tenant_config set plan_tecido_oc_bloqueia_lancado = coalesce($2, true) where tenant_id=$1`, [TENANT_TESTE, v]);
+    const lancar = (c: Client, modeloId: string) => c.query(`update modelos set lancado = true where id=$1`, [modeloId]);
+    async function tenta(c: Client, sql: string, params: any[]) {
+      await c.query("SAVEPOINT sp_l");
+      try { await c.query(sql, params); await c.query("RELEASE SAVEPOINT sp_l"); return null; }
+      catch (e: any) { await c.query("ROLLBACK TO SAVEPOINT sp_l"); return e as { code?: string; message: string; detail?: string }; }
+    }
+
+    it("coluna: boolean NOT NULL DEFAULT true; authenticated le, anon nao", async () => {
+      await withTx(async (c) => {
+        const r = await um<Record<string, any>>(
+          c,
+          `select a.atttypid::regtype::text tipo, a.attnotnull nn, pg_get_expr(d.adbin, d.adrelid) def,
+                  has_column_privilege('authenticated','public.tenant_config','plan_tecido_oc_bloqueia_lancado','SELECT') auth,
+                  has_column_privilege('anon','public.tenant_config','plan_tecido_oc_bloqueia_lancado','SELECT') anon
+             from pg_attribute a join pg_attrdef d on d.adrelid=a.attrelid and d.adnum=a.attnum
+            where a.attrelid='public.tenant_config'::regclass and a.attname='plan_tecido_oc_bloqueia_lancado'`,
+        );
+        expect(r).toEqual({ tipo: "boolean", nn: true, def: "true", auth: true, anon: false });
+      });
+    });
+
+    it("(1) toggle LIGADO (default) + modelo lancado -> recusa 42501 ASCII, nada muda", async () => {
+      await withTx(async (c) => {
+        await comoUsuario(c); await ligarModulos(c);
+        const f = await fixture(c); if (!f) return;
+        await reescrever(c, f, [f.oc1]);
+        await lancar(c, f.modeloId);
+        await setToggle(c, null); // default
+        for (const alvo of [[f.oc3], [] as string[]]) {
+          const e = await tenta(c, `select public.plan_tecido_reescrever_vinculo_oc($1,$2::uuid[])`, [f.modeloId, alvo]);
+          expect(e?.code).toBe("42501");
+          expect(e?.message).toMatch(/^oc_vinculo_lancado_bloqueado:/);
+          expect(e!.message).toMatch(/^[\x20-\x7E]*$/);
+        }
+        const e2 = await tenta(c, `select public._plan_tecido_reescrever_vinculo_oc_core($1,$2,$3::uuid[])`, [TENANT_TESTE, f.modeloId, [f.oc3]]);
+        expect(e2?.code).toBe("42501");
+        expect((await links(c, f.modeloId)).map((r) => r.oc_tecido_item_id)).toEqual([f.i1]); // vinculo intacto
+      });
+    });
+
+    it("(2) toggle DESLIGADO + modelo lancado -> permite (troca e remove)", async () => {
+      await withTx(async (c) => {
+        await comoUsuario(c); await ligarModulos(c);
+        const f = await fixture(c); if (!f) return;
+        await reescrever(c, f, [f.oc1]);
+        await lancar(c, f.modeloId);
+        await setToggle(c, false);
+        await c.query(`select public.plan_tecido_reescrever_vinculo_oc($1,$2::uuid[])`, [f.modeloId, [f.oc3]]);
+        expect((await links(c, f.modeloId)).map((r) => r.oc_tecido_item_id)).toEqual([f.i3]);
+        await c.query(`select public.plan_tecido_reescrever_vinculo_oc($1,$2::uuid[])`, [f.modeloId, []]);
+        expect((await links(c, f.modeloId)).length).toBe(0);
+      });
+    });
+
+    it("(3) modelo NAO lancado -> permite sempre, com o toggle ligado ou desligado", async () => {
+      await withTx(async (c) => {
+        await comoUsuario(c); await ligarModulos(c);
+        const f = await fixture(c); if (!f) return;
+        for (const t of [true, false]) {
+          await setToggle(c, t);
+          await c.query(`select public.plan_tecido_reescrever_vinculo_oc($1,$2::uuid[])`, [f.modeloId, [f.oc1]]);
+          expect((await links(c, f.modeloId)).map((r) => r.oc_tecido_item_id)).toEqual([f.i1]);
+          await c.query(`select public.plan_tecido_reescrever_vinculo_oc($1,$2::uuid[])`, [f.modeloId, []]);
+          expect((await links(c, f.modeloId)).length).toBe(0);
+        }
+      });
+    });
+
+    it("salvar_config_loja: grava a coluna (lista branca + boolean), compare-and-set por coluna e recusa nao-boolean", async () => {
+      await withTx(async (c) => {
+        const ADMIN = "c0f1c0f1-0000-4000-8000-0000000000b2";
+        await ligarModulos(c);
+        await c.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [ADMIN, `${ADMIN}@teste`]);
+        await c.query(
+          `INSERT INTO public.users (id, tenant_id, email, nome) VALUES ($1, $2, $3, 'Teste cfg toggle')
+           ON CONFLICT (id) DO UPDATE SET tenant_id = excluded.tenant_id`,
+          [ADMIN, TENANT_TESTE, `${ADMIN}@teste`],
+        );
+        await c.query(`INSERT INTO public.user_roles (user_id, role) VALUES ($1, 'tenant_admin')`, [ADMIN]);
+        await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: ADMIN, role: "authenticated" })]);
+        await setToggle(c, true);
+        const chama = (mud: object, base: object) =>
+          tenta(c, `select public.salvar_config_loja($1::uuid,$2::jsonb,$3::jsonb,null)`, [TENANT_TESTE, JSON.stringify(mud), JSON.stringify(base)]);
+        const valor = async () => (await um<{ v: boolean }>(c, `select plan_tecido_oc_bloqueia_lancado v from tenant_config where tenant_id=$1`, [TENANT_TESTE])).v;
+
+        expect(await chama({ plan_tecido_oc_bloqueia_lancado: false }, { plan_tecido_oc_bloqueia_lancado: true })).toBeNull();
+        expect(await valor()).toBe(false);
+        // base velha (outra pessoa mudou antes): P0409 com a coluna no DETAIL
+        const conf = await chama({ plan_tecido_oc_bloqueia_lancado: true }, { plan_tecido_oc_bloqueia_lancado: true });
+        expect(conf?.code).toBe("P0409");
+        expect(conf?.detail).toBe("plan_tecido_oc_bloqueia_lancado");
+        expect(await valor()).toBe(false);
+        // base certa -> liga de novo
+        expect(await chama({ plan_tecido_oc_bloqueia_lancado: true }, { plan_tecido_oc_bloqueia_lancado: false })).toBeNull();
+        expect(await valor()).toBe(true);
+        // valores invalidos
+        for (const ruim of ["sim", null, 1]) {
+          const e = await chama({ plan_tecido_oc_bloqueia_lancado: ruim }, { plan_tecido_oc_bloqueia_lancado: true });
+          expect(e?.code).toBe("P0001");
+        }
+        expect(await valor()).toBe(true);
+      });
+    });
+  });
 });
