@@ -131,11 +131,17 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
 
   // divergência: cor cuja COR BASE não existe em NENHUMA variante do tecido (só com artigo escolhido
   // E variantes já carregadas — senão marcaria tudo durante o load e "remover divergentes" apagaria).
-  const divergente = (v: PtVariante) => !!material.artigo_id && variantesArtigo.length > 0 && !casaReal(v);
+  const divergente = (v: PtVariante) => !v.oculta && !!material.artigo_id && variantesArtigo.length > 0 && !casaReal(v);
   const temDivergentes = material.variantes.some(divergente);
 
   const renum = (vs: PtVariante[]) => vs.map((v, i) => ({ ...v, ordem: i + 1 }));
-  const removerVariante = (v: PtVariante) => onChange({ ...material, variantes: renum(material.variantes.filter((x) => varKey(x) !== varKey(v))) });
+  // F1 A2 (dono 06/nov): o X OCULTA a cor SÓ neste card (flag `oculta` por slot) — NÃO remove do array e NÃO replica
+  // pros outros cards do mesmo tecido. Oculta ⇒ peças zeradas (a cor sai da lista e da demanda; "+ adicionar cor" a re-lista).
+  const ocultarVariante = (v: PtVariante) => onChange({ ...material, variantes: material.variantes.map((x) => {
+    if (varKey(x) !== varKey(v)) return x;
+    const { distribuicao: _d, ...resto } = x;
+    return { ...resto, oculta: true, grades: {}, grade_total: 0 };
+  }) });
   const removerDivergentes = () => onChange({ ...material, variantes: renum(material.variantes.filter((v) => !divergente(v))) });
   const setGrade = (v: PtVariante, val: number) =>
     onChange({ ...material, variantes: material.variantes.map((x) => (varKey(x) === varKey(v) ? { ...x, grade_total: val } : x)) });
@@ -164,7 +170,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
   // auto-upgrade reconcilia a variante_tecido_id com o pool depois.
   const promoverFantasma = (v: PtVariante, val: number) => {
     if (val <= 0) return; // 0 não promove: continua fantasma
-    const nova: PtVariante = { ...v, ordem: 0, grade_total: val, grades: v.grades ?? {} };
+    const nova: PtVariante = { ...v, ordem: 0, grade_total: val, grades: v.grades ?? {}, oculta: false };
     onChange({ ...material, variantes: renum([...material.variantes, nova]) });
   };
 
@@ -201,8 +207,10 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmRemSubs, setConfirmRemSubs] = useState<string | null>(null); // substituto pendente de confirmar remoção
-  const usados = new Set(material.variantes.map((v) => varKey(v)));
-  const usadosCombo = new Set(material.variantes.map((v) => comboKey(v.cor_id, v.cor_apelido_id)).filter((k) => k !== "|"));
+  // F1 A2: as cores OCULTAS neste card NÃO contam como "usadas" — reaparecem como opção do "+ adicionar cor".
+  const visiveis = material.variantes.filter((v) => !v.oculta);
+  const usados = new Set(visiveis.map((v) => varKey(v)));
+  const usadosCombo = new Set(visiveis.map((v) => comboKey(v.cor_id, v.cor_apelido_id)).filter((k) => k !== "|"));
   // opções: com artigo → variantes do POOL (principal + substitutos) ainda não usadas; sem artigo →
   // todas as combinações. Em ordem ALFABÉTICA cor base → apelido (dono ago/2026).
   const cmpNome = (a: string | null | undefined, b: string | null | undefined) =>
@@ -221,7 +229,20 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
     return poolArtigoIds.length > 1 ? `${nomeArtigoDe(v.artigo_id)} · ${cor}` : cor;
   };
 
+  // Cor OCULTA neste card com a mesma identidade (variante ou cor+apelido): re-adicionar DESOCULTA a existente (não duplica).
+  const ocultaIgual = (varianteId: string | null, corId: string | null, apelidoId: string | null) =>
+    material.variantes.find((x) => x.oculta && ((varianteId && x.variante_tecido_id === varianteId) ||
+      (comboKey(corId, apelidoId) !== "|" && comboKey(x.cor_id, x.cor_apelido_id) === comboKey(corId, apelidoId))));
+  const desocultar = (alvo: PtVariante, ident: Partial<PtVariante>) =>
+    onChange({ ...material, variantes: renum(material.variantes.map((x) => (x === alvo ? { ...x, ...ident, oculta: false, grades: {}, grade_total: 0 } : x))) });
   const addDoArtigo = (v: VarRow) => {
+    const oculta = ocultaIgual(v.id, v.cor_id ?? null, v.cor_apelido_id ?? null);
+    if (oculta) {
+      desocultar(oculta, { variante_tecido_id: v.id, cor_id: v.cor_id ?? null, cor_apelido_id: v.cor_apelido_id ?? null,
+        label: corApelidoLabel(v.cor?.nome, v.apelido?.nome), cor_nome: v.cor?.nome ?? null });
+      setMenuOpen(false);
+      return;
+    }
     const nova: PtVariante = {
       variante_tecido_id: v.id, cor_id: v.cor_id ?? null, cor_apelido_id: v.cor_apelido_id ?? null,
       ordem: 0, multiplicador: 1, grades: {}, grade_total: 0,
@@ -231,6 +252,8 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
     setMenuOpen(false);
   };
   const addPlanejada = (c: { cor_id: string; cor_nome: string; cor_apelido_id: string; apelido_nome: string }) => {
+    const oculta = ocultaIgual(null, c.cor_id, c.cor_apelido_id);
+    if (oculta) { desocultar(oculta, {}); setMenuOpen(false); return; }
     const nova: PtVariante = {
       variante_tecido_id: null, cor_id: c.cor_id, cor_apelido_id: c.cor_apelido_id,
       ordem: 0, multiplicador: 1, grades: {}, grade_total: 0,
@@ -355,16 +378,22 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
 
       <div className="p-2">
         {/* cores selecionadas (variantes) + fantasmas do grupo (Modo Plano) */}
-        {material.variantes.length === 0 && fantasmas.length === 0 ? (
+        {material.variantes.every((v) => v.oculta) && fantasmas.length === 0 ? (
           <div className="rounded border border-dashed p-2 text-center text-[10px] italic text-muted-foreground">Nenhuma cor. “+ adicionar cor” para escolher as variantes.</div>
         ) : (() => {
           // Variantes em ordem ALFABÉTICA (cor base → apelido) só na EXIBIÇÃO (dono, jul/2026) —
           // copia p/ ordenar, sem mexer no material.variantes salvo (não suja o form nem renumera).
           // As FANTASMAS (união do grupo, Modo Plano) entram junto na mesma ordenação, marcadas
           // p/ render esmaecido; ao digitar peças elas se promovem a reais (`promoverFantasma`).
-          const ordenadas = [...material.variantes.map((v) => ({ v, fantasma: false })), ...fantasmas.map((v) => ({ v, fantasma: true }))]
-            .sort((a, b) => cmpVar(a.v, b.v));
-          const linha = ({ v, fantasma }: { v: PtVariante; fantasma: boolean }, vi: number) => {
+          // F1 A2/A3: as OCULTAS não entram na lista. No Modo Plano, se a cor oculta é do grupo (outro card a tem), vira
+          // um ESPAÇADOR da mesma altura — as linhas deste card continuam alinhadas com as dos vizinhos e com o resumo.
+          const chavesGrupo = new Set((variantesGrupo ?? []).map((g) => varKey(g)));
+          const ordenadas = [
+            ...material.variantes.filter((v) => !v.oculta || chavesGrupo.has(varKey(v))).map((v) => ({ v, fantasma: false, espacador: !!v.oculta })),
+            ...fantasmas.map((v) => ({ v, fantasma: true, espacador: false })),
+          ].sort((a, b) => cmpVar(a.v, b.v));
+          const linha = ({ v, fantasma, espacador }: { v: PtVariante; fantasma: boolean; espacador: boolean }, vi: number) => {
+            if (espacador) return <div key={`${varKey(v)}-${vi}`} className="h-[var(--h-var,auto)] border-t border-dashed first:border-t-0" aria-hidden />;
             const div = !fantasma && divergente(v);
             const planejada = !fantasma && !v.variante_tecido_id;
             // prod #9 (L7): pç ≠ soma dos tamanhos (mapa não vazio) — só avisa; o texto completo vai abaixo da lista.
@@ -433,7 +462,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                 <span className="shrink-0 text-[9px] text-muted-foreground">pç</span>
                 <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{fmtMetros((material.consumo || 0) * (fantasma ? 0 : (v.grade_total || 0)))} m</span>
                 {!readOnly && !fantasma ? (
-                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>
+                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => ocultarVariante(v)} title="Ocultar cor neste produto" aria-label="Ocultar cor neste produto"><X className="h-3 w-3" /></Button>
                 ) : (
                   <span className="w-5 shrink-0" aria-hidden />
                 )}
@@ -445,7 +474,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
           if (!multiFornecedor) return ordenadas.map((row, vi) => linha(row, vi));
           // Com substitutos: agrupa por FORNECEDOR do artigo de cada variante, preservando a
           // ordenação alfabética DENTRO de cada grupo (a lista já veio ordenada por cmpVar).
-          const porFornecedor = new Map<string, { v: PtVariante; fantasma: boolean }[]>();
+          const porFornecedor = new Map<string, { v: PtVariante; fantasma: boolean; espacador: boolean }[]>();
           ordenadas.forEach((row) => {
             const f = fornecedorDaVariante(row.v);
             const arr = porFornecedor.get(f) ?? [];

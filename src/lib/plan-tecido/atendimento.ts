@@ -236,11 +236,13 @@ export function materiaisParaAplicar(slot: PtSlot, ligado: boolean) {
     const orig = slot.materiais[i];
     if (!orig || ehTecido1(orig)) return m;
     const at = atendimentoDoBloco(t1.variantes, orig.variantes);
+    // `m.variantes` (buildMateriaisAplicar) já exclui as OCULTAS (F1 A2): casa pelo mesmo filtro em `orig` p/ o índice j bater.
+    const origVisiveis = orig.variantes.filter((v) => !v.oculta);
     return {
       ...m,
       variantes: m.variantes.map((pv, j) => ({
         ...pv,
-        complementa_variante_ids: complementaReal(at.porCor.get(varKey(orig.variantes[j])) ?? []),
+        complementa_variante_ids: complementaReal(at.porCor.get(varKey(origVisiveis[j])) ?? []),
       })),
     };
   });

@@ -122,7 +122,7 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
     return out;
   }, [lojasDb, dists, inicial.dists]);
   const cores = useMemo<CorDist[]>(
-    () => (t1?.variantes ?? []).map((v) => {
+    () => (t1?.variantes ?? []).filter((v) => !v.oculta).map((v) => {
       const { cor, apelido } = partesCor(v);
       return { key: varKey(v), cor, apelido, swatch: v.cor_nome ?? v.label ?? null, pcCard: Number(v.grade_total) || 0 };
     }),

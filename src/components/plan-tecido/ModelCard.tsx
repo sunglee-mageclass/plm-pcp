@@ -676,16 +676,16 @@ export function ModelCard({
                           <div
                             role="button"
                             tabIndex={0}
-                            aria-disabled={m.variantes.length === 0}
-                            onClick={() => { if (m.variantes.length > 0) setDistOpen(true); }}
+                            aria-disabled={m.variantes.filter((v) => !v.oculta).length === 0}
+                            onClick={() => { if (m.variantes.filter((v) => !v.oculta).length > 0) setDistOpen(true); }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                if (m.variantes.length > 0) setDistOpen(true);
+                                if (m.variantes.filter((v) => !v.oculta).length > 0) setDistOpen(true);
                               }
                             }}
-                            title={m.variantes.length === 0 ? "Adicione as cores do Tecido 1 antes de distribuir" : undefined}
-                            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1 text-[11px]", m.variantes.length === 0 && "cursor-not-allowed text-muted-foreground hover:!bg-transparent hover:!text-muted-foreground")}
+                            title={m.variantes.filter((v) => !v.oculta).length === 0 ? "Adicione as cores do Tecido 1 antes de distribuir" : undefined}
+                            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1 text-[11px]", m.variantes.filter((v) => !v.oculta).length === 0 && "cursor-not-allowed text-muted-foreground hover:!bg-transparent hover:!text-muted-foreground")}
                           >
                             <Store className="h-4 w-4" />Distribuir por loja
                           </div>

@@ -215,4 +215,11 @@ describe("materiaisParaAplicar (R3/R4)", () => {
     const m = materiaisParaAplicar(s, false);
     expect(m.flatMap((x) => x.variantes).some((x: any) => "complementa_variante_ids" in x)).toBe(false);
   });
+  it("F1 A2: forro com cor OCULTA no meio — o payload pula a oculta e o casamento segue alinhado", () => {
+    const so = slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71), v(null, PRETO, 90)]),
+      mat("forro", 1, [v("fr-marrom", MARROM, 71), { ...v("fr-x", MARROM, 0), oculta: true }, v("fr-preto", PRETO, 90)])]);
+    const m = materiaisParaAplicar(so, true);
+    expect(m[1].variantes.map((x: any) => x.variante_tecido_id)).toEqual(["fr-marrom", "fr-preto"]);
+    expect(m[1].variantes.map((x: any) => x.complementa_variante_ids)).toEqual([["vt-marrom"], []]);
+  });
 });

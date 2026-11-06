@@ -248,6 +248,7 @@ function FaixaModoPlano({
   for (const { slot } of itens) {
     const m = tec1DoSlot(slot);
     for (const v of m?.variantes ?? []) {
+      if (v.oculta) continue; // F1 A2: cor OCULTA num card não entra na união (não vira fantasma nos outros)
       const k = v.variante_tecido_id ?? `plan:${v.cor_id ?? ""}|${v.cor_apelido_id ?? ""}`;
       if (!vistas.has(k)) { vistas.add(k); uniaoVariantesT1.push(v); }
     }

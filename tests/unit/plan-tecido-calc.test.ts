@@ -454,6 +454,17 @@ describe("buildMateriaisAplicar (payload do 'Aplicar ao modelo' / auto-aplicar d
       .toEqual({ tipo: "forro", numero: 2, artigo_id: "A", consumo: 0.8, loss_percent: 5 });
     expect(m.variantes[0]).toMatchObject({ variante_tecido_id: "vX", ordem: 3, multiplicador: 2, grade_total: 4 });
   });
+
+  it("F1 A2: cor OCULTA no card NÃO vai pro BOM do modelo", () => {
+    const s = slot({ materiais: [
+      { artigo_id: "A", tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+        variantes: [
+          { variante_tecido_id: "v1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 5 },
+          { variante_tecido_id: "v2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 0, oculta: true },
+        ] }] });
+    const [m] = buildMateriaisAplicar(s);
+    expect(m.variantes.map((x) => x.variante_tecido_id)).toEqual(["v1"]);
+  });
 });
 
 // ─── "A comprar" AO VIVO (item 2) ─────────────────────────────────────────────────────────────────

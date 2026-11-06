@@ -699,7 +699,8 @@ export function buildMateriaisAplicar(slot: PtSlot) {
     artigo_id: m.artigo_id,
     consumo: m.consumo,
     loss_percent: m.loss_percent,
-    variantes: (m.variantes ?? []).map((v) => ({
+    // F1 A2: cor OCULTA neste card NÃO vai pro BOM do modelo (senão o BOM vivo a ressuscitaria visível ao recarregar).
+    variantes: (m.variantes ?? []).filter((v) => !v.oculta).map((v) => ({
       variante_tecido_id: v.variante_tecido_id,
       ordem: v.ordem,
       multiplicador: v.multiplicador,
