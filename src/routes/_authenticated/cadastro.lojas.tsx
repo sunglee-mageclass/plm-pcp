@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft, Save } from "lucide-react";
+import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft, Save, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
@@ -31,6 +31,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
@@ -44,6 +45,7 @@ export const Route = createFileRoute("/_authenticated/cadastro/lojas")({
 });
 
 type Loja = { id: string; nome: string; ativo: boolean; is_default: boolean; ordem: number | null };
+type Linha = { id: string; nome: string };
 
 function LojasPage() {
   const qc = useQueryClient();
@@ -78,6 +80,18 @@ function LojasPage() {
         .order("nome");
       if (error) throw error;
       return ((data ?? []) as unknown) as Loja[];
+    },
+  });
+
+  // Linhas ATIVAS da loja (tenant) — eixo da sub-grade "Base por linha" de cada loja.
+  const { data: linhas = [] } = useQuery({
+    queryKey: ["linhas-ativas"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("linhas" as any) as any)
+        .select("id, nome")
+        .order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown) as Linha[];
     },
   });
 
@@ -274,6 +288,7 @@ function LojasPage() {
                       loja={l}
                       readOnly={readOnly}
                       podeArrastar={podeArrastar}
+                      linhas={linhas}
                       onRename={(nome) => renameMut.mutate({ id: l.id, nome })}
                       onToggle={(ativo) => toggleMut.mutate({ id: l.id, ativo })}
                       onDelete={() => setDeleteRow(l)}
@@ -372,11 +387,12 @@ function LojasPage() {
 
 // ── Linha arrastável, com nome editável inline e toggle de status ────────────────
 function LojaRow({
-  loja, readOnly, podeArrastar, onRename, onToggle, onDelete,
+  loja, readOnly, podeArrastar, linhas, onRename, onToggle, onDelete,
 }: {
   loja: Loja;
   readOnly: boolean;
   podeArrastar: boolean;
+  linhas: Linha[];
   onRename: (nome: string) => void;
   onToggle: (ativo: boolean) => void;
   onDelete: () => void;
@@ -384,6 +400,7 @@ function LojaRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: loja.id, disabled: !podeArrastar });
   const style = { transform: CSS.Transform.toString(transform), transition };
+  const [aberto, setAberto] = useState(false);
 
   // Rascunho local do nome — commita no blur/Enter só se mudou.
   const [nome, setNome] = useState(loja.nome);
@@ -400,7 +417,7 @@ function LojaRow({
     if (v !== loja.nome) onRename(v);
   };
 
-  return (
+  const linhaPrincipal = (
     <TableRow
       ref={setNodeRef}
       style={style}
@@ -455,15 +472,167 @@ function LojaRow({
         </div>
       </TableCell>
       <TableCell className="text-right">
-        <Button
-          size="iconSm" variant="ghost"
-          onClick={onDelete}
-          disabled={readOnly || loja.is_default}
-          aria-label="Excluir"
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            size="iconSm" variant="ghost"
+            onClick={() => setAberto((a) => !a)}
+            aria-label={aberto ? "Ocultar base por linha" : "Base por linha"}
+            aria-expanded={aberto}
+            title="Base por linha"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+          <Button
+            size="iconSm" variant="ghost"
+            onClick={onDelete}
+            disabled={readOnly || loja.is_default}
+            aria-label="Excluir"
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
+  );
+
+  return (
+    <>
+      {linhaPrincipal}
+      {aberto && (
+        <TableRow className={loja.ativo ? "" : "opacity-60"}>
+          <TableCell className="pr-0" />
+          <TableCell colSpan={3} className="py-3">
+            <BasePorLinhaGrade loja={loja} linhas={linhas} readOnly={readOnly} />
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}
+
+// ── Sub-grade "Base por linha" de uma loja (F2 Tarefa A) ─────────────────────────
+// Base FIXA por loja x linha (inteiro >= 0). Grava direto em
+// loja_direcionamento_base_linha (upsert por onConflict loja_id,linha_id; base 0 = delete:
+// nao materializa zeros). RLS de escrita exige tenant_admin/super (igual lojas_direcionamento);
+// a pagina ja trata nao-admin como readOnly. Independente do dialog "Distribuir por loja"
+// (que le a base por RPC loja_base_linha_ler).
+function BasePorLinhaGrade({
+  loja, linhas, readOnly,
+}: {
+  loja: Loja;
+  linhas: Linha[];
+  readOnly: boolean;
+}) {
+  const qc = useQueryClient();
+
+  const { data: basesPorLinha = {}, isLoading } = useQuery({
+    queryKey: ["loja-base-linha", loja.id],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("loja_direcionamento_base_linha" as any) as any)
+        .select("linha_id, base")
+        .eq("loja_id", loja.id);
+      if (error) throw error;
+      const mapa: Record<string, number> = {};
+      for (const r of ((data ?? []) as { linha_id: string; base: number }[])) mapa[r.linha_id] = r.base;
+      return mapa;
+    },
+  });
+
+  const salvarMut = useMutation({
+    mutationFn: async ({ linhaId, base }: { linhaId: string; base: number }) => {
+      if (base <= 0) {
+        // base 0 = sem valor materializado (apaga a linha, se existir)
+        const { error } = await (supabase.from("loja_direcionamento_base_linha" as any) as any)
+          .delete()
+          .eq("loja_id", loja.id)
+          .eq("linha_id", linhaId);
+        if (error) throw error;
+        return;
+      }
+      const { error } = await (supabase.from("loja_direcionamento_base_linha" as any) as any)
+        .upsert({ loja_id: loja.id, linha_id: linhaId, base }, { onConflict: "loja_id,linha_id" });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["loja-base-linha", loja.id] });
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Nao foi possivel salvar a base.")),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1.5" /> Carregando base por linha…
+      </div>
+    );
+  }
+
+  if (linhas.length === 0) {
+    return <div className="text-xs text-muted-foreground">Nenhuma linha cadastrada.</div>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium text-muted-foreground">
+        Base por linha <span className="font-normal">(quantidade fixa por linha, nesta loja)</span>
+      </div>
+      <div className="grid grid-cols-[minmax(8rem,1fr)_6rem] gap-x-4 gap-y-1.5 max-w-md">
+        {linhas.map((linha) => (
+          <BaseLinhaCelula
+            key={linha.id}
+            linha={linha}
+            base={basesPorLinha[linha.id] ?? 0}
+            readOnly={readOnly}
+            salvando={salvarMut.isPending}
+            onSalvar={(base) => salvarMut.mutate({ linhaId: linha.id, base })}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Uma celula (linha + input de base). Rascunho local commitado no blur/Enter se mudou.
+function BaseLinhaCelula({
+  linha, base, readOnly, salvando, onSalvar,
+}: {
+  linha: Linha;
+  base: number;
+  readOnly: boolean;
+  salvando: boolean;
+  onSalvar: (base: number) => void;
+}) {
+  const [valor, setValor] = useState<number>(base);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Reflete o servidor quando muda, desde que o usuario nao esteja editando este campo.
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) setValor(base);
+  }, [base]);
+
+  const commit = () => {
+    const v = Math.max(0, Math.trunc(Number(valor) || 0));
+    if (v !== base) onSalvar(v);
+  };
+
+  return (
+    <>
+      <div className="flex items-center text-sm truncate" title={linha.nome}>{linha.nome}</div>
+      <NumberInput
+        ref={inputRef}
+        integer
+        blankZero
+        value={valor}
+        placeholder="0"
+        disabled={readOnly || salvando}
+        onChange={(e) => setValor(Number(e.target.value) || 0)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); inputRef.current?.blur(); }
+          if (e.key === "Escape") { setValor(base); inputRef.current?.blur(); }
+        }}
+        className="h-8"
+        aria-label={`Base da linha ${linha.nome}`}
+      />
+    </>
   );
 }
