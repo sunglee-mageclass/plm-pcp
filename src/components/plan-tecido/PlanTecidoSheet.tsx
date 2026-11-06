@@ -41,7 +41,7 @@ import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte, statusEfetivoDaVaga, modelosReprovadosDeVagas } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
 import { InfoHover } from "@/components/shared/InfoHover";
@@ -1571,6 +1571,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       const { data, error } = await supabase.rpc("plan_tecido_criar_cards" as any, { _colecao_id: colecaoId, _slots });
       if (error) throw error;
       const criados = (data ?? []) as { slot_id: string; modelo_id: string }[];
+      // F2 C — transição vaga→card migra o status: card nasce 'em_planejamento'; se a VAGA estava reprovada,
+      // marca o card reprovado pelo MESMO caminho do Planejamento (modelos.status_planejamento).
+      const statusPorSlot: Record<string, "pendente" | "reprovado"> = {};
+      for (const { slot } of itens) if (slot.id) statusPorSlot[slot.id] = slot.status === "reprovado" ? "reprovado" : "pendente";
+      const idsReprovados = modelosReprovadosDeVagas(criados, statusPorSlot);
+      if (idsReprovados.length > 0) {
+        const { error: errSt } = await supabase.from("modelos").update({ status_planejamento: "reprovado" }).in("id", idsReprovados);
+        if (errSt) throw errSt;
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] }); // vaga re-deriva o status do card
+      }
       if (criados.length > 0) {
         // Espelha os modelo_id no draft ATUAL (pode ter avançado durante o await) via `patch` — funil
         // único de escrita local (marca touched); sem isso o próximo save regrediria modelo_id p/ null.
@@ -1668,6 +1678,31 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos-detalhe", colecaoId] });
     void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
   };
+
+  // F2 C — editar o status na vaga do card. SEM card: grava `slot.status` no draft (vai pro Salvar → grava na
+  // vaga). COM card: grava direto em `modelos.status_planejamento` (MESMO caminho do BulkEditDialog) e invalida
+  // `plan-tecido-modelos` p/ a vaga RE-DERIVAR do card — NUNCA toca o draft do slot (a fonte é o card). No 42501
+  // (sem permissão de editar Planejamento/Desenvolvimento, gatilho S3d) traduz por mensagemErro SEM corromper o estado.
+  async function aplicarStatusVaga(slot: PtSlot, li: number, sli: number, novo: "pendente" | "reprovado") {
+    if (!slot.modelo_id) {
+      const next = structuredClone(arvore) as PtArvore;
+      const s = next.subcolecoes[subAtiva]?.linhas[li]?.slots[sli];
+      if (!s) return;
+      s.status = novo;
+      patch(next);
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from("modelos")
+        .update({ status_planejamento: novo === "reprovado" ? "reprovado" : "em_planejamento" })
+        .eq("id", slot.modelo_id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] }); // vaga re-deriva do card
+    } catch (e) {
+      toast.error(mensagemErro(e, "Não foi possível alterar o status do card."));
+    }
+  }
 
   // G5: "Fazer pedido" na barra de seleção — separa compráveis × já-comprados (mesma fonte do
   // carrinho: slotOcMap ∪ vinculosMap por slot/modelo). Comprados NÃO bloqueiam — ficam fora do
@@ -2124,6 +2159,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
               // reprovado na fase 'dev' = o rótulo da fase JÁ é a coluna Reprovado → só o selo "Reprovado" (sem repetir)
               fase={slot.modelo_id && !(reprovadoStatusSet.has(slot.modelo_id) && fasesMap[slot.modelo_id]?.fase === "dev") ? faseInfo(slot.modelo_id) : null}
+              statusEfetivo={statusEfetivoDaVaga(slot, slot.modelo_id ? reprovadoStatusSet.has(slot.modelo_id) : false)}
+              onStatus={(novo) => void aplicarStatusVaga(slot, li, sli, novo)}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => {
                 const next = structuredClone(arvore) as PtArvore;

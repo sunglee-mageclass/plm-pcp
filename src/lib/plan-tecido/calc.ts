@@ -97,6 +97,23 @@ export function dedupVariantes(vs: PtVariante[]): PtVariante[] {
 export const ehReprovado = (statusDesenvolvimento: string | null | undefined, statusPlanejamento?: string | null): boolean =>
   ehReprovadoStatus(statusDesenvolvimento, statusPlanejamento);
 
+/** Status efetivo da vaga do Plan. Tecido (F2 C): com card DERIVA do card (fonte unica, ehReprovadoStatus — o
+ *  chamador resolve `reprovadoDoCard`); sem card usa o status proprio da vaga (plan_tecido_slots.status). Nunca
+ *  dois status divergentes gravados. */
+export function statusEfetivoDaVaga(slot: PtSlot, reprovadoDoCard: boolean): "pendente" | "reprovado" {
+  if (slot.modelo_id) return reprovadoDoCard ? "reprovado" : "pendente";
+  return slot.status === "reprovado" ? "reprovado" : "pendente";
+}
+
+/** Transicao vaga->card (F2 C): dos cards recem-criados, quais herdam "reprovado" (so os de vaga que estava
+ *  reprovada). Usado apos `plan_tecido_criar_cards` para migrar o status da vaga ao `modelos.status_planejamento`. */
+export function modelosReprovadosDeVagas(
+  criados: { slot_id: string; modelo_id: string }[],
+  statusPorSlot: Record<string, "pendente" | "reprovado" | null | undefined>,
+): string[] {
+  return criados.filter((c) => statusPorSlot[c.slot_id] === "reprovado").map((c) => c.modelo_id);
+}
+
 /** O card SAI da necessidade/Demanda? Reprovado (Dev OU Planejamento) e AINDA NÃO enviado ao corte (o cortado já
  *  consumiu de verdade). */
 export const reprovadoSaiDaDemanda = (

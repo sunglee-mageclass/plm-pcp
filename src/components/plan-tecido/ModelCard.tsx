@@ -105,6 +105,8 @@ export function ModelCard({
   presentesColab,
   onFocoDistribuicao,
   avisoSkuTamanho,
+  statusEfetivo,
+  onStatus,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -163,6 +165,12 @@ export function ModelCard({
   /** "Tamanho em" (N-2 da revisão T4, mesmo aviso da T5): o modelo já tem SKU gerado E o valor foi trocado nesta edição
    *  (rascunho ≠ valor do modelo no servidor) — SKU já gerado não muda sozinho. */
   avisoSkuTamanho?: boolean;
+  /** F2 C — status efetivo da VAGA (pendente/reprovado): sem card = da vaga; com card = DERIVADO do card
+   *  (`statusEfetivoDaVaga`). Alimenta o controle de status no cabeçalho. */
+  statusEfetivo?: "pendente" | "reprovado";
+  /** F2 C — editar o status na vaga. Sem card: grava na vaga (via onChange do slot). Com card: grava no
+   *  `modelos.status_planejamento` (mesmo caminho do BulkEditDialog). undefined = controle não aparece. */
+  onStatus?: (s: "pendente" | "reprovado") => void;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -446,6 +454,27 @@ export function ModelCard({
               </SelectContent>
             </Select>
           </div>
+          {/* F2 C — Status da VAGA (pendente/reprovado). Fora do <button> do toggle (igual à Categoria). Sem card:
+              grava na vaga; com card: reflete/edita o status do produto no Planejamento (status_planejamento). */}
+          {onStatus && (
+            <div className="flex items-center gap-1">
+              <span className="shrink-0 text-[10px] text-muted-foreground">Status</span>
+              <Select
+                value={statusEfetivo ?? "pendente"}
+                disabled={paginaSoLeitura}
+                onValueChange={(v) => { if (v === "pendente" || v === "reprovado") onStatus(v); }}
+              >
+                <SelectTrigger className="h-7 min-w-0 flex-1 text-[11px] max-md:h-11 max-md:text-base"
+                  title={slot.modelo_id ? "Reflete/edita o status do produto no Planejamento" : "Status da vaga"}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="reprovado">Reprovado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {/* pç·m + badges = 2ª área clicável do toggle. */}
           <button
             type="button"
