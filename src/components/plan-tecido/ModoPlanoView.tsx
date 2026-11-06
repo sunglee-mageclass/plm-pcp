@@ -8,7 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtMetros } from "@/lib/plan-tecido/calc";
+import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FotoCarrossel } from "./FotoCarrossel";
@@ -229,9 +229,11 @@ function FaixaModoPlano({
   // mas o nome de artigo NÃO é único no cadastro — dois artigos homônimos (fornecedores
   // diferentes) caem no mesmo nome. Coletamos TODOS os artigos de Tecido 1 do grupo p/ o resumo
   // cobrir todos (não só o 1º), agrupando cada um com seu fornecedor.
-  const tec1ArtigoIds = [...new Set(itens
-    .map((f) => f.slot.materiais.find((m) => m.tipo === "tecido" && m.artigo_id)?.artigo_id)
-    .filter((id): id is string => !!id))];
+  // F1 B2 (dono 06/nov): inclui o tecido SUBSTITUTO (`artigo_ids_extra`), não só o principal — o
+  // resumo passa a contabilizar a cobertura do substituto. Alternativa, não demanda dupla: a RPC de
+  // cobertura devolve linhas por ARTIGO REAL (variante_tecido_id único) e `permitidasT1` filtra pelas
+  // cores realmente usadas, então só entram LINHAS de outros artigos (o PLAN do produto não dobra).
+  const tec1ArtigoIds = artigosTec1DoGrupo(itens);
   const categoriaNome = tec1ArtigoIds[0] ? categoriaNomeDe(tec1ArtigoIds[0]) : null;
 
   // UNIÃO VISUAL das variantes do Tecido 1 do grupo (set/2026): todas as cores que QUALQUER card
@@ -516,7 +518,7 @@ export function ModoPlanoView({
   // com os cards — a RPC de cobertura devolve TODAS as variantes cadastradas do artigo, não só as do grupo.
   const gruposDeArtigos = (artigoIds: string[], permitidas?: Set<string>) => {
     const linhas = artigoIds.flatMap((aid) =>
-      (coberturaPorArtigo.get(aid) ?? []).map((c) => ({ ...c, fornecedor: fornecedorDe(aid) ?? "Sem fornecedor" })));
+      (coberturaPorArtigo.get(aid) ?? []).map((c) => ({ ...c, fornecedor: rotuloGrupoTecido(artigoMap.get(aid)?.nome ?? "Tecido", fornecedorDe(aid)) })));
     const filtradas = permitidas
       ? linhas.filter((c) => permitidas.has(c.variante_tecido_id ?? `label:${(c.label ?? "").trim().toLowerCase()}`))
       : linhas;
