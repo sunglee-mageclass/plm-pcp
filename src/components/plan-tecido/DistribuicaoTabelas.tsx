@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { NumberInput } from "@/components/shared/NumberInput";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { TamanhoTipo } from "@/lib/tamanho";
+import { proximaCelulaTeclado } from "@/lib/plan-tecido/calc";
 import {
   abreviarNome, linhaVista, pathDistBase, pathDistCel, pathDistProp, rotuloTamanho, somaVistas, temDistribuicao,
   type Distribuicao,
@@ -151,12 +152,40 @@ export function DistribuicaoTabelas(p: {
   // por si, não só herdado do <td>), nas DUAS telas (dialog) e na impressão.
   // Dono 26/set ("campos de número deslocados para a esquerda"): o <Input> base é `flex` (bloco) com w-14 — o text-center
   // do <td> não centraliza a CAIXA, só o texto dentro dela; `mx-auto` centraliza a caixa na célula.
-  const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "") =>
+  // F2 D — teclado na grade (só células Base + tamanhos dos blocos loja×cor; a linha de proporção fica de fora).
+  // "Linha" = bloco loja×cor na ordem da tela (loja externa, cor interna); "coluna" 0 = Base, 1.. = tamanhos.
+  // Enter desce / Tab à direita (estoura p/ a próxima linha) / Shift+Tab inverso — decisão em `proximaCelulaTeclado`
+  // (pura, testada). O destino é achado por `data-colab-path` DENTRO da própria tabela e focado num rAF (convive com
+  // o rAF de cursor do NumberInput.onFocus). Sem destino (borda): Tab segue o fluxo nativo do navegador.
+  const nCores = p.cores.length;
+  const nLinhasGrade = p.lojas.length * nCores;
+  const nColunasGrade = 1 + p.tamanhos.length;
+  const caminhoCelula = (linha: number, coluna: number): string | null => {
+    const loja = p.lojas[Math.floor(linha / nCores)];
+    const cor = p.cores[linha % nCores];
+    if (!loja || !cor) return null;
+    return coluna === 0
+      ? pathDistBase(p.slotKey, loja.id, cor.key)
+      : pathDistCel(p.slotKey, loja.id, cor.key, p.tamanhos[coluna - 1]);
+  };
+  const aoTeclar = (linha: number, coluna: number) => (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if ((e.key !== "Enter" && e.key !== "Tab") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const tecla = e.key;
+    const alvo = proximaCelulaTeclado({ tecla, comShift: e.shiftKey, linha, coluna, nLinhas: nLinhasGrade, nColunas: nColunasGrade });
+    const path = alvo ? caminhoCelula(alvo.linha, alvo.coluna) : null;
+    const raiz = e.currentTarget.closest("table") ?? document;
+    const el = path ? raiz.querySelector<HTMLInputElement>(`[data-colab-path="${path}"]`) : null;
+    if (!el) { if (tecla === "Enter") e.preventDefault(); return; }
+    e.preventDefault();
+    requestAnimationFrame(() => el.focus());
+  };
+  const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "", nav?: { linha: number; coluna: number }) =>
     bloqueado ? (
       <span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
     ) : (
       <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path}
         className={`mx-auto h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
+        onKeyDown={nav ? aoTeclar(nav.linha, nav.coluna) : undefined}
         onChange={(e) => onChange(Number(e.target.value) || 0)} />
     );
   const comDist = p.cores.filter((c) => temDistribuicao(p.dists[c.key]));
@@ -189,6 +218,7 @@ export function DistribuicaoTabelas(p: {
   );
   const linhasLoja = (l: LojaDist) => {
     const vistas = p.cores.map((c) => vista(c.key, l.id));
+    const lojaIdx = p.lojas.indexOf(l);
     const sub = somaVistas(vistas, p.tamanhos);
     return (
       <Fragment key={l.id}>
@@ -204,12 +234,12 @@ export function DistribuicaoTabelas(p: {
           return (
             <tr key={c.key} className={l.inativa ? "opacity-60" : ""}>
               <td className={`${COL1} !bg-background`}><NomeCor c={c} impressao={imp} /></td>
-              <td className={TD}>{campo(v.base, (x) => p.onBase?.(c.key, l.id, x), pathDistBase(p.slotKey, l.id, c.key), `Base ${l.nome} ${c.cor}`, "font-semibold")}</td>
-              {p.tamanhos.map((t) => {
+              <td className={TD}>{campo(v.base, (x) => p.onBase?.(c.key, l.id, x), pathDistBase(p.slotKey, l.id, c.key), `Base ${l.nome} ${c.cor}`, "font-semibold", { linha: lojaIdx * nCores + i, coluna: 0 })}</td>
+              {p.tamanhos.map((t, ti) => {
                 const cel = v.celulas[t];
                 return (
                   <td key={t} className={`${TD} relative ${esmaecido(t)}`}>
-                    {campo(cel.valor, (x) => p.onCel?.(c.key, l.id, t, x), pathDistCel(p.slotKey, l.id, c.key, t), `${l.nome} ${c.cor} ${rotuloTamanho(t, p.tipo)}`)}
+                    {campo(cel.valor, (x) => p.onCel?.(c.key, l.id, t, x), pathDistCel(p.slotKey, l.id, c.key, t), `${l.nome} ${c.cor} ${rotuloTamanho(t, p.tipo)}`, "", { linha: lojaIdx * nCores + i, coluna: ti + 1 })}
                     {cel.manual && (imp ? (
                       <span aria-hidden> •</span>
                     ) : (

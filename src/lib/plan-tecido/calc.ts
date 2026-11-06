@@ -105,6 +105,35 @@ export function statusEfetivoDaVaga(slot: PtSlot, reprovadoDoCard: boolean): "pe
   return slot.status === "reprovado" ? "reprovado" : "pendente";
 }
 
+/** Filtro de status do Plan. Tecido (F2 D). "sem_reprovado" (DEFAULT) esconde so a EXIBICAO das vagas/cards
+ *  reprovados (status efetivo via `statusEfetivoDaVaga` -> `ehReprovadoStatus`, fonte unica); flagados e pendentes
+ *  aparecem. "todos" nao filtra. Nunca apaga dado — quem chama so poda o que renderiza. */
+export function slotPassaFiltroStatus(
+  slot: PtSlot, reprovadoDoCard: boolean, modo: "todos" | "sem_reprovado",
+): boolean {
+  if (modo === "todos") return true;
+  return statusEfetivoDaVaga(slot, reprovadoDoCard) !== "reprovado";
+}
+
+/** Navegacao por teclado na grade do dialog "Distribuir por loja" (F2 D). "Linhas" = blocos loja x cor, em ordem de
+ *  tela; "colunas" = Base + tamanhos (a linha de proporcao fica de fora). Enter desce (mesma coluna; Shift+Enter
+ *  sobe); Tab anda a direita e estoura para a 1a coluna da proxima linha (Shift+Tab inverso). `null` = sem destino
+ *  (borda da grade) — quem chama deixa o navegador seguir o fluxo natural. */
+export function proximaCelulaTeclado(a: {
+  tecla: "Enter" | "Tab"; comShift: boolean; linha: number; coluna: number; nLinhas: number; nColunas: number;
+}): { linha: number; coluna: number } | null {
+  const { linha: l0, coluna: c0, nLinhas, nColunas } = a;
+  if (nLinhas <= 0 || nColunas <= 0 || l0 < 0 || l0 >= nLinhas || c0 < 0 || c0 >= nColunas) return null;
+  if (a.tecla === "Enter") {
+    const linha = l0 + (a.comShift ? -1 : 1);
+    return linha >= 0 && linha < nLinhas ? { linha, coluna: c0 } : null;
+  }
+  let linha = l0, coluna = c0 + (a.comShift ? -1 : 1);
+  if (coluna >= nColunas) { linha += 1; coluna = 0; }
+  else if (coluna < 0) { linha -= 1; coluna = nColunas - 1; }
+  return linha >= 0 && linha < nLinhas ? { linha, coluna } : null;
+}
+
 /** Transicao vaga->card (F2 C): dos cards recem-criados, quais herdam "reprovado" (so os de vaga que estava
  *  reprovada). Usado apos `plan_tecido_criar_cards` para migrar o status da vaga ao `modelos.status_planejamento`. */
 export function modelosReprovadosDeVagas(

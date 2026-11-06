@@ -36,12 +36,13 @@ import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte, statusEfetivoDaVaga, modelosReprovadosDeVagas } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte, statusEfetivoDaVaga, modelosReprovadosDeVagas, slotPassaFiltroStatus } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
 import { InfoHover } from "@/components/shared/InfoHover";
@@ -321,6 +322,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // Set vazio = Todos; `null` no set = "Sem categoria"; ids = categorias. MULTI (dono, ago/2026) —
   // os chips antigos (single) misturavam categorias sem card nenhum e davam lista vazia.
   const [catFilters, setCatFilters] = useState<Set<string | null>>(new Set());
+  // F2 D — filtro de status (SÓ da exibição; nada é apagado do estado/rascunho): default "todos menos reprovado".
+  const [filtroStatus, setFiltroStatus] = useState<"todos" | "sem_reprovado">("sem_reprovado");
   const [addCatOpen, setAddCatOpen] = useState(false);
   const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
   // G6 (criar em massa) / G5 (pedido por seleção) — confirmação e progresso das 2 ações novas
@@ -2059,7 +2062,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         ) : subAtual ? (() => {
           const sub = subAtual;
           const subArvore: PtArvore = { ...arvore, subcolecoes: [sub] };
-          const flat = sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, li, sli, chave: chaveSlot(slot.id, subAtiva, li, sli) })));
+          // F2 D: poda SÓ a exibição (lanes/Modo Plano). `sub`/`subArvore` seguem completos (Resumo, Drawer, save).
+          const passaStatus = (slot: PtSlot) => slotPassaFiltroStatus(slot, slot.modelo_id ? reprovadoStatusSet.has(slot.modelo_id) : false, filtroStatus);
+          const flat = sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, li, sli, chave: chaveSlot(slot.id, subAtiva, li, sli) })))
+            .filter((f) => passaStatus(f.slot));
           // Lanes = UNIÃO das categorias declaradas (categorias_tecido, incl. lanes vazias criadas à
           // mão) + as categorias AUTO presentes nos slots (Tecido 1). Sem a união, um card
           // auto-categorizado numa categoria fora de categorias_tecido não renderia em lane nenhuma.
@@ -2304,6 +2310,17 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Vale no modo
                         Família PURO (sem Mix aninhado) E no MODO PLANO (que agrupa por nome de tecido,
                         cada nome pertence a uma família — o filtro por família continua fazendo sentido). */}
+                    {/* F2 D — filtro de status: default "Todos menos reprovado" (flagados aparecem; reprovados somem da
+                        VISTA, sem apagar nada). "Todos" mostra tudo. */}
+                    <Select value={filtroStatus} onValueChange={(v) => setFiltroStatus(v as "todos" | "sem_reprovado")}>
+                      <SelectTrigger aria-label="Filtro de status" className="h-9 w-auto min-w-[10.5rem] gap-1 text-sm max-sm:min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sem_reprovado">Todos menos reprovado</SelectItem>
+                        <SelectItem value="todos">Todos</SelectItem>
+                      </SelectContent>
+                    </Select>
                     {((groupByCategoria && !groupByMix) || modoPlano) && (
                       <CategoriaTecidoFilter
                         cats={cats}
@@ -2348,13 +2365,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     // No Modo Plano o canvas normal (laneCats) não roda — então o filtro por família
                     // de tecido é aplicado AQUI, podando os slots cuja categoria_tecido_id não está
                     // selecionada, antes de a view agrupar por nome (set/2026). Set vazio = tudo.
-                    arvore={catFilters.size === 0 ? subArvore : {
+                    arvore={filtroStatus === "todos" && catFilters.size === 0 ? subArvore : {
                       ...subArvore,
                       subcolecoes: subArvore.subcolecoes.map((s) => ({
                         ...s,
                         linhas: s.linhas.map((l) => ({
                           ...l,
-                          slots: l.slots.filter((sl) => catFilters.has(sl.categoria_tecido_id ?? null)),
+                          slots: l.slots.filter((sl) => passaStatus(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))),
                         })),
                       })),
                     }}
