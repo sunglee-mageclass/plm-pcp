@@ -385,6 +385,9 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
         if (TAMANHO_EM[f.arq] && md5OuSucessorS3c(f.fn, TAMANHO_EM[f.arq]).slice(1).includes(md5(d))) continue;
         // Reforço de segurança S3d (20261101190000, B3) redefine _salvar_plan_tecido_core por cima de "Tamanho em" — sucessor aceito
         if (TAMANHO_EM[f.arq] && md5OuSucessorS3d(f.fn, TAMANHO_EM[f.arq]).slice(1).includes(md5(d))) continue;
+        // F1 A2 (20261111100000, "oculta" por slot) redefine _salvar_plan_tecido_core e _plan_tecido_arvore_core por cima — sucessor aceito
+        // (o corpo da F1 é o texto vivo + só a coluna oculta; lido do arquivo dela, nunca de um md5 solto)
+        if ((f.arq === "salvar" || f.arq === "arvore") && d === corpo("supabase/migrations/20261111100000_plan_tecido_variante_oculta.sql", f.cria) + "\n") continue;
         // Reforço de segurança S1 (20261031150000, OPT-1) redefine tenant_module_enabled por cima ('etapas_pl') — sucessor aceito
         if (f.fn === "public.tenant_module_enabled(text)" && md5(d) === S1_MD5["public.tenant_module_enabled(text)"].depois) continue;
         expect(d, f.arq).toBe(corpo(MIG, f.cria) + "\n");

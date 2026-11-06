@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { hasDb, ehBancoLocal, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 
 async function ligarCriacao(c: any) {
   await c.query(
@@ -96,6 +96,35 @@ describe.skipIf(!hasDb)("plan_tecido — salvar + ler árvore", () => {
       const arv = (await um<{ a: any }>(c, `select public.plan_tecido_arvore($1) a`, [col.id])).a;
       const m = arv.subcolecoes[0].linhas[0].slots[0].materiais[0];
       expect(Number(m.consumo) * Number(m.variantes[0].grade_total) * Number(m.variantes[0].multiplicador)).toBe(100);
+    });
+  });
+
+  it("F1 A2: oculta por slot persiste no save e volta na árvore; não afeta outro slot; ausente = false", async () => {
+    if (!ehBancoLocal()) return; // coluna nova (DDL): só na cópia local até o deploy
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await ligarCriacao(c);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-PT-OCULTA','rascunho') returning id`, []);
+      const av = await um<{ art: string; var: string } | undefined>(
+        c, `select a.id art, v.id var from variantes_tecido v join artigos a on a.id=v.artigo_id where a.tenant_id=$1 limit 1`, [TENANT_TESTE]);
+      if (!av) return;
+      const slotCom = (idx: number, oculta?: boolean, gt = 0) => ({ modelo_id: null, slot_index: idx, custos_adicionais: [], materiais: [
+        { artigo_id: av.art, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+          variantes: [{ variante_tecido_id: av.var, ordem: 1, multiplicador: 1, grades: {}, grade_total: gt, ...(oculta === undefined ? {} : { oculta }) }] }] });
+      // slot 0: cor OCULTA; slot 1: mesma cor visível (com peças) e SEM a chave `oculta` (save antigo); slot 2: oculta=false explícito
+      const arvore = { subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0,
+        slots: [slotCom(0, true), slotCom(1, undefined, 30), slotCom(2, false, 5)] }] }] };
+      await um(c, `select public.salvar_plan_tecido($1,$2::jsonb) id`, [col.id, JSON.stringify(arvore)]);
+      const arv = (await um<{ a: any }>(c, `select public.plan_tecido_arvore($1) a`, [col.id])).a;
+      const vs = arv.subcolecoes[0].linhas[0].slots.map((s: any) => s.materiais[0].variantes[0]);
+      expect(vs[0].oculta).toBe(true);
+      expect(vs[1].oculta).toBe(false);
+      expect(vs[1].grade_total).toBe(30); // outro slot do mesmo tecido intacto
+      expect(vs[2].oculta).toBe(false);
+      // re-salvar a árvore lida preserva a flag (round-trip estável)
+      await um(c, `select public.salvar_plan_tecido($1,$2::jsonb) id`, [col.id, JSON.stringify(arv)]);
+      const arv2 = (await um<{ a: any }>(c, `select public.plan_tecido_arvore($1) a`, [col.id])).a;
+      expect(arv2.subcolecoes[0].linhas[0].slots.map((s: any) => s.materiais[0].variantes[0].oculta)).toEqual([true, false, false]);
     });
   });
 });
