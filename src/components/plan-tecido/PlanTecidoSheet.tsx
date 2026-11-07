@@ -280,6 +280,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // senão o seed velho repintava o valor antigo por um instante; ver `autoAplicarDirty`).
   const arvoreSalvaRef = useRef<PtArvore | null>(null);
   const tamanhoSalvoRef = useRef<Map<string, "letra" | "numero">>(new Map());
+  // F2 fix-linha-persist: `modelos.linha_id` gravado pelo Salvar (card real cuja LANE tem linha e difere do cache dos modelos).
+  // O seed coloca o card pela `modelos.linha_id` — sem refrescar o cache dos modelos antes de o eco desligar, a re-semeadura
+  // devolveria o card à lane antiga por um instante. Consome em `autoAplicarDirty` (mesmo mecanismo do `tamanhoSalvoRef`).
+  const linhaSalvaRef = useRef<Map<string, string>>(new Map());
   // Fix M-3 (revisão T4): a base ANTES do Salvar (o `onSuccess` troca `planBaseRef` pela árvore salva) — o auto-aplicar
   // compara com ela para pular o slot cuja ÚNICA mudança foi o "Tamanho em".
   const baseAntesDoSaveRef = useRef<PtArvore | null>(null);
@@ -1069,7 +1073,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     // senão a re-semeadura repinta o valor antigo do modelo (com card, o seed vence no merge). Consome a lista.
     const tamanhoNovo = tamanhoSalvoRef.current;
     tamanhoSalvoRef.current = new Map();
-    const esperarTamanho = tamanhoNovo.size > 0 ? invalidarTamanhoNoModelo(tamanhoNovo) : Promise.resolve();
+    const linhaNova = linhaSalvaRef.current;
+    linhaSalvaRef.current = new Map();
+    const esperarTamanho = Promise.all([
+      tamanhoNovo.size > 0 ? invalidarTamanhoNoModelo(tamanhoNovo) : Promise.resolve(),
+      linhaNova.size > 0 ? invalidarLinhaNoModelo(linhaNova) : Promise.resolve(),
+    ]).then(() => undefined);
     const arv = arvoreLiveRef.current;
     if (!arv || touchedIds.size === 0) { await esperarTamanho; return; }
     const alvos: { slotId: string; modeloId: string; nome: string; materiais: unknown }[] = [];
@@ -1132,6 +1141,21 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     await qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
   };
 
+  // F2 fix-linha-persist: `modelos.linha_id` gravado pelo Salvar (a LANE do card real). Mesma ordem do `invalidarTamanhoNoModelo`:
+  // espera a árvore salva, aplica o valor no cache dos modelos (o seed já nasce certo) e busca de novo. Quem chama espera
+  // antes de desligar o eco do save.
+  const invalidarLinhaNoModelo = async (nova: ReadonlyMap<string, string>) => {
+    await qc.refetchQueries({ queryKey: ["plan-tecido-arvore", colecaoId] }, { cancelRefetch: false });
+    qc.setQueryData<any[]>(["plan-tecido-modelos", colecaoId], (old) =>
+      old?.map((m) => (nova.has(m.id) ? { ...m, linha_id: nova.get(m.id) } : m)));
+    void qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    for (const mid of nova.keys()) {
+      void qc.invalidateQueries({ queryKey: ["modelo", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-detail", mid] });
+    }
+    await qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
+  };
+
   // Confirma a sobrescrita (esvaziar/zerar) dos slots pendentes → re-aplica com _confirmar_sobrescrita.
   const confirmarSobrescrita = async () => {
     const pend = sobrescritaPendentes ?? [];
@@ -1182,6 +1206,15 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       for (const sub of marca.local.subcolecoes) for (const ln of sub.linhas) for (const sl of ln.slots)
         if (sl.modelo_id && tocados.has(sl.modelo_id) && sl.tamanho_tipo) novo.set(sl.modelo_id, sl.tamanho_tipo);
       tamanhoSalvoRef.current = novo;
+      // F2 fix-linha-persist: o servidor grava `modelos.linha_id = linha da LANE` p/ card real (só se mudou). Espelha aqui
+      // só os que diferem do cache dos modelos (o resto não precisa de refetch extra).
+      const modelosCache = qc.getQueryData<any[]>(["plan-tecido-modelos", colecaoId]) ?? [];
+      const linhaDoCache = new Map<string, string | null>(modelosCache.map((m) => [m.id, m.linha_id ?? null]));
+      const linhaNova = new Map<string, string>();
+      for (const sub of marca.local.subcolecoes) for (const ln of sub.linhas) for (const sl of ln.slots)
+        if (ln.linha_id && sl.modelo_id && linhaDoCache.has(sl.modelo_id) && linhaDoCache.get(sl.modelo_id) !== ln.linha_id)
+          linhaNova.set(sl.modelo_id, ln.linha_id);
+      linhaSalvaRef.current = linhaNova;
     },
     onSuccess: () => {
       // CAPTURA os slots que editei ANTES de zerar o touched — o auto-aplicar (regra do dono, bug #9)

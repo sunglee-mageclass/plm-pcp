@@ -644,8 +644,8 @@ const slotOrfaoTemDados = (s: PtSlot): boolean =>
 // tem posição própria via savedByModelo (a colocação viva vence, regra a.1); sem esse filtro, um
 // modelo que se moveu para OUTRO bucket apareceria DUAS vezes (uma na posição viva, outra
 // "preservado" na posição órfã antiga).
-// F2 fix-linha: o slot salvo NÃO traz `linha_id` (a RPC não o devolve) — a linha dele é a da LANE (o seed força isso no
-// passo 3 para as vagas do seed). Slots que o merge preserva fora do seed (sobra/lane órfã), p.ex. uma vaga MOVIDA pelo
+// F2 fix-linha: a linha de um slot é a da LANE (o seed força isso no passo 3 para as vagas do seed; a RPC passou a devolver
+// `linha_id` no slot — fix-linha-persist —, mas um save ANTIGO/vaga órfã pode vir sem ele). Slots que o merge preserva fora do seed (sobra/lane órfã), p.ex. uma vaga MOVIDA pelo
 // seletor de Linha, recebem o `linha_id` da lane, senão o seletor mostraria "—" ao reabrir.
 const comLinhaDaLane = (l: { linha_id: string | null }, slots: PtSlot[]): PtSlot[] =>
   l.linha_id ? slots.map((s) => (s.linha_id === l.linha_id ? s : { ...s, linha_id: l.linha_id })) : slots;
@@ -692,9 +692,10 @@ function mesclarSlot(slot: PtSlot, saved: PtSlot, liveByModelo: Map<string, PtSl
     // reabrir, e uma categorização manual do usuário é preservada.
     categoria_tecido_id: saved.categoria_tecido_id ?? slot.categoria_tecido_id,
     // linha_id (L-R2-1, hardening): mesma regra do categoria_id — só o seed vence se o modelo
-    // MOVEU pra um bucket sem par. Hoje `_plan_tecido_arvore_core` NÃO retorna `linha_id` no
-    // slot (`saved.linha_id` é sempre undefined na prática, então isso não muda nada agora),
-    // mas blinda contra uma regressão futura se a RPC um dia passar a devolver o campo.
+    // MOVEU pra um bucket sem par. F2 fix-linha-persist: `_plan_tecido_arvore_core` agora DEVOLVE `linha_id` no slot
+    // (card real = `modelos.linha_id`, que o Salvar grava = linha da LANE; vaga = a lane). Em regime o salvo e o seed
+    // (que coloca o card pela mesma `modelos.linha_id`) coincidem; se o cache dos modelos estiver velho (`moveu`), o seed
+    // vence para o card ficar na lane em que o seed o colocou (o Sheet refresca o cache antes de desligar o eco do Salvar).
     linha_id: (slot.modelo_id && moveu) ? (slot.linha_id ?? saved.linha_id) : (saved.linha_id ?? slot.linha_id),
     // markup_editado é congelado NO MODELO (modelos.markup_editado, invariante do banco) —
     // o seed (`slot`, sempre o modelo vivo) VENCE sempre, nunca o snapshot salvo do plano

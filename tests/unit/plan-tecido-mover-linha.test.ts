@@ -126,3 +126,30 @@ describe("re-seed mantem o slot movido na lane escolhida (F2 fix-linha)", () => 
     expect(festa.slots[0].linha_id).toBe("festa");
   });
 });
+
+describe("card REAL reabre na lane da sua modelos.linha_id (F2 fix-linha-persist)", () => {
+  const buckets = [
+    { subcolecao_id: "s1", linha_id: "estampado", categoria_id: null, qtd: 1 },
+    { subcolecao_id: "s1", linha_id: "casual", categoria_id: null, qtd: 1 },
+  ];
+  const mr = (linha_id: string) => ({ id: "M1", subcolecao_id: "s1", linha_id, nome: "Vestido", ref: "R1", materiais: [] });
+  const seedCom = (linha_id: string) =>
+    semearComModelos({ colecao_id: "c", tipo: "poder_venda", buckets, modelos: [mr(linha_id)] } as any);
+  const cards = (a: PtArvore) =>
+    a.subcolecoes[0].linhas.flatMap((l) => l.slots.filter((s) => s.modelo_id === "M1").map(() => l.linha_id));
+
+  it("depois do Salvar (modelos.linha_id=casual) + arvore do servidor com slot.linha_id=casual: o card reabre em Casual, uma vez so", () => {
+    // arvore devolvida pelo servidor: o card na lane Casual, agora COM linha_id no slot
+    const salvo = JSON.parse(JSON.stringify(seedCom("casual"))) as PtArvore;
+    for (const ln of salvo.subcolecoes[0].linhas) for (const sl of ln.slots) if (sl.modelo_id === "M1") sl.linha_id = "casual";
+    const merged = mergeArvore(seedCom("casual"), salvo);
+    expect(cards(merged)).toEqual(["casual"]);
+    const sl = merged.subcolecoes[0].linhas.flatMap((l) => l.slots).find((s) => s.modelo_id === "M1")!;
+    expect(sl.linha_id).toBe("casual");
+  });
+
+  it("sem o fix (modelos.linha_id velha=estampado) o seed recolocava o card na lane velha - e o que o servidor passa a evitar", () => {
+    const merged = mergeArvore(seedCom("estampado"), null);
+    expect(cards(merged)).toEqual(["estampado"]);
+  });
+});
