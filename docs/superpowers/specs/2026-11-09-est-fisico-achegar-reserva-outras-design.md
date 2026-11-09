@@ -1,8 +1,12 @@
-# EST = físico + a-chegar − reserva de OUTRAS coleções (Plan. Tecido)
+# EST = físico + a-chegar − reserva de OUTRAS coleções + resumo AO VIVO (Plan. Tecido)
 
 > Desenho para aprovação do dono ANTES de qualquer código. Frente de RISCO ALTO: mexe na
 > conta de COMPRA da RPC viva `_plan_tecido_previa_pedido_core`, com tecido compartilhado
 > entre coleções. NÃO toca o `_estoque_tecido_core` (SSOT, invariante #4).
+>
+> **Duas mudanças na mesma RPC (dono 09/nov):** (1) o EST passa a ser físico + a-chegar − reserva
+> de outras coleções; (2) o resumo lateral recalcula AO VIVO sobre o rascunho não-salvo (hoje só
+> atualiza depois do Salvar). As duas compartilham a prévia, por isso vão juntas.
 
 ## Problema (relatado pelo dono, 09/nov)
 
@@ -53,6 +57,8 @@ comprarem a menos do mesmo tecido compartilhado).
    coberto por anti-drift.
 5. **Hover do EST = 3 linhas:** "Disponível (real): X / A chegar (pedido): Y / Reservado por
    outras coleções: Z". O EST = X + Y − Z fica explícito.
+6. **Resumo lateral AO VIVO:** o resumo recalcula sobre o rascunho não-salvo (linha nova + EST, SOB,
+   COMPR corretos) ANTES do Salvar — hoje só atualiza depois de salvar (ver Parte 5).
 
 ## Contexto do código (mapeado, read-only)
 
@@ -157,6 +163,39 @@ quantidade muda, provar que não compra a menos em loja com tecido não comparti
 vinculado (`rolo_supply`) e OC já vinculada (já no `previsto`/`prev_receb`) seguem abatendo UMA vez
 só — nunca 2×.
 
+### Parte 5 — resumo lateral AO VIVO sobre o rascunho (dono 09/nov)
+
+**Problema:** hoje o resumo lateral (Modo Plano) lê de `plan_tecido_previa_pedido(_colecao_id)`, que
+calcula tudo do estado SALVO no banco. Por isso cor/item novo só aparece no resumo DEPOIS do Salvar.
+O dono quer ver a linha nova E os números (EST, SOB, COMPR) corretos ANTES de salvar.
+
+**Arquitetura escolhida (opção B — combinação cliente+servidor; a mais barata e segura):** separar o
+que muda com o rascunho do que não muda.
+
+- **A NECESSIDADE (PLAN) é calculada no CLIENTE, ao vivo, do rascunho.** O `calc.ts` já tem
+  `necessidadeVariante(consumo, grade_total, multiplicador)` — a MESMA fórmula do `nec_m` do servidor.
+  Então, ao adicionar/editar cor/consumo/grade, o PLAN por variante recalcula na hora, sem ida ao
+  servidor.
+- **O ESTOQUE e a RESERVA DE OUTRAS coleções vêm do SERVIDOR, por variante, e NÃO dependem do
+  rascunho** (são estado do banco). A prévia passa a expor por variante: `fisico_m`, `prev_receb_m`,
+  `reserva_outras_m` (já na Parte 2). Esses ficam em cache (React Query) e só reconsultam quando o
+  estoque/OC muda de verdade — não a cada tecla.
+- **O FRONT COMBINA ao vivo:** `EST_livre = fisico_m + prev_receb_m − reserva_outras_m` (servidor);
+  `PLAN = Σ necessidadeVariante do rascunho` (cliente); `SOB = max(0, EST_livre − PLAN)`;
+  `COMPR = max(0, PLAN − EST_livre)`. Tudo recalcula ao editar, sem Salvar.
+
+**Por que B e não "mandar o rascunho inteiro pra RPC a cada tecla" (opção A):** a parte que muda ao
+editar (necessidade) já é calculável no cliente; só o estoque/reserva precisa do servidor e NÃO
+muda com o rascunho. B evita mandar a árvore inteira a cada edição e evita debounce de rede.
+
+**Fonte única preservada:** a necessidade do cliente (`necessidadeVariante`) e a do servidor (`nec_m`)
+são a MESMA fórmula — anti-drift já exigido no Plan. Tecido garante isso. A reserva de outras e o
+estoque seguem só no servidor. O resumo ao vivo NÃO reimplementa estoque/reserva no cliente.
+
+**Limite consciente:** enquanto o rascunho não é salvo, a reserva de OUTRAS coleções não "enxerga"
+as mudanças deste rascunho (elas ainda não existem no banco) — o que é correto: o rascunho não-salvo
+não reserva nada ainda. Ao salvar, a reserva se materializa e o servidor reconsulta.
+
 ## O que NÃO entra
 
 - Não tocar o `_estoque_tecido_core` nem nenhum outro consumidor dele (estoque, dashboard, detalhe).
@@ -195,7 +234,13 @@ só — nunca 2×.
   - Cortado desta coleção não reserva (core e prévia batem).
   - **Anti-drift:** `Σ_colecoes reserva_desta = reservado_total` por variante (tol. 0,0001).
   - Se (4b): `deficit_m`/`qtd` novos = `max(0, nec − livre_m)` provados contra casos de compra.
+- **Resumo ao vivo (Parte 5):**
+  - Unit: ao adicionar cor/consumo/grade no rascunho, o PLAN por variante recalcula no cliente e o
+    EST/SOB/COMPR combinam com `fisico_m`/`prev_receb_m`/`reserva_outras_m` do servidor, SEM salvar.
+  - Anti-drift: a `necessidadeVariante` do cliente = `nec_m` do servidor para o mesmo rascunho salvo.
+  - A linha nova aparece no resumo antes do Salvar; ao salvar, o servidor confirma os mesmos números.
 - **QA na prévia (localhost:5190):** o caso do forro KOLONA SPANDEX passa a mostrar EST coerente com
-  o hover (3 linhas); o dono confere antes do deploy.
+  o hover (3 linhas); adicionar uma cor nova mostra a linha e os números no resumo ANTES de salvar;
+  o dono confere antes do deploy.
 - `npm run build` + `tsc --noEmit`; code-reviewer; guardião (migration em RPC viva de compra).
 - Banco ANTES do site (a prévia nova expõe chaves que o front novo lê).
