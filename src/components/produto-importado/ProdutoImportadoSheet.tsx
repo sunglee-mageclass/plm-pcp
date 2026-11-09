@@ -276,6 +276,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
 }) {
   const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
   const [subAtual, setSubAtual] = useState<{ id: string | null; nome: string | null } | null>(null);
+  // F4a T5 — filtro "Status" do canvas (mesmo descritor do Plan. Tecido/Produto Acabado): default OCULTA reprovados (Dev OU
+  // Planejamento); "todos" revela. Só decide o que RENDERIZA — o Salvar segue sobre `drafts`, nada é apagado.
+  const [filtroStatus, setFiltroStatus] = useState<"todos" | "sem_reprovado">("sem_reprovado");
   const [drafts, setDrafts] = useState<ProdutoImportadoDraft[]>([]);
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [novoOpen, setNovoOpen] = useState(false);
@@ -1110,7 +1113,13 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   });
   const salvar = () => salvarMut.mutate();
 
-  const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
+  // Todos os produtos da subcoleção (sem poda) e a vista PODADA pelo filtro Status. Produto sem card (modelo_id null) nunca é
+  // reprovado (espelho null → passa). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido do rodapé) lê a vista
+  // podada; o Resumo lê a lista COMPLETA (o que foi planejado/comprado não muda por um filtro de tela).
+  const produtosSubTodos = subAtual ? produtosDeSub(subAtual.nome) : [];
+  const produtosSub = produtosSubTodos.filter((p) => passaFiltroStatusCard(
+    { status_desenvolvimento: p.modeloStatusDev, status_planejamento: p.modeloStatusPlan }, filtroStatus));
+  const nReprovadosOcultos = produtosSubTodos.length - produtosSub.length;
   const pecasSub = produtosSub.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
 
   // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
@@ -1128,6 +1137,17 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
 
   // Recolher/expandir TODOS os cards (RecolherMenu). `todosRecolhidos` = nenhum aberto.
   const idsSub = produtosSub.map((d) => d.id!).filter(Boolean);
+  // F4a: um card SELECIONADO que vira reprovado (pelo selo, ou por outra pessoa via Realtime) some da vista podada — mas
+  // continuaria em `selecao`, entrando por engano em "Fazer pedido"/"Replicar"/"Criar card" dos selecionados (fura a regra
+  // "reprovado oculto não entra na compra"). Poda a seleção pelos visíveis quando a vista muda (mesmo fix do Produto Acabado).
+  useEffect(() => {
+    const visiveis = new Set(idsSub);
+    setSelecao((atual) => {
+      if ([...atual].every((id) => visiveis.has(id))) return atual; // nada a podar — mantém a referência
+      return new Set([...atual].filter((id) => visiveis.has(id)));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsSub.join("|")]);
   const todosRecolhidos = idsSub.every((id) => !openCards.has(id));
   const toggleTodos = () => setOpenCards(todosRecolhidos ? new Set(idsSub) : new Set());
   // Recolher/expandir TODAS as lanes (agrupamentos). `todasSecoesRecolhidas` = todas recolhidas.
@@ -1316,7 +1336,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
                     <ResumoImportadoPanel
-                      produtos={produtosSub}
+                      produtos={produtosSubTodos}
                       bucket={bucketAtual}
                       nivelMacro={nivelMacro}
                       categorias={categorias}
@@ -1340,12 +1360,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                   {/* Resumo no MOBILE: rail/aside somem (`hidden md:flex`) — este botão abre o
                       mesmo painel num Sheet lateral esquerdo (só existe < md). */}
                   <div className="flex items-center gap-2 md:hidden">
-                    <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {pecasSub} pç</span>
+                    <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {pecasSub} pç{nReprovadosOcultos > 0 ? ` · ${nReprovadosOcultos} reprovado(s) oculto(s)` : ""}</span>
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setResumoMobileOpen(true)}>
                       <PanelLeft className="h-3.5 w-3.5" /> Resumo
                     </Button>
                   </div>
-                  <span className="hidden text-sm text-muted-foreground md:inline">{produtosSub.length} produto(s) · {pecasSub} pç</span>
+                  <span className="hidden text-sm text-muted-foreground md:inline">{produtosSub.length} produto(s) · {pecasSub} pç{nReprovadosOcultos > 0 ? ` · ${nReprovadosOcultos} reprovado(s) oculto(s)` : ""}</span>
                   <div className="flex items-center gap-2">
                     {produtosSub.length > 0 && (
                       <RecolherMenu
@@ -1355,6 +1375,21 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                         onToggleCards={toggleTodos}
                       />
                     )}
+                    <FilterButton
+                      screen="produto-importado-canvas"
+                      filters={[{
+                        label: "Status",
+                        single: true,
+                        value: filtroStatus,
+                        emptyValue: "sem_reprovado",
+                        // Trocar o filtro limpa a seleção: um card marcado e agora oculto não pode entrar em "Fazer pedido"/"Replicar".
+                        onChange: (v) => { setFiltroStatus(v as "todos" | "sem_reprovado"); setSelecao(new Set()); },
+                        options: [
+                          { id: "sem_reprovado", nome: "Todos menos reprovado" },
+                          { id: "todos", nome: "Todos" },
+                        ],
+                      }]}
+                    />
                     <AgrupamentoButton groups={[
                       { label: "Grupo", active: agrupar.grupo, onToggle: () => setAgrupar({ grupo: !agrupar.grupo }) },
                       { label: "Categoria", active: agrupar.categoria, onToggle: () => setAgrupar({ categoria: !agrupar.categoria }) },
@@ -1373,7 +1408,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                 <div className="space-y-4">
                   {produtosSub.length === 0 && (
                     <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                      Nenhum produto importado nesta subcoleção ainda — clique em "Novo produto".
+                      {produtosSubTodos.length > 0
+                        ? `Todos os ${produtosSubTodos.length} produto(s) desta subcoleção estão reprovados e ocultos — use o filtro Status › Todos para vê-los.`
+                        : 'Nenhum produto importado nesta subcoleção ainda — clique em "Novo produto".'}
                     </div>
                   )}
                   {/* Nenhum checkbox marcado → lista plana "Todos", sem lanes. */}
@@ -1572,7 +1609,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             </div>
             <div className="flex-1 overflow-y-auto p-3">
               <ResumoImportadoPanel
-                produtos={produtosSub}
+                produtos={produtosSubTodos}
                 bucket={bucketAtual}
                 nivelMacro={nivelMacro}
                 categorias={categorias}
