@@ -117,22 +117,45 @@ A prévia ganha 3 chaves novas por linha de `cobertura`, SEM remover nenhuma exi
 - **Hover do EST (3 linhas):** "Disponível (real): `fisico_m` / A chegar (pedido): `prev_receb_m` /
   Reservado por outras coleções: `reserva_outras_m`".
 
-### Parte 4 — o FazerPedidoWizard (a conta de compra) — DECISÃO
+### Parte 4 — o FazerPedidoWizard (a conta de compra) — DECIDIDO (4b, dono 09/nov)
 
-Este é o ponto que decide se a mudança é "só visual" ou "muda o que se compra". Duas interpretações
-possíveis da intenção do dono, a resolver com ele ANTES do plano:
+A mudança NÃO é só visual: **a compra sugerida também passa a usar a conta nova**. Decisão do dono
+(09/nov): "mudar os dois — EST exibido E a compra sugerida".
 
-- **(4a) Só o Modo Plano muda; a OC segue pelo `deficit_m` de hoje.** Menor risco: o número
-  comprado não muda, só a coluna EST exibida fica intuitiva. Mas EST e "o que o wizard compra"
-  passam a divergir (o EST mostra `livre_m`, o wizard usa `deficit_m`), o que pode confundir.
-- **(4b) A compra também passa a usar `COMPR = max(0, PLAN − livre_m)`.** Coerente: o que a coluna
-  COMPR mostra é o que o wizard pré-preenche. Mas muda a quantidade de compra de verdade — é a
-  mudança de maior impacto, e precisa da prova multi-loja mais cuidadosa.
+**⚠️ Descoberta técnica (09/nov) — a correção é MAIS cirúrgica do que "deficit = nec − livre":**
+o `deficit_m` de HOJE **não parte do `estoque_m`/`previsto`**. Ele parte da necessidade e desconta
+**OC própria/não-própria + rolo próprio/não-próprio** (menos a necessidade dos slots não
+selecionados):
+```
+deficit_m = max(0, nec
+  − crédito_próprio (OC própria + rolo próprio − nec dos slots não selecionados)
+  − OC não-própria
+  − rolo não-próprio)
+```
+Ou seja: a conta de compra já está, em parte, protegida — ela desconta OC/rolo, não o `previsto`
+contaminado pela reserva. O defeito do dono está em `estoque_m` (que usa `previsto` e desconta a
+reserva da própria coleção), NÃO necessariamente em `deficit_m`.
 
-> **Recomendação:** (4b), porque o pedido do dono nasceu de "o EST está errado → quanto comprar
-> está errado"; fazer o EST certo e deixar a compra na conta antiga manteria a incoerência. Mas a
-> escolha é do dono e é uma pergunta explícita do plano. Se (4b), `deficit_m`/`qtd` passam a derivar
-> de `livre_m`; se (4a), ficam como estão e só as 3 chaves novas alimentam a exibição.
+**Por isso, a reconciliação do `deficit_m` exige INVESTIGAÇÃO na cópia local ANTES do plano fechar:**
+é preciso rastrear se, e onde, a reserva da própria coleção contamina o déficit (via `estoque_m`
+usado em algum ponto do fluxo de compra, ou via a cobertura não-própria). Duas sub-opções a
+confirmar com o dado real:
+- **(4b-i)** o `estoque_m` (livre) ENTRA no desconto do déficit: `deficit = max(0, nec − livre_m −
+  créditos de OC/rolo que já não estão no físico)`. Exige cuidado anti-dupla-contagem: OC já
+  recebida está no físico; OC encomendada está no `prev_receb` (a-chegar, dentro do `livre_m`); o
+  crédito explícito de OC/rolo da conta atual não pode somar de novo o que o `livre_m` já conta.
+- **(4b-ii)** manter a estrutura do déficit atual e só trocar a parcela de estoque que ela usa,
+  garantindo que a reserva da própria coleção pare de descontar.
+
+A decisão entre (4b-i) e (4b-ii) sai da investigação na cópia (qual caminho não dupla-conta OC/rolo
+nem compra a menos). A `qtd` (quantidade pré-preenchida da OC) deriva do `deficit_m` final pela
+mesma regra de arredondamento de hoje. A coluna COMPR do Modo Plano = `deficit_m` final = o que o
+`FazerPedidoWizard` pré-preenche (exibição e compra COERENTES).
+
+Como muda a QUANTIDADE comprada, é o item de maior risco da prova: mostrar, tecido a tecido, onde a
+quantidade muda, provar que não compra a menos em loja com tecido não compartilhado, e que rolo
+vinculado (`rolo_supply`) e OC já vinculada (já no `previsto`/`prev_receb`) seguem abatendo UMA vez
+só — nunca 2×.
 
 ## O que NÃO entra
 
