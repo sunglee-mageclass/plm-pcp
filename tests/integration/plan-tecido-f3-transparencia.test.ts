@@ -1,5 +1,5 @@
 // F3 (Plan. Tecido — transparência no resumo), Task 1 — migration 20261115100000_f3_resumo_transparencia:
-// `_plan_tecido_previa_pedido_core` passa a expor, SÓ para exibição, `recebido_m`/`prev_receb_m` em cada linha de `cobertura`
+// `_plan_tecido_previa_pedido_core` passa a expor, SÓ para exibição, `recebido_m`/`prev_receb_m`/`fisico_m` (disponível) em cada linha de `cobertura`
 // e a chave de topo `outras_colecoes`. ADITIVO: nenhuma conta de compra (estoque_m/deficit_m/qtd) muda.
 // Integração em BEGIN…ROLLBACK (withTx), SÓ na cópia local (54422) — o teste anti-drift cria uma função temporária
 // (pg_temp, desfeita no ROLLBACK) com o corpo EXATO da R15b para comparar saída antiga × nova.
@@ -15,7 +15,7 @@ const MD5_ANTES = "b62ef170570b2444ad3f5727760cd411"; // R15b fix1 (texto de par
 
 type Cob = {
   artigo_id: string; variante_tecido_id: string; nec_m: number; estoque_m: number; deficit_m: number;
-  recebido_m: number; prev_receb_m: number;
+  recebido_m: number; prev_receb_m: number; fisico_m: number;
 };
 type OutrasCol = { artigo_id: string; colecoes: { colecao_id: string; colecao_nome: string; nec_m: number }[] }[];
 type Previa = {
@@ -48,11 +48,11 @@ async function criaPreviaR15b(c: Client): Promise<void> {
   await c.query(ddl);
 }
 
-/** Remove as chaves ADICIONADAS pela F3 (recebido_m/prev_receb_m/outras_colecoes) para comparar com a R15b. */
+/** Remove as chaves ADICIONADAS pela F3 (recebido_m/prev_receb_m/fisico_m/outras_colecoes) para comparar com a R15b. */
 function semChavesF3(p: Previa): unknown {
   const { outras_colecoes: _o, ...resto } = p;
   void _o;
-  return { ...resto, cobertura: p.cobertura.map(({ recebido_m: _r, prev_receb_m: _p, ...l }) => (void _r, void _p, l)) };
+  return { ...resto, cobertura: p.cobertura.map(({ recebido_m: _r, prev_receb_m: _p, fisico_m: _f, ...l }) => (void _r, void _p, void _f, l)) };
 }
 
 describe.skipIf(!RODA)("F3 transparência no resumo — previa expõe recebido/a chegar + outras coleções (aditivo)", () => {
@@ -68,13 +68,13 @@ describe.skipIf(!RODA)("F3 transparência no resumo — previa expõe recebido/a
     });
   });
 
-  it("(a) recebido_m/prev_receb_m de cada linha da cobertura batem com _estoque_tecido_core (0, nunca null, sem OC)", async () => {
+  it("(a) recebido_m/prev_receb_m/fisico_m de cada linha da cobertura batem com _estoque_tecido_core (0, nunca null, sem OC)", async () => {
     await withTx(async (c) => {
-      const est = new Map<string, { rec: number; prev: number }>();
+      const est = new Map<string, { rec: number; prev: number; fis: number }>();
       const { rows: er } = await c.query(
-        `select variante_tecido_id v, recebido_m::float8 rec, prev_receb_m::float8 prev from public._estoque_tecido_core($1)`, [TENANT_TESTE]);
-      for (const r of er) est.set(r.v, { rec: r.rec, prev: r.prev });
-      let linhas = 0, semOc = 0;
+        `select variante_tecido_id v, recebido_m::float8 rec, prev_receb_m::float8 prev, fisico::float8 fis from public._estoque_tecido_core($1)`, [TENANT_TESTE]);
+      for (const r of er) est.set(r.v, { rec: r.rec, prev: r.prev, fis: r.fis });
+      let linhas = 0, semOc = 0, comFisicoDiferente = 0;
       for (const col of await colecoesLoja(c)) {
         for (const l of (await previa(c, col.id)).cobertura) {
           linhas++;
@@ -84,9 +84,14 @@ describe.skipIf(!RODA)("F3 transparência no resumo — previa expõe recebido/a
           expect(typeof l.prev_receb_m, `prev_receb_m numerico (${col.nome}/${l.variante_tecido_id})`).toBe("number");
           expect(l.recebido_m).toBeCloseTo(e?.rec ?? 0, 6);
           expect(l.prev_receb_m).toBeCloseTo(e?.prev ?? 0, 6);
+          // fix-round: fisico_m = DISPONIVEL (fisico do core = recebido - baixas; desconta corte/ajuste/peca-teste)
+          expect(typeof l.fisico_m, `fisico_m numerico (${col.nome}/${l.variante_tecido_id})`).toBe("number");
+          expect(l.fisico_m).toBeCloseTo(e?.fis ?? 0, 6);
+          if (e && Math.abs(e.fis - e.rec) > 1e-9) comFisicoDiferente++;
         }
       }
       expect(linhas, "fixture: Loja Teste precisa ter cobertura").toBeGreaterThan(0);
+      expect(comFisicoDiferente, "fixture: ha variante com baixa (fisico_m != recebido_m) - prova que o disponivel difere do bruto").toBeGreaterThan(0);
       void semOc; // variante sem linha no core => 0/0 (coberto pelo toBeCloseTo(…, ?? 0))
     });
   });

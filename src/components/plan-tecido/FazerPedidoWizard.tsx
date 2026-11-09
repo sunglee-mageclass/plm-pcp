@@ -28,8 +28,8 @@ export type PreviaFornecedorRpc = {
 export type PreviaCoberturaRpc = {
   artigo_id: string; artigo_nome: string; variante_tecido_id: string | null; label: string | null;
   nec_m: number; estoque_m: number; deficit_m: number;
-  // F3 (transparência do Resumo): estoque real (recebido) e a chegar (pedido), JÁ em metros (o core converte kg→m).
-  recebido_m: number; prev_receb_m: number;
+  // F3 (transparência do Resumo): recebido (bruto), a chegar (pedido) e DISPONÍVEL (fisico = recebido − baixas), JÁ em metros (o core converte kg→m).
+  recebido_m: number; prev_receb_m: number; fisico_m: number;
 };
 // F3: outras coleções (mesma loja) que usam o MESMO artigo — alimenta o "i" "Também usado em" do Resumo.
 export type PreviaOutraColecaoRpc = {

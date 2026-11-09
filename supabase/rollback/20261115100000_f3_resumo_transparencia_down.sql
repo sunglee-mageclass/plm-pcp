@@ -3,7 +3,7 @@
 -- `recebido_m`/`prev_receb_m` na cobertura e a chave `outras_colecoes`. So CREATE OR REPLACE FUNCTION (a funcao devolve
 -- jsonb, nao ha coluna fisica para dropar); sem DROP, sem DDL de tabela. ACL mantida (inv. #9) - conferida no fim.
 --   public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])
---     ANTES  ffcae79defe22e61e604b9d268fdf20b  (= DEPOIS da F3; reaplicar o down quando ja esta na R15b = no-op)
+--     ANTES  89dbdde4bcea89e23d836d0ab7bc815c  (= DEPOIS da F3 com fisico_m; tambem aceita ffcae79defe22e61e604b9d268fdf20b = F3 Task 1 sem fisico_m; reaplicar o down quando ja esta na R15b = no-op)
 --     DEPOIS b62ef170570b2444ad3f5727760cd411  (= texto da R15b fix1)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- ORDEM (LIFO): rodar ANTES de reverter a R15b. Reverter o SITE da F3 primeiro (ele le recebido_m/prev_receb_m/
@@ -24,7 +24,7 @@ BEGIN
     RAISE EXCEPTION 'f3_resumo_down: _plan_tecido_previa_pedido_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])')));
-  IF v_md5 NOT IN ('ffcae79defe22e61e604b9d268fdf20b', 'b62ef170570b2444ad3f5727760cd411') THEN
+  IF v_md5 NOT IN ('89dbdde4bcea89e23d836d0ab7bc815c', 'ffcae79defe22e61e604b9d268fdf20b', 'b62ef170570b2444ad3f5727760cd411') THEN
     RAISE EXCEPTION 'f3_resumo_down: _plan_tecido_previa_pedido_core mudou desde a F3 (md5 %) - outra frente mexeu; conferir antes de reverter', v_md5
       USING ERRCODE = 'P0001';
   END IF;

@@ -4,6 +4,8 @@
 --   (2) chave de topo `outras_colecoes`: [{artigo_id, colecoes:[{colecao_id, colecao_nome, nec_m}]}] - OUTRAS colecoes do
 --       MESMO tenant que usam os artigos da colecao atual (nec_m > 0, via `_plan_tecido_nec_variante_core`); artigo usado so
 --       aqui nao aparece.
+-- FIX-ROUND: a cobertura tambem expoe `fisico_m` (= `fisico` do core = recebido - baixas = DISPONIVEL; o `recebido_m` e o bruto,
+-- que nao desconta corte/peca-teste) - CTE `est` +1 coluna, CTE `base` +1 coluna, +1 chave no jsonb. Idem aditivo.
 -- ADITIVO: so 3 mudancas sobre o texto da R15b (20261025400000): CTE `est` puxa +2 colunas; CTE `base` propaga +2 colunas;
 -- CTE nova `outras_col` + 3 chaves no jsonb final. As linhas de estoque_m / deficit_m / qtd e todas as chaves/subchaves
 -- existentes ficam byte a byte iguais - nenhuma conta de compra muda (anti-drift provado em
@@ -12,7 +14,8 @@
 -- ============================== ACCEPTED-MD5 (guarda) ===============================================================
 --   public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])
 --     ANTES  b62ef170570b2444ad3f5727760cd411  (= DEPOIS da R15b fix1, 20261025400000)
---     DEPOIS ffcae79defe22e61e604b9d268fdf20b  (este arquivo; reaplicar = no-op)
+--         OU ffcae79defe22e61e604b9d268fdf20b  (F3 Task 1 ja aplicada, sem `fisico_m` - fix-round F3 troca por este arquivo)
+--     DEPOIS 89dbdde4bcea89e23d836d0ab7bc815c  (este arquivo; reaplicar = no-op)
 --   Qualquer outro texto -> P0001 e nada muda.
 -- =====================================================================================================================
 -- Travas: so CREATE OR REPLACE FUNCTION (nada em tabela, nada em auth/storage). Sem DDL de tabela, sem DROP, sem funcao
@@ -35,7 +38,7 @@ BEGIN
     RAISE EXCEPTION 'f3_resumo: _plan_tecido_previa_pedido_core nao existe neste banco' USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])')));
-  IF v_md5 NOT IN ('b62ef170570b2444ad3f5727760cd411', 'ffcae79defe22e61e604b9d268fdf20b') THEN
+  IF v_md5 NOT IN ('b62ef170570b2444ad3f5727760cd411', 'ffcae79defe22e61e604b9d268fdf20b', '89dbdde4bcea89e23d836d0ab7bc815c') THEN
     RAISE EXCEPTION 'f3_resumo: _plan_tecido_previa_pedido_core mudou desde o planejamento (md5 %) - outra frente mexeu; conferir antes de aplicar', v_md5
       USING ERRCODE = 'P0001';
   END IF;
@@ -72,7 +75,7 @@ begin
                and not (sl.id = any(_slot_ids)))) nn
     where _slot_ids is not null
   ),
-  est as ( select variante_tecido_id, previsto, recebido_m, prev_receb_m from public._estoque_tecido_core(_tenant) ),  -- [F3] + recebido_m/prev_receb_m (so exibicao; estoque_m/deficit_m seguem usando so `previsto`)
+  est as ( select variante_tecido_id, previsto, recebido_m, prev_receb_m, fisico from public._estoque_tecido_core(_tenant) ),  -- [F3] + recebido_m/prev_receb_m/fisico (so exibicao; estoque_m/deficit_m seguem usando so `previsto`)
   -- OCs ligadas a C: própria (plan_tecido_ocs) tem prioridade; NÃO-própria (aplicada/vínculo/hint)
   -- só se não for própria. has_card = a OC tem USO PLANEJADO REAL desta coleção (card do Dev vinculado
   -- OU hint de slot) — a "aplicada" pura (só marcada no seletor) tem has_card=false. Opção B: cobertura
@@ -195,7 +198,8 @@ begin
            a.nome as artigo_nome, a.unidade_medida, a.rendimento, a.empresa_id, a.representante_id,
            concat_ws(' - ', cor.nome, ap.nome) as label,  -- só cor base - apelido (item 15)
            coalesce(vt.preco, a.preco, 0) as preco,
-           coalesce(e.recebido_m,0) as recebido_m, coalesce(e.prev_receb_m,0) as prev_receb_m  -- [F3] so exibicao (hover do estoque)
+           coalesce(e.recebido_m,0) as recebido_m, coalesce(e.prev_receb_m,0) as prev_receb_m,
+           coalesce(e.fisico,0) as fisico_m  -- [F3] so exibicao (hover do estoque; fisico = recebido - baixas = DISPONIVEL, ja desconta corte/ajuste/peca-teste)
     from necessidade n
     join artigos a on a.id = n.artigo_id
     left join variantes_tecido vt on vt.id = n.variante_tecido_id
@@ -264,7 +268,7 @@ begin
         'artigo_id', c.artigo_id, 'artigo_nome', c.artigo_nome,
         'variante_tecido_id', c.variante_tecido_id, 'label', c.label,
         'nec_m', c.nec_m, 'estoque_m', c.estoque_m, 'deficit_m', c.deficit_m,
-        'recebido_m', c.recebido_m, 'prev_receb_m', c.prev_receb_m)  -- [F3] aditivo
+        'recebido_m', c.recebido_m, 'prev_receb_m', c.prev_receb_m, 'fisico_m', c.fisico_m)  -- [F3] aditivo
         order by c.artigo_nome, c.label)
       from calc c), '[]'::jsonb),
     'bloqueios', coalesce((
@@ -285,7 +289,7 @@ DECLARE
   v_md5 text;
 BEGIN
   v_md5 := md5(pg_get_functiondef(to_regprocedure(v_sig)));
-  IF v_md5 IS DISTINCT FROM 'ffcae79defe22e61e604b9d268fdf20b' THEN
+  IF v_md5 IS DISTINCT FROM '89dbdde4bcea89e23d836d0ab7bc815c' THEN
     RAISE EXCEPTION 'f3_resumo: pos-condicao falhou - % nao ficou com o texto esperado (md5 %)', v_sig, v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF has_function_privilege('anon', v_sig, 'EXECUTE') THEN

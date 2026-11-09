@@ -697,9 +697,10 @@ export type CoberturaVarRow = {
   variante_tecido_id: string | null;
   nec_m: number;
   deficit_m: number;
-  /** F3: estoque real (recebido) e a chegar (pedido) da variante, em metros (opcionais — chamadores antigos seguem válidos). */
+  /** F3: recebido (bruto), a chegar (pedido) e DISPONÍVEL (`fisico` = recebido − baixas, já desconta corte/ajuste/peça-teste) da variante, em metros (opcionais — chamadores antigos seguem válidos). */
   recebido_m?: number;
   prev_receb_m?: number;
+  fisico_m?: number;
 };
 
 /** Cobertura ESTÁVEL de UMA variante, derivada da prévia do servidor: `max(0, nec_servidor −
@@ -745,19 +746,20 @@ export function aComprarVivoPorArtigo(
 }
 
 /** F3 (transparência do Resumo): estoque do ARTIGO = soma, por variante da cobertura do servidor, do
- *  recebido (real) e do a chegar (pedido). Já em METROS (o core do servidor converte kg→m). Campo
+ *  recebido (bruto), do a chegar (pedido) e do `fisico` (DISPONÍVEL = recebido − baixas; é o que o Resumo mostra). Já em METROS (o core do servidor converte kg→m). Campo
  *  ausente/nulo (variante sem OC) conta 0. Só LEITURA — não entra em nec./a comprar. */
 export function estoqueDoArtigo(
   cobertura: CoberturaVarRow[] | null | undefined,
   artigoId: string,
-): { recebido: number; prevReceb: number } {
-  let recebido = 0, prevReceb = 0;
+): { recebido: number; prevReceb: number; fisico: number } {
+  let recebido = 0, prevReceb = 0, fisico = 0;
   for (const c of cobertura ?? []) {
     if (c.artigo_id !== artigoId) continue;
     recebido += Number(c.recebido_m) || 0;
     prevReceb += Number(c.prev_receb_m) || 0;
+    fisico += Number(c.fisico_m) || 0;
   }
-  return { recebido, prevReceb };
+  return { recebido, prevReceb, fisico };
 }
 
 /** Outras coleções (mesma loja) que usam o artigo — da chave `outras_colecoes` da prévia. Sem entrada ⇒ []. */
