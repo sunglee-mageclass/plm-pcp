@@ -98,8 +98,8 @@ function TabelaVariantes({ grupos, compact, marcarPrimeira }: { grupos: { fornec
     <div className="text-[11px]">
       <div className={`grid grid-cols-[1.3fr_repeat(4,1fr)] items-center gap-1 border-b bg-muted/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground ${compact ? "" : ""}`}>
         <span>Variante</span>
-        <span className="text-right">Plan</span>
         <span className="text-right">Est</span>
+        <span className="text-right">Plan</span>
         <span className="text-right">Sob</span>
         <span className="text-right">Compr</span>
       </div>
@@ -122,10 +122,10 @@ function TabelaVariantes({ grupos, compact, marcarPrimeira }: { grupos: { fornec
                   {v.apelido && <span className="block truncate text-[9px] text-muted-foreground">{v.apelido}</span>}
                 </span>
               </span>
-              <span className="text-right tabular-nums">{fmtMetros(v.plan)}</span>
-              {/* O NÚMERO segue sendo `est` (estoque_m do servidor, inalterado); o "i" só detalha as parcelas (F3).
-                  O "i" é ABSOLUTO (fora do fluxo) para não empurrar o número nem invadir a coluna PLAN vizinha
-                  (fix da sobreposição em estoques de 4+ dígitos; relatado pelo dono 09/nov). */}
+              {/* Ordem EST·PLAN·SOB·COMPR (dono 09/nov): "quanto tenho, quanto pretendo usar, quanto sobra, quanto comprar".
+                  Só a POSIÇÃO mudou — os valores de cada coluna seguem iguais (a conta não mudou).
+                  O NÚMERO do EST segue `est` (estoque_m do servidor, inalterado); o "i" só detalha as parcelas (F3) e é
+                  ABSOLUTO (fora do fluxo) para não empurrar o número nem invadir a coluna vizinha. */}
               <span className="relative block pr-3 text-right tabular-nums text-muted-foreground">
                 {fmtMetros(v.est)}
                 <InfoHover ariaLabel="Detalhe do estoque da variante" className="absolute -right-0.5 top-1/2 -translate-y-1/2 [&_svg]:h-3 [&_svg]:w-3">
@@ -133,6 +133,7 @@ function TabelaVariantes({ grupos, compact, marcarPrimeira }: { grupos: { fornec
                   <div>A chegar (pedido): {fmtMetros(v.prevReceb)} m</div>
                 </InfoHover>
               </span>
+              <span className="text-right tabular-nums">{fmtMetros(v.plan)}</span>
               <span className="text-right tabular-nums text-emerald-700">{v.sob > 0 ? fmtMetros(v.sob) : "—"}</span>
               <span className={`text-right tabular-nums ${v.compr > 0 ? "font-semibold text-destructive" : "text-muted-foreground"}`}>{v.compr > 0 ? fmtMetros(v.compr) : "0"}</span>
             </div>
@@ -141,8 +142,8 @@ function TabelaVariantes({ grupos, compact, marcarPrimeira }: { grupos: { fornec
       ))}
       <div className="grid grid-cols-[1.3fr_repeat(4,1fr)] items-center gap-1 bg-muted px-2 py-1 text-[11px] font-semibold">
         <span className="text-[9px] uppercase tracking-wide text-muted-foreground">Total</span>
-        <span className="text-right tabular-nums">{fmtMetros(totais.plan)}</span>
         <span className="text-right tabular-nums">{fmtMetros(totais.est)}</span>
+        <span className="text-right tabular-nums">{fmtMetros(totais.plan)}</span>
         <span className="text-right tabular-nums text-emerald-700">{fmtMetros(totais.sob)}</span>
         <span className={`text-right tabular-nums ${totais.compr > 0 ? "text-destructive" : ""}`}>{fmtMetros(totais.compr)}</span>
       </div>
