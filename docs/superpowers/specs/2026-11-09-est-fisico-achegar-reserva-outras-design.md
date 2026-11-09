@@ -1,0 +1,178 @@
+# EST = físico + a-chegar − reserva de OUTRAS coleções (Plan. Tecido)
+
+> Desenho para aprovação do dono ANTES de qualquer código. Frente de RISCO ALTO: mexe na
+> conta de COMPRA da RPC viva `_plan_tecido_previa_pedido_core`, com tecido compartilhado
+> entre coleções. NÃO toca o `_estoque_tecido_core` (SSOT, invariante #4).
+
+## Problema (relatado pelo dono, 09/nov)
+
+No Modo Plano do Plan. Tecido, a coluna **EST não bate com a intuição**. Caso concreto: forro
+KOLONA SPANDEX mostrava **EST = 528,4** enquanto o hover dizia "Disponível (real): 0 m / A chegar
+(pedido): 1.170 m". O dono: *"se tenho pra chegar 1.170 mas meu EST está 528,4, algo está errado"*.
+
+**Causa raiz (confirmada no código):** a coluna EST = `estoque_m` da prévia = `previsto` do
+`_estoque_tecido_core`, cuja fórmula é:
+
+```
+fisico   = GREATEST(0, recebido − baixa)
+previsto = fisico + prev_receb − reservado
+```
+
+Para o forro: `previsto = 0 + 1.170 − 641,6 = 528,4`. Ou seja, há **641,6 m reservados** por cards
+que consomem esse forro. O `previsto` desconta **TODA** a reserva — **inclusive a da própria
+coleção** que o usuário está planejando. Com o tecido compartilhado entre coleções, isso tem dois
+defeitos: (1) desconta a própria coleção, que o PLAN já vai cobrar de novo (conta dobrada contra o
+usuário); (2) não deixa claro por que `físico + a-chegar` não bate com o EST.
+
+## Objetivo
+
+A coluna **EST passa a mostrar o que está LIVRE para ESTA coleção**:
+
+```
+EST_livre = físico + a-chegar − reserva de OUTRAS coleções
+SOB       = max(0, EST_livre − PLAN)
+COMPR     = max(0, PLAN − EST_livre)
+```
+
+onde `reserva de OUTRAS coleções = reservado_total (do core) − reserva desta coleção`.
+
+Isso resolve os dois defeitos: o EST deixa de descontar a própria coleção (acaba a conta dobrada)
+mas **continua respeitando o que outras coleções já reservaram** (não deixa duas coleções
+comprarem a menos do mesmo tecido compartilhado).
+
+## Decisões travadas (do dono, 09/nov)
+
+1. **Tecido/forro É compartilhado** entre várias coleções → `EST = físico + a-chegar` PURO está
+   descartado (duas coleções veriam o mesmo total e comprariam a menos). Tem de descontar a reserva
+   das OUTRAS.
+2. **EST = físico + a-chegar − reserva de OUTRAS coleções** (não desconta a própria).
+3. **Cards SEM coleção contam como "outra coleção"** (descontam do EST) — o mais conservador.
+   Operacionalmente: "reserva desta coleção" = só cards com `colecao_id = _colecao_id`; tudo que
+   não é desta coleção (outras + avulsos) cai em "outras" por subtração.
+4. **Calcular na própria prévia, SEM tocar o `_estoque_tecido_core`** (Opção A). Risco de drift
+   coberto por anti-drift.
+5. **Hover do EST = 3 linhas:** "Disponível (real): X / A chegar (pedido): Y / Reservado por
+   outras coleções: Z". O EST = X + Y − Z fica explícito.
+
+## Contexto do código (mapeado, read-only)
+
+- **Core (SSOT, NÃO tocar):** `_estoque_tecido_core(_tenant)` devolve por variante `prev_receb_m`,
+  `recebido_m`, `baixa`, `reservado`, `fisico`, `previsto`. Corpo vivo em
+  `supabase/migrations/20261025100000_estoque_rolo_parcial_e_painel.sql` (md5 pinado `9140c253`,
+  re-exigido pelo r11 `20261103199200`). A CTE `reserva_mod` calcula `reservado` por variante
+  juntando `modelo_tecido_variantes mv` → `modelo_tecidos mt` → `modelos m` (filtra reprovado no
+  Dev/Planejamento e card já enviado ao corte), **agrupando SÓ por `variante_tecido_id`** — a
+  coleção (`modelos.colecao_id`) existe no JOIN mas some no agregado.
+- **Prévia (a mudar):** `_plan_tecido_previa_pedido_core(_colecao_id uuid, _tenant uuid, _slot_ids
+  uuid[])`. Já conhece `_colecao_id`. Monta por variante: `nec_m` (necessidade), `estoque_m`
+  (= `GREATEST(0, previsto − rolo_m)`), `deficit_m` (cobertura própria/não-própria), e desde a F3
+  também expõe `recebido_m`, `prev_receb_m`, `fisico_m`. Corpo vivo em
+  `supabase/migrations/20261115100000_f3_resumo_transparencia.sql` + F3.1
+  `20261116100000`. É **aditiva via CREATE OR REPLACE com guarda md5** (anti-drift prova deficit/
+  estoque/qtd idênticos). md5 chain atual termina em `dd563e57` (F3.1 papel).
+- **Espelho TS:** `src/lib/plan-tecido/calc.ts` (tipo `PreviaCoberturaRpc`), consumido por 7
+  componentes: `ResumoPanel`, `SlotOcHint`, `PlanTecidoDrawer`, `PlanTecidoSheet`, `ModoPlanoView`,
+  `FazerPedidoWizard`, e `calc.ts` próprio.
+- **⚠️ `FazerPedidoWizard` usa `deficit_m` e `qtd` (= `ceil(deficit_m/…)`) como a QUANTIDADE
+  pré-preenchida da OC** (linhas 61/64/90). Mudar `deficit_m` muda a quantidade sugerida de
+  compra — é o ponto de maior risco: a conta tem de estar certa, não só a exibição.
+
+## Arquitetura
+
+### Onde a mudança mora
+
+Uma só migration (CREATE OR REPLACE da prévia, aditiva, guarda md5), mais o espelho TS e o
+ModoPlanoView. O core NÃO muda.
+
+### Parte 1 — reserva desta coleção, na prévia (SQL)
+
+Adicionar à `_plan_tecido_previa_pedido_core` uma CTE `reserva_desta_colecao` que aplica **a MESMA
+fórmula da `reserva_mod` do core** (consumo × (1+perda) × grade[regra tecido1/complementar] ×
+multiplicador; pula reprovado no Dev/Planejamento e card com `cad.enviado_corte`), mas com o filtro
+extra `m.colecao_id = _colecao_id`, agrupando por `variante_tecido_id`.
+
+Então, por variante:
+```
+reserva_total   = _estoque_tecido_core.reservado        (já disponível na CTE `est`)
+reserva_desta   = COALESCE(reserva_desta_colecao.m, 0)
+reserva_outras  = GREATEST(0, reserva_total − reserva_desta)
+livre_m         = GREATEST(0, fisico_m + prev_receb_m − reserva_outras)
+```
+
+### Parte 2 — o que a prévia EXPÕE (contrato novo)
+
+A prévia ganha 3 chaves novas por linha de `cobertura`, SEM remover nenhuma existente (aditivo):
+- `reserva_outras_m` numeric — a reserva de outras coleções (para o hover).
+- `livre_m` numeric — `físico + a-chegar − reserva_outras` (o novo EST).
+- (`reserva_desta_m` numeric — opcional, só se útil ao anti-drift; não exibido.)
+
+**As chaves EXISTENTES `estoque_m`, `deficit_m`, `qtd` continuam com a conta de HOJE** — ver Parte 4
+(decisão de migração do comportamento).
+
+### Parte 3 — exibição (ModoPlanoView + hover)
+
+- A coluna **EST passa a mostrar `livre_m`** (era `estoque_m`).
+- **SOB** = `max(0, livre_m − nec_m)`.
+- **COMPR** = `max(0, nec_m − livre_m)`.
+- **Hover do EST (3 linhas):** "Disponível (real): `fisico_m` / A chegar (pedido): `prev_receb_m` /
+  Reservado por outras coleções: `reserva_outras_m`".
+
+### Parte 4 — o FazerPedidoWizard (a conta de compra) — DECISÃO
+
+Este é o ponto que decide se a mudança é "só visual" ou "muda o que se compra". Duas interpretações
+possíveis da intenção do dono, a resolver com ele ANTES do plano:
+
+- **(4a) Só o Modo Plano muda; a OC segue pelo `deficit_m` de hoje.** Menor risco: o número
+  comprado não muda, só a coluna EST exibida fica intuitiva. Mas EST e "o que o wizard compra"
+  passam a divergir (o EST mostra `livre_m`, o wizard usa `deficit_m`), o que pode confundir.
+- **(4b) A compra também passa a usar `COMPR = max(0, PLAN − livre_m)`.** Coerente: o que a coluna
+  COMPR mostra é o que o wizard pré-preenche. Mas muda a quantidade de compra de verdade — é a
+  mudança de maior impacto, e precisa da prova multi-loja mais cuidadosa.
+
+> **Recomendação:** (4b), porque o pedido do dono nasceu de "o EST está errado → quanto comprar
+> está errado"; fazer o EST certo e deixar a compra na conta antiga manteria a incoerência. Mas a
+> escolha é do dono e é uma pergunta explícita do plano. Se (4b), `deficit_m`/`qtd` passam a derivar
+> de `livre_m`; se (4a), ficam como estão e só as 3 chaves novas alimentam a exibição.
+
+## O que NÃO entra
+
+- Não tocar o `_estoque_tecido_core` nem nenhum outro consumidor dele (estoque, dashboard, detalhe).
+- Não mudar a reserva da própria coleção na reserva de estoque real (o core segue descontando tudo;
+  é só a EXIBIÇÃO/compra da prévia que passa a separar própria × outras).
+- Não mexer no cálculo de rolos vinculados (`rolo_m`/`rolo_supply`), que seguem como hoje.
+
+## Riscos / cuidados
+
+- **MAIOR RISCO — comprar a menos:** se a "reserva desta coleção" for superestimada, a
+  `reserva_outras` fica pequena, o EST fica alto e COMPR fica baixo → compra a menos. A prova tem de
+  cobrir: tecido usado por 2+ coleções, card desta coleção reprovado (não reserva), card desta
+  coleção já cortado (não reserva mas consumiu), e variante sem reserva nenhuma.
+- **Drift (Opção A):** a fórmula da reserva fica em 2 lugares (core `reserva_mod` + prévia
+  `reserva_desta_colecao`). Anti-drift obrigatório: provar que, somando todas as coleções,
+  `Σ reserva_desta_colecao (por coleção) = reserva_mod do core` por variante (tolerância 0,0001 m).
+  Se a regra da reserva mudar no core, este teste falha e obriga a atualizar a prévia junto.
+- **Conta de compra (Parte 4):** se (4b), a prova tem de mostrar que a OC gerada não muda para menos
+  em nenhuma loja onde o tecido NÃO é compartilhado (lá, reserva_outras = reserva fora desta coleção,
+  que pode ser legítima) — e documentar os casos onde muda de propósito.
+- **md5 anti-drift da prévia:** a mudança quebra o md5 pinado (`dd563e57`); a ida aceita o novo e os
+  2 testes que pinam (`plan-tecido-*`, `saldo-item-regra-core`) precisam do novo md5.
+- **Reprovado/cortado:** a `reserva_desta_colecao` tem de usar EXATAMENTE os mesmos filtros da
+  `reserva_mod` (reprovado no Dev OU Planejamento não reserva; card `enviado_corte` não reserva) —
+  senão `reserva_desta` diverge de `reservado_total` e a subtração fica errada.
+
+## Verificação
+
+- **Unit (TS):** o ModoPlanoView monta EST=`livre_m`, SOB e COMPR das 3 chaves; o hover mostra as 3
+  linhas.
+- **Integração (cópia local, txn revertida):**
+  - Caso base: variante usada por 1 coleção só → `reserva_outras = 0` → `livre_m = físico + a-chegar`.
+  - Compartilhado: variante em 2 coleções → `livre_m` da coleção A desconta a reserva da B e
+    vice-versa; a soma não conta o mesmo metro 2×.
+  - Reprovado desta coleção não entra em `reserva_desta` (nem no core) → `reserva_outras` correta.
+  - Cortado desta coleção não reserva (core e prévia batem).
+  - **Anti-drift:** `Σ_colecoes reserva_desta = reservado_total` por variante (tol. 0,0001).
+  - Se (4b): `deficit_m`/`qtd` novos = `max(0, nec − livre_m)` provados contra casos de compra.
+- **QA na prévia (localhost:5190):** o caso do forro KOLONA SPANDEX passa a mostrar EST coerente com
+  o hover (3 linhas); o dono confere antes do deploy.
+- `npm run build` + `tsc --noEmit`; code-reviewer; guardião (migration em RPC viva de compra).
+- Banco ANTES do site (a prévia nova expõe chaves que o front novo lê).
