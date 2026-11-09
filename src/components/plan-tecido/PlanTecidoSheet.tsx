@@ -2438,6 +2438,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     // entram via `slotVisivel`, aplicado DENTRO da view DEPOIS de fixar li/sli (a árvore vai COMPLETA:
                     // podar aqui deslocaria o sli e o renderCard gravaria no slot errado — F2 D fix C1). Set vazio = tudo.
                     arvore={subArvore}
+                    colecaoArvore={arvore}
+                    reprovadoSet={reprovadoSet}
                     slotVisivel={(sl) => passaStatus(sl) && passaLinha(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))}
                     colecaoId={colecaoId}
                     recolhidos={modoPlanoRecolhidos}

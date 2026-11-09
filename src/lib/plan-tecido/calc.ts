@@ -896,3 +896,14 @@ export function rotuloGrupoTecido(nome: string, fornecedor: string | null | unde
  *  Clampa em 0 (nunca mostra EST negativo). */
 export const estLivre = (v: { fisico_m: number; prev_receb_m: number; reserva_outras_m: number }): number =>
   Math.max(0, (Number(v.fisico_m) || 0) + (Number(v.prev_receb_m) || 0) - (Number(v.reserva_outras_m) || 0));
+
+/** Linha do Resumo AO VIVO: PLAN = necessidade do RASCUNHO (cliente); EST = `estLivre` do SERVIDOR (físico/a chegar/reserva
+ *  de outras coleções — não mudam com o rascunho). SOB/COMPR recalculam só para EXIBIÇÃO; a COMPRA real (wizard) segue o
+ *  `deficit_m` do servidor, salvo. */
+export function linhaResumoAoVivo(x: {
+  planRascunho: number; fisico_m: number; prev_receb_m: number; reserva_outras_m: number;
+}): { plan: number; est: number; sob: number; compr: number } {
+  const plan = Number(x.planRascunho) || 0;
+  const est = estLivre(x);
+  return { plan, est, sob: Math.max(0, est - plan), compr: Math.max(0, plan - est) };
+}
