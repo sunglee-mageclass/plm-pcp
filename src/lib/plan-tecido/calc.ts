@@ -697,6 +697,9 @@ export type CoberturaVarRow = {
   variante_tecido_id: string | null;
   nec_m: number;
   deficit_m: number;
+  /** F3: estoque real (recebido) e a chegar (pedido) da variante, em metros (opcionais — chamadores antigos seguem válidos). */
+  recebido_m?: number;
+  prev_receb_m?: number;
 };
 
 /** Cobertura ESTÁVEL de UMA variante, derivada da prévia do servidor: `max(0, nec_servidor −

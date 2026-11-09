@@ -28,12 +28,20 @@ export type PreviaFornecedorRpc = {
 export type PreviaCoberturaRpc = {
   artigo_id: string; artigo_nome: string; variante_tecido_id: string | null; label: string | null;
   nec_m: number; estoque_m: number; deficit_m: number;
+  // F3 (transparência do Resumo): estoque real (recebido) e a chegar (pedido), JÁ em metros (o core converte kg→m).
+  recebido_m: number; prev_receb_m: number;
+};
+// F3: outras coleções (mesma loja) que usam o MESMO artigo — alimenta o "i" "Também usado em" do Resumo.
+export type PreviaOutraColecaoRpc = {
+  artigo_id: string;
+  colecoes: { colecao_id: string; colecao_nome: string; nec_m: number }[];
 };
 export type PreviaRpc = {
   fornecedores: PreviaFornecedorRpc[];
   sem_fornecedor: { artigo_id: string; artigo_nome: string }[];
   bloqueios: { artigo_nome: string; motivo: string }[];
   cobertura?: PreviaCoberturaRpc[];
+  outras_colecoes?: PreviaOutraColecaoRpc[];
 };
 
 type Pagina = { fornecedor: PreviaFornecedorRpc; itens: PreviaItemRpc[] };
