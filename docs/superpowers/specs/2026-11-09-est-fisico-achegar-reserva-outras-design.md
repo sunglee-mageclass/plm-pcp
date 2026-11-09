@@ -1,12 +1,14 @@
 # EST = físico + a-chegar − reserva de OUTRAS coleções + resumo AO VIVO (Plan. Tecido)
 
-> Desenho para aprovação do dono ANTES de qualquer código. Frente de RISCO ALTO: mexe na
-> conta de COMPRA da RPC viva `_plan_tecido_previa_pedido_core`, com tecido compartilhado
-> entre coleções. NÃO toca o `_estoque_tecido_core` (SSOT, invariante #4).
+> Desenho para aprovação do dono ANTES de qualquer código. **Escopo: só a parte VISUAL** (dono
+> 09/nov, revisado após investigação). A conta de COMPRA (`deficit_m`) NÃO muda — a investigação
+> na cópia provou que ela já está certa (não sofre do defeito do EST). NÃO toca o
+> `_estoque_tecido_core` (SSOT, invariante #4). Risco MÉDIO (exibição + CTE aditiva na prévia),
+> não mais alto.
 >
-> **Duas mudanças na mesma RPC (dono 09/nov):** (1) o EST passa a ser físico + a-chegar − reserva
-> de outras coleções; (2) o resumo lateral recalcula AO VIVO sobre o rascunho não-salvo (hoje só
-> atualiza depois do Salvar). As duas compartilham a prévia, por isso vão juntas.
+> **Duas mudanças na mesma RPC (dono 09/nov):** (1) o EST EXIBIDO passa a ser físico + a-chegar −
+> reserva de outras coleções (nova CTE aditiva + chave `reserva_outras_m`); (2) o resumo lateral
+> recalcula AO VIVO sobre o rascunho não-salvo. `deficit_m`/`qtd`/compra ficam INTOCADOS.
 
 ## Problema (relatado pelo dono, 09/nov)
 
@@ -123,10 +125,24 @@ A prévia ganha 3 chaves novas por linha de `cobertura`, SEM remover nenhuma exi
 - **Hover do EST (3 linhas):** "Disponível (real): `fisico_m` / A chegar (pedido): `prev_receb_m` /
   Reservado por outras coleções: `reserva_outras_m`".
 
-### Parte 4 — o FazerPedidoWizard (a conta de compra) — DECIDIDO (4b, dono 09/nov)
+### Parte 4 — o FazerPedidoWizard (a conta de compra) — FORA DE ESCOPO (dono 09/nov, revisado)
 
-A mudança NÃO é só visual: **a compra sugerida também passa a usar a conta nova**. Decisão do dono
-(09/nov): "mudar os dois — EST exibido E a compra sugerida".
+**DECISÃO REVISADA (dono 09/nov):** a frente é **só a parte VISUAL**. A conta de COMPRA (`deficit_m`/
+`qtd`) **NÃO muda** — fica exatamente como hoje.
+
+**Por quê:** a investigação na cópia local (prévia real de RESORT 27, Ave Rara) provou que o
+`deficit_m` **NÃO sofre do defeito do EST**. O `deficit_m` não usa o `estoque_m`/`previsto`
+contaminado — ele parte da necessidade e desconta OC própria/não-própria + rolo por um caminho
+próprio que já está correto. Exemplo: AZUL-INDIGO (nec 2742, EST exibido 0, físico 2624) → compra
+sugerida = 0 (coberto por OC), apesar do EST enganoso. O defeito do dono é **só de exibição**.
+
+**Consequência (reduz o risco):** `deficit_m`, `qtd` e a lista de fornecedores/itens que o
+`FazerPedidoWizard` consome ficam **intocados**. O md5 anti-drift da parte de compra continua válido;
+a única coisa nova que a RPC expõe é `reserva_outras_m` (CTE aditiva, só exibição). A coluna COMPR do
+Modo Plano segue sendo o `deficit_m` de hoje.
+
+> Histórico (não aplicar): uma versão anterior deste spec considerou mudar a compra junto (4b). A
+> investigação na cópia mostrou que não é necessário nem seguro — a compra já está certa.
 
 **⚠️ Descoberta técnica (09/nov) — a correção é MAIS cirúrgica do que "deficit = nec − livre":**
 o `deficit_m` de HOJE **não parte do `estoque_m`/`previsto`**. Ele parte da necessidade e desconta
