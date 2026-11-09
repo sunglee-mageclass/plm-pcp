@@ -30,6 +30,8 @@ export type PreviaCoberturaRpc = {
   nec_m: number; estoque_m: number; deficit_m: number;
   // F3 (transparência do Resumo): recebido (bruto), a chegar (pedido) e DISPONÍVEL (fisico = recebido − baixas), JÁ em metros (o core converte kg→m).
   recebido_m: number; prev_receb_m: number; fisico_m: number;
+  // Reservado por OUTRAS coleções (core − reserva desta); só exibição do EST (compra/deficit_m não usa). Vem com muitas casas: exibir via fmtMetros.
+  reserva_outras_m: number;
 };
 // F3: outras coleções (mesma loja) que usam o MESMO artigo — alimenta o "i" "Também usado em" do Resumo.
 export type PreviaOutraColecaoRpc = {

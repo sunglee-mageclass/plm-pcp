@@ -9,7 +9,7 @@ import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
+import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, estLivre, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FotoCarrossel } from "./FotoCarrossel";
@@ -51,6 +51,7 @@ type LinhaVariante = {
   // F3 (transparência): só LEITURA p/ o hover do "Est" — não entram em Plan/Sob/Compr nem nos totais.
   fisico: number;
   prevReceb: number;
+  reservaOutras: number;
   artigo_id: string;
 };
 
@@ -65,11 +66,11 @@ function agruparPorFornecedor(
   for (const c of linhas) {
     const { cor, apelido } = splitCorApelido(c.label);
     const plan = Number(c.nec_m) || 0;
-    const est = Number(c.estoque_m) || 0;
+    const est = estLivre({ fisico_m: Number(c.fisico_m) || 0, prev_receb_m: Number(c.prev_receb_m) || 0, reserva_outras_m: Number(c.reserva_outras_m) || 0 });
     const compr = Number(c.deficit_m) || 0;
     const sob = Math.max(0, est - plan);
     const arr = map.get(c.fornecedor) ?? map.set(c.fornecedor, []).get(c.fornecedor)!;
-    arr.push({ key: c.variante_tecido_id ?? `${c.artigo_id}-${c.label}`, cor, apelido, plan, est, sob, compr, fisico: Number(c.fisico_m) || 0, prevReceb: Number(c.prev_receb_m) || 0, artigo_id: c.artigo_id });
+    arr.push({ key: c.variante_tecido_id ?? `${c.artigo_id}-${c.label}`, cor, apelido, plan, est, sob, compr, fisico: Number(c.fisico_m) || 0, prevReceb: Number(c.prev_receb_m) || 0, reservaOutras: Number(c.reserva_outras_m) || 0, artigo_id: c.artigo_id });
   }
   const cmp = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" });
   return [...map.entries()]
@@ -124,13 +125,14 @@ function TabelaVariantes({ grupos, compact, marcarPrimeira }: { grupos: { fornec
               </span>
               {/* Ordem EST·PLAN·SOB·COMPR (dono 09/nov): "quanto tenho, quanto pretendo usar, quanto sobra, quanto comprar".
                   Só a POSIÇÃO mudou — os valores de cada coluna seguem iguais (a conta não mudou).
-                  O NÚMERO do EST segue `est` (estoque_m do servidor, inalterado); o "i" só detalha as parcelas (F3) e é
+                  O NÚMERO do EST = `estLivre` (disponível + a chegar − reservado por outras coleções); o "i" detalha as 3 parcelas e é
                   ABSOLUTO (fora do fluxo) para não empurrar o número nem invadir a coluna vizinha. */}
               <span className="relative block pr-3 text-right tabular-nums text-muted-foreground">
                 {fmtMetros(v.est)}
                 <InfoHover ariaLabel="Detalhe do estoque da variante" className="absolute -right-0.5 top-1/2 -translate-y-1/2 [&_svg]:h-3 [&_svg]:w-3">
                   <div>Disponível (real): {fmtMetros(v.fisico)} m</div>
                   <div>A chegar (pedido): {fmtMetros(v.prevReceb)} m</div>
+                  <div>Reservado por outras coleções: {fmtMetros(v.reservaOutras)} m</div>
                 </InfoHover>
               </span>
               <span className="text-right tabular-nums">{fmtMetros(v.plan)}</span>

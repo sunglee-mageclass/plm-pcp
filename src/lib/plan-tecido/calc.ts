@@ -869,3 +869,9 @@ export function artigosTec1DoGrupo(itens: { slot: PtSlot }[]): string[] {
 export function rotuloGrupoTecido(nome: string, fornecedor: string | null | undefined): string {
   return fornecedor ? `${nome} · ${fornecedor}` : nome;
 }
+
+/** EST exibido no Resumo do Modo Plano = disponível (físico) + a chegar (pedido) − reservado por OUTRAS coleções
+ *  (a reserva desta coleção NÃO entra: ela já é o PLAN). Só exibição — a COMPRA (`deficit_m`) não usa isto.
+ *  Clampa em 0 (nunca mostra EST negativo). */
+export const estLivre = (v: { fisico_m: number; prev_receb_m: number; reserva_outras_m: number }): number =>
+  Math.max(0, (Number(v.fisico_m) || 0) + (Number(v.prev_receb_m) || 0) - (Number(v.reserva_outras_m) || 0));
