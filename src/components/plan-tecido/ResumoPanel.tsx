@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo, statusFornecedorCategoria } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo, statusFornecedorCategoria, estoqueDoArtigo, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -236,6 +236,12 @@ export function ResumoPanel({
   const totTec = enc.reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const totForro = enc.reduce((a, s) => a + slotMetros(s, "forro"), 0);
   const semCatMetros = catTecMetros(null);
+  // F3 (transparência): artigos de tecido da categoria — MESMA travessia de `catTecMetros` (slots `enc` da
+  // categoria → materiais tipo tecido), só que coletando o artigo_id. Normalmente 1 por categoria.
+  const artigosDaCategoria = (cid: string | null): string[] => [...new Set(
+    enc.filter((s) => (s.categoria_tecido_id ?? null) === cid)
+      .flatMap((s) => s.materiais.filter((m) => m.tipo === "tecido" && m.artigo_id).map((m) => m.artigo_id as string)),
+  )];
   // A COMPRAR da SUBCOLEÇÃO (decisão do dono, auditoria jul/2026): o déficit é da COLEÇÃO
   // (necessidade − cobertura) — exibi-lo cru aqui produzia "nec 0 · a comprar 1.591,68" (o déficit
   // era de outras subcoleções). Cada artigo entra com a PARTE desta subcoleção (rateioDeficitSub:
@@ -344,12 +350,26 @@ export function ResumoPanel({
           <>
             {catsSub.map((cid) => {
               const nec = catTecMetros(cid); const comprar = aComprarCat(cid);
+              // F3: estoque (real + a chegar) e "Também usado em" — só leitura da prévia; não altera nec./a comprar.
+              const arts = artigosDaCategoria(cid);
+              const est = arts.reduce((a, aid) => { const e = estoqueDoArtigo(previa?.cobertura, aid); return { recebido: a.recebido + e.recebido, prevReceb: a.prevReceb + e.prevReceb }; }, { recebido: 0, prevReceb: 0 });
+              const textoOutras = textoOutrasColecoes(arts.flatMap((aid) => outrasColecoesDoTecido(previa?.outras_colecoes, aid)), nMet);
               return (
                 <div key={cid} className="border-b px-2 py-1 text-xs">
-                  <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} title={catStatus(cid) === "g" ? "Todos os tecidos com fornecedor" : catStatus(cid) === "a" ? "Parte dos tecidos sem fornecedor" : "Nenhum tecido com fornecedor"} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></div>
+                  <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} title={catStatus(cid) === "g" ? "Todos os tecidos com fornecedor" : catStatus(cid) === "a" ? "Parte dos tecidos sem fornecedor" : "Nenhum tecido com fornecedor"} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span>
+                    {textoOutras && (<InfoHover ariaLabel="Outras coleções que usam este tecido">Também usado em: {textoOutras}</InfoHover>)}
+                  </div>
                   <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums">
                     <span className="text-muted-foreground">nec. <b className="text-foreground">{nMet(nec)}</b> m</span>
                     <span className={!previaCarregada ? "text-muted-foreground" : comprar > 0 ? "font-medium text-red-600" : "font-medium text-emerald-700"}>a comprar <b>{previaCarregada ? nMet(comprar) : "…"}</b> m</span>
+                    {previaCarregada && arts.length > 0 && (
+                      <span className="inline-flex items-center gap-0.5 text-muted-foreground">estoque <b className="text-foreground">{nMet(est.recebido + est.prevReceb)}</b> m
+                        <InfoHover ariaLabel="Detalhe do estoque do tecido">
+                          <div>Em estoque (real): {nMet(est.recebido)} m</div>
+                          <div>A chegar (pedido): {nMet(est.prevReceb)} m</div>
+                        </InfoHover>
+                      </span>
+                    )}
                   </div>
                 </div>
               );
