@@ -201,6 +201,9 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     // P-146/P-155 B — a versão anterior do card (Sheet do Planejamento e Integração › Produtos): a anterior pode ser
     // repreçada/renomeada por outra pessoa. Key `["versao-anterior", loja, ...ids]` (k[1] é a LOJA, não um id de detalhe).
     "versao-anterior",
+    // [F4a L1] O selo/Mover do kanban no card do Produto Acabado (T2) lê `modelos` (embed `modelo:modelo_id`) e as condições
+    // (`["pa-kanban-cond", coleção, ids]`): mover/lançar o card no Dev ou em outra aba atualiza o selo por Realtime, não só no foco.
+    "produtos-acabados", "pa-kanban-cond",
   ],
   ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos"],
   colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
@@ -13,7 +13,8 @@ import { EMBED_OC_ITEM_PA, nomeDoFornecedor, ocInfoDeItens } from "@/lib/oc-prod
 import { useAuth } from "@/hooks/useAuth";
 import { podeVerCustosServidor } from "@/lib/mao-obra";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
-import { AgrupamentoButton } from "@/components/shared/filters";
+import { AgrupamentoButton, FilterButton } from "@/components/shared/filters";
+import { passaFiltroStatusCard } from "@/lib/kanban-card-selo";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -200,6 +201,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const navigate = useNavigate();
   const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
   const [subAtual, setSubAtual] = useState<{ id: string | null; nome: string | null } | null>(null);
+  // F4a T3 — filtro "Status" do canvas (mesmo descritor do Plan. Tecido): default OCULTA reprovados (Dev OU Planejamento);
+  // "todos" revela. Só decide o que RENDERIZA — o Salvar segue sobre `drafts`, nada é apagado.
+  const [filtroStatus, setFiltroStatus] = useState<"todos" | "sem_reprovado">("sem_reprovado");
   // Ring de presença colaborativa nos campos inline dos cards do canvas (mesmo padrão do
   // canvas do Planejamento — `criacao.planejamento.tsx`). Canal único por COLEÇÃO (o Sheet
   // recebe `colecaoId` por prop); `campoFocadoCanvas` codifica o path do campo focado, que já
@@ -423,6 +427,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const { data: kanbanCondMapa, isSuccess: kanbanCondOk, isError: kanbanCondErro } = useQuery({
     queryKey: ["pa-kanban-cond", colecaoId, modeloIdsKanban],
     enabled: modeloIdsKanban.length > 0,
+    // F4a L2: a chave inclui a lista de ids — sem isto, cada mudança da lista (criar card, mover, lançar) zerava o mapa e os
+    // cards piscavam "Carregando regras". Mantém o mapa anterior até o novo chegar.
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("avaliar_condicoes_kanban" as any, { _ids: modeloIdsKanban });
       if (error) throw error;
@@ -1052,7 +1059,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const abrirCanvasDeGuarded = (sub: { id: string | null; nome: string | null }) =>
     requestAction(() => { if (dirty) void reverterDrafts(); abrirCanvasDe(sub); });
 
-  const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
+  // Todos os produtos da subcoleção (sem poda) e a vista PODADA pelo filtro Status. Produto sem card (modelo_id null) nunca é
+  // reprovado (embed null → passa). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido) lê a vista podada.
+  const produtosSubTodos = subAtual ? produtosDeSub(subAtual.nome) : [];
+  const produtosSub = produtosSubTodos.filter((p) => passaFiltroStatusCard(
+    { status_desenvolvimento: p.modeloStatusDev, status_planejamento: p.modeloStatusPlan }, filtroStatus));
+  const nReprovadosOcultos = produtosSubTodos.length - produtosSub.length;
   // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
   // sempre por último (vira a lane de fallback "Sem categoria"/"Sem grupo").
   const laneKeys = useMemo(() => {
@@ -1284,7 +1296,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
                     <ResumoRevendaPanel
-                      produtos={produtosSub}
+                      produtos={produtosSubTodos}
                       agruparPor={nivelMacro}
                       categoriaNome={categoriaNome}
                       grupoNome={grupoNome}
@@ -1325,7 +1337,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                   </div>
                 )}
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {produtosSub.reduce((a, p) => a + somaPecas(p), 0)} pç</span>
+                  <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {produtosSub.reduce((a, p) => a + somaPecas(p), 0)} pç{nReprovadosOcultos > 0 ? ` · ${nReprovadosOcultos} reprovado(s) oculto(s)` : ""}</span>
                   <div className="flex items-center gap-2">
                     {produtosSub.length > 0 && (
                       <RecolherMenu
@@ -1335,6 +1347,21 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                         onToggleCards={toggleTodos}
                       />
                     )}
+                    <FilterButton
+                      screen="produto-acabado-canvas"
+                      filters={[{
+                        label: "Status",
+                        single: true,
+                        value: filtroStatus,
+                        emptyValue: "sem_reprovado",
+                        // Trocar o filtro limpa a seleção: um card marcado e agora oculto não pode entrar em "Fazer pedido"/"Replicar".
+                        onChange: (v) => { setFiltroStatus(v as "todos" | "sem_reprovado"); setSelecao(new Set()); },
+                        options: [
+                          { id: "sem_reprovado", nome: "Todos menos reprovado" },
+                          { id: "todos", nome: "Todos" },
+                        ],
+                      }]}
+                    />
                     <AgrupamentoButton groups={[
                       { label: "Grupo", active: agrupar.grupo, onToggle: () => setAgrupar({ grupo: !agrupar.grupo }) },
                       { label: "Categoria", active: agrupar.categoria, onToggle: () => setAgrupar({ categoria: !agrupar.categoria }) },
@@ -1352,7 +1379,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 <div className="space-y-4">
                   {produtosSub.length === 0 && (
                     <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                      Nenhum produto nesta subcoleção ainda — clique em "Novo produto".
+                      {produtosSubTodos.length > 0
+                        ? `Todos os ${produtosSubTodos.length} produto(s) desta subcoleção estão reprovados e ocultos — use o filtro Status › Todos para vê-los.`
+                        : 'Nenhum produto nesta subcoleção ainda — clique em "Novo produto".'}
                     </div>
                   )}
                   {/* Nenhum checkbox marcado (item 1 do refino) → lista plana "Todos", sem lanes. */}
