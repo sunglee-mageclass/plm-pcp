@@ -61,11 +61,22 @@ export function MoverEtapaMenu({ selo, podeMover, opcoes, onMover, movendo, sujo
               : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />}
           </button>
         </PopoverTrigger>
-          {/* F4a fix (dono 09/nov): o PopoverContent do Radix cresce com o conteudo e, com muitas etapas,
-              estoura a viewport (a lista cortava embaixo sem rolar). Limita a altura do POPOVER a
-              `--radix-popover-content-available-height` (a altura real ate a borda da tela) com flex-col,
-              e deixa SO a lista rolar (`flex-1 overflow-y-auto`). Assim o cabecalho fica fixo e a lista rola. */}
-        <PopoverContent align="start" className="flex max-h-(--radix-popover-content-available-height) w-72 max-w-[calc(100vw-2rem)] flex-col p-1" data-testid={idMenu} onClick={parar}>
+          {/* F4a fix round 2 (dono 09/nov): o fix 1 limitava a altura so pela var CSS do Radix
+              `--radix-popover-content-available-height`. Isso FALHOU (o dono: "so aumentou, sem scroll,
+              tenho que mover a pagina inteira"): (a) sem `collisionPadding` o Radix media a altura ate a
+              BORDA CRUA da tela — valor enorme, o `max-h` nao limitava nada visivel; (b) se a var nao
+              resolve, nao sobra teto nenhum e o popover cresce sem rolar. Correcao: `collisionPadding`
+              fixo (o Radix passa a medir com folga), `avoidCollisions`, e um TETO DURO `max-h-[60vh]` que
+              SEMPRE vale (independe da var) somado ao `min()` com a var (o menor dos dois). flex-col +
+              lista `flex-1 overflow-y-auto` fazem SO a lista rolar, com o cabecalho fixo. */}
+        <PopoverContent
+          align="start"
+          avoidCollisions
+          collisionPadding={12}
+          className="flex max-h-[min(60vh,var(--radix-popover-content-available-height,60vh))] w-72 max-w-[calc(100vw-2rem)] flex-col p-1"
+          data-testid={idMenu}
+          onClick={parar}
+        >
           <p className="shrink-0 px-2 pt-1 pb-1 text-xs font-semibold text-muted-foreground">Mover para…</p>
           {sujo && (
             <p className="shrink-0 px-2 pb-1 text-[11px] text-muted-foreground">As regras olham o que já está salvo — salve antes de mover.</p>
