@@ -1,13 +1,10 @@
+// (F4a T1: o selo + Popover "Mover para…" agora vivem em `shared/MoverEtapaMenu`; aqui fica só o wrapper e a linha "Próxima".)
 // Selo da etapa no HEADER do Sheet unificado (decisão travada 5: Nome → REF → selo) + "Mover para…" + a linha
 // "Próxima: X — falta: Y" (chave ligada). Reusa `EtapaKanbanBadge` da F2 em modo visual dentro de um botão
 // gatilho do Popover (o Radix cuida de abrir/fechar e do foco). Destinos bloqueados ficam esmaecidos e
 // anotados, mas clicáveis: com a chave ligada o servidor decide e responde com o toast (paridade com o board).
-import { useState } from "react";
-import { ArrowRight, ChevronDown, Loader2 } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { EtapaKanbanBadge } from "@/components/shared/EtapaKanbanBadge";
-import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
-import { cn } from "@/lib/utils";
+import { ArrowRight } from "lucide-react";
+import { MoverEtapaMenu } from "@/components/shared/MoverEtapaMenu";
 import type { EtapaSelo } from "@/lib/kanban-auto-ui";
 import type { OpcaoMover } from "./etapa-kanban";
 
@@ -26,82 +23,17 @@ export function EtapaHeader({ selo, podeMover, opcoes, onMover, movendo, proxima
    *  `undefined` = não aplica (selo permanece do jeito de sempre). */
   carregando?: "carregando" | "erro" | false;
 }) {
-  const [aberto, setAberto] = useState(false);
   return (
     <div data-testid="etapa-header" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-      {podeMover ? (
-        <Popover open={aberto} onOpenChange={setAberto}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              data-testid="etapa-mover-gatilho"
-              aria-label={`Mover para… (etapa: ${selo.label})`}
-              disabled={movendo}
-              className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:min-h-11"
-            >
-              <EtapaKanbanBadge selo={selo} testId="etapa-kanban-selo-header" className="cursor-pointer hover:bg-muted" />
-              {movendo
-                ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-                : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-72 max-w-[calc(100vw-2rem)] p-1" data-testid="etapa-mover-menu">
-            <p className="px-2 pt-1 pb-1 text-xs font-semibold text-muted-foreground">Mover para…</p>
-            {sujo && (
-              <p className="px-2 pb-1 text-[11px] text-muted-foreground">As regras olham o que já está salvo — salve antes de mover.</p>
-            )}
-            <div className="max-h-72 overflow-y-auto">
-              {opcoes.map((o) => (
-                <button
-                  key={o.key}
-                  type="button"
-                  data-testid={`etapa-mover-${o.key}`}
-                  disabled={movendo}
-                  onClick={() => { setAberto(false); onMover(o.key); }}
-                  className={cn(
-                    "flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50 max-sm:min-h-11",
-                    o.bloqueada && "text-muted-foreground",
-                  )}
-                >
-                  <span className="flex w-full min-w-0 items-center gap-1.5">
-                    {/* M6: ícone do MODO da coluna-destino (Zap=automática, Hand=manual…) — reusa o
-                        badge da F2 (Config da Loja), não duplica ícone/rótulo. */}
-                    <ModoColunaBadge modo={o.modo ?? null} />
-                    {/* Nit (fix round 2): rótulos longos truncam (`truncate`) — `title` mostra o
-                        texto inteiro no hover/toque longo. */}
-                    <span className="min-w-0 flex-1 truncate" title={o.label}>{o.label}</span>
-                  </span>
-                  {o.nota && <span className="w-full whitespace-normal break-words text-xs text-muted-foreground opacity-80">{o.nota}</span>}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-      ) : carregando && selo.fase === "kanban" ? (
-        // M6 (fix round 1) + Minor (fix round 2): quando a etapa está no kanban mas ainda não dá
-        // pra mover por CARGA/ERRO das regras (config/condições), o `title` no WRAPPER explica no
-        // hover — `EtapaKanbanBadge` (F2, não editar aqui) sempre define o próprio `title` a partir
-        // de `tituloSelo`, então essa dica não pode sobrescrevê-lo — MAS um `title` só no hover fica
-        // ESCONDIDO (o usuário não sabe que há algo a esperar sem passar o mouse). O Minor pede um
-        // texto CURTO e VISÍVEL ao lado, com o `Loader2` (já importado p/ o "movendo"): "Carregando
-        // regras…" enquanto pendente; "erro" fica sem ícone de spinner (não está mais carregando).
-        <span
-          className="inline-flex min-w-0 items-center gap-1.5"
-          title={carregando === "erro" ? "Não foi possível carregar as regras — recarregue" : "Carregando as regras do quadro…"}
-        >
-          <EtapaKanbanBadge selo={selo} testId="etapa-kanban-selo-header" />
-          {carregando === "carregando" ? (
-            <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-              Carregando regras…
-            </span>
-          ) : (
-            <span className="shrink-0 text-xs text-[var(--tone-danger-fg)]">Erro ao carregar as regras</span>
-          )}
-        </span>
-      ) : (
-        <EtapaKanbanBadge selo={selo} testId="etapa-kanban-selo-header" />
-      )}
+      <MoverEtapaMenu
+        selo={selo}
+        podeMover={podeMover}
+        opcoes={opcoes}
+        onMover={onMover}
+        movendo={movendo}
+        sujo={sujo}
+        carregando={carregando}
+      />
       {proxima && (
         <span data-testid="etapa-proxima" className="inline-flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
           <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />
