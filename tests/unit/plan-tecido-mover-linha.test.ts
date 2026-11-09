@@ -153,3 +153,35 @@ describe("card REAL reabre na lane da sua modelos.linha_id (F2 fix-linha-persist
     expect(cards(merged)).toEqual(["estampado"]);
   });
 });
+
+// F2 fix-linha-orcamento: o servidor grava modelos.linha_id = linha da LANE (poder-de-venda) ou, sem linha na lane
+// (orcamento: lane por categoria), a linha do SLOT. O front espelha no cache dos modelos so o que o servidor gravou.
+describe("linhasGravadasPeloSave (F2 fix-linha-orcamento)", () => {
+  const laneCat = (cat: string, slots: PtSlot[], ordem = 0) => ({ linha_id: null, categoria_id: cat, ordem, slots });
+  const arv = (linhas: any[]): PtArvore => ({ colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas }] }) as unknown as PtArvore;
+
+  it("orcamento: lane de categoria + linha no SLOT => espelha a linha do slot (so o que mudou)", async () => {
+    const { linhasGravadasPeloSave } = await import("@/lib/plan-tecido/engine");
+    const a = slot("A", { modelo_id: "mA", linha_id: "casual" });
+    const b = slot("B", { modelo_id: "mB", linha_id: "estampado" });
+    const cache = new Map<string, string | null>([["mA", "estampado"], ["mB", "estampado"]]);
+    const r = linhasGravadasPeloSave(arv([laneCat("vestido", [a]), laneCat("saia", [b], 1)]), cache);
+    expect([...r.entries()]).toEqual([["mA", "casual"]]); // o vizinho (mB) nao muda
+  });
+
+  it("poder-de-venda: a LANE com linha manda sobre o slot", async () => {
+    const { linhasGravadasPeloSave } = await import("@/lib/plan-tecido/engine");
+    const a = slot("A", { modelo_id: "mA", linha_id: "velha" });
+    const r = linhasGravadasPeloSave(arv([lane("casual", [a])]), new Map([["mA", "velha"]]));
+    expect(r.get("mA")).toBe("casual");
+  });
+
+  it("sem linha na lane nem no slot, vaga sem card e modelo fora do cache: nada a espelhar", async () => {
+    const { linhasGravadasPeloSave } = await import("@/lib/plan-tecido/engine");
+    const semLinha = slot("A", { modelo_id: "mA", linha_id: null });
+    const vaga = slot("V", { modelo_id: null, linha_id: "casual" });
+    const fora = slot("F", { modelo_id: "mX", linha_id: "casual" });
+    const r = linhasGravadasPeloSave(arv([laneCat("vestido", [semLinha, vaga, fora])]), new Map([["mA", "estampado"]]));
+    expect(r.size).toBe(0);
+  });
+});

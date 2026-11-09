@@ -30,7 +30,7 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, moverParaLinha, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, moverParaLinha, linhasGravadasPeloSave, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
@@ -1206,15 +1206,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       for (const sub of marca.local.subcolecoes) for (const ln of sub.linhas) for (const sl of ln.slots)
         if (sl.modelo_id && tocados.has(sl.modelo_id) && sl.tamanho_tipo) novo.set(sl.modelo_id, sl.tamanho_tipo);
       tamanhoSalvoRef.current = novo;
-      // F2 fix-linha-persist: o servidor grava `modelos.linha_id = linha da LANE` p/ card real (só se mudou). Espelha aqui
+      // F2 fix-linha-persist: o servidor grava `modelos.linha_id` (linha da LANE; no orçamento a do SLOT) p/ card real (só se mudou). Espelha aqui
       // só os que diferem do cache dos modelos (o resto não precisa de refetch extra).
       const modelosCache = qc.getQueryData<any[]>(["plan-tecido-modelos", colecaoId]) ?? [];
       const linhaDoCache = new Map<string, string | null>(modelosCache.map((m) => [m.id, m.linha_id ?? null]));
-      const linhaNova = new Map<string, string>();
-      for (const sub of marca.local.subcolecoes) for (const ln of sub.linhas) for (const sl of ln.slots)
-        if (ln.linha_id && sl.modelo_id && linhaDoCache.has(sl.modelo_id) && linhaDoCache.get(sl.modelo_id) !== ln.linha_id)
-          linhaNova.set(sl.modelo_id, ln.linha_id);
-      linhaSalvaRef.current = linhaNova;
+      // F2 fix-linha-orcamento: a linha gravada = a da LANE (poder-de-venda) ou, sem linha na lane (orçamento: lane por
+      // categoria), a do SLOT — mesma regra do servidor (`linhasGravadasPeloSave`).
+      linhaSalvaRef.current = linhasGravadasPeloSave(marca.local, linhaDoCache);
     },
     onSuccess: () => {
       // CAPTURA os slots que editei ANTES de zerar o touched — o auto-aplicar (regra do dono, bug #9)
@@ -2206,7 +2204,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                 subNext.linhas[li].slots[sli] = aplicarMoveFamilia(subNext, ns, slot);
                 // F2 fix-linha: a "linha" do card é a LANE (PtLinha) onde ele está — escolher a Linha MOVE o slot de bucket
                 // (mesmo princípio de `aplicarMoveFamilia`), senão o re-seed força `slot.linha_id` de volta ao da lane e a escolha
-                // "pula" para o card vizinho. Só nas lanes de PV (categoria_id null); no fluxo Orçamento a lane é de categoria.
+                // "pula" para o card vizinho. Só nas lanes de PV (categoria_id null). No ORÇAMENTO a lane é de categoria: o slot NÃO
+                // muda de lane, mas `slot.linha_id` (acima, via `ns`) vai no payload e o servidor grava `modelos.linha_id` a partir
+                // dele (fix-linha-orcamento) — sem isso a escolha era descartada no re-seed.
                 // `lf`/`sf` = posição FINAL do slot (muda só se moveu), usada pela réplica de variantes logo abaixo.
                 let lf = li, sf = sli;
                 if ((ns.linha_id ?? null) !== (slot.linha_id ?? null) && (subNext.linhas[li].categoria_id ?? null) === null) {

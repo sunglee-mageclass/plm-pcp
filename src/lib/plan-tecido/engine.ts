@@ -545,8 +545,8 @@ export function moverParaFamiliaDoTecido(
 }
 
 /**
- * F2 fix-linha: a "linha" de um card é a LANE (`PtLinha`) onde ele está — `slot.linha_id` só espelha a lane
- * (o seed força `slot.linha_id = ln.linha_id`; o save persiste a estrutura de lanes, não um campo do slot).
+ * F2 fix-linha: no PODER-DE-VENDA a "linha" de um card é a LANE (`PtLinha`) onde ele está — `slot.linha_id` espelha a lane
+ * (o seed força `slot.linha_id = ln.linha_id`). No ORÇAMENTO a lane é de categoria e a linha é só do slot (fix-linha-orcamento).
  * Escolher a Linha no card MOVE o slot de bucket (mesmo princípio de `moverParaFamiliaDoTecido`): tira da lane de
  * origem, põe no FIM da lane cuja `linha_id` = `novaLinhaId` (criada, ao fim de `sub.linhas`, se não existir) e
  * alinha `slot.linha_id`. Dados do slot preservados. PURA (devolve cópia rasa da sub; não muta a entrada).
@@ -576,6 +576,24 @@ export function moverParaLinha(
   linhas[destI].slots.push(movido);
   linhas[destI].slots = reindexa(linhas[destI].slots);
   return { sub: { ...sub, linhas }, li: destI, sli: linhas[destI].slots.length - 1 };
+}
+
+/**
+ * F2 fix-linha-orcamento: a linha que o SERVIDOR grava em `modelos.linha_id` no Salvar (espelha `_salvar_plan_tecido_core`):
+ * a da LANE quando a lane tem linha (poder-de-venda: a lane manda); senão a do SLOT (orçamento: lane por CATEGORIA, linha_id
+ * null — a linha do card é um atributo do slot). Só card real (modelo_id) cujo modelo está no cache e cuja linha DIFERE do
+ * cache entra no resultado (modelo_id → linha nova). PURA.
+ */
+export function linhasGravadasPeloSave(
+  arvore: PtArvore, linhaDoCache: ReadonlyMap<string, string | null>,
+): Map<string, string> {
+  const nova = new Map<string, string>();
+  for (const sub of arvore.subcolecoes) for (const ln of sub.linhas) for (const sl of ln.slots) {
+    const efetiva = ln.linha_id || sl.linha_id || null;
+    if (efetiva && sl.modelo_id && linhaDoCache.has(sl.modelo_id) && linhaDoCache.get(sl.modelo_id) !== efetiva)
+      nova.set(sl.modelo_id, efetiva);
+  }
+  return nova;
 }
 
 /**

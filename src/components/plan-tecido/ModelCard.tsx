@@ -465,8 +465,9 @@ export function ModelCard({
             </Select>
           </div>
           {/* F2 E — Linha do card (eixo da Base por linha x quantidade). Espelha a Categoria: mesmo funil onChange→patch→
-              salvar_plan_tecido. O PAI detecta a troca de linha_id e MOVE o slot para a lane (PtLinha) daquela linha (`moverParaLinha`); a
-              linha do card = a lane onde ele está (o seed força slot.linha_id = lane.linha_id). */}
+              salvar_plan_tecido. PODER-DE-VENDA: o PAI detecta a troca de linha_id e MOVE o slot para a lane (PtLinha) daquela linha
+              (`moverParaLinha`; o seed força slot.linha_id = lane.linha_id). ORÇAMENTO (lane por categoria): o slot fica na lane e
+              o `slot.linha_id` vai no payload; o servidor grava modelos.linha_id a partir dele (fix-linha-orcamento). */}
           <div className="flex items-center gap-1">
             <span className="shrink-0 text-[10px] text-muted-foreground">Linha</span>
             <Select
