@@ -121,6 +121,14 @@ export type ProdutoDraft = {
   // mesma escolhe a 1ª truthy + trata PDF). Produto sem espelho (`modelo_id` null) = [null,
   // null, null] → placeholder.
   modeloThumbFontes: (string | null)[];
+  // F4a T2 — espelho SÓ-LEITURA do kanban do card (embed `modelo:modelo_id`): alimenta o selo da etapa + o
+  // "Mover para…" (`MoverEtapaMenu`). FORA do `chaveDirty` — a etapa se move por RPC, não pelo Salvar. Opcionais
+  // (fixtures antigas não os têm): ausente = null/false (nunca "assume enviado", ver `modeloKanbanDoEmbed`).
+  modeloStatusDev?: string | null;
+  modeloStatusPlan?: string | null;
+  modeloOrdemEnviada?: boolean;
+  modeloOrigem?: string | null;
+  modeloLancado?: boolean;
   oc: OcVinculadaInfo | null;
 };
 

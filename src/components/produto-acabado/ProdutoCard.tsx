@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -30,6 +30,10 @@ import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
+import { MoverEtapaMenu } from "@/components/shared/MoverEtapaMenu";
+import { useSeloMoverLote } from "@/hooks/useSeloMover";
+import { modeloKanbanDoEmbed } from "@/lib/kanban-card-selo";
+import { lerKanbanAutoConfig, type KanbanAutoConfig } from "@/lib/kanban-auto";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { colunasTravadas, textoExcluirTravado, TEXTO_SKU_TRAVADO } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
@@ -46,6 +50,21 @@ import {
 } from "./shared";
 import { TamanhoEmToggle } from "@/components/shared/TamanhoEmToggle";
 import { tipoEfetivo, tamanhosVisiveis } from "@/lib/tamanho-exibicao";
+
+/** F4a T2 — o que o Sheet entrega ao card p/ montar o selo da etapa + "Mover para…" (config e condições em LOTE,
+ *  carregadas 1× por coleção; o card não busca nada). */
+export type KanbanDoCard = {
+  cfg: KanbanAutoConfig;
+  condMap: Record<string, Record<string, boolean>>;
+  /** config da loja carregada E (se há card no kanban) condições em lote carregadas. */
+  prontas: boolean;
+  carregando: "carregando" | "erro" | false;
+  tenantId?: string | null;
+};
+// Referências ESTÁVEIS (LOW (b) da revisão do T1): sem `kanban` (uso sem Sheet) o hook roda com estes vazios, e
+// um card sem condição própria usa `COND_VAZIA` — nunca um `{}` novo a cada render (invalidaria os memos do hook).
+const KANBAN_SEM_TELA: KanbanDoCard = { cfg: lerKanbanAutoConfig(null), condMap: {}, prontas: false, carregando: false };
+const COND_VAZIA: Record<string, boolean> = {};
 
 export function ProdutoCard({
   produto,
@@ -76,6 +95,7 @@ export function ProdutoCard({
   onAbrirPlanejamento,
   ordensVariantesServidor,
   dirty,
+  kanban,
 }: {
   produto: ProdutoDraft;
   onChange: (next: ProdutoDraft) => void;
@@ -130,6 +150,8 @@ export function ProdutoCard({
    *  mesmo precedente do "Fazer pedido" (item 4a). Opcional/retrocompatível — ausente = nunca
    *  salva antes (comportamento de sempre). */
   dirty?: boolean;
+  /** F4a T2 — config/condições do kanban em lote (do Sheet). Ausente = sem selo (retrocompatível). */
+  kanban?: KanbanDoCard;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -148,6 +170,27 @@ export function ProdutoCard({
   // (abaixo) precisam saber se o varejo está travado ANTES de decidir a fonte do preço mostrado.
   const estadoIntegracao = useIntegracaoEstado(produto.modelo_id);
   const travaIntegracao = colunasTravadas(estadoIntegracao);
+  // F4a T2 — selo da etapa do kanban + "Mover para…" (só-leitura do espelho; mover vai por RPC, FORA do Salvar).
+  // `modeloKanbanDoEmbed` memoizado nos 4 primitivos (LOW (b)): referência estável entre renders → os memos do
+  // `useSeloMoverLote` (selo/opções) não recalculam à toa.
+  const kn = kanban ?? KANBAN_SEM_TELA;
+  const modeloKanban = useMemo(
+    () => modeloKanbanDoEmbed({
+      origem: produto.modeloOrigem,
+      status_desenvolvimento: produto.modeloStatusDev,
+      ordem_criacao_enviada: produto.modeloOrdemEnviada,
+      lancado: produto.modeloLancado,
+    }),
+    [produto.modeloOrigem, produto.modeloStatusDev, produto.modeloOrdemEnviada, produto.modeloLancado],
+  );
+  const seloMover = useSeloMoverLote({
+    modeloId: produto.modelo_id,
+    modelo: modeloKanban,
+    cfg: kn.cfg,
+    cond: (produto.modelo_id ? kn.condMap[produto.modelo_id] : undefined) ?? COND_VAZIA,
+    prontas: kn.prontas,
+    tenantId: kn.tenantId,
+  });
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [confirmLimpar, setConfirmLimpar] = useState(false);
   const [criandoCard, setCriandoCard] = useState(false);
@@ -456,6 +499,28 @@ export function ProdutoCard({
           </PopoverContent>
         </Popover>
       </button>
+
+      {/* F4a T2 — selo da etapa do kanban + "Mover para…". FORA do botão do cabeçalho (o gatilho do `MoverEtapaMenu` é um
+          <button>: botão dentro de botão não existe em HTML — mesmo motivo do chip da OC abaixo). O card abre por
+          `onClick` do botão do cabeçalho (nenhum `onClick`/`onKeyDown` no wrapper do card), então o gatilho, estando
+          fora dele, nem sobe o clique; `dentroDeCard` fica ligado por garantia (o PopoverContent sobe pela árvore do
+          React). Sem `modelo_id` (ainda não virou card) = nada no kanban = sem selo. */}
+      {kanban && produto.modelo_id && (
+        <div className={`px-3 pb-2 ${onToggleSelect ? "pl-8" : ""}`}>
+          <MoverEtapaMenu
+            selo={seloMover.selo}
+            podeMover={seloMover.podeMover}
+            opcoes={seloMover.opcoes}
+            onMover={seloMover.onMover}
+            movendo={seloMover.movendo}
+            sujo={dirty}
+            carregando={kn.carregando}
+            compacto
+            testIdPrefix="pa"
+            dentroDeCard
+          />
+        </div>
+      )}
 
       {/* [urg R13 T6] chip "Na OC BELDIV-00123 (com 3 produtos)" — FORA do botão do cabeçalho (botão dentro de botão não existe em HTML). */}
       {produto.oc && (

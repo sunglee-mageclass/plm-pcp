@@ -13,7 +13,7 @@
  *  • M3 — chave desligada: o UPDATE devolve o `status_desenvolvimento` GRAVADO (`.select().single()`); toast
  *    e cache usam ESSE valor, não `v.para` (um guard de servidor pode redirecionar o destino).
  */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -35,6 +35,29 @@ type ResultadoEtapa =
   | { tipo: "auto"; r: ResultadoMover }
   | { tipo: "bloqueado"; faltando: { label: string }[] }
   | { tipo: "hoje"; status: string };
+
+/**
+ * F4a T2b (LOW (a) da revisão do T1) — o que reler DEPOIS de mover a etapa, em TODAS as telas que mostram o card:
+ * Planejamento/Desenvolvimento (as keys de sempre) + Produto Acabado / Produto Importado (lista + condições em lote)
+ * + Plan. Tecido (qualquer `plan-tecido*`: modelos, fases…). Vive no `onSettled` do PRÓPRIO `useMutation` — o
+ * callback de nível de mutação roda mesmo que o card/tela desmonte antes da resposta (ex.: o filtro de reprovados
+ * poda o card ao movê-lo p/ "reprovado"); o `onSettled` passado ao `mutate(...)` NÃO roda se o observador sumiu.
+ * Prefixos amplos (sem `colecaoId`): só as queries ATIVAS refazem a busca, as demais só ficam obsoletas.
+ */
+export function invalidarAposMoverEtapa(qc: QueryClient, modeloId: string | null) {
+  qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+  qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
+  qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+  qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+  qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
+  // Telas de produto comprado (espelho do card): a lista e as condições em lote de cada uma.
+  qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+  qc.invalidateQueries({ queryKey: ["produtos-importados"] });
+  qc.invalidateQueries({ queryKey: ["pa-kanban-cond"] });
+  qc.invalidateQueries({ queryKey: ["pi-kanban-cond"] });
+  // Plan. Tecido: as keys são `plan-tecido-<algo>` (1º elemento distinto) → predicado por prefixo do nome.
+  qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("plan-tecido") });
+}
 
 export function useMoverEtapa(modeloId: string | null, tenantId?: string | null) {
   const qc = useQueryClient();
@@ -87,12 +110,6 @@ export function useMoverEtapa(modeloId: string | null, tenantId?: string | null)
       }
       toast.error(mensagemErro(e, "Erro ao mover o card"));
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
-      qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
-      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
-      qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
-    },
+    onSettled: () => invalidarAposMoverEtapa(qc, modeloId),
   });
 }

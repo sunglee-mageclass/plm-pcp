@@ -1604,7 +1604,8 @@ describe("Tarefa 5 — Produto Acabado: SELECT + embed do Sheet", () => {
   const s = ler("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
   it("SELECT_PRODUTO traz tamanho_tipo do produto E o embed do modelo (tamanho_tipo, modelo_skus(count))", () => {
     expect(s).toMatch(/foto_url, tamanho_tipo,/);
-    expect(s).toMatch(/modelo:modelo_id\(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus\(count\)\)/);
+    // F4a T2: o embed ganhou os 5 campos do kanban do card (selo da etapa + filtro de reprovados) logo depois do `modelo_skus(count)`.
+    expect(s).toMatch(/modelo:modelo_id\(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus\(count\),\s*status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado\)/);
   });
   it("rowToDraft: card com modelo_id usa o tamanho_tipo DO MODELO; sem card, o do próprio produto (P-119 A)", () => {
     expect(s).toMatch(/const tamanhoTipo = \(row\.modelo_id \? row\.modelo\?\.tamanho_tipo : row\.tamanho_tipo\) \?\? null;/);

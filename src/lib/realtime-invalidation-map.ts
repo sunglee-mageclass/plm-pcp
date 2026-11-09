@@ -116,6 +116,9 @@ export const TENANT_CONFIG_EXTRA_KEYS: readonly string[] = [
   "plan-tecido-kanban-cols",
   // urg R2 T12 — lista "Insumos padrão" lida pelo "+ Novo"/"Criar vários cards" (tenant_config.insumos_padrao + catálogo de insumos).
   "planejamento-insumos-padrao",
+  // F4a T2 — config do kanban lida pelo Produto Acabado (selo da etapa no card; `tenant_config`). A key não contém
+  // "tenant": sem isto, ligar/desligar o Kanban automático ou mexer no board deixaria o selo/"Mover para…" velho.
+  "pa-kanban-config",
 ];
 
 function matchTenantConfig(k: QueryKey): boolean {

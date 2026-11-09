@@ -40,10 +40,19 @@ import {
 } from "./shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
 import { colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
+
+// F4a T2 — mapa de condições vazio ESTÁVEL (referência fixa: não invalida memos dos cards enquanto carrega).
+const KANBAN_COND_VAZIO: Record<string, Record<string, boolean>> = {};
+// Campos do draft que são ESPELHO só-leitura do kanban do card (não entram no `chaveDirty` nem no aviso de colab).
+const CAMPOS_KANBAN_ESPELHO: ReadonlySet<string> = new Set([
+  "modeloStatusDev", "modeloStatusPlan", "modeloOrdemEnviada", "modeloOrigem", "modeloLancado",
+]);
 
 // Agrupamento das lanes do canvas — COMBINÁVEL via checkboxes (item 1 do refino, ago/2026;
 // padrão do AgrupamentoButton — mesmo componente do Plan. Tecido): "Grupo" e "Categoria" são
@@ -139,6 +148,12 @@ function rowToDraft(row: any): ProdutoDraft {
       row.modelo?.desenho_tecnico_url ?? null,
       row.modelo?.croqui_url ?? null,
     ],
+    // F4a T2 — kanban do espelho (só-leitura; fora do `chaveDirty`). Sem card (`modelo` null) = null/false.
+    modeloStatusDev: row.modelo?.status_desenvolvimento ?? null,
+    modeloStatusPlan: row.modelo?.status_planejamento ?? null,
+    modeloOrdemEnviada: row.modelo?.ordem_criacao_enviada === true,
+    modeloOrigem: row.modelo?.origem ?? null,
+    modeloLancado: row.modelo?.lancado === true,
     // [urg R13 T6] a OC do produto = o ITEM dele (embed `oc_item`) + o cabeçalho + o nº de produtos da OC. Fora do `chaveDirty`.
     oc: ocInfoDeItens(row.oc_item, "acabado"),
   };
@@ -150,7 +165,8 @@ const SELECT_PRODUTO = `
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
   markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
-  modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus(count)),
+  modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus(count),
+    status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado),
   ${EMBED_OC_ITEM_PA}
 `;
 
@@ -382,6 +398,41 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     },
   });
 
+  // F4a T2 — selo da etapa do kanban + "Mover para…" no card. Config da loja e condições em LOTE (1 chamada
+  // `avaliar_condicoes_kanban` por coleção, NÃO uma por card) carregadas AQUI, sob queryKeys PRÓPRIAS desta tela
+  // (nada de `tenant-plan-ficha-config`/`plan-kanban-cond`, que são por-modelo e do Planejamento). Cada
+  // `ProdutoCard` só recebe o recorte e monta o selo (`useSeloMoverLote`) — zero fetch por card.
+  const tenantIdKanban = useActiveTenantId();
+  const { data: kanbanCfgRow, isSuccess: kanbanCfgOk, isError: kanbanCfgErro } = useQuery({
+    queryKey: ["pa-kanban-config", tenantIdKanban],
+    enabled: !!tenantIdKanban,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tenant_config").select("*").eq("tenant_id", tenantIdKanban).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as Record<string, unknown> | null;
+    },
+  });
+  const kanbanCfg = useMemo(() => lerKanbanAutoConfig(kanbanCfgRow ?? null), [kanbanCfgRow]);
+  // Só modelos COM card, enviados ao kanban e não lançados (os demais não têm posição no board: sem condição).
+  const modeloIdsKanban = useMemo(
+    () => [...new Set((produtosQuery.data ?? [])
+      .filter((p) => p.modelo_id && p.modeloOrdemEnviada && !p.modeloLancado)
+      .map((p) => p.modelo_id as string))].sort(),
+    [produtosQuery.data],
+  );
+  const { data: kanbanCondMapa, isSuccess: kanbanCondOk, isError: kanbanCondErro } = useQuery({
+    queryKey: ["pa-kanban-cond", colecaoId, modeloIdsKanban],
+    enabled: modeloIdsKanban.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("avaliar_condicoes_kanban" as any, { _ids: modeloIdsKanban });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, Record<string, boolean>>;
+    },
+  });
+  const kanbanCondMap = kanbanCondMapa ?? KANBAN_COND_VAZIO;
+  const kanbanProntas = kanbanCfgOk && (modeloIdsKanban.length === 0 || kanbanCondOk);
+  const kanbanCarregando: "carregando" | "erro" | false = kanbanProntas ? false : (kanbanCfgErro || kanbanCondErro ? "erro" : "carregando");
+
   // Baseline de dirty POR PRODUTO (id → snapshot serializado dos campos de `chaveDirty`) — não
   // é o `useDirtySnapshot` de 1 blob só. Achado no fix round 1: "Fazer pedido" já persiste o
   // produto via `salvarUmProduto` ANTES de navegar (item 4a), mas um baseline de blob único só
@@ -443,6 +494,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     }
     const freshById = new Map(produtosQuery.data.map((p) => [p.id, p]));
     let totalAtualizados = 0;
+    let kanbanMudou = false;
     const novosConflitos: Record<string, Conflito[]> = {};
     // IDs que PASSARAM pelo merge nesta rodada (têm base+fresh, ou o caso __produto__). Só esses
     // podem ter seu conflito RECONSTRUÍDO — os demais (produtos de OUTRA subcoleção não carregados
@@ -473,7 +525,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
         ),
       );
       const m = mergeDraft({ base: base as any, draft: draft as any, fresh: fresh as any, touched });
-      if (m.atualizados.length > 0) totalAtualizados++;
+      // F4a T2 — o espelho do kanban (etapa do card) é só-leitura e muda quando EU movo o card (ou outra pessoa/o motor):
+      // o rascunho adota o valor novo (selo certo), mas NÃO conta como "atualizado por outra pessoa" (sem o aviso do banner).
+      const atualizadosReais = m.atualizados.filter((k) => !CAMPOS_KANBAN_ESPELHO.has(k));
+      if (atualizadosReais.length > 0) totalAtualizados++;
+      else if (m.atualizados.length > 0) kanbanMudou = true;
       if (m.conflitos.length > 0) novosConflitos[draft.id] = m.conflitos; // ausência = convergiu → poda
       // rev nunca é "tocado" (não está em chaveDirty) — sempre adota o do fresh (senão o save
       // seguinte compararia contra um rev velho e tomaria P0409 falso-positivo do meu próprio save).
@@ -519,8 +575,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     });
 
     const totalConflitos = Object.values(novosConflitos).reduce((a, c) => a + c.length, 0);
-    if (totalAtualizados === 0 && totalConflitos === 0) return; // sem mudança em drafts — não perturba
+    if (totalAtualizados === 0 && totalConflitos === 0 && !kanbanMudou) return; // sem mudança em drafts — não perturba
     setDrafts(proximosDrafts);
+    if (totalAtualizados === 0 && totalConflitos === 0) return; // só a etapa do kanban mudou: sem aviso de colaboração
     setUltimoMergeColab({ atualizados: totalAtualizados, conflitos: totalConflitos });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtosQuery.data]);
@@ -1072,6 +1129,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             // já que um save em lote pode disparar logo em seguida) tiver conflito pendente.
             conflitoPendente={temConflitoPendente}
             ordensVariantesServidor={baseServidorRef.current[p.id]?.variantes.map((v) => v.ordem)}
+            kanban={{ cfg: kanbanCfg, condMap: kanbanCondMap, prontas: kanbanProntas, carregando: kanbanCarregando, tenantId: tenantIdKanban }}
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
             onOcVinculada={(oc) => {
               patchProduto(p.id, { oc });
