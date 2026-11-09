@@ -744,6 +744,35 @@ export function aComprarVivoPorArtigo(
   return out;
 }
 
+/** F3 (transparência do Resumo): estoque do ARTIGO = soma, por variante da cobertura do servidor, do
+ *  recebido (real) e do a chegar (pedido). Já em METROS (o core do servidor converte kg→m). Campo
+ *  ausente/nulo (variante sem OC) conta 0. Só LEITURA — não entra em nec./a comprar. */
+export function estoqueDoArtigo(
+  cobertura: CoberturaVarRow[] | null | undefined,
+  artigoId: string,
+): { recebido: number; prevReceb: number } {
+  let recebido = 0, prevReceb = 0;
+  for (const c of cobertura ?? []) {
+    if (c.artigo_id !== artigoId) continue;
+    recebido += Number(c.recebido_m) || 0;
+    prevReceb += Number(c.prev_receb_m) || 0;
+  }
+  return { recebido, prevReceb };
+}
+
+/** Outras coleções (mesma loja) que usam o artigo — da chave `outras_colecoes` da prévia. Sem entrada ⇒ []. */
+export type OutraColecaoItem = { colecao_id: string; colecao_nome: string; nec_m: number };
+export function outrasColecoesDoTecido(
+  outras: { artigo_id: string; colecoes: OutraColecaoItem[] }[] | null | undefined,
+  artigoId: string,
+): OutraColecaoItem[] {
+  return (outras ?? []).find((o) => o.artigo_id === artigoId)?.colecoes ?? [];
+}
+
+/** "Nome (N m), Nome (N m)" — vazio ⇒ "" (o "i" do Resumo não renderiza). */
+export const textoOutrasColecoes = (lista: OutraColecaoItem[], fmt: (n: number) => string): string =>
+  lista.map((c) => `${c.colecao_nome} (${fmt(c.nec_m)} m)`).join(", ");
+
 /** Rateio do déficit da COLEÇÃO para uma SUBCOLEÇÃO, por artigo: parte proporcional à necessidade
  *  da sub sobre a da coleção, limitada à necessidade da sub. nec 0 ⇒ 0 (a sub não deve nada);
  *  Σ dos rateios das subs = déficit da coleção. (Auditoria jul/2026: "nec 0 · a comprar 1.591,68"

@@ -1,0 +1,51 @@
+import { describe, it, expect } from "vitest";
+import {
+  estoqueDoArtigo, outrasColecoesDoTecido, textoOutrasColecoes, fmtMetros, type CoberturaVarRow,
+} from "@/lib/plan-tecido/calc";
+
+const cob = (artigo_id: string, recebido_m?: number, prev_receb_m?: number): CoberturaVarRow => ({
+  artigo_id, variante_tecido_id: `v-${artigo_id}-${recebido_m}`, nec_m: 10, deficit_m: 0, recebido_m, prev_receb_m,
+});
+
+describe("estoqueDoArtigo (F3)", () => {
+  it("soma recebido e a chegar das variantes do MESMO artigo (2+ cores)", () => {
+    const r = estoqueDoArtigo([cob("A", 10, 5), cob("A", 2.5, 0), cob("B", 99, 99)], "A");
+    expect(r).toEqual({ recebido: 12.5, prevReceb: 5 });
+  });
+  it("artigo sem linha / cobertura vazia ou ausente → 0/0", () => {
+    expect(estoqueDoArtigo([cob("B", 1, 1)], "A")).toEqual({ recebido: 0, prevReceb: 0 });
+    expect(estoqueDoArtigo([], "A")).toEqual({ recebido: 0, prevReceb: 0 });
+    expect(estoqueDoArtigo(undefined, "A")).toEqual({ recebido: 0, prevReceb: 0 });
+  });
+  it("campos ausentes/nulos viram 0 (variante sem OC)", () => {
+    expect(estoqueDoArtigo([cob("A", undefined, undefined), cob("A", 0, 0)], "A")).toEqual({ recebido: 0, prevReceb: 0 });
+  });
+});
+
+describe("outrasColecoesDoTecido (F3)", () => {
+  const outras = [
+    { artigo_id: "A", colecoes: [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 120 }, { colecao_id: "c2", colecao_nome: "Inverno", nec_m: 30.5 }] },
+    { artigo_id: "B", colecoes: [] },
+  ];
+  it("devolve as coleções do artigo", () => {
+    expect(outrasColecoesDoTecido(outras, "A")).toHaveLength(2);
+  });
+  it("artigo só na coleção atual (ausente ou lista vazia) → []", () => {
+    expect(outrasColecoesDoTecido(outras, "B")).toEqual([]);
+    expect(outrasColecoesDoTecido(outras, "Z")).toEqual([]);
+    expect(outrasColecoesDoTecido(undefined, "A")).toEqual([]);
+  });
+});
+
+describe("textoOutrasColecoes (F3)", () => {
+  it("formata 'Nome (N m), …'", () => {
+    const t = textoOutrasColecoes(
+      [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 1200 }, { colecao_id: "c2", colecao_nome: "Inverno", nec_m: 30.5 }],
+      fmtMetros,
+    );
+    expect(t).toBe("Verão (1.200 m), Inverno (30,5 m)");
+  });
+  it("lista vazia → '' (o 'i' não renderiza)", () => {
+    expect(textoOutrasColecoes([], fmtMetros)).toBe("");
+  });
+});
