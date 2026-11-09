@@ -7,8 +7,9 @@ import { OcHoverResumo } from "./OcHoverResumo";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis } from "@/lib/plan-tecido/calc";
+import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FotoCarrossel } from "./FotoCarrossel";
@@ -47,6 +48,10 @@ type LinhaVariante = {
   est: number;
   sob: number;
   compr: number;
+  // F3 (transparência): só LEITURA p/ o hover do "Est" — não entram em Plan/Sob/Compr nem nos totais.
+  fisico: number;
+  prevReceb: number;
+  artigo_id: string;
 };
 
 // Agrupa as linhas da cobertura de UM artigo por FORNECEDOR (nome). ORDENA fornecedores e variantes
@@ -64,7 +69,7 @@ function agruparPorFornecedor(
     const compr = Number(c.deficit_m) || 0;
     const sob = Math.max(0, est - plan);
     const arr = map.get(c.fornecedor) ?? map.set(c.fornecedor, []).get(c.fornecedor)!;
-    arr.push({ key: c.variante_tecido_id ?? `${c.artigo_id}-${c.label}`, cor, apelido, plan, est, sob, compr });
+    arr.push({ key: c.variante_tecido_id ?? `${c.artigo_id}-${c.label}`, cor, apelido, plan, est, sob, compr, fisico: Number(c.fisico_m) || 0, prevReceb: Number(c.prev_receb_m) || 0, artigo_id: c.artigo_id });
   }
   const cmp = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" });
   return [...map.entries()]
@@ -118,7 +123,14 @@ function TabelaVariantes({ grupos, compact, marcarPrimeira }: { grupos: { fornec
                 </span>
               </span>
               <span className="text-right tabular-nums">{fmtMetros(v.plan)}</span>
-              <span className="text-right tabular-nums text-muted-foreground">{fmtMetros(v.est)}</span>
+              {/* O NÚMERO segue sendo `est` (estoque_m do servidor, inalterado); o "i" só detalha as parcelas (F3). */}
+              <span className="flex min-w-0 items-center justify-end gap-0.5 text-right tabular-nums text-muted-foreground">
+                {fmtMetros(v.est)}
+                <InfoHover ariaLabel="Detalhe do estoque da variante" className="[&_svg]:h-3 [&_svg]:w-3">
+                  <div>Disponível (real): {fmtMetros(v.fisico)} m</div>
+                  <div>A chegar (pedido): {fmtMetros(v.prevReceb)} m</div>
+                </InfoHover>
+              </span>
               <span className="text-right tabular-nums text-emerald-700">{v.sob > 0 ? fmtMetros(v.sob) : "—"}</span>
               <span className={`text-right tabular-nums ${v.compr > 0 ? "font-semibold text-destructive" : "text-muted-foreground"}`}>{v.compr > 0 ? fmtMetros(v.compr) : "0"}</span>
             </div>
@@ -207,6 +219,7 @@ function FaixaModoPlano({
   renderCard,
   setOcDialog,
   onToggleRecolhido,
+  outrasColecoes,
 }: {
   nome: string;
   itens: FlatSlot[];
@@ -224,6 +237,8 @@ function FaixaModoPlano({
   renderCard: (slot: PtSlot, li: number, sli: number, variantesGrupoT1: PtVariante[], onAbrirOcDialog: (ocId: string) => void) => ReactNode;
   setOcDialog: (ocId: string | null) => void;
   onToggleRecolhido: (nomeTecido: string) => void;
+  /** F3: `outras_colecoes` da prévia — alimenta o "i" "Também usado em" (por ARTIGO). */
+  outrasColecoes?: PreviaRpc["outras_colecoes"];
 }) {
   // Artigo(s) do TEC1 do grupo. Em geral o agrupamento por nome junta cards do MESMO artigo,
   // mas o nome de artigo NÃO é único no cadastro — dois artigos homônimos (fornecedores
@@ -235,6 +250,8 @@ function FaixaModoPlano({
   // cores realmente usadas, então só entram LINHAS de outros artigos (o PLAN do produto não dobra).
   const tec1ArtigoIds = artigosTec1DoGrupo(itens);
   const categoriaNome = tec1ArtigoIds[0] ? categoriaNomeDe(tec1ArtigoIds[0]) : null;
+  // F3: "Também usado em" é por ARTIGO — soma dos artigos do TEC1 do grupo (homônimos). Texto vazio ⇒ sem "i".
+  const textoOutrasT1 = textoOutrasColecoes(tec1ArtigoIds.flatMap((aid) => outrasColecoesDoTecido(outrasColecoes, aid)), fmtMetros);
 
   // UNIÃO VISUAL das variantes do Tecido 1 do grupo (set/2026): todas as cores que QUALQUER card
   // do grupo tem no seu Tecido 1. Passada aos cards p/ exibirem as faltantes com qtd 0 (fantasma,
@@ -347,7 +364,10 @@ function FaixaModoPlano({
 
             {/* Resumo do TEC1 — alinhado por variante, agrupado por fornecedor */}
             <div className="border-b px-2 pb-1 pt-1.5 text-[9px] font-bold uppercase tracking-wide text-primary">
-              TEC 1 · {nome} — resumo por variante
+              <span className="inline-flex items-center gap-1">
+                TEC 1 · {nome} — resumo por variante
+                {textoOutrasT1 && (<InfoHover ariaLabel="Outras coleções que usam este tecido">Também usado em: {textoOutrasT1}</InfoHover>)}
+              </span>
             </div>
             {tec1Grupos.length > 0 ? (
               // Espaçador do ENCAIXE DO TOPO (lado resumo): desce a tabela até a 1ª variante alinhar
@@ -382,12 +402,14 @@ function FaixaModoPlano({
                   <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollSnapType: "x mandatory" }}>
                     {variacoes.map((v) => {
                       const grupos = gruposDoArtigo(v.artigoId);
+                      const textoOutrasV = textoOutrasColecoes(outrasColecoesDoTecido(outrasColecoes, v.artigoId), fmtMetros);
                       return (
                         <div key={v.artigoId} className="w-full shrink-0 rounded-lg border bg-card"
                           style={{ scrollSnapAlign: "start", scrollSnapStop: "always" }}>
                           <div className="flex items-center gap-1.5 border-b bg-muted/60 px-2 py-1.5">
                             <StatusBadge tone={pos.isForro ? "neutral" : "info"} className="shrink-0">{pos.label}</StatusBadge>
                             <span className="min-w-0 flex-1 truncate text-[11px] font-semibold">{v.nome}</span>
+                            {textoOutrasV && (<InfoHover ariaLabel="Outras coleções que usam este tecido">Também usado em: {textoOutrasV}</InfoHover>)}
                           </div>
                           <div className="border-b border-dashed px-2 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
                             {fornecedorDe(v.artigoId) ?? "Sem fornecedor"} · {v.count} card{v.count === 1 ? "" : "s"}
@@ -566,6 +588,7 @@ export function ModoPlanoView({
           renderCard={renderCard}
           setOcDialog={setOcDialog}
           onToggleRecolhido={onToggleRecolhido}
+          outrasColecoes={previa?.outras_colecoes}
         />
       ))}
       {nomes.length === 0 && (
