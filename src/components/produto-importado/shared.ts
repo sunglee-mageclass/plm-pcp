@@ -128,6 +128,14 @@ export type ProdutoImportadoDraft = {
   // Nº de SKUs já gerados p/ o card (`modelo_skus`, embed `(count)`) — mesmo campo do Produto Acabado
   // (`ProdutoDraft.modeloSkusCount`); alimenta o aviso âmbar "SKUs já gerados não mudam...".
   modeloSkusCount: number;
+  // F4a T4 — espelho SÓ-LEITURA do kanban do card (embed `modelo:modelo_id`): alimenta o selo da etapa + o "Mover
+  // para…" (`MoverEtapaMenu`). FORA do `chaveDirty` — a etapa se move por RPC, não pelo Salvar. Opcionais (fixtures
+  // antigas não os têm): ausente = null/false (nunca "assume enviado", ver `modeloKanbanDoEmbed`).
+  modeloStatusDev?: string | null;
+  modeloStatusPlan?: string | null;
+  modeloOrdemEnviada?: boolean;
+  modeloOrigem?: string | null;
+  modeloLancado?: boolean;
   /** [urg R13] OC vinculada (1 ativa por produto) — `undefined`/`null` = sem OC. Só leitura. */
   oc?: OcImportadoInfo | null;
   variantes: VarianteImportadoDraft[];

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
@@ -7,7 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
-import { AgrupamentoButton } from "@/components/shared/filters";
+import { AgrupamentoButton, FilterButton } from "@/components/shared/filters";
+import { passaFiltroStatusCard } from "@/lib/kanban-card-selo";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -41,10 +42,19 @@ import {
   aplicarResolucaoConflito,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
 import { colunasTravadas, ehErroIntegracaoTravado, estadoIntegracaoFresco, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
+
+// F4a T4 — mapa de condições vazio ESTÁVEL (referência fixa: não invalida memos dos cards enquanto carrega).
+const KANBAN_COND_VAZIO: Record<string, Record<string, boolean>> = {};
+// Campos do draft que são ESPELHO só-leitura do kanban do card (não entram no `chaveDirty` nem no aviso de colab).
+const CAMPOS_KANBAN_ESPELHO: ReadonlySet<string> = new Set([
+  "modeloStatusDev", "modeloStatusPlan", "modeloOrdemEnviada", "modeloOrigem", "modeloLancado",
+]);
 
 // BUG-1 fix (colab Fase 3, achado QA task-25): `_salvar_produto_importado_core` APAGA e
 // REINSERE `produto_importado_variantes`/`produto_importado_etapas` a cada save (estado
@@ -65,7 +75,8 @@ const SELECT_PRODUTO_IMPORTADO =
   "*, modelo_id, " +
   "variantes:produto_importado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd), " +
   "etapas:produto_importado_etapas(ordem, rotulo, base, percentual, data_vencimento, cotacao), " +
-  "modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))" +
+  // F4a T4: + os 5 campos do kanban do card (selo da etapa + "Mover para…"; espelho só-leitura, fora do `chaveDirty`).
+  "modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count), status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado)" +
   // [urg R13 T6] OC do produto = o ITEM dele (`oc_item`) + o cabeçalho + o nº de produtos da OC: o card mostra o chip e o assistente
   // sabe quem já tem OC. Fora do `chaveDirty`.
   ", " + EMBED_OC_ITEM_PI;
@@ -145,7 +156,12 @@ type ProdutoImportadoRow = {
   tamanho_tipo?: string | null;
   /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))`
    *  (SELECT acima; os 2 campos novos são da Tarefa 6). */
-  modelo?: { preco_venda: number | string | null; tamanho_tipo?: string | null; modelo_skus?: { count: number }[] | null } | null;
+  modelo?: {
+    preco_venda: number | string | null; tamanho_tipo?: string | null; modelo_skus?: { count: number }[] | null;
+    /** F4a T4 — kanban do card (só-leitura). */
+    status_desenvolvimento?: string | null; status_planejamento?: string | null; ordem_criacao_enviada?: boolean | null;
+    origem?: string | null; lancado?: boolean | null;
+  } | null;
   /** [urg R13 T6] embed `oc_item` — o item deste produto na OC (no máximo 1: gatilho de 1 OC por produto). */
   oc_item?: OcItemEmbedRow[] | null;
   variantes: (VarianteImportadoDraft & { ordem: number })[] | null;
@@ -207,6 +223,12 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     tamanho_tipo: tamanhoTipo,
     tamanho_tipo_base: tamanhoTipo,
     modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
+    // F4a T4 — kanban do espelho (só-leitura; fora do `chaveDirty`). Sem card (`modelo` null) = null/false.
+    modeloStatusDev: r.modelo?.status_desenvolvimento ?? null,
+    modeloStatusPlan: r.modelo?.status_planejamento ?? null,
+    modeloOrdemEnviada: r.modelo?.ordem_criacao_enviada === true,
+    modeloOrigem: r.modelo?.origem ?? null,
+    modeloLancado: r.modelo?.lancado === true,
     oc: ocInfoDeItens(r.oc_item, "importado"),
     variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
     // B2 (L8, P-207 A): produto sem etapas no banco (criado pelo Planejamento com `_etapas: []`, "Limpar", novo) recebe
@@ -357,6 +379,44 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     retry: false,
   });
 
+  // F4a T4 — selo da etapa do kanban + "Mover para…" no card. Config da loja e condições em LOTE (1 chamada
+  // `avaliar_condicoes_kanban` por coleção, NÃO uma por card) carregadas AQUI, sob queryKeys PRÓPRIAS desta tela
+  // (nada de `tenant-plan-ficha-config`/`plan-kanban-cond`, que são por-modelo e do Planejamento). Cada
+  // `ProdutoImportadoCard` só recebe o recorte e monta o selo (`useSeloMoverLote`) — zero fetch por card.
+  const tenantIdKanban = useActiveTenantId();
+  const { data: kanbanCfgRow, isSuccess: kanbanCfgOk, isError: kanbanCfgErro } = useQuery({
+    queryKey: ["pi-kanban-config", tenantIdKanban],
+    enabled: !!tenantIdKanban,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tenant_config").select("*").eq("tenant_id", tenantIdKanban).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as Record<string, unknown> | null;
+    },
+  });
+  const kanbanCfg = useMemo(() => lerKanbanAutoConfig(kanbanCfgRow ?? null), [kanbanCfgRow]);
+  // Só modelos COM card, enviados ao kanban e não lançados (os demais não têm posição no board: sem condição).
+  const modeloIdsKanban = useMemo(
+    () => [...new Set((produtosQuery.data ?? [])
+      .filter((r) => r.modelo_id && r.modelo?.ordem_criacao_enviada === true && r.modelo?.lancado !== true)
+      .map((r) => r.modelo_id as string))].sort(),
+    [produtosQuery.data],
+  );
+  const { data: kanbanCondMapa, isSuccess: kanbanCondOk, isError: kanbanCondErro } = useQuery({
+    queryKey: ["pi-kanban-cond", colecaoId, modeloIdsKanban],
+    enabled: modeloIdsKanban.length > 0,
+    // F4a L2: a chave inclui a lista de ids — sem isto, cada mudança da lista (criar card, mover, lançar) zerava o mapa e os
+    // cards piscavam "Carregando regras". Mantém o mapa anterior até o novo chegar.
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("avaliar_condicoes_kanban" as any, { _ids: modeloIdsKanban });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, Record<string, boolean>>;
+    },
+  });
+  const kanbanCondMap = kanbanCondMapa ?? KANBAN_COND_VAZIO;
+  const kanbanProntas = kanbanCfgOk && (modeloIdsKanban.length === 0 || kanbanCondOk);
+  const kanbanCarregando: "carregando" | "erro" | false = kanbanProntas ? false : (kanbanCfgErro || kanbanCondErro ? "erro" : "carregando");
+
   const marcarProdutoLimpo = (d: ProdutoImportadoDraft) =>
     setBaseline((b) => (d.id ? { ...b, [d.id]: JSON.stringify(chaveDirty(d)) } : b));
 
@@ -381,6 +441,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     }
     const freshById = new Map(fresh.filter((d) => d.id).map((d) => [d.id as string, d]));
     let totalAtualizados = 0;
+    let kanbanMudou = false;
     const novosConflitos: Record<string, Conflito[]> = {};
     // IDs que PASSARAM pelo merge nesta rodada — só esses podem ter o conflito RECONSTRUÍDO.
     const idsProcessados = new Set<string>();
@@ -415,7 +476,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos, draft: draft as any, fresh: fr as any });
       const mFinal = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos, draft: draft as any, fresh: fr as any });
       const m = { ...m0, valor: mFinal.valor, conflitos: mFinal.conflitos };
-      if (m.atualizados.length > 0) totalAtualizados++;
+      // F4a T4 — o espelho do kanban (etapa do card) é só-leitura e muda quando EU movo o card (ou outra pessoa/o motor):
+      // o rascunho adota o valor novo (selo certo), mas NÃO conta como "atualizado por outra pessoa" (sem o aviso do banner).
+      const atualizadosReais = m.atualizados.filter((k) => !CAMPOS_KANBAN_ESPELHO.has(k));
+      if (atualizadosReais.length > 0) totalAtualizados++;
+      else if (m.atualizados.length > 0) kanbanMudou = true;
       if (m.conflitos.length > 0) novosConflitos[draft.id] = m.conflitos; // ausência = convergiu → poda
       // rev nunca é "tocado" (não está em chaveDirty) — sempre adota o do fresh.
       proximosDrafts.push({ ...(m.valor as ProdutoImportadoDraft), rev: fr.rev });
@@ -460,8 +525,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     });
 
     const totalConflitos = Object.values(novosConflitos).reduce((a, c) => a + c.length, 0);
-    if (totalAtualizados === 0 && totalConflitos === 0) return; // sem mudança em drafts — não perturba
+    if (totalAtualizados === 0 && totalConflitos === 0 && !kanbanMudou) return; // sem mudança em drafts — não perturba
     setDrafts(proximosDrafts);
+    if (totalAtualizados === 0 && totalConflitos === 0) return; // só a etapa do kanban mudou: sem aviso de colaboração
     setUltimoMergeColab({ atualizados: totalAtualizados, conflitos: totalConflitos });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtosQuery.isSuccess, produtosQuery.isError, produtosQuery.data]);
@@ -1118,6 +1184,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             // — bloqueia enquanto ESTE produto (ou qualquer outro) tiver conflito pendente.
             conflitoPendente={temConflitoPendente}
             onFazerPedido={() => abrirPedidoLote("card", d.id!)}
+            dirty={JSON.stringify(chaveDirty(d)) !== (d.id ? baseline[d.id] : undefined)}
+            kanban={{ cfg: kanbanCfg, condMap: kanbanCondMap, prontas: kanbanProntas, carregando: kanbanCarregando, tenantId: tenantIdKanban }}
           />
         </div>
         );

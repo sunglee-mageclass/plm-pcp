@@ -119,6 +119,8 @@ export const TENANT_CONFIG_EXTRA_KEYS: readonly string[] = [
   // F4a T2 — config do kanban lida pelo Produto Acabado (selo da etapa no card; `tenant_config`). A key não contém
   // "tenant": sem isto, ligar/desligar o Kanban automático ou mexer no board deixaria o selo/"Mover para…" velho.
   "pa-kanban-config",
+  // F4a T4 — idem p/ o Produto Importado (selo da etapa + "Mover para…" no card; `tenant_config`).
+  "pi-kanban-config",
 ];
 
 function matchTenantConfig(k: QueryKey): boolean {
@@ -203,7 +205,8 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     "versao-anterior",
     // [F4a L1] O selo/Mover do kanban no card do Produto Acabado (T2) lê `modelos` (embed `modelo:modelo_id`) e as condições
     // (`["pa-kanban-cond", coleção, ids]`): mover/lançar o card no Dev ou em outra aba atualiza o selo por Realtime, não só no foco.
-    "produtos-acabados", "pa-kanban-cond",
+    // O mesmo vale p/ o Produto Importado (T4): `["produtos-importados", coleção]` (embed do modelo) e `["pi-kanban-cond", coleção, ids]`.
+    "produtos-acabados", "pa-kanban-cond", "produtos-importados", "pi-kanban-cond",
   ],
   ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos"],
   colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],

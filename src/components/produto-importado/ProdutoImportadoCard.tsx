@@ -35,6 +35,11 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { MOEDAS, cadeiaMarkup, fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/moeda";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
+import { MoverEtapaMenu } from "@/components/shared/MoverEtapaMenu";
+import { useSeloMoverLote } from "@/hooks/useSeloMover";
+import { modeloKanbanDoEmbed } from "@/lib/kanban-card-selo";
+import { lerKanbanAutoConfig } from "@/lib/kanban-auto";
+import type { KanbanDoCard } from "@/components/produto-acabado/ProdutoCard";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { colunasTravadas, textoExcluirTravado, TEXTO_SKU_TRAVADO } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
@@ -96,6 +101,11 @@ function MoedaSelect({ value, onChange, permitirDireta, dataColabPath }: { value
   );
 }
 
+// F4a T4 — referências ESTÁVEIS: sem `kanban` (uso sem Sheet) o hook roda com estes vazios, e um card sem condição
+// própria usa `COND_VAZIA` — nunca um `{}` novo a cada render (invalidaria os memos do hook). Espelha `ProdutoCard` (PA).
+const KANBAN_SEM_TELA: KanbanDoCard = { cfg: lerKanbanAutoConfig(null), condMap: {}, prontas: false, carregando: false };
+const COND_VAZIA: Record<string, boolean> = {};
+
 export function ProdutoImportadoCard({
   draft,
   onChange,
@@ -119,6 +129,8 @@ export function ProdutoImportadoCard({
   conflitoPendente,
   onFazerPedido,
   ordensVariantesServidor,
+  dirty,
+  kanban,
 }: {
   draft: ProdutoImportadoDraft;
   onChange: (patch: Partial<ProdutoImportadoDraft>) => void;
@@ -156,6 +168,11 @@ export function ProdutoImportadoCard({
   /** sku #22 (L8) — ordens das variantes GRAVADAS (última leitura do servidor, `baseServidorRef` do Sheet): a variante
    *  nova nunca reusa a ordem de uma apagada nesta edição (senão herdaria a grade dela). Ausente = só o rascunho. */
   ordensVariantesServidor?: readonly number[];
+  /** F4a T4 — este produto tem edição não salva (`chaveDirty` ≠ baseline): o "Mover para…" avisa que mover vai por RPC,
+   *  FORA do Salvar. Opcional — ausente = sem aviso. */
+  dirty?: boolean;
+  /** F4a T4 — config/condições do kanban em lote (do Sheet). Ausente = sem selo (retrocompatível). */
+  kanban?: KanbanDoCard;
 }) {
   const navigate = useNavigate();
   const { canView, canEdit } = useAuth();
@@ -167,6 +184,27 @@ export function ProdutoImportadoCard({
   const podeEditarMO = podeEditarValorMO(canEdit, canView);
   const podeAprovarMO = canEdit("producao_servico_aprovacao");
   const mo = useMaoObraModelo(draft.modelo_id, podeVerCustosMO);
+  // F4a T4 — selo da etapa do kanban + "Mover para…" (só-leitura do espelho; mover vai por RPC, FORA do Salvar).
+  // `modeloKanbanDoEmbed` memoizado nos 4 primitivos: referência estável entre renders → os memos do `useSeloMoverLote`
+  // (selo/opções) não recalculam à toa.
+  const kn = kanban ?? KANBAN_SEM_TELA;
+  const modeloKanban = useMemo(
+    () => modeloKanbanDoEmbed({
+      origem: draft.modeloOrigem,
+      status_desenvolvimento: draft.modeloStatusDev,
+      ordem_criacao_enviada: draft.modeloOrdemEnviada,
+      lancado: draft.modeloLancado,
+    }),
+    [draft.modeloOrigem, draft.modeloStatusDev, draft.modeloOrdemEnviada, draft.modeloLancado],
+  );
+  const seloMover = useSeloMoverLote({
+    modeloId: draft.modelo_id ?? null,
+    modelo: modeloKanban,
+    cfg: kn.cfg,
+    cond: (draft.modelo_id ? kn.condMap[draft.modelo_id] : undefined) ?? COND_VAZIA,
+    prontas: kn.prontas,
+    tenantId: kn.tenantId,
+  });
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [confirmLimpar, setConfirmLimpar] = useState(false);
   // Accordion CONTROLADO (state próprio) — com `defaultValue` (uncontrolled) a seção fechava
@@ -386,6 +424,26 @@ export function ProdutoImportadoCard({
           </PopoverContent>
         </Popover>
       </button>
+
+      {/* F4a T4 — selo da etapa do kanban + "Mover para…". FORA do botão do cabeçalho (o gatilho do `MoverEtapaMenu` é um
+          <button>: botão dentro de botão não existe em HTML — mesmo motivo do chip da OC abaixo). Sem `modelo_id` (ainda não
+          virou card) = nada no kanban = sem selo. Espelha o Produto Acabado. */}
+      {kanban && draft.modelo_id && (
+        <div className={`px-3 pb-2 ${onToggleSelect ? "pl-8" : ""}`}>
+          <MoverEtapaMenu
+            selo={seloMover.selo}
+            podeMover={seloMover.podeMover}
+            opcoes={seloMover.opcoes}
+            onMover={seloMover.onMover}
+            movendo={seloMover.movendo}
+            sujo={dirty}
+            carregando={kn.carregando}
+            compacto
+            testIdPrefix="pi"
+            dentroDeCard
+          />
+        </div>
+      )}
 
       {/* [urg R13 T6] chip "Na OC BELDIV-00123 (com 3 produtos)" — FORA do botão do cabeçalho (botão dentro de botão não existe em HTML). */}
       {draft.oc && (

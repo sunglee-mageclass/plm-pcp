@@ -1791,7 +1791,8 @@ describe("Tarefa 6 — Produto Importado: toggle 'Tamanho em' no card", () => {
 describe("Tarefa 6 — Produto Importado: SELECT + embed + lote 'Criar cards' salva antes se sujo", () => {
   const s = ler("src/components/produto-importado/ProdutoImportadoSheet.tsx");
   it("SELECT_PRODUTO_IMPORTADO embed do modelo traz tamanho_tipo + modelo_skus(count) (tamanho_tipo do PRÓPRIO produto já vem pelo '*')", () => {
-    expect(s).toMatch(/"modelo:modelo_id\(preco_venda, tamanho_tipo, modelo_skus\(count\)\)"/);
+    // F4a T4: o embed ganhou os 5 campos do kanban do card (selo da etapa + filtro de reprovados) logo depois do `modelo_skus(count)`.
+    expect(s).toMatch(/"modelo:modelo_id\(preco_venda, tamanho_tipo, modelo_skus\(count\), status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado\)"/);
   });
   it("draftDeRow resolve a fonte: card com modelo usa o tamanho_tipo DO MODELO; sem card, o do próprio produto (P-119 A)", () => {
     expect(s).toMatch(/const tamanhoTipo = \(\(r\.modelo_id \? r\.modelo\?\.tamanho_tipo : r\.tamanho_tipo\) \?\? null\)/);
