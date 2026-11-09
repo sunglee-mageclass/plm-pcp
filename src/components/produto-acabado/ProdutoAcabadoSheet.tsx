@@ -1080,6 +1080,17 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
 
   // Recolher/expandir TODOS (#2.1). Cards: todos recolhidos = nenhum id da subcoleção em openCards.
   const idsSub = produtosSub.map((p) => p.id).filter(Boolean);
+  // F4a: um card SELECIONADO que vira reprovado (pelo selo, ou por outra pessoa via Realtime) some da vista
+  // podada — mas continuava em `selecao`, entrando por engano em "Fazer pedido"/"Replicar" dos selecionados
+  // (fura a regra "reprovado oculto nao entra na compra"). Poda a selecao pelos visiveis quando a vista muda.
+  useEffect(() => {
+    const visiveis = new Set(idsSub);
+    setSelecao((atual) => {
+      if ([...atual].every((id) => visiveis.has(id))) return atual; // nada a podar — mantem a referencia
+      return new Set([...atual].filter((id) => visiveis.has(id)));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsSub.join("|")]);
   const todosRecolhidos = idsSub.length > 0 && idsSub.every((id) => !openCards.has(id));
   const toggleTodos = () => setOpenCards(todosRecolhidos ? new Set(idsSub) : new Set());
   // Seções (lanes): todas recolhidas = toda laneKey em lanesRecolhidas. Só faz sentido quando há agrupamento.
