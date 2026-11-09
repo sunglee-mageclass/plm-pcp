@@ -123,10 +123,12 @@ function TabelaVariantes({ grupos, compact, marcarPrimeira }: { grupos: { fornec
                 </span>
               </span>
               <span className="text-right tabular-nums">{fmtMetros(v.plan)}</span>
-              {/* O NÚMERO segue sendo `est` (estoque_m do servidor, inalterado); o "i" só detalha as parcelas (F3). */}
-              <span className="flex min-w-0 items-center justify-end gap-0.5 text-right tabular-nums text-muted-foreground">
+              {/* O NÚMERO segue sendo `est` (estoque_m do servidor, inalterado); o "i" só detalha as parcelas (F3).
+                  O "i" é ABSOLUTO (fora do fluxo) para não empurrar o número nem invadir a coluna PLAN vizinha
+                  (fix da sobreposição em estoques de 4+ dígitos; relatado pelo dono 09/nov). */}
+              <span className="relative block pr-3 text-right tabular-nums text-muted-foreground">
                 {fmtMetros(v.est)}
-                <InfoHover ariaLabel="Detalhe do estoque da variante" className="[&_svg]:h-3 [&_svg]:w-3">
+                <InfoHover ariaLabel="Detalhe do estoque da variante" className="absolute -right-0.5 top-1/2 -translate-y-1/2 [&_svg]:h-3 [&_svg]:w-3">
                   <div>Disponível (real): {fmtMetros(v.fisico)} m</div>
                   <div>A chegar (pedido): {fmtMetros(v.prevReceb)} m</div>
                 </InfoHover>
