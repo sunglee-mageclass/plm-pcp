@@ -35,6 +35,11 @@ import { OcRoloCombobox } from "./OcRoloCombobox";
 import { ReferenciaDialog } from "./ReferenciaDialog";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { MoverEtapaMenu } from "@/components/shared/MoverEtapaMenu";
+import { useSeloMoverLote } from "@/hooks/useSeloMover";
+import { lerKanbanAutoConfig, type KanbanAutoConfig, type ModeloKanban } from "@/lib/kanban-auto";
+import { modeloKanbanDoEmbed } from "@/lib/kanban-card-selo";
+import { ehReprovadoStatus } from "@/lib/reprovado";
 import { useReadOnly } from "@/components/RequirePermission";
 import { DistribuirPorLojaDialog } from "./DistribuirPorLojaDialog";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
@@ -68,6 +73,26 @@ function renumMateriais(materiais: PtMaterial[]): PtMaterial[] {
   });
 }
 
+/** F4a T6 — o que o Sheet entrega ao card p/ montar o selo do kanban + "Mover para…" na vaga COM card (config e condições
+ *  em LOTE, carregadas 1× por coleção; o card não busca nada). */
+export type KanbanDoCard = {
+  cfg: KanbanAutoConfig;
+  /** modelo_id → condições da loja (`avaliar_condicoes_kanban`, em lote). */
+  condMap: Record<string, Record<string, boolean>>;
+  /** modelo_id → `ModeloKanban` (memo estável por `modelosDb`). */
+  modelos: Record<string, ModeloKanban>;
+  /** config da loja carregada E (se há card no kanban) condições em lote carregadas. */
+  prontas: boolean;
+  carregando: "carregando" | "erro" | false;
+  tenantId?: string | null;
+  /** Há alteração não salva no plano — as regras olham o estado SALVO. */
+  sujo?: boolean;
+};
+// Referências ESTÁVEIS: vaga sem card / uso sem Sheet roda o hook com estes vazios (nunca um `{}` novo a cada render).
+const KANBAN_SEM_TELA: KanbanDoCard = { cfg: lerKanbanAutoConfig(null), condMap: {}, modelos: {}, prontas: false, carregando: false };
+const COND_VAZIA: Record<string, boolean> = {};
+const MODELO_KANBAN_VAZIO: ModeloKanban = modeloKanbanDoEmbed(null);
+
 export function ModelCard({
   slot,
   onChange,
@@ -90,7 +115,7 @@ export function ModelCard({
   custoCardDetalhe,
   versao,
   origem,
-  fase,
+  kanban,
   onEnsureSaved,
   defaultOpen,
   open: openProp,
@@ -136,8 +161,9 @@ export function ModelCard({
   versao?: number | null;
   /** `modelos.origem` ("interno"|"revenda"|"importado") — espelho de comprado: badge + esconde controles de tecido. */
   origem?: string | null;
-  /** Fase do modelo no fluxo (item 10) — badge/3ª linha ao lado da foto; a fase MAIS avançada verdadeira. */
-  fase?: { label: string; tone: "success" | "warning" | "info" | "neutral" } | null;
+  /** F4a T6 — status COMPLETO do kanban da vaga COM card (selo + "Mover para…"). Ausente (vaga sem card) = sem selo:
+   *  a vaga sem card não tem kanban e segue com o pendente/reprovado próprio (F2). */
+  kanban?: KanbanDoCard;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
   /** Controle externo do aberto/recolhido (para "recolher/expandir todos"). Se ausente, usa estado local. */
@@ -317,6 +343,23 @@ export function ModelCard({
   const [distOpen, setDistOpen] = useState(false);
   const paginaSoLeitura = useReadOnly();
   const distSoLeitura = !!travado || paginaSoLeitura;
+  // F4a T6 — selo do kanban + "Mover para…" (só vaga COM card; mover vai por RPC, FORA do Salvar). Hook SEMPRE chamado (regra
+  // dos hooks): vaga sem card/uso sem Sheet roda com entradas vazias estáveis e o resultado nem é renderizado.
+  const kn = kanban ?? KANBAN_SEM_TELA;
+  const seloMover = useSeloMoverLote({
+    modeloId: slot.modelo_id ?? null,
+    modelo: (slot.modelo_id ? kn.modelos[slot.modelo_id] : undefined) ?? MODELO_KANBAN_VAZIO,
+    cfg: kn.cfg,
+    cond: (slot.modelo_id ? kn.condMap[slot.modelo_id] : undefined) ?? COND_VAZIA,
+    prontas: kn.prontas,
+    tenantId: kn.tenantId,
+  });
+  // Card na coluna Reprovado do kanban: o selo JÁ diz "Reprovado" → o selo vermelho de baixo não repete (mesma regra de antes
+  // p/ a fase 'dev'); o aviso do efeito na demanda passa p/ o `title` do wrapper do selo. Predicado = `ehReprovadoStatus`.
+  const seloKanbanReprovado = !!kanban && !!slot.modelo_id && seloMover.selo.fase === "kanban" && ehReprovadoStatus(seloMover.selo.key);
+  const tituloReprovado = reprovadoContando
+    ? "Reprovado depois do corte — o tecido já foi consumido, então o card continua contando na Demanda das OCs."
+    : "Reprovado — o card fica na vaga, mas não entra na necessidade da coleção nem na Demanda das OCs. Volta a contar ao sair de Reprovado.";
   // F1 C: vínculo de OC editável no card (X por OC + "OC +"). Libera SEMPRE — inclusive pós-corte (`travado`), só com aviso —;
   // fecha para modelo LANÇADO (o servidor do aplicar também barra) e para página só-leitura.
   const podeEditarVinculo = !!colecaoId && !!slot.modelo_id && !lancado && !paginaSoLeitura && (vinculos?.length ?? 0) > 0;
@@ -506,6 +549,25 @@ export function ModelCard({
               </Select>
             </div>
           )}
+          {/* F4a T6 — status COMPLETO do kanban (vaga COM card). FORA do <button> do toggle (o gatilho do `MoverEtapaMenu` é um
+              <button>: botão dentro de botão não existe em HTML). Vaga SEM card não tem kanban: nada aqui (o Select acima, da F2,
+              é o status dela). Só leitura (sem permissão de editar) = selo sem seletor; o servidor também recusa. */}
+          {kanban && slot.modelo_id && (
+            <div className="flex min-w-0 items-center" data-testid="pt-kanban-card" title={seloKanbanReprovado ? tituloReprovado : undefined}>
+              <MoverEtapaMenu
+                selo={seloMover.selo}
+                podeMover={seloMover.podeMover && !paginaSoLeitura}
+                opcoes={seloMover.opcoes}
+                onMover={seloMover.onMover}
+                movendo={seloMover.movendo}
+                sujo={kn.sujo}
+                carregando={kn.carregando}
+                compacto
+                testIdPrefix="pt"
+                dentroDeCard
+              />
+            </div>
+          )}
           {/* pç·m + badges = 2ª área clicável do toggle. */}
           <button
             type="button"
@@ -530,14 +592,9 @@ export function ModelCard({
                   comunica o estado, e os ~24px poupados são o que deixa a FASE caber INTEIRA no card
                   estreito do Modo Plano. O truncate da fase fica só como última defesa (fase longa
                   em card muito apertado), com o rótulo completo no tooltip. */}
-              {slot.modelo_id && reprovado && (
-                <StatusBadge tone="danger" title={reprovadoContando ? "Reprovado depois do corte — o tecido já foi consumido, então o card continua contando na Demanda das OCs." : "Reprovado — o card fica na vaga, mas não entra na necessidade da coleção nem na Demanda das OCs. Volta a contar ao sair de Reprovado."} className="shrink-0 px-1 normal-case tracking-normal">
+              {slot.modelo_id && reprovado && !seloKanbanReprovado && (
+                <StatusBadge tone="danger" title={tituloReprovado} className="shrink-0 px-1 normal-case tracking-normal">
                   Reprovado
-                </StatusBadge>
-              )}
-              {slot.modelo_id && fase && (
-                <StatusBadge tone={fase.tone} title={`Etapa atual: ${fase.label}`} className="min-w-0 px-1 normal-case tracking-normal">
-                  <span className="min-w-0 truncate">{fase.label}</span>
                 </StatusBadge>
               )}
               {!isComprado && fornecTotal ? (

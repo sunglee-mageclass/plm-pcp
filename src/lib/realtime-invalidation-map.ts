@@ -108,12 +108,11 @@ const s1 = (k: QueryKey): string => (typeof k[1] === "string" ? k[1] : "");
 // tamanhos, status do kanban, requisitos, módulos, fuso, nomenclaturas, modo OC/rolo…).
 // Reusa o predicate JÁ battle-tested do save de Config da Loja (admin/configuracoes.tsx:
 // k[0] contém "tenant" OU "tamanhos") e FECHA os 3 buracos reais que aquele predicate não
-// pega (confeccao-prioridade / cq-confeccao-prioridade / plan-tecido-kanban-cols — keys
+// pega (confeccao-prioridade / cq-confeccao-prioridade / plan-tecido-kanban-config — keys
 // que leem tenant_config mas não contêm "tenant"/"tamanhos").
 export const TENANT_CONFIG_EXTRA_KEYS: readonly string[] = [
   "confeccao-prioridade",
   "cq-confeccao-prioridade",
-  "plan-tecido-kanban-cols",
   // urg R2 T12 — lista "Insumos padrão" lida pelo "+ Novo"/"Criar vários cards" (tenant_config.insumos_padrao + catálogo de insumos).
   "planejamento-insumos-padrao",
   // F4a T2 — config do kanban lida pelo Produto Acabado (selo da etapa no card; `tenant_config`). A key não contém
@@ -121,6 +120,9 @@ export const TENANT_CONFIG_EXTRA_KEYS: readonly string[] = [
   "pa-kanban-config",
   // F4a T4 — idem p/ o Produto Importado (selo da etapa + "Mover para…" no card; `tenant_config`).
   "pi-kanban-config",
+  // F4a T6 — idem p/ o Plan. Tecido (selo da etapa + "Mover para…" na vaga COM card; `tenant_config`). SUBSTITUI a antiga
+  // `plan-tecido-kanban-cols` (a query que lia só `status_kanban` p/ o selo de fase saiu).
+  "plan-tecido-kanban-config",
 ];
 
 function matchTenantConfig(k: QueryKey): boolean {
@@ -207,6 +209,8 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     // (`["pa-kanban-cond", coleção, ids]`): mover/lançar o card no Dev ou em outra aba atualiza o selo por Realtime, não só no foco.
     // O mesmo vale p/ o Produto Importado (T4): `["produtos-importados", coleção]` (embed do modelo) e `["pi-kanban-cond", coleção, ids]`.
     "produtos-acabados", "pa-kanban-cond", "produtos-importados", "pi-kanban-cond",
+    // [F4a T6] idem p/ o Plan. Tecido: condições em lote do selo/Mover (`["plan-tecido-kanban-cond", coleção, ids]`).
+    "plan-tecido-kanban-cond",
   ],
   ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos"],
   colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],

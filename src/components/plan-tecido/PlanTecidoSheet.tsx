@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -49,7 +49,10 @@ import { efeitoDaCarga, igual, materiaisParaAplicar, normalizarArvoreDistribuica
 import { useReadOnly } from "@/components/RequirePermission";
 import { replicarAdicaoNosSlots } from "@/lib/plan-tecido/replicar-variantes";
 import { ehOrigemComprada } from "@/lib/origem";
-import { normalizeKanbanStatuses, labelColunaKanban } from "@/lib/kanban-status";
+import { lerKanbanAutoConfig, type ModeloKanban } from "@/lib/kanban-auto";
+import { modeloKanbanDoEmbed } from "@/lib/kanban-card-selo";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import type { KanbanDoCard } from "@/components/plan-tecido/ModelCard";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { ModoPlanoView } from "@/components/plan-tecido/ModoPlanoView";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
@@ -66,6 +69,9 @@ type Nome = { id: string; nome: string };
 // uma referência NOVA a cada render; como `tamanhos` entra em `distOpts` (useMemo), isso reentraria o
 // memo (e a fonte "mudou") a cada render enquanto a query estiver vazia/erro. Módulo = 1 referência só.
 const TAMANHOS_VAZIO: string[] = [];
+
+// F4a T6 — mapa de condições do kanban vazio ESTÁVEL (referência fixa: não invalida os memos dos cards enquanto carrega).
+const KANBAN_COND_VAZIO: Record<string, Record<string, boolean>> = {};
 
 // Chave estável por slot (prefere o id do banco, senão usa índices)
 function chaveSlot(slotId: string | undefined, si: number, li: number, sli: number): string {
@@ -486,7 +492,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, created_at, ref, nome, versao, origem, status_desenvolvimento, status_planejamento, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(enviado_corte, cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
+          "id, created_at, ref, nome, versao, origem, status_desenvolvimento, status_planejamento, ordem_criacao_enviada, subcolecao, linha_id, markup_editado, preco_venda, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), custo_tecido_total, custo_forro_total, custo_entretela_total, custo_aviamento_total, cad(enviado_corte, cad_tecidos(tipo, numero, consumo_cad)), modelo_skus(count)",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -813,44 +819,52 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     return !!info && info.skus > 0 && (slot.tamanho_tipo ?? null) !== info.tamanho;
   };
 
-  // FASE do modelo no fluxo (item 10) — 1 query BATCH por coleção (RPC plan_tecido_fases), NÃO N por
-  // card. A RPC deriva a etapa MAIS avançada verdadeira (mesma ordem do _dashboard_producao_core, régua
-  // do dono: CQ colapsa em PCP, direcionamento = 'separado'). enviado_cad/lancado/CQ/serviço/direc.
-  // mudam FORA do plano → refetcha ao voltar o foco (como o modelos query).
-  const { data: fasesMap = {} } = useQuery({
-    queryKey: ["plan-tecido-fases", colecaoId],
-    refetchOnWindowFocus: true,
-    queryFn: async () =>
-      (((await supabase.rpc("plan_tecido_fases" as any, { _colecao_id: colecaoId })).data ?? {}) as Record<string, { fase: string; detalhe: string | null }>),
-  });
-  // Colunas do kanban do tenant (ORDENADAS) → p/ resolver o `status_desenvolvimento` da fase 'dev' no
-  // RÓTULO da coluna que a LOJA VÊ. Fonte única = normalizeKanbanStatuses (a MESMA do board). Guardamos
-  // a lista ordenada (não só o mapa) porque `labelColunaKanban` precisa da 1ª coluna: NULL (recém-chegado)
-  // e chave órfã (coluna removida) caem na 1ª coluna — exatamente como o board os exibe (senão o badge
-  // dizia o genérico "Desenvolvimento" enquanto o card aparece em "Em Modelagem"/"Desenvolvimento de
-  // Produto"; bug reportado pelo dono — o badge não descrevia QUAL kanban).
-  const { data: kanbanCols = [] } = useQuery({
-    queryKey: ["plan-tecido-kanban-cols"],
+  // F4a T6 — STATUS COMPLETO do kanban na vaga COM card (substitui o selo de FASE da RPC `plan_tecido_fases` e o seletor
+  // binário pendente/reprovado). Config da loja + condições em LOTE (1 chamada `avaliar_condicoes_kanban` por coleção, NÃO
+  // uma por card) sob queryKeys PRÓPRIAS desta tela (nada de `tenant-plan-ficha-config`/`plan-kanban-cond`, que são
+  // por-modelo e do Planejamento). Cada `ModelCard` só recebe o recorte e monta o selo/"Mover para…" (`useSeloMoverLote`).
+  // A vaga SEM card NÃO tem kanban: segue com o pendente/reprovado PRÓPRIO da F2 (`statusEfetivoDaVaga`/`aplicarStatusVaga`).
+  const tenantIdKanban = useActiveTenantId();
+  const { data: kanbanCfgRow, isSuccess: kanbanCfgOk, isError: kanbanCfgErro } = useQuery({
+    queryKey: ["plan-tecido-kanban-config", tenantIdKanban],
+    enabled: !!tenantIdKanban,
     queryFn: async () => {
-      const raw = ((await supabase.from("tenant_config").select("status_kanban").maybeSingle()).data as any)?.status_kanban;
-      return normalizeKanbanStatuses(raw);
+      const { data, error } = await supabase.from("tenant_config").select("*").eq("tenant_id", tenantIdKanban).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as Record<string, unknown> | null;
     },
   });
-  // {label, tone} do badge de fase por modelo — mostra a fase MAIS avançada verdadeira (a RPC já
-  // escolhe). null = sem modelo / sem fase (não renderiza badge). Tons §Q (StatusBadge).
-  const faseInfo = (modeloId: string): { label: string; tone: "success" | "warning" | "info" | "neutral" } | null => {
-    const f = fasesMap[modeloId];
-    if (!f) return null;
-    switch (f.fase) {
-      case "lancado":        return { label: "Lançado", tone: "success" };
-      case "direcionamento": return { label: "Direcionamento", tone: "info" };
-      case "pcp":            return { label: f.detalhe ? `PCP — ${f.detalhe}` : "PCP", tone: "warning" };
-      case "explosao":       return { label: "Explosão", tone: "info" };
-      case "dev":            return { label: labelColunaKanban(f.detalhe, kanbanCols), tone: "info" };
-      case "planejamento":   return { label: "Em planejamento", tone: "neutral" };
-      default:               return null;
-    }
-  };
+  const kanbanCfg = useMemo(() => lerKanbanAutoConfig(kanbanCfgRow ?? null), [kanbanCfgRow]);
+  // `ModeloKanban` por modelo (memo estável por `modelosDb` — o `useSeloMoverLote` memoiza selo/opções por referência).
+  const modeloKanbanMap = useMemo(
+    () => Object.fromEntries(((modelosDb ?? []) as any[]).map((m) => [m.id as string, modeloKanbanDoEmbed(m)])) as Record<string, ModeloKanban>,
+    [modelosDb],
+  );
+  // Só modelos enviados ao kanban e não lançados (os demais não têm posição no board: sem condição).
+  const modeloIdsKanban = useMemo(
+    () => [...new Set(((modelosDb ?? []) as any[]).filter((m) => m.ordem_criacao_enviada === true && m.lancado !== true).map((m) => m.id as string))].sort(),
+    [modelosDb],
+  );
+  const { data: kanbanCondMapa, isSuccess: kanbanCondOk, isError: kanbanCondErro } = useQuery({
+    queryKey: ["plan-tecido-kanban-cond", colecaoId, modeloIdsKanban],
+    enabled: modeloIdsKanban.length > 0,
+    // a chave inclui a lista de ids — sem isto, cada mudança da lista (mover, lançar) zerava o mapa e os cards piscavam
+    // "Carregando regras". Mantém o mapa anterior até o novo chegar.
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("avaliar_condicoes_kanban" as any, { _ids: modeloIdsKanban });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, Record<string, boolean>>;
+    },
+  });
+  const kanbanCondMap = kanbanCondMapa ?? KANBAN_COND_VAZIO;
+  const kanbanProntas = kanbanCfgOk && (modeloIdsKanban.length === 0 || kanbanCondOk);
+  const kanbanCarregando: "carregando" | "erro" | false = kanbanProntas ? false : (kanbanCfgErro || kanbanCondErro ? "erro" : "carregando");
+  // Pacote ÚNICO entregue aos cards (referência estável enquanto nada muda — só mexe com cfg/cond/modelos/dirty).
+  const kanbanDoCard = useMemo<KanbanDoCard>(
+    () => ({ cfg: kanbanCfg, condMap: kanbanCondMap, modelos: modeloKanbanMap, prontas: kanbanProntas, carregando: kanbanCarregando, tenantId: tenantIdKanban, sujo: dirty }),
+    [kanbanCfg, kanbanCondMap, modeloKanbanMap, kanbanProntas, kanbanCarregando, tenantIdKanban, dirty],
+  );
 
   // MO por serviço por modelo — READ-ONLY, derivada de `modelo_mo_resumo` (fonte ÚNICA da MO, a
   // mesma do Desenvolvimento). `estado` (aprovada|pendente|reprovada|sem_servico) pinta o badge;
@@ -2210,10 +2224,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               custoCardDetalhe={slot.modelo_id ? custoDetalheCardDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
-              // reprovado na fase 'dev' = o rótulo da fase JÁ é a coluna Reprovado → só o selo "Reprovado" (sem repetir)
-              fase={slot.modelo_id && !(reprovadoStatusSet.has(slot.modelo_id) && fasesMap[slot.modelo_id]?.fase === "dev") ? faseInfo(slot.modelo_id) : null}
+              // F4a T6 — vaga COM card: status COMPLETO do kanban (selo + "Mover para…"); sem `kanban` o card não mostra selo.
+              // O Select pendente/reprovado (F2) é SÓ da vaga SEM card: com card `onStatus` não é passado (o Select some).
+              kanban={slot.modelo_id ? kanbanDoCard : undefined}
               statusEfetivo={statusEfetivoDaVaga(slot, slot.modelo_id ? reprovadoStatusSet.has(slot.modelo_id) : false)}
-              onStatus={(novo) => void aplicarStatusVaga(slot, li, sli, novo)}
+              onStatus={slot.modelo_id ? undefined : (novo) => void aplicarStatusVaga(slot, li, sli, novo)}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => {
                 const next = structuredClone(arvore) as PtArvore;

@@ -165,7 +165,7 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
       ["plan-tecido-tamanhos"],
       ["confeccao-prioridade", "t1"], // buraco fechado
       ["cq-confeccao-prioridade", "t1"], // buraco fechado
-      ["plan-tecido-kanban-cols"], // buraco fechado
+      ["plan-tecido-kanban-config", "t1"], // buraco fechado (F4a T6: substituiu a antiga ...-kanban-cols)
     ];
     for (const k of casa) expect(matchesTable("tenant_config", k), JSON.stringify(k)).toBe(true);
   });
