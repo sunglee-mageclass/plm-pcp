@@ -42,6 +42,12 @@ export function MoverEtapaMenu({ selo, podeMover, opcoes, onMover, movendo, sujo
   const idSelo = p ? `${p}-kanban-selo` : "etapa-kanban-selo-header";
   const idOpcao = (key: string) => (p ? `${p}-mover-${key}` : `etapa-mover-${key}`);
   const parar = dentroDeCard ? (e: React.SyntheticEvent) => e.stopPropagation() : undefined;
+  // F4a fix round 4 (dono 09/nov): o Sheet (Radix Dialog) instala o `react-remove-scroll`, que intercepta
+  // wheel/touch e impede a lista do popover de rolar (bug Radix primitives#1159). `overscroll-contain`/
+  // `touch-pan-y` cuidam do CSS; este handler PARA a propagacao do wheel/touch ANTES de o remove-scroll
+  // do Sheet captura-lo, devolvendo o scroll a lista. `stopPropagation` nao cancela o scroll nativo do
+  // proprio container (so impede o pai de "roubar" o evento).
+  const pararScroll = (e: React.WheelEvent | React.TouchEvent) => e.stopPropagation();
 
   if (podeMover) {
     return (
@@ -61,27 +67,30 @@ export function MoverEtapaMenu({ selo, podeMover, opcoes, onMover, movendo, sujo
               : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />}
           </button>
         </PopoverTrigger>
-          {/* F4a fix round 2 (dono 09/nov): o fix 1 limitava a altura so pela var CSS do Radix
-              `--radix-popover-content-available-height`. Isso FALHOU (o dono: "so aumentou, sem scroll,
-              tenho que mover a pagina inteira"): (a) sem `collisionPadding` o Radix media a altura ate a
-              BORDA CRUA da tela — valor enorme, o `max-h` nao limitava nada visivel; (b) se a var nao
-              resolve, nao sobra teto nenhum e o popover cresce sem rolar. Correcao: `collisionPadding`
-              fixo (o Radix passa a medir com folga), `avoidCollisions`, e um TETO DURO `max-h-[60vh]` que
-              SEMPRE vale (independe da var) somado ao `min()` com a var (o menor dos dois). flex-col +
-              lista `flex-1 overflow-y-auto` fazem SO a lista rolar, com o cabecalho fixo. */}
+          {/* F4a fix round 4 (dono 09/nov): rounds 1-3 (altura, flex, sticky) FALHARAM — porque o CSS NUNCA
+              foi o problema. CAUSA RAIZ REAL: este Popover vive DENTRO de um Sheet (Radix Dialog). O Dialog
+              instala o `react-remove-scroll`, que COME os eventos de wheel/touch dentro do popover — a barra
+              aparece mas nao rola (bug conhecido do Radix, primitives#1159). Correcao: `overscroll-contain`
+              + `touch-pan-y` dizem ao navegador pra CONTER o scroll na lista e liberar o pan de toque,
+              devolvendo o wheel/touch ao popover mesmo com o remove-scroll do Sheet ativo. O teto 60vh e o
+              sticky do cabecalho seguem. */}
         <PopoverContent
           align="start"
           avoidCollisions
           collisionPadding={12}
-          className="flex max-h-[min(60vh,var(--radix-popover-content-available-height,60vh))] w-72 max-w-[calc(100vw-2rem)] flex-col p-1"
+          className="max-h-[min(60vh,var(--radix-popover-content-available-height,60vh))] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain touch-pan-y p-1"
           data-testid={idMenu}
           onClick={parar}
+          onWheel={pararScroll}
+          onTouchMove={pararScroll}
         >
-          <p className="shrink-0 px-2 pt-1 pb-1 text-xs font-semibold text-muted-foreground">Mover para…</p>
-          {sujo && (
-            <p className="shrink-0 px-2 pb-1 text-[11px] text-muted-foreground">As regras olham o que já está salvo — salve antes de mover.</p>
-          )}
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-popover">
+            <p className="px-2 pt-1 pb-1 text-xs font-semibold text-muted-foreground">Mover para…</p>
+            {sujo && (
+              <p className="px-2 pb-1 text-[11px] text-muted-foreground">As regras olham o que já está salvo — salve antes de mover.</p>
+            )}
+          </div>
+          <div>
             {opcoes.map((o) => (
               <button
                 key={o.key}
