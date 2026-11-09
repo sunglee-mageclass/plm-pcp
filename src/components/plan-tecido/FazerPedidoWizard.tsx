@@ -34,7 +34,7 @@ export type PreviaCoberturaRpc = {
 // F3: outras coleções (mesma loja) que usam o MESMO artigo — alimenta o "i" "Também usado em" do Resumo.
 export type PreviaOutraColecaoRpc = {
   artigo_id: string;
-  colecoes: { colecao_id: string; colecao_nome: string; nec_m: number }[];
+  colecoes: { colecao_id: string; colecao_nome: string; nec_m: number; papel: "principal" | "substituto" }[]; // F3.1: papel do tecido na outra coleção
 };
 export type PreviaRpc = {
   fornecedores: PreviaFornecedorRpc[];

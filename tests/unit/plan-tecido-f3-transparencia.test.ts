@@ -28,7 +28,7 @@ describe("estoqueDoArtigo (F3)", () => {
 
 describe("outrasColecoesDoTecido (F3)", () => {
   const outras = [
-    { artigo_id: "A", colecoes: [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 120 }, { colecao_id: "c2", colecao_nome: "Inverno", nec_m: 30.5 }] },
+    { artigo_id: "A", colecoes: [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 120, papel: "principal" as const }, { colecao_id: "c2", colecao_nome: "Inverno", nec_m: 30.5, papel: "substituto" as const }] },
     { artigo_id: "B", colecoes: [] },
   ];
   it("devolve as coleções do artigo", () => {
@@ -42,12 +42,23 @@ describe("outrasColecoesDoTecido (F3)", () => {
 });
 
 describe("textoOutrasColecoes (F3)", () => {
-  it("formata 'Nome (N m), …'", () => {
+  it("formata 'Nome (N m) — papel, …' (F3.1: principal/substituto)", () => {
     const t = textoOutrasColecoes(
-      [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 1200 }, { colecao_id: "c2", colecao_nome: "Inverno", nec_m: 30.5 }],
+      [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 1200, papel: "principal" }, { colecao_id: "c2", colecao_nome: "Inverno", nec_m: 30.5, papel: "substituto" }],
       fmtMetros,
     );
-    expect(t).toBe("Verão (1.200 m), Inverno (30,5 m)");
+    expect(t).toBe("Verão (1.200 m) — principal, Inverno (30,5 m) — substituto");
+  });
+  it("mesma coleção com os 2 papéis → 2 entradas, uma por papel", () => {
+    const t = textoOutrasColecoes(
+      [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 1418.6, papel: "principal" }, { colecao_id: "c1", colecao_nome: "Verão", nec_m: 91.2, papel: "substituto" }],
+      fmtMetros,
+    );
+    expect(t).toBe("Verão (1.418,6 m) — principal, Verão (91,2 m) — substituto");
+  });
+  it("prévia antiga sem `papel` → sem sufixo (retrocompatível)", () => {
+    const antigo = [{ colecao_id: "c1", colecao_nome: "Verão", nec_m: 10 }] as unknown as Parameters<typeof textoOutrasColecoes>[0];
+    expect(textoOutrasColecoes(antigo, fmtMetros)).toBe("Verão (10 m)");
   });
   it("lista vazia → '' (o 'i' não renderiza)", () => {
     expect(textoOutrasColecoes([], fmtMetros)).toBe("");

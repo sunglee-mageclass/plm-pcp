@@ -762,8 +762,11 @@ export function estoqueDoArtigo(
   return { recebido, prevReceb, fisico };
 }
 
-/** Outras coleções (mesma loja) que usam o artigo — da chave `outras_colecoes` da prévia. Sem entrada ⇒ []. */
-export type OutraColecaoItem = { colecao_id: string; colecao_nome: string; nec_m: number };
+/** Outras coleções (mesma loja) que usam o artigo — da chave `outras_colecoes` da prévia. Sem entrada ⇒ [].
+ *  F3.1: `papel` = o papel do tecido NAQUELA coleção ('principal' = artigo do material; 'substituto' = variante de outro artigo).
+ *  O mesmo artigo pode vir 2x na mesma coleção (uma linha por papel). */
+export type OutraColecaoPapel = "principal" | "substituto";
+export type OutraColecaoItem = { colecao_id: string; colecao_nome: string; nec_m: number; papel: OutraColecaoPapel };
 export function outrasColecoesDoTecido(
   outras: { artigo_id: string; colecoes: OutraColecaoItem[] }[] | null | undefined,
   artigoId: string,
@@ -771,9 +774,10 @@ export function outrasColecoesDoTecido(
   return (outras ?? []).find((o) => o.artigo_id === artigoId)?.colecoes ?? [];
 }
 
-/** "Nome (N m), Nome (N m)" — vazio ⇒ "" (o "i" do Resumo não renderiza). */
+/** "Nome (N m) — principal, Nome (N m) — substituto" — vazio ⇒ "" (o "i" do Resumo não renderiza).
+ *  F3.1: sufixo " — <papel>"; sem `papel` (prévia de servidor antigo) o sufixo some. */
 export const textoOutrasColecoes = (lista: OutraColecaoItem[], fmt: (n: number) => string): string =>
-  lista.map((c) => `${c.colecao_nome} (${fmt(c.nec_m)} m)`).join(", ");
+  lista.map((c) => `${c.colecao_nome} (${fmt(c.nec_m)} m)${c.papel ? ` — ${c.papel}` : ""}`).join(", ");
 
 /** Rateio do déficit da COLEÇÃO para uma SUBCOLEÇÃO, por artigo: parte proporcional à necessidade
  *  da sub sobre a da coleção, limitada à necessidade da sub. nec 0 ⇒ 0 (a sub não deve nada);

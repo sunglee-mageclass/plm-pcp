@@ -1,6 +1,6 @@
 // F3 (Plan. Tecido — transparência no resumo), Task 1 — migration 20261115100000_f3_resumo_transparencia:
 // `_plan_tecido_previa_pedido_core` passa a expor, SÓ para exibição, `recebido_m`/`prev_receb_m`/`fisico_m` (disponível) em cada linha de `cobertura`
-// e a chave de topo `outras_colecoes`. ADITIVO: nenhuma conta de compra (estoque_m/deficit_m/qtd) muda.
+// e a chave de topo `outras_colecoes` (F3.1, 20261116100000: cada item de `colecoes` ganha `papel` principal|substituto). ADITIVO: nenhuma conta de compra (estoque_m/deficit_m/qtd) muda.
 // Integração em BEGIN…ROLLBACK (withTx), SÓ na cópia local (54422) — o teste anti-drift cria uma função temporária
 // (pg_temp, desfeita no ROLLBACK) com o corpo EXATO da R15b para comparar saída antiga × nova.
 import { describe, it, expect } from "vitest";
@@ -12,12 +12,13 @@ import { hasDb, withTx, ehBancoLocal, TENANT_TESTE } from "./db";
 const RODA = hasDb && ehBancoLocal();
 const PREVIA = "public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])";
 const MD5_ANTES = "b62ef170570b2444ad3f5727760cd411"; // R15b fix1 (texto de partida)
+const MD5_F31 = "dd563e5789b0dbd1cffc02299d154bf5"; // F3.1 (papel principal/substituto)
 
 type Cob = {
   artigo_id: string; variante_tecido_id: string; nec_m: number; estoque_m: number; deficit_m: number;
   recebido_m: number; prev_receb_m: number; fisico_m: number;
 };
-type OutrasCol = { artigo_id: string; colecoes: { colecao_id: string; colecao_nome: string; nec_m: number }[] }[];
+type OutrasCol = { artigo_id: string; colecoes: { colecao_id: string; colecao_nome: string; nec_m: number; papel: "principal" | "substituto" }[] }[];
 type Previa = {
   fornecedores: { itens: { deficit_m: number; estoque_m: number; qtd: number | null }[] }[];
   sem_fornecedor: unknown[];
@@ -63,6 +64,7 @@ describe.skipIf(!RODA)("F3 transparência no resumo — previa expõe recebido/a
                 has_function_privilege('anon', $1::regprocedure, 'EXECUTE') anon,
                 has_function_privilege('authenticated', $1::regprocedure, 'EXECUTE') auth`, [PREVIA]);
       expect(rows[0].md5, "F3 aplicada na cópia (md5 != R15b)").not.toBe(MD5_ANTES);
+      expect(rows[0].md5, "F3.1 aplicada na cópia (papel)").toBe(MD5_F31);
       expect(rows[0].anon).toBe(false);
       expect(rows[0].auth).toBe(false);
     });
@@ -136,13 +138,29 @@ describe.skipIf(!RODA)("F3 transparência no resumo — previa expõe recebido/a
           for (const o of item.colecoes) {
             expect(o.colecao_id).not.toBe(col.id);
             expect(o.nec_m).toBeGreaterThan(0);
+            expect(["principal", "substituto"], `papel válido (${col.nome})`).toContain(o.papel);
             const { rows } = await c.query(`select tenant_id from colecoes where id = $1`, [o.colecao_id]);
             expect(rows[0].tenant_id, "coleção de outra loja não aparece").toBe(TENANT_TESTE);
             // independente: necessidade da outra coleção para o artigo, direto do core
             const { rows: n } = await c.query(
               `select coalesce(sum(nec_m),0)::float8 nec from public._plan_tecido_nec_variante_core($1,$2,null) where artigo_id = $3`,
               [TENANT_TESTE, o.colecao_id, item.artigo_id]);
-            expect(o.nec_m).toBeCloseTo(n[0].nec, 4);
+            // F3.1: a necessidade da outra coleção se reparte por PAPEL; a SOMA dos papéis = o total do core (nenhuma conta muda)
+            const doMesmo = item.colecoes.filter((x) => x.colecao_id === o.colecao_id);
+            expect(new Set(doMesmo.map((x) => x.papel)).size, "no máx. 1 linha por (coleção, papel)").toBe(doMesmo.length);
+            expect(doMesmo.reduce((a, x) => a + Number(x.nec_m), 0)).toBeCloseTo(n[0].nec, 3);
+            if (o.papel === "substituto") {
+              // substituto só existe se a outra coleção realmente tem variante de artigo DIFERENTE do principal do material
+              const { rows: sb } = await c.query(
+                `select count(*)::int n
+                   from plan_tecido p join plan_tecido_subcolecoes s on s.plan_id = p.id
+                   join plan_tecido_linhas l on l.sub_id = s.id join plan_tecido_slots sl on sl.linha_ref_id = l.id
+                   join plan_tecido_materiais mt on mt.slot_id = sl.id join plan_tecido_variantes vv on vv.material_id = mt.id
+                   join variantes_tecido vt on vt.id = vv.variante_tecido_id
+                  where p.colecao_id = $1 and p.tenant_id = $2 and vt.artigo_id = $3 and mt.artigo_id is distinct from vt.artigo_id`,
+                [o.colecao_id, TENANT_TESTE, item.artigo_id]);
+              expect(sb[0].n, "substituto tem variante de artigo diferente do principal").toBeGreaterThan(0);
+            }
           }
           comLista++;
         }
