@@ -137,7 +137,7 @@ export const TAXONOMY_KEY_TOKENS: Record<TaxonomyTable, readonly string[]> = {
   subcategorias1_produto: [],
   subcategorias2_produto: [],
   grupos_produto: ["otb-grupos"],
-  linhas: ["linhas-markup", "padrao-linhas", "plan-tecido-linhas-markup"],
+  linhas: ["linhas-markup", "padrao-linhas", "plan-tecido-linhas-markup", "plan-tecido-linhas"],
   meses: ["meses-options"],
   cores: ["cores-list", "cores-options", "cores-opts"],
   cores_apelido: ["cores-apelido-list", "cores-apelido-options", "plan-tecido-cores-combos"],

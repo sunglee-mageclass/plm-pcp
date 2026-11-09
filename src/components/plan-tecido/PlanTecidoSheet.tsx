@@ -41,7 +41,7 @@ import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte, statusEfetivoDaVaga, modelosReprovadosDeVagas, slotPassaFiltroStatus } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, type VinculoDetalhe, ehReprovado, reprovadoSaiDaDemanda, slotContaNaDemanda, cadEnviadoCorte, statusEfetivoDaVaga, modelosReprovadosDeVagas, slotPassaFiltroStatus, slotPassaFiltroLinha } from "@/lib/plan-tecido/calc";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useRequerModulo } from "@/hooks/useRequerModulo";
 import { InfoHover } from "@/components/shared/InfoHover";
@@ -327,6 +327,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   const [catFilters, setCatFilters] = useState<Set<string | null>>(new Set());
   // F2 D — filtro de status (SÓ da exibição; nada é apagado do estado/rascunho): default "todos menos reprovado".
   const [filtroStatus, setFiltroStatus] = useState<"todos" | "sem_reprovado">("sem_reprovado");
+  // Filtro de LINHA (multi, SÓ da exibição como o de status): Set vazio = todas; `null` no set = "Sem linha".
+  const [filtroLinhas, setFiltroLinhas] = useState<Set<string | null>>(new Set());
+  const { data: linhasLoja = [] } = useQuery({
+    queryKey: ["plan-tecido-linhas"],   // mesma query do seletor de Linha do ModelCard (a tabela `linhas` não tem `ativo`)
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("linhas" as any) as any).select("id, nome").order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown) as { id: string; nome: string }[];
+    },
+  });
   const [addCatOpen, setAddCatOpen] = useState(false);
   const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
   // G6 (criar em massa) / G5 (pedido por seleção) — confirmação e progresso das 2 ações novas
@@ -1945,6 +1955,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       reverterArvore();
       setSubAtiva(si);
       setCatFilters(new Set());
+      setFiltroLinhas(new Set());
       setSelecao(new Set());
       setRecolhidos(new Set());
       setView("canvas");
@@ -2094,8 +2105,14 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           const subArvore: PtArvore = { ...arvore, subcolecoes: [sub] };
           // F2 D: poda SÓ a exibição (lanes/Modo Plano). `sub`/`subArvore` seguem completos (Resumo, Drawer, save).
           const passaStatus = (slot: PtSlot) => slotPassaFiltroStatus(slot, slot.modelo_id ? reprovadoStatusSet.has(slot.modelo_id) : false, filtroStatus);
-          const flat = sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, li, sli, chave: chaveSlot(slot.id, subAtiva, li, sli) })))
+          const passaLinha = (slot: PtSlot) => slotPassaFiltroLinha(slot, filtroLinhas);
+          const flatStatus = sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, li, sli, chave: chaveSlot(slot.id, subAtiva, li, sli) })))
             .filter((f) => passaStatus(f.slot));
+          // Opções do filtro de Linha: só linhas com card na vista (status aplicado, linha NÃO) + as já marcadas.
+          const nPorLinha = new Map<string, number>(); let nSemLinha = 0;
+          for (const f of flatStatus) { const lid = f.slot.linha_id ?? null; if (lid) nPorLinha.set(lid, (nPorLinha.get(lid) ?? 0) + 1); else nSemLinha++; }
+          const linhasOpcoes = linhasLoja.filter((l) => nPorLinha.has(l.id) || filtroLinhas.has(l.id)).map((l) => ({ id: l.id, nome: l.nome, n: nPorLinha.get(l.id) ?? 0 }));
+          const flat = flatStatus.filter((f) => passaLinha(f.slot));
           // Lanes = UNIÃO das categorias declaradas (categorias_tecido, incl. lanes vazias criadas à
           // mão) + as categorias AUTO presentes nos slots (Tecido 1). Sem a união, um card
           // auto-categorizado numa categoria fora de categorias_tecido não renderia em lane nenhuma.
@@ -2358,6 +2375,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                       mostrarCategorias={(groupByCategoria && !groupByMix) || modoPlano}
                       status={filtroStatus}
                       onStatus={(v) => { setFiltroStatus(v); setSelecao(new Set()); }}
+                      linhas={linhasOpcoes}
+                      semLinha={nSemLinha > 0 || filtroLinhas.has(null) ? { n: nSemLinha } : null}
+                      filtroLinhas={filtroLinhas}
+                      onToggleLinha={(id) => { const n = new Set(filtroLinhas); n.has(id) ? n.delete(id) : n.add(id); setFiltroLinhas(n); setSelecao(new Set()); }}
+                      onLimparLinhas={() => { setFiltroLinhas(new Set()); setSelecao(new Set()); }}
                       cats={cats}
                       catNome={(id) => catTecidoNome(id) ?? "?"}
                       contagem={(id) => slotsOf(id).length}
@@ -2400,7 +2422,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     // entram via `slotVisivel`, aplicado DENTRO da view DEPOIS de fixar li/sli (a árvore vai COMPLETA:
                     // podar aqui deslocaria o sli e o renderCard gravaria no slot errado — F2 D fix C1). Set vazio = tudo.
                     arvore={subArvore}
-                    slotVisivel={(sl) => passaStatus(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))}
+                    slotVisivel={(sl) => passaStatus(sl) && passaLinha(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))}
                     colecaoId={colecaoId}
                     recolhidos={modoPlanoRecolhidos}
                     onToggleRecolhido={(nome) => setModoPlanoRecolhidos((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; })}

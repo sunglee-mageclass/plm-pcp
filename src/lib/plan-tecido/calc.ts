@@ -115,6 +115,14 @@ export function slotPassaFiltroStatus(
   return statusEfetivoDaVaga(slot, reprovadoDoCard) !== "reprovado";
 }
 
+/** Filtro de LINHA do Plan. Tecido (multi). Set vazio = todas (inclusive card sem linha). Com linhas marcadas passa
+ *  so quem tem `slot.linha_id` no set; `null` no set = opcao "Sem linha" (mesmo idioma do "Sem categoria" do filtro
+ *  de familia). So poda a EXIBICAO — nunca o estado/save. */
+export function slotPassaFiltroLinha(slot: PtSlot, filtroLinhas: ReadonlySet<string | null>): boolean {
+  if (filtroLinhas.size === 0) return true;
+  return filtroLinhas.has(slot.linha_id ?? null);
+}
+
 /** Achata a arvore em slots COM os indices ORIGINAIS (subI/li/sli) e SO DEPOIS aplica a visibilidade (filtros de
  *  exibicao: status, familia). Os indices servem p/ o pai gravar no slot certo da arvore COMPLETA — por isso NUNCA
  *  podar `ln.slots` antes de achatar (o `filter` desloca `sli`; F2 D fix C1). Mesmo padrao do canvas das lanes. */

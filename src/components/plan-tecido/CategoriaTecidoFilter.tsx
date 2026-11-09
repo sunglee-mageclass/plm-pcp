@@ -19,6 +19,13 @@ type CategoriaTecidoFilterProps = {
   /** F2 D — filtro de STATUS dentro do mesmo popover "Filtrar" (antes era um Select solto no toolbar). Omitido = sem seção. */
   status?: "todos" | "sem_reprovado";
   onStatus?: (v: "todos" | "sem_reprovado") => void;
+  /** Filtro de LINHA (multi) no mesmo popover. `linhas` = só as linhas com card na vista (+ as já marcadas); `null` no set =
+   *  "Sem linha". Omitido = sem seção. */
+  linhas?: { id: string; nome: string; n: number }[];
+  semLinha?: { n: number } | null;
+  filtroLinhas?: Set<string | null>;
+  onToggleLinha?: (id: string | null) => void;
+  onLimparLinhas?: () => void;
   /** Mostra a seção de famílias (só nos modos em que o filtro de família faz sentido). Padrão true. */
   mostrarCategorias?: boolean;
 };
@@ -33,10 +40,11 @@ const STATUS_PADRAO = "sem_reprovado";
  * vizinhos (src/components/shared/filters.tsx, src/components/plan-tecido/RecolherMenu.tsx).
  */
 export function CategoriaTecidoFilter({
-  cats, catNome, contagem, temSemCategoria, selecionadas, onToggle, onLimpar, status, onStatus, mostrarCategorias = true,
+  cats, catNome, contagem, temSemCategoria, selecionadas, onToggle, onLimpar, status, onStatus, linhas, semLinha, filtroLinhas, onToggleLinha, onLimparLinhas, mostrarCategorias = true,
 }: CategoriaTecidoFilterProps) {
   const statusAtivo = status !== undefined && status !== STATUS_PADRAO;
-  const nAtivos = (mostrarCategorias ? selecionadas.size : 0) + (statusAtivo ? 1 : 0);
+  const nAtivos = (mostrarCategorias ? selecionadas.size : 0) + (statusAtivo ? 1 : 0) + (filtroLinhas?.size ?? 0);
+  const secaoLinha = !!linhas && !!filtroLinhas && !!onToggleLinha && (linhas.length > 0 || !!semLinha);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -60,6 +68,28 @@ export function CategoriaTecidoFilter({
                 <span>{rotulo}</span>
               </label>
             ))}
+          </div>
+        )}
+        {secaoLinha && (
+          <div className="mb-1 border-b pb-1" role="group" aria-label="Filtro de linha">
+            <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">Linha</div>
+            {linhas!.map((l) => (
+              <label key={l.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent max-md:min-h-11">
+                <Checkbox checked={filtroLinhas!.has(l.id)} onCheckedChange={() => onToggleLinha!(l.id)} />
+                <span>{l.nome} ({l.n})</span>
+              </label>
+            ))}
+            {semLinha && (
+              <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent max-md:min-h-11">
+                <Checkbox checked={filtroLinhas!.has(null)} onCheckedChange={() => onToggleLinha!(null)} />
+                <span>Sem linha ({semLinha.n})</span>
+              </label>
+            )}
+            {filtroLinhas!.size > 0 && onLimparLinhas && (
+              <Button type="button" variant="ghost" size="sm" className="mt-1 w-full border-t" onClick={onLimparLinhas}>
+                Limpar
+              </Button>
+            )}
           </div>
         )}
         {mostrarCategorias && cats.map((cid) => (
