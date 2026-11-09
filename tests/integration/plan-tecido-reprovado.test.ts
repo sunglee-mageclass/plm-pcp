@@ -19,7 +19,7 @@ const PREVIA = "public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])";
 const MD5_DEPOIS: Record<string, string> = {
   [NEC]: "825a4b1b1cca8e3309f10b272fc8c76d",
   [SIT]: "368bc7530510b934a0ca33e8efa69116",
-  [PREVIA]: "b62ef170570b2444ad3f5727760cd411", // fix1 M1: oc_link ignora card reprovado (não cortado)
+  [PREVIA]: "ffcae79defe22e61e604b9d268fdf20b", // F3 (20261115100000): + recebido_m/prev_receb_m/outras_colecoes na prévia (aditivo; déficit/estoque/qtd intactos)
 };
 
 /** Forma do jsonb da prévia (só o que o teste lê). */
