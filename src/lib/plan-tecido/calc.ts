@@ -200,6 +200,27 @@ export function pendenciasResumo(
 export const slotContaNaDemanda = (slot: PtSlot, reprovados?: ReadonlySet<string>): boolean =>
   !slot.modelo_id || !reprovados?.has(slot.modelo_id);
 
+/** Necessidade por variante do RASCUNHO, no cliente — soma consumo×grade×mult por variante real,
+ *  pulando reprovado/oculto via slotContaNaDemanda. Retorna Map<variante_tecido_id, metros>. */
+export function necessidadePorVarianteDaArvore(
+  arvore: PtArvore,
+  reprovados?: ReadonlySet<string>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const sub of arvore.subcolecoes ?? [])
+    for (const ln of sub.linhas ?? [])
+      for (const slot of ln.slots ?? []) {
+        if (!slotContaNaDemanda(slot, reprovados)) continue; // reprovado/oculto fora
+        for (const mat of slot.materiais ?? [])
+          for (const v of mat.variantes ?? []) {
+            if (v.oculta || !v.variante_tecido_id) continue;
+            const m = necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
+            if (m > 0) out.set(v.variante_tecido_id, (out.get(v.variante_tecido_id) ?? 0) + m);
+          }
+      }
+  return out;
+}
+
 /** A árvore que entra nas CONTAS (necessidade, Demanda por OC, "a comprar" vivo): sem as vagas de card
  *  reprovado. A árvore original (com elas) segue para a EXIBIÇÃO. Sem reprovados → a mesma referência. */
 export function arvoreDaDemanda(arvore: PtArvore, reprovados?: ReadonlySet<string>): PtArvore {
