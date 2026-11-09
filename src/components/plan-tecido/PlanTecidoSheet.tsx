@@ -18,7 +18,7 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { AgrupamentoButton } from "@/components/shared/filters";
+import { AgrupamentoButton, FilterButton } from "@/components/shared/filters";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
@@ -35,7 +35,7 @@ import {
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
-import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
+import { montarFiltrosPlanTecido } from "@/lib/plan-tecido/filtro-painel";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
@@ -2368,25 +2368,26 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Vale no modo
                         Família PURO (sem Mix aninhado) E no MODO PLANO (que agrupa por nome de tecido,
                         cada nome pertence a uma família — o filtro por família continua fazendo sentido). */}
-                    {/* "Filtrar" é UM popover: Status (F2 D — default "Todos menos reprovado"; reprovados somem da VISTA, sem
+                    {/* Painel de filtros COMPARTILHADO (shared/filters FilterButton; dropdowns "Todos"): Status (F2 D — default "Todos menos reprovado"; reprovados somem da VISTA, sem
                         apagar nada) + famílias de tecido (só nos modos em que o filtro de família faz sentido). Trocar o
                         status limpa a seleção (F2 D fix I1: ações em massa casam por chave na árvore COMPLETA). */}
-                    <CategoriaTecidoFilter
-                      mostrarCategorias={(groupByCategoria && !groupByMix) || modoPlano}
-                      status={filtroStatus}
-                      onStatus={(v) => { setFiltroStatus(v); setSelecao(new Set()); }}
-                      linhas={linhasOpcoes}
-                      semLinha={nSemLinha > 0 || filtroLinhas.has(null) ? { n: nSemLinha } : null}
-                      filtroLinhas={filtroLinhas}
-                      onToggleLinha={(id) => { const n = new Set(filtroLinhas); n.has(id) ? n.delete(id) : n.add(id); setFiltroLinhas(n); setSelecao(new Set()); }}
-                      onLimparLinhas={() => { setFiltroLinhas(new Set()); setSelecao(new Set()); }}
-                      cats={cats}
-                      catNome={(id) => catTecidoNome(id) ?? "?"}
-                      contagem={(id) => slotsOf(id).length}
-                      temSemCategoria={flat.some((f) => !f.slot.categoria_tecido_id)}
-                      selecionadas={catFilters}
-                      onToggle={(id) => { const n = new Set(catFilters); n.has(id) ? n.delete(id) : n.add(id); setCatFilters(n); }}
-                      onLimpar={() => setCatFilters(new Set())}
+                    <FilterButton
+                      screen="plan-tecido-canvas"
+                      filters={montarFiltrosPlanTecido({
+                        status: filtroStatus,
+                        onStatus: (v) => { setFiltroStatus(v); setSelecao(new Set()); },
+                        linhas: linhasOpcoes,
+                        semLinha: nSemLinha > 0 || filtroLinhas.has(null) ? { n: nSemLinha } : null,
+                        filtroLinhas,
+                        onFiltroLinhas: (n) => { setFiltroLinhas(n); setSelecao(new Set()); },
+                        mostrarCategorias: (groupByCategoria && !groupByMix) || modoPlano,
+                        cats,
+                        catNome: (id) => catTecidoNome(id) ?? "?",
+                        contagem: (id) => slotsOf(id).length,
+                        temSemCategoria: flat.some((f) => !f.slot.categoria_tecido_id),
+                        catFilters,
+                        onCatFilters: setCatFilters,
+                      })}
                     />
                     {/* Modo Plano (set/2026): view por nome de tecido (resumo + carrossel + cards). Ligar
                         força o agrupamento por nome. Fica ao lado de Agrupar (pedido do dono). */}
