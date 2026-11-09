@@ -61,12 +61,16 @@ export function MoverEtapaMenu({ selo, podeMover, opcoes, onMover, movendo, sujo
               : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-72 max-w-[calc(100vw-2rem)] p-1" data-testid={idMenu} onClick={parar}>
-          <p className="px-2 pt-1 pb-1 text-xs font-semibold text-muted-foreground">Mover para…</p>
+          {/* F4a fix (dono 09/nov): o PopoverContent do Radix cresce com o conteudo e, com muitas etapas,
+              estoura a viewport (a lista cortava embaixo sem rolar). Limita a altura do POPOVER a
+              `--radix-popover-content-available-height` (a altura real ate a borda da tela) com flex-col,
+              e deixa SO a lista rolar (`flex-1 overflow-y-auto`). Assim o cabecalho fica fixo e a lista rola. */}
+        <PopoverContent align="start" className="flex max-h-(--radix-popover-content-available-height) w-72 max-w-[calc(100vw-2rem)] flex-col p-1" data-testid={idMenu} onClick={parar}>
+          <p className="shrink-0 px-2 pt-1 pb-1 text-xs font-semibold text-muted-foreground">Mover para…</p>
           {sujo && (
-            <p className="px-2 pb-1 text-[11px] text-muted-foreground">As regras olham o que já está salvo — salve antes de mover.</p>
+            <p className="shrink-0 px-2 pb-1 text-[11px] text-muted-foreground">As regras olham o que já está salvo — salve antes de mover.</p>
           )}
-          <div className="max-h-72 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {opcoes.map((o) => (
               <button
                 key={o.key}
