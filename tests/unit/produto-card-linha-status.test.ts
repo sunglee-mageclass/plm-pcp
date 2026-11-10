@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// Paridade PA/PI (nov/2026, Task 6): seletores do card — Linha SÓ com card; Pendente/Reprovado SÓ sem card; o selo do kanban
-// (F4a, com card) e o Select de status (sem card) são EXCLUSIVOS. A regra mora no bloco compartilhado `ProdutoLinhaStatusBloco`
+// Paridade PA/PI (nov/2026, Task 6 + complemento "Linha também sem card"): seletores do card — Linha SEMPRE (com e sem card);
+// Pendente/Reprovado SÓ sem card; o selo do kanban (F4a, com card) e o Select de status (sem card) são EXCLUSIVOS. A regra mora no bloco compartilhado `ProdutoLinhaStatusBloco`
 // (usado pelo ProdutoCard e pelo ProdutoImportadoCard) — render de verdade + asserções de fonte dos 2 cards.
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -51,11 +51,27 @@ describe("ProdutoLinhaStatusBloco", () => {
     m.desmontar();
   });
 
-  it("SEM card: Select Pendente/Reprovado; SEM seletor de Linha e SEM selo do kanban (mesmo que o selo venha)", async () => {
+  it("SEM card: Select Pendente/Reprovado + seletor de Linha (sempre); SEM selo do kanban (mesmo que o selo venha)", async () => {
     const m = await montar({ temCard: false });
     expect(temStatus(m.container)).toBe(true);
-    expect(temLinha(m.container)).toBe(false);
+    expect(temLinha(m.container)).toBe(true);
     expect(temSelo(m.container)).toBe(false);
+    m.desmontar();
+  });
+
+  it("Linha SEMPRE visível: em toda combinação (com/sem card, com/sem selo)", async () => {
+    for (const temCard of [true, false]) {
+      for (const selo of [undefined, null]) {
+        const m = await montar(selo === null ? { temCard, selo: null } : { temCard });
+        expect(temLinha(m.container)).toBe(true);
+        m.desmontar();
+      }
+    }
+  });
+
+  it("sem card, a Linha exibe o valor do produto", async () => {
+    const m = await montar({ temCard: false, linhaId: "l2" });
+    expect(m.container.querySelector('[data-testid="produto-linha-select"]')?.textContent).toContain("Festa");
     m.desmontar();
   });
 
@@ -104,6 +120,26 @@ describe("os 2 cards usam o bloco compartilhado (e só ele decide Linha/status/s
   it("comentários desatualizados da Task 5 corrigidos nos 2 Sheets", () => {
     for (const f of ["src/components/produto-acabado/ProdutoAcabadoSheet.tsx", "src/components/produto-importado/ProdutoImportadoSheet.tsx"]) {
       expect(ler(f)).not.toMatch(/nunca [ée] reprovado/i);
+    }
+  });
+});
+
+describe("complemento \"Linha também sem card\" — leitura do produto e guarda de excluir Linha", () => {
+  const ler = (p: string) => readFileSync(resolve(__dirname, "../../", p), "utf8");
+
+  it("os 2 Sheets leem a Linha de produto.linha_id (cai no modelo) e o PA traz `linha_id` no SELECT do produto", () => {
+    const pa = ler("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
+    const pi = ler("src/components/produto-importado/ProdutoImportadoSheet.tsx");
+    expect(pa).toMatch(/const linhaId: string \| null = \(row\.linha_id \?\? \(row\.modelo_id \? row\.modelo\?\.linha_id : null\)\) \?\? null;/);
+    expect(pa).toMatch(/status, linha_id,\n/);
+    expect(pi).toMatch(/const linhaId: string \| null = \(r\.linha_id \?\? \(r\.modelo_id \? r\.modelo\?\.linha_id : null\)\) \?\? null;/);
+  });
+
+  it("excluir Linha conta o uso em produtos_acabados e produtos_importados (LinhasCard + config do Atributos)", () => {
+    for (const f of ["src/components/cadastro/LinhasCard.tsx", "src/routes/_authenticated/cadastro.atributos.tsx"]) {
+      const s = ler(f);
+      expect(s).toMatch(/table: "produtos_acabados", column: "linha_id"/);
+      expect(s).toMatch(/table: "produtos_importados", column: "linha_id"/);
     }
   });
 });

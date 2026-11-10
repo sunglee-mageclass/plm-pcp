@@ -30,7 +30,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
  * o cálculo da "M.O. necessária"/semáforo é Fase B. NÃO toca preco.ts.
  *
  * Mantém as proteções do AttributeTab: excluir só via guarda de uso (bloqueia se a Linha está
- * em uso em modelos/colecao_pv_itens/mix_padrao_linhas). Renomear/editar markups inline.
+ * em uso em modelos/colecao_pv_itens/mix_padrao_linhas/produtos_acabados/produtos_importados). Renomear/editar markups inline.
  */
 
 type Linha = { id: string; nome: string; markup: number | null; markup_min: number | null; markup_max: number | null };
@@ -39,6 +39,9 @@ const USAGE: { table: string; column: string }[] = [
   { table: "modelos", column: "linha_id" },
   { table: "colecao_pv_itens", column: "linha_id" },
   { table: "mix_padrao_linhas", column: "linha_id" },
+  // "Linha também sem card": o produto acabado/importado SEM card guarda a própria linha (FK) — sem isto a Linha parece "sem uso" e o DELETE falha.
+  { table: "produtos_acabados", column: "linha_id" },
+  { table: "produtos_importados", column: "linha_id" },
 ];
 
 const fmtMk = (v: number | null): string => (v == null ? "—" : `${String(v).replace(".", ",")}×`);

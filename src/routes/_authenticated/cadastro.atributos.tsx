@@ -331,6 +331,8 @@ const ATTRIBUTES: AttributeItem[] = [
         { table: "modelos", column: "linha_id" },
         { table: "colecao_pv_itens", column: "linha_id" },
         { table: "mix_padrao_linhas", column: "linha_id" },
+        { table: "produtos_acabados", column: "linha_id" },
+        { table: "produtos_importados", column: "linha_id" },
       ],
     },
   },

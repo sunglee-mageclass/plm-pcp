@@ -156,6 +156,8 @@ type ProdutoImportadoRow = {
   tamanho_tipo?: string | null;
   /** Paridade PA/PI (Task 4) — status Pendente/Reprovado do produto SEM card (coluna nova, vem pelo `"*"`; types.ts ainda sem ela). */
   status?: string | null;
+  /** Complemento "Linha sem card" — `produtos_importados.linha_id` (coluna nova, vem pelo `"*"`). */
+  linha_id?: string | null;
   /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))`
    *  (SELECT acima; os 2 campos novos são da Tarefa 6). */
   modelo?: {
@@ -182,7 +184,8 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
   // nascer com ele). `tamanho_tipo_base` guarda o MESMO valor lido agora (nunca editado pela UI).
   const tamanhoTipo = ((r.modelo_id ? r.modelo?.tamanho_tipo : r.tamanho_tipo) ?? null) as "letra" | "numero" | null;
   const skusRow = Array.isArray(r.modelo?.modelo_skus) ? r.modelo.modelo_skus[0] : null;
-  const linhaId: string | null = (r.modelo_id ? r.modelo?.linha_id : null) ?? null;
+  // Complemento "Linha também sem card": `produtos_importados.linha_id` (vem pelo `"*"`; fora do types.ts) é espelhado com `modelos.linha_id`.
+  const linhaId: string | null = (r.linha_id ?? (r.modelo_id ? r.modelo?.linha_id : null)) ?? null;
   // Valor fora do CHECK (`pendente`/`reprovado`) vira null — nunca "inventa" um status.
   const statusProduto: StatusProduto | null = r.status === "pendente" || r.status === "reprovado" ? r.status : null;
   return {

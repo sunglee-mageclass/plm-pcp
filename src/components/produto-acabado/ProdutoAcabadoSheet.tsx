@@ -105,7 +105,9 @@ function rowToDraft(row: any): ProdutoDraft {
   // nascer com ele). `tamanho_tipo_base` guarda o MESMO valor lido agora (nunca editado pela UI).
   const tamanhoTipo = (row.modelo_id ? row.modelo?.tamanho_tipo : row.tamanho_tipo) ?? null;
   const skusRow = Array.isArray(row.modelo?.modelo_skus) ? row.modelo.modelo_skus[0] : null;
-  const linhaId: string | null = (row.modelo_id ? row.modelo?.linha_id : null) ?? null;
+  // Complemento "Linha também sem card": `produtos_acabados.linha_id` (coluna nova, fora do types.ts → `any`) é espelhado com `modelos.linha_id`
+  // (sempre iguais) — lê o do produto e cai no do modelo (só com card) por segurança.
+  const linhaId: string | null = (row.linha_id ?? (row.modelo_id ? row.modelo?.linha_id : null)) ?? null;
   // `status` é coluna nova (types.ts ainda sem ela → lido de `any`); valor fora do CHECK vira null (nunca "inventa" um status).
   const statusProduto: StatusProduto | null = row.status === "pendente" || row.status === "reprovado" ? row.status : null;
   return {
@@ -141,7 +143,7 @@ function rowToDraft(row: any): ProdutoDraft {
     variantes,
     tamanho_tipo: tamanhoTipo,
     tamanho_tipo_base: tamanhoTipo,
-    // Paridade PA/PI (Task 4): Linha = `modelos.linha_id` do espelho (só com card; reflexiva) e status = coluna do PRÓPRIO produto
+    // Paridade PA/PI (Task 4 + "Linha sem card"): Linha = `produtos_acabados.linha_id` (espelhada em `modelos.linha_id` com card) e status = coluna do PRÓPRIO produto
     // (só vale sem card). A `*Base` guarda o MESMO valor lido agora (nunca editado pela UI) — o Salvar só manda a chave se mudou.
     linhaId,
     linhaIdBase: linhaId,
@@ -173,7 +175,7 @@ const SELECT_PRODUTO = `
   id, rev, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id, categoria_tecido_id, material_aviamento_id,
   colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
-  markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo, status,
+  markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo, status, linha_id,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
   modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus(count),
     status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado),
@@ -1168,7 +1170,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             conflitoPendente={temConflitoPendente}
             ordensVariantesServidor={baseServidorRef.current[p.id]?.variantes.map((v) => v.ordem)}
             kanban={{ cfg: kanbanCfg, condMap: kanbanCondMap, prontas: kanbanProntas, carregando: kanbanCarregando, tenantId: tenantIdKanban }}
-            onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null, linhaId: null, linhaIdBase: null })}
+            onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: p.linhaIdBase ?? null })}
             onOcVinculada={(oc) => {
               patchProduto(p.id, { oc });
               const base = baseServidorRef.current[p.id];

@@ -22,7 +22,8 @@ export function useLinhasOpts() {
 
 /**
  * Paridade PA/PI ↔ Plan. Tecido (nov/2026, Task 6) — a linha de seletores do card do Produto Acabado/Importado:
- *  - **Linha SÓ com card** (`temCard`): reflete `modelos.linha_id` do espelho (o servidor ignora `linha_id` sem `modelo_id`).
+ *  - **Linha SEMPRE** (com e sem card — complemento "Linha também sem card"): `produtos_*.linha_id`, espelhado com `modelos.linha_id`
+ *    quando há card (o banco mantém os dois iguais).
  *  - **Pendente/Reprovado SÓ sem card**: com card o status é o do kanban — o `selo` (F4a, `MoverEtapaMenu`) — e NUNCA coexiste
  *    com o Select de status (decisão do dono: um só controle de status por vez). Sem card o `selo` é ignorado.
  * Só ALTERA o rascunho (`onLinha`/`onStatus`); quem grava é o Salvar. Fora do <button> do cabeçalho do card (o gatilho do selo
@@ -69,29 +70,27 @@ export function ProdutoLinhaStatusBloco({
           </Select>
         </div>
       )}
-      {temCard && (
-        <div className="flex items-center gap-1">
-          <span className="shrink-0 text-[10px] text-muted-foreground">Linha</span>
-          <Select
-            value={linhaId ?? "__none__"}
-            onValueChange={(v) => onLinha(v === "__none__" ? null : v)}
+      <div className="flex items-center gap-1">
+        <span className="shrink-0 text-[10px] text-muted-foreground">Linha</span>
+        <Select
+          value={linhaId ?? "__none__"}
+          onValueChange={(v) => onLinha(v === "__none__" ? null : v)}
+        >
+          <SelectTrigger
+            data-testid="produto-linha-select"
+            aria-label="Linha"
+            className="h-7 min-w-[7rem] text-[11px] max-md:h-11 max-md:text-base"
           >
-            <SelectTrigger
-              data-testid="produto-linha-select"
-              aria-label="Linha"
-              className="h-7 min-w-[7rem] text-[11px] max-md:h-11 max-md:text-base"
-            >
-              <SelectValue placeholder="—" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">—</SelectItem>
-              {linhasOpts.map((l) => (
-                <SelectItem key={l.id} value={l.id}>{l.nome}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">—</SelectItem>
+            {linhasOpts.map((l) => (
+              <SelectItem key={l.id} value={l.id}>{l.nome}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }
