@@ -33,3 +33,23 @@ export function passaFiltroStatusCard(
 ): boolean {
   return modo === "todos" ? true : !cardReprovado(s);
 }
+
+/** Filtro "Status" do canvas de Produto Acabado/Importado (paridade com o Plan. Tecido; nov/2026, Task 5). O status SÓ vale SEM
+ *  card: produto COM card (`modelo_id`) usa o status do MODELO (kanban) e a coluna `statusProduto` é IGNORADA (um "reprovado" velho
+ *  na coluna não pode ocultar um produto que já virou card); produto SEM card usa `statusProduto`. "todos" não filtra. Só decide o
+ *  que RENDERIZA — nunca apaga. */
+export function produtoPassaFiltroStatus(
+  p: {
+    modelo_id?: string | null;
+    modeloStatusDev?: string | null;
+    modeloStatusPlan?: string | null;
+    statusProduto?: string | null;
+  },
+  modo: "todos" | "sem_reprovado",
+): boolean {
+  if (modo === "todos") return true;
+  const reprovado = p.modelo_id
+    ? ehReprovadoStatus(p.modeloStatusDev, p.modeloStatusPlan)
+    : p.statusProduto === "reprovado";
+  return !reprovado;
+}

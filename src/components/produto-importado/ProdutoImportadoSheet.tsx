@@ -8,7 +8,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { AgrupamentoButton, FilterButton } from "@/components/shared/filters";
-import { passaFiltroStatusCard } from "@/lib/kanban-card-selo";
+import { produtoPassaFiltroStatus } from "@/lib/kanban-card-selo";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -1134,8 +1134,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // reprovado (espelho null → passa). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido do rodapé) lê a vista
   // podada; o Resumo lê a lista COMPLETA (o que foi planejado/comprado não muda por um filtro de tela).
   const produtosSubTodos = subAtual ? produtosDeSub(subAtual.nome) : [];
-  const produtosSub = produtosSubTodos.filter((p) => passaFiltroStatusCard(
-    { status_desenvolvimento: p.modeloStatusDev, status_planejamento: p.modeloStatusPlan }, filtroStatus));
+  const produtosSub = produtosSubTodos.filter((p) => produtoPassaFiltroStatus(p, filtroStatus));
   const nReprovadosOcultos = produtosSubTodos.length - produtosSub.length;
   const pecasSub = produtosSub.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
 

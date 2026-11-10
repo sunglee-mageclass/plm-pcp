@@ -659,3 +659,7 @@ export function markupCanalIntocado(
   if (enviado && markupServidor === enviado.servidorAntes) return enviado.valor;
   return markupServidor === undefined ? markupDraft : markupServidor;
 }
+
+/** Filtro "Status" do canvas (Task 5, paridade Plan. Tecido): status do produto SÓ vale SEM card; com card vale o do modelo.
+ *  Implementação em `@/lib/kanban-card-selo` (PA e PI compartilham). */
+export { produtoPassaFiltroStatus } from "@/lib/kanban-card-selo";

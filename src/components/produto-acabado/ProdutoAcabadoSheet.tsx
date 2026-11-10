@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { podeVerCustosServidor } from "@/lib/mao-obra";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { AgrupamentoButton, FilterButton } from "@/components/shared/filters";
-import { passaFiltroStatusCard } from "@/lib/kanban-card-selo";
+import { produtoPassaFiltroStatus } from "@/lib/kanban-card-selo";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -1074,8 +1074,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // Todos os produtos da subcoleção (sem poda) e a vista PODADA pelo filtro Status. Produto sem card (modelo_id null) nunca é
   // reprovado (embed null → passa). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido) lê a vista podada.
   const produtosSubTodos = subAtual ? produtosDeSub(subAtual.nome) : [];
-  const produtosSub = produtosSubTodos.filter((p) => passaFiltroStatusCard(
-    { status_desenvolvimento: p.modeloStatusDev, status_planejamento: p.modeloStatusPlan }, filtroStatus));
+  const produtosSub = produtosSubTodos.filter((p) => produtoPassaFiltroStatus(p, filtroStatus));
   const nReprovadosOcultos = produtosSubTodos.length - produtosSub.length;
   // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
   // sempre por último (vira a lane de fallback "Sem categoria"/"Sem grupo").
