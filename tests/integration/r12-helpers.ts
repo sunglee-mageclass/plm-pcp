@@ -102,11 +102,24 @@ export async function dropR12SePreciso(c: Client): Promise<void> {
   await zeraTimeouts(c);
 }
 
-/** Pino antigo + o DEPOIS da R12 quando o texto anterior da cadeia e o ANTES dela (ou sem pino: so o DEPOIS). */
+/**
+ * Paridade PA/PI, complemento "Linha tambem sem card" (20261118130000_pa_pi_linha_produto): redefine 5 funcoes POR CIMA da cadeia acima
+ * (md5 ANTES = o topo anterior: Task 1/2/3 da paridade e a R13/R2 do espelho; DEPOIS = este complemento). So o TOPO da cadeia: o pino antigo
+ * so ganha o DEPOIS quando o ultimo texto da cadeia ja e o ANTES dele (nenhum numero trocado "no olho").
+ */
+const LINHA_PRODUTO_MD5: Record<string, { antes: string; depois: string }> = {
+  "public._salvar_produto_acabado_core(uuid,jsonb,jsonb)": { antes: "8380b15f5ae3ad9d581d3205cb23a4ec", depois: "53a0745fd4f548547485679c19c2363a" },
+  "public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)": { antes: "d857ebb676241e411666d699142ccabd", depois: "ba8ba0f0476c351bfa9d430ec12dc8af" },
+  "public.fn_modelo_espelho_categoria()": { antes: "2e0c70f661e42610e87da2b934dec962", depois: "640a14561ed5cbe6d02855580915e96c" },
+};
+
+/** Pino antigo + o DEPOIS da R12 quando o texto anterior da cadeia e o ANTES dela (ou sem pino: so o DEPOIS); depois, o sucessor da Linha no produto. */
 export function md5R12Sucessor(sig: string, pinado?: string): string[] {
   const k = sig.startsWith("public.") ? sig : `public.${sig}`;
   const out: string[] = pinado ? [pinado] : [];
   const s = R12_MD5[k];
   if (s && (!pinado || pinado === s.antes) && !out.includes(s.depois)) out.push(s.depois);
+  const l = LINHA_PRODUTO_MD5[k];
+  if (l && out.length && out[out.length - 1] === l.antes && !out.includes(l.depois)) out.push(l.depois);
   return out;
 }

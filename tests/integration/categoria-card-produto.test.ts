@@ -30,6 +30,7 @@ const INV_B = "supabase/rollback/20261017110000_categoria_card_para_produto_back
 const MD5_FN = "ea9edd59c5ec5eff207336dbe06a3499"; // função ATIVA (fix round 1: H1/M1)
 const MD5_NEUTRA = "bb13fa0c820f96463b877f89f8e1085b"; // corpo no-op da volta de emergência (passo 1)
 const MD5_TRG = "871039e642390c357188b6b2a1134d64";
+const MD5_TRG_LINHA = "310bc7b03e0096a185bdedc4036d6568"; // sucessor: complemento Linha no produto (20261118130000)
 const MD5_RODAR = "01191f62b141827f5f747fc5b44552fe";
 const MD5_DESFAZER = "ead14b02eab972e833596fd6f2cf9702";
 const MD5_CORE_P136 = "e5473bb29fa559408093d1a82c6ac11f";
@@ -264,7 +265,8 @@ describe.skipIf(!(hasDb && LOCAL))("P-137 categoria card → produto — banco (
       // R13 (20261105100000) redefine fn_modelo_espelho_categoria POR CIMA (o "produto tem pedido" passa a olhar os ITENS da OC;
       // o resto da funcao fica) — sucessor aceito pela cadeia (md5 pos-R13 conferido contra o vivo; o pino segue sendo guard).
       expect(md5OuSucessorI3("fn_modelo_espelho_categoria()", MD5_FN)).toContain(r.fn);
-      expect({ ...r, core: null, fn: null }).toEqual({ fn: null, trg: MD5_TRG, ntrg: 1, rodar: MD5_RODAR, desfazer: MD5_DESFAZER, core: null });
+      // gatilho: o texto da P-137 OU o sucessor do complemento "Linha no produto" (20261118130000: + coluna/WHEN linha_id)
+      expect(r.trg === MD5_TRG_LINHA ? { ...r, trg: MD5_TRG } : r).toMatchObject({ trg: MD5_TRG, ntrg: 1, rodar: MD5_RODAR, desfazer: MD5_DESFAZER });
       for (const f of ["public.fn_modelo_espelho_categoria()", "public._p137_backfill_rodar()", "public._p137_backfill_desfazer()"]) {
         const a = await um<any>(c, `SELECT has_function_privilege('public', $1, 'EXECUTE') AS p,
             has_function_privilege('anon', $1, 'EXECUTE') AS a, has_function_privilege('authenticated', $1, 'EXECUTE') AS u`, [f]);

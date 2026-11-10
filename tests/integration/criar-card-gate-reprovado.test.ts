@@ -21,6 +21,10 @@ const SIG_PA = "public._criar_card_produto_acabado_core(uuid)";
 const SIG_PI = "public._criar_card_produto_importado_core(uuid)";
 const MD5_PA_ANTES = "0241f96d9261bbaab4de9ebd34941831";
 const MD5_PI_ANTES = "cf5ec1d5aa8841580190d0bd3608ab4a";
+const SUCESSOR_LINHA: Record<string, string> = {
+  _criar_card_produto_acabado_core: "2bb5b74a8e2b4130d426310d62069d82",
+  _criar_card_produto_importado_core: "e12562cee2e7530c4d7256213e7d4926",
+};
 const T = TENANT_TESTE;
 const LOCAL = hasDb && ehBancoLocal();
 
@@ -122,7 +126,8 @@ describe.skipIf(!LOCAL)("criar card gate reprovado — banco (copia local)", () 
             has_function_privilege('anon', to_regprocedure($1), 'EXECUTE') AS a,
             has_function_privilege('authenticated', to_regprocedure($1), 'EXECUTE') AS u`, [sig]);
         expect(r.m, nome).not.toBe(ant);
-        expect(r.m, nome).toBe(md5(corpo(MIG, nome) + "\n"));
+        // o texto desta migration OU o sucessor do complemento "Linha no produto" (20261118130000: card herda produto.linha_id)
+        expect([md5(corpo(MIG, nome) + "\n"), SUCESSOR_LINHA[nome]], nome).toContain(r.m);
         expect({ ...r, m: undefined }, nome).toEqual({ m: undefined, p: false, a: false, u: false });
       }
     });

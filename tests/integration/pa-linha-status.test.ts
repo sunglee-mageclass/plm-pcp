@@ -121,7 +121,8 @@ describe.skipIf(!LOCAL)("PA linha+status — banco (copia local)", () => {
           has_function_privilege('anon', to_regprocedure($1), 'EXECUTE') AS a,
           has_function_privilege('authenticated', to_regprocedure($1), 'EXECUTE') AS u`, [SIG]);
       expect(r.m).not.toBe(MD5_ANTES);
-      expect(r.m).toBe(md5(corpo(MIG) + "\n"));
+      // o texto desta migration OU o sucessor do complemento "Linha no produto" (20261118130000)
+      expect([md5(corpo(MIG) + "\n"), "53a0745fd4f548547485679c19c2363a"]).toContain(r.m);
       expect({ ...r, m: undefined }).toEqual({ m: undefined, p: false, a: false, u: false });
       const col = await um<any>(c, `SELECT data_type FROM information_schema.columns
                                       WHERE table_schema='public' AND table_name='produtos_acabados' AND column_name='status'`);
