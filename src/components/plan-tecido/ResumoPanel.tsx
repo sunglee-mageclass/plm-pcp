@@ -352,7 +352,7 @@ export function ResumoPanel({
               const nec = catTecMetros(cid); const comprar = aComprarCat(cid);
               // F3: estoque (real + a chegar) e "Também usado em" — só leitura da prévia; não altera nec./a comprar.
               const arts = artigosDaCategoria(cid);
-              const est = arts.reduce((a, aid) => { const e = estoqueDoArtigo(previa?.cobertura, aid); return { fisico: a.fisico + e.fisico, prevReceb: a.prevReceb + e.prevReceb }; }, { fisico: 0, prevReceb: 0 });
+              const est = arts.reduce((a, aid) => { const e = estoqueDoArtigo(previa?.cobertura, aid); return { fisico: a.fisico + e.fisico, prevReceb: a.prevReceb + e.prevReceb, reservaOutras: a.reservaOutras + e.reservaOutras, livre: a.livre + e.estLivre }; }, { fisico: 0, prevReceb: 0, reservaOutras: 0, livre: 0 });
               const textoOutras = textoOutrasColecoes(arts.flatMap((aid) => outrasColecoesDoTecido(previa?.outras_colecoes, aid)), nMet);
               return (
                 <div key={cid} className="border-b px-2 py-1 text-xs">
@@ -363,10 +363,11 @@ export function ResumoPanel({
                     <span className="text-muted-foreground">nec. <b className="text-foreground">{nMet(nec)}</b> m</span>
                     <span className={!previaCarregada ? "text-muted-foreground" : comprar > 0 ? "font-medium text-red-600" : "font-medium text-emerald-700"}>a comprar <b>{previaCarregada ? nMet(comprar) : "…"}</b> m</span>
                     {previaCarregada && arts.length > 0 && (
-                      <span className="inline-flex items-center gap-0.5 text-muted-foreground">estoque <b className="text-foreground">{nMet(est.fisico + est.prevReceb)}</b> m
+                      <span className="inline-flex items-center gap-0.5 text-muted-foreground">estoque <b className="text-foreground">{nMet(est.livre)}</b> m
                         <InfoHover ariaLabel="Detalhe do estoque do tecido">
                           <div>Disponível (real): {nMet(est.fisico)} m</div>
                           <div>A chegar (pedido): {nMet(est.prevReceb)} m</div>
+                          <div>Reservado por outras coleções: {nMet(est.reservaOutras)} m</div>
                         </InfoHover>
                       </span>
                     )}

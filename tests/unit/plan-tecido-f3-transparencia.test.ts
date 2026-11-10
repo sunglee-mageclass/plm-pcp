@@ -11,18 +11,18 @@ describe("estoqueDoArtigo (F3)", () => {
   it("soma recebido e a chegar das variantes do MESMO artigo (2+ cores)", () => {
     // fisico (disponível) < recebido (bruto): corte/peça-teste já baixados; o Resumo usa o fisico
     const r = estoqueDoArtigo([cob("A", 10, 5, 7), cob("A", 2.5, 0, 2.5), cob("B", 99, 99, 99)], "A");
-    expect(r).toEqual({ recebido: 12.5, prevReceb: 5, fisico: 9.5 });
+    expect(r).toEqual({ recebido: 12.5, prevReceb: 5, fisico: 9.5, reservaOutras: 0, estLivre: 14.5 });
   });
   it("artigo sem linha / cobertura vazia ou ausente → 0/0", () => {
-    expect(estoqueDoArtigo([cob("B", 1, 1, 1)], "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0 });
-    expect(estoqueDoArtigo([], "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0 });
-    expect(estoqueDoArtigo(undefined, "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0 });
+    expect(estoqueDoArtigo([cob("B", 1, 1, 1)], "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0, reservaOutras: 0, estLivre: 0 });
+    expect(estoqueDoArtigo([], "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0, reservaOutras: 0, estLivre: 0 });
+    expect(estoqueDoArtigo(undefined, "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0, reservaOutras: 0, estLivre: 0 });
   });
   it("campos ausentes/nulos viram 0 (variante sem OC)", () => {
-    expect(estoqueDoArtigo([cob("A", undefined, undefined, undefined), cob("A", 0, 0, 0)], "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0 });
+    expect(estoqueDoArtigo([cob("A", undefined, undefined, undefined), cob("A", 0, 0, 0)], "A")).toEqual({ recebido: 0, prevReceb: 0, fisico: 0, reservaOutras: 0, estLivre: 0 });
   });
   it("prévia antiga sem fisico_m → fisico 0 (retrocompatível; recebido/prevReceb seguem)", () => {
-    expect(estoqueDoArtigo([cob("A", 4, 1)], "A")).toEqual({ recebido: 4, prevReceb: 1, fisico: 0 });
+    expect(estoqueDoArtigo([cob("A", 4, 1)], "A")).toEqual({ recebido: 4, prevReceb: 1, fisico: 0, reservaOutras: 0, estLivre: 1 });
   });
 });
 

@@ -740,6 +740,8 @@ export type CoberturaVarRow = {
   recebido_m?: number;
   prev_receb_m?: number;
   fisico_m?: number;
+  /** Reservado por OUTRAS coleções (só exibição do EST; a compra/`deficit_m` não usa). */
+  reserva_outras_m?: number;
 };
 
 /** Cobertura ESTÁVEL de UMA variante, derivada da prévia do servidor: `max(0, nec_servidor −
@@ -790,15 +792,18 @@ export function aComprarVivoPorArtigo(
 export function estoqueDoArtigo(
   cobertura: CoberturaVarRow[] | null | undefined,
   artigoId: string,
-): { recebido: number; prevReceb: number; fisico: number } {
-  let recebido = 0, prevReceb = 0, fisico = 0;
+): { recebido: number; prevReceb: number; fisico: number; reservaOutras: number; estLivre: number } {
+  let recebido = 0, prevReceb = 0, fisico = 0, reservaOutras = 0, livre = 0;
   for (const c of cobertura ?? []) {
     if (c.artigo_id !== artigoId) continue;
     recebido += Number(c.recebido_m) || 0;
     prevReceb += Number(c.prev_receb_m) || 0;
     fisico += Number(c.fisico_m) || 0;
+    reservaOutras += Number(c.reserva_outras_m) || 0;
+    // EST do artigo = soma do `estLivre` POR VARIANTE (clampa cada uma em 0) — igual ao total do Modo Plano.
+    livre += estLivre({ fisico_m: Number(c.fisico_m) || 0, prev_receb_m: Number(c.prev_receb_m) || 0, reserva_outras_m: Number(c.reserva_outras_m) || 0 });
   }
-  return { recebido, prevReceb, fisico };
+  return { recebido, prevReceb, fisico, reservaOutras, estLivre: livre };
 }
 
 /** Outras coleções (mesma loja) que usam o artigo — da chave `outras_colecoes` da prévia. Sem entrada ⇒ [].
@@ -924,4 +929,64 @@ export function linhaResumoAoVivo(x: {
   const plan = Number(x.planRascunho) || 0;
   const est = estLivre(x);
   return { plan, est, sob: Math.max(0, est - plan), compr: Math.max(0, plan - est) };
+}
+
+/** Cor NOVA do rascunho (ainda não salva ⇒ fora da `cobertura` do servidor). */
+export type VarianteNovaRascunho = { variante_tecido_id: string; artigo_id: string | null; label: string | null };
+
+/** Variantes REAIS (com `variante_tecido_id`) do rascunho que NÃO estão na cobertura do servidor — cores novas
+ *  ("+ adicionar cor") que, sem isto, nunca viravam linha no Resumo. Pula oculta e vaga reprovada (mesmo critério da
+ *  necessidade). Inclui PLAN 0 (cor recém-adicionada, sem grade) p/ casar 1-a-1 com o card. Dedup por variante_tecido_id
+ *  (1ª aparição vence); `artigo_id` = `variante_artigo_id` ?? artigo do material. */
+export function variantesNovasDoRascunho(
+  arvore: PtArvore,
+  reprovados: ReadonlySet<string> | undefined,
+  jaNaCobertura: ReadonlySet<string>,
+): VarianteNovaRascunho[] {
+  const out = new Map<string, VarianteNovaRascunho>();
+  for (const sub of arvore.subcolecoes ?? [])
+    for (const ln of sub.linhas ?? [])
+      for (const slot of ln.slots ?? []) {
+        if (!slotContaNaDemanda(slot, reprovados)) continue;
+        for (const mat of slot.materiais ?? [])
+          for (const v of mat.variantes ?? []) {
+            const id = v.variante_tecido_id;
+            if (v.oculta || !id || jaNaCobertura.has(id) || out.has(id)) continue;
+            out.set(id, { variante_tecido_id: id, artigo_id: v.variante_artigo_id ?? mat.artigo_id ?? null, label: v.label ?? v.cor_nome ?? null });
+          }
+      }
+  return [...out.values()];
+}
+
+/** Linha de `plan_tecido_estoque` (RPC existente) p/ uma variante. */
+export type EstoqueVarianteRpc = { variante_tecido_id: string; fisico: number; a_receber: number; reservado: number; previsto?: number };
+
+/** Linha de cobertura (mesmo formato da prévia) p/ cada cor NOVA. `nec_m`/`deficit_m` = 0 (o PLAN vem do rascunho; a COMPRA
+ *  real segue o servidor, salvo). Reserva DESTA coleção = 0 (não salvou) ⇒ `reserva_outras_m` = `reservado` inteiro.
+ *  Sem linha na RPC (sem estoque algum) ⇒ tudo 0. Dedup por variante_tecido_id (a cobertura vence); sem artigo ⇒ pula. */
+export function linhasCorNova(
+  novas: readonly VarianteNovaRascunho[],
+  estoque: readonly EstoqueVarianteRpc[] | null | undefined,
+  jaNaCobertura: ReadonlySet<string>,
+) {
+  const est = new Map((estoque ?? []).map((e) => [e.variante_tecido_id, e]));
+  const vistos = new Set<string>();
+  const out: {
+    artigo_id: string; artigo_nome: string; variante_tecido_id: string; label: string | null;
+    nec_m: number; estoque_m: number; deficit_m: number; recebido_m: number;
+    prev_receb_m: number; fisico_m: number; reserva_outras_m: number;
+  }[] = [];
+  for (const n of novas) {
+    if (!n.artigo_id || jaNaCobertura.has(n.variante_tecido_id) || vistos.has(n.variante_tecido_id)) continue;
+    vistos.add(n.variante_tecido_id);
+    const e = est.get(n.variante_tecido_id);
+    const fisico = Number(e?.fisico) || 0, aReceber = Number(e?.a_receber) || 0, reservado = Number(e?.reservado) || 0;
+    out.push({
+      artigo_id: n.artigo_id, artigo_nome: "", variante_tecido_id: n.variante_tecido_id, label: n.label,
+      nec_m: 0, deficit_m: 0, recebido_m: fisico,
+      fisico_m: fisico, prev_receb_m: aReceber, reserva_outras_m: reservado,
+      estoque_m: estLivre({ fisico_m: fisico, prev_receb_m: aReceber, reserva_outras_m: reservado }),
+    });
+  }
+  return out;
 }

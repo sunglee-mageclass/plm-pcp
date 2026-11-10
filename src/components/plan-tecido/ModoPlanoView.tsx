@@ -9,7 +9,7 @@ import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, linhaResumoAoVivo, planVivoDaLinha, necessidadePorVarianteDaArvore, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
+import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, linhaResumoAoVivo, planVivoDaLinha, necessidadePorVarianteDaArvore, variantesNovasDoRascunho, linhasCorNova, type EstoqueVarianteRpc, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FotoCarrossel } from "./FotoCarrossel";
@@ -286,7 +286,7 @@ function FaixaModoPlano({
   }
 
   // Resumo do TEC1 filtrado pelas variantes REALMENTE usadas pelos cards do grupo (a união).
-  // A RPC de cobertura devolve TODAS as variantes cadastradas do artigo (o card só usa 4, o
+  // A cobertura (servidor + cores novas do rascunho) pode ter variantes que nenhum card do grupo usa (o card só usa 4, o
   // cadastro pode ter 10) — sem esse filtro o resumo listava cores que nenhum card usa.
   // Chave espelha o filtro de `gruposDeArtigos`: variante_tecido_id, ou `label:<label>` p/ planejada.
   const permitidasT1 = new Set<string>();
@@ -545,10 +545,37 @@ export function ModoPlanoView({
     refetchOnWindowFocus: true,
     queryFn: async () => ((await supabase.rpc("plan_tecido_previa_pedido" as any, { _colecao_id: colecaoId })).data ?? null) as PreviaRpc | null,
   });
-  const cobertura = previa?.cobertura ?? [];
+  const coberturaServidor = previa?.cobertura;
   // PLAN AO VIVO: a necessidade vem do RASCUNHO (recalcula ao adicionar cor/consumo/grade, sem salvar); EST/reserva seguem do servidor.
   const baseViva = colecaoArvore ?? arvore;
   const necViva = useMemo(() => necessidadePorVarianteDaArvore(baseViva, reprovadoSet), [baseViva, reprovadoSet]);
+
+  // COR NOVA AO VIVO: a `cobertura` do servidor só tem variantes JÁ SALVAS no plano. Cor adicionada no rascunho ("+ adicionar cor")
+  // ainda não está lá ⇒ sem tratamento nunca virava linha do resumo. Montamos a UNIÃO: cobertura (vence, dedup por
+  // variante_tecido_id) + variantes do rascunho fora dela, com o EST REAL via RPC existente `plan_tecido_estoque` (só p/ as novas).
+  // Só calcula com a prévia já carregada (senão TODA variante pareceria "nova" durante o load).
+  const novasVariantes = useMemo(() => {
+    if (!coberturaServidor) return [];
+    return variantesNovasDoRascunho(baseViva, reprovadoSet, new Set(coberturaServidor.map((c) => c.variante_tecido_id).filter((x): x is string => !!x)));
+  }, [coberturaServidor, baseViva, reprovadoSet]);
+  const novasIds = useMemo(() => novasVariantes.map((n) => n.variante_tecido_id).sort(), [novasVariantes]);
+  const { data: extra } = useQuery({
+    queryKey: ["plan-tecido-estoque-extra", colecaoId, novasIds],
+    enabled: novasIds.length > 0,
+    queryFn: async () => {
+      const estoque = ((await supabase.rpc("plan_tecido_estoque" as any, { _variante_ids: novasIds })).data ?? []) as EstoqueVarianteRpc[];
+      // artigo REAL de cada cor nova (a variante recém-adicionada no card não traz `variante_artigo_id`; substituto cairia no artigo errado)
+      const arts = ((await supabase.from("variantes_tecido").select("id, artigo_id").in("id", novasIds)).data ?? []) as { id: string; artigo_id: string }[];
+      return { estoque, artigoDe: Object.fromEntries(arts.map((a) => [a.id, a.artigo_id])) as Record<string, string> };
+    },
+  });
+  const cobertura = useMemo(() => {
+    const base = coberturaServidor ?? [];
+    if (novasVariantes.length === 0) return base;
+    const ja = new Set(base.map((c) => c.variante_tecido_id).filter((x): x is string => !!x));
+    const novas = novasVariantes.map((n) => ({ ...n, artigo_id: extra?.artigoDe[n.variante_tecido_id] ?? n.artigo_id }));
+    return [...base, ...linhasCorNova(novas, extra?.estoque, ja)] as PreviaCoberturaRpc[];
+  }, [coberturaServidor, novasVariantes, extra]);
 
   // Cobertura por ARTIGO (chave = artigo_id) — usada tanto pro TEC1 do grupo (artigo do tecido que
   // dá nome à faixa) quanto pelos mini-cards de TEC2/Forros (artigo daquela posição secundária).
@@ -563,7 +590,7 @@ export function ModoPlanoView({
   // `permitidas` (opcional): filtra a cobertura pelas variantes REALMENTE usadas pelos cards do grupo
   // (chave = variante_tecido_id, ou o label p/ cores planejadas). Sem ela, mostra toda a cobertura do
   // artigo (comportamento dos mini-cards secundários). O resumo do TEC1 passa a união p/ bater 1-a-1
-  // com os cards — a RPC de cobertura devolve TODAS as variantes cadastradas do artigo, não só as do grupo.
+  // com os cards — a cobertura traz variantes do artigo que nenhum card do grupo usa.
   const gruposDeArtigos = (artigoIds: string[], permitidas?: Set<string>) => {
     const linhas = artigoIds.flatMap((aid) =>
       (coberturaPorArtigo.get(aid) ?? []).map((c) => ({ ...c, fornecedor: rotuloGrupoTecido(artigoMap.get(aid)?.nome ?? "Tecido", fornecedorDe(aid)) })));
