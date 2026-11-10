@@ -496,6 +496,15 @@ export function mensagemCamada(code: string, msg: string): string | null {
   return null;
 }
 
+// Paridade PA/PI (Task 3, nov/2026, 20261118120000): "Criar card" recusa produto de Revenda/Importado com status 'reprovado'.
+// - P0001 `produto_reprovado_sem_card: <nome>` (ASCII no prefixo; o nome vem do cadastro): nada foi criado; a saída é voltar o produto a Pendente.
+export const PREFIXO_PRODUTO_REPROVADO_SEM_CARD = "produto_reprovado_sem_card:";
+export function mensagemProdutoReprovadoSemCard(code: string, msg: string): string | null {
+  if (code !== "P0001" || !msg.startsWith(PREFIXO_PRODUTO_REPROVADO_SEM_CARD)) return null;
+  const nome = msg.slice(PREFIXO_PRODUTO_REPROVADO_SEM_CARD.length).trim();
+  return `${nome ? `O produto "${nome}" está reprovado` : "Este produto está reprovado"} — volte-o a Pendente para criar o card.`;
+}
+
 // Modularidade (out/2026, migrations 20261103100000..120000): recusas do servidor por MÓDULO desligado e por coleção com cards.
 // - 42501 `modulo_desligado: a,b` (ASCII, `_exige_modulos`) → "Esta ação precisa do módulo A (e dos módulos A e B)…".
 // - 42501 com o texto LEGADO "Módulo criacao não habilitado para esta loja" (checagens antigas que rodam antes do portão novo, e
@@ -695,6 +704,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Camada C1: lista vazia recusada (estado_vazio_recusado:) e serviço com parcela paga (servico_com_parcela_paga:) → texto PT.
   const camada = mensagemCamada(code, msg);
   if (camada) return camada;
+
+  // Paridade PA/PI: produto reprovado não vira card (produto_reprovado_sem_card:) → texto PT.
+  const reprovadoSemCard = mensagemProdutoReprovadoSemCard(code, msg);
+  if (reprovadoSemCard) return reprovadoSemCard;
 
   // Modularidade: módulo desligado (portão novo + texto legado), coleção com cards e a FK da coleção → texto PT.
   const modularidade = mensagemModularidade(code, msg);
