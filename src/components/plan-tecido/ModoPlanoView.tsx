@@ -9,7 +9,7 @@ import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, linhaResumoAoVivo, necessidadePorVarianteDaArvore, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
+import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, linhaResumoAoVivo, planVivoDaLinha, necessidadePorVarianteDaArvore, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FotoCarrossel } from "./FotoCarrossel";
@@ -63,11 +63,13 @@ function agruparPorFornecedor(
   linhas: (PreviaCoberturaRpc & { fornecedor: string })[],
   // Resumo AO VIVO: necessidade do RASCUNHO por variante_tecido_id. Variante fora do rascunho (ou cor só planejada, sem id) cai no `nec_m` do servidor.
   necViva?: ReadonlyMap<string, number>,
+  // true = `necViva` vem da árvore da COLEÇÃO inteira: variante com id fora do mapa está zerada no rascunho → PLAN 0.
+  rascunhoCompleto = false,
 ): { fornecedor: string; itens: LinhaVariante[] }[] {
   const map = new Map<string, LinhaVariante[]>();
   for (const c of linhas) {
     const { cor, apelido } = splitCorApelido(c.label);
-    const planRascunho = (c.variante_tecido_id ? necViva?.get(c.variante_tecido_id) : undefined) ?? (Number(c.nec_m) || 0);
+    const planRascunho = planVivoDaLinha(c.variante_tecido_id, necViva, rascunhoCompleto, c.nec_m);
     const { plan, est, sob, compr } = linhaResumoAoVivo({
       planRascunho,
       fisico_m: Number(c.fisico_m) || 0,
@@ -545,7 +547,8 @@ export function ModoPlanoView({
   });
   const cobertura = previa?.cobertura ?? [];
   // PLAN AO VIVO: a necessidade vem do RASCUNHO (recalcula ao adicionar cor/consumo/grade, sem salvar); EST/reserva seguem do servidor.
-  const necViva = useMemo(() => necessidadePorVarianteDaArvore(colecaoArvore ?? arvore, reprovadoSet), [colecaoArvore, arvore, reprovadoSet]);
+  const baseViva = colecaoArvore ?? arvore;
+  const necViva = useMemo(() => necessidadePorVarianteDaArvore(baseViva, reprovadoSet), [baseViva, reprovadoSet]);
 
   // Cobertura por ARTIGO (chave = artigo_id) — usada tanto pro TEC1 do grupo (artigo do tecido que
   // dá nome à faixa) quanto pelos mini-cards de TEC2/Forros (artigo daquela posição secundária).
@@ -567,7 +570,7 @@ export function ModoPlanoView({
     const filtradas = permitidas
       ? linhas.filter((c) => permitidas.has(c.variante_tecido_id ?? `label:${(c.label ?? "").trim().toLowerCase()}`))
       : linhas;
-    return agruparPorFornecedor(filtradas, necViva);
+    return agruparPorFornecedor(filtradas, necViva, !!colecaoArvore);
   };
 
   // Slots ACHATADOS (todas as subcoleções da árvore recebida — o pai já filtra pra sub ativa) com

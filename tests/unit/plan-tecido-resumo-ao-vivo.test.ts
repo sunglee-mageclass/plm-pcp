@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { linhaResumoAoVivo, necessidadePorVarianteDaArvore, necessidadeVariante } from "@/lib/plan-tecido/calc";
+import { linhaResumoAoVivo, planVivoDaLinha, necessidadePorVarianteDaArvore, necessidadeVariante } from "@/lib/plan-tecido/calc";
 import type { PtArvore } from "@/lib/plan-tecido/types";
 
 describe("linhaResumoAoVivo", () => {
@@ -50,6 +50,30 @@ describe("necessidadePorVarianteDaArvore — guards", () => {
   it("reprovado ignora o slot do modelo", () => {
     const m = necessidadePorVarianteDaArvore(mk([slot("m1", [v("vA")]), slot("m2", [v("vA")])]), new Set(["m1"]));
     expect(m.get("vA")).toBe(20);
+  });
+});
+
+describe("planVivoDaLinha — variante zerada x fora do rascunho", () => {
+  const mk = (slots: any[]): PtArvore => ({ subcolecoes: [{ linhas: [{ slots }] }] }) as any;
+  const arvZerada = mk([{ modelo_id: "m1", materiais: [{ tipo: "tecido", numero: 1, consumo: 2, variantes: [{ variante_tecido_id: "vA", grade_total: 0, multiplicador: 1, ordem: 1 }] }] }]);
+
+  it("rascunho com a variante zerada (grade_total 0) mas cobertura salva nec_m>0 → PLAN ao vivo = 0", () => {
+    const viva = necessidadePorVarianteDaArvore(arvZerada);
+    expect(viva.has("vA")).toBe(false);
+    expect(planVivoDaLinha("vA", viva, true, 80)).toBe(0);
+  });
+  it("variante presente no mapa → valor do rascunho", () => {
+    expect(planVivoDaLinha("vA", new Map([["vA", 30]]), true, 80)).toBe(30);
+  });
+  it("sem árvore da coleção completa → fallback no nec_m salvo", () => {
+    expect(planVivoDaLinha("vA", new Map(), false, 80)).toBe(80);
+  });
+  it("linha sem variante_tecido_id (cor só planejada) → nec_m salvo", () => {
+    expect(planVivoDaLinha(null, new Map(), true, 80)).toBe(80);
+  });
+  it("sem mapa → nec_m salvo; nec_m inválido → 0", () => {
+    expect(planVivoDaLinha("vA", undefined, true, 80)).toBe(80);
+    expect(planVivoDaLinha(null, undefined, true, "x")).toBe(0);
   });
 });
 

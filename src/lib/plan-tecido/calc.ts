@@ -221,6 +221,24 @@ export function necessidadePorVarianteDaArvore(
   return out;
 }
 
+/** PLAN ao vivo de UMA linha da cobertura. Com a árvore da COLEÇÃO inteira disponível (`rascunhoCompleto`),
+ *  variante com id que não está no mapa é variante ZERADA/removida no rascunho → 0 (não o `nec_m` salvo,
+ *  que deixaria PLAN/EST/SOB/COMPR presos no valor velho). Sem id (cor só planejada) ou sem a árvore
+ *  completa, cai no `nec_m` do servidor. */
+export function planVivoDaLinha(
+  varianteId: string | null | undefined,
+  necViva: ReadonlyMap<string, number> | undefined,
+  rascunhoCompleto: boolean,
+  necMSalvo: unknown,
+): number {
+  if (varianteId && necViva) {
+    const v = necViva.get(varianteId);
+    if (v !== undefined) return v;
+    if (rascunhoCompleto) return 0;
+  }
+  return Number(necMSalvo) || 0;
+}
+
 /** A árvore que entra nas CONTAS (necessidade, Demanda por OC, "a comprar" vivo): sem as vagas de card
  *  reprovado. A árvore original (com elas) segue para a EXIBIÇÃO. Sem reprovados → a mesma referência. */
 export function arvoreDaDemanda(arvore: PtArvore, reprovados?: ReadonlySet<string>): PtArvore {
