@@ -40,6 +40,11 @@ const R12_MD5: Record<string, { antes: string; depois: string }> = {
     antes: "43a9ec5e03ddd9d85e016cb1ca516843", // R13 (20261105100000)
     depois: "8380b15f5ae3ad9d581d3205cb23a4ec",
   },
+  // Paridade PA/PI Task 2 (20261118110000_pi_linha_status): o mesmo para `_salvar_produto_importado_core` (4 args, tem `_etapas`). Mesmo caso: so o topo da cadeia.
+  "public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)": {
+    antes: "f28985c19fe5efa4f08011137e20f51f", // I3a (20261030100000)
+    depois: "d857ebb676241e411666d699142ccabd",
+  },
 };
 
 /** R12 viva = o gatilho do card ja chama o overload de 3 argumentos (o `_down` NEUTRO devolve o texto de antes e deixa os helpers). */
