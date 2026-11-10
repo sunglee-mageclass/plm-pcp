@@ -36,6 +36,7 @@ import { MOEDAS, cadeiaMarkup, fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/mo
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { MoverEtapaMenu } from "@/components/shared/MoverEtapaMenu";
+import { ProdutoLinhaStatusBloco, useLinhasOpts } from "@/components/shared/ProdutoLinhaStatusBloco";
 import { useSeloMoverLote } from "@/hooks/useSeloMover";
 import { modeloKanbanDoEmbed } from "@/lib/kanban-card-selo";
 import { lerKanbanAutoConfig } from "@/lib/kanban-auto";
@@ -188,6 +189,8 @@ export function ProdutoImportadoCard({
   // `modeloKanbanDoEmbed` memoizado nos 4 primitivos: referência estável entre renders → os memos do `useSeloMoverLote`
   // (selo/opções) não recalculam à toa.
   const kn = kanban ?? KANBAN_SEM_TELA;
+  // Paridade PA/PI (Task 6): opções do seletor de Linha (só aparece com card).
+  const { data: linhasOpts = [] } = useLinhasOpts();
   const modeloKanban = useMemo(
     () => modeloKanbanDoEmbed({
       origem: draft.modeloOrigem,
@@ -428,8 +431,15 @@ export function ProdutoImportadoCard({
       {/* F4a T4 — selo da etapa do kanban + "Mover para…". FORA do botão do cabeçalho (o gatilho do `MoverEtapaMenu` é um
           <button>: botão dentro de botão não existe em HTML — mesmo motivo do chip da OC abaixo). Sem `modelo_id` (ainda não
           virou card) = nada no kanban = sem selo. Espelha o Produto Acabado. */}
-      {kanban && draft.modelo_id && (
-        <div className={`px-3 pb-2 ${onToggleSelect ? "pl-8" : ""}`}>
+      <ProdutoLinhaStatusBloco
+        temCard={!!draft.modelo_id}
+        recuado={!!onToggleSelect}
+        linhaId={draft.linhaId}
+        statusProduto={draft.statusProduto}
+        linhasOpts={linhasOpts}
+        onLinha={(v) => onChange({ linhaId: v })}
+        onStatus={(v) => onChange({ statusProduto: v })}
+        selo={kanban && draft.modelo_id ? (
           <MoverEtapaMenu
             selo={seloMover.selo}
             podeMover={seloMover.podeMover}
@@ -442,8 +452,8 @@ export function ProdutoImportadoCard({
             testIdPrefix="pi"
             dentroDeCard
           />
-        </div>
-      )}
+        ) : null}
+      />
 
       {/* [urg R13 T6] chip "Na OC BELDIV-00123 (com 3 produtos)" — FORA do botão do cabeçalho (botão dentro de botão não existe em HTML). */}
       {draft.oc && (

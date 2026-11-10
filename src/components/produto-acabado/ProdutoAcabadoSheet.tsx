@@ -1071,8 +1071,8 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const abrirCanvasDeGuarded = (sub: { id: string | null; nome: string | null }) =>
     requestAction(() => { if (dirty) void reverterDrafts(); abrirCanvasDe(sub); });
 
-  // Todos os produtos da subcoleção (sem poda) e a vista PODADA pelo filtro Status. Produto sem card (modelo_id null) nunca é
-  // reprovado (embed null → passa). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido) lê a vista podada.
+  // Todos os produtos da subcoleção (sem poda) e a vista PODADA pelo filtro Status. Status: com card vale o status do modelo; sem
+  // card vale `statusProduto` (Pendente/Reprovado do próprio produto). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido) lê a vista podada.
   const produtosSubTodos = subAtual ? produtosDeSub(subAtual.nome) : [];
   const produtosSub = produtosSubTodos.filter((p) => produtoPassaFiltroStatus(p, filtroStatus));
   const nReprovadosOcultos = produtosSubTodos.length - produtosSub.length;

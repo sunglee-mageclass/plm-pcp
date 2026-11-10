@@ -1130,8 +1130,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   });
   const salvar = () => salvarMut.mutate();
 
-  // Todos os produtos da subcoleção (sem poda) e a vista PODADA pelo filtro Status. Produto sem card (modelo_id null) nunca é
-  // reprovado (espelho null → passa). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido do rodapé) lê a vista
+  // Todos os produtos da subcoleção (sem poda) e a vista PODADA pelo filtro Status. Status: com card vale o status do modelo; sem
+  // card vale `statusProduto` (Pendente/Reprovado do próprio produto). Tudo que desenha o canvas (lanes, cards, contagens, recolher, pedido do rodapé) lê a vista
   // podada; o Resumo lê a lista COMPLETA (o que foi planejado/comprado não muda por um filtro de tela).
   const produtosSubTodos = subAtual ? produtosDeSub(subAtual.nome) : [];
   const produtosSub = produtosSubTodos.filter((p) => produtoPassaFiltroStatus(p, filtroStatus));

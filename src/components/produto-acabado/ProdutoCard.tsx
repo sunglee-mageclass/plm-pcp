@@ -31,6 +31,7 @@ import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { MoverEtapaMenu } from "@/components/shared/MoverEtapaMenu";
+import { ProdutoLinhaStatusBloco, useLinhasOpts } from "@/components/shared/ProdutoLinhaStatusBloco";
 import { useSeloMoverLote } from "@/hooks/useSeloMover";
 import { modeloKanbanDoEmbed } from "@/lib/kanban-card-selo";
 import { lerKanbanAutoConfig, type KanbanAutoConfig } from "@/lib/kanban-auto";
@@ -174,6 +175,8 @@ export function ProdutoCard({
   // `modeloKanbanDoEmbed` memoizado nos 4 primitivos (LOW (b)): referência estável entre renders → os memos do
   // `useSeloMoverLote` (selo/opções) não recalculam à toa.
   const kn = kanban ?? KANBAN_SEM_TELA;
+  // Paridade PA/PI (Task 6): opções do seletor de Linha (só aparece com card).
+  const { data: linhasOpts = [] } = useLinhasOpts();
   const modeloKanban = useMemo(
     () => modeloKanbanDoEmbed({
       origem: produto.modeloOrigem,
@@ -505,8 +508,15 @@ export function ProdutoCard({
           `onClick` do botão do cabeçalho (nenhum `onClick`/`onKeyDown` no wrapper do card), então o gatilho, estando
           fora dele, nem sobe o clique; `dentroDeCard` fica ligado por garantia (o PopoverContent sobe pela árvore do
           React). Sem `modelo_id` (ainda não virou card) = nada no kanban = sem selo. */}
-      {kanban && produto.modelo_id && (
-        <div className={`px-3 pb-2 ${onToggleSelect ? "pl-8" : ""}`}>
+      <ProdutoLinhaStatusBloco
+        temCard={!!produto.modelo_id}
+        recuado={!!onToggleSelect}
+        linhaId={produto.linhaId}
+        statusProduto={produto.statusProduto}
+        linhasOpts={linhasOpts}
+        onLinha={(v) => onChange({ ...produto, linhaId: v })}
+        onStatus={(v) => onChange({ ...produto, statusProduto: v })}
+        selo={kanban && produto.modelo_id ? (
           <MoverEtapaMenu
             selo={seloMover.selo}
             podeMover={seloMover.podeMover}
@@ -519,8 +529,8 @@ export function ProdutoCard({
             testIdPrefix="pa"
             dentroDeCard
           />
-        </div>
-      )}
+        ) : null}
+      />
 
       {/* [urg R13 T6] chip "Na OC BELDIV-00123 (com 3 produtos)" — FORA do botão do cabeçalho (botão dentro de botão não existe em HTML). */}
       {produto.oc && (
