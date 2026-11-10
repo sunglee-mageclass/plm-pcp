@@ -34,6 +34,12 @@ const R12_MD5: Record<string, { antes: string; depois: string }> = {
     antes: "3a771d9f2f9fde46ee0c540c29b9a3b0",
     depois: "f0fc9e3547399ce9fdf592140870097e",
   },
+  // Paridade PA/PI Task 1 (20261118100000_pa_linha_status): `_salvar_produto_acabado_core` aceita linha_id (reflexivo) + status. NAO e da R12:
+  // esta tabela e so o TOPO da cadeia de sucessores (md5R12Sucessor), onde o "depois" mais novo se acrescenta; r12Viva() nao a le.
+  "public._salvar_produto_acabado_core(uuid,jsonb,jsonb)": {
+    antes: "43a9ec5e03ddd9d85e016cb1ca516843", // R13 (20261105100000)
+    depois: "8380b15f5ae3ad9d581d3205cb23a4ec",
+  },
 };
 
 /** R12 viva = o gatilho do card ja chama o overload de 3 argumentos (o `_down` NEUTRO devolve o texto de antes e deixa os helpers). */
