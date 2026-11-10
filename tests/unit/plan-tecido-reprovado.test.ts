@@ -212,7 +212,7 @@ describe("R15b — fonte única (anti-drift de código)", () => {
     expect(sheet).not.toContain("cad?.[0]?.enviado_corte");
     expect(sheet).toContain("status_desenvolvimento, status_planejamento,");
     expect(sheet).toContain("cad(enviado_corte, cad_tecidos(");
-    expect((sheet.match(/reprovadoSet=\{reprovadoSet\}/g) ?? []).length).toBe(4); // Resumo ×2 + Drawer ×2
+    expect((sheet.match(/reprovadoSet=\{reprovadoSet\}/g) ?? []).length).toBe(5); // Resumo ×2 + Drawer ×2 + ModoPlanoView ×1 (resumo ao vivo, frente EST 11/2026)
   });
 });
 
