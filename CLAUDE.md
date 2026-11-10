@@ -1023,6 +1023,20 @@ e verifique** — o repo muda rápido.
     display, NÃO trava). ⚠️ O `ModeloDetailPanel` lê tenant_config sob key PRÓPRIA
     `["modelo-tenant-config-grade"]` (NÃO a `tenant-config-grade` do `GradeTamanhosCard`, que
     retorna `string[]` — colisão de shape corrigida em `efdeea0`). Ver memória `project_fluxo_revenda_config`.
+    **Paridade PA/PI — Linha e Status do produto (nov/2026; migrations `20261118100000` PA, `110000` PI, `120000` gate; plano em
+    `.superpowers/sdd/2026-11-10-paridade-pa-pi-linha-status/`):** (1) **Linha é REFLEXIVA** via `modelos.linha_id`: o `_salvar_produto_*_core`
+    grava a Linha no card (`UPDATE modelos`, SÓ com card; last-write-wins, sem check de `rev`) e o front só manda `linha_id` quando a pessoa
+    MUDOU (`tocadosLinhaStatus`/`produtoDataParaSalvar`, padrão `tamanho_tipo`) — mandar em todo Salvar sobrescreveria troca feita no
+    Planejamento; chave ausente = o servidor mantém. (2) **`status`** (`'pendente'|'reprovado'|null`; coluna nova em `produtos_acabados`/
+    `produtos_importados`, `statusProduto` no draft) **só vale SEM card** (com card a posição é a do kanban); null conta como Pendente, e o
+    filtro de status trata o produto sem card pela coluna. (3) O seletor Pendente/Reprovado só aparece sem card e é **exclusivo com o selo do
+    kanban** (com card, o selo da etapa). (4) **"Criar card" recusa reprovado:** gate no servidor em `_criar_card_*_core` (P0001
+    `produto_reprovado_sem_card:`, ASCII; PT em `mensagemProdutoReprovadoSemCard`, `erro-mensagem.ts`) — o lote `criar_cards_*` é TUDO-OU-NADA,
+    então o **FRONT filtra antes do RPC** (`elegiveisParaCriarCard`/`textoAvisoReprovadosPulados` em `produto-acabado/shared.ts`, usados nos 2
+    Sheets): manda só os elegíveis, avisa dos reprovados pulados e, se TODOS forem reprovados, nem chama o RPC; o P0001 é só rede de
+    segurança (aba velha). Banco ANTES do site (site novo + banco velho: Linha/status gravam chave que a RPC antiga ignora); volta = downs
+    LIFO (gate → PI → PA), aditivas. Testes: `produto-card-linha-status`, `pa-filtro-status-sem-card`, `pa-draft-linha-status`,
+    `criar-card-pula-reprovado` (unit) + `pa-linha-status`/`pi-linha-status`/`criar-card-gate-reprovado` (integração, cópia local).
     **Comprado no Sheet do Planejamento (F3.4, set/2026):** grade cor×tamanho do comprado (revenda
     E importado) tem **fonte ÚNICA** = `useGradeComprado` (`planejamento-detail/useGradeComprado.ts`)
     — mora em `modelo_grades` com `variante_numero` = `ordem` da variante do produto espelho

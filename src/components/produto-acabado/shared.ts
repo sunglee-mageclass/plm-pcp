@@ -393,6 +393,29 @@ function dadosBaseProduto(p: ProdutoDraft): Record<string, unknown> {
   return dados;
 }
 
+/** "Criar card" em massa (PA e PI): o servidor é TUDO-OU-NADA — 1 produto reprovado derruba o lote inteiro com P0001
+ *  `produto_reprovado_sem_card:` (gate de `_criar_card_*_core`, paridade PA/PI). Por isso o FRONT separa os reprovados ANTES do RPC:
+ *  manda só os `elegiveis` (sem card, não reprovados — pendente/null) e avisa dos `reprovados` pulados. Produto que JÁ tem card
+ *  (`modelo_id`) não entra em nenhuma lista (o status só vale sem card). O P0001 do servidor fica de rede de segurança. */
+export function elegiveisParaCriarCard(
+  produtos: ReadonlyArray<{ id?: string | null; modelo_id?: string | null; statusProduto?: StatusProduto | null }>,
+): { elegiveis: string[]; reprovados: string[] } {
+  const elegiveis: string[] = [];
+  const reprovados: string[] = [];
+  for (const p of produtos) {
+    if (!p.id || p.modelo_id) continue;
+    (p.statusProduto === "reprovado" ? reprovados : elegiveis).push(p.id);
+  }
+  return { elegiveis, reprovados };
+}
+
+/** Aviso PT dos reprovados que ficaram de fora do "Criar card(s)". */
+export function textoAvisoReprovadosPulados(n: number): string {
+  return n === 1
+    ? "1 produto reprovado não entra — volte a Pendente para criar o card."
+    : `${n} produtos reprovados não entram — volte a Pendente para criar o card.`;
+}
+
 /** Linha/Status que a PESSOA mexeu nesta edição = difere da base lida do servidor (`linhaIdBase`/`statusProdutoBase`, padrão do
  *  `tamanho_tipo_base`). `undefined` e `null` contam igual (fixture/rascunho antigo sem os campos = não tocado). */
 export function tocadosLinhaStatus(

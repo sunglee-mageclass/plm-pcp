@@ -35,7 +35,7 @@ import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   produtoPedidoAcabado,
-  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar, planejarPrecosFixo, precosAposSalvar, markupsParaLote,
+  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar, elegiveisParaCriarCard, textoAvisoReprovadosPulados, planejarPrecosFixo, precosAposSalvar, markupsParaLote,
   baselinePatchDoServidor,
   type ProdutoDraft, type StatusProduto, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
@@ -682,9 +682,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // mesmo precedente do "Fazer pedido" (ProdutoCard, item 4a).
   const criarCardsClick = async () => {
     const selecionados = (drafts ?? []).filter((d) => selecao.has(d.id));
-    const idsSemCard = selecionados.filter((d) => !d.modelo_id).map((d) => d.id);
+    // Paridade PA/PI: reprovado NÃO vira card (gate no servidor, P0001 `produto_reprovado_sem_card:`) e o lote é TUDO-OU-NADA —
+    // então os reprovados saem ANTES do RPC e a pessoa é avisada (o P0001 fica de rede de segurança).
+    const { elegiveis: idsSemCard, reprovados: idsReprovados } = elegiveisParaCriarCard(selecionados);
     if (idsSemCard.length === 0) {
-      toast.info("Os selecionados já têm card no Planejamento.");
+      if (idsReprovados.length > 0) toast.warning(textoAvisoReprovadosPulados(idsReprovados.length));
+      else toast.info("Os selecionados já têm card no Planejamento.");
       return;
     }
     // Fix round (I-1): guard SÍNCRONO — QUALQUER selecionado com conflito pendente bloqueia o
@@ -695,7 +698,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     }
     setReplicando(true);
     try {
-      const sujos = selecionados.filter((d) => !d.modelo_id && JSON.stringify(chaveDirty(d)) !== baseline[d.id]);
+      const sujos = selecionados.filter((d) => idsSemCard.includes(d.id) && JSON.stringify(chaveDirty(d)) !== baseline[d.id]);
       for (const p of sujos) await salvarUmProduto(p);
       const { data, error } = await supabase.rpc("criar_cards_produto_acabado" as any, { _produto_ids: idsSemCard });
       if (error) throw error;
@@ -709,6 +712,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
       setSelecao(new Set());
       toast.success(`${res.length} card(s) criado(s) no Planejamento.`);
+      if (idsReprovados.length > 0) toast.warning(textoAvisoReprovadosPulados(idsReprovados.length));
     } catch (e) {
       toast.error(mensagemErro(e, "Falha ao criar card(s)."));
     } finally {

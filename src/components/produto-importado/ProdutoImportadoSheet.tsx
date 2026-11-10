@@ -21,7 +21,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { erroValidacao, produtosParaSalvar, baselinePatchDoServidor } from "@/components/produto-acabado/shared";
+import { erroValidacao, produtosParaSalvar, baselinePatchDoServidor, elegiveisParaCriarCard, textoAvisoReprovadosPulados } from "@/components/produto-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
@@ -797,10 +797,15 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // (comportamento de sempre, `nLocais`).
   async function criarCardsClick() {
     const selecionados = drafts.filter((d) => d.id && selecao.has(d.id));
-    const idsSemCard = selecionados.filter((d) => d.id && !d.id.startsWith("novo-") && !d.modelo_id).map((d) => d.id as string);
+    // Paridade PA/PI: reprovado NÃO vira card (gate no servidor, P0001 `produto_reprovado_sem_card:`) e o lote é TUDO-OU-NADA —
+    // então os reprovados saem ANTES do RPC e a pessoa é avisada (o P0001 fica de rede de segurança). Rascunho local ("novo-…") fica de fora.
+    const { elegiveis: idsSemCard, reprovados: idsReprovados } = elegiveisParaCriarCard(
+      selecionados.filter((d) => d.id && !d.id.startsWith("novo-")),
+    );
     const nLocais = selecionados.filter((d) => !d.id || d.id.startsWith("novo-")).length;
     if (idsSemCard.length === 0) {
-      toast.info(nLocais > 0 ? "Salve os rascunhos antes de criar o card." : "Os selecionados já têm card no Planejamento.");
+      if (idsReprovados.length > 0) toast.warning(textoAvisoReprovadosPulados(idsReprovados.length));
+      else toast.info(nLocais > 0 ? "Salve os rascunhos antes de criar o card." : "Os selecionados já têm card no Planejamento.");
       return;
     }
     // Fix round (I-1): guard SÍNCRONO — QUALQUER selecionado com conflito pendente bloqueia o
@@ -812,7 +817,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     setReplicando(true);
     try {
       const sujos = selecionados.filter(
-        (d) => d.id && !d.id.startsWith("novo-") && !d.modelo_id && JSON.stringify(chaveDirty(d)) !== baseline[d.id as string],
+        (d) => d.id && idsSemCard.includes(d.id) && JSON.stringify(chaveDirty(d)) !== baseline[d.id as string],
       );
       for (const d of sujos) await salvarUmProduto(d);
       const { data, error } = await supabase.rpc("criar_cards_produto_importado" as any, { _produto_ids: idsSemCard });
@@ -822,6 +827,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
       setSelecao(new Set());
       toast.success(`${res.length} card(s) criado(s) no Planejamento.`);
+      if (idsReprovados.length > 0) toast.warning(textoAvisoReprovadosPulados(idsReprovados.length));
     } catch (e) {
       toast.error(mensagemErro(e, "Falha ao criar card(s)"));
     } finally {
