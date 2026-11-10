@@ -37,7 +37,7 @@ import {
   produtoPedidoAcabado,
   resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar, planejarPrecosFixo, precosAposSalvar, markupsParaLote,
   baselinePatchDoServidor,
-  type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
+  type ProdutoDraft, type StatusProduto, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
@@ -105,6 +105,9 @@ function rowToDraft(row: any): ProdutoDraft {
   // nascer com ele). `tamanho_tipo_base` guarda o MESMO valor lido agora (nunca editado pela UI).
   const tamanhoTipo = (row.modelo_id ? row.modelo?.tamanho_tipo : row.tamanho_tipo) ?? null;
   const skusRow = Array.isArray(row.modelo?.modelo_skus) ? row.modelo.modelo_skus[0] : null;
+  const linhaId: string | null = (row.modelo_id ? row.modelo?.linha_id : null) ?? null;
+  // `status` é coluna nova (types.ts ainda sem ela → lido de `any`); valor fora do CHECK vira null (nunca "inventa" um status).
+  const statusProduto: StatusProduto | null = row.status === "pendente" || row.status === "reprovado" ? row.status : null;
   return {
     id: row.id,
     rev: Number(row.rev) || 0,
@@ -138,6 +141,12 @@ function rowToDraft(row: any): ProdutoDraft {
     variantes,
     tamanho_tipo: tamanhoTipo,
     tamanho_tipo_base: tamanhoTipo,
+    // Paridade PA/PI (Task 4): Linha = `modelos.linha_id` do espelho (só com card; reflexiva) e status = coluna do PRÓPRIO produto
+    // (só vale sem card). A `*Base` guarda o MESMO valor lido agora (nunca editado pela UI) — o Salvar só manda a chave se mudou.
+    linhaId,
+    linhaIdBase: linhaId,
+    statusProduto,
+    statusProdutoBase: statusProduto,
     modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
     modeloPrecoVenda: row.modelo?.preco_venda != null ? Number(row.modelo.preco_venda) : null,
     modeloPrecoAtacado: row.modelo?.preco_atacado != null ? Number(row.modelo.preco_atacado) : null,
@@ -164,7 +173,7 @@ const SELECT_PRODUTO = `
   id, rev, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id, categoria_tecido_id, material_aviamento_id,
   colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
-  markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo,
+  markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url, tamanho_tipo, status,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
   modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url, tamanho_tipo, modelo_skus(count),
     status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado),
@@ -179,7 +188,7 @@ const ROTULO_CAMPO_PA: Record<string, string> = {
   ref_fornecedor: "Ref. Fornecedor", composicao: "Composição", grade_proporcao: "Proporção da grade",
   qtd_total: "Quantidade total", valor_unitario: "Valor unitário", desconto_pct: "Desconto (%)",
   markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo", preco_atacado_fixo: "Valor atacado", preco_varejo_fixo: "Valor varejo", variantes: "Variantes",
-  foto_url: "Foto", tamanho_tipo: "Tamanho em",
+  foto_url: "Foto", tamanho_tipo: "Tamanho em", linhaId: "Linha", statusProduto: "Status",
 };
 
 /**
@@ -886,8 +895,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     // que tipo!==base).
     // `noServidor` = o que o banco tem AGORA (markup/preço fixo pelas regras do banco, ver `precosAposSalvar`); com o preço fixo gravado é
     // também o rascunho. Se o preço fixo falhou, o rascunho mantém o que o usuário digitou e o baseline (= servidor) deixa o produto "editado".
-    const noServidor: ProdutoDraft = { ...p, ...precosAposSalvar(p, servidorAtual, plano, !erroFixo), rev: revNovo, tamanho_tipo_base: p.tamanho_tipo };
-    const salvo: ProdutoDraft = erroFixo ? { ...p, rev: revNovo, tamanho_tipo_base: p.tamanho_tipo } : noServidor;
+    // Task 4: idem p/ Linha/Status — o lote JÁ comitou (mesmo se o preço fixo falhou): a base vira o que acabou de ir, senão um 2º Salvar
+    // reenviaria a mesma Linha (last-write-wins no `modelos.linha_id`) como se fosse edição nova. `modeloLinhaId` (markup da linha) acompanha.
+    const rebaseLinhaStatus = { linhaIdBase: p.linhaId, statusProdutoBase: p.statusProduto, ...(p.modelo_id ? { modeloLinhaId: p.linhaId } : {}) };
+    const noServidor: ProdutoDraft = { ...p, ...precosAposSalvar(p, servidorAtual, plano, !erroFixo), rev: revNovo, tamanho_tipo_base: p.tamanho_tipo, ...rebaseLinhaStatus };
+    const salvo: ProdutoDraft = erroFixo ? { ...p, rev: revNovo, tamanho_tipo_base: p.tamanho_tipo, ...rebaseLinhaStatus } : noServidor;
     baseServidorRef.current = { ...baseServidorRef.current, [p.id]: noServidor };
     setDrafts((ds) => (ds ? ds.map((d) => (d.id === p.id ? salvo : d)) : ds));
     marcarProdutoLimpo(noServidor); // baseline por produto — ver comentário acima (fix round 1 item 4b)
@@ -1153,7 +1165,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             conflitoPendente={temConflitoPendente}
             ordensVariantesServidor={baseServidorRef.current[p.id]?.variantes.map((v) => v.ordem)}
             kanban={{ cfg: kanbanCfg, condMap: kanbanCondMap, prontas: kanbanProntas, carregando: kanbanCarregando, tenantId: tenantIdKanban }}
-            onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
+            onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null, linhaId: null, linhaIdBase: null })}
             onOcVinculada={(oc) => {
               patchProduto(p.id, { oc });
               const base = baseServidorRef.current[p.id];

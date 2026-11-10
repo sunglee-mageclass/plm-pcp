@@ -50,6 +50,9 @@ export type OcVinculadaInfo = {
   nProdutos?: number;
 };
 
+/** Status do produto SEM card (paridade com o Plan. Tecido): `null` = nunca marcado (vale como Pendente). Reprovado = não vira card. */
+export type StatusProduto = "pendente" | "reprovado";
+
 export type ProdutoDraft = {
   id: string;
   // Colab (Fase 3, set/2026, ver migração 20260916220000): rev otimista POR PRODUTO — bumpa a
@@ -92,6 +95,15 @@ export type ProdutoDraft = {
   // exibição (que usa `tipoEfetivo`, em @/lib/tamanho-exibicao, sempre no valor CORRENTE do draft).
   tamanho_tipo: TamanhoTipo | null;
   tamanho_tipo_base: TamanhoTipo | null;
+  // Paridade PA/PI ↔ Plan. Tecido (nov/2026, Task 4): Linha (REFLEXIVA = `modelos.linha_id` do espelho; SÓ existe com card) e
+  // status Pendente/Reprovado (coluna `produtos_acabados.status`; SÓ vale SEM card). `linhaIdBase`/`statusProdutoBase` = o valor LIDO do
+  // servidor nesta sessão (nunca editado pela UI) — mesmo par do `tamanho_tipo`/`tamanho_tipo_base`: a chave só vai no `_dados`
+  // quando difere da base (`tocadosLinhaStatus`). ⚠️ O UPDATE de `modelos.linha_id` no servidor é last-write-wins (sem check de rev):
+  // mandar a Linha em TODO Salvar sobrescreveria uma troca feita no Planejamento com o valor velho do rascunho.
+  linhaId: string | null;
+  linhaIdBase: string | null;
+  statusProduto: StatusProduto | null;
+  statusProdutoBase: StatusProduto | null;
   // Preço FIXO por canal (set/2026): quando o usuário DIGITA um preço, ele é gravado EXATO aqui e o
   // markup do canal é limpo ("última edição manda"); o recompute usa `coalesce(preco_fixo, base×markup)`.
   // Espelha o Planejamento de Produto — as 2 telas usam o MESMO modelo. RASCUNHO (P-393, camada intermediária): o
@@ -182,6 +194,9 @@ export function chaveDirty(p: ProdutoDraft) {
     preco_varejo_fixo: p.preco_varejo_fixo,
     variantes: p.variantes,
     tamanho_tipo: p.tamanho_tipo,
+    // Paridade PA/PI (Task 4): editar Linha/Status acende o "editado" e entra no Salvar em lote.
+    linhaId: p.linhaId,
+    statusProduto: p.statusProduto,
   };
 }
 
@@ -337,6 +352,11 @@ export function produtoPedidoAcabado(
  *  card devem ser atualizados de acordo com a OC"; RPC `salvar_produto_acabado` não faz
  *  COALESCE com o valor atual, então OMITIR o campo zeraria em vez de preservar). */
 export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
+  // Linha/Status (Task 4): só viajam quando a pessoa mexeu (difere da base lida do servidor) — ver `produtoDataParaSalvar`.
+  return produtoDataParaSalvar(p, tocadosLinhaStatus(p));
+}
+
+function dadosBaseProduto(p: ProdutoDraft): Record<string, unknown> {
   const dados: Record<string, unknown> = {
     nome: p.nome,
     ref: p.ref,
@@ -370,6 +390,31 @@ export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
   // Salvar disparado por outro campo; mandar só quando DIFERE da base (o valor lido do servidor nesta sessão)
   // espelha o padrão "última edição manda" das outras telas e evita todo esse ruído.
   if (p.tamanho_tipo !== p.tamanho_tipo_base) dados.tamanho_tipo = p.tamanho_tipo;
+  return dados;
+}
+
+/** Linha/Status que a PESSOA mexeu nesta edição = difere da base lida do servidor (`linhaIdBase`/`statusProdutoBase`, padrão do
+ *  `tamanho_tipo_base`). `undefined` e `null` contam igual (fixture/rascunho antigo sem os campos = não tocado). */
+export function tocadosLinhaStatus(
+  p: Pick<ProdutoDraft, "linhaId" | "linhaIdBase" | "statusProduto" | "statusProdutoBase">,
+): { linhaTocada: boolean; statusTocado: boolean } {
+  return {
+    linhaTocada: (p.linhaId ?? null) !== (p.linhaIdBase ?? null),
+    statusTocado: (p.statusProduto ?? null) !== (p.statusProdutoBase ?? null),
+  };
+}
+
+/** `_dados` do `salvar_produto_acabado` — PURA. = o payload de sempre (`dadosBaseProduto`, com a regra do `tamanho_tipo`) + `linha_id`/
+ *  `status` SÓ quando a flag de "tocado" está ligada (servidor: `_dados ? 'linha_id'` grava, ausente MANTÉM). A Linha vai ao
+ *  `modelos.linha_id` do espelho em last-write-wins (sem check de rev) — por isso NUNCA em todo Salvar, só quando a pessoa a trocou
+ *  (ou limpou: tocada com `null` envia `null`). `tocados` vem de `tocadosLinhaStatus` (compara com a base); sem flag = sem a chave. */
+export function produtoDataParaSalvar(
+  p: ProdutoDraft,
+  tocados: { linhaTocada?: boolean; statusTocado?: boolean } = {},
+): Record<string, unknown> {
+  const dados = dadosBaseProduto(p);
+  if (tocados.linhaTocada) dados.linha_id = p.linhaId ?? null;
+  if (tocados.statusTocado) dados.status = p.statusProduto ?? null;
   return dados;
 }
 

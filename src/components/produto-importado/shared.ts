@@ -52,6 +52,9 @@ export type OcImportadoInfo = {
   desconto_pct?: number;
 };
 
+/** Status do produto SEM card (paridade com o Plan. Tecido): `null` = nunca marcado (vale como Pendente). Reprovado = não vira card. */
+export type StatusProduto = "pendente" | "reprovado";
+
 export type ProdutoImportadoDraft = {
   id?: string | null;
   // Colab (Fase 3, set/2026, ver migração 20260916230000): rev otimista POR PRODUTO — bumpa a
@@ -125,6 +128,14 @@ export type ProdutoImportadoDraft = {
   // por `chaveDirty`/o Salvar pra decidir se a chave mudou desde o load/último save (`montarPayload`).
   tamanho_tipo: TamanhoTipo | null;
   tamanho_tipo_base: TamanhoTipo | null;
+  // Paridade PA/PI ↔ Plan. Tecido (nov/2026, Task 4) — espelha `ProdutoDraft` do Produto Acabado: Linha REFLEXIVA (`modelos.linha_id`
+  // do espelho; SÓ existe com card) e status Pendente/Reprovado (coluna `produtos_importados.status`; SÓ vale SEM card). `*Base` = o valor
+  // LIDO do servidor nesta sessão (nunca editado pela UI): a chave só vai no `_dados` quando difere da base (`tocadosLinhaStatus`) — o
+  // UPDATE de `modelos.linha_id` é last-write-wins (sem check de rev), mandar em todo Salvar sobrescreveria uma troca feita no Planejamento.
+  linhaId: string | null;
+  linhaIdBase: string | null;
+  statusProduto: StatusProduto | null;
+  statusProdutoBase: StatusProduto | null;
   // Nº de SKUs já gerados p/ o card (`modelo_skus`, embed `(count)`) — mesmo campo do Produto Acabado
   // (`ProdutoDraft.modeloSkusCount`); alimenta o aviso âmbar "SKUs já gerados não mudam...".
   modeloSkusCount: number;
@@ -188,6 +199,10 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
     modeloPrecoVenda: null,
     tamanho_tipo: null,
     tamanho_tipo_base: null,
+    linhaId: null,
+    linhaIdBase: null,
+    statusProduto: null,
+    statusProdutoBase: null,
     modeloSkusCount: 0,
     variantes: [{ ordem: 1, cor_id: null, cor_apelido_id: null, peso: 1, qtd: 0, _touched: false }],
     etapas: [
@@ -246,6 +261,9 @@ export function chaveDirty(d: ProdutoImportadoDraft) {
     variantes: d.variantes,
     etapas: d.etapas,
     tamanho_tipo: d.tamanho_tipo,
+    // Paridade PA/PI (Task 4): editar Linha/Status acende o "editado" e entra no Salvar em lote.
+    linhaId: d.linhaId,
+    statusProduto: d.statusProduto,
   };
 }
 
@@ -329,6 +347,32 @@ export function montarPayload(draft: ProdutoImportadoDraft): {
   variantes: Omit<VarianteImportadoDraft, "_touched">[];
   etapas: EtapaImportadoDraft[];
 } {
+  // Linha/Status (Task 4): só viajam quando a pessoa mexeu (difere da base lida do servidor) — ver `produtoDataParaSalvar`.
+  const dados = produtoDataParaSalvar(draft, tocadosLinhaStatus(draft));
+  const variantes = draft.variantes.map(({ ordem, cor_id, cor_apelido_id, peso, qtd }) => ({ ordem, cor_id, cor_apelido_id, peso, qtd }));
+  const etapas = draft.etapas.map(({ ordem, rotulo, base, percentual, data_vencimento, cotacao }) => ({ ordem, rotulo, base, percentual, data_vencimento, cotacao }));
+  return { dados, variantes, etapas };
+}
+
+/** Linha/Status que a PESSOA mexeu nesta edição = difere da base lida do servidor (`linhaIdBase`/`statusProdutoBase`, padrão do
+ *  `tamanho_tipo_base`). `undefined` e `null` contam igual (fixture/rascunho antigo sem os campos = não tocado). */
+export function tocadosLinhaStatus(
+  d: Pick<ProdutoImportadoDraft, "linhaId" | "linhaIdBase" | "statusProduto" | "statusProdutoBase">,
+): { linhaTocada: boolean; statusTocado: boolean } {
+  return {
+    linhaTocada: (d.linhaId ?? null) !== (d.linhaIdBase ?? null),
+    statusTocado: (d.statusProduto ?? null) !== (d.statusProdutoBase ?? null),
+  };
+}
+
+/** `_dados` do `salvar_produto_importado` — PURA. = o payload de sempre (escalares do produto + a regra do `tamanho_tipo`) + `linha_id`/
+ *  `status` SÓ quando a flag de "tocado" está ligada (servidor: `_dados ? 'linha_id'` grava, ausente MANTÉM). A Linha vai ao
+ *  `modelos.linha_id` do espelho em last-write-wins (sem check de rev) — por isso NUNCA em todo Salvar, só quando a pessoa a trocou
+ *  (ou limpou: tocada com `null` envia `null`). `tocados` vem de `tocadosLinhaStatus` (compara com a base); sem flag = sem a chave. */
+export function produtoDataParaSalvar(
+  draft: ProdutoImportadoDraft,
+  tocados: { linhaTocada?: boolean; statusTocado?: boolean } = {},
+): Record<string, unknown> {
   const dados = {
     nome: draft.nome,
     // REF: só envia se o usuário digitou uma manual (senão null → o trigger gera a automática).
@@ -376,9 +420,9 @@ export function montarPayload(draft: ProdutoImportadoDraft): {
   // campo; mandar só quando DIFERE da base espelha o padrão "última edição manda" das outras telas e
   // NUNCA toca o bloco `[integracao v1]` (preco_*_fixo, acima) — chave independente, mesmo objeto.
   if (draft.tamanho_tipo !== draft.tamanho_tipo_base) dados.tamanho_tipo = draft.tamanho_tipo;
-  const variantes = draft.variantes.map(({ ordem, cor_id, cor_apelido_id, peso, qtd }) => ({ ordem, cor_id, cor_apelido_id, peso, qtd }));
-  const etapas = draft.etapas.map(({ ordem, rotulo, base, percentual, data_vencimento, cotacao }) => ({ ordem, rotulo, base, percentual, data_vencimento, cotacao }));
-  return { dados, variantes, etapas };
+  if (tocados.linhaTocada) dados.linha_id = draft.linhaId ?? null;
+  if (tocados.statusTocado) dados.status = draft.statusProduto ?? null;
+  return dados;
 }
 
 /** Validação client-side do draft para SALVAR (rascunho) — retorna a MENSAGEM do primeiro problema,

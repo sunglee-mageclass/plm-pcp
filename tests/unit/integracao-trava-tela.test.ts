@@ -1624,8 +1624,8 @@ describe("Tarefa 5 — Produto Acabado: SELECT + embed do Sheet", () => {
   });
   it("Fix round (L-1): salvarUmProduto rebaseline tamanho_tipo_base = tamanho_tipo depois do save", () => {
     // P-393: `noServidor` (o que o banco tem agora, preço fixo incluso) é o rascunho quando tudo gravou; senão o rascunho mantém o digitado.
-    expect(s).toMatch(/const noServidor: ProdutoDraft = \{ \.\.\.p, \.\.\.precosAposSalvar\(p, servidorAtual, plano, !erroFixo\), rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo \};/);
-    expect(s).toMatch(/const salvo: ProdutoDraft = erroFixo \? \{ \.\.\.p, rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo \} : noServidor;/);
+    expect(s).toMatch(/const noServidor: ProdutoDraft = \{ \.\.\.p, \.\.\.precosAposSalvar\(p, servidorAtual, plano, !erroFixo\), rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo, \.\.\.rebaseLinhaStatus \};/);
+    expect(s).toMatch(/const salvo: ProdutoDraft = erroFixo \? \{ \.\.\.p, rev: revNovo, tamanho_tipo_base: p\.tamanho_tipo, \.\.\.rebaseLinhaStatus \} : noServidor;/);
   });
   it("Fix round (L-2): onLimpo também zera tamanho_tipo/tamanho_tipo_base no draft local", () => {
     const bloco = s.slice(s.indexOf("onLimpo={() => {"), s.indexOf("changeProduto(limpo);"));
@@ -1792,7 +1792,7 @@ describe("Tarefa 6 — Produto Importado: SELECT + embed + lote 'Criar cards' sa
   const s = ler("src/components/produto-importado/ProdutoImportadoSheet.tsx");
   it("SELECT_PRODUTO_IMPORTADO embed do modelo traz tamanho_tipo + modelo_skus(count) (tamanho_tipo do PRÓPRIO produto já vem pelo '*')", () => {
     // F4a T4: o embed ganhou os 5 campos do kanban do card (selo da etapa + filtro de reprovados) logo depois do `modelo_skus(count)`.
-    expect(s).toMatch(/"modelo:modelo_id\(preco_venda, tamanho_tipo, modelo_skus\(count\), status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado\)"/);
+    expect(s).toMatch(/"modelo:modelo_id\(preco_venda, tamanho_tipo, linha_id, modelo_skus\(count\), status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado\)"/);
   });
   it("draftDeRow resolve a fonte: card com modelo usa o tamanho_tipo DO MODELO; sem card, o do próprio produto (P-119 A)", () => {
     expect(s).toMatch(/const tamanhoTipo = \(\(r\.modelo_id \? r\.modelo\?\.tamanho_tipo : r\.tamanho_tipo\) \?\? null\)/);
@@ -1810,7 +1810,7 @@ describe("Tarefa 6 — Produto Importado: SELECT + embed + lote 'Criar cards' sa
     expect(bloco.indexOf("selecionados.some((d) => d.id && (conflitosPorProduto[d.id]")).toBeLessThan(bloco.indexOf("for (const d of sujos)"));
   });
   it("Fix round (L-1): salvarUmProduto rebaseline tamanho_tipo_base = tamanho_tipo depois do save", () => {
-    expect(s).toMatch(/const salvo: ProdutoImportadoDraft = \{ \.\.\.d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d\.tamanho_tipo \};/);
+    expect(s).toMatch(/const salvo: ProdutoImportadoDraft = \{ \.\.\.d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d\.tamanho_tipo, linhaIdBase: d\.linhaId, statusProdutoBase: d\.statusProduto \};/);
   });
 });
 

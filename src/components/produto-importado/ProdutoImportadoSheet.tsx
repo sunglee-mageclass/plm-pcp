@@ -40,7 +40,7 @@ import {
   produtoPedidoImportado,
   acoplarParVarejo, acoplarParAtacado,
   aplicarResolucaoConflito,
-  type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
+  type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft, type StatusProduto,
 } from "./shared";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { lerKanbanAutoConfig } from "@/lib/kanban-auto";
@@ -76,7 +76,7 @@ const SELECT_PRODUTO_IMPORTADO =
   "variantes:produto_importado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd), " +
   "etapas:produto_importado_etapas(ordem, rotulo, base, percentual, data_vencimento, cotacao), " +
   // F4a T4: + os 5 campos do kanban do card (selo da etapa + "Mover para…"; espelho só-leitura, fora do `chaveDirty`).
-  "modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count), status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado)" +
+  "modelo:modelo_id(preco_venda, tamanho_tipo, linha_id, modelo_skus(count), status_desenvolvimento, status_planejamento, ordem_criacao_enviada, origem, lancado)" +
   // [urg R13 T6] OC do produto = o ITEM dele (`oc_item`) + o cabeçalho + o nº de produtos da OC: o card mostra o chip e o assistente
   // sabe quem já tem OC. Fora do `chaveDirty`.
   ", " + EMBED_OC_ITEM_PI;
@@ -154,10 +154,12 @@ type ProdutoImportadoRow = {
   /** Tarefa 6 — "Tamanho em" do PRÓPRIO produto (coluna real, vem pelo `"*"`); null até tocado ou
    *  até o card nascer com ele (P-119 A). */
   tamanho_tipo?: string | null;
+  /** Paridade PA/PI (Task 4) — status Pendente/Reprovado do produto SEM card (coluna nova, vem pelo `"*"`; types.ts ainda sem ela). */
+  status?: string | null;
   /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda, tamanho_tipo, modelo_skus(count))`
    *  (SELECT acima; os 2 campos novos são da Tarefa 6). */
   modelo?: {
-    preco_venda: number | string | null; tamanho_tipo?: string | null; modelo_skus?: { count: number }[] | null;
+    preco_venda: number | string | null; tamanho_tipo?: string | null; linha_id?: string | null; modelo_skus?: { count: number }[] | null;
     /** F4a T4 — kanban do card (só-leitura). */
     status_desenvolvimento?: string | null; status_planejamento?: string | null; ordem_criacao_enviada?: boolean | null;
     origem?: string | null; lancado?: boolean | null;
@@ -180,6 +182,9 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
   // nascer com ele). `tamanho_tipo_base` guarda o MESMO valor lido agora (nunca editado pela UI).
   const tamanhoTipo = ((r.modelo_id ? r.modelo?.tamanho_tipo : r.tamanho_tipo) ?? null) as "letra" | "numero" | null;
   const skusRow = Array.isArray(r.modelo?.modelo_skus) ? r.modelo.modelo_skus[0] : null;
+  const linhaId: string | null = (r.modelo_id ? r.modelo?.linha_id : null) ?? null;
+  // Valor fora do CHECK (`pendente`/`reprovado`) vira null — nunca "inventa" um status.
+  const statusProduto: StatusProduto | null = r.status === "pendente" || r.status === "reprovado" ? r.status : null;
   return {
     ...base,
     id: r.id,
@@ -222,6 +227,12 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     modeloPrecoVenda: r.modelo?.preco_venda != null ? Number(r.modelo.preco_venda) : null,
     tamanho_tipo: tamanhoTipo,
     tamanho_tipo_base: tamanhoTipo,
+    // Paridade PA/PI (Task 4): Linha = `modelos.linha_id` do espelho (só com card; reflexiva), status = coluna do PRÓPRIO produto (só vale
+    // sem card). A `*Base` guarda o MESMO valor lido agora (nunca editado pela UI) — o Salvar só manda a chave se mudou.
+    linhaId,
+    linhaIdBase: linhaId,
+    statusProduto,
+    statusProdutoBase: statusProduto,
     modeloSkusCount: skusRow ? Number(skusRow.count) || 0 : 0,
     // F4a T4 — kanban do espelho (só-leitura; fora do `chaveDirty`). Sem card (`modelo` null) = null/false.
     modeloStatusDev: r.modelo?.status_desenvolvimento ?? null,
@@ -255,7 +266,7 @@ const ROTULO_CAMPO_PI: Record<string, string> = {
   peso_kg: "Peso (kg)", transporte_m2: "Transporte (M2)", desconto_pct: "Desconto (%)",
   cotacao_final: "Cotação final", markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo",
   preco_atacado_fixo: "Valor atacado", preco_varejo_fixo: "Valor varejo",
-  variantes: "Variantes", etapas: "Etapas de pagamento", tamanho_tipo: "Tamanho em",
+  variantes: "Variantes", etapas: "Etapas de pagamento", tamanho_tipo: "Tamanho em", linhaId: "Linha", statusProduto: "Status",
 };
 
 /**
@@ -673,7 +684,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       // o `onLimpo` do `ProdutoAcabadoSheet.tsx`).
       const vazio = emptyDraft(d.colecao_id, d.subcolecao);
       const persistido = !!d.id && !d.id.startsWith("novo-");
-      const limpo: ProdutoImportadoDraft = { ...vazio, id: d.id, rev: d.rev, modelo_id: d.modelo_id ?? null, mix_id: d.mix_id ?? null, ref: d.ref ?? null };
+      // Linha/Status (Task 4): `limpar_produto_importado` não mexe neles (a Linha é do card; o status é do produto) — preserva draft + base.
+      const limpo: ProdutoImportadoDraft = {
+        ...vazio, id: d.id, rev: d.rev, modelo_id: d.modelo_id ?? null, mix_id: d.mix_id ?? null, ref: d.ref ?? null,
+        linhaId: d.linhaId, linhaIdBase: d.linhaIdBase, statusProduto: d.statusProduto, statusProdutoBase: d.statusProdutoBase,
+      };
       setDrafts((ds) => ds.map((x) => (x.id === d.id ? limpo : x)));
       // Persistido: o produto já está limpo no banco → rebaseline p/ o Sheet não ficar "sujo"
       // por um estado já salvo (achado C4/D2). Local ("novo-"): segue como rascunho não salvo.
@@ -1041,7 +1056,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     const refNovo = pos ? ((pos as any).ref ?? null) : d.ref;
     // Fix round (L-1, tamanho-em): rebaseline de tamanho_tipo_base pro valor recém-salvo — sem isto, o próximo
     // Salvar reenviaria a mesma troca como se fosse edição nova (montarPayload manda a chave sempre que tipo!==base).
-    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d.tamanho_tipo };
+    // Task 4: idem p/ Linha/Status — a base vira o que acabou de ir, senão um 2º Salvar reenviaria a mesma Linha (last-write-wins no
+    // `modelos.linha_id`) como se fosse edição nova.
+    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d.tamanho_tipo, linhaIdBase: d.linhaId, statusProdutoBase: d.statusProduto };
     baseServidorRef.current = { ...baseServidorRef.current, [novoId]: salvo };
     if (isLocal) {
       const idAntigo = d.id!;

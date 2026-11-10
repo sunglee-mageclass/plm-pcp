@@ -1566,7 +1566,7 @@ describe("F4 — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx relê
   });
 
   it("`salvo` usa o ref lido do servidor (refNovo), não o ref do draft local (d.ref)", () => {
-    expect(src).toContain("const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d.tamanho_tipo };");
+    expect(src).toContain("const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo, ref: refNovo, tamanho_tipo_base: d.tamanho_tipo, linhaIdBase: d.linhaId, statusProdutoBase: d.statusProduto };");
   });
 });
 
