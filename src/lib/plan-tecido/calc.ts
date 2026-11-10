@@ -990,3 +990,18 @@ export function linhasCorNova(
   }
   return out;
 }
+
+/** UNIÃO p/ o Resumo (Modo Plano e Resumo comum): cobertura do servidor (vence, dedup por variante_tecido_id) + linhas das
+ *  variantes do rascunho FORA dela (card existente/cor nova ainda não salvos no plano), com o EST REAL da RPC `plan_tecido_estoque`.
+ *  `extra.artigoDe` = artigo REAL de cada variante nova (a recém-adicionada no card não traz `variante_artigo_id`). Sem novas ⇒ a própria cobertura. */
+export function coberturaComCorNova<T extends { variante_tecido_id: string | null }>(
+  cobertura: readonly T[] | null | undefined,
+  novas: readonly VarianteNovaRascunho[],
+  extra: { estoque?: readonly EstoqueVarianteRpc[]; artigoDe?: Readonly<Record<string, string>> } | null | undefined,
+): (T | ReturnType<typeof linhasCorNova>[number])[] {
+  const base = (cobertura ?? []) as T[];
+  if (novas.length === 0) return base;
+  const ja = new Set(base.map((c) => c.variante_tecido_id).filter((x): x is string => !!x));
+  const comArtigo = novas.map((n) => ({ ...n, artigo_id: extra?.artigoDe?.[n.variante_tecido_id] ?? n.artigo_id }));
+  return [...base, ...linhasCorNova(comArtigo, extra?.estoque, ja)];
+}

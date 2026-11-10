@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo, statusFornecedorCategoria, estoqueDoArtigo, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
+import { type VinculoDetalhe, custoMateriaisPrevisto, slotMetros, detalheOcColecao, resumoOcsColecao, fmtMetros, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante, arvoreDaDemanda, slotContaNaDemanda, pendenciasResumo, statusFornecedorCategoria, estoqueDoArtigo, coberturaComCorNova, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
+import { useEstoqueCorNova } from "@/lib/plan-tecido/useEstoqueCorNova";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -139,6 +140,12 @@ export function ResumoPanel({
     refetchOnWindowFocus: true, // estoque/OCs mudam fora do plano → "a comprar" fresco ao voltar
     queryFn: async () => ((await supabase.rpc("plan_tecido_previa_pedido" as any, { _colecao_id: colecaoId })).data ?? null) as PreviaRpc | null,
   });
+
+  // ESTOQUE por artigo: a `cobertura` do servidor só tem variantes JÁ SALVAS no plano ⇒ card existente (BOM do Dev) ainda não salvo
+  // aparecia com estoque 0. UNIÃO: cobertura (vence) + variantes do rascunho da COLEÇÃO fora dela, com EST REAL (RPC `plan_tecido_estoque`).
+  // SÓ leitura de estoque — necessidade viva e "a comprar" seguem a `previa?.cobertura` (inalterados).
+  const { novasVariantes, extra: estoqueExtra } = useEstoqueCorNova(previa?.cobertura, colecaoArvore, reprovadoSet);
+  const coberturaEstoque = coberturaComCorNova(previa?.cobertura, novasVariantes, estoqueExtra);
 
   // OCs APLICADAS (vinculadas à mão) — só essas dá pra desvincular por-OC aqui (1 clique). As GERADAS
   // pelo "Fazer pedido" são reais e saem no "Desfazer pedido" (global). ⚠️ MESMA queryKey do
@@ -352,7 +359,7 @@ export function ResumoPanel({
               const nec = catTecMetros(cid); const comprar = aComprarCat(cid);
               // F3: estoque (real + a chegar) e "Também usado em" — só leitura da prévia; não altera nec./a comprar.
               const arts = artigosDaCategoria(cid);
-              const est = arts.reduce((a, aid) => { const e = estoqueDoArtigo(previa?.cobertura, aid); return { fisico: a.fisico + e.fisico, prevReceb: a.prevReceb + e.prevReceb, reservaOutras: a.reservaOutras + e.reservaOutras, livre: a.livre + e.estLivre }; }, { fisico: 0, prevReceb: 0, reservaOutras: 0, livre: 0 });
+              const est = arts.reduce((a, aid) => { const e = estoqueDoArtigo(coberturaEstoque, aid); return { fisico: a.fisico + e.fisico, prevReceb: a.prevReceb + e.prevReceb, reservaOutras: a.reservaOutras + e.reservaOutras, livre: a.livre + e.estLivre }; }, { fisico: 0, prevReceb: 0, reservaOutras: 0, livre: 0 });
               const textoOutras = textoOutrasColecoes(arts.flatMap((aid) => outrasColecoesDoTecido(previa?.outras_colecoes, aid)), nMet);
               return (
                 <div key={cid} className="border-b px-2 py-1 text-xs">

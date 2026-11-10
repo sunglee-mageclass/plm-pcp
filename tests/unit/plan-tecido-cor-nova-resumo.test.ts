@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  variantesNovasDoRascunho, linhasCorNova, estoqueDoArtigo, necessidadePorVarianteDaArvore, linhaResumoAoVivo, planVivoDaLinha,
+  variantesNovasDoRascunho, linhasCorNova, coberturaComCorNova, estoqueDoArtigo, necessidadePorVarianteDaArvore, linhaResumoAoVivo, planVivoDaLinha,
   type CoberturaVarRow,
 } from "@/lib/plan-tecido/calc";
 import type { PtArvore } from "@/lib/plan-tecido/types";
@@ -71,5 +71,35 @@ describe("estoqueDoArtigo desconta reserva de outras (Resumo comum alinhado ao M
   });
   it("prévia antiga sem reserva_outras_m → reserva 0 (físico + a chegar)", () => {
     expect(estoqueDoArtigo([c("A", 10, 5)], "A").estLivre).toBe(15);
+  });
+});
+
+describe("coberturaComCorNova (Resumo comum: estoque de card existente ainda NÃO salvo no plano)", () => {
+  const cob = (artigo_id: string, variante_tecido_id: string, fisico_m: number, prev_receb_m = 0, reserva_outras_m = 0): CoberturaVarRow =>
+    ({ artigo_id, variante_tecido_id, nec_m: 10, deficit_m: 0, fisico_m, prev_receb_m, reserva_outras_m });
+  const novas = [{ variante_tecido_id: "vNova", artigo_id: "A1", label: "Azul" }];
+  it("soma o EST REAL da variante nova ao da cobertura do mesmo artigo (não 0)", () => {
+    const uniao = coberturaComCorNova([cob("A1", "vSalva", 40)], novas, { estoque: [{ variante_tecido_id: "vNova", fisico: 100, a_receber: 50, reservado: 30 }], artigoDe: {} });
+    const r = estoqueDoArtigo(uniao, "A1");
+    expect(r.fisico).toBe(140);
+    expect(r.prevReceb).toBe(50);
+    expect(r.reservaOutras).toBe(30);
+    expect(r.estLivre).toBe(40 + 120);
+  });
+  it("artigo REAL da RPC (artigoDe) vence o do rascunho", () => {
+    const uniao = coberturaComCorNova([], novas, { estoque: [{ variante_tecido_id: "vNova", fisico: 10, a_receber: 0, reservado: 0 }], artigoDe: { vNova: "A9" } });
+    expect(estoqueDoArtigo(uniao, "A9").fisico).toBe(10);
+    expect(estoqueDoArtigo(uniao, "A1").fisico).toBe(0);
+  });
+  it("dedup: variante já na cobertura não entra 2× (cobertura vence)", () => {
+    const uniao = coberturaComCorNova([cob("A1", "vNova", 7)], novas, { estoque: [{ variante_tecido_id: "vNova", fisico: 100, a_receber: 0, reservado: 0 }], artigoDe: {} });
+    expect(uniao).toHaveLength(1);
+    expect(estoqueDoArtigo(uniao, "A1").fisico).toBe(7);
+  });
+  it("sem novas → devolve a própria cobertura; RPC ainda carregando (extra undefined) → linha com zeros; cobertura undefined ok", () => {
+    const base = [cob("A1", "vSalva", 5)];
+    expect(coberturaComCorNova(base, [], undefined)).toBe(base);
+    expect(coberturaComCorNova(base, novas, undefined)).toHaveLength(2);
+    expect(coberturaComCorNova(undefined, [], undefined)).toEqual([]);
   });
 });

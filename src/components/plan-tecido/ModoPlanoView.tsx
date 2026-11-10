@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { useEstoqueCorNova } from "@/lib/plan-tecido/useEstoqueCorNova";
 import { ChevronDown, ChevronRight, ChevronRight as GoIcon } from "lucide-react";
 import { agruparPorOc, type SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import { OcVinculadaDialog } from "./OcVinculadaDialog";
@@ -9,7 +10,7 @@ import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, linhaResumoAoVivo, planVivoDaLinha, necessidadePorVarianteDaArvore, variantesNovasDoRascunho, linhasCorNova, type EstoqueVarianteRpc, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
+import { fmtMetros, artigosTec1DoGrupo, rotuloGrupoTecido, achatarSlotsVisiveis, linhaResumoAoVivo, planVivoDaLinha, necessidadePorVarianteDaArvore, coberturaComCorNova, outrasColecoesDoTecido, textoOutrasColecoes } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FotoCarrossel } from "./FotoCarrossel";
@@ -554,33 +555,8 @@ export function ModoPlanoView({
   // ainda não está lá ⇒ sem tratamento nunca virava linha do resumo. Montamos a UNIÃO: cobertura (vence, dedup por
   // variante_tecido_id) + variantes do rascunho fora dela, com o EST REAL via RPC existente `plan_tecido_estoque` (só p/ as novas).
   // Só calcula com a prévia já carregada (senão TODA variante pareceria "nova" durante o load).
-  const novasVariantes = useMemo(() => {
-    if (!coberturaServidor) return [];
-    return variantesNovasDoRascunho(baseViva, reprovadoSet, new Set(coberturaServidor.map((c) => c.variante_tecido_id).filter((x): x is string => !!x)));
-  }, [coberturaServidor, baseViva, reprovadoSet]);
-  const novasIds = useMemo(() => novasVariantes.map((n) => n.variante_tecido_id).sort(), [novasVariantes]);
-  const { data: extra } = useQuery({
-    queryKey: ["plan-tecido-estoque-extra", novasIds], // RPC tenant-wide: sem colecaoId (só duplicaria cache)
-    enabled: novasIds.length > 0,
-    placeholderData: keepPreviousData, // ao entrar a 2ª cor nova, mantém o EST da anterior (sem piscar em 0)
-    queryFn: async () => {
-      const { data: estData, error: estErr } = await supabase.rpc("plan_tecido_estoque" as any, { _variante_ids: novasIds });
-      if (estErr) throw estErr; // não engolir erro: senão vira "EST 0" silencioso
-      const estoque = (estData ?? []) as EstoqueVarianteRpc[];
-      // artigo REAL de cada cor nova (a variante recém-adicionada no card não traz `variante_artigo_id`; substituto cairia no artigo errado)
-      const { data: artsData, error: artsErr } = await supabase.from("variantes_tecido").select("id, artigo_id").in("id", novasIds);
-      if (artsErr) throw artsErr;
-      const arts = (artsData ?? []) as { id: string; artigo_id: string }[];
-      return { estoque, artigoDe: Object.fromEntries(arts.map((a) => [a.id, a.artigo_id])) as Record<string, string> };
-    },
-  });
-  const cobertura = useMemo(() => {
-    const base = coberturaServidor ?? [];
-    if (novasVariantes.length === 0) return base;
-    const ja = new Set(base.map((c) => c.variante_tecido_id).filter((x): x is string => !!x));
-    const novas = novasVariantes.map((n) => ({ ...n, artigo_id: extra?.artigoDe[n.variante_tecido_id] ?? n.artigo_id }));
-    return [...base, ...linhasCorNova(novas, extra?.estoque, ja)] as PreviaCoberturaRpc[];
-  }, [coberturaServidor, novasVariantes, extra]);
+  const { novasVariantes, extra } = useEstoqueCorNova(coberturaServidor, baseViva, reprovadoSet);
+  const cobertura = useMemo(() => coberturaComCorNova(coberturaServidor, novasVariantes, extra) as PreviaCoberturaRpc[], [coberturaServidor, novasVariantes, extra]);
 
   // Cobertura por ARTIGO (chave = artigo_id) — usada tanto pro TEC1 do grupo (artigo do tecido que
   // dá nome à faixa) quanto pelos mini-cards de TEC2/Forros (artigo daquela posição secundária).
