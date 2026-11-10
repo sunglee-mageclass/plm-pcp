@@ -1689,6 +1689,14 @@ card×item de OC; `20261019400000`) + `repartirDemanda` em `src/lib/plan-tecido/
 Σ por OC = demanda. A RPC antiga `plan_tecido_vinculos_modelo` segue como está; sem a nova, o front cai na ordem do array sem
 limite de `quantidade_m`. O bloco "do card" usa os totais do SERVIDOR (`custo_*_total`).
 
+**Plan. Tecido — EST visual do Modo Plano e resumo ao vivo (nov/2026, migration `20261117100000_est_reserva_outras`, md5 novo da prévia
+`149ccb37`):** o EST mostrado no Modo Plano = **físico + a-chegar − reserva de OUTRAS coleções** (SÓ exibição: `_plan_tecido_previa_pedido_core`
+ganha `reserva_outras_m` em cada linha de `cobertura`; `deficit_m`/`estoque_m`/compra INTOCADOS — anti-drift em `plan-tecido-reserva-outras.test.ts`);
+hover com 3 linhas (físico, a chegar, reserva de outras). O resumo lateral recalcula **AO VIVO** sobre o rascunho (necessidade do cliente +
+estoque/reserva do servidor) e o **COMPR do resumo = max(0, PLAN − EST) ao vivo** (decisão do dono). Banco ANTES do site (site novo + banco velho =
+chave ausente, EST cai no fallback); volta `20261117100000_est_reserva_outras_down.sql` (devolve o corpo F3.1 dd563e57). Pinos de md5 da prévia nos
+testes (`plan-tecido-f3-transparencia`, `plan-tecido-reprovado`, `saldo-item-regra-core`) aceitam/pinam o novo.
+
 **Deploy da release 8:** banco ANTES do site (há front novo: C3 para de mandar o custo previsto — com o banco velho nada o
 derivaria). Ordem de ida: (1) `20261019300000` (fila + gatilhos; em horário calmo, pega ShareRowExclusive nas 13 tabelas) →
 (2) `20261019310000` (só funções + tabela de backup) → (3) **correção única** com a lista aprovada pelo dono (Passo 0-CD

@@ -12,7 +12,8 @@ import { hasDb, withTx, ehBancoLocal, TENANT_TESTE } from "./db";
 const RODA = hasDb && ehBancoLocal();
 const PREVIA = "public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])";
 const MD5_ANTES = "b62ef170570b2444ad3f5727760cd411"; // R15b fix1 (texto de partida)
-const MD5_F31 = "dd563e5789b0dbd1cffc02299d154bf5"; // F3.1 (papel principal/substituto)
+const MD5_F31 = "dd563e5789b0dbd1cffc02299d154bf5"; // F3.1 (papel principal/substituto) - antecessor
+const MD5_EST = "149ccb37cd945baa9665fcb2217ecc51"; // EST visual (20261117100000: + reserva_outras_m; sucessor do F3.1)
 
 type Cob = {
   artigo_id: string; variante_tecido_id: string; nec_m: number; estoque_m: number; deficit_m: number;
@@ -49,11 +50,11 @@ async function criaPreviaR15b(c: Client): Promise<void> {
   await c.query(ddl);
 }
 
-/** Remove as chaves ADICIONADAS pela F3 (recebido_m/prev_receb_m/fisico_m/outras_colecoes) para comparar com a R15b. */
+/** Remove as chaves ADICIONADAS pela F3 (recebido_m/prev_receb_m/fisico_m/outras_colecoes) e pela EST (reserva_outras_m) para comparar com a R15b. */
 function semChavesF3(p: Previa): unknown {
   const { outras_colecoes: _o, ...resto } = p;
   void _o;
-  return { ...resto, cobertura: p.cobertura.map(({ recebido_m: _r, prev_receb_m: _p, fisico_m: _f, ...l }) => (void _r, void _p, void _f, l)) };
+  return { ...resto, cobertura: p.cobertura.map(({ recebido_m: _r, prev_receb_m: _p, fisico_m: _f, reserva_outras_m: _e, ...l }) => (void _r, void _p, void _f, void _e, l)) };
 }
 
 describe.skipIf(!RODA)("F3 transparência no resumo — previa expõe recebido/a chegar + outras coleções (aditivo)", () => {
@@ -64,7 +65,7 @@ describe.skipIf(!RODA)("F3 transparência no resumo — previa expõe recebido/a
                 has_function_privilege('anon', $1::regprocedure, 'EXECUTE') anon,
                 has_function_privilege('authenticated', $1::regprocedure, 'EXECUTE') auth`, [PREVIA]);
       expect(rows[0].md5, "F3 aplicada na cópia (md5 != R15b)").not.toBe(MD5_ANTES);
-      expect(rows[0].md5, "F3.1 aplicada na cópia (papel)").toBe(MD5_F31);
+      expect([MD5_F31, MD5_EST], "F3.1 (papel) ou o sucessor EST aplicada na cópia").toContain(rows[0].md5);
       expect(rows[0].anon).toBe(false);
       expect(rows[0].auth).toBe(false);
     });

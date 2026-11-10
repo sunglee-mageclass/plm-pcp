@@ -19,7 +19,7 @@ const PREVIA = "public._plan_tecido_previa_pedido_core(uuid,uuid,uuid[])";
 const MD5_DEPOIS: Record<string, string> = {
   [NEC]: "825a4b1b1cca8e3309f10b272fc8c76d",
   [SIT]: "368bc7530510b934a0ca33e8efa69116",
-  [PREVIA]: "dd563e5789b0dbd1cffc02299d154bf5", // F3.1 (20261116100000): outras_colecoes[].colecoes[] + `papel` principal/substituto (sobre a F3 20261115100000: + recebido_m/prev_receb_m/fisico_m/outras_colecoes; aditivo; déficit/estoque/qtd intactos)
+  [PREVIA]: "149ccb37cd945baa9665fcb2217ecc51", // EST visual (20261117100000): + `reserva_outras_m` por linha da cobertura (sobre a F3.1 dd563e57 = 20261116100000: outras_colecoes[].colecoes[] + `papel`; sobre a F3 20261115100000: + recebido_m/prev_receb_m/fisico_m/outras_colecoes; aditivo; déficit/estoque/qtd intactos)
 };
 
 /** Forma do jsonb da prévia (só o que o teste lê). */
