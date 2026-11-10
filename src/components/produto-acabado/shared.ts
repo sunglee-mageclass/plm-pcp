@@ -95,8 +95,8 @@ export type ProdutoDraft = {
   // exibição (que usa `tipoEfetivo`, em @/lib/tamanho-exibicao, sempre no valor CORRENTE do draft).
   tamanho_tipo: TamanhoTipo | null;
   tamanho_tipo_base: TamanhoTipo | null;
-  // Paridade PA/PI ↔ Plan. Tecido (nov/2026, Task 4): Linha (REFLEXIVA = `modelos.linha_id` do espelho; SÓ existe com card) e
-  // status Pendente/Reprovado (coluna `produtos_acabados.status`; SÓ vale SEM card). `linhaIdBase`/`statusProdutoBase` = o valor LIDO do
+  // Paridade PA/PI ↔ Plan. Tecido (nov/2026, Task 4): Linha (`produtos_acabados.linha_id`, ESPELHADA produto↔modelo: vale com ou sem card; o card herda a linha do
+  // produto) e status Pendente/Reprovado (coluna `produtos_acabados.status`; SÓ vale SEM card). `linhaIdBase`/`statusProdutoBase` = o valor LIDO do
   // servidor nesta sessão (nunca editado pela UI) — mesmo par do `tamanho_tipo`/`tamanho_tipo_base`: a chave só vai no `_dados`
   // quando difere da base (`tocadosLinhaStatus`). ⚠️ O UPDATE de `modelos.linha_id` no servidor é last-write-wins (sem check de rev):
   // mandar a Linha em TODO Salvar sobrescreveria uma troca feita no Planejamento com o valor velho do rascunho.

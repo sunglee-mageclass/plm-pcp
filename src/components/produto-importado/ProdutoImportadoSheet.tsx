@@ -230,7 +230,7 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     modeloPrecoVenda: r.modelo?.preco_venda != null ? Number(r.modelo.preco_venda) : null,
     tamanho_tipo: tamanhoTipo,
     tamanho_tipo_base: tamanhoTipo,
-    // Paridade PA/PI (Task 4): Linha = `modelos.linha_id` do espelho (só com card; reflexiva), status = coluna do PRÓPRIO produto (só vale
+    // Paridade PA/PI (Task 4): Linha = `produtos_importados.linha_id`, espelhada produto↔modelo (vale com ou sem card; o card herda a linha do produto), status = coluna do PRÓPRIO produto (só vale
     // sem card). A `*Base` guarda o MESMO valor lido agora (nunca editado pela UI) — o Salvar só manda a chave se mudou.
     linhaId,
     linhaIdBase: linhaId,
@@ -687,10 +687,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       // o `onLimpo` do `ProdutoAcabadoSheet.tsx`).
       const vazio = emptyDraft(d.colecao_id, d.subcolecao);
       const persistido = !!d.id && !d.id.startsWith("novo-");
-      // Linha/Status (Task 4): `limpar_produto_importado` não mexe neles (a Linha é do card; o status é do produto) — preserva draft + base.
+      // Linha/Status: `_limpar_produto_importado_core` (migration 20261118140000) ZERA `produtos_importados.linha_id` — `vazio` já traz
+      // `linhaId`/`linhaIdBase` = null (rebaseline dos dois lados, senão a tela mostraria a Linha antiga com o banco em null).
+      // O status Pendente/Reprovado o banco NÃO limpa: preserva draft + base.
       const limpo: ProdutoImportadoDraft = {
         ...vazio, id: d.id, rev: d.rev, modelo_id: d.modelo_id ?? null, mix_id: d.mix_id ?? null, ref: d.ref ?? null,
-        linhaId: d.linhaId, linhaIdBase: d.linhaIdBase, statusProduto: d.statusProduto, statusProdutoBase: d.statusProdutoBase,
+        linhaId: null, linhaIdBase: null, statusProduto: d.statusProduto, statusProdutoBase: d.statusProdutoBase,
       };
       setDrafts((ds) => ds.map((x) => (x.id === d.id ? limpo : x)));
       // Persistido: o produto já está limpo no banco → rebaseline p/ o Sheet não ficar "sujo"

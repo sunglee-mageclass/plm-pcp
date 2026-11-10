@@ -128,8 +128,8 @@ export type ProdutoImportadoDraft = {
   // por `chaveDirty`/o Salvar pra decidir se a chave mudou desde o load/último save (`montarPayload`).
   tamanho_tipo: TamanhoTipo | null;
   tamanho_tipo_base: TamanhoTipo | null;
-  // Paridade PA/PI ↔ Plan. Tecido (nov/2026, Task 4) — espelha `ProdutoDraft` do Produto Acabado: Linha REFLEXIVA (`modelos.linha_id`
-  // do espelho; SÓ existe com card) e status Pendente/Reprovado (coluna `produtos_importados.status`; SÓ vale SEM card). `*Base` = o valor
+  // Paridade PA/PI ↔ Plan. Tecido (nov/2026, Task 4) — espelha `ProdutoDraft` do Produto Acabado: Linha (`produtos_importados.linha_id`,
+  // ESPELHADA produto↔modelo: vale com ou sem card; o card herda a linha do produto) e status Pendente/Reprovado (coluna `produtos_importados.status`; SÓ vale SEM card). `*Base` = o valor
   // LIDO do servidor nesta sessão (nunca editado pela UI): a chave só vai no `_dados` quando difere da base (`tocadosLinhaStatus`) — o
   // UPDATE de `modelos.linha_id` é last-write-wins (sem check de rev), mandar em todo Salvar sobrescreveria uma troca feita no Planejamento.
   linhaId: string | null;

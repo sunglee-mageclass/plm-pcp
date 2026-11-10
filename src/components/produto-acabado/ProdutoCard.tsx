@@ -117,8 +117,8 @@ export function ProdutoCard({
   tamanhos: string[];
   colecaoNome: string | null;
   /** id da linha → markup do cadastro (Cadastro > Linhas) — §N "markup da linha do cadastro
-   *  = sugestão". Modelos espelho de revenda nascem SEM linha (`criar_card_produto_acabado`
-   *  grava `linha_id: null`); mostra "—" até alguém setar uma linha no Plan. Produto. */
+   *  = sugestão". A Linha é espelhada produto↔modelo: o card herda a linha do produto
+   *  (`criar_card_produto_acabado`); mostra "—" só se o produto não tem linha. */
   linhasMarkup: Record<string, number>;
   /** Save de UM produto (RPC `salvar_produto_acabado`), reusado do `ProdutoAcabadoSheet` — o
    *  "Fazer pedido" chama isto ANTES de gerar a OC, pra nunca criar um pedido em cima de um

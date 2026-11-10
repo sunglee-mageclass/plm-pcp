@@ -901,7 +901,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     // que tipo!==base).
     // `noServidor` = o que o banco tem AGORA (markup/preço fixo pelas regras do banco, ver `precosAposSalvar`); com o preço fixo gravado é
     // também o rascunho. Se o preço fixo falhou, o rascunho mantém o que o usuário digitou e o baseline (= servidor) deixa o produto "editado".
-    // Task 4: idem p/ Linha/Status — o lote JÁ comitou (mesmo se o preço fixo falhou): a base vira o que acabou de ir, senão um 2º Salvar
+    // Task 4: idem p/ Linha/Status (Linha espelhada produto↔modelo, com ou sem card) — o lote JÁ comitou (mesmo se o preço fixo falhou): a base vira o que acabou de ir, senão um 2º Salvar
     // reenviaria a mesma Linha (last-write-wins no `modelos.linha_id`) como se fosse edição nova. `modeloLinhaId` (markup da linha) acompanha.
     const rebaseLinhaStatus = { linhaIdBase: p.linhaId, statusProdutoBase: p.statusProduto, ...(p.modelo_id ? { modeloLinhaId: p.linhaId } : {}) };
     const noServidor: ProdutoDraft = { ...p, ...precosAposSalvar(p, servidorAtual, plano, !erroFixo), rev: revNovo, tamanho_tipo_base: p.tamanho_tipo, ...rebaseLinhaStatus };
@@ -1198,6 +1198,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 // (task-1-2-report.md) — espelha aqui os dois lados (tipo + base) senão o draft local
                 // ficaria "sujo" pra um estado já persistido (mesmo motivo do rebaseline acima).
                 tamanho_tipo: null, tamanho_tipo_base: null,
+                // Linha (migration 20261118140000): `_limpar_produto_acabado_core` também zera `produtos_acabados.linha_id` — mesmo
+                // rebaseline dos dois lados (draft + base), senão a tela mostraria a Linha antiga com o banco em null. O status
+                // Pendente/Reprovado NÃO é zerado pelo banco: `statusProduto` segue como está (vem do spread de `p`).
+                linhaId: null, linhaIdBase: null,
               };
               changeProduto(limpo);
               marcarProdutoLimpo(limpo);

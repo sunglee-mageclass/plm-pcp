@@ -111,6 +111,9 @@ const LINHA_PRODUTO_MD5: Record<string, { antes: string; depois: string }> = {
   "public._salvar_produto_acabado_core(uuid,jsonb,jsonb)": { antes: "8380b15f5ae3ad9d581d3205cb23a4ec", depois: "53a0745fd4f548547485679c19c2363a" },
   "public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)": { antes: "d857ebb676241e411666d699142ccabd", depois: "ba8ba0f0476c351bfa9d430ec12dc8af" },
   "public.fn_modelo_espelho_categoria()": { antes: "2e0c70f661e42610e87da2b934dec962", depois: "640a14561ed5cbe6d02855580915e96c" },
+  // 20261118140000_limpar_produto_zera_linha: "Limpar produto" tambem zera `produtos_*.linha_id` (ANTES = topo da R13, urg-r13-helpers).
+  "public._limpar_produto_acabado_core(uuid)": { antes: "da3d5e8e14c3609fc97f9e73bc8db08d", depois: "b5ef31d7274ec7887d6741b93b8ee71e" },
+  "public._limpar_produto_importado_core(uuid)": { antes: "d863544b621523cf9c1d4532b4909759", depois: "c45ebb23ad4d2d905bd88af34c0bcaa6" },
 };
 
 /** Pino antigo + o DEPOIS da R12 quando o texto anterior da cadeia e o ANTES dela (ou sem pino: so o DEPOIS); depois, o sucessor da Linha no produto. */
