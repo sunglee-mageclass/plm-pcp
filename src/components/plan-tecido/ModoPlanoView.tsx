@@ -1,5 +1,5 @@
 import { type CSSProperties, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ChevronRight as GoIcon } from "lucide-react";
 import { agruparPorOc, type SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import { OcVinculadaDialog } from "./OcVinculadaDialog";
@@ -560,12 +560,17 @@ export function ModoPlanoView({
   }, [coberturaServidor, baseViva, reprovadoSet]);
   const novasIds = useMemo(() => novasVariantes.map((n) => n.variante_tecido_id).sort(), [novasVariantes]);
   const { data: extra } = useQuery({
-    queryKey: ["plan-tecido-estoque-extra", colecaoId, novasIds],
+    queryKey: ["plan-tecido-estoque-extra", novasIds], // RPC tenant-wide: sem colecaoId (só duplicaria cache)
     enabled: novasIds.length > 0,
+    placeholderData: keepPreviousData, // ao entrar a 2ª cor nova, mantém o EST da anterior (sem piscar em 0)
     queryFn: async () => {
-      const estoque = ((await supabase.rpc("plan_tecido_estoque" as any, { _variante_ids: novasIds })).data ?? []) as EstoqueVarianteRpc[];
+      const { data: estData, error: estErr } = await supabase.rpc("plan_tecido_estoque" as any, { _variante_ids: novasIds });
+      if (estErr) throw estErr; // não engolir erro: senão vira "EST 0" silencioso
+      const estoque = (estData ?? []) as EstoqueVarianteRpc[];
       // artigo REAL de cada cor nova (a variante recém-adicionada no card não traz `variante_artigo_id`; substituto cairia no artigo errado)
-      const arts = ((await supabase.from("variantes_tecido").select("id, artigo_id").in("id", novasIds)).data ?? []) as { id: string; artigo_id: string }[];
+      const { data: artsData, error: artsErr } = await supabase.from("variantes_tecido").select("id, artigo_id").in("id", novasIds);
+      if (artsErr) throw artsErr;
+      const arts = (artsData ?? []) as { id: string; artigo_id: string }[];
       return { estoque, artigoDe: Object.fromEntries(arts.map((a) => [a.id, a.artigo_id])) as Record<string, string> };
     },
   });

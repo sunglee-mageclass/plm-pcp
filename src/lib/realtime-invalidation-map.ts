@@ -212,8 +212,8 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     // [F4a T6] idem p/ o Plan. Tecido: condições em lote do selo/Mover (`["plan-tecido-kanban-cond", coleção, ids]`).
     "plan-tecido-kanban-cond",
   ],
-  ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos"],
-  colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],
+  ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos", "plan-tecido-estoque-extra"],
+  colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "plan-tecido-estoque-extra", "otb-colecoes"],
   producao_terceirizados: ["producao-terc-list", "producao-terc-mo-resumo"],
   // Lançamentos também depende do CQ (prontos-para-lançar) → invalida seus cards quando o CQ muda.
   controle_qualidade: ["producao-cq-list", "lancamentos-cards"],

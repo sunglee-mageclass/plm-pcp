@@ -374,11 +374,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // declara famílias (workaround FIX G3-A) — não migrar p/ não perder esse comportamento.
   const agrup = useAgrupamentoState("plan-tecido-sheet", ["nome"]);
   // Modo Plano (set/2026): view por nome de tecido (resumo + carrossel + cards). Toggle na toolbar,
-  // ao lado de Agrupar. NÃO persiste (começa desligado). Ao ligar, FORÇA o agrupamento por nome e
+  // ao lado de Agrupar. NÃO persiste por usuário: abre LIGADO por padrão (ver abaixo). Ao ligar, FORÇA o agrupamento por nome e
   // esconde o trilho lateral (Resumo/A comprar/OC). Ao desligar, restaura o agrupamento anterior.
-  // Modo Plano é o DEFAULT ao abrir a subcoleção (dono 10/nov): abre já no Modo Plano; o deep-link da OC
-  // (`modoInicial === "plano"`) continua forçando-o, e o toggle permite voltar ao canvas.
-  const [modoPlano, setModoPlano] = useState(true);
+  // Modo Plano é o DEFAULT ao abrir a subcoleção (dono 10/nov): abre já no Modo Plano. `modoInicial`
+  // (deep-link da OC) só tem efeito se vier explícito ("plano" => ligado; qualquer outro valor => canvas);
+  // o toggle permite alternar depois.
+  const [modoPlano, setModoPlano] = useState(modoInicial !== undefined ? modoInicial === "plano" : true);
   const [modoPlanoRecolhidos, setModoPlanoRecolhidos] = useState<Set<string>>(new Set()); // faixas recolhidas por nome de tecido
   const [focoDestaque, setFocoDestaque] = useState<string | null>(null); // modelo_id realçado (borda laranja + scroll) por 10s no deep-link
   const groupByNome = agrup.isOn("nome") || modoPlano;        // Modo Plano força nome
