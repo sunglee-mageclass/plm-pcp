@@ -39,9 +39,11 @@ import {
   chaveDirty, emptyDraft, montarPayload, validarDraft, etapasComCotacaoRef, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
   produtoPedidoImportado,
   acoplarParVarejo, acoplarParAtacado,
-  aplicarResolucaoConflito,
+  aplicarResolucaoConflito, linhaResumoDeProduto,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft, type StatusProduto,
 } from "./shared";
+import { resumoProduto } from "@/lib/produto-resumo";
+import { ResumoVendaDuplo } from "@/components/shared/ResumoVendaDuplo";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
@@ -1148,6 +1150,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const produtosSub = produtosSubTodos.filter((p) => produtoPassaFiltroStatus(p, filtroStatus));
   const nReprovadosOcultos = produtosSubTodos.length - produtosSub.length;
   const pecasSub = produtosSub.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
+  // F4b (nov/2026) — resumo de vendas da subcoleção aberta (poder de venda + markups médios), no
+  // cabeçalho sticky. Fonte única `resumoProduto` (mesma do Produto Acabado). Custo = landed BRL.
+  const resumoVenda = resumoProduto(produtosSub.map((p) => linhaResumoDeProduto(p, p.modelo_id ? estadosIntegracao[p.modelo_id] : null)));
 
   // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
   // sempre por último (vira a lane de fallback "Sem categoria"/"Sem grupo").
@@ -1256,6 +1261,16 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             ]} />
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
+          {/* F4b: resumo de vendas da subcoleção aberta (poder de venda + markups médios). */}
+          {view === "canvas" && subAtual && (
+            <ResumoVendaDuplo
+              poderVarejo={resumoVenda.poderVarejo}
+              poderAtacado={resumoVenda.poderAtacado}
+              markupVarejo={resumoVenda.markupVarejo}
+              markupAtacado={resumoVenda.markupAtacado}
+              qtd={resumoVenda.qtd}
+            />
+          )}
           {/* Colab (Fase 3): presença + resultado do último merge + resolução dos conflitos
               pendentes — espelha `ProdutoAcabadoSheet.tsx` (ver comentário lá). Conflitos são POR
               PRODUTO (`conflitosPorProduto`) — achatados aqui numa lista única com path

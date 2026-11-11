@@ -36,9 +36,11 @@ import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   produtoPedidoAcabado,
   resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado, produtosParaSalvar, elegiveisParaCriarCard, textoAvisoReprovadosPulados, planejarPrecosFixo, precosAposSalvar, markupsParaLote,
-  baselinePatchDoServidor,
+  baselinePatchDoServidor, linhaResumoDeProduto,
   type ProdutoDraft, type StatusProduto, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
+import { resumoProduto } from "@/lib/produto-resumo";
+import { ResumoVendaDuplo } from "@/components/shared/ResumoVendaDuplo";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -1082,6 +1084,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const produtosSubTodos = subAtual ? produtosDeSub(subAtual.nome) : [];
   const produtosSub = produtosSubTodos.filter((p) => produtoPassaFiltroStatus(p, filtroStatus));
   const nReprovadosOcultos = produtosSubTodos.length - produtosSub.length;
+  // F4b (nov/2026) — resumo de vendas da subcoleção aberta (poder de venda + markups médios), no
+  // cabeçalho sticky. Fonte única `resumoProduto` (compartilhada com Produto Importado). Sem gate de
+  // custos (decisão do dono 10/nov). Usa a vista PODADA (produtos reprovados ocultos não entram).
+  const resumoVenda = resumoProduto(produtosSub.map((p) => linhaResumoDeProduto(p, p.modelo_id ? estadosIntegracao[p.modelo_id] : null)));
   // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
   // sempre por último (vira a lane de fallback "Sem categoria"/"Sem grupo").
   const laneKeys = useMemo(() => {
@@ -1237,6 +1243,16 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             ]} />
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
+          {/* F4b: resumo de vendas da subcoleção aberta (poder de venda + markups médios). */}
+          {view === "canvas" && subAtual && (
+            <ResumoVendaDuplo
+              poderVarejo={resumoVenda.poderVarejo}
+              poderAtacado={resumoVenda.poderAtacado}
+              markupVarejo={resumoVenda.markupVarejo}
+              markupAtacado={resumoVenda.markupAtacado}
+              qtd={resumoVenda.qtd}
+            />
+          )}
           {/* Colab (Fase 3): presença + resultado do último merge + resolução dos conflitos
               pendentes. Conflitos são POR PRODUTO (`conflitosPorProduto`) — achatados aqui numa
               lista única com path `${produtoId}::${campo}` p/ reusar o `ColabBanner` genérico

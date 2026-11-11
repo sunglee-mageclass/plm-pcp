@@ -37,6 +37,8 @@ import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { montarFiltrosPlanTecido } from "@/lib/plan-tecido/filtro-painel";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
+import { usePlanTecidoResumoVenda } from "@/lib/plan-tecido/usePlanTecidoResumoVenda";
+import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { precoDoCard } from "@/lib/preco";
 import { precoCardDoPlano, custoDetalheDoCard, type PrecoCardFn } from "@/lib/plan-tecido/preco-vaga";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -1838,6 +1840,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   const slotReady = (slot: PtSlot) => { const f = slotFornec(slot); return f.total > 0 && f.com === f.total; };
 
   const subAtual = arvore ? (arvore.subcolecoes[subAtiva] ?? null) : null;
+  // F4b (nov/2026) — resumo de vendas da subcoleção ativa (poder de venda + markup médio) para o
+  // cabeçalho, EXIBIDO só no Modo Plano (decisão do dono). Mesma base/função do rail (fonte única).
+  // RESPEITA os filtros da tela (status + linha): o PV/markup só somam o que está à MOSTRA (decisão
+  // do dono — não somar o filtrado). O MESMO predicado (`slotVisivelPT`) vai ao cabeçalho (hook) E ao
+  // rail (ResumoPanel, prop slotVisivel) — os dois nunca divergem. Só o PV/markup filtra; "a comprar" não.
+  const subArvoreResumo: PtArvore | null = arvore && subAtual ? { ...arvore, subcolecoes: [subAtual] } : null;
+  const slotVisivelPT = (slot: PtSlot) =>
+    slotPassaFiltroStatus(slot, slot.modelo_id ? reprovadoStatusSet.has(slot.modelo_id) : false, filtroStatus)
+    && slotPassaFiltroLinha(slot, filtroLinhas);
+  const resumoVendaPT = usePlanTecidoResumoVenda(subArvoreResumo, precoCardDe, reprovadoStatusSet, slotVisivelPT);
   // Nome-texto da subcoleção ativa (casa com modelos.subcolecao) + mixes dela (p/ "Mover p/ mix").
   const subNomeAtiva = subAtual?.subcolecao_id ? (nameOf(subNomes, subAtual.subcolecao_id) ?? "") : "";
   const { data: mixesSub = [] } = useQuery({
@@ -1992,6 +2004,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
             ]} />
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
+          {/* F4b: resumo de vendas da subcoleção (poder de venda + markup médio) — só no Modo Plano.
+              O PT tem preço de venda único (sem atacado) → um canal só, via `ResumoVenda`. */}
+          {view === "canvas" && subAtual && modoPlano && (
+            <ResumoVenda poder={resumoVendaPT.poder} markupMedio={resumoVendaPT.markupMedio} qtd={resumoVendaPT.qtd} />
+          )}
           <ColabBanner
             presentes={presentes}
             ultimoMerge={ultimoMergeSlot}
@@ -2337,7 +2354,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} slotVisivel={slotVisivelPT} />
                   </div>
                 </aside>
               )}
@@ -2350,7 +2367,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} vinculosDetalhe={vinculosDetalhe} capacidade={capacidadeOc} aguardandoCapacidade={situacaoPendente} enviadoCadSet={enviadoCadSet} reprovadoSet={reprovadoSet} reprovadoStatusSet={reprovadoStatusSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} precoCardDe={precoCardDe} custoCardsPendente={modeloIdsDb.length > 0 && custoCardPendente} slotVisivel={slotVisivelPT} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">

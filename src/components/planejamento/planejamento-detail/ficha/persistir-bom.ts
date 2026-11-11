@@ -151,6 +151,48 @@ export async function gravarTecidosIniciais(modeloIdRecemCriado: string, artigoI
 }
 
 /**
+ * F5 — Duplicar com BOM COMPLETO (dono, nov/2026). A nova versão herda a ficha inteira da ORIGEM, não só o
+ * artigo de ≤3 tecidos (decisão F3 #9 revertida a pedido do dono). Reusa o `ModeloParaCopia` do "Importar
+ * dados" (fonte única de leitura do BOM granular) e grava no modelo recém-criado:
+ *   - tecidos (com variantes/forro/entretela/consumo/multiplicadores) + aviamentos + grades via `salvar_modelo_bom`
+ *     (APAGA o BOM antes de inserir — modelo novo não tem BOM, `_rev_base: null`);
+ *   - insumos (`modelo_etiquetas`) por INSERT direto (modelo novo = sem diff; numeração sequencial entre os válidos).
+ * NÃO copia OC-links (a nova versão não herda vínculo de OC — `montarTecidosPayload` já tira os sem `oc_tecido_item_id`;
+ * aqui a origem foi lida SEM oc_links, então nascem vazios). `proporcoes`/`custos_adicionais` vão no header do INSERT
+ * (ver PlanejamentoDetail), não aqui. Comprado não chama esta função (não tem BOM manufaturado).
+ */
+export async function gravarBomCompletoDuplicado(
+  modeloIdRecemCriado: string,
+  origem: import("@/components/desenvolvimento/importar/importar-copia").ModeloParaCopia,
+): Promise<void> {
+  // Grava BOM + insumos numa transação atômica (tudo-ou-nada) via `salvar_card_planejamento`:
+  //  - `_bom` (tecidos/aviamentos/grade) E `_etiquetas` (insumos) juntos. A RPC grava os insumos por DENTRO
+  //    (`_salvar_etiquetas_modelo_core`, DEFINER) — um INSERT direto em `modelo_etiquetas` esbarraria no gatilho
+  //    s3c; a RPC tem a exceção "BOM inicial" nos DOIS blocos (migration F5 `20261119100000`): com o modelo novo
+  //    ainda vazio, o gate aceita `criacao_planejamento`, então quem duplica com só Planejamento copia TUDO,
+  //    inclusive insumos (decisão do dono, nov/2026). ⚠️ EXIGE o banco com a migration F5 (banco ANTES do site).
+  //  - `_header: {}` (o cabeçalho já foi no INSERT da nova versão), `_rev_base: null` (card novo sem BOM).
+  const etiquetas = montarEtiquetasPayload(origem.etiquetas as ModeloEtiquetaRow[]);
+  const { error } = await supabase.rpc("salvar_card_planejamento" as any, {
+    _modelo_id: modeloIdRecemCriado,
+    _header: {},
+    _rev_base: null,
+    _bom: {
+      tecidos: montarTecidosPayload(origem.blocks),
+      aviamentos: montarAviamentosPayload(origem.aviamentos),
+      grades: montarGradesPayload(origem.grades),
+    },
+    _etiquetas: etiquetas.length > 0 ? etiquetas : null,
+    _cad: null,
+    _mo: null,
+    _grade_revenda: null,
+    _revisao: null,
+    _flags: {},
+  } as any);
+  if (error) throw error;
+}
+
+/**
  * F3.3 — Importar dados, "Observações (bloco)": SUBSTITUI na hora (Dev :2383-2394 — o bloco `ModeloObservacoes` é
  * auto-save, fora do Salvar). Apaga SEMPRE (origem vazia limpa o destino) e insere as linhas da origem.
  */

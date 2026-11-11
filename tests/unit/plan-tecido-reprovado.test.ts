@@ -308,8 +308,13 @@ describe("P-213 A / P-212 A — reprovado só no Planejamento; Poder de venda e 
     expect((sheet.match(/reprovadoStatusSet=\{reprovadoStatusSet\}/g) ?? []).length).toBe(2); // Resumo desktop + mobile
     expect(resumo).toContain("const venda = slots.filter((s) => slotContaNaDemanda(s, reprovadoStatusSet));");
     expect(resumo).toContain("pendenciasResumo(venda, (aid) => fornecSet.has(aid))");
-    expect(resumo).toMatch(/for \(const slot of venda\) \{ \/\/ P-212 A/);
-    expect(resumo).toContain("{nComFornec} de {venda.length} modelos com fornecedor");
+    // F4b: o poder de venda + markup médio saem de `resumoVendaSubcolecao(venda, …)` — a MESMA lista
+    // `venda` (reprovados já fora), agora numa função pura compartilhada com o cabeçalho do Modo Plano.
+    // F4b: o poder de venda sai de `resumoVendaSubcolecao(vendaPV, …)` — `vendaPV` = `venda` (reprovados
+    // fora) filtrado pelos filtros da tela (status+linha); as PENDÊNCIAS seguem com `venda` cheio.
+    expect(resumo).toContain("const vendaPV = slotVisivel ? venda.filter(slotVisivel) : venda;");
+    expect(resumo).toMatch(/resumoVendaSubcolecao\(vendaPV,/);
+    expect(resumo).toContain("{nComFornec} de {vendaPV.length} modelos com fornecedor");
   });
 });
 

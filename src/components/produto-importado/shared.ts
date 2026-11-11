@@ -11,6 +11,7 @@ import type { Conflito } from "@/lib/colab/merge";
 import type { TamanhoTipo } from "@/lib/tamanho";
 import { erroCotacaoEtapas } from "@/lib/importado-etapas";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { colunasTravadas } from "@/lib/integracao/trava";
 import { type EntradaPedido, type ProdutoPedido } from "@/lib/pedido-oc-lote";
 
 export type VarianteImportadoDraft = {
@@ -334,6 +335,29 @@ export function resumoDrafts(drafts: ProdutoImportadoDraft[]): ResumoImportado {
     varejoTotalBrl += precos.varejo * qtd;
   }
   return { produtos: drafts.length, pecas, custoTotalBrl, atacadoTotalBrl, varejoTotalBrl };
+}
+
+/** F4b (nov/2026) — linha do resumo de vendas (poder de venda + markups médios) de UM produto importado,
+ *  no formato compartilhado `@/lib/produto-resumo`. Custo = landed unitário BRL (custoDoDraft → moeda.ts);
+ *  preços efetivos por canal = precosDoDraft (fixo manda, senão base×markup). Mesma fonte única do resumo
+ *  agregado do planejador — só reempacotado pro componente de cabeçalho `ResumoVendaDuplo` (PA e PI). */
+export function linhaResumoDeProduto(
+  d: ProdutoImportadoDraft,
+  estadoIntegracao?: import("@/lib/integracao/trava").EstadoModeloIntegracao | null,
+): import("@/lib/produto-resumo").LinhaResumoProduto {
+  const custo = custoDoDraft(d);
+  const precos = precosDoDraft(d, custo);
+  const custoUnit = custo.unitarioBrl > 0 ? custo.unitarioBrl : null;
+  // Varejo TRAVADO pela Integração → preço CONGELADO `modeloPrecoVenda` (o que a API lê), como o card
+  // (ProdutoImportadoCard: `precos` useMemo). Atacado fica livre (D34/R8) → `precosDoDraft` já serve.
+  const varejoTravado = colunasTravadas(estadoIntegracao).has("preco_venda");
+  const varejoEf = varejoTravado ? (d.modeloPrecoVenda ?? precos.varejo) : precos.varejo;
+  return {
+    pecas: Number(d.qtd_total) || 0,
+    custoUnit,
+    precoVarejo: varejoEf > 0 ? varejoEf : null,
+    precoAtacado: precos.atacado > 0 ? precos.atacado : null,
+  };
 }
 
 /** Monta o payload `{dados, variantes, etapas}` esperado por `salvar_produto_importado`

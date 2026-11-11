@@ -762,6 +762,49 @@ describe.skipIf(!RODA)("salvar_card_planejamento — card de outra loja (sem or�
       expect(await lerFora()).toEqual(foraAntes);
     });
   });
+
+  // F5 (migration 20261119100000) — Duplicar com BOM completo precisa que os INSUMOS também sejam gravados por quem tem
+  // SÓ Planejamento, no card NOVO/VAZIO. O bloco `_etiquetas` ganhou a exceção "BOM inicial" (modelo sem tecidos/aviamentos/
+  // insumos aceita criacao_planejamento); card que JÁ tem ficha segue exigindo Desenvolvimento (não abre brecha).
+  it("F5. insumos em card VAZIO: só Planejamento GRAVA (exceção BOM inicial); card COM BOM exige Desenvolvimento", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const fx = await fixture(c);
+      const etiq = [{ id: null, etiqueta_id: fx.etq[0], cor_id: null, consumo: 1, loss_percent: 0, custo_previsto: 0 }];
+
+      // (A) card VAZIO (como o Duplicar cria) + só Planejamento + insumos = PASSA
+      const vazio = await novoCard(c, fx, { nome: "F5 vazio" });
+      await jwt(c, U_PLAN);
+      const rA = await salva(c, vazio, { etiquetas: etiq });
+      expect(txt(rA)).toBe("PASSOU");
+      await jwt(c, U_EDIT);
+      expect((await dump(c, vazio)).etiquetas.map((e: any) => e.etiqueta_id)).toEqual([fx.etq[0]]);
+
+      // (A2) card vazio + BOM completo (tecidos+aviamentos) JUNTO dos insumos, só Planejamento = PASSA (tudo no mesmo Salvar)
+      const vazio2 = await novoCard(c, fx, { nome: "F5 vazio2" });
+      await jwt(c, U_PLAN);
+      expect(txt(await salva(c, vazio2, { bom: BOM_NOVO(fx), etiquetas: etiq }))).toBe("PASSOU");
+
+      // (A3) ⚠️ card com INSUMO AUTOMÁTICO (insumos padrão da loja, R2) mas SEM tecido = estado NORMAL de card novo.
+      // "inicial" NÃO conta insumos (só tecidos/aviamentos): só Planejamento ainda grava o 1º BOM aqui (sem regressão).
+      const soInsumoA = await novoCard(c, fx, { etq: true, nome: "F5 insumo auto A" });
+      const soInsumoB = await novoCard(c, fx, { etq: true, nome: "F5 insumo auto B" });
+      await jwt(c, U_PLAN);
+      expect(txt(await salva(c, soInsumoA, { bom: BOM_NOVO(fx) }))).toBe("PASSOU"); // grava o 1º BOM
+      expect(txt(await salva(c, soInsumoB, { etiquetas: etiq }))).toBe("PASSOU"); // re-grava insumos enquanto não há tecido
+
+      // (B) card COM BOM (deixou de ser "inicial") + só Planejamento + insumos = 42501 (exige Desenvolvimento)
+      const comBom = await novoCard(c, fx, { bom: true, nome: "F5 com bom" });
+      await jwt(c, U_PLAN);
+      const rB = await salva(c, comBom, { etiquetas: etiq });
+      expect(rB.ok).toBe(false);
+      if (!rB.ok) expect({ code: rB.code, msg: rB.msg }).toEqual({ code: "42501", msg: "sem_permissao_pagina: criacao_desenvolvimento" });
+
+      // (C) o mesmo card COM BOM + quem edita Desenvolvimento = PASSA
+      await jwt(c, U_DEV);
+      expect(txt(await salva(c, comBom, { etiquetas: etiq }))).toBe("PASSOU");
+    });
+  });
 });
 
 // ═════════════════════════════════════════════════ 10 · HEADER ═════════════════════════════════════════════════

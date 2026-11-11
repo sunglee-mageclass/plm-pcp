@@ -119,7 +119,8 @@ import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/s
 import { baseCustoPlanejamento, baseMarkupComMO, estimativaComCustosAdicionais, moEmbutidaDoCusto, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
 import { somaCustosAdicionais } from "@/lib/custo";
 import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
-import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
+import { gravarTecidosIniciais, gravarBomCompletoDuplicado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
+import { buscarModeloParaCopia } from "@/components/desenvolvimento/importar/useModeloParaCopia";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
 import { CodigosSecao } from "@/components/planejamento/planejamento-detail/codigos/CodigosSecao";
 import { useSkusAGravar, useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
@@ -1244,17 +1245,22 @@ function PlanejamentoDetailConteudo({
         versao: maxV + 1,
         modelo_base_id: root,
       };
-      // F3.2 — decisão F3 #9: a nova versão herda o Planejamento + os TECIDOS (só o artigo); o resto do
-      // Desenvolvimento (equipe, datas, proporções, custos adicionais…) nasce vazio — já saiu no `camposParaDuplicar`
-      // da F3.1 (lista ÚNICA `CAMPOS_DEV_DRAFT`). O BOM da cópia é gravado como Tecido 1..N logo após o insert (uma
-      // fonte só; a lista segue derivada): com a ficha carregada, os artigos PRINCIPAIS dos blocos Tecido (sem
-      // substitutos); sem ela, a lista salva (comportamento de hoje). Comprado (revenda/importado) nunca tem BOM
-      // manufaturado (F3.2, decisão F3 #4) — `gravarTecidosIniciais` só roda para origem NÃO comprada.
-      // Fix round 4 (item 6, T13 m1) — COMPRADO nunca tem `fichaRef.current.carregado` true (a ficha nem
-      // habilita p/ comprado — `habilitada = isEdit && !isComprado && ...`), então caía sempre no fallback
-      // `.slice(0, 3)` — truncando a lista de comprado p/ 3 itens na cópia. Comprado não usa `tecidos_planejados`
-      // como BOM (é só coluna de texto, sem `gravarTecidosIniciais`), então a cópia deve levar a lista INTEIRA,
-      // como antes da T13 (sem truncar).
+      // F5 (dono, nov/2026) — Duplicar com BOM COMPLETO: a nova versão também herda grade/proporções e
+      // custos adicionais (antes nasciam vazios — `camposParaDuplicar` os remove via CAMPOS_DEV_DRAFT).
+      // `proporcoes`/`custos_adicionais` vêm da ORIGEM (do banco, lido abaixo) p/ não depender do rascunho.
+      // Origem do BOM = o card ABERTO (`modeloId`), que é o que está sendo duplicado.
+      let origemBom: Awaited<ReturnType<typeof buscarModeloParaCopia>> | null = null;
+      if (!isComprado) {
+        origemBom = await buscarModeloParaCopia(modeloId);
+        payload.proporcoes = origemBom.proporcoes ?? {};
+        payload.custos_adicionais = origemBom.custos_adicionais ?? [];
+        payload.observacoes_tecnicas = origemBom.observacoes_tecnicas ?? "";
+      }
+      // `tecidos_planejados` é a coluna DERIVADA/legada da lista de tecidos (texto). Para o não-comprado o BOM
+      // real é gravado por `gravarBomCompletoDuplicado` (abaixo); aqui só preenchemos a coluna derivada (artigos
+      // principais da ficha, ou a lista salva) — ela ainda alimenta o Plan. Tecido e serve de rede p/ o
+      // `etapaFalha === "tecidos"` (o próximo Salvar regrava ao menos os tecidos a partir dela). Comprado
+      // (revenda/importado) não tem BOM manufaturado (F3 #4): leva a lista INTEIRA, sem truncar (T13 m1).
       const tecidosDaCopia = isComprado
         ? draft.tecidos_planejados
         : fichaRef.current.carregado
@@ -1263,9 +1269,12 @@ function PlanejamentoDetailConteudo({
       payload.tecidos_planejados = tecidosDaCopia;
       const { data: novo, error } = await supabase.from("modelos").insert(payload).select("id").single();
       if (error) throw error;
+      // F5 — grava o BOM COMPLETO da origem no novo modelo (tecidos c/ variantes/forro/entretela/consumo +
+      // aviamentos + insumos + grade) via `gravarBomCompletoDuplicado`. Comprado não tem BOM manufaturado.
       if (novo?.id && !ehOrigemComprada(payload.origem ?? draft.origem)) {
         try {
-          await gravarTecidosIniciais(novo.id, tecidosDaCopia);
+          if (origemBom) await gravarBomCompletoDuplicado(novo.id, origemBom);
+          else await gravarTecidosIniciais(novo.id, tecidosDaCopia); // fallback (não deveria ocorrer p/ não-comprado)
         } catch (eT) {
           (eT as any).etapaFalha = "tecidos";
           throw eT;

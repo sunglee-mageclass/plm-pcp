@@ -57,3 +57,46 @@ export function custoDetalheDoCard(
 export function poderVendaCalculando(pendente: boolean, temSlotComCard: boolean): boolean {
   return pendente && temSlotComCard;
 }
+
+/** F4b (nov/2026) — resumo de vendas da subcoleção do Plan. Tecido para o cabeçalho (poder de venda +
+ *  markup médio + nº de vagas). FONTE ÚNICA com o rail (`ResumoPanel`): a MESMA base do "Poder de venda
+ *  (previsto)" — só vagas com tecido+fornecedor, reprovados já fora (o chamador passa `venda`), preço do
+ *  CARD quando há card (P-167 A), estimativa da vaga senão. O markup médio é a média aritmética do markup
+ *  real das vagas com custo e preço, espelhando o `computeResumo` do Planejamento. O PT tem preço de venda
+ *  ÚNICO (não há atacado), por isso um markup/poder só — ao contrário de PA/PI. */
+export function resumoVendaSubcolecao(
+  venda: PtSlot[],
+  fns: {
+    /** só vagas com tecido que tem fornecedor entram (gate do rail). */
+    comFornec: (slot: PtSlot) => boolean;
+    /** grade total da vaga (Σ grade das variantes do Tecido 1). */
+    gradeDe: (slot: PtSlot) => number;
+    /** custo estimado da vaga (materiais previstos + simulado + M.O.). */
+    custoDe: (slot: PtSlot) => number;
+    /** markup da linha da vaga (0 se sem linha). */
+    markupDe: (slot: PtSlot) => number;
+    /** preço/custo/markup do card do modelo (null = sem card/indisponível). */
+    precoCardDe?: PrecoCardFn;
+  },
+): { poder: number; markupMedio: number; qtd: number } {
+  let poder = 0;
+  let somaMk = 0;
+  let nMk = 0;
+  let qtd = 0;
+  for (const slot of venda) {
+    if (!fns.comFornec(slot)) continue;
+    qtd++;
+    const grade = fns.gradeDe(slot);
+    const custo = fns.custoDe(slot);
+    const markup = fns.markupDe(slot);
+    const precoCard = slot.modelo_id ? fns.precoCardDe?.(slot.modelo_id) : null;
+    poder += termoPoderDeVenda(slot, grade, precoCard, { custo, markup });
+    // markup real da vaga = efetivo ÷ custo — a MESMA fonte do preço usado no poder de venda:
+    // card com preço (P-167 A) usa o markup real do card; senão a estimativa da vaga.
+    const info = slot.modelo_id && precoCard && precoCard.efetivo > 0
+      ? precoCard
+      : precoInfo(custo, markup, slot.preco_venda ?? null, slot.markup_editado ?? null);
+    if (info.markupReal > 0) { somaMk += info.markupReal; nMk++; }
+  }
+  return { poder, markupMedio: nMk > 0 ? somaMk / nMk : 0, qtd };
+}

@@ -4,7 +4,9 @@
 // isso é só da OC, ver design spec §2: "tabela de variantes ... SÓ POR COR — sem
 // tamanho aqui").
 import { format } from "date-fns";
-import { splitMaiorResto, ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { splitMaiorResto, ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
+import { precoAtacado, precoVarejo } from "@/lib/preco-revenda";
+import { colunasTravadas } from "@/lib/integracao/trava";
 import { brl } from "@/lib/format";
 import type { TamanhoTipo } from "@/lib/tamanho";
 import { type EntradaPedido, type ProdutoPedido } from "@/lib/pedido-oc-lote";
@@ -686,3 +688,32 @@ export function markupCanalIntocado(
 /** Filtro "Status" do canvas (Task 5, paridade Plan. Tecido): status do produto SÓ vale SEM card; com card vale o do modelo.
  *  Implementação em `@/lib/kanban-card-selo` (PA e PI compartilham). */
 export { produtoPassaFiltroStatus } from "@/lib/kanban-card-selo";
+
+/** F4b (nov/2026) — monta a linha do resumo de vendas (poder de venda + markups médios) de UM produto de revenda.
+ *  Custo da peça = unitário real da compra + insumos (MESMA `base` do card, SEM a M.O. — revenda normalmente não tem
+ *  M.O., e somar a M.O. aqui exigiria `modelo_mo_resumo` por produto; o resumo é um agregado, não o preço do card).
+ *  Preço efetivo por canal = preço FIXO, senão base×markup, senão o preço gravado no espelho — idêntico ao `ProdutoCard`. */
+export function linhaResumoDeProduto(
+  p: ProdutoDraft,
+  estadoIntegracao?: import("@/lib/integracao/trava").EstadoModeloIntegracao | null,
+): import("@/lib/produto-resumo").LinhaResumoProduto {
+  const { unitReal } = cadeiaValores(p.qtd_total, p.valor_unitario, p.desconto_pct);
+  // Custo da peça = compra unitária + insumos. NÃO soma a M.O.: revenda de produto acabado não tem
+  // M.O. (é peça pronta), então a base aqui = a do card nesses casos; somar M.O. exigiria uma query
+  // por produto só para um agregado. O markup do resumo é preço ÷ este custo (média aritmética).
+  const base = unitReal + (p.insumos_total || 0);
+  // Varejo TRAVADO pela Integração (produto integrado) → usa o preço CONGELADO (`modeloPrecoVenda`,
+  // o que a API de fato lê), nunca o derivado ao vivo — idêntico ao `ProdutoCard` (precoVarejoLive).
+  const varejoTravado = colunasTravadas(estadoIntegracao).has("preco_venda");
+  const precoVarejoEf = varejoTravado
+    ? (p.modeloPrecoVenda ?? p.preco_varejo_fixo ?? precoVarejo(base, p.markup_varejo))
+    : (p.preco_varejo_fixo ?? precoVarejo(base, p.markup_varejo) ?? p.modeloPrecoVenda);
+  // Atacado fica LIVRE na Integração (D34/R8) — nunca trava.
+  const precoAtacadoEf = p.preco_atacado_fixo ?? precoAtacado(base, p.markup_atacado) ?? p.modeloPrecoAtacado;
+  return {
+    pecas: somaPecas(p),
+    custoUnit: base > 0 ? base : null,
+    precoVarejo: precoVarejoEf,
+    precoAtacado: precoAtacadoEf,
+  };
+}
