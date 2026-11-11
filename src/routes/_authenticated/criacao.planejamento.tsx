@@ -37,6 +37,7 @@ import { markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado, pecasReaisLiberadas } from "@/lib/cq-status";
 import { prontoParaLancar, textoLancarExige, TEXTO_LANCAR_DATA } from "@/lib/lancar";
 import { comRotuloColecaoLista } from "@/lib/colecao-rotulo";
+import { artigoTecido1DoEmbed, chavesGrupoCatTecido, chavesGrupoTecido, type ModeloTecidoEmbed } from "@/lib/tecido-principal";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -118,6 +119,8 @@ type Modelo = {
   markup_editado: number | null;
   origem: string | null;
   tecidos_planejados: string[] | null;
+  // Artigo do Tecido 1 PRINCIPAL (derivado do embed `modelo_tecidos`; sem substitutos) — só p/ agrupar Tecido/Categoria de tecido.
+  artigo_tecido1?: string | null;
   mix_id: string | null;
   lancado: boolean | null;
   // Selo da etapa do kanban (F2): a coluna do Dev só vale depois da Ordem de Criação.
@@ -424,11 +427,15 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, colecoes(nome), subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, mix_id, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra, status_desenvolvimento, ordem_criacao_enviada")
+        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, colecoes(nome), subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, mix_id, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra, status_desenvolvimento, ordem_criacao_enviada, modelo_tecidos(artigo_id, numero, tipo)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       // [modularidade R11] `colecao` = rótulo (nome do OTB, senão o texto): filtro, opções e card veem o que só tem `colecao_id`.
-      return comRotuloColecaoLista((data ?? []) as unknown as Modelo[]);
+      // Tecido 1 principal (sem substitutos) p/ os agrupamentos Tecido/Categoria de tecido; o embed cru não segue adiante.
+      const comTecido1 = ((data ?? []) as unknown as (Modelo & { modelo_tecidos?: ModeloTecidoEmbed[] | null })[]).map(
+        ({ modelo_tecidos, ...m }) => ({ ...m, artigo_tecido1: artigoTecido1DoEmbed(modelo_tecidos) }),
+      );
+      return comRotuloColecaoLista(comTecido1 as Modelo[]);
     },
   });
 
@@ -910,28 +917,26 @@ function PlanejamentoPage() {
       // Interno (fabricado) primeiro; depois as origens compradas em ordem alfabética.
       .sort((a, b) => (a.key === "interno" ? -1 : b.key === "interno" ? 1 : a.nome.localeCompare(b.nome, "pt-BR")));
   };
-  // Categoria de tecido: MULTI-PERTENCIMENTO (deriva da categoria dos tecidos_planejados do modelo).
-  // Um modelo com tecidos de categorias diferentes aparece em cada categoria.
+  // Categoria de tecido: categoria do Tecido 1 PRINCIPAL (não do pool tecidos_planejados, que inclui substitutos).
+  // Cada modelo aparece em UM grupo só.
   const byCatTecido = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
-      const cats = [...new Set((m.tecidos_planejados ?? []).filter(Boolean).map((a) => artigoCatTecMap[a]).filter(Boolean))] as string[];
       // Acessório nunca tem tecido → grupo próprio "Acessórios" em vez do balde genérico.
-      const keys = cats.length ? cats : [modeloEhAcessorio(m) ? "__acessorios__" : "__none__"];
+      const keys = chavesGrupoCatTecido(m.artigo_tecido1, artigoCatTecMap, modeloEhAcessorio(m));
       keys.forEach((k) => { const arr = map.get(k); if (arr) arr.push(m); else map.set(k, [m]); });
     });
     return Array.from(map.entries())
       .map(([key, its]) => ({ key, nome: key === "__acessorios__" ? "Acessórios" : key === "__none__" ? "Sem categoria de tecido" : catTecNomeMap[key] ?? "Sem categoria de tecido", items: its }))
       .sort(sortSplits);
   };
-  // Tecido é MULTI-PERTENCIMENTO: um modelo com vários tecidos_planejados aparece em cada
-  // grupo de tecido (por isso o poder de venda do grupo pode "somar mais" que o total).
+  // Tecido: agrupa SÓ pelo Tecido 1 PRINCIPAL (substitutos do pool `tecidos_planejados` NÃO entram) — um modelo
+  // aparece em UM grupo de tecido só (o poder de venda dos grupos fecha com o total).
   const byTecido = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
-      const arts = (m.tecidos_planejados ?? []).filter(Boolean);
       // Acessório nunca tem tecido → grupo próprio "Acessórios" em vez do balde genérico "Sem tecido".
-      const keys = arts.length ? arts : [modeloEhAcessorio(m) ? "__acessorios__" : "__none__"];
+      const keys = chavesGrupoTecido(m.artigo_tecido1, modeloEhAcessorio(m));
       keys.forEach((k) => {
         const arr = map.get(k);
         if (arr) arr.push(m); else map.set(k, [m]);
