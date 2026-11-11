@@ -9,7 +9,6 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useReadOnly } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
@@ -59,15 +58,13 @@ export function GradeComparativoBloco({ modeloId, ordemEnviada, tamanhoTipo }: {
   const podeEditar = (canEdit("criacao_planejamento") || canEdit("criacao_desenvolvimento")) && !readOnlyScope;
 
   const { data: resp, isLoading, isError, refetch, isFetching } = useGradeComparativo(modeloId, ordemEnviada);
-  // rev do card lido (MESMA queryKey/queryFn do Sheet — o Sheet e este bloco compartilham o cache; invalidar `["modelo", id]` atualiza os dois).
-  const { data: modelo } = useQuery({
+  // rev do card: LÊ do cache que o Sheet (`PlanejamentoDetail`, dentro do qual este bloco vive) já populou na
+  // MESMA queryKey `["modelo", id]`. SEM queryFn próprio (enabled:false) — não dispara um `select("*")` duplicado
+  // (que, além de redundante, fura o anti-drift de rótulo de coleção `colecao-rotulo-antidrift`). Reativo: ao
+  // invalidar `["modelo", id]` (o Salvar da Programada faz), o cache muda e este bloco re-renderiza com o rev novo.
+  const { data: modelo } = useQuery<any>({
     queryKey: ["modelo", modeloId],
-    enabled: !!modeloId && ordemEnviada,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("*").eq("id", modeloId).maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+    enabled: false,
   });
   const revBase = (modelo as any)?.rev as number | null | undefined;
   const salvar = useSalvarGradeProgramada(modeloId);
