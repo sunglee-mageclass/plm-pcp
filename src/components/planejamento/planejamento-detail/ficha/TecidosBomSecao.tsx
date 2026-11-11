@@ -14,10 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { semAcento } from "@/lib/busca";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { artigoLabel } from "@/lib/artigo-label";
-import { Plus, Trash2, AlertTriangle, Check, Link2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Check, Link2, ChevronsUpDown } from "lucide-react";
 import { Field } from "@/components/desenvolvimento/modelo-detail/shared";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from "@/components/desenvolvimento/modelo-detail/types";
@@ -780,7 +782,8 @@ function OcLinksField({
 /**
  * F3.2 (decisão F3 #10) — seletor do artigo principal do bloco com preço/m e estoque/disponível, no
  * formato do antigo "Tecido Planejado" (MultiArtigosField). O TRIGGER mostra só o nome (children do
- * SelectValue); as 2 linhas extras aparecem na lista e, do tecido escolhido, no "i" ao lado do rótulo (dono 25/set).
+ * trigger); as 2 linhas extras aparecem na lista e, do tecido escolhido, no "i" ao lado do rótulo (dono 25/set).
+ * Pedido do dono (11/nov): lupa de pesquisa (Popover + Command) — mesmo padrao do `OcRoloCombobox`.
  */
 function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disabled = false }: {
   label: string;
@@ -790,8 +793,10 @@ function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disa
   estoque: Record<string, EstoqueArtigo>;
   disabled?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const sel = value ? artigos.find((a) => a.id === value) : undefined;
   const eSel = value ? estoque[value] : undefined;
+  const escolher = (v: string | null) => { onChange(v); setOpen(false); };
   // Dono 25/set: preço/estoque do tecido escolhido saem da legenda fixa embaixo do campo e vão para o "i" ao lado do
   // rótulo (hover). A lista do seletor continua mostrando preço/estoque de cada opção (ajuda a escolher).
   return (
@@ -811,30 +816,57 @@ function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disa
           </InfoHover>
         )}
       </div>
-      <Select disabled={disabled} value={value ?? ""} onValueChange={(v) => onChange(v === "__none__" ? null : v)}>
-        <SelectTrigger>
-          <SelectValue placeholder="Selecione…">{sel ? artigoLabel(sel) : undefined}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__none__">— Nenhum —</SelectItem>
-          {artigos.map((a) => {
-            const e = estoque[a.id];
-            return (
-              <SelectItem key={a.id} value={a.id}>
-                <span className="flex flex-col">
-                  <span>{artigoLabel(a)}</span>
-                  <span className="text-xs text-muted-foreground">Preço/m: {a.preco_por_metro != null ? brl(a.preco_por_metro) : "—"}</span>
-                  {e && (
-                    <span className={`text-xs ${e.disponivel_m <= 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                      Estoque: {fmtNum(e.fisico_m)} m · disp.: {fmtNum(e.disponivel_m)} m
-                    </span>
-                  )}
-                </span>
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            role="combobox"
+            aria-expanded={open}
+            disabled={disabled}
+            className="flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm shadow-sm ring-offset-background cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 max-md:h-11"
+          >
+            <span className={`line-clamp-1 ${sel ? "" : "text-muted-foreground"}`}>{sel ? artigoLabel(sel) : "Selecione…"}</span>
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-(--radix-popover-trigger-width) min-w-[260px] p-0">
+          {/* Busca por NOME do tecido (e fornecedor) sem acento/caixa. O artigo nao tem coluna de codigo no cadastro. */}
+          <Command filter={(_id, search, keywords) => (semAcento((keywords ?? []).join(" ")).includes(semAcento(search.trim())) ? 1 : 0)}>
+            <CommandInput placeholder="Buscar tecido por nome ou fornecedor…" />
+            {/* Bug Radix primitives#1159: o Sheet (Dialog) instala o react-remove-scroll, que come wheel/touch e a lista
+                nao rola. overscroll-contain/touch-pan-y + stopPropagation devolvem o scroll a lista (ver MoverEtapaMenu). */}
+            <CommandList
+              className="max-h-[min(50vh,18rem)] overscroll-contain touch-pan-y"
+              onWheel={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+            >
+              <CommandEmpty>Nenhum tecido encontrado.</CommandEmpty>
+              <CommandGroup>
+                <CommandItem value="__none__" keywords={["Nenhum"]} onSelect={() => escolher(null)}>
+                  — Nenhum —
+                </CommandItem>
+                {artigos.map((a) => {
+                  const e = estoque[a.id];
+                  const fornecedor = a.empresa?.nome_fantasia || a.empresa?.razao_social || "";
+                  return (
+                    <CommandItem key={a.id} value={a.id} keywords={[artigoLabel(a), fornecedor]} onSelect={() => escolher(a.id)}>
+                      <span className="flex min-w-0 flex-col">
+                        <span>{artigoLabel(a)}</span>
+                        <span className="text-xs text-muted-foreground">Preço/m: {a.preco_por_metro != null ? brl(a.preco_por_metro) : "—"}</span>
+                        {e && (
+                          <span className={`text-xs ${e.disponivel_m <= 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            Estoque: {fmtNum(e.fisico_m)} m · disp.: {fmtNum(e.disponivel_m)} m
+                          </span>
+                        )}
+                      </span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
