@@ -224,3 +224,66 @@ describe.skipIf(!RODA)("salvar_grade_programada (F5-2 Task 2)", () => {
     });
   });
 });
+
+// Task 7 (fix load-bearing): o Salvar do BOM (`_salvar_modelo_bom_core`, chamado pelo wrapper `salvar_modelo_bom`) faz
+// delete-and-reinsert de `modelo_grades` e tem de PRESERVAR `grades_programada` (a meta oficial congelada da F5-2) por
+// variante_numero. Antes do fix, todo Salvar pos-Ordem ZERAVA a Programada.
+const salvaBom = (c: PgClient, m: string, grades: any, revBase: number | null) =>
+  como(c, "authenticated", `select public.salvar_modelo_bom($1::uuid, '[]'::jsonb, '[]'::jsonb, $2::jsonb, $3::int)`, [m, JSON.stringify(grades), revBase]);
+
+describe.skipIf(!RODA)("salvar_modelo_bom preserva grades_programada (F5-2 Task 7)", () => {
+  it("regravar a grade planejada NAO zera a Programada congelada; variante que saiu do BOM perde a linha (programada junto)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const m = await novoCard(c); // variante 1 = {P:5,M:5}; variante 2 = {P:2,M:3}
+      // Congela a Programada da variante 1 = {P:3,M:4} (meta oficial, como o envio da Ordem faria).
+      await semJwt(c, () =>
+        c.query(`update modelo_grades set grades_programada = '{"P":3,"M":4}'::jsonb where modelo_id = $1 and variante_numero = 1`, [m]),
+      );
+      const antes = await linhas(c, m);
+      expect(antes[0].p).toEqual({ P: 3, M: 4 });
+      expect(antes[1].p).toBeNull();
+
+      // Salvar do BOM regravando SO a variante 1 com uma grade planejada diferente ({P:9}); a variante 2 sai do BOM.
+      await jwt(c, U_DEV);
+      expect(txt(await salvaBom(c, m, [{ variante_numero: 1, grades: { P: 9 }, grade_total: 9 }], await rev(c, m)))).toBe("PASSOU");
+
+      const depois = await linhas(c, m);
+      // variante 1: grade planejada substituida por {P:9}, MAS a Programada congelada {P:3,M:4} PRESERVADA.
+      expect(depois).toHaveLength(1);
+      expect(depois[0].v).toBe(1);
+      expect(depois[0].grades).toEqual({ P: 9 });
+      expect(depois[0].grade_total).toBe(9);
+      expect(depois[0].p).toEqual({ P: 3, M: 4 });
+      // variante 2 saiu do BOM (nao reinserida): a linha some e a Programada vai junto — aceitavel (a variante nao existe mais).
+    });
+  });
+
+  it("variante que fica no BOM mas nunca teve Programada permanece com grades_programada NULL", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const m = await novoCard(c);
+      await semJwt(c, () =>
+        c.query(`update modelo_grades set grades_programada = '{"P":3,"M":4}'::jsonb where modelo_id = $1 and variante_numero = 1`, [m]),
+      );
+      await jwt(c, U_DEV);
+      // Regrava AS DUAS variantes; so a 1 tinha Programada.
+      expect(
+        txt(
+          await salvaBom(
+            c,
+            m,
+            [
+              { variante_numero: 1, grades: { P: 1, M: 1 }, grade_total: 2 },
+              { variante_numero: 2, grades: { G: 4 }, grade_total: 4 },
+            ],
+            await rev(c, m),
+          ),
+        ),
+      ).toBe("PASSOU");
+      const l = await linhas(c, m);
+      expect(l[0].p).toEqual({ P: 3, M: 4 }); // preservada
+      expect(l[1].p).toBeNull(); // variante 2 nunca teve Programada
+    });
+  });
+});
