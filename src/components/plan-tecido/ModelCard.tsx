@@ -235,6 +235,7 @@ export function ModelCard({
     toast.success("Slot limpo.");
   };
 
+
   // "Criar card no Planejamento" (que ficava aqui, por card) SAIU pra barra de seleção do
   // PlanTecidoSheet (G6 — criação em massa). `podeCriarCard`/`criarCard` foram removidos deste
   // componente; o predicado equivalente (`podeCriarCard`) foi replicado em PlanTecidoSheet.tsx
@@ -377,6 +378,48 @@ export function ModelCard({
   // Integração (F4): produto integrável/integrado — selo no card; "Limpar slot" (apaga nome/REF/preço) e o preço travados.
   const estadoIntegracao = useIntegracaoEstado(slot.modelo_id);
   const travaIntegracao = colunasTravadas(estadoIntegracao);
+
+  // "Limpar slot" num card JÁ MATERIALIZADO = esvaziar e VIRAR VAGA de novo: apaga o modelo pela
+  // MESMA via do Planejamento (DELETE cru em `modelos`), o que traz de graça as guardas do banco
+  // (Integração/serviço pago/permissão/M.O.). O FK `plan_tecido_slots.modelo_id ON DELETE SET NULL`
+  // + o re-seed/`limparSlotsOrfaos` do Plan. Tecido devolvem a vaga vazia SEM criar vaga-fantasma
+  // (não gravamos modelo_id=null à mão). Depois limpamos o rascunho LOCAL e invalidamos a árvore.
+  const virarVaga = useMutation({
+    mutationFn: async () => {
+      const mid = slot.modelo_id;
+      if (!mid) return;
+      const { error } = await supabase.from("modelos").delete().eq("id", mid);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // Zera o rascunho local do slot (mesmos campos de `limparSlot`, sem o toast "Slot limpo"),
+      // + `status: null` para a vaga voltar 100% PURA (sem resíduo que a tiraria do "+"). O modelo
+      // já foi apagado; o FK nulou o `plan_tecido_slots.modelo_id` no servidor. A persistência do
+      // slot vazio vai no próximo Salvar do plano (delete+reinsert); aqui só antecipamos na tela.
+      onChange({
+        id: slot.id, slot_index: slot.slot_index, modelo_id: null,
+        ref: null, nome: null, thumb_path: null, referencia_paths: [],
+        proporcoes: null, categoria_id: null, categoria_tecido_id: null, mix_id: null,
+        linha_id: null, markup_editado: null, preco_venda: null,
+        custo_simulado: null, custo_terceirizados_previsto: null, custos_adicionais: [],
+        usar_estoque: slot.usar_estoque, materiais: [], tamanho_tipo: null, status: null,
+      });
+      setConfirmLimpar(false);
+      invalidarModelo();            // OTB + chaves do modelo/vínculos (o slot local já está vazio; a
+                                    // árvore persiste no próximo Salvar — mesmo padrão dos fluxos irmãos).
+      toast.success("Card apagado — a vaga voltou para a lista.");
+    },
+    onError: (e) => { setConfirmLimpar(false); toast.error(mensagemErro(e, "Nao foi possivel apagar o card.")); },
+  });
+
+  // Guardas de UX do "virar vaga" (espelham as travas do banco + a regra do dono de bloquear com OC
+  // vinculada). `estadoIntegracao` cobre integravel/integrado; `lancado` e `vinculos` vêm por prop.
+  const temOcVinculada = (vinculos?.length ?? 0) > 0;
+  const motivoNaoVirarVaga: string | null =
+    estadoIntegracao ? "Produto integravel/integrado — nao pode virar vaga."
+    : lancado ? "Produto lancado — nao pode virar vaga."
+    : temOcVinculada ? "Ha OC de tecido vinculada — desvincule a OC antes."
+    : null;
   // "Tamanho em" (frente Tamanho em, Tarefa 4 — P-118/P-119 A): só no card INTERNO e na vaga sem card (o comprado não
   // mostra a faixa). Trava SÓ por página só-leitura ou pela Integração (invariante #14: a trava cobre SEMPRE
   // `tamanho_tipo`); Explosão/Lançado NÃO travam (é dado do produto, não do BOM — R29).
@@ -617,8 +660,17 @@ export function ModelCard({
                 <ChevronRight className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
               </button>
             </div>
-            {/* Limpar slot (#4c): só em VAGA (slot sem modelo). Zera o rascunho mantendo a vaga. */}
-            {!slot.modelo_id && (
+            {/* Limpar slot: em VAGA (slot sem modelo) zera o rascunho local; em CARD materializado
+                APAGA o modelo e a vaga vazia volta (F8+). As guardas (integracao/lancado/OC vinculada)
+                desabilitam o item no card; a recusa do banco vira toast. Em vaga, só a trava da
+                Integracao vale (a vaga pura nunca está integrada, mas o predicado fica por simetria). */}
+            {(() => {
+              const ehCard = !!slot.modelo_id;
+              const bloqueado = ehCard ? !!motivoNaoVirarVaga : !!estadoIntegracao;
+              const motivoTitulo = ehCard
+                ? motivoNaoVirarVaga ?? undefined
+                : (estadoIntegracao ? textoExcluirTravado(estadoIntegracao.estado).replace("Excluir", "Limpar") : undefined);
+              return (
               <Popover>
                 <PopoverTrigger asChild>
                   <span role="button" tabIndex={0} onClick={(e) => e.stopPropagation()}
@@ -626,15 +678,16 @@ export function ModelCard({
                     <MoreHorizontal className="h-4 w-4" />
                   </span>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
-                  <button type="button" disabled={!!estadoIntegracao} onClick={() => setConfirmLimpar(true)}
-                    title={estadoIntegracao ? textoExcluirTravado(estadoIntegracao.estado).replace("Excluir", "Limpar") : undefined}
+                <PopoverContent align="end" className="w-52 p-1" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" disabled={bloqueado || virarVaga.isPending} onClick={() => setConfirmLimpar(true)}
+                    title={motivoTitulo}
                     className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40">
                     <Eraser className="h-4 w-4 shrink-0" /> Limpar slot
                   </button>
                 </PopoverContent>
               </Popover>
-            )}
+              );
+            })()}
           </div>
         </div>
         {!open && necTecidos.length > 0 && (
@@ -1036,19 +1089,27 @@ export function ModelCard({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Limpar slot (#4c) — zera o rascunho da vaga, mantém a vaga na lista */}
+      {/* Limpar slot — VAGA: zera o rascunho local (mantém a vaga). CARD materializado: APAGA o
+          modelo e a vaga vazia volta (aviso forte, pois é destrutivo de verdade). */}
       <AlertDialog open={confirmLimpar} onOpenChange={setConfirmLimpar}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Limpar slot?</AlertDialogTitle>
+            <AlertDialogTitle>{slot.modelo_id ? "Apagar este card e voltar para vaga?" : "Limpar slot?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              Zera os dados deste slot (tecidos, categoria, família, custos, nome…). A vaga continua
-              na lista, vazia, na mesma posição. A limpeza é aplicada ao salvar o plano.
+              {slot.modelo_id
+                ? "Isto APAGA o modelo deste card em definitivo — BOM, grade, SKU, custos e vínculos de OC são perdidos. A vaga vazia volta para a lista, na mesma posição. Não dá para desfazer."
+                : "Zera os dados deste slot (tecidos, categoria, família, custos, nome…). A vaga continua na lista, vazia, na mesma posição. A limpeza é aplicada ao salvar o plano."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={limparSlot}>Limpar</AlertDialogAction>
+            <AlertDialogCancel disabled={virarVaga.isPending}>Cancelar</AlertDialogCancel>
+            {slot.modelo_id ? (
+              <AlertDialogAction variant="destructive" disabled={virarVaga.isPending} onClick={(e) => { e.preventDefault(); virarVaga.mutate(); }}>
+                {virarVaga.isPending ? "Apagando…" : "Apagar e voltar para vaga"}
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction variant="destructive" onClick={limparSlot}>Limpar</AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
