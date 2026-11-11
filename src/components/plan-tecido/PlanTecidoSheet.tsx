@@ -2509,30 +2509,6 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     )}
                   </div>
                 </div>
-                {/* F8: vagas vazias PURAS da subcoleção viram UM "+" ("Disponíveis para criar N vaga(s)"),
-                    no lugar de N cards de abas vazios idênticos (ruído) — mesmo padrão do Produto Acabado.
-                    Clicar materializa UMA dessas vagas (herda só coleção+subcoleção). */}
-                {nVagasVazias > 0 && (
-                  <section className="mb-4">
-                    <div className="mb-1.5 flex items-center gap-2">
-                      <span className="text-sm font-semibold text-muted-foreground">Disponíveis para criar</span>
-                      <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{nVagasVazias} vaga(s)</span>
-                    </div>
-                    <div className="flex items-start gap-3 overflow-x-auto pb-2 max-md:snap-x max-md:snap-mandatory">
-                      <button
-                        type="button"
-                        disabled={criandoCards}
-                        onClick={() => { const alvo = vagasVaziasFlat[0]; if (alvo) void criarUmaVagaVazia(alvo.slot, sub.subcolecao_id ?? null); }}
-                        title="Criar um novo card nesta subcoleção"
-                        className="flex h-24 w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Plus className="h-5 w-5" />
-                        <span className="text-xs font-medium">Novo card</span>
-                        <span className="text-[11px] text-muted-foreground">de {nVagasVazias} vaga{nVagasVazias === 1 ? "" : "s"}</span>
-                      </button>
-                    </div>
-                  </section>
-                )}
                 {modoPlano ? (
                   <ModoPlanoView
                     // No Modo Plano o canvas normal (laneCats) não roda — então o filtro por família e o de status
@@ -2675,6 +2651,30 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     })() : null}
                   </DragOverlay>
                 </DndContext>
+                )}
+                {/* F8: vagas vazias PURAS da subcoleção viram UM "+" ("Disponíveis para criar N vaga(s)"),
+                    no lugar de N cards de abas vazios idênticos (ruído). Fica EMBAIXO do canvas, padronizado
+                    com Produto Acabado/Importado. Clicar materializa UMA dessas vagas (herda só coleção+subcoleção). */}
+                {nVagasVazias > 0 && (
+                  <section className="mt-4">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="text-sm font-semibold text-muted-foreground">Disponíveis para criar</span>
+                      <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{nVagasVazias} vaga(s)</span>
+                    </div>
+                    <div className="flex items-start gap-3 overflow-x-auto pb-2 max-md:snap-x max-md:snap-mandatory">
+                      <button
+                        type="button"
+                        disabled={criandoCards}
+                        onClick={() => { const alvo = vagasVaziasFlat[0]; if (alvo) void criarUmaVagaVazia(alvo.slot, sub.subcolecao_id ?? null); }}
+                        title="Criar um novo card nesta subcoleção"
+                        className="flex h-24 w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Plus className="h-5 w-5" />
+                        <span className="text-xs font-medium">Novo card</span>
+                        <span className="text-[11px] text-muted-foreground">de {nVagasVazias} vaga{nVagasVazias === 1 ? "" : "s"}</span>
+                      </button>
+                    </div>
+                  </section>
                 )}
               </main>
             </div>
