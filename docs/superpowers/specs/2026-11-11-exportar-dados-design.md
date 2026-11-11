@@ -22,17 +22,33 @@ filtra por Coleção + Subcoleção, marca as COLUNAS (campos do produto) e marc
 6. **RPC nova** (caminho robusto, não só-front): a montagem pai/variante/tamanho e a regra de custo
    vivem em SQL; o PostgREST corta em 1.000 linhas. RPC dedicada resolve limpo.
 7. **Deploy próprio**, assim que pronta (banco antes do site). Não espera a F6.
+8. **Catálogo de campos AMPLIADO (dono 11/nov):** "todas as informações possíveis" de CATÁLOGO
+   (identidade + preços + SKU + taxonomia; SEM ficha/produção — nada de BOM, grade, M.O.). =
+   os 21 campos da Integração MAIS: **preco_atacado** (`modelos.preco_atacado`), **subcolecao**
+   (`modelos.subcolecao`), **grupo/categoria/subcategoria1/subcategoria2** (taxonomia do produto,
+   colunas separadas), **origem** (interno/revenda/importado). O usuário seleciona o que quer.
+9. **Seleção PERSISTIDA (dono 11/nov):** as colunas e níveis que o usuário marcou FICAM salvos para a
+   próxima vez (como os filtros) — via `useUiPrefs`/`user_ui_prefs` (padrão do projeto, por usuário no
+   banco). Chave própria (ex.: `useUserPref("export", "integracao", "colunas"|"niveis", default)`).
+10. **PRÉVIA na própria tela (dono 11/nov):** uma amostra (ex.: primeiras ~20 linhas) do resultado, com
+    as colunas na ordem escolhida, exibida na tela ANTES de baixar — para o usuário conferir ordem/
+    colunas sem ter que baixar e abrir o arquivo. A prévia usa o MESMO retorno da RPC (ou um `_limite`
+    pequeno); baixar usa o conjunto completo.
 
 ## Reaproveitamento (o que já existe)
 
 - **`xlsx` (SheetJS) JÁ instalado** (`package.json`), já gera .xlsx com 1 aba por descritor
   (`src/lib/import/template.ts`: `aoa_to_sheet` + `book_append_sheet` + `XLSX.writeFile`). Para CSV:
   `XLSX.utils.sheet_to_csv`. É o padrão pronto para "uma aba por nível".
-- **Catálogo de 21 campos** `src/lib/integracao/campos.ts` (type `CampoDef`, com `soVariante`/`tipo`):
-  nome, ref_sku, preco_anterior, preco_venda, peso, ncm, preco_custo, cor_base, cor_apelido, tamanho,
-  titulo, descricao, keywords, metatag, comprimento/largura/altura, foto, colecao, categoria_tecido,
-  linha. Reusar para montar os checkboxes de colunas (e `soVariante` decide em que nível cada coluna
-  faz sentido: cor_base/cor_apelido só nos níveis 2-3, tamanho só no 3).
+- **Catálogo de campos** — base = os 21 de `src/lib/integracao/campos.ts` (type `CampoDef`, com
+  `soVariante`/`tipo`): nome, ref_sku, preco_anterior, preco_venda, peso, ncm, preco_custo, cor_base,
+  cor_apelido, tamanho, titulo, descricao, keywords, metatag, comprimento/largura/altura, foto,
+  colecao, categoria_tecido, linha. ⚠️ A Exportar NÃO reusa `campos.ts` como está — define seu
+  PRÓPRIO catálogo `src/lib/export/campos-export.ts` (mesmo shape `CampoDef`), com os 21 + os extras do
+  dono: **preco_atacado, subcolecao, grupo, categoria, subcategoria1, subcategoria2, origem**. Motivo: o
+  `campos.ts` da Integração é o layout FIXO da API (não deve ganhar campos que a API não entrega).
+  `soVariante` decide o nível: cor_base/cor_apelido só nos níveis 2-3, tamanho só no 3; os demais são do
+  pai (herdam nos filhos).
 - **Opções de Coleção/Subcoleção** `opcoes_colecao_modelos()` / `src/lib/opcoes-colecao.ts` — pronto.
 - **Fontes dos campos** (todas mapeadas): SKU=`modelo_skus`; REF=`modelos.ref`; custo=derivado
   (`_custo_unitario_modelos_core`); preço venda/anterior=`modelos.preco_venda/preco_anterior`;
@@ -45,7 +61,12 @@ filtra por Coleção + Subcoleção, marca as COLUNAS (campos do produto) e marc
 
 ### Banco — RPC `exportar_produtos` (wrapper + `_core`, padrão da casa)
 
-`exportar_produtos(_colecao_id uuid, _subcolecao text, _campos text[], _niveis int[]) RETURNS jsonb`
+`exportar_produtos(_colecao_id uuid, _subcolecao text, _campos text[], _niveis int[], _limite int DEFAULT NULL) RETURNS jsonb`
+- `_limite` (opcional): modo PRÉVIA — devolve só as primeiras `_limite` linhas (ex.: 20) + o total `N`;
+  `NULL` = conjunto completo (baixar). A UI chama com `_limite:20` para a prévia e sem limite para baixar.
+- **Campos extras** (além dos 21): `preco_atacado` (`modelos.preco_atacado`), `subcolecao`
+  (`modelos.subcolecao`), `grupo`/`categoria`/`subcategoria1`/`subcategoria2` (taxonomia via os ids do
+  modelo → nomes), `origem` (`coalesce(modelos.origem,'interno')`). Todos campos do PAI (herdam nos filhos).
 - **Wrapper:** login + módulo + `user_can_view('integracao')` (mesmo gate da tela); DEFINER.
 - **`_core`** (EXECUTE revogado dos 3): recorte de produtos = a base de `_integracao_base` SEM o filtro
   que exclui reprovados (traz TODOS), filtrada por `colecao_id`/`subcolecao`. Monta, por produto:
@@ -67,9 +88,15 @@ filtra por Coleção + Subcoleção, marca as COLUNAS (campos do produto) e marc
 
 - **`src/components/integracao/ExportarAba.tsx`** (novo): UI da aba.
   - Filtros: Coleção (dropdown de `opcoes_colecao_modelos`) + Subcoleção (dependente da coleção).
-  - Colunas: checkboxes dos 21 campos (de `campos.ts`); `soVariante` agrupa "campos de variante".
-  - Níveis: 3 checkboxes (pai / até cor / até tamanho).
-  - Botão "Exportar" → chama `exportar_produtos` → monta o arquivo e baixa.
+    PERSISTIDOS via `useUserPref("export", "integracao", ...)`.
+  - Colunas: checkboxes do catálogo (`campos-export.ts`); `soVariante` agrupa "campos de variante".
+    **PERSISTIDAS** (`useUserPref("export","integracao","colunas",[])`).
+  - Níveis: 3 checkboxes (pai / até cor / até tamanho). **PERSISTIDOS**
+    (`useUserPref("export","integracao","niveis",[1])`).
+  - **PRÉVIA na tela:** uma tabela com as ~20 primeiras linhas do resultado, colunas na ordem escolhida,
+    que atualiza quando o usuário muda filtros/colunas/níveis (chama `exportar_produtos` com um
+    `_previa true`/`_limite 20`). Mostra "mostrando 20 de N" quando há mais.
+  - Botão "Baixar" → chama `exportar_produtos` (conjunto completo) → monta o arquivo e baixa.
 - **`src/lib/export/exportar.ts`** (novo, puro): recebe o retorno da RPC + a escolha de níveis e monta:
   - 1 nível → CSV (`XLSX.utils.sheet_to_csv` sobre o `aoa_to_sheet`).
   - 2-3 níveis → workbook .xlsx com 1 aba por nível (`book_append_sheet`), `XLSX.writeFile`.
