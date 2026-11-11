@@ -37,6 +37,7 @@ import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shar
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { useSort } from "@/components/shared/sort";
 import { useFilterState } from "@/hooks/useFilterState";
+import { colunasVisiveis } from "@/lib/kanban-colunas-visiveis";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 
 
@@ -160,6 +161,8 @@ function DesenvolvimentoPage() {
   const [fCad, setFCad] = useFilterState("desenvolvimento", "Explosão", []);
   const [fGrupo, setFGrupo] = useFilterState("desenvolvimento", "Grupo", []);
   const [fOrigem, setFOrigem] = useFilterState("desenvolvimento", "Origem", []);
+  // F6 Fluxo 1 (A2): filtro de Etapas esconde colunas do kanban (individual; vazio = todas).
+  const [fEtapas, setFEtapas] = useFilterState("desenvolvimento", "Etapas", []);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // "Reprovado" nasce colapsada já no PRIMEIRO paint (lazy init contra DEFAULT_STATUSES, que
@@ -235,6 +238,8 @@ function DesenvolvimentoPage() {
       return normalizeKanbanStatuses(data?.status_kanban);
     },
   });
+  // Colunas visíveis no quadro (filtro "Etapas"). A coluna terminal TERMINAL_DEV fica FORA do filtro.
+  const colunasKanban = colunasVisiveis(statusKanban, fEtapas);
 
   // Requisitos de entrada por status (motor de regras) + condições satisfeitas por modelo.
   const { data: kanbanReqCfg = { requisitos: {}, excecoes: {} } } = useQuery({
@@ -879,6 +884,7 @@ function DesenvolvimentoPage() {
           <FilterButton
             screen="desenvolvimento"
             filters={[
+              { label: "Etapas", value: fEtapas, onChange: setFEtapas, options: statusKanban.map((s) => ({ id: s.key, nome: s.label })) },
               { label: "Status", value: fStatus, onChange: setFStatus, options: statusKanban.map((s) => ({ id: s.key, nome: s.label })) },
               { label: "Explosão", value: fCad, onChange: setFCad, options: [{ id: "enviado", nome: "Enviado à Explosão" }, { id: "nao", nome: "Não enviado" }] },
               { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: estilistas },
@@ -940,7 +946,7 @@ function DesenvolvimentoPage() {
           lento de ler — laudo das 3 lentes); coluna RECOLHIDA vira trilho estreito com título
           vertical (só cabe vertical). items-stretch = colunas na altura da mais alta. */}
       <div className="hidden md:flex gap-4 overflow-x-auto pb-4 items-stretch">
-        {statusKanban.map((s) => {
+        {colunasKanban.map((s) => {
           const cards = byStatus.get(s.key) ?? [];
           const isOver = dragOver === s.key;
           const isCollapsed = collapsed.has(s.key);
@@ -1108,7 +1114,7 @@ function DesenvolvimentoPage() {
       {/* Mobile: lista agrupada por status com seletor para mover */}
       <div className="md:hidden">
         <Accordion type="multiple" defaultValue={firstStatusKey ? [firstStatusKey] : []} className="space-y-2">
-          {statusKanban.map((s) => {
+          {colunasKanban.map((s) => {
             const cards = byStatus.get(s.key) ?? [];
             return (
               <AccordionItem key={s.key} value={s.key} className="rounded-lg border bg-muted/30 px-3">
