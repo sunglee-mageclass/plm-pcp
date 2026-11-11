@@ -16,8 +16,8 @@
 -- NIVEIS (_niveis text[] com '1','2','3'): 1 = 1 linha por produto (pai). 2 = o pai seguido de 1 linha por variante de cor.
 -- 3 = o pai seguido de 1 linha por SKU cor x tamanho (a mesma matriz do SKU: variante x tamanho com grade > 0). Produto sem
 -- variante/grade sai so com o pai. Os campos cor_base/cor_apelido/tamanho sao vazios (null) na linha do pai; nas linhas
--- filhas os demais campos herdam o valor do pai, exceto ref_sku, que no nivel 3 e o SKU GRAVADO da linha (modelo_skus; null
--- se ainda nao gerado) e no nivel 2 herda a REF do pai (nao existe SKU por cor).
+-- filhas os demais campos herdam o valor do pai, exceto ref_sku, que no nivel 3 e o SKU GRAVADO da linha (modelo_skus) ou, se ainda
+-- nao gerado, o SKU PREVISTO (_skus_calc_ref_tipo; null so se faltar sigla) e no nivel 2 herda a REF do pai (nao existe SKU por cor).
 --
 -- CAMPOS (_campos text[], chave -> fonte; a ordem pedida vai em `colunas`, as linhas sao objetos chave -> valor):
 --   nome, ref_sku, preco_anterior, preco_venda, preco_atacado, preco_custo, peso, ncm, titulo, descricao, keywords, metatag,
@@ -253,7 +253,7 @@ BEGIN
       v_tipo := coalesce((r.mo).tamanho_tipo, 'letra');
       v_var_atual := NULL;
       FOR s IN
-        SELECT k.variante_key, k.variante_ordem, k.cor_nome, k.apelido_nome, k.tamanho_key, k.tamanho_ordem, sk.sku AS sku_gravado
+        SELECT k.variante_key, k.variante_ordem, k.cor_nome, k.apelido_nome, k.tamanho_key, k.tamanho_ordem, sk.sku AS sku_gravado, k.sku AS sku_previsto
           FROM public._skus_calc_ref_tipo((r.mo).id, (r.mo).ref::text, v_tipo) k
           LEFT JOIN public.modelo_skus sk
             ON sk.modelo_id = (r.mo).id AND sk.tenant_id = (r.mo).tenant_id
@@ -275,7 +275,7 @@ BEGIN
             v_fil := v_fil || jsonb_build_object('tamanho', coalesce(to_jsonb(v_tam), 'null'::jsonb));
           END IF;
           IF v_tem_ref THEN
-            v_fil := v_fil || jsonb_build_object('ref_sku', coalesce(to_jsonb(nullif(btrim(coalesce(s.sku_gravado, '')), '')), 'null'::jsonb));
+            v_fil := v_fil || jsonb_build_object('ref_sku', coalesce(to_jsonb(coalesce(nullif(btrim(coalesce(s.sku_gravado, '')), ''), nullif(btrim(coalesce(s.sku_previsto, '')), ''))), 'null'::jsonb));
           END IF;
           v_l3 := v_l3 || v_fil;
         END IF;

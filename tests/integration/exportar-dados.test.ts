@@ -194,7 +194,7 @@ describe.skipIf(!hasDb || !LOCAL)("exportar dados — RPC exportar_produtos / ex
     });
   });
 
-  it("nivel 3: produto sem grade sai so com o pai; SKU nao gerado = ref_sku vazio na linha filha", async () => {
+  it("nivel 3: produto sem grade sai so com o pai; SKU nao gravado continua gerando as linhas filhas", async () => {
     await withTx(async (c) => {
       await viva(c);
       const s = await semeia(c);
@@ -206,8 +206,43 @@ describe.skipIf(!hasDb || !LOCAL)("exportar dados — RPC exportar_produtos / ex
       expect(l.filter((x) => x.nome === "ZZ Blusa Interna")).toHaveLength(1); // so o pai
       const rv = l.filter((x) => x.nome === "ZZ Bolsa Revenda");
       expect(rv).toHaveLength(3);
-      expect(rv[1].ref_sku).toBeNull();
       expect(rv[1].tamanho).toBe("P");
+    });
+  });
+
+  it("nivel 3: sem SKU gravado, ref_sku da linha filha = SKU PREVISTO (_skus_calc_ref_tipo), nao null; com gravado, o gravado vence", async () => {
+    await withTx(async (c) => {
+      await viva(c);
+      const s = await semeia(c);
+      // gravado so para um tamanho: apaga o M da revenda (fica o P gravado e o M sem SKU gravado)
+      await c.query(`DELETE FROM public.modelo_skus WHERE modelo_id = $1 AND tamanho_key IN (SELECT tamanho_key FROM public.modelo_skus WHERE modelo_id = $1 ORDER BY tamanho_key DESC LIMIT 1)`, [s.revenda]);
+      const gravados = (await c.query(`SELECT tamanho_key, sku FROM public.modelo_skus WHERE modelo_id = $1`, [s.revenda])).rows;
+      expect(gravados).toHaveLength(1);
+      // o previsto, como a funcao o calcula (mesma entrada que a RPC usa)
+      const prev = (
+        await c.query(
+          `SELECT k.tamanho_key, k.sku FROM public.modelos mo, public._skus_calc_ref_tipo(mo.id, mo.ref::text, coalesce(mo.tamanho_tipo, 'letra')) k
+            WHERE mo.id = $1 ORDER BY k.variante_ordem NULLS LAST, k.variante_key, k.tamanho_ordem NULLS LAST, k.tamanho_key`,
+          [s.revenda],
+        )
+      ).rows as { tamanho_key: string; sku: string | null }[];
+      expect(prev).toHaveLength(2);
+      expect(prev[0].sku).toBeTruthy();
+      expect(prev[1].sku).toBeTruthy();
+      await comoUsuario(c, U);
+      const j = await exporta(c, "R1", ["nome", "ref_sku", "tamanho"], ["3"]);
+      const rv = j.niveis["3"].filter((x) => x.nome === "ZZ Bolsa Revenda");
+      expect(rv).toHaveLength(3);
+      expect(rv[0].ref_sku).toBe(s.refs.revenda); // o pai segue sendo a REF
+      for (const [idx, p] of prev.entries()) {
+        const g = gravados.find((x: { tamanho_key: string }) => x.tamanho_key === p.tamanho_key);
+        const esperado = g ? g.sku : p.sku; // gravado vence; sem gravado, o previsto
+        expect(rv[idx + 1].ref_sku).toBe(esperado);
+        expect(rv[idx + 1].ref_sku).not.toBeNull();
+      }
+      // as duas origens do valor foram exercitadas (1 gravado + 1 previsto)
+      expect(prev.some((p) => gravados.some((g: { tamanho_key: string }) => g.tamanho_key === p.tamanho_key))).toBe(true);
+      expect(prev.some((p) => !gravados.some((g: { tamanho_key: string }) => g.tamanho_key === p.tamanho_key))).toBe(true);
     });
   });
 
