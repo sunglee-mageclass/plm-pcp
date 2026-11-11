@@ -20,7 +20,7 @@ import { STORAGE_PREFIX, migrarPrefixoStorage } from "@/lib/storage-prefix-migra
  * `value` é sempre `string[]` (seleção do filtro; dimensões ativas do agrupamento).
  */
 
-export type UiPrefScope = "filtro" | "agrupar";
+export type UiPrefScope = "filtro" | "agrupar" | "export";
 
 const QK = (uid: string) => ["user-ui-prefs", uid] as const;
 
