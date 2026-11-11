@@ -13,6 +13,7 @@
 import { AlertTriangle, Tag } from "lucide-react";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { focarProximoInput } from "@/lib/explosao-teclado";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { fmtNum, fmtNumEdit } from "@/lib/format";
 import { rotuloTamanho } from "@/lib/insumo-tamanho";
@@ -121,6 +122,13 @@ export function ExplosaoInsumosSection({ linhas, gradeTotalGeral, editing, onEnv
                       placeholder="0,00"
                       className="ml-auto w-24 max-md:w-28 bg-card text-right font-semibold num"
                       data-colab-path={`expl-eti-env:${l.id}`}
+                      onKeyDown={(e) => {
+                        if ((e.key !== "Enter" && e.key !== "Tab") || e.ctrlKey || e.metaKey || e.altKey) return;
+                        const tabela = e.currentTarget.closest("table");
+                        if (!tabela) return;
+                        const foco = focarProximoInput(e.currentTarget, tabela, e.key as "Enter" | "Tab", e.shiftKey);
+                        if (foco || e.key === "Enter") e.preventDefault(); // Enter nunca "submete"; Tab só intercepta se achou alvo
+                      }}
                       value={l.aEnviar || ""}
                       onChange={(e) => onEnviarChange(l.id, Math.max(0, Number(e.target.value)))}
                     />

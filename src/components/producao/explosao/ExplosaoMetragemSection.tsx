@@ -11,6 +11,7 @@ import { AlertTriangle, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { focarProximoInput } from "@/lib/explosao-teclado";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { fmtNum } from "@/lib/format";
@@ -166,6 +167,13 @@ export function ExplosaoMetragemSection({
                               placeholder="0,00"
                               className="ml-auto w-24 max-md:w-28 bg-card text-right font-semibold"
                               data-colab-path={`expl-metragem:${v.id}`}
+                              onKeyDown={(e) => {
+                                if ((e.key !== "Enter" && e.key !== "Tab") || e.ctrlKey || e.metaKey || e.altKey) return;
+                                const tabela = e.currentTarget.closest("table");
+                                if (!tabela) return;
+                                const foco = focarProximoInput(e.currentTarget, tabela, e.key as "Enter" | "Tab", e.shiftKey);
+                                if (foco || e.key === "Enter") e.preventDefault(); // Enter nunca "submete"; Tab só intercepta se achou alvo
+                              }}
                               value={v.metragem_enviada || ""}
                               onChange={(e) =>
                                 updateVar(i, j, {
