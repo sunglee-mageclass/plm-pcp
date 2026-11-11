@@ -3,6 +3,9 @@
 //
 // - Filtros/colunas/níveis persistem POR USUÁRIO (`useUserPref("export", "integracao", chave, string[])`). Todo valor é string[]:
 //   coleção/subcoleção = array de 1 elemento (ou vazio), níveis = ["1","2","3"] (NUNCA number[]).
+// - "Todas as coleções" é uma ESCOLHA EXPLÍCITA (valor sentinela guardado no pref da coleção; a RPC recebe `_colecao: null` = loja
+//   inteira, sem aviso de tamanho). 3 estados: (a) nada escolhido = Baixar desabilitado e nada é consultado; (b) "Todas" = libera
+//   (subcoleção fica desabilitada/“Todas”, pois subcoleção é POR coleção); (c) uma coleção específica. O vazio NUNCA vira "todas".
 // - Ao LER do pref: colunas passam por KEYS_VALIDAS (chave que saiu do catálogo é ignorada); coleção/subcoleção só valem se ainda
 //   existirem nas listas carregadas do servidor (senão contam como "não escolhida"/"todas" — nunca mandam texto velho ao RPC).
 // - A prévia mostra as linhas do MENOR nível marcado (1 = pai, 2 = até cor, 3 = até tamanho); o limite da RPC conta PRODUTOS.
@@ -28,6 +31,8 @@ import { buscarOpcoesColecao } from "@/lib/opcoes-colecao";
 const LIMITE_PREVIA = 20;
 /** Valor do item "Todas" no Select da subcoleção (Radix não aceita value vazio). */
 const TODAS = "__todas__";
+/** Valor do item "Todas as coleções" no Select da coleção (escolha explícita; distinto do estado vazio = nada escolhido). */
+const TODAS_COLECOES = "__todas_colecoes__";
 
 const NIVEIS: { valor: string; rotulo: string; ajuda: string }[] = [
   { valor: "1", rotulo: "SKU pai", ajuda: "1 linha por produto" },
@@ -50,7 +55,7 @@ function lerSubcolecoes(data: unknown): string[] {
 }
 
 async function chamarExportar(
-  colecao: string,
+  colecao: string | null, // null = todas as coleções (loja inteira)
   subcolecao: string | null,
   campos: string[],
   niveis: string[],
@@ -98,11 +103,16 @@ export function ExportarAba() {
   const colecoes = colecoesQ.data;
   // Só vale a coleção salva que ainda existe na lista (lista ainda não chegou = sem coleção, nada é consultado).
   const colecao = colecoes && colecaoPref[0] && colecoes.includes(colecaoPref[0]) ? colecaoPref[0] : "";
+  // "Todas as coleções" só vale com a lista carregada e não vazia (mesmo critério do Select habilitado); vazio/inválido NÃO vira "todas".
+  const todasColecoes = !!colecoes && colecoes.length > 0 && colecaoPref[0] === TODAS_COLECOES;
+  const colecaoEscolhida = colecao !== "" || todasColecoes;
+  /** O que vai para a RPC: null só quando "Todas" foi escolhida; senão a coleção específica. */
+  const colecaoRpc: string | null = todasColecoes ? null : colecao;
 
   // ---- Subcoleção (dependente da coleção escolhida) ----
   const subsQ = useQuery({
     queryKey: ["exportar-subcolecoes", tenantId, colecao],
-    enabled: !!tenantId && !!colecao,
+    enabled: !!tenantId && !!colecao && !todasColecoes,
     retry: 1,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("exportar_subcolecoes" as any, { _colecao: colecao });
@@ -114,24 +124,24 @@ export function ExportarAba() {
   // Subcoleção salva que não existe nesta coleção = "todas" (nunca manda texto velho ao servidor).
   const subcolecao = subcolecoes && subPref[0] && subcolecoes.includes(subPref[0]) ? subPref[0] : null;
   // Enquanto a lista de subcoleções não chegou, a prévia espera (senão consultaria com a subcoleção errada).
-  const subsPronta = !colecao || subsQ.isSuccess;
+  const subsPronta = !colecao || todasColecoes || subsQ.isSuccess;
 
-  const pronto = !!colecao && colunasSel.length > 0 && niveisSel.length > 0;
+  const pronto = colecaoEscolhida && colunasSel.length > 0 && niveisSel.length > 0;
 
   // ---- Prévia ----
   const previaQ = useQuery({
-    queryKey: ["exportar-previa", tenantId, colecao, subcolecao, colunasSel.join(","), niveisSel.join(",")],
+    queryKey: ["exportar-previa", tenantId, todasColecoes ? "__todas_colecoes__" : colecao, subcolecao, colunasSel.join(","), niveisSel.join(",")],
     enabled: !!tenantId && pronto && subsPronta,
     retry: 1,
     placeholderData: (anterior) => anterior,
-    queryFn: () => chamarExportar(colecao, subcolecao, colunasSel, niveisSel, LIMITE_PREVIA),
+    queryFn: () => chamarExportar(colecaoRpc, subcolecao, colunasSel, niveisSel, LIMITE_PREVIA),
   });
 
   // ---- Baixar ----
   const baixar = useMutation({
     mutationFn: async () => {
-      const dados = await chamarExportar(colecao, subcolecao, colunasSel, niveisSel, null);
-      baixarExport(dados, niveisSel, `export-${colecao}-${subcolecao ?? "todas"}`);
+      const dados = await chamarExportar(colecaoRpc, subcolecao, colunasSel, niveisSel, null);
+      baixarExport(dados, niveisSel, `export-${colecaoRpc ?? "todas-as-colecoes"}-${subcolecao ?? "todas"}`);
       return dados.total;
     },
     onSuccess: (total) => {
@@ -154,7 +164,7 @@ export function ExportarAba() {
   };
   const trocarColecao = (v: string) => {
     setColecaoPref([v]);
-    setSubPref([]); // a subcoleção é DA coleção: trocar a coleção volta para "todas"
+    setSubPref([]); // a subcoleção é DA coleção: trocar a coleção (ou escolher "Todas as coleções") volta para "todas"
   };
 
   const baixarDesabilitado = !pronto || baixar.isPending;
@@ -172,11 +182,12 @@ export function ExportarAba() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-1">
             <Label htmlFor="exportar-colecao">Coleção</Label>
-            <Select value={colecao || undefined} onValueChange={trocarColecao} disabled={!colecoes || colecoes.length === 0}>
+            <Select value={todasColecoes ? TODAS_COLECOES : colecao || undefined} onValueChange={trocarColecao} disabled={!colecoes || colecoes.length === 0}>
               <SelectTrigger id="exportar-colecao" className="min-w-0 [&>span]:truncate">
                 <SelectValue placeholder={colecoesQ.isPending ? "Carregando…" : "Escolha uma coleção"} />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={TODAS_COLECOES}>Todas as coleções</SelectItem>
                 {(colecoes ?? []).map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -195,7 +206,7 @@ export function ExportarAba() {
             <Select
               value={subcolecao ?? TODAS}
               onValueChange={(v) => setSubPref(v === TODAS ? [] : [v])}
-              disabled={!colecao || !subcolecoes}
+              disabled={!colecao || todasColecoes || !subcolecoes}
             >
               <SelectTrigger id="exportar-subcolecao" className="min-w-0 [&>span]:truncate">
                 <SelectValue />
@@ -274,8 +285,8 @@ export function ExportarAba() {
       {/* Prévia */}
       <section className="grid gap-3">
         <h2 className="text-sm font-medium">Prévia</h2>
-        {!colecao ? (
-          <p className="text-sm text-muted-foreground">Escolha uma coleção para ver a prévia.</p>
+        {!colecaoEscolhida ? (
+          <p className="text-sm text-muted-foreground">Escolha uma coleção (ou “Todas as coleções”) para ver a prévia.</p>
         ) : colunasSel.length === 0 ? (
           <p className="text-sm text-muted-foreground">Marque ao menos uma coluna.</p>
         ) : niveisSel.length === 0 ? (

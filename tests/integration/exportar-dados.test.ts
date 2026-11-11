@@ -33,7 +33,7 @@ async function viva(c: Client): Promise<void> {
   }
 }
 
-type Semente = { interno: string; revenda: string; importado: string; reprovado: string; refs: Record<string, string> };
+type Semente = { interno: string; revenda: string; importado: string; reprovado: string; refs: Record<string, string>; cores: Record<string, { cor: string; apelido: string | null }> };
 /** 4 produtos em QA-EXP/R1 + 1 em QA-EXP/R2 + 1 em OUTRA colecao + 1 de OUTRA loja com o mesmo nome de colecao. */
 async function semeia(c: Client): Promise<Semente> {
   await comoUsuario(c, U); // super admin da Loja Teste: as fixtures de preco passam pelo gatilho de preco de venda
@@ -54,7 +54,15 @@ async function semeia(c: Client): Promise<Semente> {
     `INSERT INTO public.modelos (tenant_id, nome, ref, origem, colecao, subcolecao) VALUES ($1, 'ZZ De Outra Loja', 'XL00000001', 'interno', $2, 'R1')`,
     [AVE_RARA, COL],
   );
-  return { interno: i.id, revenda: r.id, importado: m.id, reprovado: x.id, refs: { interno: i.ref, revenda: r.ref, importado: m.ref, reprovado: x.ref } };
+  return {
+    interno: i.id, revenda: r.id, importado: m.id, reprovado: x.id,
+    refs: { interno: i.ref, revenda: r.ref, importado: m.ref, reprovado: x.ref },
+    cores: {
+      interno: { cor: i.corId, apelido: i.apelidoId },
+      revenda: { cor: r.corId, apelido: r.apelidoId },
+      importado: { cor: m.corId, apelido: m.apelidoId },
+    },
+  };
 }
 
 async function exporta(c: Client, sub: string | null, campos: string[], niveis: string[], limite: number | null = null, col: string | null = COL): Promise<Ret> {
@@ -246,7 +254,17 @@ describe.skipIf(!hasDb || !LOCAL)("exportar dados — RPC exportar_produtos / ex
     });
   });
 
-  it("nivel 2: pai + 1 linha por variante de cor (tamanho vazio, REF herdada do pai); niveis 1+2+3 de uma vez", async () => {
+  /** Sigla (SKU) da cor base / do apelido de uma variante da semente. */
+  async function siglas(c: Client, f: { cor: string; apelido: string | null }): Promise<{ base: string; apel: string | null }> {
+    const base = (await um<{ s: string }>(c, `SELECT sigla_sku AS s FROM public.cores WHERE id = $1`, [f.cor])).s;
+    const apel = f.apelido ? (await um<{ s: string }>(c, `SELECT sigla_sku AS s FROM public.cores_apelido WHERE id = $1`, [f.apelido])).s : null;
+    return { base, apel };
+  }
+  async function formato(c: Client, cfg: unknown): Promise<void> {
+    await c.query(`UPDATE public.tenant_config SET sku_config = $1::jsonb WHERE tenant_id = $2`, [cfg == null ? null : JSON.stringify(cfg), T]);
+  }
+
+  it("nivel 2: pai + 1 linha por variante de cor (tamanho vazio, ref_sku = SKU ATE A COR); niveis 1+2+3 de uma vez", async () => {
     await withTx(async (c) => {
       await viva(c);
       const s = await semeia(c);
@@ -258,11 +276,84 @@ describe.skipIf(!hasDb || !LOCAL)("exportar dados — RPC exportar_produtos / ex
       expect(j.niveis["3"]).toHaveLength(12);
       const l2 = j.niveis["2"];
       const i = l2.findIndex((x) => x.nome === "ZZ Blusa Interna");
+      // o pai segue sendo a REF; a sublinha de cor = SKU ate a cor (formato da Loja Teste: ref + cor_base + tamanho => REF+cor, sem tamanho)
+      const sg = await siglas(c, s.cores.interno);
       expect(l2[i]).toMatchObject({ cor_base: null, tamanho: null, ref_sku: s.refs.interno });
-      expect(l2[i + 1]).toMatchObject({ nome: "ZZ Blusa Interna", tamanho: null, ref_sku: s.refs.interno });
+      expect(l2[i + 1]).toMatchObject({ nome: "ZZ Blusa Interna", tamanho: null, ref_sku: `${s.refs.interno}${sg.base}` });
       expect(l2[i + 1].cor_base).toMatch(/^Branco /);
+      // oraculo independente: o SKU previsto completo (_skus_calc_ref_tipo) = SKU ate a cor + a sigla do tamanho
+      const prev = (await um<{ sku: string }>(c,
+        `SELECT k.sku FROM public.modelos mo, public._skus_calc_ref_tipo(mo.id, mo.ref::text, 'letra') k WHERE mo.id = $1 ORDER BY k.tamanho_ordem LIMIT 1`, [s.interno])).sku;
+      expect(prev.startsWith(l2[i + 1].ref_sku)).toBe(true);
+      expect(prev.length).toBeGreaterThan(l2[i + 1].ref_sku.length);
+      // nivel 3 INTACTO: continua o SKU gravado; nivel 1 = REF
+      const l3 = j.niveis["3"];
+      const i3 = l3.findIndex((x) => x.nome === "ZZ Blusa Interna");
+      expect(l3[i3 + 1].ref_sku).toBe(`${s.refs.interno}-P`);
       // o pai do nivel 1 e o do nivel 3 sao a mesma linha
       expect(j.niveis["1"].find((x) => x.nome === "ZZ Blusa Interna")).toEqual(l2[i]);
+    });
+  });
+
+  it("nivel 2 SKU ate a cor: segue o formato da loja menos o tamanho (cor+apelido, separadores, tamanho no meio, sem tamanho, sem formato); as 3 origens", async () => {
+    await withTx(async (c) => {
+      await viva(c);
+      const s = await semeia(c);
+      await comoUsuario(c, U);
+      const ate = async (campos = ["nome", "ref_sku", "tamanho"]) => {
+        const j = await exporta(c, "R1", campos, ["2"]);
+        const por = (nome: string) => {
+          const l = j.niveis["2"];
+          const k = l.findIndex((x) => x.nome === nome);
+          expect(l.filter((x) => x.nome === nome)).toHaveLength(2); // pai + 1 variante
+          return { pai: l[k].ref_sku, cor: l[k + 1].ref_sku };
+        };
+        return { interno: por("ZZ Blusa Interna"), revenda: por("ZZ Bolsa Revenda"), importado: por("ZZ Macacao Importado") };
+      };
+      const sg = { interno: await siglas(c, s.cores.interno), revenda: await siglas(c, s.cores.revenda), importado: await siglas(c, s.cores.importado) };
+      const T_SKU = { P: "OOP", M: "OOM" };
+      await c.query(`UPDATE public.tenant_config SET tamanhos_sku = $1::jsonb WHERE tenant_id = $2`, [JSON.stringify(T_SKU), T]);
+
+      // (a) cor_base + cor_apelido + tamanho, separador "-" entre REF e cor: REF-BASEAPEL (sem o tamanho)
+      await formato(c, { partes: ["ref", "cor_base", "cor_apelido", "tamanho"], separadores: { "ref|cor_base": "-", "cor_base|cor_apelido": ".", "cor_apelido|tamanho": "_" } });
+      // com cor_base E cor_apelido no formato a sigla do apelido (quando ha) entra apos a base
+      let r = await ate();
+      for (const k of ["interno", "revenda", "importado"] as const) {
+        const f = s.cores[k];
+        const esperado = `${s.refs[k]}-${sg[k].base}${f.apelido ? `.${sg[k].apel}` : ""}`;
+        expect(r[k].cor).toBe(esperado);
+        expect(r[k].pai).toBe(s.refs[k]); // o pai segue a REF
+      }
+
+      // (b) tamanho NO MEIO: o separador que o antecede some junto e o que o segue liga a parte anterior (REF-P.AZ -> REF.AZ)
+      await formato(c, { partes: ["ref", "tamanho", "cor_base"], separadores: { "ref|tamanho": "-", "tamanho|cor_base": "." } });
+      r = await ate();
+      expect(r.interno.cor).toBe(`${s.refs.interno}.${sg.interno.base}`);
+      expect(r.revenda.cor).toBe(`${s.refs.revenda}.${sg.revenda.base}`);
+
+      // (c) formato SEM tamanho: o SKU ate a cor e o proprio SKU completo
+      await formato(c, { partes: ["ref", "cor_base"], separadores: { "ref|cor_base": "-" } });
+      r = await ate();
+      expect(r.interno.cor).toBe(`${s.refs.interno}-${sg.interno.base}`);
+
+      // (d) so tamanho no formato: nada sobra ate a cor => null
+      await formato(c, { partes: ["tamanho"], separadores: {} });
+      r = await ate();
+      expect(r.interno.cor).toBeNull();
+
+      // (e) loja SEM formato de SKU: null (como o previsto do nivel 3)
+      await formato(c, null);
+      r = await ate();
+      expect(r.interno.cor).toBeNull();
+      expect(r.revenda.cor).toBeNull();
+      expect(r.interno.pai).toBe(s.refs.interno);
+
+      // (f) falta a sigla da cor base: null (nao inventa SKU)
+      await formato(c, { partes: ["ref", "cor_base", "tamanho"], separadores: {} });
+      await c.query(`UPDATE public.cores SET sigla_sku = NULL WHERE id = $1`, [s.cores.interno.cor]);
+      r = await ate();
+      expect(r.interno.cor).toBeNull();
+      expect(r.revenda.cor).toBe(`${s.refs.revenda}${sg.revenda.base}`);
     });
   });
 

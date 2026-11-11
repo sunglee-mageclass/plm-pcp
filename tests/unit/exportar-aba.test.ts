@@ -17,6 +17,8 @@ vi.mock("@/integrations/supabase/client", () => ({
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: null, loading: false, canView: () => true, canEdit: () => true }) }));
 vi.mock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const baixarExport = vi.fn();
+vi.mock("@/lib/integracao/export", () => ({ baixarExport: (...a: unknown[]) => baixarExport(...a) }));
 
 import { ExportarAba } from "@/components/integracao/ExportarAba";
 
@@ -43,6 +45,7 @@ afterEach(() => {
 
 beforeEach(() => {
   rpc.mockReset();
+  baixarExport.mockReset();
   localStorage.clear();
   rpc.mockResolvedValue({ data: { colecoes: [], subcolecoes: [] }, error: null });
 });
@@ -112,5 +115,46 @@ describe("ExportarAba", () => {
     expect(c.textContent).toContain("Escolha uma coleção");
     expect(rpc.mock.calls.some((a) => a[0] === "exportar_produtos")).toBe(false);
     expect(botaoBaixar(c)?.disabled).toBe(true);
+  });
+
+  // ---- "Todas as coleções": escolha EXPLÍCITA (3 estados: nada / todas / uma coleção) ----
+  const TODAS_COLECOES = "__todas_colecoes__";
+
+  it("estado inicial VAZIO não vira 'todas': sem escolha, nem com colunas e níveis marcados, nada é consultado e Baixar fica desabilitado", async () => {
+    const k = (chave: string) => `wish360:uipref:export:anon:integracao:${chave}`;
+    localStorage.setItem(k("colunas"), JSON.stringify(["nome"]));
+    localStorage.setItem(k("niveis"), JSON.stringify(["1"]));
+    respostas({ colunas: ["nome"], total: 9, niveis: { "1": [{ nome: "x" }] } });
+    const c = await montar();
+    expect(rpc.mock.calls.some((a) => a[0] === "exportar_produtos")).toBe(false);
+    expect(c.textContent).toContain("Escolha uma coleção");
+    expect(botaoBaixar(c)?.disabled).toBe(true);
+  });
+
+  it("'Todas as coleções' escolhida: prévia e download mandam _colecao null (loja inteira), sem subcoleção, e Baixar habilita", async () => {
+    semear(TODAS_COLECOES, ["nome"], ["1"]);
+    respostas({ colunas: ["nome"], total: 321, niveis: { "1": [{ nome: "Vestido A" }] } });
+    const c = await montar();
+    const previa = rpc.mock.calls.find((a) => a[0] === "exportar_produtos");
+    expect(previa?.[1]).toEqual({ _colecao: null, _subcolecao: null, _campos: ["nome"], _niveis: ["1"], _limite: 20 });
+    expect(rpc.mock.calls.some((a) => a[0] === "exportar_subcolecoes")).toBe(false); // subcoleção é POR coleção
+    expect(c.textContent).toContain("Mostrando 20 produtos de 321");
+    const sub = c.querySelector("#exportar-subcolecao") as HTMLButtonElement;
+    expect(sub.disabled).toBe(true);
+    expect(botaoBaixar(c)?.disabled).toBe(false);
+    rpc.mockClear();
+    await act(async () => { botaoBaixar(c)!.click(); });
+    for (let i = 0; i < 4; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    const baixa = rpc.mock.calls.find((a) => a[0] === "exportar_produtos");
+    expect(baixa?.[1]).toEqual({ _colecao: null, _subcolecao: null, _campos: ["nome"], _niveis: ["1"], _limite: null }); // sem limite
+    expect(baixarExport).toHaveBeenCalledTimes(1);
+  });
+
+  it("'Todas as coleções' ainda exige colunas e níveis: sem eles, Baixar fica desabilitado", async () => {
+    semear(TODAS_COLECOES, [], []);
+    respostas({ colunas: [], total: 0, niveis: {} });
+    const c = await montar();
+    expect(botaoBaixar(c)?.disabled).toBe(true);
+    expect(rpc.mock.calls.some((a) => a[0] === "exportar_produtos")).toBe(false);
   });
 });

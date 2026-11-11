@@ -17,7 +17,11 @@
 -- 3 = o pai seguido de 1 linha por SKU cor x tamanho (a mesma matriz do SKU: variante x tamanho com grade > 0). Produto sem
 -- variante/grade sai so com o pai. Os campos cor_base/cor_apelido/tamanho sao vazios (null) na linha do pai; nas linhas
 -- filhas os demais campos herdam o valor do pai, exceto ref_sku, que no nivel 3 e o SKU GRAVADO da linha (modelo_skus) ou, se ainda
--- nao gerado, o SKU PREVISTO (_skus_calc_ref_tipo; null so se faltar sigla) e no nivel 2 herda a REF do pai (nao existe SKU por cor).
+-- nao gerado, o SKU PREVISTO (_skus_calc_ref_tipo; null so se faltar sigla) e no nivel 2 e o SKU ATE A COR: o SKU montado com as
+-- MESMAS partes/separadores do formato da loja (tenant_config.sku_config) MENOS 'tamanho' (ex.: 1234AZPP -> 1234AZ), pelo
+-- MESMO resolvedor do SKU (_sku_resolver, com o formato sem a parte tamanho; o separador que antecede o tamanho some junto e o que
+-- o segue passa a ligar a parte anterior). Formato sem 'tamanho' = o SKU completo; loja sem formato (ou falta sigla de cor) = null,
+-- igual ao nivel 3 previsto. Sempre CALCULADO do formato atual (o SKU gravado nao e usado no nivel 2). Nivel 1 (pai = REF) intacto.
 --
 -- CAMPOS (_campos text[], chave -> fonte; a ordem pedida vai em `colunas`, as linhas sao objetos chave -> valor):
 --   nome, ref_sku, preco_anterior, preco_venda, preco_atacado, preco_custo, peso, ncm, titulo, descricao, keywords, metatag,
@@ -59,6 +63,7 @@ BEGIN
      OR to_regprocedure('public._integracao_extras(uuid)') IS NULL
      OR to_regprocedure('public._integracao_num(numeric,integer)') IS NULL
      OR to_regprocedure('public._skus_calc_ref_tipo(uuid,text,text)') IS NULL
+     OR to_regprocedure('public._sku_resolver(jsonb,text,jsonb,jsonb,text,text,jsonb)') IS NULL
      OR to_regprocedure('public._sku_tamanho_lado(text,text)') IS NULL
      OR to_regprocedure('public._modelo_automaticos(uuid)') IS NULL
      OR to_regprocedure('public._custo_unitario_modelos_core(uuid[])') IS NULL THEN
@@ -112,6 +117,14 @@ DECLARE
   v_tipo text;
   v_tam text;
   v_var_atual uuid;
+  v_cfg jsonb;
+  v_cfg2 jsonb;
+  v_partes text[];
+  v_pos integer;
+  v_sep jsonb;
+  v_sep_dep text;
+  v_skus_cor jsonb;
+  v_fil2 jsonb;
   v_l1 jsonb[] := '{}'::jsonb[];
   v_l2 jsonb[] := '{}'::jsonb[];
   v_l3 jsonb[] := '{}'::jsonb[];
@@ -183,6 +196,27 @@ BEGIN
   END IF;
   v_prefixo := _tenant::text || '/';
 
+  -- SKU ate a cor (nivel 2): o formato da loja SEM a parte 'tamanho' (UMA leitura; o mesmo para todos os produtos)
+  IF v_n2 AND v_tem_ref THEN
+    SELECT tc.sku_config INTO v_cfg FROM public.tenant_config tc WHERE tc.tenant_id = _tenant;
+    v_cfg2 := v_cfg;
+    IF v_cfg IS NOT NULL AND jsonb_typeof(v_cfg -> 'partes') = 'array' THEN
+      v_partes := ARRAY(SELECT e.value FROM jsonb_array_elements_text(v_cfg -> 'partes') WITH ORDINALITY AS e(value, n) ORDER BY e.n);
+      v_pos := array_position(v_partes, 'tamanho');
+      IF v_pos IS NOT NULL THEN
+        v_sep := CASE WHEN jsonb_typeof(v_cfg -> 'separadores') = 'object' THEN v_cfg -> 'separadores' ELSE '{}'::jsonb END;
+        -- o separador anda com a parte que vem DEPOIS dele: tirado o tamanho, o "tamanho|prox" liga a parte anterior a prox
+        IF v_pos > 1 AND v_pos < cardinality(v_partes) THEN
+          v_sep_dep := v_sep ->> ('tamanho|' || v_partes[v_pos + 1]);
+          IF v_sep_dep IS NOT NULL THEN
+            v_sep := v_sep || jsonb_build_object(v_partes[v_pos - 1] || '|' || v_partes[v_pos + 1], v_sep_dep);
+          END IF;
+        END IF;
+        v_cfg2 := jsonb_set(jsonb_set(v_cfg, '{partes}', to_jsonb(array_remove(v_partes, 'tamanho'))), '{separadores}', v_sep);
+      END IF;
+    END IF;
+  END IF;
+
   -- custo: UMA chamada para todos os produtos do recorte (so com a coluna pedida; sem mascara de permissao)
   IF 'preco_custo' = ANY (v_campos) AND cardinality(v_ids) > 0 THEN
     v_custos := coalesce(public._custo_unitario_modelos_core(v_ids), '{}'::jsonb);
@@ -252,6 +286,40 @@ BEGIN
     IF v_n2 OR v_n3 THEN
       v_tipo := coalesce((r.mo).tamanho_tipo, 'letra');
       v_var_atual := NULL;
+      -- nivel 2: SKU ate a cor por variante (variante_key -> sku), pelo resolvedor do SKU com o formato sem tamanho. As variantes
+      -- vem das mesmas 3 origens de _skus_calc_ref_tipo (interno: Tecido 1; revenda; importado).
+      v_skus_cor := '{}'::jsonb;
+      IF v_n2 AND v_tem_ref THEN
+        SELECT coalesce(jsonb_object_agg(x.vkey::text, x.sku), '{}'::jsonb) INTO v_skus_cor
+          FROM (
+            SELECT DISTINCT ON (va.vkey) va.vkey,
+                   public._sku_resolver(
+                     v_cfg2, (r.mo).ref::text,
+                     CASE WHEN c2.id IS NULL THEN NULL ELSE jsonb_build_object('id', c2.id, 'nome', c2.nome, 'sigla', c2.sigla_sku) END,
+                     CASE WHEN a2.id IS NULL THEN NULL ELSE jsonb_build_object('id', a2.id, 'nome', a2.nome, 'sigla', a2.sigla_sku) END,
+                     NULL, v_tipo, NULL) ->> 'sku' AS sku
+              FROM (
+                SELECT public._sku_variante_key(vt.cor_id, vt.cor_apelido_id) AS vkey, mtv.ordem AS vordem, vt.cor_id AS vcor, vt.cor_apelido_id AS vapelido
+                  FROM public.modelo_tecidos mt
+                  JOIN public.modelo_tecido_variantes mtv ON mtv.modelo_tecido_id = mt.id
+                  JOIN public.variantes_tecido vt ON vt.id = mtv.variante_tecido_id
+                 WHERE coalesce((r.mo).origem, 'interno') = 'interno' AND mt.modelo_id = (r.mo).id AND mt.tipo = 'tecido' AND mt.numero = 1
+                UNION ALL
+                SELECT public._sku_variante_key(pv.cor_id, pv.cor_apelido_id), pv.ordem, pv.cor_id, pv.cor_apelido_id
+                  FROM public.produtos_acabados pa
+                  JOIN public.produto_acabado_variantes pv ON pv.produto_acabado_id = pa.id
+                 WHERE coalesce((r.mo).origem, 'interno') = 'revenda' AND pa.modelo_id = (r.mo).id
+                UNION ALL
+                SELECT public._sku_variante_key(iv.cor_id, iv.cor_apelido_id), iv.ordem, iv.cor_id, iv.cor_apelido_id
+                  FROM public.produtos_importados pi
+                  JOIN public.produto_importado_variantes iv ON iv.produto_importado_id = pi.id
+                 WHERE coalesce((r.mo).origem, 'interno') = 'importado' AND pi.modelo_id = (r.mo).id
+              ) va
+              LEFT JOIN public.cores c2 ON c2.id = va.vcor
+              LEFT JOIN public.cores_apelido a2 ON a2.id = va.vapelido
+             ORDER BY va.vkey, va.vordem
+          ) x;
+      END IF;
       FOR s IN
         SELECT k.variante_key, k.variante_ordem, k.cor_nome, k.apelido_nome, k.tamanho_key, k.tamanho_ordem, sk.sku AS sku_gravado, k.sku AS sku_previsto
           FROM public._skus_calc_ref_tipo((r.mo).id, (r.mo).ref::text, v_tipo) k
@@ -265,7 +333,11 @@ BEGIN
         IF v_tem_apelido THEN v_fil := v_fil || jsonb_build_object('cor_apelido', coalesce(to_jsonb(s.apelido_nome), 'null'::jsonb)); END IF;
         -- nivel 2: 1 linha por variante de cor (na 1a vez que a variante aparece); tamanho fica vazio
         IF v_n2 AND v_var_atual IS DISTINCT FROM s.variante_key THEN
-          v_l2 := v_l2 || v_fil;
+          v_fil2 := v_fil;
+          IF v_tem_ref THEN
+            v_fil2 := v_fil2 || jsonb_build_object('ref_sku', coalesce(to_jsonb(nullif(btrim(coalesce(v_skus_cor ->> s.variante_key::text, '')), '')), 'null'::jsonb));
+          END IF;
+          v_l2 := v_l2 || v_fil2;
         END IF;
         v_var_atual := s.variante_key;
         -- nivel 3: 1 linha por SKU cor x tamanho
