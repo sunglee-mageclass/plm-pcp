@@ -1,14 +1,14 @@
 // F3.3 — menu ⋯ do rodapé do Sheet do Planejamento (mockup gen_main.py:108-116; ui-padroes §L "ações de ciclo na tela
-// + ⋯ no card"): Duplicar · Importar dados · Ficha Técnica ("após Enviar") · ── · Cancelar Ordem de Criação. Mesmo
+// + ⋯ no card"): Duplicar · Importar dados · Ficha Técnica ("após Enviar") · Histórico (F5-3) · ── · Cancelar Ordem de Criação. Mesmo
 // Popover do precedente ProdutoCard.tsx:505-560. Item sem handler: Importar/Cancelar somem; Ficha Técnica fica
 // desabilitada com a dica.
-import { Copy, Download, MoreHorizontal, Printer, Undo2 } from "lucide-react";
+import { Copy, Download, History, MoreHorizontal, Printer, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const ITEM = "flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40";
 
-export function MenuMaisAcoes({ className, onDuplicar, duplicando, duplicandoTitle, onImportar, onFichaTecnica, onCancelarOrdem, cancelandoOrdem }: {
+export function MenuMaisAcoes({ className, onDuplicar, duplicando, duplicandoTitle, onImportar, onFichaTecnica, onHistorico, onCancelarOrdem, cancelandoOrdem }: {
   className?: string;
   /** P-53 A (fix 1, m-5) — ausente = sem permissão de ações do Planejamento: o item SOME (como
    *  Importar/Cancelar), em vez de ficar preso em "carregando…" pra sempre. */
@@ -25,6 +25,8 @@ export function MenuMaisAcoes({ className, onDuplicar, duplicando, duplicandoTit
   onImportar?: () => void;
   /** Ausente = ainda não enviado à Explosão (item desabilitado — "após Enviar"). */
   onFichaTecnica?: () => void;
+  /** F5-3 — "Histórico" (timeline de tudo que mudou no produto, só leitura). Ausente = o item some (card novo, sem id). */
+  onHistorico?: () => void;
   /** Ausente = Ordem de Criação ainda não enviada (o item some). */
   onCancelarOrdem?: () => void;
   cancelandoOrdem?: boolean;
@@ -70,6 +72,13 @@ export function MenuMaisAcoes({ className, onDuplicar, duplicando, duplicandoTit
             {!onFichaTecnica && <span className="ml-auto text-xs text-muted-foreground">após Enviar</span>}
           </button>
         </PopoverClose>
+        {onHistorico && (
+          <PopoverClose asChild>
+            <button type="button" className={ITEM} onClick={onHistorico}>
+              <History className="h-4 w-4 shrink-0" /> Histórico
+            </button>
+          </PopoverClose>
+        )}
         {onCancelarOrdem && (
           <>
             <div className="my-1 border-t" />

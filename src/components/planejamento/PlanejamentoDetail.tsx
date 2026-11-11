@@ -107,6 +107,7 @@ import { PrintFicha } from "@/components/producao/PrintFicha";
 import { gateEnvioExplosao, pendenciasEnvioExplosao } from "@/components/planejamento/planejamento-detail/ficha/envio-explosao";
 import { PedidoSecaoContext, proximoPedido, type PedidoSecao } from "@/components/planejamento/planejamento-detail/secoes-abertas";
 import { MenuMaisAcoes } from "@/components/planejamento/planejamento-detail/MenuMaisAcoes";
+import { HistoricoProdutoSheet } from "@/components/planejamento/HistoricoProdutoSheet";
 import { useEnviarExplosao } from "@/components/planejamento/planejamento-detail/useEnviarExplosao";
 import { useImportarDados } from "@/components/planejamento/planejamento-detail/useImportarDados";
 import { ImportarDadosDialog } from "@/components/desenvolvimento/importar/ImportarDadosDialog";
@@ -317,6 +318,8 @@ function PlanejamentoDetailConteudo({
   const [pedidoSecao, setPedidoSecao] = useState<PedidoSecao>(null);
   const abrirSecao = (chave: string) => setPedidoSecao((p) => proximoPedido(p, chave));
   const [printTecnicaToken, setPrintTecnicaToken] = useState(0);
+  // F5-3 — Histórico do produto (Sheet só leitura aberto pelo ⋯). Montado só aberto → nasce limpo a cada abertura.
+  const [historicoAberto, setHistoricoAberto] = useState(false);
   const [confirmEnviarExplosao, setConfirmEnviarExplosao] = useState(false);
   // "Cancelar Ordem de Criação" é NEUTRO no menu ⋯ (R7, mockup — sem vermelho), mas é ação sensível:
   // confirma por AlertDialog antes de reverter `ordem_criacao_enviada` (instrução do orquestrador da T9).
@@ -2322,6 +2325,8 @@ function PlanejamentoDetailConteudo({
               // F3.4 — só interno: o diálogo do Dev copia a grade por variante do Tecido 1, que o comprado não tem.
               onImportar={ficha.podeEditar && !isComprado ? () => importar.setAberto(true) : undefined}
               onFichaTecnica={enviadoCad ? () => setPrintTecnicaToken((t) => t + 1) : undefined}
+              // F5-3 — sem gate de permissão novo: a RPC `historico_modelo` é DEFINER sem portão de página (decisão do dono: todos veem tudo).
+              onHistorico={() => setHistoricoAberto(true)}
               // Fix T9 I3 (ruling do controlador) — com `enviado_cad=true` o card já foi p/ a Explosão (CQ/
               // Direcionamento podem ter avançado por cima do CAD); "Cancelar Ordem" volta o card pro
               // Planejamento mas NÃO desfaz nada da Explosão — some do menu pra não sugerir uma reversão que
@@ -2557,6 +2562,8 @@ function PlanejamentoDetailConteudo({
         {/* F3.3 — Ficha Técnica (menu ⋯, "após Enviar"): a MESMA do Dev (PrintFicha — PrintArea em portal), montada oculta
             e disparada pelo token (Dev :3261-3265). */}
         {isEdit && modeloId && enviadoCad && <PrintFicha modeloId={modeloId} kind="tecnica" token={printTecnicaToken} />}
+        {/* F5-3 — Histórico do produto (menu ⋯): timeline única só leitura (auditoria da ficha + etapas do kanban). */}
+        {historicoAberto && modeloId && <HistoricoProdutoSheet modeloId={modeloId} open onOpenChange={setHistoricoAberto} />}
         {/* Ring de presença por campo AUTO-instrumentado (cobre todos os campos do sheet). */}
         <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
     </PedidoSecaoContext.Provider>
