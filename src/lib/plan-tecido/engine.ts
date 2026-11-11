@@ -638,7 +638,7 @@ export function normalizarCategoriasAuto(arvore: PtArvore, categoriaAutoDoArtigo
 // condições de `savedTemDados` (em vez de chamá-la) para não herdar o type guard `s is PtSlot`
 // dela — aqui `s` já é sempre `PtSlot` (não opcional), e o retorno `false` do guard narrowaria
 // o parâmetro pra `never` num early-return (TS2339 nas props abaixo).
-const slotOrfaoTemDados = (s: PtSlot): boolean =>
+export const slotOrfaoTemDados = (s: PtSlot): boolean =>
   !!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id || !!s.categoria_id
   || (s.referencia_paths?.length ?? 0) > 0 || !!s.preco_venda
   || (s.proporcoes != null && Object.keys(s.proporcoes).length > 0)

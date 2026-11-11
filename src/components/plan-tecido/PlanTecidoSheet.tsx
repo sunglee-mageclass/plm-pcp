@@ -30,7 +30,7 @@ import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, C
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, moverParaLinha, linhasGravadasPeloSave, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, moverParaLinha, linhasGravadasPeloSave, normalizarCategoriasAuto, semPrecoNasVagasComCard, limparSlotsOrfaos, comOrdemDasVagas, contarVagasCardSaiuComMateriais, textoAvisoCardSaiu, slotOrfaoTemDados, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
@@ -1667,6 +1667,56 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     }
   }
 
+  // F8: "vaga vazia PURA" = slot sem card E sem NENHUM dado do usuário (o inverso de
+  // `slotOrfaoTemDados`, o predicado canônico de "este slot tem dado"). Essas vagas saem do canvas
+  // (lanes e Modo Plano) e viram UMA seção "+" por subcoleção ("Disponíveis para criar N vaga(s)"),
+  // espelhando o Produto Acabado — N cards de abas vazios idênticos eram ruído. Vaga com qualquer
+  // dado parcial (nome, categoria, tecido, preço, proporção, mix…) continua card normal no canvas.
+  // `slot.status` ("Reprovado"/"Pendente" posto à mão numa vaga sem card, F2 C) é decisão do usuário
+  // que `slotOrfaoTemDados` não cobre — uma vaga com status decidido NÃO é pura (senão o "+" a esconde
+  // e o clique a materializaria descartando o status em silêncio). Ver [[project_status_pa_pi_sem_card]].
+  const vagaVaziaPura = (slot: PtSlot): boolean => !slot.modelo_id && !slotOrfaoTemDados(slot) && !slot.status;
+
+  // F8: clicar no "+" materializa UMA vaga vazia pura (passa o slot_id real de uma dessas vagas) —
+  // herda SÓ coleção+subcoleção (o core usa nome padrão, mês/ano da coleção, sem BOM). Mesmo caminho
+  // do "Criar cards" em lote: ensureSaved → RPC → espelha o modelo_id no draft (senão o próximo save
+  // regride modelo_id:null e zera a materialização recém-criada).
+  async function criarUmaVagaVazia(slot: PtSlot, subcolecaoId: string | null) {
+    if (!arvore || !slot.id || criandoCards) return;
+    setCriandoCards(true);
+    try {
+      if (!(await ensureSaved())) return;
+      const _slots = [{
+        nome: null, ref: null, slot_id: slot.id,
+        linha_id: slot.linha_id ?? null, categoria_id: null,
+        subcolecao_id: subcolecaoId,
+        preco_venda: null, custo_terceirizados_previsto: 0, custo_simulado: {},
+        referencia_paths: [], materiais: [], tamanho_tipo: slot.tamanho_tipo ?? null,
+      }];
+      const { data, error } = await supabase.rpc("plan_tecido_criar_cards" as any, { _colecao_id: colecaoId, _slots });
+      if (error) throw error;
+      const criados = (data ?? []) as { slot_id: string; modelo_id: string }[];
+      if (criados.length > 0) {
+        const arv = arvoreLiveRef.current;
+        if (arv) {
+          const next = structuredClone(arv) as PtArvore;
+          const porSlot = new Map(criados.map((c) => [c.slot_id, c.modelo_id]));
+          for (const sub of next.subcolecoes) for (const ln of sub.linhas) for (const s of ln.slots) {
+            const mid = s.id ? porSlot.get(s.id) : undefined;
+            if (mid) { s.modelo_id = mid; s.referencia_paths = []; }
+          }
+          patch(next);
+        }
+        invalidarModeloLote(criados.map((c) => c.modelo_id));
+        toast.success("Card criado.");
+      }
+    } catch (e) {
+      toast.error(mensagemErro(e, "Não foi possível criar o card."));
+    } finally {
+      setCriandoCards(false);
+    }
+  }
+
   // "Replicar" na barra de seleção — copia cards MATERIALIZADOS (com modelo_id) p/ outra (coleção,
   // subcoleção). Só internos: comprado (revenda/importado, que têm replicar próprio) e vagas são
   // ignorados (aviso). Abre o dialog de destino.
@@ -2146,7 +2196,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           const nPorLinha = new Map<string, number>(); let nSemLinha = 0;
           for (const f of flatStatus) { const lid = f.slot.linha_id ?? null; if (lid) nPorLinha.set(lid, (nPorLinha.get(lid) ?? 0) + 1); else nSemLinha++; }
           const linhasOpcoes = linhasLoja.filter((l) => nPorLinha.has(l.id) || filtroLinhas.has(l.id)).map((l) => ({ id: l.id, nome: l.nome, n: nPorLinha.get(l.id) ?? 0 }));
-          const flat = flatStatus.filter((f) => passaLinha(f.slot));
+          const flatComLinha = flatStatus.filter((f) => passaLinha(f.slot));
+          // F8: as vagas vazias PURAS saem do canvas e viram a seção "+" (abaixo). `flat` (que alimenta
+          // TODAS as lanes e os contadores) passa a conter só cards e vagas com dado parcial.
+          const vagasVaziasFlat = flatComLinha.filter((f) => vagaVaziaPura(f.slot));
+          const flat = flatComLinha.filter((f) => !vagaVaziaPura(f.slot));
+          const nVagasVazias = vagasVaziasFlat.length;
           // Lanes = UNIÃO das categorias declaradas (categorias_tecido, incl. lanes vazias criadas à
           // mão) + as categorias AUTO presentes nos slots (Tecido 1). Sem a união, um card
           // auto-categorizado numa categoria fora de categorias_tecido não renderia em lane nenhuma.
@@ -2391,8 +2446,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {/* dupla régua explicada: a etapa 2 conta MODELOS reais; o canvas conta ITENS
                         (modelos + vagas do OTB) — sem o rótulo, "58" virava "93" sem explicação (laudo). */}
-                    {(() => { const reais = flat.filter((f) => f.slot.modelo_id).length; const vagas = flat.length - reais;
-                      return vagas > 0 ? <span className="hidden text-[11px] text-muted-foreground lg:inline">{flat.length} itens = {reais} modelos + {vagas} vagas</span> : null; })()}
+                    {(() => { const reais = flat.filter((f) => f.slot.modelo_id).length; const vagas = flat.length - reais; const total = flat.length + nVagasVazias;
+                      // F8: as vagas vazias PURAS saíram do canvas para o "+"; entram no total e num termo próprio
+                      // ("N disponíveis") para o número bater com o que a pessoa vê (canvas + "+").
+                      return vagas > 0 || nVagasVazias > 0 ? <span className="hidden text-[11px] text-muted-foreground lg:inline">{total} itens = {reais} modelos{vagas > 0 ? ` + ${vagas} vagas` : ""}{nVagasVazias > 0 ? ` + ${nVagasVazias} disponíveis` : ""}</span> : null; })()}
                     {/* Dois níveis (dono): "Seções" = grupos de nome/categoria; "Cards" = corpos. Fundidos num menu só-ícone (mobile não estoura). */}
                     <RecolherMenu
                       todasSecoesRecolhidas={todasSecoesRecolhidas}
@@ -2452,6 +2509,30 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     )}
                   </div>
                 </div>
+                {/* F8: vagas vazias PURAS da subcoleção viram UM "+" ("Disponíveis para criar N vaga(s)"),
+                    no lugar de N cards de abas vazios idênticos (ruído) — mesmo padrão do Produto Acabado.
+                    Clicar materializa UMA dessas vagas (herda só coleção+subcoleção). */}
+                {nVagasVazias > 0 && (
+                  <section className="mb-4">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="text-sm font-semibold text-muted-foreground">Disponíveis para criar</span>
+                      <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{nVagasVazias} vaga(s)</span>
+                    </div>
+                    <div className="flex items-start gap-3 overflow-x-auto pb-2 max-md:snap-x max-md:snap-mandatory">
+                      <button
+                        type="button"
+                        disabled={criandoCards}
+                        onClick={() => { const alvo = vagasVaziasFlat[0]; if (alvo) void criarUmaVagaVazia(alvo.slot, sub.subcolecao_id ?? null); }}
+                        title="Criar um novo card nesta subcoleção"
+                        className="flex h-24 w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Plus className="h-5 w-5" />
+                        <span className="text-xs font-medium">Novo card</span>
+                        <span className="text-[11px] text-muted-foreground">de {nVagasVazias} vaga{nVagasVazias === 1 ? "" : "s"}</span>
+                      </button>
+                    </div>
+                  </section>
+                )}
                 {modoPlano ? (
                   <ModoPlanoView
                     // No Modo Plano o canvas normal (laneCats) não roda — então o filtro por família e o de status
@@ -2460,7 +2541,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                     arvore={subArvore}
                     colecaoArvore={arvore}
                     reprovadoSet={reprovadoSet}
-                    slotVisivel={(sl) => passaStatus(sl) && passaLinha(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))}
+                    slotVisivel={(sl) => passaStatus(sl) && passaLinha(sl) && !vagaVaziaPura(sl) && (catFilters.size === 0 || catFilters.has(sl.categoria_tecido_id ?? null))}
                     colecaoId={colecaoId}
                     recolhidos={modoPlanoRecolhidos}
                     onToggleRecolhido={(nome) => setModoPlanoRecolhidos((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; })}
