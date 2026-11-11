@@ -33,6 +33,9 @@ const RESP = {
 
 async function montar(ordemEnviada = true) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // O bloco lê o rev do cache ["modelo", id] que o Sheet (onde ele vive) já populou — simula isso aqui
+  // (o bloco NÃO faz query própria de modelos; usa enabled:false na mesma queryKey, sem select("*")).
+  qc.setQueryData(["modelo", "m1"], { id: "m1", rev: 7 });
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
