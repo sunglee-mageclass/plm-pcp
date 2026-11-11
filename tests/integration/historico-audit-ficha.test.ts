@@ -268,3 +268,183 @@ describe.skipIf(!RODA)("historico F5-3 Task 2 — 1 evento por secao da ficha", 
     });
   });
 });
+
+// ───────────────────────────────── F5-3 Task 3 — M.O. e Grades (programada / revenda) ─────────────────────────────────
+// `_salvar_modelo_servico_mo_core` e `aprovar_servico_mo` gravam "Mao de obra"; `salvar_grade_programada` grava "Grade programada";
+// `_salvar_grade_revenda_core` grava "Grade (revenda)". Mesmo molde da Task 2: 1 evento por secao, so se o diff nao e vazio.
+const ENT3 = ["Mão de obra", "Grade programada", "Grade (revenda)"];
+async function eventos3(c: PgClient, m: string): Promise<{ entidade: string; tabela: string; dados: any }[]> {
+  const { rows } = await c.query(
+    `select entidade, tabela, dados from public.audit_log
+      where registro_id = $1 and acao = 'editar' and entidade = any($2::text[])
+      order by created_at, entidade`,
+    [m, ENT3],
+  );
+  return rows;
+}
+const limpa = (c: PgClient, m: string) => c.query(`delete from public.audit_log where registro_id = $1`, [m]);
+
+/** Chama uma RPC publica como `authenticated` (JWT do super admin ja posto por `jwt`). */
+async function rpcAuth(c: PgClient, sql: string, params: unknown[]): Promise<void> {
+  await c.query("SET LOCAL ROLE authenticated");
+  try {
+    await c.query(sql, params);
+  } finally {
+    await c.query("RESET ROLE");
+  }
+}
+
+/** Card interno + 1 servico (categoria da loja) com a M.O. semeada via salvar_card_planejamento. */
+async function cardComMo(c: PgClient, valor = 10): Promise<{ m: string; cat: string; linha: string }> {
+  const cat = await semJwt(c, async () =>
+    (await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome) values ($1, 'HIST Costura') returning id`, [T])).id);
+  const m = await novoCard(c);
+  await jwt(c);
+  await salva(c, m, { mo: [{ id: null, categoria_terceirizado_id: cat, valor, observacoes: null }], rev: await rev(c, m) });
+  const linha = (await um<{ id: string }>(c, `select id from modelo_servico_mo where modelo_id = $1`, [m])).id;
+  return { m, cat, linha };
+}
+
+describe.skipIf(!RODA)("historico F5-3 Task 3 — M.O. e grades", () => {
+  it("7. muda o VALOR da M.O. -> 1 evento 'Mão de obra' com 'HIST Costura · valor'; re-salvar igual = 0 eventos", async () => {
+    await withTx(async (c) => {
+      const { m, cat, linha } = await cardComMo(c, 10);
+      await limpa(c, m);
+
+      await salva(c, m, { mo: [{ id: linha, categoria_terceirizado_id: cat, valor: 25, observacoes: null }], rev: await rev(c, m) });
+      const evs = await eventos3(c, m);
+      expect(ent(evs, "Mão de obra")).toBe(1);
+      const ev = evs.find((e) => e.entidade === "Mão de obra")!;
+      expect(ev.tabela).toBe("modelo_servico_mo");
+      expect(ev.dados["HIST Costura · valor"]).toEqual({ de: 10, para: 25 });
+      expect(Object.keys(ev.dados)).toEqual(["HIST Costura · valor"]);
+
+      // re-salva EXATAMENTE o mesmo estado: nada mudou -> nenhum evento novo
+      await limpa(c, m);
+      await salva(c, m, { mo: [{ id: linha, categoria_terceirizado_id: cat, valor: 25, observacoes: null }], rev: await rev(c, m) });
+      expect((await eventos3(c, m)).length).toBe(0);
+    });
+  });
+
+  it("8. M.O.: linha nova -> 'adicionado'; linha removida -> 'removido' (1 evento cada Salvar)", async () => {
+    await withTx(async (c) => {
+      const { m, cat, linha } = await cardComMo(c, 10);
+      await limpa(c, m);
+
+      const cat2 = await semJwt(c, async () =>
+        (await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome) values ($1, 'HIST Estampa') returning id`, [T])).id);
+      await salva(c, m, { mo: [
+        { id: linha, categoria_terceirizado_id: cat, valor: 10, observacoes: null },
+        { id: null, categoria_terceirizado_id: cat2, valor: 7, observacoes: null },
+      ], rev: await rev(c, m) });
+      let evs = await eventos3(c, m);
+      expect(ent(evs, "Mão de obra")).toBe(1);
+      expect(evs[0].dados["HIST Estampa · adicionado"]).toEqual({ para: 7 });
+      expect(Object.keys(evs[0].dados).length).toBe(1);
+
+      await limpa(c, m);
+      await salva(c, m, { mo: [{ id: linha, categoria_terceirizado_id: cat, valor: 10, observacoes: null }], rev: await rev(c, m) });
+      evs = await eventos3(c, m);
+      expect(ent(evs, "Mão de obra")).toBe(1);
+      expect(evs[0].dados["HIST Estampa · removido"]).toEqual({ de: 7 });
+    });
+  });
+
+  it("9. APROVAR a M.O. -> 1 evento 'Mão de obra' '{servico}: aprovado'; repetir a decisao = 0; reprovar leva o motivo", async () => {
+    await withTx(async (c) => {
+      const { m, linha } = await cardComMo(c, 10);
+      await limpa(c, m);
+
+      await rpcAuth(c, `select public.aprovar_servico_mo($1::uuid, $2::uuid, true, null)`, [m, linha]);
+      let evs = await eventos3(c, m);
+      expect(ent(evs, "Mão de obra")).toBe(1);
+      expect(evs[0].tabela).toBe("modelo_servico_mo");
+      expect(evs[0].dados["HIST Costura: aprovado"]).toEqual({ de: "pendente", para: "aprovado" });
+
+      // mesma decisao de novo: nada mudou -> nenhum evento novo
+      await rpcAuth(c, `select public.aprovar_servico_mo($1::uuid, $2::uuid, true, null)`, [m, linha]);
+      expect((await eventos3(c, m)).length).toBe(1);
+
+      // reprovar: evento novo com o motivo
+      await limpa(c, m);
+      await rpcAuth(c, `select public.aprovar_servico_mo($1::uuid, $2::uuid, false, 'valor alto')`, [m, linha]);
+      evs = await eventos3(c, m);
+      expect(ent(evs, "Mão de obra")).toBe(1);
+      expect(evs[0].dados["HIST Costura: reprovado"]).toEqual({ de: "aprovado", para: "reprovado", motivo: "valor alto" });
+    });
+  });
+
+  it("10. mudar o valor de linha JA aprovada -> o diff mostra valor E a volta a 'pendente' (gatilho do banco)", async () => {
+    await withTx(async (c) => {
+      const { m, cat, linha } = await cardComMo(c, 10);
+      await rpcAuth(c, `select public.aprovar_servico_mo($1::uuid, $2::uuid, true, null)`, [m, linha]);
+      await limpa(c, m);
+
+      await salva(c, m, { mo: [{ id: linha, categoria_terceirizado_id: cat, valor: 30, observacoes: null }], rev: await rev(c, m) });
+      const evs = await eventos3(c, m);
+      expect(ent(evs, "Mão de obra")).toBe(1);
+      expect(evs[0].dados["HIST Costura · valor"]).toEqual({ de: 10, para: 30 });
+      expect(evs[0].dados["HIST Costura · aprovado"]).toEqual({ de: "aprovado", para: "pendente" });
+    });
+  });
+
+  it("11. grade PROGRAMADA muda -> 1 evento 'Grade programada' por (variante,tamanho); igual = 0; nao vaza p/ 'Grade'", async () => {
+    await withTx(async (c) => {
+      const fx = await fixture(c);
+      const m = await novoCard(c);
+      await jwt(c);
+      await salva(c, m, { bom: BOM(fx), rev: await rev(c, m) }); // semeia modelo_grades (v1, v2)
+      await limpa(c, m);
+
+      const prog = (p: number, mm: number) => [{ variante_numero: 1, grades: { "38|P": p, "40|M": mm } }];
+      await rpcAuth(c, `select public.salvar_grade_programada($1::uuid, $2::jsonb, $3::int)`, [m, j(prog(4, 6)), await rev(c, m)]);
+      let evs = await eventos3(c, m);
+      expect(ent(evs, "Grade programada")).toBe(1);
+      expect(evs[0].tabela).toBe("modelo_grades");
+      expect(evs[0].dados["v1 P"]).toEqual({ de: 0, para: 4 });
+      expect(evs[0].dados["v1 M"]).toEqual({ de: 0, para: 6 });
+      expect((await eventos(c, m)).length).toBe(0); // nenhum 'Grade'/'Tecidos'... (a programada tem entidade propria)
+
+      // muda so P (4 -> 9): 1 evento so com P
+      await limpa(c, m);
+      await rpcAuth(c, `select public.salvar_grade_programada($1::uuid, $2::jsonb, $3::int)`, [m, j(prog(9, 6)), await rev(c, m)]);
+      evs = await eventos3(c, m);
+      expect(ent(evs, "Grade programada")).toBe(1);
+      expect(Object.keys(evs[0].dados)).toEqual(["v1 P"]);
+      expect(evs[0].dados["v1 P"]).toEqual({ de: 4, para: 9 });
+
+      // mesmo estado de novo -> 0 eventos
+      await limpa(c, m);
+      await rpcAuth(c, `select public.salvar_grade_programada($1::uuid, $2::jsonb, $3::int)`, [m, j(prog(9, 6)), await rev(c, m)]);
+      expect((await eventos3(c, m)).length).toBe(0);
+    });
+  });
+
+  it("12. grade da REVENDA muda (via salvar_card_planejamento) -> 1 evento 'Grade (revenda)'; igual = 0", async () => {
+    await withTx(async (c) => {
+      const m = await semJwt(c, async () => {
+        await c.query("SAVEPOINT hist_rev");
+        const id = (await um<{ id: string }>(c,
+          `insert into modelos (tenant_id, nome, ordem_criacao_enviada, origem) values ($1, 'HIST revenda', true, 'revenda') returning id`, [T])).id;
+        await c.query("RELEASE SAVEPOINT hist_rev");
+        return id;
+      });
+      await jwt(c);
+      const gr = (u: number) => [{ variante_numero: 1, grades: { "40|M": u, "42|G": 2 }, grade_total: u + 2 }];
+      await salva(c, m, { gradeRevenda: gr(3), rev: await rev(c, m) }); // semeia
+      await limpa(c, m);
+
+      await salva(c, m, { gradeRevenda: gr(7), rev: await rev(c, m) });
+      let evs = await eventos3(c, m);
+      expect(ent(evs, "Grade (revenda)")).toBe(1);
+      expect(evs[0].tabela).toBe("modelo_grades");
+      expect(Object.keys(evs[0].dados)).toEqual(["v1 M"]);
+      expect(evs[0].dados["v1 M"]).toEqual({ de: 3, para: 7 });
+
+      await limpa(c, m);
+      await salva(c, m, { gradeRevenda: gr(7), rev: await rev(c, m) });
+      evs = await eventos3(c, m);
+      expect(evs.length).toBe(0);
+    });
+  });
+});

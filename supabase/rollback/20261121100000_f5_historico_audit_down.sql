@@ -1,4 +1,4 @@
--- F5-3 Task 2 (rollback): devolve os corpos VIVOS ORIGINAIS dos 3 _core (md5 1641592f / de45e1c2 / 38131664,
+-- F5-3 Task 2+3 (rollback): devolve os corpos VIVOS ORIGINAIS dos 3 _core (md5 1641592f / de45e1c2 / 38131664,
 -- inclui a preservacao de grades_programada do F5-2) e DROP do helper _audit_evento_secao (Task 1).
 BEGIN;
 CREATE OR REPLACE FUNCTION public._salvar_modelo_bom_core(_modelo_id uuid, _tecidos jsonb, _aviamentos jsonb, _grades jsonb, _rev_base integer DEFAULT NULL::integer)
@@ -495,5 +495,192 @@ BEGIN
 END
 $function$
 ;
+-- F5-3 Task 3 (rollback): devolve os 4 corpos de ANTES (sem a auditoria de M.O./grades; md5 1a4c0456 / e8ebb7db / d6e8bc7d / 458974f3).
+CREATE OR REPLACE FUNCTION public._salvar_modelo_servico_mo_core(_modelo_id uuid, _linhas jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid := public.get_user_tenant_id();
+  v_keep uuid[] := '{}';   -- ids de linha presentes no payload (mantidos)
+  r jsonb; v_id uuid; v_cat uuid; v_valor numeric; v_obs text;
+  v_emp uuid; v_emp_tem boolean;  -- [urg r4] fornecedor de servico da linha
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Não autenticado'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.modelos WHERE id = _modelo_id AND tenant_id = v_tenant) THEN
+    RAISE EXCEPTION 'Modelo não encontrado' USING ERRCODE = 'P0001';
+  END IF;
+  -- [urg r4b] chave do card ANTES de tocar linhas de M.O. / modelos: serializa com o Enviar a Explosao e o aprovar (mesma 1a chave)
+  PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || _modelo_id::text));
+  IF jsonb_typeof(_linhas) <> 'array' THEN
+    RAISE EXCEPTION 'Formato inválido: as linhas de MO devem ser uma lista' USING ERRCODE = 'P0001';
+  END IF;
+
+  FOR r IN SELECT * FROM jsonb_array_elements(_linhas) LOOP
+    v_id  := NULLIF(r->>'id','')::uuid;
+    v_cat := NULLIF(r->>'categoria_terceirizado_id','')::uuid;
+    v_valor := COALESCE((r->>'valor')::numeric, 0);
+    v_obs := NULLIF(r->>'observacoes','');
+    -- [urg r4] fornecedor de servico da linha (empresas tipo 'servico' da loja; P-289 C: TODOS, nao so PL; pode ficar vazio).
+    -- Chave AUSENTE = mantem o gravado (cards de Produto Acabado/Importado e site antigo nao mandam a chave).
+    v_emp_tem := r ? 'empresa_id';
+    v_emp := NULLIF(r->>'empresa_id','')::uuid;
+    IF v_emp IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.modelo_servico_mo x
+                        WHERE x.id = v_id AND x.modelo_id = _modelo_id AND x.empresa_id = v_emp)
+       AND NOT EXISTS (SELECT 1 FROM public.empresas e
+                        WHERE e.id = v_emp AND e.tenant_id = v_tenant AND e.tipo = 'servico') THEN
+      RAISE EXCEPTION 'Fornecedor de serviço inválido' USING ERRCODE = 'P0001';
+    END IF;
+
+    -- Categoria (quando informada) tem que ser do tenant.
+    IF v_cat IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.categorias_terceirizado WHERE id = v_cat AND tenant_id = v_tenant
+    ) THEN
+      RAISE EXCEPTION 'Serviço inválido' USING ERRCODE = 'P0001';
+    END IF;
+
+    IF v_id IS NOT NULL THEN
+      -- Linha EXISTENTE (por id): atualiza valor/obs/categoria; preserva `aprovado`. Só do próprio modelo.
+      UPDATE public.modelo_servico_mo
+         SET valor = v_valor, observacoes = v_obs, categoria_terceirizado_id = v_cat, updated_at = now(),
+             empresa_id = CASE WHEN v_emp_tem THEN v_emp ELSE empresa_id END  -- [urg r4]
+       WHERE id = v_id AND modelo_id = _modelo_id AND tenant_id = v_tenant;
+      IF FOUND THEN
+        v_keep := array_append(v_keep, v_id);
+      ELSE
+        -- id não é deste modelo/tenant (payload inconsistente) — ignora silenciosamente (não vaza).
+        CONTINUE;
+      END IF;
+    ELSE
+      -- Linha NOVA (sem id): categoria real precisa estar ATIVA (soft-hide barra novo serviço).
+      -- "Geral (legado)" (v_cat NULL) segue permitido como linha nova.
+      IF v_cat IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM public.categorias_terceirizado WHERE id = v_cat AND tenant_id = v_tenant AND ativo = true
+      ) THEN
+        RAISE EXCEPTION 'Serviço desativado' USING ERRCODE = 'P0001';
+      END IF;
+      INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor, observacoes, empresa_id)
+      VALUES (v_tenant, _modelo_id, v_cat, v_valor, v_obs, v_emp)  -- [urg r4]
+      RETURNING id INTO v_id;
+      v_keep := array_append(v_keep, v_id);
+    END IF;
+  END LOOP;
+
+  -- Estado completo: apaga as linhas do modelo cujo id NÃO veio no payload.
+  DELETE FROM public.modelo_servico_mo
+   WHERE modelo_id = _modelo_id
+     AND NOT (id = ANY(v_keep));
+END $function$;
+CREATE OR REPLACE FUNCTION public.aprovar_servico_mo(_modelo_id uuid, _linha_id uuid, _aprovado boolean, _motivo text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Módulo criacao não habilitado para esta loja' USING ERRCODE = '42501';
+  END IF;
+  PERFORM public._aprovar_servico_mo_core(_modelo_id, _linha_id, _aprovado, _motivo);
+END $function$;
+CREATE OR REPLACE FUNCTION public.salvar_grade_programada(_modelo_id uuid, _grades jsonb, _rev_base integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_rev integer; v_tenant uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Nao autenticado'; END IF;
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Modulo criacao nao habilitado para esta loja' USING ERRCODE='42501'; END IF;
+  PERFORM public._seg_exige_pagina('criacao_planejamento','criacao_desenvolvimento');
+  SELECT m.tenant_id INTO v_tenant FROM public.modelos m
+   WHERE m.id=_modelo_id AND (m.tenant_id=public.get_user_tenant_id() OR public.is_super_admin());
+  IF v_tenant IS NULL THEN RAISE EXCEPTION 'nao_encontrado: modelo' USING ERRCODE='P0002'; END IF;
+  SELECT m.rev INTO v_rev FROM public.modelos m WHERE m.id=_modelo_id FOR UPDATE;
+  IF _rev_base IS NOT NULL AND v_rev IS DISTINCT FROM _rev_base THEN
+    RAISE EXCEPTION 'conflito_versao: card' USING ERRCODE='P0409'; END IF;
+  PERFORM public._salvar_grade_programada_core(_modelo_id, _grades);
+  SELECT m.rev INTO v_rev FROM public.modelos m WHERE m.id=_modelo_id;
+  RETURN jsonb_build_object('modelo_id', _modelo_id, 'rev', v_rev);
+END $function$;
+CREATE OR REPLACE FUNCTION public._salvar_grade_revenda_core(_modelo_id uuid, _grades jsonb, _rev_base integer DEFAULT NULL::integer)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid;
+  v_origem text;
+  v_user uuid := auth.uid();
+  g jsonb;
+  v_grades jsonb;
+  v_grade_total numeric;
+  v_has_value boolean;
+BEGIN
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado';
+  END IF;
+
+  -- trava otimista (molde salvar_modelo_bom / spec 2026-08-03)
+  if _rev_base is not null then
+    declare v_rev int;
+    begin
+      select rev into v_rev from public.modelos
+        where id = _modelo_id and (tenant_id = public.get_user_tenant_id() or public.is_super_admin())
+        for update;
+      if v_rev is distinct from _rev_base then
+        raise exception 'conflito_versao: o registro foi salvo por outra pessoa'
+          using errcode = 'P0409';
+      end if;
+    end;
+  end if;
+
+  SELECT tenant_id, origem INTO v_tenant, v_origem FROM public.modelos WHERE id = _modelo_id;
+  IF v_tenant IS NULL THEN
+    RAISE EXCEPTION 'Modelo não encontrado';
+  END IF;
+
+  IF v_tenant <> public.get_user_tenant_id() AND NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Sem permissão para este modelo';
+  END IF;
+
+  IF v_origem IS DISTINCT FROM 'revenda' THEN
+    RAISE EXCEPTION 'Este modelo não é de Revenda (Produto Acabado) — grade cor×tamanho não se aplica.' USING ERRCODE='P0001';
+  END IF;
+
+  DELETE FROM public.modelo_grades WHERE modelo_id = _modelo_id;
+
+  IF jsonb_typeof(_grades) = 'array' THEN
+    FOR g IN SELECT value FROM jsonb_array_elements(COALESCE(_grades, '[]'::jsonb)) LOOP
+      v_grades := COALESCE(g->'grades', '{}'::jsonb);
+      v_grade_total := COALESCE((g->>'grade_total')::numeric, 0);
+      v_has_value := false;
+      IF v_grade_total > 0 THEN
+        v_has_value := true;
+      ELSIF jsonb_typeof(v_grades) = 'object' THEN
+        SELECT EXISTS(
+          SELECT 1 FROM jsonb_each_text(v_grades)
+          WHERE NULLIF(value,'')::numeric > 0
+        ) INTO v_has_value;
+      END IF;
+      IF v_has_value THEN
+        INSERT INTO public.modelo_grades
+          (modelo_id, variante_numero, grades, grade_total)
+        VALUES
+          (_modelo_id,
+           (g->>'variante_numero')::int,
+           v_grades,
+           v_grade_total);
+      END IF;
+    END LOOP;
+  END IF;
+END
+$function$;
 DROP FUNCTION IF EXISTS public._audit_evento_secao(uuid,uuid,text,text,jsonb);
 COMMIT;

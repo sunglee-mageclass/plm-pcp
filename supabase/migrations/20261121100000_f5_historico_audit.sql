@@ -708,4 +708,402 @@ BEGIN
   END;
 END
 $function$;
+
+-- ============================================================================
+-- F5-3 Task 3: eventos de auditoria de M.O. e Grades (programada / revenda).
+-- Mesmo molde da Task 2: captura o estado ANTERIOR, monta o DIFF RESUMIDO no fim
+-- (sub-bloco EXCEPTION que ENGOLE: a auditoria NUNCA derruba o Salvar/aprovar) e
+-- chama _audit_evento_secao UMA vez por secao (diff vazio = nao grava).
+--   _salvar_modelo_servico_mo_core -> "Mão de obra" (por servico: valor, aprovado, motivo, linha nova/removida)
+--   aprovar_servico_mo             -> "Mão de obra" ("{servico}: aprovado/reprovado")
+--   salvar_grade_programada        -> "Grade programada" (por variante x tamanho)
+--   _salvar_grade_revenda_core     -> "Grade (revenda)" (por variante x tamanho)
+-- Comportamento de negocio, ACL e assinaturas INTACTOS (CREATE OR REPLACE preserva a ACL).
+-- ============================================================================
+
+-- Guarda md5: o corpo VIVO das 4 funcoes tem de ser exatamente o de antes desta Task.
+DO $guard3$
+DECLARE
+  v record;
+  v_esperado jsonb := jsonb_build_object(
+    '_salvar_modelo_servico_mo_core(uuid,jsonb)', '1a4c045651694a64c3a99de522b7be53',
+    'aprovar_servico_mo(uuid,uuid,boolean,text)', 'e8ebb7db50081a9122811ddd6940aba9',
+    'salvar_grade_programada(uuid,jsonb,integer)', 'd6e8bc7da562d6fbd553d070f82aaffa',
+    '_salvar_grade_revenda_core(uuid,jsonb,integer)', '458974f33788a18ec6483d3d949ac762'
+  );
+  v_md5 text;
+BEGIN
+  FOR v IN SELECT key AS assin, value::text AS md5 FROM jsonb_each_text(v_esperado) LOOP
+    v_md5 := md5(pg_get_functiondef(('public.'||v.assin)::regprocedure));
+    IF v_md5 <> v.md5 THEN
+      RAISE EXCEPTION 'md5 divergente em %: vivo=% esperado=%', v.assin, v_md5, v.md5;
+    END IF;
+  END LOOP;
+END $guard3$;
+
+-- ─────────────────────────── _salvar_modelo_servico_mo_core(uuid,jsonb) ───────────────────────────
+CREATE OR REPLACE FUNCTION public._salvar_modelo_servico_mo_core(_modelo_id uuid, _linhas jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid := public.get_user_tenant_id();
+  v_keep uuid[] := '{}';   -- ids de linha presentes no payload (mantidos)
+  r jsonb; v_id uuid; v_cat uuid; v_valor numeric; v_obs text;
+  v_emp uuid; v_emp_tem boolean;  -- [urg r4] fornecedor de servico da linha
+  -- F5-3 Task 3: estado ANTERIOR das linhas de M.O. (por id) para o diff do evento "Mao de obra"
+  v_aud_antes jsonb; v_aud_ok boolean := false; v_aud_diff jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Não autenticado'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.modelos WHERE id = _modelo_id AND tenant_id = v_tenant) THEN
+    RAISE EXCEPTION 'Modelo não encontrado' USING ERRCODE = 'P0001';
+  END IF;
+  -- [urg r4b] chave do card ANTES de tocar linhas de M.O. / modelos: serializa com o Enviar a Explosao e o aprovar (mesma 1a chave)
+  PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || _modelo_id::text));
+  IF jsonb_typeof(_linhas) <> 'array' THEN
+    RAISE EXCEPTION 'Formato inválido: as linhas de MO devem ser uma lista' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- F5-3 Task 3: fotografa as linhas ANTES do upsert/DELETE (servico, valor, aprovado, motivo). Falha na captura = sem evento.
+  BEGIN
+    SELECT COALESCE(jsonb_object_agg(x.id::text, jsonb_build_object(
+               's', COALESCE(c.nome, 'Geral (legado)'), 'v', x.valor,
+               'a', CASE WHEN x.aprovado IS TRUE THEN 'aprovado' WHEN x.aprovado IS FALSE THEN 'reprovado' ELSE 'pendente' END,
+               'm', x.motivo_reprovacao, 'c', x.created_at)), '{}'::jsonb)
+      INTO v_aud_antes
+      FROM public.modelo_servico_mo x
+      LEFT JOIN public.categorias_terceirizado c ON c.id = x.categoria_terceirizado_id
+     WHERE x.modelo_id = _modelo_id;
+    v_aud_ok := true;
+  EXCEPTION WHEN OTHERS THEN
+    v_aud_ok := false;
+  END;
+
+  FOR r IN SELECT * FROM jsonb_array_elements(_linhas) LOOP
+    v_id  := NULLIF(r->>'id','')::uuid;
+    v_cat := NULLIF(r->>'categoria_terceirizado_id','')::uuid;
+    v_valor := COALESCE((r->>'valor')::numeric, 0);
+    v_obs := NULLIF(r->>'observacoes','');
+    -- [urg r4] fornecedor de servico da linha (empresas tipo 'servico' da loja; P-289 C: TODOS, nao so PL; pode ficar vazio).
+    -- Chave AUSENTE = mantem o gravado (cards de Produto Acabado/Importado e site antigo nao mandam a chave).
+    v_emp_tem := r ? 'empresa_id';
+    v_emp := NULLIF(r->>'empresa_id','')::uuid;
+    IF v_emp IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.modelo_servico_mo x
+                        WHERE x.id = v_id AND x.modelo_id = _modelo_id AND x.empresa_id = v_emp)
+       AND NOT EXISTS (SELECT 1 FROM public.empresas e
+                        WHERE e.id = v_emp AND e.tenant_id = v_tenant AND e.tipo = 'servico') THEN
+      RAISE EXCEPTION 'Fornecedor de serviço inválido' USING ERRCODE = 'P0001';
+    END IF;
+
+    -- Categoria (quando informada) tem que ser do tenant.
+    IF v_cat IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.categorias_terceirizado WHERE id = v_cat AND tenant_id = v_tenant
+    ) THEN
+      RAISE EXCEPTION 'Serviço inválido' USING ERRCODE = 'P0001';
+    END IF;
+
+    IF v_id IS NOT NULL THEN
+      -- Linha EXISTENTE (por id): atualiza valor/obs/categoria; preserva `aprovado`. Só do próprio modelo.
+      UPDATE public.modelo_servico_mo
+         SET valor = v_valor, observacoes = v_obs, categoria_terceirizado_id = v_cat, updated_at = now(),
+             empresa_id = CASE WHEN v_emp_tem THEN v_emp ELSE empresa_id END  -- [urg r4]
+       WHERE id = v_id AND modelo_id = _modelo_id AND tenant_id = v_tenant;
+      IF FOUND THEN
+        v_keep := array_append(v_keep, v_id);
+      ELSE
+        -- id não é deste modelo/tenant (payload inconsistente) — ignora silenciosamente (não vaza).
+        CONTINUE;
+      END IF;
+    ELSE
+      -- Linha NOVA (sem id): categoria real precisa estar ATIVA (soft-hide barra novo serviço).
+      -- "Geral (legado)" (v_cat NULL) segue permitido como linha nova.
+      IF v_cat IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM public.categorias_terceirizado WHERE id = v_cat AND tenant_id = v_tenant AND ativo = true
+      ) THEN
+        RAISE EXCEPTION 'Serviço desativado' USING ERRCODE = 'P0001';
+      END IF;
+      INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor, observacoes, empresa_id)
+      VALUES (v_tenant, _modelo_id, v_cat, v_valor, v_obs, v_emp)  -- [urg r4]
+      RETURNING id INTO v_id;
+      v_keep := array_append(v_keep, v_id);
+    END IF;
+  END LOOP;
+
+  -- Estado completo: apaga as linhas do modelo cujo id NÃO veio no payload.
+  DELETE FROM public.modelo_servico_mo
+   WHERE modelo_id = _modelo_id
+     AND NOT (id = ANY(v_keep));
+
+  -- F5-3 Task 3: 1 evento "Mao de obra" com o DIFF por servico (valor / aprovado / motivo / linha nova ou removida).
+  -- Protegido: a montagem NUNCA derruba o Salvar. Diff vazio = o helper nao grava.
+  BEGIN
+    IF v_aud_ok THEN
+      WITH antes AS (SELECT v_aud_antes m),
+           depois AS (
+             SELECT COALESCE(jsonb_object_agg(x.id::text, jsonb_build_object(
+                 's', COALESCE(c.nome, 'Geral (legado)'), 'v', x.valor,
+                 'a', CASE WHEN x.aprovado IS TRUE THEN 'aprovado' WHEN x.aprovado IS FALSE THEN 'reprovado' ELSE 'pendente' END,
+                 'm', x.motivo_reprovacao, 'c', x.created_at)), '{}'::jsonb) m
+               FROM public.modelo_servico_mo x
+               LEFT JOIN public.categorias_terceirizado c ON c.id = x.categoria_terceirizado_id
+              WHERE x.modelo_id = _modelo_id),
+           chaves AS (
+             SELECT q.k, (SELECT m->q.k FROM antes) ja, (SELECT m->q.k FROM depois) jd
+               FROM (SELECT DISTINCT kk k FROM antes a, depois d, jsonb_object_keys(a.m || d.m) kk) q),
+           rot AS (SELECT k, ja, jd, COALESCE(jd->>'s', ja->>'s') base, COALESCE(jd->>'c', ja->>'c') cc FROM chaves),
+           nome AS (
+             SELECT ja, jd,
+                    base || CASE WHEN count(*) OVER (PARTITION BY base) > 1
+                                 THEN ' #' || row_number() OVER (PARTITION BY base ORDER BY cc, k) ELSE '' END AS rotulo
+               FROM rot)
+      SELECT jsonb_strip_nulls(jsonb_object_agg(s.kk, s.vv)) INTO v_aud_diff FROM (
+        SELECT rotulo || ' · adicionado' kk, jsonb_build_object('para', (jd->>'v')::numeric) vv
+          FROM nome WHERE ja IS NULL
+        UNION ALL
+        SELECT rotulo || ' · removido', jsonb_build_object('de', (ja->>'v')::numeric)
+          FROM nome WHERE jd IS NULL
+        UNION ALL
+        SELECT rotulo || ' · valor', jsonb_build_object('de', (ja->>'v')::numeric, 'para', (jd->>'v')::numeric)
+          FROM nome WHERE ja IS NOT NULL AND jd IS NOT NULL AND (ja->>'v')::numeric IS DISTINCT FROM (jd->>'v')::numeric
+        UNION ALL
+        SELECT rotulo || ' · serviço', jsonb_build_object('de', ja->>'s', 'para', jd->>'s')
+          FROM nome WHERE ja IS NOT NULL AND jd IS NOT NULL AND (ja->>'s') IS DISTINCT FROM (jd->>'s')
+        UNION ALL
+        SELECT rotulo || ' · aprovado', jsonb_build_object('de', ja->>'a', 'para', jd->>'a')
+          FROM nome WHERE ja IS NOT NULL AND jd IS NOT NULL AND (ja->>'a') IS DISTINCT FROM (jd->>'a')
+        UNION ALL
+        SELECT rotulo || ' · motivo', jsonb_build_object('de', ja->>'m', 'para', jd->>'m')
+          FROM nome WHERE ja IS NOT NULL AND jd IS NOT NULL AND (ja->>'m') IS DISTINCT FROM (jd->>'m')
+      ) s;
+      PERFORM public._audit_evento_secao(_modelo_id, v_tenant, 'Mão de obra', 'modelo_servico_mo', v_aud_diff);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL; -- a auditoria NUNCA derruba o Salvar
+  END;
+END $function$;
+
+-- ─────────────────────────── aprovar_servico_mo(uuid,uuid,boolean,text) ───────────────────────────
+CREATE OR REPLACE FUNCTION public.aprovar_servico_mo(_modelo_id uuid, _linha_id uuid, _aprovado boolean, _motivo text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  -- F5-3 Task 3: estado ANTERIOR da linha (para o evento "Mao de obra")
+  v_aud_ok boolean := false; v_aud_a boolean; v_aud_m text; v_aud_s text; v_aud_tenant uuid;
+  v_aud_de text; v_aud_para text;
+BEGIN
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Módulo criacao não habilitado para esta loja' USING ERRCODE = '42501';
+  END IF;
+  -- F5-3 Task 3: fotografa a linha ANTES de decidir (aprovado, motivo, servico). Falha na captura = sem evento.
+  BEGIN
+    SELECT x.aprovado, x.motivo_reprovacao, COALESCE(c.nome, 'Geral (legado)'),
+           (SELECT mm.tenant_id FROM public.modelos mm WHERE mm.id = _modelo_id)
+      INTO v_aud_a, v_aud_m, v_aud_s, v_aud_tenant
+      FROM public.modelo_servico_mo x
+      LEFT JOIN public.categorias_terceirizado c ON c.id = x.categoria_terceirizado_id
+     WHERE x.id = _linha_id AND x.modelo_id = _modelo_id;
+    v_aud_ok := FOUND;
+  EXCEPTION WHEN OTHERS THEN
+    v_aud_ok := false;
+  END;
+  PERFORM public._aprovar_servico_mo_core(_modelo_id, _linha_id, _aprovado, _motivo);
+  -- F5-3 Task 3: 1 evento "Mao de obra": "{servico}: aprovado/reprovado" (so se a decisao mudou). Protegido: nunca derruba o aprovar.
+  BEGIN
+    IF v_aud_ok AND v_aud_tenant IS NOT NULL THEN
+      v_aud_de   := CASE WHEN v_aud_a IS TRUE THEN 'aprovado' WHEN v_aud_a IS FALSE THEN 'reprovado' ELSE 'pendente' END;
+      v_aud_para := CASE WHEN _aprovado IS TRUE THEN 'aprovado' WHEN _aprovado IS FALSE THEN 'reprovado' ELSE 'pendente' END;
+      IF v_aud_de IS DISTINCT FROM v_aud_para OR (_aprovado IS FALSE AND v_aud_m IS DISTINCT FROM _motivo) THEN
+        PERFORM public._audit_evento_secao(_modelo_id, v_aud_tenant, 'Mão de obra', 'modelo_servico_mo',
+          jsonb_build_object(v_aud_s || ': ' || v_aud_para,
+            jsonb_strip_nulls(jsonb_build_object('de', v_aud_de, 'para', v_aud_para,
+                                                 'motivo', CASE WHEN _aprovado IS FALSE THEN _motivo END))));
+      END IF;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL; -- a auditoria NUNCA derruba o aprovar
+  END;
+END $function$;
+
+-- ─────────────────────────── salvar_grade_programada(uuid,jsonb,integer) ───────────────────────────
+CREATE OR REPLACE FUNCTION public.salvar_grade_programada(_modelo_id uuid, _grades jsonb, _rev_base integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_rev integer; v_tenant uuid;
+  -- F5-3 Task 3: estado ANTERIOR da grade programada (variante_numero -> tamanho -> qtd)
+  v_aud_antes jsonb; v_aud_ok boolean := false; v_aud_diff jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Nao autenticado'; END IF;
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Modulo criacao nao habilitado para esta loja' USING ERRCODE='42501'; END IF;
+  PERFORM public._seg_exige_pagina('criacao_planejamento','criacao_desenvolvimento');
+  SELECT m.tenant_id INTO v_tenant FROM public.modelos m
+   WHERE m.id=_modelo_id AND (m.tenant_id=public.get_user_tenant_id() OR public.is_super_admin());
+  IF v_tenant IS NULL THEN RAISE EXCEPTION 'nao_encontrado: modelo' USING ERRCODE='P0002'; END IF;
+  SELECT m.rev INTO v_rev FROM public.modelos m WHERE m.id=_modelo_id FOR UPDATE;
+  IF _rev_base IS NOT NULL AND v_rev IS DISTINCT FROM _rev_base THEN
+    RAISE EXCEPTION 'conflito_versao: card' USING ERRCODE='P0409'; END IF;
+  -- F5-3 Task 3: fotografa a grade programada ANTES de gravar. Falha na captura = sem evento.
+  BEGIN
+    SELECT COALESCE(jsonb_object_agg(variante_numero::text, COALESCE(grades_programada, '{}'::jsonb)), '{}'::jsonb)
+      INTO v_aud_antes FROM public.modelo_grades WHERE modelo_id = _modelo_id;
+    v_aud_ok := true;
+  EXCEPTION WHEN OTHERS THEN
+    v_aud_ok := false;
+  END;
+  PERFORM public._salvar_grade_programada_core(_modelo_id, _grades);
+  -- F5-3 Task 3: 1 evento "Grade programada": diff por (variante, tamanho). Ausente = 0. Protegido: nunca derruba o Salvar.
+  BEGIN
+    IF v_aud_ok THEN
+      WITH antes AS (SELECT COALESCE(v_aud_antes, '{}'::jsonb) m),
+           depois AS (SELECT COALESCE(jsonb_object_agg(variante_numero::text, COALESCE(grades_programada, '{}'::jsonb)), '{}'::jsonb) m
+                      FROM public.modelo_grades WHERE modelo_id = _modelo_id),
+           vns AS (SELECT DISTINCT k vn FROM antes a, depois d, jsonb_object_keys(a.m || d.m) k),
+           pares AS (
+             SELECT vn, tam FROM vns
+             CROSS JOIN LATERAL (
+               SELECT DISTINCT kk tam FROM (
+                 SELECT jsonb_object_keys(COALESCE((SELECT m->vn FROM antes), '{}'::jsonb)) kk
+                 UNION SELECT jsonb_object_keys(COALESCE((SELECT m->vn FROM depois), '{}'::jsonb))
+               ) t
+             ) tt)
+      SELECT jsonb_object_agg(
+               'v' || vn || ' ' || CASE WHEN position('|' in tam) > 0 THEN split_part(tam,'|',2) ELSE tam END,
+               jsonb_build_object(
+                 'de',   COALESCE(NULLIF((SELECT m->vn->>tam FROM antes), '')::numeric, 0),
+                 'para', COALESCE(NULLIF((SELECT m->vn->>tam FROM depois), '')::numeric, 0)))
+        INTO v_aud_diff FROM pares
+       WHERE COALESCE(NULLIF((SELECT m->vn->>tam FROM antes), '')::numeric, 0)
+         IS DISTINCT FROM COALESCE(NULLIF((SELECT m->vn->>tam FROM depois), '')::numeric, 0);
+      PERFORM public._audit_evento_secao(_modelo_id, v_tenant, 'Grade programada', 'modelo_grades', v_aud_diff);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL; -- a auditoria NUNCA derruba o Salvar
+  END;
+  SELECT m.rev INTO v_rev FROM public.modelos m WHERE m.id=_modelo_id;
+  RETURN jsonb_build_object('modelo_id', _modelo_id, 'rev', v_rev);
+END $function$;
+
+-- ─────────────────────────── _salvar_grade_revenda_core(uuid,jsonb,integer) ───────────────────────────
+CREATE OR REPLACE FUNCTION public._salvar_grade_revenda_core(_modelo_id uuid, _grades jsonb, _rev_base integer DEFAULT NULL::integer)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid;
+  v_origem text;
+  v_user uuid := auth.uid();
+  g jsonb;
+  v_grades jsonb;
+  v_grade_total numeric;
+  v_has_value boolean;
+  -- F5-3 Task 3: estado ANTERIOR da grade (variante_numero -> tamanho -> qtd) para o evento "Grade (revenda)"
+  v_aud_antes jsonb; v_aud_ok boolean := false; v_aud_diff jsonb;
+BEGIN
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado';
+  END IF;
+
+  -- trava otimista (molde salvar_modelo_bom / spec 2026-08-03)
+  if _rev_base is not null then
+    declare v_rev int;
+    begin
+      select rev into v_rev from public.modelos
+        where id = _modelo_id and (tenant_id = public.get_user_tenant_id() or public.is_super_admin())
+        for update;
+      if v_rev is distinct from _rev_base then
+        raise exception 'conflito_versao: o registro foi salvo por outra pessoa'
+          using errcode = 'P0409';
+      end if;
+    end;
+  end if;
+
+  SELECT tenant_id, origem INTO v_tenant, v_origem FROM public.modelos WHERE id = _modelo_id;
+  IF v_tenant IS NULL THEN
+    RAISE EXCEPTION 'Modelo não encontrado';
+  END IF;
+
+  IF v_tenant <> public.get_user_tenant_id() AND NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Sem permissão para este modelo';
+  END IF;
+
+  IF v_origem IS DISTINCT FROM 'revenda' THEN
+    RAISE EXCEPTION 'Este modelo não é de Revenda (Produto Acabado) — grade cor×tamanho não se aplica.' USING ERRCODE='P0001';
+  END IF;
+
+  -- F5-3 Task 3: fotografa a grade ANTES do delete-and-reinsert. Falha na captura = sem evento.
+  BEGIN
+    SELECT COALESCE(jsonb_object_agg(variante_numero::text, grades), '{}'::jsonb)
+      INTO v_aud_antes FROM public.modelo_grades WHERE modelo_id = _modelo_id;
+    v_aud_ok := true;
+  EXCEPTION WHEN OTHERS THEN
+    v_aud_ok := false;
+  END;
+
+  DELETE FROM public.modelo_grades WHERE modelo_id = _modelo_id;
+
+  IF jsonb_typeof(_grades) = 'array' THEN
+    FOR g IN SELECT value FROM jsonb_array_elements(COALESCE(_grades, '[]'::jsonb)) LOOP
+      v_grades := COALESCE(g->'grades', '{}'::jsonb);
+      v_grade_total := COALESCE((g->>'grade_total')::numeric, 0);
+      v_has_value := false;
+      IF v_grade_total > 0 THEN
+        v_has_value := true;
+      ELSIF jsonb_typeof(v_grades) = 'object' THEN
+        SELECT EXISTS(
+          SELECT 1 FROM jsonb_each_text(v_grades)
+          WHERE NULLIF(value,'')::numeric > 0
+        ) INTO v_has_value;
+      END IF;
+      IF v_has_value THEN
+        INSERT INTO public.modelo_grades
+          (modelo_id, variante_numero, grades, grade_total)
+        VALUES
+          (_modelo_id,
+           (g->>'variante_numero')::int,
+           v_grades,
+           v_grade_total);
+      END IF;
+    END LOOP;
+  END IF;
+  -- F5-3 Task 3: 1 evento "Grade (revenda)": diff por (variante, tamanho). Ausente = 0. Protegido: nunca derruba o Salvar.
+  BEGIN
+    IF v_aud_ok THEN
+      WITH antes AS (SELECT COALESCE(v_aud_antes, '{}'::jsonb) m),
+           depois AS (SELECT COALESCE(jsonb_object_agg(variante_numero::text, grades), '{}'::jsonb) m
+                      FROM public.modelo_grades WHERE modelo_id = _modelo_id),
+           vns AS (SELECT DISTINCT k vn FROM antes a, depois d, jsonb_object_keys(a.m || d.m) k),
+           pares AS (
+             SELECT vn, tam FROM vns
+             CROSS JOIN LATERAL (
+               SELECT DISTINCT kk tam FROM (
+                 SELECT jsonb_object_keys(COALESCE((SELECT m->vn FROM antes), '{}'::jsonb)) kk
+                 UNION SELECT jsonb_object_keys(COALESCE((SELECT m->vn FROM depois), '{}'::jsonb))
+               ) t
+             ) tt)
+      SELECT jsonb_object_agg(
+               'v' || vn || ' ' || CASE WHEN position('|' in tam) > 0 THEN split_part(tam,'|',2) ELSE tam END,
+               jsonb_build_object(
+                 'de',   COALESCE(NULLIF((SELECT m->vn->>tam FROM antes), '')::numeric, 0),
+                 'para', COALESCE(NULLIF((SELECT m->vn->>tam FROM depois), '')::numeric, 0)))
+        INTO v_aud_diff FROM pares
+       WHERE COALESCE(NULLIF((SELECT m->vn->>tam FROM antes), '')::numeric, 0)
+         IS DISTINCT FROM COALESCE(NULLIF((SELECT m->vn->>tam FROM depois), '')::numeric, 0);
+      PERFORM public._audit_evento_secao(_modelo_id, v_tenant, 'Grade (revenda)', 'modelo_grades', v_aud_diff);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL; -- a auditoria NUNCA derruba o Salvar
+  END;
+END
+$function$;
 COMMIT;
