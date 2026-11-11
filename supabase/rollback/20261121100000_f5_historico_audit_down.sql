@@ -1,6 +1,8 @@
--- F5-3 Task 2+3 (rollback): devolve os corpos VIVOS ORIGINAIS dos 3 _core (md5 1641592f / de45e1c2 / 38131664,
+-- F5-3 Task 4 (DROP historico_modelo) + Task 2+3 (rollback): devolve os corpos VIVOS ORIGINAIS dos 3 _core (md5 1641592f / de45e1c2 / 38131664,
 -- inclui a preservacao de grades_programada do F5-2) e DROP do helper _audit_evento_secao (Task 1).
 BEGIN;
+-- F5-3 Task 4 (LIFO: sai primeiro): RPC de leitura historico_modelo.
+DROP FUNCTION IF EXISTS public.historico_modelo(uuid);
 CREATE OR REPLACE FUNCTION public._salvar_modelo_bom_core(_modelo_id uuid, _tecidos jsonb, _aviamentos jsonb, _grades jsonb, _rev_base integer DEFAULT NULL::integer)
  RETURNS void
  LANGUAGE plpgsql

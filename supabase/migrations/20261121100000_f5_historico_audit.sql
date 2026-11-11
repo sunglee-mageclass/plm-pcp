@@ -1106,4 +1106,71 @@ BEGIN
   END;
 END
 $function$;
+
+-- ============================================================================
+-- F5-3 Task 4: RPC historico_modelo(_modelo_id) = LEITURA do historico do produto.
+-- Junta, para UM modelo, os eventos de audit_log cujo registro_id esta no GRAFO do modelo (o proprio modelo, seu CAD, CQ, servicos,
+-- oficina, direcionamento, lancamentos, vagas do Plan. Tecido, produtos acabado/importado e as OCs de tecido ligadas pelos links
+-- do BOM) + as mudancas de etapa do kanban, do mais recente ao mais antigo. Shape de cada evento:
+-- {tipo:'audit'|'etapa', entidade, acao, quem, quando, dados}. NAO resolve FK -> nome (o front usa audit_resolver_referencias).
+-- SEM portao de pagina: quem ja ve o produto le o historico (loja = get_user_tenant_id(); super admin passa).
+-- Mensagem 5xx so ASCII: 'nao_encontrado: modelo' (P0002) e o texto sem acento da regra do projeto.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.historico_modelo(_modelo_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $fn$
+DECLARE
+  v_tenant uuid;
+  v_ids uuid[];
+  v_res jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado' USING ERRCODE = '42501';
+  END IF;
+
+  -- Posse: o modelo e da loja ativa do usuario (ou super admin). Sem oraculo: inexistente e de outra loja dao o MESMO erro.
+  SELECT m.tenant_id INTO v_tenant
+    FROM public.modelos m
+   WHERE m.id = _modelo_id
+     AND (m.tenant_id = public.get_user_tenant_id() OR public.is_super_admin());
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'nao_encontrado: modelo' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Grafo do modelo (todos os ids em que o audit_log pode ter gravado registro_id para este produto).
+  SELECT array_agg(DISTINCT x.id) INTO v_ids FROM (
+    SELECT _modelo_id AS id
+    UNION ALL SELECT c.id FROM public.cad c WHERE c.modelo_id = _modelo_id
+    UNION ALL SELECT q.id FROM public.controle_qualidade q JOIN public.cad c ON c.id = q.cad_id WHERE c.modelo_id = _modelo_id
+    UNION ALL SELECT t.id FROM public.producao_terceirizados t JOIN public.cad c ON c.id = t.cad_id WHERE c.modelo_id = _modelo_id
+    UNION ALL SELECT o.id FROM public.producao_oficina o JOIN public.cad c ON c.id = o.cad_id WHERE c.modelo_id = _modelo_id
+    UNION ALL SELECT d.id FROM public.direcionamento d JOIN public.cad c ON c.id = d.cad_id WHERE c.modelo_id = _modelo_id
+    UNION ALL SELECT dl.id FROM public.direcionamento_lojas dl JOIN public.cad c ON c.id = dl.cad_id WHERE c.modelo_id = _modelo_id
+    UNION ALL SELECT l.id FROM public.lancamentos l WHERE l.modelo_id = _modelo_id
+    UNION ALL SELECT s.id FROM public.plan_tecido_slots s WHERE s.modelo_id = _modelo_id
+    UNION ALL SELECT pa.id FROM public.produtos_acabados pa WHERE pa.modelo_id = _modelo_id
+    UNION ALL SELECT pi.id FROM public.produtos_importados pi WHERE pi.modelo_id = _modelo_id
+    UNION ALL SELECT oi.oc_tecido_id
+                FROM public.modelo_tecido_oc_links k
+                JOIN public.ocs_tecido_itens oi ON oi.id = k.oc_tecido_item_id
+               WHERE k.modelo_id = _modelo_id
+  ) x WHERE x.id IS NOT NULL;
+
+  SELECT COALESCE(jsonb_agg(e.ev ORDER BY e.quando DESC, e.ord), '[]'::jsonb) INTO v_res FROM (
+    SELECT a.created_at AS quando, 'a' || a.id::text AS ord,
+           jsonb_build_object('tipo', 'audit', 'entidade', a.entidade, 'acao', a.acao, 'quem', a.user_nome,
+                              'quando', a.created_at, 'dados', a.dados) AS ev
+      FROM public.audit_log a
+     WHERE a.registro_id = ANY (v_ids) AND a.tenant_id = v_tenant
+    UNION ALL
+    SELECT h.entrou_at, 'k' || h.id::text,
+           jsonb_build_object('tipo', 'etapa', 'entidade', 'Etapa', 'acao', 'mover', 'quem', NULL::text,
+                              'quando', h.entrou_at, 'dados', jsonb_build_object('status', h.status, 'origem', h.origem))
+      FROM public.modelo_kanban_historico h
+     WHERE h.modelo_id = _modelo_id AND h.tenant_id = v_tenant
+  ) e;
+
+  RETURN v_res;
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public.historico_modelo(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.historico_modelo(uuid) TO authenticated, service_role;
 COMMIT;
