@@ -18,10 +18,18 @@ const NOME_ABA: Record<string, string> = {
   "3": "Até tamanho",
 };
 
+/** Neutraliza CSV/formula injection: uma célula que começa com um caractere de fórmula (= + - @, ou
+ *  tab/CR, que o Excel também interpreta) ganha um apóstrofo na frente, para o Excel/Sheets tratar o
+ *  conteúdo como TEXTO e não executar `=HYPERLINK(...)`/`@cmd`/etc. Rótulos (cabeçalho) são nossos,
+ *  fixos — não precisam. Só o corpo (dado do produto, texto livre) é escapado. */
+function escaparCelula(v: string): string {
+  return /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+}
+
 /** Matriz (array de arrays): 1ª linha = rótulos; depois 1 linha por item, na ordem de `campos`. */
 export function montarMatriz(linhas: Record<string, unknown>[], campos: string[]): string[][] {
   const cabecalho = campos.map((k) => CAMPO_EXPORT_BY_KEY.get(k)?.rotulo ?? k);
-  const corpo = linhas.map((l) => campos.map((k) => String(l[k] ?? "")));
+  const corpo = linhas.map((l) => campos.map((k) => escaparCelula(String(l[k] ?? ""))));
   return [cabecalho, ...corpo];
 }
 

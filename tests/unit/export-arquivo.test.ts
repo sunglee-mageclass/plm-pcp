@@ -24,3 +24,21 @@ describe("montarMatriz", () => {
     expect(m[1]).toEqual(["", "12.5"]);
   });
 });
+
+describe("montarMatriz — CSV/formula injection", () => {
+  it("célula começando com = + - @ ganha apóstrofo (vira texto no Excel)", () => {
+    const linhas = [
+      { nome: "=HYPERLINK(\"http://x\")" },
+      { nome: "+1" },
+      { nome: "-2" },
+      { nome: "@cmd" },
+      { nome: "Blusa normal" },
+    ];
+    const m = montarMatriz(linhas, ["nome"]);
+    expect(m[1][0]).toBe("'=HYPERLINK(\"http://x\")");
+    expect(m[2][0]).toBe("'+1");
+    expect(m[3][0]).toBe("'-2");
+    expect(m[4][0]).toBe("'@cmd");
+    expect(m[5][0]).toBe("Blusa normal"); // valor normal NÃO é alterado
+  });
+});
