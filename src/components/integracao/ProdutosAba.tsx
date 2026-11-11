@@ -1,6 +1,7 @@
 // Integração — aba Produtos (spec §6, mockup 2). Situação (padrão "Não integrados") + coleção/etapa/origem/estado + busca;
-// P-130 A (set/2026, dono): carrega TUDO de uma vez (até LIMITE_PRODUTOS=500 — ver useIntegracao.ts) pra ordenação e
-// o filtro de nível de Estado valerem pra lista INTEIRA; paginação de verdade só acima de 500 (`mostraPaginacao`).
+// Paginação de verdade (fix 11/nov, timeout 8s da RPC): LIMITE_PRODUTOS=50 por página (ver useIntegracao.ts);
+// ordenação e o filtro de nível de Estado/Versão (client-side) valem só pra página atual; controles Anterior/Próxima
+// aparecem quando `lista.total > LIMITE_PRODUTOS` (`mostraPaginacao`).
 // Células editáveis enquanto "não integrável" (rascunho por produto — só o Salvar grava; rev/P0409 + merge
 // 3-vias com o que chega do servidor). Estados (integrar/voltar/desfazer): Task 13. Celular: sem esta tela (P-87 — Task 18).
 //
@@ -68,10 +69,10 @@ const SITUACOES: { key: Situacao; rotulo: string }[] = [
 ];
 // MEDIUM-3 (ruling do controlador, review 685544fa) + P-130 A (dono): Estado (níveis "faltam dados"/"completo") e
 // a ORDENAÇÃO da tabela são CLIENT-SIDE, sobre o que a RPC devolveu numa chamada — mas agora que a RPC devolve até
-// LIMITE_PRODUTOS (500) de uma vez (em vez de 50), a wording "desta página" só é HONESTA quando a loja de fato
-// passou do teto e a tela está paginando de verdade (`mostraPaginacao`); com tudo carregado, dizer "desta página"
-// sugeriria um recorte que não existe. `TEXTO_ESTADO_DENTRO`/`TEXTO_ORDENACAO_PAGINA` viraram FUNÇÕES de
-// `mostraPaginacao` — texto genérico ("de toda a lista") no caso comum, "desta página" só acima de 500.
+// LIMITE_PRODUTOS (hoje 50) por chamada, a wording "desta página" só é HONESTA quando a loja de fato passou do
+// limite e a tela está paginando de verdade (`mostraPaginacao`); com tudo carregado (loja pequena), dizer "desta
+// página" sugeriria um recorte que não existe. `TEXTO_ESTADO_DENTRO`/`TEXTO_ORDENACAO_PAGINA` viraram FUNÇÕES de
+// `mostraPaginacao` — texto genérico ("de toda a lista") no caso comum, "desta página" só acima de LIMITE_PRODUTOS.
 const textoEstadoDentro = (mostraPaginacao: boolean): string =>
   'Estado filtra DENTRO da Situação escolhida acima (ex.: Situação "Não integrados" + Estado "Integrável" mostra só quem já está integrável, ainda não integrado). ' +
   (mostraPaginacao
@@ -203,12 +204,10 @@ export function ProdutosAba() {
   const versoesInt = useVersoesIntegradas(idsPagina);
   // Minor 6: com o filtro "Versão" ligado, a lista só vale depois que o mapa chegou (senão "nenhum produto" enganoso).
   const versaoFiltroPendente = filtros.versaoIntegrada && (versoesInt.carregando || versoesInt.erro);
-  // P-130 A (dono, set/2026): a tela pede a RPC com `_limite: LIMITE_PRODUTOS` (500, o teto da RPC) — pra uma loja
-  // com ATÉ 500 produtos na Situação/filtros escolhidos, a "página 1" JÁ é a lista INTEIRA (`lista.total <=
-  // LIMITE_PRODUTOS`), então ordenação e o filtro de nível de Estado valem pra TUDO, não só por um recorte de 50.
-  // Só uma loja com MAIS de 500 produtos segue precisando de paginação de verdade (`mostraPaginacao`) — e mesmo aí,
-  // cada "página" agora tem até 500 (não mais 50): `totalPaginas`/`faixaPagina` continuam corretos porque leem
-  // `lista.porPagina` do SERVIDOR (`por_pagina` na resposta de `integracao_listar`), nunca um "50" fixo no front.
+  // Fix 11/nov (timeout 8s): a tela pede a RPC com `_limite: LIMITE_PRODUTOS` (50). Loja com ATÉ 50 produtos na
+  // Situação/filtros escolhidos: a "página 1" JÁ é a lista inteira. Acima disso há paginação de verdade
+  // (`mostraPaginacao`); `totalPaginas`/`faixaPagina` leem `lista.porPagina` do SERVIDOR (`por_pagina`), nunca um
+  // "50" fixo no front.
   const mostraPaginacao = !!lista && lista.total > LIMITE_PRODUTOS;
   // Owner (set/2026): os 2 níveis novos de Estado ("faltam dados"/"completo") são um recorte CLIENT-SIDE de "não
   // integrável" — a RPC `integracao_listar` só entende os 3 valores de sempre (`filtrosParaRpc` já manda
@@ -218,7 +217,7 @@ export function ProdutosAba() {
   // em massa/"selecionar todos", rodapé "Mostrando…") usa ELE, nunca `lista.produtos` cru, senão o cabeçalho
   // "selecionar todos" ficaria incoerente com as linhas de fato marcáveis. Paginação (Anterior/Próxima) continua
   // andando sobre a página REAL do servidor — só o que É mostrado/selecionável nela que é filtrado. Com
-  // `mostraPaginacao=false` (≤500 produtos), "a página" JÁ É a lista inteira — ordenação/nível cobrem tudo de
+  // `mostraPaginacao=false` (≤ LIMITE_PRODUTOS), "a página" JÁ É a lista inteira — ordenação/nível cobrem tudo de
   // verdade, não é mais um recorte; os textos abaixo (`filtroEstreitaNivel`) refletem isso.
   const filtroEstreitaNivel = filtros.estado === "nao_integravel_faltam" || filtros.estado === "nao_integravel_completo";
   // P-156 C (R7c): "Versão de produto já integrado" também é recorte LOCAL da lista carregada (soma com o Estado).
@@ -772,7 +771,7 @@ export function ProdutosAba() {
         <FiltroSelect id="f-estado" rotulo="Estado" valor={filtros.estado} desabilitado={travaFiltro} info={textoEstadoDentro(mostraPaginacao)}
           opcoes={OPCOES_ESTADO_NIVEL.map((key) => ({ key, label: ROTULO_ESTADO_NIVEL[key] }))}
           onMudar={(v) => { setFiltros((f) => ({ ...f, estado: v as EstadoNivel | null })); setPagina(1); }} />
-        {/* P-156 C (R7c): filtro LOCAL — age só na lista carregada (≤500), soma com o Estado, nunca vai à RPC da lista. */}
+        {/* P-156 C (R7c): filtro LOCAL — age só na lista carregada (da página atual), soma com o Estado, nunca vai à RPC da lista. */}
         <FiltroSelect id="f-versao" rotulo="Versão" valor={filtros.versaoIntegrada ? VERSAO_JA_INTEGRADA : null}
           desabilitado={travaFiltro} info={textoFiltroVersao(mostraPaginacao)}
           opcoes={[{ key: VERSAO_JA_INTEGRADA, label: "Já integrado (versão)" }]}
@@ -857,9 +856,8 @@ export function ProdutosAba() {
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             {/* Owner (set/2026) + P-130 A: com o filtro de nível ativo, `lista.total` é o total de "não integrável"
-                (a RPC não distingue faltam/completo) — nunca reusar `faixaPagina(lista)` aqui (diria "de 50"/"de
-                500" quando só 12 passam o filtro). Texto próprio, honesto sobre o que FOI carregado — "desta
-                página" só quando `mostraPaginacao` é de verdade (>500 produtos); senão "da lista" (tudo). Inclui o
+                (a RPC não distingue faltam/completo) — nunca reusar `faixaPagina(lista)` aqui (diria "de 50" quando só 12 passam o filtro). Texto próprio, honesto sobre o que FOI carregado — "desta
+                página" só quando `mostraPaginacao` é de verdade (> LIMITE_PRODUTOS produtos); senão "da lista" (tudo). Inclui o
                 caso 0 de N (HIGH-1: nunca esconder esta linha, mesmo com a tabela vazia). */}
             <span className="text-muted-foreground">
               {filtroLocal

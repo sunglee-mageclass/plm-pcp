@@ -54,10 +54,12 @@ function useValorAtrasado(valor: string, ms: number): string {
   return v;
 }
 
-// P-130 A: teto que a tela pede pra `integracao_listar` — o máximo que a RPC aceita (o servidor recusa acima
-// disso com P0001, ver a migration do banco). Exportado pra `ProdutosAba.tsx` decidir "mostra paginação?"
-// (`lista.total > LIMITE_PRODUTOS`) sem duplicar o número mágico 500 em dois arquivos.
-export const LIMITE_PRODUTOS = 500;
+// Tamanho da página que a tela pede pra `integracao_listar`. INCIDENTE 11/nov (Ave Rara, 429 produtos): com 500 a RPC
+// processava TODOS os produtos num laço (`_integracao_retrato_core` por produto) e estourava o `statement_timeout`
+// FIXO de 8s do role `authenticated` (57014). Com 50 por chamada cada página fica bem abaixo disso. A RPC aceita
+// até 500 (recusa acima com P0001) — NÃO subir sem medir. Exportado pra `ProdutosAba.tsx` decidir "mostra
+// paginação?" (`lista.total > LIMITE_PRODUTOS`) sem duplicar o número mágico em dois arquivos.
+export const LIMITE_PRODUTOS = 50;
 export const chaveLista = (tenantId: string) => ["integracao-lista", tenantId] as const;
 export const chaveConfig = (tenantId: string) => ["integracao-config", tenantId] as const;
 export const chaveEstado = (tenantId: string) => ["integracao-estado", tenantId] as const;
@@ -191,11 +193,9 @@ export function useIntegracaoLista(situacao: Situacao, filtros: Filtros, pagina:
     // caso mais comum: o usuário troca de aba/janela e volta. Ver task-13-report.md "Fix round 1" para o registro
     // completo desta limitação conhecida.
     refetchOnWindowFocus: true,
-    // P-130 A (set/2026, dono): a tela carrega TUDO de uma vez (até 500) pra que ordenação e o filtro de nível de
-    // Estado (faltam dados/completo) valham pra lista INTEIRA, não só pela página de 50 — `_limite: 500` é o
-    // MÁXIMO aceito pela RPC (uma loja com ≤500 produtos nunca paginaria de verdade: `_pagina` continua com a
-    // MESMA semântica de OFFSET de sempre, só que agora sobre blocos de 500 em vez de 50 — só lojas com MAIS de
-    // 500 produtos na Situação/filtros escolhidos chegam a ter uma 2ª página).
+    // Paginação de verdade (fix 11/nov, timeout 8s): `_limite: LIMITE_PRODUTOS` (50) por chamada; `_pagina` tem a
+    // semântica de OFFSET por blocos de `_limite`. Ordenação e o filtro de nível de Estado (faltam dados/completo)
+    // são CLIENT-SIDE e valem só pra página carregada (trade-off aceito pelo dono).
     // ⚠️ ORDEM DE DEPLOY (nota do controlador): `_limite` é um parâmetro NOVO opcional em `integracao_listar` —
     // outro agente está adicionando na migration do banco. Uma `integracao_listar(text,jsonb,integer)` ANTIGA (sem
     // esse 4º parâmetro) REJEITA a chamada com `_limite` (PostgREST erra a função por assinatura — "no function

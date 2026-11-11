@@ -556,7 +556,7 @@ describe("useIntegracao — useIntegracaoLista chama integracao_listar com _limi
     vi.resetModules();
     vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
     const rpcSpy = vi.fn(async () => ({
-      data: { pagina: 1, por_pagina: 500, total: 1, produtos: [], contagens: { nao_integrados: 1, integrados: 0, todos: 1 },
+      data: { pagina: 1, por_pagina: 50, total: 1, produtos: [], contagens: { nao_integrados: 1, integrados: 0, todos: 1 },
         campos: [], opcoes: { colecoes: [], etapas: [] }, pode: { editar: true, ver_custos: true, super: false, keywords: true },
         keywords: null },
       error: null,
@@ -583,7 +583,7 @@ describe("useIntegracao — useIntegracaoLista chama integracao_listar com _limi
     };
   }
 
-  it("a chamada de integracao_listar leva _limite: 500, junto de _situacao/_filtros/_pagina", async () => {
+  it("a chamada de integracao_listar leva _limite: 50, junto de _situacao/_filtros/_pagina", async () => {
     const view = await montarListaSonda();
     // A query pode ainda estar "em voo" no 1º render; espera até o spy ser chamado (mesmo padrão de espera-por-
     // polling já usado noutras Sondas deste arquivo, ex. `usePreviasSkus`/`useSalvarIntegracao`).
@@ -592,7 +592,7 @@ describe("useIntegracao — useIntegracaoLista chama integracao_listar com _limi
       await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
     }
     expect(view.rpcSpy).toHaveBeenCalledWith("integracao_listar", {
-      _situacao: "nao_integrados", _filtros: {}, _pagina: 1, _limite: 500,
+      _situacao: "nao_integrados", _filtros: {}, _pagina: 1, _limite: 50,
     });
     await view.desmontar();
   });
@@ -978,7 +978,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       // P-130 A: `ProdutosAba.tsx` importa `LIMITE_PRODUTOS` deste módulo — como este mock substitui o módulo
       // INTEIRO, precisa reexportar a MESMA constante (500) ou `mostraPaginacao` (`lista.total > LIMITE_PRODUTOS`)
       // vira `N > undefined` = sempre `false`, escondendo a paginação em TODO teste deste arquivo por engano.
-      LIMITE_PRODUTOS: 500,
+      LIMITE_PRODUTOS: 50,
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
       confirmarLojaAtiva: confirmarLojaAtivaSpy,
       useIntegracaoLista: (situacao: Parameters<NonNullable<typeof listaReal>>[0], filtros: Parameters<NonNullable<typeof listaReal>>[1], pagina: number) => {
@@ -1210,10 +1210,10 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
   // mudaria mesmo com o bug presente): navega pra página 3, edita e Salva — `pagina` precisa continuar 3 depois
   // que `travaFiltro` solta e o debounce roda de novo (janela real de 400ms — a suíte não usa fake timers).
   it("regressão R2/R-I2: Salvar na página 3 não volta pra página 1 (busca não mudou)", async () => {
-    // P-130 A: a paginação (e o botão "Próxima") só existe de verdade acima de LIMITE_PRODUTOS (500) — total
+    // P-130 A: a paginação (e o botão "Próxima") só existe de verdade acima de LIMITE_PRODUTOS (50) — total
     // precisa passar disso pra `mostraPaginacao` ser true (sem isso o botão nem renderiza e o teste quebra).
     const pagina1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto P1", ref: "REF0001", tamanho_tipo: "letra" } })],
-      { pagina: 1, total: 1500, por_pagina: 500 });
+      { pagina: 1, total: 1500, por_pagina: 50 });
     const view = await montarComMocks({ lista: pagina1 });
     const { act } = await import("react");
     expect(view.paginaAtual()).toBe(1);
@@ -2442,8 +2442,8 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     });
 
     it("HIGH-1: filtro de nível esvazia a página atual — mantém Anterior/Próxima e mostra 'Mostrando 0 de N'", async () => {
-      // P-130 A: a paginação só existe de verdade acima de LIMITE_PRODUTOS (500) — total precisa passar disso pra
-      // `mostraPaginacao` ser true e exercitar Anterior/Próxima; com total ≤ 500 a "página" já é a lista inteira e
+      // P-130 A: a paginação só existe de verdade acima de LIMITE_PRODUTOS (50) — total precisa passar disso pra
+      // `mostraPaginacao` ser true e exercitar Anterior/Próxima; com total ≤ 50 a "página" já é a lista inteira e
       // não haveria paginação pra testar aqui (ver o describe de baixo, "sem paginação").
       // 2ª página do servidor SÓ com produtos "faltam dados" — escolher "completo" esvazia esta página, mas a
       // paginação (Anterior/Próxima) tem que continuar visível (a pessoa pode trocar de página em vez de reabrir
@@ -2453,7 +2453,7 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
           produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" }, completo: false }),
           produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" }, completo: false }),
         ],
-        { pagina: 2, total: 600, por_pagina: 500 },
+        { pagina: 2, total: 600, por_pagina: 50 },
       );
       const view = await montarComMocks({ lista });
       const abriu = await escolherEstado(view, "Pronto para integrar");
@@ -2474,22 +2474,22 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     });
   });
 
-  // P-130 A (dono, set/2026): a tela carrega TUDO de uma vez (até LIMITE_PRODUTOS=500) — sem paginação de verdade
-  // pra lojas com ≤500 produtos. Cobre: (1) captions corretas nos 2 casos (com/sem paginação de verdade); (2)
+  // Paginação de verdade (fix 11/nov, timeout 8s): LIMITE_PRODUTOS=50 por página — sem paginação pra lojas com
+  // ≤50 produtos. Cobre: (1) captions corretas nos 2 casos (com/sem paginação de verdade); (2)
   // ordenação/filtro de nível aplicados sobre TODA a lista carregada, não só um recorte de 50 (prova com >50
   // produtos numa única "página").
-  describe("P-130 A — carrega tudo de uma vez; paginação só acima de 500", () => {
-    it("SEM paginação de verdade (total ≤ 500): Anterior/Próxima NÃO aparecem; captions dizem 'da lista'/'toda a lista carregada'", async () => {
-      // 80 produtos, total=80 (< 500) — mostraPaginacao é false; a "página 1" JÁ é a lista inteira.
-      const produtos = Array.from({ length: 80 }, (_, i) =>
+  describe("P-130 A — carrega tudo de uma vez; paginação só acima de 50", () => {
+    it("SEM paginação de verdade (total ≤ 50): Anterior/Próxima NÃO aparecem; captions dizem 'da lista'/'toda a lista carregada'", async () => {
+      // 40 produtos, total=40 (≤ 50) — mostraPaginacao é false; a "página 1" JÁ é a lista inteira.
+      const produtos = Array.from({ length: 40 }, (_, i) =>
         produtoRaw({ modelo_id: `m${i}`, raw: { nome: `Produto ${String(i).padStart(3, "0")}`, ref: `REF${i}`, tamanho_tipo: "letra" } }));
-      const lista = listaRaw(produtos, { pagina: 1, total: 80, por_pagina: 500 });
+      const lista = listaRaw(produtos, { pagina: 1, total: 40, por_pagina: 50 });
       const view = await montarComMocks({ lista });
       // Nem Anterior nem Próxima existem — não há "outra página" pra ir.
       const anterior = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Anterior");
       const proxima = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Próxima");
-      expect(anterior, "sem >500 produtos, não deveria existir botão Anterior").toBeUndefined();
-      expect(proxima, "sem >500 produtos, não deveria existir botão Próxima").toBeUndefined();
+      expect(anterior, "sem >50 produtos, não deveria existir botão Anterior").toBeUndefined();
+      expect(proxima, "sem >50 produtos, não deveria existir botão Próxima").toBeUndefined();
       // Caption do rodapé: nunca "desta página" quando tudo já foi carregado.
       expect(view.container.textContent).toContain("Ordenação e níveis de Estado valem para toda a lista carregada.");
       expect(view.container.textContent).not.toContain("Ordenação e níveis de Estado valem para os produtos desta página.");
@@ -2499,65 +2499,65 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await view.desmontar();
     });
 
-    it("COM paginação de verdade (total > 500): Anterior/Próxima aparecem; captions dizem 'desta página'", async () => {
+    it("COM paginação de verdade (total > 50): Anterior/Próxima aparecem; captions dizem 'desta página'", async () => {
       const produtos = [produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Único", ref: "REF0001", tamanho_tipo: "letra" } })];
-      const lista = listaRaw(produtos, { pagina: 1, total: 600, por_pagina: 500 });
+      const lista = listaRaw(produtos, { pagina: 1, total: 60, por_pagina: 50 });
       const view = await montarComMocks({ lista });
       const anterior = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Anterior");
       const proxima = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Próxima");
-      expect(anterior, "com >500 produtos, Anterior tem que existir").toBeDefined();
-      expect(proxima, "com >500 produtos, Próxima tem que existir").toBeDefined();
+      expect(anterior, "com >50 produtos, Anterior tem que existir").toBeDefined();
+      expect(proxima, "com >50 produtos, Próxima tem que existir").toBeDefined();
       expect(view.container.textContent).toContain("Ordenação e níveis de Estado valem para os produtos desta página.");
       expect(view.container.textContent).not.toContain("Ordenação e níveis de Estado valem para toda a lista carregada.");
       await view.desmontar();
     });
 
-    it("ordenação por Nome funciona sobre as 80 linhas carregadas de uma vez (não só as primeiras 50)", async () => {
-      // Nomes em ordem DECRESCENTE no servidor (Produto 079 primeiro) — clicar "Nome" (asc) tem que trazer
+    it("ordenação por Nome funciona sobre as 40 linhas carregadas", async () => {
+      // Nomes em ordem DECRESCENTE no servidor (Produto 039 primeiro) — clicar "Nome" (asc) tem que trazer
       // Produto 000 pro topo, e isso só é observável se as 80 linhas estiverem TODAS na mesma "página" carregada
       // (com o antigo limite de 50, o 79º produto nem estaria na tela pra reordenar). `acessorOrdenacao` lê o
       // valor SALVO (`fonteExibida`/`vivo`, nunca `raw` cru) — a fixture precisa de `vivo.linhas` preenchido, senão
       // o accessor devolve `null` pra TODO produto e o sort vira um no-op silencioso (achado ao depurar este teste).
-      const produtos = Array.from({ length: 80 }, (_, i) => {
-        const n = 79 - i; // decrescente: primeiro é 079, último é 000
+      const produtos = Array.from({ length: 40 }, (_, i) => {
+        const n = 39 - i; // decrescente: primeiro é 039, último é 000
         const nome = `Produto ${String(n).padStart(3, "0")}`;
         return produtoRaw({
           modelo_id: `m${n}`, raw: { nome, ref: `REF${n}`, tamanho_tipo: "letra" },
           vivo: { v: 1, campos: ["nome"], linhas: [{ tipo: "produto", ordem: 0, valores: { nome }, fotos: [] }] },
         });
       });
-      const lista = listaRaw(produtos, { pagina: 1, total: 80, por_pagina: 500 });
+      const lista = listaRaw(produtos, { pagina: 1, total: 40, por_pagina: 50 });
       const view = await montarComMocks({ lista });
       const { act } = await import("react");
       const cabecalhoNome = Array.from(view.container.querySelectorAll("thead button")).find((b) => b.textContent?.includes("Nome"));
       expect(cabecalhoNome, "cabeçalho Nome precisa existir e ser clicável").toBeDefined();
       await act(async () => { cabecalhoNome!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       const primeiraLinhaInput = view.container.querySelector<HTMLInputElement>("tbody tr input");
-      expect(primeiraLinhaInput?.value).toBe("Produto 000"); // veio do FIM da lista de 80 — prova que ordenou TUDO
+      expect(primeiraLinhaInput?.value).toBe("Produto 000"); // veio do FIM da lista de 40 — prova que ordenou TUDO
       await view.desmontar();
     });
 
-    it("filtro de nível de Estado se aplica às 80 linhas carregadas de uma vez (conta certo, sem paginação)", async () => {
-      // 60 "faltam dados" + 20 "completo" — escolher "completo" tem que estreitar pras 20, mesmo sem paginação
+    it("filtro de nível de Estado se aplica às 40 linhas carregadas (conta certo, sem paginação)", async () => {
+      // 30 "faltam dados" + 10 "completo" — escolher "completo" tem que estreitar pras 10, mesmo sem paginação
       // nenhuma envolvida (mostraPaginacao=false; o recorte é 100% client-side sobre a lista JÁ carregada).
       const produtos = [
-        ...Array.from({ length: 60 }, (_, i) =>
+        ...Array.from({ length: 30 }, (_, i) =>
           produtoRaw({ modelo_id: `f${i}`, raw: { nome: `Falta ${i}`, ref: `REFF${i}`, tamanho_tipo: "letra" }, completo: false })),
-        ...Array.from({ length: 20 }, (_, i) =>
+        ...Array.from({ length: 10 }, (_, i) =>
           produtoRaw({ modelo_id: `c${i}`, raw: { nome: `Completo ${i}`, ref: `REFC${i}`, tamanho_tipo: "letra" }, completo: true })),
       ];
-      const lista = listaRaw(produtos, { pagina: 1, total: 80, por_pagina: 500 });
+      const lista = listaRaw(produtos, { pagina: 1, total: 40, por_pagina: 50 });
       const view = await montarComMocks({ lista });
       const abriu = await escolherEstado(view, "Pronto para integrar");
       if (!abriu) {
         await view.desmontar();
         return;
       }
-      // 20 linhas visíveis (as "completo"), NENHUMA "Falta N" na tela.
+      // 10 linhas visíveis (as "completo"), NENHUMA "Falta N" na tela.
       const linhas = view.container.querySelectorAll("tbody tr");
-      expect(linhas.length).toBe(20);
+      expect(linhas.length).toBe(10);
       expect(view.container.textContent).not.toContain("Falta ");
-      expect(view.container.textContent).toContain("Mostrando 20 de 80 produtos da lista (filtrados por Estado)");
+      expect(view.container.textContent).toContain("Mostrando 10 de 40 produtos da lista (filtrados por Estado)");
       await view.desmontar();
     });
   });
