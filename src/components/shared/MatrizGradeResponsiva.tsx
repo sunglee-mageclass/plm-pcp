@@ -19,6 +19,7 @@ export function MatrizGradeResponsiva({
   extraHeader,
   renderExtra,
   emptyLabel = "Sem variantes.",
+  rotuloTamanho,
 }: {
   tamanhos: string[];
   variantes: { num: number; label: string }[];
@@ -28,7 +29,10 @@ export function MatrizGradeResponsiva({
   extraHeader?: string;
   renderExtra?: (num: number) => ReactNode;
   emptyLabel?: string;
+  /** Opcional (F5-2): texto do cabeçalho do tamanho (ex.: lado Letra/Número da grade). Sem ele = a chave cheia, como sempre. */
+  rotuloTamanho?: (t: string) => string;
 }) {
+  const rot = (t: string) => (rotuloTamanho ? rotuloTamanho(t) : t);
   const colSpan = tamanhos.length + 2 + (extraHeader ? 1 : 0);
   return (
     <>
@@ -38,7 +42,7 @@ export function MatrizGradeResponsiva({
           <thead>
             <tr className="bg-muted/50">
               <th className="border px-2 py-1 text-left">Variante</th>
-              {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>)}
+              {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{rot(t)}</th>)}
               <th className="border px-2 py-1 text-center w-20">Total</th>
               {extraHeader && <th className="border px-2 py-1 text-center">{extraHeader}</th>}
             </tr>
@@ -73,7 +77,7 @@ export function MatrizGradeResponsiva({
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {tamanhos.map((t) => (
                 <div key={t} className={`overflow-hidden rounded border ${cellClass?.(num, t) ?? ""}`}>
-                  <div className="bg-muted/40 py-0.5 text-center text-[10px] font-medium text-muted-foreground">{t}</div>
+                  <div className="bg-muted/40 py-0.5 text-center text-[10px] font-medium text-muted-foreground">{rot(t)}</div>
                   {renderCell(num, t)}
                 </div>
               ))}

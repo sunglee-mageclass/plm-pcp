@@ -19,6 +19,7 @@ import { TecidosBomSecao } from "../TecidosBomSecao";
 import type { FichaTecnica } from "../useFichaTecnica";
 import { SecaoBom } from "./SecaoBom";
 import { SeloBadge } from "./SeloBadge";
+import { GradeComparativoBloco } from "../GradeComparativoBloco";
 import type { SecaoSheetKey } from "../selos-secoes";
 import { SECOES_FICHA_INTERNO, type SecoesFicha } from "@/components/planejamento/planejamento-detail/comprado";
 import type { TamanhoTipo } from "@/lib/tamanho";
@@ -160,6 +161,10 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
             tamanhoTipo={tamanhoTipo}
           />,
         )}
+        {/* F5-2 (Task 5) — comparativo Programada | CAD | PCP | CQ. FORA do `corpo()`: a trava do BOM (`ficha.podeEditar`, que cai
+            após a Explosão) não vale aqui — a Programada tem permissão própria (Planejamento OU Desenvolvimento, no servidor). Só
+            aparece depois da Ordem de Criação; a grade planejada acima segue intocada. */}
+        <GradeComparativoBloco modeloId={modeloId} ordemEnviada={ordemEnviada} tamanhoTipo={tamanhoTipo} />
       </SecaoBom>
 
       {/* F3.3 — seção CAD (Dev :2881-2912): o MESMO `CadTecidosSection` (reusado SEM modificar — decisão 8), sem a coluna
