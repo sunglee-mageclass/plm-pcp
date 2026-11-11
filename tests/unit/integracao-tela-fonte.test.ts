@@ -35,9 +35,9 @@ describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-
     const i = s.indexOf("Admin Mestre");
     expect(s.indexOf('to="/integracao"', i)).toBeGreaterThan(i);
   });
-  it("abas: super admin vê as 5; admin/permissão só Produtos e Log", () => {
-    expect(abasVisiveis(true)).toEqual(["produtos", "campos", "api", "manual", "log"]);
-    expect(abasVisiveis(false)).toEqual(["produtos", "log"]);
+  it("abas: super admin vê as 6; admin/permissão só Produtos, Log e Exportar dados", () => {
+    expect(abasVisiveis(true)).toEqual(["produtos", "campos", "api", "manual", "log", "exportar"]);
+    expect(abasVisiveis(false)).toEqual(["produtos", "log", "exportar"]);
   });
   it("rota protegida pela permissão 'integracao'", () => {
     expect(ler("src/routes/_authenticated/integracao.tsx")).toMatch(/<RequirePermission page="integracao">/);

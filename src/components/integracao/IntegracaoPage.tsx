@@ -28,6 +28,7 @@ import { CamposAba } from "./CamposAba";
 import { ApiAba } from "./ApiAba";
 import { ManualAba } from "./ManualAba";
 import { LogAba } from "./LogAba";
+import { ExportarAba } from "./ExportarAba";
 import { AbrirCardContext } from "./abrir-card";
 import { chaveLista, chaveLog, invalidarIntegracao } from "./useIntegracao";
 import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
@@ -39,6 +40,7 @@ const CONTEUDO_ABA: Record<Aba, ComponentType> = {
   api: ApiAba,
   manual: ManualAba,
   log: LogAba,
+  exportar: ExportarAba,
 };
 
 /** Troca de loja DE VERDADE (anterior e nova não vazias e diferentes), com o que estava na tela logo antes dela. */
