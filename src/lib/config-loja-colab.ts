@@ -103,6 +103,7 @@ export type ConfigLojaColab = {
  *   é gravado).
  * - `insumos_padrao`: a lista NORMALIZADA (`normalizarInsumosPadrao`: uuid minúsculo, cor "" → null, só as 3 chaves) — a
  *   mesma forma que a RPC grava; só a grafia diferente (caixa do uuid, chave extra) não conta como mudança.
+ * - `etapas_pl_kanban`: sem as colunas em branco (rótulo apagado) — só labels de verdade vão para o banco.
  * - qualquer outra coluna: valor passa direto (`cfg[k]`).
  *
  * NÃO decide "mudou ou não" (isso é `montarMudancas`) — sempre devolve o valor PRONTO pro payload,
@@ -117,6 +118,8 @@ export function serializarColuna(k: ColunaPagina | string, v: unknown): unknown 
     return vazio ? null : v;
   }
   if (k === "insumos_padrao") return normalizarInsumosPadrao(v);
+  // Etapas PL (Task 7): coluna em branco (rótulo apagado no campo) não é coluna — nunca vai para o banco (nem conta como mudança).
+  if (k === "etapas_pl_kanban") return Array.isArray(v) ? v.filter((x) => typeof x !== "string" || x.trim() !== "") : v;
   if (k === "keywords") {
     // Revisão T3/T4 (I2): o banco faz `btrim` (T1 review M3) — o cliente espelha: grava APARADO, e
     // "Moda " e "Moda" são o MESMO valor (sem conflito/"atualizado" falso depois do próprio save).

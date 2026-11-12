@@ -210,7 +210,7 @@ describe("Config da Loja colaborativa — T4 (banner, merge, resolução, presen
     await abrirPagina(true);
     for (const p of [
       "cfg:timezone", "cfg:status_kanban", "cfg:ref_config", "cfg:sku_config", "cfg:revenda_kanban_colunas",
-      "cfg:revenda_campos", "cfg:leadtime", "cfg:pcp_etapas", "cfg:modo_oc_rolo", "cfg:modo_baixa_estoque",
+      "cfg:revenda_campos", "cfg:leadtime", "cfg:etapas_pl", "cfg:modo_oc_rolo", "cfg:modo_baixa_estoque",
       "cfg:markup_analise_faixa", "cfg:keywords", "cfg:nomenclaturas",
     ]) {
       expect(bloco(p), p).not.toBeNull();

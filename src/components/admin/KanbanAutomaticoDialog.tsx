@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, ArrowRight, Hand, Loader2, Save, Tag, Undo2, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +11,10 @@ import {
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { KanbanStatus } from "@/lib/kanban-status";
-import { labelDaColuna, labelsCondicoes, type PreviaRecalculo, type PreviaRestauracao } from "@/lib/kanban-auto-ui";
+import {
+  labelDaColuna, labelsCondicoes,
+  type PreviaRecalculo, type PreviaRestauracao, type ResultadoDefinir, type ResultadoRestaurar,
+} from "@/lib/kanban-auto-ui";
 import { agruparMovimentos, avisosRestauracaoVisiveis, formatarDataHora, nCards, resumirFixados } from "@/lib/kanban-auto-config";
 import { kanbanDefinirAutomatico, kanbanPreviaRecalculo, kanbanPreviaRestauracao, kanbanRestaurar } from "@/lib/kanban-auto-rpc";
 
@@ -45,6 +48,48 @@ export function AvisoRevendaSemRequisitos({ mostrar, onIrParaFluxo }: { mostrar:
     </div>
   );
 }
+
+/**
+ * CONTRATO das RPCs da chave (Etapas PL, Onda 3 / Task 7): o diálogo e o bloco eram acoplados às RPCs do Dev; agora recebem
+ * `api` por prop. SEM `api` = as do Dev (`KANBAN_CHAVE_API_DEV`) — o uso do Dev fica byte a byte o de antes. Etapas PL passa as
+ * suas (`etapasPlDefinirAutomatico`/`etapasPlPreviaRestauracao`/`etapasPlRestaurar`) e NÃO tem prévia de ligar (`previaLigar`
+ * ausente): o número de cards movidos só vem no retorno de `definir(true)`.
+ * `prefixoQuery` separa o cache das duas prévias (Dev = "kanban", mantém as queryKeys de sempre).
+ */
+export type KanbanChaveApi = {
+  prefixoQuery: string;
+  previaLigar?: () => Promise<PreviaRecalculo>;
+  definir: (ligar: boolean) => Promise<ResultadoDefinir>;
+  previaRestauracao: () => Promise<PreviaRestauracao>;
+  restaurar: (loteId: string) => Promise<ResultadoRestaurar>;
+};
+
+export const KANBAN_CHAVE_API_DEV: KanbanChaveApi = {
+  prefixoQuery: "kanban",
+  previaLigar: () => kanbanPreviaRecalculo({ kanban_automatico: true }),
+  definir: kanbanDefinirAutomatico,
+  previaRestauracao: () => kanbanPreviaRestauracao(null),
+  restaurar: kanbanRestaurar,
+};
+
+/** Textos que mudam entre o Dev e as Etapas PL (tudo opcional; ausente = o texto do Dev). */
+export type KanbanChaveTextos = {
+  /** Nome em minúsculas, usado em frases ("Ligar o {nome}?"). Dev: "kanban automático". */
+  nome?: string;
+  /** Descrição do diálogo de LIGAR quando NÃO há prévia (ou antes dela chegar). */
+  descLigarSemPrevia?: string;
+  /** Descrição do diálogo de DESLIGAR. */
+  descDesligar?: string;
+  /** Parágrafo do bloco explicando a chave LIGADA. */
+  blocoLigado?: ReactNode;
+  /** Parágrafo do bloco explicando a chave DESLIGADA. */
+  blocoDesligado?: ReactNode;
+  /** Aviso quando `disponivel` é false. */
+  indisponivel?: string;
+};
+
+const maiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+const NOME_DEV = "kanban automático";
 
 const RODAPE = "border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3 flex-row flex-wrap items-center gap-2";
 
@@ -214,41 +259,44 @@ function RestaurarOpcao({ previa, cols, timezone, restaurar, onRestaurar }: {
   );
 }
 
-function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou, avisoRevenda, onIrParaFluxoRevenda }: {
+function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou, avisoRevenda, onIrParaFluxoRevenda, api = KANBAN_CHAVE_API_DEV, textos }: {
   modo: "ligar" | "desligar"; cols: KanbanStatus[]; timezone: string; onClose: () => void; onMudou: () => void;
   avisoRevenda?: boolean; onIrParaFluxoRevenda?: () => void;
+  api?: KanbanChaveApi; textos?: KanbanChaveTextos;
 }) {
+  const nome = textos?.nome ?? NOME_DEV;
+  const Nome = maiuscula(nome);
   const [restaurar, setRestaurar] = useState(false);
   const prevLigar = useQuery({
-    queryKey: ["kanban-previa-ligar"],
-    enabled: modo === "ligar",
+    queryKey: [`${api.prefixoQuery}-previa-ligar`],
+    enabled: modo === "ligar" && !!api.previaLigar,
     staleTime: 0, gcTime: 0, retry: false, refetchOnWindowFocus: false,
-    queryFn: () => kanbanPreviaRecalculo({ kanban_automatico: true }),
+    queryFn: () => api.previaLigar!(),
   });
   const prevDesligar = useQuery({
-    queryKey: ["kanban-previa-restauracao"],
+    queryKey: [`${api.prefixoQuery}-previa-restauracao`],
     enabled: modo === "desligar",
     staleTime: 0, gcTime: 0, retry: false, refetchOnWindowFocus: false,
-    queryFn: () => kanbanPreviaRestauracao(null),
+    queryFn: () => api.previaRestauracao(),
   });
   const ligar = useMutation({
-    mutationFn: () => kanbanDefinirAutomatico(true),
+    mutationFn: () => api.definir(true),
     onSuccess: (r) => {
       toast.success(r.mudou
-        ? `Kanban automático ligado — ${nCards(r.cards_movidos)} ${r.cards_movidos === 1 ? "mudou" : "mudaram"} de coluna.`
-        : "O Kanban automático já estava ligado.");
+        ? `${Nome} ligado — ${nCards(r.cards_movidos)} ${r.cards_movidos === 1 ? "mudou" : "mudaram"} de coluna.`
+        : `O ${Nome} já estava ligado.`);
       onMudou();
       onClose();
     },
-    onError: (e) => toast.error(mensagemErro(e, "Erro ao ligar o Kanban automático.")),
+    onError: (e) => toast.error(mensagemErro(e, `Erro ao ligar o ${Nome}.`)),
   });
   const desligar = useMutation({
     mutationFn: async () => {
-      await kanbanDefinirAutomatico(false);
+      await api.definir(false);
       const lote = prevDesligar.data?.lote_id ?? null;
       if (!restaurar || !lote) return { restaurados: null as number | null, erroRestaurar: null as string | null };
       try {
-        const rr = await kanbanRestaurar(lote);
+        const rr = await api.restaurar(lote);
         return { restaurados: rr.restaurados, erroRestaurar: null };
       } catch (e) {
         return { restaurados: null, erroRestaurar: mensagemErro(e, "Erro ao restaurar as colunas.") };
@@ -262,25 +310,27 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou, avisoRevend
       // usuário optou por não marcar — sem lote nenhum, não há nada a restaurar, então o aviso mentia
       // ("Não há colunas guardadas" também dispararia o aviso antes desta correção).
       const haviaLotePraRestaurar = (prevDesligar.data?.lote_id ?? null) != null;
-      if (r.erroRestaurar) toast.error(`O Kanban automático foi desligado, mas as colunas NÃO foram restauradas: ${r.erroRestaurar} ${AVISO_SO_AGORA_TOAST}`);
-      else if (r.restaurados != null) toast.success(`Kanban automático desligado. ${nCards(r.restaurados)} ${r.restaurados === 1 ? "voltou" : "voltaram"} às colunas de antes.`);
-      else if (haviaLotePraRestaurar) toast.success(`Kanban automático desligado. Os cards ficaram onde estavam. ${AVISO_SO_AGORA_TOAST}`);
-      else toast.success("Kanban automático desligado. Os cards ficaram onde estavam.");
+      if (r.erroRestaurar) toast.error(`O ${Nome} foi desligado, mas as colunas NÃO foram restauradas: ${r.erroRestaurar} ${AVISO_SO_AGORA_TOAST}`);
+      else if (r.restaurados != null) toast.success(`${Nome} desligado. ${nCards(r.restaurados)} ${r.restaurados === 1 ? "voltou" : "voltaram"} às colunas de antes.`);
+      else if (haviaLotePraRestaurar) toast.success(`${Nome} desligado. Os cards ficaram onde estavam. ${AVISO_SO_AGORA_TOAST}`);
+      else toast.success(`${Nome} desligado. Os cards ficaram onde estavam.`);
       onMudou();
       onClose();
     },
-    onError: (e) => toast.error(mensagemErro(e, "Erro ao desligar o Kanban automático.")),
+    onError: (e) => toast.error(mensagemErro(e, `Erro ao desligar o ${Nome}.`)),
   });
   const pendente = ligar.isPending || desligar.isPending;
   const q = modo === "ligar" ? prevLigar : prevDesligar;
+  // Sem `previaLigar` (Etapas PL) não há o que esperar: o Ligar fica liberado e o diálogo usa o texto "sem prévia".
+  const semPreviaLigar = modo === "ligar" && !api.previaLigar;
   const mudam = prevLigar.data?.mudam ?? 0;
   const descricao = modo === "ligar"
     ? prevLigar.data
       ? mudam > 0
         ? `Com os requisitos atuais, ${nCards(mudam)} ${mudam === 1 ? "muda" : "mudam"} de coluna agora. Depois disso, os cards andam sozinhos conforme os campos salvos.`
         : "Com os requisitos atuais, nenhum card muda de coluna agora. Depois disso, os cards andam sozinhos conforme os campos salvos."
-      : "Os cards passam a andar sozinhos entre as colunas conforme os campos salvos."
-    : "Os cards param onde estão e o kanban volta a funcionar como hoje: mudança de coluna à mão (arraste ou “Status no fluxo”) com a trava de requisitos, e volta automática só em alguns casos (mão de obra reprovada, CQ desmarcado, envio desfeito).";
+      : textos?.descLigarSemPrevia ?? "Os cards passam a andar sozinhos entre as colunas conforme os campos salvos."
+    : textos?.descDesligar ?? "Os cards param onde estão e o kanban volta a funcionar como hoje: mudança de coluna à mão (arraste ou “Status no fluxo”) com a trava de requisitos, e volta automática só em alguns casos (mão de obra reprovada, CQ desmarcado, envio desfeito).";
   const rotulo = modo === "ligar"
     ? mudam > 0 ? `Ligar e mover ${nCards(mudam)}` : "Ligar"
     : restaurar && prevDesligar.data?.lote_id ? "Desligar e restaurar" : "Desligar";
@@ -288,11 +338,11 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou, avisoRevend
     <Dialog open onOpenChange={(o) => { if (!o && !pendente) onClose(); }}>
       <DialogContent fixedFooter mobileFull className="max-w-2xl" data-testid={`kanban-dialogo-${modo}`}>
         <DialogHeader>
-          <DialogTitle>{modo === "ligar" ? "Ligar o kanban automático?" : "Desligar o kanban automático?"}</DialogTitle>
+          <DialogTitle>{modo === "ligar" ? `Ligar o ${nome}?` : `Desligar o ${nome}?`}</DialogTitle>
           <DialogDescription>{descricao}</DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-3">
-          {q.isLoading && (
+          {!semPreviaLigar && q.isLoading && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Calculando a prévia…</p>
           )}
           {q.isError && modo === "ligar" && (
@@ -333,7 +383,7 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou, avisoRevend
           <Button
             className="ml-auto"
             data-testid="kanban-dialogo-confirmar"
-            disabled={pendente || (modo === "ligar" ? !q.isSuccess : !(q.isSuccess || q.isError))}
+            disabled={pendente || (modo === "ligar" ? !(semPreviaLigar || q.isSuccess) : !(q.isSuccess || q.isError))}
             onClick={() => (modo === "ligar" ? ligar.mutate() : desligar.mutate())}
           >
             {pendente ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : modo === "ligar" ? <Zap className="mr-1 h-4 w-4" /> : null}
@@ -346,9 +396,13 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou, avisoRevend
 }
 
 /** Switch "Kanban automático" (topo do card "Status do Kanban" da Config). */
-export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols, timezone, onMudou, avisoRevenda, onIrParaFluxoRevenda }: {
+export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols, timezone, onMudou, avisoRevenda, onIrParaFluxoRevenda, api, textos }: {
   avisoRevenda?: boolean;
   onIrParaFluxoRevenda?: () => void;
+  /** RPCs da chave (ausente = as do Dev). Etapas PL passa as suas — ver `KanbanChaveApi`. */
+  api?: KanbanChaveApi;
+  /** Textos que mudam entre Dev e Etapas PL (ausente = os do Dev). */
+  textos?: KanbanChaveTextos;
   ligado: boolean;
   disponivel: boolean;
   travadoMotivo: string | null;
@@ -357,6 +411,7 @@ export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols,
   onMudou: () => void;
 }) {
   const [dialogo, setDialogo] = useState<null | "ligar" | "desligar">(null);
+  const Nome = maiuscula(textos?.nome ?? NOME_DEV);
   return (
     <div data-testid="kanban-auto-bloco" className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
       <Switch
@@ -364,30 +419,38 @@ export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols,
         checked={ligado}
         disabled={!disponivel || !!travadoMotivo}
         onCheckedChange={(v) => setDialogo(v ? "ligar" : "desligar")}
-        aria-label="Kanban automático"
+        aria-label={Nome}
         className="mt-0.5"
       />
       <div className="min-w-0 space-y-1">
         {/* div (não <p>): o StatusBadge renderiza <div> — <div> dentro de <p> é HTML inválido (aviso de hidratação). */}
         <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
-          <Zap className="h-4 w-4" />Kanban automático
+          <Zap className="h-4 w-4" />{Nome}
           <StatusBadge tone={ligado ? "info" : "neutral"} className="normal-case tracking-normal">{ligado ? "ligado" : "desligado"}</StatusBadge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Ligado, os cards andam sozinhos entre as colunas conforme os campos salvos. Coluna{" "}
-          <span className="font-semibold text-foreground">com requisito</span> = automática (em cascata: só entra quem cumpre esta e todas as
-          anteriores). Coluna <span className="font-semibold text-foreground">sem requisito</span> = manual: o card entra e sai dela arrastado.
+          {textos?.blocoLigado ?? (
+            <>
+              Ligado, os cards andam sozinhos entre as colunas conforme os campos salvos. Coluna{" "}
+              <span className="font-semibold text-foreground">com requisito</span> = automática (em cascata: só entra quem cumpre esta e todas as
+              anteriores). Coluna <span className="font-semibold text-foreground">sem requisito</span> = manual: o card entra e sai dela arrastado.
+            </>
+          )}
         </p>
         <p className="text-xs text-muted-foreground">
-          Desligado: funciona como hoje — o card muda de coluna arrastado ou pelo “Status no fluxo”, com a trava de requisitos, e volta sozinho só
-          em alguns casos (mão de obra reprovada, CQ desmarcado, envio desfeito).
+          {textos?.blocoDesligado ?? (
+            <>
+              Desligado: funciona como hoje — o card muda de coluna arrastado ou pelo “Status no fluxo”, com a trava de requisitos, e volta sozinho só
+              em alguns casos (mão de obra reprovada, CQ desmarcado, envio desfeito).
+            </>
+          )}
         </p>
-        {!disponivel && <p className="text-xs text-[var(--tone-warning-fg)]">Ainda não disponível nesta loja — aguarda a atualização do banco.</p>}
+        {!disponivel && <p className="text-xs text-[var(--tone-warning-fg)]">{textos?.indisponivel ?? "Ainda não disponível nesta loja — aguarda a atualização do banco."}</p>}
         {disponivel && travadoMotivo && <p className="text-xs text-[var(--tone-warning-fg)]">{travadoMotivo}</p>}
       </div>
       {dialogo && (
         <KanbanChaveDialog modo={dialogo} cols={cols} timezone={timezone} onClose={() => setDialogo(null)} onMudou={onMudou}
-          avisoRevenda={avisoRevenda} onIrParaFluxoRevenda={onIrParaFluxoRevenda} />
+          avisoRevenda={avisoRevenda} onIrParaFluxoRevenda={onIrParaFluxoRevenda} api={api} textos={textos} />
       )}
     </div>
   );

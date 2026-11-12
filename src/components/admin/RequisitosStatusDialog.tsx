@@ -15,6 +15,14 @@ import type { ModuleKey } from "@/hooks/useTenantModules";
 import { motivoCondicaoNaoSeAplica, seloCondicaoNaoSeAplica } from "@/lib/modulos-texto";
 import { CondicaoInfo } from "@/components/shared/CondicaoInfo";
 
+/** Catálogo de condições exibido no diálogo, agrupado por `modulo` (cada grupo = 1 item do accordion). Ausente = o do Dev
+ *  (`MODULOS`/`CONDICOES` de kanban-condicoes). Etapas PL passa o seu (`CONDICOES_PL`, 1 grupo). */
+export type CatalogoRequisitos = {
+  modulos: { key: string; label: string }[];
+  condicoes: { key: string; label: string; modulo: string; descricao?: string; aviso?: string }[];
+};
+const CATALOGO_DEV: CatalogoRequisitos = { modulos: MODULOS, condicoes: CONDICOES };
+
 /**
  * Botão "Requisitos" por status do kanban → dialog com as condições agrupadas por
  * módulo (checkboxes). O que estiver marcado é REQUISITO DE ENTRADA (todos em E) para
@@ -37,6 +45,9 @@ export function RequisitosStatusButton({
   nomeEtapa,
   bloqueadoMotivo,
   colabPath,
+  catalogo = CATALOGO_DEV,
+  rotuloIndisponivel = "n/a revenda",
+  motivoIndisponivel,
 }: {
   label: string;
   requisitos: string[];
@@ -64,6 +75,11 @@ export function RequisitosStatusButton({
   // caminho na presença (o diálogo é portal; a tela que o usa mapeia o caminho p/ o bloco que o contém).
   // Ausente = comportamento de sempre.
   colabPath?: string;
+  // Catálogo de condições (ausente = Dev). Etapas PL: um grupo só, `CONDICOES_PL`.
+  catalogo?: CatalogoRequisitos;
+  // Selo das condições de `condsIndisponiveis` (default "n/a revenda", o uso do Fluxo de Revenda) e o `title` delas.
+  rotuloIndisponivel?: string;
+  motivoIndisponivel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmarExcecao, setConfirmarExcecao] = useState<{ key: string; label: string } | null>(null);
@@ -142,9 +158,10 @@ export function RequisitosStatusButton({
                 : " e valem aqui também."}</>
           )}
         </p>
-        <Accordion type="multiple" className="space-y-1">
-          {MODULOS.map((m) => {
-            const conds = CONDICOES.filter((c) => c.modulo === m.key);
+        {/* Grupo único (Etapas PL) abre já expandido; o catálogo do Dev (7 grupos) segue fechado como sempre. */}
+        <Accordion type="multiple" className="space-y-1" defaultValue={catalogo.modulos.length === 1 ? [catalogo.modulos[0].key] : undefined}>
+          {catalogo.modulos.map((m) => {
+            const conds = catalogo.condicoes.filter((c) => c.modulo === m.key);
             if (conds.length === 0) return null;
             const nSel = contaSel(conds.map((c) => c.key));
             return (
@@ -170,7 +187,7 @@ export function RequisitosStatusButton({
                     return (
                       <label
                         key={c.key}
-                        title={faltamMod ? motivoCondicaoNaoSeAplica(faltamMod) : undefined}
+                        title={faltamMod ? motivoCondicaoNaoSeAplica(faltamMod) : na ? motivoIndisponivel : undefined}
                         className={
                           "flex items-start gap-2" +
                           (na || semModulo ? " cursor-not-allowed opacity-50" : herdadoTravado ? " cursor-not-allowed" : " cursor-pointer")
@@ -189,7 +206,7 @@ export function RequisitosStatusButton({
                           <CondicaoInfo descricao={c.descricao} aviso={c.aviso} />
                           {na && (
                             <span className="rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">
-                              n/a revenda
+                              {rotuloIndisponivel}
                             </span>
                           )}
                           {faltamMod && (

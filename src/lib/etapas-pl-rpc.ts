@@ -25,7 +25,8 @@ export function etapasPlMover(modeloId: string, para: string): Promise<Resultado
 export function etapasPlDefinirAutomatico(ligar: boolean): Promise<ResultadoDefinirPl> {
   return rpc<ResultadoDefinirPl>(RPC_ETAPAS_PL.definir, { _ligar: ligar });
 }
-export function etapasPlPreviaRestauracao(loteId: string): Promise<PreviaRestauracaoPl> {
+/** `loteId` null = o lote 'ligar' mais recente ainda não restaurado (o servidor resolve; mesmo contrato do Dev). */
+export function etapasPlPreviaRestauracao(loteId: string | null): Promise<PreviaRestauracaoPl> {
   return rpc<PreviaRestauracaoPl>(RPC_ETAPAS_PL.previaRestauracao, { _lote_id: loteId });
 }
 export function etapasPlRestaurar(loteId: string): Promise<ResultadoRestaurarPl> {

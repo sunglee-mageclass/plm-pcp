@@ -1,24 +1,12 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap, LogIn, Lock } from "lucide-react";
+import { Settings, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap, LogIn, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableListCard } from "@/components/admin/SortableListCard";
+import { EtapasPlConfigCard } from "@/components/admin/EtapasPlConfigCard";
+import { lerEtapasPlConfig } from "@/lib/etapas-pl-config";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -65,7 +53,7 @@ import { matchesTable } from "@/lib/realtime-invalidation-map";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { etapaLeadtimeVisivel } from "@/lib/leadtime";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
-import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
+import type { EtapaCfg } from "@/lib/pcp-etapas";
 import { REVENDA_COND_NA, requisitosHerdados, condicoesForaDoModulo } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
 import { problemaFormatoRef, type RefConfig } from "@/lib/ref-montar";
@@ -168,9 +156,15 @@ const DEFAULTS = {
     etapas: [] as { key: string; tipo: "macro" | "kanban" | "servico"; idealDias: number }[],
     slaServico: null as string | null,
   },
-  // Etapas PL (kanban, módulo opt-in etapas_pl): as 5 etapas fixas (renomeáveis/
-  // ativa-desativa, SEM reordenar/adicionar). Vazio ⇒ usa ETAPAS_DEFAULT.
+  // LEGADO (as 5 etapas fixas do kanban de PL, renomear/ativar): a tela deixou de editar (Task 7 da Onda 3 — o card "Etapas PL"
+  // novo edita `etapas_pl_kanban`/`etapas_pl_requisitos`), mas a coluna segue na lista branca/no diff e no banco, intacta.
   pcp_etapas: [] as EtapaCfg[],
+  // Kanban PL configurável (módulo opt-in etapas_pl; Onda 3, Task 7): colunas (LABELS, como `status_kanban`) e requisitos de
+  // entrada por key de coluna. `etapas_pl_automatico` e `etapas_pl_aba_peca_teste_status` NÃO entram no estado da tela de
+  // propósito: a chave só muda pela RPC (o gatilho do banco ignora o cliente) e a aba da peça teste não tem editor aqui —
+  // ausentes do `cfg`, `montarMudancas` nunca os põe no diff (undefined ≡ undefined).
+  etapas_pl_kanban: [] as string[],
+  etapas_pl_requisitos: {} as Record<string, string[]>,
   // Fluxo de Revenda (módulo opt-in produto_acabado) — config PRÓPRIA do kanban/campos
   // dos modelos `origem==='revenda'` (ver invariante #13 + src/lib/revenda-config.ts).
   // KEYS de coluna permitidas ([] = todas). Requisitos por coluna (keys de CONDICOES).
@@ -239,6 +233,16 @@ function normalizarConfig(row: Record<string, unknown> | null | undefined): Conf
       Array.isArray((r as any).pcp_etapas) && (r as any).pcp_etapas.length
         ? ((r as any).pcp_etapas as EtapaCfg[])
         : DEFAULTS.pcp_etapas,
+    // Board PL cru: strings-label OU objetos {label,nome,name} (o normalizador do Dev aceita os dois) → só labels, sem vazio.
+    etapas_pl_kanban: Array.isArray(r.etapas_pl_kanban)
+      ? (r.etapas_pl_kanban as unknown[])
+          .map((x) => (typeof x === "string" ? x : String((x as any)?.label ?? (x as any)?.nome ?? (x as any)?.name ?? "")))
+          .filter((x) => x.trim() !== "")
+      : DEFAULTS.etapas_pl_kanban,
+    etapas_pl_requisitos:
+      r.etapas_pl_requisitos && typeof r.etapas_pl_requisitos === "object" && !Array.isArray(r.etapas_pl_requisitos)
+        ? (r.etapas_pl_requisitos as Record<string, string[]>)
+        : DEFAULTS.etapas_pl_requisitos,
     revenda_kanban_colunas: Array.isArray((r as any).revenda_kanban_colunas)
       ? ((r as any).revenda_kanban_colunas as string[])
       : DEFAULTS.revenda_kanban_colunas,
@@ -1470,12 +1474,21 @@ function ConfiguracoesLojaPage() {
       </div>
 
       {blocos.etapasPl && (
-        <div data-colab-path="cfg:pcp_etapas" className={anelConflito("cfg:pcp_etapas")}>
-          <EtapasPLCard
-            value={cfg.pcp_etapas}
-            onChange={(pcp_etapas) => setCfg((c) => ({ ...c, pcp_etapas }))}
-          />
-        </div>
+        <EtapasPlConfigCard
+          board={cfg.etapas_pl_kanban}
+          requisitos={cfg.etapas_pl_requisitos}
+          onChange={({ board, requisitos }) => setCfg((c) => ({ ...c, etapas_pl_kanban: board, etapas_pl_requisitos: requisitos }))}
+          onRequisitosChange={(etapas_pl_requisitos) => setCfg((c) => ({ ...c, etapas_pl_requisitos }))}
+          ligado={(data?.cfg as any)?.etapas_pl_automatico === true}
+          boardSalvo={lerEtapasPlConfig(data?.cfg ?? null).board}
+          disponivel={!!data?.cfg && Object.prototype.hasOwnProperty.call(data.cfg, "etapas_pl_automatico")}
+          dirty={dirty}
+          timezone={cfg.timezone}
+          onMudou={() => {
+            qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
+          }}
+          anelConflito={anelConflito}
+        />
       )}
 
       <Card data-colab-path="cfg:modo_oc_rolo" className={anelConflito("cfg:modo_oc_rolo")}>
@@ -2094,180 +2107,6 @@ function LeadtimeGrupo({
   );
 }
 
-function SortableListCard({
-  title,
-  description,
-  items,
-  onChange,
-  placeholder,
-  renderItemExtra,
-  onItemRemoved,
-  footer,
-  topo,
-}: {
-  title: string;
-  description?: string;
-  items: string[];
-  onChange: (items: string[]) => void;
-  placeholder?: string;
-  renderItemExtra?: (label: string, index: number) => React.ReactNode;
-  // Chamado ANTES de remover, com o item que está saindo — p/ limpar config derivada
-  // (ex.: Envio à Explosão) que apontava pra essa linha.
-  onItemRemoved?: (label: string, index: number) => void;
-  // Conteúdo extra abaixo da lista (legenda/avisos do bloco).
-  footer?: React.ReactNode;
-  // Conteúdo no TOPO do card, antes do campo de adicionar (Status do Kanban: a chave "Kanban automático").
-  topo?: React.ReactNode;
-}) {
-  const [draft, setDraft] = useState("");
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
-  const ids = items.map((label, idx) => `${idx}::${label}`);
-
-  const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const oldIndex = ids.indexOf(String(active.id));
-    const newIndex = ids.indexOf(String(over.id));
-    if (oldIndex < 0 || newIndex < 0) return;
-    onChange(arrayMove(items, oldIndex, newIndex));
-  };
-
-  const add = () => {
-    const v = draft.trim();
-    if (!v) return;
-    if (items.includes(v)) {
-      toast.error("Item já existe.");
-      return;
-    }
-    onChange([...items, v]);
-    setDraft("");
-  };
-
-  const update = (index: number, value: string) => {
-    const next = [...items];
-    next[index] = value;
-    onChange(next);
-  };
-
-  const remove = (index: number) => {
-    onItemRemoved?.(items[index], index);
-    onChange(items.filter((_, i) => i !== index));
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        {description && <CardDescription>{description}</CardDescription>}
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {topo}
-        <div className="flex gap-2">
-          <Input
-            placeholder={placeholder}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                add();
-              }
-            }}
-          />
-          <Button type="button" onClick={add} variant="secondary">
-            <Plus className="h-4 w-4 mr-1" /> Adicionar
-          </Button>
-        </div>
-
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-            <ul className="space-y-2">
-              {items.map((label, idx) => (
-                <SortableItem
-                  key={ids[idx]}
-                  id={ids[idx]}
-                  value={label}
-                  onChange={(v) => update(idx, v)}
-                  onRemove={() => remove(idx)}
-                  extra={renderItemExtra?.(label, idx)}
-                />
-              ))}
-              {items.length === 0 && (
-                <li className="text-sm text-muted-foreground italic">Nenhum item ainda.</li>
-              )}
-            </ul>
-          </SortableContext>
-        </DndContext>
-        {footer}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SortableItem({
-  id,
-  value,
-  onChange,
-  onRemove,
-  extra,
-}: {
-  id: string;
-  value: string;
-  onChange: (v: string) => void;
-  onRemove: () => void;
-  extra?: React.ReactNode;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id,
-  });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.6 : 1,
-  };
-  const trashButton = (
-    <Button type="button" size="icon" variant="ghost" onClick={onRemove} aria-label="Excluir item">
-      <Trash2 className="h-4 w-4 text-destructive" />
-    </Button>
-  );
-  return (
-    <li ref={setNodeRef} style={style} className="rounded-md border bg-card p-2">
-      {/* `flex-wrap`: o card "Status do Kanban" fica estreito no grid de 2 colunas do desktop
-          (~514px) mesmo a 1400px de viewport — o breakpoint `md:` dos botões extras é por
-          VIEWPORT, não pelo container, então eles continuam lado a lado com o nome mesmo sem
-          espaço. O nome tem prioridade: `flex-1 min-w-[9rem]` no Input garante uma largura
-          mínima legível; sem espaço pros extras na mesma linha, eles quebram pra 2ª linha
-          (em vez de espremer o nome a poucos px, cortando "Desenho Técnico" → "Dese"). */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="flex shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground touch-none hover:text-foreground max-md:min-h-11 max-md:min-w-10"
-          {...attributes}
-          {...listeners}
-          aria-label="Arrastar"
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-        <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-8 min-w-[9rem] flex-1 border-0 shadow-none focus-visible:ring-1 max-md:h-11"
-        />
-        {/* Sem ações extras (ex.: outras listas sem `extra`): Excluir fica sempre inline —
-            só 1 botão, não precisa de 2ª linha no mobile. Com `extra` (Status do Kanban:
-            Requisitos + Explosão + Excluir), a linha fica estreita demais no mobile p/ os
-            3 controles de 44px ao lado do rótulo — desce pra 2ª linha (abaixo). */}
-        {!extra && trashButton}
-        {extra && <div className="hidden shrink-0 items-center gap-2 md:flex">{extra}{trashButton}</div>}
-      </div>
-      {extra && (
-        <div className="mt-2 flex items-center justify-end gap-2 md:hidden">{extra}{trashButton}</div>
-      )}
-    </li>
-  );
-}
-
 // Fluxo de Revenda (módulo opt-in produto_acabado): config PRÓPRIA do kanban/campos dos
 // modelos `origem==='revenda'` — a Revenda pode ter colunas/requisitos/seções diferentes do
 // fluxo manufaturado, destravando peças compradas prontas (sem Tecido/CAD/Data). Grava as 3
@@ -2502,68 +2341,6 @@ function FluxoRevendaCard({
             })}
           </ul>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Etapas do PCP (módulo opt-in etapas_pl): as 5 etapas fixas do kanban de PL — renomear
-// (label) + ativar/desativar. SEM reordenar/adicionar (ordem e gatilho de transição são
-// fixos no motor de regras, ver src/lib/pcp-etapas.ts) — por isso NÃO reusa
-// SortableListCard (que é genérico p/ listas livres com drag). `value` vazio (loja nunca
-// salvou) exibe ETAPAS_DEFAULT — mas só grava no `cfg` quando o usuário mexe (edit/toggle
-// materializa a lista default no estado local antes de escrever).
-function EtapasPLCard({
-  value,
-  onChange,
-}: {
-  value: EtapaCfg[];
-  onChange: (next: EtapaCfg[]) => void;
-}) {
-  const etapas = value.length ? value : ETAPAS_DEFAULT;
-
-  const update = (index: number, patch: Partial<EtapaCfg>) => {
-    const next = etapas.map((e, i) => (i === index ? { ...e, ...patch } : e));
-    onChange(next);
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Etapas do PCP</CardTitle>
-        <CardDescription>
-          As 5 etapas do kanban de Etapas PL. Renomeie o rótulo exibido ou desative a
-          etapa (ela é pulada no fluxo). Ordem fixa — sem arrastar nem adicionar/excluir.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ul className="space-y-2">
-          {etapas.map((etapa, idx) => (
-            <li key={etapa.key} className="flex items-center gap-2 rounded-md border bg-card p-2">
-              <div className="min-w-0 flex-1">
-                <Input
-                  value={etapa.label}
-                  onChange={(e) => update(idx, { label: e.target.value })}
-                  className="h-8 max-md:h-11"
-                  maxLength={60}
-                />
-                {etapa.key === "peca_teste" && (
-                  <p className="mt-1 text-xs text-muted-foreground">vem do card do produto (seção Peça Teste)</p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2 pl-1">
-                <Switch
-                  checked={etapa.ativa}
-                  onCheckedChange={(checked) => update(idx, { ativa: checked })}
-                  aria-label={`${etapa.ativa ? "Desativar" : "Ativar"} etapa ${etapa.label}`}
-                />
-                <span className="hidden text-xs text-muted-foreground sm:inline">
-                  {etapa.ativa ? "Ativa" : "Inativa"}
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
       </CardContent>
     </Card>
   );

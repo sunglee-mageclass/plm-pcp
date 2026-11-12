@@ -214,9 +214,11 @@ describe("telas — fonte", () => {
     expect(rotuloTelaBreadcrumb("pcp-etapas")).toBe("Planejamento de Produto");
     expect(abertoPorCima("planejamento")).toBe(false);
   });
-  it("Config da Loja › Etapas do PCP: 5 etapas e a nota na Peça Teste", () => {
+  it("Config da Loja › Etapas PL: o card novo (colunas + requisitos + chave) substituiu o das 5 etapas fixas (Onda 3, Task 7)", () => {
     const src = ler("src/routes/_authenticated/admin/configuracoes.tsx");
-    expect(src).toContain("vem do card do produto (seção Peça Teste)");
+    expect(src).toContain("<EtapasPlConfigCard");
+    expect(src).not.toContain("vem do card do produto (seção Peça Teste)"); // nota do EtapasPLCard antigo (5 etapas fixas)
+    expect(ler("src/components/admin/EtapasPlConfigCard.tsx")).toContain("porta de entrada");
   });
   it("card PT: sem acesso não clica e explica", () => {
     const view = ler("src/components/producao/etapas/EtapaCardView.tsx");
