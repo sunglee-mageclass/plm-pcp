@@ -149,28 +149,39 @@ describe.skipIf(!RODA)("F6 — peca_teste_status_lote (banco, cópia local)", ()
     });
   });
 
-  it("3) exige mas pendente: (a) M.O. aprovada sem tentativa; (b) peça aprovada mas M.O. não aprovada; (c) peça reprovada", async () => {
+  it("3) exige e NÃO aprovada: 'falta' sem tentativa iniciada; 'em_teste' quando alguma trilha que exige já iniciou", async () => {
     await withTx(async (c) => {
       const fx = await prepara(c);
-      // (a) M.O. aprovada, 0 tentativa
-      const Ma = await novoModelo(c, `F6-pa ${fx.suf}`);
+      // (a) M.O. aprovada, 0 tentativa → 'falta' (nenhuma tentativa iniciada)
+      const Ma = await novoModelo(c, `F6-falta ${fx.suf}`);
       await novaLinha(c, Ma, fx.catExige, fx.F1, true);
-      // (b) peça aprovada mas M.O. pendente
-      const Mb = await novoModelo(c, `F6-pb ${fx.suf}`);
+      // (b) peça aprovada (tentativa com data_saida) mas M.O. pendente → 'em_teste'
+      const Mb = await novoModelo(c, `F6-emteste-mo ${fx.suf}`);
       const Ab = await novaLinha(c, Mb, fx.catExige, fx.F1, null);
       await novaTentativa(c, Mb, Ab, fx.catExige, 1, "aprovado", fx.F1);
-      // (c) M.O. aprovada mas peça reprovada
-      const Mc = await novoModelo(c, `F6-pc ${fx.suf}`);
+      // (c) M.O. aprovada mas peça reprovada (tentativa com data_saida) → 'em_teste'
+      const Mc = await novoModelo(c, `F6-emteste-rep ${fx.suf}`);
       const Ac = await novaLinha(c, Mc, fx.catExige, fx.F1, true);
       await novaTentativa(c, Mc, Ac, fx.catExige, 1, "reprovado", fx.F1);
       const j = await statusLote(c, [Ma, Mb, Mc]);
-      expect(j[Ma]).toBe("pendente");
-      expect(j[Mb]).toBe("pendente");
-      expect(j[Mc]).toBe("pendente");
+      expect(j[Ma]).toBe("falta");
+      expect(j[Mb]).toBe("em_teste");
+      expect(j[Mc]).toBe("em_teste");
     });
   });
 
-  it("3d) exige: só APROVADA quando TODAS as linhas que exigem estão aprovadas (uma pendente derruba)", async () => {
+  it("3b) 'em_teste' com tentativa SÓ iniciada (saída, sem decisão): M.O. aprovada mas peça ainda não aprovada", async () => {
+    await withTx(async (c) => {
+      const fx = await prepara(c);
+      const M = await novoModelo(c, `F6-emteste-saida ${fx.suf}`);
+      const A = await novaLinha(c, M, fx.catExige, fx.F1, true);
+      // tentativa só com data_saida (aprovacao null = ainda em teste) → iniciada, não aprovada
+      await novaTentativa(c, M, A, fx.catExige, 1, null, fx.F1);
+      expect((await statusLote(c, [M]))[M]).toBe("em_teste");
+    });
+  });
+
+  it("3d) exige: só APROVADA quando TODAS as linhas que exigem estão aprovadas (uma iniciada mas não aprovada derruba p/ 'em_teste')", async () => {
     await withTx(async (c) => {
       const fx = await prepara(c);
       // 2ª categoria que também exige
@@ -186,8 +197,8 @@ describe.skipIf(!RODA)("F6 — peca_teste_status_lote (banco, cópia local)", ()
       const A1 = await novaLinha(c, M, fx.catExige, fx.F1, true);
       await novaTentativa(c, M, A1, fx.catExige, 1, "aprovado", fx.F1);
       const A2 = await novaLinha(c, M, cat2, fx.F1, true);
-      // A2 sem tentativa aprovada → pendente
-      expect((await statusLote(c, [M]))[M]).toBe("pendente");
+      // A2 sem tentativa aprovada → ainda não aprovada, mas A1 já iniciou → 'em_teste'
+      expect((await statusLote(c, [M]))[M]).toBe("em_teste");
       // aprovar a peça de A2 → aprovada
       await novaTentativa(c, M, A2, cat2, 1, "aprovado", fx.F1);
       expect((await statusLote(c, [M]))[M]).toBe("aprovada");
@@ -203,10 +214,14 @@ describe.skipIf(!RODA)("F6 — peca_teste_status_lote (banco, cópia local)", ()
       const Aa = await novaLinha(c, Ma, fx.catExige, fx.F1, true);
       await novaTentativa(c, Ma, Aa, fx.catExige, 1, "aprovado", fx.F1);
       const Mp = await novoModelo(c, `F6-lote-pe ${fx.suf}`);
-      await novaLinha(c, Mp, fx.catExige, fx.F1, true);
-      const j = await statusLote(c, [Mn, Ma, Mp]);
-      expect(j).toMatchObject({ [Mn]: "nao_exige", [Ma]: "aprovada", [Mp]: "pendente" });
-      expect(Object.keys(j).sort()).toEqual([Mn, Ma, Mp].sort());
+      await novaLinha(c, Mp, fx.catExige, fx.F1, true); // exige, sem tentativa → 'falta'
+      // 4º modelo: exige, com tentativa iniciada mas não aprovada → 'em_teste'
+      const Mt = await novoModelo(c, `F6-lote-et ${fx.suf}`);
+      const At = await novaLinha(c, Mt, fx.catExige, fx.F1, true);
+      await novaTentativa(c, Mt, At, fx.catExige, 1, "reprovado", fx.F1);
+      const j = await statusLote(c, [Mn, Ma, Mp, Mt]);
+      expect(j).toMatchObject({ [Mn]: "nao_exige", [Ma]: "aprovada", [Mp]: "falta", [Mt]: "em_teste" });
+      expect(Object.keys(j).sort()).toEqual([Mn, Ma, Mp, Mt].sort());
     });
   });
 

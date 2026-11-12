@@ -1,11 +1,13 @@
 -- F6 — RPC peca_teste_status_lote: selo/filtro de Peca Teste na lista de PCP > Servicos.
 -- So LEITURA, em LOTE: recebe _modelo_ids uuid[] e devolve jsonb = mapa { "<modelo_id>": "<status>" } com
--- status in {'nao_exige','pendente','aprovada'} por modelo da LOJA do usuario (modelo de outra loja = OMITIDO do mapa).
--- ESPELHA exatamente statusPecaTesteModelo / pecaTesteAprovadaModelo de src/lib/peca-teste.ts:
+-- status in {'nao_exige','falta','em_teste','aprovada'} por modelo da LOJA do usuario (modelo de outra loja = OMITIDO do mapa).
+-- ESPELHA exatamente statusPecaTesteModelo / pecaTesteAprovadaModelo / trilhaIniciada de src/lib/peca-teste.ts:
 --   'nao_exige'  = o modelo NAO tem nenhuma linha modelo_servico_mo cujo tipo (categorias_terceirizado) tem exige_peca_teste=true;
 --   'aprovada'   = tem >= 1 linha que exige E TODA linha que exige esta aprovada = (s.aprovado = true [M.O.]) AND
 --                  public._peca_teste_aprovada(s.id, s.categoria_terceirizado_id, s.empresa_id) = true;
---   'pendente'   = tem linha que exige mas NAO esta toda aprovada.
+--   'em_teste'   = tem linha que exige, NAO esta toda aprovada, MAS alguma linha que exige tem tentativa INICIADA
+--                  (data_saida IS NOT NULL) no tipo ATUAL da linha (espelha trilhaIniciada: tentativa do TIPO ATUAL com data_saida);
+--   'falta'      = tem linha que exige, nao aprovada e NENHUMA tentativa iniciada.
 -- REUSA os helpers da 20261103193000 (urg R9b): o predicado unico _peca_teste_aprovada e o switch exige_peca_teste
 -- (mesmo JOIN de "exige" do _peca_teste_trilhas_core). modelo_servico_mo tem RLS zero-policy (o cliente nao le direto) -> RPC DEFINER.
 -- Padrao wrapper + _core (invariante 9): _core com EXECUTE revogado dos 3; wrapper DEFINER com gate (login + modulo Producao +
@@ -40,8 +42,8 @@ DECLARE
   v_ids uuid[];
 BEGIN
   -- [F6] status da Peca Teste por modelo, em LOTE, para o selo/filtro da lista de Servicos. Para cada modelo de _modelo_ids
-  -- que seja da loja _tenant, calcula 'nao_exige'/'pendente'/'aprovada' (mesma regra do TS statusPecaTesteModelo). Modelo que
-  -- nao e da loja (ou id inexistente) = OMITIDO do mapa. EXECUTE so postgres/service_role (REVOKE dos 3 abaixo).
+  -- que seja da loja _tenant, calcula 'nao_exige'/'falta'/'em_teste'/'aprovada' (mesma regra do TS statusPecaTesteModelo).
+  -- Modelo que nao e da loja (ou id inexistente) = OMITIDO do mapa. EXECUTE so postgres/service_role (REVOKE dos 3 abaixo).
   IF _tenant IS NULL THEN
     RETURN '{}'::jsonb;
   END IF;
@@ -70,7 +72,17 @@ BEGIN
                       AND NOT (s.aprovado IS TRUE
                                AND public._peca_teste_aprovada(s.id, s.categoria_terceirizado_id, s.empresa_id))
                  ) THEN 'aprovada'
-                 ELSE 'pendente'
+                 -- exige e NAO aprovada: 'em_teste' se alguma linha que exige ja tem tentativa INICIADA
+                 -- (data_saida nao nula) no tipo ATUAL da linha (espelha trilhaIniciada do TS); senao 'falta'.
+                 ELSE CASE WHEN EXISTS (
+                   SELECT 1 FROM public.modelo_servico_mo s
+                     JOIN public.categorias_terceirizado ct ON ct.id = s.categoria_terceirizado_id
+                                                           AND ct.tenant_id = _tenant AND ct.exige_peca_teste
+                     JOIN public.modelo_peca_teste_tentativas t ON t.mo_linha_id = s.id
+                          AND t.categoria_terceirizado_id = s.categoria_terceirizado_id AND t.tenant_id = _tenant
+                          AND t.data_saida IS NOT NULL
+                    WHERE s.modelo_id = m.id
+                 ) THEN 'em_teste' ELSE 'falta' END
                END AS status
           FROM public.modelos m
          WHERE m.id = ANY(v_ids) AND m.tenant_id = _tenant
