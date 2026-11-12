@@ -193,4 +193,51 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
       expect(r.ex).toBe(false);
     });
   });
+
+  // Task 3 — CONSTRAINT TRIGGER adiado: processa a fila no COMMIT (forcado via SET CONSTRAINTS ALL
+  // IMMEDIATE dentro da txn revertida, senao o DEFERRED nao dispara).
+  it("fila processa no COMMIT e deriva status_etapa_pl (SET CONSTRAINTS ALL IMMEDIATE)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(
+        `update tenant_config set etapas_pl_automatico=true,
+           etapas_pl_kanban='["Peça Teste","Separação de Materiais","Oficina"]'::jsonb, etapas_pl_requisitos='{}'::jsonb
+         where tenant_id=$1`,
+        [T],
+      );
+      const { modeloId } = await modeloComBlocoPt(c);
+      await poeNoPl(c, modeloId, "oficina");
+      await c.query(`delete from etapas_pl_recalculo_fila where modelo_id=$1`, [modeloId]);
+      const der = await um<{ resultado: string }>(c, `select resultado from _etapas_pl_derivar_lote($1, ARRAY[$2]::uuid[]) limit 1`, [T, modeloId]);
+
+      // enfileira e forca o processamento adiado
+      await c.query(`insert into etapas_pl_recalculo_fila (modelo_id, tenant_id) values ($1,$2) on conflict do nothing`, [modeloId, T]);
+      await c.query(`set constraints all immediate`); // dispara o CONSTRAINT TRIGGER adiado AQUI
+
+      const st = (await um<{ s: string }>(c, `select status_etapa_pl s from modelos where id=$1`, [modeloId])).s;
+      expect(st).toBe(der.resultado); // o processador rodou _etapas_pl_aplicar
+      expect(await naFila(c, modeloId)).toBe(0); // fila drenada
+    });
+  });
+
+  it("fn_etapas_pl_processar_fila e interna (REVOKE dos 3)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ ex: boolean }>(
+        c,
+        `select has_function_privilege('authenticated','public.fn_etapas_pl_processar_fila()','EXECUTE') ex`,
+      );
+      expect(r.ex).toBe(false);
+    });
+  });
+
+  it("os 2 CONSTRAINT TRIGGERs sao DEFERRABLE INITIALLY DEFERRED", async () => {
+    await withTx(async (c) => {
+      const r = await c.query(
+        `select tgname, tgdeferrable, tginitdeferred from pg_trigger
+          where tgname in ('trg_etapas_pl_processar_fila','trg_etapas_pl_processar_fila_upd') order by tgname`,
+      );
+      expect(r.rows.length).toBe(2);
+      for (const t of r.rows) { expect(t.tgdeferrable).toBe(true); expect(t.tginitdeferred).toBe(true); }
+    });
+  });
 });

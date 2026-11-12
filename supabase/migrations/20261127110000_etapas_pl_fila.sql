@@ -387,6 +387,104 @@ CREATE TRIGGER trg_etapas_pl_historico
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_etapas_pl_historico();
 
+-- TASK 3 - processador da fila no COMMIT (CONSTRAINT TRIGGER adiado). Espelho de
+-- fn_kanban_processar_fila (20261027100000:103) com nomes PL: nunca perde recalculo e NUNCA derruba
+-- o COMMIT de quem disparou (DELETE...RETURNING no bloco protegido; lote falhou -> card a card; o que
+-- falha FICA na fila com WARNING ASCII; UMA passada por loja por comando via app.etapas_pl_fila_feita;
+-- orcamento 3 s; FOR UPDATE SKIP LOCKED; pega 57014 e para na hora). Chama _etapas_pl_aplicar (Task 4).
+CREATE OR REPLACE FUNCTION public.fn_etapas_pl_processar_fila()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+ SET lock_timeout TO '2s'
+AS $function$
+DECLARE
+  c_orcamento CONSTANT interval := interval '3 seconds';
+  v_prazo timestamptz := statement_timestamp() + c_orcamento;
+  v_marca text := NEW.tenant_id::text || '@' || statement_timestamp()::text;
+  v_feitas text := coalesce(current_setting('app.etapas_pl_fila_feita', true), '');
+  v_ids uuid[];
+  v_fila uuid[];
+  v_id uuid;
+  v_estado text;
+BEGIN
+  IF position(v_marca IN v_feitas) > 0 THEN
+    RETURN NULL;  -- esta loja ja teve a sua passada neste comando
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.etapas_pl_recalculo_fila f WHERE f.modelo_id = NEW.modelo_id) THEN
+    RETURN NULL;
+  END IF;
+  PERFORM set_config('app.etapas_pl_fila_feita', v_feitas || ';' || v_marca, true);
+  IF clock_timestamp() >= v_prazo THEN
+    RAISE WARNING 'etapas_pl: orcamento de tempo do COMMIT esgotado antes da fila (loja %) - os cards ficam na fila', NEW.tenant_id;
+    RETURN NULL;
+  END IF;
+  BEGIN
+    WITH alvo AS (
+      SELECT f.modelo_id FROM public.etapas_pl_recalculo_fila f
+       WHERE f.tenant_id = NEW.tenant_id
+       ORDER BY f.modelo_id
+       FOR UPDATE SKIP LOCKED
+    ), d AS (
+      DELETE FROM public.etapas_pl_recalculo_fila f USING alvo WHERE f.modelo_id = alvo.modelo_id RETURNING f.modelo_id
+    )
+    SELECT array_agg(d.modelo_id ORDER BY d.modelo_id) INTO v_ids FROM d;
+    IF v_ids IS NOT NULL THEN
+      PERFORM public._etapas_pl_aplicar(NEW.tenant_id, v_ids, 'auto', NULL);
+    END IF;
+    RETURN NULL;
+  EXCEPTION WHEN query_canceled OR OTHERS THEN
+    v_estado := SQLSTATE;
+    RAISE WARNING 'etapas_pl: recalculo do lote falhou (loja %, % card(s)): % [%] - os cards voltam a fila; tentando card a card',
+      NEW.tenant_id, coalesce(cardinality(v_ids), 0), SQLERRM, SQLSTATE;
+  END;
+  IF v_estado = '57014' OR coalesce(cardinality(v_ids), 0) = 1 THEN
+    RETURN NULL;
+  END IF;
+  SELECT array_agg(f.modelo_id ORDER BY f.modelo_id) INTO v_fila
+    FROM public.etapas_pl_recalculo_fila f
+   WHERE f.tenant_id = NEW.tenant_id;
+  FOREACH v_id IN ARRAY coalesce(v_fila, ARRAY[]::uuid[]) LOOP
+    IF clock_timestamp() >= v_prazo THEN
+      RAISE WARNING 'etapas_pl: orcamento de tempo do COMMIT esgotado no card a card (loja %) - o resto fica na fila', NEW.tenant_id;
+      RETURN NULL;
+    END IF;
+    BEGIN
+      DELETE FROM public.etapas_pl_recalculo_fila f
+       WHERE f.modelo_id = (SELECT q.modelo_id FROM public.etapas_pl_recalculo_fila q
+                             WHERE q.modelo_id = v_id FOR UPDATE SKIP LOCKED);
+      IF FOUND THEN
+        PERFORM public._etapas_pl_aplicar(NEW.tenant_id, ARRAY[v_id], 'auto', NULL);
+      END IF;
+    EXCEPTION WHEN query_canceled OR OTHERS THEN
+      v_estado := SQLSTATE;
+      RAISE WARNING 'etapas_pl: card % continua na fila (loja %): % [%]', v_id, NEW.tenant_id, SQLERRM, SQLSTATE;
+      IF v_estado = '57014' THEN
+        RETURN NULL;
+      END IF;
+    END;
+  END LOOP;
+  RETURN NULL;
+END;
+$function$;
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_processar_fila() FROM PUBLIC, anon, authenticated;
+
+-- CONSTRAINT TRIGGER adiado (processa no COMMIT): AFTER INSERT (linha nova) e AFTER UPDATE OF criado_at
+-- (linha rearmada por _etapas_pl_enfileirar). Espelha trg_kanban_processar_fila + _upd.
+DROP TRIGGER IF EXISTS trg_etapas_pl_processar_fila ON public.etapas_pl_recalculo_fila;
+CREATE CONSTRAINT TRIGGER trg_etapas_pl_processar_fila
+  AFTER INSERT ON public.etapas_pl_recalculo_fila
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_etapas_pl_processar_fila();
+DROP TRIGGER IF EXISTS trg_etapas_pl_processar_fila_upd ON public.etapas_pl_recalculo_fila;
+CREATE CONSTRAINT TRIGGER trg_etapas_pl_processar_fila_upd
+  AFTER UPDATE OF criado_at ON public.etapas_pl_recalculo_fila
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_etapas_pl_processar_fila();
+
 COMMIT;
 
 select pg_notify('pgrst', 'reload schema');
