@@ -121,8 +121,13 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 1 — configs (bloco 
     });
   });
 
-  it("grava etapas_pl_kanban/_requisitos/_automatico/_aba via salvar_config_loja", async () => {
+  it("grava etapas_pl_kanban/_requisitos/_aba via salvar_config_loja; _automatico NAO (so pela RPC, T8)", async () => {
     await withTx(async (c) => {
+      // chave fixada em false na base (via a GUC da RPC, que a trava da T8 permite): assim mandar
+      // etapas_pl_automatico=true pela config tem de ser IGNORADO.
+      await c.query(`select set_config('app.etapas_pl_chave','rpc',true)`);
+      await c.query(`update tenant_config set etapas_pl_automatico=false where tenant_id=$1`, [T]);
+      await c.query(`select set_config('app.etapas_pl_chave','',true)`);
       await comoAdminLoja(c);
       const atual = (await um<{ j: Record<string, any> }>(c, "SELECT to_jsonb(tc) AS j FROM public.tenant_config tc WHERE tc.tenant_id=$1", [T])).j;
       const mud = {
@@ -149,7 +154,9 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 1 — configs (bloco 
       expect(r[0].etapas_pl_kanban).toEqual(["Peça Teste", "Separação de Materiais"]);
       expect(r[0].etapas_pl_requisitos).toEqual({ separacao: ["peca_teste_aprovada"] });
       // T8 (Onda 2): a chave so muda pela RPC etapas_pl_definir_automatico; via salvar_config_loja a mudanca e IGNORADA (sem erro).
-      expect(r[0].etapas_pl_automatico).toBe(atual.etapas_pl_automatico);
+      // Base fixada em false acima: mandar true nao liga.
+      expect(atual.etapas_pl_automatico).toBe(false);
+      expect(r[0].etapas_pl_automatico).toBe(false);
       expect(r[0].etapas_pl_aba_peca_teste_status).toBe("peca_teste");
     });
   });
