@@ -30,7 +30,16 @@ BEGIN
     RAISE EXCEPTION 'f6_explosao: salvar_config_loja com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v, 'ausente')
       USING ERRCODE = 'P0001';
   END IF;
-  -- (o guard do _core e do avaliador entra na Task 2, no mesmo bloco de guarda abaixo)
+  -- _core: aceita ANTES (6c5f) e DEPOIS (com o gate F6) para reaplicar sem erro.
+  v := md5(pg_get_functiondef(to_regprocedure('public._enviar_modelo_para_cad_core(uuid,text,text)')));
+  IF v IS NULL OR (v <> '6c5fc00819b4211eb08d20a1d271c9b2'
+                   AND position('explosao_requisito_faltando' IN pg_get_functiondef(to_regprocedure('public._enviar_modelo_para_cad_core(uuid,text,text)'))) = 0) THEN
+    RAISE EXCEPTION 'f6_explosao: _enviar_modelo_para_cad_core com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v, 'ausente')
+      USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regprocedure('public._avaliar_condicoes_kanban_core(uuid,uuid[])') IS NULL THEN
+    RAISE EXCEPTION 'f6_explosao: _avaliar_condicoes_kanban_core ausente' USING ERRCODE = 'P0001';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.tenant_config'::regclass AND attname = 'explosao_requisitos' AND NOT attisdropped)
      AND NOT EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
                       WHERE a.attrelid = 'public.tenant_config'::regclass AND a.attname = 'explosao_requisitos' AND NOT a.attisdropped
@@ -107,7 +116,56 @@ BEGIN
 END
 $troca$;
 
--- 3) _enviar_modelo_para_cad_core: gate F6 (Task 2, Bloco B) — ACRESCENTADO ABAIXO.
+-- 3) _enviar_modelo_para_cad_core: gate F6 logo APOS o gate de etapa e ANTES da escrita (troca EXATA, 1 ancora 1x).
+DO $troca_core$
+DECLARE
+  d text;
+  a text;
+  b text;
+BEGIN
+  -- ancora: fim do gate de etapa (o IF NOT COALESCE ... END IF;).
+  a := $x$  IF NOT COALESCE(v_gate_ok, false) THEN
+    RAISE EXCEPTION 'O modelo precisa estar na etapa "%" (ou posterior) para ser enviado à Explosão.', v_gate_label
+      USING ERRCODE = 'P0001';
+  END IF;
+$x$;
+  b := $x$  IF NOT COALESCE(v_gate_ok, false) THEN
+    RAISE EXCEPTION 'O modelo precisa estar na etapa "%" (ou posterior) para ser enviado à Explosão.', v_gate_label
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- F6 Fluxo 2 (Bloco B) — requisitos CONFIGURAVEIS do Enviar a Explosao. OPT-IN: lista vazia pula tudo.
+  -- Gate SO dos configurados (a lista fixa REF/nome/etc. segue so no front). Modulo desligado = satisfeita
+  -- (o avaliador ja aplica _kanban_cond_na). Recusa ASCII P0001.
+  DECLARE
+    v_reqs jsonb;
+    v_cond jsonb;
+    v_faltando text;
+  BEGIN
+    SELECT explosao_requisitos INTO v_reqs FROM public.tenant_config WHERE tenant_id = v_tenant;
+    IF v_reqs IS NOT NULL AND jsonb_typeof(v_reqs) = 'array' AND jsonb_array_length(v_reqs) > 0 THEN
+      v_cond := COALESCE(public._avaliar_condicoes_kanban_core(v_tenant, ARRAY[_modelo_id]) -> _modelo_id::text, '{}'::jsonb);
+      -- Lista (ASCII, separada por virgula) das keys exigidas e NAO satisfeitas (key ausente no mapa = nao satisfeita).
+      SELECT string_agg(k.key, ',' ORDER BY k.key) INTO v_faltando
+        FROM jsonb_array_elements_text(v_reqs) AS k(key)
+        WHERE COALESCE((v_cond ->> k.key)::boolean, false) = false;
+      IF v_faltando IS NOT NULL THEN
+        RAISE EXCEPTION 'explosao_requisito_faltando: %', v_faltando USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
+  END;
+$x$;
+  d := pg_get_functiondef(to_regprocedure('public._enviar_modelo_para_cad_core(uuid,text,text)'));
+  IF position('explosao_requisito_faltando' IN d) > 0 THEN
+    RETURN;  -- ja trocada (reaplicar e inofensivo)
+  END IF;
+  IF (length(d) - length(replace(d, a, ''))) / length(a) <> 1 THEN
+    RAISE EXCEPTION 'f6_explosao: ancora do gate nao aparece exatamente 1x em _enviar_modelo_para_cad_core' USING ERRCODE = 'P0001';
+  END IF;
+  d := replace(d, a, b);
+  EXECUTE d;
+END
+$troca_core$;
 
 -- pos-condicoes
 DO $pos$
@@ -127,7 +185,16 @@ BEGIN
   IF md5(pg_get_functiondef(to_regprocedure('public.salvar_config_loja(uuid,jsonb,jsonb,boolean)'))) = '6d35eb844c03afebccdc110e970f46d0' THEN
     RAISE EXCEPTION 'f6_explosao: salvar_config_loja NAO mudou (diff-validacao)' USING ERRCODE = 'P0001';
   END IF;
-  -- (pos-condicao do _core entra na Task 2, no mesmo bloco de pos-condicao abaixo)
+  -- _core: ACL dos 3 revogada preservada (REVOKE de PUBLIC/anon/authenticated) + secdef/search_path + md5 MUDOU
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid = to_regprocedure('public._enviar_modelo_para_cad_core(uuid,text,text)') AND coalesce(p.proacl::text, '') = '{postgres=X/postgres,service_role=X/postgres}'
+                  AND p.prosecdef AND p.proconfig = ARRAY['search_path=public'])
+     OR has_function_privilege('anon', 'public._enviar_modelo_para_cad_core(uuid,text,text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public._enviar_modelo_para_cad_core(uuid,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'f6_explosao: pos-condicao falhou na ACL/secdef/search_path de _enviar_modelo_para_cad_core' USING ERRCODE = 'P0001';
+  END IF;
+  IF md5(pg_get_functiondef(to_regprocedure('public._enviar_modelo_para_cad_core(uuid,text,text)'))) = '6c5fc00819b4211eb08d20a1d271c9b2' THEN
+    RAISE EXCEPTION 'f6_explosao: _enviar_modelo_para_cad_core NAO mudou (diff-validacao)' USING ERRCODE = 'P0001';
+  END IF;
 END
 $pos$;
 
