@@ -27,6 +27,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - cfg/derivar", () 
   it("_etapas_pl_cfg traz etapas_pl_automatico/kanban/requisitos", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(
         `update tenant_config set etapas_pl_automatico=true,
            etapas_pl_kanban='["Peça Teste","Oficina"]'::jsonb,
@@ -44,6 +45,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - cfg/derivar", () 
   it("_etapas_pl_ligado = etapas_pl_automatico", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(`update tenant_config set etapas_pl_automatico=false where tenant_id=$1`, [T]);
       expect((await um<{ l: boolean }>(c, `select _etapas_pl_ligado($1) l`, [T])).l).toBe(false);
       await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
@@ -54,6 +56,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - cfg/derivar", () 
   it("_etapas_pl_derivar_lote: elegivel = status_etapa_pl IS NOT NULL (no PL)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(
         `update tenant_config set etapas_pl_automatico=true,
            etapas_pl_kanban='["Peça Teste","Oficina"]'::jsonb,
@@ -77,6 +80,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - cfg/derivar", () 
   it("_etapas_pl_derivar_lote: modelo FORA do PL (status_etapa_pl NULL) nao e elegivel", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(
         `update tenant_config set etapas_pl_automatico=true,
            etapas_pl_kanban='["Peça Teste","Oficina"]'::jsonb where tenant_id=$1`,

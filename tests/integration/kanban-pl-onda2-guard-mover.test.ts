@@ -63,6 +63,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave desligada: etapas_pl_mover da P0001 com mensagem ASCII", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, false);
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
@@ -78,6 +79,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave desligada: o guard sai cedo - a pessoa decide (UPDATE manual passa sem reversao)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, false, `{"oficina":["peca_teste_aprovada"]}`); // Oficina seria automatica se a chave estivesse ligada
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
@@ -92,6 +94,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave ligada: mover para coluna MANUAL FIXA (resultado = a coluna), historico origem manual; mover valido SOLTA", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, "{}"); // todas manuais
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
@@ -124,6 +127,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave ligada: etapa fora do fluxo = fora_do_fluxo, nada grava; modelo inexistente = P0002 ASCII", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, "{}");
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
@@ -140,6 +144,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("etapas_pl_mover restaura app.etapas_pl_sistema/_lote ao valor anterior", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, "{}");
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
@@ -207,6 +212,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave ligada: guard mantem o atual quando se tenta ir a coluna AUTOMATICA de fora do motor", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, `{"oficina":["peca_teste_aprovada"]}`); // oficina AUTOMATICA; as outras manuais
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste"); // entrada do fluxo
@@ -218,6 +224,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave ligada: guard deixa passar coluna MANUAL e a entrada; recusa etapa fora do fluxo (P0001 ASCII)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, `{"oficina":["peca_teste_aprovada"]}`);
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
@@ -236,6 +243,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave ligada: guard - '' mantem o atual; fixado + coluna automatica = vai a posicao DERIVADA (solta)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, `{"oficina":["peca_teste_aprovada"]}`);
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "separacao_de_materiais"); // coluna MANUAL (fixado)
@@ -251,6 +259,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("chave ligada: GUC do sistema faz o guard sair cedo (o motor/aplicador grava a automatica)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, `{"oficina":["peca_teste_aprovada"]}`);
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
@@ -264,6 +273,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Ta
   it("guard: entrar/sair do PL (NULL) passa; o guard re-enfileira quando decide", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, true, `{"oficina":["peca_teste_aprovada"]}`);
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");

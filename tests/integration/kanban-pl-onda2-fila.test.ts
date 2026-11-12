@@ -44,6 +44,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - fila (Task 2)", (
   it("chave ligada + modelo no PL: editar producao_terceirizados enfileira", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
       const { modeloId, ptId } = await modeloComBlocoPt(c);
       await poeNoPl(c, modeloId);
@@ -56,6 +57,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - fila (Task 2)", (
   it("chave desligada: nada enfileira", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(`update tenant_config set etapas_pl_automatico=false where tenant_id=$1`, [T]);
       const { modeloId, ptId } = await modeloComBlocoPt(c);
       await poeNoPl(c, modeloId);
@@ -67,6 +69,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - fila (Task 2)", (
   it("modelo FORA do PL (status_etapa_pl NULL): nao enfileira mesmo com chave ligada", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
       const { modeloId, ptId } = await modeloComBlocoPt(c);
       await c.query(`update modelos set status_etapa_pl = NULL where id=$1`, [modeloId]);
@@ -78,6 +81,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - fila (Task 2)", (
   it("editar modelos.status_etapa_pl (entrar no PL) enfileira com chave ligada", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
       const { modeloId } = await modeloComBlocoPt(c);
       await c.query(`update modelos set status_etapa_pl = NULL where id=$1`, [modeloId]);
@@ -104,6 +108,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
   it("_etapas_pl_aplicar grava a derivada em status_etapa_pl e nao re-enfileira (recursao cortada)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(
         `update tenant_config set etapas_pl_automatico=true,
            etapas_pl_kanban='["Peça Teste","Separação de Materiais","Oficina"]'::jsonb,
@@ -150,6 +155,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
   it("_etapas_pl_aplicar restaura as GUCs ao valor anterior", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
       const { modeloId } = await modeloComBlocoPt(c);
       await poeNoPl(c, modeloId, "peca_teste");
@@ -168,6 +174,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
   it("_etapas_pl_aplicar rejeita origem invalida (ASCII)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
       const { modeloId } = await modeloComBlocoPt(c);
       await poeNoPl(c, modeloId, "peca_teste");
@@ -224,6 +231,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
   it("fila processa no COMMIT e deriva status_etapa_pl (SET CONSTRAINTS ALL IMMEDIATE)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(
         `update tenant_config set etapas_pl_automatico=true,
            etapas_pl_kanban='["Peça Teste","Separação de Materiais","Oficina"]'::jsonb, etapas_pl_requisitos='{}'::jsonb
@@ -272,6 +280,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
   it("e2e: editar bloco -> enfileira -> COMMIT processa -> deriva (fila drenada, sem recursao)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
+      await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await c.query(
         `update tenant_config set etapas_pl_automatico=true,
            etapas_pl_kanban='["Peça Teste","Separação de Materiais","Oficina"]'::jsonb, etapas_pl_requisitos='{}'::jsonb

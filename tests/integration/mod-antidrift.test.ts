@@ -85,6 +85,8 @@ const DONOS: { re: RegExp; dono: string; extras?: string[] }[] = [
   // Kanban das Etapas PL (Onda 2): avaliador de condicoes + mover. Portao producao + etapas_pl; dono etapas_pl
   // (MODULE_DEPS[etapas_pl].exige inclui producao, entao {etapas_pl, producao} cobre o portao).
   { re: /^(avaliar_condicoes_etapas_pl|etapas_pl_mover)$/, dono: "etapas_pl" },
+  // Kanban das Etapas PL (Onda 2, T8): botao da chave + previa/restaurar do snapshot (admin da loja; portao producao + etapas_pl).
+  { re: /^etapas_pl_(definir_automatico|previa_restauracao|restaurar)$/, dono: "etapas_pl" },
 ];
 
 const ASSINATURA_CHAMADA = /\b_exige_modulos\(([^)]*)\)/g;

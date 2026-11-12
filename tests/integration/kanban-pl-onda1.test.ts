@@ -148,7 +148,8 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 1 — configs (bloco 
       ).rows;
       expect(r[0].etapas_pl_kanban).toEqual(["Peça Teste", "Separação de Materiais"]);
       expect(r[0].etapas_pl_requisitos).toEqual({ separacao: ["peca_teste_aprovada"] });
-      expect(r[0].etapas_pl_automatico).toBe(true);
+      // T8 (Onda 2): a chave so muda pela RPC etapas_pl_definir_automatico; via salvar_config_loja a mudanca e IGNORADA (sem erro).
+      expect(r[0].etapas_pl_automatico).toBe(atual.etapas_pl_automatico);
       expect(r[0].etapas_pl_aba_peca_teste_status).toBe("peca_teste");
     });
   });
