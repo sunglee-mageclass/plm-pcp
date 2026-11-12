@@ -4,6 +4,7 @@
 export type CondicaoPL = { key: string; label: string; descricao?: string };
 export const CONDICOES_PL: CondicaoPL[] = [
   { key: "peca_teste_aprovada", label: "Peça teste aprovada", descricao: "Toda linha que exige peça teste está aprovada (M.O. + peça teste)." },
+  { key: "tem_peca_teste", label: "Tem peça teste", descricao: "Existe ao menos um bloco de peça teste (aprovado ou não) — porta de entrada." },
   { key: "enviado_a_servicos", label: "Enviado a Serviços", descricao: "O modelo saiu da Explosão (cad.enviado_corte)." },
   { key: "materiais_separados", label: "Materiais separados", descricao: "TODOS os blocos de serviço do modelo têm a data de envio preenchida." },
   { key: "grade_cortada_retornou", label: "Grade cortada retornou", descricao: "TODOS os blocos relevantes têm alguma peça cortada retornada." },
