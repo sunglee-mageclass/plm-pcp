@@ -9,6 +9,8 @@
  * `SET CONSTRAINTS ALL IMMEDIATE`.
  *
  * Board dos testes: ["Peça Teste","Separação de Materiais","Oficina"] -> 1a etapa = peca_teste.
+ * Onda 3 (Task 2): a entrada passou a ser o REQUISITO da 1a coluna; este arquivo fixa a 1a coluna = tem_peca_teste (o que o
+ * seed da Task 3 grava), preservando a semantica da Onda 2. A entrada configuravel esta em etapas-pl-entrada-configuravel.test.ts.
  * O teste semeia a propria categoria (exige_peca_teste) e limpa as M.O./CAD do modelo escolhido (txn revertida).
  */
 import { describe, it, expect } from "vitest";
@@ -24,7 +26,7 @@ async function config(c: Client, opts: { modulo?: boolean; board?: string; autom
   await c.query(
     `update tenant_config
         set modules = coalesce(modules, '{}'::jsonb) || jsonb_build_object('etapas_pl', $2::boolean),
-            etapas_pl_kanban = ${board}, etapas_pl_requisitos = '{}'::jsonb, etapas_pl_automatico = $3
+            etapas_pl_kanban = ${board}, etapas_pl_requisitos = '{"peca_teste":["tem_peca_teste"]}'::jsonb, etapas_pl_automatico = $3
       where tenant_id = $1`,
     [T, modulo, automatico],
   );
