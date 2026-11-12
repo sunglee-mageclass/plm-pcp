@@ -59,6 +59,7 @@ import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 import { BotaoFichaTecnica } from "@/components/producao/cad/BotaoFichaTecnica";
 import { OrdemServicoTerceirizados, type OSItem } from "@/components/producao/OrdemServicoTerceirizados";
+import { PecaTesteAba } from "@/components/producao/servicos/PecaTesteAba";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
@@ -521,6 +522,8 @@ export function TerceirizadosDetail({
 
   // Abas Pré (até costura) / Pós (pós costura = "acabamento") — filtram categorias e blocos.
   const [tabEtapa, setTabEtapa] = useState<"ate_costura" | "pos_costura">("ate_costura");
+  // F6 Fluxo 1 (A1): vista Serviços | Peça Teste (a seção Peça Teste trazida do Sheet, mão dupla).
+  const [vista, setVista] = useState<"servicos" | "peca_teste">("servicos");
   const catEtapa = (id: string) => (categorias as any[]).find((c) => c.id === id)?.etapa ?? "ate_costura";
   const [printTarget, setPrintTarget] = useState<"ficha" | "os">("ficha");
 
@@ -1565,6 +1568,18 @@ export function TerceirizadosDetail({
         rotulo={rotuloConflito}
       />
 
+      {/* F6 Fluxo 1 (A1): alterna entre os Serviços (tudo abaixo) e a aba Peça Teste (mesma seção
+          do Sheet do Planejamento, mão dupla). FORA do fieldset (trocar de vista mesmo travado). */}
+      <div className="flex rounded-md border p-0.5 w-fit">
+        <Button type="button" size="sm" variant={vista === "servicos" ? "secondary" : "ghost"} onClick={() => setVista("servicos")}>Serviços</Button>
+        <Button type="button" size="sm" variant={vista === "peca_teste" ? "secondary" : "ghost"} onClick={() => setVista("peca_teste")}>Peça Teste</Button>
+      </div>
+
+      {vista === "peca_teste" && modeloId && (
+        <PecaTesteAba modeloId={modeloId} podeEditar={!readOnly} />
+      )}
+
+      {vista === "servicos" && (<>
       {/* Abas Pré/Pós — FORA do fieldset: travar uma aba não pode impedir trocar de aba. */}
       <div className="flex rounded-md border p-0.5 w-fit">
         <Button size="sm" variant={tabEtapa === "ate_costura" ? "secondary" : "ghost"} onClick={() => setTabEtapa("ate_costura")}>
@@ -1804,6 +1819,7 @@ export function TerceirizadosDetail({
       )}
       </fieldset>
       )}
+      </>)}
 
       {/* Documento de impressão (oculto na tela; aparece só na impressão). Alterna
           entre Ficha Técnica e Ordem de Serviço conforme o botão — o CSS de print
