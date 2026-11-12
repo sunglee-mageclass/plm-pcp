@@ -470,6 +470,19 @@ END;
 $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_processar_fila() FROM PUBLIC, anon, authenticated;
 
+-- Invariante #9 (paridade com o motor do Dev): REVOKE das enfileiradoras e das funcoes de gatilho
+-- DEFINER. _etapas_pl_enfileirar_tenant recebe o tenant por parametro (primitivo de escrita
+-- cross-tenant) -> NAO pode ser executavel por authenticated. As fn_etapas_pl_fila_* so disparam por
+-- trigger (EXECUTE so e conferido no CREATE TRIGGER), mas seguem o padrao da S1/ANON-2.
+REVOKE EXECUTE ON FUNCTION public._etapas_pl_enfileirar(uuid[]) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._etapas_pl_enfileirar_tenant(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_fila_modelo() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_fila_por_modelo() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_fila_por_cad() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_fila_cad() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_fila_categoria() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_historico() FROM PUBLIC, anon, authenticated;
+
 -- CONSTRAINT TRIGGER adiado (processa no COMMIT): AFTER INSERT (linha nova) e AFTER UPDATE OF criado_at
 -- (linha rearmada por _etapas_pl_enfileirar). Espelha trg_kanban_processar_fila + _upd.
 DROP TRIGGER IF EXISTS trg_etapas_pl_processar_fila ON public.etapas_pl_recalculo_fila;

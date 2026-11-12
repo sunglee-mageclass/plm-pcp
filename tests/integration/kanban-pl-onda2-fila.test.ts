@@ -194,6 +194,31 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
     });
   });
 
+  it("enfileiradoras e funcoes de gatilho sem EXECUTE para authenticated (invariante #9)", async () => {
+    await withTx(async (c) => {
+      const sigs = [
+        "public._etapas_pl_enfileirar(uuid[])",
+        "public._etapas_pl_enfileirar_tenant(uuid)",
+        "public.fn_etapas_pl_fila_modelo()",
+        "public.fn_etapas_pl_fila_por_modelo()",
+        "public.fn_etapas_pl_fila_por_cad()",
+        "public.fn_etapas_pl_fila_cad()",
+        "public.fn_etapas_pl_fila_categoria()",
+        "public.fn_etapas_pl_historico()",
+      ];
+      for (const sig of sigs) {
+        for (const role of ["authenticated", "anon"]) {
+          const r = await um<{ ex: boolean }>(
+            c,
+            `select has_function_privilege($1, $2, 'EXECUTE') ex`,
+            [role, sig],
+          );
+          expect(r.ex, `${role} nao deve executar ${sig}`).toBe(false);
+        }
+      }
+    });
+  });
+
   // Task 3 — CONSTRAINT TRIGGER adiado: processa a fila no COMMIT (forcado via SET CONSTRAINTS ALL
   // IMMEDIATE dentro da txn revertida, senao o DEFERRED nao dispara).
   it("fila processa no COMMIT e deriva status_etapa_pl (SET CONSTRAINTS ALL IMMEDIATE)", async () => {
