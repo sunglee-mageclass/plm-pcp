@@ -203,6 +203,20 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 1 — seed (bloco D)"
     });
   });
 
+  it("seed IGNORA etapa com ativa=false (só as ativas viram coluna)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(
+        `update tenant_config set pcp_etapas='[{"key":"peca_teste","label":"Prova","ativa":true},{"key":"separacao","label":"Sep","ativa":false},{"key":"oficina","label":"Costura","ativa":true}]'::jsonb,
+                                  etapas_pl_kanban='[]'::jsonb where tenant_id=$1`,
+        [T],
+      );
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      const r = (await um<{ e: any }>(c, `select etapas_pl_kanban e from tenant_config where tenant_id=$1`, [T])).e;
+      expect(r).toEqual(["Prova", "Costura"]); // "Sep" (ativa:false) ficou de fora
+    });
+  });
+
   it("loja sem pcp_etapas: etapas_pl_kanban nasce com os 5 labels default", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);

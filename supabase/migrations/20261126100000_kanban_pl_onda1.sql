@@ -448,10 +448,14 @@ BEGIN
   IF (SELECT jsonb_array_length(coalesce(etapas_pl_kanban, '[]'::jsonb)) FROM tenant_config WHERE tenant_id = _tenant) > 0 THEN
     RETURN; -- ja preenchido: nao sobrescreve
   END IF;
+  -- Semeia SO as etapas ATIVAS da pcp_etapas (ativa IS NOT FALSE: ausente/null conta como ativa, so
+  -- `false` explicito exclui) — uma etapa desativada nao vira coluna do quadro PL. coalesce NULL->default:
+  -- se a loja desativou TODAS (jsonb_agg vazio = NULL), cai nos 5 labels default (nunca lista vazia).
   SELECT coalesce(
     (SELECT jsonb_agg(e->>'label' ORDER BY ord)
        FROM tenant_config tc, jsonb_array_elements(tc.pcp_etapas) WITH ORDINALITY AS t(e, ord)
-      WHERE tc.tenant_id = _tenant AND tc.pcp_etapas IS NOT NULL AND jsonb_typeof(tc.pcp_etapas) = 'array'),
+      WHERE tc.tenant_id = _tenant AND tc.pcp_etapas IS NOT NULL AND jsonb_typeof(tc.pcp_etapas) = 'array'
+        AND (e->>'ativa') IS DISTINCT FROM 'false'),
     '["Peça Teste","Separação de Materiais","Retorno de Grade de Corte","Oficina","Finalização"]'::jsonb
   ) INTO v_labels;
   UPDATE tenant_config SET etapas_pl_kanban = v_labels WHERE tenant_id = _tenant;
