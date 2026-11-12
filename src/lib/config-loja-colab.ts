@@ -46,6 +46,7 @@ export const COLUNAS_PAGINA = [
   "insumos_padrao",
   "aprovar_custo_auto_por_versao",
   "plan_tecido_oc_bloqueia_lancado",
+  "explosao_requisitos",
 ] as const;
 export type ColunaPagina = (typeof COLUNAS_PAGINA)[number];
 
@@ -73,6 +74,7 @@ export type ConfigLojaColab = {
   insumos_padrao: InsumoPadrao[];
   aprovar_custo_auto_por_versao: string;
   plan_tecido_oc_bloqueia_lancado: boolean;
+  explosao_requisitos: string[];
   [k: string]: unknown;
 };
 
@@ -222,6 +224,7 @@ const ROTULOS: Record<string, string> = {
   insumos_padrao: "Insumos padrão",
   aprovar_custo_auto_por_versao: "Aprovação automática de custo",
   plan_tecido_oc_bloqueia_lancado: "Bloqueio de OC em modelo lançado",
+  explosao_requisitos: "Requisitos do Envio à Explosão",
   tab_labels: "Nomes das abas",
   campos_editaveis: "Campos editáveis",
 };

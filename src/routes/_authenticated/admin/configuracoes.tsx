@@ -192,6 +192,8 @@ const DEFAULTS = {
   aprovar_custo_auto_por_versao: "nenhum" as ModoAprovarCustoAuto,
   // F1 C: bloqueia (no SERVIDOR) trocar/remover o vínculo de OC de modelo LANÇADO no Plan. Tecido. Default LIGADO; a loja decide desligar.
   plan_tecido_oc_bloqueia_lancado: true as boolean,
+  // F6 Fluxo 2: cond_keys (kanban-condicoes) que o "Enviar à Explosão" passa a exigir, todas em E. [] = opt-in (só os mínimos de hoje).
+  explosao_requisitos: [] as string[],
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -260,6 +262,8 @@ function normalizarConfig(row: Record<string, unknown> | null | undefined): Conf
     aprovar_custo_auto_por_versao: modoAprovarCustoAutoDoServidor((r as any).aprovar_custo_auto_por_versao),
     // Ausente/nulo na linha = ligado (o default seguro do banco); só `false` explícito desliga.
     plan_tecido_oc_bloqueia_lancado: (r as any).plan_tecido_oc_bloqueia_lancado !== false,
+    // F6 Fluxo 2: lista de cond_keys exigidas no Enviar à Explosão. Não-array no banco = [] (nunca derruba a tela).
+    explosao_requisitos: Array.isArray((r as any).explosao_requisitos) ? ((r as any).explosao_requisitos as string[]) : [],
   };
 }
 
@@ -327,6 +331,7 @@ const BLOCO_DA_COLUNA: Record<string, string> = {
   insumos_padrao: "cfg:insumos_padrao",
   aprovar_custo_auto_por_versao: "cfg:aprovar_custo_auto_por_versao",
   plan_tecido_oc_bloqueia_lancado: "cfg:plan_tecido_oc_bloqueia_lancado",
+  explosao_requisitos: "cfg:explosao_requisitos",
 };
 
 // T4: foco em controle DENTRO de um bloco (diálogo de Requisitos, marcadores Explosão/REF por linha)
@@ -337,6 +342,9 @@ const BLOCO_DO_FOCO: Record<string, string> = {
   "cfg:explosao_envio_status": "cfg:status_kanban",
   "cfg:ref_exibir_status": "cfg:status_kanban",
   "cfg:revenda_kanban_requisitos": "cfg:revenda_kanban_colunas",
+  // F6 Fluxo 2 — o editor de requisitos do Explosão é um diálogo portal (como kanban_requisitos); o anel
+  // aparece no bloco que o contém, não no controle interno.
+  "cfg:explosao_requisitos": "cfg:explosao_requisitos",
 };
 function blocoDoFoco(path: string | null): string | null {
   if (!path) return null;
@@ -1351,6 +1359,25 @@ function ConfiguracoesLojaPage() {
                   ? `A etapa marcada para Envio à Explosão ("${explosaoEffectiveKey.replace(/_/g, " ")}") não existe mais nas colunas do kanban. Enquanto não marcar outra, o envio volta a exigir "Aprovado".`
                   : `Esta loja não tem a coluna "Aprovado" no kanban. Marque a etapa a partir da qual liberar o envio à Explosão.`}
               </p>
+            )}
+            {/* F6 Fluxo 2 — requisitos CONFIGURÁVEIS do Enviar à Explosão (além dos mínimos de sempre).
+                Editor único (não por coluna) reusando RequisitosStatusButton SEM cascata; só oferece as
+                condições do catálogo (mitiga o risco de key inválida travar o envio). [] = opt-in. */}
+            {blocos.envioExplosao && (
+              <div className="space-y-1 border-t pt-2" data-colab-path="cfg:explosao_requisitos">
+                <div className="text-xs font-medium text-foreground">Requisitos para enviar à Explosão</div>
+                <p className="text-xs text-muted-foreground">
+                  Além dos campos mínimos de sempre (REF, nome, tecido, grade, datas), o Enviar à Explosão
+                  passa a exigir as condições marcadas aqui. Vazio = só os mínimos de hoje.
+                </p>
+                <RequisitosStatusButton
+                  label="Enviar à Explosão"
+                  requisitos={cfg.explosao_requisitos ?? []}
+                  onChange={(next) => setCfg((c) => ({ ...c, explosao_requisitos: next }))}
+                  condsModuloOff={condsModuloOff}
+                  colabPath="cfg:explosao_requisitos"
+                />
+              </div>
             )}
             <p className="text-xs text-muted-foreground">
               <Tag className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
