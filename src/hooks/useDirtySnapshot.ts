@@ -1,9 +1,30 @@
 import { useCallback, useRef, useState } from "react";
 
-/** Serializa de forma estável o bastante para comparar estados de formulário. */
+/**
+ * `JSON.stringify` com as chaves de OBJETO em ordem alfabética, em qualquer profundidade. A ordem das chaves de um objeto não
+ * é significativa (o Postgres `jsonb` a reordena ao gravar — o servidor devolve o mesmo valor em outra ordem, e isso não é
+ * "alteração"). Arrays PRESERVAM a ordem (é significativa: ordem das colunas do kanban etc.), nenhuma chave é descartada e o
+ * resto da semântica do `JSON.stringify` (undefined omitido, `toJSON`, números) é o de sempre — só o objeto simples é copiado
+ * com as chaves ordenadas (pelo `replacer`, que roda DEPOIS do `toJSON` e em cada nível). Pode lançar (ciclo): quem chama trata.
+ */
+export function stringifyEstavel(v: unknown): string {
+  return JSON.stringify(v, (_chave, valor) => {
+    if (valor && typeof valor === "object" && !Array.isArray(valor)) {
+      const proto = Object.getPrototypeOf(valor);
+      if (proto === Object.prototype || proto === null) {
+        const ordenado: Record<string, unknown> = {};
+        for (const k of Object.keys(valor).sort()) ordenado[k] = (valor as Record<string, unknown>)[k];
+        return ordenado;
+      }
+    }
+    return valor;
+  });
+}
+
+/** Serializa de forma estável o bastante para comparar estados de formulário (chaves de objeto em ordem; arrays intactos). */
 export function serializeSnapshot(v: unknown): string {
   try {
-    return JSON.stringify(v ?? null);
+    return stringifyEstavel(v ?? null);
   } catch {
     return String(v);
   }
