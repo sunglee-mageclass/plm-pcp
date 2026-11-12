@@ -2,7 +2,8 @@
  * KANBAN PL (Etapas PL, Onda 3) — espelho TS PURO da derivação do board PL no banco.
  *
  * O SQL do PL REUSA as puras compartilhadas com o Dev (`_kanban_fluxo`, `_kanban_derivar_puro`,
- * `_kanban_destino_drop_puro`, `_kanban_faltando_para`, `_kanban_coluna_manual` — ver migration 20261127100000/120000) com
+ * `_kanban_destino_drop_puro`, `_kanban_faltando_para`, `_kanban_coluna_manual` — ver migration 20261127100000/120000; board vazio =
+ * fluxo VAZIO, 20261127150000) com
  * board ÚNICO (`etapas_pl_kanban`), requisitos `etapas_pl_requisitos`, EXCEÇÕES SEMPRE `{}` (sem revenda/comprado) e
  * `derivavel = (status_etapa_pl IS NOT NULL)` (= `_etapas_pl_derivar_lote`). Esta lib espelha ESSAS puras DELEGANDO às do Dev
  * em `kanban-auto.ts` (`statusDerivado`/`destinoDrop`/`faltandoPara`/`colunaManual`), que já são o espelho TS exato delas — assim
@@ -46,9 +47,11 @@ export function lerEtapasPlConfig(row: any): EtapasPlConfig {
   };
 }
 
-/** Board PL normalizado (`normalizeKanbanStatuses`; board vazio cai no board padrão, como a pura `_kanban_fluxo` do SQL) e
- *  DEDUP por key (fica a 1ª ocorrência) — ≡ `_kanban_fluxo(cfg, false)`. */
+/** Board PL normalizado (`normalizeKanbanStatuses`) e DEDUP por key (fica a 1ª ocorrência) — ≡ `_kanban_fluxo` do SQL.
+ *  ⚠️ Board cru VAZIO/não-array = `[]` (INÉRCIA), NÃO o board padrão do Dev: ≡ a guarda de `_etapas_pl_derivar_lote` (migration
+ *  20261127150000) — `normalizeKanbanStatuses([])` e a pura `_kanban_fluxo` cairiam nas 14 colunas do Dev. */
 export function boardEtapasPl(cfg: EtapasPlConfig): { key: string; label: string }[] {
+  if (!Array.isArray(cfg.board) || cfg.board.length === 0) return [];
   const vistos = new Set<string>();
   return normalizeKanbanStatuses(cfg.board)
     .filter((c: KanbanStatus) => {
@@ -89,7 +92,7 @@ function entradaPl(cfg: EtapasPlConfig, statusAtual: string | null, satisfeitas:
 /** ≡ `_kanban_derivar_puro` (como `_etapas_pl_derivar_lote`). Caminha as colunas AUTOMÁTICAS na ordem e PARA na 1ª que falha:
  *  `alvo` = a última satisfeita antes (a 1ª coluna é o piso); `fixado` = status numa coluna MANUAL diferente da 1ª
  *  (`resultado` = o status); `faltando` = os requisitos efetivos não satisfeitos da 1ª que falhou. Status nulo (fora do PL)
- *  = não derivável (`alvo` null). */
+ *  = não derivável (`alvo` null). Board vazio (fluxo `[]`) = inércia: `derivavel:false`, `alvo:null`, `resultado` = o status. */
 export function derivarEtapaPl(cfg: EtapasPlConfig, statusAtual: string | null, satisfeitas: Record<string, boolean>): DerivacaoPl {
   const d = statusDerivado(entradaPl(cfg, statusAtual, satisfeitas));
   return { derivavel: d.derivavel, alvo: d.alvo, resultado: d.resultado, fixado: d.fixado, faltando: d.faltando };

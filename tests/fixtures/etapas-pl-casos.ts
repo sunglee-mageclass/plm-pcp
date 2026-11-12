@@ -126,11 +126,19 @@ export const CASOS_DERIVACAO_PL: CasoDerivacaoPl[] = [
       { para: "meio", acao: "fixar", status: "meio", faltando: [] },
     ],
   }),
-  caso("11. board VAZIO → a pura cai no board padrão do Dev (1ª = em_modelagem), sem requisitos = manual", {
+  caso("11. board VAZIO ([]) → INÉRCIA (fluxo vazio, NÃO o board do Dev): não derivável, sem alvo, resultado = o status", {
     board: [],
     requisitos: {},
     status: "em_modelagem",
-    esperado: { derivavel: true, alvo: "em_modelagem", resultado: "em_modelagem", fixado: false, faltando: [] },
+    esperado: { derivavel: false, alvo: null, resultado: "em_modelagem", fixado: false, faltando: [] },
+    arrastes: [{ para: "em_modelagem", acao: "fora_do_fluxo", status: "em_modelagem", faltando: [] }],
+  }),
+  caso("11b. board NÃO-array (objeto/null) = o mesmo que vazio: inércia", {
+    board: { a: 1 },
+    requisitos: { peca_teste: ["tem_peca_teste"] },
+    status: "peca_teste",
+    esperado: { derivavel: false, alvo: null, resultado: "peca_teste", fixado: false, faltando: [] },
+    arrastes: [{ para: "peca_teste", acao: "fora_do_fluxo", status: "peca_teste", faltando: [] }],
   }),
   caso("12. status NULL (produto fora do PL) → não derivável: sem alvo, resultado null", {
     status: null,
