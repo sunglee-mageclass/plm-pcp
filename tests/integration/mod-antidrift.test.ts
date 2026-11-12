@@ -78,6 +78,13 @@ const DONOS: { re: RegExp; dono: string; extras?: string[] }[] = [
   // Camada "Salvar por card" do Plan. Tecido (20261103165000): a cor/variante de tecido e Cadastro (Reforco D2 A: so modulo, sem portao de pagina).
   { re: /^salvar_variante_tecido$/, dono: "cadastro" },
   { re: /^variante_tecido_preco_previa$/, dono: "cadastro" },
+  // F6 (peca teste, 26o deploy): status da peca teste em lote da lista de Servicos = Producao.
+  { re: /^peca_teste_status_lote$/, dono: "producao" },
+  // Explosao em RPC unica (salvar_explosao sem sufixo): mesmo dono das salvar_explosao_* (E&S; Criacao pelo gate de pagina).
+  { re: /^salvar_explosao$/, dono: "entrada_saida" },
+  // Kanban das Etapas PL (Onda 2): avaliador de condicoes + mover. Portao producao + etapas_pl; dono etapas_pl
+  // (MODULE_DEPS[etapas_pl].exige inclui producao, entao {etapas_pl, producao} cobre o portao).
+  { re: /^(avaliar_condicoes_etapas_pl|etapas_pl_mover)$/, dono: "etapas_pl" },
 ];
 
 const ASSINATURA_CHAMADA = /\b_exige_modulos\(([^)]*)\)/g;
