@@ -8,8 +8,10 @@ import { tituloSelo, type EtapaSelo } from "@/lib/kanban-auto-ui";
  * Estados vêm de `etapaDoModelo` (puro): "Planejamento" (antes da Ordem de Criação) · "Lançado" · a coluna
  * do Dev; com a chave ligada soma "automática" (anda sozinho) ou "fixado" (coluna manual).
  */
-export function EtapaKanbanBadge({ selo, className, onClick, testId = "etapa-kanban-selo", compacto = false }: {
+export function EtapaKanbanBadge({ selo, className, onClick, testId = "etapa-kanban-selo", compacto = false, titulo: tituloProp }: {
   selo: EtapaSelo;
+  /** Tooltip próprio (o kanban de Etapas PL não é "Etapa do Desenvolvimento"). Sem ele, o texto do Dev. */
+  titulo?: string;
   className?: string;
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   testId?: string;
@@ -44,7 +46,7 @@ export function EtapaKanbanBadge({ selo, className, onClick, testId = "etapa-kan
       ))}
     </>
   );
-  const titulo = tituloSelo(selo);
+  const titulo = tituloProp ?? tituloSelo(selo);
   const dataCompacto = compacto ? "true" : undefined;
   return onClick ? (
     <button type="button" data-testid={testId} data-compacto={dataCompacto} className={cls} title={titulo} onClick={onClick}>{conteudo}</button>
