@@ -15,6 +15,8 @@
  * (B) o gatilho `trg_etapas_pl_entrada_cad` faz a entrada reagir a cad.enviado_corte (a Explosao) SEM chamar o helper.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Client } from "pg";
 import { hasDb, withTx, um, comoUsuario, ehBancoLocal, TENANT_TESTE } from "./db";
 
@@ -520,6 +522,41 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 3 - gatilho de entrad
     });
   });
 
+  it("UPDATE cad que NAO muda enviado_corte/modelo_id NAO reavalia (sem efeito)", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBe("peca_teste");
+      await setStatus(c, id, null); // tira "por fora": se o gatilho reavaliasse, o card voltaria
+      await c.query(`update cad set enviado_corte=true where modelo_id=$1`, [id]); // dispara UPDATE OF, mas sem mudanca
+      expect(await status(c, id)).toBeNull();
+      await c.query(`update cad set enviado_corte=false where modelo_id=$1`, [id]);
+      await c.query(`update cad set enviado_corte=true where modelo_id=$1`, [id]); // mudanca real: reavalia e entra
+      expect(await status(c, id)).toBe("peca_teste");
+    });
+  });
+
+  it("trocar cad.modelo_id reavalia o modelo ANTIGO (sai) e o NOVO (entra)", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV });
+      const a = await modeloLimpo(c);
+      const livre = await um<{ id: string }>(
+        c,
+        `select m.id from modelos m where m.tenant_id=$1 and m.id<>$2 and not exists (select 1 from cad c where c.modelo_id=m.id) limit 1`,
+        [T, a],
+      );
+      expect(livre, "precisa de um 2o modelo da Loja Teste sem cad").toBeTruthy();
+      await c.query(`delete from modelo_servico_mo where modelo_id=$1`, [livre.id]);
+      await setStatus(c, livre.id, null);
+      await posExplosao(c, a);
+      expect(await status(c, a)).toBe("peca_teste");
+      await c.query(`update cad set modelo_id=$2 where modelo_id=$1`, [a, livre.id]);
+      expect(await status(c, a)).toBeNull(); // antigo: nao esta mais pos-Explosao e nao cumpre -> sai
+      expect(await status(c, livre.id)).toBe("peca_teste"); // novo: cumpre -> entra
+    });
+  });
+
   it("invariante #9 + DEFINER: fn_etapas_pl_entrada_cad sem EXECUTE para PUBLIC/anon/authenticated; gatilho por linha e habilitado", async () => {
     await withTx(async (c) => {
       for (const role of ["anon", "authenticated", "public"]) {
@@ -538,6 +575,75 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 3 - gatilho de entrad
             and tgenabled='O' and (tgtype & 1)=1 and not tgisinternal`,
       );
       expect(Number(t.n)).toBe(1);
+    });
+  });
+});
+
+describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 3 - backfill de lojas ja semeadas (Task 3, A2)", () => {
+  // O MESMO UPDATE que vai na migration (extraido do arquivo: o que se testa e o que se publica). A migration em si ja esta
+  // aplicada na copia (NUNCA \i em txn de teste): aqui roda-se so o DML, dentro da txn revertida.
+  const mig = readFileSync(resolve(__dirname, "../../supabase/migrations/20261128100000_etapas_pl_entrada_configuravel.sql"), "utf8");
+  const ini = mig.indexOf("UPDATE public.tenant_config tc\n   SET etapas_pl_requisitos = jsonb_build_object(\n         (public._kanban_fluxo");
+  const BACKFILL = mig.slice(ini, mig.indexOf(";\n", ini) + 1);
+
+  async function rq(c: Client): Promise<unknown> {
+    return (await um<{ rq: unknown }>(c, `select etapas_pl_requisitos rq from tenant_config where tenant_id=$1`, [T])).rq;
+  }
+  async function loja(c: Client, board: string, reqs: string): Promise<void> {
+    await c.query(`update tenant_config set etapas_pl_kanban=${board}, etapas_pl_requisitos=${reqs} where tenant_id=$1`, [T]);
+  }
+
+  it("o UPDATE foi extraido da migration (sanidade)", () => {
+    expect(ini).toBeGreaterThan(0);
+    expect(BACKFILL.startsWith("UPDATE public.tenant_config tc")).toBe(true);
+    expect(BACKFILL).toContain("'tem_peca_teste'");
+  });
+
+  it("loja com board preenchido e requisitos '{}': a 1a coluna ganha [\"tem_peca_teste\"] (key resolvida) e idempotente", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await loja(c, `'["Peça Teste","Oficina"]'::jsonb`, `'{}'::jsonb`);
+      await c.query(BACKFILL);
+      expect(await rq(c)).toEqual({ peca_teste: ["tem_peca_teste"] });
+      await c.query(BACKFILL); // 2a vez: nada muda
+      expect(await rq(c)).toEqual({ peca_teste: ["tem_peca_teste"] });
+    });
+  });
+
+  it("board customizado: a key e a resolvida pelo avaliador (_kanban_fluxo), nao o label", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await loja(c, `'["Prova Final","Costura"]'::jsonb`, `'{}'::jsonb`);
+      await c.query(BACKFILL);
+      const k = (await um<{ k: string }>(c, `select (public._kanban_fluxo(jsonb_build_object('status_kanban', etapas_pl_kanban), false))[1] k from tenant_config where tenant_id=$1`, [T])).k;
+      expect(await rq(c)).toEqual({ [k]: ["tem_peca_teste"] });
+    });
+  });
+
+  it("NAO toca: requisitos ja configurados, board vazio, 1a etapa em branco", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await loja(c, `'["Peça Teste"]'::jsonb`, `'{"oficina":["cq_liberado"]}'::jsonb`);
+      await c.query(BACKFILL);
+      expect(await rq(c)).toEqual({ oficina: ["cq_liberado"] });
+      await loja(c, `'[]'::jsonb`, `'{}'::jsonb`);
+      await c.query(BACKFILL);
+      expect(await rq(c)).toEqual({});
+      await loja(c, `'["  "]'::jsonb`, `'{}'::jsonb`);
+      await c.query(BACKFILL);
+      expect(await rq(c)).toEqual({});
+    });
+  });
+
+  it("fecha a janela: loja ja semeada + backfill => trilha de peca teste entra no board", async () => {
+    await withTx(async (c) => {
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"etapas_pl": true}'::jsonb, etapas_pl_automatico=false where tenant_id=$1`, [T]);
+      await loja(c, BOARD, `'{}'::jsonb`);
+      await c.query(BACKFILL);
+      await comoUsuario(c);
+      const id = await modeloLimpo(c);
+      await linhaMo(c, id, await categoria(c, true));
+      expect(await status(c, id)).toBe("peca_teste");
     });
   });
 });

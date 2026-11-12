@@ -22,6 +22,8 @@
 -- Task 3 (A) - SEED: _kanban_pl_seed_etapas, ao semear etapas_pl_kanban, grava tambem etapas_pl_requisitos da 1a coluna
 --   com ["tem_peca_teste"] SO quando etapas_pl_requisitos estava vazio ('{}'/NULL). Nunca sobrescreve requisitos ja
 --   configurados; o seed segue saindo cedo se etapas_pl_kanban ja esta preenchido (reaplicar nao muda nada).
+-- Task 3 (A2) - BACKFILL: lojas ja semeadas com etapas_pl_requisitos '{}' ganham o mesmo requisito na 1a coluna (fecha a janela
+--   da Onda 2; ver bloco 5). Idempotente; nao revertido pelo _down.
 -- Task 3 (B) - GATILHO EM cad: fn_etapas_pl_entrada escuta so modelo_servico_mo/categorias_terceirizado; se a 1a coluna
 --   usar enviado_a_servicos (vem de cad.enviado_corte), o produto que vai a Explosao nao entraria no board ate o proximo
 --   evento de M.O. Gatilho novo trg_etapas_pl_entrada_cad (AFTER INSERT OR UPDATE OF enviado_corte, modelo_id ON cad,
@@ -317,6 +319,22 @@ BEGIN
   END IF;
 END
 $kpl3pos$;
+
+-- 5) BACKFILL (mesma transacao, DEPOIS das funcoes): lojas JA semeadas (board preenchido) mas sem requisitos ganham a porta
+--    de entrada tem_peca_teste na 1a coluna. O seed (3) so alcanca lojas novas; sem isto, com o helper da Task 2 no ar,
+--    ninguem entraria no board ate o dono configurar (regressao da Onda 2 = peca teste fixo).
+--    Seguro hoje: a UI de edicao de requisitos so chega na Onda 3, entao '{}' = "nunca configurado".
+--    Mesma expressao do seed/avaliador (_kanban_fluxo(...)[1]; NAO _kanban_norm do label). Idempotente: na 2a vez
+--    etapas_pl_requisitos ja nao e '{}'. NAO e revertido pelo _down (e dado, como o seed).
+UPDATE public.tenant_config tc
+   SET etapas_pl_requisitos = jsonb_build_object(
+         (public._kanban_fluxo(jsonb_build_object('status_kanban', tc.etapas_pl_kanban), false))[1],
+         jsonb_build_array('tem_peca_teste'))
+ WHERE coalesce(tc.etapas_pl_requisitos, '{}'::jsonb) = '{}'::jsonb
+   AND jsonb_typeof(coalesce(tc.etapas_pl_kanban,'[]'::jsonb)) = 'array'
+   AND jsonb_array_length(coalesce(tc.etapas_pl_kanban,'[]'::jsonb)) > 0
+   AND (public._kanban_fluxo(jsonb_build_object('status_kanban', tc.etapas_pl_kanban), false))[1] IS NOT NULL
+   AND btrim((public._kanban_fluxo(jsonb_build_object('status_kanban', tc.etapas_pl_kanban), false))[1]) <> '';
 
 COMMIT;
 

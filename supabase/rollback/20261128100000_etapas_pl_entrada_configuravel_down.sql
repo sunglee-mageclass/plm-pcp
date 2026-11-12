@@ -3,7 +3,9 @@
 --   _etapas_pl_entrada_avaliar        md5 066d482bb0d2f0731f78aec2f5191d47 (entrada por peca teste fixo)
 --   _kanban_pl_seed_etapas            md5 fe9b651bd5ffcb8780410c4adc5b627e (seed so de etapas_pl_kanban)
 -- fn_etapas_pl_entrada (gatilho) nao foi alterada pela ida. So catalogo. Idempotente. BEGIN...COMMIT.
--- Se o seed (Task 3) gravou etapas_pl_requisitos, o seed e dado e NAO e revertido aqui.
+-- Se o seed (Task 3) gravou etapas_pl_requisitos, o seed e dado e NAO e revertido aqui. O BACKFILL de etapas_pl_requisitos
+-- (lojas ja semeadas -> 1a coluna = ["tem_peca_teste"]) tambem FICA (dado; a UI de edicao ainda nao existe para distinguir
+-- "esvaziado de proposito"); nenhum DML de reversao.
 -- O gatilho trg_etapas_pl_entrada_cad (+ fn_etapas_pl_entrada_cad) NAO e dropado aqui (DROP TRIGGER em `cad` prende
 -- auth/storage): depois deste _down ele fica INOFENSIVO (so chama o helper de ANTES = peca teste fixo, idempotente).
 -- O DROP vive em 20261128100000_etapas_pl_entrada_configuravel_down_drop.sql (horario calmo, SO depois deste _down).
