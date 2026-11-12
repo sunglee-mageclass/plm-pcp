@@ -8,8 +8,11 @@
  *   1a coluna SEM requisito => ninguem entra sozinho (so manual) E ninguem e tirado (board todo-manual nao se esvazia).
  *
  * SO BANCO LOCAL; tudo em BEGIN...ROLLBACK (`withTx`); a migration 20261128100000 e aplicada ANTES da suite (psql -f).
- * Como o gatilho so escuta M.O. e categoria, os casos que mudam OUTRA fonte (cad.enviado_corte) chamam o helper direto
- * (a conexao e superusuario local; o helper e DEFINER sem EXECUTE p/ authenticated).
+ * Os gatilhos escutam M.O., categoria e (Task 3) cad.enviado_corte/modelo_id; os casos de requisito que nao dependem de um
+ * evento real chamam o helper direto (a conexao e superusuario local; o helper e DEFINER sem EXECUTE p/ authenticated).
+ *
+ * Task 3: (A) o seed da 1a coluna (`_kanban_pl_seed_etapas` grava `etapas_pl_requisitos[1a]=["tem_peca_teste"]` se vazio);
+ * (B) o gatilho `trg_etapas_pl_entrada_cad` faz a entrada reagir a cad.enviado_corte (a Explosao) SEM chamar o helper.
  */
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
@@ -86,13 +89,14 @@ async function filaDoModelo(c: Client, id: string): Promise<number> {
   return Number(r.n);
 }
 
-/** Poe o modelo "pos-Explosao": cad com enviado_corte = true (atualiza o existente ou cria). Nao dispara a entrada. */
+/** Poe o modelo "pos-Explosao": cad com enviado_corte = true (atualiza o existente ou cria). Desde a Task 3 isso DISPARA o
+ * gatilho de entrada em cad (os casos que pre-dataram a Task 3 reavaliam em seguida, o que e idempotente). */
 async function posExplosao(c: Client, modeloId: string): Promise<void> {
   const up = await c.query(`update cad set enviado_corte=true where modelo_id=$1`, [modeloId]);
   if (!up.rowCount) await c.query(`insert into cad (tenant_id, modelo_id, enviado_corte) values ($1,$2,true)`, [T, modeloId]);
 }
 
-/** O gatilho so escuta M.O./categoria; para outras fontes (cad) reavalia chamando o helper (DEFINER, conexao local). */
+/** Reavalia chamando o helper direto (DEFINER, conexao local); idempotente com o gatilho de cad. */
 async function reavaliar(c: Client, id: string): Promise<void> {
   await c.query(`select public._etapas_pl_entrada_avaliar($1)`, [id]);
 }
@@ -303,6 +307,237 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 3 - entrada = requisi
         expect(r.prosecdef).toBe(true);
         expect(r.cfg).toBe("search_path=public");
       }
+    });
+  });
+});
+
+/** key resolvida da 1a etapa do board (a MESMA que o avaliador usa: _kanban_fluxo(...)[1]; 'Peça Teste' -> 'peca_teste'). */
+async function normPrimeira(c: Client, label: string): Promise<string> {
+  return (
+    await um<{ k: string }>(c, `select (public._kanban_fluxo(jsonb_build_object('status_kanban', jsonb_build_array($1::text)), false))[1] k`, [label])
+  ).k;
+}
+
+describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 3 - seed da 1a coluna (Task 3, A)", () => {
+  async function cfg(c: Client): Promise<{ k: unknown; rq: Record<string, unknown> | null }> {
+    return um(c, `select etapas_pl_kanban k, etapas_pl_requisitos rq from tenant_config where tenant_id=$1`, [T]);
+  }
+
+  it("1a coluna nasce com [\"tem_peca_teste\"] quando etapas_pl_requisitos estava vazio ('{}')", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(
+        `update tenant_config set pcp_etapas='[{"key":"a","label":"Prova Final","ativa":true},{"key":"b","label":"Costura","ativa":true}]'::jsonb,
+                etapas_pl_kanban='[]'::jsonb, etapas_pl_requisitos='{}'::jsonb where tenant_id=$1`,
+        [T],
+      );
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      const r = await cfg(c);
+      expect(r.k).toEqual(["Prova Final", "Costura"]);
+      expect(r.rq).toEqual({ [await normPrimeira(c, "Prova Final")]: ["tem_peca_teste"] });
+    });
+  });
+
+  it("loja sem pcp_etapas (default de 5 labels): a 1a coluna 'Peça Teste' ganha a key resolvida peca_teste", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set pcp_etapas=null, etapas_pl_kanban='[]'::jsonb, etapas_pl_requisitos='{}'::jsonb where tenant_id=$1`, [T]);
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      const r = await cfg(c);
+      expect(r.rq).toEqual({ peca_teste: ["tem_peca_teste"] }); // key LITERAL: e a que o avaliador procura
+    });
+  });
+
+  it("NAO sobrescreve etapas_pl_requisitos ja configurado (mesmo com o board vazio sendo semeado)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(
+        `update tenant_config set pcp_etapas=null, etapas_pl_kanban='[]'::jsonb,
+                etapas_pl_requisitos='{"oficina":["cq_liberado"]}'::jsonb where tenant_id=$1`,
+        [T],
+      );
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      const r = await cfg(c);
+      expect((r.k as string[])[0]).toBe("Peça Teste"); // o board foi semeado...
+      expect(r.rq).toEqual({ oficina: ["cq_liberado"] }); // ...mas os requisitos configurados ficam intactos
+    });
+  });
+
+  it("idempotente: semear 2x nao muda nada (o 2o chamado sai cedo; requisito editado no meio e preservado)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set pcp_etapas=null, etapas_pl_kanban='[]'::jsonb, etapas_pl_requisitos='{}'::jsonb where tenant_id=$1`, [T]);
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      const a = await cfg(c);
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      expect(await cfg(c)).toEqual(a);
+      // o dono troca o requisito da 1a coluna e zera o outro: re-semear NAO desfaz (board ja preenchido)
+      await c.query(`update tenant_config set etapas_pl_requisitos='{}'::jsonb where tenant_id=$1`, [T]);
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      expect((await cfg(c)).rq).toEqual({});
+    });
+  });
+
+  it("board ja preenchido: o seed nao grava requisito (so semeia quando semeia o board)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set etapas_pl_kanban='["X"]'::jsonb, etapas_pl_requisitos='{}'::jsonb where tenant_id=$1`, [T]);
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      expect((await cfg(c)).rq).toEqual({});
+    });
+  });
+
+  it("integra com a entrada: loja recem-semeada, produto com trilha de peca teste entra na 1a etapa", async () => {
+    await withTx(async (c) => {
+      await c.query(
+        `update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"etapas_pl": true}'::jsonb, pcp_etapas=null,
+                etapas_pl_kanban='[]'::jsonb, etapas_pl_requisitos='{}'::jsonb, etapas_pl_automatico=false where tenant_id=$1`,
+        [T],
+      );
+      await c.query(`select public._kanban_pl_seed_etapas($1)`, [T]);
+      await comoUsuario(c);
+      const id = await modeloLimpo(c);
+      await linhaMo(c, id, await categoria(c, true));
+      expect(await status(c, id)).toBe("peca_teste");
+    });
+  });
+});
+
+describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 3 - gatilho de entrada em cad (Task 3, B)", () => {
+  it("1a coluna enviado_a_servicos: UPDATE cad.enviado_corte=true (gatilho REAL) poe o card na 1a etapa", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV });
+      const id = await modeloLimpo(c);
+      const tem = await um<{ n: string }>(c, `select count(*)::text n from cad where modelo_id=$1`, [id]);
+      if (Number(tem.n) === 0) await c.query(`insert into cad (tenant_id, modelo_id, enviado_corte) values ($1,$2,false)`, [T, id]);
+      expect(await status(c, id)).toBeNull(); // sem trilha de peca teste, fora do board
+      await c.query(`update cad set enviado_corte=true where modelo_id=$1`, [id]); // SEM chamar o helper
+      expect(await status(c, id)).toBe("peca_teste");
+      const h = await um<{ origem: string }>(
+        c,
+        `select origem from modelo_etapa_pl_historico where modelo_id=$1 order by created_at desc limit 1`,
+        [id],
+      );
+      expect(h.origem).toBe("auto");
+    });
+  });
+
+  it("INSERT de cad ja com enviado_corte=true tambem entra", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV });
+      // modelo SEM cad (a FK de estoque_tecido_baixas impede apagar um cad existente): acha um da loja ou cria um modelo
+      const m = await um<{ id: string }>(
+        c,
+        `select m.id from modelos m where m.tenant_id=$1 and not exists (select 1 from cad c where c.modelo_id=m.id) limit 1`,
+        [T],
+      );
+      expect(m, "precisa de um modelo da Loja Teste sem cad").toBeTruthy();
+      await c.query(`delete from modelo_servico_mo where modelo_id=$1`, [m.id]);
+      await setStatus(c, m.id, null);
+      await c.query(`insert into cad (tenant_id, modelo_id, enviado_corte) values ($1,$2,true)`, [T, m.id]);
+      expect(await status(c, m.id)).toBe("peca_teste");
+    });
+  });
+
+  it("board sem o requisito enviado_a_servicos (1a = tem_peca_teste): enviar a Explosao NAO coloca no board", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_PT });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id); // UPDATE/INSERT real em cad
+      expect(await status(c, id)).toBeNull();
+    });
+  });
+
+  it("board vazio / 1a coluna sem requisito: enviar a Explosao NAO coloca no board", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_NENHUM });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBeNull();
+    });
+    await withTx(async (c) => {
+      await preparar(c, { board: `'[]'::jsonb`, reqs: REQ_ENV });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBeNull();
+    });
+  });
+
+  it("2 requisitos (tem_peca_teste + enviado_a_servicos): a Explosao sozinha NAO basta; com a trilha, entra", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_AMBOS });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBeNull();
+      await c.query(`update cad set enviado_corte=false where modelo_id=$1`, [id]);
+      await linhaMo(c, id, await categoria(c, true)); // cumpre so tem_peca_teste (gatilho de MO)
+      expect(await status(c, id)).toBeNull();
+      await c.query(`update cad set enviado_corte=true where modelo_id=$1`, [id]); // agora cumpre os dois
+      expect(await status(c, id)).toBe("peca_teste");
+    });
+  });
+
+  it("modulo etapas_pl desligado: a Explosao NAO coloca no board", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV, modulo: false });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBeNull();
+    });
+  });
+
+  it("card ja no board: reenviar/regravar enviado_corte nao o devolve a 1a etapa", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV });
+      const id = await modeloLimpo(c);
+      await setStatus(c, id, "oficina");
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBe("oficina");
+    });
+  });
+
+  it("sem recursao: a entrada (que escreve so em modelos) nao reabre o gatilho de cad; GUC restaurada; 1 linha de historico", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBe("peca_teste");
+      const g = await um<{ v: string }>(c, `select coalesce(current_setting('app.etapas_pl_sistema', true),'') v`);
+      expect(g.v).toBe("");
+      const h = await um<{ n: string }>(c, `select count(*)::text n from modelo_etapa_pl_historico where modelo_id=$1 and status='peca_teste'`, [id]);
+      expect(Number(h.n)).toBe(1);
+    });
+  });
+
+  it("enviado_corte true->false com a 1a coluna = enviado_a_servicos: o card SAI (nao esta mais pos-Explosao)", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { reqs: REQ_ENV });
+      const id = await modeloLimpo(c);
+      await posExplosao(c, id);
+      expect(await status(c, id)).toBe("peca_teste");
+      await c.query(`update cad set enviado_corte=false where modelo_id=$1`, [id]);
+      expect(await status(c, id)).toBeNull();
+    });
+  });
+
+  it("invariante #9 + DEFINER: fn_etapas_pl_entrada_cad sem EXECUTE para PUBLIC/anon/authenticated; gatilho por linha e habilitado", async () => {
+    await withTx(async (c) => {
+      for (const role of ["anon", "authenticated", "public"]) {
+        const r = await um<{ ex: boolean }>(c, `select has_function_privilege('${role}','public.fn_etapas_pl_entrada_cad()','EXECUTE') ex`);
+        expect(r.ex, `${role} nao deve executar fn_etapas_pl_entrada_cad`).toBe(false);
+      }
+      const f = await um<{ prosecdef: boolean; cfg: string }>(
+        c,
+        `select prosecdef, array_to_string(proconfig,'|') cfg from pg_proc where proname='fn_etapas_pl_entrada_cad' and pronamespace='public'::regnamespace`,
+      );
+      expect(f.prosecdef).toBe(true);
+      expect(f.cfg).toBe("search_path=public");
+      const t = await um<{ n: string }>(
+        c,
+        `select count(*)::text n from pg_trigger where tgrelid='public.cad'::regclass and tgname='trg_etapas_pl_entrada_cad'
+            and tgenabled='O' and (tgtype & 1)=1 and not tgisinternal`,
+      );
+      expect(Number(t.n)).toBe(1);
     });
   });
 });

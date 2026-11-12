@@ -1,8 +1,13 @@
--- Volta da frente Onda 3 / entrada configuravel (20261128100000): devolve os 2 corpos de ANTES (estado da Onda 2):
+-- Volta da frente Onda 3 / entrada configuravel (20261128100000): devolve os 3 corpos de ANTES (estado da Onda 2):
 --   _avaliar_condicoes_etapas_pl_core md5 3715a292f9cd18a4b8eaa06601e114e9 (sem tem_peca_teste)
 --   _etapas_pl_entrada_avaliar        md5 066d482bb0d2f0731f78aec2f5191d47 (entrada por peca teste fixo)
+--   _kanban_pl_seed_etapas            md5 fe9b651bd5ffcb8780410c4adc5b627e (seed so de etapas_pl_kanban)
 -- fn_etapas_pl_entrada (gatilho) nao foi alterada pela ida. So catalogo. Idempotente. BEGIN...COMMIT.
--- Se a Task 3 (seed) gravou etapas_pl_requisitos, o seed e dado e NAO e revertido aqui.
+-- Se o seed (Task 3) gravou etapas_pl_requisitos, o seed e dado e NAO e revertido aqui.
+-- O gatilho trg_etapas_pl_entrada_cad (+ fn_etapas_pl_entrada_cad) NAO e dropado aqui (DROP TRIGGER em `cad` prende
+-- auth/storage): depois deste _down ele fica INOFENSIVO (so chama o helper de ANTES = peca teste fixo, idempotente).
+-- O DROP vive em 20261128100000_etapas_pl_entrada_configuravel_down_drop.sql (horario calmo, SO depois deste _down).
+SET client_encoding = 'UTF8';
 BEGIN;
 
 CREATE OR REPLACE FUNCTION public._avaliar_condicoes_etapas_pl_core(_tenant uuid, _ids uuid[])
@@ -141,6 +146,33 @@ $function$
 
 ;
 REVOKE EXECUTE ON FUNCTION public._etapas_pl_entrada_avaliar(uuid) FROM PUBLIC, anon, authenticated;
+
+
+CREATE OR REPLACE FUNCTION public._kanban_pl_seed_etapas(_tenant uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_labels jsonb;
+BEGIN
+  IF (SELECT jsonb_array_length(coalesce(etapas_pl_kanban, '[]'::jsonb)) FROM tenant_config WHERE tenant_id = _tenant) > 0 THEN
+    RETURN; -- ja preenchido: nao sobrescreve
+  END IF;
+  -- Semeia SO as etapas ATIVAS da pcp_etapas (ativa IS NOT FALSE: ausente/null conta como ativa, so
+  -- `false` explicito exclui) — uma etapa desativada nao vira coluna do quadro PL. coalesce NULL->default:
+  -- se a loja desativou TODAS (jsonb_agg vazio = NULL), cai nos 5 labels default (nunca lista vazia).
+  SELECT coalesce(
+    (SELECT jsonb_agg(e->>'label' ORDER BY ord)
+       FROM tenant_config tc, jsonb_array_elements(tc.pcp_etapas) WITH ORDINALITY AS t(e, ord)
+      WHERE tc.tenant_id = _tenant AND tc.pcp_etapas IS NOT NULL AND jsonb_typeof(tc.pcp_etapas) = 'array'
+        AND (e->>'ativa') IS DISTINCT FROM 'false'),
+    '["Peça Teste","Separação de Materiais","Retorno de Grade de Corte","Oficina","Finalização"]'::jsonb
+  ) INTO v_labels;
+  UPDATE tenant_config SET etapas_pl_kanban = v_labels WHERE tenant_id = _tenant;
+END $function$;
+
+REVOKE EXECUTE ON FUNCTION public._kanban_pl_seed_etapas(uuid) FROM PUBLIC, anon, authenticated;
 
 COMMIT;
 select pg_notify('pgrst', 'reload schema');

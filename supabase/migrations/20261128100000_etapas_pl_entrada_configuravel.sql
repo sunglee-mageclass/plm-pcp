@@ -18,30 +18,46 @@
 --   SAIDA  : status_etapa_pl IS NOT NULL E a 1a coluna TEM requisito E NOT v_cumpre E NOT v_pos -> NULL.
 --            1a coluna SEM requisito NAO forca saida (board todo-manual nao se auto-esvazia). Pos-Explosao NUNCA sai.
 -- Com o seed da Task 3 (1a coluna = tem_peca_teste) o comportamento e identico ao da Onda 2 (peca teste fixo).
--- Nota: o gatilho so escuta modelo_servico_mo e categorias_terceirizado; outras fontes de requisito (ex. cad.enviado_corte)
--- so reavaliam a entrada quando um desses eventos ocorre (ou por chamada direta ao helper). Sem gatilho novo aqui.
 --
--- ADITIVA, so catalogo (CREATE OR REPLACE; nao prende tabela). BEGIN...COMMIT. Idempotente.
+-- Task 3 (A) - SEED: _kanban_pl_seed_etapas, ao semear etapas_pl_kanban, grava tambem etapas_pl_requisitos da 1a coluna
+--   com ["tem_peca_teste"] SO quando etapas_pl_requisitos estava vazio ('{}'/NULL). Nunca sobrescreve requisitos ja
+--   configurados; o seed segue saindo cedo se etapas_pl_kanban ja esta preenchido (reaplicar nao muda nada).
+-- Task 3 (B) - GATILHO EM cad: fn_etapas_pl_entrada escuta so modelo_servico_mo/categorias_terceirizado; se a 1a coluna
+--   usar enviado_a_servicos (vem de cad.enviado_corte), o produto que vai a Explosao nao entraria no board ate o proximo
+--   evento de M.O. Gatilho novo trg_etapas_pl_entrada_cad (AFTER INSERT OR UPDATE OF enviado_corte, modelo_id ON cad,
+--   POR LINHA) chama _etapas_pl_entrada_avaliar via fn_etapas_pl_entrada_cad (funcao propria: a fn_etapas_pl_entrada
+--   despacha por TG_TABLE_NAME e nao conhece `cad`; nao mexer nela). Sem recursao: a decisao so escreve modelos.status_etapa_pl.
+--   CREATE TRIGGER GUARDADO, SEM DROP (cad e tabela de negocio; DROP TRIGGER prende auth/storage ate o COMMIT): o DROP vive
+--   so em supabase/rollback/20261128100000_etapas_pl_entrada_configuravel_down_drop.sql (horario calmo).
+--
+-- ADITIVA (CREATE OR REPLACE + CREATE TRIGGER guardado). BEGIN...COMMIT. Idempotente. lock_timeout 1500ms: 55P03 = nada mudou, rodar de novo.
 -- Aplicar FORA de transacao:
 --   psql "$(cat /tmp/dburl-local.txt)" -v ON_ERROR_STOP=1 -f supabase/migrations/20261128100000_etapas_pl_entrada_configuravel.sql
 -- NUNCA \i dentro de BEGIN...ROLLBACK. Banco ANTES do site.
 -- Volta: supabase/rollback/20261128100000_etapas_pl_entrada_configuravel_down.sql (devolve os corpos de ANTES:
---   _avaliar_condicoes_etapas_pl_core md5 3715a292f9cd18a4b8eaa06601e114e9 e _etapas_pl_entrada_avaliar md5
---   066d482bb0d2f0731f78aec2f5191d47).
+--   _avaliar_condicoes_etapas_pl_core md5 3715a292f9cd18a4b8eaa06601e114e9, _etapas_pl_entrada_avaliar md5
+--   066d482bb0d2f0731f78aec2f5191d47 e _kanban_pl_seed_etapas md5 fe9b651bd5ffcb8780410c4adc5b627e) e, DEPOIS, o
+--   ..._down_drop.sql (DROP do gatilho de cad + sua funcao; horario calmo).
 
+SET client_encoding = 'UTF8';
 BEGIN;
+SET LOCAL lock_timeout = '1500ms';
 
 -- Guarda md5 ANTES (os corpos que esta migration substitui). Idempotente: se ja esta no "depois" (re-execucao), passa.
 DO $pre$
 DECLARE
   v_ava text := md5(pg_get_functiondef('public._avaliar_condicoes_etapas_pl_core(uuid,uuid[])'::regprocedure));
   v_ent text := md5(pg_get_functiondef('public._etapas_pl_entrada_avaliar(uuid)'::regprocedure));
+  v_seed text := md5(pg_get_functiondef('public._kanban_pl_seed_etapas(uuid)'::regprocedure));
 BEGIN
   IF v_ava <> '3715a292f9cd18a4b8eaa06601e114e9' AND position('tem_peca_teste' in pg_get_functiondef('public._avaliar_condicoes_etapas_pl_core(uuid,uuid[])'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'etapas_pl_entrada_configuravel: _avaliar_condicoes_etapas_pl_core divergente (md5 %), esperado 3715a292f9cd18a4b8eaa06601e114e9', v_ava;
   END IF;
   IF v_ent <> '066d482bb0d2f0731f78aec2f5191d47' AND position('v_reqs_primeira' in pg_get_functiondef('public._etapas_pl_entrada_avaliar(uuid)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'etapas_pl_entrada_configuravel: _etapas_pl_entrada_avaliar divergente (md5 %), esperado 066d482bb0d2f0731f78aec2f5191d47', v_ent;
+  END IF;
+  IF v_seed <> 'fe9b651bd5ffcb8780410c4adc5b627e' AND position('tem_peca_teste' in pg_get_functiondef('public._kanban_pl_seed_etapas(uuid)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'etapas_pl_entrada_configuravel: _kanban_pl_seed_etapas divergente (md5 %), esperado fe9b651bd5ffcb8780410c4adc5b627e', v_seed;
   END IF;
 END
 $pre$;
@@ -204,6 +220,103 @@ END;
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public._etapas_pl_entrada_avaliar(uuid) FROM PUBLIC, anon, authenticated;
+
+-- 3) _kanban_pl_seed_etapas: + requisito de entrada da 1a coluna (tem_peca_teste) quando etapas_pl_requisitos estava vazio.
+--    Corpo de ANTES (md5 fe9b651b...) intacto ate o UPDATE de etapas_pl_kanban; so o bloco final e novo.
+CREATE OR REPLACE FUNCTION public._kanban_pl_seed_etapas(_tenant uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_labels jsonb;
+BEGIN
+  IF (SELECT jsonb_array_length(coalesce(etapas_pl_kanban, '[]'::jsonb)) FROM tenant_config WHERE tenant_id = _tenant) > 0 THEN
+    RETURN; -- ja preenchido: nao sobrescreve
+  END IF;
+  -- Semeia SO as etapas ATIVAS da pcp_etapas (ativa IS NOT FALSE: ausente/null conta como ativa, so
+  -- `false` explicito exclui) — uma etapa desativada nao vira coluna do quadro PL. coalesce NULL->default:
+  -- se a loja desativou TODAS (jsonb_agg vazio = NULL), cai nos 5 labels default (nunca lista vazia).
+  SELECT coalesce(
+    (SELECT jsonb_agg(e->>'label' ORDER BY ord)
+       FROM tenant_config tc, jsonb_array_elements(tc.pcp_etapas) WITH ORDINALITY AS t(e, ord)
+      WHERE tc.tenant_id = _tenant AND tc.pcp_etapas IS NOT NULL AND jsonb_typeof(tc.pcp_etapas) = 'array'
+        AND (e->>'ativa') IS DISTINCT FROM 'false'),
+    '["Peça Teste","Separação de Materiais","Retorno de Grade de Corte","Oficina","Finalização"]'::jsonb
+  ) INTO v_labels;
+  UPDATE tenant_config SET etapas_pl_kanban = v_labels WHERE tenant_id = _tenant;
+  -- NOVO (Onda 3 / Task 3): requisito de entrada da 1a coluna = tem_peca_teste, SO se nunca configurado ('{}'/NULL).
+  -- A KEY da coluna e a MESMA que o avaliador usa para ler etapas_pl_requisitos (_kanban_fluxo(...)[1] = chave resolvida,
+  -- ex. 'Peça Teste' -> 'peca_teste'); NAO usar _kanban_norm do label (so faz lower/btrim: 'peça teste' nao casaria).
+  UPDATE public.tenant_config tc
+     SET etapas_pl_requisitos = jsonb_build_object(
+           (public._kanban_fluxo(jsonb_build_object('status_kanban', tc.etapas_pl_kanban), false))[1],
+           jsonb_build_array('tem_peca_teste'))
+   WHERE tc.tenant_id = _tenant
+     AND coalesce(tc.etapas_pl_requisitos, '{}'::jsonb) = '{}'::jsonb
+     AND NULLIF(btrim((public._kanban_fluxo(jsonb_build_object('status_kanban', tc.etapas_pl_kanban), false))[1]), '') IS NOT NULL;
+END $function$;
+
+-- (mantem os grants de antes: CREATE OR REPLACE preserva o ACL; re-afirma o fechamento da invariante #9)
+REVOKE EXECUTE ON FUNCTION public._kanban_pl_seed_etapas(uuid) FROM PUBLIC, anon, authenticated;
+
+-- 4) gatilho de ENTRADA em cad (a Explosao: cad.enviado_corte). Funcao propria; a fn_etapas_pl_entrada nao e tocada.
+CREATE OR REPLACE FUNCTION public.fn_etapas_pl_entrada_cad()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- cad novo ja enviado a Explosao (enviado_corte=true) pode cumprir a 1a coluna.
+    IF NEW.modelo_id IS NOT NULL AND coalesce(NEW.enviado_corte, false) THEN
+      PERFORM public._etapas_pl_entrada_avaliar(NEW.modelo_id);
+    END IF;
+  ELSE
+    -- UPDATE OF enviado_corte, modelo_id dispara mesmo sem mudanca: so reavalia quando mudou de fato.
+    IF coalesce(NEW.enviado_corte, false) IS DISTINCT FROM coalesce(OLD.enviado_corte, false)
+       OR NEW.modelo_id IS DISTINCT FROM OLD.modelo_id THEN
+      IF NEW.modelo_id IS NOT NULL THEN
+        PERFORM public._etapas_pl_entrada_avaliar(NEW.modelo_id);
+      END IF;
+      IF OLD.modelo_id IS NOT NULL AND OLD.modelo_id IS DISTINCT FROM NEW.modelo_id THEN
+        PERFORM public._etapas_pl_entrada_avaliar(OLD.modelo_id);
+      END IF;
+    END IF;
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_etapas_pl_entrada_cad() FROM PUBLIC, anon, authenticated;
+
+-- Idempotente SEM DROP (cad e tabela de negocio; DROP TRIGGER prende auth/storage ate o COMMIT).
+DO $kpl3cad$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid = 'public.cad'::regclass
+       AND tgname = 'trg_etapas_pl_entrada_cad'
+       AND NOT tgisinternal
+  ) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_entrada_cad '
+         || 'AFTER INSERT OR UPDATE OF enviado_corte, modelo_id ON public.cad '
+         || 'FOR EACH ROW EXECUTE FUNCTION public.fn_etapas_pl_entrada_cad()';
+  END IF;
+END
+$kpl3cad$;
+
+-- Pos-condicao: gatilho presente, habilitado e POR LINHA.
+DO $kpl3pos$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                  WHERE t.tgrelid = 'public.cad'::regclass AND t.tgname = 'trg_etapas_pl_entrada_cad'
+                    AND t.tgenabled = 'O' AND (t.tgtype & 1) = 1) THEN
+    RAISE EXCEPTION 'etapas_pl_entrada_configuravel: pos-condicao falhou - trg_etapas_pl_entrada_cad ausente/desabilitado/nao e por linha' USING ERRCODE = 'P0001';
+  END IF;
+END
+$kpl3pos$;
 
 COMMIT;
 
