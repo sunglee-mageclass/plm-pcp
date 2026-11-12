@@ -10,6 +10,7 @@ import type { Draft } from "@/components/planejamento/modelo-shared";
 import type { SecaoSheetKey } from "./selos-secoes";
 import { TEXTO_REPROVADO_EXPLOSAO } from "@/lib/erro-mensagem";
 import { ehReprovadoNoGate } from "@/lib/reprovado";
+import { requisitosOk } from "@/lib/kanban-condicoes";
 
 /**
  * `reprovado` (leves L3, R14 msg reprovado): com a chave LIGADA, card em Reprovado não tem posição para os gates (P-190 A,
@@ -75,6 +76,10 @@ export function pendenciasEnvioExplosao(i: {
    * Produto Acabado está desligado nesta loja; peça ao administrador.") e OMITE `secao` (sem link).
    */
   gradeIndisponivel?: string;
+  /** F6 Fluxo 2 — cond_keys que a loja exige no Enviar à Explosão (tenant_config.explosao_requisitos); vazio = opt-in (nada muda). */
+  explosaoRequisitos?: string[];
+  /** F6 Fluxo 2 — mapa {cond_key: bool} do avaliador (avaliar_condicoes_kanban) para ESTE modelo. */
+  satisfeitas?: Record<string, boolean>;
 }): PendenciaEnvio[] {
   const cv = i.campoVisivel ?? (() => true);
   const out: PendenciaEnvio[] = [];
@@ -106,5 +111,13 @@ export function pendenciasEnvioExplosao(i: {
   const piloto3Aberto = !!(d.piloteiro3_id || !vazio(d.data_piloto3));
   if (cv("data_piloto2") && piloto2Aberto && vazio(d.data_piloto2)) out.push({ label: "Data Piloto 2", secao: "desenvolvimento" });
   if (cv("data_piloto3") && piloto3Aberto && vazio(d.data_piloto3)) out.push({ label: "Data Piloto 3", secao: "desenvolvimento" });
+  // F6 Fluxo 2 — SOMA as condições que a loja configurou como requisito do Enviar à Explosão
+  // (opt-in: sem config, nada muda). Texto PURO, sem link de seção: `CondicaoSecao` (das condições)
+  // ≠ `SecaoSheetKey` (das pendências), então não dá para apontar a seção do Sheet aqui — o label da
+  // condição já é informativo. `requisitosOk` ignora key desconhecida (filtra Boolean).
+  if (i.explosaoRequisitos && i.explosaoRequisitos.length > 0) {
+    const { faltando } = requisitosOk(i.explosaoRequisitos, i.satisfeitas ?? {});
+    for (const cond of faltando) out.push({ label: cond.label });
+  }
   return out;
 }

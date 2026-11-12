@@ -147,4 +147,42 @@ describe("pendenciasEnvioExplosao — F3.4 comprado (Dev ModeloDetailPanel.tsx:1
       expect(out).toEqual([{ label: "grade preenchida", secao: "grade_revenda" }]);
     });
   });
+
+  // F6 Fluxo 2 — a loja configura condições extras (explosao_requisitos); elas SOMAM à lista fixa.
+  // `campoVisivel: () => false` esconde tecido/grade/datas para ISOLAR as condições configuradas.
+  describe("requisitos configurados (F6 Fluxo 2)", () => {
+    const base = () => ({ draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF", campoVisivel: (() => false) as (k: string) => boolean });
+
+    it("sem requisitos configurados: lista inalterada (opt-in) — draft mínimo completo = nada falta", () => {
+      expect(pendenciasEnvioExplosao({ ...base() })).toEqual([]);
+    });
+
+    it("cond configurada NÃO satisfeita aparece na lista (label da Condicao, SEM secao)", () => {
+      const out = pendenciasEnvioExplosao({ ...base(), explosaoRequisitos: ["peca_teste_aprovada"], satisfeitas: { peca_teste_aprovada: false } });
+      const pt = out.find((p) => p.label === "Peça teste aprovada");
+      expect(pt).toBeDefined();
+      expect(pt?.secao).toBeUndefined();
+    });
+
+    it("cond configurada SATISFEITA não aparece", () => {
+      const out = pendenciasEnvioExplosao({ ...base(), explosaoRequisitos: ["peca_teste_aprovada"], satisfeitas: { peca_teste_aprovada: true } });
+      expect(out.some((p) => p.label === "Peça teste aprovada")).toBe(false);
+    });
+
+    it("várias configuradas: só as faltantes entram", () => {
+      const out = pendenciasEnvioExplosao({
+        ...base(),
+        explosaoRequisitos: ["peca_teste_aprovada", "grade_preenchida", "categoria_definida"],
+        satisfeitas: { peca_teste_aprovada: true, grade_preenchida: false, categoria_definida: false },
+      });
+      // peça teste (satisfeita) NÃO entra; grade e categoria (faltando) entram → 2 pendências
+      expect(out.some((p) => p.label === "Peça teste aprovada")).toBe(false);
+      expect(out.length).toBe(2);
+    });
+
+    it("key desconhecida é ignorada (não quebra, some da tradução)", () => {
+      const out = pendenciasEnvioExplosao({ ...base(), explosaoRequisitos: ["key_que_nao_existe"], satisfeitas: {} });
+      expect(out).toEqual([]);
+    });
+  });
 });
