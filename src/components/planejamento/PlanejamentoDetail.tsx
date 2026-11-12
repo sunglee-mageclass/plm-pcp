@@ -1570,7 +1570,12 @@ function PlanejamentoDetailConteudo({
   // `pendenciasEnvio` como "pronta"; sem este `!gradeModeloError` aqui, `pendenciasEnvioExplosao` rodaria sobre um
   // rascunho de grade NUNCA semeado (sempre vazio) e devolveria "falta grade" — um motivo de bloqueio que parece
   // pedir preenchimento, quando na verdade é falha de carga (precisa recarregar, não editar).
-  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado && gradeCompradoPronta && !gradeComprado.gradeModeloError
+  // F6 Fluxo 2 — com requisitos configurados (opt-in), as pendências só são confiáveis depois que as
+  // condições do card carregaram (`condicoesProntas`); sem este gate, no kanban MANUAL haveria um
+  // flicker de "Falta: <cond>" (satisfeitas={}) até a 1ª avaliação chegar. Config vazia = sem efeito.
+  const requisitosExplosaoProntos = kanbanCard.explosaoRequisitos.length === 0
+    || (ficha.habilitada && ficha.dados.condicoesProntas);
+  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado && gradeCompradoPronta && !gradeComprado.gradeModeloError && requisitosExplosaoProntos
     ? pendenciasEnvioExplosao({
       draft, blocks: ficha.estado.blocks,
       grades: isComprado ? buildLinhasGradeRevenda() : ficha.estado.grades,
@@ -1597,6 +1602,9 @@ function PlanejamentoDetailConteudo({
     : !requerEs.ok ? requerEs.motivo
     : gradeComprado.gradeModeloError ? "Não foi possível carregar a grade — recarregue a página."
       : !ficha.carregado || !gradeCompradoPronta ? "Carregando a ficha…"
+        // F6 Fluxo 2 — com requisitos configurados, não destrava o botão antes de as condições do card
+        // carregarem (senão, no kanban manual, o Enviar apareceria liberado na janela de carga).
+        : !requisitosExplosaoProntos ? "Conferindo os requisitos…"
         : !podeEditarDev ? "Sem permissão para editar o Desenvolvimento."
           : gateEnvio.carregando ? "Conferindo a etapa do card…"
             : !gateEnvio.ok ? gateEnvio.motivo
