@@ -34,6 +34,7 @@ export function SortableListCard({
   onItemRemoved,
   footer,
   topo,
+  onItemCommit,
 }: {
   title: string;
   description?: string;
@@ -48,6 +49,8 @@ export function SortableListCard({
   footer?: React.ReactNode;
   // Conteúdo no TOPO do card, antes do campo de adicionar (Status do Kanban: a chave "Kanban automático").
   topo?: React.ReactNode;
+  // Chamado quando o campo de nome de um item PERDE o foco (a edição do nome acabou). Opcional.
+  onItemCommit?: (index: number) => void;
 }) {
   const [draft, setDraft] = useState("");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -120,6 +123,7 @@ export function SortableListCard({
                   value={label}
                   onChange={(v) => update(idx, v)}
                   onRemove={() => remove(idx)}
+                  onCommit={() => onItemCommit?.(idx)}
                   extra={renderItemExtra?.(label, idx)}
                 />
               ))}
@@ -140,12 +144,14 @@ function SortableItem({
   value,
   onChange,
   onRemove,
+  onCommit,
   extra,
 }: {
   id: string;
   value: string;
   onChange: (v: string) => void;
   onRemove: () => void;
+  onCommit?: () => void;
   extra?: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -182,6 +188,7 @@ function SortableItem({
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onCommit}
           className="h-8 min-w-[9rem] flex-1 border-0 shadow-none focus-visible:ring-1 max-md:h-11"
         />
         {/* Sem ações extras (ex.: outras listas sem `extra`): Excluir fica sempre inline —

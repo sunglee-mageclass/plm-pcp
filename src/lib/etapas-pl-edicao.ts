@@ -33,21 +33,30 @@ export function rotulosComChaveRepetidaPl(board: readonly string[]): string[] {
 }
 
 /**
+ * Estado de uma coluna EM EDIÇÃO (do 1º caractere digitado até o blur): a key ORIGINAL dela, o requisito que ela tinha ali
+ * (foto tirada na 1ª tecla) e a key que hoje guarda esse requisito no mapa (`atual`, null = nenhuma — label vazio ou nome
+ * já usado por OUTRA coluna). Vive no chamador (um ref) entre as chamadas; `fecharEdicaoBoardPl` o descarta no blur.
+ */
+export type EdicaoColunaPl = { orig: string; reqs: string[] | undefined; atual: string | null };
+export type EdicoesBoardPl = Record<number, EdicaoColunaPl>;
+
+/**
  * Mudança do board (a lista de labels de `antes` para `depois`) → requisitos coerentes.
- *  - mesma lista em outra ORDEM (arraste): requisitos intactos (a key não muda);
- *  - RENAME (mesmo tamanho, labels diferentes, não é permutação): o requisito da key antiga vai para a key nova.
- *    O campo é digitado tecla a tecla: com o label TEMPORARIAMENTE vazio a key é "" e o requisito fica guardado na key de origem
- *    (`origem[indice]`) até haver label de novo — o `origem` volta para o chamador, que o guarda entre as chamadas;
- *  - REMOÇÃO / ADIÇÃO (tamanho diferente): requisito da coluna removida é apagado, a menos que outra coluna ainda use a mesma key;
- *    `origem` zera (índices mudaram).
- * Nunca muta os argumentos. Destino já ocupado por OUTRA coluna não é sobrescrito.
+ *  - mesma lista em outra ORDEM (arraste), ADIÇÃO ou REMOÇÃO: os índices mudam, então as edições em curso zeram;
+ *    arraste/adição não mexem nos requisitos; remoção apaga o da coluna removida, a menos que outra coluna ainda use a key;
+ *  - RENOMEAR (mesmo tamanho, labels diferentes, não é permutação): o requisito da coluna acompanha o NOME NOVO, sempre
+ *    a partir da key ORIGINAL dela (guardada na 1ª tecla — nunca da key do estado anterior, senão passar digitando por um nome
+ *    de OUTRA coluna copiaria o requisito dessa outra). A cada tecla: tira o que a edição colocou na key anterior (só se for
+ *    dela e nenhuma outra coluna usa a key), e põe o requisito original na key nova — a menos que outra coluna já a use (colisão
+ *    transitória: nada é sobrescrito) ou o label esteja vazio (o requisito fica só na foto, até haver label de novo).
+ * Nunca muta os argumentos.
  */
 export function aplicarMudancaBoardPl(
   antes: readonly string[],
   depois: readonly string[],
   requisitos: Record<string, string[]>,
-  origem: Record<number, string> = {},
-): { requisitos: Record<string, string[]>; origem: Record<number, string> } {
+  edicoes: EdicoesBoardPl = {},
+): { requisitos: Record<string, string[]>; origem: EdicoesBoardPl } {
   const reqs: Record<string, string[]> = { ...requisitos };
   if (antes.length !== depois.length) {
     const restantes = new Set(depois.map(keyDe));
@@ -58,23 +67,36 @@ export function aplicarMudancaBoardPl(
     return { requisitos: reqs, origem: {} };
   }
   const ordenado = (l: readonly string[]) => [...l].sort().join("\u0000");
-  if (ordenado(antes) === ordenado(depois)) return { requisitos: reqs, origem };
-  const novaOrigem: Record<number, string> = { ...origem };
+  if (ordenado(antes) === ordenado(depois)) {
+    // arraste: os índices mudaram de lugar, a edição em curso (se houver) não vale mais
+    const mudouDeLugar = antes.some((l, i) => l !== depois[i]);
+    return { requisitos: reqs, origem: mudouDeLugar ? {} : edicoes };
+  }
+  const novas: EdicoesBoardPl = { ...edicoes };
   for (let i = 0; i < depois.length; i++) {
     if (antes[i] === depois[i]) continue;
-    const velha = novaOrigem[i] ?? keyDe(antes[i]);
+    const outraUsa = (k: string) => depois.some((l, j) => j !== i && keyDe(l) === k);
+    const ed: EdicaoColunaPl = novas[i] ?? (() => {
+      const orig = keyDe(antes[i]);
+      return { orig, reqs: orig ? reqs[orig] : undefined, atual: orig || null };
+    })();
+    // 1) tira o que ESTA edição tinha posto (só o que é dela: key que nenhuma outra coluna usa)
+    if (ed.atual && !outraUsa(ed.atual)) delete reqs[ed.atual];
+    // 2) põe o requisito original na key nova
     const nova = keyDe(depois[i]);
-    if (!nova) { // label temporariamente vazio: nada migra, lembra de onde veio
-      if (velha) novaOrigem[i] = velha;
-      continue;
+    let atual: string | null = null;
+    if (nova && ed.reqs && !outraUsa(nova)) {
+      reqs[nova] = ed.reqs;
+      atual = nova;
     }
-    delete novaOrigem[i];
-    if (!velha || velha === nova || !reqs[velha]) continue;
-    const destinoOcupadoPorOutra = reqs[nova] && depois.some((l, j) => j !== i && keyDe(l) === nova);
-    if (destinoOcupadoPorOutra) continue;
-    reqs[nova] = reqs[velha];
-    const velhaAindaUsada = depois.some((l, j) => j !== i && keyDe(l) === velha);
-    if (!velhaAindaUsada) delete reqs[velha];
+    novas[i] = { orig: ed.orig, reqs: ed.reqs, atual };
   }
-  return { requisitos: reqs, origem: novaOrigem };
+  return { requisitos: reqs, origem: novas };
+}
+
+/** Blur/commit da linha `indice`: a edição acabou — descarta a foto da key original (a próxima edição parte do que está salvo). */
+export function fecharEdicaoBoardPl(edicoes: EdicoesBoardPl, indice: number): EdicoesBoardPl {
+  if (!(indice in edicoes)) return edicoes;
+  const { [indice]: _fora, ...resto } = edicoes;
+  return resto;
 }

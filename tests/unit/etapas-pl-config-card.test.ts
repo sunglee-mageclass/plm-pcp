@@ -21,7 +21,8 @@ import { EtapasPlConfigCard, type EtapasPlConfigCardProps } from "@/components/a
 import { KANBAN_CHAVE_API_DEV } from "@/components/admin/KanbanAutomaticoDialog";
 import { CONDICOES_PL } from "@/lib/etapas-pl-condicoes";
 import {
-  CONDICOES_ENTRADA_PL, aplicarMudancaBoardPl, condicoesIndisponiveisPl, rotulosComChaveRepetidaPl,
+  CONDICOES_ENTRADA_PL, aplicarMudancaBoardPl, condicoesIndisponiveisPl, fecharEdicaoBoardPl, rotulosComChaveRepetidaPl,
+  type EdicoesBoardPl,
 } from "@/lib/etapas-pl-edicao";
 import { serializarColuna } from "@/lib/config-loja-colab";
 
@@ -51,14 +52,57 @@ describe("etapas-pl-edicao (regras puras)", () => {
   it("digitação tecla a tecla: o label vazio no meio NÃO perde o requisito", () => {
     let board = ["Entrada", "Fim"];
     let reqs: Record<string, string[]> = { entrada: ["tem_peca_teste"] };
-    let origem: Record<number, string> = {};
+    let origem: EdicoesBoardPl = {};
     for (const novo of ["Entrad", "", "N", "Ne", "Novo"]) {
       const depois = [novo, "Fim"];
       const r = aplicarMudancaBoardPl(board, depois, reqs, origem);
       board = depois; reqs = r.requisitos; origem = r.origem;
     }
     expect(reqs).toEqual({ novo: ["tem_peca_teste"] });
-    expect(origem).toEqual({});
+    expect(fecharEdicaoBoardPl(origem, 0)).toEqual({}); // blur: a edição acabou
+  });
+
+  /** Digita `textos` na coluna `i`, tecla a tecla, e devolve o estado final (sem blur). */
+  const digitar = (board: string[], reqs: Record<string, string[]>, i: number, textos: string[]) => {
+    let origem: EdicoesBoardPl = {};
+    for (const t of textos) {
+      const depois = board.map((l, j) => (j === i ? t : l));
+      const r = aplicarMudancaBoardPl(board, depois, reqs, origem);
+      board = depois; reqs = r.requisitos; origem = r.origem;
+    }
+    return { board, reqs, origem };
+  };
+
+  it("M1: renomear passando por nome de OUTRA coluna não herda o requisito dela (e o da outra fica intacto)", () => {
+    const r = digitar(["Pronto", "Pront"], { pronto: ["cq_liberado"], pront: ["tem_peca_teste"] }, 1, ["Pronto", "Pronto2"]);
+    expect(r.reqs).toEqual({ pronto: ["cq_liberado"], pronto2: ["tem_peca_teste"] });
+  });
+
+  it("M1: cenário real — 'Costura' (col 1) e a col 2 vira 'Costura Final' digitando por cima, passando por 'Costura'", () => {
+    const r = digitar(["Costura", "Cost"], { costura: ["materiais_separados"], cost: ["cq_liberado"] }, 1,
+      ["Costu", "Costur", "Costura", "Costura ", "Costura F", "Costura Final"]);
+    expect(r.reqs).toEqual({ costura: ["materiais_separados"], costura_final: ["cq_liberado"] });
+  });
+
+  it("M1: renomear direto (sem colisão transitória) segue migrando certo", () => {
+    const r = digitar(["A", "B"], { a: ["tem_peca_teste"], b: ["cq_liberado"] }, 1, ["B2"]);
+    expect(r.reqs).toEqual({ a: ["tem_peca_teste"], b2: ["cq_liberado"] });
+    // e voltar ao nome original restaura exatamente o estado de antes
+    expect(digitar(["A", "B"], { a: ["tem_peca_teste"], b: ["cq_liberado"] }, 1, ["B2", "B"]).reqs).toEqual({ a: ["tem_peca_teste"], b: ["cq_liberado"] });
+  });
+
+  it("M1: depois do blur a próxima edição parte do salvo (foto nova da key original)", () => {
+    let e = digitar(["A", "B"], { a: ["tem_peca_teste"], b: ["cq_liberado"] }, 1, ["B2"]);
+    e = { ...e, origem: fecharEdicaoBoardPl(e.origem, 1) };
+    const r = digitar(e.board, e.reqs, 1, ["B3"]);
+    expect(r.reqs).toEqual({ a: ["tem_peca_teste"], b3: ["cq_liberado"] });
+  });
+
+  it("arrastar zera a edição em curso (índices mudaram) e não mexe nos requisitos", () => {
+    const e = digitar(["A", "B"], { a: ["tem_peca_teste"], b: ["cq_liberado"] }, 1, ["B2"]);
+    const r = aplicarMudancaBoardPl(e.board, ["B2", "A"], e.reqs, e.origem);
+    expect(r.requisitos).toEqual(e.reqs);
+    expect(r.origem).toEqual({});
   });
 
   it("reordenar não mexe nos requisitos; remover apaga o da coluna (e só dela); adicionar não inventa", () => {

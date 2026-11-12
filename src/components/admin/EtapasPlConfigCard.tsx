@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 import { SortableListCard } from "@/components/admin/SortableListCard";
 import { RequisitosStatusButton, type CatalogoRequisitos } from "@/components/admin/RequisitosStatusDialog";
@@ -7,7 +7,8 @@ import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { CONDICOES_PL } from "@/lib/etapas-pl-condicoes";
 import { fluxoEtapasPl } from "@/lib/etapas-pl-config";
 import {
-  CONDICOES_ENTRADA_PL, aplicarMudancaBoardPl, condicoesIndisponiveisPl, rotulosComChaveRepetidaPl,
+  CONDICOES_ENTRADA_PL, aplicarMudancaBoardPl, condicoesIndisponiveisPl, fecharEdicaoBoardPl, rotulosComChaveRepetidaPl,
+  type EdicoesBoardPl,
 } from "@/lib/etapas-pl-edicao";
 import { etapasPlDefinirAutomatico, etapasPlPreviaRestauracao, etapasPlRestaurar } from "@/lib/etapas-pl-rpc";
 import { requisitosHerdados } from "@/lib/kanban-condicoes";
@@ -97,8 +98,16 @@ export type EtapasPlConfigCardProps = {
 export function EtapasPlConfigCard({
   board, requisitos, onChange, onRequisitosChange, ligado, boardSalvo, disponivel, dirty, timezone, onMudou, anelConflito,
 }: EtapasPlConfigCardProps) {
-  // Onde cada coluna renomeada "veio" enquanto o label está vazio (digitação tecla a tecla) — ver `aplicarMudancaBoardPl`.
-  const origemRef = useRef<Record<number, string>>({});
+  // Colunas em edição de nome: a key ORIGINAL e o requisito dela, da 1ª tecla até o blur (ver `aplicarMudancaBoardPl`, M1).
+  const origemRef = useRef<EdicoesBoardPl>({});
+  // O último board/requisitos que ESTE card emitiu. Se as props mudarem por outro motivo (Descartar alterações, merge colaborativo,
+  // outro admin salvou), a foto da edição em curso é de um estado que não existe mais: zera (L1).
+  const emitidoRef = useRef({ board: JSON.stringify(board), reqs: JSON.stringify(requisitos) });
+  useEffect(() => {
+    const atual = { board: JSON.stringify(board), reqs: JSON.stringify(requisitos) };
+    if (atual.board !== emitidoRef.current.board || atual.reqs !== emitidoRef.current.reqs) origemRef.current = {};
+    emitidoRef.current = atual;
+  }, [board, requisitos]);
 
   const fluxoKeys = useMemo(() => fluxoEtapasPl({ board, requisitos, automatico: ligado }), [board, requisitos, ligado]);
   const ordemKeys = useMemo(() => board.map(resolveStatusKey), [board]);
@@ -108,6 +117,7 @@ export function EtapasPlConfigCard({
   const mudarBoard = (depois: string[]) => {
     const r = aplicarMudancaBoardPl(board, depois, requisitos, origemRef.current);
     origemRef.current = r.origem;
+    emitidoRef.current = { board: JSON.stringify(depois), reqs: JSON.stringify(r.requisitos) };
     onChange({ board: depois, requisitos: r.requisitos });
   };
 
@@ -124,6 +134,7 @@ export function EtapasPlConfigCard({
         description="Colunas do quadro de Etapas (PCP). A 1ª coluna é a porta de entrada: o produto entra nela ao cumprir a condição de entrada. Em cada coluna, defina os Requisitos para ENTRAR nela; coluna sem requisito é manual. Renomear uma coluna mantém os requisitos dela."
         items={board}
         onChange={mudarBoard}
+        onItemCommit={(i) => { origemRef.current = fecharEdicaoBoardPl(origemRef.current, i); }}
         placeholder="Ex: Em Produção"
         topo={
           <KanbanAutomaticoBloco
@@ -160,6 +171,7 @@ export function EtapasPlConfigCard({
                 onChange={(next) => {
                   const mapa = { ...requisitos };
                   if (next.length) mapa[key] = next; else delete mapa[key];
+                  emitidoRef.current = { board: JSON.stringify(board), reqs: JSON.stringify(mapa) };
                   onRequisitosChange(mapa);
                 }}
                 herdados={requisitosHerdados(key, ordemKeys, requisitos)}
