@@ -225,6 +225,18 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - entrada/saida pel
     });
   });
 
+  it("board com 1a etapa de nome em branco (['']) NAO entra (nao grava status vazio)", async () => {
+    await withTx(async (c) => {
+      await preparar(c, { board: `'[""]'::jsonb` });
+      const id = await modeloLimpo(c);
+      const cat = await categoria(c, true);
+      await linhaMo(c, id, cat);
+      expect(await status(c, id)).toBeNull();
+      const h = await um<{ n: string }>(c, `select count(*)::text n from modelo_etapa_pl_historico where modelo_id=$1`, [id]);
+      expect(Number(h.n)).toBe(0);
+    });
+  });
+
   it("loja SEM o modulo etapas_pl: ganhar trilha NAO entra", async () => {
     await withTx(async (c) => {
       await preparar(c, { modulo: false });

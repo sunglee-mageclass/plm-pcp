@@ -131,7 +131,9 @@ BEGIN
     IF jsonb_typeof(v_board) <> 'array' OR jsonb_array_length(v_board) = 0 THEN RETURN; END IF;
     v_fluxo := public._kanban_fluxo(jsonb_build_object('status_kanban', v_board), false);
     IF v_fluxo IS NULL OR cardinality(v_fluxo) = 0 THEN RETURN; END IF;
-    v_novo := v_fluxo[1];
+    -- 1a etapa de nome em branco (['']/['  ']) viraria status_etapa_pl = '' (dentro do PL mas sem coluna): NAO entra.
+    v_novo := NULLIF(btrim(v_fluxo[1]), '');
+    IF v_novo IS NULL THEN RETURN; END IF;
   ELSE
     -- SAIDA
     IF v_status IS NULL THEN RETURN; END IF;
