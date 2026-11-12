@@ -27,6 +27,8 @@ export type TentativaRequisito = {
   numero: number;
   aprovacao: AprovacaoPecaTeste;
   empresa_id: string | null;
+  /** F6 — data de saída da tentativa (peça teste "iniciada"). Opcional: só o selo da lista (4 estados) usa. */
+  data_saida?: string | null;
 };
 
 /** Linha de M.O. do card como o requisito a vê. `categoria_id` = o tipo de serviço ATUAL da linha (null = "Geral (legado)").
@@ -60,15 +62,27 @@ export function pecaTesteAprovadaModelo(linhas: readonly LinhaRequisito[]): bool
   return linhas.every((l) => !l.exige || (l.mo_aprovado === true && pecaTesteAprovadaTrilha(l)));
 }
 
-/** F6 — status da peça teste do modelo para o SELO/FILTRO da lista de Serviços (3 estados):
- *  - "nao_exige": nenhuma linha de M.O. com um tipo que exige peça teste → sem selo na lista.
- *  - "aprovada": exige E todas as linhas que exigem estão aprovadas (M.O. + peça teste) → verde.
- *  - "pendente": exige mas ainda falta aprovar alguma → âmbar.
- *  Usa os MESMOS predicados da condição `peca_teste_aprovada` (pecaTesteAprovadaModelo). */
-export type StatusPecaTesteModelo = "nao_exige" | "pendente" | "aprovada";
+/** F6 — status da peça teste do modelo para o SELO/FILTRO da lista de Serviços (4 estados, dono 12/nov):
+ *  - "nao_exige" (⚪ cinza "opcional"): nenhuma linha de M.O. com um tipo que exige peça teste.
+ *  - "aprovada" (🟢 verde "OK"): exige E todas as linhas que exigem estão aprovadas (M.O. + peça teste).
+ *  - "em_teste" (🟡 âmbar): exige, ainda não aprovada, MAS alguma linha que exige tem tentativa INICIADA
+ *    (tem `data_saida`) no tipo atual — a peça teste "começou".
+ *  - "falta" (🔴 vermelho): exige, não aprovada e NENHUMA tentativa iniciada (nem saiu).
+ *  Usa os MESMOS predicados da condição `peca_teste_aprovada` (pecaTesteAprovadaModelo) + `data_saida`. */
+export type StatusPecaTesteModelo = "nao_exige" | "falta" | "em_teste" | "aprovada";
+
+/** Alguma tentativa do TIPO ATUAL da linha tem data de saída (peça teste iniciada nessa trilha). */
+function trilhaIniciada(linha: LinhaRequisito): boolean {
+  if (linha.categoria_id === null) return false;
+  return linha.tentativas.some((t) => t.categoria_id === linha.categoria_id && !!t.data_saida);
+}
+
 export function statusPecaTesteModelo(linhas: readonly LinhaRequisito[]): StatusPecaTesteModelo {
-  if (!linhas.some((l) => l.exige)) return "nao_exige";
-  return pecaTesteAprovadaModelo(linhas) ? "aprovada" : "pendente";
+  const exigem = linhas.filter((l) => l.exige);
+  if (exigem.length === 0) return "nao_exige";
+  if (pecaTesteAprovadaModelo(linhas)) return "aprovada";
+  // exige e não aprovada: "em teste" se ao menos uma trilha que exige já iniciou; senão "falta".
+  return exigem.some(trilhaIniciada) ? "em_teste" : "falta";
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════

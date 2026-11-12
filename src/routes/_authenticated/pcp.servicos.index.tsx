@@ -239,9 +239,10 @@ function TercListPage() {
                 { id: "sem", nome: "Sem serviço" },
               ] },
               { label: "Peça Teste", value: fPecaTeste, onChange: setFPecaTeste, options: [
-                { id: "pendente", nome: "Peça teste pendente" },
+                { id: "falta", nome: "Falta peça teste" },
+                { id: "em_teste", nome: "Peça teste em teste" },
                 { id: "aprovada", nome: "Peça teste aprovada" },
-                { id: "nao_exige", nome: "Sem peça teste" },
+                { id: "nao_exige", nome: "Opcional (não exige)" },
               ] },
               { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
                 { id: "interno", nome: "Interno" },
@@ -351,10 +352,12 @@ function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" |
   return <SharedStatusBadge tone="neutral">Sem serv.</SharedStatusBadge>;
 }
 
-// F6 — selo de Peça Teste na coluna Status (ao lado do de Serviços). 3 estados: nao_exige = sem selo
-// (o modelo não tem serviço que exige peça teste); pendente = âmbar; aprovada = verde.
+// F6 — selo de Peça Teste na coluna Status (ao lado do de Serviços). 4 estados (dono 12/nov):
+//  🔴 falta = exige e nenhuma tentativa iniciada · 🟡 em_teste = iniciada mas não aprovada ·
+//  🟢 aprovada = exige e aprovada · ⚪ nao_exige = opcional (não exige). Todo produto tem selo.
 function PecaTesteBadge({ status }: { status?: string }) {
   if (status === "aprovada") return <SharedStatusBadge tone="success">Peça teste OK</SharedStatusBadge>;
-  if (status === "pendente") return <SharedStatusBadge tone="warning">Peça teste</SharedStatusBadge>;
-  return null; // nao_exige / ausente → sem selo
+  if (status === "em_teste") return <SharedStatusBadge tone="warning">Peça teste em teste</SharedStatusBadge>;
+  if (status === "falta") return <SharedStatusBadge tone="danger">Falta peça teste</SharedStatusBadge>;
+  return <SharedStatusBadge tone="neutral">Peça teste opcional</SharedStatusBadge>; // nao_exige / ausente
 }

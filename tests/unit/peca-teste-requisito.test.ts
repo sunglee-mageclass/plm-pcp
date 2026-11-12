@@ -74,39 +74,53 @@ describe("pecaTesteAprovadaTrilha / tentativaAtual (espelho de _peca_teste_aprov
   });
 });
 
-// F6 — selo/filtro de Peça Teste na lista de Serviços: 3 estados do modelo.
+// F6 — selo/filtro de Peça Teste na lista de Serviços: 4 estados do modelo.
 describe("statusPecaTesteModelo (selo/filtro da lista)", () => {
   const CAT = "cat-exige";
-  const tent = (numero: number, aprovacao: "aprovado" | "reprovado" | null, empresa_id: string | null) => ({ numero, aprovacao, empresa_id, categoria_id: CAT });
+  // `saida` = data_saida (peça teste iniciada). null/ausente = não iniciada.
+  const tent = (numero: number, aprovacao: "aprovado" | "reprovado" | null, empresa_id: string | null, saida: string | null = null) =>
+    ({ numero, aprovacao, empresa_id, categoria_id: CAT, data_saida: saida });
   const linhaExige = (over: Partial<Parameters<typeof statusPecaTesteModelo>[0][number]> = {}) => ({
     categoria_id: CAT, exige: true, mo_aprovado: true as boolean | null, empresa_id: "F1", tentativas: [] as any[], ...over,
   });
 
-  it("nenhuma linha exige → nao_exige (sem selo)", () => {
+  it("nenhuma linha exige → nao_exige (cinza opcional)", () => {
     expect(statusPecaTesteModelo([])).toBe("nao_exige");
     expect(statusPecaTesteModelo([{ categoria_id: CAT, exige: false, mo_aprovado: null, empresa_id: null, tentativas: [] }])).toBe("nao_exige");
   });
 
-  it("exige e a peça teste está aprovada (M.O.+PT) → aprovada", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "aprovado", "F1")] })])).toBe("aprovada");
+  it("exige e a peça teste está aprovada (M.O.+PT) → aprovada (verde)", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "aprovado", "F1", "2026-01-01")] })])).toBe("aprovada");
   });
 
-  it("exige mas ainda sem aprovar (sem tentativa) → pendente", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [] })])).toBe("pendente");
+  it("exige, SEM nenhuma tentativa iniciada → falta (vermelho)", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [] })])).toBe("falta");
   });
 
-  it("exige mas a tentativa atual está reprovada → pendente", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "reprovado", "F1")] })])).toBe("pendente");
+  it("exige, tentativa criada mas SEM data de saída → falta (não iniciou)", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, null, null, null)] })])).toBe("falta");
   });
 
-  it("exige, PT aprovada mas M.O. não aprovada → pendente", () => {
-    expect(statusPecaTesteModelo([linhaExige({ mo_aprovado: false, tentativas: [tent(1, "aprovado", "F1")] })])).toBe("pendente");
+  it("exige, tentativa INICIADA (tem data de saída) mas não aprovada → em_teste (âmbar)", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, null, null, "2026-01-01")] })])).toBe("em_teste");
   });
 
-  it("várias linhas: só aprovada se TODAS as que exigem estão ok", () => {
-    const ok = linhaExige({ tentativas: [tent(1, "aprovado", "F1")] });
-    const faltando = linhaExige({ tentativas: [] });
-    expect(statusPecaTesteModelo([ok, faltando])).toBe("pendente");
+  it("exige, tentativa iniciada e reprovada → em_teste (começou, mas não aprovada)", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "reprovado", "F1", "2026-01-01")] })])).toBe("em_teste");
+  });
+
+  it("exige, PT aprovada mas M.O. não aprovada → em_teste (iniciou, não está 'ok')", () => {
+    expect(statusPecaTesteModelo([linhaExige({ mo_aprovado: false, tentativas: [tent(1, "aprovado", "F1", "2026-01-01")] })])).toBe("em_teste");
+  });
+
+  it("várias linhas: aprovada só se TODAS as que exigem estão ok", () => {
+    const ok = linhaExige({ tentativas: [tent(1, "aprovado", "F1", "2026-01-01")] });
+    const faltaIniciar = linhaExige({ tentativas: [] });
+    expect(statusPecaTesteModelo([ok, faltaIniciar])).toBe("em_teste"); // ok iniciou → o modelo "em teste" (não falta puro)
     expect(statusPecaTesteModelo([ok, { categoria_id: CAT, exige: false, mo_aprovado: null, empresa_id: null, tentativas: [] }])).toBe("aprovada");
+  });
+
+  it("várias linhas, NENHUMA iniciada → falta", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [] }), linhaExige({ tentativas: [] })])).toBe("falta");
   });
 });
