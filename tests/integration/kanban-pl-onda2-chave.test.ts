@@ -326,6 +326,26 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - chave + snapshot/
     });
   });
 
+  it("defesa (20261127150000): board vazio + chave ligada => a FILA nao joga o card nas colunas do Dev", async () => {
+    await withTx(async (c) => {
+      await config(c, { ligado: true });
+      const [a] = await modelos(c, 1);
+      await poeNoPl(c, a, "peca_teste");
+      await semJwt(c, () => c.query(`update tenant_config set etapas_pl_kanban='[]'::jsonb where tenant_id=$1`, [T]));
+      // enfileira o card e drena a fila no "COMMIT" (SET CONSTRAINTS ALL IMMEDIATE dentro da txn revertida)
+      await semJwt(c, () => c.query(`select _etapas_pl_enfileirar(array[$1]::uuid[])`, [a]));
+      await c.query(`set constraints all immediate`);
+      // com board vazio o fluxo e vazio: _etapas_pl_derivar_lote nao e derivavel, o card NAO vai para 'em_modelagem'
+      expect(await status(c, a)).toBe("peca_teste");
+      const d = await um<{ derivavel: boolean | null; alvo: string | null }>(
+        c,
+        `select derivavel, alvo from _etapas_pl_derivar_lote($1, array[$2]::uuid[]) limit 1`,
+        [T, a],
+      );
+      expect(d.alvo).not.toBe("em_modelagem");
+    });
+  });
+
   // gate de acesso ---------------------------------------------------------------------------------------------------
   it("gate das RPCs: sem login 42501; usuario comum 42501 sem_permissao; modulo desligado 42501; tenant_admin passa; _ligar NULL P0001", async () => {
     await withTx(async (c) => {
