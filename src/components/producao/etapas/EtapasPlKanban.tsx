@@ -18,8 +18,8 @@ import { EtapaPlCard, type MoverOptPl, type ProdutoPlBoard } from "./EtapaPlCard
 //
 // QUEM FAZ O QUÊ: este componente só DECIDE e APRESENTA. Ele não grava nada — `onMover` é da rota (Task 9), que:
 //  - chave LIGADA: chama `etapasPlMover` (o servidor é a autoridade: fixar/soltar/…), toast por `toastDoMoverPl`, invalida;
-//  - chave DESLIGADA: `etapas_pl_mover` recusa (P0001, "modo manual: a tela grava direto") — a rota faz o UPDATE direto de
-//    `modelos.status_etapa_pl` (a pessoa decide; sem bloqueio por requisito).
+//  - chave DESLIGADA (modo manual): a MESMA `etapas_pl_mover` grava o pedido (a pessoa decide; sem bloqueio por requisito) — desde a
+//    migration 20261128110000 (antes recusava; o UPDATE direto bateria no gatilho de página de `modelos`).
 // Board PL vazio = INÉRCIA (sem colunas, sem cair no board do Dev).
 
 const TERMINAL = { key: ETAPA_PL_FILTRO_LANCADO, label: "Finalizado", color: "var(--success)" };

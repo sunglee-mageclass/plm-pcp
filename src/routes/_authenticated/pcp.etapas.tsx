@@ -13,10 +13,10 @@ import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { buscarOpcoesColecao } from "@/lib/opcoes-colecao";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { fluxoEtapasPl, type DestinoDropPl } from "@/lib/etapas-pl-config";
-import { etapasPlDefinirStatusDireto, etapasPlMover } from "@/lib/etapas-pl-rpc";
+import { etapasPlMover } from "@/lib/etapas-pl-rpc";
 import { etapaPlFiltroOpts, toastDoMoverPl } from "@/lib/etapas-pl-ui";
 import {
-  contarPorEtapaPl, ehRecusaChaveDesligadaPl, filtrarProdutosPl, modoGravarMoverPl, montarProdutoPl, podeMoverPl,
+  contarPorEtapaPl, filtrarProdutosPl, montarProdutoPl, podeMoverPl, statusOtimistaMoverPl,
   type ModeloPlRow,
 } from "@/lib/pcp-etapas-pl-board";
 import { todayISOInStoreTZ } from "@/lib/timezone";
@@ -42,9 +42,8 @@ import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$model
 // MOVER:
 //  - chave LIGADA: `etapas_pl_mover` (o servidor é a autoridade), toast pela RESPOSTA (`toastDoMoverPl`) e releitura das condições
 //    (as que a tela tinha podem estar velhas);
-//  - chave DESLIGADA: a RPC recusa (P0001 `etapas_pl_manual`) — a pessoa decide: UPDATE direto de `modelos.status_etapa_pl` (como o
-//    Dev com a chave off). ⚠️ O UPDATE direto passa pelo gatilho de página de `modelos` (S3d): quem edita SÓ "PCP > Etapas" (sem
-//    Planejamento/Desenvolvimento) recebe 42501 `sem_permissao_pagina` — a mensagem PT aparece no toast.
+//  - chave DESLIGADA (modo manual): a MESMA RPC grava o pedido (a pessoa decide; migration 20261128110000). Não há UPDATE direto: ele
+//    bateria no gatilho de página de `modelos` (S3d) e quem edita SÓ "PCP > Etapas" receberia 42501.
 // A query dos cards NÃO leva os filtros na key (filtra no cliente: digitar na busca não refaz a leitura); `["etapas-pl-cards"]` e
 // `["etapas-pl-cond"]` são invalidadas por prefixo ao mover/fechar o Sheet.
 export const Route = createFileRoute("/_authenticated/pcp/etapas")({
@@ -170,49 +169,42 @@ function EtapasPlPage() {
       return next;
     });
 
-  // ── Mover ──
+  // ── Mover: SEMPRE `etapas_pl_mover` (o servidor é a autoridade). Chave desligada = modo manual (a RPC grava o pedido, sem
+  // derivar nem exigir requisito; como DEFINER, quem edita só PCP › Etapas consegue — o UPDATE direto bateria no gatilho de página
+  // de `modelos`); ligada = fixar/soltar/bloquear pela tabela única. ──
   const moverMut = useMutation({
-    mutationFn: async (v: { id: string; para: string; ligado: boolean }) => {
-      if (modoGravarMoverPl(v.ligado) === "rpc") return { r: await etapasPlMover(v.id, v.para), direto: false as const };
-      await etapasPlDefinirStatusDireto(v.id, v.para);
-      return { r: null, direto: true as const };
-    },
-    onMutate: async ({ id, para, ligado: lig }) => {
-      // Otimista só no UPDATE direto (o status final é o pedido); na RPC o status vem da RESPOSTA.
-      if (lig) return { prev: undefined };
+    mutationFn: (v: { id: string; para: string }) => etapasPlMover(v.id, v.para),
+    onMutate: async ({ id, para }) => {
+      // Otimista só no modo manual (o status final = o pedido); ligada: o status vem da RESPOSTA.
+      const otimista = statusOtimistaMoverPl(ligado, para);
+      if (otimista === null) return { prev: undefined };
       await qc.cancelQueries({ queryKey: ["etapas-pl-cards"] });
       const prev = qc.getQueryData<ModeloPlRow[]>(["etapas-pl-cards", tenantId]);
       qc.setQueryData<ModeloPlRow[]>(["etapas-pl-cards", tenantId], (old) =>
-        (old ?? []).map((m) => (m.id === id ? { ...m, status_etapa_pl: para } : m)),
+        (old ?? []).map((m) => (m.id === id ? { ...m, status_etapa_pl: otimista } : m)),
       );
       return { prev };
     },
-    onSuccess: (res, { id, para }) => {
-      if (res.r) {
-        const r = res.r;
-        if (r.status) {
-          qc.setQueryData<ModeloPlRow[]>(["etapas-pl-cards", tenantId], (old) =>
-            (old ?? []).map((m) => (m.id === id ? { ...m, status_etapa_pl: r.status } : m)),
-          );
-        }
-        const t = toastDoMoverPl(r, para, cfg);
-        if (t.tipo === "erro") toast.error(t.titulo);
-        else if (t.tipo === "ok") toast.success(t.titulo);
-        else toast.info(t.titulo);
+    onSuccess: (r, { id, para }) => {
+      if (r.status) {
+        qc.setQueryData<ModeloPlRow[]>(["etapas-pl-cards", tenantId], (old) =>
+          (old ?? []).map((m) => (m.id === id ? { ...m, status_etapa_pl: r.status } : m)),
+        );
       }
+      const t = toastDoMoverPl(r, para, cfg);
+      if (t.tipo === "erro") toast.error(t.titulo);
+      else if (t.tipo === "ok") toast.success(t.titulo);
+      else toast.info(t.titulo);
     },
     onError: (e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["etapas-pl-cards", tenantId], ctx.prev);
-      // A tela leu a chave "ligada" e o servidor está "desligada" (outra aba/admin mudou): reler a config para o quadro voltar ao
-      // caminho manual na próxima interação, em vez de oferecer o arraste que o servidor já recusou.
-      if (ehRecusaChaveDesligadaPl(e)) qc.invalidateQueries({ queryKey: ["tenant-etapas-pl"] });
       toast.error(mensagemErro(e, "Erro ao mover o card"));
     },
     // Servidor = autoridade: relê os cards E as condições (as da tela podem estar velhas depois de salvar/mover).
     onSettled: () => invalidarQuadro(),
   });
   const onMover = (produtoId: string, para: string, _previsto: DestinoDropPl | null) => {
-    moverMut.mutate({ id: produtoId, para, ligado });
+    moverMut.mutate({ id: produtoId, para });
   };
 
   const carregandoCards = cardsQ.isPending || cfgCarregando;

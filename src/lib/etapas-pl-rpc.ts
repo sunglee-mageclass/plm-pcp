@@ -32,10 +32,3 @@ export function etapasPlPreviaRestauracao(loteId: string | null): Promise<Previa
 export function etapasPlRestaurar(loteId: string): Promise<ResultadoRestaurarPl> {
   return rpc<ResultadoRestaurarPl>(RPC_ETAPAS_PL.restaurar, { _lote_id: loteId });
 }
-
-/** Chave do modo automático DESLIGADA: `etapas_pl_mover` recusa (P0001 `etapas_pl_manual`) — a pessoa decide e a tela grava direto
- *  (como o Dev com a chave off). Passa pelo gatilho de página de `modelos` (quem só edita PCP › Etapas recebe 42501). */
-export async function etapasPlDefinirStatusDireto(modeloId: string, para: string): Promise<void> {
-  const { error } = await supabase.from("modelos").update({ status_etapa_pl: para } as any).eq("id", modeloId);
-  if (error) throw error;
-}

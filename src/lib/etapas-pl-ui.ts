@@ -113,6 +113,8 @@ export function toastDoMoverPl(r: ResultadoMoverPl, para: string, cfg?: EtapasPl
       return { tipo: "ok", titulo: `Fixado em "${labelColunaPl(cfg, r.status ?? para)}". O card não anda sozinho até alguém tirá-lo daqui.` };
     case "soltar":
       return { tipo: "ok", titulo: `Card solto. Voltou para "${labelColunaPl(cfg, r.status)}" — a etapa que os dados preenchidos indicam.` };
+    case "manual": // chave desligada (modo manual): a pessoa decidiu, o servidor só gravou
+      return { tipo: "ok", titulo: `Movido para "${labelColunaPl(cfg, r.status ?? para)}".` };
     case "nada":
       return { tipo: "info", titulo: "O card já está nesta etapa." };
     case "bloquear_faltando": {

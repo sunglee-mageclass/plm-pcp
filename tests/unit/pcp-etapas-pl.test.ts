@@ -1,12 +1,13 @@
 // Etapas PL — Onda 3, Task 9: lógica PURA da rota /pcp/etapas (`src/lib/pcp-etapas-pl-board.ts`).
 // O QA da Task 10 cobre a rota no navegador (query, Sheet de Serviços, mover ligado/desligado).
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
-  contarPorEtapaPl, ehRecusaChaveDesligadaPl, filtrarProdutosPl, modoGravarMoverPl, montarProdutoPl, podeMoverPl,
+  contarPorEtapaPl, filtrarProdutosPl, montarProdutoPl, podeMoverPl, statusOtimistaMoverPl,
   type FiltrosPl, type ModeloPlRow, type ProdutoPlLinha,
 } from "@/lib/pcp-etapas-pl-board";
 import { lerEtapasPlConfig } from "@/lib/etapas-pl-config";
-import { ETAPA_PL_FILTRO_LANCADO, etapaPlFiltroOpts } from "@/lib/etapas-pl-ui";
+import { ETAPA_PL_FILTRO_LANCADO, etapaPlFiltroOpts, toastDoMoverPl } from "@/lib/etapas-pl-ui";
 
 const cfg = lerEtapasPlConfig({
   etapas_pl_automatico: true,
@@ -116,15 +117,20 @@ describe("podeMoverPl", () => {
   });
 });
 
-describe("como gravar o mover", () => {
-  it("ligada = RPC; desligada = UPDATE direto (a RPC recusa com a chave off)", () => {
-    expect(modoGravarMoverPl(true)).toBe("rpc");
-    expect(modoGravarMoverPl(false)).toBe("direto");
+describe("mover: sempre a RPC (Task 9 fix 1)", () => {
+  it("status otimista: chave desligada = o pedido (o servidor so grava); ligada = null (o servidor decide)", () => {
+    expect(statusOtimistaMoverPl(false, "oficina")).toBe("oficina");
+    expect(statusOtimistaMoverPl(true, "oficina")).toBeNull();
   });
-  it("reconhece a recusa 'etapas_pl_manual' (chave lida velha) — só P0001 com esse prefixo", () => {
-    expect(ehRecusaChaveDesligadaPl({ code: "P0001", message: "etapas_pl_manual: ligue o kanban automatico das etapas" })).toBe(true);
-    expect(ehRecusaChaveDesligadaPl({ code: "P0001", message: "outra coisa" })).toBe(false);
-    expect(ehRecusaChaveDesligadaPl({ code: "42501", message: "etapas_pl_manual: x" })).toBe(false);
-    expect(ehRecusaChaveDesligadaPl(null)).toBe(false);
+  it("toast da ação 'manual' (chave desligada): ok, com o rótulo da coluna", () => {
+    const t = toastDoMoverPl({ acao: "manual", status: "em_pilotagem", faltando: [], rev: 3 }, "em_pilotagem", cfg);
+    expect(t).toEqual({ tipo: "ok", titulo: 'Movido para "Em Pilotagem".' });
+  });
+  it("a rota não tem UPDATE direto nem tratamento de 'etapas_pl_manual'; chama etapasPlMover sempre", () => {
+    const rota = readFileSync("src/routes/_authenticated/pcp.etapas.tsx", "utf8");
+    const rpc = readFileSync("src/lib/etapas-pl-rpc.ts", "utf8");
+    expect(rota).toContain("etapasPlMover(v.id, v.para)");
+    expect(rota).not.toMatch(/from\("modelos"\)|etapas_pl_manual|DefinirStatusDireto/);
+    expect(rpc).not.toMatch(/from\("modelos"\)|DefinirStatusDireto/);
   });
 });

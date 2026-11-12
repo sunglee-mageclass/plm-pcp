@@ -2,7 +2,7 @@
  * Etapas PL (Onda 3, Task 9) — lógica PURA da rota `/pcp/etapas` (zero React, zero Supabase).
  *
  * Aqui ficam: a montagem do `ProdutoPlBoard` a partir da linha de `modelos` (com os embeds), o filtro da tela, o "pode mover?"
- * e a decisão de COMO gravar um mover (chave ligada = RPC `etapas_pl_mover`; desligada = UPDATE direto em `modelos`).
+ * e o status otimista do mover (a gravação é SEMPRE a RPC `etapas_pl_mover`, ligada ou desligada).
  * A regra de derivação/arraste mora em `etapas-pl-config.ts`/`etapas-pl-ui.ts` (e no servidor).
  */
 import type { ProdutoPlBoard } from "@/components/producao/etapas/EtapaPlCard";
@@ -130,14 +130,8 @@ export function podeMoverPl(a: {
   return !a.ligado || a.condicoesProntas;
 }
 
-/** Como gravar o mover: ligada = RPC (o servidor decide; `etapas_pl_mover` recusa com a chave desligada); desligada = a pessoa
- *  decide — UPDATE direto de `modelos.status_etapa_pl` (sem prévia, como o Dev com a chave off). */
-export function modoGravarMoverPl(ligado: boolean): "rpc" | "direto" {
-  return ligado ? "rpc" : "direto";
-}
-
-/** A RPC recusou por a chave estar DESLIGADA no servidor (a tela leu "ligada" velha): a config deve ser relida. */
-export function ehRecusaChaveDesligadaPl(e: unknown): boolean {
-  const x = e as { code?: string; message?: string } | null;
-  return x?.code === "P0001" && String(x?.message ?? "").startsWith("etapas_pl_manual");
+/** Status otimista ao mover: chave DESLIGADA (modo manual) = o que a pessoa pediu (o servidor só grava; `etapas_pl_mover` aceita);
+ *  LIGADA = null (o servidor decide fixar/soltar/bloquear — o status final vem da RESPOSTA, sem prévia no cache). */
+export function statusOtimistaMoverPl(ligado: boolean, para: string): string | null {
+  return ligado ? null : para;
 }

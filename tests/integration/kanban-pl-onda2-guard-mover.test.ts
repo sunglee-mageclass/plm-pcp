@@ -60,19 +60,17 @@ function mover(c: Client, id: string, para: string) {
 
 describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - guard + mover (Task 6)", () => {
   // (a) chave DESLIGADA ------------------------------------------------------------------------------------------
-  it("chave desligada: etapas_pl_mover da P0001 com mensagem ASCII", async () => {
+  it("chave desligada: etapas_pl_mover GRAVA no modo manual (Task 9 fix 1: a recusa etapas_pl_manual acabou) - detalhes em etapas-pl-mover-manual.test.ts", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       await c.query(`select set_config('app.etapas_pl_chave','rpc', true)`); // T8: preparo do cenario passa pela trava da chave
       await config(c, false);
       const id = await modeloQualquer(c);
       await poeNoPl(c, id, "peca_teste");
-      const e = await erroDe(c, () => mover(c, id, "oficina"));
-      expect(e).not.toBeNull();
-      expect(e.code).toBe("P0001");
-      expect(String(e.message)).toMatch(/^etapas_pl_manual: /);
-      expect(String(e.message)).toMatch(/^[\x20-\x7e]+$/); // so ASCII (5xx do PostgREST)
-      expect(await status(c, id)).toBe("peca_teste"); // nada mudou
+      const r = (await um<{ r: any }>(c, `select etapas_pl_mover($1,'oficina') r`, [id])).r;
+      expect(r.acao).toBe("manual");
+      expect(r.status).toBe("oficina");
+      expect(await status(c, id)).toBe("oficina");
     });
   });
 
