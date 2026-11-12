@@ -47,6 +47,12 @@ export const COLUNAS_PAGINA = [
   "aprovar_custo_auto_por_versao",
   "plan_tecido_oc_bloqueia_lancado",
   "explosao_requisitos",
+  // Kanban PL configurável — Onda 1 (campanha nov/2026). 4 colunas NORMAIS (não-kanban) → diff padrão.
+  // `etapas_pl_automatico` default false → nada muda na tela até a Onda 3.
+  "etapas_pl_kanban",
+  "etapas_pl_requisitos",
+  "etapas_pl_automatico",
+  "etapas_pl_aba_peca_teste_status",
 ] as const;
 export type ColunaPagina = (typeof COLUNAS_PAGINA)[number];
 
@@ -75,6 +81,13 @@ export type ConfigLojaColab = {
   aprovar_custo_auto_por_versao: string;
   plan_tecido_oc_bloqueia_lancado: boolean;
   explosao_requisitos: string[];
+  // Kanban PL configurável — Onda 1 (nov/2026): OPCIONAIS no shape porque a tela NÃO as gerencia ainda
+  // (decisão travada: nada muda na tela até a Onda 3). `montarMudancas`/`rebasearBaseRaw` leem via a
+  // index signature + `COLUNAS_PAGINA`; quando a tela passar a geri-las, viram obrigatórias.
+  etapas_pl_kanban?: string[];
+  etapas_pl_requisitos?: Record<string, string[]>;
+  etapas_pl_automatico?: boolean;
+  etapas_pl_aba_peca_teste_status?: string | null;
   [k: string]: unknown;
 };
 
@@ -225,6 +238,10 @@ const ROTULOS: Record<string, string> = {
   aprovar_custo_auto_por_versao: "Aprovação automática de custo",
   plan_tecido_oc_bloqueia_lancado: "Bloqueio de OC em modelo lançado",
   explosao_requisitos: "Requisitos do Envio à Explosão",
+  etapas_pl_kanban: "Etapas do PL (colunas)",
+  etapas_pl_requisitos: "Requisitos das Etapas PL",
+  etapas_pl_automatico: "Kanban PL automático",
+  etapas_pl_aba_peca_teste_status: "Aba Peça Teste a partir de",
   tab_labels: "Nomes das abas",
   campos_editaveis: "Campos editáveis",
 };

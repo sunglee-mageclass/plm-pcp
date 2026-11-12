@@ -44,6 +44,7 @@ const SALVAR_CONFIG_ACEITOS = [
   "43c4b4d6a658bfcbaf1c29dc615aecf0", // 20261106100000 (R12: aprovar_custo_auto_por_versao)
   "6d35eb844c03afebccdc110e970f46d0", // 20261112110000 (F1 C fix 1: plan_tecido_oc_bloqueia_lancado)
   "36e6821ce97b3f2542cd3633c065a7a1", // 20261124100000 (F6 Fluxo 2: explosao_requisitos)
+  "08382539bfa5f7429ee1fd61f6032d0a", // 20261126100000 (Kanban PL Onda 1 B: 4 configs etapas_pl_*)
 ];
 
 const ler = (rel: string) => readFileSync(ROOT + rel, "utf8");
