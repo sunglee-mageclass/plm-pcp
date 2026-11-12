@@ -1,7 +1,7 @@
 // R9 T3 — núcleo PURO do requisito "Peça teste aprovada" (src/lib/peca-teste.ts) contra a fixture COMPARTILHADA com o anti-drift
 // SQL × TS (tests/integration/urgc-r9-kanban.test.ts).
 import { describe, it, expect } from "vitest";
-import { pecaTesteAprovadaModelo, pecaTesteAprovadaTrilha, tentativaAtual } from "../../src/lib/peca-teste";
+import { pecaTesteAprovadaModelo, pecaTesteAprovadaTrilha, statusPecaTesteModelo, tentativaAtual } from "../../src/lib/peca-teste";
 import { CASOS_PECA_TESTE, CATEGORIAS_ROTULO, entradaDoCaso } from "../fixtures/peca-teste-casos";
 
 describe("pecaTesteAprovadaModelo × fixture (espelho da chave peca_teste_aprovada)", () => {
@@ -71,5 +71,42 @@ describe("pecaTesteAprovadaTrilha / tentativaAtual (espelho de _peca_teste_aprov
   it("linha sem tipo (categoria null) nunca casa tentativa alguma, como o `= NULL` do SQL", () => {
     expect(pecaTesteAprovadaTrilha({ categoria_id: null, empresa_id: "F1", tentativas: [tent(1, "aprovado", "F1", null)] })).toBe(false);
     expect(pecaTesteAprovadaTrilha({ categoria_id: null, empresa_id: "F1", tentativas: [] })).toBe(false);
+  });
+});
+
+// F6 — selo/filtro de Peça Teste na lista de Serviços: 3 estados do modelo.
+describe("statusPecaTesteModelo (selo/filtro da lista)", () => {
+  const CAT = "cat-exige";
+  const tent = (numero: number, aprovacao: "aprovado" | "reprovado" | null, empresa_id: string | null) => ({ numero, aprovacao, empresa_id, categoria_id: CAT });
+  const linhaExige = (over: Partial<Parameters<typeof statusPecaTesteModelo>[0][number]> = {}) => ({
+    categoria_id: CAT, exige: true, mo_aprovado: true as boolean | null, empresa_id: "F1", tentativas: [] as any[], ...over,
+  });
+
+  it("nenhuma linha exige → nao_exige (sem selo)", () => {
+    expect(statusPecaTesteModelo([])).toBe("nao_exige");
+    expect(statusPecaTesteModelo([{ categoria_id: CAT, exige: false, mo_aprovado: null, empresa_id: null, tentativas: [] }])).toBe("nao_exige");
+  });
+
+  it("exige e a peça teste está aprovada (M.O.+PT) → aprovada", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "aprovado", "F1")] })])).toBe("aprovada");
+  });
+
+  it("exige mas ainda sem aprovar (sem tentativa) → pendente", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [] })])).toBe("pendente");
+  });
+
+  it("exige mas a tentativa atual está reprovada → pendente", () => {
+    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "reprovado", "F1")] })])).toBe("pendente");
+  });
+
+  it("exige, PT aprovada mas M.O. não aprovada → pendente", () => {
+    expect(statusPecaTesteModelo([linhaExige({ mo_aprovado: false, tentativas: [tent(1, "aprovado", "F1")] })])).toBe("pendente");
+  });
+
+  it("várias linhas: só aprovada se TODAS as que exigem estão ok", () => {
+    const ok = linhaExige({ tentativas: [tent(1, "aprovado", "F1")] });
+    const faltando = linhaExige({ tentativas: [] });
+    expect(statusPecaTesteModelo([ok, faltando])).toBe("pendente");
+    expect(statusPecaTesteModelo([ok, { categoria_id: CAT, exige: false, mo_aprovado: null, empresa_id: null, tentativas: [] }])).toBe("aprovada");
   });
 });

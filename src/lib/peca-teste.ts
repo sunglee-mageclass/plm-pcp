@@ -60,6 +60,17 @@ export function pecaTesteAprovadaModelo(linhas: readonly LinhaRequisito[]): bool
   return linhas.every((l) => !l.exige || (l.mo_aprovado === true && pecaTesteAprovadaTrilha(l)));
 }
 
+/** F6 — status da peça teste do modelo para o SELO/FILTRO da lista de Serviços (3 estados):
+ *  - "nao_exige": nenhuma linha de M.O. com um tipo que exige peça teste → sem selo na lista.
+ *  - "aprovada": exige E todas as linhas que exigem estão aprovadas (M.O. + peça teste) → verde.
+ *  - "pendente": exige mas ainda falta aprovar alguma → âmbar.
+ *  Usa os MESMOS predicados da condição `peca_teste_aprovada` (pecaTesteAprovadaModelo). */
+export type StatusPecaTesteModelo = "nao_exige" | "pendente" | "aprovada";
+export function statusPecaTesteModelo(linhas: readonly LinhaRequisito[]): StatusPecaTesteModelo {
+  if (!linhas.some((l) => l.exige)) return "nao_exige";
+  return pecaTesteAprovadaModelo(linhas) ? "aprovada" : "pendente";
+}
+
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // T6 — seção "Peça Teste" do Sheet do Planejamento: estado, status, requisito local, payload do Salvar e merge 3 vias.
 // Tudo PURO (sem React/Supabase). O servidor (`peca_teste_modelo`/`salvar_peca_teste`, 193000) é a fonte da verdade; aqui só
