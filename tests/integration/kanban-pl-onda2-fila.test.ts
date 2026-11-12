@@ -98,3 +98,99 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - fila (Task 2)", (
     });
   });
 });
+
+// ───────────────────────── Task 4 — aplicador + historico ─────────────────────────
+describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + historico (Task 4)", () => {
+  it("_etapas_pl_aplicar grava a derivada em status_etapa_pl e nao re-enfileira (recursao cortada)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(
+        `update tenant_config set etapas_pl_automatico=true,
+           etapas_pl_kanban='["Peça Teste","Separação de Materiais","Oficina"]'::jsonb,
+           etapas_pl_requisitos='{}'::jsonb
+         where tenant_id=$1`,
+        [T],
+      );
+      const { modeloId } = await modeloComBlocoPt(c);
+      // comeca numa coluna arbitraria (a derivada vai recalcular); limpa fila residual do setup
+      await poeNoPl(c, modeloId, "oficina");
+      await c.query(`delete from etapas_pl_recalculo_fila where modelo_id=$1`, [modeloId]);
+
+      // alvo derivado esperado
+      const der = await um<{ resultado: string; derivavel: boolean }>(
+        c,
+        `select resultado, derivavel from _etapas_pl_derivar_lote($1, ARRAY[$2]::uuid[]) limit 1`,
+        [T, modeloId],
+      );
+      expect(der.derivavel).toBe(true);
+
+      const n = (await um<{ n: number }>(c, `select _etapas_pl_aplicar($1, ARRAY[$2]::uuid[], 'auto', NULL) n`, [T, modeloId])).n;
+
+      const st = (await um<{ s: string }>(c, `select status_etapa_pl s from modelos where id=$1`, [modeloId])).s;
+      expect(st).toBe(der.resultado); // gravou a derivada
+      expect(Number(n)).toBe(der.resultado === "oficina" ? 0 : 1); // count de mudancas coerente
+
+      // recursao: o UPDATE do aplicador rodou com app.etapas_pl_sistema setado -> enfileiradoras saem cedo -> fila vazia
+      expect(await naFila(c, modeloId)).toBe(0);
+
+      // historico: se mudou, ha linha nova com a nova coluna e origem 'auto'
+      if (der.resultado !== "oficina") {
+        const h = (
+          await um<{ n: string }>(
+            c,
+            `select count(*)::text n from modelo_etapa_pl_historico where modelo_id=$1 and status=$2 and origem='auto'`,
+            [modeloId, der.resultado],
+          )
+        ).n;
+        expect(Number(h)).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  it("_etapas_pl_aplicar restaura as GUCs ao valor anterior", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
+      const { modeloId } = await modeloComBlocoPt(c);
+      await poeNoPl(c, modeloId, "peca_teste");
+      await c.query(`select set_config('app.etapas_pl_sistema','', true), set_config('app.etapas_pl_lote','', true)`);
+      await c.query(`select _etapas_pl_aplicar($1, ARRAY[$2]::uuid[], 'auto', NULL)`, [T, modeloId]);
+      const g = await um<{ sis: string; lote: string }>(
+        c,
+        `select coalesce(current_setting('app.etapas_pl_sistema', true),'') sis,
+                coalesce(current_setting('app.etapas_pl_lote', true),'') lote`,
+      );
+      expect(g.sis).toBe(""); // restaurada
+      expect(g.lote).toBe("");
+    });
+  });
+
+  it("_etapas_pl_aplicar rejeita origem invalida (ASCII)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set etapas_pl_automatico=true where tenant_id=$1`, [T]);
+      const { modeloId } = await modeloComBlocoPt(c);
+      await poeNoPl(c, modeloId, "peca_teste");
+      await c.query("SAVEPOINT t");
+      let erro: any = null;
+      try {
+        await c.query(`select _etapas_pl_aplicar($1, ARRAY[$2]::uuid[], 'manual', NULL)`, [T, modeloId]);
+      } catch (e) {
+        erro = e;
+      }
+      await c.query("ROLLBACK TO SAVEPOINT t");
+      expect(erro).not.toBeNull();
+      expect(String(erro.message)).toMatch(/origem invalida/);
+    });
+  });
+
+  it("_etapas_pl_aplicar e interna (sem EXECUTE para authenticated)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ ex: boolean }>(
+        c,
+        `select has_function_privilege('authenticated','public._etapas_pl_aplicar(uuid,uuid[],text,uuid)','EXECUTE') ex`,
+      );
+      expect(r.ex).toBe(false);
+    });
+  });
+});

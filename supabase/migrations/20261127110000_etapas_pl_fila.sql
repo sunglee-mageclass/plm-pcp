@@ -252,6 +252,141 @@ CREATE TRIGGER trg_etapas_pl_fila_cat_del
   AFTER DELETE ON public.categorias_terceirizado FOR EACH ROW
   EXECUTE FUNCTION public.fn_etapas_pl_fila_categoria();
 
+-- ════════════════════════════════════════════════════════════════════════════
+-- TASK 4 - aplicador (_etapas_pl_aplicar) + historico (fn_etapas_pl_historico/trigger)
+--   (vem ANTES da Task 3: o processador da fila CHAMA _etapas_pl_aplicar)
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- Aplicador (espelho de _kanban_aplicar, 20261027140000:121). Deriva via _etapas_pl_derivar_lote e grava SO
+-- status_etapa_pl onde muda. PL NAO revela REF -> SEM a clausula ref/ref_auto do Dev. Seta app.etapas_pl_sistema
+-- (recursao: as enfileiradoras saem cedo quando a GUC <> '') e app.etapas_pl_lote em volta, RESTAURANDO ao valor
+-- anterior no fim (sem try/finally em SQL: a restauracao vem antes do RETURN; erro -> a txn reverte a GUC local).
+CREATE OR REPLACE FUNCTION public._etapas_pl_aplicar(_tenant uuid, _ids uuid[], _origem text, _lote uuid DEFAULT NULL::uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_sis_ant  text := coalesce(current_setting('app.etapas_pl_sistema', true), '');
+  v_lote_ant text := coalesce(current_setting('app.etapas_pl_lote', true), '');
+  v_cfg      jsonb;
+  v_n        integer := 0;
+BEGIN
+  IF _origem IS NULL OR _origem NOT IN ('auto', 'config') THEN
+    RAISE EXCEPTION '_etapas_pl_aplicar: origem invalida (%).', _origem USING ERRCODE = 'P0001';
+  END IF;
+  IF _tenant IS NULL OR NOT public._etapas_pl_ligado(_tenant) THEN
+    RETURN 0;
+  END IF;
+
+  v_cfg := public._etapas_pl_cfg(_tenant);
+
+  PERFORM set_config('app.etapas_pl_sistema', _origem, true);
+  PERFORM set_config('app.etapas_pl_lote', coalesce(_lote::text, ''), true);
+
+  WITH d AS (
+    SELECT x.* FROM public._etapas_pl_derivar_lote(_tenant, _ids, v_cfg) x WHERE x.derivavel
+  ), calc AS (
+    SELECT d.modelo_id AS mid,
+           d.resultado,
+           (d.resultado IS DISTINCT FROM d.status_atual) AS muda
+      FROM d
+  ), upd AS (
+    UPDATE public.modelos m
+       SET status_etapa_pl = c.resultado
+      FROM calc c
+     WHERE m.id = c.mid
+       AND m.tenant_id = _tenant
+       AND c.muda
+    RETURNING c.muda
+  )
+  SELECT count(*) INTO v_n FROM upd;
+
+  PERFORM set_config('app.etapas_pl_sistema', v_sis_ant, true);
+  PERFORM set_config('app.etapas_pl_lote', v_lote_ant, true);
+  RETURN v_n;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public._etapas_pl_aplicar(uuid, uuid[], text, uuid) FROM PUBLIC, anon, authenticated;
+
+-- Historico (espelho de fn_kanban_historico, 20260930140000:40) escrevendo em modelo_etapa_pl_historico.
+-- Colapso de 10s para origem 'auto'/'restauracao' (le app.etapas_pl_sistema/_lote). AFTER INSERT OR UPDATE OF
+-- status_etapa_pl em modelos.
+CREATE OR REPLACE FUNCTION public.fn_etapas_pl_historico()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_sis    text := coalesce(current_setting('app.etapas_pl_sistema', true), '');
+  v_lote_s text := coalesce(current_setting('app.etapas_pl_lote', true), '');
+  v_origem text;
+  v_lote   uuid;
+  v_ult_id uuid;
+  v_ult_or text;
+  v_ult_em timestamptz;
+  v_ult_st text;
+  v_pen    text;
+BEGIN
+  v_origem := CASE WHEN v_sis IN ('auto', 'config', 'manual', 'restauracao') THEN v_sis ELSE 'manual' END;
+  v_lote := CASE WHEN v_lote_s ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                 THEN v_lote_s::uuid END;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status_etapa_pl IS NOT NULL THEN
+      INSERT INTO public.modelo_etapa_pl_historico(tenant_id, modelo_id, status, entrou_at, created_at, origem, lote_id)
+      VALUES (NEW.tenant_id, NEW.id, NEW.status_etapa_pl, COALESCE(NEW.created_at, now()),
+              clock_timestamp(), v_origem, v_lote);
+    END IF;
+  ELSIF NEW.status_etapa_pl IS DISTINCT FROM OLD.status_etapa_pl
+        AND NEW.status_etapa_pl IS NOT NULL THEN
+    IF v_origem IN ('auto', 'restauracao') THEN
+      SELECT h.id, h.origem, h.entrou_at, h.status INTO v_ult_id, v_ult_or, v_ult_em, v_ult_st
+        FROM public.modelo_etapa_pl_historico h
+       WHERE h.modelo_id = NEW.id
+       ORDER BY h.entrou_at DESC, h.created_at DESC
+       LIMIT 1;
+    END IF;
+    -- restauracao nao repete a coluna que a ultima linha RESTANTE ja tem.
+    IF v_origem = 'restauracao' AND v_ult_id IS NOT NULL
+       AND v_ult_st IS NOT DISTINCT FROM NEW.status_etapa_pl THEN
+      RETURN NEW;
+    END IF;
+    IF v_origem = 'auto' THEN
+      IF v_ult_id IS NOT NULL AND v_ult_or = 'auto' AND v_ult_em > now() - interval '10 seconds' THEN
+        SELECT h.status INTO v_pen
+          FROM public.modelo_etapa_pl_historico h
+         WHERE h.modelo_id = NEW.id AND h.id <> v_ult_id
+         ORDER BY h.entrou_at DESC, h.created_at DESC
+         LIMIT 1;
+        IF v_pen IS NOT DISTINCT FROM NEW.status_etapa_pl THEN
+          -- voltou a penultima dentro da janela: o recuo/avanco transitorio nunca existiu
+          DELETE FROM public.modelo_etapa_pl_historico WHERE id = v_ult_id;
+        ELSE
+          UPDATE public.modelo_etapa_pl_historico
+             SET status = NEW.status_etapa_pl, entrou_at = now(),
+                 created_at = clock_timestamp(), lote_id = v_lote
+           WHERE id = v_ult_id;
+        END IF;
+        RETURN NEW;
+      END IF;
+    END IF;
+    INSERT INTO public.modelo_etapa_pl_historico(tenant_id, modelo_id, status, entrou_at, created_at, origem, lote_id)
+    VALUES (NEW.tenant_id, NEW.id, NEW.status_etapa_pl, now(), clock_timestamp(), v_origem, v_lote);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_etapas_pl_historico ON public.modelos;
+CREATE TRIGGER trg_etapas_pl_historico
+  AFTER INSERT OR UPDATE OF status_etapa_pl ON public.modelos
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_etapas_pl_historico();
+
 COMMIT;
 
 select pg_notify('pgrst', 'reload schema');
