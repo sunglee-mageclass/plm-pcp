@@ -332,6 +332,12 @@ const BLOCO_DA_COLUNA: Record<string, string> = {
   aprovar_custo_auto_por_versao: "cfg:aprovar_custo_auto_por_versao",
   plan_tecido_oc_bloqueia_lancado: "cfg:plan_tecido_oc_bloqueia_lancado",
   explosao_requisitos: "cfg:explosao_requisitos",
+  // Kanban PL configurável (Onda 3, Task 6): as 4 colunas `etapas_pl_*` vivem num ÚNICO card da Config
+  // (Etapas PL), então o anel de presença/conflito é UM bloco `cfg:etapas_pl`.
+  etapas_pl_kanban: "cfg:etapas_pl",
+  etapas_pl_requisitos: "cfg:etapas_pl",
+  etapas_pl_automatico: "cfg:etapas_pl",
+  etapas_pl_aba_peca_teste_status: "cfg:etapas_pl",
 };
 
 // T4: foco em controle DENTRO de um bloco (diálogo de Requisitos, marcadores Explosão/REF por linha)
@@ -345,6 +351,9 @@ const BLOCO_DO_FOCO: Record<string, string> = {
   // F6 Fluxo 2 — o editor de requisitos do Explosão é um diálogo portal (como kanban_requisitos); o anel
   // aparece no bloco que o contém, não no controle interno.
   "cfg:explosao_requisitos": "cfg:explosao_requisitos",
+  // Etapas PL (Onda 3, Task 6): o editor de requisitos das Etapas PL é diálogo portal (como kanban_requisitos);
+  // o anel aparece no card que o contém.
+  "cfg:etapas_pl_requisitos": "cfg:etapas_pl",
 };
 function blocoDoFoco(path: string | null): string | null {
   if (!path) return null;

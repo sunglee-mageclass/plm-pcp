@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   COLUNAS_PAGINA,
   colunasDoErro,
@@ -36,16 +38,16 @@ function cfgBase(): ConfigLojaColab {
   };
 }
 
-describe("COLUNAS_PAGINA — 19 colunas (21 da lista branca da RPC menos tab_labels/campos_editaveis)", () => {
-  it("tem exatamente 19 chaves (18 + plan_tecido_oc_bloqueia_lancado), sem tab_labels/campos_editaveis", () => {
-    expect(COLUNAS_PAGINA).toHaveLength(19);
+describe("COLUNAS_PAGINA — 24 colunas (lista branca da RPC menos tab_labels/campos_editaveis)", () => {
+  it("tem exatamente 24 chaves (19 + explosao_requisitos + 4 etapas_pl_*), sem tab_labels/campos_editaveis", () => {
+    expect(COLUNAS_PAGINA).toHaveLength(24);
     expect(COLUNAS_PAGINA).toContain("plan_tecido_oc_bloqueia_lancado");
     expect(COLUNAS_PAGINA).toContain("insumos_padrao");
     expect(COLUNAS_PAGINA).toContain("aprovar_custo_auto_por_versao");
     expect(COLUNAS_PAGINA).not.toContain("tab_labels");
     expect(COLUNAS_PAGINA).not.toContain("campos_editaveis");
   });
-  it("inclui as 5 colunas de kanban (RP3) dentro das 19", () => {
+  it("inclui as 5 colunas de kanban (RP3) dentro das 24", () => {
     for (const c of KANBAN_COLS) expect(COLUNAS_PAGINA).toContain(c);
   });
 });
@@ -368,5 +370,42 @@ describe("Revisão T3/T4 (I2) — só espaço nas pontas não é mudança", () =
     expect(montarMudancas({ cfg: { keywords: "Moda " } as any, baseUi: b, baseRaw: b, kanbanBaseCfg: kb }).mudancas).toEqual({});
     expect(montarMudancas({ cfg: { explosao_envio_status: "" } as any, baseUi: { explosao_envio_status: null } as any, baseRaw: {}, kanbanBaseCfg: kb }).mudancas).toEqual({});
     expect(montarMudancas({ cfg: { keywords: " Novo " } as any, baseUi: b, baseRaw: b, kanbanBaseCfg: kb }).mudancas).toEqual({ keywords: "Novo" });
+  });
+});
+
+// Kanban PL (Onda 3, Task 6): as 4 colunas `etapas_pl_*` pertencem a UM bloco colaborativo (`cfg:etapas_pl`).
+// `BLOCO_DA_COLUNA`/`BLOCO_DO_FOCO` moram (não exportados) em admin/configuracoes.tsx — gate de FONTE, como
+// config-loja-save-fonte.test.ts.
+describe("Config da Loja — bloco colaborativo das Etapas PL (Task 6, fonte)", () => {
+  const src = readFileSync(
+    fileURLToPath(new URL("../../src/routes/_authenticated/admin/configuracoes.tsx", import.meta.url)),
+    "utf8",
+  );
+  const corpo = (nome: string) => {
+    const i = src.indexOf(`const ${nome}: Record<string, string> = {`);
+    expect(i).toBeGreaterThan(0);
+    return src.slice(i, src.indexOf("\n};", i));
+  };
+  const COLS_PL = ["etapas_pl_kanban", "etapas_pl_requisitos", "etapas_pl_automatico", "etapas_pl_aba_peca_teste_status"];
+
+  it("as 4 colunas etapas_pl_* estão em COLUNAS_PAGINA", () => {
+    for (const c of COLS_PL) expect(COLUNAS_PAGINA).toContain(c);
+  });
+
+  it("BLOCO_DA_COLUNA mapeia as 4 ao bloco cfg:etapas_pl", () => {
+    const m = corpo("BLOCO_DA_COLUNA");
+    for (const c of COLS_PL) expect(m).toContain(`${c}: "cfg:etapas_pl"`);
+  });
+
+  it("BLOCO_DO_FOCO converte o foco do diálogo de requisitos para cfg:etapas_pl", () => {
+    expect(corpo("BLOCO_DO_FOCO")).toContain('"cfg:etapas_pl_requisitos": "cfg:etapas_pl"');
+  });
+
+  it("toda coluna de COLUNAS_PAGINA tem bloco em BLOCO_DA_COLUNA (anti-drift)", () => {
+    const m = corpo("BLOCO_DA_COLUNA");
+    for (const c of COLUNAS_PAGINA) {
+      if (c === "tab_labels" || c === "campos_editaveis") continue;
+      expect(m, c).toMatch(new RegExp(`\\b${c}: "cfg:`));
+    }
   });
 });
