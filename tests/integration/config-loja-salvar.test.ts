@@ -43,6 +43,7 @@ const SALVAR_CONFIG_ACEITOS = [
   ...md5UrgASucessor(SIG, "2d43c259135119b345a09a894091c2b5"), // 20261027130000 (L3) + 20261103174000 (urg R2)
   "43c4b4d6a658bfcbaf1c29dc615aecf0", // 20261106100000 (R12: aprovar_custo_auto_por_versao)
   "6d35eb844c03afebccdc110e970f46d0", // 20261112110000 (F1 C fix 1: plan_tecido_oc_bloqueia_lancado)
+  "36e6821ce97b3f2542cd3633c065a7a1", // 20261124100000 (F6 Fluxo 2: explosao_requisitos)
 ];
 
 const ler = (rel: string) => readFileSync(ROOT + rel, "utf8");
