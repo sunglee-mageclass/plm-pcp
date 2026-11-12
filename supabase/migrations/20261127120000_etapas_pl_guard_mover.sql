@@ -136,10 +136,23 @@ BEGIN
 END;
 $function$;
 
-DROP TRIGGER IF EXISTS trg_etapas_pl_status_guard ON public.modelos;
-CREATE TRIGGER trg_etapas_pl_status_guard
-  BEFORE UPDATE OF status_etapa_pl ON public.modelos
-  FOR EACH ROW EXECUTE FUNCTION public.fn_etapas_pl_status_guard();
+-- Idempotente SEM DROP: um DROP TRIGGER em public.modelos (mesmo inexistente) toma AccessExclusive e,
+-- via supautils, prende ~23 tabelas de auth/storage/realtime ate o COMMIT (reference_policy_ddl_trava_auth).
+-- Criar so se faltar nao prende nada. Comentario antigo corrigido.
+DO $kpl6$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid = 'public.modelos'::regclass
+       AND tgname = 'trg_etapas_pl_status_guard'
+       AND NOT tgisinternal
+  ) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_status_guard '
+         || 'BEFORE UPDATE OF status_etapa_pl ON public.modelos '
+         || 'FOR EACH ROW EXECUTE FUNCTION public.fn_etapas_pl_status_guard()';
+  END IF;
+END
+$kpl6$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 2) etapas_pl_mover - aplica a tabela UNICA de arraste (_kanban_destino_drop_puro) no servidor, para o board PL.
