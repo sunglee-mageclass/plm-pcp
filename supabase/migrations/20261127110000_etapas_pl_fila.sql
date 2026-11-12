@@ -104,21 +104,26 @@ BEGIN
 END;
 $function$;
 
-DROP TRIGGER IF EXISTS trg_etapas_pl_fila_upd ON public.modelos;
-CREATE TRIGGER trg_etapas_pl_fila_upd
-  AFTER UPDATE ON public.modelos
-  FOR EACH ROW
-  WHEN (OLD.status_etapa_pl IS DISTINCT FROM NEW.status_etapa_pl
-     OR OLD.lancado IS DISTINCT FROM NEW.lancado
-     OR OLD.origem IS DISTINCT FROM NEW.origem)
-  EXECUTE FUNCTION public.fn_etapas_pl_fila_modelo();
-
-DROP TRIGGER IF EXISTS trg_etapas_pl_fila_ins ON public.modelos;
-CREATE TRIGGER trg_etapas_pl_fila_ins
-  AFTER INSERT ON public.modelos
-  FOR EACH ROW
-  WHEN (NEW.status_etapa_pl IS NOT NULL)
-  EXECUTE FUNCTION public.fn_etapas_pl_fila_modelo();
+-- Idempotente SEM DROP (reference_policy_ddl_trava_auth): DROP TRIGGER em public.modelos/cad/filhas,
+-- mesmo inexistente, prende ~23 tabelas de auth/storage ate o COMMIT. So cria se faltar.
+DO $kpl2m$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.modelos'::regclass
+                 AND tgname='trg_etapas_pl_fila_upd' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_fila_upd AFTER UPDATE ON public.modelos FOR EACH ROW '
+         || 'WHEN (OLD.status_etapa_pl IS DISTINCT FROM NEW.status_etapa_pl '
+         || '   OR OLD.lancado IS DISTINCT FROM NEW.lancado '
+         || '   OR OLD.origem IS DISTINCT FROM NEW.origem) '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_fila_modelo()';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.modelos'::regclass
+                 AND tgname='trg_etapas_pl_fila_ins' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_fila_ins AFTER INSERT ON public.modelos FOR EACH ROW '
+         || 'WHEN (NEW.status_etapa_pl IS NOT NULL) '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_fila_modelo()';
+  END IF;
+END
+$kpl2m$;
 
 -- Tabelas com coluna modelo_id: modelo_servico_mo, modelo_peca_teste_tentativas (condicoes peca_teste_aprovada).
 CREATE OR REPLACE FUNCTION public.fn_etapas_pl_fila_por_modelo()
@@ -212,45 +217,67 @@ BEGIN
       ('producao_terceirizados',       'fn_etapas_pl_fila_por_cad')
     ) AS t(tabela, fn)
   LOOP
-    EXECUTE format('DROP TRIGGER IF EXISTS trg_etapas_pl_fila_ins ON public.%I', r.tabela);
-    EXECUTE format('DROP TRIGGER IF EXISTS trg_etapas_pl_fila_upd ON public.%I', r.tabela);
-    EXECUTE format('DROP TRIGGER IF EXISTS trg_etapas_pl_fila_del ON public.%I', r.tabela);
-    EXECUTE format('CREATE TRIGGER trg_etapas_pl_fila_ins AFTER INSERT ON public.%I '
-                   || 'REFERENCING NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
-    EXECUTE format('CREATE TRIGGER trg_etapas_pl_fila_upd AFTER UPDATE ON public.%I '
-                   || 'REFERENCING OLD TABLE AS antigas NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
-    EXECUTE format('CREATE TRIGGER trg_etapas_pl_fila_del AFTER DELETE ON public.%I '
-                   || 'REFERENCING OLD TABLE AS antigas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
+    -- Idempotente SEM DROP (as 4 filhas tambem travam auth/storage no DROP TRIGGER): cria so o que faltar.
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid=format('public.%I', r.tabela)::regclass
+                   AND tgname='trg_etapas_pl_fila_ins' AND NOT tgisinternal) THEN
+      EXECUTE format('CREATE TRIGGER trg_etapas_pl_fila_ins AFTER INSERT ON public.%I '
+                     || 'REFERENCING NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid=format('public.%I', r.tabela)::regclass
+                   AND tgname='trg_etapas_pl_fila_upd' AND NOT tgisinternal) THEN
+      EXECUTE format('CREATE TRIGGER trg_etapas_pl_fila_upd AFTER UPDATE ON public.%I '
+                     || 'REFERENCING OLD TABLE AS antigas NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid=format('public.%I', r.tabela)::regclass
+                   AND tgname='trg_etapas_pl_fila_del' AND NOT tgisinternal) THEN
+      EXECUTE format('CREATE TRIGGER trg_etapas_pl_fila_del AFTER DELETE ON public.%I '
+                     || 'REFERENCING OLD TABLE AS antigas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
+    END IF;
   END LOOP;
 END
 $do$;
 
--- cad: por linha (INS/UPD/DEL).
-DROP TRIGGER IF EXISTS trg_etapas_pl_fila_cad_ins ON public.cad;
-CREATE TRIGGER trg_etapas_pl_fila_cad_ins
-  AFTER INSERT ON public.cad FOR EACH ROW EXECUTE FUNCTION public.fn_etapas_pl_fila_cad();
-DROP TRIGGER IF EXISTS trg_etapas_pl_fila_cad_upd ON public.cad;
-CREATE TRIGGER trg_etapas_pl_fila_cad_upd
-  AFTER UPDATE ON public.cad FOR EACH ROW
-  WHEN (OLD.enviado_corte IS DISTINCT FROM NEW.enviado_corte OR OLD.modelo_id IS DISTINCT FROM NEW.modelo_id)
-  EXECUTE FUNCTION public.fn_etapas_pl_fila_cad();
-DROP TRIGGER IF EXISTS trg_etapas_pl_fila_cad_del ON public.cad;
-CREATE TRIGGER trg_etapas_pl_fila_cad_del
-  AFTER DELETE ON public.cad FOR EACH ROW EXECUTE FUNCTION public.fn_etapas_pl_fila_cad();
+-- cad: por linha (INS/UPD/DEL). Idempotente SEM DROP (cad tambem prende auth/storage no DROP TRIGGER).
+DO $kpl2cad$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.cad'::regclass
+                 AND tgname='trg_etapas_pl_fila_cad_ins' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_fila_cad_ins AFTER INSERT ON public.cad FOR EACH ROW '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_fila_cad()';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.cad'::regclass
+                 AND tgname='trg_etapas_pl_fila_cad_upd' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_fila_cad_upd AFTER UPDATE ON public.cad FOR EACH ROW '
+         || 'WHEN (OLD.enviado_corte IS DISTINCT FROM NEW.enviado_corte OR OLD.modelo_id IS DISTINCT FROM NEW.modelo_id) '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_fila_cad()';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.cad'::regclass
+                 AND tgname='trg_etapas_pl_fila_cad_del' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_fila_cad_del AFTER DELETE ON public.cad FOR EACH ROW '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_fila_cad()';
+  END IF;
+END
+$kpl2cad$;
 
--- categorias_terceirizado: loja inteira em UPD (campos lidos) e DEL.
-DROP TRIGGER IF EXISTS trg_etapas_pl_fila_cat_upd ON public.categorias_terceirizado;
-CREATE TRIGGER trg_etapas_pl_fila_cat_upd
-  AFTER UPDATE ON public.categorias_terceirizado FOR EACH ROW
-  WHEN (OLD.etapa IS DISTINCT FROM NEW.etapa
-     OR OLD.nome IS DISTINCT FROM NEW.nome
-     OR OLD.ativo IS DISTINCT FROM NEW.ativo
-     OR OLD.exige_peca_teste IS DISTINCT FROM NEW.exige_peca_teste)
-  EXECUTE FUNCTION public.fn_etapas_pl_fila_categoria();
-DROP TRIGGER IF EXISTS trg_etapas_pl_fila_cat_del ON public.categorias_terceirizado;
-CREATE TRIGGER trg_etapas_pl_fila_cat_del
-  AFTER DELETE ON public.categorias_terceirizado FOR EACH ROW
-  EXECUTE FUNCTION public.fn_etapas_pl_fila_categoria();
+-- categorias_terceirizado: loja inteira em UPD (campos lidos) e DEL. Idempotente SEM DROP.
+DO $kpl2cat$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.categorias_terceirizado'::regclass
+                 AND tgname='trg_etapas_pl_fila_cat_upd' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_fila_cat_upd AFTER UPDATE ON public.categorias_terceirizado FOR EACH ROW '
+         || 'WHEN (OLD.etapa IS DISTINCT FROM NEW.etapa '
+         || '   OR OLD.nome IS DISTINCT FROM NEW.nome '
+         || '   OR OLD.ativo IS DISTINCT FROM NEW.ativo '
+         || '   OR OLD.exige_peca_teste IS DISTINCT FROM NEW.exige_peca_teste) '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_fila_categoria()';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.categorias_terceirizado'::regclass
+                 AND tgname='trg_etapas_pl_fila_cat_del' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_fila_cat_del AFTER DELETE ON public.categorias_terceirizado FOR EACH ROW '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_fila_categoria()';
+  END IF;
+END
+$kpl2cat$;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- TASK 4 - aplicador (_etapas_pl_aplicar) + historico (fn_etapas_pl_historico/trigger)
@@ -381,11 +408,17 @@ BEGIN
 END;
 $function$;
 
-DROP TRIGGER IF EXISTS trg_etapas_pl_historico ON public.modelos;
-CREATE TRIGGER trg_etapas_pl_historico
-  AFTER INSERT OR UPDATE OF status_etapa_pl ON public.modelos
-  FOR EACH ROW
-  EXECUTE FUNCTION public.fn_etapas_pl_historico();
+-- Idempotente SEM DROP (modelos prende auth/storage no DROP TRIGGER).
+DO $kpl2hist$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.modelos'::regclass
+                 AND tgname='trg_etapas_pl_historico' AND NOT tgisinternal) THEN
+    EXECUTE 'CREATE TRIGGER trg_etapas_pl_historico '
+         || 'AFTER INSERT OR UPDATE OF status_etapa_pl ON public.modelos FOR EACH ROW '
+         || 'EXECUTE FUNCTION public.fn_etapas_pl_historico()';
+  END IF;
+END
+$kpl2hist$;
 
 -- TASK 3 - processador da fila no COMMIT (CONSTRAINT TRIGGER adiado). Espelho de
 -- fn_kanban_processar_fila (20261027100000:103) com nomes PL: nunca perde recalculo e NUNCA derruba
