@@ -240,6 +240,13 @@ function DesenvolvimentoPage() {
   });
   // Colunas visíveis no quadro (filtro "Etapas"). A coluna terminal TERMINAL_DEV fica FORA do filtro.
   const colunasKanban = colunasVisiveis(statusKanban, fEtapas);
+  // A3b (dono 11/nov): o filtro de Etapas só LISTA as colunas do MEIO — a 1ª e a última do board
+  // (entrada/saída do fluxo) ficam SEMPRE visíveis (ver `colunasVisiveis`), então não faz sentido
+  // oferecê-las para marcar/desmarcar. Board de ≤2 colunas: nada filtrável (todas são terminais).
+  const opcoesFiltroEtapas = useMemo(
+    () => statusKanban.slice(1, -1).map((s) => ({ id: s.key, nome: s.label })),
+    [statusKanban],
+  );
 
   // Requisitos de entrada por status (motor de regras) + condições satisfeitas por modelo.
   const { data: kanbanReqCfg = { requisitos: {}, excecoes: {} } } = useQuery({
@@ -884,7 +891,7 @@ function DesenvolvimentoPage() {
           <FilterButton
             screen="desenvolvimento"
             filters={[
-              { label: "Etapas", value: fEtapas, onChange: setFEtapas, options: statusKanban.map((s) => ({ id: s.key, nome: s.label })) },
+              { label: "Etapas", value: fEtapas, onChange: setFEtapas, options: opcoesFiltroEtapas },
               { label: "Status", value: fStatus, onChange: setFStatus, options: statusKanban.map((s) => ({ id: s.key, nome: s.label })) },
               { label: "Explosão", value: fCad, onChange: setFCad, options: [{ id: "enviado", nome: "Enviado à Explosão" }, { id: "nao", nome: "Não enviado" }] },
               { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: estilistas },
