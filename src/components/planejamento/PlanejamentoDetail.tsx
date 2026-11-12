@@ -1578,6 +1578,10 @@ function PlanejamentoDetailConteudo({
       campoVisivel: campoVisivelDev,
       secaoGrade: isComprado ? "grade_revenda" : "grade",
       gradeIndisponivel,
+      // F6 Fluxo 2 — soma os requisitos configurados pela loja (opt-in: [] = nada muda). `satisfeitas` =
+      // as condições avaliadas do card (as mesmas dos selos); null até carregar → {} (nada some por engano).
+      explosaoRequisitos: kanbanCard.explosaoRequisitos,
+      satisfeitas: (ficha.habilitada && ficha.dados.condicoesProntas ? ficha.dados.condicoes : null) ?? {},
     })
     : [];
   const mostraFaltas = pendenciasEnvio.length > 0;

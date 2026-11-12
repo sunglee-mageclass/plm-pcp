@@ -8,6 +8,7 @@
 // Uso: toast.error(mensagemErro(e, "Erro ao excluir."))
 
 import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
+import { CONDICAO_BY_KEY } from "@/lib/kanban-condicoes";
 import { MENSAGEM_CHAVE_KANBAN_MUDOU } from "@/lib/kanban-auto-config";
 import { PREFIXO_CATEGORIA_ACESSORIO_PEDIDO, RecusaEsperadaError, TEXTO_CATEGORIA_ACESSORIO_PEDIDO } from "@/lib/categoria-card-produto";
 import { TEXTO_REF_FORMATO_SEM_NUMERO, textoRefSiglaComDigito } from "@/lib/ref-montar";
@@ -156,6 +157,17 @@ function mensagemConfigLoja(code: string, msg: string): string | null {
     return "Outra pessoa salvou a Configuração da Loja agora há pouco. Confira os itens em destaque e salve de novo.";
   }
   if (code === "P0409" && msg.startsWith("chave_kanban_mudou:")) return MENSAGEM_CHAVE_KANBAN_MUDOU;
+  return null;
+}
+
+// F6 Fluxo 2 — recusa do Enviar à Explosão por requisito CONFIGURÁVEL da loja (P0001, prefixo ASCII +
+// keys do catálogo separadas por vírgula). Traduz as keys para os rótulos PT das condições.
+export function mensagemExplosao(code: string, msg: string): string | null {
+  if (code === "P0001" && msg.startsWith("explosao_requisito_faltando:")) {
+    const keys = msg.slice("explosao_requisito_faltando:".length).trim().split(",").map((k) => k.trim()).filter(Boolean);
+    const labels = keys.map((k) => CONDICAO_BY_KEY.get(k)?.label ?? k);
+    return `Para enviar à Explosão, falta: ${labels.join(", ")}.`;
+  }
   return null;
 }
 
@@ -716,6 +728,11 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Integração › Gerar JSON: ASCII com prefixo (P0001) → texto PT (antes do ramo genérico abaixo).
   const gerarJson = mensagemGerarJson(code, msg);
   if (gerarJson) return gerarJson;
+
+  // F6 Fluxo 2 — ANTES do P0001 cru: a recusa do Explosão vem com prefixo técnico (explosao_requisito_faltando:),
+  // não é PT — traduz as keys para os rótulos das condições.
+  const explosao = mensagemExplosao(code, msg);
+  if (explosao) return explosao;
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;

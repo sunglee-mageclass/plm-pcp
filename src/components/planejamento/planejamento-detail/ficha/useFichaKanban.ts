@@ -20,6 +20,8 @@ export type FichaKanban = {
   refExibirStatus: string | null;
   /** F3.3 — `tenant_config.explosao_envio_status` (etapa a partir da qual se envia à Explosão; ausente ⇒ "aprovado"). */
   explosaoEnvioStatus: string | null;
+  /** F6 Fluxo 2 — `tenant_config.explosao_requisitos` (cond_keys exigidas no Enviar à Explosão; [] = opt-in). */
+  explosaoRequisitos: string[];
   /** Condições do card (RPC avaliar_condicoes_kanban) — {} enquanto não carregou ou fora do kanban. */
   cond: Record<string, boolean>;
   /** Config da loja (`tenant_config`) carregada. */
@@ -66,6 +68,10 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   const revendaCfg = useMemo(() => lerRevendaConfig(cfgRow ?? null), [cfgRow]);
   const refExibirStatus = (cfgRow?.ref_exibir_status as string | null | undefined) ?? null;
   const explosaoEnvioStatus = (cfgRow?.explosao_envio_status as string | null | undefined) ?? null;
+  // F6 Fluxo 2 — lista de cond_keys exigidas no Enviar à Explosão (cfgRow já vem do select("*")); [] = opt-in.
+  const explosaoRequisitos = (Array.isArray((cfgRow as { explosao_requisitos?: unknown })?.explosao_requisitos)
+    ? (cfgRow as { explosao_requisitos: string[] }).explosao_requisitos
+    : []);
 
   const noKanban = !!modeloId && enviada && !lancado;
   const { data: condData, isSuccess: condOk, isError: condErro } = useQuery({
@@ -98,7 +104,7 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   // posição DERIVADA quando a chave está ligada (decisão 10) — aqui só trocamos a ENTRADA dele.
   const statusCru = enviada ? statusSalvo : null;
   return {
-    kanbanCfg, revendaCfg, refExibirStatus, explosaoEnvioStatus, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusPlanejamento, statusEfetivo, derivacao,
+    kanbanCfg, revendaCfg, refExibirStatus, explosaoEnvioStatus, explosaoRequisitos, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusPlanejamento, statusEfetivo, derivacao,
     refNaEtapa: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, statusPlanejamento }),
     refVisivel: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao, refSalva: row?.ref ?? null, statusPlanejamento }),
     // M2 (fix round 1): modelo LANÇADO sai do fluxo normal (vai só pra coluna terminal
