@@ -240,4 +240,32 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL Onda 2 - aplicador + histo
       for (const t of r.rows) { expect(t.tgdeferrable).toBe(true); expect(t.tginitdeferred).toBe(true); }
     });
   });
+
+  // Task 5 — e2e pelo GATILHO REAL: editar um bloco de servico (gatilho statement-level) enfileira,
+  // e no "COMMIT" (SET CONSTRAINTS ALL IMMEDIATE) o processador deriva status_etapa_pl. Caminho
+  // completo fila->processador->aplicador, com a recursao cortada (fila fica vazia no fim).
+  it("e2e: editar bloco -> enfileira -> COMMIT processa -> deriva (fila drenada, sem recursao)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(
+        `update tenant_config set etapas_pl_automatico=true,
+           etapas_pl_kanban='["Peça Teste","Separação de Materiais","Oficina"]'::jsonb, etapas_pl_requisitos='{}'::jsonb
+         where tenant_id=$1`,
+        [T],
+      );
+      const { modeloId, ptId } = await modeloComBlocoPt(c);
+      await poeNoPl(c, modeloId, "oficina");
+      await c.query(`delete from etapas_pl_recalculo_fila where modelo_id=$1`, [modeloId]);
+      const der = await um<{ resultado: string }>(c, `select resultado from _etapas_pl_derivar_lote($1, ARRAY[$2]::uuid[]) limit 1`, [T, modeloId]);
+
+      // GATILHO REAL: editar o bloco enfileira (sem insert manual)
+      await c.query(`update producao_terceirizados set ativo = coalesce(ativo, true) where id=$1`, [ptId]);
+      expect(await naFila(c, modeloId)).toBe(1);
+      await c.query(`set constraints all immediate`); // dispara o processamento adiado
+
+      const st = (await um<{ s: string }>(c, `select status_etapa_pl s from modelos where id=$1`, [modeloId])).s;
+      expect(st).toBe(der.resultado);
+      expect(await naFila(c, modeloId)).toBe(0); // recursao cortada: o aplicador nao re-enfileirou
+    });
+  });
 });
