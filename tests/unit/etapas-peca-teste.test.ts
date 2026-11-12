@@ -200,14 +200,13 @@ describe("telas — fonte", () => {
     expect(src).toContain("montarCardsPecaTeste(");
     expect(src).toMatch(/montarCards\(\s*filtered,\s*etapas,\s*suprimir\s*\)/);
   });
-  it("pcp.etapas abre o Sheet do Planejamento para o card PT (contexto pcp-etapas, só com acesso) e o de Serviços para os blocos", () => {
+  it("pcp.etapas (board PL, Onda 3 Task 9): o card abre o Sheet de Serviços; fechar/salvar/mover relê cards E condições", () => {
     const src = ler("src/routes/_authenticated/pcp.etapas.tsx");
-    expect(src).toContain('contexto="pcp-etapas"');
-    expect(src).toContain("<PlanejamentoDetail");
-    expect(src).toContain('canView("criacao_planejamento")');
-    expect(src).toContain('canView("criacao_desenvolvimento")');
+    expect(src).toContain("<EtapasPlKanban");
     expect(src).toContain("<TerceirizadosDetail");
-    expect(src).toContain('queryKey: ["etapas-peca-teste"]');
+    expect(src).toContain('queryKey: ["etapas-pl-cards"]');
+    expect(src).toContain('queryKey: ["etapas-pl-cond"]');
+    expect(src).not.toContain("<PlanejamentoDetail");
   });
   it("contexto pcp-etapas: aberto por cima; o breadcrumb segue \"Planejamento de Produto\"", () => {
     expect(abertoPorCima("pcp-etapas")).toBe(true);

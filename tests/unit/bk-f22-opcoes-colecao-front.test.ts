@@ -95,8 +95,15 @@ describe("lista de cards das Etapas PL sem teto de 1.000", () => {
     const fontes: [string, string][] = [
       ["useEtapasCards.ts", ler("src/components/producao/etapas/useEtapasCards.ts")],
       ["pcp.etapas.tsx", ler("src/routes/_authenticated/pcp.etapas.tsx")],
+      ["useEtapasPlProdutos.ts", ler("src/components/producao/etapas/useEtapasPlProdutos.ts")],
       ["dashboard.tsx > ComercialColecaoTab", dash.slice(ini, ini + 5000)],
     ];
+    // Etapas PL (Onda 3, Task 9): a lista do board novo pagina por `buscarTodas` (hook próprio, sem teto de 1.000)
+    const pl = ler("src/components/producao/etapas/useEtapasPlProdutos.ts");
+    expect(pl).toContain("buscarTodas<");
+    expect(pl).toContain('.order("created_at", { ascending: false })');
+    expect(pl).toContain('.order("id", { ascending: true })');
+    expect(pl).toContain(".range(de, ate)");
     for (const [f, t] of fontes) {
       // cada `.from("modelos")` das 3 telas é seguido de `.range(` antes do próximo `.from(` (ou não existe)
       const partes = t.split(/from\("modelos"\)/).slice(1);

@@ -166,6 +166,14 @@ describe("EtapasPlKanban (arraste → onMover)", () => {
     expect(onMover).toHaveBeenCalledWith("a", "stand_by", { acao: "fixar", status: "stand_by", faltando: [] });
   });
 
+  it("L2: soltar o card ÓRFÃO na própria coluna efetiva (a 1ª) NÃO chama onMover; o órfão vai a outra coluna normalmente", () => {
+    const onMover = montar({ ligado: false });
+    drag(coluna("em_modelagem"), "drop", "o");
+    expect(onMover).not.toHaveBeenCalled();
+    drag(coluna("stand_by"), "drop", "o");
+    expect(onMover).toHaveBeenCalledWith("o", "stand_by", null);
+  });
+
   it("solta em coluna BLOQUEADA (ligada, falta requisito) → NÃO chama onMover; avisa com o que falta", () => {
     const onMover = montar();
     drag(coluna("aprovado"), "drop", "a");

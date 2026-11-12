@@ -1,43 +1,52 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
+import { useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { ListChecks, Search, Minimize2, Maximize2, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useAuth } from "@/hooks/useAuth";
+import { useEtapasPlConfig } from "@/hooks/useEtapasPlConfig";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useFilterState } from "@/hooks/useFilterState";
+import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { buscarOpcoesColecao } from "@/lib/opcoes-colecao";
-import { supabase } from "@/integrations/supabase/client";
+import { mensagemErro } from "@/lib/erro-mensagem";
+import { fluxoEtapasPl, type DestinoDropPl } from "@/lib/etapas-pl-config";
+import { etapasPlDefinirStatusDireto, etapasPlMover } from "@/lib/etapas-pl-rpc";
+import { etapaPlFiltroOpts, toastDoMoverPl } from "@/lib/etapas-pl-ui";
+import {
+  contarPorEtapaPl, ehRecusaChaveDesligadaPl, filtrarProdutosPl, modoGravarMoverPl, montarProdutoPl, podeMoverPl,
+  type ModeloPlRow,
+} from "@/lib/pcp-etapas-pl-board";
+import { todayISOInStoreTZ } from "@/lib/timezone";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { FilterButton } from "@/components/shared/filters";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { EtapasPlKanban } from "@/components/producao/etapas/EtapasPlKanban";
+import { useEtapasPlProdutos } from "@/components/producao/etapas/useEtapasPlProdutos";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$modeloId";
-import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
-import { FilterButton } from "@/components/shared/filters";
-import { useFilterState } from "@/hooks/useFilterState";
-import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
-import { useFieldLabels } from "@/hooks/useFieldLabels";
-import { useEtapasCards } from "@/components/producao/etapas/useEtapasCards";
-import { EtapasBoard } from "@/components/producao/etapas/EtapasBoard";
-import { ETAPA_FINALIZADO, type EtapaKey } from "@/lib/pcp-etapas";
 
-// [R9] A coluna "Peça Teste" é alimentada pelo CARD do produto (RPC `peca_teste_quadro`, 1 card por produto, mesmo antes da Explosão); o
-// clique nesse card abre o Sheet do PLANEJAMENTO (onde a seção "Peça Teste" se edita) — só para quem vê Planejamento ou Desenvolvimento
-// (as telas que já abrem esse Sheet); os blocos de serviço seguem abrindo o PCP › Serviços (`TerceirizadosDetail`).
+// Etapas PL (Onda 3, Task 9) — a rota que JUNTA o board novo (`EtapasPlKanban`): 1 card por PRODUTO (`modelos.status_etapa_pl` não
+// nulo), colunas = o board PL da loja (Config da Loja), arraste que obedece a chave do modo automático. Clicar no card abre o Sheet de
+// Serviços (`TerceirizadosDetail`, o mesmo do PCP › Serviços). Substitui o quadro antigo (1 card por bloco, etapa derivada por datas,
+// 5 etapas fixas, sem arraste).
 //
-// Etapas PL (Fase 2, Task 1) — página ÚNICA (sem sub-rota de detalhe ainda), então o
-// componente renderiza direto (sem <Outlet/>), diferente de pcp.servicos.tsx que envolve
-// as sub-rotas $modeloId/index. O módulo `etapas_pl` (opt-in) é guardado pelo `RequirePermission` (PageDef.gate, com
-// `pronto` — [modularidade F1] a corrida da URL direta acabou), que mostra o <ModuloDesligadoAviso> quando está OFF.
+// O módulo `etapas_pl` (opt-in) é guardado pelo `RequirePermission` (PageDef.gate): a tela só monta com o módulo ligado.
+//
+// MOVER:
+//  - chave LIGADA: `etapas_pl_mover` (o servidor é a autoridade), toast pela RESPOSTA (`toastDoMoverPl`) e releitura das condições
+//    (as que a tela tinha podem estar velhas);
+//  - chave DESLIGADA: a RPC recusa (P0001 `etapas_pl_manual`) — a pessoa decide: UPDATE direto de `modelos.status_etapa_pl` (como o
+//    Dev com a chave off). ⚠️ O UPDATE direto passa pelo gatilho de página de `modelos` (S3d): quem edita SÓ "PCP > Etapas" (sem
+//    Planejamento/Desenvolvimento) recebe 42501 `sem_permissao_pagina` — a mensagem PT aparece no toast.
+// A query dos cards NÃO leva os filtros na key (filtra no cliente: digitar na busca não refaz a leitura); `["etapas-pl-cards"]` e
+// `["etapas-pl-cond"]` são invalidadas por prefixo ao mover/fechar o Sheet.
 export const Route = createFileRoute("/_authenticated/pcp/etapas")({
   component: () => (
     <RequirePermission page="producao_etapas">
@@ -46,94 +55,97 @@ export const Route = createFileRoute("/_authenticated/pcp/etapas")({
   ),
 });
 
-// Ordenação simples do resumo — "Ordenar por" existe pra espelhar o padrão do sibling
-// (linha 2 do header), mas por ora o quadro é agrupado por etapa (a ordem dentro da coluna
-// não muda por essa seleção ainda; fica pronta para o Task 4/5 usarem).
 const SORT_NONE = "__none__";
 const SORT_OPTS = [
   { key: "ref", label: "REF" },
   { key: "nome", label: "Nome" },
 ];
 
+function AvisoCarga({ texto, onTentar, tentando }: { texto: string; onTentar: () => void; tentando: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" role="alert">
+      <span>{texto}</span>
+      <Button type="button" variant="outline" size="sm" onClick={onTentar} disabled={tentando}>
+        {tentando ? "Tentando…" : "Tentar de novo"}
+      </Button>
+    </div>
+  );
+}
+
 function EtapasPlPage() {
   const fl = useFieldLabels();
   const qc = useQueryClient();
+  const tenantId = useActiveTenantId();
+  const { canEdit } = useAuth();
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
+  const { cfg, ligado, carregando: cfgCarregando, isError: cfgErro } = useEtapasPlConfig();
+  const cfgTentando = useIsFetching({ queryKey: ["tenant-etapas-pl", tenantId] }) > 0;
 
-  // Overlay do PCP Serviços (Task 5) — mesmo padrão de pcp.servicos.index.tsx: Sheet
-  // embutido + guarda de "não salvo" no pai (o TerceirizadosDetail reporta dirty via
-  // onDirtyChange; fechar com pendências passa pelo requestClose/confirm).
+  // ── Sheet de Serviços (mesmo padrão de pcp.servicos.index.tsx: Sheet + guarda de "não salvo" no pai) ──
   const [overlayModeloId, setOverlayModeloId] = useState<string | null>(null);
   const [overlayDirty, setOverlayDirty] = useState(false);
+  const invalidarQuadro = () => {
+    qc.invalidateQueries({ queryKey: ["etapas-pl-cards"] });
+    qc.invalidateQueries({ queryKey: ["etapas-pl-cond"] });
+  };
   const closeOverlay = () => {
     setOverlayDirty(false);
     setOverlayModeloId(null);
-    // O sheet grava via a mesma RPC do PCP Serviços (salvar_terceirizados) → o quadro
-    // precisa reler pra refletir a mudança (a lista de Serviços já se invalida sozinha
-    // dentro do TerceirizadosDetail; "etapas-cards" é queryKey própria desta tela).
-    qc.invalidateQueries({ queryKey: ["etapas-cards"] });
+    // O Sheet grava por `salvar_terceirizados` (o que mexe nas condições e na posição do card): reler cards E condições.
+    invalidarQuadro();
   };
   const { requestClose, confirm } = useUnsavedGuard({ dirty: overlayDirty, onClose: closeOverlay });
-
-  // [R9] Sheet do Planejamento aberto pelo card da coluna Peça Teste. Fechar OU salvar relê o quadro (a seção grava no Salvar do card).
-  const { canView } = useAuth();
-  const podeAbrirProduto = canView("criacao_planejamento") || canView("criacao_desenvolvimento");
-  const [produtoId, setProdutoId] = useState<string | null>(null);
-  const invalidarQuadro = () => {
-    qc.invalidateQueries({ queryKey: ["etapas-cards"] });
-    qc.invalidateQueries({ queryKey: ["etapas-peca-teste"] });
-  };
 
   const [busca, setBusca] = useState("");
   const [fColecao, setFColecao] = useFilterState("pcp-etapas", "Coleção", []);
   const [fFornecedor, setFFornecedor] = useFilterState("pcp-etapas", "Fornecedor", []);
   const [fOrigem, setFOrigem] = useFilterState("pcp-etapas", "Origem", []);
+  const [fEtapa, setFEtapa] = useFilterState("pcp-etapas", "Etapa PL", []);
   const [sortKey, setSortKey] = useState(SORT_NONE);
-  const [collapsedCols, setCollapsedCols] = useState<Set<EtapaKey>>(new Set());
+  const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set());
   const [minimizedCards, setMinimizedCards] = useState(false);
 
-  // `useEtapasCards` já filtra coleção/busca no servidor (EtapasFiltros); fornecedor não faz
-  // parte da interface do T2 (o card achatado não carrega coleção — só o bloco carrega
-  // empresa), então filtramos fornecedor no cliente, sobre o resultado já filtrado.
-  const {
-    cards: filteredCards,
-    etapas,
-    isLoading: cardsLoading,
-    ptErro,
-    ptTentando,
-    ptRecarregar,
-  } = useEtapasCards({
-    busca,
-    colecao: fColecao,
+  // ── Produtos do board (`modelos` com `status_etapa_pl` NÃO nulo) + condições (SÓ com a chave ligada) ──
+  const { cardsQ, rows, condQ, condicoesProntas, condErro } = useEtapasPlProdutos(ligado);
+  const cardsErro = cardsQ.isError;
+
+  const todos = useMemo(() => (rows ?? []).map((m) => montarProdutoPl(m, hoje, true)), [rows, hoje]);
+
+  const podeMover = podeMoverPl({
+    podeEditar: canEdit("producao_etapas"),
+    cfgCarregando,
+    cfgErro,
+    ligado,
+    condicoesProntas: condicoesProntas && !condErro,
+    cardsErro,
   });
 
-  const tenantId = useActiveTenantId();
-  // [backend F2] opções de Coleção = RPC `opcoes_colecao_modelos()` (rótulo = nome do OTB, senão o texto; os mesmos que o filtro de
-  // `useEtapasCards` compara), sem baixar os cards (teto de 1.000 linhas do PostgREST).
+  // ── Opções dos filtros ──
+  // [backend F2] opções de Coleção = RPC `opcoes_colecao_modelos()` (rótulo = nome do OTB, senão o texto), sem baixar os cards.
   const { data: colecoes = [] } = useQuery({
     queryKey: ["opt", "colecoes-modelos", tenantId],
     enabled: !!tenantId,
     queryFn: async () => (await buscarOpcoesColecao()).colecoes,
   });
+  const etapaOpts = useMemo(() => etapaPlFiltroOpts(cfg), [cfg]);
 
-  const fornecedores = useMemo(
-    () => Array.from(new Set(filteredCards.map((c) => c.empresa).filter(Boolean))) as string[],
-    [filteredCards],
-  );
-
-  // Cascata Coleção→Fornecedor: `filteredCards` já vem filtrado por coleção (useEtapasCards),
-  // então `fornecedores` já é a união certa; aqui só podamos a seleção de fFornecedor quando
-  // a troca de coleção reduz as opções disponíveis (idempotente — só remove).
+  // Cascata Coleção→Fornecedor: as opções de fornecedor saem dos produtos da(s) coleção(ões) escolhida(s).
+  const fornecedores = useMemo(() => {
+    const base = fColecao.length ? todos.filter((p) => fColecao.includes(p.colecao ?? "")) : todos;
+    return Array.from(new Set(base.flatMap((p) => p.fornecedores))).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [todos, fColecao]);
+  // Poda a seleção de fornecedor que saiu das opções — SÓ com os dados lidos (durante a carga as opções são vazias e a poda
+  // apagaria o filtro persistido).
   useEffect(() => {
+    if (!rows || cardsErro) return;
     const validos = new Set(fornecedores);
     const podado = fFornecedor.filter((f) => validos.has(f));
     if (podado.length !== fFornecedor.length) setFFornecedor(podado);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fornecedores]);
+  }, [fornecedores, rows, cardsErro]);
 
-  const cards = useMemo(() => {
-    let list = filteredCards;
-    if (fFornecedor.length) list = list.filter((c) => fFornecedor.includes(c.empresa ?? ""));
-    if (fOrigem.length) list = list.filter((c) => fOrigem.includes(c.origem ?? "interno"));
+  const produtos = useMemo(() => {
+    let list = filtrarProdutosPl(todos, { busca, colecao: fColecao, fornecedor: fFornecedor, origem: fOrigem, etapa: fEtapa }, cfg, ligado);
     if (sortKey !== SORT_NONE) {
       list = [...list].sort((a, b) => {
         const av = (sortKey === "ref" ? a.ref : a.nome) ?? "";
@@ -142,22 +154,15 @@ function EtapasPlPage() {
       });
     }
     return list;
-  }, [filteredCards, fFornecedor, fOrigem, sortKey]);
+  }, [todos, busca, fColecao, fFornecedor, fOrigem, fEtapa, sortKey, cfg, ligado]);
 
-  const colunasAtivas = etapas.filter((e) => e.ativa);
-  const contagemPorEtapa = colunasAtivas.map((col) => ({
-    ...col,
-    count: cards.filter((c) => c.etapa === col.key).length,
-  }));
-  // Contagem da coluna terminal sintética "Finalizado" (fora de `colunasAtivas`/toggle-all —
-  // só entra no resumo pra deixar a soma dos cards visível/fechada).
-  const finalizadoCount = cards.filter((c) => c.etapa === ETAPA_FINALIZADO).length;
+  const contagem = useMemo(() => contarPorEtapaPl(produtos, etapaOpts, cfg, ligado), [produtos, etapaOpts, cfg, ligado]);
 
-  const allCollapsed =
-    colunasAtivas.length > 0 && colunasAtivas.every((c) => collapsedCols.has(c.key));
-  const toggleAllCols = () =>
-    setCollapsedCols(allCollapsed ? new Set() : new Set(colunasAtivas.map((c) => c.key)));
-  const toggleCol = (key: EtapaKey) =>
+  // ── Recolher colunas (as do fluxo; a terminal "Finalizado" tem o colapso próprio dentro do board) ──
+  const chavesColunas = useMemo(() => fluxoEtapasPl(cfg), [cfg]);
+  const allCollapsed = chavesColunas.length > 0 && chavesColunas.every((k) => collapsedCols.has(k));
+  const toggleAllCols = () => setCollapsedCols(allCollapsed ? new Set() : new Set(chavesColunas));
+  const toggleCol = (key: string) =>
     setCollapsedCols((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -165,9 +170,53 @@ function EtapasPlPage() {
       return next;
     });
 
-  const onAbrir = (modeloId: string) => {
-    setOverlayModeloId(modeloId);
+  // ── Mover ──
+  const moverMut = useMutation({
+    mutationFn: async (v: { id: string; para: string; ligado: boolean }) => {
+      if (modoGravarMoverPl(v.ligado) === "rpc") return { r: await etapasPlMover(v.id, v.para), direto: false as const };
+      await etapasPlDefinirStatusDireto(v.id, v.para);
+      return { r: null, direto: true as const };
+    },
+    onMutate: async ({ id, para, ligado: lig }) => {
+      // Otimista só no UPDATE direto (o status final é o pedido); na RPC o status vem da RESPOSTA.
+      if (lig) return { prev: undefined };
+      await qc.cancelQueries({ queryKey: ["etapas-pl-cards"] });
+      const prev = qc.getQueryData<ModeloPlRow[]>(["etapas-pl-cards", tenantId]);
+      qc.setQueryData<ModeloPlRow[]>(["etapas-pl-cards", tenantId], (old) =>
+        (old ?? []).map((m) => (m.id === id ? { ...m, status_etapa_pl: para } : m)),
+      );
+      return { prev };
+    },
+    onSuccess: (res, { id, para }) => {
+      if (res.r) {
+        const r = res.r;
+        if (r.status) {
+          qc.setQueryData<ModeloPlRow[]>(["etapas-pl-cards", tenantId], (old) =>
+            (old ?? []).map((m) => (m.id === id ? { ...m, status_etapa_pl: r.status } : m)),
+          );
+        }
+        const t = toastDoMoverPl(r, para, cfg);
+        if (t.tipo === "erro") toast.error(t.titulo);
+        else if (t.tipo === "ok") toast.success(t.titulo);
+        else toast.info(t.titulo);
+      }
+    },
+    onError: (e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["etapas-pl-cards", tenantId], ctx.prev);
+      // A tela leu a chave "ligada" e o servidor está "desligada" (outra aba/admin mudou): reler a config para o quadro voltar ao
+      // caminho manual na próxima interação, em vez de oferecer o arraste que o servidor já recusou.
+      if (ehRecusaChaveDesligadaPl(e)) qc.invalidateQueries({ queryKey: ["tenant-etapas-pl"] });
+      toast.error(mensagemErro(e, "Erro ao mover o card"));
+    },
+    // Servidor = autoridade: relê os cards E as condições (as da tela podem estar velhas depois de salvar/mover).
+    onSettled: () => invalidarQuadro(),
+  });
+  const onMover = (produtoId: string, para: string, _previsto: DestinoDropPl | null) => {
+    moverMut.mutate({ id: produtoId, para, ligado });
   };
+
+  const carregandoCards = cardsQ.isPending || cfgCarregando;
+  const semDados = rows === undefined;
 
   // Módulo Etapas PL (opt-in): guardado pelo `RequirePermission` (PageDef.gate) — a tela só monta com o módulo ligado.
   return (
@@ -178,12 +227,8 @@ function EtapasPlPage() {
         <div className="flex min-w-0 items-start gap-3">
           <ListChecks className="mt-0.5 h-7 w-7 shrink-0 text-primary" />
           <div className="min-w-0">
-            <h1 className="truncate font-display text-xl font-semibold tracking-tight">
-              Etapas — Produção PL
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Quadro de acompanhamento por etapa da confecção PL.
-            </p>
+            <h1 className="truncate font-display text-xl font-semibold tracking-tight">Etapas — Produção PL</h1>
+            <p className="text-sm text-muted-foreground">Quadro de acompanhamento por etapa da confecção PL.</p>
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 max-sm:justify-end sm:w-auto">
@@ -199,6 +244,12 @@ function EtapasPlPage() {
           <FilterButton
             screen="pcp-etapas"
             filters={[
+              {
+                label: "Etapa PL",
+                value: fEtapa,
+                onChange: setFEtapa,
+                options: etapaOpts.map((o) => ({ id: o.id, nome: o.label })),
+              },
               {
                 label: fl("colecao"),
                 value: fColecao,
@@ -227,17 +278,11 @@ function EtapasPlPage() {
             size="sm"
             className="hidden h-9 md:inline-flex"
             onClick={toggleAllCols}
-            disabled={colunasAtivas.length === 0}
+            disabled={chavesColunas.length === 0}
             title={allCollapsed ? "Expandir todas as colunas" : "Recolher todas as colunas"}
           >
-            {allCollapsed ? (
-              <ChevronsUpDown className="h-4 w-4 sm:mr-1" />
-            ) : (
-              <ChevronsDownUp className="h-4 w-4 sm:mr-1" />
-            )}
-            <span className="max-lg:sr-only">
-              {allCollapsed ? "Expandir colunas" : "Recolher colunas"}
-            </span>
+            {allCollapsed ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
+            <span className="max-lg:sr-only">{allCollapsed ? "Expandir colunas" : "Recolher colunas"}</span>
           </Button>
           <Button
             variant="outline"
@@ -246,30 +291,21 @@ function EtapasPlPage() {
             onClick={() => setMinimizedCards((v) => !v)}
             title={minimizedCards ? "Expandir cards" : "Recolher cards"}
           >
-            {minimizedCards ? (
-              <Maximize2 className="h-4 w-4 sm:mr-1" />
-            ) : (
-              <Minimize2 className="h-4 w-4 sm:mr-1" />
-            )}
-            <span className="max-lg:sr-only">
-              {minimizedCards ? "Expandir cards" : "Recolher cards"}
-            </span>
+            {minimizedCards ? <Maximize2 className="h-4 w-4 sm:mr-1" /> : <Minimize2 className="h-4 w-4 sm:mr-1" />}
+            <span className="max-lg:sr-only">{minimizedCards ? "Expandir cards" : "Recolher cards"}</span>
           </Button>
         </div>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-muted-foreground">
-          {cards.length} PL{cards.length === 1 ? "" : "s"} ativo{cards.length === 1 ? "" : "s"}
+          {produtos.length} PL{produtos.length === 1 ? "" : "s"} ativo{produtos.length === 1 ? "" : "s"}
         </span>
-        {contagemPorEtapa.map((c) => (
-          <span key={c.key} className="text-sm text-muted-foreground">
+        {contagem.map((c) => (
+          <span key={c.id} className="text-sm text-muted-foreground">
             · {c.label}: {c.count}
           </span>
         ))}
-        {finalizadoCount > 0 && (
-          <span className="text-sm text-muted-foreground">· Finalizado: {finalizadoCount}</span>
-        )}
         <div className="ml-auto flex items-center gap-1.5">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
           <Select value={sortKey} onValueChange={setSortKey}>
@@ -288,39 +324,45 @@ function EtapasPlPage() {
         </div>
       </div>
 
-      {ptErro && (
-        <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" role="alert">
-          <span>Não foi possível carregar a coluna Peça Teste. Os produtos em teste podem não aparecer.</span>
-          <Button type="button" variant="outline" size="sm" onClick={ptRecarregar} disabled={ptTentando}>
-            {ptTentando ? "Tentando…" : "Tentar de novo"}
-          </Button>
-        </div>
+      {/* P-57: falha de carga NÃO vira "quadro vazio" — avisa, oferece "Tentar de novo" e TRAVA o arraste (`podeMover`). */}
+      {cardsErro && (
+        <AvisoCarga
+          texto="Não foi possível carregar os produtos das Etapas PL. O quadro pode estar incompleto."
+          onTentar={() => void cardsQ.refetch()}
+          tentando={cardsQ.isFetching}
+        />
       )}
-
-      {!cardsLoading && cards.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Nenhum PL encontrado.</p>
-      ) : (
-        <EtapasBoard
-          cards={cards}
-          etapas={etapas}
-          collapsedCols={collapsedCols}
-          onToggleCol={toggleCol}
-          onAbrir={onAbrir}
-          onAbrirProduto={podeAbrirProduto ? setProdutoId : undefined}
-          minimizedCards={minimizedCards}
+      {cfgErro && (
+        <AvisoCarga
+          texto="Não foi possível carregar a configuração das Etapas PL. O arraste fica travado."
+          onTentar={() => qc.invalidateQueries({ queryKey: ["tenant-etapas-pl", tenantId] })}
+          tentando={cfgTentando}
+        />
+      )}
+      {condErro && (
+        <AvisoCarga
+          texto="Não foi possível ler as condições das etapas. O arraste fica travado."
+          onTentar={() => void condQ.refetch()}
+          tentando={condQ.isFetching}
         />
       )}
 
-      {/* [R9] card da coluna Peça Teste → Sheet do Planejamento (montado SÓ com id, senão abriria o Dialog de "Novo"). */}
-      {produtoId && podeAbrirProduto && (
-        <PlanejamentoDetail
-          modeloId={produtoId}
-          contexto="pcp-etapas"
-          onClose={() => {
-            setProdutoId(null);
-            invalidarQuadro();
-          }}
-          onSaved={invalidarQuadro}
+      {carregandoCards && semDados ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>
+      ) : semDados || cfgErro ? null : todos.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">Nenhum PL encontrado.</p>
+      ) : (
+        <EtapasPlKanban
+          produtos={produtos}
+          cfg={cfg}
+          ligado={ligado}
+          satisfeitasPorProduto={ligado ? condQ.data : undefined}
+          podeMover={podeMover}
+          collapsedCols={collapsedCols}
+          onToggleCol={toggleCol}
+          onAbrir={setOverlayModeloId}
+          onMover={onMover}
+          minimizedCards={minimizedCards}
         />
       )}
 
@@ -334,8 +376,8 @@ function EtapasPlPage() {
               onDirtyChange={setOverlayDirty}
             />
           )}
-          {/* Guarda DENTRO do SheetContent (portal) — mesma razão do pcp.servicos.index.tsx:
-              fora do portal o indicador "não salvo" não aparecia. */}
+          {/* Guarda DENTRO do SheetContent (portal) — mesma razão do pcp.servicos.index.tsx: fora do portal o indicador "não salvo"
+              não aparecia. */}
           <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nos Serviços." />
         </SheetContent>
       </Sheet>

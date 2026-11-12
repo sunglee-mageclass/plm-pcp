@@ -47,6 +47,7 @@ function tituloSeloPl(s: EtapaSeloPl): string {
 
 export function EtapaPlCard({
   produto, selo, onAbrir, draggable: isDraggable = false, dragging = false, onDragStartCard, onDragEndCard, moverOpts, onMover,
+  minimizado = false,
 }: {
   produto: ProdutoPlBoard;
   selo: EtapaSeloPl;
@@ -59,6 +60,8 @@ export function EtapaPlCard({
   /** Mobile: opções do "Mover para…" (sem isto o Select não aparece). */
   moverOpts?: MoverOptPl[];
   onMover?: (paraKey: string) => void;
+  /** "Recolher cards" da página: só nome + REF (+ alerta de atraso), sem foto nem selo. */
+  minimizado?: boolean;
 }) {
   const temAtraso = !!produto.atrasoServico || !!produto.atrasoPecaFoto;
   return (
@@ -86,11 +89,11 @@ export function EtapaPlCard({
           }
         }}
       >
-        <ModeloResumoFoto fontes={produto.fotoFontes} nome={produto.nome} className="h-14 w-14" />
+        {!minimizado && <ModeloResumoFoto fontes={produto.fotoFontes} nome={produto.nome} className="h-14 w-14" />}
         <div className="min-w-0 flex-1 space-y-1">
           <p className="truncate font-medium">{produto.nome ?? "Sem nome"}</p>
           {produto.ref && <p className="truncate font-mono text-xs text-primary">{produto.ref}</p>}
-          <EtapaKanbanBadge selo={seloParaBadge(selo)} titulo={tituloSeloPl(selo)} testId="etapa-pl-selo" compacto />
+          {!minimizado && <EtapaKanbanBadge selo={seloParaBadge(selo)} titulo={tituloSeloPl(selo)} testId="etapa-pl-selo" compacto />}
           {temAtraso && (
             <div className="flex flex-wrap gap-1">
               <ServicoAtrasoBadge atraso={produto.atrasoServico ?? null} tipo="servico" />

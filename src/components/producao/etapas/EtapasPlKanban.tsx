@@ -84,10 +84,12 @@ export type EtapasPlKanbanProps = {
   onAbrir: (produtoId: string) => void;
   /** Pedido de mover (já aprovado localmente). `previsto` = prévia da tabela única (ligada) ou null (desligada). */
   onMover: (produtoId: string, paraKey: string, previsto: DestinoDropPl | null) => void;
+  /** "Recolher cards" da página (só desktop): cards só com nome + REF (+ atraso). */
+  minimizedCards?: boolean;
 };
 
 export function EtapasPlKanban({
-  produtos, cfg, ligado, satisfeitasPorProduto, podeMover, collapsedCols, onToggleCol, onAbrir, onMover,
+  produtos, cfg, ligado, satisfeitasPorProduto, podeMover, collapsedCols, onToggleCol, onAbrir, onMover, minimizedCards = false,
 }: EtapasPlKanbanProps) {
   const fluxo = useMemo(() => fluxoEtapasPl(cfg), [cfg]);
   const colunas = useMemo(() => {
@@ -119,6 +121,9 @@ export function EtapasPlKanban({
   /** Aplica a decisão: ignora, avisa (bloqueio local) ou pede à rota. Único caminho do arraste E do "Mover para…". */
   const tentarMover = (p: ProdutoPlBoard, para: string) => {
     if (!podeMover || p.lancado === true) return;
+    // L2 (Task 8): soltar um card nulo/órfão (que o board mostra na 1ª coluna) na PRÓPRIA coluna efetiva não é mover (o status cru
+    // ≠ a key de lá, mas visualmente é a mesma coluna — mesmo critério do `isSelf` do arraste e do filtro do "Mover para…").
+    if (colunaEfetivaPl(p.status_etapa_pl, fluxo) === para) return;
     const dec = decidirMoverPl({ cfg, ligado, statusAtual: p.status_etapa_pl, para, satisfeitas: satDe(p.id) });
     if (dec.tipo === "ignorar") return;
     if (dec.tipo === "bloquear") {
@@ -168,6 +173,7 @@ export function EtapasPlKanban({
       produto={p}
       selo={seloDe(p)}
       onAbrir={onAbrir}
+      minimizado={minimizedCards && !mobile}
       draggable={!mobile && podeMover && p.lancado !== true}
       dragging={draggingId === p.id}
       onDragStartCard={() => setDraggingId(p.id)}
