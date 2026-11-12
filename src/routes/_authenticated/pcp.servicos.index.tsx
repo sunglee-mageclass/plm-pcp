@@ -56,6 +56,7 @@ function TercListPage() {
   const [fMes, setFMes] = useFilterState("pcp-servicos", "Mês", []);
   const [fAno, setFAno] = useFilterState("pcp-servicos", "Ano", []);
   const [fStatus, setFStatus] = useFilterState("pcp-servicos", "Status Geral", []);
+  const [fPecaTeste, setFPecaTeste] = useFilterState("pcp-servicos", "Peça Teste", []);
   const [fOrigem, setFOrigem] = useFilterState("pcp-servicos", "Origem", []);
   const [printReq, setPrintReq] = useState<{ id: string; token: number } | null>(null);
 
@@ -152,6 +153,19 @@ function TercListPage() {
     },
   });
 
+  // F6 — status da Peça Teste por modelo (3 estados: nao_exige | pendente | aprovada), para o selo
+  // na coluna Status e o filtro. RPC `peca_teste_status_lote` (DEFINER, gate producao + ver Serviços);
+  // modelo omitido do mapa = sem peça teste a exibir (= nao_exige).
+  const { data: ptStatusMap = {} } = useQuery<Record<string, string>>({
+    queryKey: ["producao-terc-peca-teste", modeloIds],
+    enabled: modeloIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("peca_teste_status_lote" as any, { _modelo_ids: modeloIds });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, string>;
+    },
+  });
+
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
     queryFn: async () => (await supabase.from("meses").select("id, nome:mes").order("ordem")).data ?? [],
@@ -189,6 +203,7 @@ function TercListPage() {
     if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
     if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
     if (fStatus.length && !fStatus.includes(r.statusGeral ?? "")) return false;
+    if (fPecaTeste.length && !fPecaTeste.includes(ptStatusMap[r.modelo_id] ?? "nao_exige")) return false;
     if (fOrigem.length && !fOrigem.includes(r.origem ?? "interno")) return false;
     return true;
   });
@@ -222,6 +237,11 @@ function TercListPage() {
                 { id: "pre_finalizado", nome: "Pré finalizado" },
                 { id: "finalizado", nome: "Finalizado" },
                 { id: "sem", nome: "Sem serviço" },
+              ] },
+              { label: "Peça Teste", value: fPecaTeste, onChange: setFPecaTeste, options: [
+                { id: "pendente", nome: "Peça teste pendente" },
+                { id: "aprovada", nome: "Peça teste aprovada" },
+                { id: "nao_exige", nome: "Sem peça teste" },
               ] },
               { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
                 { id: "interno", nome: "Interno" },
@@ -270,7 +290,7 @@ function TercListPage() {
                   versao={r.versao}
                   nome={r.nome}
                   categoria={r.categoria_nome}
-                  extra={<span className="inline-flex flex-wrap items-center gap-1"><StatusBadge status={r.statusGeral} />{atrasoBadge(r.modelo_id)}</span>}
+                  extra={<span className="inline-flex flex-wrap items-center gap-1"><StatusBadge status={r.statusGeral} /><PecaTesteBadge status={ptStatusMap[r.modelo_id]} />{atrasoBadge(r.modelo_id)}</span>}
                 />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
@@ -284,7 +304,7 @@ function TercListPage() {
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
-                <td className="px-4 py-2" data-label="Status"><span className="inline-flex flex-wrap items-center gap-1"><StatusBadge status={r.statusGeral} />{atrasoBadge(r.modelo_id)}</span></td>
+                <td className="px-4 py-2" data-label="Status"><span className="inline-flex flex-wrap items-center gap-1"><StatusBadge status={r.statusGeral} /><PecaTesteBadge status={ptStatusMap[r.modelo_id]} />{atrasoBadge(r.modelo_id)}</span></td>
                 <td className="px-4 py-2 text-center" data-label="">
                   <Button
                     variant="ghost"
@@ -329,4 +349,12 @@ function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" |
   if (status === "em_andamento") return <SharedStatusBadge tone="warning">Em andamento</SharedStatusBadge>;
   if (status === "pendente") return <SharedStatusBadge tone="neutral">Pendente</SharedStatusBadge>;
   return <SharedStatusBadge tone="neutral">Sem serv.</SharedStatusBadge>;
+}
+
+// F6 — selo de Peça Teste na coluna Status (ao lado do de Serviços). 3 estados: nao_exige = sem selo
+// (o modelo não tem serviço que exige peça teste); pendente = âmbar; aprovada = verde.
+function PecaTesteBadge({ status }: { status?: string }) {
+  if (status === "aprovada") return <SharedStatusBadge tone="success">Peça teste OK</SharedStatusBadge>;
+  if (status === "pendente") return <SharedStatusBadge tone="warning">Peça teste</SharedStatusBadge>;
+  return null; // nao_exige / ausente → sem selo
 }
