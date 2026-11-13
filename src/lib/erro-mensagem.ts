@@ -576,6 +576,8 @@ export const MENSAGENS_PECA_TESTE = {
   peca_teste_fornecedor_categoria: "Este fornecedor não está vinculado ao tipo de serviço. Vincule em Cadastro › Serviço ou escolha outro.",
   peca_teste_fornecedor_invalido: "Fornecedor de serviço inválido.",
   peca_teste_sem_fornecedor: "Escolha o fornecedor desta tentativa antes de aprovar ou reprovar a peça teste.",
+  peca_teste_aprovar_meio: "Há tentativas seguintes: exclua-as antes de aprovar esta.",
+  peca_teste_reabrir_meio: "Há tentativas seguintes: exclua-as antes de reabrir esta.",
   peca_teste_formato: "Não foi possível salvar a Peça Teste: os dados enviados estão incompletos. Recarregue o card e tente de novo.",
   peca_teste_modelo: "Este produto não foi encontrado (outra pessoa pode tê-lo excluído). Recarregue a tela.",
   peca_teste_sem_login: TEXTO_SESSAO_EXPIRADA,

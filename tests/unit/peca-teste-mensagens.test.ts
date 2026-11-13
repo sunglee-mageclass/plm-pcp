@@ -20,6 +20,8 @@ describe("mensagemErro — Peça Teste", () => {
     ["peca_teste_fornecedor_invalido", "P0001", "peca_teste_fornecedor_invalido: fornecedor de servico invalido", "Fornecedor de serviço inválido."],
     ["peca_teste_sem_fornecedor", "P0001", "peca_teste_sem_fornecedor: defina o fornecedor da tentativa antes de aprovar ou reprovar a peca teste", "Escolha o fornecedor desta tentativa antes de aprovar ou reprovar a peça teste."],
     ["peca_teste_fornecedor_categoria", "P0001", "peca_teste_fornecedor_categoria: fornecedor nao vinculado ao tipo de servico (vincule em Cadastro)", "Este fornecedor não está vinculado ao tipo de serviço. Vincule em Cadastro › Serviço ou escolha outro."],
+    ["peca_teste_aprovar_meio", "P0001", "peca_teste_aprovar_meio: ha tentativas seguintes - exclua as seguintes antes de aprovar esta", "Há tentativas seguintes: exclua-as antes de aprovar esta."],
+    ["peca_teste_reabrir_meio", "P0001", "peca_teste_reabrir_meio: ha tentativas seguintes - exclua as seguintes antes de reabrir esta", "Há tentativas seguintes: exclua-as antes de reabrir esta."],
     ["peca_teste_formato", "P0001", "peca_teste_formato: trilha invalida ou repetida", "Não foi possível salvar a Peça Teste: os dados enviados estão incompletos. Recarregue o card e tente de novo."],
     ["peca_teste_modelo", "P0001", "peca_teste_modelo: nao encontrado", "Este produto não foi encontrado (outra pessoa pode tê-lo excluído). Recarregue a tela."],
     ["peca_teste_sem_login", "42501", "peca_teste_sem_login: nao autenticado", TEXTO_SESSAO_EXPIRADA],

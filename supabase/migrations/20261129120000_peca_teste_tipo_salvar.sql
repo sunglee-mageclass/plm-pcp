@@ -1,5 +1,5 @@
 -- Reforma da Peca Teste por TIPO - migration 3 de 5 (SALVAR): o Salvar da Peca Teste passa a gravar por TIPO de servico.
--- Spec A1-A4. ESTE ARQUIVO CRESCE (Task 3 = base; Task 4 = historico editavel nos marcadores @@T4-...@@).
+-- Spec A1-A4 (Task 3 = nascer/aprovar/reprovar por tipo; Task 4 = historico editavel: corrigir, excluir + renumerar, mudar decisao).
 -- O que faz (so catalogo + 1 gatilho novo na propria tabela de tentativas; nenhum dado):
 --   1) helper NOVO _peca_teste_valida_fornecedor(tenant, tipo, empresa): fornecedor de SERVICO da loja E vinculado ao tipo
 --      (empresa_categorias_servico). Valida so quando o fornecedor da tentativa MUDA (um fornecedor ja congelado e desvinculado depois
@@ -97,7 +97,10 @@ DECLARE
   v_max integer;
   v_ult text;
   v_linha uuid;
-  -- @@T4-DECLARE@@
+  v_depois boolean;
+  v_n integer;
+  v_excluiu boolean;
+  r record;
 BEGIN
   -- [reforma pt] Salvar da secao Peca Teste POR TIPO (payload = so as trilhas tocadas, delta). Trilha = (modelo, categoria_id); a tentativa
   -- carrega o PROPRIO fornecedor (empresa_id; chave ausente = mantem). Ordem: (1) card da loja + formato; (2) chave do card PRIMEIRO
@@ -153,11 +156,6 @@ BEGIN
   EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format THEN
     RAISE EXCEPTION 'peca_teste_formato: data invalida' USING ERRCODE = 'P0001';
   END;
-  -- @@T4-EXCLUIR-RECUSA-INICIO@@
-  IF EXISTS (SELECT 1 FROM jsonb_array_elements(_trilhas) x WHERE jsonb_array_length(coalesce(x->'excluir', '[]'::jsonb)) > 0) THEN
-    RAISE EXCEPTION 'peca_teste_formato: exclusao de tentativa ainda nao suportada' USING ERRCODE = 'P0001';
-  END IF;
-  -- @@T4-EXCLUIR-RECUSA-FIM@@
 
   PERFORM pg_advisory_xact_lock(hashtext('cad:modelo_id:' || _modelo_id::text));
 
@@ -190,7 +188,25 @@ BEGIN
 
   FOR tr IN SELECT x FROM jsonb_array_elements(_trilhas) x LOOP
     v_cat := (tr->>'categoria_id')::uuid;
-    -- @@T4-EXCLUIR-PASSO@@
+    -- exclusoes (A3): estorna a baixa da mini (compensatoria, idempotente), apaga e RENUMERA as seguintes (o rev ja foi conferido acima;
+    -- a renumeracao sobe o rev das seguintes: quem editava com a base velha leva P0409 no proximo Salvar). Renumera em ordem
+    -- crescente: o destino de cada linha e sempre livre (numero novo <= numero velho, e os velhos sao estritamente crescentes).
+    v_excluiu := false;
+    FOR v_id IN SELECT (e #>> '{}')::uuid FROM jsonb_array_elements(coalesce(tr->'excluir', '[]'::jsonb)) e LOOP
+      PERFORM public._peca_teste_mini_estornar(v_id);
+      DELETE FROM public.modelo_peca_teste_tentativas WHERE id = v_id;
+      v_excluiu := true;
+    END LOOP;
+    IF v_excluiu THEN
+      v_n := 0;
+      FOR r IN SELECT t.id, t.numero FROM public.modelo_peca_teste_tentativas t
+                WHERE t.modelo_id = _modelo_id AND t.categoria_terceirizado_id = v_cat ORDER BY t.numero LOOP
+        v_n := v_n + 1;
+        IF r.numero <> v_n THEN
+          UPDATE public.modelo_peca_teste_tentativas SET numero = v_n, updated_at = now() WHERE id = r.id;
+        END IF;
+      END LOOP;
+    END IF;
 
     -- tentativas EXISTENTES (id)
     FOR tt IN SELECT x FROM jsonb_array_elements(coalesce(tr->'tentativas', '[]'::jsonb)) x WHERE x->>'id' IS NOT NULL LOOP
@@ -200,17 +216,7 @@ BEGIN
       v_entrada := (tt->>'data_entrada')::date;
       v_aprov := tt->>'aprovacao';
       v_forn := CASE WHEN tt ? 'empresa_id' THEN nullif(tt->>'empresa_id', '')::uuid ELSE v_t.empresa_id END;
-      -- @@T4-REPROVADA-INICIO@@
-      -- reprovada = so leitura (o literal reprovado fica fora: o anti-drift da Mod T4 o reserva ao status do card; o CHECK da tabela
-      -- so aceita aprovado/reprovado, entao "aprovacao diferente de aprovado e nao nula" = reprovada)
-      IF v_t.aprovacao IS NOT NULL AND v_t.aprovacao <> 'aprovado' THEN
-        IF v_saida IS DISTINCT FROM v_t.data_saida OR v_entrada IS DISTINCT FROM v_t.data_entrada
-           OR v_aprov IS DISTINCT FROM v_t.aprovacao OR v_forn IS DISTINCT FROM v_t.empresa_id THEN
-          RAISE EXCEPTION 'peca_teste_historico: tentativa reprovada e so leitura' USING ERRCODE = 'P0001';
-        END IF;
-        CONTINUE;
-      END IF;
-      -- @@T4-REPROVADA-FIM@@
+      -- reprovada: corrigir datas, fornecedor e mini e PERMITIDO (A3); a decisao so muda pelas regras do bloco de decisao abaixo
       -- aprovada mantida = datas E fornecedor travados
       IF v_t.aprovacao = 'aprovado' AND v_aprov = 'aprovado' THEN
         IF v_saida IS DISTINCT FROM v_t.data_saida OR v_entrada IS DISTINCT FROM v_t.data_entrada THEN
@@ -221,8 +227,18 @@ BEGIN
         END IF;
         CONTINUE;
       END IF;
-      -- @@T4-DECISAO-INICIO@@
-      -- @@T4-DECISAO-FIM@@
+      -- mudar a decisao de uma tentativa que NAO e a ultima da trilha (o literal reprovado fica fora do SQL: o anti-drift da Mod T4 o
+      -- reserva ao status do card): aprovar a do meio e reabrir a do meio BLOQUEIAM - exclua as seguintes primeiro
+      v_depois := EXISTS (SELECT 1 FROM public.modelo_peca_teste_tentativas t
+                           WHERE t.modelo_id = _modelo_id AND t.categoria_terceirizado_id = v_cat AND t.numero > v_t.numero);
+      IF v_depois AND v_aprov IS DISTINCT FROM v_t.aprovacao THEN
+        IF v_aprov = 'aprovado' THEN
+          RAISE EXCEPTION 'peca_teste_aprovar_meio: ha tentativas seguintes - exclua as seguintes antes de aprovar esta' USING ERRCODE = 'P0001';
+        END IF;
+        IF v_aprov IS NULL THEN
+          RAISE EXCEPTION 'peca_teste_reabrir_meio: ha tentativas seguintes - exclua as seguintes antes de reabrir esta' USING ERRCODE = 'P0001';
+        END IF;
+      END IF;
       IF v_saida IS NULL AND v_entrada IS NULL AND v_aprov IS NULL AND v_forn IS NULL THEN
         -- so apaga (volta a VIRTUAL) sem mini com dado (no PAYLOAD ou ja gravada) e sem historico de baixa
         IF NOT (tt ? 'mini' AND jsonb_typeof(tt->'mini') = 'object')

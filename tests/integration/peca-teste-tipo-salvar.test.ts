@@ -192,3 +192,121 @@ describe.skipIf(!RODA)("reforma por TIPO — Salvar: nascer / aprovar / reprovar
     });
   });
 });
+
+/** Card com 3 tentativas: 1 (F1) e 2 (F2) reprovadas + 3 em teste (F1), todas gravadas. */
+async function tresTentativas(c: Client): Promise<{ s: Cen; ids: string[] }> {
+  const s = await cenario(c);
+  const ids = [
+    await novaTentativa(c, { modelo: s.m, cat: s.cat, numero: 1, aprovacao: "reprovado", emp: s.f1 }),
+    await novaTentativa(c, { modelo: s.m, cat: s.cat, numero: 2, aprovacao: "reprovado", emp: s.f2 }),
+    await novaTentativa(c, { modelo: s.m, cat: s.cat, numero: 3, aprovacao: null, emp: s.f1, entrada: null }),
+  ];
+  return { s, ids };
+}
+const revDe = async (c: Client, id: string) => (await um<{ rev: number }>(c, "SELECT rev FROM public.modelo_peca_teste_tentativas WHERE id = $1", [id])).rev;
+
+describe.skipIf(!RODA)("reforma por TIPO — Salvar: histórico editável (Task 4)", () => {
+  it("1) corrigir a REPROVADA (datas e fornecedor): a decisão fica, o rev sobe; ela ainda exige as 2 datas e o fornecedor", async () => {
+    await withTx(async (c) => {
+      const { s, ids } = await tresTentativas(c);
+      const r0 = await revDe(c, ids[0]);
+      await salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: ids[0], numero: 1, empresa_id: s.f2, data_saida: "2026-09-30", data_entrada: D2, aprovacao: "reprovado" })] }], { [ids[0]]: r0 });
+      const t = (await tentativas(c, s.m, s.cat))[0];
+      expect(t).toMatchObject({ aprovacao: "reprovado", empresa_id: s.f2, data_saida: "2026-09-30" });
+      expect(t.rev).toBeGreaterThan(r0);
+      const semForn = await tenta(c, () => salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: ids[0], numero: 1, empresa_id: null, data_saida: D1, data_entrada: D2, aprovacao: "reprovado" })] }], { [ids[0]]: t.rev }));
+      expect(semForn?.message).toMatch(/^peca_teste_sem_fornecedor: /);
+      const semData = await tenta(c, () => salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: ids[0], numero: 1, empresa_id: s.f1, data_saida: D1, data_entrada: null, aprovacao: "reprovado" })] }], { [ids[0]]: t.rev }));
+      expect(semData?.message).toMatch(/^peca_teste_sem_datas: /);
+      const foraDoTipo = await novoFornecedor(c, "Fora sv4", []);
+      const e = await tenta(c, () => salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: ids[0], numero: 1, empresa_id: foraDoTipo, data_saida: D1, data_entrada: D2, aprovacao: "reprovado" })] }], { [ids[0]]: t.rev }));
+      expect(e?.message).toMatch(/^peca_teste_fornecedor_categoria: /);
+    });
+  });
+
+  it("2) (Review 4) aprovar a tentativa do MEIO com posteriores BLOQUEIA (peca_teste_aprovar_meio); reabri-la também (reabrir_meio); a ÚLTIMA pode", async () => {
+    await withTx(async (c) => {
+      const { s, ids } = await tresTentativas(c);
+      const r1 = await revDe(c, ids[0]);
+      const aprovar = await tenta(c, () => salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: ids[0], numero: 1, empresa_id: s.f1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] }], { [ids[0]]: r1 }));
+      expect(aprovar).toMatchObject({ code: "P0001" });
+      expect(aprovar?.message).toMatch(/^peca_teste_aprovar_meio: /);
+      const reabrir = await tenta(c, () => salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: ids[0], numero: 1, empresa_id: s.f1, data_saida: D1, data_entrada: D2, aprovacao: null })] }], { [ids[0]]: r1 }));
+      expect(reabrir?.message).toMatch(/^peca_teste_reabrir_meio: /);
+      expect((await tentativas(c, s.m, s.cat)).map((t) => t.aprovacao)).toEqual(["reprovado", "reprovado", null]); // nada gravou
+      // a última (3, em teste) decide normalmente
+      const r3 = await revDe(c, ids[2]);
+      await salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: ids[2], numero: 3, empresa_id: s.f1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] }], { [ids[2]]: r3 });
+      expect((await tentativas(c, s.m, s.cat)).at(-1)!.aprovacao).toBe("aprovado");
+    });
+  });
+
+  it("3) (Review 5) reabrir a APROVADA (→ reprovada OU → pendente) rebaixa peca_teste_aprovada no Dev e no PL (o card regride no kanban); o gatilho de regressão do kanban está vivo", async () => {
+    await withTx(async (c) => {
+      for (const para of ["reprovado", null] as const) {
+        const s = await cenario(c);
+        const t1 = await lanca(c, s, s.f1);
+        await salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: t1.id, numero: 1, empresa_id: s.f1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] }], { [t1.id]: t1.rev });
+        expect(await chaveKanban(c, "_avaliar_condicoes_kanban_core", s.m), `aprovada (${para})`).toBe(true);
+        expect(await chaveKanban(c, "_avaliar_condicoes_etapas_pl_core", s.m)).toBe(true);
+        await salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: t1.id, numero: 1, empresa_id: s.f1, data_saida: D1, data_entrada: D2, aprovacao: para })] }], { [t1.id]: await revDe(c, t1.id) });
+        expect(await chaveKanban(c, "_avaliar_condicoes_kanban_core", s.m), `reaberta (${para})`).toBe(false);
+        expect(await chaveKanban(c, "_avaliar_condicoes_etapas_pl_core", s.m)).toBe(false);
+      }
+      expect(await um(c, "SELECT tgenabled FROM pg_trigger WHERE tgname = 'trg_peca_teste_regredir' AND tgrelid = 'public.modelo_peca_teste_tentativas'::regclass")).toMatchObject({ tgenabled: "O" });
+    });
+  });
+
+  it("4) (Review 3) EXCLUIR a tentativa 2 de 3: apaga, RENUMERA as seguintes (3 → 2), estorna a baixa da mini (líquido 0, ledger fica) e sobe o rev das seguintes", async () => {
+    await withTx(async (c) => {
+      const { s, ids } = await tresTentativas(c);
+      // baixa ATIVA simulada na tentativa 2 (cabeçalho da mini + ledger do aviamento)
+      const avi = (await um<{ id: string }>(c, "INSERT INTO public.aviamentos (tenant_id, codigo_nome, preco) VALUES ($1, $2, 1) RETURNING id", [T, `avi ${suf()}`])).id;
+      await comoSistema(c, async () => {
+        await c.query("INSERT INTO public.modelo_peca_teste_mini (tentativa_id, tenant_id, modelo_id, tamanho, baixa_em) VALUES ($1, $2, $3, 'M', now())", [ids[1], T, s.m]);
+        await c.query(
+          `INSERT INTO public.estoque_peca_teste_baixas (tenant_id, tentativa_id, modelo_id, familia, aviamento_id, origem, quantidade, rotulo)
+           VALUES ($1, $2, $3, 'aviamento', $4, 'peca_teste', 5, 'x')`, [T, ids[1], s.m, avi]);
+      });
+      const r2 = await revDe(c, ids[1]);
+      const r3antes = await revDe(c, ids[2]);
+      await salvarPT(c, s.m, [{ categoria_id: s.cat, excluir: [ids[1]], tentativas: [] }], { [ids[1]]: r2 });
+      const dep = await tentativas(c, s.m, s.cat);
+      expect(dep.map((t) => [t.id, t.numero])).toEqual([[ids[0], 1], [ids[2], 2]]);
+      expect(dep[1].rev).toBeGreaterThan(r3antes); // a renumeração sobe o rev (quem editava com a base velha leva P0409)
+      const led = await um<{ liquido: string; linhas: string; sem_tentativa: string }>(c,
+        "SELECT sum(quantidade) AS liquido, count(*) AS linhas, count(*) FILTER (WHERE tentativa_id IS NULL) AS sem_tentativa FROM public.estoque_peca_teste_baixas WHERE aviamento_id = $1", [avi]);
+      expect(Number(led.liquido)).toBe(0);
+      expect(led.linhas).toBe("2"); // a baixa e o estorno (nunca DELETE)
+      expect(led.sem_tentativa).toBe("2"); // a FK ON DELETE SET NULL soltou as duas
+      expect(await um(c, "SELECT 1 AS x FROM public.modelo_peca_teste_mini WHERE tentativa_id = $1", [ids[1]])).toBeUndefined(); // a mini cai junto
+    });
+  });
+
+  it("5) excluir com rev VELHO = P0409 e nada apaga; excluir + editar OUTRA tentativa na mesma chamada passa (os revs são conferidos ANTES da renumeração)", async () => {
+    await withTx(async (c) => {
+      const { s, ids } = await tresTentativas(c);
+      const r2 = await revDe(c, ids[1]);
+      const velho = await tenta(c, () => salvarPT(c, s.m, [{ categoria_id: s.cat, excluir: [ids[1]], tentativas: [] }], { [ids[1]]: r2 + 3 }));
+      expect(velho?.message).toMatch(CONFLITO);
+      expect(await tentativas(c, s.m, s.cat)).toHaveLength(3);
+      const r3 = await revDe(c, ids[2]);
+      await salvarPT(c, s.m, [{ categoria_id: s.cat, excluir: [ids[1]], tentativas: [tp({ id: ids[2], numero: 2, empresa_id: s.f2, data_saida: D1, data_entrada: null })] }], { [ids[1]]: r2, [ids[2]]: r3 });
+      expect((await tentativas(c, s.m, s.cat)).map((t) => [t.numero, t.empresa_id])).toEqual([[1, s.f1], [2, s.f2]]);
+    });
+  });
+
+  it("6) excluir a APROVADA rebaixa peca_teste_aprovada; excluir a única tentativa devolve a trilha a 'virtual' e a próxima nasce com o nº 1", async () => {
+    await withTx(async (c) => {
+      const s = await cenario(c);
+      const t1 = await lanca(c, s, s.f1);
+      await salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ id: t1.id, numero: 1, empresa_id: s.f1, data_saida: D1, data_entrada: D2, aprovacao: "aprovado" })] }], { [t1.id]: t1.rev });
+      expect(await chaveKanban(c, "_avaliar_condicoes_kanban_core", s.m)).toBe(true);
+      await salvarPT(c, s.m, [{ categoria_id: s.cat, excluir: [t1.id], tentativas: [] }], { [t1.id]: await revDe(c, t1.id) });
+      expect(await tentativas(c, s.m, s.cat)).toEqual([]);
+      expect(await chaveKanban(c, "_avaliar_condicoes_kanban_core", s.m)).toBe(false);
+      await salvarPT(c, s.m, [{ categoria_id: s.cat, tentativas: [tp({ numero: 1, empresa_id: s.f1, data_saida: D1 })] }]);
+      expect((await tentativas(c, s.m, s.cat))[0].numero).toBe(1);
+    });
+  });
+});
