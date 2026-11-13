@@ -7,7 +7,7 @@ import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { CONDICOES_PL } from "@/lib/etapas-pl-condicoes";
 import { fluxoEtapasPl } from "@/lib/etapas-pl-config";
 import {
-  CONDICOES_ENTRADA_PL, aplicarMudancaBoardPl, condicoesIndisponiveisPl, fecharEdicaoBoardPl, rotulosComChaveRepetidaPl,
+  CONDICOES_ENTRADA_PL, aplicarMudancaBoardPl, fecharEdicaoBoardPl, rotulosComChaveRepetidaPl,
   type EdicoesBoardPl,
 } from "@/lib/etapas-pl-edicao";
 import { etapasPlDefinirAutomatico, etapasPlPreviaRestauracao, etapasPlRestaurar } from "@/lib/etapas-pl-rpc";
@@ -68,8 +68,7 @@ const CATALOGO_PL: CatalogoRequisitos = {
   modulos: [{ key: "pl", label: "Condições de produção" }],
   condicoes: CONDICOES_PL.map((c) => ({ ...c, modulo: "pl" })),
 };
-const KEYS_PL = CONDICOES_PL.map((c) => c.key);
-const MOTIVO_SO_ENTRADA = "A porta de entrada só aceita condições de entrada (Tem peça teste ou Enviado a Serviços).";
+const MOTIVO_PORTA_ENTRADA = "A 1ª coluna é a porta de entrada: o produto entra no quadro ao cumprir os requisitos dela.";
 
 export type EtapasPlConfigCardProps = {
   /** Colunas do rascunho (labels). */
@@ -157,7 +156,7 @@ export function EtapasPlConfigCard({
               {primeira && (
                 <span
                   data-testid="etapas-pl-porta-entrada"
-                  title={MOTIVO_SO_ENTRADA}
+                  title={MOTIVO_PORTA_ENTRADA}
                   className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                 >
                   porta de entrada
@@ -177,9 +176,6 @@ export function EtapasPlConfigCard({
                 herdados={requisitosHerdados(key, ordemKeys, requisitos)}
                 nomeEtapa={(sk) => board.find((l) => resolveStatusKey(l) === sk) ?? sk}
                 catalogo={CATALOGO_PL}
-                condsIndisponiveis={condicoesIndisponiveisPl(primeira, KEYS_PL, reqsDaColuna)}
-                rotuloIndisponivel="só entrada"
-                motivoIndisponivel={MOTIVO_SO_ENTRADA}
                 colabPath="cfg:etapas_pl_requisitos"
               />
             </>
@@ -188,7 +184,8 @@ export function EtapasPlConfigCard({
         footer={
           <div className="space-y-1.5 border-t pt-3 text-xs text-muted-foreground">
             <p>
-              Na porta de entrada só valem as condições de entrada ({CONDICOES_ENTRADA_PL.map((k) => CONDICOES_PL.find((c) => c.key === k)?.label ?? k).join(" ou ")}).
+              A 1ª coluna é a porta de entrada: o produto entra nela ao cumprir os requisitos que você definir
+              (sugestão: {CONDICOES_ENTRADA_PL.map((k) => CONDICOES_PL.find((c) => c.key === k)?.label ?? k).join(" ou ")}).
               Mudar os requisitos da 1ª coluna não reavalia produtos que já estão fora do quadro.
             </p>
             {ligado && (

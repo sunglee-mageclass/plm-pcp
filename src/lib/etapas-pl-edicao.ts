@@ -7,15 +7,13 @@
  */
 import { resolveStatusKey } from "./kanban-status";
 
-/** Ruling do controlador: a 1ª coluna é a porta de entrada — só oferece condições de ENTRADA. */
+/** Condições sugeridas como porta de entrada (só p/ texto/ajuda; NÃO restringem mais — dono liberou todas, 13/11). */
 export const CONDICOES_ENTRADA_PL: readonly string[] = ["tem_peca_teste", "enviado_a_servicos"];
 
-/** Keys do catálogo que NÃO podem ser ADICIONADAS na coluna: na 1ª coluna, tudo que não é condição de entrada; nas demais, nada.
- *  Condição JÁ gravada na 1ª coluna (config antiga/API) fica editável, para dar para REMOVÊ-LA. */
-export function condicoesIndisponiveisPl(primeiraColuna: boolean, todasAsKeys: readonly string[], requisitosAtuais: readonly string[]): string[] {
-  if (!primeiraColuna) return [];
-  const atuais = new Set(requisitosAtuais);
-  return todasAsKeys.filter((k) => !CONDICOES_ENTRADA_PL.includes(k) && !atuais.has(k));
+/** Nenhuma condição é bloqueada na config das Etapas PL (dono liberou a porta de entrada a todas, 13/11): a 1ª coluna
+ *  aceita qualquer condição, como as demais. Mantido como função para o card não precisar mudar a assinatura. */
+export function condicoesIndisponiveisPl(_primeiraColuna: boolean, _todasAsKeys: readonly string[], _requisitosAtuais: readonly string[]): string[] {
+  return [];
 }
 
 const keyDe = (label: string) => resolveStatusKey(label);

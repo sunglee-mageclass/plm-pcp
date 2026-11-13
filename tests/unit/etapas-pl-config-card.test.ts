@@ -2,7 +2,7 @@
 // Kanban PL — Onda 3, Task 7: card "Etapas PL" da Config da Loja (colunas + requisitos + chave).
 // (1) regras puras da edição (`etapas-pl-edicao`): renomear MIGRA o requisito, ordem/remoção/porta de entrada;
 // (2) render de verdade do card (react-dom/client + act; sem @testing-library — o vitest só inclui `*.test.ts`, por isso sem JSX):
-//     lista as colunas, abre o diálogo de requisitos com as condições PL, a 1ª coluna só oferece tem_peca_teste/enviado_a_servicos,
+//     lista as colunas, abre o diálogo de requisitos com as condições PL, a 1ª coluna (porta de entrada) aceita TODAS as condições (dono liberou 13/11),
 //     as demais o catálogo inteiro, e o switch da chave usa as RPCs PL (sem prévia de ligar);
 // (3) o uso do Dev segue intacto (defaults do contrato `KANBAN_CHAVE_API_DEV`).
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -30,18 +30,12 @@ const ROOT = process.cwd() + "/"; // (em happy-dom `import.meta.url` não é fil
 const KEYS = CONDICOES_PL.map((c) => c.key);
 
 describe("etapas-pl-edicao (regras puras)", () => {
-  it("a porta de entrada só aceita as condições de ENTRADA; as demais colunas, o catálogo inteiro", () => {
+  it("porta de entrada LIBERADA (dono 13/11): a 1ª coluna aceita QUALQUER condição, como as demais", () => {
+    // CONDICOES_ENTRADA_PL segue existindo só como sugestão/texto, não como restrição.
     expect([...CONDICOES_ENTRADA_PL]).toEqual(["tem_peca_teste", "enviado_a_servicos"]);
-    const bloqueadas = condicoesIndisponiveisPl(true, KEYS, []);
-    expect(bloqueadas).toHaveLength(6);
-    expect(bloqueadas).not.toContain("tem_peca_teste");
-    expect(bloqueadas).not.toContain("enviado_a_servicos");
-    expect(condicoesIndisponiveisPl(false, KEYS, [])).toEqual([]);
-  });
-
-  it("condição fora da lista JÁ gravada na 1ª coluna continua editável (dá para removê-la)", () => {
-    expect(condicoesIndisponiveisPl(true, KEYS, ["cq_liberado"])).not.toContain("cq_liberado");
-    expect(condicoesIndisponiveisPl(true, KEYS, ["cq_liberado"])).toHaveLength(5);
+    expect(condicoesIndisponiveisPl(true, KEYS, [])).toEqual([]);  // 1ª coluna: nada bloqueado
+    expect(condicoesIndisponiveisPl(false, KEYS, [])).toEqual([]); // demais: nada bloqueado
+    expect(condicoesIndisponiveisPl(true, KEYS, ["cq_liberado"])).toEqual([]);
   });
 
   it("renomear MIGRA o requisito para a key nova (a porta de entrada não perde a condição)", () => {
@@ -192,15 +186,14 @@ describe("EtapasPlConfigCard (render)", () => {
     expect(linhaCond("Enviado a Serviços").textContent).not.toContain("só entrada"); // restrição é SÓ da 1ª coluna
   });
 
-  it("1ª coluna (porta de entrada): só tem_peca_teste e enviado_a_servicos selecionáveis; as outras 6 esmaecidas", () => {
+  it("1ª coluna (porta de entrada) LIBERADA: TODAS as condições PL selecionáveis, nenhuma esmaecida (dono 13/11)", () => {
     montar();
     clicar(botaoRequisitos(0));
     expect(document.body.querySelector("[role=dialog]")).toBeTruthy();
     const porKey = Object.fromEntries(CONDICOES_PL.map((c) => [c.key, c.label]));
-    for (const k of CONDICOES_ENTRADA_PL) expect(desabilitada(porKey[k]), k).toBe(false);
-    for (const k of KEYS.filter((x) => !CONDICOES_ENTRADA_PL.includes(x))) {
-      expect(desabilitada(porKey[k]), k).toBe(true);
-      expect(linhaCond(porKey[k]).textContent).toContain("só entrada");
+    for (const k of KEYS) {
+      expect(desabilitada(porKey[k]), k).toBe(false);
+      expect(linhaCond(porKey[k]).textContent).not.toContain("só entrada");
     }
   });
 
