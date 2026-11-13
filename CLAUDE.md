@@ -761,11 +761,15 @@ e verifique** — o repo muda rápido.
    (`0b040678`, `53865b07`, `9a77fc69`, `c575f73d`) só andam na 1ª leitura real de `servicos_financeiro`. Total de serviços
    no Financeiro separa **Pago** e **A pagar** (R9 fin #7).
    **MO por serviço (ago/2026):** o antigo flag único virou **agregado DERIVADO**.
-   `modelo_servico_mo` guarda 1 linha por **modelo×serviço** (`categoria_terceirizado_id`;
+   `modelo_servico_mo` guarda 1 linha por **instância de serviço** (`categoria_terceirizado_id`;
    `NULL` = "Geral (legado)", do backfill) com `valor` + `aprovado` (`null`=pendente/true/false)
-   + `motivo_reprovacao`; editor por-serviço no **card do Planejamento** (`MaoObraEditor`;
-   dropdown de adicionar só lista serviços `categorias_terceirizado.ativo=true` — toggle
-   soft-hide, Cadastro > Serviços; usados somem do dropdown mas linhas históricas em categoria
+   + `motivo_reprovacao`; **multi-instância (set/2026, `20260916300000`)**: o mesmo tipo pode repetir
+   (sem UNIQUE no banco) — **EXCETO na UI** o tipo com `exige_peca_teste=true`, que entra **1x por
+   produto** (freio SÓ de tela, nov/2026, `categoriasParaAdicionar` em `src/lib/mao-obra.ts`; sem trava
+   no banco — a reforma futura da peça teste pode querer 2 linhas); editor por-serviço no **card do
+   Planejamento** (`MaoObraEditor`/`MaoObraCardMini`; dropdown de adicionar só lista serviços
+   `categorias_terceirizado.ativo=true` — toggle soft-hide, Cadastro > Serviços; o tipo de peça teste
+   já presente some do dropdown, os demais seguem repetindo; linhas históricas em categoria
    desativada persistem). `modelos.custo_terceirizados_aprovado` **não é mais escrito pela UI**:
    trigger `fn_modelo_mo_flag_derivada` (BEFORE INSERT/UPDATE em `modelos`) re-deriva em TODA
    escrita via `_mo_liberada(modelo_id)` = `NOT EXISTS(linha com aprovado IS DISTINCT FROM true)`

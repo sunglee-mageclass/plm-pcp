@@ -6,7 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
-import { moLinhaVaiReabrir, somaAprovadaVigente, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, TEXTO_CUSTO_LIBERADO_AUTO, TEXTO_CUSTO_LIBERADO_AUTO_INFO, type MoLinha } from "@/lib/mao-obra";
+import { toast } from "sonner";
+import { moLinhaVaiReabrir, somaAprovadaVigente, categoriasParaAdicionar, servicoPecaTesteJaNoProduto, TEXTO_MO_PECA_TESTE_JA_NO_PRODUTO, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, TEXTO_CUSTO_LIBERADO_AUTO, TEXTO_CUSTO_LIBERADO_AUTO_INFO, type MoLinha } from "@/lib/mao-obra";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
@@ -14,14 +15,15 @@ const NENHUM_FORNECEDOR = "__nenhum__";
 const TEXTO_FORNECEDOR_TRAVADO_MO = "Peça teste aprovada: fornecedor travado";
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
 export type FornecedorServicoOpt = { id: string; nome_fantasia: string };
-export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; valor_padrao?: number | null };
+export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; valor_padrao?: number | null; exige_peca_teste?: boolean | null };
 
 /**
  * Editor de MO POR SERVIÇO (Planejamento). VALOR é rascunho local (persiste no Salvar da página
  * via `onChangeLinhas`); Aprovar/Reprovar é imediato (`onAprovar`/`onReprovar` por INSTÂNCIA, gated
  * no servidor). MULTI-INSTÂNCIA (set/2026): o mesmo serviço pode ser adicionado N vezes — a
  * identidade de uma linha é o seu `id` (não mais o serviço). O dropdown de adicionar NÃO esconde
- * mais os serviços usados; "Geral (legado)" (`categoria_terceirizado_id = null`) segue possível
+ * os serviços usados — EXCETO o tipo que exige peça teste (`exige_peca_teste`), 1x por produto (freio só de
+ * tela, nov/2026; ver `categoriasParaAdicionar`); "Geral (legado)" (`categoria_terceirizado_id = null`) segue possível
  * como linha antiga. As operações locais são por ÍNDICE do array (a lista inteira é reenviada no
  * Salvar; o servidor casa por `id` e insere as novas).
  */
@@ -74,9 +76,10 @@ export function MaoObraEditor({
   const [addSel, setAddSel] = useState<string>("");
   const [repro, setRepro] = useState<{ linhaId: string } | null>(null);
 
-  // Multi-instância: o dropdown lista TODOS os serviços ativos (repetir é permitido). Categorias
-  // inativas não entram como opção nova, mas linhas históricas nelas continuam editáveis.
-  const disponiveis = categorias.filter((c) => c.ativo !== false);
+  // Multi-instância: o dropdown lista os serviços ativos (repetir é permitido), MENOS o tipo que exige peça teste e já
+  // está no produto (1x por produto, só na tela). Categorias inativas não entram como opção nova, mas linhas
+  // históricas nelas continuam editáveis.
+  const disponiveis = categoriasParaAdicionar(categorias, linhas);
   const nomeCat = (id: string | null) => id == null ? "Geral (legado)" : (categorias.find((c) => c.id === id)?.nome ?? "Serviço");
 
   const setFornecedorAt = (idx: number, empresaId: string | null) =>
@@ -87,6 +90,12 @@ export function MaoObraEditor({
     onChangeLinhas(linhas.filter((_, i) => i !== idx));
   const adicionar = () => {
     if (!addSel) return;
+    // Guarda defensiva: o dropdown já esconde, mas a escolha pode ter ficado velha (outra aba/merge trouxe o tipo).
+    if (servicoPecaTesteJaNoProduto(categorias, linhas, addSel)) {
+      toast.info(TEXTO_MO_PECA_TESTE_JA_NO_PRODUTO);
+      setAddSel("");
+      return;
+    }
     // Sugestão: pré-preenche o valor com o `valor_padrao` do serviço (M.O. sugerida por serviço).
     // Fica editável; só afeta a linha NOVA (sem id — o servidor gera no Salvar).
     const padrao = categorias.find((c) => c.id === addSel)?.valor_padrao ?? null;

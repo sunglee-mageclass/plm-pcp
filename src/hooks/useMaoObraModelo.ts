@@ -27,7 +27,7 @@ export function useMaoObraModelo(modeloId: string | null | undefined, podeVerCus
     queryKey: ["cats-servico-mo"],
     queryFn: async () => {
       const { data, error } = await supabase.from("categorias_terceirizado")
-        .select("id, nome, ativo, valor_padrao").order("ordem").order("nome");
+        .select("id, nome, ativo, valor_padrao, exige_peca_teste").order("ordem").order("nome");
       if (error) throw error;
       return (data ?? []) as CategoriaServicoOpt[];
     },

@@ -270,9 +270,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
     queryKey: ["cats-servico-ativas"],
     queryFn: async () => {
       const { data, error } = await (supabase.from("categorias_terceirizado") as any)
-        .select("id, nome, ativo").order("ordem").order("nome");
+        .select("id, nome, ativo, valor_padrao, exige_peca_teste").order("ordem").order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; ativo: boolean }[];
+      return (data ?? []) as { id: string; nome: string; ativo: boolean; valor_padrao: number | null; exige_peca_teste: boolean }[];
     },
   });
   const linhas = useOpts("linhas");

@@ -6,7 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
-import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES } from "@/lib/mao-obra";
+import { toast } from "sonner";
+import { moLinhaVaiReabrir, TEXTO_MO_VAI_REABRIR, TEXTO_MO_SALVE_ANTES, categoriasParaAdicionar, servicoPecaTesteJaNoProduto, TEXTO_MO_PECA_TESTE_JA_NO_PRODUTO } from "@/lib/mao-obra";
 import type { MaoObraEditorLinha, CategoriaServicoOpt } from "./MaoObraEditor";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
@@ -44,7 +45,8 @@ export function MaoObraCardMini({
   const [addSel, setAddSel] = useState<string>("");
   const [repro, setRepro] = useState<{ linhaId: string } | null>(null);
 
-  const disponiveis = categorias.filter((c) => c.ativo !== false);
+  // Ativos; o tipo que exige peça teste e já está no produto some (1x por produto — freio só de tela); os demais repetem.
+  const disponiveis = categoriasParaAdicionar(categorias, linhas);
   const nomeCat = (id: string | null) => id == null ? "Geral (legado)" : (categorias.find((c) => c.id === id)?.nome ?? "Serviço");
 
   const setValorAt = (idx: number, v: number | null) =>
@@ -53,6 +55,11 @@ export function MaoObraCardMini({
     onChangeLinhas(linhas.filter((_, i) => i !== idx));
   const confirmarAdd = () => {
     if (!addSel) return;
+    if (servicoPecaTesteJaNoProduto(categorias, linhas, addSel)) {
+      toast.info(TEXTO_MO_PECA_TESTE_JA_NO_PRODUTO);
+      setAddSel(""); setAddOpen(false);
+      return;
+    }
     const padrao = categorias.find((c) => c.id === addSel)?.valor_padrao ?? null;
     onChangeLinhas([...linhas, { categoria_terceirizado_id: addSel, valor: padrao != null && padrao > 0 ? padrao : null, aprovado: null }]);
     setAddSel(""); setAddOpen(false);
