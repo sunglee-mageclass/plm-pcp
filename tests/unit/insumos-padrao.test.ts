@@ -148,8 +148,8 @@ describe("integracao com config-loja-colab (19 colunas, coluna insumos_padrao)",
       kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {}, insumos_padrao: [], aprovar_custo_auto_por_versao: "nenhum", plan_tecido_oc_bloqueia_lancado: true,
     };
   }
-  it("COLUNAS_PAGINA tem 19 e inclui insumos_padrao", () => {
-    expect(COLUNAS_PAGINA).toHaveLength(19);
+  it("COLUNAS_PAGINA tem 24 e inclui insumos_padrao", () => {
+    expect(COLUNAS_PAGINA).toHaveLength(24);
     expect(COLUNAS_PAGINA).toContain("insumos_padrao");
   });
   it('rotulo "Insumos padrão"', () => {
