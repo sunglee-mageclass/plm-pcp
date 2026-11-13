@@ -13,6 +13,11 @@ const from = vi.fn(() => ({
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a), from: (...a: unknown[]) => from(...a) } }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => true, canEdit: () => true }) }));
 vi.mock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+// O empty-state da seção tem um <Link> ao Planejamento; sem RouterProvider no teste ele vira um <a> simples.
+vi.mock("@tanstack/react-router", async (orig) => ({
+  ...(await orig<typeof import("@tanstack/react-router")>()),
+  Link: ({ to, search, children, ...rest }: any) => createElement("a", { href: `${to}?${new URLSearchParams(search).toString()}`, ...rest }, children),
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { PecaTesteAba } from "@/components/producao/servicos/PecaTesteAba";
@@ -32,6 +37,9 @@ describe("PecaTesteAba", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     // renderizou algo (seção vazia / "sem peça teste"), não lançou
     expect(container.textContent).toBeTruthy();
+    // sem trilha: o empty-state explica e leva ao Planejamento do produto
+    expect(container.querySelector('[data-testid="peca-teste-vazia"]')).not.toBeNull();
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/criacao/planejamento?modelo=m1");
   });
 
   it("monta em modo leitura (podeEditar=false) sem quebrar", async () => {
