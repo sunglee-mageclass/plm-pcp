@@ -563,16 +563,19 @@ export function mensagemModularidade(code: string, msg: string): string | null {
 // Urgentes R9 (Peça Teste, migrations 20261103192000..196000): recusas ASCII com prefixo `peca_teste_*:` → texto PT. Dois códigos
 // são P0409 (`peca_teste_conflito`, `peca_teste_desatualizada` — a tela recarrega a seção e refaz o merge; o texto genérico de
 // P0409 falaria de "registro", não da Peça Teste), `peca_teste_sem_login` é 42501 e os demais P0001. `peca_teste_fornecedor_travado`
-// vem do salvar da Peça Teste E do gatilho de `modelo_servico_mo` (trocar o fornecedor da linha da M.O. com a peça aprovada).
+// vem do salvar da Peça Teste E do gatilho da tentativa (reforma por tipo: trocar o fornecedor de uma tentativa aprovada). Reforma por TIPO
+// (migrations 20261129120000+): `peca_teste_aprovar_meio`/`peca_teste_reabrir_meio` (P0001: há tentativas seguintes) e
+// `peca_teste_fornecedor_categoria` (P0001: fornecedor não vinculado ao tipo de serviço).
 export const MENSAGENS_PECA_TESTE = {
   peca_teste_conflito: "Outra pessoa salvou a Peça Teste deste card agora — conferimos as mudanças.",
-  peca_teste_desatualizada: "O serviço da mão de obra mudou — a Peça Teste foi recarregada.",
+  peca_teste_desatualizada: "O tipo de serviço mudou ou deixou de exigir peça teste — a Peça Teste foi recarregada.",
   peca_teste_sem_datas: "Preencha a Data de saída e a Data de entrada para aprovar ou reprovar.",
   peca_teste_historico: "Tentativa reprovada é só leitura.",
   peca_teste_aprovada_travada: "Peça aprovada: as datas ficam travadas. Desfaça a aprovação para mudar.",
   peca_teste_fornecedor_travado: "A peça teste deste serviço já foi aprovada com este fornecedor; para trocar, reabra a peça teste.",
+  peca_teste_fornecedor_categoria: "Este fornecedor não está vinculado ao tipo de serviço. Vincule em Cadastro › Serviço ou escolha outro.",
   peca_teste_fornecedor_invalido: "Fornecedor de serviço inválido.",
-  peca_teste_sem_fornecedor: "Defina o fornecedor da mão de obra deste serviço antes de aprovar ou reprovar a peça teste.",
+  peca_teste_sem_fornecedor: "Escolha o fornecedor desta tentativa antes de aprovar ou reprovar a peça teste.",
   peca_teste_formato: "Não foi possível salvar a Peça Teste: os dados enviados estão incompletos. Recarregue o card e tente de novo.",
   peca_teste_modelo: "Este produto não foi encontrado (outra pessoa pode tê-lo excluído). Recarregue a tela.",
   peca_teste_sem_login: TEXTO_SESSAO_EXPIRADA,
