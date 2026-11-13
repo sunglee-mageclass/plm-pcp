@@ -1,442 +1,303 @@
-// R9 T6 — núcleo PURO da seção Peça Teste (src/lib/peca-teste.ts, parte da T6): tentativa atual virtual, status, reprovar, requisito local,
-// payload do Salvar (delta) e merge 3 vias. O requisito (T3) segue coberto por peca-teste-requisito.test.ts.
 import { describe, it, expect } from "vitest";
 import {
-  aplicarCampoDele, aprovar, desfazerDecisao, editarAtual, entradaAntesDaSaida, estadoPTDoServidor, fornecedorMudou, historico, lerPathPT,
-  mergePecaTeste, motivoSemDecisao, pathPT, payloadPecaTeste, pecaTesteAprovadaModelo, podeDecidir, ptDirty, reprovar, requisitoLocal,
-  statusTrilha, tentativaAtualPT, tentativaVirtual, type EstadoPT, type TentativaPT, type TrilhaPT,
+  adicionarTrilha, aprovar, corrigirTentativa, desfazerDecisao, editarAtual, entradaAntesDaSaida, estadoPTDoServidor, estornosPendentes,
+  excluirTentativa, historico, lerPathPT, mergePecaTeste, motivoBloqueioMudarDecisao, motivoSemDecisao, mudarDecisaoTentativa, pathPT,
+  payloadPecaTeste, podeDecidir, ptDirty, reprovar, requisitoDoEstado, rotuloTentativa, statusTrilha, tentativaAtualPT, tentativaVirtual,
+  vezComFornecedor, type EstadoPT, type TentativaPT, type TrilhaPT,
 } from "../../src/lib/peca-teste";
-import { CASOS_PECA_TESTE, CATEGORIAS_ROTULO, entradaDoCaso } from "../fixtures/peca-teste-casos";
 
-const L1 = "00000000-0000-4000-8000-0000000000a1";
-const L2 = "00000000-0000-4000-8000-0000000000a2";
 const CAT = "00000000-0000-4000-8000-00000000ca01";
+const CAT2 = "00000000-0000-4000-8000-00000000ca02";
 const F1 = "00000000-0000-4000-8000-0000000000f1";
 const F2 = "00000000-0000-4000-8000-0000000000f2";
-const T1 = "00000000-0000-4000-8000-0000000000b1";
-const T2 = "00000000-0000-4000-8000-0000000000b2";
+const FORNS = [{ id: F1, nome_fantasia: "Oficina Um" }, { id: F2, nome_fantasia: "Oficina Dois" }];
+const D1 = "2026-10-01", D2 = "2026-10-03";
 
-const tent = (numero: number, o: Partial<TentativaPT> = {}): TentativaPT => ({ ...tentativaVirtual(numero), id: `00000000-0000-4000-8000-00000000b${numero}00`.slice(0, 36), rev: 1, ...o });
+const tent = (numero: number, o: Partial<TentativaPT> = {}): TentativaPT => ({ ...tentativaVirtual(numero), id: `t-${numero}`, rev: 1, ...o });
 const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({
-  mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: F1, empresa_nome: "Oficina Um", mo_aprovado: true, tentativas: [], ...o,
+  categoria_id: CAT, categoria_nome: "PL", tem_mo: true, mo_aprovado: true, fornecedores: FORNS, tentativas: [], excluidas: [], ...o,
 });
-const estado = (...trilhas: TrilhaPT[]): EstadoPT => ({ trilhas, outros: [] });
-const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+const estado = (...t: TrilhaPT[]): EstadoPT => ({ trilhas: t, outros: [], tipos_adicionar: [] });
+const rep = (n: number, f = F1, nome = "Oficina Um"): TentativaPT => tent(n, { data_saida: D1, data_entrada: D2, aprovacao: "reprovado", empresa_id: f, empresa_nome: nome });
 
 describe("tentativa atual com virtual / histórico / status", () => {
-  it("sem nenhuma tentativa: a atual é a virtual nº 1 (sem id, sem datas)", () => {
-    const a = tentativaAtualPT(trilha());
-    expect(a).toMatchObject({ id: null, numero: 1, data_saida: null, data_entrada: null, aprovacao: null, rev: 0 });
-    expect(historico(trilha())).toEqual([]);
+  it("sem nenhuma tentativa: a atual é a virtual nº 1", () => {
+    const at = tentativaAtualPT(trilha());
+    expect(at).toMatchObject({ id: null, numero: 1, empresa_id: null });
   });
-  it("última reprovada: a atual é a virtual nº max+1; a reprovada vai para o histórico", () => {
-    const t = trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15", empresa_id: F1 })] });
-    expect(tentativaAtualPT(t)).toMatchObject({ id: null, numero: 2 });
+  it("última reprovada: a atual é a virtual nº max+1 SEM fornecedor; a reprovada vai para o histórico", () => {
+    const t = trilha({ tentativas: [rep(1)] });
+    expect(tentativaAtualPT(t)).toMatchObject({ id: null, numero: 2, empresa_id: null });
     expect(historico(t).map((x) => x.numero)).toEqual([1]);
   });
-  it("última não reprovada (em teste ou aprovada) é a própria atual", () => {
-    const emTeste = trilha({ tentativas: [tent(1, { aprovacao: "reprovado" }), tent(2, { data_saida: "2026-09-22" })] });
-    expect(tentativaAtualPT(emTeste).numero).toBe(2);
-    expect(tentativaAtualPT(emTeste).id).not.toBeNull();
-  });
-
   it("status nos 4 casos", () => {
     expect(statusTrilha(trilha())).toBe("aguardando_saida");
-    expect(statusTrilha(trilha({ tentativas: [tent(1, { data_saida: "2026-09-22" })] }))).toBe("em_teste");
-    expect(statusTrilha(trilha({ tentativas: [tent(1, { data_saida: "2026-09-22", data_entrada: "2026-09-29", aprovacao: "aprovado", empresa_id: F1 })] }))).toBe("aprovada");
-    expect(statusTrilha(trilha({ tentativas: [tent(1, { data_saida: "2026-09-08", data_entrada: "2026-09-15", aprovacao: "reprovado" })] }))).toBe("reprovada_nova");
-    // reprovada e a nova já com saída = em teste
-    expect(statusTrilha(trilha({ tentativas: [tent(1, { aprovacao: "reprovado" }), tent(2, { data_saida: "2026-09-22" })] }))).toBe("em_teste");
+    expect(statusTrilha(trilha({ tentativas: [tent(1, { data_saida: D1 })] }))).toBe("em_teste");
+    expect(statusTrilha(trilha({ tentativas: [tent(1, { data_saida: D1, data_entrada: D2, aprovacao: "aprovado", empresa_id: F1 })] }))).toBe("aprovada");
+    expect(statusTrilha(trilha({ tentativas: [rep(1)] }))).toBe("reprovada_nova");
+  });
+});
+
+describe("os 2 contadores", () => {
+  it("2º contador derivado: quantas anteriores do tipo usaram o MESMO fornecedor + 1", () => {
+    const ts = [rep(1, F1), rep(2, F2, "Oficina Dois"), tent(3, { empresa_id: F1, empresa_nome: "Oficina Um" })];
+    expect(vezComFornecedor(ts, 1)).toBe(1);
+    expect(vezComFornecedor(ts, 2)).toBe(1);
+    expect(vezComFornecedor(ts, 3)).toBe(2);
+  });
+  it("tentativa sem fornecedor (ou inexistente) não tem 2º contador", () => {
+    expect(vezComFornecedor([tent(1)], 1)).toBeNull();
+    expect(vezComFornecedor([], 5)).toBeNull();
+  });
+  it("rótulo: 'PL — Tentativa 3 (2ª com Oficina Um)'; sem fornecedor só a 1ª parte", () => {
+    expect(rotuloTentativa({ categoria_nome: "PL", numero: 3, fornecedor_nome: "Oficina Um", vez: 2 })).toBe("PL — Tentativa 3 (2ª com Oficina Um)");
+    expect(rotuloTentativa({ categoria_nome: "PL", numero: 1, fornecedor_nome: null, vez: null })).toBe("PL — Tentativa 1");
+  });
+  it("excluir a do meio recalcula o 2º contador (derivado): 1=F1, 2=F2, 3=F1 → sem a 2, a 3 vira a 2ª com F1 (nº 2) ainda 2ª vez", () => {
+    const t = excluirTentativa(trilha({ tentativas: [rep(1, F1), rep(2, F2, "Oficina Dois"), tent(3, { empresa_id: F1, empresa_nome: "Oficina Um" })] }), 2);
+    expect(t.tentativas.map((x) => [x.numero, x.empresa_id])).toEqual([[1, F1], [2, F1]]);
+    expect(vezComFornecedor(t.tentativas, 2)).toBe(2);
   });
 });
 
 describe("decidir", () => {
   it("podeDecidir exige as 2 datas", () => {
-    expect(podeDecidir({ data_saida: null, data_entrada: null })).toBe(false);
-    expect(podeDecidir({ data_saida: "2026-09-22", data_entrada: null })).toBe(false);
-    expect(podeDecidir({ data_saida: "2026-09-22", data_entrada: "2026-09-29" })).toBe(true);
+    expect(podeDecidir({ data_saida: D1, data_entrada: null })).toBe(false);
+    expect(podeDecidir({ data_saida: D1, data_entrada: D2 })).toBe(true);
   });
-  it("N1 (sonda do revisor) — 1ª tentativa com as 2 datas e SEM id: a tela NÃO libera a decisão ('nao_salva'); com id libera", () => {
-    const t0 = trilha({ tentativas: [] });
-    const t = editarAtual(editarAtual(t0, { data_saida: "2026-10-01" }), { data_entrada: "2026-10-03" });
-    const at = t.tentativas[0];
-    expect(at.id).toBeNull();
-    expect(motivoSemDecisao(at, F1, F1)).toBe("nao_salva");
-    expect(motivoSemDecisao({ ...at, id: T1 }, F1, F1)).toBeNull();
-    // sem as datas a dica continua sendo a das datas
-    expect(motivoSemDecisao({ ...at, id: null, data_entrada: null }, F1, F1)).toBe("sem_datas");
+  it("motivoSemDecisao: datas → não salva (id nulo) → sem fornecedor → null", () => {
+    expect(motivoSemDecisao({ id: "x", data_saida: D1, data_entrada: null, empresa_id: F1 })).toBe("sem_datas");
+    expect(motivoSemDecisao({ id: null, data_saida: D1, data_entrada: D2, empresa_id: F1 })).toBe("nao_salva");
+    expect(motivoSemDecisao({ id: "x", data_saida: D1, data_entrada: D2, empresa_id: null })).toBe("sem_fornecedor");
+    expect(motivoSemDecisao({ id: "x", data_saida: D1, data_entrada: D2, empresa_id: F1 })).toBeNull();
   });
-  it("motivoSemDecisao: datas primeiro; depois fornecedor salvo (a linha sem fornecedor é recusada no servidor)", () => {
-    const ok = { data_saida: "2026-09-22", data_entrada: "2026-09-29" };
-    expect(motivoSemDecisao({ data_saida: null, data_entrada: null }, F1, F1)).toBe("sem_datas");
-    expect(motivoSemDecisao(ok, null, null)).toBe("sem_fornecedor");
-    expect(motivoSemDecisao(ok, null, F1)).toBe("fornecedor_nao_salvo");
-    expect(motivoSemDecisao(ok, F1, F2)).toBeNull();
-  });
-  it("entrada antes da saída é só uma dica (função de apoio, nunca bloqueia)", () => {
-    expect(entradaAntesDaSaida({ data_saida: "2026-09-29", data_entrada: "2026-09-22" })).toBe(true);
-    expect(entradaAntesDaSaida({ data_saida: "2026-09-22", data_entrada: "2026-09-29" })).toBe(false);
-    expect(entradaAntesDaSaida({ data_saida: "2026-09-22", data_entrada: null })).toBe(false);
-  });
+  it("entrada antes da saída é só uma dica", () => expect(entradaAntesDaSaida({ data_saida: D2, data_entrada: D1 })).toBe(true));
 });
 
 describe("editarAtual / aprovar / desfazer / reprovar", () => {
-  it("virtual que ganha dado entra na lista; volta a ficar vazia = sai (nada a gravar)", () => {
-    const t0 = trilha();
-    const t1 = editarAtual(t0, { data_saida: "2026-09-22" });
+  it("virtual que ganha dado (inclusive só o fornecedor) entra na lista; volta a ficar vazia = sai", () => {
+    const t1 = editarAtual(trilha(), { empresa_id: F1, empresa_nome: "Oficina Um" });
     expect(t1.tentativas).toHaveLength(1);
-    expect(t1.tentativas[0]).toMatchObject({ id: null, numero: 1, data_saida: "2026-09-22" });
-    const t2 = editarAtual(t1, { data_saida: "" });
-    expect(t2.tentativas).toHaveLength(0);
+    expect(t1.tentativas[0]).toMatchObject({ id: null, numero: 1, empresa_id: F1 });
+    expect(editarAtual(t1, { empresa_id: null, empresa_nome: null }).tentativas).toHaveLength(0);
   });
-  it("tentativa GRAVADA que fica vazia continua na lista (o Salvar a apaga)", () => {
-    const t = trilha({ tentativas: [tent(1, { data_saida: "2026-09-22" })] });
-    const v = editarAtual(t, { data_saida: null });
-    expect(v.tentativas).toHaveLength(1);
-    expect(v.tentativas[0].data_saida).toBeNull();
-  });
-  it("aprovar congela o fornecedor da linha SALVA; desfazer limpa", () => {
-    const t = trilha({ tentativas: [tent(1, { data_saida: "2026-09-22", data_entrada: "2026-09-29" })] });
-    const a = aprovar(t, { id: F1, nome: "Oficina Um" });
+  it("aprovar mantém o fornecedor da tentativa; desfazer NÃO limpa o fornecedor", () => {
+    const t = trilha({ tentativas: [tent(1, { data_saida: D1, data_entrada: D2, empresa_id: F1, empresa_nome: "Oficina Um" })] });
+    const a = aprovar(t);
     expect(a.tentativas[0]).toMatchObject({ aprovacao: "aprovado", empresa_id: F1 });
-    expect(statusTrilha(a)).toBe("aprovada");
-    const d = desfazerDecisao(a);
-    expect(d.tentativas[0]).toMatchObject({ aprovacao: null, empresa_id: null });
+    expect(desfazerDecisao(a).tentativas[0]).toMatchObject({ aprovacao: null, empresa_id: F1 });
   });
-  it("reprovar congela o fornecedor, vai para o histórico e a virtual seguinte nasce com número N+1 e datas vazias", () => {
-    const t = trilha({ tentativas: [tent(1, { data_saida: "2026-09-22", data_entrada: "2026-09-29" })] });
-    const r = reprovar(t, { id: F1, nome: "Oficina Um" });
-    expect(historico(r)).toHaveLength(1);
-    expect(historico(r)[0]).toMatchObject({ numero: 1, aprovacao: "reprovado", empresa_id: F1, empresa_nome: "Oficina Um" });
-    const prox = tentativaAtualPT(r);
-    expect(prox).toMatchObject({ id: null, numero: 2, data_saida: null, data_entrada: null, aprovacao: null });
-    expect(statusTrilha(r)).toBe("reprovada_nova");
+  it("reprovar vai para o histórico (com o fornecedor dela) e a seguinte nasce SEM fornecedor, número N+1", () => {
+    const t = trilha({ tentativas: [tent(1, { data_saida: D1, data_entrada: D2, empresa_id: F1, empresa_nome: "Oficina Um" })] });
+    const r = reprovar(t);
+    expect(r.tentativas[0]).toMatchObject({ aprovacao: "reprovado", empresa_id: F1 });
+    expect(tentativaAtualPT(r)).toMatchObject({ numero: 2, id: null, empresa_id: null });
   });
-  it("reprovar uma tentativa NOVA (sem id) e lançar a seguinte no mesmo rascunho: números 1 e 2", () => {
-    let t = trilha();
-    t = editarAtual(t, { data_saida: "2026-09-08", data_entrada: "2026-09-15" });
-    t = reprovar(t, { id: F1, nome: "Oficina Um" });
-    t = editarAtual(t, { data_saida: "2026-09-22" });
-    expect(t.tentativas.map((x) => [x.numero, x.aprovacao])).toEqual([[1, "reprovado"], [2, null]]);
-  });
-  it("reprovada é imutável (editar a atual não mexe na reprovada)", () => {
-    const t = trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15" })] });
-    const e = editarAtual(t, { data_saida: "2026-09-22" });
-    expect(e.tentativas.find((x) => x.numero === 1)).toMatchObject({ aprovacao: "reprovado", data_saida: "2026-09-08" });
-    expect(e.tentativas.find((x) => x.numero === 2)).toMatchObject({ id: null, data_saida: "2026-09-22" });
+  it("reprovada não é editada pela atual", () => {
+    const t = trilha({ tentativas: [rep(1)] });
+    expect(editarAtual(t, { data_saida: "2026-11-01" }).tentativas[0].data_saida).toBe(D1);
   });
 });
 
-describe("requisitoLocal", () => {
-  it("bate com pecaTesteAprovadaModelo em TODA a fixture compartilhada (e conta N de M)", () => {
-    const ids = { F1, F2 };
-    const cats = { exige: CAT, sem_switch: "00000000-0000-4000-8000-00000000ca02" };
-    for (const caso of CASOS_PECA_TESTE) {
-      const linhas = entradaDoCaso(caso, ids, cats);
-      const exigindo = linhas.filter((l) => l.exige);
-      const trilhas: TrilhaPT[] = exigindo.map((l, i) => trilha({
-        mo_linha_id: `00000000-0000-4000-8000-00000000c${i}00`.slice(0, 36), categoria_id: String(l.categoria_id), empresa_id: l.empresa_id, mo_aprovado: l.mo_aprovado,
-        // o servidor só devolve na trilha as tentativas do TIPO ATUAL da linha (as do tipo antigo ficam escondidas)
-        tentativas: l.tentativas.filter((x) => x.categoria_id === l.categoria_id).map((x) => tent(x.numero, { aprovacao: x.aprovacao, empresa_id: x.empresa_id, id: `00000000-0000-4000-8000-0000${i}${x.numero}00000000`.slice(0, 36) })),
-      }));
-      const r = requisitoLocal(trilhas, {});
-      expect(r.ok, caso.nome).toBe(pecaTesteAprovadaModelo(linhas));
-      expect(r.exigem).toBe(exigindo.length);
-      expect(r.faltas.length === 0, caso.nome).toBe(r.ok);
-    }
-    expect(CATEGORIAS_ROTULO.exige).toBeTruthy();
+describe("histórico editável (A3)", () => {
+  it("corrigirTentativa muda datas/fornecedor da reprovada SEM mudar a decisão; em outra decisão não faz nada", () => {
+    const t = trilha({ tentativas: [rep(1), tent(2, { data_saida: D1, data_entrada: D2, aprovacao: "aprovado", empresa_id: F1 })] });
+    const c = corrigirTentativa(t, 1, { data_saida: "2026-09-30", empresa_id: F2, empresa_nome: "Oficina Dois" });
+    expect(c.tentativas[0]).toMatchObject({ aprovacao: "reprovado", data_saida: "2026-09-30", empresa_id: F2 });
+    expect(corrigirTentativa(t, 2, { data_saida: "2026-09-30" }).tentativas[1].data_saida).toBe(D1);
   });
-
-  it("motivos das faltas: peça teste · M.O. pendente · peça teste e M.O.", () => {
-    const apr = [tent(1, { aprovacao: "aprovado", empresa_id: F1 })];
-    const a = trilha({ mo_linha_id: L1, categoria_nome: "PL", mo_aprovado: true, tentativas: [] });
-    const b = trilha({ mo_linha_id: L2, categoria_nome: "Bordado", mo_aprovado: null, tentativas: apr });
-    const c = trilha({ mo_linha_id: "00000000-0000-4000-8000-0000000000a3", categoria_nome: "Estampa", mo_aprovado: false, tentativas: [] });
-    const r = requisitoLocal([a, b, c], {});
-    expect(r.exigem).toBe(3);
-    expect(r.aprovadas).toBe(1);
-    expect(r.ok).toBe(false);
-    expect(r.faltas.map((f) => [f.servico, f.motivo])).toEqual([["PL", "peça teste"], ["Bordado", "M.O. pendente"], ["Estampa", "peça teste e M.O."]]);
+  it("(Review) aprovar a tentativa do MEIO com posteriores BLOQUEIA; reabrir a do meio também; reprovar nunca bloqueia", () => {
+    const t = trilha({ tentativas: [rep(1), rep(2), tent(3, { data_saida: D1 })] });
+    expect(motivoBloqueioMudarDecisao(t, 1, "aprovado")).toBe("aprovar_meio");
+    expect(motivoBloqueioMudarDecisao(t, 1, null)).toBe("reabrir_meio");
+    expect(motivoBloqueioMudarDecisao(t, 1, "reprovado")).toBeNull();
+    expect(mudarDecisaoTentativa(t, 1, "aprovado")).toBe(t);
   });
-
-  it("fornecedor EFETIVO trocado no rascunho: a aprovada do fornecedor antigo deixa de valer; M.O. reaberta conta como pendente", () => {
-    const t = trilha({ mo_aprovado: true, tentativas: [tent(1, { aprovacao: "aprovado", empresa_id: F1 })] });
-    expect(requisitoLocal([t], { [L1]: F1 }).ok).toBe(true);
-    expect(requisitoLocal([t], { [L1]: F2 }).ok).toBe(false);
-    expect(requisitoLocal([t], {}, { [L1]: null }).faltas[0].motivo).toBe("M.O. pendente");
+  it("a ÚLTIMA reprovada pode ser aprovada ou reaberta (sem posteriores)", () => {
+    const t = trilha({ tentativas: [rep(1), rep(2)] });
+    expect(motivoBloqueioMudarDecisao(t, 2, "aprovado")).toBeNull();
+    expect(mudarDecisaoTentativa(t, 2, null).tentativas[1].aprovacao).toBeNull();
   });
-
-  it("sem trilha nenhuma = cumprido (0 de 0)", () => {
-    expect(requisitoLocal([], {})).toEqual({ exigem: 0, aprovadas: 0, ok: true, faltas: [] });
+  it("(Review) excluir a tentativa 2 de 3: renumera as seguintes e registra a gravada em `excluidas`; a local sem id some sem registrar", () => {
+    const t = trilha({ tentativas: [rep(1), rep(2), tent(3, { data_saida: D1 })] });
+    const e = excluirTentativa(t, 2);
+    expect(e.tentativas.map((x) => [x.id, x.numero])).toEqual([["t-1", 1], ["t-3", 2]]);
+    expect(e.excluidas.map((x) => x.id)).toEqual(["t-2"]);
+    const local = trilha({ tentativas: [rep(1), { ...tentativaVirtual(2), data_saida: D1 }] });
+    const el = excluirTentativa(local, 2);
+    expect(el.tentativas).toHaveLength(1);
+    expect(el.excluidas).toHaveLength(0);
   });
 });
 
-describe("payloadPecaTeste / ptDirty (delta)", () => {
-  const base = (): EstadoPT => estado(trilha({ tentativas: [tent(1, { id: T1, data_saida: "2026-09-22", rev: 3 })] }));
+describe("adicionarTrilha", () => {
+  it("acrescenta a trilha do tipo escolhido (vazia, sem M.O.) e o tira de tipos_adicionar; tipo desconhecido/repetido = nada", () => {
+    const e: EstadoPT = { trilhas: [trilha()], outros: [], tipos_adicionar: [{ categoria_id: CAT2, categoria_nome: "Bordado", fornecedores: [FORNS[0]] }] };
+    const r = adicionarTrilha(e, CAT2);
+    expect(r.trilhas.map((t) => t.categoria_id)).toEqual([CAT, CAT2]);
+    expect(r.trilhas[1]).toMatchObject({ tem_mo: false, fornecedores: [FORNS[0]], tentativas: [] });
+    expect(r.tipos_adicionar).toEqual([]);
+    expect(adicionarTrilha(e, "zzz")).toBe(e);
+    expect(adicionarTrilha(r, CAT2)).toBe(r);
+  });
+});
 
+describe("requisitoDoEstado", () => {
+  it("conta só trilhas com M.O. (tem_mo); N de M; faltas com motivo", () => {
+    const e = estado(
+      trilha({ tentativas: [tent(1, { data_saida: D1, data_entrada: D2, aprovacao: "aprovado", empresa_id: F1 })] }),
+      trilha({ categoria_id: CAT2, categoria_nome: "Bordado", mo_aprovado: null }),
+      trilha({ categoria_id: "cat3", categoria_nome: "Manual", tem_mo: false }),
+    );
+    const r = requisitoDoEstado(e);
+    expect(r).toMatchObject({ exigem: 2, aprovadas: 1, ok: false });
+    expect(r.faltas).toEqual([{ categoria_id: CAT2, servico: "Bordado", motivo: "peça teste e M.O." }]);
+  });
+  it("sem trilha = cumprido (0 de 0)", () => expect(requisitoDoEstado(estado())).toMatchObject({ exigem: 0, aprovadas: 0, ok: true }));
+});
+
+describe("payloadPecaTeste / ptDirty / estornosPendentes (delta)", () => {
+  const base = () => estado(trilha({ tentativas: [tent(1, { data_saida: D1, empresa_id: F1, empresa_nome: "Oficina Um", rev: 4 })] }));
   it("nada mudou: _trilhas vazio e não está sujo", () => {
-    const b = base();
-    const p = payloadPecaTeste(clone(b), b);
-    expect(p._trilhas).toEqual([]);
-    expect(p._rev_base).toEqual({ tentativas: {}, fornecedor: {} });
-    expect(ptDirty(clone(b), b)).toBe(false);
+    expect(payloadPecaTeste(base(), base())._trilhas).toEqual([]);
+    expect(ptDirty(base(), base())).toBe(false);
   });
-
-  it("só uma data: tentativa com o rev da base, SEM a chave empresa_id e sem _rev_base.fornecedor", () => {
-    const b = base();
-    const d = clone(b);
-    d.trilhas[0] = editarAtual(d.trilhas[0], { data_entrada: "2026-09-29" });
+  it("só uma data: a tentativa com o rev da base e o empresa_id dela; sem _rev_base.fornecedor", () => {
+    const d = estado(trilha({ tentativas: [{ ...base().trilhas[0].tentativas[0], data_entrada: D2 }] }));
+    const p = payloadPecaTeste(d, base());
+    expect(p._trilhas).toEqual([{ categoria_id: CAT, tentativas: [{ id: "t-1", numero: 1, empresa_id: F1, data_saida: D1, data_entrada: D2, aprovacao: null }] }]);
+    expect(p._rev_base).toEqual({ tentativas: { "t-1": 4 } });
+  });
+  it("trocar SÓ o fornecedor da tentativa já é mudança (vai com rev)", () => {
+    const d = estado(trilha({ tentativas: [{ ...base().trilhas[0].tentativas[0], empresa_id: F2, empresa_nome: "Oficina Dois" }] }));
+    expect(payloadPecaTeste(d, base())._trilhas[0].tentativas[0].empresa_id).toBe(F2);
+    expect(ptDirty(d, base())).toBe(true);
+  });
+  it("tentativa nova (virtual que ganhou dado) vai com id:null e o número; reprovar + próxima no mesmo Salvar = 2 tentativas", () => {
+    let t = base().trilhas[0];
+    t = editarAtual(t, { data_entrada: D2 });
+    t = reprovar(t);
+    t = editarAtual(t, { empresa_id: F2, empresa_nome: "Oficina Dois", data_saida: "2026-10-10" });
+    const p = payloadPecaTeste(estado(t), base());
+    expect(p._trilhas[0].tentativas.map((x) => [x.id, x.numero, x.aprovacao, x.empresa_id])).toEqual([["t-1", 1, "reprovado", F1], [null, 2, null, F2]]);
+    expect(Object.keys(p._rev_base.tentativas)).toEqual(["t-1"]);
+  });
+  it("trilha adicionada à mão (sem base) entra quando ganha dado", () => {
+    const e = adicionarTrilha({ trilhas: [], outros: [], tipos_adicionar: [{ categoria_id: CAT2, categoria_nome: "Bordado", fornecedores: FORNS }] }, CAT2);
+    const t = editarAtual(e.trilhas[0], { data_saida: D1 });
+    const p = payloadPecaTeste({ ...e, trilhas: [t] }, { trilhas: [], outros: [], tipos_adicionar: [] });
+    expect(p._trilhas).toEqual([{ categoria_id: CAT2, tentativas: [{ id: null, numero: 1, empresa_id: null, data_saida: D1, data_entrada: null, aprovacao: null }] }]);
+  });
+  it("(Review) exclusão: vai em `excluir` com o rev da base; as seguintes renumeradas NÃO entram (mesmos dados, só o número mudou)", () => {
+    const b = estado(trilha({ tentativas: [rep(1), { ...rep(2, F2, "Oficina Dois"), rev: 7 }, tent(3, { data_saida: D1, empresa_id: F1, rev: 2 })] }));
+    const d = estado(excluirTentativa(b.trilhas[0], 2));
     const p = payloadPecaTeste(d, b);
-    expect(p._trilhas).toHaveLength(1);
-    expect(p._trilhas[0]).not.toHaveProperty("empresa_id");
-    expect(p._trilhas[0].tentativas).toEqual([{ id: T1, numero: 1, data_saida: "2026-09-22", data_entrada: "2026-09-29", aprovacao: null }]);
-    expect(p._rev_base.tentativas).toEqual({ [T1]: 3 });
-    expect(p._rev_base.fornecedor).toEqual({});
+    expect(p._trilhas).toEqual([{ categoria_id: CAT, excluir: ["t-2"], tentativas: [] }]);
+    expect(p._rev_base.tentativas).toEqual({ "t-2": 7 });
     expect(ptDirty(d, b)).toBe(true);
   });
-
-  it("fornecedor trocado: leva a chave empresa_id e _rev_base.fornecedor[linha] = o da base (ainda sem tentativa mexida)", () => {
-    const b = base();
-    const d = clone(b);
-    d.trilhas[0].empresa_id = F2;
+  it("(Review) excluir tentativa com baixa ativa vira estorno pendente (com o nº da BASE)", () => {
+    const comBaixa = { ...rep(2, F2, "Oficina Dois"), mini: { tamanho: "M", variante_tecido_id: null, mesma_oc: true, baixa_em: "2026-10-02T10:00:00Z", baixa_por_nome: null, tem_historico: true, linhas: [] } as any };
+    const b = estado(trilha({ tentativas: [rep(1), comBaixa, tent(3, { data_saida: D1, empresa_id: F1 })] }));
+    const d = estado(excluirTentativa(b.trilhas[0], 2));
+    expect(estornosPendentes(d, b)).toEqual([{ categoria_id: CAT, servico: "PL", numero: 2, refaz: false }]);
+  });
+  it("corrigir a reprovada do histórico (data + fornecedor) gera a tentativa com o rev, decisão mantida", () => {
+    const b = estado(trilha({ tentativas: [{ ...rep(1), rev: 3 }, tent(2, { data_saida: D1, empresa_id: F1 })] }));
+    const d = estado(corrigirTentativa(b.trilhas[0], 1, { data_saida: "2026-09-30", empresa_id: F2, empresa_nome: "Oficina Dois" }));
     const p = payloadPecaTeste(d, b);
-    expect(p._trilhas).toEqual([{ mo_linha_id: L1, categoria_id: CAT, empresa_id: F2, tentativas: [] }]);
-    expect(p._rev_base.fornecedor).toEqual({ [L1]: F1 });
-    expect(ptDirty(d, b)).toBe(true);
-  });
-
-  it("fornecedor efetivo vindo da M.O. (mapa) vale no lugar do rascunho da seção; igual à base = nada", () => {
-    const b = base();
-    expect(payloadPecaTeste(clone(b), b, { [L1]: F2 })._trilhas[0].empresa_id).toBe(F2);
-    expect(payloadPecaTeste(clone(b), b, { [L1]: F1 })._trilhas).toEqual([]);
-    expect(fornecedorMudou({ empresa_id: F2 }, b.trilhas[0])).toBe(true);
-    expect(fornecedorMudou({ empresa_id: F1 }, b.trilhas[0])).toBe(false);
-  });
-
-  it("tentativa nova (virtual que ganhou dado) vai com id:null e o número; toda DECISÃO leva _rev_base.fornecedor", () => {
-    const b = estado(trilha({ tentativas: [tent(1, { id: T1, aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15", empresa_id: F1, rev: 2 })] }));
-    const d = clone(b);
-    d.trilhas[0] = editarAtual(d.trilhas[0], { data_saida: "2026-09-22" });
-    let p = payloadPecaTeste(d, b);
-    expect(p._trilhas[0].tentativas).toEqual([{ id: null, numero: 2, data_saida: "2026-09-22", data_entrada: null, aprovacao: null }]);
-    expect(p._rev_base.fornecedor).toEqual({}); // sem decisão
-    d.trilhas[0] = editarAtual(d.trilhas[0], { data_entrada: "2026-09-29" });
-    d.trilhas[0] = aprovar(d.trilhas[0], { id: F1, nome: "Oficina Um" });
-    p = payloadPecaTeste(d, b);
-    expect(p._trilhas[0].tentativas[0]).toMatchObject({ id: null, numero: 2, aprovacao: "aprovado" });
-    expect(p._rev_base.fornecedor).toEqual({ [L1]: F1 });
-  });
-
-  it("reprovar a atual e lançar a próxima no mesmo Salvar: duas tentativas no payload (a gravada com rev; a nova com id:null)", () => {
-    const b = base();
-    const d = clone(b);
-    d.trilhas[0] = editarAtual(d.trilhas[0], { data_entrada: "2026-09-29" });
-    d.trilhas[0] = reprovar(d.trilhas[0], { id: F1, nome: "Oficina Um" });
-    d.trilhas[0] = editarAtual(d.trilhas[0], { data_saida: "2026-10-05" });
-    const p = payloadPecaTeste(d, b);
-    expect(p._trilhas[0].tentativas.map((x) => [x.id, x.numero, x.aprovacao])).toEqual([[T1, 1, "reprovado"], [null, 2, null]]);
-    expect(p._rev_base.tentativas).toEqual({ [T1]: 3 });
-    expect(p._rev_base.fornecedor).toEqual({ [L1]: F1 });
-  });
-
-  it("tentativa GRAVADA que ficou vazia vai com tudo nulo (o servidor apaga)", () => {
-    const b = base();
-    const d = clone(b);
-    d.trilhas[0] = editarAtual(d.trilhas[0], { data_saida: null });
-    expect(payloadPecaTeste(d, b)._trilhas[0].tentativas).toEqual([{ id: T1, numero: 1, data_saida: null, data_entrada: null, aprovacao: null }]);
-  });
-
-  it("trilha que o servidor não conhece (sem base) não entra", () => {
-    const b = estado();
-    const d = estado(trilha({ tentativas: [tent(1, { id: null, data_saida: "2026-09-22" })] }));
-    expect(payloadPecaTeste(d, b)._trilhas).toEqual([]);
+    expect(p._trilhas[0].tentativas).toEqual([{ id: "t-1", numero: 1, empresa_id: F2, data_saida: "2026-09-30", data_entrada: D2, aprovacao: "reprovado" }]);
+    expect(p._rev_base.tentativas).toEqual({ "t-1": 3 });
   });
 });
 
-describe("mergePecaTeste (3 vias)", () => {
-  const b0 = (): EstadoPT => estado(trilha({ tentativas: [tent(1, { id: T1, data_saida: "2026-09-22", rev: 1 })] }));
-
+describe("mergePecaTeste (3 vias, por id)", () => {
+  const um = (o: Partial<TentativaPT> = {}) => estado(trilha({ tentativas: [tent(1, { data_saida: D1, empresa_id: F1, empresa_nome: "Oficina Um", ...o })] }));
   it("só EU mudei: o meu fica; o rev vem do servidor", () => {
-    const b = b0();
-    const meu = clone(b); meu.trilhas[0] = editarAtual(meu.trilhas[0], { data_entrada: "2026-09-29" });
-    const dele = clone(b); dele.trilhas[0].tentativas[0].rev = 2;
-    const r = mergePecaTeste(b, meu, dele);
+    const base = um();
+    const meu = um({ data_entrada: D2 });
+    const dele = um({ rev: 2 });
+    const r = mergePecaTeste(base, meu, dele);
     expect(r.conflitos).toEqual([]);
-    expect(r.valor.trilhas[0].tentativas[0]).toMatchObject({ data_entrada: "2026-09-29", rev: 2 });
+    expect(r.valor.trilhas[0].tentativas[0]).toMatchObject({ data_entrada: D2, rev: 2 });
   });
-
   it("só ELE mudou: adota o dele", () => {
-    const b = b0();
-    const dele = clone(b); dele.trilhas[0].tentativas[0] = { ...dele.trilhas[0].tentativas[0], data_entrada: "2026-09-30", rev: 2 };
-    const r = mergePecaTeste(b, clone(b), dele);
-    expect(r.conflitos).toEqual([]);
-    expect(r.valor.trilhas[0].tentativas[0].data_entrada).toBe("2026-09-30");
-    expect(r.atualizados).toBeGreaterThan(0);
+    const r = mergePecaTeste(um(), um(), um({ data_entrada: D2, rev: 2 }));
+    expect(r.valor.trilhas[0].tentativas[0].data_entrada).toBe(D2);
+    expect(r.atualizados).toBe(1);
   });
-
-  it("os DOIS mudaram o mesmo campo para o MESMO valor: sem conflito", () => {
-    const b = b0();
-    const meu = clone(b); meu.trilhas[0] = editarAtual(meu.trilhas[0], { data_entrada: "2026-09-29" });
-    const dele = clone(b); dele.trilhas[0].tentativas[0] = { ...dele.trilhas[0].tentativas[0], data_entrada: "2026-09-29", rev: 2 };
-    const r = mergePecaTeste(b, meu, dele);
-    expect(r.conflitos).toEqual([]);
-    expect(r.valor.trilhas[0].tentativas[0]).toMatchObject({ data_entrada: "2026-09-29", rev: 2 });
+  it("os DOIS mudaram o mesmo campo para valores DIFERENTES: conflito pt:<tipo>:<campo>; o meu fica", () => {
+    const r = mergePecaTeste(um(), um({ data_entrada: D2 }), um({ data_entrada: "2026-10-09", rev: 2 }));
+    expect(r.conflitos.map((c) => c.path)).toEqual([pathPT(CAT, "data_entrada")]);
+    expect(r.valor.trilhas[0].tentativas[0].data_entrada).toBe(D2);
   });
-
-  it("os DOIS mudaram o mesmo campo para valores DIFERENTES: conflito com path pt:<linha>:<campo>; o meu fica até resolver", () => {
-    const b = b0();
-    const meu = clone(b); meu.trilhas[0] = editarAtual(meu.trilhas[0], { data_entrada: "2026-09-29" });
-    const dele = clone(b); dele.trilhas[0].tentativas[0] = { ...dele.trilhas[0].tentativas[0], data_entrada: "2026-10-02", rev: 2 };
-    const r = mergePecaTeste(b, meu, dele);
-    expect(r.conflitos).toHaveLength(1);
-    expect(r.conflitos[0]).toMatchObject({ path: `pt:${L1}:data_entrada`, meu: "29/09/2026", dele: "02/10/2026" });
-    expect(r.valor.trilhas[0].tentativas[0].data_entrada).toBe("2026-09-29");
-    // "usar o novo" aplica o do servidor
-    const usado = aplicarCampoDele(r.valor, dele, r.conflitos[0].path);
-    expect(usado.valor.trilhas[0].tentativas[0].data_entrada).toBe("2026-10-02");
+  it("fornecedor da tentativa: 3 vias; dos 2 lados diferentes = conflito pt:<tipo>:empresa_id com os NOMES", () => {
+    const r = mergePecaTeste(um(), um({ empresa_id: F2, empresa_nome: "Oficina Dois" }), um({ empresa_id: "f3", empresa_nome: "Oficina Três", rev: 2 }));
+    expect(r.conflitos).toEqual([{ path: pathPT(CAT, "empresa_id"), meu: "Oficina Dois", dele: "Oficina Três" }]);
   });
-
-  it("campos diferentes (eu a saída, ele a entrada): une sem conflito", () => {
-    const b = estado(trilha({ tentativas: [tent(1, { id: T1, data_saida: "2026-09-22", rev: 1 })] }));
-    const meu = clone(b); meu.trilhas[0] = editarAtual(meu.trilhas[0], { data_saida: "2026-09-23" });
-    const dele = clone(b); dele.trilhas[0].tentativas[0] = { ...dele.trilhas[0].tentativas[0], data_entrada: "2026-09-29", rev: 2 };
-    const r = mergePecaTeste(b, meu, dele);
-    expect(r.conflitos).toEqual([]);
-    expect(r.valor.trilhas[0].tentativas[0]).toMatchObject({ data_saida: "2026-09-23", data_entrada: "2026-09-29" });
-  });
-
-  it("tentativa NOVA dele com o mesmo número que a minha, com dados diferentes = conflito", () => {
-    const rep = tent(1, { id: T1, aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15", empresa_id: F1, rev: 2 });
-    const b = estado(trilha({ tentativas: [rep] }));
-    const meu = clone(b); meu.trilhas[0] = editarAtual(meu.trilhas[0], { data_saida: "2026-09-22" });
-    const dele = clone(b); dele.trilhas[0].tentativas.push(tent(2, { id: T2, data_saida: "2026-09-25", rev: 0 }));
-    const r = mergePecaTeste(b, meu, dele);
-    expect(r.conflitos).toHaveLength(1);
-    expect(r.conflitos[0].path).toBe(`pt:${L1}:data_saida`);
-    // a minha vira a dele (id/rev do servidor) para o próximo Salvar passar no rev
-    expect(r.valor.trilhas[0].tentativas.find((x) => x.numero === 2)).toMatchObject({ id: T2, data_saida: "2026-09-22" });
-  });
-
-  it("tentativa nova dele e nada meu: adota; tentativa nova minha e nada dele: mantém", () => {
-    const rep = tent(1, { id: T1, aprovacao: "reprovado", data_saida: "2026-09-08", data_entrada: "2026-09-15", empresa_id: F1 });
-    const b = estado(trilha({ tentativas: [rep] }));
-    const dele = clone(b); dele.trilhas[0].tentativas.push(tent(2, { id: T2, data_saida: "2026-09-25" }));
-    expect(mergePecaTeste(b, clone(b), dele).valor.trilhas[0].tentativas.map((x) => x.numero)).toEqual([1, 2]);
-    const meu = clone(b); meu.trilhas[0] = editarAtual(meu.trilhas[0], { data_saida: "2026-09-22" });
-    const r = mergePecaTeste(b, meu, clone(b));
-    expect(r.conflitos).toEqual([]);
-    expect(r.valor.trilhas[0].tentativas.find((x) => x.numero === 2)).toMatchObject({ id: null, data_saida: "2026-09-22" });
-  });
-
-  it("fornecedor: 3 vias; mudado dos 2 lados para valores diferentes = conflito pt:<linha>:fornecedor", () => {
-    const b = b0();
-    const meu = clone(b); meu.trilhas[0].empresa_id = F2; meu.trilhas[0].empresa_nome = "Oficina Dois";
-    const dele = clone(b); dele.trilhas[0].empresa_id = "00000000-0000-4000-8000-0000000000f3"; dele.trilhas[0].empresa_nome = "Oficina Três";
-    const r = mergePecaTeste(b, meu, dele);
-    expect(r.conflitos).toEqual([{ path: `pt:${L1}:fornecedor`, meu: "Oficina Dois", dele: "Oficina Três" }]);
-    expect(r.valor.trilhas[0].empresa_id).toBe(F2);
-    const so = mergePecaTeste(b, clone(b), dele);
-    expect(so.conflitos).toEqual([]);
-    expect(so.valor.trilhas[0].empresa_nome).toBe("Oficina Três");
-    const usado = aplicarCampoDele(r.valor, dele, r.conflitos[0].path);
-    expect(usado.fornecedor).toEqual({ linhaId: L1, empresaId: "00000000-0000-4000-8000-0000000000f3", empresaNome: "Oficina Três" });
-  });
-
   it("minha DECISÃO vs fornecedor trocado por ele no meio: conflito em aprovacao (quem decidiu confirma)", () => {
-    const b = estado(trilha({ tentativas: [tent(1, { id: T1, data_saida: "2026-09-22", data_entrada: "2026-09-29", rev: 1 })] }));
-    const meu = clone(b); meu.trilhas[0] = aprovar(meu.trilhas[0], { id: F1, nome: "Oficina Um" });
-    const dele = clone(b); dele.trilhas[0].empresa_id = F2; dele.trilhas[0].empresa_nome = "Oficina Dois"; dele.trilhas[0].tentativas[0].rev = 2;
-    const r = mergePecaTeste(b, meu, dele);
-    expect(r.conflitos).toHaveLength(1);
-    expect(r.conflitos[0]).toMatchObject({ path: `pt:${L1}:aprovacao`, meu: "Aprovado" });
-    expect(String(r.conflitos[0].dele)).toContain("Oficina Dois");
-    expect(r.valor.trilhas[0].tentativas[0].aprovacao).toBe("aprovado");
-    // "usar o novo" descarta a decisão
-    expect(aplicarCampoDele(r.valor, dele, r.conflitos[0].path).valor.trilhas[0].tentativas[0].aprovacao).toBeNull();
+    const base = um({ data_entrada: D2 });
+    const meu = um({ data_entrada: D2, aprovacao: "aprovado" });
+    const dele = um({ data_entrada: D2, empresa_id: F2, empresa_nome: "Oficina Dois", rev: 2 });
+    const r = mergePecaTeste(base, meu, dele);
+    expect(r.conflitos).toEqual([{ path: pathPT(CAT, "aprovacao"), meu: "Aprovado", dele: "fornecedor passou a ser Oficina Dois" }]);
   });
-
-  it("trilha que só existe do lado dele entra; a que sumiu do servidor sai; 'outros' vem dele", () => {
-    const b = b0();
-    const dele: EstadoPT = { trilhas: [...clone(b).trilhas, trilha({ mo_linha_id: L2, categoria_nome: "Bordado" })], outros: [{ categoria_nome: "Lavanderia", empresa_nome: "Lava Tudo" }] };
-    const r = mergePecaTeste(b, clone(b), dele);
-    expect(r.valor.trilhas.map((x) => x.mo_linha_id)).toEqual([L1, L2]);
-    expect(r.valor.outros).toHaveLength(1);
-    expect(mergePecaTeste(b, clone(b), estado()).valor.trilhas).toEqual([]);
+  it("tentativa NOVA dele (com id) e nada meu: adota; trilha só dele entra", () => {
+    const base = estado(trilha({ tentativas: [rep(1)] }));
+    const dele = estado(trilha({ tentativas: [rep(1), tent(2, { id: "t-2n", data_saida: D1 })] }), trilha({ categoria_id: CAT2, categoria_nome: "Bordado" }));
+    const r = mergePecaTeste(base, base, dele);
+    expect(r.valor.trilhas).toHaveLength(2);
+    expect(r.valor.trilhas[0].tentativas.map((x) => x.id)).toEqual(["t-1", "t-2n"]);
   });
-
-  it("ele apagou a tentativa (voltou a virtual): sem edição minha some; com edição minha sobrevive como NOVA", () => {
-    const b = b0();
-    const dele = estado(trilha({ tentativas: [] }));
-    expect(mergePecaTeste(b, clone(b), dele).valor.trilhas[0].tentativas).toEqual([]);
-    const meu = clone(b); meu.trilhas[0] = editarAtual(meu.trilhas[0], { data_entrada: "2026-09-29" });
-    const r = mergePecaTeste(b, meu, dele);
-    expect(r.valor.trilhas[0].tentativas[0]).toMatchObject({ id: null, numero: 1, data_entrada: "2026-09-29" });
+  it("tentativa nova MINHA (sem id) e a dele do mesmo número com dados diferentes = conflito; do mesmo valor = une", () => {
+    const base = estado(trilha({ tentativas: [rep(1)] }));
+    const meu = estado(trilha({ tentativas: [rep(1), { ...tentativaVirtual(2), data_saida: D1 }] }));
+    const dele = estado(trilha({ tentativas: [rep(1), tent(2, { id: "t-2n", data_saida: "2026-10-09" })] }));
+    const r = mergePecaTeste(base, meu, dele);
+    expect(r.conflitos.map((c) => c.path)).toEqual([pathPT(CAT, "data_saida")]);
+    expect(r.valor.trilhas[0].tentativas[1].id).toBe("t-2n");
+  });
+  it("ele apagou a tentativa: sem edição minha some (aviso); com edição minha sobrevive como NOVA", () => {
+    const base = estado(trilha({ tentativas: [rep(1), tent(2, { data_saida: D1 })] }));
+    const dele = estado(trilha({ tentativas: [rep(1)] }));
+    const semEdicao = mergePecaTeste(base, base, dele);
+    expect(semEdicao.valor.trilhas[0].tentativas).toHaveLength(1);
+    expect(semEdicao.avisos[0]).toMatch(/tentativa 2 de PL foi excluída por outra pessoa/);
+    const meu = estado(trilha({ tentativas: [rep(1), tent(2, { data_saida: D1, data_entrada: D2 })] }));
+    const comEdicao = mergePecaTeste(base, meu, dele);
+    expect(comEdicao.valor.trilhas[0].tentativas[1]).toMatchObject({ id: null, data_entrada: D2, numero: 2 });
+  });
+  it("(Review) minha EXCLUSÃO segue valendo e renumera; se ele ALTEROU a excluída = conflito `excluir`", () => {
+    const base = estado(trilha({ tentativas: [rep(1), rep(2, F2, "Oficina Dois"), tent(3, { data_saida: D1 })] }));
+    const meu = estado(excluirTentativa(base.trilhas[0], 2));
+    const sem = mergePecaTeste(base, meu, base);
+    expect(sem.conflitos).toEqual([]);
+    expect(sem.valor.trilhas[0].tentativas.map((x) => [x.id, x.numero])).toEqual([["t-1", 1], ["t-3", 2]]);
+    expect(sem.valor.trilhas[0].excluidas.map((x) => x.id)).toEqual(["t-2"]);
+    const dele = estado(trilha({ tentativas: [rep(1), { ...rep(2, F2, "Oficina Dois"), rev: 2, data_saida: "2026-10-09" }, tent(3, { data_saida: D1 })] }));
+    const com = mergePecaTeste(base, meu, dele);
+    expect(com.conflitos.map((c) => c.path)).toEqual([pathPT(CAT, "excluir", 2)]);
   });
 });
 
 describe("path e leitura do servidor", () => {
   it("pathPT/lerPathPT ida e volta", () => {
-    expect(pathPT(L1, "fornecedor")).toBe(`pt:${L1}:fornecedor`);
-    expect(lerPathPT(pathPT(L1, "data_saida"))).toEqual({ linha: L1, campo: "data_saida", numero: null });
-    expect(lerPathPT(pathPT(L1, "aprovacao", 3))).toEqual({ linha: L1, campo: "aprovacao", numero: 3 });
-    expect(lerPathPT("secao:bom")).toBeNull();
+    expect(lerPathPT(pathPT(CAT, "data_saida"))).toEqual({ categoria: CAT, campo: "data_saida", numero: null });
+    expect(lerPathPT(pathPT(CAT, "mini", 2))).toEqual({ categoria: CAT, campo: "mini", numero: 2 });
+    expect(lerPathPT("zzz")).toBeNull();
   });
-  it("estadoPTDoServidor lê o jsonb da RPC (ordena por número, datas vazias viram null) e tolera null", () => {
+  it("estadoPTDoServidor lê o jsonb novo (fornecedores, tem_mo, tipos_adicionar), ordena por número e tolera null", () => {
     expect(estadoPTDoServidor(null)).toBeNull();
     const e = estadoPTDoServidor({
-      trilhas: [{ mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: F1, empresa_nome: "X", mo_aprovado: true, aprovada: false,
-        tentativas: [{ id: T2, numero: 2, data_saida: "", aprovacao: null, rev: 0 }, { id: T1, numero: 1, data_saida: "2026-09-08", aprovacao: "reprovado", rev: 4, empresa_id: F1 }] }],
-      outros: [{ categoria_nome: "Lavanderia", empresa_nome: "Lava Tudo" }],
-    });
-    expect(e?.trilhas[0].tentativas.map((x) => x.numero)).toEqual([1, 2]);
-    expect(e?.trilhas[0].tentativas[1].data_saida).toBeNull();
-    expect(e?.outros).toEqual([{ categoria_nome: "Lavanderia", empresa_nome: "Lava Tudo" }]);
-  });
-});
-
-// ───────── fix round 1 (revisão T6) ─────────
-describe("achado 1 — trilha = (linha, TIPO): nada do tipo antigo migra para o tipo novo", () => {
-  const CAT_B = "00000000-0000-4000-8000-00000000ca02";
-  const decidida = (cat: string) => trilha({
-    categoria_id: cat, tentativas: [{ ...tentativaVirtual(1), data_saida: "2026-10-01", data_entrada: "2026-10-03", aprovacao: "aprovado", empresa_id: F1, empresa_nome: "Oficina Um" }],
-  });
-
-  it("(sonda do revisor) o servidor devolve a linha com OUTRO tipo (trocado por mim ou por outra pessoa): vale a trilha dele, sem as minhas tentativas e sem aprovação herdada", () => {
-    const base = estado(trilha({ categoria_id: CAT }));
-    const meu = estado(decidida(CAT));
-    const dele = estado(trilha({ categoria_id: CAT_B, categoria_nome: "Bordado" }));
-    const m = mergePecaTeste(base, meu, dele);
-    expect(m.conflitos).toEqual([]);
-    expect(m.valor.trilhas[0]).toMatchObject({ categoria_id: CAT_B, categoria_nome: "Bordado", tentativas: [] });
-    // o payload do retry não leva nada
-    expect(payloadPecaTeste(m.valor, dele)._trilhas).toEqual([]);
-  });
-
-  it("payloadPecaTeste: cada trilha leva categoria_id; trilha cujo tipo difere da base não entra; `ignorar` tira a linha (datas, decisão e fornecedor)", () => {
-    const base = estado(trilha({ categoria_id: CAT }));
-    const draft = estado({ ...decidida(CAT), empresa_id: F2, empresa_nome: "Oficina Dois" });
-    const p = payloadPecaTeste(draft, base);
-    expect(p._trilhas[0].categoria_id).toBe(CAT);
-    expect(payloadPecaTeste(draft, base, undefined, new Set([L1]))._trilhas).toEqual([]);
-    expect(ptDirty(draft, base, undefined, new Set([L1]))).toBe(false);
-    const outroTipo = estado({ ...decidida(CAT_B), categoria_id: CAT_B });
-    expect(payloadPecaTeste(outroTipo, base)._trilhas).toEqual([]);
-  });
-});
-
-describe("achado 3 — a troca de fornecedor é MINHA (via editor da M.O.): minha decisão não vira conflito falso", () => {
-  it("(sonda do revisor) base E1; eu troquei para E2 e reprovei; o servidor já tem E2 (meu Salvar da M.O.): sem conflito", () => {
-    const t1 = { ...tentativaVirtual(1), id: T1, data_saida: "2026-10-01", data_entrada: "2026-10-03", rev: 2 };
-    const base = estado(trilha({ empresa_id: F1, empresa_nome: "F1", tentativas: [t1] }));
-    const meu = estado(trilha({ empresa_id: F2, empresa_nome: "F2", tentativas: [{ ...t1, aprovacao: "reprovado", empresa_id: F1, empresa_nome: "F1" }] }));
-    const dele = estado(trilha({ empresa_id: F2, empresa_nome: "F2", mo_aprovado: null, tentativas: [{ ...t1 }] }));
-    expect(mergePecaTeste(base, meu, dele).conflitos).toEqual([]);
-  });
-  it("já a troca DELE continua gerando o conflito (outro fornecedor, que eu não vi)", () => {
-    const t1 = { ...tentativaVirtual(1), id: T1, data_saida: "2026-10-01", data_entrada: "2026-10-03", rev: 2 };
-    const base = estado(trilha({ empresa_id: F1, tentativas: [t1] }));
-    const meu = estado(trilha({ empresa_id: F1, tentativas: [{ ...t1, aprovacao: "reprovado", empresa_id: F1 }] }));
-    const dele = estado(trilha({ empresa_id: F2, empresa_nome: "F2", tentativas: [{ ...t1 }] }));
-    expect(mergePecaTeste(base, meu, dele).conflitos).toHaveLength(1);
+      trilhas: [{ categoria_id: CAT, categoria_nome: "PL", tem_mo: true, mo_aprovado: false, fornecedores: [{ id: F1, nome_fantasia: "Oficina Um" }],
+        tentativas: [{ id: "b", numero: 2, empresa_id: F1, empresa_nome: "Oficina Um", data_saida: D1, data_entrada: "", aprovacao: null, rev: 1, mini: null },
+                     { id: "a", numero: 1, empresa_id: null, empresa_nome: null, data_saida: null, data_entrada: null, aprovacao: "reprovado", rev: 0, mini: null }] }],
+      outros: [{ categoria_nome: "Corte", empresa_nome: null }],
+      tipos_adicionar: [{ categoria_id: CAT2, categoria_nome: "Bordado", fornecedores: [] }],
+    })!;
+    expect(e.trilhas[0]).toMatchObject({ tem_mo: true, mo_aprovado: false, excluidas: [] });
+    expect(e.trilhas[0].tentativas.map((t) => t.numero)).toEqual([1, 2]);
+    expect(e.trilhas[0].tentativas[1].data_entrada).toBeNull();
+    expect(e.tipos_adicionar).toEqual([{ categoria_id: CAT2, categoria_nome: "Bordado", fornecedores: [] }]);
   });
 });

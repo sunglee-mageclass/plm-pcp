@@ -6,8 +6,8 @@
 // `_rev_base`. Colaboração: rev por tentativa + P0409 -> relê, `mergePecaTeste` 3 vias; sem conflito re-tenta 1x sozinho; com conflito
 // devolve `{ conflito }` (NUNCA lança P0409: o resto do card já gravou).
 //
-// Fornecedor ÚNICO (Ruling 9): quem trocou o fornecedor na M.O. (linha editável e visível) vale como o efetivo da trilha — `fornecedorMo`
-// traz SÓ as linhas cujo fornecedor o usuário mudou no editor da M.O. (≠ da base dela); as demais usam o do rascunho da seção.
+// Reforma por TIPO (nov/2026): a trilha é (card, tipo de serviço) — `categoria_id` é a chave de TODA operação; o fornecedor é da TENTATIVA
+// (não espelha mais a M.O.). O rascunho tem as ações do histórico editável (corrigir, excluir, mudar a decisão) e o "Adicionar peça teste".
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -15,9 +15,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { Conflito } from "@/lib/colab/merge";
 import {
-  aplicarCampoDele, aprovar as aprovarTrilha, chaveConfere, desfazerDecisao, editarAtual as editarAtualTrilha, editarMiniDaTentativa, estadoPTDoServidor,
-  estornosPendentes as estornosDoEstado, mergePecaTeste, payloadPecaTeste, ptDirty, reprovar as reprovarTrilha, tentativaAtualPT,
-  type EstadoPT, type OpcoesPayloadPT, type PayloadPT, type TentativaPT, type TrilhaPT,
+  adicionarTrilha as adicionarTrilhaAoEstado, aplicarCampoDele, aprovar as aprovarTrilha, chaveConfere, corrigirTentativa as corrigirTentativaDaTrilha,
+  desfazerDecisao, editarAtual as editarAtualTrilha, editarMiniDaTentativa, estadoPTDoServidor, estornosPendentes as estornosDoEstado,
+  excluirTentativa as excluirTentativaDaTrilha, mergePecaTeste, mudarDecisaoTentativa as mudarDecisaoDaTrilha, payloadPecaTeste, ptDirty,
+  reprovar as reprovarTrilha, tentativaAtualPT,
+  type AprovacaoPecaTeste, type EstadoPT, type OpcoesPayloadPT, type PayloadPT, type TentativaPT, type TrilhaPT,
 } from "@/lib/peca-teste";
 import { acaoNoSalvar, confereDasLinhas, miniVazia, resumoPosSalvar, type MiniPT } from "@/lib/peca-teste-mini";
 import type { MiniApi } from "@/components/planejamento/planejamento-detail/useMiniExplosao";
@@ -58,8 +60,6 @@ export const PECA_TESTE_INERTE: PecaTesteSave = {
   aposSalvar: () => {},
 };
 
-export type FornecedorMo = { id: string | null; nome: string | null };
-
 /**
  * Clique do Salvar do card (R11, P-365 A): se o Salvar vai ESTORNAR a baixa de estoque de alguma mini (Data de saída apagada, ou mini mudada com a
  * data = estorna e refaz), pergunta ANTES de enviar qualquer coisa — Cancelar = nada é enviado; Confirmar = o Salvar normal, 1×. Sem estorno,
@@ -85,29 +85,12 @@ function codigoDoErro(e: unknown): string | null {
   return e && typeof e === "object" && "code" in e ? String((e as { code?: unknown }).code ?? "") : null;
 }
 
-/** Aplica o fornecedor que a pessoa mudou no editor da M.O. por cima do rascunho da seção (só nas linhas informadas). */
-export function comFornecedoresDaMo(e: EstadoPT, mo: Readonly<Record<string, FornecedorMo>> | null | undefined): EstadoPT {
-  if (!mo) return e;
-  let mudou = false;
-  const trilhas = e.trilhas.map((t) => {
-    const f = mo[t.mo_linha_id];
-    if (!f || ((f.id ?? null) === (t.empresa_id ?? null))) return t;
-    mudou = true;
-    return { ...t, empresa_id: f.id, empresa_nome: f.nome ?? t.empresa_nome };
-  });
-  return mudou ? { ...e, trilhas } : e;
-}
-
-export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, linhasIgnoradas, mini }: {
+export function usePecaTeste({ modeloId, habilitado, podeEditar, mini }: {
   modeloId: string | null;
   /** Card salvo e seção aplicável (o Sheet de card novo não tem a seção). */
   habilitado: boolean;
   /** `canEdit("criacao_planejamento:peca_teste")`. */
   podeEditar: boolean;
-  /** Linhas cujo fornecedor foi trocado NO EDITOR DA M.O. (linha -> novo fornecedor). null = o editor da M.O. não está visível/editável. */
-  fornecedorMo?: Readonly<Record<string, FornecedorMo>> | null;
-  /** Linhas cujo TIPO mudou no rascunho da M.O.: a trilha da tela é do tipo antigo — nada dela é capturado/gravado (nem conta como "não salvo"). */
-  linhasIgnoradas?: ReadonlySet<string> | null;
   /** R11 — a mini explosão (cálculo ao vivo): dá o `confere` e o `semTecido1` do payload. Ausente = a seção como na R9. */
   mini?: MiniApi | null;
 }) {
@@ -137,10 +120,6 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
   const freshRef = useRef<EstadoPT | null>(null);
   const salvandoRef = useRef(false);
   const enviadoOkRef = useRef<EstadoPT | null>(null);
-  const fornecedorMoRef = useRef(fornecedorMo ?? null);
-  fornecedorMoRef.current = fornecedorMo ?? null;
-  const ignoradasRef = useRef<ReadonlySet<string> | undefined>(linhasIgnoradas ?? undefined);
-  ignoradasRef.current = linhasIgnoradas ?? undefined;
   const podeEditarRef = useRef(podeEditar);
   podeEditarRef.current = podeEditar;
   const miniRef = useRef<MiniApi | null>(mini ?? null);
@@ -160,7 +139,7 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
       for (const a of t.tentativas) {
         if (!a.data_saida || !a.mini) continue;
         const calc = api.calcular(a.mini);
-        if (calc) confere[chaveConfere(t.mo_linha_id, a.numero)] = confereDasLinhas(calc.linhas);
+        if (calc) confere[chaveConfere(t.categoria_id, a.numero)] = confereDasLinhas(calc.linhas);
       }
     }
     return { confere, semTecido1: api.semTecido1 };
@@ -185,76 +164,90 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     if (salvandoRef.current) return;
     const b = baseRef.current, d = draftRef.current;
     if (!b || !d) { aplicar(data, data); return; }
-    if (!ptDirty(d, b, undefined, ignoradasRef.current, opcoesPT(d))) { aplicar(data, data); guardarConflitos(() => []); setAvisos([]); return; }
+    if (!ptDirty(d, b, opcoesPT(d))) { aplicar(data, data); guardarConflitos(() => []); setAvisos([]); return; }
     const r = mergePecaTeste(b, d, data);
     aplicar(r.valor, data);
     juntarAvisos(r.avisos);
     if (r.conflitos.length > 0) guardarConflitos((prev) => juntar(prev, r.conflitos));
   }, [query.data, aplicar, guardarConflitos, opcoesPT, juntarAvisos]);
 
-  const estado = useMemo(() => (draft ? comFornecedoresDaMo(draft, fornecedorMo) : null), [draft, fornecedorMo]);
-  const dirty = !!podeEditar && !!estado && !!base && ptDirty(estado, base, undefined, linhasIgnoradas ?? undefined, { semTecido1: mini?.semTecido1 ?? false });
+  const estado = draft;
+  const dirty = !!podeEditar && !!estado && !!base && ptDirty(estado, base, { semTecido1: mini?.semTecido1 ?? false });
 
-  // ───────── edição do rascunho ─────────
-  const mutar = useCallback((linhaId: string, fn: (t: TrilhaPT) => TrilhaPT) => {
+  // ───────── edição do rascunho (toda operação é por TIPO = `categoriaId`) ─────────
+  const mutar = useCallback((categoriaId: string, fn: (t: TrilhaPT) => TrilhaPT) => {
     const d = draftRef.current;
     if (!d) return;
-    const novo: EstadoPT = { ...d, trilhas: d.trilhas.map((t) => (t.mo_linha_id === linhaId ? fn(t) : t)) };
+    const novo: EstadoPT = { ...d, trilhas: d.trilhas.map((t) => (t.categoria_id === categoriaId ? fn(t) : t)) };
     draftRef.current = novo;
     setDraftState(novo);
   }, []);
-  const fornecedorBaseDa = (linhaId: string): FornecedorMo => {
-    const b = baseRef.current?.trilhas.find((t) => t.mo_linha_id === linhaId);
-    return { id: b?.empresa_id ?? null, nome: b?.empresa_nome ?? null };
-  };
 
-  const editarAtual = useCallback((linhaId: string, patch: Partial<Pick<TentativaPT, "data_saida" | "data_entrada">>) => {
-    mutar(linhaId, (t) => editarAtualTrilha(t, patch));
+  const editarAtual = useCallback((categoriaId: string, patch: Partial<Pick<TentativaPT, "data_saida" | "data_entrada">>) => {
+    mutar(categoriaId, (t) => editarAtualTrilha(t, patch));
   }, [mutar]);
-  /** "Aprovado" (avançar não pede confirmação). Congela o fornecedor da linha SALVA, como o servidor. */
-  const aprovarAtual = useCallback((linhaId: string) => {
-    mutar(linhaId, (t) => aprovarTrilha(t, fornecedorBaseDa(linhaId)));
+  /** Fornecedor da tentativa ATUAL (do Select, filtrado pelo tipo). */
+  const trocarFornecedor = useCallback((categoriaId: string, empresaId: string | null, empresaNome: string | null) => {
+    mutar(categoriaId, (t) => editarAtualTrilha(t, { empresa_id: empresaId, empresa_nome: empresaNome }));
   }, [mutar]);
-  /** Volta a Aprovação para "Selecione…" (desfaz a decisão ainda não reprovada). */
-  const desfazerAtual = useCallback((linhaId: string) => {
-    mutar(linhaId, (t) => desfazerDecisao(t));
+  /** "Aprovado" (avançar não pede confirmação): o fornecedor é o da própria tentativa. */
+  const aprovarAtual = useCallback((categoriaId: string) => {
+    mutar(categoriaId, (t) => aprovarTrilha(t));
   }, [mutar]);
-  /** "Reprovado" (já confirmado no diálogo): a atual vai para o histórico e nasce a seguinte. */
-  const reprovarAtual = useCallback((linhaId: string) => {
+  /** Volta a Aprovação para "Selecione…" (desfaz a decisão ainda não reprovada). O fornecedor da tentativa fica. */
+  const desfazerAtual = useCallback((categoriaId: string) => {
+    mutar(categoriaId, (t) => desfazerDecisao(t));
+  }, [mutar]);
+  /** "Reprovado" (já confirmado no diálogo): a atual vai para o histórico e nasce a seguinte (sem fornecedor). */
+  const reprovarAtual = useCallback((categoriaId: string) => {
     // R11 — a baixa da tentativa reprovada é MANTIDA (peça gasta): avisa quando há baixa feita ou que o Salvar vai fazer
-    const t = draftRef.current?.trilhas.find((x) => x.mo_linha_id === linhaId);
+    const t = draftRef.current?.trilhas.find((x) => x.categoria_id === categoriaId);
     if (t) {
       const at = tentativaAtualPT(t);
-      const b = baseRef.current?.trilhas.find((x) => x.mo_linha_id === linhaId)?.tentativas.find((x) => x.numero === at.numero) ?? null;
+      const b = baseRef.current?.trilhas.find((x) => x.categoria_id === categoriaId)?.tentativas.find((x) => x.id !== null && x.id === at.id) ?? null;
       const baixa = !!b?.mini?.baixa_em || acaoNoSalvar(at, b, { semTecido1: miniRef.current?.semTecido1 ?? false }) === "baixa";
       if (baixa) toast.warning(`Tentativa ${at.numero} reprovada. Nasceu a tentativa ${at.numero + 1}. A baixa da tentativa ${at.numero} é mantida (peça gasta). Salve o card para gravar.`);
+      else toast.info(`Tentativa ${at.numero} reprovada. Se o custo mudou, reaprove a mão de obra. Salve o card para gravar.`);
     }
-    mutar(linhaId, (x) => reprovarTrilha(x, fornecedorBaseDa(linhaId)));
+    mutar(categoriaId, (x) => reprovarTrilha(x));
   }, [mutar]);
   /** Edita a mini explosão da tentativa ATUAL (trocar tamanho/cor, ajustes, "mesma OC"). `miniVazia` volta a ser "sem mini". */
-  const editarMini = useCallback((linhaId: string, novaMini: MiniPT) => {
-    mutar(linhaId, (t) => editarAtualTrilha(t, { mini: miniVazia(novaMini) ? null : novaMini }));
+  const editarMini = useCallback((categoriaId: string, novaMini: MiniPT) => {
+    mutar(categoriaId, (t) => editarAtualTrilha(t, { mini: miniVazia(novaMini) ? null : novaMini }));
   }, [mutar]);
-  /** Edita a mini de UMA tentativa por número — a REPROVADA do histórico (botão "Editar"): o Salvar estorna a baixa e refaz. Só a `mini`: datas,
-   *  decisão e fornecedor ficam como estão. Aprovada nunca (o servidor também recusa). Sem caminho de `editarAtualTrilha` (mira a atual e recusa reprovada). */
-  const editarMiniTentativa = useCallback((linhaId: string, numero: number, novaMini: MiniPT | null) => {
-    mutar(linhaId, (t) => editarMiniDaTentativa(t, numero, novaMini));
+  /** Edita a mini de UMA tentativa por número — a REPROVADA do histórico (botão "Editar"): o Salvar estorna a baixa e refaz. Aprovada nunca. */
+  const editarMiniTentativa = useCallback((categoriaId: string, numero: number, novaMini: MiniPT | null) => {
+    mutar(categoriaId, (t) => editarMiniDaTentativa(t, numero, novaMini));
   }, [mutar]);
-  const trocarFornecedor = useCallback((linhaId: string, empresaId: string | null, empresaNome: string | null) => {
-    mutar(linhaId, (t) => ({ ...t, empresa_id: empresaId, empresa_nome: empresaNome }));
+  /** Histórico editável: corrige datas/fornecedor de uma REPROVADA (a decisão não muda). */
+  const corrigirTentativa = useCallback((categoriaId: string, numero: number, patch: Parameters<typeof corrigirTentativaDaTrilha>[2]) => {
+    mutar(categoriaId, (t) => corrigirTentativaDaTrilha(t, numero, patch));
   }, [mutar]);
+  /** Histórico editável: exclui uma tentativa (já confirmado no AlertDialog). Vale ao SALVAR (estorna a baixa e renumera as seguintes). */
+  const excluirTentativa = useCallback((categoriaId: string, numero: number) => {
+    mutar(categoriaId, (t) => excluirTentativaDaTrilha(t, numero));
+  }, [mutar]);
+  /** Histórico editável: muda a decisão de uma tentativa (reprovada -> aprovada/pendente). Bloqueios (tentativas seguintes) = nada. */
+  const mudarDecisaoTentativa = useCallback((categoriaId: string, numero: number, para: AprovacaoPecaTeste) => {
+    mutar(categoriaId, (t) => mudarDecisaoDaTrilha(t, numero, para));
+  }, [mutar]);
+  /** "Adicionar peça teste": acrescenta ao rascunho a trilha de um tipo de `tipos_adicionar`. */
+  const adicionarTrilha = useCallback((categoriaId: string) => {
+    const d = draftRef.current;
+    if (!d) return;
+    const novo = adicionarTrilhaAoEstado(d, categoriaId);
+    draftRef.current = novo;
+    setDraftState(novo);
+  }, []);
 
-  /** "Manter o meu" fecha o aviso; "Usar o novo" aplica o valor do servidor no campo. Devolve o fornecedor quando o campo era ele. */
+  /** "Manter o meu" fecha o aviso; "Usar o novo" aplica o valor do servidor no campo. */
   const resolverConflito = useCallback((path: string, escolha: "meu" | "dele") => {
-    let fornecedor: { linhaId: string; empresaId: string | null; empresaNome: string | null } | null = null;
     if (escolha === "dele" && draftRef.current && freshRef.current) {
-      const r = aplicarCampoDele(draftRef.current, freshRef.current, path);
-      draftRef.current = r.valor;
-      setDraftState(r.valor);
-      fornecedor = r.fornecedor;
+      const novo = aplicarCampoDele(draftRef.current, freshRef.current, path);
+      draftRef.current = novo;
+      setDraftState(novo);
     }
     guardarConflitos((prev) => prev.filter((c) => c.path !== path));
-    return fornecedor;
   }, [guardarConflitos]);
 
   // ───────── Salvar do card ─────────
@@ -262,8 +255,8 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     if (!podeEditarRef.current) return null;
     const d = draftRef.current, b = baseRef.current;
     if (!d || !b) return null;
-    const ef = comFornecedoresDaMo(d, fornecedorMoRef.current);
-    const payload = payloadPecaTeste(ef, b, undefined, ignoradasRef.current, opcoesPT(ef));
+    const ef = d;
+    const payload = payloadPecaTeste(ef, b, opcoesPT(ef));
     if (payload._trilhas.length === 0) return null;
     // P-57: sem a ficha hidratada a mini NÃO é capturada (o "a enviar" que a pessoa viu não existe) — recusa em vez de gravar às cegas.
     const api = miniRef.current;
@@ -297,8 +290,7 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
         const fresh = await qc.fetchQuery({ queryKey: ["peca-teste", modeloId], queryFn: lerServidor, staleTime: 0 });
         if (!fresh || !baseRef.current || !draftRef.current) return { erro };
         freshRef.current = fresh;
-        const meu = comFornecedoresDaMo(draftRef.current, fornecedorMoRef.current);
-        const m = mergePecaTeste(baseRef.current, meu, fresh);
+        const m = mergePecaTeste(baseRef.current, draftRef.current, fresh);
         aplicar(m.valor, fresh);
         juntarAvisos(m.avisos);
         if (m.conflitos.length > 0) {
@@ -326,12 +318,6 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     const enviado = enviadoOkRef.current ?? c.enviado;
     baseRef.current = enviado;
     setBaseState(enviado);
-    // o fornecedor trocado no editor da M.O. passa a ser o do rascunho (o Salvar do card re-baseia a M.O. no mesmo tick e o mapa some)
-    if (draftRef.current && fornecedorMoRef.current) {
-      const d = comFornecedoresDaMo(draftRef.current, fornecedorMoRef.current);
-      draftRef.current = d;
-      setDraftState(d);
-    }
     guardarConflitos(() => []);
     setAvisos([]);
     // R11 — relê e compara com o ANTES: toasts do que o Salvar fez no estoque (baixa, estorno, falta registrada, falta tamanho/cor)
@@ -355,19 +341,19 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     dirty: () => {
       if (!podeEditarRef.current) return false;
       const d = draftRef.current, b = baseRef.current;
-      return !!d && !!b && ptDirty(comFornecedoresDaMo(d, fornecedorMoRef.current), b, undefined, ignoradasRef.current, { semTecido1: miniRef.current?.semTecido1 ?? false });
+      return !!d && !!b && ptDirty(d, b, { semTecido1: miniRef.current?.semTecido1 ?? false });
     },
     conflitos: () => conflitosRef.current.length,
     estornosPendentes: () => {
       const d = draftRef.current, b = baseRef.current;
       if (!podeEditarRef.current || !d || !b) return [];
-      return estornosDoEstado(comFornecedoresDaMo(d, fornecedorMoRef.current), b, ignoradasRef.current, { semTecido1: miniRef.current?.semTecido1 ?? false })
+      return estornosDoEstado(d, b, { semTecido1: miniRef.current?.semTecido1 ?? false })
         .map((e) => `${e.servico} · tentativa ${e.numero}`);
     },
     estornoRefazBaixa: () => {
       const d = draftRef.current, b = baseRef.current;
       if (!podeEditarRef.current || !d || !b) return false;
-      return estornosDoEstado(comFornecedoresDaMo(d, fornecedorMoRef.current), b, ignoradasRef.current, { semTecido1: miniRef.current?.semTecido1 ?? false }).some((e) => e.refaz);
+      return estornosDoEstado(d, b, { semTecido1: miniRef.current?.semTecido1 ?? false }).some((e) => e.refaz);
     },
     capturar, salvar, aposSalvar,
   }), [capturar, salvar, aposSalvar]);
@@ -378,7 +364,7 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     carregando: ativo && query.isLoading,
     erro: ativo && query.isError,
     tentarDeNovo: () => { void query.refetch(); },
-    /** Estado EFETIVO (rascunho + fornecedor trocado na M.O.). null enquanto não carregou ou sem permissão. */
+    /** Estado EFETIVO (o rascunho). null enquanto não carregou ou sem permissão. */
     estado,
     base,
     dirty,
@@ -387,6 +373,7 @@ export function usePecaTeste({ modeloId, habilitado, podeEditar, fornecedorMo, l
     /** R11 — avisos do merge (baixa/estorno feitos por outra pessoa). */
     avisos,
     editarAtual, aprovarAtual, desfazerAtual, reprovarAtual, trocarFornecedor, editarMini, editarMiniTentativa,
+    corrigirTentativa, excluirTentativa, mudarDecisaoTentativa, adicionarTrilha,
     pecaTesteSave,
   };
 }

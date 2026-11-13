@@ -90,7 +90,7 @@ const KEY_T = `t:tecido:1:1:${V1}`;
 
 function render(over: Partial<MiniBlocoProps> & { tentativa: TentativaPT }): string {
   const props: MiniBlocoProps = {
-    linhaId: L1, pathNumero: null, base: null, historico: false, podeEditar: true, api: fakeApi(), onChange: () => {}, abertoInicial: true, ...over,
+    categoriaId: CAT, pathNumero: null, base: null, historico: false, podeEditar: true, api: fakeApi(), onChange: () => {}, abertoInicial: true, ...over,
   };
   return renderToStaticMarkup(createElement(MiniExplosaoBloco, props));
 }
@@ -144,8 +144,8 @@ describe("MiniExplosaoBloco — cabeçalho, selos e avisos por estado", () => {
     expect(render({ tentativa: tent(1), api: fakeApi({ ativo: false }) })).toBe("");
   });
   it("data-colab-path: atual = pt:<linha>:mini; histórico = pt:<linha>:t<n>:mini", () => {
-    expect(render({ tentativa: tent(1) })).toContain(`data-colab-path="pt:${L1}:mini"`);
-    expect(render({ tentativa: tent(1, { aprovacao: "reprovado", mini: pronta() }), pathNumero: 1, historico: true })).toContain(`data-colab-path="pt:${L1}:t1:mini"`);
+    expect(render({ tentativa: tent(1) })).toContain(`data-colab-path="pt:${CAT}:mini"`);
+    expect(render({ tentativa: tent(1, { aprovacao: "reprovado", mini: pronta() }), pathNumero: 1, historico: true })).toContain(`data-colab-path="pt:${CAT}:t1:mini"`);
   });
   it("título, chips Tam./cor, 'Não entra no custo do produto' (InfoHover) e a dica de trocar tamanho/cor", () => {
     const html = render({ tentativa: tent(1, { mini: pronta() }) });
@@ -254,7 +254,7 @@ describe("MiniExplosaoBloco — cabeçalho, selos e avisos por estado", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     const desenhar = () => act(async () => {
-      root.render(createElement(MiniExplosaoBloco, { linhaId: L1, pathNumero: null, tentativa: atual, base, historico: false, podeEditar: true, api: fakeApi(), abertoInicial: true,
+      root.render(createElement(MiniExplosaoBloco, { categoriaId: CAT, pathNumero: null, tentativa: atual, base, historico: false, podeEditar: true, api: fakeApi(), abertoInicial: true,
         onChange: (novo: MiniPT) => { atual = { ...atual, mini: novo }; void desenhar(); } }));
     });
     await desenhar();
@@ -446,7 +446,7 @@ describe("MiniExplosaoBloco — tabelas, ↺, OC do card, faltas e mobile", () =
 });
 
 describe("PecaTesteSecao — o bloco sob a grade da atual e nas linhas do histórico", () => {
-  const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({ mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: null, empresa_nome: null, mo_aprovado: true, tentativas: [], ...o });
+  const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({ categoria_id: CAT, categoria_nome: "PL", tem_mo: true, fornecedores: [], excluidas: [], mo_aprovado: true, tentativas: [], ...o });
   const renderSecao = (e: EstadoPT, over: Record<string, unknown> = {}) =>
     renderToStaticMarkup(createElement(PecaTesteSecao, {
       estado: e, base: e, fornecedores: [], onEditarAtual: () => {}, onAprovar: () => {}, onDesfazer: () => {}, onReprovar: () => {}, onTrocarFornecedor: () => {},
@@ -454,29 +454,29 @@ describe("PecaTesteSecao — o bloco sob a grade da atual e nas linhas do histó
     } as never));
 
   it("sem a prop `mini` a seção fica como na R9 (nenhum bloco)", () => {
-    expect(renderSecao({ trilhas: [trilha()], outros: [] })).not.toContain("Mini explosão");
+    expect(renderSecao({ trilhas: [trilha()], outros: [], tipos_adicionar: [] })).not.toContain("Mini explosão");
   });
   it("com `mini`: 1 bloco na tentativa atual + 1 em cada reprovada que tem mini (somente leitura)", () => {
-    const e: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", mini: pronta({ baixa_em: "2026-10-01T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] }) }), tent(2, { mini: pronta() })] })], outros: [] };
+    const e: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", mini: pronta({ baixa_em: "2026-10-01T10:00:00Z", linhas: [ajuste(KEY_T, { foto: foto() })] }) }), tent(2, { mini: pronta() })] })], outros: [], tipos_adicionar: [] };
     const html = renderSecao(e, { mini: fakeApi() });
     expect((html.match(/data-testid="peca-teste-mini"/g) ?? []).length).toBe(2);
-    expect(html).toContain(`data-colab-path="pt:${L1}:mini"`);
-    expect(html).toContain(`data-colab-path="pt:${L1}:t1:mini"`);
+    expect(html).toContain(`data-colab-path="pt:${CAT}:mini"`);
+    expect(html).toContain(`data-colab-path="pt:${CAT}:t1:mini"`);
     expect(html).toContain("Baixa mantida (peça gasta)");
   });
   it("reprovada SEM mini não ganha bloco no histórico (sem ruído)", () => {
-    const e: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01" })] })], outros: [] };
+    const e: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01" })] })], outros: [], tipos_adicionar: [] };
     const html = renderSecao(e, { mini: fakeApi() });
     expect((html.match(/data-testid="peca-teste-mini"/g) ?? []).length).toBe(1); // só a atual (virtual, nº 2)
   });
   it("avisos do merge (baixa/estorno de outra pessoa) aparecem na seção", () => {
-    const html = renderSecao({ trilhas: [trilha()], outros: [] }, { avisos: ["A baixa de estoque da peça teste (tentativa 1) foi feita por outra pessoa — a mini explosão foi atualizada."] });
+    const html = renderSecao({ trilhas: [trilha()], outros: [], tipos_adicionar: [] }, { avisos: ["A baixa de estoque da peça teste (tentativa 1) foi feita por outra pessoa — a mini explosão foi atualizada."] });
     expect(html).toContain("foi feita por outra pessoa");
   });
 });
 
 describe("PecaTesteSecao — Editar a mini da reprovada do histórico (fluxo completo no DOM)", () => {
-  const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({ mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: null, empresa_nome: null, mo_aprovado: true, tentativas: [], ...o });
+  const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({ categoria_id: CAT, categoria_nome: "PL", tem_mo: true, fornecedores: [], excluidas: [], mo_aprovado: true, tentativas: [], ...o });
   const montar = (b: EstadoPT, over: Record<string, unknown> = {}) => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -486,8 +486,8 @@ describe("PecaTesteSecao — Editar a mini da reprovada do histórico (fluxo com
       root.render(createElement(PecaTesteSecao, {
         estado: ref.estado, base: b, fornecedores: [], onEditarAtual: () => {}, onAprovar: () => {}, onDesfazer: () => {}, onReprovar: () => {}, onTrocarFornecedor: () => {},
         historicoAberto: true, miniAbertaInicial: true, defaultAberta: true, mini: fakeApi(),
-        onEditarMiniTentativa: (linhaId: string, numero: number, m: MiniPT | null) => {
-          ref.estado = { ...ref.estado, trilhas: ref.estado.trilhas.map((t) => (t.mo_linha_id === linhaId ? editarMiniDaTentativa(t, numero, m) : t)) };
+        onEditarMiniTentativa: (categoriaId: string, numero: number, m: MiniPT | null) => {
+          ref.estado = { ...ref.estado, trilhas: ref.estado.trilhas.map((t) => (t.categoria_id === categoriaId ? editarMiniDaTentativa(t, numero, m) : t)) };
           void desenhar();
         },
         ...over,
@@ -498,7 +498,7 @@ describe("PecaTesteSecao — Editar a mini da reprovada do histórico (fluxo com
   const hist = (container: HTMLElement) => container.querySelector('[data-testid="peca-teste-historico"]') as HTMLElement;
   const baixa = pronta({ baixa_em: "2026-10-01T10:00:00Z", linhas: [ajuste(KEY_T, { a_enviar: 1.65, foto: foto() })] });
   const reprovada = () => tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", mini: baixa });
-  const estadoBase = (): EstadoPT => ({ trilhas: [trilha({ tentativas: [reprovada(), tent(2, { mini: pronta() })] })], outros: [] });
+  const estadoBase = (): EstadoPT => ({ trilhas: [trilha({ tentativas: [reprovada(), tent(2, { mini: pronta() })] })], outros: [], tipos_adicionar: [] });
 
   it("começa TRAVADA (sem inputs; botão Editar presente) → clicar Editar libera → editar + Salvar gera estorno_e_baixa no payload", async () => {
     const b = estadoBase();
@@ -529,12 +529,12 @@ describe("PecaTesteSecao — Editar a mini da reprovada do histórico (fluxo com
     expect(t1.mini?.linhas.find((l) => l.chave === KEY_T)?.a_enviar).toBe(3);
     expect(t1).toMatchObject({ aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04" }); // datas/decisão seguem travadas
     expect(hist(container).textContent).toContain("Vai estornar e baixar de novo");
-    const p = payloadPecaTeste(d, b, undefined, undefined, { confere: { [`${L1}:1`]: { [KEY_T]: 3 } } });
+    const p = payloadPecaTeste(d, b, { confere: { [`${CAT}:1`]: { [KEY_T]: 3 } } });
     const enviado = p._trilhas[0].tentativas.find((x) => x.numero === 1)!;
     expect(enviado.aprovacao).toBe("reprovado");
     expect(enviado.mini?.ajustes.find((a) => a.chave === KEY_T)?.a_enviar).toBe(3);
     expect(enviado.mini?.confere).toEqual({ [KEY_T]: 3 });
-    expect(estornosPendentes(d, b)).toEqual([{ mo_linha_id: L1, servico: "PL", numero: 1, refaz: true }]); // acaoNoSalvar === "estorno_e_baixa"
+    expect(estornosPendentes(d, b)).toEqual([{ categoria_id: CAT, servico: "PL", numero: 1, refaz: true }]); // acaoNoSalvar === "estorno_e_baixa"
     // Cancelar edição: volta à mini do servidor, fecha e some o estorno
     await act(async () => { (container.querySelector('[data-testid="peca-teste-reprovada-cancelar"]') as HTMLElement).click(); });
     expect(estornosPendentes(ref.estado, b)).toEqual([]);
@@ -548,15 +548,15 @@ describe("PecaTesteSecao — Editar a mini da reprovada do histórico (fluxo com
     await ro.desenhar();
     expect(ro.container.querySelector('[data-testid="peca-teste-reprovada-editar"]')).toBeNull();
     ro.fim();
-    const ap: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "aprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", mini: baixa })] })], outros: [] };
+    const ap: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "aprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", mini: baixa })] })], outros: [], tipos_adicionar: [] };
     const a = montar(ap);
     await a.desenhar();
     expect(a.container.querySelector('[data-testid="peca-teste-reprovada-editar"]')).toBeNull();
     a.fim();
   });
   it("reprovada que só existe no rascunho (o servidor ainda não a tem como reprovada) não ganha Editar", async () => {
-    const b: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { data_saida: "2026-10-01", mini: pronta() })] })], outros: [] };
-    const d: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", mini: baixa }), tent(2, { mini: pronta() })] })], outros: [] };
+    const b: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { data_saida: "2026-10-01", mini: pronta() })] })], outros: [], tipos_adicionar: [] };
+    const d: EstadoPT = { trilhas: [trilha({ tentativas: [tent(1, { aprovacao: "reprovado", data_saida: "2026-10-01", mini: baixa }), tent(2, { mini: pronta() })] })], outros: [], tipos_adicionar: [] };
     const m = montar(b);
     m.ref.estado = d;
     await m.desenhar();
@@ -580,8 +580,8 @@ describe("fiação do Sheet (fonte)", () => {
     expect(SHEET).toContain("avisos={pt.avisos}");
   });
   it("o hook passa `confere` e `semTecido1` ao payload e ao dirty, e mostra os avisos do merge", () => {
-    expect(HOOK).toContain("chaveConfere(t.mo_linha_id, a.numero)");
-    expect(HOOK).toMatch(/payloadPecaTeste\(ef, b, undefined, ignoradasRef\.current, opcoesPT\(ef\)\)/);
+    expect(HOOK).toContain("chaveConfere(t.categoria_id, a.numero)");
+    expect(HOOK).toMatch(/payloadPecaTeste\(ef, b, opcoesPT\(ef\)\)/);
     expect(HOOK).toMatch(/juntarAvisos\(r\.avisos\)/);
     expect(HOOK).toMatch(/juntarAvisos\(m\.avisos\)/);
   });

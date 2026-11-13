@@ -363,7 +363,7 @@ export type TentativaMini = {
 
 /**
  * `_peca_teste_mini_feita`: a tentativa ATUAL da trilha (maior numero) tem baixa ativa. Trilha virtual/reprovada sem a
- * proxima = false. Espelho de `_peca_teste_mini_feita(_mo_linha_id, _categoria_id)`.
+ * proxima = false. Espelho de `_peca_teste_mini_feita(_mo_linha_id, _categoria_id)` (a SQL ainda resolve a trilha pela linha da M.O.; sem uso novo no TS).
  */
 export function miniExplosaoFeita(trilha: readonly TentativaMini[]): boolean {
   if (trilha.length === 0) return false;
@@ -719,9 +719,9 @@ export function faltasPreview(linhas: readonly MiniLinha[], estoque: EstoqueMini
 
 /** Estado mínimo de uma trilha para o resumo (subconjunto de `TrilhaPT`). */
 export type TrilhaDoResumo = {
-  mo_linha_id: string;
+  categoria_id: string;
   categoria_nome: string;
-  tentativas: { numero: number; data_saida: string | null; aprovacao: "aprovado" | "reprovado" | null; mini: MiniPT | null }[];
+  tentativas: { id?: string | null; numero: number; data_saida: string | null; aprovacao: "aprovado" | "reprovado" | null; mini: MiniPT | null }[];
 };
 export type ResumoPosSalvar = { baixas: string[]; estornos: string[]; faltas: string[]; semTamanhoCor: string[] };
 
@@ -730,14 +730,17 @@ function qtdFrase(n: number, un: string | null): string {
   return un === "m" ? `${s} m` : un === "un" ? `${s} un` : s;
 }
 
-/** Compara o estado de ANTES e o RELIDO DEPOIS do Salvar (por linha de M.O. + nº da tentativa) e lista o que aconteceu, para os toasts.
- *  Item = "<serviço> · tentativa N"; falta = "<serviço> · <linha> <qtd>". */
+/** Compara o estado de ANTES e o RELIDO DEPOIS do Salvar (por TIPO + id da tentativa; sem id, pelo nº) e lista o que aconteceu, para os toasts.
+ *  Tentativa que SUMIU (excluída) com baixa ativa antes = estorno. Item = "<serviço> · tentativa N"; falta = "<serviço> · <linha> <qtd>". */
 export function resumoPosSalvar(antes: readonly TrilhaDoResumo[], depois: readonly TrilhaDoResumo[], opts: { semTecido1?: boolean } = {}): ResumoPosSalvar {
   const out: ResumoPosSalvar = { baixas: [], estornos: [], faltas: [], semTamanhoCor: [] };
   for (const d of depois) {
-    const a = antes.find((x) => x.mo_linha_id === d.mo_linha_id);
+    const a = antes.find((x) => x.categoria_id === d.categoria_id);
+    for (const ta of a?.tentativas ?? []) {
+      if (ta.id && !d.tentativas.some((x) => x.id === ta.id) && ta.mini?.baixa_em) out.estornos.push(`${d.categoria_nome} · tentativa ${ta.numero}`);
+    }
     for (const td of [...d.tentativas].sort((x, y) => x.numero - y.numero)) {
-      const ta = a?.tentativas.find((x) => x.numero === td.numero);
+      const ta = td.id ? a?.tentativas.find((x) => x.id === td.id) : a?.tentativas.find((x) => x.numero === td.numero);
       const nome = `${d.categoria_nome} · tentativa ${td.numero}`;
       const baixouAntes = !!ta?.mini?.baixa_em, baixaAgora = !!td.mini?.baixa_em;
       if (!baixouAntes && baixaAgora) {

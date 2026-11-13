@@ -20,8 +20,8 @@ const AV = "00000000-0000-4000-8000-0000000000d1";
 const mini = (o: Partial<MiniPT> = {}): MiniPT => ({ ...miniNova(), ...o });
 const ajuste = (chave: string, o: Record<string, unknown> = {}) => ({ chave, familia: "aviamento" as const, consumo: null, loss_percent: null, a_enviar: null, variante_aviamento_id: null, oc_tecido_item_id: null, ...o });
 const tent = (numero: number, o: Partial<TentativaPT> = {}): TentativaPT => ({ ...tentativaVirtual(numero), id: `00000000-0000-4000-8000-00000000b${numero}00`.slice(0, 36), rev: 3, ...o });
-const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({ mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: F1, empresa_nome: "Oficina Um", mo_aprovado: true, tentativas: [], ...o });
-const estado = (...t: TrilhaPT[]): EstadoPT => ({ trilhas: t, outros: [] });
+const trilha = (o: Partial<TrilhaPT> = {}): TrilhaPT => ({ categoria_id: CAT, categoria_nome: "PL", tem_mo: true, fornecedores: [], excluidas: [], mo_aprovado: true, tentativas: [], ...o });
+const estado = (...t: TrilhaPT[]): EstadoPT => ({ trilhas: t, outros: [], tipos_adicionar: [] });
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const pronta = (o: Partial<MiniPT> = {}) => mini({ tamanho: "40|M", variante_tecido_id: VAR, ...o });
 
@@ -43,7 +43,7 @@ describe("leitura do servidor", () => {
   });
   it("estadoPTDoServidor lê a mini de cada tentativa (ausente = null)", () => {
     const e = estadoPTDoServidor({
-      trilhas: [{ mo_linha_id: L1, categoria_id: CAT, tentativas: [
+      trilhas: [{ categoria_id: CAT, tentativas: [
         { id: "t1", numero: 1, data_saida: "2026-10-01", mini: { tamanho: "40|M", variante_tecido_id: null, mesma_oc: true, linhas: [] } },
         { id: "t2", numero: 2 },
       ] }],
@@ -67,7 +67,7 @@ describe("leitura do servidor", () => {
 
 describe("payload — quando a mini vai", () => {
   const base = (m: MiniPT | null, o: Partial<TentativaPT> = {}) => estado(trilha({ tentativas: [tent(1, { mini: m, ...o })] }));
-  const tentPayload = (d: EstadoPT, b: EstadoPT, opcoes?: Parameters<typeof payloadPecaTeste>[4]) => payloadPecaTeste(d, b, undefined, undefined, opcoes)._trilhas[0]?.tentativas[0];
+  const tentPayload = (d: EstadoPT, b: EstadoPT, opcoes?: Parameters<typeof payloadPecaTeste>[2]) => payloadPecaTeste(d, b, opcoes)._trilhas[0]?.tentativas[0];
 
   it("só mexeu nas datas (sem baixa possível) → SEM a chave mini", () => {
     const b = base(null);
@@ -91,7 +91,7 @@ describe("payload — quando a mini vai", () => {
   it("baixa prevista (Data de saída + tamanho + cor, sem baixa salva) → mini com `confere` de TODAS as chaves", () => {
     const b = base(pronta());
     const d = clone(b); d.trilhas[0].tentativas[0].data_saida = "2026-10-05";
-    const confere = { [chaveConfere(L1, 1)]: confereDasLinhas([{ chave: "t:tecido:1:1:v", a_enviar: 1.23456 }, { chave: "a:x:1", a_enviar: 2 }]) };
+    const confere = { [chaveConfere(CAT, 1)]: confereDasLinhas([{ chave: "t:tecido:1:1:v", a_enviar: 1.23456 }, { chave: "a:x:1", a_enviar: 2 }]) };
     const t = tentPayload(d, b, { confere })!;
     expect(t.mini?.confere).toEqual({ "t:tecido:1:1:v": 1.2346, "a:x:1": 2 });
     // sem o mapa (aba velha / sem ficha): a mini vai, sem confere → o servidor usa o próprio cálculo
@@ -107,7 +107,7 @@ describe("payload — quando a mini vai", () => {
   it("estorno (Data de saída apagada com baixa salva) → data null + mini igual à base, SEM confere", () => {
     const b = base(pronta({ baixa_em: "2026-10-05T12:00:00Z" }), { data_saida: "2026-10-05" });
     const d = clone(b); d.trilhas[0].tentativas[0].data_saida = null;
-    const t = tentPayload(d, b, { confere: { [chaveConfere(L1, 1)]: { x: 1 } } })!;
+    const t = tentPayload(d, b, { confere: { [chaveConfere(CAT, 1)]: { x: 1 } } })!;
     expect(t.data_saida).toBeNull();
     expect(t.mini).toMatchObject({ tamanho: "40|M", variante_tecido_id: VAR });
     expect("confere" in t.mini!).toBe(false);
@@ -116,7 +116,7 @@ describe("payload — quando a mini vai", () => {
     const b = base(pronta({ baixa_em: "2026-10-05T12:00:00Z" }), { data_saida: "2026-10-05" });
     const d = clone(b); d.trilhas[0].tentativas[0].mini = pronta({ baixa_em: "2026-10-05T12:00:00Z", linhas: [ajuste("a:x:1", { a_enviar: 9 })] });
     expect(acaoNoSalvar(d.trilhas[0].tentativas[0], b.trilhas[0].tentativas[0])).toBe("estorno_e_baixa");
-    const t = tentPayload(d, b, { confere: { [chaveConfere(L1, 1)]: { "a:x:1": 9 } } })!;
+    const t = tentPayload(d, b, { confere: { [chaveConfere(CAT, 1)]: { "a:x:1": 9 } } })!;
     expect(t.mini?.confere).toEqual({ "a:x:1": 9 });
   });
   it("travada: baixa salva + só a DATA mudou → nada da mini (a baixa fica); decisão salva trava a mini", () => {
@@ -135,7 +135,7 @@ describe("payload — quando a mini vai", () => {
   it("reprovar no mesmo Salvar da baixa: a baixa sai (peça gasta) e a próxima herda a mini", () => {
     const b = base(pronta({ mesma_oc: false, linhas: [ajuste("t:tecido:1:1:v", { familia: "tecido", oc_tecido_item_id: ITEM, a_enviar: 4 })] }), { data_saida: "2026-10-01", data_entrada: "2026-10-04" });
     const d = estado(reprovar(b.trilhas[0], { id: F1, nome: "Oficina Um" }));
-    const p = payloadPecaTeste(d, b, undefined, undefined, { confere: { [chaveConfere(L1, 1)]: { "t:tecido:1:1:v": 4 } } });
+    const p = payloadPecaTeste(d, b, { confere: { [chaveConfere(CAT, 1)]: { "t:tecido:1:1:v": 4 } } });
     const [t1, t2] = p._trilhas[0].tentativas;
     expect(t1).toMatchObject({ numero: 1, aprovacao: "reprovado" });
     expect(t1.mini?.confere).toEqual({ "t:tecido:1:1:v": 4 });
@@ -259,8 +259,8 @@ describe("merge 3 vias da mini (uma unidade: pt:<linha>:mini)", () => {
   it("os dois diferentes → conflito 'Mini explosão' no path pt:<linha>:mini; fica a minha até resolver", () => {
     const r = mergePecaTeste(base, comMini(base, alt(5)), comMini(base, alt(7)));
     expect(r.conflitos).toHaveLength(1);
-    expect(r.conflitos[0].path).toBe(pathPT(L1, "mini"));
-    expect(r.conflitos[0].path).toBe(`pt:${L1}:mini`);
+    expect(r.conflitos[0].path).toBe(pathPT(CAT, "mini"));
+    expect(r.conflitos[0].path).toBe(`pt:${CAT}:mini`);
     expect(r.conflitos[0].meu).toContain("Mini explosão");
     expect(r.conflitos[0].dele).toContain("Mini explosão");
     expect(r.valor.trilhas[0].tentativas[0].mini?.linhas[0].a_enviar).toBe(5);
@@ -272,7 +272,7 @@ describe("merge 3 vias da mini (uma unidade: pt:<linha>:mini)", () => {
     const b = estado(trilha({ tentativas: [tent(1, { mini: pronta() }), tent(2, { mini: pronta() })] }));
     const m = clone(b), d = clone(b);
     m.trilhas[0].tentativas[0].mini = alt(5); d.trilhas[0].tentativas[0].mini = alt(7);
-    expect(mergePecaTeste(b, m, d).conflitos.map((c) => c.path)).toEqual([`pt:${L1}:t1:mini`]);
+    expect(mergePecaTeste(b, m, d).conflitos.map((c) => c.path)).toEqual([`pt:${CAT}:t1:mini`]);
   });
   it("a baixa DELE ≠ a da base → a dele, SEM escolha, + aviso (mesmo com edição minha)", () => {
     const dele = comMini(base, pronta({ baixa_em: "2026-10-05T12:00:00Z", baixa_por_nome: "Ana", linhas: [ajuste("a:x:1", { a_enviar: 7, foto: { rotulo: "Botão", variante: null, unidade: "un", consumo: null, loss_percent: null, necessaria: 7, a_enviar: 7, baixado: 7, faltou: 0, fontes: [] } })] }));
@@ -302,10 +302,10 @@ describe("merge 3 vias da mini (uma unidade: pt:<linha>:mini)", () => {
     const b = estado(trilha({ tentativas: [tent(1, { mini: pronta() }), tent(2, { mini: pronta() })] }));
     const meu = clone(b); meu.trilhas[0].tentativas[1].mini = alt(5); meu.trilhas[0].tentativas[0].mini = alt(6);
     const fresh = clone(b); fresh.trilhas[0].tentativas[1].mini = alt(9); fresh.trilhas[0].tentativas[0].mini = alt(8);
-    const a = aplicarCampoDele(meu, fresh, `pt:${L1}:mini`).valor; // atual = nº 2
+    const a = aplicarCampoDele(meu, fresh, `pt:${CAT}:mini`); // atual = nº 2
     expect(a.trilhas[0].tentativas[1].mini?.linhas[0].a_enviar).toBe(9);
     expect(a.trilhas[0].tentativas[0].mini?.linhas[0].a_enviar).toBe(6);
-    const b2 = aplicarCampoDele(meu, fresh, `pt:${L1}:t1:mini`).valor;
+    const b2 = aplicarCampoDele(meu, fresh, `pt:${CAT}:t1:mini`);
     expect(b2.trilhas[0].tentativas[0].mini?.linhas[0].a_enviar).toBe(8);
   });
   it("tentativa que ele apagou: sem edição minha na mini some; com edição minha sobrevive", () => {
@@ -376,7 +376,7 @@ describe("prévia de falta e resumo pós-Salvar", () => {
   });
 
   const R = (n: number, o: Record<string, unknown>) => ({ numero: n, data_saida: null as string | null, aprovacao: null as null | "aprovado" | "reprovado", mini: null as MiniPT | null, ...o });
-  const trl = (...ts: ReturnType<typeof R>[]) => [{ mo_linha_id: L1, categoria_nome: "PL", tentativas: ts }];
+  const trl = (...ts: ReturnType<typeof R>[]) => [{ categoria_id: CAT, categoria_nome: "PL", tentativas: ts }];
   const foto = (faltou: number) => ({ rotulo: "Botão", variante: null, unidade: "un" as const, consumo: null, loss_percent: null, necessaria: 1, a_enviar: 1, baixado: 1 - faltou, faltou, fontes: [] });
   it("resumoPosSalvar: baixas, estornos, faltas (da foto) e sem tamanho/cor", () => {
     const antes = trl(R(1, { data_saida: "2026-10-01", mini: pronta() }), R(2, { data_saida: "2026-10-02", mini: pronta({ baixa_em: "2026-10-02T12:00:00Z" }) }), R(3, { data_saida: "2026-10-03", mini: null }));
@@ -431,14 +431,13 @@ describe("mini da REPROVADA editável (R11, pedido do dono 03/nov) — estorno +
     const b = reprovada();
     const d = estado(editarMiniDaTentativa(b.trilhas[0], 1, { ...baixada, linhas: [ajuste("a:1:1", { a_enviar: 7 })] }));
     expect(acaoNoSalvar(d.trilhas[0].tentativas[0], b.trilhas[0].tentativas[0])).toBe("estorno_e_baixa");
-    const p = payloadPecaTeste(d, b, undefined, undefined, { confere: { [chaveConfere(L1, 1)]: { "a:1:1": 7 } } });
+    const p = payloadPecaTeste(d, b, { confere: { [chaveConfere(CAT, 1)]: { "a:1:1": 7 } } });
     const t1 = p._trilhas[0].tentativas.find((x) => x.numero === 1)!;
     expect(t1).toMatchObject({ id: b.trilhas[0].tentativas[0].id, aprovacao: "reprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04" });
     expect(t1.mini?.ajustes[0]).toMatchObject({ chave: "a:1:1", a_enviar: 7 });
     expect(t1.mini?.confere).toEqual({ "a:1:1": 7 });
     expect(p._rev_base.tentativas[b.trilhas[0].tentativas[0].id as string]).toBe(3);
-    expect(p._rev_base.fornecedor).toEqual({}); // sem decisão nova nem troca de fornecedor
-    expect(estornosPendentes(d, b)).toEqual([{ mo_linha_id: L1, servico: "PL", numero: 1, refaz: true }]);
+    expect(estornosPendentes(d, b)).toEqual([{ categoria_id: CAT, servico: "PL", numero: 1, refaz: true }]);
   });
   it("APROVADA com a mini editada no rascunho: acaoNoSalvar nulo — nem estorno nem baixa", () => {
     const b = estado(trilha({ tentativas: [tent(1, { aprovacao: "aprovado", data_saida: "2026-10-01", data_entrada: "2026-10-04", mini: baixada })] }));

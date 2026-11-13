@@ -229,7 +229,7 @@ describe("textoReprovarTentativa (confirmação de Reprovado, P-313 B)", () => {
     const t = textoReprovarTentativa({ numero: 2, servico: "PL", fornecedor: "Oficina Alfa" });
     expect(t.titulo).toBe("Reprovar a peça teste?");
     expect(t.descricao).toBe(
-      "A tentativa 2 (Oficina Alfa) vai para o histórico como Reprovada e nasce a tentativa 3 com o mesmo serviço (PL) e o mesmo fornecedor, com as datas em branco.",
+      "A tentativa 2 (Oficina Alfa) vai para o histórico como Reprovada e nasce a tentativa 3 de PL, sem fornecedor e com as datas em branco. Se o custo mudou, reaprove a mão de obra.",
     );
     expect(t.confirmar).toBe("Reprovar");
     expect(t.cancelar).toBe("Cancelar");
@@ -237,10 +237,10 @@ describe("textoReprovarTentativa (confirmação de Reprovado, P-313 B)", () => {
   });
   it("sem o dado, vale a frase sem o parêntese (nenhuma consulta nova)", () => {
     expect(textoReprovarTentativa({ numero: 1 }).descricao).toBe(
-      "A tentativa 1 vai para o histórico como Reprovada e nasce a tentativa 2 com o mesmo serviço e o mesmo fornecedor, com as datas em branco.",
+      "A tentativa 1 vai para o histórico como Reprovada e nasce a tentativa 2, sem fornecedor e com as datas em branco. Se o custo mudou, reaprove a mão de obra.",
     );
     expect(textoReprovarTentativa({ numero: 1, servico: "PL", fornecedor: "—" }).descricao).toBe(
-      "A tentativa 1 vai para o histórico como Reprovada e nasce a tentativa 2 com o mesmo serviço (PL) e o mesmo fornecedor, com as datas em branco.",
+      "A tentativa 1 vai para o histórico como Reprovada e nasce a tentativa 2 de PL, sem fornecedor e com as datas em branco. Se o custo mudou, reaprove a mão de obra.",
     );
   });
 });

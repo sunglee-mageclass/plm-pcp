@@ -44,7 +44,7 @@ export function faltasVisiveis(calc: CalculoMini, mini: MiniPT): CalculoMini["fa
 }
 
 export type MiniBlocoProps = {
-  linhaId: string;
+  categoriaId: string;
   /** nº da tentativa quando NÃO é a atual (o path do merge leva `:t<n>`); null = a atual. */
   pathNumero: number | null;
   /** A tentativa como está no RASCUNHO e como o SERVIDOR a tem. */
@@ -89,7 +89,7 @@ export function limitarMini(n: number, max: number): number {
   return n > max ? max : n;
 }
 
-export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, historico, edicaoHistorico = false, podeEditar, api, onChange, onTentarDeNovo, abertoInicial = false }: MiniBlocoProps) {
+export function MiniExplosaoBloco({ categoriaId, pathNumero, tentativa, base, historico, edicaoHistorico = false, podeEditar, api, onChange, onTentarDeNovo, abertoInicial = false }: MiniBlocoProps) {
   const [aberto, setAberto] = useState(abertoInicial);
   // ao clicar "Editar" na reprovada do histórico, o bloco abre sozinho (a pessoa quer mexer nos números)
   useEffect(() => { if (edicaoHistorico) setAberto(true); }, [edicaoHistorico]);
@@ -129,7 +129,7 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
   const rotuloCor = (v: string | null) => (v ? api.cores.find((o) => o.value === v)?.label ?? "cor escolhida" : null);
 
   return (
-    <Collapsible open={aberto} onOpenChange={setAberto} className="overflow-hidden rounded-md border bg-background" data-colab-path={pathPT(linhaId, "mini", pathNumero)} data-testid="peca-teste-mini">
+    <Collapsible open={aberto} onOpenChange={setAberto} className="overflow-hidden rounded-md border bg-background" data-colab-path={pathPT(categoriaId, "mini", pathNumero)} data-testid="peca-teste-mini">
       {/* NÃO é <button>: quem só LÊ o Sheet tem um `fieldset disabled` (SheetContent) acima, que desabilita todo <button> descendente */}
       <CollapsibleTrigger asChild>
         <div
@@ -179,7 +179,7 @@ export function MiniExplosaoBloco({ linhaId, pathNumero, tentativa, base, histor
             <p className="text-sm text-muted-foreground" data-testid="peca-teste-mini-carregando">Carregando…</p>
           ) : (
             <>
-              <SeletoresTamanhoCor mini={mini} api={api} desabilitado={!editavel} onChange={onChange} idBase={`${linhaId}-${pathNumero ?? "atual"}`} />
+              <SeletoresTamanhoCor mini={mini} api={api} desabilitado={!editavel} onChange={onChange} idBase={`${categoriaId}-${pathNumero ?? "atual"}`} />
               {editavel && <p className="text-xs text-muted-foreground">{TEXTO_DICA_TROCA}</p>}
               {mostraFoto ? (
                 <Foto linhas={fotos} />

@@ -384,23 +384,62 @@ export function textoReprovarPecaTeste(a: {
 // Seção 5 — Peça Teste no card do produto (urgentes R9, P-313 B / P-263 A): "Reprovado" pergunta; "Aprovado" é direto.
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** 5.1 Reprovar uma tentativa da Peça Teste no Sheet do Planejamento (sem motivo; a tentativa vai para o histórico e nasce a próxima).
- *  `numero` = nº da tentativa; `servico`/`fornecedor` entram só quando a tela os tem (sem eles vale a frase sem o parêntese). */
+/** 5.1 Reprovar uma tentativa da Peça Teste no Sheet do Planejamento (sem motivo; a tentativa vai para o histórico e nasce a próxima, SEM
+ *  fornecedor — reforma por tipo, nov/2026). `numero` = nº da tentativa; `servico`/`fornecedor` entram só quando a tela os tem. */
 export function textoReprovarTentativa(a: {
   numero: number;
   servico?: string | null;
   fornecedor?: string | null;
 }): TextoConfirmacao {
   const atual = `A tentativa ${a.numero}${presente(a.fornecedor) ? ` (${txt(a.fornecedor)})` : ""}`;
-  const servico = presente(a.servico) ? ` (${txt(a.servico)})` : "";
+  const servico = presente(a.servico) ? ` de ${txt(a.servico)}` : "";
   return {
     titulo: "Reprovar a peça teste?",
     descricao:
-      `${atual} vai para o histórico como Reprovada e nasce a tentativa ${a.numero + 1} com o mesmo serviço${servico} ` +
-      "e o mesmo fornecedor, com as datas em branco.",
+      `${atual} vai para o histórico como Reprovada e nasce a tentativa ${a.numero + 1}${servico}, sem fornecedor e com as datas em branco. ` +
+      "Se o custo mudou, reaprove a mão de obra.",
     confirmar: "Reprovar",
     cancelar: CANCELAR,
     destrutivo: true,
+  };
+}
+
+/** 5.2 Excluir uma tentativa (histórico editável). Vale ao SALVAR o card: as seguintes são renumeradas e a baixa de estoque da mini, se
+ *  houver, é estornada (o material volta ao estoque). */
+export function textoExcluirTentativa(a: {
+  numero: number;
+  servico?: string | null;
+  comBaixa?: boolean;
+  seguintes?: boolean;
+}): TextoConfirmacao {
+  const servico = presente(a.servico) ? ` (${txt(a.servico)})` : "";
+  return {
+    titulo: `Excluir a tentativa ${a.numero}?`,
+    descricao:
+      `A tentativa ${a.numero}${servico} sai da peça teste ao salvar o card.` +
+      (a.seguintes ? " As tentativas seguintes são renumeradas." : "") +
+      (a.comBaixa ? " A baixa de estoque da mini explosão é estornada: o material volta ao estoque." : "") +
+      " Isso não pode ser desfeito depois de salvar.",
+    confirmar: "Excluir",
+    cancelar: CANCELAR,
+    destrutivo: true,
+  };
+}
+
+/** 5.3 Reabrir uma tentativa (volta a pendente). `aprovada` = ela estava APROVADA e salva: o card deixa de cumprir o requisito "Peça teste
+ *  aprovada" e pode voltar de etapa no kanban (e acender #Erro). Reprovada reaberta: só volta a ser editável. */
+export function textoReabrirTentativa(a: { numero: number; servico?: string | null; aprovada?: boolean }): TextoConfirmacao {
+  const servico = presente(a.servico) ? ` (${txt(a.servico)})` : "";
+  return {
+    titulo: `Reabrir a tentativa ${a.numero}?`,
+    descricao: a.aprovada
+      ? `A tentativa ${a.numero}${servico} deixa de estar aprovada: o card deixa de cumprir o requisito “Peça teste aprovada” e pode voltar de etapa no kanban ` +
+        "(e acender #Erro). A baixa de material já feita não é devolvida."
+      : `A tentativa ${a.numero}${servico} volta a pendente e pode ser editada de novo. Enquanto a peça teste não for aprovada, o card não cumpre o ` +
+        "requisito “Peça teste aprovada” e pode voltar de etapa no kanban.",
+    confirmar: "Reabrir",
+    cancelar: CANCELAR,
+    destrutivo: false,
   };
 }
 

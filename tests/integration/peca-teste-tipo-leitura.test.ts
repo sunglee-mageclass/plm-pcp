@@ -5,6 +5,7 @@ import { hasDb, ehBancoLocal, withTx, um } from "./db";
 import {
   D1, comoSistema, lerPT, novaCategoria, novaLinhaMo, novaTentativa, novoFornecedor, novoModelo, prepara, salvarPT, tentativas,
 } from "./peca-teste-tipo-helpers";
+import { estadoPTDoServidor, statusPecaTesteModelo, vezComFornecedor } from "../../src/lib/peca-teste";
 
 const RODA = hasDb && ehBancoLocal();
 const quadro = async (c: import("pg").Client) => (await um<{ j: any[] }>(c, "SELECT public.peca_teste_quadro() AS j")).j;
@@ -29,6 +30,9 @@ describe.skipIf(!RODA)("reforma por TIPO — leituras (migration 4)", () => {
       expect(t).toMatchObject({ categoria_id: cat, tem_mo: true, mo_aprovado: null, aprovada: false }); // 1 aprovada + 1 pendente = pendente
       expect(t.fornecedores.map((f: any) => f.nome_fantasia.split(" ")[0])).toEqual(["Alfa", "Zeta"]); // por nome; sem o "Fora"
       expect(t.tentativas.map((x: any) => [x.numero, x.empresa_id, x.aprovacao])).toEqual([[1, fZ, "reprovado"], [2, fA, null]]);
+      // o parser TS lê o jsonb novo e o 2º contador sai da própria leitura
+      const e = estadoPTDoServidor(j)!;
+      expect(vezComFornecedor(e.trilhas[0].tentativas, 2)).toBe(1);
     });
   });
 
@@ -82,9 +86,16 @@ describe.skipIf(!RODA)("reforma por TIPO — leituras (migration 4)", () => {
       // Review 3 (lado SQL; o contador "vez com o fornecedor" é derivado no TS e fica na T6): a leitura devolve o fornecedor PRÓPRIO de cada tentativa
       const vezes = async () => (await lerPT(c, m)).trilhas[0].tentativas.map((t: any) => [t.numero, t.empresa_id]);
       expect(await vezes()).toEqual([[1, f1], [2, f2], [3, f1]]);
+      // o 2º contador (derivado no TS) a partir da própria leitura
+      const vezTS = async () => {
+        const e = estadoPTDoServidor(await lerPT(c, m))!;
+        return e.trilhas[0].tentativas.map((t) => [t.numero, vezComFornecedor(e.trilhas[0].tentativas, t.numero)]);
+      };
+      expect(await vezTS()).toEqual([[1, 1], [2, 1], [3, 2]]);
       const r1 = (await tentativas(c, m, cat))[0].rev;
       await salvarPT(c, m, [{ categoria_id: cat, excluir: [ids[0]], tentativas: [] }], { [ids[0]]: r1 });
       expect(await vezes()).toEqual([[1, f2], [2, f1]]); // excluiu a 1ª: renumera; a antiga 3 (F1) vira a 2
+      expect(await vezTS()).toEqual([[1, 1], [2, 1]]); // sem a 1ª, a F1 só aparece na (nova) 2
     });
   });
 
@@ -145,6 +156,11 @@ describe.skipIf(!RODA)("reforma por TIPO — leituras (migration 4)", () => {
       await c.query("UPDATE public.modelo_servico_mo SET empresa_id = $2 WHERE modelo_id = $1", [m, f2]); // a M.O. volta a pendente (regra R4: fornecedor mudou)
       expect((await um<{ ok: boolean }>(c, "SELECT public._peca_teste_aprovada_tipo($1, $2) AS ok", [m, cat])).ok).toBe(true); // a PEÇA segue aprovada (fornecedor é da tentativa)
       expect((await lote(c, [m]))[m]).toBe("em_teste"); // …e o selo cai por causa da M.O. pendente, não da peça
+      // o espelho TS dá o mesmo
+      expect(statusPecaTesteModelo({
+        linhas: [{ categoria_id: cat, exige: true, mo_aprovado: true }, { categoria_id: cat, exige: true, mo_aprovado: true }],
+        tentativas: [{ categoria_id: cat, numero: 1, aprovacao: "aprovado", data_saida: D1 }],
+      })).toBe("aprovada");
     });
   });
 

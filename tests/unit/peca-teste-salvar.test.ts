@@ -2,7 +2,7 @@
 // R9 T6 — o Salvar do card com a etapa da Peça Teste (usePlanejamentoSave + usePecaTeste REAIS, supabase mockado):
 //   (Salvar único, nov/2026: M.O./BOM/#Erro/cabeçalho são UMA RPC `salvar_card_planejamento`) (a) a etapa roda DEPOIS do núcleo (que inclui a M.O.); (b) P0409 sem conflito = 2ª chamada com o rev novo e o resto do
 //   card salvo 1x; (c) P0409 com conflito = não lança, devolve o conflito, o "não salvo" da seção NÃO some; (d) só-Peça-Teste não toca o resto do
-//   card; (e) troca de fornecedor com a M.O. editável: M.O. E Peça Teste levam o empresa_id; (f) sem a seção o Salvar é idêntico ao de antes.
+//   card; (e) reforma por TIPO: o fornecedor é da TENTATIVA e NÃO espelha a M.O.; (f) sem a seção o Salvar é idêntico ao de antes; (g) excluir tentativa.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, createElement, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,7 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const L1 = "00000000-0000-4000-8000-0000000000a1";
+const L1 = "00000000-0000-4000-8000-0000000000a1"; // linha da M.O. (o núcleo do card ainda a leva; a peça teste é por TIPO)
 const CAT = "00000000-0000-4000-8000-00000000ca01";
 const F1 = "00000000-0000-4000-8000-0000000000f1";
 const F2 = "00000000-0000-4000-8000-0000000000f2";
@@ -66,21 +66,22 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), info: vi.fn(), warning: vi
 
 import { toast } from "sonner";
 import { emptyDraft } from "@/components/planejamento/modelo-shared";
-import { usePecaTeste, type FornecedorMo } from "@/components/planejamento/planejamento-detail/usePecaTeste";
+import { usePecaTeste } from "@/components/planejamento/planejamento-detail/usePecaTeste";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 
-const servidor = (o: { empresa?: string; rev?: number; data_entrada?: string | null; fornecedorNome?: string } = {}) => ({
+const servidor = (o: { rev?: number; data_entrada?: string | null } = {}) => ({
   trilhas: [{
-    mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: o.empresa ?? F1, empresa_nome: o.fornecedorNome ?? "Oficina Um",
-    mo_aprovado: true, aprovada: false,
+    categoria_id: CAT, categoria_nome: "PL", tem_mo: true, mo_aprovado: true, aprovada: false,
+    fornecedores: [{ id: F1, nome_fantasia: "Oficina Um" }, { id: F2, nome_fantasia: "Oficina Dois" }],
     tentativas: [{ id: T1, numero: 1, empresa_id: null, empresa_nome: null, data_saida: "2026-09-22", data_entrada: o.data_entrada ?? null, aprovacao: null, decidido_em: null, rev: o.rev ?? 1 }],
   }],
   outros: [],
+  tipos_adicionar: [],
 });
 
 type Cfg = {
-  somente?: boolean; inerte?: boolean; fornecedorMo?: Record<string, FornecedorMo> | null;
-  moMudou?: boolean; bomGravar?: boolean; ignoradas?: Set<string>;
+  somente?: boolean; inerte?: boolean;
+  moMudou?: boolean; bomGravar?: boolean;
 };
 type Api = { pt: ReturnType<typeof usePecaTeste>; save: ReturnType<typeof usePlanejamentoSave>["save"]; spies: Record<string, any> };
 let api: Api;
@@ -88,7 +89,7 @@ let root: Root;
 let qc: QueryClient;
 
 function Sonda({ cfg }: { cfg: Cfg }) {
-  const pt = usePecaTeste({ modeloId: "m1", habilitado: true, podeEditar: true, fornecedorMo: cfg.fornecedorMo ?? null, linhasIgnoradas: cfg.ignoradas ?? null });
+  const pt = usePecaTeste({ modeloId: "m1", habilitado: true, podeEditar: true });
   const draft = { ...emptyDraft(), nome: "Vestido", origem: "interno" as const };
   const refs = useRefs(draft, cfg);
   const spies = refs.spies;
@@ -137,7 +138,7 @@ async function montar(cfg: Cfg) {
 }
 const assentar = () => act(async () => { await new Promise((r) => setTimeout(r, 30)); });
 async function editarEntrada(valor: string) {
-  await act(async () => { api.pt.editarAtual(L1, { data_entrada: valor }); });
+  await act(async () => { api.pt.editarAtual(CAT, { data_entrada: valor }); });
   await assentar();
 }
 async function salvar(): Promise<any> {
@@ -186,10 +187,10 @@ describe("Salvar do card — etapa da Peça Teste", () => {
     const [c] = chamadasSalvarPT();
     expect(c.args._modelo_id).toBe("m1");
     expect(c.args._trilhas).toEqual([{
-      mo_linha_id: L1, categoria_id: CAT,
-      tentativas: [{ id: T1, numero: 1, data_saida: "2026-09-22", data_entrada: "2026-09-29", aprovacao: null }],
+      categoria_id: CAT,
+      tentativas: [{ id: T1, numero: 1, empresa_id: null, data_saida: "2026-09-22", data_entrada: "2026-09-29", aprovacao: null }],
     }]);
-    expect(c.args._rev_base).toEqual({ tentativas: { [T1]: 1 }, fornecedor: {} });
+    expect(c.args._rev_base).toEqual({ tentativas: { [T1]: 1 } });
   });
 
   it("(a) gravou: a seção re-baseia (limpa o 'não salvo') e invalida as queries da seção/etapas", async () => {
@@ -238,7 +239,7 @@ describe("Salvar do card — etapa da Peça Teste", () => {
     const r = await salvar(); // se lançasse, o mutateAsync rejeitaria
     expect(chamadasSalvarPT()).toHaveLength(1);
     expect("conflito" in r.pecaTeste.resultado).toBe(true);
-    expect(r.pecaTeste.resultado.conflito[0]).toMatchObject({ path: `pt:${L1}:data_entrada` });
+    expect(r.pecaTeste.resultado.conflito[0]).toMatchObject({ path: `pt:${CAT}:data_entrada` });
     expect(api.pt.dirty).toBe(true); // a base NÃO avançou para o que eu mandei
     expect(api.pt.conflitos).toHaveLength(1);
     expect(toast.warning).toHaveBeenCalledWith("Card salvo. A Peça Teste foi alterada por outra pessoa — confira a seção.");
@@ -294,19 +295,30 @@ describe("Salvar do card — etapa da Peça Teste", () => {
     expect(r.pecaTeste).toBeNull();
   });
 
-  it("(e) troca de fornecedor com a M.O. editável: o núcleo (bloco mo) leva o empresa_id E salvar_peca_teste também (idempotente)", async () => {
-    await montar({ moMudou: true, fornecedorMo: { [L1]: { id: F2, nome: "Oficina Dois" } } });
-    await act(async () => { api.pt.trocarFornecedor(L1, F2, "Oficina Dois"); });
+  it("(e) reforma por TIPO: o fornecedor é da TENTATIVA — trocá-lo NÃO mexe no bloco da M.O. do núcleo; salvar_peca_teste leva o empresa_id da tentativa", async () => {
+    await montar({});
+    await act(async () => { api.pt.trocarFornecedor(CAT, F2, "Oficina Dois"); });
     await assentar();
     expect(api.pt.dirty).toBe(true);
     await salvar();
     const nucleo = h.log.find((c) => c.evento === "rpc:salvar_card_planejamento")!;
-    expect(nucleo.args.mo[0].empresa_id).toBe(F2);
+    expect(nucleo.args.mo).toBeNull(); // a M.O. não foi tocada (o fornecedor da peça teste é independente do da linha)
     const [pt] = chamadasSalvarPT();
-    expect(pt.args._trilhas[0].empresa_id).toBe(F2);
-    expect(pt.args._rev_base.fornecedor).toEqual({ [L1]: F1 }); // o fornecedor que a pessoa VIU
+    expect(pt.args._trilhas[0].tentativas[0].empresa_id).toBe(F2);
+    expect(pt.args._rev_base).toEqual({ tentativas: { [T1]: 1 } });
     const ev = eventos();
     expect(ev.indexOf("rpc:salvar_peca_teste")).toBeGreaterThan(ev.indexOf("rpc:salvar_card_planejamento"));
+  });
+
+  it("(g) excluir tentativa: vai em `excluir` com o rev da base (a tentativa some do payload de edição) e o Salvar recarrega a seção", async () => {
+    await montar({});
+    await act(async () => { api.pt.excluirTentativa(CAT, 1); });
+    await assentar();
+    expect(api.pt.dirty).toBe(true);
+    await salvar();
+    const [c] = chamadasSalvarPT();
+    expect(c.args._trilhas).toEqual([{ categoria_id: CAT, excluir: [T1], tentativas: [] }]);
+    expect(c.args._rev_base).toEqual({ tentativas: { [T1]: 1 } });
   });
 
   it("(f) sem a seção (pecaTeste inerte) o Salvar é idêntico ao de antes: nenhuma chamada da Peça Teste e o resto na mesma ordem", async () => {
@@ -318,31 +330,18 @@ describe("Salvar do card — etapa da Peça Teste", () => {
   });
 });
 
-describe("fix round 1 — tipo da linha trocado (achado 1)", () => {
-  it("linha ignorada (tipo trocado no rascunho da M.O.): a seção não fica suja e o Salvar NÃO manda a trilha", async () => {
-    await montar({ ignoradas: new Set([L1]) });
-    await editarEntrada("2026-09-29");
-    expect(api.pt.dirty).toBe(false);
-    const r = await salvar();
-    expect(chamadasSalvarPT()).toHaveLength(0);
-    expect(r.pecaTeste).toBeNull();
-  });
-
-  it("P0409 `desatualizada` porque o tipo mudou: o retry NÃO leva minha aprovação/datas para o tipo novo (nenhuma 2ª chamada)", async () => {
+describe("reforma por TIPO — o tipo deixou de exigir peça teste", () => {
+  it("P0409 `desatualizada`: relê, a trilha some do rascunho e NENHUMA 2ª chamada sai (minhas datas/decisão não vão para outro tipo)", async () => {
     await montar({});
-    await act(async () => { api.pt.editarAtual(L1, { data_entrada: "2026-09-29" }); });
-    await act(async () => { api.pt.aprovarAtual(L1); });
+    await act(async () => { api.pt.editarAtual(CAT, { data_entrada: "2026-09-29" }); });
+    await act(async () => { api.pt.aprovarAtual(CAT); });
     await assentar();
-    h.respostasSalvarPT.push({ code: "P0409", message: "peca_teste_desatualizada: servico da mao de obra mudou" });
-    const fresh = servidor();
-    fresh.trilhas[0].categoria_id = "00000000-0000-4000-8000-00000000ca02";
-    fresh.trilhas[0].categoria_nome = "Bordado";
-    fresh.trilhas[0].tentativas = [];
-    h.lerPT.atual = fresh;
+    h.respostasSalvarPT.push({ code: "P0409", message: "peca_teste_desatualizada: tipo de servico nao exige peca teste" });
+    h.lerPT.atual = { trilhas: [], outros: [], tipos_adicionar: [] };
     const r = await salvar();
     expect(chamadasSalvarPT()).toHaveLength(1);
     expect(r.pecaTeste.resultado).toEqual({ ok: true });
-    expect(api.pt.estado?.trilhas[0].tentativas).toEqual([]);
+    expect(api.pt.estado?.trilhas).toEqual([]);
   });
 });
 

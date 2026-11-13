@@ -79,7 +79,7 @@ function apiMini(over: Partial<MiniApi> = {}): MiniApi {
 type MiniSrv = { tamanho?: string | null; variante_tecido_id?: string | null; baixa_em?: string | null; linhas?: any[] } | null;
 const servidor = (o: { rev?: number; data_saida?: string | null; mini?: MiniSrv; aprovacao?: string | null; data_entrada?: string | null } = {}) => ({
   trilhas: [{
-    mo_linha_id: L1, categoria_id: CAT, categoria_nome: "PL", empresa_id: F1, empresa_nome: "Oficina Um", mo_aprovado: true, aprovada: false,
+    categoria_id: CAT, categoria_nome: "PL", tem_mo: true, fornecedores: [], excluidas: [], mo_aprovado: true, aprovada: false,
     tentativas: [{
       id: T1, numero: 1, empresa_id: null, empresa_nome: null, data_saida: o.data_saida ?? null, data_entrada: o.data_entrada ?? null, aprovacao: o.aprovacao ?? null,
       decidido_em: null, rev: o.rev ?? 1,
@@ -140,8 +140,8 @@ async function salvar(): Promise<any> {
 }
 const eventos = () => h.log.map((c) => c.evento);
 const chamadasSalvarPT = () => h.log.filter((c) => c.evento === "rpc:salvar_peca_teste");
-const editar = async (patch: Record<string, unknown>) => { await act(async () => { api.pt.editarAtual(L1, patch as any); }); await assentar(); };
-const setMini = async (m: any) => { await act(async () => { api.pt.editarMini(L1, m); }); await assentar(); };
+const editar = async (patch: Record<string, unknown>) => { await act(async () => { api.pt.editarAtual(CAT, patch as any); }); await assentar(); };
+const setMini = async (m: any) => { await act(async () => { api.pt.editarMini(CAT, m); }); await assentar(); };
 const miniDoDraft = () => api.pt.estado!.trilhas[0].tentativas[0].mini;
 
 beforeEach(() => {
@@ -184,8 +184,8 @@ describe("Salvar com a mini — payload, ordem e confere", () => {
       await montar(cfg);
       await editar({ data_entrada: "2026-10-09" });
       await salvar();
-      expect(chamadasSalvarPT()[0].args._trilhas).toEqual([{ mo_linha_id: L1, categoria_id: CAT, tentativas: [{ id: T1, numero: 1, data_saida: null, data_entrada: "2026-10-09", aprovacao: null }] }]);
-      expect(chamadasSalvarPT()[0].args._rev_base).toEqual({ tentativas: { [T1]: 1 }, fornecedor: {} });
+      expect(chamadasSalvarPT()[0].args._trilhas).toEqual([{ categoria_id: CAT, tentativas: [{ id: T1, numero: 1, empresa_id: null, data_saida: null, data_entrada: "2026-10-09", aprovacao: null }] }]);
+      expect(chamadasSalvarPT()[0].args._rev_base).toEqual({ tentativas: { [T1]: 1 } });
     }
   });
   it("(e) P-57: com a ficha ainda carregando, a mini NÃO é capturada — o Salvar recusa antes de gravar a Peça Teste", async () => {
@@ -353,13 +353,13 @@ describe("toasts do que o Salvar fez no estoque", () => {
   it("reprovar uma tentativa COM baixa: o toast diz que a baixa é mantida (peça gasta)", async () => {
     h.lerPT.atual = baixaFeita();
     await montar({ mini: apiMini() });
-    await act(async () => { api.pt.reprovarAtual(L1); });
+    await act(async () => { api.pt.reprovarAtual(CAT); });
     expect(toast.warning).toHaveBeenCalledWith("Tentativa 1 reprovada. Nasceu a tentativa 2. A baixa da tentativa 1 é mantida (peça gasta). Salve o card para gravar.");
   });
   it("reprovar sem baixa (nem baixa prevista) não ganha o aviso", async () => {
     await montar({ mini: apiMini() });
     await editar({ data_saida: "2026-10-01", data_entrada: "2026-10-05" });
-    await act(async () => { api.pt.reprovarAtual(L1); });
+    await act(async () => { api.pt.reprovarAtual(CAT); });
     expect(toast.warning).not.toHaveBeenCalled();
   });
 });
