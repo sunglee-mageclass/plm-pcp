@@ -549,7 +549,13 @@ export function mergePecaTeste(base: EstadoPT, meu: EstadoPT, dele: EstadoPT): R
     const tentativas = resultado.sort((x, y) => x.chave - y.chave).map((x, i) => ({ ...x.t, numero: i + 1 }));
     trilhas.push({ ...d, tentativas, excluidas });
   }
-  return { valor: { trilhas, outros: dele.outros, tipos_adicionar: dele.tipos_adicionar }, conflitos, atualizados, avisos };
+  // trilha SÓ MINHA (adicionada à mão por `adicionarTrilha`, ainda não salva): não está na base nem na dele — vive só no rascunho e SOBREVIVE ao merge
+  for (const m of meu.trilhas) {
+    if (!dele.trilhas.some((x) => x.categoria_id === m.categoria_id) && !base.trilhas.some((x) => x.categoria_id === m.categoria_id)) trilhas.push(m);
+  }
+  // …e o tipo que adicionei sai da lista de "tipos a adicionar" (senão voltaria a aparecer no seletor)
+  const tipos_adicionar = dele.tipos_adicionar.filter((t) => !trilhas.some((x) => x.categoria_id === t.categoria_id));
+  return { valor: { trilhas, outros: dele.outros, tipos_adicionar }, conflitos, atualizados, avisos };
 }
 
 /** "Usar o novo" de um conflito: o campo do rascunho passa a valer o do servidor (`fresh`). */

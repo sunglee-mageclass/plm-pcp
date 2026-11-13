@@ -267,6 +267,17 @@ describe("mergePecaTeste (3 vias, por id)", () => {
     const comEdicao = mergePecaTeste(base, meu, dele);
     expect(comEdicao.valor.trilhas[0].tentativas[1]).toMatchObject({ id: null, data_entrada: D2, numero: 2 });
   });
+  it("(Fix round 1) trilha SÓ MINHA (adicionada à mão, ausente na base e na dele) sobrevive ao merge com suas tentativas/datas", () => {
+    const tipo = { categoria_id: CAT2, categoria_nome: "Bordado", fornecedores: FORNS };
+    const base = { ...estado(trilha()), tipos_adicionar: [tipo] };
+    const meuAdd = adicionarTrilha(base, CAT2);
+    const meu = { ...meuAdd, trilhas: meuAdd.trilhas.map((t) => (t.categoria_id === CAT2 ? editarAtual(t, { data_saida: D1, empresa_id: F1, empresa_nome: "Oficina Um" }) : t)) };
+    const r = mergePecaTeste(base, meu, base);
+    expect(r.conflitos).toEqual([]);
+    expect(r.valor.trilhas.map((t) => t.categoria_id)).toEqual([CAT, CAT2]);
+    expect(r.valor.trilhas[1].tentativas[0]).toMatchObject({ id: null, numero: 1, data_saida: D1, empresa_id: F1 });
+    expect(r.valor.tipos_adicionar).toEqual([]);
+  });
   it("(Review) minha EXCLUSÃO segue valendo e renumera; se ele ALTEROU a excluída = conflito `excluir`", () => {
     const base = estado(trilha({ tentativas: [rep(1), rep(2, F2, "Oficina Dois"), tent(3, { data_saida: D1 })] }));
     const meu = estado(excluirTentativa(base.trilhas[0], 2));
