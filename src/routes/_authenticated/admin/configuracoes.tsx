@@ -640,6 +640,14 @@ function ConfiguracoesLojaPage() {
       ? rebasearBaseRaw(baseRawRef.current, cru, new Set([...pendentes.map((c) => c.path), ...emVoo]), kanbanProtegidoRef.current)
       : cru;
     cfgBaseRef.current = next;
+    // Fix hidratação (voltar à Config com cache): `cfgRef`/`kanbanBaseRef` só são reescritos no RENDER, e o efeito pode
+    // rodar DE NOVO antes dele (StrictMode no mount com a query já em cache — o root do TanStack Start envolve tudo nele — ou
+    // dois `data.cfg` seguidos). A 2ª rodada, já com `cfgBaseRef = next`, lia `cfgRef.current` ainda nos DEFAULTS como se fossem
+    // "edições minhas" (todo campo cujo servidor difere do default vira tocado): o merge mantinha o rascunho vazio por cima do
+    // servidor e o card Etapas PL voltava "Nenhum item ainda" (as `etapas_pl_*` só passam pelo `mergeDraft`, sem o re-sync do
+    // `resolverEcoKanban`). Espelhar JÁ o que esta rodada vai pôr na tela faz a seguinte enxergar o rascunho real.
+    cfgRef.current = tela;
+    kanbanBaseRef.current = r2.kanbanBase;
     setCfg(tela);
     setKanbanBase(r2.kanbanBase);
     resetCfgBaseline(next); // baseline = servidor ⇒ o selo "não salvo" segue aceso só p/ o que é meu
