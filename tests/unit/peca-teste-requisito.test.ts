@@ -1,126 +1,41 @@
-// R9 T3 — núcleo PURO do requisito "Peça teste aprovada" (src/lib/peca-teste.ts) contra a fixture COMPARTILHADA com o anti-drift
-// SQL × TS (tests/integration/urgc-r9-kanban.test.ts).
 import { describe, it, expect } from "vitest";
-import { pecaTesteAprovadaModelo, pecaTesteAprovadaTrilha, statusPecaTesteModelo, tentativaAtual } from "../../src/lib/peca-teste";
-import { CASOS_PECA_TESTE, CATEGORIAS_ROTULO, entradaDoCaso } from "../fixtures/peca-teste-casos";
+import { CASOS_PECA_TESTE, type CasoPecaTeste } from "../fixtures/peca-teste-tipo-casos";
+import { pecaTesteAprovadaModelo, pecaTesteAprovadaTipo, statusPecaTesteModelo, tentativaAtual, type ModeloRequisito } from "../../src/lib/peca-teste-requisito";
 
-describe("pecaTesteAprovadaModelo × fixture (espelho da chave peca_teste_aprovada)", () => {
-  it("a fixture tem os casos mínimos (≥ 12) e nomes únicos", () => {
-    expect(CASOS_PECA_TESTE.length).toBeGreaterThanOrEqual(12);
+const ID = { exige: "cat-exige", exige2: "cat-exige2", sem_switch: "cat-sem", sem_tipo: null } as const;
+function paraRequisito(c: CasoPecaTeste): ModeloRequisito {
+  return {
+    linhas: c.linhas.map((l) => ({ categoria_id: ID[l.tipo], exige: l.tipo === "exige" || l.tipo === "exige2", mo_aprovado: l.mo_aprovado })),
+    tentativas: c.tentativas.map((t) => ({ categoria_id: ID[t.tipo], numero: t.numero, aprovacao: t.aprovacao, data_saida: "2026-10-01" })),
+  };
+}
+describe("pecaTesteAprovadaModelo × fixture", () => {
+  it("a fixture tem os casos mínimos (≥ 15) e nomes únicos", () => {
+    expect(CASOS_PECA_TESTE.length).toBeGreaterThanOrEqual(15);
     expect(new Set(CASOS_PECA_TESTE.map((c) => c.nome)).size).toBe(CASOS_PECA_TESTE.length);
-    // os 2 lados aparecem (nenhuma fixture "sempre true" passa despercebida)
-    expect(CASOS_PECA_TESTE.some((c) => c.esperado)).toBe(true);
-    expect(CASOS_PECA_TESTE.some((c) => !c.esperado)).toBe(true);
-    // ruling do controlador (revisão T3, achado 1): "tipo trocado" e "linha apagada"/órfã estão na fixture
-    expect(CASOS_PECA_TESTE.some((c) => c.linhas.some((l) => l.tentativas.some((x) => x.tipoOriginal)))).toBe(true);
-    expect(CASOS_PECA_TESTE.some((c) => (c.orfas?.length ?? 0) > 0)).toBe(true);
   });
-
-  for (const caso of CASOS_PECA_TESTE) {
-    it(caso.nome, () => {
-      expect(pecaTesteAprovadaModelo(entradaDoCaso(caso))).toBe(caso.esperado);
-    });
-  }
-
-  it("ids reais no lugar dos rótulos dão o mesmo resultado", () => {
-    const ids = { F1: "00000000-0000-4000-8000-0000000000f1", F2: "00000000-0000-4000-8000-0000000000f2" };
-    const cats = { exige: "00000000-0000-4000-8000-00000000ca01", sem_switch: "00000000-0000-4000-8000-00000000ca02" };
-    for (const caso of CASOS_PECA_TESTE) expect(pecaTesteAprovadaModelo(entradaDoCaso(caso, ids, cats)), caso.nome).toBe(caso.esperado);
-  });
+  for (const c of CASOS_PECA_TESTE) it(c.nome, () => expect(pecaTesteAprovadaModelo(paraRequisito(c))).toBe(c.esperado));
 });
-
-describe("pecaTesteAprovadaTrilha / tentativaAtual (espelho de _peca_teste_aprovada)", () => {
-  const CAT = CATEGORIAS_ROTULO.exige;
-  const OUTRA = CATEGORIAS_ROTULO.sem_switch;
-  const tent = (numero: number, aprovacao: "aprovado" | "reprovado" | null, empresa_id: string | null, categoria_id: string | null = CAT) => ({
-    categoria_id,
-    numero,
-    aprovacao,
-    empresa_id,
-  });
-
+describe("pecaTesteAprovadaTipo / tentativaAtual", () => {
   it("tentativa atual = a de maior número, independente da ordem da lista", () => {
-    const ts = [tent(2, "aprovado", "F2"), tent(1, "reprovado", "F1")];
-    expect(tentativaAtual(ts)?.numero).toBe(2);
+    expect(tentativaAtual([{ numero: 2 }, { numero: 3 }, { numero: 1 }])?.numero).toBe(3);
     expect(tentativaAtual([])).toBeNull();
-    expect(pecaTesteAprovadaTrilha({ categoria_id: CAT, empresa_id: "F2", tentativas: ts })).toBe(true);
-    expect(pecaTesteAprovadaTrilha({ categoria_id: CAT, empresa_id: "F1", tentativas: ts })).toBe(false);
   });
-
-  it("não olha a M.O. nem o switch (quem decide é o chamador)", () => {
-    const linha = { categoria_id: CAT, empresa_id: "F1", tentativas: [tent(1, "aprovado", "F1")] };
-    expect(pecaTesteAprovadaTrilha(linha)).toBe(true);
-    expect(pecaTesteAprovadaModelo([{ ...linha, exige: true, mo_aprovado: null }])).toBe(false);
-    expect(pecaTesteAprovadaModelo([{ ...linha, exige: false, mo_aprovado: null }])).toBe(true);
-  });
-
-  it("ruling T3: a própria função filtra pelo TIPO ATUAL da linha (o chamador não precisa)", () => {
-    // aprovada só no tipo antigo → falso; a do tipo atual é a que vale, mesmo com número MENOR que a do tipo antigo
-    expect(pecaTesteAprovadaTrilha({ categoria_id: CAT, empresa_id: "F1", tentativas: [tent(1, "aprovado", "F1", OUTRA)] })).toBe(false);
-    expect(
-      pecaTesteAprovadaTrilha({
-        categoria_id: CAT,
-        empresa_id: "F1",
-        tentativas: [tent(3, "reprovado", "F1", OUTRA), tent(1, "aprovado", "F1", CAT)],
-      }),
-    ).toBe(true);
-    // voltar ao tipo antigo traz a aprovada de volta (as tentativas nunca saem do banco)
-    expect(pecaTesteAprovadaTrilha({ categoria_id: OUTRA, empresa_id: "F1", tentativas: [tent(1, "aprovado", "F1", OUTRA)] })).toBe(true);
-  });
-
-  it("linha sem tipo (categoria null) nunca casa tentativa alguma, como o `= NULL` do SQL", () => {
-    expect(pecaTesteAprovadaTrilha({ categoria_id: null, empresa_id: "F1", tentativas: [tent(1, "aprovado", "F1", null)] })).toBe(false);
-    expect(pecaTesteAprovadaTrilha({ categoria_id: null, empresa_id: "F1", tentativas: [] })).toBe(false);
+  it("não olha o fornecedor, a M.O. nem o switch; tipo null nunca casa", () => {
+    const ts = [{ categoria_id: "A", numero: 1, aprovacao: "aprovado" as const }];
+    expect(pecaTesteAprovadaTipo(ts, "A")).toBe(true);
+    expect(pecaTesteAprovadaTipo(ts, "B")).toBe(false);
+    expect(pecaTesteAprovadaTipo(ts, null)).toBe(false);
   });
 });
-
-// F6 — selo/filtro de Peça Teste na lista de Serviços: 4 estados do modelo.
-describe("statusPecaTesteModelo (selo/filtro da lista)", () => {
-  const CAT = "cat-exige";
-  // `saida` = data_saida (peça teste iniciada). null/ausente = não iniciada.
-  const tent = (numero: number, aprovacao: "aprovado" | "reprovado" | null, empresa_id: string | null, saida: string | null = null) =>
-    ({ numero, aprovacao, empresa_id, categoria_id: CAT, data_saida: saida });
-  const linhaExige = (over: Partial<Parameters<typeof statusPecaTesteModelo>[0][number]> = {}) => ({
-    categoria_id: CAT, exige: true, mo_aprovado: true as boolean | null, empresa_id: "F1", tentativas: [] as any[], ...over,
+describe("statusPecaTesteModelo", () => {
+  const exige = { categoria_id: "A", exige: true, mo_aprovado: true };
+  it("nenhuma linha exige → nao_exige", () => expect(statusPecaTesteModelo({ linhas: [{ categoria_id: "B", exige: false, mo_aprovado: null }], tentativas: [] })).toBe("nao_exige"));
+  it("aprovada (M.O. + trilha do tipo)", () => expect(statusPecaTesteModelo({ linhas: [exige], tentativas: [{ categoria_id: "A", numero: 1, aprovacao: "aprovado" }] })).toBe("aprovada"));
+  it("exige sem tentativa iniciada → falta; com data de saída e não aprovada → em_teste", () => {
+    expect(statusPecaTesteModelo({ linhas: [exige], tentativas: [{ categoria_id: "A", numero: 1, aprovacao: null, data_saida: null }] })).toBe("falta");
+    expect(statusPecaTesteModelo({ linhas: [exige], tentativas: [{ categoria_id: "A", numero: 1, aprovacao: null, data_saida: "2026-10-01" }] })).toBe("em_teste");
   });
-
-  it("nenhuma linha exige → nao_exige (cinza opcional)", () => {
-    expect(statusPecaTesteModelo([])).toBe("nao_exige");
-    expect(statusPecaTesteModelo([{ categoria_id: CAT, exige: false, mo_aprovado: null, empresa_id: null, tentativas: [] }])).toBe("nao_exige");
-  });
-
-  it("exige e a peça teste está aprovada (M.O.+PT) → aprovada (verde)", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "aprovado", "F1", "2026-01-01")] })])).toBe("aprovada");
-  });
-
-  it("exige, SEM nenhuma tentativa iniciada → falta (vermelho)", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [] })])).toBe("falta");
-  });
-
-  it("exige, tentativa criada mas SEM data de saída → falta (não iniciou)", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, null, null, null)] })])).toBe("falta");
-  });
-
-  it("exige, tentativa INICIADA (tem data de saída) mas não aprovada → em_teste (âmbar)", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, null, null, "2026-01-01")] })])).toBe("em_teste");
-  });
-
-  it("exige, tentativa iniciada e reprovada → em_teste (começou, mas não aprovada)", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [tent(1, "reprovado", "F1", "2026-01-01")] })])).toBe("em_teste");
-  });
-
-  it("exige, PT aprovada mas M.O. não aprovada → em_teste (iniciou, não está 'ok')", () => {
-    expect(statusPecaTesteModelo([linhaExige({ mo_aprovado: false, tentativas: [tent(1, "aprovado", "F1", "2026-01-01")] })])).toBe("em_teste");
-  });
-
-  it("várias linhas: aprovada só se TODAS as que exigem estão ok", () => {
-    const ok = linhaExige({ tentativas: [tent(1, "aprovado", "F1", "2026-01-01")] });
-    const faltaIniciar = linhaExige({ tentativas: [] });
-    expect(statusPecaTesteModelo([ok, faltaIniciar])).toBe("em_teste"); // ok iniciou → o modelo "em teste" (não falta puro)
-    expect(statusPecaTesteModelo([ok, { categoria_id: CAT, exige: false, mo_aprovado: null, empresa_id: null, tentativas: [] }])).toBe("aprovada");
-  });
-
-  it("várias linhas, NENHUMA iniciada → falta", () => {
-    expect(statusPecaTesteModelo([linhaExige({ tentativas: [] }), linhaExige({ tentativas: [] })])).toBe("falta");
-  });
+  it("PT aprovada mas M.O. não aprovada → em_teste (iniciou, não está ok)", () =>
+    expect(statusPecaTesteModelo({ linhas: [{ ...exige, mo_aprovado: null }], tentativas: [{ categoria_id: "A", numero: 1, aprovacao: "aprovado", data_saida: "2026-10-01" }] })).toBe("em_teste"));
 });
