@@ -3,7 +3,6 @@
 // entrada · Aprovação). A tentativa atual é editável; as reprovadas ficam num histórico só leitura. Nada grava aqui: o rascunho vive no
 // `usePecaTeste` e vai no Salvar do card. Componente de APRESENTAÇÃO (props), testável em render estático.
 import { useId, useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Check, ChevronRight, Info, Lock, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -50,17 +49,11 @@ const dataBR = (iso: string | null) => {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
 };
 
-/** Separa "/rota?a=1&b=2" em `to` + `search` (o Link do TanStack não interpreta a query dentro do `to`). */
-function destinoLink(url: string): { to: string; search: Record<string, string> } {
-  const [to, qs = ""] = url.split("?");
-  return { to, search: Object.fromEntries(new URLSearchParams(qs)) };
-}
-
 export function PecaTesteSecao({
   numero, selo, estado, base, fornecedores, somenteLeitura = false, carregando = false, erro = false, onTentarDeNovo,
   linhasNovas = [], bloqueadasPorTipo, conflitos = [], onResolverConflito, historicoAberto = false,
   onEditarAtual, onAprovar, onDesfazer, onReprovar, onTrocarFornecedor, mini, onEditarMini, onEditarMiniTentativa, avisos = [], miniAbertaInicial = false,
-  defaultAberta = false, linkPlanejamento,
+  defaultAberta = false,
 }: {
   numero?: number;
   selo?: ReactNode;
@@ -98,9 +91,6 @@ export function PecaTesteSecao({
   miniAbertaInicial?: boolean;
   /** Seção recolhida por padrão (igual às demais do Sheet, decisão do dono 03/nov); a prop existe para o render estático dos testes. */
   defaultAberta?: boolean;
-  /** URL do Planejamento do produto (ex.: `/criacao/planejamento?modelo=<id>`). Só o empty-state "sem serviço que exige peça teste" usa:
-   *  presente = mostra o atalho "Abrir no Planejamento" (PCP › Serviços); ausente = só a mensagem (no Sheet do Planejamento a pessoa já está lá). */
-  linkPlanejamento?: string;
 }) {
   const { pedir, dialog } = useConfirmacao();
   const trilhas = estado?.trilhas ?? [];
@@ -205,25 +195,6 @@ export function PecaTesteSecao({
                   <span>Salve o card para lançar a peça teste de {servico}.</span>
                 </p>
               ))}
-
-              {trilhas.length === 0 && linhasNovas.length === 0 && outros.length === 0 && (
-                <p className="flex items-start gap-1.5 text-xs text-muted-foreground" data-testid="peca-teste-vazia">
-                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    Este produto ainda não tem nenhum serviço que exija peça teste. Adicione um serviço com “Exige peça teste” na Mão de Obra
-                    (no Planejamento do produto), ou ligue esse flag em Cadastro › Serviços.
-                    {linkPlanejamento && (
-                      <>
-                        {" "}
-                        {/* <a> (não <button>): quem só LÊ tem um `fieldset disabled` acima, que desabilita todo <button> descendente */}
-                        <Link to={destinoLink(linkPlanejamento).to} search={destinoLink(linkPlanejamento).search} className="font-medium text-foreground underline underline-offset-2" data-testid="peca-teste-vazia-link">
-                          Abrir no Planejamento
-                        </Link>
-                      </>
-                    )}
-                  </span>
-                </p>
-              )}
 
               {outros.length > 0 && (
                 <p className="flex items-start gap-1.5 text-xs text-muted-foreground" data-testid="peca-teste-fora">

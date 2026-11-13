@@ -75,7 +75,6 @@ export function PecaTesteAba({ modeloId, podeEditar }: { modeloId: string; podeE
         onTrocarFornecedor={pt.trocarFornecedor}
         avisos={pt.avisos}
         defaultAberta
-        linkPlanejamento={`/criacao/planejamento?modelo=${modeloId}`}
       />
       {podeEditar && pt.dirty && (
         <div className="flex justify-end">
