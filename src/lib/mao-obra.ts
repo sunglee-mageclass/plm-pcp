@@ -164,30 +164,3 @@ export function moLinhaParaPayload(
   if (!daBase || (l.empresa_id ?? null) !== (daBase.empresa_id ?? null)) item.empresa_id = l.empresa_id ?? null;
   return item;
 }
-
-/**
- * Freio de UI da peça teste (nov/2026): o tipo de serviço que EXIGE peça teste (`exige_peca_teste`) só pode entrar 1x por produto —
- * 2 linhas do mesmo tipo geravam 2 trilhas de peça teste ("Tentativa 1" duas vezes). É SÓ freio de tela (o banco segue aceitando
- * multi-instância: a reforma futura da peça teste pode querer 2 linhas). Os tipos que NÃO exigem peça teste seguem repetindo.
- */
-export type MoCategoriaAddOpt = { id: string; ativo?: boolean; exige_peca_teste?: boolean | null };
-
-/** Esse tipo exige peça teste E já está nas linhas (rascunho) do produto? Então não pode entrar de novo. */
-export function servicoPecaTesteJaNoProduto(
-  categorias: readonly MoCategoriaAddOpt[],
-  linhas: readonly { categoria_terceirizado_id: string | null }[],
-  categoriaId: string,
-): boolean {
-  return !!categorias.find((c) => c.id === categoriaId)?.exige_peca_teste
-    && linhas.some((l) => l.categoria_terceirizado_id === categoriaId);
-}
-
-/** Opções do dropdown "Adicionar serviço": ativos; tipo que exige peça teste e já está no produto some; os demais repetem (multi-instância). */
-export function categoriasParaAdicionar<T extends MoCategoriaAddOpt>(
-  categorias: readonly T[],
-  linhas: readonly { categoria_terceirizado_id: string | null }[],
-): T[] {
-  return categorias.filter((c) => c.ativo !== false && !servicoPecaTesteJaNoProduto(categorias, linhas, c.id));
-}
-
-export const TEXTO_MO_PECA_TESTE_JA_NO_PRODUTO = "Este serviço de peça teste já está no produto";
