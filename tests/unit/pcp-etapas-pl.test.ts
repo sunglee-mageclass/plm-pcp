@@ -133,4 +133,15 @@ describe("mover: sempre a RPC (Task 9 fix 1)", () => {
     expect(rota).not.toMatch(/from\("modelos"\)|etapas_pl_manual|DefinirStatusDireto/);
     expect(rpc).not.toMatch(/from\("modelos"\)|DefinirStatusDireto/);
   });
+
+  // Bug reportado pelo dono (13/11): com colunas configuradas e 0 produtos, a rota mostrava "Nenhum PL
+  // encontrado" e NÃO renderizava o board — então as COLUNAS vazias não apareciam. O board (EtapasPlKanban)
+  // já mostra as colunas vazias ("Sem cards") e o "sem board" internamente. A rota NÃO pode curto-circuitar
+  // o board por falta de produtos.
+  it("a rota renderiza o board mesmo sem produtos (não esconde as colunas atrás de 'Nenhum PL encontrado')", () => {
+    const rota = readFileSync("src/routes/_authenticated/pcp.etapas.tsx", "utf8");
+    expect(rota).not.toContain("Nenhum PL encontrado");
+    expect(rota).not.toMatch(/todos\.length === 0 \?/);
+    expect(rota).toContain("<EtapasPlKanban");
+  });
 });

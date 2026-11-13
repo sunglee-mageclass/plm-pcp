@@ -341,9 +341,9 @@ function EtapasPlPage() {
 
       {carregandoCards && semDados ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>
-      ) : semDados || cfgErro ? null : todos.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Nenhum PL encontrado.</p>
-      ) : (
+      ) : semDados || cfgErro ? null : (
+        // Sempre renderiza o board: com colunas configuradas e 0 produtos, mostra as COLUNAS vazias
+        // (um kanban normal). O "sem board" (nenhuma coluna) é tratado dentro do EtapasPlKanban.
         <EtapasPlKanban
           produtos={produtos}
           cfg={cfg}
