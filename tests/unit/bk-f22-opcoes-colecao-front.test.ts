@@ -83,17 +83,11 @@ describe("opções de Coleção/Subcoleção vêm da RPC", () => {
 });
 
 describe("lista de cards das Etapas PL sem teto de 1.000", () => {
-  it("useEtapasCards pagina com buscarTodas (order created_at desc + id, .range) — nenhum .from(\"modelos\") sem .range nos 3 pontos", () => {
-    const hook = ler("src/components/producao/etapas/useEtapasCards.ts");
-    expect(hook).toContain("buscarTodas<");
-    expect(hook).toContain('.order("created_at", { ascending: false })');
-    expect(hook).toContain('.order("id", { ascending: true })');
-    expect(hook).toContain(".range(de, ate)");
+  it("o board PL (useEtapasPlProdutos) pagina com buscarTodas (order created_at desc + id, .range) — nenhum .from(\"modelos\") sem .range nos pontos", () => {
     const dash = ler("src/routes/_authenticated/dashboard.tsx");
     const ini = dash.indexOf("function ComercialColecaoTab()");
     // dashboard.tsx: só o corpo de ComercialColecaoTab é do escopo da F2.2 (as outras abas têm leituras próprias)
     const fontes: [string, string][] = [
-      ["useEtapasCards.ts", ler("src/components/producao/etapas/useEtapasCards.ts")],
       ["pcp.etapas.tsx", ler("src/routes/_authenticated/pcp.etapas.tsx")],
       ["useEtapasPlProdutos.ts", ler("src/components/producao/etapas/useEtapasPlProdutos.ts")],
       ["dashboard.tsx > ComercialColecaoTab", dash.slice(ini, ini + 5000)],

@@ -91,7 +91,6 @@ describe("Parte 12 (R11) — telas que mostram/filtram coleção usam o rótulo"
   it("detalhes/Explosão/Etapas PL trazem colecoes(nome) e passam por comRotuloColecao/rotuloColecaoDoModelo", () => {
     const comRotulo = [
       "src/components/producao/explosao/ExplosaoDetail.tsx",
-      "src/components/producao/etapas/useEtapasCards.ts",
       // [backend F2.2] pcp.etapas.tsx saiu daqui: as opcoes de Coleção vêm da RPC (rótulo no servidor); o filtro de cards é do hook acima.
       "src/components/producao/cad/useFichaData.ts",
       "src/routes/_authenticated/criacao.desenvolvimento.tsx",

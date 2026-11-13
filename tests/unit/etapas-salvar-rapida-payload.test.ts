@@ -319,24 +319,6 @@ describe("[urg R5] peca_foto_previsao — roundtrip linha -> bloco -> payload", 
   });
 });
 
-describe("useSalvarEtapaRapida — fonte (anti-regressão do payload de 1 bloco)", () => {
-  const src = readFileSync(
-    fileURLToPath(
-      new URL("../../src/components/producao/etapas/useSalvarEtapaRapida.ts", import.meta.url),
-    ),
-    "utf8",
-  );
-  it("relê TODAS as linhas do CAD e monta o payload pela função compartilhada", () => {
-    expect(src).toMatch(
-      /from\("producao_terceirizados"\)\.select\("\*"\)\.eq\("cad_id", card\.cadId\)/,
-    );
-    expect(src).toContain("montarPayloadEdicaoRapida(");
-    expect(src).not.toMatch(/_blocos:\s*\[/); // nunca um array literal de 1 bloco
-    expect(src).not.toContain("_apagar_tudo");
-    expect(src).not.toContain("MARCA_APAGAR_TUDO");
-  });
-});
-
 describe("PCP › Serviços — o sheet usa as MESMAS funções do payload", () => {
   const src = readFileSync(
     fileURLToPath(

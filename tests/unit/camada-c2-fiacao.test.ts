@@ -61,9 +61,6 @@ describe("[camada C2] fiação das confirmações", () => {
     expect(ler("src/routes/_authenticated/entrada-saida.oc-tecido.tsx")).toContain("substituirLinhaNova(prev, dup, dele)");
   });
   it("Etapas PL [R9]: o card do quadro não edita mais a peça teste; 'Reprovado' pede confirmação na seção Peça Teste do card", () => {
-    const e = ler("src/components/producao/etapas/EtapaCardView.tsx");
-    expect(e).not.toContain('onChange("pt_aprovacao"');
-    expect(e).not.toContain("textoReprovarPecaTeste");
     const sec = ler("src/components/planejamento/planejamento-detail/PecaTesteSecao.tsx");
     expect(sec).toContain("textoReprovarTentativa");
   });
