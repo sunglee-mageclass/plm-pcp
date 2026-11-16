@@ -62,20 +62,23 @@ export function lerPaginaPrevia(raw: unknown): PaginaPrevia {
     }));
     const assinatura = texto(i.assinatura);
     const semAssinatura = estado === "muda" && !(assinatura && /^[0-9a-f]{32}$/.test(assinatura));
+    // Sem modelo_id o item nunca pode ir ao servidor (o lote inteiro seria recusado com itens_invalidos): vira 'erro'.
+    const semId = !(texto(i.modelo_id) ?? "").trim();
+    const invalido = !conhecido || semAssinatura || semId;
     return {
       modeloId: texto(i.modelo_id) ?? "",
       nome: texto(i.nome) ?? "Produto sem nome",
       ref: texto(i.ref) ?? "",
       origem: texto(i.origem),
       tamanhoTipo: i.tamanho_tipo === "letra" || i.tamanho_tipo === "numero" ? i.tamanho_tipo : null,
-      estado: conhecido && !semAssinatura ? (estado as ItemPrevia["estado"]) : "erro",
+      estado: !invalido ? (estado as ItemPrevia["estado"]) : "erro",
       motivo: motivo && MOTIVOS.includes(motivo) ? (motivo as MotivoPulo) : null,
       assinatura: assinatura && /^[0-9a-f]{32}$/.test(assinatura) ? assinatura : null,
       criados: inteiro(i.criados), atualizados: inteiro(i.atualizados), removidos: inteiro(i.removidos), manuais: inteiro(i.manuais),
       conflitos: inteiro(i.conflitos),
       linhas,
       erro: estado === "erro" ? { codigo: texto(i.codigo) ?? "", detalhe: texto(i.detalhe) ?? "" }
-        : !conhecido || semAssinatura ? { codigo: "", detalhe: "resposta desconhecida do servidor" } : null,
+        : invalido ? { codigo: "", detalhe: semId && conhecido && !semAssinatura ? "produto sem identificador na resposta do servidor" : "resposta desconhecida do servidor" } : null,
     };
   });
   return {
@@ -134,8 +137,12 @@ export async function calcularPrevia(o: {
   for (;;) {
     if (o.cancelado?.()) return { status: "cancelado", itens, proximo: apos, formatoOk, total, tamanho };
     let pagina: PaginaPrevia;
+    let malformada = false;
     try {
-      pagina = lerPaginaPrevia(await o.chamar({ tenantId: o.tenantId, apos, limite: tamanho }));
+      const raw = await o.chamar({ tenantId: o.tenantId, apos, limite: tamanho });
+      const cru = objeto(raw);
+      malformada = typeof cru.formato_ok !== "boolean" && !Array.isArray(cru.itens);
+      pagina = lerPaginaPrevia(raw);
     } catch (erro) {
       if (ehTimeout(erro) && tamanho > TAMANHO_PAGINA_MINIMO) {
         tamanho = metadeDaPagina(tamanho);
@@ -144,7 +151,17 @@ export async function calcularPrevia(o: {
       }
       return { status: "falha", itens, proximo: apos, formatoOk, total, tamanho, falha: { erro, tempo: ehTimeout(erro) } };
     }
+    // FAIL-CLOSED: resposta sem formato nem itens (null/{}), ou 'sem Formato' numa pagina que NAO e a 1a, nao e "loja sem Formato" — e falha
+    // (nunca descarta as paginas ja calculadas com o diagnostico errado).
+    const primeira = apos === null && itens.length === 0;
+    if (malformada || (!pagina.formatoOk && !primeira)) {
+      return { status: "falha", itens, proximo: apos, formatoOk, total, tamanho, falha: { erro: new Error("resposta invalida do servidor"), tempo: false } };
+    }
     if (!pagina.formatoOk) return { status: "completo", itens: [], proximo: null, formatoOk: false, total: pagina.totalModelos, tamanho };
+    // Guarda de progresso: o cursor tem de andar (senao o laco nunca termina).
+    if (pagina.proximo !== null && pagina.proximo === apos) {
+      return { status: "falha", itens, proximo: apos, formatoOk, total, tamanho, falha: { erro: new Error("cursor sem progresso"), tempo: false } };
+    }
     if (pagina.totalModelos !== null) total = pagina.totalModelos;
     itens.push(...pagina.itens);
     o.aoPagina?.({ itens: pagina.itens, feitos: itens.length, total });
@@ -216,11 +233,9 @@ export async function gravarEmLotes(o: {
   while (restantes.length > 0) {
     if (o.cancelado?.()) return { status: "cancelado", resultados, restantes, tamanho };
     const lote = restantes.slice(0, tamanho);
+    let r: ResultadoPagina;
     try {
-      const r = lerResultadoAplicar(await o.chamar({ tenantId: o.tenantId, itens: lote.map((i) => ({ modelo_id: i.modeloId, assinatura: i.assinatura as string })) }));
-      resultados.push(...r.resultados);
-      restantes = restantes.slice(lote.length);
-      o.aoLote?.({ resultados: r.resultados, feitos: total - restantes.length, total });
+      r = lerResultadoAplicar(await o.chamar({ tenantId: o.tenantId, itens: lote.map((i) => ({ modelo_id: i.modeloId, assinatura: i.assinatura as string })) }));
     } catch (erro) {
       if (ehTimeout(erro) && tamanho > TAMANHO_PAGINA_MINIMO) {
         tamanho = metadeDaPagina(tamanho);
@@ -229,6 +244,16 @@ export async function gravarEmLotes(o: {
       }
       return { status: "falha", resultados, restantes, tamanho, falha: { erro, tempo: ehTimeout(erro) } };
     }
+    // FAIL-CLOSED: produto do lote SEM resultado na resposta (null/{}/lista curta) vira 'erro' — nunca um "concluido" limpo sem nada gravado.
+    const respondidos = new Set(r.resultados.map((x) => x.modeloId));
+    const faltantes: ResultadoItem[] = lote.filter((i) => !respondidos.has(i.modeloId)).map((i) => ({
+      modeloId: i.modeloId, nome: i.nome, ref: i.ref, estado: "erro", motivo: null, criados: 0, atualizados: 0, removidos: 0, conflitos: 0,
+      erro: { codigo: "", detalhe: "sem resposta do servidor" },
+    }));
+    const doLote = [...r.resultados, ...faltantes];
+    resultados.push(...doLote);
+    restantes = restantes.slice(lote.length);
+    o.aoLote?.({ resultados: doLote, feitos: total - restantes.length, total }); // fora do try: erro do callback nao vira "falha do servidor"
   }
   return { status: "completo", resultados, restantes: [], tamanho };
 }

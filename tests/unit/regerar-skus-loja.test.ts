@@ -191,6 +191,52 @@ describe("gravarEmLotes - lotes de ate 25 (teto 50), recuo no tempo, idempotenci
   });
 });
 
+describe("FAIL-CLOSED do laco (fix round 1)", () => {
+  const itens = (n: number) => Array.from({ length: n }, (_, i) => item({ modeloId: `m${i}` }));
+  it("gravacao: resposta null/{}/lista curta NAO vira 'completo' limpo - os produtos sem resposta viram erro 'sem resposta do servidor'", async () => {
+    for (const vazio of [null, {}, { resultados: [] }]) {
+      const chamar = vi.fn(async () => vazio);
+      const r = await gravarEmLotes({ tenantId: "t", itens: itens(3), chamar });
+      expect(r.resultados).toHaveLength(3);
+      const s = resumirGravacao(r.resultados);
+      expect([s.gravados.length, s.erros.length]).toEqual([0, 3]);
+      expect(s.erros[0].erro).toEqual({ codigo: "", detalhe: "sem resposta do servidor" });
+    }
+    const parcial = vi.fn(async () => ({ resultados: [{ modelo_id: "m0", estado: "gravado", atualizados: 1 }] }));
+    const r2 = await gravarEmLotes({ tenantId: "t", itens: itens(3), chamar: parcial });
+    expect(resumirGravacao(r2.resultados)).toMatchObject({ gravados: [expect.anything()], erros: [expect.anything(), expect.anything()] });
+  });
+  it("gravacao: erro lancado por aoLote NAO vira 'falha' do servidor (sobe como erro do callback)", async () => {
+    const chamar = vi.fn(async ({ itens: l }: { itens: { modelo_id: string }[] }) => ({ resultados: l.map((x) => ({ modelo_id: x.modelo_id, estado: "gravado" })) }));
+    await expect(gravarEmLotes({ tenantId: "t", itens: itens(2), chamar, aoLote: () => { throw new Error("bug do callback"); } })).rejects.toThrow("bug do callback");
+    expect(chamar).toHaveBeenCalledTimes(1);
+  });
+  it("previa: pagina malformada (null/{}) numa pagina NAO inicial para como 'falha' guardando o cursor e as paginas ja calculadas (nao vira 'Loja sem Formato')", async () => {
+    for (const ruim of [null, {}, { formato_ok: false, itens: [] }]) {
+      const chamar = vi.fn(async ({ apos }: { apos: string | null }) => (apos === null ? pagina(["a", "b"], "b") : ruim));
+      const r = await calcularPrevia({ tenantId: "t", chamar });
+      expect(r).toMatchObject({ status: "falha", proximo: "b", formatoOk: true, falha: { tempo: false } });
+      expect(r.itens.map((i) => i.modeloId)).toEqual(["a", "b"]);
+    }
+  });
+  it("previa: resposta null/{} ja na 1a pagina tambem e falha (nao e 'sem Formato'); 'sem Formato' de verdade (formato_ok:false) segue completo", async () => {
+    expect(await calcularPrevia({ tenantId: "t", chamar: async () => null })).toMatchObject({ status: "falha", proximo: null });
+    expect(await calcularPrevia({ tenantId: "t", chamar: async () => ({}) })).toMatchObject({ status: "falha" });
+  });
+  it("previa: cursor sem progresso (proximo === apos) para como 'falha' em vez de laco infinito", async () => {
+    const chamar = vi.fn(async ({ apos }: { apos: string | null }) => (apos === null ? pagina(["a"], "a") : pagina(["a2"], "a")));
+    const r = await calcularPrevia({ tenantId: "t", chamar });
+    expect(r).toMatchObject({ status: "falha", proximo: "a", falha: { tempo: false } });
+    expect(r.itens.map((i) => i.modeloId)).toEqual(["a"]);
+    expect(chamar).toHaveBeenCalledTimes(2);
+  });
+  it("lerPaginaPrevia: modelo_id vazio com estado 'muda' vira 'erro' e nunca vai ao servidor", () => {
+    const p = lerPaginaPrevia({ formato_ok: true, itens: [cru({ modelo_id: "" }), cru({ modelo_id: null }), cru({ modelo_id: "ok" })] });
+    expect(p.itens.map((i) => i.estado)).toEqual(["erro", "erro", "muda"]);
+    expect(itensParaGravar(p.itens).map((i) => i.modeloId)).toEqual(["ok"]);
+  });
+});
+
 describe("textos de falha por tempo - a previa nao grava nada; a gravacao deixa o que ja foi gravado", () => {
   it("o texto da PREVIA diz 'nada foi gravado'; o da GRAVACAO nunca diz isso e diz que o ja gravado fica", () => {
     expect(TEXTO_FALHA_TEMPO).toMatch(/Nada foi gravado/);
