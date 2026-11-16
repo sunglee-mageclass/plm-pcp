@@ -137,6 +137,24 @@ describe("RegerarSkusLojaCard - previa em paginas, revisao, confirmacao e gravac
     expect(rpcSpy.mock.calls.some(([x]) => x === "regerar_skus_loja_aplicar")).toBe(false);
   });
 
+  it("previa FALHA: o dialogo FECHA pelo botao 'Voltar' (o X ficava morto na falha porque a fase seguia 'calculando'); a barra de progresso some", async () => {
+    mock.previa = async () => ({ data: null, error: { code: "42501", message: "sem_permissao_admin: so o administrador da loja regera os SKUs" } });
+    montar();
+    await espera(50);
+    await clicar(botao("Gerar prévia")!);
+    await espera(50);
+    const dialogo = document.querySelector('[data-testid="regerar-skus-dialogo"]');
+    expect(dialogo).toBeTruthy(); // dialogo aberto, mostrando o erro
+    // na falha a barra de progresso "Calculando… X de ?" nao deve aparecer (so o erro)
+    expect(document.querySelector('[data-testid="regerar-skus-progresso"] [role="progressbar"]')).toBeNull();
+    // o rodape mostra "Voltar" (nao "Cancelar") e fechar por ele some com o dialogo
+    const voltar = botao(/Voltar/);
+    expect(voltar).toBeTruthy();
+    await clicar(voltar!);
+    await espera(50);
+    expect(document.querySelector('[data-testid="regerar-skus-dialogo"]')).toBeNull(); // fechou
+  });
+
   it("previa sem nada a mudar: 'Nenhum SKU precisa mudar' e o botao de regerar fica desabilitado (0 SKUs)", async () => {
     mock.previa = async () => ({ data: { formato_ok: true, total_modelos: 1, itens: [item("B", { estado: "igual", atualizados: 0, linhas: [] })], proximo: null }, error: null });
     montar();

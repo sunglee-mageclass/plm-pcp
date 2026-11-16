@@ -47,7 +47,10 @@ export function RegerarSkusLojaDialog(p: {
   const [filtro, setFiltro] = useState<FiltroPrevia>("muda");
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
   const [visiveis, setVisiveis] = useState(POR_VEZ);
-  const emCurso = p.fase === "calculando" || p.fase === "gravando";
+  // "em curso" = cálculo/gravação REALMENTE em andamento. Se a prévia FALHOU (falhaPrevia), a fase fica em
+  // "calculando" só para exibir o erro — mas não está mais em curso, então o X/Esc voltam a fechar o dialog
+  // (antes o X ficava morto na falha; só o Cancelar fechava).
+  const emCurso = (p.fase === "calculando" && !p.falhaPrevia) || p.fase === "gravando";
   const pct = p.progresso.total && p.progresso.total > 0 ? Math.min(100, Math.round((p.progresso.feitos / p.progresso.total) * 100)) : null;
   const lista = filtrarItens(p.itens, filtro);
   const alterna = (id: string) => setAbertos((a) => { const n = new Set(a); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -73,12 +76,12 @@ export function RegerarSkusLojaDialog(p: {
         <DialogBody className="space-y-3">
           {(p.fase === "calculando" || p.fase === "gravando") && (
             <div className="space-y-2" data-testid="regerar-skus-progresso">
-              <p className="text-sm">
+              {!p.falhaPrevia && <p className="text-sm">
                 {p.fase === "calculando" ? "Calculando" : "Gravando"}… {p.progresso.feitos} de {p.progresso.total ?? "?"} produtos
-              </p>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={pct ?? undefined} aria-valuemin={0} aria-valuemax={100}>
+              </p>}
+              {!p.falhaPrevia && <div className="h-2 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={pct ?? undefined} aria-valuemin={0} aria-valuemax={100}>
                 <div className="h-full bg-primary transition-all" style={{ width: `${pct ?? 5}%` }} />
-              </div>
+              </div>}
               {p.tamanhoPagina < 25 && (
                 <p className="text-xs text-muted-foreground">O servidor demorou: lotes menores ({p.tamanhoPagina} produtos por vez) para responder a tempo.</p>
               )}
