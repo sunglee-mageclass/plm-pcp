@@ -612,6 +612,39 @@ export function mensagemFkBaixaPecaTeste(code: string, msg: string): string | nu
   return code === "23503" && FK_BAIXA_PECA_TESTE.test(msg) ? TEXTO_ITEM_COM_BAIXA_PECA_TESTE : null;
 }
 
+// Botões Regerar REF (por card) e Regerar SKUs (lote da loja) — migrations 20261201100000..120000: recusas ASCII com prefixo → texto PT.
+// P0001 = regra de negócio (400); 42501 = sem permissão (403); P0409 `previa_desatualizada: ref` = a REF/Formato mudou depois da prévia.
+export const MENSAGENS_REGERAR = {
+  ref_nao_interno: "Só produtos internos têm a REF regerada (revenda e importado têm REF própria).",
+  ref_pulado_integracao: "Produto Integrável/Integrado na Integração: a REF e os SKUs ficam travados.",
+  ref_pulado_exportado: "Produto que já foi exportado pela Integração: a REF e os SKUs não são regerados.",
+  ref_nao_revelada: "A REF deste card ainda não foi revelada nesta etapa.",
+  ref_sem_sigla: "Falta a categoria (e subcategoria) do card para montar a sigla da REF.",
+  ref_sem_numero: "Este card ainda não recebeu a numeração automática — ela nasce ao entrar no Desenvolvimento.",
+  ref_manual_confirmar: "A REF foi digitada à mão: confirme a troca antes de salvar.",
+  previa_desatualizada_ref:
+    "A REF ou os SKUs mudaram desde a prévia (outra pessoa mexeu, ou mudou a categoria, o Formato ou a grade). A prévia foi atualizada — confira e clique em Salvar de novo.",
+  limite_pagina: "O lote pedido é grande demais. Tente de novo.",
+  itens_invalidos: "Os produtos enviados para regerar são inválidos. Refaça a prévia e tente de novo.",
+  loja_mudou: "A loja ativa mudou. Recarregue a página antes de regerar os SKUs.",
+  sem_permissao_admin: "Só o administrador da loja regera os SKUs da loja inteira.",
+  sem_permissao_modelo: "Você não tem acesso a este produto. Recarregue a tela.",
+  loja_inativa: "Loja inativa ou sem loja — operação não permitida.",
+} as const;
+const PREFIXOS_REGERAR_P0001 = [
+  "ref_nao_interno", "ref_pulado_integracao", "ref_pulado_exportado", "ref_nao_revelada", "ref_sem_sigla", "ref_sem_numero",
+  "ref_manual_confirmar", "limite_pagina", "itens_invalidos", "loja_mudou",
+] as const;
+const PREFIXOS_REGERAR_42501 = ["sem_permissao_admin", "sem_permissao_modelo", "loja_inativa"] as const;
+export function mensagemRegerar(code: string, msg: string): string | null {
+  const m = /^([a-z_]+):/.exec(msg);
+  if (code === "P0409" && msg.startsWith("previa_desatualizada: ref")) return MENSAGENS_REGERAR.previa_desatualizada_ref;
+  if (!m) return null;
+  if (code === "P0001" && (PREFIXOS_REGERAR_P0001 as readonly string[]).includes(m[1])) return MENSAGENS_REGERAR[m[1] as (typeof PREFIXOS_REGERAR_P0001)[number]];
+  if (code === "42501" && (PREFIXOS_REGERAR_42501 as readonly string[]).includes(m[1])) return MENSAGENS_REGERAR[m[1] as (typeof PREFIXOS_REGERAR_42501)[number]];
+  return null;
+}
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -696,6 +729,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   if (pecaTeste) return pecaTeste;
   const fkPecaTeste = mensagemFkBaixaPecaTeste(code, msg);
   if (fkPecaTeste) return fkPecaTeste;
+
+  // Botões Regerar REF / Regerar SKUs: prefixos ASCII (P0001/42501/P0409 `previa_desatualizada: ref`) → texto PT (antes do P0409 genérico e do ramo "P0001 = já em PT").
+  const regerar = mensagemRegerar(code, msg);
+  if (regerar) return regerar;
 
   // Reforço de segurança S1: prefixos ASCII (42501/P0001) das guardas novas → texto PT.
   const segS1 = mensagemSegS1(code, msg);

@@ -530,3 +530,47 @@ export function textoExcluirOc(): TextoConfirmacao {
     destrutivo: true,
   };
 }
+
+// ── Botões Regerar REF (card) e Regerar SKUs (lote da loja), nov/2026 — TEXTOS APROVADOS pelo dono (R11; teste `regerar-textos` fixa verbatim). ──
+
+/** Regerar REF por card: a REF atual foi digitada à mão — só troca com a confirmação (o servidor também exige). */
+export function textoRegerarRefManual(a: { atual: string; nova: string }): TextoConfirmacao {
+  return {
+    titulo: "Substituir a REF digitada à mão?",
+    descricao:
+      `A REF atual (${txt(a.atual)}) foi digitada à mão. Substituir por ${txt(a.nova)}? ` +
+      "Nada é gravado agora: a troca e a regeração dos SKUs deste card só acontecem quando você clicar em Salvar (os SKUs editados à mão não mudam).",
+    confirmar: "Substituir REF",
+    cancelar: CANCELAR,
+    destrutivo: false,
+  };
+}
+
+/** Regerar REF por card: no Salvar, há SKUs em conflito que o motor NÃO regera (ficam como estão). */
+export function textoRegerarRefConflitos(n: number): TextoConfirmacao {
+  return {
+    titulo: "Salvar com SKUs em conflito?",
+    descricao:
+      n === 1
+        ? "1 SKU está em conflito e não será regerado (continua como está). A REF e os demais SKUs serão gravados."
+        : `${n} SKUs estão em conflito e não serão regerados (continuam como estão). A REF e os demais SKUs serão gravados.`,
+    confirmar: "Salvar mesmo assim",
+    cancelar: VOLTAR,
+    destrutivo: false,
+  };
+}
+
+/** Regerar todos os SKUs da loja: grava de verdade, em lote, sem desfazer. */
+export function textoRegerarSkusLoja(a: { skus: number; produtos: number }): TextoConfirmacao {
+  const s = a.skus === 1 ? "1 SKU" : `${a.skus} SKUs`;
+  const p = a.produtos === 1 ? "1 produto" : `${a.produtos} produtos`;
+  return {
+    titulo: `Regerar ${s} em ${p}?`,
+    descricao:
+      "Isto grava de verdade e não há desfazer em lote. Os SKUs editados à mão, os produtos travados pela Integração (ou já exportados) " +
+      "e os SKUs em conflito não mudam. Dá para cancelar no meio: o que já foi gravado fica.",
+    confirmar: `Regerar ${s}`,
+    cancelar: CANCELAR,
+    destrutivo: true,
+  };
+}
