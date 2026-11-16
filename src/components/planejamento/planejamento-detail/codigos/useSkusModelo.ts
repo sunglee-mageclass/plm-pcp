@@ -9,6 +9,9 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import {
+  MSG_REF_PREVIA_CALCULANDO, MSG_REF_PREVIA_DESCONHECIDA, RPC_REGERAR_REF_CARD, lerResultadoRegerarRef, mensagemRegerarRef,
+} from "@/lib/ref-regerar";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import {
   deveGerarPrimeiraVez, lerMatriz, resumoGeracao, type ApelidoSigla, type CorSigla, type LinhaSku, type MatrizSkus,
@@ -171,6 +174,47 @@ export function useSkusModelo(
     }
   };
 
+  /** Salvar do card, DEPOIS do UPDATE do modelo, com "Regerar REF" pendente: UMA RPC atômica (`regerar_ref_card` = REF + SKUs no MESMO passo; qualquer falha
+   *  desfaz tudo) NO LUGAR de `aplicarAGravar`. A assinatura é a da prévia VISTA (`skus_previa` com a REF nova, modo 'regerar'); o servidor recalcula a REF e
+   *  confere `_ref_esperada`. Nunca lança. Sucesso limpa o "a gravar" dos SKUs e semeia o cache com a matriz que a RPC devolve. */
+  const aplicarRegerarRef = async (p: { refNova: string; confirmaManual: boolean }): Promise<"ok" | "falhou"> => {
+    if (!modeloId) return "falhou";
+    const s = o.aGravar.atual();
+    const d = previaRef.current;
+    if (!d || d.entrada !== chaveRef.current) {
+      toast.error(MSG_REF_PREVIA_CALCULANDO);
+      return "falhou";
+    }
+    if (d.desconhecida || !d.assinatura) {
+      toast.error(MSG_REF_PREVIA_DESCONHECIDA);
+      return "falhou";
+    }
+    try {
+      const { data, error } = await supabase.rpc(RPC_REGERAR_REF_CARD as any, {
+        _modelo_id: modeloId, _ref_esperada: p.refNova, _confirma_manual: p.confirmaManual, _assinatura: d.assinatura,
+      });
+      if (error) throw error;
+      o.aGravar.limparSe(s);
+      const r = lerResultadoRegerarRef(data);
+      // FAIL-CLOSED (carry M2/M4 da revisao da T3): `ref:""` = retorno nulo/malformado (indistinguivel de real). A RPC NAO deu erro, entao a gravacao
+      // vale ("ok"), mas NAO se semeia o cache com a matriz lida de um retorno ilegivel (o `invalidar()` abaixo rele o servidor) e o texto usa a REF
+      // que MANDAMOS (`p.refNova`), nunca o "" que voltou. O hook nao escreve a REF no rascunho: quem a aplica (T5) usa `refNova` da pendencia.
+      const retornoLegivel = r.ref !== "";
+      if (retornoLegivel) qc.setQueryData(chaveSkus(modeloId), r.matriz);
+      const resumo = resumoAplicacao(r.resumo);
+      if (retornoLegivel && resumo.erro) toast.error(resumo.texto);
+      else toast.success(retornoLegivel ? `REF regerada: ${r.ref}. ${resumo.texto}` : `REF regerada: ${p.refNova}.`);
+      return "ok";
+    } catch (e) {
+      toast.error(mensagemRegerarRef(e));
+      return "falhou";
+    } finally {
+      invalidar();
+      void qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+      void qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    }
+  };
+
   /** Depois do Salvar: matriz FRESCA; card com REF e SEM SKU gravado ⇒ gera (`_regerar=false` só cria o que falta — P-50 A). */
   const gerarSeFaltar = async () => {
     if (!ativo || !modeloId || !podeEditar) return;
@@ -203,6 +247,7 @@ export function useSkusModelo(
     previaAtual: !temPrevia || pq.data?.entrada === chave,
     refazerPrevia: () => { void pq.refetch(); },
     aplicarAGravar,
+    aplicarRegerarRef,
     gerarSeFaltar,
   };
 }
