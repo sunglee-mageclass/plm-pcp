@@ -10,6 +10,7 @@ import { aplicarArquivo } from "./mig-txn";
 import { LOCAL, T, U, modeloInterno, revenda, importado, comoUsuarioCom } from "./integracao-helpers";
 
 const MIG = "supabase/migrations/20261122100000_exportar_dados.sql";
+const MIG_PERM = "supabase/migrations/20261201130000_exportar_dados_permissao.sql"; // portao proprio `exportar_dados` (substitui o da Integracao)
 const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979";
 const COL = "QA-EXP";
 const SIG_EXP = "public.exportar_produtos(text,text,text[],text[],integer)";
@@ -27,6 +28,16 @@ async function viva(c: Client): Promise<void> {
       await aplicarArquivo(c, MIG);
     } finally {
       // a migration faz SET LOCAL transaction_timeout (valeria para a txn INTEIRA do teste)
+      await c.query("SET LOCAL transaction_timeout = 0");
+      await c.query("SET LOCAL lock_timeout = '3s'");
+    }
+  }
+  // portao `exportar_dados` (frente "Exportar dados na sidebar"): os casos abaixo valem para o banco COM ele (como em producao depois do deploy)
+  const temPerm = (await um<{ ok: boolean }>(c, `SELECT to_regprocedure('public._exportar_exige()') IS NOT NULL AS ok`)).ok;
+  if (!temPerm) {
+    try {
+      await aplicarArquivo(c, MIG_PERM);
+    } finally {
       await c.query("SET LOCAL transaction_timeout = 0");
       await c.query("SET LOCAL lock_timeout = '3s'");
     }
@@ -383,7 +394,7 @@ describe.skipIf(!hasDb || !LOCAL)("exportar dados — RPC exportar_produtos / ex
     });
   });
 
-  it("validacoes (P0001, ASCII) e portao: sem login e sem permissao de ver a Integracao = 42501", async () => {
+  it("validacoes (P0001, ASCII) e portao: sem login e sem a permissao exportar_dados = 42501", async () => {
     await withTx(async (c) => {
       await viva(c);
       await semeia(c);
@@ -401,12 +412,15 @@ describe.skipIf(!hasDb || !LOCAL)("exportar dados — RPC exportar_produtos / ex
       await semUsuario(c);
       expect(await chama(`ARRAY['nome']`, `ARRAY['1']`)).toMatch(/^42501 /);
       expect(await tenta(c, `SELECT public.exportar_subcolecoes('${COL}')`)).toMatch(/^42501 /);
-      // usuario da loja SEM a permissao integracao
+      // usuario da loja SEM a permissao exportar_dados
       await comoUsuarioCom(c, "0e5c0001-0000-4000-8000-00000000e001", [["criacao_planejamento", true, true]]);
       expect(await chama(`ARRAY['nome']`, `ARRAY['1']`)).toMatch(/^42501 /);
       expect(await tenta(c, `SELECT public.exportar_subcolecoes('${COL}')`)).toMatch(/^42501 /);
-      // ...e COM a permissao integracao (ver) passa
-      await comoUsuarioCom(c, "0e5c0001-0000-4000-8000-00000000e002", [["integracao", true, false]]);
+      // ...a permissao integracao NAO basta mais (portao proprio)
+      await comoUsuarioCom(c, "0e5c0001-0000-4000-8000-00000000e003", [["integracao", true, true]]);
+      expect(await chama(`ARRAY['nome']`, `ARRAY['1']`)).toMatch(/^42501 /);
+      // ...e COM a permissao exportar_dados (ver), dada pelo super admin, passa
+      await comoUsuarioCom(c, "0e5c0001-0000-4000-8000-00000000e002", [["exportar_dados", true, false]]);
       expect(await chama(`ARRAY['nome']`, `ARRAY['1']`)).toBe("PASSOU");
     });
   });
