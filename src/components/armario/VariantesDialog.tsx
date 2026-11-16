@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ModeloThumb } from "@/components/plan-tecido/ModeloThumb";
 import { chaveVariante, rotuloVariante, type ArmarioOrigem } from "@/lib/armario/variante-chave";
+import { mensagemArmario } from "@/lib/armario/mensagem";
 
 export const VARIANTE_DRAG_PREFIXO = "variante:";
 
@@ -234,7 +235,7 @@ export interface VariantesDialogProps {
 
 export function VariantesDialog({ colecaoId, colecao, subcolecao, armarioId, onFechar, onAdicionar, chavesNaGrade }: VariantesDialogProps) {
   const [busca, setBusca] = useState("");
-  const { data, isLoading, isError } = useVariantesDisponiveis(colecaoId, subcolecao, armarioId);
+  const { data, isLoading, isError, error } = useVariantesDisponiveis(colecaoId, subcolecao, armarioId);
   const entradas = useMemo(() => achatarVariantes(data ?? []), [data]);
   const visiveis = useMemo(() => filtrarEntradas(entradas, busca), [entradas, busca]);
   const nVariantes = entradas.filter((e) => e.tipo === "variante").length;
@@ -267,7 +268,7 @@ export function VariantesDialog({ colecaoId, colecao, subcolecao, armarioId, onF
           {isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</div>
           ) : isError ? (
-            <p className="text-sm text-destructive">Não foi possível carregar as variantes. Tente novamente.</p>
+            <p className="text-sm text-destructive">{mensagemArmario(error, "Não foi possível carregar as variantes. Tente novamente.")}</p>
           ) : entradas.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum produto nesta subcoleção.</p>
           ) : visiveis.length === 0 ? (

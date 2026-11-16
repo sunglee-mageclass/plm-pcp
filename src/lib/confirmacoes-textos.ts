@@ -574,3 +574,28 @@ export function textoRegerarSkusLoja(a: { skus: number; produtos: number }): Tex
     destrutivo: true,
   };
 }
+
+// ── F7 Armário (D5) — Publicar / Despublicar na lista de armários ─────────────────────────────────────────────────────
+// Neutros (destrutivo:false): publicar AVANÇA (libera p/ a API do e-commerce) e despublicar REABRE para edição; nada é apagado.
+
+/** Armário: pronto → publicado. */
+export function textoPublicarArmario(a: { nome?: string | null }): TextoConfirmacao {
+  return {
+    titulo: presente(a.nome) ? `Publicar ${aspas(txt(a.nome))}?` : "Publicar este armário?",
+    descricao: "Ele fica disponível para a API do e-commerce levar. Enquanto estiver publicado, não dá para editar nem excluir.",
+    confirmar: "Publicar",
+    cancelar: CANCELAR,
+    destrutivo: false,
+  };
+}
+
+/** Armário: publicado → pronto. */
+export function textoDespublicarArmario(a: { nome?: string | null }): TextoConfirmacao {
+  return {
+    titulo: presente(a.nome) ? `Despublicar ${aspas(txt(a.nome))}?` : "Despublicar este armário?",
+    descricao: "Volta para Pronto e pode ser editado de novo. Deixa de ficar disponível para a API do e-commerce.",
+    confirmar: "Despublicar",
+    cancelar: CANCELAR,
+    destrutivo: false,
+  };
+}

@@ -147,6 +147,8 @@ describe("ArmarioListPage — menu ⋯ e trava de publicado", () => {
     expect(botao("Publicar")).toBeTruthy();
     expect(botao("Voltar para rascunho")).toBeTruthy();
     await clicar(botao("Publicar"));
+    expect(rpcMock).not.toHaveBeenCalled(); // D5: Publicar pede confirmação antes (ver armario-trava-ui.test.ts)
+    await clicar(botoes().filter((b) => b.textContent?.trim() === "Publicar").pop());
     expect(rpcMock).toHaveBeenCalledWith("armario_status", { _id: "a3", _novo: "publicado" });
   });
 
@@ -159,6 +161,8 @@ describe("ArmarioListPage — menu ⋯ e trava de publicado", () => {
     expect(botao("Despublicar")).toBeTruthy();
     expect(botao("Publicar")).toBeFalsy();
     await clicar(botao("Despublicar"));
+    expect(rpcMock).not.toHaveBeenCalled(); // D5: Despublicar pede confirmação antes
+    await clicar(botoes().filter((b) => b.textContent?.trim() === "Despublicar").pop());
     expect(rpcMock).toHaveBeenCalledWith("armario_status", { _id: "a2", _novo: "pronto" });
   });
 

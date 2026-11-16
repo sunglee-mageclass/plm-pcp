@@ -221,6 +221,7 @@ export function MontagemEditor({
   const itensRef = useRef<readonly GradeItem[]>(itens);
   itensRef.current = itens;
 
+  const dicaTrava = publicado ? MSG_TRAVADO : readOnlyPerm ? MSG_SEM_PERMISSAO : undefined;
   const avisarTrava = useCallback(() => toast.warning(publicado ? MSG_TRAVADO : MSG_SEM_PERMISSAO), [publicado]);
 
   const inserir = useCallback((item: VarianteItem) => {
@@ -298,7 +299,7 @@ export function MontagemEditor({
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
-        <Button size="sm" variant="outline" disabled={travado} onClick={() => setDialogAberto(true)}>
+        <Button size="sm" variant="outline" disabled={travado} title={dicaTrava} onClick={() => setDialogAberto(true)}>
           <Plus className="mr-1 h-4 w-4" /> Adicionar variantes
         </Button>
         <div className="flex items-center gap-2">
@@ -315,7 +316,7 @@ export function MontagemEditor({
         <span className="text-xs text-muted-foreground">
           {itens.length} {itens.length === 1 ? "variante" : "variantes"} · a ordem de envio é 1, 2, 3… da esquerda p/ a direita, de cima p/ baixo
         </span>
-        <Button size="sm" className="ml-auto" disabled={travado || !dirty || salvar.isPending} onClick={() => salvar.mutate({ itens, colunas })}>
+        <Button size="sm" className="ml-auto" disabled={travado || !dirty || salvar.isPending} title={dicaTrava} onClick={() => salvar.mutate({ itens, colunas })}>
           {salvar.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />} Salvar
         </Button>
       </div>

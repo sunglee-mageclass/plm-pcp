@@ -29,6 +29,8 @@ import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { armarioTravado, transicaoValida, type ArmarioStatus } from "@/lib/armario/status";
 import { mensagemArmario } from "@/lib/armario/mensagem";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
+import { textoDespublicarArmario, textoPublicarArmario } from "@/lib/confirmacoes-textos";
 import { ArmarioMontagem } from "@/components/armario/ArmarioMontagem";
 
 export type ArmarioSearch = { colecao?: string; sub?: string; armario?: string };
@@ -46,6 +48,8 @@ const ACAO_STATUS: Record<string, string> = {
   "publicado>pronto": "Despublicar",
 };
 const TRAVADO_DICA = "Armário publicado é somente leitura — despublique antes.";
+const TRAVADO_DICA_EXCLUIR = "Armário publicado não pode ser excluído — despublique antes.";
+const SEM_PERMISSAO_DICA = "Você não tem permissão para editar armários.";
 const ITEM = "flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40";
 
 const plural = (n: number, s: string, p: string) => `${n} ${n === 1 ? s : p}`;
@@ -141,6 +145,14 @@ export function ArmarioListPage({ search, onSearch }: { search: ArmarioSearch; o
   const [duplicando, setDuplicando] = useState<ArmarioRowData | null>(null);
   const [excluindo, setExcluindo] = useState<ArmarioRowData | null>(null);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  // Publicar/Despublicar pedem confirmação (peso: libera/tira da API do e-commerce). Outras transições são leves: direto.
+  const { pedir, dialog: confirmacaoDialog } = useConfirmacao(mudarStatus.isPending);
+  const pedirStatus = (a: ArmarioRowData, novo: ArmarioStatus) => {
+    const onConfirmar = () => mudarStatus.mutate({ id: a.id, novo });
+    if (novo === "publicado") pedir({ ...textoPublicarArmario({ nome: a.nome }), onConfirmar });
+    else if (a.status === "publicado" && novo === "pronto") pedir({ ...textoDespublicarArmario({ nome: a.nome }), onConfirmar });
+    else onConfirmar();
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -224,7 +236,7 @@ export function ArmarioListPage({ search, onSearch }: { search: ArmarioSearch; o
                   onRenomear={(nome) => renomear.mutate({ id: a.id, nome })}
                   onDuplicar={() => setDuplicando(a)}
                   onExcluir={() => setExcluindo(a)}
-                  onStatus={(novo) => mudarStatus.mutate({ id: a.id, novo })}
+                  onStatus={(novo) => pedirStatus(a, novo)}
                 />
               ))}
             </ul>
@@ -252,6 +264,7 @@ export function ArmarioListPage({ search, onSearch }: { search: ArmarioSearch; o
         onConfirmar={(n) => duplicando && duplicar.mutate({ id: duplicando.id, nome: n })}
         onFechar={() => setDuplicando(null)}
       />
+      {confirmacaoDialog}
       <AlertDialog open={!!excluindo} onOpenChange={(o) => { if (!o) setExcluindo(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -355,7 +368,7 @@ function ArmarioLinha({ a, podeEditar, editando, onAbrir, onEditar, onFimEdicao,
         </PopoverTrigger>
         <PopoverContent align="end" className="w-56 p-1">
           <PopoverClose asChild>
-            <button type="button" className={ITEM} onClick={onEditar} disabled={bloqueiaEdicao} title={travado ? TRAVADO_DICA : undefined}>
+            <button type="button" className={ITEM} onClick={onEditar} disabled={bloqueiaEdicao} title={travado ? TRAVADO_DICA : !podeEditar ? SEM_PERMISSAO_DICA : undefined}>
               <Pencil className="h-4 w-4 shrink-0" /> Renomear
             </button>
           </PopoverClose>
@@ -374,7 +387,7 @@ function ArmarioLinha({ a, podeEditar, editando, onAbrir, onEditar, onFimEdicao,
           ))}
           <div className="my-1 border-t" />
           <PopoverClose asChild>
-            <button type="button" className={`${ITEM} text-destructive hover:bg-destructive/10`} onClick={onExcluir} disabled={bloqueiaEdicao} title={travado ? TRAVADO_DICA : undefined}>
+            <button type="button" className={`${ITEM} text-destructive hover:bg-destructive/10`} onClick={onExcluir} disabled={bloqueiaEdicao} title={travado ? TRAVADO_DICA_EXCLUIR : !podeEditar ? SEM_PERMISSAO_DICA : undefined}>
               <Trash2 className="h-4 w-4 shrink-0" /> Excluir
             </button>
           </PopoverClose>
