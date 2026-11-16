@@ -335,8 +335,9 @@ describe("urg R9b — contrato do gerador", () => {
   });
 });
 
-describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): substituído por peca-teste-tipo-salvar/-leitura/-volta/-ts-payload — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
-  it("1) leitura: trilhas só dos tipos exigindo (ordem do tipo), `outros` sem valor; sem a seção = NULL; outra loja = NULL; Criação desligada = 42501", async () => {
+describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => { // reforma por TIPO: 5/9/12 seguem valendo no banco DEPOIS (rev velho, permissão/login, ACL dos wrappers); os demais ficam it.skip (SUPERADO)
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): leitura: peca-teste-tipo-leitura — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("1) leitura: trilhas só dos tipos exigindo (ordem do tipo), `outros` sem valor; sem a seção = NULL; outra loja = NULL; Criação desligada = 42501", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const r = await ler(c, U_ED, s.modelo);
@@ -370,7 +371,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("2) 1ª tentativa: id null + numero 1 com saída = INSERT (rev 0, created_by, origem card, sem decisão); só nulos = nada gravado", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): 1ª tentativa/INSERT: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("2) 1ª tentativa: id null + numero 1 com saída = INSERT (rev 0, created_by, origem card, sem decisão); só nulos = nada gravado", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const r = await salvar(c, U_ED, s.modelo, [
@@ -419,7 +421,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("3) aprovar exige as 2 datas; aprovado grava decidido_por/decidido_em e o fornecedor DA LINHA; updated_at escrito a cada mudança (achado 6)", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): aprovar/fornecedor da linha: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("3) aprovar exige as 2 datas; aprovado grava decidido_por/decidido_em e o fornecedor DA LINHA; updated_at escrito a cada mudança (achado 6)", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const semEntrada = await salvar(c, U_ED, s.modelo, [
@@ -475,7 +478,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("4) reprovar = histórico (fornecedor fica); nova nº 2 grava; nº 3 direto = P0409; editar a reprovada = P0001; reprovar + a próxima no MESMO Salvar", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): reprovar/histórico: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("4) reprovar = histórico (fornecedor fica); nova nº 2 grava; nº 3 direto = P0409; editar a reprovada = P0001; reprovar + a próxima no MESMO Salvar", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const t1 = await aprovaA(c, s);
@@ -558,7 +562,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("6) fornecedor: troca com base certa muda a linha E a reabre na MESMA txn (flag do card cai), sem aprovar M.O. nem ver custos; CAS idempotente; inválido = P0001", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): fornecedor da linha: o fornecedor agora vai na tentativa (peca-teste-tipo-salvar) — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("6) fornecedor: troca com base certa muda a linha E a reabre na MESMA txn (flag do card cai), sem aprovar M.O. nem ver custos; CAS idempotente; inválido = P0001", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       // todas as linhas aprovadas -> flag do card = true
@@ -616,7 +621,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("7) trava: atual aprovada + troca no mesmo payload = P0001; aprovar E trocar juntos = P0001; desfazer + trocar juntos passa; Salvar da M.O. = P0001", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): trava de fornecedor na tentativa: peca-teste-tipo-salvar (7) — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("7) trava: atual aprovada + troca no mesmo payload = P0001; aprovar E trocar juntos = P0001; desfazer + trocar juntos passa; Salvar da M.O. = P0001", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const TRAVADO = "P0001 peca_teste_fornecedor_travado: peca teste aprovada trava o fornecedor";
@@ -664,7 +670,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("7b) achado 1 da revisão T1 — contorno pela troca de TIPO ida-e-volta: a aprovada antiga NÃO vale para o fornecedor novo", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): trava por tipo: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("7b) achado 1 da revisão T1 — contorno pela troca de TIPO ida-e-volta: a aprovada antiga NÃO vale para o fornecedor novo", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       await aprovaA(c, s);
@@ -688,7 +695,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("7c) achado 1 da revisão T1 — contorno pelo switch desliga/liga: a aprovada antiga NÃO vale para o fornecedor novo", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): trava por tipo: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("7c) achado 1 da revisão T1 — contorno pelo switch desliga/liga: a aprovada antiga NÃO vale para o fornecedor novo", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       await aprovaA(c, s);
@@ -713,7 +721,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("14) revisão T2, achado 1 — ABA VELHA: o fornecedor mudou pelo Salvar da M.O. depois da leitura → aprovar/reprovar = P0409 e NADA gravado", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): _rev_base.fornecedor saiu: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("14) revisão T2, achado 1 — ABA VELHA: o fornecedor mudou pelo Salvar da M.O. depois da leitura → aprovar/reprovar = P0409 e NADA gravado", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       expect(txt(await salvar(c, U_ED, s.modelo, [
@@ -748,7 +757,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("15) revisão T2, achado 2 — aprovar + trocar no MESMO Salvar com a M.O. gravando ANTES: P0001 travado (como pela Peça Teste só); reprovar congela o de antes", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): trava de fornecedor na tentativa: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("15) revisão T2, achado 2 — aprovar + trocar no MESMO Salvar com a M.O. gravando ANTES: P0001 travado (como pela Peça Teste só); reprovar congela o de antes", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       expect(txt(await salvar(c, U_ED, s.modelo, [
@@ -785,7 +795,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("16) revisão T2, achado 8 — reprovar pela cadeia 'M.O. primeiro' só congela base = fornecedor de SERVIÇO da loja (material/outra loja/inexistente = P0001, nada gravado)", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): fornecedor na tentativa: peca-teste-tipo-salvar — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("16) revisão T2, achado 8 — reprovar pela cadeia 'M.O. primeiro' só congela base = fornecedor de SERVIÇO da loja (material/outra loja/inexistente = P0001, nada gravado)", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       expect(txt(await salvar(c, U_ED, s.modelo, [
@@ -815,7 +826,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("17) T6 — o payload montado pela função TS REAL (payloadPecaTeste: delta + _rev_base) é aceito pelo servidor: lançar datas, aprovar, reprovar + próxima, trocar fornecedor", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): payload por tipo: peca-teste-tipo-ts-payload — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("17) T6 — o payload montado pela função TS REAL (payloadPecaTeste: delta + _rev_base) é aceito pelo servidor: lançar datas, aprovar, reprovar + próxima, trocar fornecedor", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const estado = async () => estadoPTDoServidor(await ler(c, U_ED, s.modelo))!;
@@ -867,7 +879,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("18) revisão T6, achado 1 — TIPO da linha trocado (PL → Bordado, os 2 exigem): payload velho = P0409; payload mesclado com a minha aprovação na trilha nova NÃO grava (tentativa nova não nasce decidida)", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): payload por tipo: peca-teste-tipo-ts-payload — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("18) revisão T6, achado 1 — TIPO da linha trocado (PL → Bordado, os 2 exigem): payload velho = P0409; payload mesclado com a minha aprovação na trilha nova NÃO grava (tentativa nova não nasce decidida)", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       // a pessoa preencheu saída/entrada e escolheu Aprovado na 1ª tentativa (virtual) da trilha PL; no MESMO Salvar a etapa da M.O.
@@ -923,7 +936,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("8) desatualizada: tipo da linha trocado por outra pessoa / switch desligado / linha apagada = P0409 peca_teste_desatualizada", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): desatualizada por linha de M.O.: a trilha agora é por tipo — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("8) desatualizada: tipo da linha trocado por outra pessoa / switch desligado / linha apagada = P0409 peca_teste_desatualizada", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const payload: TrilhaPayload[] = [{ mo_linha_id: s.linhaA, categoria_id: s.catA, tentativas: [tp({ numero: 1, data_saida: D1 })] }];
@@ -958,7 +972,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("10) quadro: em teste e aprovada (explodido) aparecem; reprovada/virtual e lançado não; sem Etapas = []; etapas_pl desligado = 42501", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): quadro por tipo: peca-teste-tipo-leitura — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("10) quadro: em teste e aprovada (explodido) aparecem; reprovada/virtual e lançado não; sem Etapas = []; etapas_pl desligado = 42501", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       // M1 = o card do cenário: trilha A em teste (só saída)
@@ -1075,7 +1090,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("13) volta: _down NEUTRO (trava no texto da r9a, wrappers no texto neutro e sem EXECUTE do authenticated); _down 2× no-op; ida 2× mesmos md5; r9a _down recusa com a r9b viva", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a volta da reforma é pinada por peca-teste-tipo-volta — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("13) volta: _down NEUTRO (trava no texto da r9a, wrappers no texto neutro e sem EXECUTE do authenticated); _down 2× no-op; ida 2× mesmos md5; r9a _down recusa com a r9b viva", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       expect(await urgcViva(c, "r9b")).toBe(true);
@@ -1127,7 +1143,8 @@ describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da
     });
   });
 
-  it("13b) _down_drop: recusa com a ida viva e com função citando as novas; com o _down rodado apaga as 7; 2× no-op; ida recria", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a volta da reforma é pinada por peca-teste-tipo-volta — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("13b) _down_drop: recusa com a ida viva e com função citando as novas; com o _down rodado apaga as 7; 2× no-op; ida recria", async () => {
     await withTx(async (c) => {
       await prepara(c);
       // [urg R11] LIFO: a R11 (199000..199300) é posterior a TODA a R9 e cita a tabela de tentativas/o helper `_peca_teste_aprovada` —

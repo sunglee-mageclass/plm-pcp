@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
-import { aplicaUrgd, urgdViva, URGD_BLOCOS } from "./urgd-helpers";
+import { aplicaUrgd, URGD_BLOCOS } from "./urgd-helpers";
 import { aplicarArquivo } from "./mig-txn";
 import { aplicaReforma } from "./peca-teste-tipo-helpers";
 import { bomUmaPecaDaFicha, confereDasLinhas, linhasUmaPeca, miniNova, type FichaParaMini } from "../../src/lib/peca-teste-mini";
@@ -523,7 +523,8 @@ describe.skipIf(!RODA)("urgd-r11-salvar: duas conexões (travas reais)", () => {
   async function r11eVivaNaCopia(): Promise<boolean> {
     const x = new Client({ connectionString: dbUrl()!, ssl: false });
     await x.connect();
-    try { return await urgdViva(x, "r11e"); } finally { await x.end(); }
+    // reforma por TIPO: o sentinela md5 do r11e nao reconhece a mini re-emitida; usa a MESMA checagem de existencia do exigeR11e
+    try { return (await um1<{ ok: boolean }>(x, "SELECT to_regprocedure('public._peca_teste_mini_aplicar(uuid,uuid,jsonb)') IS NOT NULL AS ok")).ok; } finally { await x.end(); }
   }
   async function abre(): Promise<{ x: Client; pid: number }> {
     const x = new Client({ connectionString: dbUrl()!, ssl: false });
