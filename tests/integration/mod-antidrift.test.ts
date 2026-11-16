@@ -70,6 +70,8 @@ const DONOS: { re: RegExp; dono: string; extras?: string[] }[] = [
   { re: /^salvar_insumos_iniciais$/, dono: "criacao" },
   // Botoes Regerar REF por card (20261201110000): previa so leitura + RPC atomica da REF/SKUs do card = modulo Criacao.
   { re: /^(ref_regerar_previa|regerar_ref_card)$/, dono: "criacao" },
+  // Botoes Regerar SKUs da loja (20261201120000): a guarda admin-only dos 2 wrappers (previa/aplicar em lote) usa _exige_modulos('criacao').
+  { re: /^_regerar_guarda_admin$/, dono: "criacao" },
   // Extrato de estoque por item (urg R3 T14, 177000): mesmo módulo dos estoque_* (aba Estoque das OCs de Entrada e Saída).
   { re: /^estoque_extrato_(tecido|aviamento|insumo)$/, dono: "entrada_saida" },
   // Urgentes R9 T2 (20261103193000): seção Peça Teste do card = Criação; coluna Peça Teste do quadro de Etapas = Etapas PL.
