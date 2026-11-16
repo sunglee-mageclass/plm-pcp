@@ -9,21 +9,25 @@
 // (= `podeEditarPlanejamento` no orquestrador) — não herdam a trava do Dev/página onde o Sheet foi aberto.
 import { Fragment, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { Link } from "@tanstack/react-router";
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { cn } from "@/lib/utils";
+import { textoRegerarRefManual } from "@/lib/confirmacoes-textos";
+import { podeRegerarRef, textoAvisoIrmaos } from "@/lib/ref-regerar";
 import type { Draft } from "@/components/planejamento/modelo-shared";
 import {
   agruparPorVariante, avisoSku, rotuloTamanho, rotuloVariante, siglasDoGrupo, situacaoSku, type LinhaSku,
 } from "./sku-card";
 import {
-  TEXTO_BOM_SUJO, TEXTO_PREVIA, chaveLinhaSku, podeRegerar, situacaoPrevia, skuExibido, type LinhaPrevia, type SituacaoPrevia,
+  TEXTO_BOM_SUJO, TEXTO_PREVIA, chaveLinhaSku, nadaAGravar, podeRegerar, situacaoPrevia, skuExibido, type LinhaPrevia, type SituacaoPrevia,
 } from "./sku-previa";
+import type { RegerarRefApi } from "./useRegerarRef";
 import { useSiglasCores, type SkusAGravarApi, type SkusModelo } from "./useSkusModelo";
 
 // P-25 (dono 25/set) — SEM padrão da LOJA (nada na Config): as 2 opções; o Draft chega aqui já marcado em Letra.
@@ -66,6 +70,7 @@ function SkuCampo({ exibido, editavel, riscado, placeholder, ariaLabel, colabPat
 
 export function CodigosSecao({
   draft, setDraftTracked, rotuloRef, refVisivel, refEditavel, refPrevia, skus, aGravar, bomSujo, podeVerSkus, podeEditarSkus,
+  regerarRef, origemInterno, rascunhoLimpo,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -83,13 +88,37 @@ export function CodigosSecao({
   /** Ver SKUs = ver o Planejamento; prévia/Salvar = editar o Planejamento (spec SKU §4.4; R8 — o servidor confere). */
   podeVerSkus: boolean;
   podeEditarSkus: boolean;
+  /** "Regerar REF" (estado "REF a gravar" do orquestrador, fora do Draft). */
+  regerarRef: RegerarRefApi;
+  /** origem GRAVADA do card = interno (revenda/importado têm REF própria: o botão nem aparece) */
+  origemInterno: boolean;
+  /** REF, categoria e subcategoria 1 do rascunho = as salvas (a prévia da REF é calculada sobre o estado SALVO) */
+  rascunhoLimpo: boolean;
 }) {
   const temPrevia = skus.temPrevia;
+  const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
+  const pendenteRef = regerarRef.pendente;
+  const regerarRefAgora = podeRegerarRef({
+    refEditavel, podeEditarSkus, origemInterno, rascunhoLimpo, skusAGravarVazio: nadaAGravar(aGravar.aGravar), jaPendente: !!pendenteRef,
+    consultando: regerarRef.consultando,
+  });
+  const avisoIrmaos = pendenteRef ? textoAvisoIrmaos(pendenteRef.irmaos) : null;
+  const nConflitosRef = pendenteRef && temPrevia && skus.previa ? skus.previa.nConflitos : 0;
+  const aoRegerarRef = async () => {
+    const r = await regerarRef.consultar();
+    if (r.tipo !== "confirmar") return;
+    // REF digitada à mão: só troca com a confirmação "REF atual → nova" (o servidor também exige o flag no Salvar).
+    pedirConfirmacao({
+      ...textoRegerarRefManual({ atual: r.previa.refAtual, nova: r.previa.refNova ?? "" }),
+      onConfirmar: () => regerarRef.iniciar(r.previa, true),
+    });
+  };
   // Com algo "a gravar", a tabela é a da PRÉVIA (calculada com o rascunho); senão, a gravada — como antes.
   const m = temPrevia && skus.previa ? skus.previa.matriz : skus.matriz;
   const grupos = m ? agruparPorVariante(m.linhas) : [];
   // Mesma guarda de antes (tamanho_tipo_card — rede p/ deploy fora de ordem); NÃO depende da trava do Dev/Explosão (R29).
-  const editavel = !!m && m.status === "ok" && m.tamanho_tipo_card !== null && podeEditarSkus;
+  // Com "REF a gravar" pendente o SKU digitado fica travado: a RPC atômica regera o plano completo (sem manuais novos) — digitar quebraria a assinatura.
+  const editavel = !!m && m.status === "ok" && m.tamanho_tipo_card !== null && podeEditarSkus && !pendenteRef;
   const regerar = podeRegerar({ podeEditar: podeEditarSkus, matriz: skus.matriz, refPrevia, jaPedido: aGravar.aGravar.regerar });
   const siglas = useSiglasCores(podeVerSkus);
   const erros = temPrevia && skus.previa ? skus.previa.erros : [];
@@ -189,6 +218,38 @@ export function CodigosSecao({
           </Button>
         )}
       </div>
+
+      {/* Regerar REF (só interno): linha PRÓPRIA abaixo do grid (não mexe nas colunas REF | Tamanho em | Regerar SKUs). A REF nova é só PRÉVIA no rascunho. */}
+      {refVisivel && origemInterno && podeVerSkus && (
+        <div className="space-y-2" data-testid="regerar-ref">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" className="max-sm:min-h-11"
+              disabled={!regerarRefAgora.pode} title={regerarRefAgora.motivo} onClick={() => { void aoRegerarRef(); }}>
+              {regerarRef.consultando ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Tag className="mr-1 h-4 w-4" />} Regerar REF
+            </Button>
+            {pendenteRef && (
+              <>
+                <StatusBadge tone="warning" className="normal-case tracking-normal" data-testid="regerar-ref-selo">
+                  REF a gravar: <span className="font-mono">{pendenteRef.refNova}</span> (era <span className="font-mono">{pendenteRef.refAntes || "vazia"}</span>)
+                </StatusBadge>
+                <Button type="button" variant="ghost" size="sm" className="max-sm:min-h-11" onClick={regerarRef.desfazer}>
+                  <RotateCcw className="mr-1 h-4 w-4" /> Desfazer prévia
+                </Button>
+              </>
+            )}
+          </div>
+          {/* o motivo só aparece quando dá para AGIR (card editável, com permissão): salvar a categoria, desfazer a prévia dos SKUs… */}
+          {refEditavel && podeEditarSkus && !regerarRefAgora.pode && !pendenteRef && !regerarRef.consultando && (
+            <p className="text-xs text-muted-foreground">{regerarRefAgora.motivo}</p>
+          )}
+          {avisoIrmaos && <p className="text-xs text-muted-foreground" data-testid="regerar-ref-irmaos">{avisoIrmaos}</p>}
+          {nConflitosRef > 0 && (
+            <p className="text-xs text-[var(--tone-warning-fg)]" data-testid="regerar-ref-conflitos">
+              {nConflitosRef === 1 ? "1 SKU ficará em conflito e não será regerado." : `${nConflitosRef} SKUs ficarão em conflito e não serão regerados.`}
+            </p>
+          )}
+        </div>
+      )}
 
       {podeVerSkus && (
         <div className="space-y-2">
@@ -314,6 +375,7 @@ export function CodigosSecao({
           <p className="text-xs text-muted-foreground">As variantes vêm do Tecido 1 (seção Tecidos) e os tamanhos, da Grade. Formato: REF - cor base + apelido + tamanho (Config da Loja › Formato do SKU). 'Regerar SKUs' mostra a prévia e só o Salvar grava; os editados à mão nunca mudam.</p>
         </div>
       )}
+      {dialogConfirmacao}
     </div>
   );
 }

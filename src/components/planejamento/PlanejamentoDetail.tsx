@@ -29,7 +29,7 @@ import { consumirFlag } from "@/lib/cq-status-tela";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
-import { textoCancelarLancamento } from "@/lib/confirmacoes-textos";
+import { textoCancelarLancamento, textoRegerarRefConflitos } from "@/lib/confirmacoes-textos";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
@@ -124,6 +124,7 @@ import { buscarModeloParaCopia } from "@/components/desenvolvimento/importar/use
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
 import { CodigosSecao } from "@/components/planejamento/planejamento-detail/codigos/CodigosSecao";
 import { useSkusAGravar, useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
+import { useRegerarRef } from "@/components/planejamento/planejamento-detail/codigos/useRegerarRef";
 import { seloCodigos } from "@/components/planejamento/planejamento-detail/codigos/sku-card";
 import { nadaAGravar, refParaPrevia } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
@@ -264,6 +265,12 @@ function PlanejamentoDetailConteudo({
   // SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.1 — P-46): o Regerar e o SKU à mão ficam "a gravar" FORA do Draft
   // (como as linhas de MO) — declarado AQUI, antes do `dirty`, que depende dele. Só o Salvar grava (aoSalvar).
   const skusAGravar = useSkusAGravar();
+  // "Regerar REF" por card: o estado "REF a gravar" (FORA do Draft, como o `skusAGravar`). Ao iniciar liga o Regerar da prévia de SKUs — então o `dirty` abaixo
+  // (`!nadaAGravar(skusAGravar.aGravar)`) já o enxerga. Mudar REF/categoria/sub1 no rascunho CANCELA a prévia (ela é calculada sobre o estado SALVO).
+  const regerarRef = useRegerarRef({
+    modeloId, aGravar: skusAGravar,
+    entrada: { ref: draft.ref, categoria: draft.categoria_principal_id, sub1: draft.subcategoria1_id },
+  });
   // Serviços de M.O. JÁ PERSISTIDOS (baseline do servidor) — aprovar/reprovar (RPC imediata) só
   // vale nesses; linha recém-adicionada (só no rascunho) pede Salvar antes (senão "linha não
   // encontrada"). Deriva do baseline, não de `moLinhas`, pra uma linha nova não se auto-habilitar.
@@ -885,7 +892,7 @@ function PlanejamentoDetailConteudo({
   // F3.6 — matriz de SKUs do card (RPC `skus_modelo`, F3.5a) + 1ª geração pós-Salvar (R12). SKU em PRÉVIA: a prévia usa a REF que
   // o Salvar vai gravar (a do rascunho só quando ela vai no payload — refEditavel) e o "Tamanho em" do rascunho (vai sempre).
   const skus = useSkusModelo(modeloId, isEdit && !!modeloId && podeVerPlanejamento, podeEditarPlanejamento && !travaIntegracao.has("sku"), {
-    refPrevia: refParaPrevia({ refVaiNoSalvar: refEditavel, refRascunho: draft.ref, refSalva: (modeloData as any)?.ref ?? "" }),
+    refPrevia: regerarRef.pendente?.refNova ?? refParaPrevia({ refVaiNoSalvar: refEditavel, refRascunho: draft.ref, refSalva: (modeloData as any)?.ref ?? "" }),
     tamanhoTipo: draft.tamanho_tipo,
     aGravar: skusAGravar,
   });
@@ -1008,6 +1015,22 @@ function PlanejamentoDetailConteudo({
     // P-146/P-155 B: a Versão (ou o preço/título que as versões seguintes herdam) pode ter mudado neste Salvar.
     void qc.invalidateQueries({ queryKey: ["versao-anterior"] });
     if (!isEdit) return;
+    // "Regerar REF" pendente: UMA RPC atômica (REF + SKUs no mesmo passo) NO LUGAR de `aplicarAGravar`. Falha = nada do Regerar REF foi gravado e a prévia fica
+    // (com o erro em PT); sucesso = limpa o pendente e deixa o merge 3-vias/retry do Salvar absorver o `rev` novo.
+    const pendente = regerarRef.atual();
+    if (pendente) {
+      regerarRef.marcarGravando(true);
+      try {
+        const rr = await skus.aplicarRegerarRef({ refNova: pendente.refNova, confirmaManual: pendente.confirmaManual });
+        if (rr === "ok") {
+          regerarRef.limpar();
+          await skus.gerarSeFaltar();
+        }
+      } finally {
+        regerarRef.marcarGravando(false);
+      }
+      return;
+    }
     const r = await skus.aplicarAGravar();
     if (r !== "falhou") await skus.gerarSeFaltar();
   };
@@ -1185,6 +1208,13 @@ function PlanejamentoDetailConteudo({
   // estoque de uma mini (Data de saída apagada, ou mini mudada com a data = estorna e refaz). Cancelar = nada é enviado; Confirmar = o Salvar normal.
   const { pedir: pedirEstorno, dialog: dialogEstorno } = useConfirmacao();
   const salvarComConfirmacaoPT = () => salvarComConfirmacaoEstorno(pt.pecaTesteSave, pedirEstorno, handleSave);
+  // [Regerar REF] com SKUs em conflito na prévia, o clique do Salvar pergunta ANTES de enviar qualquer coisa (o conflito não é regerado — fica como está).
+  const { pedir: pedirRegerarRef, dialog: dialogRegerarRef } = useConfirmacao();
+  const salvarComConfirmacaoRegerar = () => {
+    const nConflitos = regerarRef.pendente && skus.previa ? skus.previa.nConflitos : 0;
+    if (nConflitos > 0) pedirRegerarRef({ ...textoRegerarRefConflitos(nConflitos), onConfirmar: () => salvarComConfirmacaoPT() });
+    else salvarComConfirmacaoPT();
+  };
 
   const duplicate = useMutation({
     mutationFn: async () => {
@@ -1861,9 +1891,16 @@ function PlanejamentoDetailConteudo({
                 rotuloRef={fl("ref")}
                 refVisivel={kanbanCard.refVisivel}
                 refEditavel={refEditavel}
-                refPrevia={refParaPrevia({ refVaiNoSalvar: refEditavel, refRascunho: draft.ref, refSalva: (modeloData as any)?.ref ?? "" })}
+                refPrevia={regerarRef.pendente?.refNova ?? refParaPrevia({ refVaiNoSalvar: refEditavel, refRascunho: draft.ref, refSalva: (modeloData as any)?.ref ?? "" })}
                 skus={skus}
                 aGravar={skusAGravar}
+                regerarRef={regerarRef}
+                // origem GRAVADA (nunca o rascunho): revenda/importado têm REF própria e espelho — o botão nem aparece
+                origemInterno={((modeloData as any)?.origem ?? "interno") === "interno"}
+                // a prévia da REF é calculada sobre o estado SALVO: REF/categoria/sub1 do rascunho = as salvas
+                rascunhoLimpo={draft.ref === ((modeloData as any)?.ref ?? "")
+                  && draft.categoria_principal_id === ((modeloData as any)?.categoria_principal_id ?? null)
+                  && draft.subcategoria1_id === ((modeloData as any)?.subcategoria1_id ?? null)}
                 // R4 — grade/tecidos do rascunho ainda não salvos: a prévia usa a grade SALVA (só um aviso).
                 bomSujo={ficha.dirty || gradeRevendaDirty}
                 podeVerSkus={podeVerPlanejamento}
@@ -2379,7 +2416,7 @@ function PlanejamentoDetailConteudo({
           {/* P-53 A: Salvar habilitado com !perm.sheetSomenteLeitura (antes dependia só da trava da página).
               Fix hidratação (P-57 A): + trava até o seed (isEdit && !semeado) — sem isso o Salvar fica
               habilitado em cima do emptyDraft() e grava vazio por cima do servidor. */}
-          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={salvarComConfirmacaoPT} disabled={(perm.sheetSomenteLeitura && !(podeEditarPT && pt.dirty)) || save.isPending || enviarExplosao.isPending || (isEdit && !semeado) || secaoInsumosNovo.bloqueiaSalvar}>
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={salvarComConfirmacaoRegerar} disabled={(perm.sheetSomenteLeitura && !(podeEditarPT && pt.dirty)) || save.isPending || enviarExplosao.isPending || (isEdit && !semeado) || secaoInsumosNovo.bloqueiaSalvar}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
@@ -2387,6 +2424,7 @@ function PlanejamentoDetailConteudo({
 
         {dialogConfirmacao}
         {dialogEstorno}
+        {dialogRegerarRef}
 
         <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
           <AlertDialogContent>
