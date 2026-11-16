@@ -173,14 +173,16 @@ describe("EtapasPlConfigCard (render)", () => {
     expect(botaoRequisitos(0).textContent).toContain("(1)"); // Peça Teste: tem_peca_teste
   });
 
-  it("abre os requisitos de uma coluna comum: mostra as 8 condições PL; só a HERDADA da porta de entrada fica travada", () => {
+  it("abre os requisitos de uma coluna comum: mostra TODAS as condições PL (inclui M.O. aprovada e Grade preenchida); só a HERDADA da porta de entrada fica travada", () => {
     montar();
     clicar(botaoRequisitos(1)); // Costura
     const diag = document.body.querySelector("[role=dialog]")!;
     expect(diag).toBeTruthy();
     expect(diag.getAttribute("data-colab-path")).toBe("cfg:etapas_pl_requisitos");
     for (const c of CONDICOES_PL) expect(diag.textContent).toContain(c.label);
-    // cascata: `tem_peca_teste` é requisito da 1ª coluna ⇒ herdado aqui (marcado e travado, selo com a origem); as outras 7 selecionáveis
+    expect(diag.textContent).toContain("M.O. aprovada");
+    expect(diag.textContent).toContain("Grade preenchida");
+    // cascata: `tem_peca_teste` é requisito da 1ª coluna ⇒ herdado aqui (marcado e travado, selo com a origem); as demais selecionáveis
     expect(linhaCond("Tem peça teste").textContent).toContain("herdado de Peça Teste");
     for (const c of CONDICOES_PL) expect(desabilitada(c.label), c.key).toBe(c.key === "tem_peca_teste");
     expect(linhaCond("Enviado a Serviços").textContent).not.toContain("só entrada"); // restrição é SÓ da 1ª coluna

@@ -1,6 +1,7 @@
 /**
  * Kanban PL configurável — Onda 1, bloco C: avaliador SQL `avaliar_condicoes_etapas_pl(_ids)`.
- * Cada modelo da loja recebe as 8 keys do catálogo TS (CONDICOES_PL). ANTI-DRIFT: as keys que o
+ * Cada modelo da loja recebe as keys do catálogo TS (CONDICOES_PL: 10 desde a reforma de nov/2026, que acrescentou `servico_aprovado` e
+ * `grade_preenchida` — migration 20261129140000, aplicada DENTRO da txn do teste por `aplicaReforma`). ANTI-DRIFT: as keys que o
  * SQL devolve == as keys do catálogo (branch no SQL ⇄ key no TS).
  *
  * Tudo em BEGIN…ROLLBACK (`withTx`) e SÓ na cópia local (`ehBancoLocal`): a migration
@@ -11,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, ehBancoLocal, TENANT_TESTE } from "./db";
 import { CONDICOES_PL } from "@/lib/etapas-pl-condicoes";
+import { aplicaReforma } from "./peca-teste-tipo-helpers";
 
 describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL — avaliador (bloco C)", () => {
   // Semeia (txn revertida, role de dono/postgres) um modelo SEM M.O. e depois UMA linha de M.O. numa categoria
@@ -54,6 +56,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL — avaliador (bloco C)", 
   });
   it("avaliar_condicoes_etapas_pl devolve mapa com TODAS as keys do catálogo por modelo", async () => {
     await withTx(async (sql) => {
+      await aplicaReforma(sql, "evalpl");
       await comoUsuario(sql);
       // use um modelo_id real da loja de teste (padrão dos testes vizinhos de kanban/peça teste)
       const m = (await sql.query(`select id from modelos where tenant_id=$1 limit 1`, [TENANT_TESTE])).rows;
@@ -65,6 +68,7 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Kanban PL — avaliador (bloco C)", 
   });
   it("anti-drift: toda key do catálogo TS tem branch no SQL e vice-versa", async () => {
     await withTx(async (sql) => {
+      await aplicaReforma(sql, "evalpl");
       await comoUsuario(sql);
       const m = (await sql.query(`select id from modelos where tenant_id=$1 limit 1`, [TENANT_TESTE])).rows;
       const r = (await sql.query(`select avaliar_condicoes_etapas_pl(array[$1]::uuid[]) as mapa`, [m[0].id])).rows;

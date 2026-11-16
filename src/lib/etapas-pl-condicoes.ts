@@ -1,10 +1,12 @@
-// Catálogo PRÓPRIO do kanban PL (condições de produção). Espelho do shape de kanban-condicoes.ts,
-// mas enxuto. O avaliador SQL (avaliar_condicoes_etapas_pl) tem um branch por key — anti-drift em
+// Catálogo PRÓPRIO do kanban PL (condições de produção + 2 do Desenvolvimento: `servico_aprovado` e `grade_preenchida`, mesmas keys do Dev).
+// Espelho do shape de kanban-condicoes.ts, mas enxuto. O avaliador SQL (avaliar_condicoes_etapas_pl) tem um branch por key — anti-drift em
 // tests/integration/kanban-pl-condicoes.test.ts.
 export type CondicaoPL = { key: string; label: string; descricao?: string };
 export const CONDICOES_PL: CondicaoPL[] = [
   { key: "peca_teste_aprovada", label: "Peça teste aprovada", descricao: "Toda linha que exige peça teste está aprovada (M.O. + peça teste)." },
   { key: "tem_peca_teste", label: "Tem peça teste", descricao: "Existe ao menos um bloco de peça teste (aprovado ou não) — porta de entrada." },
+  { key: "servico_aprovado", label: "M.O. aprovada", descricao: "Toda a mão de obra do modelo foi aprovada (nenhuma pendente ou reprovada; sem mão de obra conta como aprovada). Mesma condição do Desenvolvimento." },
+  { key: "grade_preenchida", label: "Grade preenchida", descricao: "A grade do modelo tem quantidade (soma das peças maior que zero). Mesma condição do Desenvolvimento." },
   { key: "enviado_a_servicos", label: "Enviado a Serviços", descricao: "O modelo saiu da Explosão (cad.enviado_corte)." },
   { key: "materiais_separados", label: "Materiais separados", descricao: "TODOS os blocos de serviço do modelo têm a data de envio preenchida." },
   { key: "grade_cortada_retornou", label: "Grade cortada retornou", descricao: "TODOS os blocos relevantes têm alguma peça cortada retornada." },
