@@ -4,7 +4,7 @@
 import {
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target,
   Tags, Users, Building2, Layers, Scissors, Boxes, ShoppingCart, AlertTriangle, Tag, MapPin,
-  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, ListChecks, Upload, Plug, Download, type LucideIcon,
+  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, ListChecks, Upload, Plug, Download, LayoutGrid, type LucideIcon,
 } from "lucide-react";
 // PAGE_ICONS de produto_acabado (revenda) usa Package (planejador) e ShoppingCart (OC) —
 // mesmo ícone de OC das demais entradas de compra (paridade visual com OC Tecido/Aviamento).
@@ -46,6 +46,7 @@ export const PAGE_URLS: Record<string, string> = {
   criacao_produto_importado: "/criacao/produto-importado",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
+  criacao_armario: "/criacao/armario",
   producao_explosao: "/entrada-saida/explosao",
   // PCP virou hub multi-página (Serviços + Etapas, gate `etapas_pl`) — Serviços/Etapas entram em
   // PAGE_URLS como cards do hub / sub-itens da sidebar, igual às demais páginas de setor.
@@ -81,6 +82,7 @@ export const PAGE_ICONS: Record<string, LucideIcon> = {
   criacao_produto_importado: Package,
   criacao_planejamento: ClipboardList,
   criacao_desenvolvimento: Hammer,
+  criacao_armario: LayoutGrid,
   producao_terceirizados: Factory,
   producao_etapas: ListChecks,
   producao_cq: CheckCircle2,

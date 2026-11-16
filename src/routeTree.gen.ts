@@ -53,6 +53,7 @@ import { Route as AuthenticatedCriacaoPlanejamentoRouteImport } from './routes/_
 import { Route as AuthenticatedCriacaoPlanTecidoRouteImport } from './routes/_authenticated/criacao.plan-tecido'
 import { Route as AuthenticatedCriacaoExplosaoRouteImport } from './routes/_authenticated/criacao.explosao'
 import { Route as AuthenticatedCriacaoDesenvolvimentoRouteImport } from './routes/_authenticated/criacao.desenvolvimento'
+import { Route as AuthenticatedCriacaoArmarioRouteImport } from './routes/_authenticated/criacao.armario'
 import { Route as AuthenticatedCadastroTecidosRouteImport } from './routes/_authenticated/cadastro.tecidos'
 import { Route as AuthenticatedCadastroServicoRouteImport } from './routes/_authenticated/cadastro.servico'
 import { Route as AuthenticatedCadastroLojasRouteImport } from './routes/_authenticated/cadastro.lojas'
@@ -326,6 +327,12 @@ const AuthenticatedCriacaoDesenvolvimentoRoute =
     path: '/desenvolvimento',
     getParentRoute: () => AuthenticatedCriacaoRoute,
   } as any)
+const AuthenticatedCriacaoArmarioRoute =
+  AuthenticatedCriacaoArmarioRouteImport.update({
+    id: '/armario',
+    path: '/armario',
+    getParentRoute: () => AuthenticatedCriacaoRoute,
+  } as any)
 const AuthenticatedCadastroTecidosRoute =
   AuthenticatedCadastroTecidosRouteImport.update({
     id: '/tecidos',
@@ -518,6 +525,7 @@ export interface FileRoutesByFullPath {
   '/cadastro/lojas': typeof AuthenticatedCadastroLojasRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
+  '/criacao/armario': typeof AuthenticatedCriacaoArmarioRoute
   '/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
   '/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRoute
   '/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRoute
@@ -583,6 +591,7 @@ export interface FileRoutesByTo {
   '/cadastro/importar': typeof AuthenticatedCadastroImportarRoute
   '/cadastro/lojas': typeof AuthenticatedCadastroLojasRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
+  '/criacao/armario': typeof AuthenticatedCriacaoArmarioRoute
   '/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
   '/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRoute
   '/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRoute
@@ -652,6 +661,7 @@ export interface FileRoutesById {
   '/_authenticated/cadastro/lojas': typeof AuthenticatedCadastroLojasRoute
   '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
+  '/_authenticated/criacao/armario': typeof AuthenticatedCriacaoArmarioRoute
   '/_authenticated/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
   '/_authenticated/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRoute
   '/_authenticated/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRoute
@@ -726,6 +736,7 @@ export interface FileRouteTypes {
     | '/cadastro/lojas'
     | '/cadastro/servico'
     | '/cadastro/tecidos'
+    | '/criacao/armario'
     | '/criacao/desenvolvimento'
     | '/criacao/explosao'
     | '/criacao/plan-tecido'
@@ -791,6 +802,7 @@ export interface FileRouteTypes {
     | '/cadastro/importar'
     | '/cadastro/lojas'
     | '/cadastro/servico'
+    | '/criacao/armario'
     | '/criacao/desenvolvimento'
     | '/criacao/explosao'
     | '/criacao/plan-tecido'
@@ -859,6 +871,7 @@ export interface FileRouteTypes {
     | '/_authenticated/cadastro/lojas'
     | '/_authenticated/cadastro/servico'
     | '/_authenticated/cadastro/tecidos'
+    | '/_authenticated/criacao/armario'
     | '/_authenticated/criacao/desenvolvimento'
     | '/_authenticated/criacao/explosao'
     | '/_authenticated/criacao/plan-tecido'
@@ -1219,6 +1232,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCriacaoDesenvolvimentoRouteImport
       parentRoute: typeof AuthenticatedCriacaoRoute
     }
+    '/_authenticated/criacao/armario': {
+      id: '/_authenticated/criacao/armario'
+      path: '/armario'
+      fullPath: '/criacao/armario'
+      preLoaderRoute: typeof AuthenticatedCriacaoArmarioRouteImport
+      parentRoute: typeof AuthenticatedCriacaoRoute
+    }
     '/_authenticated/cadastro/tecidos': {
       id: '/_authenticated/cadastro/tecidos'
       path: '/tecidos'
@@ -1489,6 +1509,7 @@ const AuthenticatedCadastroRouteWithChildren =
   )
 
 interface AuthenticatedCriacaoRouteChildren {
+  AuthenticatedCriacaoArmarioRoute: typeof AuthenticatedCriacaoArmarioRoute
   AuthenticatedCriacaoDesenvolvimentoRoute: typeof AuthenticatedCriacaoDesenvolvimentoRoute
   AuthenticatedCriacaoExplosaoRoute: typeof AuthenticatedCriacaoExplosaoRoute
   AuthenticatedCriacaoPlanTecidoRoute: typeof AuthenticatedCriacaoPlanTecidoRoute
@@ -1499,6 +1520,7 @@ interface AuthenticatedCriacaoRouteChildren {
 }
 
 const AuthenticatedCriacaoRouteChildren: AuthenticatedCriacaoRouteChildren = {
+  AuthenticatedCriacaoArmarioRoute: AuthenticatedCriacaoArmarioRoute,
   AuthenticatedCriacaoDesenvolvimentoRoute:
     AuthenticatedCriacaoDesenvolvimentoRoute,
   AuthenticatedCriacaoExplosaoRoute: AuthenticatedCriacaoExplosaoRoute,

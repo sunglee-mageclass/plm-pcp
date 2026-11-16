@@ -171,6 +171,8 @@ export const PAGES_CATALOG: ModuleDef[] = [
         ] },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento", description: "Modelos aprovados: ficha técnica, BOM e kanban.",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
+      // F7 Armário: vitrine de e-commerce por subcoleção. Sem gate — vale com o módulo `criacao` (como o Planejamento).
+      { key: "criacao_armario", label: "Armário", description: "Planeje a vitrine de e-commerce por subcoleção." },
     ],
   },
   {
