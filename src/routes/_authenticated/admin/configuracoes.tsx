@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { FormatoSkuCard } from "@/components/configuracoes/FormatoSkuCard";
+import { RegerarSkusLojaCard } from "@/components/configuracoes/RegerarSkusLojaCard";
 import { InsumosPadraoCard } from "@/components/configuracoes/InsumosPadraoCard";
 import {
   diagnosticarLinhasInsumosPadrao, normalizarInsumosPadrao, TEXTO_PROBLEMA_INSUMO_PADRAO, validarInsumosPadrao,
@@ -455,6 +456,8 @@ function ConfiguracoesLojaPage() {
   const [confirmSalvar, setConfirmSalvar] = useState(false);
 
   const { dirty, markClean, reset: resetCfgBaseline } = useDirtySnapshot(cfg);
+  // Rascunho do card "Formato do SKU" (grava sozinho): o "Regerar todos os SKUs da loja" só libera com o Formato GRAVADO em dia.
+  const [formatoSujo, setFormatoSujo] = useState(false);
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
 
   // RP3 (guardião): as 5 colunas de kanban só vão no save quando o usuário as mudou (diff contra `cfg`). `cfg` =
@@ -1452,7 +1455,11 @@ function ConfiguracoesLojaPage() {
       )}
       {/* Formato do SKU grava sozinho (sku_config — fora do Salvar da página): só o anel de presença. */}
       <div data-colab-path="cfg:sku_config">
-        <FormatoSkuCard paginaSuja={dirty} />
+        <FormatoSkuCard paginaSuja={dirty} onDirtyChange={setFormatoSujo} />
+      </div>
+      {/* Regerar todos os SKUs da loja: ação de administração com o SEU botão (não grava configuração) — só o anel de presença, sem anel de conflito. */}
+      <div data-colab-path="cfg:regerar_skus">
+        <RegerarSkusLojaCard paginaSuja={dirty} formatoSujo={formatoSujo} />
       </div>
 
       {blocos.fluxoRevenda && (

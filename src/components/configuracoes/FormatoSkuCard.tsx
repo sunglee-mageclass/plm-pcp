@@ -66,7 +66,7 @@ type Exemplo = {
   apelidoDaCor: SkuCor | null;
 };
 
-export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
+export function FormatoSkuCard({ paginaSuja, onDirtyChange }: { paginaSuja?: boolean; onDirtyChange?: (sujo: boolean) => void } = {}) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
   const chave = ["tenant-config-sku", tenantId];
@@ -142,6 +142,11 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
   const norm = normalizarSkuConfig(cru);
   const dirty = isSuccess && canonico(norm.ok ? paraComparar(norm.valor) : cru) !== canonico(paraComparar(base));
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
+  // O card "Regerar todos os SKUs da loja" (logo abaixo) usa o Formato GRAVADO: avisa quando este rascunho está sujo (e zera ao sair).
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => { onDirtyChange?.(false); };
+  }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
   // Sem isSuccess ainda (carregando OU erro), os controles ficam travados: evita `dirty` prematuro
   // contra um rascunho vazio (e o falso "Outra pessoa mudou o Formato do SKU..." que isso geraria no save).
   const travado = !isSuccess;
@@ -406,7 +411,7 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
 
         <div className="flex flex-wrap items-center gap-2 border-t pt-4">
           <p className="text-xs text-muted-foreground">
-            Os SKUs já gerados não mudam sozinhos: só pelo "Regerar SKUs" do card (os editados à mão nunca mudam).
+            Os SKUs já gerados não mudam sozinhos: só pelo "Regerar SKUs" do card ou pelo "Regerar todos os SKUs da loja" logo abaixo (os editados à mão nunca mudam).
           </p>
           {paginaSuja && (
             <p className="text-xs text-amber-700 dark:text-amber-300">
@@ -433,7 +438,7 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
               <AlertDialogTitle>Salvar o Formato do SKU?</AlertDialogTitle>
               <AlertDialogDescription>
                 Vale para os SKUs gerados a partir de agora, em todos os produtos da loja. Os SKUs já gerados NÃO mudam
-                sozinhos — só pelo botão "Regerar SKUs" no card (e os editados à mão nunca mudam). A cor no nome da
+                sozinhos — só pelo botão "Regerar SKUs" no card ou pelo "Regerar todos os SKUs da loja" logo abaixo (e os editados à mão nunca mudam). A cor no nome da
                 sublinha (Integração) vale para o que for marcado como Integrável a partir de agora — os já
                 integráveis/integrados mantêm o nome do retrato.
               </AlertDialogDescription>

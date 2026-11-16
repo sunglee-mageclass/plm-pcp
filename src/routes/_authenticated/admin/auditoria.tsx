@@ -37,6 +37,8 @@ const ENTIDADES = [
   // P-137 (backfill da categoria card -> produto, 20261017110000): linhas "Sistema" por produto — mesmo texto de
   // `audit_log.entidade` que a migration grava (sem isto só apareciam em "Todas").
   "Produto Acabado", "Produto Importado",
+  // Regerar todos os SKUs da loja (20261201120000): `audit_log.entidade` = "SKU" (de/para por produto, para reverter à mão).
+  "SKU",
 ];
 
 type AuditRow = {

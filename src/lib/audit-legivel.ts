@@ -13,6 +13,8 @@ export const ACAO_META: Record<string, { label: string; tone: StatusTone }> = {
   editar: { label: "Editou", tone: "warning" },
   excluir: { label: "Excluiu", tone: "danger" },
   resetar: { label: "Resetou", tone: "danger" },
+  // Regerar todos os SKUs da loja (migration 20261201120000): 1 linha por página gravada, `dados` = {"<produto> (<REF>) #<id>": {de: {...}, para: {...}}}.
+  regerar_skus_loja: { label: "Regerou SKUs", tone: "warning" },
 };
 
 // Rótulos PT p/ os campos do diff (nomes crus de coluna são incompreensíveis p/ o leigo).
