@@ -27,6 +27,7 @@ DEPLOY ÚNICO — PEÇA TESTE (20261129*) + REGERAR (20261201100000..120000) + E
      (os cards da (D) podem MOVER no kanban no 1º recálculo; antes: por linha+fornecedor, depois: por tipo).
    REGERAR — PARAR e chamar o controlador se: (A) trouxer qualquer objeto já existente; (B) "confere" = DIVERGE (o motor de SKU / fn_modelo_ref_auto de produção ≠ o da cópia);
      (D) integráveis/integrados/rastros onde o dono disse zero (aviso ao dono: esses produtos são PULADOS, não é erro); (C) destoar dos números do dono (Ave Rara: 132 REF=ref_auto, 253 REF manuais, 19 réplicas).
+     NOTA (B) — os md5 de PRODUÇÃO do motor de SKU são os OFICIAIS (pinados pelas migrations que criaram as funções): _aplicar_skus_modelo_core=fd7ac0cf, _skus_plano=5980345a, _skus_previa_core=f2e513e6, fn_modelo_ref_auto=6d68b20b. O Passo 0 e as guardas das migrations do Regerar aceitam esses 4 (e também os md5 da cópia local, que só diferem por comentários no corpo). Se (B) der "ok" nos 4, segue; "DIVERGE - PARAR" só se aparecer um md5 fora dessa lista.
 
 1) Conferir os arquivos: ls supabase/migrations | tail -9
    Presentes e nada estranho > 20261128110000 além das 9 deste kit: 20261129100000..140000 (5), 20261201100000..120000 (3), 20261201130000 (1).
