@@ -55,7 +55,7 @@ const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
     if (seen.has(key)) continue;
     // "importar" (Importar Dados) NÃO é módulo contratável — é infra de Cadastro, sempre ligada
     // (isModuleEnabled cai no `?? true`). Fora dos toggles de contratação do super_admin.
-    if (key === "importar" || key === "integracao") continue; // infra/tela, não módulo contratável (nota 12 do G-plano)
+    if (key === "importar" || key === "integracao" || key === "exportar_dados") continue; // infra/tela, não módulo contratável (nota 12 do G-plano; exportar_dados = item próprio com permissão, nov/2026)
     seen.add(key);
     out.push({ key, label: m.label });
   }
