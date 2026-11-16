@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { nadaAGravar } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
-import { useSkusAGravar, useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
+import { chaveSkus, useSkusAGravar, useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
 import { useRegerarRef } from "@/components/planejamento/planejamento-detail/codigos/useRegerarRef";
 import { MSG_REF_DESATUALIZADA, MSG_REF_PREVIA_CALCULANDO, TEXTO_MOTIVO_REF, TEXTO_REF_JA_NO_FORMATO, TEXTO_REF_PREVIA_CANCELADA } from "@/lib/ref-regerar";
 
@@ -46,7 +46,7 @@ function montar(entrada = entrada0) {
   render(entrada);
   const unmount = () => { act(() => { root.unmount(); }); container.remove(); };
   limpezas.push(unmount);
-  return { render, unmount };
+  return { render, unmount, qc };
 }
 const espera = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 /** Espera a previa de SKUs da REF NOVA chegar: o `useSkusModelo` atrasa a troca da entrada em 300 ms (a REF e digitada letra a letra) e a RPC vem depois. */
@@ -171,6 +171,32 @@ describe("useSkusModelo.aplicarRegerarRef - o Salvar grava a REF + SKUs numa RPC
     expect(toastMock.success).toHaveBeenCalledWith(expect.stringContaining("REF regerada: NOVA."));
     v.unmount();
   });
+
+  it.each([["null", null], ["objeto vazio", {}]])(
+    "retorno ILEGIVEL da RPC (%s, sem erro): 'ok' (sem erro = gravou), toast com a REF ENVIADA (nunca 'REF regerada: .'), cache NAO semeado com lixo e a REF do rascunho nao e tocada",
+    async (_nome, retorno) => {
+      mock.respostas.regerar_ref_card = async () => ({ data: retorno, error: null });
+      const v = montar();
+      await act(async () => { await api.regerarRef.consultar(); });
+      await esperaPreviaAtual();
+      const semear = vi.spyOn(v.qc, "setQueryData");
+      let r: "ok" | "falhou" = "falhou";
+      await act(async () => { r = await api.skus.aplicarRegerarRef({ refNova: "NOVA", confirmaManual: false }); });
+      expect(r).toBe("ok");
+      expect(chamadas("regerar_ref_card")).toHaveLength(1);
+      expect(toastMock.success).toHaveBeenCalledWith("REF regerada: NOVA.");
+      expect(toastMock.success).not.toHaveBeenCalledWith(expect.stringContaining("REF regerada: ."));
+      expect(toastMock.error).not.toHaveBeenCalled();
+      expect(semear.mock.calls.filter(([k]) => JSON.stringify(k) === JSON.stringify(chaveSkus("m1")))).toHaveLength(0);
+      // Gravou (sem erro): o "a gravar" dos SKUs e limpo e a rede de seguranca do hook limpa a REF pendente. O rascunho vive FORA do hook (a REF dele e a
+      // `entrada` do Harness, que o hook so le): nada a cancela nem a zera - nenhum "previa desfeita" e a entrada segue ANTIGA.
+      expect(nadaAGravar(api.aGravar.aGravar)).toBe(true);
+      expect(api.regerarRef.pendente).toBeNull();
+      expect(toastMock.info).not.toHaveBeenCalledWith(TEXTO_REF_PREVIA_CANCELADA);
+      semear.mockRestore();
+      v.unmount();
+    },
+  );
 
   it("previa de SKUs ainda calculando (entrada diferente da atual): 'falhou', texto proprio e NENHUMA RPC de gravacao", async () => {
     const v = montar();
