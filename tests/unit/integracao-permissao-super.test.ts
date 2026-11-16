@@ -129,7 +129,8 @@ describe("app-sidebar — item Integração não usa bypass de admin (P-107 A)",
   it("o filtro de módulo visível não deixa isTenantAdmin/isAdmin mostrarem o módulo 'integracao' sem canView", () => {
     const s = ler("src/components/app-sidebar.tsx");
     const filtroModulo = s.slice(s.indexOf("const visibleMainItems"), s.indexOf("const visibleMainItems") + 700);
-    expect(filtroModulo).toMatch(/m\.module === "integracao"/);
+    expect(filtroModulo).toMatch(/MODULOS_SEM_BYPASS_ADMIN\.has\(m\.module\)/);
+    expect(s).toMatch(/MODULOS_SEM_BYPASS_ADMIN = new Set\(\[[^\]]*"integracao"/);
   });
   // L-1 (fix round 1): o filtro de SUB-página (dentro de um módulo já visível) nunca chega a rodar
   // pra "integracao" porque `PAGE_URLS.integracao` não existe (ela é link direto, não um

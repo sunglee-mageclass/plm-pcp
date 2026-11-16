@@ -18,6 +18,10 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
 }
 
+// Páginas que NUNCA usam o bypass de admin (só super admin direto; os demais precisam da permissão explícita).
+const ehPaginaSemBypassAdmin = (pagina: string) =>
+  pagina === "integracao" || pagina.startsWith("integracao:") || pagina === "exportar_dados";
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -106,20 +110,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Admin/super_admin/tenant_admin always bypass page restrictions — EXCEPT the Integração
-  // page (P-107 A, set/2026): the owner's rule is that even a tenant_admin must NOT see/use
+  // page and the "Exportar dados" page (P-107 A, set/2026; Exportar dados, nov/2026): the owner's rule is that even a tenant_admin must NOT see/use
   // it unless the SUPER ADMIN grants the `integracao` permission to that specific user. Papéis
   // never carry it. So `integracao`/`integracao:*` skip the admin bypass entirely and always
   // fall through to the explicit `permissions` check — only isSuperAdmin passes directly.
+  // `exportar_dados` segue a mesma regra (o banco também a recusa sem permissão explícita).
   // Memoizados p/ não recriar o value do contexto a cada render (evita re-render de
   // toda a árvore autenticada que consome useAuth).
   const canView = useCallback((pagina: string) => {
-    const isIntegracao = pagina === "integracao" || pagina.startsWith("integracao:");
+    const isIntegracao = ehPaginaSemBypassAdmin(pagina);
     if (isSuperAdmin) return true;
     if (!isIntegracao && (isAdmin || isTenantAdmin)) return true;
     return permissions.some((p) => p.pagina === pagina && p.pode_ver);
   }, [isSuperAdmin, isAdmin, isTenantAdmin, permissions]);
   const canEdit = useCallback((pagina: string) => {
-    const isIntegracao = pagina === "integracao" || pagina.startsWith("integracao:");
+    const isIntegracao = ehPaginaSemBypassAdmin(pagina);
     if (isSuperAdmin) return true;
     if (!isIntegracao && (isAdmin || isTenantAdmin)) return true;
     return permissions.some((p) => p.pagina === pagina && p.pode_editar);

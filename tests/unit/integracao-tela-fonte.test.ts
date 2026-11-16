@@ -19,8 +19,9 @@ const VERSAO_ANTERIOR_VAZIA = { mapa: undefined, carregando: false, erro: false,
 const VERSOES_INTEGRADAS_VAZIAS = { mapa: new Map(), carregando: false, erro: false, tentarDeNovo: () => {} };
 
 describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-81 A, v4)", () => {
-  it("ModuleDef próprio 'integracao' no FIM do catálogo, página única (link direto)", () => {
-    const ult = PAGES_CATALOG[PAGES_CATALOG.length - 1];
+  it("ModuleDef próprio 'integracao' no fim do catálogo (depois dele só o 'exportar_dados'), página única (link direto)", () => {
+    expect(PAGES_CATALOG[PAGES_CATALOG.length - 1].module).toBe("exportar_dados");
+    const ult = PAGES_CATALOG[PAGES_CATALOG.length - 2];
     expect(ult).toMatchObject({ module: "integracao", label: "Integração", basePath: "/integracao" });
     expect(ult.pages.map((p) => p.key)).toEqual(["integracao"]);
   });
@@ -35,9 +36,9 @@ describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-
     const i = s.indexOf("Admin Mestre");
     expect(s.indexOf('to="/integracao"', i)).toBeGreaterThan(i);
   });
-  it("abas: super admin vê as 6; admin/permissão só Produtos, Log e Exportar dados", () => {
-    expect(abasVisiveis(true)).toEqual(["produtos", "campos", "api", "manual", "log", "exportar"]);
-    expect(abasVisiveis(false)).toEqual(["produtos", "log", "exportar"]);
+  it("abas: super admin vê as 5; admin/permissão só Produtos e Log (Exportar dados virou item próprio da sidebar)", () => {
+    expect(abasVisiveis(true)).toEqual(["produtos", "campos", "api", "manual", "log"]);
+    expect(abasVisiveis(false)).toEqual(["produtos", "log"]);
   });
   it("rota protegida pela permissão 'integracao'", () => {
     expect(ler("src/routes/_authenticated/integracao.tsx")).toMatch(/<RequirePermission page="integracao">/);

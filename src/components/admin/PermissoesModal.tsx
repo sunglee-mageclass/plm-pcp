@@ -32,20 +32,22 @@ export type PermissoesModalProps = {
 
 const emptyPerm = { pode_ver: false, pode_editar: false };
 
-// P-107 A (set/2026, D7-tela): a Integração só aparece/edita com a permissão dada PELO SUPER
-// ADMIN no próprio usuário. A linha "Integração" no editor de USUÁRIO só aparece quando quem
-// está editando é o super admin (mode="super"); no editor de PAPEL ela NUNCA aparece (papéis
-// nunca carregam `integracao` — o banco também ignora essa escrita em silêncio, mas o front
-// não deve nem oferecer/enviar). `catalogoSemIntegracao` filtra o módulo inteiro fora da grade.
-const catalogoSemIntegracao = PAGES_CATALOG.filter((m) => m.module !== "integracao");
-const paginasSemIntegracao = (keys: readonly string[]) => keys.filter((k) => k !== "integracao" && !k.startsWith("integracao:"));
-// Pré-computado UMA vez (não a cada render) — `ALL_PAGE_KEYS_SEM_INTEGRACAO` é usado como
+// P-107 A (set/2026, D7-tela) + Exportar dados (nov/2026): a Integração e o "Exportar dados" só
+// aparecem/editam com a permissão dada PELO SUPER ADMIN no próprio usuário. A linha dessas keys
+// no editor de USUÁRIO só aparece quando quem está editando é o super admin (mode="super"); no
+// editor de PAPEL ela NUNCA aparece (papéis nunca carregam essas keys — o banco também ignora
+// essa escrita em silêncio, mas o front não deve nem oferecer/enviar). `catalogoSemSoSuper`
+// filtra o módulo inteiro fora da grade.
+const KEYS_SO_SUPER = ["integracao", "exportar_dados"] as const;
+const ehChaveSoSuper = (key: string) => key === "integracao" || key.startsWith("integracao:") || key === "exportar_dados";
+const catalogoSemSoSuper = PAGES_CATALOG.filter((m) => !(KEYS_SO_SUPER as readonly string[]).includes(m.module));
+const paginasSemSoSuper = (keys: readonly string[]) => keys.filter((k) => !ehChaveSoSuper(k));
+// Pré-computado UMA vez (não a cada render) — `ALL_PAGE_KEYS_SEM_SO_SUPER` é usado como
 // dependência de useMemo/useEffect; uma nova array a cada render (ex.: chamar
-// `paginasSemIntegracao(ALL_PAGE_KEYS)` direto no corpo do componente) muda de referência
+// `paginasSemSoSuper(ALL_PAGE_KEYS)` direto no corpo do componente) muda de referência
 // sempre, invalidando o memo de `initial` em todo render e disparando um loop de
 // `useEffect(() => setState(initial), [initial])`.
-const ALL_PAGE_KEYS_SEM_INTEGRACAO = paginasSemIntegracao(ALL_PAGE_KEYS);
-const ehChaveIntegracao = (key: string) => key === "integracao" || key.startsWith("integracao:");
+const ALL_PAGE_KEYS_SEM_SO_SUPER = paginasSemSoSuper(ALL_PAGE_KEYS);
 
 // F5c (P-112 A, 28/set) — Dashboard: as chaves de DADOS (`DASHBOARD_DADOS_ABAS`, em
 // permissions-catalog.ts) aparecem AGRUPADAS sob uma sub-legenda, depois das 5 abas normais do
@@ -87,8 +89,8 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   // mode="tenant" é sempre o admin da loja (admin/usuarios-loja.tsx). A linha "Integração" e seu
   // módulo só entram na grade/estado/payload para o super admin.
   const viewerESuperAdmin = mode === "super";
-  const catalogo = viewerESuperAdmin ? PAGES_CATALOG : catalogoSemIntegracao;
-  const pageKeys = viewerESuperAdmin ? ALL_PAGE_KEYS : ALL_PAGE_KEYS_SEM_INTEGRACAO;
+  const catalogo = viewerESuperAdmin ? PAGES_CATALOG : catalogoSemSoSuper;
+  const pageKeys = viewerESuperAdmin ? ALL_PAGE_KEYS : ALL_PAGE_KEYS_SEM_SO_SUPER;
 
   const { data: existing, isLoading } = useQuery({
     queryKey: ["perms", user.id],
@@ -130,7 +132,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       // Integração (P-107 A), cuja permissão real vem de `existing` como qualquer usuário
       // comum. Sem isso a linha nascia marcada/travada, afirmando um acesso que o admin não
       // tem e que o super admin não conseguia conceder pela tela.
-      const defaultAdmin = isAdminRole && !ehChaveIntegracao(key);
+      const defaultAdmin = isAdminRole && !ehChaveSoSuper(key);
       // #4d: parte do PAPEL (se houver), senão do default do perfil. As exceções do usuário
       // (user_permissions) sobrepõem — inclusive exceção NEGATIVA (linha com ver=false que o
       // papel concedia). Uma página SEM linha de exceção herda o papel.
@@ -139,13 +141,13 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         : { pode_ver: defaultAdmin, pode_editar: defaultAdmin };
     }
     for (const p of existing ?? []) {
-      const integracaoDoAlvo = ehChaveIntegracao(p.pagina);
+      const soSuperDoAlvo = ehChaveSoSuper(p.pagina);
       // Admin comum: só a Integração lê de `existing` (as outras páginas ficam no bypass
       // `isAdminRole` acima — não tem exceção de admin fora da Integração hoje, mas a leitura
       // segue igual à de um usuário comum se algum dia existir). Sem viewerESuperAdmin, a
       // linha de Integração nunca aparece de qualquer forma (pageKeys já a exclui).
-      if (isAdminRole && !integracaoDoAlvo) continue;
-      if (!viewerESuperAdmin && integracaoDoAlvo) continue;
+      if (isAdminRole && !soSuperDoAlvo) continue;
+      if (!viewerESuperAdmin && soSuperDoAlvo) continue;
       base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
     }
     return base;
@@ -190,7 +192,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const onSave = async () => {
     setSubmitting(true);
     try {
-      // P-107 A: `pageKeys` já exclui `integracao*` quando o viewer não é super admin — o
+      // P-107 A: `pageKeys` já exclui `integracao*`/`exportar_dados` quando o viewer não é super admin — o
       // payload nunca leva a permissão de Integração nesse caso (o banco a ignoraria mesmo
       // assim, mas o front não deve nem tentar enviar).
       let perms = montarPermsPayload(pageKeys, state);
@@ -207,16 +209,16 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       //   - as linhas de `existing` que NÃO são da Integração, reenviadas verbatim (o valor já
       //     gravado no banco) — nunca o default visual `true/true` do bypass de admin, que é só
       //     exibição (as caixas dessas páginas ficam desabilitadas, nunca passam por `toggle`).
-      // Nunca há duplicata de `pagina`: os dois lados são particionados por `ehChaveIntegracao`.
+      // Nunca há duplicata de `pagina`: os dois lados são particionados por `ehChaveSoSuper`.
       if (isAdminRole) {
-        const decisaoIntegracao = pageKeys
-          .filter(ehChaveIntegracao)
+        const decisaoSoSuper = pageKeys
+          .filter(ehChaveSoSuper)
           .map((k) => ({ pagina: k, ...(state[k] ?? emptyPerm) }))
           .filter((p) => p.pode_ver || p.pode_editar);
         const preservadas = (existing ?? [])
-          .filter((p) => !ehChaveIntegracao(p.pagina))
+          .filter((p) => !ehChaveSoSuper(p.pagina))
           .map((p) => ({ pagina: p.pagina, pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar }));
-        perms = [...preservadas, ...decisaoIntegracao];
+        perms = [...preservadas, ...decisaoSoSuper];
       }
       if (mode === "super") {
         if (!user.tenant_id) throw new Error("Usuário sem loja");
@@ -313,7 +315,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     ) : (
                     <Checkbox
                       id={`${p.key}-ver`}
-                      disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || travada(p.key)}
+                      disabled={(isAdminRole && !ehChaveSoSuper(p.key)) || travada(p.key)}
                       className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_ver") ? "opacity-40" : undefined}
                       checked={state[p.key]?.pode_ver ?? false}
                       onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
@@ -322,7 +324,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                   </div>
                   <div className="flex justify-center">
                     <Checkbox
-                      disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || travada(p.key)}
+                      disabled={(isAdminRole && !ehChaveSoSuper(p.key)) || travada(p.key)}
                       className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_editar") ? "opacity-40" : undefined}
                       checked={state[p.key]?.pode_editar ?? false}
                       onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
@@ -330,7 +332,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                   </div>
                 </div>
                 {/* Seções da tela (sub-permissões): indentadas sob a página. Nenhuma seção hoje
-                    pertence ao módulo Integração — ehChaveIntegracao(s.key) é defensivo (mesma
+                    pertence ao módulo Integração — ehChaveSoSuper(s.key) é defensivo (mesma
                     regra da página-mãe, caso uma seção `integracao:*` apareça no futuro). */}
                 {p.sections?.map((s) => (
                   <div key={s.key} className={"grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20" + (desligada(p.key) ? LINHA_DESLIGADA : "")}>
@@ -341,7 +343,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     <div className="flex justify-center">
                       <Checkbox
                         id={`${s.key}-ver`}
-                        disabled={(isAdminRole && !ehChaveIntegracao(s.key)) || travada(p.key)}
+                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key)}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_ver") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_ver ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
@@ -349,7 +351,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center">
                       <Checkbox
-                        disabled={(isAdminRole && !ehChaveIntegracao(s.key)) || travada(p.key)}
+                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key)}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_editar") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_editar ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}
@@ -367,7 +369,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     <span>Página</span>
                     <div className="flex justify-center items-center gap-1">
                       <Checkbox
-                        disabled={(isAdminRole && m.module !== "integracao") || moduloTodoDesligado || semLeitor || carregandoModulos}
+                        disabled={(isAdminRole && !(KEYS_SO_SUPER as readonly string[]).includes(m.module)) || moduloTodoDesligado || semLeitor || carregandoModulos}
                         checked={allVer}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_ver", !!v)}
                         aria-label={`Marcar todos como leitor em ${m.label}`}
@@ -376,7 +378,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center items-center gap-1">
                       <Checkbox
-                        disabled={(isAdminRole && m.module !== "integracao") || moduloTodoDesligado || carregandoModulos}
+                        disabled={(isAdminRole && !(KEYS_SO_SUPER as readonly string[]).includes(m.module)) || moduloTodoDesligado || carregandoModulos}
                         checked={allEdit}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_editar", !!v)}
                         aria-label={`Marcar todos como editor em ${m.label}`}
@@ -409,7 +411,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                           <div className="flex justify-center">
                             <Checkbox
                               id={`${p.key}-ver`}
-                              disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || travada(p.key)}
+                              disabled={(isAdminRole && !ehChaveSoSuper(p.key)) || travada(p.key)}
                               className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_ver") ? "opacity-40" : undefined}
                               checked={state[p.key]?.pode_ver ?? false}
                               onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
@@ -417,7 +419,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                           </div>
                           <div className="flex justify-center">
                             <Checkbox
-                              disabled={(isAdminRole && !ehChaveIntegracao(p.key)) || travada(p.key)}
+                              disabled={(isAdminRole && !ehChaveSoSuper(p.key)) || travada(p.key)}
                               className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_editar") ? "opacity-40" : undefined}
                               checked={state[p.key]?.pode_editar ?? false}
                               onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
@@ -487,12 +489,12 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
 
   const initial = useMemo<PermState>(() => {
     const base: PermState = {};
-    // P-107 A: papel NUNCA carrega `integracao` — nem no estado local, nem numa linha
+    // P-107 A: papel NUNCA carrega `integracao`/`exportar_dados` — nem no estado local, nem numa linha
     // pré-existente vinda do banco (defesa: o banco já ignora essa escrita em silêncio, mas
     // uma linha legada não deveria nem aparecer marcada aqui).
-    for (const key of ALL_PAGE_KEYS_SEM_INTEGRACAO) base[key] = { ...emptyPerm };
+    for (const key of ALL_PAGE_KEYS_SEM_SO_SUPER) base[key] = { ...emptyPerm };
     for (const p of existing ?? []) {
-      if (p.pagina === "integracao" || p.pagina.startsWith("integracao:")) continue;
+      if (ehChaveSoSuper(p.pagina)) continue;
       base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
     }
     return base;
@@ -519,14 +521,14 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
   };
   const toggleAllInModule = (moduleKey: string, field: "pode_ver" | "pode_editar", v: boolean) => {
     if (carregandoModulos) return;
-    setState((s) => marcarTodosNoModulo(s, catalogoSemIntegracao.find((m) => m.module === moduleKey), field, v, desligada));
+    setState((s) => marcarTodosNoModulo(s, catalogoSemSoSuper.find((m) => m.module === moduleKey), field, v, desligada));
   };
   const onSave = async () => {
     setSubmitting(true);
     try {
-      // P-107 A: papel nunca envia `integracao*` — o banco ignoraria mesmo assim, mas o
+      // P-107 A: papel nunca envia `integracao*`/`exportar_dados` — o banco ignoraria mesmo assim, mas o
       // front não deve nem tentar.
-      const perms = ALL_PAGE_KEYS_SEM_INTEGRACAO
+      const perms = ALL_PAGE_KEYS_SEM_SO_SUPER
         .map((k) => ({ pagina: k, ...state[k] }))
         .filter((p) => p.pode_ver || p.pode_editar);
       await callSalvar({
@@ -594,7 +596,7 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
           {isLoading && papel.id ? (
             <p className="text-sm text-muted-foreground">Carregando…</p>
           ) : (
-            catalogoSemIntegracao.map((m) => {
+            catalogoSemSoSuper.map((m) => {
               const ativas = m.pages.filter((p) => !desligada(p.key));
               const moduloTodoDesligado = m.pages.length > 0 && ativas.length === 0;
               const ativasLeitor = ativas.filter((p) => !p.soEdicao);

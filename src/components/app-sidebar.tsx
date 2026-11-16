@@ -67,6 +67,10 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 // A cor comunica urgência: atraso = vermelho, alerta = âmbar, pronto p/ lançar = azul.
 
 
+// Módulos que NUNCA usam o bypass de admin: mesmo tenant_admin precisa da permissão explícita
+// (a key só é concedida pelo super admin). `canView` já reflete a regra.
+const MODULOS_SEM_BYPASS_ADMIN = new Set(["integracao", "exportar_dados"]);
+
 export function AppSidebar() {
   const { state, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
@@ -119,10 +123,10 @@ export function AppSidebar() {
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
     .filter((m) => isModuleEnabled(m.gate ?? m.module))
     .filter((m) =>
-      // P-107 A: o módulo "integracao" NUNCA usa o bypass de admin — mesmo tenant_admin
+      // P-107 A: os módulos de MODULOS_SEM_BYPASS_ADMIN ("integracao", "exportar_dados") NUNCA usam o bypass de admin — mesmo tenant_admin
       // precisa da permissão explícita (canView já reflete a regra: só super admin passa
       // direto). Os demais módulos seguem o bypass de sempre.
-      m.module === "integracao"
+      MODULOS_SEM_BYPASS_ADMIN.has(m.module)
         ? m.pages.some((p) => !p.soEdicao && (!p.gate || isModuleEnabled(p.gate)) && noPerfil(p) && canView(p.key))
         : isAdmin || isSuperAdmin || isTenantAdmin
         ? true
@@ -141,7 +145,7 @@ export function AppSidebar() {
         // propósito — ela é um link direto no menu (sem sub-itens/hub), não um Collapsible com
         // sub-página. Por isso `PAGE_URLS[p.key]` já é falsy pra ela e o bypass de admin abaixo
         // nunca chega a valer — a proteção real da Integração mora no filtro de MÓDULO logo
-        // acima (`m.module === "integracao"`). Se algum dia `PAGE_URLS.integracao` for adicionada
+        // acima (`MODULOS_SEM_BYPASS_ADMIN`). Se algum dia `PAGE_URLS.integracao` for adicionada
         // (virando um Collapsible com sub-item), este filtro passaria a valer de verdade — reveja
         // então se a key "integracao" precisa do mesmo tratamento sem-bypass daqui, e se o
         // `max-md:hidden` (hoje só no item link-direto, `item.url === "/integracao"` abaixo)

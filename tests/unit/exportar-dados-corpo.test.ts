@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Exportar dados — Task 5: aba Exportar. Guardas do botão Baixar (nada marcado / sem coleção) e prévia vazia. Sem JSX (arquivo .ts).
+// Exportar dados — corpo da tela Exportar dados (ex-aba da Integração). Guardas do botão Baixar (nada marcado / sem coleção) e prévia vazia. Sem JSX (arquivo .ts).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -20,7 +20,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const baixarExport = vi.fn();
 vi.mock("@/lib/integracao/export", () => ({ baixarExport: (...a: unknown[]) => baixarExport(...a) }));
 
-import { ExportarAba } from "@/components/integracao/ExportarAba";
+import { ExportarDados } from "@/components/exportar/ExportarDados";
 
 const montados: { unmount: () => void; el: HTMLElement }[] = [];
 async function montar() {
@@ -30,7 +30,7 @@ async function montar() {
   const root = createRoot(container);
   montados.push({ unmount: () => root.unmount(), el: container });
   await act(async () => {
-    root.render(createElement(QueryClientProvider, { client: qc }, createElement(ExportarAba)));
+    root.render(createElement(QueryClientProvider, { client: qc }, createElement(ExportarDados)));
   });
   // coleções -> subcoleções -> prévia: cada passo depende do anterior (várias voltas do event loop).
   for (let i = 0; i < 6; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -50,7 +50,7 @@ beforeEach(() => {
   rpc.mockResolvedValue({ data: { colecoes: [], subcolecoes: [] }, error: null });
 });
 
-describe("ExportarAba", () => {
+describe("ExportarDados (corpo)", () => {
   it("botão Baixar desabilitado quando nada está marcado", async () => {
     const c = await montar();
     expect(botaoBaixar(c)?.disabled).toBe(true);
