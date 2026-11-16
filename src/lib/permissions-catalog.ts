@@ -271,6 +271,18 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "integracao", label: "Integração", description: "Organiza os produtos que o programa externo (ERP/e-commerce) lê pela API.", modes: ["full"] },
     ],
   },
+  {
+    // Item de TOPO próprio, abaixo de Integração (pedido do dono). Página única cuja key = nome do
+    // módulo e basePath = a URL; como `exportar_dados` NÃO entra em PAGE_URLS, o sidebar o renderiza
+    // como LINK DIRETO (mesmo padrão de `importar`/`integracao`). NÃO é módulo contratável (fora dos
+    // toggles de Gerenciar Lojas). Permissão dada POR USUÁRIO, só pelo super admin (como a Integração).
+    module: "exportar_dados",
+    label: "Exportar dados",
+    basePath: "/exportar-dados",
+    pages: [
+      { key: "exportar_dados", label: "Exportar dados", description: "Exporta produtos da loja em CSV/Excel (coleção, colunas, níveis).", modes: ["full"] },
+    ],
+  },
 ];
 
 export const ALL_PAGE_KEYS: PageKey[] = PAGES_CATALOG.flatMap((m) =>
