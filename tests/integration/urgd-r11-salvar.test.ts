@@ -7,6 +7,7 @@ import { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, dbUrl, TENANT_TESTE, USER_TESTE } from "./db";
 import { aplicaUrgd, urgdViva, URGD_BLOCOS } from "./urgd-helpers";
 import { aplicarArquivo } from "./mig-txn";
+import { aplicaReforma } from "./peca-teste-tipo-helpers";
 import { bomUmaPecaDaFicha, confereDasLinhas, linhasUmaPeca, miniNova, type FichaParaMini } from "../../src/lib/peca-teste-mini";
 import { chaveConfere, payloadPecaTeste, tentativaVirtual, type EstadoPT } from "../../src/lib/peca-teste";
 
@@ -88,7 +89,10 @@ async function comoSistema<R>(c: Client, fn: () => Promise<R>): Promise<R> {
 
 /** o bloco r11e (199400) vivo na cópia (copia3 termina em 199400); aplica dentro da txn se faltar. */
 async function exigeR11e(c: Client): Promise<void> {
-  if (!(await urgdViva(c, "r11e"))) {
+  // reforma por TIPO (20261129120000): a mini (`_peca_teste_mini_aplicar`) foi re-emitida com o texto novo, entao o sentinela md5 do r11e nao a
+  // reconhece mais ("viva" = md5 do DEPOIS da R11). O que o teste precisa e que a mini EXISTA (a cadeia R11 ja esta na copia); so aplica o r11e se ela faltar.
+  const tem = await um1<{ ok: boolean }>(c, "SELECT to_regprocedure('public._peca_teste_mini_aplicar(uuid,uuid,jsonb)') IS NOT NULL AS ok");
+  if (!tem.ok) {
     await c.query("SET LOCAL lock_timeout = '3s'");
     await aplicaUrgd(c, "r11e");
   }
@@ -128,6 +132,8 @@ async function seed(c: Client, opt: { tecSaldo?: number; tecConsumo?: number; av
     const cat = (await um1<{ id: string }>(c, `INSERT INTO public.categorias_terceirizado (tenant_id, nome, exige_peca_teste, ativo) VALUES ($1,$2,true,true) RETURNING id`, [T, `PL ${suf()}`])).id;
     // fornecedor de servico para a linha de M.O. (decidir/reprovar exige fornecedor congelado)
     const forn = (await um1<{ id: string }>(c, `INSERT INTO public.empresas (tenant_id, nome_fantasia, tipo) VALUES ($1,$2,'servico') RETURNING id`, [T, `forn ${suf()}`])).id;
+    // reforma por TIPO: o fornecedor da tentativa tem de estar VINCULADO ao tipo (empresa_categorias_servico)
+    await c.query(`INSERT INTO public.empresa_categorias_servico (empresa_id, categoria_terceirizado_id) VALUES ($1,$2)`, [forn, cat]);
     const moLinha = (await um1<{ id: string }>(c, `INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor, empresa_id) VALUES ($1,$2,$3,10,$4) RETURNING id`, [T, modelo, cat, forn])).id;
     return {
       modelo, cat, moLinha, forn, tentativa: null, vt, avi, av, etq, item,
@@ -149,19 +155,19 @@ async function tentativa1(c: Client, f: Fix, dataSaida: string | null): Promise<
 }
 /** payload de 1 trilha/1 tentativa com mini. */
 function payload(f: Fix, tent: { id?: string | null; numero?: number; data_saida?: string | null; aprovacao?: string | null; rev?: number }, mini: any) {
-  const t: any = { numero: tent.numero ?? 1, data_saida: tent.data_saida ?? null, data_entrada: tent.data_saida ? "2026-01-10" : null, aprovacao: tent.aprovacao ?? null, mini };
+  // reforma por TIPO: trilha = categoria_id; o fornecedor vai NA tentativa (decidir exige); sem _rev_base.fornecedor
+  const t: any = { numero: tent.numero ?? 1, ...(tent.aprovacao ? { empresa_id: f.forn } : {}), data_saida: tent.data_saida ?? null, data_entrada: tent.data_saida ? "2026-01-10" : null, aprovacao: tent.aprovacao ?? null, mini };
   if (tent.id) t.id = tent.id;
-  const rev_base: any = { tentativas: {}, fornecedor: {} };
+  const rev_base: any = { tentativas: {} };
   if (tent.id && tent.rev != null) rev_base.tentativas[tent.id] = tent.rev;
-  // decidir (aprovar/reprovar) exige o _rev_base.fornecedor da linha = o fornecedor ATUAL da M.O. (a base que a pessoa viu)
-  if (tent.aprovacao) rev_base.fornecedor[f.moLinha] = f.forn;
-  return { _trilhas: [{ mo_linha_id: f.moLinha, categoria_id: f.cat, tentativas: [t] }], _rev_base: rev_base };
+  return { _trilhas: [{ categoria_id: f.cat, tentativas: [t] }], _rev_base: rev_base };
 }
 const miniObj = (f: Fix, extra: any = {}) => ({ tamanho: "M", variante_tecido_id: f.vt, mesma_oc: true, ajustes: [], ...extra });
 
 async function prepara(c: Client): Promise<void> {
   await c.query("SET LOCAL statement_timeout = '180s'");
   await exigeR11e(c);
+  await aplicaReforma(c, "leitura"); // reforma por TIPO (idempotente): o teste passa a valer com o banco antes OU depois dela
   await jwt(c, null);
   await c.query("UPDATE public.users SET tenant_id = $1 WHERE id = $2", [T, SUPER]);
   await usuario(c, U_ED, "R11e editor");
@@ -328,11 +334,12 @@ describe.skipIf(!RODA)("urgd-r11-salvar: Salvar da Peça Teste com a mini (máqu
       expect(led1).toBeGreaterThan(led0);  // 25 > 10
       const comp = (await um1<{ n: number }>(c, `SELECT count(*)::int n FROM public.estoque_peca_teste_baixas WHERE tentativa_id=$1 AND quantidade < 0`, [tent]));
       expect(comp.n).toBeGreaterThan(0);  // estorno = linha compensatória negativa
-      // mas mexer na DATA de uma reprovada AINDA recusa (trava de _salvar_peca_teste_core, intocada) - só a data muda, decisão igual
+      // reforma por TIPO (histórico editável): mexer na DATA de uma reprovada agora é CORREÇÃO e passa (antes: peca_teste_historico); a baixa fica
+      // (data segue preenchida e a mini igual = nada) e a decisão não muda
       p = payload(f, { id: tent, data_saida: "2026-01-09", aprovacao: "reprovado", rev: await rev(c, tent) }, miniObj(f, { ajustes: [{ chave: f.chaveAvi, familia: "aviamento", a_enviar: 25 }] }));
       const rData = await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]);
-      expect(rData.ok).toBe(false);
-      if (!rData.ok) expect(rData.msg).toMatch(/peca_teste_historico/);
+      expect(txt(rData)).toBe("PASSOU");
+      expect(await somaLed(c, tent)).toBeCloseTo(led1, 4);
     });
   });
 
@@ -496,10 +503,10 @@ describe.skipIf(!RODA)("urgd-r11-salvar: Salvar da Peça Teste com a mini (máqu
       expect(linhas.map((l) => l.chave).sort()).toEqual([f.chaveTec, f.chaveAvi, f.chaveIns].sort());
       const confere = confereDasLinhas(linhas);
       const mini = { ...miniNova(), tamanho: "M", variante_tecido_id: f.vt };
-      const trilha = { mo_linha_id: f.moLinha, categoria_id: f.cat, categoria_nome: "PL", empresa_id: f.forn, empresa_nome: "forn", mo_aprovado: null };
-      const base: EstadoPT = { outros: [], trilhas: [{ ...trilha, tentativas: [{ ...tentativaVirtual(1), id: tent, rev: await rev(c, tent) }] }] };
-      const draft: EstadoPT = { outros: [], trilhas: [{ ...trilha, tentativas: [{ ...base.trilhas[0].tentativas[0], data_saida: "2026-01-05", mini }] }] };
-      const p = payloadPecaTeste(draft, base, undefined, undefined, { confere: { [chaveConfere(f.moLinha, 1)]: confere }, semTecido1: false });
+      const trilha = { categoria_id: f.cat, categoria_nome: "PL", tem_mo: true, mo_aprovado: null, fornecedores: [], excluidas: [] };
+      const base: EstadoPT = { outros: [], tipos_adicionar: [], trilhas: [{ ...trilha, tentativas: [{ ...tentativaVirtual(1), id: tent, rev: await rev(c, tent) }] }] };
+      const draft: EstadoPT = { outros: [], tipos_adicionar: [], trilhas: [{ ...trilha, tentativas: [{ ...base.trilhas[0].tentativas[0], data_saida: "2026-01-05", mini }] }] };
+      const p = payloadPecaTeste(draft, base, { confere: { [chaveConfere(f.cat, 1)]: confere }, semTecido1: false });
       expect(p._trilhas[0].tentativas[0].mini?.confere).toEqual(confere);
       const r = await como(c, U_ED, `SELECT public.salvar_peca_teste($1,$2,$3)`, [f.modelo, JSON.stringify(p._trilhas), JSON.stringify(p._rev_base)]);
       expect(txt(r)).toBe("PASSOU");
@@ -600,9 +607,9 @@ describe.skipIf(!RODA)("urgd-r11-salvar: duas conexões (travas reais)", () => {
   const salvarBaixa = (x: Client, f: Fx) =>
     x.query("SELECT public.salvar_peca_teste($1, $2::jsonb, $3::jsonb)", [
       f.m,
-      JSON.stringify([{ mo_linha_id: f.linha, categoria_id: f.cat, tentativas: [{ id: null, numero: 1, data_saida: "2026-01-05", data_entrada: "2026-01-10", aprovacao: null,
+      JSON.stringify([{ categoria_id: f.cat, tentativas: [{ id: null, numero: 1, empresa_id: null, data_saida: "2026-01-05", data_entrada: "2026-01-10", aprovacao: null,
         mini: { tamanho: "M", variante_tecido_id: f.vt, mesma_oc: true, ajustes: [] } }] }]),
-      JSON.stringify({ tentativas: {}, fornecedor: {} }),
+      JSON.stringify({ tentativas: {} }),
     ]);
 
   it("(e) 2 Salvar da Peça Teste com baixa na MESMA loja: o 2o ESPERA no advisory corte_tenant, termina sem 40P01", async (ctx) => {
@@ -664,7 +671,9 @@ describe.skipIf(!RODA)("urgd-r11-salvar: duas conexões (travas reais)", () => {
 });
 
 describe.skipIf(!RODA)("urgd-r11-salvar: volta (LIFO) e md5", () => {
-  it("20) voltaUrgd até r11d devolve o texto da R9; ida 2x mesmos md5", async () => {
+  // SUPERADO (reforma por TIPO, migration 20261129120000): a cadeia R9/R11 não é mais reencenável — a reforma re-emite o core, a mini e a trava; a volta da
+  // reforma tem o teste próprio (peca-teste-tipo-* e os _down de 20261129*).
+  it.skip("20) voltaUrgd até r11d devolve o texto da R9; ida 2x mesmos md5", async () => {
     await withTx(async (c) => {
       await c.query("SET LOCAL statement_timeout = '180s'");
       await exigeR11e(c);

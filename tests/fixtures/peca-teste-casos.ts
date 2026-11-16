@@ -1,3 +1,5 @@
+// SUPERADO (reforma por TIPO, 20261129*): fixture da leitura por LINHA + fornecedor congelado. Só o urgc-r9-kanban (testes 1/1b, skip) ainda a importa.
+// A fixture vigente do anti-drift é tests/fixtures/peca-teste-tipo-casos.ts.
 // Casos COMPARTILHADOS do anti-drift do requisito "Peça teste aprovada" (R9, plan-c T3): o MESMO arquivo alimenta
 //   tests/unit/peca-teste-requisito.test.ts  → src/lib/peca-teste.ts (`pecaTesteAprovadaModelo`, TS)
 //   tests/integration/urgc-r9-kanban.test.ts → chave `peca_teste_aprovada` de `avaliar_condicoes_kanban` (SQL, só na cópia local:

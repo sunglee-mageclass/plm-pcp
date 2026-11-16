@@ -26,6 +26,7 @@ import type { Client } from "pg";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
+import { reformaPtViva } from "./peca-teste-tipo-helpers";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -161,6 +162,7 @@ async function pendente(c: Client, id: UrgdId, b: Bloco): Promise<boolean> {
 /** Aplica os blocos que existem e ainda não estão vivos, NA ORDEM (idempotente); `ate` = último bloco a aplicar. */
 export async function aplicaUrgd(c: Client, ate?: UrgdId): Promise<void> {
   exigeBancoLocal();
+  if (await reformaPtViva(c)) { await zeraTimeouts(c); return; } // reforma por TIPO viva: a cadeia R11 já está no banco e não é reencenável
   for (const { id, b } of URGD_MIGS) {
     if (await pendente(c, id, b)) await aplicarArquivo(c, b.mig);
     if (id === ate) break;

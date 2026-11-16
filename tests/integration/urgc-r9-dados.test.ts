@@ -442,7 +442,8 @@ async function categoriasPl(c: Client): Promise<{ comPl: PlCat[]; semPl: PlCat[]
 }
 
 describe.skipIf(!RODA)("urg R9e — 196000 pt_* legados viram a 1ª tentativa + switch PL", () => {
-  it("classificação de cada bloco + tentativa 1 (datas/decisão/fornecedor da linha) + backup; pt_* e fila intocados; reaplicar = 0", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a migração legada 196000 já rodou em produção; reencená-la contra a chave por tipo não faz sentido — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("classificação de cada bloco + tentativa 1 (datas/decisão/fornecedor da linha) + backup; pt_* e fila intocados; reaplicar = 0", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await antesR9e(c);
@@ -603,7 +604,8 @@ describe.skipIf(!RODA)("urg R9e — 196000 pt_* legados viram a 1ª tentativa + 
     });
   });
 
-  it("migrada aprovada conta no requisito do kanban (com a M.O. aprovada); reprovada/sem fornecedor não", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a migração legada 196000 já rodou em produção; reencená-la contra a chave por tipo não faz sentido — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("migrada aprovada conta no requisito do kanban (com a M.O. aprovada); reprovada/sem fornecedor não", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await antesR9e(c);
@@ -752,7 +754,8 @@ describe.skipIf(!RODA)("urg R9e — 196000 pt_* legados viram a 1ª tentativa + 
     });
   });
 
-  it("guarda: sem a 193000 viva a ida RECUSA; _down_drop recusa sem a GUC e com o switch ainda ligado; depois do _down apaga (2x = no-op)", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a migração legada 196000 já rodou em produção; reencená-la contra a chave por tipo não faz sentido — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("guarda: sem a 193000 viva a ida RECUSA; _down_drop recusa sem a GUC e com o switch ainda ligado; depois do _down apaga (2x = no-op)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await antesR9e(c);

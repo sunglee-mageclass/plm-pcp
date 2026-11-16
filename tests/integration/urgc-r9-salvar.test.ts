@@ -335,7 +335,7 @@ describe("urg R9b — contrato do gerador", () => {
   });
 });
 
-describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
+describe.skip("urg R9b — RPCs da Peça Teste", () => { // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): substituído por peca-teste-tipo-salvar/-leitura/-volta/-ts-payload — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
   it("1) leitura: trilhas só dos tipos exigindo (ordem do tipo), `outros` sem valor; sem a seção = NULL; outra loja = NULL; Criação desligada = 42501", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
@@ -1162,7 +1162,7 @@ describe.skipIf(!RODA)("urg R9b — RPCs da Peça Teste", () => {
 });
 
 // ───────────── 11) ordem de trava com 2 conexões reais (as duas revertidas) ─────────────
-describe.skipIf(!RODA)("urg R9b — ordem de trava: Salvar da Peça Teste × aprovar M.O. / Salvar da M.O. / Enviar à Explosão", () => {
+describe.skip("urg R9b — ordem de trava: Salvar da Peça Teste × aprovar M.O. / Salvar da M.O. / Enviar à Explosão", () => { // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a ordem de travas é pinada por peca-teste-tipo-salvar (texto vivo do core) — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
   async function abre(): Promise<{ x: Client; pid: number }> {
     const x = new Client({ connectionString: dbUrl()!, ssl: false });
     await x.connect();

@@ -358,7 +358,8 @@ describe.skipIf(!RODA)("urg R9a — base da Peça Teste (20261103192000)", () =>
     });
   });
 
-  it("3) UNIQUE (linha de M.O., tipo, numero) → 23505; mesma numeração em outra linha/tipo passa", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): o UNIQUE agora é (modelo, tipo, numero): peca-teste-tipo-dados — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("3) UNIQUE (linha de M.O., tipo, numero) → 23505; mesma numeração em outra linha/tipo passa", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       await tentativa(c, s);
@@ -420,7 +421,8 @@ describe.skipIf(!RODA)("urg R9a — base da Peça Teste (20261103192000)", () =>
     });
   });
 
-  it("7) trava de fornecedor: tentativa ATUAL aprovada + tipo exigindo → P0001; switch desligado, atual reprovada ou virtual → passa", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a trava mora na tentativa: peca-teste-tipo-salvar (7) — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("7) trava de fornecedor: tentativa ATUAL aprovada + tipo exigindo → P0001; switch desligado, atual reprovada ou virtual → passa", async () => {
     await withTx(async (c) => {
       const s = await cenario(c);
       const t1 = await tentativa(c, s, APROVADA);

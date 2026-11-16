@@ -8,11 +8,10 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, comoUsuario, TENANT_TESTE } from "./db";
-import { aplicarArquivo } from "./mig-txn";
+import { aplicaReforma } from "./peca-teste-tipo-helpers";
 
 const RODA = hasDb && ehBancoLocal();
 const T = TENANT_TESTE;
-const MIG = "supabase/migrations/20261125100000_peca_teste_status_lote.sql";
 const D1 = "2026-10-01";
 const D2 = "2026-10-03";
 // Outra loja real na cópia (Ave Rara) para o caso "modelo de outra loja omitido".
@@ -22,7 +21,7 @@ type Fx = { suf: string; catExige: string; catSem: string; F1: string };
 
 async function prepara(c: Client): Promise<Fx> {
   await c.query("SET LOCAL statement_timeout = '180s'");
-  await aplicarArquivo(c, MIG);
+  await aplicaReforma(c, "leitura"); // a função NOVA (por tipo); NÃO reaplica a 20261125100000, que re-emitiria o corpo antigo (por linha)
   // módulos ligados (sem claims: MOD-1 do Reforço de segurança deixa o super admin, mas aqui gravamos sem JWT)
   await semJwt(c, () =>
     c.query(

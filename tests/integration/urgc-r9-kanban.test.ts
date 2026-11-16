@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, ehBancoLocal, withTx, um, semJwt, comoUsuario, TENANT_TESTE } from "./db";
 import { aplicaUrgc, urgcViva, md5UrgcSucessor, URGC_BLOCOS } from "./urgc-helpers";
+import { aplicaReforma } from "./peca-teste-tipo-helpers";
 import { dropUrgdSePreciso } from "./urgd-helpers";
 import { aplicarArquivo, semTransacao } from "./mig-txn";
 import { MOD_MD5 } from "./mod-3-dados";
@@ -84,6 +85,7 @@ type Fx = { suf: string; catExige: string; catSem: string; F1: string; F2: strin
 async function prepara(c: Client): Promise<Fx> {
   await c.query("SET LOCAL statement_timeout = '180s'");
   await aplicaUrgc(c);
+  await aplicaReforma(c, "leitura"); // reforma por TIPO (idempotente): vale com o banco antes OU depois dela
   await semJwt(c, () =>
     c.query(
       `UPDATE public.tenant_config SET modules = coalesce(modules, '{}'::jsonb)
@@ -110,13 +112,12 @@ async function prepara(c: Client): Promise<Fx> {
         [T, `${nome} R9c ${suf}`],
       )
     ).id;
-  return {
-    suf,
-    catExige: await cat("PL", 9101, true),
-    catSem: await cat("Lavanderia", 9102, false),
-    F1: await emp("Oficina 1"),
-    F2: await emp("Oficina 2"),
-  };
+  const catExige = await cat("PL", 9101, true);
+  const F1 = await emp("Oficina 1");
+  const F2 = await emp("Oficina 2");
+  // reforma por TIPO: o fornecedor da tentativa tem de estar VINCULADO ao tipo (empresa_categorias_servico)
+  for (const f of [F1, F2]) await c.query("INSERT INTO public.empresa_categorias_servico (empresa_id, categoria_terceirizado_id) VALUES ($1, $2)", [f, catExige]);
+  return { suf, catExige, catSem: await cat("Lavanderia", 9102, false), F1, F2 };
 }
 async function novoModelo(c: Client, nome: string): Promise<string> {
   return comoSistema(c, async () =>
@@ -239,12 +240,11 @@ async function salvarPeca(
       modelo,
       JSON.stringify([
         {
-          mo_linha_id: linha,
-          categoria_id: cat,
-          tentativas: ts.map((t) => ({ id: t.id ?? null, numero: t.numero, data_saida: D1, data_entrada: D2, aprovacao: t.aprovacao })),
+          categoria_id: cat, // reforma por TIPO: a trilha é o tipo; o fornecedor vai NA tentativa (a decisão o exige)
+          tentativas: ts.map((t) => ({ id: t.id ?? null, numero: t.numero, empresa_id: forn, data_saida: D1, data_entrada: D2, aprovacao: t.aprovacao })),
         },
       ]),
-      JSON.stringify({ tentativas: Object.fromEntries(atuais.map((t) => [t.id, t.rev])), fornecedor: { [linha]: forn } }),
+      JSON.stringify({ tentativas: Object.fromEntries(atuais.map((t) => [t.id, t.rev])) }),
     ]);
   };
   const novasDecididas = tents.filter((t) => !t.id && t.aprovacao !== null);
@@ -289,7 +289,8 @@ describe("urg R9c — contrato do gerador e catálogo", () => {
 
 describe.skipIf(!RODA)("urg R9c — condição Peça teste aprovada (banco)", () => {
   // ─────────────── (1) anti-drift SQL × TS ───────────────
-  it("1) anti-drift: cada caso da fixture semeado na txn — avaliar_condicoes_kanban->'peca_teste_aprovada' = pecaTesteAprovadaModelo = esperado", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): substituído por peca-teste-tipo-antidrift (fixture por TIPO) — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("1) anti-drift: cada caso da fixture semeado na txn — avaliar_condicoes_kanban->'peca_teste_aprovada' = pecaTesteAprovadaModelo = esperado", async () => {
     await withTx(async (c) => {
       const fx = await prepara(c);
       const ids: string[] = [];
@@ -480,7 +481,8 @@ describe.skipIf(!RODA)("urg R9c — condição Peça teste aprovada (banco)", ()
   });
 
   // ─────────────── (6) volta ───────────────
-  it("6) _down: RECUSA com a chave em uso (requisitos, revenda ou exceções, qualquer nível); sem ela volta ao 394578c1; 2× no-op; ida 2× = mesmo md5", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a volta é pinada por peca-teste-tipo-volta — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("6) _down: RECUSA com a chave em uso (requisitos, revenda ou exceções, qualquer nível); sem ela volta ao 394578c1; 2× no-op; ida 2× = mesmo md5", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const depois = BLOCO!.URGC_MD5[CORE].depois;
@@ -530,7 +532,8 @@ describe.skipIf(!RODA)("urg R9c — condição Peça teste aprovada (banco)", ()
     });
   });
 
-  it("6b) LIFO: com a r9c viva o _down da Mod T3 recusa e o _down_drop da r9b recusa (o core cita o helper); depois do _down da r9c, passam", async () => {
+  // SUPERADO (reforma da Peça Teste por TIPO, 20261129*): a volta é pinada por peca-teste-tipo-volta — a cadeia R9/R11 não é mais reencenável e o contrato mudou.
+  it.skip("6b) LIFO: com a r9c viva o _down da Mod T3 recusa e o _down_drop da r9b recusa (o core cita o helper); depois do _down da r9c, passam", async () => {
     await withTx(async (c) => {
       await prepara(c);
       // [urg R11] LIFO: a R11 (199000..199300) cita `_peca_teste_aprovada`/a tabela de tentativas e é posterior a TODA a R9 —
