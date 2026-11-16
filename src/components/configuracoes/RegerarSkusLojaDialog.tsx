@@ -204,7 +204,7 @@ export function RegerarSkusLojaDialog(p: {
                 <div className="space-y-1">
                   <p className="text-xs font-semibold">Desatualizados (o produto mudou depois da prévia — nada foi gravado neles)</p>
                   <ul className="text-xs text-muted-foreground">
-                    {p.resultado.resumo.desatualizados.map((d) => <li key={d.modeloId}>{d.nome || d.modeloId} <span className="font-mono">{d.ref}</span></li>)}
+                    {p.resultado.resumo.desatualizados.map((d, n) => <li key={d.modeloId || `d${n}`}>{d.nome || d.modeloId} <span className="font-mono">{d.ref}</span></li>)}
                   </ul>
                   <Button type="button" variant="outline" size="sm" className="max-sm:min-h-11" onClick={p.onRefazerPrevia}>Refazer a prévia</Button>
                 </div>
@@ -213,7 +213,7 @@ export function RegerarSkusLojaDialog(p: {
                 <div className="space-y-1">
                   <p className="text-xs font-semibold text-destructive">Produtos com erro (não gravaram; os outros seguiram)</p>
                   <ul className="text-xs text-muted-foreground">
-                    {p.resultado.resumo.erros.map((e) => <li key={e.modeloId}>{e.nome || e.modeloId} <span className="font-mono">{e.ref}</span> — {e.erro?.detalhe || "erro desconhecido"}</li>)}
+                    {p.resultado.resumo.erros.map((e, n) => <li key={e.modeloId || `e${n}`}>{e.nome || e.modeloId} <span className="font-mono">{e.ref}</span> — {e.erro?.detalhe || "erro desconhecido"}</li>)}
                   </ul>
                 </div>
               )}

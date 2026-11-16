@@ -176,6 +176,7 @@ function AuditoriaPage() {
                 <SelectItem value="editar">Editou</SelectItem>
                 <SelectItem value="excluir">Excluiu</SelectItem>
                 <SelectItem value="resetar">Resetou</SelectItem>
+                <SelectItem value="regerar_skus_loja">Regerou SKUs</SelectItem>
               </SelectContent>
             </Select>
           </div>

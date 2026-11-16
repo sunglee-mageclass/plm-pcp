@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegerarSkusLojaCard } from "@/components/configuracoes/RegerarSkusLojaCard";
+import { TEXTO_FALHA_TEMPO, TEXTO_FALHA_TEMPO_GRAVACAO } from "@/lib/regerar-skus-loja";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -164,5 +165,72 @@ describe("RegerarSkusLojaCard - previa em paginas, revisao, confirmacao e gravac
     expect(resumo).toContain("1 desatualizado(s)");
     expect(resumo).toContain("Produto B");
     expect(botao("Refazer a prévia")).toBeTruthy();
+  });
+});
+
+describe("RegerarSkusLojaCard - falhas e cancelamento (textos certos de prévia x gravação, 'continuar')", () => {
+  it("TIMEOUT na GRAVAÇÃO até o mínimo: mostra o texto da GRAVAÇÃO (os já gravados ficam), nunca o da prévia ('nada foi gravado'); oferece 'Continuar gravando (N)'", async () => {
+    mock.aplicar = async () => ({ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } });
+    montar();
+    await espera(50);
+    await clicar(botao("Gerar prévia")!);
+    await espera(50);
+    await clicar(botao(/Regerar 4 SKU\(s\) em 1 produto\(s\)/)!);
+    await clicar(botao("Regerar 4 SKUs")!);
+    await espera(80);
+    const resumo = testid("regerar-skus-resumo")!.textContent!;
+    expect(resumo).toContain(TEXTO_FALHA_TEMPO_GRAVACAO);
+    expect(resumo).not.toContain(TEXTO_FALHA_TEMPO);
+    expect(resumo).not.toContain("Nada foi gravado nesta fase");
+    expect(botao(/Continuar gravando \(1\)/)).toBeTruthy();
+  });
+
+  it("Cancelar NO MEIO da gravação: o lote em curso termina, o que gravou FICA e restam os demais ('Cancelado.' + 'Continuar gravando (5)')", async () => {
+    const todos = Array.from({ length: 30 }, (_, i) => item(`P${i}`));
+    mock.previa = async (a) => a._apos === null
+      ? { data: { formato_ok: true, total_modelos: 30, itens: todos.slice(0, 25), proximo: "c1" }, error: null }
+      : { data: { formato_ok: true, total_modelos: 30, itens: todos.slice(25), proximo: null }, error: null };
+    const base = mock.aplicar;
+    let solta: () => void = () => {};
+    mock.aplicar = async (a) => { await new Promise<void>((r) => { solta = r; }); return base(a); }; // o 1o lote fica "em voo" ate o teste clicar Cancelar
+    montar();
+    await espera(50);
+    await clicar(botao("Gerar prévia")!);
+    await espera(80);
+    await clicar(botao(/Regerar 120 SKU\(s\) em 30 produto\(s\)/)!);
+    await clicar(botao("Regerar 120 SKUs")!);
+    await espera(30);
+    const cancelar = [...document.querySelectorAll('[data-testid="regerar-skus-dialogo"] button')].find((x) => (x.textContent ?? "").trim() === "Cancelar") as HTMLButtonElement;
+    expect(cancelar).toBeTruthy(); // gravando: o botao e "Cancelar"
+    await clicar(cancelar);
+    await act(async () => { solta(); await new Promise((r) => setTimeout(r, 50)); });
+    const aplicar = rpcSpy.mock.calls.filter(([n]) => n === "regerar_skus_loja_aplicar").map(([, a]) => a);
+    expect(aplicar).toHaveLength(1); // o 2o lote nao sai depois do cancelar
+    expect(aplicar[0]._itens).toHaveLength(25);
+    const resumo = testid("regerar-skus-resumo")!.textContent!;
+    expect(resumo).toContain("25 produto(s) gravado(s)");
+    expect(resumo).toContain("Cancelado.");
+    expect(resumo).toContain("Faltam 5 produto(s)");
+    expect(botao(/Continuar gravando \(5\)/)).toBeTruthy();
+  });
+
+  it("prévia que falha na 2ª página: 'Continuar de onde parou' retoma com o cursor certo (_apos) e termina sem refazer a 1ª página", async () => {
+    let n = 0;
+    mock.previa = async (a) => {
+      n++;
+      if (n === 1) return { data: { formato_ok: true, total_modelos: 2, itens: [item("A")], proximo: "cursor-A" }, error: null };
+      if (n === 2) return { data: null, error: { code: "42501", message: "sem_permissao_admin: so o administrador da loja regera os SKUs" } };
+      return { data: { formato_ok: true, total_modelos: 2, itens: [item("B")], proximo: null }, error: null };
+    };
+    montar();
+    await espera(50);
+    await clicar(botao("Gerar prévia")!);
+    await espera(80);
+    await clicar(botao(/Continuar de onde parou/)!);
+    await espera(80);
+    const apos = rpcSpy.mock.calls.filter(([x]) => x === "regerar_skus_loja_previa").map(([, a]) => a._apos);
+    expect(apos).toEqual([null, "cursor-A", "cursor-A"]);
+    expect(testid("regerar-skus-contadores")).not.toBeNull();
+    expect(botao(/Regerar 8 SKU\(s\) em 2 produto\(s\)/)).toBeTruthy(); // A (da 1a pagina) + B (da retomada)
   });
 });

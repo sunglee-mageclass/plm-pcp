@@ -36,7 +36,7 @@ export function RegerarSkusLojaCard({ paginaSuja, formatoSujo }: { paginaSuja: b
     },
   });
   // o Formato acabou de ser salvo no card de cima: relê (a tela também relê ao voltar o foco)
-  useEffect(() => { if (!formatoSujo) void formato.refetch(); }, [formatoSujo]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tenantId && !formatoSujo) void formato.refetch(); }, [formatoSujo, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [fase, setFase] = useState<FaseDialog | null>(null); // null = Dialog fechado
   const [itens, setItens] = useState<ItemPrevia[]>([]);
@@ -46,6 +46,7 @@ export function RegerarSkusLojaCard({ paginaSuja, formatoSujo }: { paginaSuja: b
   const [resultado, setResultado] = useState<ResultadoGravacaoTela | null>(null);
   const [restantes, setRestantes] = useState<ItemPrevia[]>([]);
   const cancelar = useRef(false);
+  const gravandoRef = useRef(false); // duplo clique em "Continuar gravando"/confirmar não pode abrir 2 laços
   const todosResultados = useRef<ResultadoItem[]>([]);
 
   const chamarPrevia = async (a: { tenantId: string; apos: string | null; limite: number }) => {
@@ -90,15 +91,21 @@ export function RegerarSkusLojaCard({ paginaSuja, formatoSujo }: { paginaSuja: b
   };
 
   const gravar = async (lista: ItemPrevia[]) => {
-    if (!tenantId) return;
+    if (!tenantId || gravandoRef.current) return;
+    gravandoRef.current = true;
     cancelar.current = false;
     setFase("gravando");
     setProgresso({ feitos: 0, total: lista.length });
-    const r = await gravarEmLotes({
-      tenantId, itens: lista, chamar: chamarAplicar, tamanhoInicial: tamanho, cancelado: () => cancelar.current,
-      aoLote: ({ feitos, total }) => setProgresso({ feitos, total }),
-      aoRecuar: setTamanho,
-    });
+    let r: Awaited<ReturnType<typeof gravarEmLotes>>;
+    try {
+      r = await gravarEmLotes({
+        tenantId, itens: lista, chamar: chamarAplicar, tamanhoInicial: tamanho, cancelado: () => cancelar.current,
+        aoLote: ({ feitos, total }) => setProgresso({ feitos, total }),
+        aoRecuar: setTamanho,
+      });
+    } finally {
+      gravandoRef.current = false;
+    }
     todosResultados.current = [...todosResultados.current, ...r.resultados];
     setTamanho(r.tamanho);
     setRestantes(r.restantes);
