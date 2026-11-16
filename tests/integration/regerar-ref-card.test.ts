@@ -353,7 +353,12 @@ describe.skipIf(!RODA)("Regerar REF por card - permissao (portao DENTRO da RPC),
         ["public.regerar_ref_card(uuid,text,boolean,text)", "81f788a22e55c8dd0bd9a85417e75c22"],
       ];
       for (const [sig, esperado] of novas) expect(await md5(sig), sig).toBe(esperado);
-      expect(await md5("public._aplicar_skus_modelo_core(uuid,jsonb,text,text)")).toBe("858abf9fddb6e3ffb7bcc2b0d2c419d1");
+      // A guarda aceita os DOIS md5 do motor de SKU: 858abf9f (copia local, sem os comentarios do corpo) e
+      // fd7ac0cf (producao, texto oficial da 20261006120000). So comentarios diferem - a 20261006120000 ja os trata
+      // como equivalentes. Na copia o valor vivo e 858abf9f; em producao seria fd7ac0cf.
+      expect(["858abf9fddb6e3ffb7bcc2b0d2c419d1", "fd7ac0cf1b778711ac2098d41e16ead6"]).toContain(
+        await md5("public._aplicar_skus_modelo_core(uuid,jsonb,text,text)"),
+      );
       await aplicarArquivo(c, DOWNS.ref);
       for (const [sig] of novas) expect(await md5(sig), sig).toBeNull();
       expect(await md5("public._regerar_pulo_integracao(uuid)")).not.toBeNull(); // o helper da migration 1 NAO e do _down desta

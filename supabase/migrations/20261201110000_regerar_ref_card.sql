@@ -17,7 +17,7 @@
 -- ============================== MD5 (guarda) ==============================
 --   LIDOS (nao mudam - a migration RECUSA se divergirem):
 --     public.fn_modelo_ref_auto()                                  6d68b20b0e5086a9a9dc0c87a8b42c69
---     public._aplicar_skus_modelo_core(uuid,jsonb,text,text)       858abf9fddb6e3ffb7bcc2b0d2c419d1
+--     public._aplicar_skus_modelo_core(uuid,jsonb,text,text)       858abf9f... (copia) OU fd7ac0cf... (producao) - mesma funcao, so comentarios diferem; a 20261006120000 ja trata os 2 como equivalentes
 --   NOVAS (DEPOIS - guarda do _down):
 --     public._regerar_ref_calcular(uuid)                           382e55959a003939511a4d680c3694ea
 --     public.ref_regerar_previa(uuid)                              a79248834da577bc39201794069df617
@@ -34,7 +34,7 @@ BEGIN
     RAISE EXCEPTION 'regerar_ref: aplique 20261201100000 antes (helper de pulo ausente)' USING ERRCODE = 'P0001';
   END IF;
   IF md5(pg_get_functiondef('public.fn_modelo_ref_auto()'::regprocedure)) <> '6d68b20b0e5086a9a9dc0c87a8b42c69'
-     OR md5(pg_get_functiondef('public._aplicar_skus_modelo_core(uuid,jsonb,text,text)'::regprocedure)) <> '858abf9fddb6e3ffb7bcc2b0d2c419d1' THEN
+     OR md5(pg_get_functiondef('public._aplicar_skus_modelo_core(uuid,jsonb,text,text)'::regprocedure)) NOT IN ('858abf9fddb6e3ffb7bcc2b0d2c419d1', 'fd7ac0cf1b778711ac2098d41e16ead6') THEN
     RAISE EXCEPTION 'regerar_ref: fn_modelo_ref_auto/motor de SKU com texto inesperado - o calculo espelhado perdeu a base; gere de novo'
       USING ERRCODE = 'P0001';
   END IF;

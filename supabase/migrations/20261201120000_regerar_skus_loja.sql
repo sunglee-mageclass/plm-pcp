@@ -13,9 +13,9 @@
 -- NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza). Banco ANTES do site. Volta: supabase/rollback/20261201120000_regerar_skus_loja_down.sql
 -- ============================== MD5 (guarda) ==============================
 --   LIDOS (nao mudam - a migration RECUSA se divergirem):
---     public._skus_previa_core(uuid,text,text,jsonb,text)          61e814868e4b8f014f227db28ee51495
---     public._skus_plano(uuid,text,text,jsonb,text)                82ecd0ea8f67bf9590a98cbd5851ee38
---     public._aplicar_skus_modelo_core(uuid,jsonb,text,text)       858abf9fddb6e3ffb7bcc2b0d2c419d1
+--     public._skus_previa_core(uuid,text,text,jsonb,text)          61e81486... (copia) OU f2e513e6... (producao, pino oficial da 20261005110000) - so comentarios diferem
+--     public._skus_plano(uuid,text,text,jsonb,text)                82ecd0ea... (copia) OU 5980345a... (producao, pino oficial da 20261027120000) - so comentarios diferem
+--     public._aplicar_skus_modelo_core(uuid,jsonb,text,text)       858abf9f... (copia) OU fd7ac0cf... (producao) - mesma funcao, so comentarios diferem; a 20261006120000 ja trata os 2 como equivalentes
 --   NOVAS (DEPOIS - guarda do _down):
 --     public._regerar_guarda_admin(uuid)                           f8431bd9b874c035c1c5ebf4b9bfdf53
 --     public._regerar_skus_item_core(uuid)                         8309ee03bd88ca9714bf8843b990db35
@@ -32,9 +32,9 @@ BEGIN
   IF to_regprocedure('public._regerar_pulo_integracao(uuid)') IS NULL THEN
     RAISE EXCEPTION 'regerar_loja: aplique 20261201100000 antes (helper de pulo ausente)' USING ERRCODE = 'P0001';
   END IF;
-  IF md5(pg_get_functiondef('public._skus_previa_core(uuid,text,text,jsonb,text)'::regprocedure)) <> '61e814868e4b8f014f227db28ee51495'
-     OR md5(pg_get_functiondef('public._skus_plano(uuid,text,text,jsonb,text)'::regprocedure)) <> '82ecd0ea8f67bf9590a98cbd5851ee38'
-     OR md5(pg_get_functiondef('public._aplicar_skus_modelo_core(uuid,jsonb,text,text)'::regprocedure)) <> '858abf9fddb6e3ffb7bcc2b0d2c419d1' THEN
+  IF md5(pg_get_functiondef('public._skus_previa_core(uuid,text,text,jsonb,text)'::regprocedure)) NOT IN ('61e814868e4b8f014f227db28ee51495', 'f2e513e6f1b6754c968d98b2ee0ea7c1')
+     OR md5(pg_get_functiondef('public._skus_plano(uuid,text,text,jsonb,text)'::regprocedure)) NOT IN ('82ecd0ea8f67bf9590a98cbd5851ee38', '5980345a105818b26329c8a4e594fee2')
+     OR md5(pg_get_functiondef('public._aplicar_skus_modelo_core(uuid,jsonb,text,text)'::regprocedure)) NOT IN ('858abf9fddb6e3ffb7bcc2b0d2c419d1', 'fd7ac0cf1b778711ac2098d41e16ead6') THEN
     RAISE EXCEPTION 'regerar_loja: motor de SKU com texto inesperado - outra frente mexeu; gere de novo' USING ERRCODE = 'P0001';
   END IF;
 END

@@ -13,8 +13,9 @@ select to_regprocedure('public._regerar_pulo_integracao(uuid)') as pulo,
 \echo === (B) funcoes que a ida SO LE (o calculo espelha o fn_modelo_ref_auto): os md5 abaixo sao os da copia local em 16/nov; a ida RECUSA se divergirem
 select p.oid::regprocedure as funcao, md5(pg_get_functiondef(p.oid)) as md5,
        case md5(pg_get_functiondef(p.oid))
-         when '6d68b20b0e5086a9a9dc0c87a8b42c69' then 'ok' when '858abf9fddb6e3ffb7bcc2b0d2c419d1' then 'ok'
+         when '6d68b20b0e5086a9a9dc0c87a8b42c69' then 'ok' when '858abf9fddb6e3ffb7bcc2b0d2c419d1' then 'ok' when 'fd7ac0cf1b778711ac2098d41e16ead6' then 'ok'
          when '61e814868e4b8f014f227db28ee51495' then 'ok' when '82ecd0ea8f67bf9590a98cbd5851ee38' then 'ok'
+         when 'f2e513e6f1b6754c968d98b2ee0ea7c1' then 'ok' when '5980345a105818b26329c8a4e594fee2' then 'ok'
          else 'DIVERGE - PARAR' end as confere
   from pg_proc p
  where p.pronamespace = 'public'::regnamespace
