@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { RequirePermission } from "@/components/RequirePermission";
-import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { ArmarioListPage } from "@/components/armario/ArmarioListPage";
 
 // F7 Armário — coleção, subcoleção e armário abertos vivem na URL (?colecao=&sub=&armario=), mesmo padrão do
 // Produto Acabado (F5/Voltar preservam onde o usuário estava; tela endereçável).
@@ -16,18 +16,18 @@ export const Route = createFileRoute("/_authenticated/criacao/armario")({
   }),
   component: () => (
     <RequirePermission page="criacao_armario">
-      <ArmarioPlaceholder />
+      <ArmarioPage />
     </RequirePermission>
   ),
 });
 
-// Esqueleto navegável — as tarefas D2–D4 substituem pelo conteúdo real.
-function ArmarioPlaceholder() {
+function ArmarioPage() {
+  const navigate = useNavigate({ from: Route.fullPath });
+  const search = Route.useSearch();
   return (
-    <div className="space-y-4">
-      <Breadcrumb items={[{ label: "Estilo & Engenharia", to: "/criacao" }, { label: "Armário" }]} />
-      <h1 className="text-2xl font-semibold">Armário</h1>
-      <p className="text-muted-foreground">Em construção</p>
-    </div>
+    <ArmarioListPage
+      search={search}
+      onSearch={(next) => navigate({ search: next, replace: next.armario === search.armario, resetScroll: false })}
+    />
   );
 }
