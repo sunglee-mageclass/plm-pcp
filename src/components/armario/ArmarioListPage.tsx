@@ -1,9 +1,9 @@
-// F7 Armário · Task D2 — tela de LISTA de armários da subcoleção (reordenável). A MONTAGEM (grade + dialog) é a D3/D4:
-// com `?armario=` na URL esta tela mostra só o placeholder da montagem.
+// F7 Armário · Task D2 — tela de LISTA de armários da subcoleção (reordenável). Com `?armario=` na URL renderiza a
+// MONTAGEM (D4: grade + dialog de variantes) no lugar da lista.
 // Estado na URL (?colecao=&sub=&armario=): o `sub` é o NOME da subcoleção (é a chave que `armarios.subcolecao` guarda).
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Copy, GripVertical, LayoutGrid, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, GripVertical, LayoutGrid, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent,
@@ -29,6 +29,7 @@ import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { armarioTravado, transicaoValida, type ArmarioStatus } from "@/lib/armario/status";
 import { mensagemArmario } from "@/lib/armario/mensagem";
+import { ArmarioMontagem } from "@/components/armario/ArmarioMontagem";
 
 export type ArmarioSearch = { colecao?: string; sub?: string; armario?: string };
 
@@ -156,17 +157,9 @@ export function ArmarioListPage({ search, onSearch }: { search: ArmarioSearch; o
     reordenar.mutate(nova.map((a) => a.id));
   };
 
-  // ── armário aberto (D4 renderiza a montagem aqui) ───────────────────────────────────────────────────────────────
+  // ── armário aberto: a montagem (D4) tem o próprio cabeçalho, Voltar e guarda de "não salvo" ──────────────────────────
   if (search.armario) {
-    return (
-      <div className="space-y-4">
-        <Breadcrumb items={[{ label: "Estilo & Engenharia", to: "/criacao" }, { label: "Armário", onClick: () => onSearch({ colecao: colecaoId, sub }) }, { label: "Montagem" }]} />
-        <Button variant="outline" size="sm" onClick={() => onSearch({ colecao: colecaoId, sub })}>
-          <ArrowLeft className="mr-1 h-4 w-4" /> Voltar à lista
-        </Button>
-        <p className="text-muted-foreground" data-testid="armario-montagem-placeholder">Montagem em construção</p>
-      </div>
-    );
+    return <ArmarioMontagem armarioId={search.armario} onVoltar={() => onSearch({ colecao: colecaoId, sub })} />;
   }
 
   const subAtual = sub && subs.length > 0 && !subs.some((s) => s.nome === sub) ? undefined : sub; // sub da URL que não existe mais nesta coleção

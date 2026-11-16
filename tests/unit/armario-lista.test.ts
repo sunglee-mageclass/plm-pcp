@@ -29,6 +29,11 @@ vi.mock("@/integrations/supabase/client", () => {
 vi.mock("sonner", () => ({ toast: toastMock }));
 vi.mock("@/components/RequirePermission", () => ({ useReadOnly: () => permissao.readOnly }));
 vi.mock("@/components/shared/Breadcrumb", () => ({ Breadcrumb: () => null })); // usa <Link> (exige RouterProvider)
+// A montagem (D4) tem teste próprio (armario-montagem.test.ts); aqui só interessa que a lista a renderiza com ?armario=.
+vi.mock("@/components/armario/ArmarioMontagem", () => ({
+  ArmarioMontagem: (p: { armarioId: string; onVoltar: () => void }) =>
+    createElement("div", { "data-testid": "montagem-stub", "data-id": p.armarioId }, createElement("button", { onClick: p.onVoltar }, "Voltar à lista")),
+}));
 // Captura o onDragEnd do DndContext p/ simular o "soltar" (jsdom não faz drag real de ponteiro).
 vi.mock("@dnd-kit/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dnd-kit/core")>();
@@ -117,9 +122,10 @@ describe("ArmarioListPage — lista", () => {
     expect(onSearch).toHaveBeenCalledWith({ colecao: "c1", sub: "Verão", armario: "a2" });
   });
 
-  it("com ?armario= mostra o placeholder da montagem e volta à lista", async () => {
+  it("com ?armario= renderiza a montagem (D4) do armário e volta à lista", async () => {
     const onSearch = await montar({ ...URL_OK, armario: "a1" });
-    expect(texto()).toContain("Montagem em construção");
+    expect(document.querySelector('[data-testid="montagem-stub"]')?.getAttribute("data-id")).toBe("a1");
+    expect(document.querySelectorAll('[data-testid="armario-linha"]').length).toBe(0);
     await clicar(botao("Voltar à lista"));
     expect(onSearch).toHaveBeenCalledWith({ colecao: "c1", sub: "Verão" });
   });
