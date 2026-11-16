@@ -17,6 +17,7 @@ import { Route as AuthenticatedPcpRouteImport } from './routes/_authenticated/pc
 import { Route as AuthenticatedIntegracaoRouteImport } from './routes/_authenticated/integracao'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedFinanceiroRouteImport } from './routes/_authenticated/financeiro'
+import { Route as AuthenticatedExportarDadosRouteImport } from './routes/_authenticated/exportar-dados'
 import { Route as AuthenticatedExpedicaoRouteImport } from './routes/_authenticated/expedicao'
 import { Route as AuthenticatedEntradaSaidaRouteImport } from './routes/_authenticated/entrada-saida'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -119,6 +120,12 @@ const AuthenticatedFinanceiroRoute = AuthenticatedFinanceiroRouteImport.update({
   path: '/financeiro',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedExportarDadosRoute =
+  AuthenticatedExportarDadosRouteImport.update({
+    id: '/exportar-dados',
+    path: '/exportar-dados',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedExpedicaoRoute = AuthenticatedExpedicaoRouteImport.update({
   id: '/expedicao',
   path: '/expedicao',
@@ -491,6 +498,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/entrada-saida': typeof AuthenticatedEntradaSaidaRouteWithChildren
   '/expedicao': typeof AuthenticatedExpedicaoRouteWithChildren
+  '/exportar-dados': typeof AuthenticatedExportarDadosRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/home': typeof AuthenticatedHomeRoute
   '/integracao': typeof AuthenticatedIntegracaoRoute
@@ -557,6 +565,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/exportar-dados': typeof AuthenticatedExportarDadosRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/home': typeof AuthenticatedHomeRoute
   '/integracao': typeof AuthenticatedIntegracaoRoute
@@ -623,6 +632,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/entrada-saida': typeof AuthenticatedEntradaSaidaRouteWithChildren
   '/_authenticated/expedicao': typeof AuthenticatedExpedicaoRouteWithChildren
+  '/_authenticated/exportar-dados': typeof AuthenticatedExportarDadosRoute
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/integracao': typeof AuthenticatedIntegracaoRoute
@@ -696,6 +706,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/entrada-saida'
     | '/expedicao'
+    | '/exportar-dados'
     | '/financeiro'
     | '/home'
     | '/integracao'
@@ -762,6 +773,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/configuracoes'
     | '/dashboard'
+    | '/exportar-dados'
     | '/financeiro'
     | '/home'
     | '/integracao'
@@ -827,6 +839,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/entrada-saida'
     | '/_authenticated/expedicao'
+    | '/_authenticated/exportar-dados'
     | '/_authenticated/financeiro'
     | '/_authenticated/home'
     | '/_authenticated/integracao'
@@ -952,6 +965,13 @@ declare module '@tanstack/react-router' {
       path: '/financeiro'
       fullPath: '/financeiro'
       preLoaderRoute: typeof AuthenticatedFinanceiroRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/exportar-dados': {
+      id: '/_authenticated/exportar-dados'
+      path: '/exportar-dados'
+      fullPath: '/exportar-dados'
+      preLoaderRoute: typeof AuthenticatedExportarDadosRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/expedicao': {
@@ -1665,6 +1685,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedEntradaSaidaRoute: typeof AuthenticatedEntradaSaidaRouteWithChildren
   AuthenticatedExpedicaoRoute: typeof AuthenticatedExpedicaoRouteWithChildren
+  AuthenticatedExportarDadosRoute: typeof AuthenticatedExportarDadosRoute
   AuthenticatedFinanceiroRoute: typeof AuthenticatedFinanceiroRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedIntegracaoRoute: typeof AuthenticatedIntegracaoRoute
@@ -1680,6 +1701,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedEntradaSaidaRoute: AuthenticatedEntradaSaidaRouteWithChildren,
   AuthenticatedExpedicaoRoute: AuthenticatedExpedicaoRouteWithChildren,
+  AuthenticatedExportarDadosRoute: AuthenticatedExportarDadosRoute,
   AuthenticatedFinanceiroRoute: AuthenticatedFinanceiroRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedIntegracaoRoute: AuthenticatedIntegracaoRoute,
