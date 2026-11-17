@@ -2,16 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { RequirePermission } from "@/components/RequirePermission";
 import { ArmarioListPage } from "@/components/armario/ArmarioListPage";
 
-// F7 Armário — coleção, subcoleção e armário abertos vivem na URL (?colecao=&sub=&armario=), mesmo padrão do
-// Produto Acabado (F5/Voltar preservam onde o usuário estava; tela endereçável).
-type ArmarioSearch = { colecao?: string; sub?: string; armario?: string };
+// F7 Armário — só o armário aberto vive na URL (?armario=): a lista é por loja e os filtros Ano/Mês são estado local.
+// Ano/Mês são dado próprio do armário (sem relação com coleção).
+type ArmarioSearch = { armario?: string };
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
 export const Route = createFileRoute("/_authenticated/criacao/armario")({
   validateSearch: (s: Record<string, unknown>): ArmarioSearch => ({
-    colecao: str(s.colecao),
-    sub: str(s.sub),
     armario: str(s.armario),
   }),
   component: () => (

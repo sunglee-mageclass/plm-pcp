@@ -45,7 +45,7 @@ export type GradeItem = VarianteItem & { cor_removida?: boolean };
 
 interface ArmarioRow {
   id: string; nome: string; status: ArmarioStatus; colunas: number;
-  colecao_id: string | null; colecao: string | null; subcolecao: string;
+  ano_id: string | null; mes_id: string | null;
 }
 
 const STATUS_ROTULO: Record<ArmarioStatus, string> = { rascunho: "Rascunho", pronto: "Pronto", publicado: "Publicado" };
@@ -254,7 +254,7 @@ export function MontagemEditor({
     // O que vai é o ESTADO NO CLIQUE (variáveis): edições feitas com o save em voo continuam "sujas".
     mutationFn: async (v: { itens: readonly GradeItem[]; colunas: number }) => {
       const { data, error } = await (supabase.rpc as any)("armario_salvar", {
-        _id: armario.id, _colecao_id: armario.colecao_id, _colecao: armario.colecao, _subcolecao: armario.subcolecao,
+        _id: armario.id, _ano_id: armario.ano_id, _mes_id: armario.mes_id,
         _nome: armario.nome, _colunas: v.colunas, _status: armario.status, _itens: itensParaSalvar(v.itens),
       });
       if (error) throw error;
@@ -266,7 +266,7 @@ export function MontagemEditor({
       qc.invalidateQueries({ queryKey: ["armario-variantes-disponiveis"] }); // ja_em_outro mudou
       qc.invalidateQueries({ queryKey: ["armario", armario.id] });
       qc.invalidateQueries({ queryKey: ["armario-itens", armario.id] });
-      qc.invalidateQueries({ queryKey: ["armarios", armario.colecao_id, armario.subcolecao] }); // nº de variantes/colunas na lista
+      qc.invalidateQueries({ queryKey: ["armarios"] }); // nº de variantes/colunas na lista (lista agora é por loja, filtrada por período)
     },
     onError: (e) => toast.error(mensagemArmario(e, "Erro ao salvar o armário.")),
   });
@@ -360,9 +360,6 @@ export function MontagemEditor({
 
         {dialogAberto && !travado && (
           <VariantesDialog
-            colecaoId={armario.colecao_id}
-            colecao={armario.colecao ?? ""}
-            subcolecao={armario.subcolecao}
             armarioId={armario.id}
             onFechar={() => setDialogAberto(false)}
             onAdicionar={inserir}
@@ -391,7 +388,7 @@ export function ArmarioMontagem({ armarioId, onVoltar }: { armarioId: string; on
     queryKey: ["armario", armarioId],
     queryFn: async (): Promise<ArmarioRow | null> => {
       const { data, error } = await (supabase.from("armarios" as any) as any)
-        .select("id, nome, status, colunas, colecao_id, colecao, subcolecao")
+        .select("id, nome, status, colunas, ano_id, mes_id")
         .eq("id", armarioId)
         .maybeSingle();
       if (error) throw error;

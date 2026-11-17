@@ -63,7 +63,7 @@ async function montar(props: Record<string, unknown> = {}) {
   root = createRoot(host);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const el = createElement(DndContext, null,
-    createElement(VariantesDialog, { colecaoId: "col1", colecao: "Coleção 2027", subcolecao: "Verão", armarioId: "arm1", onFechar: vi.fn(), ...props } as any));
+    createElement(VariantesDialog, { armarioId: "arm1", onFechar: vi.fn(), ...props } as any));
   await act(async () => { root!.render(createElement(QueryClientProvider, { client: qc }, el)); });
   await tick(10);
 }
@@ -111,9 +111,9 @@ describe("achatarVariantes (puro)", () => {
 });
 
 describe("VariantesDialog", () => {
-  it("chama a RPC com coleção/sub/armário e lista 1 card por variante + 1 em desenvolvimento", async () => {
+  it("chama a RPC só com o armário (qualquer coleção) e lista 1 card por variante + 1 em desenvolvimento", async () => {
     await montar();
-    expect(rpcMock).toHaveBeenCalledWith("armario_variantes_disponiveis", { _colecao_id: "col1", _subcolecao: "Verão", _armario_id: "arm1" });
+    expect(rpcMock).toHaveBeenCalledWith("armario_variantes_disponiveis", { _armario_id: "arm1" });
     expect(cards()).toHaveLength(3);
     expect(cardEmDev()).not.toBeNull();
     const t = document.body.textContent ?? "";

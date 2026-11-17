@@ -97,7 +97,7 @@ const ITEM_DIALOG = {
 };
 
 const armarioRow = (o: Record<string, unknown> = {}) => ({
-  id: "a1", nome: "Vitrine Verão", status: "rascunho", colunas: 5, colecao_id: "c1", colecao: "Coleção 2027", subcolecao: "Verão", ...o,
+  id: "a1", nome: "Vitrine Verão", status: "rascunho", colunas: 5, ano_id: "an1", mes_id: "me1", ...o,
 });
 
 beforeEach(() => {
@@ -250,7 +250,7 @@ describe("ArmarioMontagem — salvar", () => {
     await clicar(botao("Salvar"));
     const chamada = rpcMock.mock.calls.find((c) => c[0] === "armario_salvar");
     expect(chamada).toBeTruthy();
-    expect(chamada![1]).toMatchObject({ _id: "a1", _colecao_id: "c1", _colecao: "Coleção 2027", _subcolecao: "Verão", _nome: "Vitrine Verão", _colunas: 6, _status: "pronto" });
+    expect(chamada![1]).toMatchObject({ _id: "a1", _ano_id: "an1", _mes_id: "me1", _nome: "Vitrine Verão", _colunas: 6, _status: "pronto" });
     expect(chamada![1]._itens).toEqual([
       { modelo_id: "m2", variante_tecido_id: "vt3", produto_variante_id: null },
       { modelo_id: "m1", variante_tecido_id: "vt1", produto_variante_id: null },

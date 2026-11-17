@@ -256,9 +256,10 @@ describe.skipIf(!RODA)("Armario C1 - RPC armario_variantes_disponiveis", () => {
     await withTx(async (c) => {
       await aplica(c);
       await aplicarArquivo(c, "supabase/migrations/20261202120000_armario_variantes_disponiveis.sql");
-      expect((await um<{ n: number }>(c, "SELECT count(*)::int n FROM pg_proc WHERE proname = 'armario_variantes_disponiveis'")).n).toBe(1);
+      // 1 funcao (assinatura C1 (uuid,text,uuid)); a copia ja carrega a ANO/MES (uuid) committed, entao conta por assinatura.
+      expect((await um<{ n: number }>(c, "SELECT count(*)::int n FROM pg_proc WHERE oid = to_regprocedure('public.armario_variantes_disponiveis(uuid,text,uuid)')")).n).toBe(1);
       await aplicarArquivo(c, "supabase/rollback/20261202120000_armario_variantes_disponiveis_down.sql");
-      expect((await um<{ n: number }>(c, "SELECT count(*)::int n FROM pg_proc WHERE proname = 'armario_variantes_disponiveis'")).n).toBe(0);
+      expect((await um<{ n: number }>(c, "SELECT count(*)::int n FROM pg_proc WHERE oid = to_regprocedure('public.armario_variantes_disponiveis(uuid,text,uuid)')")).n).toBe(0);
     });
   });
 });

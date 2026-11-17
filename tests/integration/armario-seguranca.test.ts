@@ -19,22 +19,23 @@ const U_COMUM = "f7c40000-0000-4000-8000-0000000000c1";
 const UID = "44444444-4444-4444-8444-444444444444";
 
 async function aplica(c: Client): Promise<void> {
-  for (const f of ["20261202100000_armario_tabelas", "20261202110000_armario_trava_publicado", "20261202120000_armario_variantes_disponiveis", "20261202130000_armario_salvar", "20261202140000_armario_crud"]) {
+  // ANO/MES (20261204100000) troca as assinaturas de criar/salvar/variantes e re-emite duplicar/reordenar; vai POR CIMA do deploy do Armario.
+  for (const f of ["20261202100000_armario_tabelas", "20261202110000_armario_trava_publicado", "20261202120000_armario_variantes_disponiveis", "20261202130000_armario_salvar", "20261202140000_armario_crud", "20261203100000_armario_variantes_filtros", "20261204100000_armario_ano_mes"]) {
     await aplicarArquivo(c, `supabase/migrations/${f}.sql`);
   }
 }
 
 /** [nome, assinatura (so tipos), chamada SQL com args "inocuos" (o portao de pagina barra antes de qualquer leitura/escrita)] */
 const ESCRITA: { nome: string; args: string; call: string }[] = [
-  { nome: "armario_salvar", args: "uuid,uuid,text,text,text,integer,text,jsonb", call: `public.armario_salvar(NULL, NULL, 'c', 's', 'n', 5, NULL, '[]'::jsonb)` },
-  { nome: "armario_criar", args: "uuid,text,text,text", call: `public.armario_criar(NULL, 'c', 's', 'n')` },
+  { nome: "armario_salvar", args: "uuid,uuid,uuid,text,integer,text,jsonb", call: `public.armario_salvar(NULL, NULL, NULL, 'n', 5, NULL, '[]'::jsonb)` },
+  { nome: "armario_criar", args: "uuid,uuid,text", call: `public.armario_criar(NULL, NULL, 'n')` },
   { nome: "armario_renomear", args: "uuid,text", call: `public.armario_renomear('${UID}', 'n')` },
   { nome: "armario_excluir", args: "uuid", call: `public.armario_excluir('${UID}')` },
   { nome: "armario_duplicar", args: "uuid,text", call: `public.armario_duplicar('${UID}', 'n')` },
   { nome: "armario_reordenar", args: "jsonb", call: `public.armario_reordenar('[]'::jsonb)` },
   { nome: "armario_status", args: "uuid,text", call: `public.armario_status('${UID}', 'pronto')` },
 ];
-const LEITURA = { nome: "armario_variantes_disponiveis", args: "uuid,text,uuid", call: `public.armario_variantes_disponiveis(NULL, 's', NULL)` };
+const LEITURA = { nome: "armario_variantes_disponiveis", args: "uuid", call: `public.armario_variantes_disponiveis(NULL)` };
 const wrap = (r: { nome: string; args: string }) => `public.${r.nome}(${r.args})`;
 const core = (r: { nome: string; args: string }) => `public._${r.nome}_core(${r.args})`;
 
@@ -86,7 +87,7 @@ describe.skipIf(!RODA)("Armario C4 - anti-drift de seguranca das RPCs", () => {
       // de verdade, pelo papel: _core direto = permission denied
       await comoUsuario(c);
       const nulos: Record<string, string> = {
-        armario_salvar: "NULL, NULL, NULL, 's', 'n', 5, NULL, '[]'::jsonb", armario_criar: "NULL, NULL, 's', 'n'", armario_renomear: `'${UID}', 'n'`,
+        armario_salvar: "NULL, NULL, NULL, 'n', 5, NULL, '[]'::jsonb", armario_criar: "NULL, NULL, 'n'", armario_renomear: `'${UID}', 'n'`,
         armario_excluir: `'${UID}'`, armario_duplicar: `'${UID}', 'n'`, armario_reordenar: "'[]'::jsonb", armario_status: `'${UID}', 'pronto'`,
       };
       for (const r of ESCRITA) {

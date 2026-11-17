@@ -52,6 +52,10 @@ export interface VarianteRpc {
 }
 /** Campos do MODELO (mini-card) que a RPC devolve para os filtros. Sempre presentes (null sem dado); opcionais no tipo p/ não quebrar quem monta item à mão. */
 export interface FacetasModelo {
+  /** Rótulo da coleção do modelo (OTB → nome; senão o texto livre). O armário NÃO tem mais relação com coleção; isto é só filtro do dialog. */
+  colecao_nome?: string | null;
+  /** Subcoleção (texto) do modelo. */
+  subcolecao?: string | null;
   categoria_principal_id?: string | null;
   categoria_nome?: string | null;
   subcategoria1_id?: string | null;
@@ -65,6 +69,7 @@ export interface FacetasModelo {
   /** Normalizado pela RPC: 'em_planejamento' | 'planejado' | 'reprovado'. */
   status_planejamento?: string | null;
   mes_id?: string | null;
+  mes_nome?: string | null;
   mes_ordem?: number | null;
   ano_id?: string | null;
   ano?: number | string | null;
@@ -103,11 +108,12 @@ export type EntradaDialog =
   | { tipo: "em_desenvolvimento"; chave: string; modelo: Omit<ModeloDisponivelRpc, "variantes"> };
 
 const facetasDe = (m: FacetasModelo): FacetasModelo => ({
+  colecao_nome: m.colecao_nome ?? null, subcolecao: m.subcolecao ?? null,
   categoria_principal_id: m.categoria_principal_id ?? null, categoria_nome: m.categoria_nome ?? null,
   subcategoria1_id: m.subcategoria1_id ?? null, subcategoria1_nome: m.subcategoria1_nome ?? null,
   grupo_id: m.grupo_id ?? null, grupo_nome: m.grupo_nome ?? null, eh_acessorio: !!m.eh_acessorio,
   linha_id: m.linha_id ?? null, linha_nome: m.linha_nome ?? null, status_planejamento: m.status_planejamento ?? null,
-  mes_id: m.mes_id ?? null, mes_ordem: m.mes_ordem ?? null, ano_id: m.ano_id ?? null, ano: m.ano ?? null,
+  mes_id: m.mes_id ?? null, mes_nome: m.mes_nome ?? null, mes_ordem: m.mes_ordem ?? null, ano_id: m.ano_id ?? null, ano: m.ano ?? null,
 });
 
 /** Achata a resposta da RPC: produto com N cores -> N entradas; em_desenvolvimento -> 1 entrada não arrastável. Puro. */
@@ -153,8 +159,12 @@ export function filtrarEntradas(entradas: EntradaDialog[], busca: string): Entra
 
 // ───────── Filtros por faceta (Task 5) ─────────
 
-/** Seleção de cada dropdown multi: array de ids; vazio = sem filtro. */
+/** Seleção de cada dropdown multi: array de ids (coleção/subcoleção = o próprio texto); vazio = sem filtro. */
 export interface FiltrosVariantes {
+  colecao: string[];
+  subcolecao: string[];
+  ano: string[];
+  mes: string[];
   grupo: string[];
   categoria: string[];
   sub1: string[];
@@ -163,7 +173,7 @@ export interface FiltrosVariantes {
   estado: string[];
   planejamento: string[];
 }
-export const FILTROS_VAZIOS: FiltrosVariantes = { grupo: [], categoria: [], sub1: [], cor: [], linha: [], estado: [], planejamento: [] };
+export const FILTROS_VAZIOS: FiltrosVariantes = { colecao: [], subcolecao: [], ano: [], mes: [], grupo: [], categoria: [], sub1: [], cor: [], linha: [], estado: [], planejamento: [] };
 
 /** Estado do mini-card: sem cor cadastrada / pronto para usar / variante que já está em outro armário (não bloqueia). */
 export type EstadoVariante = "em_desenvolvimento" | "disponivel" | "ja_em_outro";
@@ -203,6 +213,10 @@ export function filtrarPorFacetas(entradas: EntradaDialog[], f: FiltrosVariantes
   if (!contarFiltrosAtivos(f)) return entradas;
   return entradas.filter((e) => {
     const x = facetasDaEntrada(e);
+    if (f.colecao.length && !f.colecao.includes(x.colecao_nome ?? "")) return false;
+    if (f.subcolecao.length && !f.subcolecao.includes(x.subcolecao ?? "")) return false;
+    if (f.ano.length && !f.ano.includes(x.ano_id ?? "")) return false;
+    if (f.mes.length && !f.mes.includes(x.mes_id ?? "")) return false;
     if (f.grupo.length && !f.grupo.includes(x.grupo_id ?? "")) return false;
     if (f.categoria.length && !f.categoria.includes(x.categoria_principal_id ?? "")) return false;
     if (f.sub1.length && !f.sub1.includes(x.subcategoria1_id ?? "")) return false;
@@ -220,6 +234,10 @@ export function contarFiltrosAtivos(f: FiltrosVariantes): number {
 }
 
 export interface OpcoesFiltros {
+  colecoes: FilterOption[];
+  subcolecoes: FilterOption[];
+  anos: FilterOption[];
+  meses: FilterOption[];
   grupos: FilterOption[];
   categorias: FilterOption[];
   subcategorias: FilterOption[];
@@ -235,6 +253,15 @@ export interface OpcoesFiltros {
  */
 export function opcoesDosFiltros(entradas: EntradaDialog[], f: FiltrosVariantes): OpcoesFiltros {
   const fx = entradas.map((e) => ({ e, x: facetasDaEntrada(e) }));
+  // Coleção/Subcoleção: a chave É o próprio texto (o armário não tem mais relação com coleção; só filtra a lista do dialog).
+  const colecoes = distintos(fx.filter(({ x }) => x.colecao_nome).map(({ x }) => [x.colecao_nome!, x.colecao_nome!]));
+  const subcolecoes = distintos(fx.filter(({ x }) => x.subcolecao).map(({ x }) => [x.subcolecao!, x.subcolecao!]));
+  // Ano por ano_id (rótulo = ano); Mês por mes_id (rótulo = mes_nome), ordenado por mes_ordem.
+  const anos = distintos(fx.filter(({ x }) => x.ano_id).map(({ x }) => [x.ano_id!, String(x.ano ?? "(sem nome)")]));
+  const mesesMap = new Map<string, { nome: string; ordem: number }>();
+  for (const { x } of fx) if (x.mes_id && !mesesMap.has(x.mes_id)) mesesMap.set(x.mes_id, { nome: x.mes_nome ?? "(sem nome)", ordem: x.mes_ordem ?? 999 });
+  const meses: FilterOption[] = [...mesesMap].map(([id, v]) => ({ id, nome: v.nome, ordem: v.ordem }))
+    .sort((a, b) => (a as any).ordem - (b as any).ordem).map(({ id, nome }) => ({ id, nome }));
   const grupos = distintos(fx.filter(({ x }) => x.grupo_id).map(({ x }) => [x.grupo_id!, x.grupo_nome ?? "(sem nome)"]));
   const categorias = distintos(fx
     .filter(({ e, x }) => x.categoria_principal_id && noGrupo(e, f.grupo))
@@ -248,7 +275,7 @@ export function opcoesDosFiltros(entradas: EntradaDialog[], f: FiltrosVariantes)
   const presentes = new Set(entradas.map(estadoDaEntrada));
   const estados = ESTADO_ORDEM.filter((k) => presentes.has(k)).map((k) => ({ id: k, nome: ESTADO_ROTULO[k] }));
   const planejamentos = distintos(fx.filter(({ x }) => x.status_planejamento).map(({ x }) => [x.status_planejamento!, PLANEJAMENTO_ROTULO[x.status_planejamento!] ?? x.status_planejamento!]));
-  return { grupos, categorias, subcategorias, cores, linhas, estados, planejamentos };
+  return { colecoes, subcolecoes, anos, meses, grupos, categorias, subcategorias, cores, linhas, estados, planejamentos };
 }
 
 /** PODA da cascata: tira de Categoria/Subcategoria os ids que saíram das opções (idempotente; só remove). Puro. */
@@ -260,12 +287,13 @@ export function podarFiltros(entradas: EntradaDialog[], f: FiltrosVariantes): Fi
   return comCat.categoria.length === f.categoria.length && sub1.length === f.sub1.length ? f : { ...comCat, sub1 };
 }
 
-export function useVariantesDisponiveis(colecaoId: string | null, subcolecao: string | null, armarioId: string | null) {
+export function useVariantesDisponiveis(armarioId: string | null) {
   return useQuery({
-    queryKey: ["armario-variantes-disponiveis", colecaoId, subcolecao ?? "", armarioId],
+    // A RPC agora devolve TODAS as variantes da loja (qualquer coleção); o dialog filtra por Coleção/Subcoleção/Período no front.
+    queryKey: ["armario-variantes-disponiveis", armarioId],
     queryFn: async (): Promise<ModeloDisponivelRpc[]> => {
       const { data, error } = await supabase.rpc("armario_variantes_disponiveis" as never, {
-        _colecao_id: colecaoId, _subcolecao: subcolecao ?? "", _armario_id: armarioId,
+        _armario_id: armarioId,
       } as never);
       if (error) throw error;
       return (data ?? []) as unknown as ModeloDisponivelRpc[];
@@ -365,9 +393,6 @@ export function EmDesenvolvimentoCard({ modelo }: { modelo: Omit<ModeloDisponive
 }
 
 export interface VariantesDialogProps {
-  colecaoId: string | null;
-  colecao: string;
-  subcolecao: string | null;
   armarioId: string | null;
   onFechar: () => void;
   /** Clique no "+" do card (alternativa ao arraste). Sem a prop o botão não aparece. */
@@ -376,10 +401,10 @@ export interface VariantesDialogProps {
   chavesNaGrade?: ReadonlySet<string>;
 }
 
-export function VariantesDialog({ colecaoId, colecao, subcolecao, armarioId, onFechar, onAdicionar, chavesNaGrade }: VariantesDialogProps) {
+export function VariantesDialog({ armarioId, onFechar, onAdicionar, chavesNaGrade }: VariantesDialogProps) {
   const [busca, setBusca] = useState("");
   const [filtros, setFiltros] = useState<FiltrosVariantes>(FILTROS_VAZIOS);
-  const { data, isLoading, isError, error } = useVariantesDisponiveis(colecaoId, subcolecao, armarioId);
+  const { data, isLoading, isError, error } = useVariantesDisponiveis(armarioId);
   const entradas = useMemo(() => achatarVariantes(data ?? []), [data]);
   const visiveis = useMemo(() => filtrarPorFacetas(filtrarEntradas(entradas, busca), filtros), [entradas, busca, filtros]);
   const opcoes = useMemo(() => opcoesDosFiltros(entradas, filtros), [entradas, filtros]);
@@ -390,6 +415,10 @@ export function VariantesDialog({ colecaoId, colecao, subcolecao, armarioId, onF
   const setCampo = (campo: keyof FiltrosVariantes) => (v: string[]) => setFiltros((prev) => podarFiltros(entradas, { ...prev, [campo]: v }));
   // Dropdown com <2 opções (e sem seleção) não filtra nada: some para não poluir.
   const defs: { label: string; campo: keyof FiltrosVariantes; options: FilterOption[] }[] = [
+    { label: "Coleção", campo: "colecao", options: opcoes.colecoes },
+    { label: "Subcoleção", campo: "subcolecao", options: opcoes.subcolecoes },
+    { label: "Ano", campo: "ano", options: opcoes.anos },
+    { label: "Mês", campo: "mes", options: opcoes.meses },
     { label: "Grupo", campo: "grupo", options: opcoes.grupos },
     { label: "Categoria", campo: "categoria", options: opcoes.categorias },
     { label: "Subcategoria", campo: "sub1", options: opcoes.subcategorias },
@@ -413,7 +442,7 @@ export function VariantesDialog({ colecaoId, colecao, subcolecao, armarioId, onF
         <DialogHeader>
           <DialogTitle>Variantes disponíveis</DialogTitle>
           <DialogDescription>
-            {colecao}{subcolecao ? ` · ${subcolecao}` : ""} — arraste para a grade{onAdicionar ? " ou use o +" : ""}.
+            Qualquer coleção da loja — use os filtros e arraste para a grade{onAdicionar ? " ou use o +" : ""}.
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2">

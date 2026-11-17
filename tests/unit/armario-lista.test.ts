@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-// F7 Armário · D2 — tela de LISTA: render real (react-dom + happy-dom) com supabase mockado.
-//   lista aparece (nome/status/nº de itens/colunas) · menu ⋯ · publicado trava Renomear/Excluir · reordenar chama `armario_reordenar`
-//   com a lista INTEIRA · estado vazio sem subcoleção · abrir muda a URL · erros P0001 traduzidos.
+// F7 Armário · tela de LISTA (ANO/MÊS): render real (react-dom + happy-dom) com supabase mockado.
+//   lista aparece (nome/status/nº de itens/colunas/período) · menu ⋯ · publicado trava Renomear/Excluir · reordenar chama
+//   `armario_reordenar` com a lista do PERÍODO · filtro Ano/Mês encurta a lista · criar pede ano+mês · abrir muda ?armario= · erros P0001 traduzidos.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -27,6 +27,25 @@ vi.mock("@/integrations/supabase/client", () => {
   return { supabase: { rpc: rpcMock, from: builder } };
 });
 vi.mock("sonner", () => ({ toast: toastMock }));
+// Select Radix não abre em happy-dom: troca por <select> nativo (mesma API value/onValueChange). A aria-label real
+// mora no SelectTrigger (child); o mock a propaga para o <select> para o teste achar cada campo por rótulo.
+vi.mock("@/components/ui/select", () => {
+  const React = require("react");
+  const pickTriggerLabel = (children: any): string | undefined => {
+    let label: string | undefined;
+    React.Children.forEach(children, (ch: any) => {
+      if (ch && ch.props && typeof ch.props["aria-label"] === "string") label = ch.props["aria-label"];
+    });
+    return label;
+  };
+  return {
+    Select: (p: any) => createElement("select", { "aria-label": pickTriggerLabel(p.children), value: p.value, disabled: p.disabled, onChange: (e: any) => p.onValueChange(e.target.value) }, p.children),
+    SelectTrigger: () => null,
+    SelectValue: () => null,
+    SelectContent: (p: any) => createElement("optgroup", null, p.children),
+    SelectItem: (p: any) => createElement("option", { value: p.value }, p.children),
+  };
+});
 vi.mock("@/components/RequirePermission", () => ({ useReadOnly: () => permissao.readOnly }));
 vi.mock("@/components/shared/Breadcrumb", () => ({ Breadcrumb: () => null })); // usa <Link> (exige RouterProvider)
 // A montagem (D4) tem teste próprio (armario-montagem.test.ts); aqui só interessa que a lista a renderiza com ?armario=.
@@ -69,20 +88,21 @@ const abrirMenu = async (linha: number) => {
   await clicar(gatilhos[linha]);
 };
 
+// Todos do MESMO período (ano an1 / mês me1): a lista nasce reordenável.
 const ARMARIOS = [
-  { id: "a1", nome: "Vitrine Verão", status: "rascunho", colunas: 5, ordem: 1, armario_itens: [{ count: 3 }] },
-  { id: "a2", nome: "Destaques", status: "publicado", colunas: 4, ordem: 2, armario_itens: [{ count: 1 }] },
-  { id: "a3", nome: "Promo", status: "pronto", colunas: 6, ordem: 3, armario_itens: [{ count: 0 }] },
+  { id: "a1", nome: "Vitrine Verão", status: "rascunho", colunas: 5, ordem: 1, ano_id: "an1", mes_id: "me1", armario_itens: [{ count: 3 }] },
+  { id: "a2", nome: "Destaques", status: "publicado", colunas: 4, ordem: 2, ano_id: "an1", mes_id: "me1", armario_itens: [{ count: 1 }] },
+  { id: "a3", nome: "Promo", status: "pronto", colunas: 6, ordem: 3, ano_id: "an1", mes_id: "me1", armario_itens: [{ count: 0 }] },
 ];
-const URL_OK = { colecao: "c1", sub: "Verão" };
+const URL_OK = {};
 
 beforeEach(() => {
   rpcMock.mockReset();
   rpcMock.mockResolvedValue({ data: null, error: null });
   Object.values(toastMock).forEach((f) => f.mockReset());
   dados.tabelas = {
-    colecoes: [{ id: "c1", nome: "Coleção 2027" }],
-    colecao_subcolecoes: [{ id: "s1", nome: "Verão", ordem: 1 }],
+    anos: [{ id: "an1", ano: "2027" }],
+    meses: [{ id: "me1", mes: "Janeiro", ordem: 1 }],
     armarios: ARMARIOS,
   };
   dnd.onDragEnd = null;
@@ -95,11 +115,20 @@ afterEach(async () => {
 });
 
 describe("ArmarioListPage — lista", () => {
-  it("sem subcoleção escolhida mostra o estado vazio e não lista nada", async () => {
-    await montar({ colecao: "c1" });
-    expect(texto()).toContain("Escolha uma coleção e uma subcoleção");
-    expect(document.querySelectorAll('[data-testid="armario-linha"]').length).toBe(0);
-    expect(botao("Novo armário")?.disabled).toBe(true);
+  it("lista por loja: 'Novo armário' sempre habilitado e os armários aparecem sem escolher coleção", async () => {
+    await montar({});
+    expect(document.querySelectorAll('[data-testid="armario-linha"]').length).toBe(3);
+    expect(botao("Novo armário")?.disabled).toBe(false);
+  });
+
+  it("filtro de período encurta a lista pelo ano/mês do próprio armário", async () => {
+    dados.tabelas.armarios = [
+      ...ARMARIOS,
+      { id: "a4", nome: "Outro Mês", status: "rascunho", colunas: 5, ordem: 1, ano_id: "an1", mes_id: "me2", armario_itens: [{ count: 0 }] },
+    ];
+    dados.tabelas.meses = [{ id: "me1", mes: "Janeiro", ordem: 1 }, { id: "me2", mes: "Fevereiro", ordem: 2 }];
+    await montar({});
+    expect(document.querySelectorAll('[data-testid="armario-linha"]').length).toBe(4);
   });
 
   it("renderiza os armários com nome, status, nº de variantes e de colunas", async () => {
@@ -116,18 +145,18 @@ describe("ArmarioListPage — lista", () => {
     expect(linhas[2].textContent).toContain("Pronto");
   });
 
-  it("clicar no nome abre o armário (muda ?armario=) preservando coleção e sub", async () => {
+  it("clicar no nome abre o armário (muda ?armario=)", async () => {
     const onSearch = await montar(URL_OK);
     await clicar(botao("Destaques"));
-    expect(onSearch).toHaveBeenCalledWith({ colecao: "c1", sub: "Verão", armario: "a2" });
+    expect(onSearch).toHaveBeenCalledWith({ armario: "a2" });
   });
 
-  it("com ?armario= renderiza a montagem (D4) do armário e volta à lista", async () => {
-    const onSearch = await montar({ ...URL_OK, armario: "a1" });
+  it("com ?armario= renderiza a montagem do armário e volta à lista", async () => {
+    const onSearch = await montar({ armario: "a1" });
     expect(document.querySelector('[data-testid="montagem-stub"]')?.getAttribute("data-id")).toBe("a1");
     expect(document.querySelectorAll('[data-testid="armario-linha"]').length).toBe(0);
     await clicar(botao("Voltar à lista"));
-    expect(onSearch).toHaveBeenCalledWith({ colecao: "c1", sub: "Verão" });
+    expect(onSearch).toHaveBeenCalledWith({});
   });
 });
 
@@ -197,7 +226,7 @@ describe("ArmarioListPage — menu ⋯ e trava de publicado", () => {
     expect(botao("Renomear")?.disabled).toBe(true);
   });
 
-  it("Novo armário pede o nome e chama armario_criar com coleção/subcoleção", async () => {
+  it("Novo armário pede nome + ano + mês e chama armario_criar com ano_id/mes_id", async () => {
     await montar(URL_OK);
     await clicar(botao("Novo armário"));
     const input = document.getElementById("armario-nome") as HTMLInputElement;
@@ -205,8 +234,19 @@ describe("ArmarioListPage — menu ⋯ e trava de publicado", () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Novo A");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    const selVal = async (ariaLabel: string, value: string) => {
+      const sel = document.querySelector(`select[aria-label="${ariaLabel}"]`) as HTMLSelectElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(sel, value);
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    };
+    // sem ano/mês o Criar fica desabilitado
+    expect(botoes().find((b) => b.textContent?.trim() === "Criar")?.disabled).toBe(true);
+    await selVal("Ano do armário", "an1");
+    await selVal("Mês do armário", "me1");
     await clicar(botoes().filter((b) => b.textContent?.trim() === "Criar").pop());
-    expect(rpcMock).toHaveBeenCalledWith("armario_criar", { _colecao_id: "c1", _colecao: "Coleção 2027", _subcolecao: "Verão", _nome: "Novo A" });
+    expect(rpcMock).toHaveBeenCalledWith("armario_criar", { _ano_id: "an1", _mes_id: "me1", _nome: "Novo A" });
   });
 });
 

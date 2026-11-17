@@ -5,6 +5,8 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 const POR_PREFIXO: Record<string, string> = {
   armario_publicado_travado: "Armário publicado é somente leitura. Despublique antes de renomear, excluir ou editar.",
   armario_nome_obrigatorio: "Informe o nome do armário.",
+  armario_periodo_obrigatorio: "Escolha o ano e o mês do armário.",
+  armario_periodo_invalido: "Ano ou mês não encontrado nesta loja.",
   armario_nao_encontrado: "Armário não encontrado (já foi excluído ou é de outra loja). Atualize a tela.",
   armario_colecao_invalida: "Coleção não encontrada nesta loja.",
   armario_ids_invalido: "A ordem dos armários mudou enquanto você arrastava. Atualize a tela e tente de novo.",
