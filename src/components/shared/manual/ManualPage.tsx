@@ -3,7 +3,8 @@
 // usuário (canView por pageKey). UNIVERSAL: a rota não usa RequirePermission; qualquer logado chega
 // aqui. O conteúdo campo a campo (camposDaTela) entra depois — por ora mostramos a estrutura + um
 // aviso discreto "em breve" onde ainda não há detalhe.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
@@ -106,6 +107,46 @@ export function ManualPage() {
   const [telaSel, setTelaSel] = useState<string | null>(null);
   const telaAtual =
     telas.find((t) => t.pageKey === telaSel) ?? telas[0] ?? null;
+
+  // AJUDA CONTEXTUAL (A5): o botão "?" navega para `/manual` com hash `#manual-<pageKey>` (tela) ou
+  // `#secao-<sectionKey>` (seção). A ManualPage lê o hash no mount para abrir a tela certa e rolar
+  // até a âncora. À prova de hash ausente/inválido: nada muda (fica na 1ª tela).
+  const hash = useRouterState({ select: (s) => s.location.hash });
+
+  /** Resolve a `pageKey` a abrir a partir do hash (sem o "#"). `manual-<pageKey>` → direto;
+   *  `secao-<sectionKey>` → a 1ª tela que CONTÉM essa seção. Desconhecido → null (não mexe). */
+  function pageKeyDoHash(h: string): string | null {
+    if (!h) return null;
+    if (h.startsWith("manual-")) {
+      const key = h.slice("manual-".length);
+      return telas.some((t) => t.pageKey === key) ? key : null;
+    }
+    if (h.startsWith("secao-")) {
+      const secKey = h.slice("secao-".length);
+      const dona = telas.find((t) => t.seroes.some((s) => s.key === secKey));
+      return dona?.pageKey ?? null;
+    }
+    return null;
+  }
+
+  // Pré-seleciona a tela do hash quando as telas chegam (ou o hash muda) e rola até a âncora.
+  // O scroll espera a tela ser renderizada (a seção só existe no DOM depois de `setTelaSel`).
+  const ultimoHashTratado = useRef<string | null>(null);
+  useEffect(() => {
+    if (telas.length === 0) return;
+    const h = (hash ?? "").replace(/^#/, "");
+    if (!h || h === ultimoHashTratado.current) return;
+    const alvo = pageKeyDoHash(h);
+    if (!alvo) return; // hash desconhecido: fica na tela atual, sem rolar
+    ultimoHashTratado.current = h;
+    setTelaSel(alvo);
+    // Rola após o próximo paint (a âncora `#secao-…`/`#manual-…` já existe no DOM).
+    requestAnimationFrame(() => {
+      const el = document.getElementById(h);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hash, telas]);
 
   // [backend F1] 1ª carga da loja/módulos falhou: aviso + "Tentar de novo" (nunca decide sobre DEFAULTS).
   if (erro) return <LojaErroAviso onTentarDeNovo={tentarDeNovo} tentando={tentando} />;

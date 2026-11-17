@@ -42,6 +42,7 @@ import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { InfoHover } from "@/components/shared/InfoHover";
+import { AjudaContextual } from "@/components/shared/manual/AjudaContextual";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { TEXTO_SKU_TRAVADO, TEXTO_TRAVA_SHEET, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
@@ -1665,6 +1666,12 @@ function PlanejamentoDetailConteudo({
               <DialogTitle className="flex flex-wrap items-center gap-2">
                 <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
                 {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
+                {/* Ajuda contextual (A5): "?" discreto ao lado do título — abre o Manual na tela do
+                    Planejamento. Em <fieldset> próprio (não desabilitado) p/ a ajuda funcionar mesmo
+                    com o Sheet em modo leitura (o cabeçalho acima está dentro de um fieldset disabled). */}
+                <fieldset disabled={false} className="contents">
+                  <AjudaContextual pageKey="criacao_planejamento" />
+                </fieldset>
                 {/* Fix final (F3.1, item 3): indicador discreto do 1º Salvar do card NOVO — o
                     formulário está travado (fieldset abaixo) enquanto isto aparece. */}
                 {salvandoNovo && (
