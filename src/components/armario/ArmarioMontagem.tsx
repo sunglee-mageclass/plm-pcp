@@ -80,15 +80,33 @@ async function carregarItens(armarioId: string): Promise<GradeItem[]> {
     for (const c of (r.data ?? []) as { id: string; nome: string }[]) m.set(c.id, c.nome);
     return m;
   };
+  // Foto POR VARIANTE (cor): lê `modelo_variante_fotos` dos modelos salvos e indexa pela tupla de
+  // identidade (chaveVariante). A célula produto×cor usa a foto da variante; sem ela, cai na CAPA do
+  // modelo (fallback de sempre). Tolerante: falha aqui NÃO derruba a grade (sem foto = capa).
+  const modeloIds = [...new Set(rows.map((r) => r.modelo_id).filter(Boolean))] as string[];
+  const fotosVariante = new Map<string, string>();
+  if (modeloIds.length) {
+    const fv = await (supabase.from("modelo_variante_fotos" as any) as any)
+      .select("modelo_id, variante_tecido_id, produto_variante_id, cor_id, cor_apelido_id, foto_path")
+      .in("modelo_id", modeloIds);
+    if (!fv.error) {
+      for (const f of (fv.data ?? []) as any[]) {
+        const path = naoVazio(f.foto_path);
+        if (path) fotosVariante.set(chaveVariante(f), path);
+      }
+    }
+  }
   const [cores, apelidos] = await Promise.all([nomes("cores", corIds), nomes("cores_apelido", apIds)]);
   return rows.map((r) => {
     const mo = r.modelos ?? {};
     const corNome = r.cor_id ? cores.get(r.cor_id) ?? null : null;
     const apNome = r.cor_apelido_id ? apelidos.get(r.cor_apelido_id) ?? null : null;
+    const capa = naoVazio(mo.fotos_modelo?.[0]) ?? naoVazio(mo.desenho_tecnico_url) ?? naoVazio(mo.croqui_url);
     const item: GradeItem = {
       chave: "",
       modelo_id: r.modelo_id, nome: mo.nome ?? "(produto removido)", ref: naoVazio(mo.ref) ?? naoVazio(mo.ref_auto),
-      foto_path: naoVazio(mo.fotos_modelo?.[0]) ?? naoVazio(mo.desenho_tecnico_url) ?? naoVazio(mo.croqui_url),
+      // coalesce(foto da variante, capa do modelo)
+      foto_path: fotosVariante.get(chaveVariante(r)) ?? capa,
       origem: (r.origem ?? "interno") as ArmarioOrigem,
       variante_tecido_id: r.variante_tecido_id ?? null, produto_variante_id: r.produto_variante_id ?? null,
       cor_id: r.cor_id ?? null, cor_apelido_id: r.cor_apelido_id ?? null,

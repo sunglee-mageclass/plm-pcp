@@ -47,6 +47,8 @@ export interface VarianteRpc {
   cor_nome: string | null;
   cor_apelido_nome: string | null;
   ordem: number;
+  /** Foto POR VARIANTE (cor) já com fallback na capa do modelo (a RPC faz o coalesce). */
+  foto_path?: string | null;
   ja_em_outro: boolean;
   armarios_com: { id: string; nome: string }[];
 }
@@ -129,7 +131,8 @@ export function achatarVariantes(modelos: ModeloDisponivelRpc[]): EntradaDialog[
     for (const v of m.variantes) {
       const item: VarianteItem = {
         chave: "",
-        modelo_id: m.modelo_id, nome: m.nome, ref: m.ref, foto_path: m.foto_path, origem: m.origem,
+        // foto POR VARIANTE (a RPC já faz coalesce(foto da variante, capa do modelo)); fallback extra na capa.
+        modelo_id: m.modelo_id, nome: m.nome, ref: m.ref, foto_path: v.foto_path ?? m.foto_path, origem: m.origem,
         variante_tecido_id: v.variante_tecido_id ?? null, produto_variante_id: v.produto_variante_id ?? null,
         cor_id: v.cor_id ?? null, cor_apelido_id: v.cor_apelido_id ?? null,
         cor_nome: v.cor_nome ?? null, cor_apelido_nome: v.cor_apelido_nome ?? null,

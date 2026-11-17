@@ -91,6 +91,7 @@ import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/I
 import { useVersaoAnterior } from "@/hooks/useVersaoAnterior";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
+import { FotoPorCorSecao } from "@/components/planejamento/planejamento-detail/FotoPorCorSecao";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { PERM_PECA_TESTE, salvarComConfirmacaoEstorno, usePecaTeste } from "@/components/planejamento/planejamento-detail/usePecaTeste";
@@ -2163,6 +2164,14 @@ function PlanejamentoDetailConteudo({
                 onRemove={(i) => setDraftTracked((d) => ({ ...d, fotos_referencia: d.fotos_referencia.filter((_, j) => j !== i) }))} />
             </div>
             </fieldset>
+            {/* F7 Armário — "Foto por cor" (vitrine): 1 foto por variante (modelo×cor), para as 3 origens.
+                Grava NA HORA pela RPC `modelo_variante_foto_salvar` (fora do Salvar, como as Observações);
+                sem foto da variante, o Armário usa a capa do modelo. Card novo = "Salve o card primeiro". */}
+            <FotoPorCorSecao
+              modeloId={modeloId}
+              capaModelo={[draft.fotos_modelo?.[0], draft.desenho_tecnico_url, draft.croqui_url].map((s) => (s && s.trim() ? s : null)).find(Boolean) ?? null}
+              somenteLeitura={perm.compartilhadoBloqueado}
+            />
             {/* Ficha de Medida + Observações Gerais (vieram do Dev — F3.1): card existente, quem vê o Dev e (comprado)
                 seção "s6" ligada no Fluxo de Revenda. Travam com `devBloqueado` (regra própria — Observações Gerais
                 E Ficha de Medida são compartilhadas também, mas mantidas na trava do Dev como já era, ver AvisoCamposDev). */}
