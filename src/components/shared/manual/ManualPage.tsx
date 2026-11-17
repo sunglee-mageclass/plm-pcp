@@ -17,62 +17,51 @@ import {
   type ModuloManual,
   type TelaManual,
 } from "@/lib/manual/estrutura";
-import { camposDaTela } from "@/lib/manual/tipos-conteudo";
+import { camposDaTela, type CampoManual } from "@/lib/manual/tipos-conteudo";
 import { Blocos } from "./ManualRenderer";
-import type { Bloco, SecaoManual } from "./tipos";
+import type { Bloco } from "./tipos";
 
-/** Monta as seções (conteúdo-como-dados) de UMA tela do Manual, com âncoras estáveis p/ ajuda
- *  contextual (A5): a seção "Para que serve" + 1 seção por SecaoEstrutura (id = sectionKey, vira
- *  `#secao-<sectionKey>`) + os campos de camposDaTela (vazio → aviso discreto "em breve"). */
-function secoesDaTela(tela: TelaManual): SecaoManual[] {
-  const secoes: SecaoManual[] = [];
+/** Uma seção do Manual de uma tela: um texto de introdução (Bloco[]) + os campos documentados
+ *  (cada campo = verbete "nome em negrito + ajuda"). `id` vira a âncora `#secao-<id>` (ajuda A5). */
+type SecaoConteudo = { id: string; titulo: string; intro: Bloco[]; campos: CampoManual[] };
 
-  // "Para que serve" = a description do PageDef (quando houver).
+/** Monta as seções (conteúdo-como-dados) de UMA tela: "Para que serve" (description) + 1 seção por
+ *  SecaoEstrutura (hint + campos documentados) + os campos da própria tela. Vazio → aviso "em breve". */
+function secoesDaTela(tela: TelaManual): SecaoConteudo[] {
+  const secoes: SecaoConteudo[] = [];
+
   if (tela.descricao) {
     secoes.push({
       id: "para-que-serve",
       titulo: "Para que serve",
-      blocos: [{ tipo: "p", texto: tela.descricao }],
+      intro: [{ tipo: "p", texto: tela.descricao }],
+      campos: [],
     });
   }
 
   // Uma seção por SecaoEstrutura (sub-permissão da tela). id = sectionKey → âncora `#secao-<key>`.
   for (const sec of tela.seroes) {
-    const blocos: Bloco[] = [];
-    if (sec.hint) blocos.push({ tipo: "p", texto: sec.hint });
+    const intro: Bloco[] = [];
+    if (sec.hint) intro.push({ tipo: "p", texto: sec.hint });
     const campos = camposDaTela(sec.key);
-    if (campos.length > 0) {
-      blocos.push({
-        tipo: "lista",
-        itens: campos.map((c) => (c.quando ? `${c.rotulo} — ${c.quando}` : c.rotulo)),
-      });
-    } else if (!sec.hint) {
-      blocos.push({ tipo: "p", texto: "Conteúdo detalhado em breve." });
+    if (intro.length === 0 && campos.length === 0) {
+      intro.push({ tipo: "p", texto: "Conteúdo detalhado em breve." });
     }
-    secoes.push({ id: sec.key, titulo: sec.label, blocos });
+    secoes.push({ id: sec.key, titulo: sec.label, intro, campos });
   }
 
-  // Campos da própria tela (camposDaTela(pageKey)) — hoje vazio para todas: aviso discreto.
+  // Campos da própria tela (camposDaTela(pageKey)) quando houver.
   const camposTela = camposDaTela(tela.pageKey);
   if (camposTela.length > 0) {
-    secoes.push({
-      id: "campos",
-      titulo: "Campos",
-      blocos: [
-        {
-          tipo: "lista",
-          itens: camposTela.map((c) => (c.quando ? `${c.rotulo} — ${c.quando}` : c.rotulo)),
-        },
-      ],
-    });
+    secoes.push({ id: "campos", titulo: "Campos", intro: [], campos: camposTela });
   }
 
-  // Nenhuma seção (sem description nem sub-seções nem campos): aviso único de "em breve".
   if (secoes.length === 0) {
     secoes.push({
       id: "em-breve",
       titulo: "Sobre esta tela",
-      blocos: [{ tipo: "p", texto: "Conteúdo detalhado em breve." }],
+      intro: [{ tipo: "p", texto: "Conteúdo detalhado em breve." }],
+      campos: [],
     });
   }
 
@@ -220,9 +209,28 @@ export function ManualPage() {
               </div>
               <div key={telaAtual.pageKey} className="max-w-2xl space-y-8">
                 {secoesDaTela(telaAtual).map((s) => (
-                  <section key={s.id} id={`secao-${s.id}`} className="scroll-mt-4 space-y-2">
+                  <section key={s.id} id={`secao-${s.id}`} className="scroll-mt-4 space-y-3">
                     <h3 className="font-display text-lg font-semibold">{s.titulo}</h3>
-                    <Blocos blocos={s.blocos as Bloco[]} />
+                    {s.intro.length > 0 && <Blocos blocos={s.intro} />}
+                    {s.campos.length > 0 && (
+                      <dl className="space-y-4">
+                        {s.campos.map((c) => (
+                          <div key={c.campo} className="space-y-1">
+                            <dt className="font-medium text-foreground">
+                              {c.rotulo}
+                              {c.quando && (
+                                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                  {c.quando}
+                                </span>
+                              )}
+                            </dt>
+                            <dd className="text-sm text-muted-foreground">
+                              <Blocos blocos={c.ajuda} />
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
                   </section>
                 ))}
               </div>
