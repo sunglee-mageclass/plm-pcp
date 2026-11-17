@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useOpts } from "@/components/planejamento/modelo-shared";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -37,6 +38,7 @@ export type ArmarioSearch = { colecao?: string; sub?: string; armario?: string }
 
 type ArmarioRowData = { id: string; nome: string; status: ArmarioStatus; colunas: number; ordem: number; itens: number };
 type Opcao = { id: string; nome: string };
+type ColecaoRow = { id: string; nome: string; mes_id: string | null; ano_id: string | null };
 type SubRow = { id: string; nome: string; ordem: number | null };
 
 const STATUS_ROTULO: Record<ArmarioStatus, string> = { rascunho: "Rascunho", pronto: "Pronto", publicado: "Publicado" };
@@ -63,11 +65,26 @@ export function ArmarioListPage({ search, onSearch }: { search: ArmarioSearch; o
   const { data: colecoes = [] } = useQuery({
     queryKey: ["armario-colecoes"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("colecoes").select("id, nome").order("created_at", { ascending: false });
+      // #1: traz mes_id/ano_id da coleção (OTB) para o filtro de período. O mês/ano é POR COLEÇÃO
+      // (todo modelo herda), então filtrar a coleção pelo período encurta a lista conforme ela cresce.
+      const { data, error } = await supabase.from("colecoes").select("id, nome, mes_id, ano_id").order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as Opcao[];
+      return (data ?? []) as unknown as ColecaoRow[];
     },
   });
+  // Rótulos de mês/ano (mesma fonte do Planejamento). meses ordenado por `ordem` (1..12).
+  const { data: meses = [] } = useOpts("meses", "mes");
+  const { data: anos = [] } = useOpts("anos", "ano");
+  const anoMap = useMemo(() => new Map(anos.map((a) => [a.id, a.nome])), [anos]);
+  const mesMap = useMemo(() => new Map(meses.map((m) => [m.id, m.nome])), [meses]);
+
+  // Filtro de período (encurta a lista de coleções). Vazio = todas.
+  const [fAno, setFAno] = useState<string>("");
+  const [fMes, setFMes] = useState<string>("");
+  const colecoesFiltradas = useMemo(
+    () => colecoes.filter((c) => (!fAno || c.ano_id === fAno) && (!fMes || c.mes_id === fMes)),
+    [colecoes, fAno, fMes],
+  );
   const { data: subs = [] } = useQuery({
     queryKey: ["colecao-subcolecoes", colecaoId],
     enabled: !!colecaoId,
@@ -191,12 +208,43 @@ export function ArmarioListPage({ search, onSearch }: { search: ArmarioSearch; o
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
+        {/* #1: filtro de PERÍODO (ano/mês da coleção) — encurta a lista de coleções conforme ela cresce. */}
+        <div className="min-w-[120px] space-y-1">
+          <Label className="text-xs text-muted-foreground">Ano</Label>
+          <Select value={fAno || "__todos__"} onValueChange={(v) => setFAno(v === "__todos__" ? "" : v)}>
+            <SelectTrigger aria-label="Ano"><SelectValue placeholder="Todos" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__todos__">Todos os anos</SelectItem>
+              {anos.map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="min-w-[140px] space-y-1">
+          <Label className="text-xs text-muted-foreground">Mês</Label>
+          <Select value={fMes || "__todos__"} onValueChange={(v) => setFMes(v === "__todos__" ? "" : v)}>
+            <SelectTrigger aria-label="Mês"><SelectValue placeholder="Todos" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__todos__">Todos os meses</SelectItem>
+              {meses.map((m) => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="min-w-[220px] space-y-1">
           <Label className="text-xs text-muted-foreground">Coleção</Label>
           <Select value={colecaoId ?? ""} onValueChange={(v) => onSearch({ colecao: v })}>
             <SelectTrigger aria-label="Coleção"><SelectValue placeholder="Escolha a coleção" /></SelectTrigger>
             <SelectContent>
-              {colecoes.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+              {colecoesFiltradas.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.nome}
+                  {(c.mes_id || c.ano_id) ? (
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      · {[c.mes_id ? mesMap.get(c.mes_id) : null, c.ano_id ? anoMap.get(c.ano_id) : null].filter(Boolean).join("/")}
+                    </span>
+                  ) : null}
+                </SelectItem>
+              ))}
+              {colecoesFiltradas.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">Nenhuma coleção neste período.</div>}
             </SelectContent>
           </Select>
         </div>
