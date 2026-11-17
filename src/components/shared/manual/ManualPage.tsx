@@ -17,19 +17,29 @@ import {
   type ModuloManual,
   type TelaManual,
 } from "@/lib/manual/estrutura";
-import { camposDaTela, type CampoManual } from "@/lib/manual/tipos-conteudo";
+import { conteudoDaTela, type CampoManual, type SecaoConteudoManual } from "@/lib/manual/tipos-conteudo";
 import { Blocos } from "./ManualRenderer";
 import type { Bloco } from "./tipos";
 
-/** Uma seção do Manual de uma tela: um texto de introdução (Bloco[]) + os campos documentados
- *  (cada campo = verbete "nome em negrito + ajuda"). `id` vira a âncora `#secao-<id>` (ajuda A5). */
+/** Uma seção renderizável do Manual: intro (Bloco[]) + campos-verbete. `id` → âncora `#secao-<id>`. */
 type SecaoConteudo = { id: string; titulo: string; intro: Bloco[]; campos: CampoManual[] };
 
-/** Monta as seções (conteúdo-como-dados) de UMA tela: "Para que serve" (description) + 1 seção por
- *  SecaoEstrutura (hint + campos documentados) + os campos da própria tela. Vazio → aviso "em breve". */
+/** Monta as seções de UMA tela. Prioridade: o conteúdo À MÃO (CONTEUDO_TELAS, uma seção por área do
+ *  Sheet) quando a tela o tem; senão, o esqueleto automático (description + sub-permissões do
+ *  catálogo), com aviso discreto "em breve" onde ainda não há detalhe. */
 function secoesDaTela(tela: TelaManual): SecaoConteudo[] {
-  const secoes: SecaoConteudo[] = [];
+  const aMao = conteudoDaTela(tela.pageKey);
+  if (aMao.length > 0) {
+    return aMao.map((s: SecaoConteudoManual) => ({
+      id: s.id,
+      titulo: s.titulo,
+      intro: s.intro ?? [],
+      campos: s.campos ?? [],
+    }));
+  }
 
+  // Sem conteúdo à mão: esqueleto automático.
+  const secoes: SecaoConteudo[] = [];
   if (tela.descricao) {
     secoes.push({
       id: "para-que-serve",
@@ -38,24 +48,12 @@ function secoesDaTela(tela: TelaManual): SecaoConteudo[] {
       campos: [],
     });
   }
-
-  // Uma seção por SecaoEstrutura (sub-permissão da tela). id = sectionKey → âncora `#secao-<key>`.
   for (const sec of tela.seroes) {
     const intro: Bloco[] = [];
     if (sec.hint) intro.push({ tipo: "p", texto: sec.hint });
-    const campos = camposDaTela(sec.key);
-    if (intro.length === 0 && campos.length === 0) {
-      intro.push({ tipo: "p", texto: "Conteúdo detalhado em breve." });
-    }
-    secoes.push({ id: sec.key, titulo: sec.label, intro, campos });
+    else intro.push({ tipo: "p", texto: "Conteúdo detalhado em breve." });
+    secoes.push({ id: sec.key, titulo: sec.label, intro, campos: [] });
   }
-
-  // Campos da própria tela (camposDaTela(pageKey)) quando houver.
-  const camposTela = camposDaTela(tela.pageKey);
-  if (camposTela.length > 0) {
-    secoes.push({ id: "campos", titulo: "Campos", intro: [], campos: camposTela });
-  }
-
   if (secoes.length === 0) {
     secoes.push({
       id: "em-breve",
@@ -64,7 +62,6 @@ function secoesDaTela(tela: TelaManual): SecaoConteudo[] {
       campos: [],
     });
   }
-
   return secoes;
 }
 
@@ -112,7 +109,12 @@ export function ManualPage() {
     }
     if (h.startsWith("secao-")) {
       const secKey = h.slice("secao-".length);
-      const dona = telas.find((t) => t.seroes.some((s) => s.key === secKey));
+      // A seção pode vir do catálogo (sub-permissão) OU do conteúdo à mão (área do Sheet).
+      const dona = telas.find(
+        (t) =>
+          t.seroes.some((s) => s.key === secKey) ||
+          conteudoDaTela(t.pageKey).some((s) => s.id === secKey),
+      );
       return dona?.pageKey ?? null;
     }
     return null;
