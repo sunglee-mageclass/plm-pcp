@@ -408,7 +408,7 @@ function ArmarioLinha({ a, podeEditar, editando, onAbrir, onEditar, onFimEdicao,
         <button
           type="button"
           onClick={onAbrir}
-          className="min-w-0 flex-1 text-left"
+          className="group min-w-0 flex-1 text-left"
           title="Abrir armário"
         >
           <span className="block max-w-full truncate font-medium group-hover:underline">{a.nome}</span>
