@@ -19,11 +19,15 @@ const VERSAO_ANTERIOR_VAZIA = { mapa: undefined, carregando: false, erro: false,
 const VERSOES_INTEGRADAS_VAZIAS = { mapa: new Map(), carregando: false, erro: false, tentarDeNovo: () => {} };
 
 describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-81 A, v4)", () => {
-  it("ModuleDef próprio 'integracao' no fim do catálogo (depois dele só o 'exportar_dados'), página única (link direto)", () => {
-    expect(PAGES_CATALOG[PAGES_CATALOG.length - 1].module).toBe("exportar_dados");
-    const ult = PAGES_CATALOG[PAGES_CATALOG.length - 2];
-    expect(ult).toMatchObject({ module: "integracao", label: "Integração", basePath: "/integracao" });
-    expect(ult.pages.map((p) => p.key)).toEqual(["integracao"]);
+  it("ModuleDef próprio 'integracao' entre os links diretos do fim do catálogo (exportar_dados e manual depois dele), página única (link direto)", () => {
+    // Fim do catálogo = módulos de PÁGINA ÚNICA/link direto: … integracao, exportar_dados, manual.
+    // (manual entrou com a frente do Manual de uso; exportar_dados logo antes dele.)
+    const modulos = PAGES_CATALOG.map((m) => m.module);
+    expect(modulos[modulos.length - 1]).toBe("manual");
+    expect(modulos[modulos.length - 2]).toBe("exportar_dados");
+    const integ = PAGES_CATALOG.find((m) => m.module === "integracao")!;
+    expect(integ).toMatchObject({ module: "integracao", label: "Integração", basePath: "/integracao" });
+    expect(integ.pages.map((p) => p.key)).toEqual(["integracao"]); // 1 página (link direto); as abas são sections DELA
   });
   it("fora dos interruptores de contratação (como o importar — nota 12)", () => {
     expect(ler("src/routes/_authenticated/admin/lojas.tsx")).toMatch(/key === "importar" \|\| key === "integracao"/);
