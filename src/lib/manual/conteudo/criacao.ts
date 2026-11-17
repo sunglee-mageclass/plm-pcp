@@ -157,7 +157,252 @@ const PLANEJAMENTO: SecaoConteudoManual[] = [
   },
 ];
 
+const PLAN_TECIDO: SecaoConteudoManual[] = [
+  {
+    id: "para-que-serve",
+    titulo: "Para que serve",
+    intro: [
+      p("O Planejamento de Tecido é onde você planeja a compra de tecido de uma coleção inteira, ANTES de comprar: compara o que os produtos precisam (a necessidade) com o que você já tem (estoque e OCs a chegar) e mostra quanto falta comprar por cor."),
+      p("Você começa escolhendo uma coleção na lista; cada card de coleção já adianta quantos modelos tem e um resumo (“a comprar X m”, “tecido coberto” ou “sem plano de tecido”). Ao abrir, o planejamento da coleção aparece organizado por tecido, com os produtos que o usam."),
+    ],
+  },
+  {
+    id: "lista",
+    titulo: "Lista de coleções",
+    intro: [p("A tela de entrada: os cards das coleções planejadas (as mesmas do OTB). É um módulo que depende do OTB estar ligado — sem coleções, o atalho leva você ao OTB para criar.")],
+    campos: [
+      { campo: "busca_filtros", rotulo: "Buscar · Ordenar · Filtros", ajuda: [p("A busca encontra pelo nome da coleção OU de uma subcoleção dentro dela. Os filtros (Mês, Ano, Status, Tipo) e a ordenação A–Z ajudam a achar a coleção certa. Tipo é Orçamento ou Poder de venda (vem do OTB); Status é Rascunho ou Confirmada.")] },
+      { campo: "resumo_card", rotulo: "Resumo do card (modelos · a comprar)", ajuda: [p("Cada card mostra quantos modelos a coleção já tem e o resumo de tecido: “a comprar X m” (em vermelho) quando falta tecido, “tecido coberto” quando o estoque e as OCs cobrem, ou “sem plano de tecido” quando ainda não há necessidade calculada.")] },
+    ],
+  },
+  {
+    id: "coberturas",
+    titulo: "Necessidade × estoque × OCs",
+    intro: [p("Dentro da coleção, cada tecido mostra o que os produtos precisam dele e o que já está coberto. É a conta que diz quanto comprar: necessidade menos o que você já tem ou já pediu.")],
+    campos: [
+      { campo: "necessidade", rotulo: "Necessidade (PLAN)", ajuda: [p("Quanto de tecido os produtos da coleção consomem, por cor. É calculada a partir da ficha de materiais e da grade de cada produto. Produto reprovado sai da necessidade; o que já foi enviado ao corte continua contando.")] },
+      { campo: "estoque", rotulo: "Estoque (EST) e a chegar", ajuda: [p("O que você já tem do tecido: o físico disponível mais o que está a chegar pelas OCs. A reserva de outras coleções que usam o mesmo tecido é descontada — por isso o EST pode ficar menor do que o físico puro.")] },
+      { campo: "ocs", rotulo: "OCs vinculadas", ajuda: [p("As ordens de compra ligadas à coleção abatem a necessidade. Você pode ver a situação por OC — como a demanda se reparte entre as OCs vinculadas, na mesma ordem em que o corte as consome.")] },
+      { campo: "comprar", rotulo: "A comprar (COMPR)", ajuda: [p("Quanto falta comprar = o que não está coberto por estoque nem por OC. É daqui que sai o botão de fazer o pedido do que falta.")] },
+    ],
+  },
+  {
+    id: "modo-plano",
+    titulo: "Modo Plano",
+    intro: [p("Uma visão alternativa, por nome de tecido (uma faixa por tecido), que mostra lado a lado EST · PLAN · SOB · COMPR por cor — “quanto tenho, quanto pretendo usar, quanto sobra, quanto comprar”.")],
+    campos: [
+      { campo: "est_plan_sob_compr", rotulo: "EST · PLAN · SOB · COMPR", ajuda: [
+        p("Por cor do tecido: EST é o estoque (disponível + a chegar − reserva de outras coleções), PLAN é a necessidade do seu rascunho, SOB é o que sobra e COMPR é o que falta comprar (nunca negativo)."),
+        p("O resumo recalcula AO VIVO enquanto você edita — mexer no consumo, nas cores ou na grade muda os números na hora, sem precisar salvar. O “i” ao lado do EST abre o detalhe das 3 parcelas (físico, a chegar e reservado por outras coleções)."),
+      ] },
+    ],
+  },
+  {
+    id: "pedido",
+    titulo: "Fazer pedido",
+    intro: [p("O assistente que transforma o que falta (COMPR) em ordens de compra de tecido, agrupadas por fornecedor. A prévia é salva no servidor e é a mesma conta do resumo da coleção.")],
+  },
+  {
+    id: "distribuir",
+    titulo: "Distribuir por loja",
+    intro: [p("No card de um produto, o dialog “Distribuir por loja” reparte a quantidade de peças entre as lojas, por cor e tamanho. A célula é calculada pela proporção, mas você pode corrigir à mão (vira “manual” até você voltar ao calculado). O resumo também aparece no Direcionamento.")],
+    campos: [
+      { campo: "distribuir", rotulo: "Distribuir por loja", quando: "só Tecido 1", ajuda: [p("Reparte por cor × loja × tamanho; o total por cor preenche a quantidade de peças do card. Um produto já Enviado à Explosão abre o dialog SÓ para leitura.")] },
+    ],
+  },
+  {
+    id: "replicar",
+    titulo: "Replicar card(s)",
+    intro: [p("Replica um ou mais produtos para outra coleção/subcoleção, copiando o essencial (tecido, medidas, NCM, “Tamanho em”). Título e Preço anterior NÃO são copiados — a cópia nasce com os dois no automático.")],
+  },
+];
+
+const PRODUTO_ACABADO: SecaoConteudoManual[] = [
+  {
+    id: "para-que-serve",
+    titulo: "Para que serve",
+    intro: [
+      p("O Produto Acabado (Revenda) é onde você planeja produtos que compra prontos de um fornecedor para revender — você não fabrica. O planejamento é por coleção e subcoleção, num canvas de cards, igual ao Plan. Tecido."),
+      p("Cada produto de revenda tem um card espelho no Planejamento, então ele também aparece no quadro de produtos e segue o fluxo de cores, grade e lançamento. É um módulo opcional (depende de a loja ter Produto Acabado e OTB ligados)."),
+    ],
+  },
+  {
+    id: "identidade",
+    titulo: "Identidade do produto",
+    intro: [p("O nome, a classificação e os dados do produto comprado. A REF é gerada automaticamente quando o produto é criado.")],
+    campos: [
+      { campo: "nome", rotulo: "Nome", ajuda: [p("O nome do produto de revenda. É copiado para o card espelho no Planejamento.")] },
+      { campo: "taxonomia", rotulo: "Grupo · Categoria · Subcategoria 1 · Subcategoria 2", ajuda: [p("A classificação, em até quatro níveis. No grupo Acessórios, a grade é única (“UN”, sem tamanho) e algumas regras mudam.")] },
+      { campo: "categoria_tecido", rotulo: "Categoria do tecido / Material do aviamento", quando: "pelo grupo", ajuda: [p("Um campo informativo que depende do grupo: Acessórios mostra “Material do aviamento”; os demais, “Categoria do tecido”. É usado pela Integração com o e-commerce.")] },
+      { campo: "ref_fornecedor", rotulo: "Ref. Fornecedor", quando: "opcional", ajuda: [p("O código do produto no catálogo do fornecedor, para você se achar na hora do pedido.")] },
+      { campo: "composicao", rotulo: "Composição", quando: "opcional", ajuda: [p("A composição do produto (ex.: 100% algodão). É texto livre.")] },
+      { campo: "tamanho_tipo", rotulo: "Tamanho em (Letra ou Número)", ajuda: [p("Define se os tamanhos são por letra (P, M, G) ou por número. É o mesmo valor do Planejamento — mudar aqui reflete lá. Em Acessórios, não aparece (a grade é única).")] },
+    ],
+  },
+  {
+    id: "variantes-grade",
+    titulo: "Variantes e grade",
+    intro: [p("As cores do produto e a proporção da grade (quantas peças por cor e tamanho). É a base da quantidade e do pedido.")],
+    campos: [
+      { campo: "variantes", rotulo: "Variantes (cores)", ajuda: [p("As cores do produto comprado. Cada variante pode ter cor base e cor apelido.")] },
+      { campo: "grade_proporcao", rotulo: "Proporção da grade · Quantidade total", ajuda: [p("A proporção por tamanho e a quantidade total. O sistema distribui a quantidade pelos tamanhos pela proporção informada.")] },
+    ],
+  },
+  {
+    id: "precos",
+    titulo: "Preços e custo",
+    intro: [p("O produto de revenda tem preço de atacado e de varejo, cada um por markup ou por valor fixo. O custo vem do valor de compra. Ver custos e preços é uma permissão à parte.")],
+    campos: [
+      { campo: "markups", rotulo: "Markup Atacado · Markup Varejo", ajuda: [p("O multiplicador que calcula o preço a partir do custo. Editar o markup limpa o valor fixo daquele canal.")] },
+      { campo: "fixos", rotulo: "Valor atacado · Valor varejo", ajuda: [p("O preço fixo (quando você digita o preço direto em vez de usar o markup). Mexer no markup do mesmo canal apaga o fixo.")] },
+    ],
+  },
+  {
+    id: "oc",
+    titulo: "Pedido e OC",
+    intro: [p("A compra do produto pronto vira uma Ordem de Compra de Produto Acabado. Uma OC pode reunir vários produtos do mesmo fornecedor, mas cada produto fica em uma OC por vez.")],
+    campos: [
+      { campo: "fornecedor", rotulo: "Fornecedor", ajuda: [p("A empresa (ou o representante dela) de quem você compra. O assistente “Fazer pedido” agrupa os produtos por fornecedor e cria as OCs de uma vez.")] },
+      { campo: "fazer_pedido", rotulo: "Fazer pedido · Na OC", ajuda: [p("O rodapé “Fazer pedido” abre o assistente para pedir os produtos da subcoleção que ainda não têm OC. Um produto que já está numa OC mostra em qual (e com quantos outros produtos a divide).")] },
+    ],
+  },
+  {
+    id: "status",
+    titulo: "Status do produto",
+    intro: [p("Enquanto o produto de revenda não vira um card no quadro, você marca a situação dele direto no planejamento.")],
+    campos: [
+      { campo: "status", rotulo: "Status (Pendente / Reprovado)", quando: "sem card", ajuda: [p("O seletor Pendente/Reprovado aparece só enquanto o produto não tem card no Planejamento. Com card, quem manda é a etapa do quadro (o selo da etapa aparece no lugar). “Criar card” recusa produto reprovado — avisa e pula os reprovados do lote.")] },
+    ],
+  },
+];
+
+const PRODUTO_IMPORTADO: SecaoConteudoManual[] = [
+  {
+    id: "para-que-serve",
+    titulo: "Para que serve",
+    intro: [
+      p("O Produto Importado é onde você planeja produtos que compra do exterior — como a revenda, mas com cotação de moeda e etapas de pagamento (mercadoria, frete, impostos). O planejamento é por coleção e subcoleção, num canvas de cards."),
+      p("Como na revenda, cada produto importado tem um card espelho no Planejamento. É um módulo opcional (depende de a loja ter Produto Importado ligado)."),
+    ],
+  },
+  {
+    id: "identidade",
+    titulo: "Identidade do produto",
+    intro: [p("Nome, classificação e dados do produto importado. A REF é gerada automaticamente.")],
+    campos: [
+      { campo: "nome", rotulo: "Nome", ajuda: [p("O nome do produto importado. É copiado para o card espelho no Planejamento.")] },
+      { campo: "taxonomia", rotulo: "Grupo · Categoria · Subcategoria 1 · Subcategoria 2", ajuda: [p("A classificação, em até quatro níveis. Em Acessórios a grade é única (“UN”).")] },
+      { campo: "categoria_tecido", rotulo: "Categoria do tecido / Material do aviamento", quando: "pelo grupo", ajuda: [p("Campo informativo que muda com o grupo (Acessórios mostra “Material do aviamento”; os demais, “Categoria do tecido”); usado pela Integração.")] },
+      { campo: "ref_composicao", rotulo: "Ref. Fornecedor · Composição", quando: "opcional", ajuda: [p("O código do produto no fornecedor e a composição (texto livre).")] },
+      { campo: "tamanho_tipo", rotulo: "Tamanho em (Letra ou Número)", ajuda: [p("Define se os tamanhos são por letra ou por número. É o mesmo valor do Planejamento. Escondido em Acessórios.")] },
+    ],
+  },
+  {
+    id: "variantes-grade",
+    titulo: "Variantes e grade",
+    intro: [p("As cores e a proporção da grade do produto importado.")],
+    campos: [
+      { campo: "variantes", rotulo: "Variantes (cores)", ajuda: [p("As cores do produto, cada uma com cor base e cor apelido.")] },
+      { campo: "grade_proporcao", rotulo: "Proporção da grade · Quantidade total", ajuda: [p("A proporção por tamanho e a quantidade total; o sistema reparte a quantidade pelos tamanhos.")] },
+    ],
+  },
+  {
+    id: "moeda-cotacao",
+    titulo: "Moeda e cotação",
+    intro: [p("O que diferencia o importado: o valor de compra é em outra moeda, e você registra a cotação para converter em reais.")],
+    campos: [
+      { campo: "moedas", rotulo: "Moeda de compra · Moeda intermediária", ajuda: [p("A moeda em que você paga o fornecedor (ex.: RMB) e, se houver, a moeda intermediária do câmbio.")] },
+      { campo: "cotacoes", rotulo: "Cotação de referência · Cotação final", ajuda: [p("A cotação de referência (usada para prever o custo) e a cotação final (a efetiva). O preço do importado é tratado como preço fixo, convertido pela cotação.")] },
+      { campo: "valor_unitario", rotulo: "Valor unitário (M1) · Transporte · Desconto", ajuda: [p("O valor unitário da mercadoria na moeda de compra, o transporte e o desconto — as parcelas que, com as cotações, compõem o custo em reais.")] },
+    ],
+  },
+  {
+    id: "etapas",
+    titulo: "Etapas de pagamento",
+    intro: [p("O pagamento do importado é dividido em etapas (mercadoria, frete, impostos…), cada uma com a sua base, percentual, vencimento e cotação. É daqui que saem as parcelas a pagar.")],
+    campos: [
+      { campo: "etapas", rotulo: "Etapas (base · percentual · vencimento · cotação)", ajuda: [p("Cada etapa é uma parte do pagamento: sobre qual base incide, o percentual, quando vence e com que cotação. Um produto novo nasce com as etapas padrão.")] },
+    ],
+  },
+  {
+    id: "precos",
+    titulo: "Preços",
+    intro: [p("Como na revenda, atacado e varejo por markup ou valor fixo. Ver preços é uma permissão à parte.")],
+    campos: [
+      { campo: "markups", rotulo: "Markup Atacado · Markup Varejo", ajuda: [p("O multiplicador do preço. Editar o markup limpa o valor fixo do mesmo canal.")] },
+      { campo: "fixos", rotulo: "Valor atacado · Valor varejo", ajuda: [p("O preço fixo digitado direto; mexer no markup do mesmo canal o apaga.")] },
+    ],
+  },
+];
+
+const DESENVOLVIMENTO: SecaoConteudoManual[] = [
+  {
+    id: "para-que-serve",
+    titulo: "Para que serve",
+    intro: [
+      p("O Desenvolvimento é o quadro (kanban) dos produtos em desenvolvimento: um card por produto, em colunas que representam a etapa de cada um. É onde você acompanha o andamento e move os produtos pelas fases."),
+      p("Clicar num card abre o MESMO editor do Planejamento (a ficha completa do produto: identidade, BOM, CAD, mão de obra, etc.). Ou seja: o quadro mostra onde cada produto está; a edição é a mesma do Planejamento, só aberta a partir do Desenvolvimento."),
+    ],
+  },
+  {
+    id: "quadro",
+    titulo: "O quadro (colunas e cards)",
+    intro: [p("As colunas são as etapas que a sua loja configurou (mais a coluna final “Lançado”). Cada card é um produto; ele avança quando cumpre os requisitos da próxima coluna.")],
+    campos: [
+      { campo: "colunas", rotulo: "Colunas (etapas)", ajuda: [p("Cada coluna é uma etapa do desenvolvimento, na ordem do fluxo da loja. A coluna “Lançado” é a final e aparece sempre. A coluna Reprovado nasce recolhida.")] },
+      { campo: "mover", rotulo: "Mover o card · requisitos", ajuda: [p("Você move um card arrastando ou pelo menu “Mover para…”. A coluna que ainda não pode receber o card fica esmaecida — passe o mouse para ver o que falta (os requisitos de entrada daquela etapa).")] },
+      { campo: "selo_etapa", rotulo: "Selo da etapa", ajuda: [p("O card mostra em que etapa está. Quando a loja usa o Kanban automático, o card avança sozinho à medida que cumpre os requisitos.")] },
+      { campo: "abrir_card", rotulo: "Abrir o card (ficha)", ajuda: [p("Clicar no card abre a ficha completa do produto — o mesmo editor do Planejamento. As ações do quadro (arrastar, “Mover para…”) continuam valendo por fora da ficha.")] },
+    ],
+  },
+];
+
+const ARMARIO: SecaoConteudoManual[] = [
+  {
+    id: "para-que-serve",
+    titulo: "Para que serve",
+    intro: [
+      p("O Armário é onde você monta a vitrine do e-commerce de uma subcoleção: escolhe quais variantes (produto × cor) aparecem e em que ordem, arrastando-as para uma grade. É assim que a loja decide como os produtos se apresentam na loja virtual."),
+      p("Você planeja por subcoleção e pode ter vários armários nela, em uma ordem que é a ordem em que a vitrine os mostra. É um módulo opcional (depende de a loja ter o Armário ligado)."),
+    ],
+  },
+  {
+    id: "lista",
+    titulo: "Lista de armários",
+    intro: [p("Escolha a coleção e a subcoleção para ver os armários dela. A lista é reordenável — a ordem aqui é a ordem na vitrine.")],
+    campos: [
+      { campo: "filtros", rotulo: "Ano · Mês · Coleção · Subcoleção", ajuda: [p("Os seletores que levam você até a subcoleção. Os armários aparecem na ordem em que a vitrine os mostra.")] },
+      { campo: "novo", rotulo: "Novo armário · Duplicar", ajuda: [p("“Novo armário” cria um armário vazio para montar. Duplicar copia um armário existente — a cópia nasce como rascunho.")] },
+    ],
+  },
+  {
+    id: "montagem",
+    titulo: "Montar a vitrine",
+    intro: [p("Dentro de um armário, você arrasta variantes (produto × cor) para a grade e as organiza na ordem que quiser. O número de colunas controla o formato da grade.")],
+    campos: [
+      { campo: "variantes", rotulo: "Variantes disponíveis", ajuda: [p("A lista de variantes (produto × cor) da subcoleção que você pode arrastar para a grade. Uma variante cuja cor foi removida do cadastro aparece marcada em âmbar.")] },
+      { campo: "grade", rotulo: "Grade · Colunas", ajuda: [p("A grade ordenada da vitrine. Arraste um item para outra posição para reordenar; o campo “Colunas” muda em quantas colunas a grade se dispõe. Salvar grava a ordem e o formato.")] },
+    ],
+  },
+  {
+    id: "status",
+    titulo: "Status (rascunho → pronto → publicado)",
+    intro: [p("O armário passa por três situações. Enquanto está em rascunho ou pronto, você edita; ao publicar, ele vai para a vitrine e fica somente leitura.")],
+    campos: [
+      { campo: "status", rotulo: "Rascunho · Pronto · Publicado", ajuda: [
+        p("Rascunho é o armário em montagem; “Pronto” sinaliza que está fechado; Publicado é o que está no ar na vitrine. As transições são Marcar como pronto, Voltar para rascunho, Publicar e Despublicar."),
+        p("Publicar e Despublicar pedem confirmação (ligam/desligam o armário na loja virtual). Armário publicado não é editável nem excluível — despublique antes."),
+      ] },
+    ],
+  },
+];
+
 /** Telas do módulo Criação documentadas à mão. */
 export const CRIACAO_CONTEUDO: ConteudoTelas = {
   criacao_planejamento: PLANEJAMENTO,
+  criacao_plan_tecido: PLAN_TECIDO,
+  criacao_produto_acabado: PRODUTO_ACABADO,
+  criacao_produto_importado: PRODUTO_IMPORTADO,
+  criacao_desenvolvimento: DESENVOLVIMENTO,
+  criacao_armario: ARMARIO,
 };
