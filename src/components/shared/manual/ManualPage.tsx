@@ -18,7 +18,7 @@ import {
   type TelaManual,
 } from "@/lib/manual/estrutura";
 import { camposDaTela } from "@/lib/manual/tipos-conteudo";
-import { ManualIndiceSecoes, Blocos } from "./ManualRenderer";
+import { Blocos } from "./ManualRenderer";
 import type { Bloco, SecaoManual } from "./tipos";
 
 /** Monta as seções (conteúdo-como-dados) de UMA tela do Manual, com âncoras estáveis p/ ajuda
@@ -205,10 +205,12 @@ export function ManualPage() {
             ))}
           </nav>
 
-          {/* Tela selecionada + suas seções (âncora da tela = `#manual-<pageKey>` p/ ajuda contextual). */}
+          {/* Tela selecionada + suas seções, em UMA coluna de conteúdo (sem índice-lateral próprio: a
+              navegação da esquerda já é o índice; uma 3ª coluna apertaria e desalinharia — QA 17/nov).
+              Âncora da tela = `#manual-<pageKey>`; cada seção = `#secao-<sectionKey>` (ajuda contextual A5). */}
           {telaAtual && (
-            <div id={`manual-${telaAtual.pageKey}`} className="min-w-0 scroll-mt-4 space-y-4">
-              <div className="space-y-1">
+            <div id={`manual-${telaAtual.pageKey}`} className="min-w-0 scroll-mt-4">
+              <div className="mb-4 space-y-1">
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {labelDe(telaAtual.moduloKey, telaAtual.moduloLabel)}
                 </div>
@@ -216,12 +218,14 @@ export function ManualPage() {
                   {labelDe(telaAtual.pageKey, telaAtual.label)}
                 </h2>
               </div>
-              <ManualIndiceSecoes
-                key={telaAtual.pageKey}
-                secoes={secoesDaTela(telaAtual)}
-                prefixoAncora="secao"
-                renderBlocos={(blocos) => <Blocos blocos={blocos as Bloco[]} />}
-              />
+              <div key={telaAtual.pageKey} className="max-w-2xl space-y-8">
+                {secoesDaTela(telaAtual).map((s) => (
+                  <section key={s.id} id={`secao-${s.id}`} className="scroll-mt-4 space-y-2">
+                    <h3 className="font-display text-lg font-semibold">{s.titulo}</h3>
+                    <Blocos blocos={s.blocos as Bloco[]} />
+                  </section>
+                ))}
+              </div>
             </div>
           )}
         </div>
