@@ -61,11 +61,14 @@ describe("paginaComModuloDesligado", () => {
     expect(paginaComModuloDesligado("integracao", tudoOff)).toBe(false);
   });
 
-  it("todo módulo de topo e toda gate do catálogo é chave conhecida ou das 3 exceções (importar/integracao/exportar_dados/pcp-expedicao via gate)", () => {
+  it("todo módulo de topo e toda gate do catálogo é chave conhecida ou das exceções de link direto (importar/integracao/exportar_dados/manual)", () => {
     const conhecidas = new Set(Object.keys(COMPLETO));
+    // Módulos de PÁGINA ÚNICA / link direto, fora dos interruptores de contratação (sem ModuleKey próprio):
+    // importar, integracao, exportar_dados e manual (este último entrou com a frente do Manual de uso).
+    const linksDir = ["importar", "integracao", "exportar_dados", "manual"];
     for (const m of PAGES_CATALOG) {
       const chave = m.gate ?? m.module;
-      expect(conhecidas.has(chave) || ["importar", "integracao", "exportar_dados"].includes(chave), `${m.module} -> ${chave}`).toBe(true);
+      expect(conhecidas.has(chave) || linksDir.includes(chave), `${m.module} -> ${chave}`).toBe(true);
       for (const p of m.pages) if (p.gate) expect(conhecidas.has(p.gate), `${p.key} gate ${p.gate}`).toBe(true);
     }
   });
