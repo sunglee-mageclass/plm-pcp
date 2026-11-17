@@ -15,7 +15,6 @@ import {
   Moon,
   KeyRound,
   ArrowLeft,
-  Plug,
   BookOpen,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
@@ -72,10 +71,10 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 // (a key só é concedida pelo super admin). `canView` já reflete a regra.
 const MODULOS_SEM_BYPASS_ADMIN = new Set(["integracao", "exportar_dados"]);
 
-// Manual de uso: o código está pronto, mas a ABA fica ESCONDIDA até o dono liberar (decisão 17/nov:
-// o Manual não entra neste deploy). A rota /manual continua existindo (acessível por URL direta);
-// só o link some do menu. Para liberar: trocar para `true` (zero banco, 1 flag).
-const MANUAL_VISIVEL = false;
+// Manual de uso: LIBERADO (17/nov, dono) — a ABA aparece no fim de "Operação", logo abaixo de
+// Cadastro (ver render). Universal: vale para QUALQUER usuário logado, sem permissão própria e
+// sem `max-md:hidden` (é ajuda, vale no celular também). Para esconder de novo: trocar para `false`.
+const MANUAL_VISIVEL = true;
 
 export function AppSidebar() {
   const { state, setOpenMobile } = useSidebar();
@@ -177,11 +176,21 @@ export function AppSidebar() {
   moveTop("/criacao"); // Criação sobe primeiro…
   moveTop("/otb");     // …e OTB fica acima dela.
 
-  // Cadastro vai pro FIM, logo abaixo de Dashboard, separado por uma linha (pedido do dono).
-  // "Importar Dados" é um item de topo PRÓPRIO logo abaixo de Cadastro (não sub-item dele).
+  // REORGANIZAÇÃO DO MENU (nov/2026, dono):
+  //  - "Operação": Início → módulos do dia a dia → linha → Cadastro → Manual.
+  //  - "Sistema" (admin): Admin → Importar Dados → Exportar Dados → Integração.
+  // Cadastro vai pro FIM de "Operação", separado por uma linha. Importar Dados MUDOU para o grupo
+  // "Sistema" (consequência aceita pelo dono: passa a aparecer SÓ para admin — ver bloco Sistema).
+  // Exportar Dados e Integração também vão pro grupo "Sistema", MAS mantêm a VISIBILIDADE por
+  // permissão PRÓPRIA (não viram só-admin): seguem saindo de `visibleMainItems`, onde o conjunto
+  // MODULOS_SEM_BYPASS_ADMIN já decide quem os vê (canView da key). Por isso os filtramos de
+  // `mainItems` (como cadastro/importar) e os renderizamos no grupo Sistema com guarda individual.
   const cadastroItem = visibleMainItems.find((x) => x.url === "/cadastro");
   const importarItem = visibleMainItems.find((x) => x.url === "/cadastro/importar");
-  const mainItems = visibleMainItems.filter((x) => x.url !== "/cadastro" && x.url !== "/cadastro/importar");
+  const exportarItem = visibleMainItems.find((x) => x.url === "/exportar-dados");
+  const integracaoItem = visibleMainItems.find((x) => x.url === "/integracao");
+  const URLS_FORA_DO_FLUXO = new Set(["/cadastro", "/cadastro/importar", "/exportar-dados", "/integracao"]);
+  const mainItems = visibleMainItems.filter((x) => !URLS_FORA_DO_FLUXO.has(x.url));
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
   // URL de topo MAIS ESPECÍFICA que casa o pathname atual (precedência): assim "/cadastro/importar"
@@ -296,19 +305,18 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               {mainItems.map(renderItem)}
-              {/* Cadastro abaixo de Dashboard, separado por uma linha. */}
+              {/* Fim de "Operação": linha separadora → Cadastro → Manual (pedido do dono, nov/2026).
+                  Importar/Exportar/Integração saíram daqui e foram pro grupo "Sistema". */}
               {cadastroItem && (
                 <>
                   <SidebarSeparator className="my-1" />
                   {renderItem(cadastroItem)}
                 </>
               )}
-              {/* Importar Dados: item de topo próprio, logo ABAIXO de Cadastro (pedido do dono). */}
-              {importarItem && renderItem(importarItem)}
 
               {/* Manual de uso: UNIVERSAL — aparece para TODOS os logados, sem permissão própria e
-                  SEM `max-md:hidden` (é ajuda, vale no celular também). Link direto, sempre ao fim.
-                  ESCONDIDO por `MANUAL_VISIVEL=false` até o dono liberar (o código vai latente). */}
+                  SEM `max-md:hidden` (é ajuda, vale no celular também). Link direto, logo ABAIXO de
+                  Cadastro. LIBERADO por `MANUAL_VISIVEL=true` (17/nov). */}
               {MANUAL_VISIVEL && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={isActive("/manual")} tooltip="Manual">
@@ -324,21 +332,37 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* "Sistema" só aparece para quem tem acesso de admin (antes o cabeçalho ficava
-            visível e vazio para usuário comum). */}
-        {isAdmin && (
+        {/* "Sistema" (nov/2026, dono): Admin → Importar Dados → Exportar Dados → Integração.
+            O grupo aparece se o usuário é admin OU tem a permissão PRÓPRIA de Exportar/Integração
+            (senão o cabeçalho ficaria visível e vazio para usuário comum).
+            ⚠️ VISIBILIDADE por item, não pelo grupo:
+              - Admin e Importar Dados: SÓ para admin (`isAdmin`). Importar passou a ser só-admin ao
+                vir pra cá — consequência INTENCIONAL aceita pelo dono.
+              - Exportar Dados e Integração: seguem a permissão PRÓPRIA (vêm de `visibleMainItems`,
+                onde MODULOS_SEM_BYPASS_ADMIN já filtra por canView) — por isso renderizamos cada um
+                só com `exportarItem`/`integracaoItem` presentes, NÃO gateados por `isAdmin`. Assim um
+                usuário NÃO-admin com a key própria de cada um continua vendo-os.
+            A Integração segue escondida no celular pelo que o `renderItem` já aplica (P-87). */}
+        {(isAdmin || exportarItem || integracaoItem) && (
           <SidebarGroup>
             <SidebarGroupLabel>Sistema</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={isActive("/admin")} tooltip="Admin">
-                    <Link to="/admin">
-                      <Shield className="h-4 w-4" />
-                      <span>Admin</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {isAdmin && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={isActive("/admin")} tooltip="Admin">
+                      <Link to="/admin">
+                        <Shield className="h-4 w-4" />
+                        <span>Admin</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {/* Importar Dados: SÓ admin (gate herdado do grupo via `isAdmin`, intencional). */}
+                {isAdmin && importarItem && renderItem(importarItem)}
+                {/* Exportar Dados e Integração: visibilidade por permissão PRÓPRIA (não `isAdmin`). */}
+                {exportarItem && renderItem(exportarItem)}
+                {integracaoItem && renderItem(integracaoItem)}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -367,14 +391,8 @@ export function AppSidebar() {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                <SidebarMenuItem className="max-md:hidden">
-                  <SidebarMenuButton asChild isActive={isActive("/integracao")} tooltip="Integração">
-                    <Link to="/integracao">
-                      <Plug className="h-4 w-4" />
-                      <span>Integração</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {/* Integração MOVEU daqui para o grupo "Sistema" (nov/2026, dono) — renderizada lá
+                    pela permissão própria (`integracaoItem`), com o mesmo `max-md:hidden` (P-87). */}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
