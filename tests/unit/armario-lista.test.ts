@@ -218,8 +218,11 @@ describe("ArmarioListPage — reordenar", () => {
     await act(async () => { dnd.onDragEnd!({ active: { id: "a3" }, over: { id: "a1" } }); });
     await tick(5);
     expect(rpcMock).toHaveBeenCalledWith("armario_reordenar", { _subcolecao_ids: ["a3", "a1", "a2"] });
-    // otimista: a lista já mostra a nova ordem
-    const nomes = Array.from(document.querySelectorAll('[data-testid="armario-linha"]')).map((l) => l.querySelector("button[title='Abrir armário']")?.textContent);
+    // otimista: a lista já mostra a nova ordem. O botão "Abrir armário" (#2: bloco clicável) traz nome
+    // + subtítulo ("N variantes · N colunas"); o NOME é o 1º span (font-medium).
+    const nomes = Array.from(document.querySelectorAll('[data-testid="armario-linha"]')).map(
+      (l) => l.querySelector("button[title='Abrir armário'] span")?.textContent,
+    );
     expect(nomes[0]).toBe("Promo");
   });
 
