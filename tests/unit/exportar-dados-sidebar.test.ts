@@ -27,8 +27,10 @@ describe("app-sidebar — item 'Exportar dados' sem bypass de admin", () => {
 
   it("MODULOS_SEM_BYPASS_ADMIN contém integracao E exportar_dados e o filtro de módulo usa o conjunto", () => {
     expect(s).toMatch(/MODULOS_SEM_BYPASS_ADMIN = new Set\(\["integracao", "exportar_dados"\]\)/);
+    // A cadeia `visibleMainItems` pode ganhar filtros novos no meio (ex.: `.filter((m) => m.module !== "manual")`
+    // do Manual universal) — a janela vai até o `.map(` que fecha a cadeia de `.filter(...)`, não um offset fixo.
     const i = s.indexOf("const visibleMainItems");
-    const filtro = s.slice(i, i + 900);
+    const filtro = s.slice(i, s.indexOf(".map(", i));
     expect(filtro).toMatch(/MODULOS_SEM_BYPASS_ADMIN\.has\(m\.module\)\s*\?\s*m\.pages\.some\(.*canView\(p\.key\)/);
   });
 

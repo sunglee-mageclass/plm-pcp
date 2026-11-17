@@ -5,13 +5,14 @@ import { MODULE_DEPS, MODULE_ROTULO, PAGES_CATALOG, faltasDeModulo } from "@/lib
 import type { ModuleKey } from "@/hooks/useTenantModules";
 import { motivoModulos, textoAcaoPrecisaDeModulos, listaDeRotulos, modulosComArtigo } from "@/lib/modulos-texto";
 
-// As 11 chaves de módulo = a união de `ModuleKey` (lida do texto do hook: não existe lista em runtime).
+// As 12 chaves de módulo = a união de `ModuleKey` (lida do texto do hook: não existe lista em runtime).
+// Era 11 até a frente do Armário (módulo opt-in `armario`, já em produção/HEAD) somar a 12ª chave.
 const HOOK = readFileSync("src/hooks/useTenantModules.ts", "utf8");
 const CHAVES = [...HOOK.slice(HOOK.indexOf("export type ModuleKey"), HOOK.indexOf("const DEFAULTS")).matchAll(/\| "([a-z_]+)"/g)].map((m) => m[1] as ModuleKey);
 
 describe("MODULE_ROTULO / MODULE_DEPS", () => {
-  it("as 11 chaves de módulo têm rótulo (e só elas)", () => {
-    expect(CHAVES).toHaveLength(11);
+  it("as 12 chaves de módulo têm rótulo (e só elas)", () => {
+    expect(CHAVES).toHaveLength(12);
     expect(Object.keys(MODULE_ROTULO).sort()).toEqual([...CHAVES].sort());
     for (const k of CHAVES) expect(MODULE_ROTULO[k].length).toBeGreaterThan(0);
   });
@@ -55,7 +56,7 @@ describe("MODULE_ROTULO / MODULE_DEPS", () => {
     }
   });
 
-  it("faltasDeModulo nas 11 chaves: tudo ligado → nada falta; tudo desligado → as dependências na ordem do mapa", () => {
+  it("faltasDeModulo nas 12 chaves: tudo ligado → nada falta; tudo desligado → as dependências na ordem do mapa", () => {
     const tudo = Object.fromEntries(CHAVES.map((k) => [k, true])) as Record<ModuleKey, boolean>;
     const nada = Object.fromEntries(CHAVES.map((k) => [k, false])) as Record<ModuleKey, boolean>;
     for (const k of CHAVES) {
