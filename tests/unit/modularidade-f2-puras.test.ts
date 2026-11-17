@@ -7,7 +7,7 @@ import { entidadeOferecida, descritoresOferecidos } from "@/lib/import/oferta";
 import { DESCRIPTORS } from "@/lib/import/registry";
 import { blocosConfigVisiveis } from "@/lib/config-loja-blocos";
 
-const COMPLETO = resolverModulos({ otb: true, produto_acabado: true, produto_importado: true, etapas_pl: true, distribuicao: true });
+const COMPLETO = resolverModulos({ otb: true, produto_acabado: true, produto_importado: true, etapas_pl: true, distribuicao: true, armario: true });
 
 describe("paginaComModuloDesligado", () => {
   it("loja com tudo ligado: nenhuma página esmaecida", () => {

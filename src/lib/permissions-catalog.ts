@@ -59,6 +59,7 @@ export const MODULE_ROTULO: Record<ModuleKey, string> = {
   produto_acabado: "Produto Acabado",
   produto_importado: "Produto Importado",
   etapas_pl: "Etapas PL",
+  armario: "Armário",
 };
 
 export const MODULE_DEPS: Partial<Record<ModuleKey, { exige: ModuleKey[]; motivo: string }>> = {
@@ -68,6 +69,7 @@ export const MODULE_DEPS: Partial<Record<ModuleKey, { exige: ModuleKey[]; motivo
   otb: { exige: ["criacao"], motivo: "A coleção do OTB organiza os cards da Criação." },
   distribuicao: { exige: ["otb", "criacao"], motivo: "A distribuição por loja mora no Plan. Tecido (OTB) e nos cards (Criação)." },
   etapas_pl: { exige: ["producao"], motivo: "As etapas de PL ficam no PCP (Produção)." },
+  armario: { exige: ["criacao"], motivo: "O armário monta a vitrine a partir dos produtos e variantes da Criação." },
 };
 
 /** Módulos que `chave` exige e a loja NÃO tem ligados (ordem do mapa). `modules` = o mapa já resolvido da loja
@@ -171,8 +173,9 @@ export const PAGES_CATALOG: ModuleDef[] = [
         ] },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento", description: "Modelos aprovados: ficha técnica, BOM e kanban.",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
-      // F7 Armário: vitrine de e-commerce por subcoleção. Sem gate — vale com o módulo `criacao` (como o Planejamento).
-      { key: "criacao_armario", label: "Armário", description: "Planeje a vitrine de e-commerce por subcoleção." },
+      // F7 Armário: vitrine de e-commerce por subcoleção. Módulo OPT-IN próprio `armario` (default OFF; toggle em
+      // Gerenciar Lojas, como produto_acabado/etapas_pl) — o `gate` esconde a página quando a loja não contratou.
+      { key: "criacao_armario", label: "Armário", description: "Planeje a vitrine de e-commerce por subcoleção.", gate: "armario" },
     ],
   },
   {

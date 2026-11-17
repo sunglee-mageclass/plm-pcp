@@ -62,6 +62,7 @@ const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
   out.push({ key: "produto_acabado", label: "Produto Acabado (Revenda)" });
   out.push({ key: "produto_importado", label: "Produto Importado" });
   out.push({ key: "etapas_pl", label: "Etapas PL (kanban)" });
+  out.push({ key: "armario", label: "Armário (vitrine e-commerce)" });
   // Distribuição por produto (set/2026): o ModuleDef/página saiu do catálogo (página antiga oculta) — o toggle continua à mão (gate do dialog).
   out.push({ key: "distribuicao", label: "Distribuição por produto" });
   return out;
@@ -79,6 +80,7 @@ const MODULE_DESC: Record<string, string> = {
   produto_acabado: "Compra de produto pronto para revenda — Produto Acabado e OC P. Acabado.",
   produto_importado: "Compra de produto do exterior com cotação de moeda — Produto Importado e OC P. Importado.",
   etapas_pl: "Kanban das 5 etapas de PL (Peça Teste, Separação, Retorno de Grade, Oficina, Finalização) em Serviços.",
+  armario: "Armário — monte a vitrine do e-commerce por subcoleção (arrasta variantes para uma grade ordenada).",
 };
 const MODULE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(MODULE_TOGGLES.map((m) => [m.key, true])),
@@ -87,6 +89,7 @@ const MODULE_DEFAULTS: Record<string, boolean> = {
   produto_acabado: false, // opt-in — mesmo padrão do otb
   produto_importado: false, // opt-in — mesmo padrão do otb
   etapas_pl: false, // opt-in — mesmo padrão do otb
+  armario: false, // opt-in — mesmo padrão do otb
 };
 
 function TenantLogo({ path, alt }: { path: string | null; alt: string }) {

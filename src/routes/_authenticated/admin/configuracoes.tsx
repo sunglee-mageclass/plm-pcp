@@ -286,6 +286,8 @@ const MODULE_LABELS: { key: string; label: string }[] = [
   // etapas_pl (opt-in, Fase 1 ago/2026): mesmo padrão — badge só-leitura aqui, toggle em
   // Gerenciar Lojas; a config das 5 etapas (renomear/ativa) é o Card "Etapas do PCP" abaixo.
   { key: "etapas_pl", label: "Etapas PL" },
+  // armario (opt-in, F7 nov/2026): mesmo padrão — badge só-leitura aqui, toggle em Gerenciar Lojas.
+  { key: "armario", label: "Armário" },
 ];
 
 // Linha CRUA de tenant_config (RP3: conferir, antes de gravar o kanban, que ninguém o mudou depois que a tela abriu).

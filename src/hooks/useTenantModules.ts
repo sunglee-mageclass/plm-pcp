@@ -18,7 +18,8 @@ export type ModuleKey =
   | "distribuicao"
   | "produto_acabado"
   | "produto_importado"
-  | "etapas_pl";
+  | "etapas_pl"
+  | "armario";
 
 const DEFAULTS: Record<ModuleKey, boolean> = {
   cadastro: true,
@@ -32,6 +33,7 @@ const DEFAULTS: Record<ModuleKey, boolean> = {
   produto_acabado: false, // opt-in
   produto_importado: false, // opt-in
   etapas_pl: false, // opt-in
+  armario: false, // opt-in
 };
 
 // produto_acabado e etapas_pl não são módulos de topo (sem tela basePath própria — são
@@ -52,6 +54,7 @@ const MODULE_BASE_PATH: Record<ModuleKey, string> = {
   produto_acabado: "/criacao/produto-acabado",
   produto_importado: "/criacao/produto-importado",
   etapas_pl: "/pcp",
+  armario: "/criacao/armario",
 };
 
 // Prioridade para landing/redirect. Dashboard primeiro mantém o comportamento
