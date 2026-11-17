@@ -339,7 +339,9 @@ export function MontagemEditor({
             <EmptyState
               icon={Plus}
               title="Grade vazia"
-              description={travado ? "Este armário não tem variantes." : "Use “Adicionar variantes” e arraste (ou toque no +) para montar a vitrine."}
+              description={travado ? "Este armário não tem variantes." : "Adicione variantes e arraste para a grade para montar a vitrine."}
+              // #3: o "+" da grade vazia abre o dialog de variantes (antes era só decorativo). Travado = sem ação.
+              action={travado ? undefined : { label: "Adicionar variantes", onClick: () => setDialogAberto(true) }}
             />
           )}
           <SortableContext items={idsSortable} strategy={rectSortingStrategy} disabled={travado}>

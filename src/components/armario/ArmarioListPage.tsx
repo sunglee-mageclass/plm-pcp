@@ -335,8 +335,8 @@ function ArmarioLinha({ a, podeEditar, editando, onAbrir, onEditar, onFimEdicao,
         <GripVertical className="h-4 w-4" />
       </button>
 
-      <div className="min-w-0 flex-1">
-        {editando ? (
+      {editando ? (
+        <div className="min-w-0 flex-1">
           <Input
             autoFocus
             value={nome}
@@ -350,15 +350,25 @@ function ArmarioLinha({ a, podeEditar, editando, onAbrir, onEditar, onFimEdicao,
             }}
             className="h-8"
           />
-        ) : (
-          <button type="button" onClick={onAbrir} className="block max-w-full truncate text-left font-medium hover:underline" title="Abrir armário">
-            {a.nome}
-          </button>
-        )}
-        <p className="text-xs text-muted-foreground">
-          {plural(a.itens, "variante", "variantes")} · {plural(a.colunas, "coluna", "colunas")}
-        </p>
-      </div>
+          <p className="text-xs text-muted-foreground">
+            {plural(a.itens, "variante", "variantes")} · {plural(a.colunas, "coluna", "colunas")}
+          </p>
+        </div>
+      ) : (
+        // #2: o BLOCO inteiro (nome + subtítulo) abre o armário, não só o nome. A alça de arraste e o
+        // menu ⋯ ficam FORA deste botão (irmãos no <li>), então não disparam o abrir.
+        <button
+          type="button"
+          onClick={onAbrir}
+          className="min-w-0 flex-1 text-left"
+          title="Abrir armário"
+        >
+          <span className="block max-w-full truncate font-medium group-hover:underline">{a.nome}</span>
+          <span className="block text-xs text-muted-foreground">
+            {plural(a.itens, "variante", "variantes")} · {plural(a.colunas, "coluna", "colunas")}
+          </span>
+        </button>
+      )}
 
       <StatusBadge tone={STATUS_TOM[a.status]}>{STATUS_ROTULO[a.status]}</StatusBadge>
 
