@@ -1862,7 +1862,11 @@ describe("F4 — Plan. Tecido", () => {
     expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(slot\.modelo_id\);/);
     expect(s).toMatch(/<SeloIntegracao estado=\{estadoIntegracao\}/);
     expect(s).toMatch(/precoTravado=\{travaIntegracao\.has\("preco_venda"\)\}/);
-    expect(s).toMatch(/disabled=\{!!estadoIntegracao\} onClick=\{\(\) => setConfirmLimpar\(true\)\}/);
+    // "Limpar slot" trava no integrável/integrado. Desde 00100a1d (Limpar slot também em card
+    // materializado), o botão usa `bloqueado` — que para SLOT (sem card) = `!!estadoIntegracao`,
+    // preservando a trava da Integração; para CARD = motivo de não poder virar vaga.
+    expect(s).toMatch(/const bloqueado = ehCard \? !!motivoNaoVirarVaga : !!estadoIntegracao;/);
+    expect(s).toMatch(/disabled=\{bloqueado \|\| virarVaga\.isPending\} onClick=\{\(\) => setConfirmLimpar\(true\)\}/);
     expect(ler("src/components/plan-tecido/CustoSection.tsx")).toMatch(/disabled=\{precoTravado\}/);
   });
 });

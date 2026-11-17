@@ -359,9 +359,13 @@ describe("Financeiro por aba (F5c, P-112 A)", () => {
   // Serviços — clicar num item de serviço não deve setar `tab="servicos"` (que ficaria em
   // branco, sem TabsTrigger/TabsContent correspondente). A aba ativa continua Calendário.
   it("I-2: sem financeiro_servicos, clicar um item de serviço no Calendário NÃO pula pra aba Serviços (fica em Calendário)", async () => {
+    // Data RELATIVA ao mês atual (o Calendário abre em startOfMonth(hoje); data fixa em outro mês
+    // ficaria inalcançável na agenda mobile — `isSameMonth`). Dia 05 do mês corrente.
+    const hoje = new Date();
+    const vencNoMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-05`;
     const SERVICO_CAL = {
       parcela_id: "svcal1", servico: "Bordado", numero_parcela: 1, numero_parcelas: 1,
-      valor_parcela: 50, data_vencimento: "2026-10-05", data_pagamento: null, status: "a_pagar",
+      valor_parcela: 50, data_vencimento: vencNoMes, data_pagamento: null, status: "a_pagar",
       empresa_nome: "Fornecedor Y", representante_nome: null, responsavel: null,
     };
     const view = await montarFinanceiro({
