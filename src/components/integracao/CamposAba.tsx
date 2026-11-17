@@ -47,6 +47,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
+import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
@@ -103,6 +104,9 @@ function aplicarToggle(
 
 export function CamposAba() {
   const router = useRouter();
+  // Permissão por aba: quem só VÊ (`integracao:campos_api` sem editar) não altera nada aqui — os controles de
+  // escrita (checkboxes e Salvar) ficam desabilitados. Super admin edita (ReadOnlyScope=false em IntegracaoPage).
+  const somenteLeitura = useReadOnly();
   const tenantId = useActiveTenantId();
   const qc = useQueryClient();
   const q = useIntegracaoConfig();
@@ -283,7 +287,7 @@ export function CamposAba() {
                     <Checkbox
                       id={`campo-${c.key}`}
                       checked={marcado}
-                      disabled={salvar.isPending}
+                      disabled={salvar.isPending || somenteLeitura}
                       onCheckedChange={(v) => alternar(c.key, v === true)}
                     />
                     <label htmlFor={`campo-${c.key}`} className="flex-1 text-sm">{rotuloNaLista(c.key)}</label>
@@ -342,7 +346,7 @@ export function CamposAba() {
         <Button type="button" variant="outline" onClick={() => router.history.back()}>
           <ArrowLeft className="h-4 w-4" />Voltar
         </Button>
-        <Button type="button" className="ml-auto" disabled={!sujo || atual.length === 0 || salvar.isPending} onClick={() => setConfirmar(true)}>
+        <Button type="button" className="ml-auto" disabled={somenteLeitura || !sujo || atual.length === 0 || salvar.isPending} onClick={() => setConfirmar(true)}>
           <Save className="h-4 w-4" />Salvar
         </Button>
       </PageActionBar>

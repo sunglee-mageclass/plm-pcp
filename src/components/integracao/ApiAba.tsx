@@ -37,6 +37,7 @@ import { PageActionBar } from "@/components/shared/PageActionBar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useReadOnly } from "@/components/RequirePermission";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
@@ -94,6 +95,8 @@ type Valores = Record<ChaveConfigApi, number>;
 
 function Chaves({ onVisibilidadeChave }: { onVisibilidadeChave: (visivel: boolean) => void }) {
   const tenantId = useActiveTenantId();
+  // Permissão por aba: quem só VÊ a section `integracao:api` não cria nem revoga chaves (super admin edita).
+  const somenteLeitura = useReadOnly();
   const tz = useStoreTimezone();
   const qc = useQueryClient();
   const [nova, setNova] = useState(false);
@@ -135,7 +138,7 @@ function Chaves({ onVisibilidadeChave }: { onVisibilidadeChave: (visivel: boolea
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-medium">Chaves de API</h3>
-        <Button type="button" size="sm" onClick={() => setNova(true)}><KeyRound className="h-4 w-4" />Nova chave</Button>
+        <Button type="button" size="sm" disabled={somenteLeitura} onClick={() => setNova(true)}><KeyRound className="h-4 w-4" />Nova chave</Button>
       </div>
       {q.isError ? <p className="text-sm text-destructive">{mensagemErro(q.error, "Erro ao carregar as chaves.")}</p> : (
         <div className="max-w-full overflow-x-auto rounded-md border">
@@ -154,7 +157,7 @@ function Chaves({ onVisibilidadeChave }: { onVisibilidadeChave: (visivel: boolea
                   <td className="px-3 py-2">{k.ultimoUsoEm ? fmtDataHora(k.ultimoUsoEm, tz, true) : "Nunca usada"}</td>
                   <td className="px-3 py-2 text-right">
                     {k.revogadaEm ? <StatusBadge tone="neutral">Revogada</StatusBadge> : (
-                      <Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => setRevogar(k)}>Revogar</Button>
+                      <Button type="button" size="sm" variant="outline" className="text-destructive" disabled={somenteLeitura} onClick={() => setRevogar(k)}>Revogar</Button>
                     )}
                   </td>
                 </tr>
@@ -263,6 +266,8 @@ function chavesTocadas(ed: Edicao): ChaveConfigApi[] {
 
 function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: (sujo: boolean) => void }) {
   const router = useRouter();
+  // Permissão por aba: quem só VÊ a section `integracao:api` não altera as faixas da API (super admin edita).
+  const somenteLeitura = useReadOnly();
   const tenantId = useActiveTenantId();
   const qc = useQueryClient();
   const q = useIntegracaoConfig();
@@ -427,7 +432,7 @@ function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: 
                 return (
                   <div key={k} className="grid gap-1">
                     <Label htmlFor={`cfg-${k}`}>{c.rotulo}</Label>
-                    <NumberInput id={`cfg-${k}`} integer value={vals[k]} aria-invalid={!!erro} disabled={salvar.isPending}
+                    <NumberInput id={`cfg-${k}`} integer value={vals[k]} aria-invalid={!!erro} disabled={salvar.isPending || somenteLeitura}
                       onChange={(e) => mudarValor(k, Math.trunc(Number(e.target.value)))} />
                     <p className="text-xs text-muted-foreground">Recomendado: {c.recomendado} · Faixa permitida: {c.min}–{c.max}</p>
                     {erro && <p className="text-xs text-destructive" role="alert">{erro}</p>}
@@ -482,7 +487,7 @@ function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: 
       {ativo && (
         <PageActionBar>
           <Button type="button" variant="outline" onClick={() => router.history.back()}><ArrowLeft className="h-4 w-4" />Voltar</Button>
-          <Button type="button" className="ml-auto" disabled={!sujo || temErro || salvar.isPending} onClick={pedirSalvar}>
+          <Button type="button" className="ml-auto" disabled={somenteLeitura || !sujo || temErro || salvar.isPending} onClick={pedirSalvar}>
             <Save className="h-4 w-4" />{salvar.isPending ? "Salvando…" : "Salvar"}
           </Button>
         </PageActionBar>

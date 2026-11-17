@@ -273,7 +273,18 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Integração",
     basePath: "/integracao",
     pages: [
-      { key: "integracao", label: "Integração", description: "Organiza os produtos que o programa externo (ERP/e-commerce) lê pela API.", modes: ["full"] },
+      { key: "integracao", label: "Integração", description: "Organiza os produtos que o programa externo (ERP/e-commerce) lê pela API.", modes: ["full"],
+        // Permissão por ABA da tela Integração (nov/2026, dono): 3 abas ("de super admin") ganharam Ler+Editar
+        // próprios, concedidos SÓ pelo super admin (como a página `integracao` — ver useAuth.ehPaginaSemBypassAdmin,
+        // que já cobre `integracao:*`). O servidor libera a aba de VERDADE pela section (ver
+        // migration 20261205100000: `_integracao_pode_secao`/`_integracao_exige_secao`). As abas Produtos E LOG
+        // continuam visíveis/editáveis pela permissão `integracao` em bloco (Log NÃO tem section própria — decisão
+        // do dono).
+        sections: [
+          { key: "integracao:campos_api", label: "Campos da API" },
+          { key: "integracao:api", label: "API" },
+          { key: "integracao:manual_api", label: "Manual da API" },
+        ] },
     ],
   },
   {

@@ -21,7 +21,8 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useAuth } from "@/hooks/useAuth";
-import { ROTULO_ABA, abasVisiveis, type Aba } from "@/lib/integracao/abas";
+import { ROTULO_ABA, SECTION_DA_ABA, abasVisiveis, type Aba } from "@/lib/integracao/abas";
+import { ReadOnlyScope } from "@/components/RequirePermission";
 import { GuardaIntegracaoContext } from "./guard";
 import { ProdutosAba } from "./ProdutosAba";
 import { CamposAba } from "./CamposAba";
@@ -45,10 +46,11 @@ const CONTEUDO_ABA: Record<Aba, ComponentType> = {
 type TrocaDeLoja = { para: string; dirty: boolean; chaveVisivel: boolean };
 
 export function IntegracaoPage() {
-  const { isSuperAdmin, user } = useAuth();
+  const { isSuperAdmin, user, canView, canEdit } = useAuth();
   const tenantId = useActiveTenantId();
   const qc = useQueryClient();
-  const abas = abasVisiveis(isSuperAdmin);
+  // Cada uma das 4 abas próprias (Campos/API/Manual/Log) aparece se super admin OU se o usuário VÊ a section dela.
+  const abas = abasVisiveis(isSuperAdmin, canView);
   const [aba, setAba] = useState<Aba>("produtos");
   const [cardAberto, setCardAberto] = useState<{ id: string; tenantId: string } | null>(null);
   const [sujas, setSujas] = useState<Partial<Record<Aba, boolean>>>({});
@@ -201,6 +203,11 @@ export function IntegracaoPage() {
           </TabsList>
           {abas.map((a) => {
             const C = CONTEUDO_ABA[a];
+            // Permissão por aba: nas 3 abas próprias (Campos/API/Manual), quem VÊ mas não EDITA a section fica em
+            // modo somente leitura (os controles de escrita das abas consomem `useReadOnly` e se desabilitam); super
+            // admin sempre edita. "Produtos" e "Log" não têm section (gate base `integracao`) — sem ReadOnlyScope aqui.
+            const sec = SECTION_DA_ABA[a];
+            const somenteLeitura = !!sec && !isSuperAdmin && !canEdit(sec);
             return (
               <TabsContent key={a} value={a} className="mt-4">
                 {/* revisão T15 #1: o `key` força o React a desmontar e recriar a aba inteira ao
@@ -208,7 +215,13 @@ export function IntegracaoPage() {
                     sobrevive à troca, mesmo se o super admin cancelar o "Descartar alterações?" da
                     guarda de navegação. Fix round 4 (N-1): é a última loja NÃO vazia — um ""
                     transitório (releitura que falhou) nunca remonta. */}
-                <C key={lojaEstavel} />
+                {sec ? (
+                  <ReadOnlyScope value={somenteLeitura}>
+                    <C key={lojaEstavel} />
+                  </ReadOnlyScope>
+                ) : (
+                  <C key={lojaEstavel} />
+                )}
               </TabsContent>
             );
           })}

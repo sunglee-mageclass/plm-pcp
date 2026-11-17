@@ -36,9 +36,20 @@ describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-
     const i = s.indexOf("Admin Mestre");
     expect(s.indexOf('to="/integracao"', i)).toBeGreaterThan(i);
   });
-  it("abas: super admin vê as 5; admin/permissão só Produtos e Log (Exportar dados virou item próprio da sidebar)", () => {
-    expect(abasVisiveis(true)).toEqual(["produtos", "campos", "api", "manual", "log"]);
-    expect(abasVisiveis(false)).toEqual(["produtos", "log"]);
+  it("abas: super admin vê as 5; Produtos e Log na base `integracao`, Campos/API/Manual por section própria", () => {
+    const nada = () => false;
+    // super admin vê todas, não importa `podeVer`
+    expect(abasVisiveis(true, nada)).toEqual(["produtos", "campos", "api", "manual", "log"]);
+    // sem nenhuma section: Produtos + Log (ambas pela permissão base `integracao`, resolvida fora daqui)
+    expect(abasVisiveis(false, nada)).toEqual(["produtos", "log"]);
+    // com as sections de Campos e API: Produtos + Campos + API + Log (ordem fixa; Log sempre por último)
+    expect(abasVisiveis(false, (k) => k === "integracao:campos_api" || k === "integracao:api")).toEqual([
+      "produtos", "campos", "api", "log",
+    ]);
+    // com a section de Manual: Produtos + Manual + Log
+    expect(abasVisiveis(false, (k) => k === "integracao:manual_api")).toEqual(["produtos", "manual", "log"]);
+    // Log NÃO tem section própria: ter `integracao:log` não faz diferença (fica na base)
+    expect(abasVisiveis(false, (k) => k === "integracao:log")).toEqual(["produtos", "log"]);
   });
   it("rota protegida pela permissão 'integracao'", () => {
     expect(ler("src/routes/_authenticated/integracao.tsx")).toMatch(/<RequirePermission page="integracao">/);
@@ -73,7 +84,7 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
     vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => opts.tenantIdRef.current }));
     // revisão T15 (n2, code-review "Re-check round 1"): `navPermitida` de `IntegracaoPage` agora lê
     // `qc.getQueryData(["active-tenant-id", user.id])` diretamente — precisa de um `user.id` estável.
-    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: true, user: { id: "u1" } }) }));
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: true, user: { id: "u1" }, canView: () => false, canEdit: () => false }) }));
     const toastMocks = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
     vi.doMock("sonner", () => ({ toast: toastMocks }));
     const blockerProceedSpy = vi.fn();
@@ -2989,7 +3000,7 @@ describe("PaginaIntegracao — render (P-87: narrow-first-mount, resize não des
     const rpcSpy = vi.fn(async () => ({ data: { pagina: 1, por_pagina: 50, total: 0, produtos: [] }, error: null }));
     vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy } }));
     vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" })); // tenant REAL — ver comentário acima
-    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: false, user: { id: "u1" } }) }));
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: false, user: { id: "u1" }, canView: () => false, canEdit: () => false }) }));
     // `IntegracaoPage` monta só a aba ATIVA por padrão (Radix `TabsContent` sem `forceMount`) — a aba default é
     // "produtos". O stub soma 2 provas: (1) o contador `montagens` (via `useEffect`, 1x por instância — nunca
     // reseta e nunca conta 2x pra mesma instância viva); (2) chama `supabase.rpc("integracao_listar", ...)` no
