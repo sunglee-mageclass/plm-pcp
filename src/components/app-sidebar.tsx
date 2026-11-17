@@ -72,6 +72,11 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 // (a key só é concedida pelo super admin). `canView` já reflete a regra.
 const MODULOS_SEM_BYPASS_ADMIN = new Set(["integracao", "exportar_dados"]);
 
+// Manual de uso: o código está pronto, mas a ABA fica ESCONDIDA até o dono liberar (decisão 17/nov:
+// o Manual não entra neste deploy). A rota /manual continua existindo (acessível por URL direta);
+// só o link some do menu. Para liberar: trocar para `true` (zero banco, 1 flag).
+const MANUAL_VISIVEL = false;
+
 export function AppSidebar() {
   const { state, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
@@ -302,15 +307,18 @@ export function AppSidebar() {
               {importarItem && renderItem(importarItem)}
 
               {/* Manual de uso: UNIVERSAL — aparece para TODOS os logados, sem permissão própria e
-                  SEM `max-md:hidden` (é ajuda, vale no celular também). Link direto, sempre ao fim. */}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/manual")} tooltip="Manual">
-                  <Link to="/manual">
-                    <BookOpen className="h-4 w-4" />
-                    <span>Manual</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+                  SEM `max-md:hidden` (é ajuda, vale no celular também). Link direto, sempre ao fim.
+                  ESCONDIDO por `MANUAL_VISIVEL=false` até o dono liberar (o código vai latente). */}
+              {MANUAL_VISIVEL && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("/manual")} tooltip="Manual">
+                    <Link to="/manual">
+                      <BookOpen className="h-4 w-4" />
+                      <span>Manual</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
 
             </SidebarMenu>
           </SidebarGroupContent>
