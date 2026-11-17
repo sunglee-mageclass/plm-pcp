@@ -7,15 +7,11 @@
 import { CAMPOS } from "@/lib/integracao/campos";
 import { tituloSublinha } from "@/lib/integracao/titulo-sublinha";
 import { CAMINHO_FOTO_EXEMPLO, montarResposta, type RespostaApi, type RespostaLer } from "@/lib/integracao/api/resposta";
+import type { Bloco as BlocoGenerico } from "@/components/shared/manual/tipos";
 
-export type Bloco =
-  | { tipo: "p"; texto: string }
-  | { tipo: "passos"; itens: string[] }
-  | { tipo: "lista"; itens: string[] }
-  | { tipo: "codigo"; titulo: string; codigo: string }
-  | { tipo: "tabela"; cabecalho: string[]; linhas: string[][] }
-  | { tipo: "faq"; itens: { p: string; r: string }[] }
-  | { tipo: "exemplo" };
+// O motor de conteúdo-como-dados (Bloco genérico/SecaoManual) foi extraído para @/components/shared/manual (A1). Aqui o `Bloco`
+// da Integração = o genérico MAIS o caso `exemplo`, que é específico desta aba (botão "Ver resposta de exemplo" → ExemploDialog).
+export type Bloco = BlocoGenerico | { tipo: "exemplo" };
 export type SecaoManual = { id: string; titulo: string; blocos: Bloco[] };
 export const CHAVE_FICTICIA = "wish_live_EXEMPLO1234567890";
 /** P-89 A (dono 27/set): "isso pode mudar depois … como fazer no manual/guia?" — vai em Parâmetros, Boas práticas e FAQ. */
