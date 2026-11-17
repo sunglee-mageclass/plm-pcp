@@ -16,6 +16,7 @@ import {
   KeyRound,
   ArrowLeft,
   Plug,
+  BookOpen,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
@@ -118,6 +119,9 @@ export function AppSidebar() {
   };
 
   const visibleMainItems = PAGES_CATALOG
+    // Manual é UNIVERSAL (sem permissão própria): sai da lista gateada e é renderizado como link
+    // dedicado no grupo "Operação" (visível a todos os logados, inclusive no mobile — ver abaixo).
+    .filter((m) => m.module !== "manual")
     // Config da loja não chegou: nada aparece (a Integração também depende do perfil da loja).
     .filter(() => pronto)
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
@@ -296,6 +300,17 @@ export function AppSidebar() {
               )}
               {/* Importar Dados: item de topo próprio, logo ABAIXO de Cadastro (pedido do dono). */}
               {importarItem && renderItem(importarItem)}
+
+              {/* Manual de uso: UNIVERSAL — aparece para TODOS os logados, sem permissão própria e
+                  SEM `max-md:hidden` (é ajuda, vale no celular também). Link direto, sempre ao fim. */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("/manual")} tooltip="Manual">
+                  <Link to="/manual">
+                    <BookOpen className="h-4 w-4" />
+                    <span>Manual</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
 
             </SidebarMenu>
           </SidebarGroupContent>

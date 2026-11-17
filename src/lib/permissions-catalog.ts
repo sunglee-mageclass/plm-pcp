@@ -288,6 +288,20 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "exportar_dados", label: "Exportar dados", description: "Exporta produtos da loja em CSV/Excel (coleção, colunas, níveis).", modes: ["full"] },
     ],
   },
+  {
+    // Manual de uso (nov/2026): página única, link direto no menu — mesmo padrão de `importar`/`integracao`/
+    // `exportar_dados` (key = nome do módulo, `basePath` = a URL; como `manual` NÃO entra em PAGE_URLS, o
+    // sidebar o renderiza como LINK DIRETO). DIFERENÇA CRÍTICA: o Manual é UNIVERSAL — aparece para QUALQUER
+    // usuário autenticado, SEM permissão própria. Por isso NÃO entra em MODULOS_SEM_BYPASS_ADMIN e a rota
+    // (/manual) NÃO usa RequirePermission. Este ModuleDef/PageDef existe só para dar NOME ("Manual") e para
+    // `montarEstruturaManual` (estrutura.ts) listar as telas — o acesso em si não passa por `canView("manual")`.
+    module: "manual",
+    label: "Manual",
+    basePath: "/manual",
+    pages: [
+      { key: "manual", label: "Manual", description: "Guia de uso do sistema, tela a tela." },
+    ],
+  },
 ];
 
 export const ALL_PAGE_KEYS: PageKey[] = PAGES_CATALOG.flatMap((m) =>

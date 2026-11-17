@@ -14,6 +14,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedPcpRouteImport } from './routes/_authenticated/pcp'
+import { Route as AuthenticatedManualRouteImport } from './routes/_authenticated/manual'
 import { Route as AuthenticatedIntegracaoRouteImport } from './routes/_authenticated/integracao'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedFinanceiroRouteImport } from './routes/_authenticated/financeiro'
@@ -104,6 +105,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuthenticatedPcpRoute = AuthenticatedPcpRouteImport.update({
   id: '/pcp',
   path: '/pcp',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedManualRoute = AuthenticatedManualRouteImport.update({
+  id: '/manual',
+  path: '/manual',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedIntegracaoRoute = AuthenticatedIntegracaoRouteImport.update({
@@ -509,6 +515,7 @@ export interface FileRoutesByFullPath {
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/home': typeof AuthenticatedHomeRoute
   '/integracao': typeof AuthenticatedIntegracaoRoute
+  '/manual': typeof AuthenticatedManualRoute
   '/pcp': typeof AuthenticatedPcpRouteWithChildren
   '/admin/auditoria': typeof AuthenticatedAdminAuditoriaRoute
   '/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
@@ -577,6 +584,7 @@ export interface FileRoutesByTo {
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/home': typeof AuthenticatedHomeRoute
   '/integracao': typeof AuthenticatedIntegracaoRoute
+  '/manual': typeof AuthenticatedManualRoute
   '/admin/auditoria': typeof AuthenticatedAdminAuditoriaRoute
   '/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
   '/admin/identidade': typeof AuthenticatedAdminIdentidadeRoute
@@ -645,6 +653,7 @@ export interface FileRoutesById {
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/integracao': typeof AuthenticatedIntegracaoRoute
+  '/_authenticated/manual': typeof AuthenticatedManualRoute
   '/_authenticated/pcp': typeof AuthenticatedPcpRouteWithChildren
   '/_authenticated/admin/auditoria': typeof AuthenticatedAdminAuditoriaRoute
   '/_authenticated/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
@@ -720,6 +729,7 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/home'
     | '/integracao'
+    | '/manual'
     | '/pcp'
     | '/admin/auditoria'
     | '/admin/configuracoes'
@@ -788,6 +798,7 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/home'
     | '/integracao'
+    | '/manual'
     | '/admin/auditoria'
     | '/admin/configuracoes'
     | '/admin/identidade'
@@ -855,6 +866,7 @@ export interface FileRouteTypes {
     | '/_authenticated/financeiro'
     | '/_authenticated/home'
     | '/_authenticated/integracao'
+    | '/_authenticated/manual'
     | '/_authenticated/pcp'
     | '/_authenticated/admin/auditoria'
     | '/_authenticated/admin/configuracoes'
@@ -957,6 +969,13 @@ declare module '@tanstack/react-router' {
       path: '/pcp'
       fullPath: '/pcp'
       preLoaderRoute: typeof AuthenticatedPcpRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/manual': {
+      id: '/_authenticated/manual'
+      path: '/manual'
+      fullPath: '/manual'
+      preLoaderRoute: typeof AuthenticatedManualRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/integracao': {
@@ -1711,6 +1730,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedFinanceiroRoute: typeof AuthenticatedFinanceiroRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedIntegracaoRoute: typeof AuthenticatedIntegracaoRoute
+  AuthenticatedManualRoute: typeof AuthenticatedManualRoute
   AuthenticatedPcpRoute: typeof AuthenticatedPcpRouteWithChildren
   AuthenticatedOtbIndexRoute: typeof AuthenticatedOtbIndexRoute
 }
@@ -1727,6 +1747,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedFinanceiroRoute: AuthenticatedFinanceiroRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedIntegracaoRoute: AuthenticatedIntegracaoRoute,
+  AuthenticatedManualRoute: AuthenticatedManualRoute,
   AuthenticatedPcpRoute: AuthenticatedPcpRouteWithChildren,
   AuthenticatedOtbIndexRoute: AuthenticatedOtbIndexRoute,
 }

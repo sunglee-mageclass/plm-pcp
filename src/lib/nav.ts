@@ -4,7 +4,7 @@
 import {
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target,
   Tags, Users, Building2, Layers, Scissors, Boxes, ShoppingCart, AlertTriangle, Tag, MapPin,
-  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, ListChecks, Upload, Plug, Download, LayoutGrid, type LucideIcon,
+  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, ListChecks, Upload, Plug, Download, LayoutGrid, BookOpen, type LucideIcon,
 } from "lucide-react";
 // PAGE_ICONS de produto_acabado (revenda) usa Package (planejador) e ShoppingCart (OC) —
 // mesmo ícone de OC das demais entradas de compra (paridade visual com OC Tecido/Aviamento).
@@ -21,6 +21,8 @@ export const MODULE_META: Record<string, { title: string; icon: LucideIcon }> = 
   importar: { title: "Importar Dados", icon: Upload },
   integracao: { title: "Integração", icon: Plug },
   exportar_dados: { title: "Exportar dados", icon: Download },
+  // Manual de uso: item de ajuda, visível a TODOS os logados (ver permissions-catalog). BookOpen = "livro de ajuda".
+  manual: { title: "Manual", icon: BookOpen },
 };
 
 // key da página -> URL. Módulo sem entrada aqui vira link direto (sem sub-itens/hub).
