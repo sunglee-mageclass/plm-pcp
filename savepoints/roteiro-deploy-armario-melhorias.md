@@ -14,19 +14,22 @@ DEPLOY ARMARIO MELHORIAS — 1 migration (banco ANTES do site) — PRODUCAO
    git checkout feature/plan-tecido-a1 && git merge --ff-only f7/armario-melhorias
 
 1) PASSO 0 (so leitura). Rode e cole a saida:
-   psql "$(cat /tmp/dburl.txt)" -c "select md5(pg_get_functiondef('public.armario_variantes_disponiveis(uuid,text,uuid)'::regprocedure));"
+   psql "$(cat /tmp/dburl.txt)" -c "select md5(prosrc) from pg_proc where oid = to_regprocedure('public.armario_variantes_disponiveis(uuid,text,uuid)');"
    Esperado: bb4e9e646f555c6fc9c9fc18286ff060 (o corpo do deploy do Armario, 29o). Se for 85bdc5cabf90c87c951a12a7f8aae310,
    a migration JA foi aplicada (deploy repetido). Qualquer OUTRO md5 = PARE e me chame (a RPC divergiu; a migration abortaria sozinha).
+   OBS: md5(prosrc) = SO o corpo (= o que a guarda da migration confere). NAO use pg_get_functiondef (inclui o cabecalho CREATE
+   OR REPLACE e da outro hash, a1855192..., que NAO e divergencia — e so medida diferente da MESMA funcao).
 
 2) IDA (1 migration, FORA de transacao, psql -v ON_ERROR_STOP=1 -f; 55P03/40P01 = rode de novo; outro erro = PARE):
    psql "$(cat /tmp/dburl.txt)" -v ON_ERROR_STOP=1 -f supabase/migrations/20261203100000_armario_variantes_filtros.sql
    (So catalogo: CREATE OR REPLACE da RPC. Sem trava de tabela/auth/storage. A guarda md5 aborta se o corpo vivo divergir.)
 
 3) POS-CHECAGEM (so leitura). Cole a saida:
-   psql "$(cat /tmp/dburl.txt)" -c "select md5(pg_get_functiondef('public.armario_variantes_disponiveis(uuid,text,uuid)'::regprocedure)) depois,
+   psql "$(cat /tmp/dburl.txt)" -c "select md5(prosrc) depois,
      has_function_privilege('anon','public.armario_variantes_disponiveis(uuid,text,uuid)','EXECUTE') anon_deve_f,
-     has_function_privilege('authenticated','public.armario_variantes_disponiveis(uuid,text,uuid)','EXECUTE') auth_deve_t;"
-   Esperado: depois = 85bdc5cabf90c87c951a12a7f8aae310; anon = f; auth = t.
+     has_function_privilege('authenticated','public.armario_variantes_disponiveis(uuid,text,uuid)','EXECUTE') auth_deve_t
+     from pg_proc where oid = to_regprocedure('public.armario_variantes_disponiveis(uuid,text,uuid)');"
+   Esperado: depois = 85bdc5cabf90c87c951a12a7f8aae310 (md5 do CORPO, igual a guarda; NAO pg_get_functiondef); anon = f; auth = t.
 
 4) SITE — SO depois do banco OK: me avise aqui que eu PUBLICO o worker (branch feature/plan-tecido-a1). Aba aberta antes: RECARREGAR.
    - Site velho + banco novo = inofensivo (a RPC devolve campos novos que o site velho ignora; aditivo).
