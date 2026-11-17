@@ -88,6 +88,11 @@ export function FotoPorCorSecao({
     },
     onSuccess: () => {
       if (modeloId) qc.invalidateQueries({ queryKey: queryKeyFotos(modeloId) });
+      // A foto da variante é consumida no Armário (vitrine), que tem cache próprio e noutra tela:
+      // invalidar p/ a foto aparecer sem precisar de F5. Prefixo pega o dialog "+ Variante"
+      // (["armario-variantes-disponiveis", ...]) e a grade montada (["armario-itens", ...]).
+      qc.invalidateQueries({ queryKey: ["armario-variantes-disponiveis"] });
+      qc.invalidateQueries({ queryKey: ["armario-itens"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
