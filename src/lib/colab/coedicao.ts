@@ -1,5 +1,7 @@
 // Lib PURA da co-edição ao vivo (Onda 3). Sem DOM, sem rede — só a lógica de lock/desempate/throttle.
 // Spec: docs/superpowers/specs/2026-11-18-coedicao-onda3-lock-overlay-design.md
+import { pathDoElemento, COLAB_FIELD_SELECTOR } from "@/lib/colab/colab-field-path";
+
 export const EXPIRACAO_LOCK_MS = 10_000;
 export const HEARTBEAT_MS = 4_000;
 export const THROTTLE_MS = 100;
@@ -53,4 +55,33 @@ export function criarThrottle<T>(fn: (v: T) => void, ms: number): { enviar: (v: 
       if (pendente) disparar(pendente.v);
     },
   };
+}
+
+export const ATTR_COEDICAO = "data-coedicao-travado";
+
+/** Instrumenta o DOM do scope: campos travados por OUTRO ficam disabled + marca + valor ao vivo;
+ *  os demais são revertidos (só os que ESTE helper travou, via a marca — idempotente). */
+export function aplicarCoedicao(
+  scope: HTMLElement,
+  locks: LockInfo[],
+  valorAoVivoPorPath: Record<string, string>,
+  meuKey: string,
+  agora: number,
+): void {
+  const campos = scope.querySelectorAll<HTMLElement>(COLAB_FIELD_SELECTOR);
+  for (const el of campos) {
+    const path = pathDoElemento(el, scope);
+    const travado = path ? estadoDoCampo(path, locks, meuKey, agora).estado === "outro" : false;
+    const jaMarcado = el.getAttribute(ATTR_COEDICAO) === "1";
+    if (travado && path) {
+      el.setAttribute(ATTR_COEDICAO, "1");
+      if ("disabled" in el) (el as HTMLInputElement).disabled = true;
+      const v = valorAoVivoPorPath[path];
+      if (v !== undefined && "value" in el) (el as HTMLInputElement).value = v;
+    } else if (jaMarcado) {
+      // Reverte SÓ o que nós travamos.
+      el.removeAttribute(ATTR_COEDICAO);
+      if ("disabled" in el) (el as HTMLInputElement).disabled = false;
+    }
+  }
 }
