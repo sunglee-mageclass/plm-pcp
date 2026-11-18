@@ -14,6 +14,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import { useCoedicaoAoVivo } from "@/hooks/useCoedicaoAoVivo";
+import { EXPIRACAO_LOCK_MS } from "@/lib/colab/coedicao";
 
 const sends: any[] = [];
 let handlers: Record<string, (msg: any) => void> = {};
@@ -153,8 +154,47 @@ describe("useCoedicaoAoVivo", () => {
     montar();
     receber("campoLock", { key: "z::9", path: "lbl:nome", ts: Date.now() });
     expect(api.locks.length).toBe(1);
-    avancar(10_500);
+    avancar(EXPIRACAO_LOCK_MS - 500);
+    expect(api.locks.length).toBe(1); // ainda vivo antes do limite
+    avancar(500 + 2_000 + 500); // limite + latencia do varredor (2 s) + folga
     expect(api.locks.some((l) => l.key === "z::9")).toBe(false);
+  });
+
+  it("clock skew: o ts do remetente e ignorado, vale o relogio local do receptor", () => {
+    montar();
+    receber("campoLock", { key: "z::9", path: "lbl:nome", ts: Date.now() - 60_000 }); // remetente 60 s atrasado
+    expect(api.locks[0].ts).toBe(Date.now());
+    avancar(2_500);
+    expect(api.locks.length).toBe(1); // nao nasce expirado
+    receber("campoLock", { key: "y::8", path: "lbl:ref", ts: Date.now() + 60_000 }); // remetente 60 s adiantado
+    avancar(EXPIRACAO_LOCK_MS + 2_500);
+    expect(api.locks.length).toBe(0); // e expira (nao fica eterno)
+  });
+
+  it("handlers viram no-op depois do unmount (sem setState zumbi)", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    montar();
+    const h = handlers["campoLock"];
+    limpezas.splice(0).forEach((f) => f());
+    expect(() => h({ payload: { key: "z::9", path: "lbl:nome", ts: Date.now() } })).not.toThrow();
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("desmontar com path ativo avisa os pares (campoLock path:null)", () => {
+    montar();
+    act(() => api.anunciarLock("lbl:nome"));
+    sends.length = 0;
+    limpezas.splice(0).forEach((f) => f());
+    expect(sends).toHaveLength(1);
+    expect(sends[0]).toMatchObject({ event: "campoLock", payload: { key: "a::1", path: null } });
+  });
+
+  it("desmontar SEM path ativo nao envia nada", () => {
+    montar();
+    sends.length = 0;
+    limpezas.splice(0).forEach((f) => f());
+    expect(sends).toHaveLength(0);
   });
 
   it("canal que sobe DEPOIS do 1o render (corrida com o useColabRegistro) passa a funcionar", () => {

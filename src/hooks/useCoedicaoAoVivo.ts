@@ -4,7 +4,7 @@
 // Spec: docs/superpowers/specs/2026-11-18-coedicao-onda3-lock-overlay-design.md
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { criarThrottle, EXPIRACAO_LOCK_MS, HEARTBEAT_MS, THROTTLE_MS, type LockInfo } from "@/lib/colab/coedicao";
+import { criarThrottle, HEARTBEAT_MS, lockVivo, THROTTLE_MS, type LockInfo } from "@/lib/colab/coedicao";
 
 type MsgLock = { key?: string; path?: string | null; ts?: number };
 type MsgValor = { key?: string; path?: string; valor?: string };
@@ -30,19 +30,24 @@ export function useCoedicaoAoVivo(o: { chave: string | null; meuKey: string }) {
   useEffect(() => {
     if (!o.chave) return;
     anexadoRef.current = null;
+    // Handlers de broadcast não são removíveis do canal: depois do cleanup (unmount/StrictMode/troca de chave) viram no-op.
+    let ativo = true;
     const anexar = () => {
       const ch = canal();
       if (!ch || ch === anexadoRef.current) return;
       anexadoRef.current = ch;
       ch.on("broadcast", { event: "campoLock" }, (msg: { payload: MsgLock }) => {
+        if (!ativo) return;
         const p = msg.payload;
         if (!p?.key || p.key === o.meuKey) return;
         setLocks((prev) => {
           const semEle = prev.filter((l) => l.key !== p.key);
-          return p.path ? [...semEle, { key: p.key!, path: p.path, ts: p.ts ?? Date.now() }] : semEle;
+          // ts = relógio LOCAL de quem recebe (o `p.ts` do remetente é ignorado: clock skew entre máquinas).
+          return p.path ? [...semEle, { key: p.key!, path: p.path, ts: Date.now() }] : semEle;
         });
       });
       ch.on("broadcast", { event: "valorAoVivo" }, (msg: { payload: MsgValor }) => {
+        if (!ativo) return;
         const p = msg.payload;
         if (!p?.key || p.key === o.meuKey || !p.path) return;
         setValor((prev) => ({ ...prev, [p.path!]: p.valor ?? "" }));
@@ -53,13 +58,12 @@ export function useCoedicaoAoVivo(o: { chave: string | null; meuKey: string }) {
       anexar();
       const agora = Date.now();
       setLocks((prev) => {
-        // `>=` no varredor (a lib usa `>` na resolução): o tick de 10 s já limpa o lock de ts=0, sem esperar o de 12 s.
-        // O estado devolve `prev` quando nada expirou = sem re-render.
-        const vivos = prev.filter((l) => agora - l.ts < EXPIRACAO_LOCK_MS);
+        // Predicado único com a lib (`lockVivo`). O estado devolve `prev` quando nada expirou = sem re-render.
+        const vivos = prev.filter((l) => lockVivo(l, agora));
         return vivos.length === prev.length ? prev : vivos;
       });
     }, LIMPEZA_MS);
-    return () => { clearInterval(limpeza); anexadoRef.current = null; };
+    return () => { ativo = false; clearInterval(limpeza); anexadoRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [o.chave, o.meuKey]);
 
@@ -75,10 +79,15 @@ export function useCoedicaoAoVivo(o: { chave: string | null; meuKey: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [o.chave, o.meuKey]);
 
-  // Ao trocar de chave/aba: solta throttles pendentes e o lock local.
+  // Ao desmontar/trocar de chave: solta throttles pendentes, AVISA os pares que soltei o campo (senão ficaria travado
+  // para eles por até ~10 s) e zera o lock local.
   useEffect(() => () => {
     for (const t of throttlesRef.current.values()) t.soltar();
     throttlesRef.current.clear();
+    if (meuPathRef.current) {
+      const ch = canal();
+      if (ch) void ch.send({ type: "broadcast", event: "campoLock", payload: { key: o.meuKey, path: null, ts: Date.now() } });
+    }
     meuPathRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [o.chave, o.meuKey]);

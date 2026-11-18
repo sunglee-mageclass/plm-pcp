@@ -9,12 +9,17 @@ export const THROTTLE_MS = 100;
 export type LockInfo = { key: string; path: string; ts: number };
 export type EstadoCampo = "livre" | "meu" | "outro";
 
+/** Predicado ÚNICO de "lock vivo" (hook e resolverLock): 10000 ms ainda é vivo, 10001 ms expirou. */
+export function lockVivo(l: LockInfo, agora: number): boolean {
+  return agora - l.ts <= EXPIRACAO_LOCK_MS;
+}
+
 /** Dono vigente de um path: menor `key` entre os locks NÃO expirados daquele path. */
 export function resolverLock(locks: LockInfo[], path: string, agora: number): LockInfo | null {
   let dono: LockInfo | null = null;
   for (const l of locks) {
     if (l.path !== path) continue;
-    if (agora - l.ts > EXPIRACAO_LOCK_MS) continue; // expirado
+    if (!lockVivo(l, agora)) continue; // expirado
     if (!dono || l.key < dono.key) dono = l;
   }
   return dono;
