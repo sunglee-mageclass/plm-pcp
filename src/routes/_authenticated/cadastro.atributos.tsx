@@ -80,6 +80,8 @@ const ATTRIBUTES: AttributeItem[] = [
       extraText: { field: "sigla_sku", label: "Sigla SKU", placeholder: "Ex.: CAN", maxLength: 10, hint: "Usada no SKU automático: só letras e números, sem acento nem espaço (fica em maiúsculas)." },
       // Cada apelido pertence a uma Cor base (obrigatório).
       extra: { field: "cor_base_id", label: "Cor base", from: "cores", optionLabel: "nome", required: true },
+      // Cor base ANTES do apelido na listagem (pai → filho), como Categoria/Subcategoria.
+      extraFirst: true,
       usage: [
         { table: "aviamentos", column: "cor_apelido_id" }, // SET NULL
         { table: "variantes_tecido", column: "cor_apelido_id" },
