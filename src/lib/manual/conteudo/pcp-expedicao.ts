@@ -159,7 +159,8 @@ const ETAPAS: SecaoConteudoManual[] = [
     id: "para-que-serve",
     titulo: "O quadro da produção PL",
     intro: [
-      p("As Etapas são o quadro (kanban) da produção PL: um card por produto, em colunas que representam a etapa de cada um. É um módulo opcional (depende de a loja ligar as Etapas PL)."),
+      p("As Etapas são o quadro (kanban) da produção PL: um card por produto, em colunas que representam a etapa de cada um."),
+      p("Quando aparece: é um módulo opcional (opt-in) — a tela Etapas só existe quando a loja liga as Etapas PL. Sem o módulo, a produção PL fica só na tela de Serviços, sem o quadro."),
       p("É onde você enxerga o andamento da produção e move os produtos pelas fases. Quando a loja usa o avanço automático, o card anda sozinho à medida que os serviços são concluídos; no modo manual, você move à mão."),
     ],
   },

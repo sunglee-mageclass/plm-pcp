@@ -21,9 +21,17 @@ import {
 import { conteudoDaTela, type CampoManual, type SecaoConteudoManual } from "@/lib/manual/tipos-conteudo";
 import { Blocos } from "./ManualRenderer";
 import type { Bloco } from "./tipos";
+import { RequisitosFasesPanel } from "@/components/manual/RequisitosFasesPanel";
 
-/** Uma seção renderizável do Manual: intro (Bloco[]) + campos-verbete. `id` → âncora `#secao-<id>`. */
-type SecaoConteudo = { id: string; titulo: string; intro: Bloco[]; campos: CampoManual[] };
+/** Uma seção renderizável do Manual: intro (Bloco[]) + campos-verbete (+ componente vivo opcional).
+ *  `id` → âncora `#secao-<id>`. */
+type SecaoConteudo = {
+  id: string;
+  titulo: string;
+  intro: Bloco[];
+  campos: CampoManual[];
+  componente?: SecaoConteudoManual["componente"];
+};
 
 /** Monta as seções de UMA tela. Prioridade: o conteúdo À MÃO (CONTEUDO_TELAS, uma seção por área do
  *  Sheet) quando a tela o tem; senão, o esqueleto automático (description + sub-permissões do
@@ -36,6 +44,7 @@ function secoesDaTela(tela: TelaManual): SecaoConteudo[] {
       titulo: s.titulo,
       intro: s.intro ?? [],
       campos: s.campos ?? [],
+      componente: s.componente,
     }));
   }
 
@@ -218,6 +227,7 @@ export function ManualPage() {
                   <section key={s.id} id={`secao-${s.id}`} className="scroll-mt-4 space-y-3">
                     <h3 className="font-display text-lg font-semibold">{s.titulo}</h3>
                     {s.intro.length > 0 && <Blocos blocos={s.intro} />}
+                    {s.componente === "requisitos-fases" && <RequisitosFasesPanel />}
                     {s.campos.length > 0 && (
                       <dl className="space-y-4">
                         {s.campos.map((c) => (

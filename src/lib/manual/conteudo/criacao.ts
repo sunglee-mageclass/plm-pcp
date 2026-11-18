@@ -165,12 +165,21 @@ const PLANEJAMENTO: SecaoConteudoManual[] = [
     id: "peca_teste",
     titulo: "Peça Teste",
     intro: [
+      p("Quando aparece: a seção Peça Teste só existe no card quando o produto tem um serviço cujo tipo está marcado com “Exige peça teste” (em Cadastro › Serviço). Sem nenhum serviço desse tipo na mão de obra, a trilha de peça teste não aparece. Ligar “Exige peça teste” num tipo de serviço faz esse tipo ganhar uma trilha de peça teste em todo card cuja mão de obra o inclua."),
       p("O acompanhamento das peças-teste do produto, por serviço: cada tentativa registra o fornecedor, as datas e a aprovação. Ver e lançar peças-teste é uma permissão à parte — o Leitor vê a seção, o Editor lança tentativas, datas e aprovação."),
       p("A peça teste só movimenta o estoque (tecidos, aviamentos e insumos). Não entra no custo do produto, não gera conta a pagar e não tem valor — é só controle."),
     ],
     campos: [
       { campo: "pt_fornecedor", rotulo: "Fornecedor da tentativa", ajuda: [p("O fornecedor de cada tentativa de peça teste. Depois que a peça é aprovada, o fornecedor fica travado. Se o tipo de serviço não tem fornecedor vinculado, a tela avisa — vincule em Cadastro › Serviço.")] },
     ],
+  },
+  {
+    id: "fases-kanban",
+    titulo: "Fases do kanban (o que falta para avançar)",
+    intro: [
+      p("As fases que a sua loja usa e o que cada uma exige — configurado em Config da Loja. Para cada fase, a lista abaixo mostra os requisitos de entrada que a loja escolheu; uma fase sem requisito é movida à mão."),
+    ],
+    componente: "requisitos-fases",
   },
   {
     id: "anexos",
@@ -205,6 +214,7 @@ const PLAN_TECIDO: SecaoConteudoManual[] = [
     titulo: "Planejar o tecido antes de comprar",
     intro: [
       p("O Planejamento de Tecido é onde você decide a compra de tecido de uma coleção inteira ANTES de comprar: ele compara o que os produtos precisam (a necessidade) com o que você já tem (estoque e OCs a chegar) e mostra, por cor, quanto falta comprar."),
+      p("Quando aparece: é um módulo opcional — a tela só existe quando a loja tem o OTB ligado (a lista de coleções vem do OTB). Sem OTB, o Planejamento de Tecido não aparece no menu."),
       p("No fio do processo: ele fica ACIMA do Planejamento de Produto e depende do OTB (a lista de coleções é a do OTB). Depois de ver o que falta, você gera as ordens de compra de tecido daqui mesmo, e pode distribuir as peças por loja — que vira a base do Direcionamento."),
       p("Você começa escolhendo uma coleção na lista; cada card já adianta quantos modelos tem e um resumo (“a comprar X m”, “tecido coberto” ou “sem plano de tecido”). Ao abrir, o planejamento aparece organizado por tecido, com os produtos que o usam."),
     ],
@@ -302,7 +312,8 @@ const PRODUTO_ACABADO: SecaoConteudoManual[] = [
     titulo: "Planejar o que você compra pronto",
     intro: [
       p("O Produto Acabado (Revenda) é onde você planeja produtos que compra PRONTOS de um fornecedor para revender — você não fabrica. O planejamento é por coleção e subcoleção, num canvas de cards, igual ao Plan. Tecido."),
-      p("No fio do processo: cada produto de revenda ganha um card espelho no Planejamento, então ele também aparece no quadro de produtos e segue o fluxo de cores, grade e lançamento. A compra vira uma Ordem de Compra de Produto Acabado; ao receber, o produto entra no CQ/Direcionamento como qualquer outro. É um módulo opcional (depende de a loja ter Produto Acabado e OTB ligados)."),
+      p("Quando aparece: é um módulo opcional — a tela só existe quando a loja tem os módulos Produto Acabado E OTB ligados. Com qualquer um desligado, o Produto Acabado não aparece no menu."),
+      p("No fio do processo: cada produto de revenda ganha um card espelho no Planejamento, então ele também aparece no quadro de produtos e segue o fluxo de cores, grade e lançamento. A compra vira uma Ordem de Compra de Produto Acabado; ao receber, o produto entra no CQ/Direcionamento como qualquer outro."),
     ],
   },
   {
@@ -389,7 +400,8 @@ const PRODUTO_IMPORTADO: SecaoConteudoManual[] = [
     titulo: "Planejar o que você importa",
     intro: [
       p("O Produto Importado é onde você planeja produtos que compra do exterior — como a revenda, mas com cotação de moeda e etapas de pagamento (mercadoria, frete, impostos). O planejamento é por coleção e subcoleção, num canvas de cards."),
-      p("No fio do processo: como na revenda, cada produto importado tem um card espelho no Planejamento e segue o mesmo fluxo; a diferença é o cálculo do custo em reais, que passa pela cotação e pelas etapas de pagamento (daí saem as parcelas a pagar). É um módulo opcional (depende de a loja ter Produto Importado ligado)."),
+      p("Quando aparece: é um módulo opcional — a tela só existe quando a loja tem o módulo Produto Importado ligado. Desligado, o Produto Importado não aparece no menu."),
+      p("No fio do processo: como na revenda, cada produto importado tem um card espelho no Planejamento e segue o mesmo fluxo; a diferença é o cálculo do custo em reais, que passa pela cotação e pelas etapas de pagamento (daí saem as parcelas a pagar)."),
     ],
   },
   {
@@ -503,6 +515,14 @@ const DESENVOLVIMENTO: SecaoConteudoManual[] = [
       { campo: "abrir_card", rotulo: "Abrir o card (ficha)", ajuda: [p("Clicar no card abre a ficha completa do produto — o mesmo editor do Planejamento. As ações do quadro (arrastar, “Mover para…”) continuam valendo por fora da ficha.")] },
     ],
   },
+  {
+    id: "fases-kanban",
+    titulo: "Fases do kanban (o que falta para avançar)",
+    intro: [
+      p("As fases que a sua loja usa e o que cada uma exige — configurado em Config da Loja. Para cada coluna do quadro, a lista abaixo mostra os requisitos de entrada que a loja escolheu; uma coluna sem requisito é movida à mão."),
+    ],
+    componente: "requisitos-fases",
+  },
 ];
 
 const ARMARIO: SecaoConteudoManual[] = [
@@ -511,7 +531,8 @@ const ARMARIO: SecaoConteudoManual[] = [
     titulo: "Montar a vitrine do e-commerce",
     intro: [
       p("O Armário é onde você monta a vitrine do e-commerce: escolhe quais variantes (produto × cor) aparecem e em que ordem, arrastando-as para uma grade. É assim que a loja decide como os produtos se apresentam na loja virtual."),
-      p("No fio do processo: cada armário é organizado por Ano e Mês (não por coleção) e você pode ter vários no mesmo período, numa ordem que é a ordem em que a vitrine os mostra. O armário passa por três situações — rascunho → pronto → publicado —; ao publicar, ele vai para a vitrine e fica somente leitura. É um módulo opcional (depende de a loja ter o Armário ligado)."),
+      p("Quando aparece: é um módulo opcional — a tela só existe quando a loja tem o módulo Armário ligado. Desligado, o Armário não aparece no menu."),
+      p("No fio do processo: cada armário é organizado por Ano e Mês (não por coleção) e você pode ter vários no mesmo período, numa ordem que é a ordem em que a vitrine os mostra. O armário passa por três situações — rascunho → pronto → publicado —; ao publicar, ele vai para a vitrine e fica somente leitura."),
     ],
   },
   {
