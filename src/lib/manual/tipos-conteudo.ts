@@ -9,6 +9,7 @@ import { ENTRADA_SAIDA_CONTEUDO } from "./conteudo/entrada-saida";
 import { OUTROS_CONTEUDO } from "./conteudo/outros";
 import { FINANCEIRO_DASHBOARD_CONTEUDO } from "./conteudo/financeiro-dashboard";
 import { PCP_EXPEDICAO_CONTEUDO } from "./conteudo/pcp-expedicao";
+import { COLABORACAO_CONTEUDO } from "./conteudo/colaboracao";
 
 /** Todos os módulos de conteúdo, juntos. Acrescente o import + o spread ao documentar um módulo. */
 export const CONTEUDO_TELAS: ConteudoTelas = {
@@ -18,6 +19,7 @@ export const CONTEUDO_TELAS: ConteudoTelas = {
   ...OUTROS_CONTEUDO,
   ...FINANCEIRO_DASHBOARD_CONTEUDO,
   ...PCP_EXPEDICAO_CONTEUDO,
+  ...COLABORACAO_CONTEUDO, // guia geral (pageKey `manual`): ancorado no grupo "Guia geral" da ManualPage
 };
 
 /** Seções de conteúdo à mão de uma tela (ou `[]` se ainda não houver). PURO. */

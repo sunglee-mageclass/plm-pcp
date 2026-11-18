@@ -140,3 +140,26 @@ export function ordenarComoSidebar(modulos: ModuloManual[]): ModuloManual[] {
 
   return [...operacao, ...(cadastro ? [cadastro] : []), ...sistema];
 }
+
+/** GUIA GERAL (transversal): o conteúdo ancorado no pageKey `manual` (ex.: "Trabalhar em equipe ao
+ *  mesmo tempo") não pertence a nenhuma tela de negócio, então NÃO passa pelo filtro de loja/permissão —
+ *  o Manual é universal. A `ManualPage` põe este módulo no TOPO do índice (depois de filtrar `manual`
+ *  da árvore do catálogo). `temConteudo` evita um grupo vazio. PURO. */
+export function moduloGuiaGeral(temConteudo: boolean): ModuloManual | null {
+  if (!temConteudo) return null;
+  return {
+    moduleKey: "manual",
+    label: "Guia geral",
+    basePath: "/manual",
+    telas: [
+      {
+        pageKey: "manual",
+        label: "Trabalhar em equipe ao mesmo tempo",
+        moduloKey: "manual",
+        moduloLabel: "Guia geral",
+        seroes: [],
+        moduloDesligado: false,
+      },
+    ],
+  };
+}

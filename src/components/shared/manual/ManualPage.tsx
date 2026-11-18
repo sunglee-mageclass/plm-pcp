@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import {
   montarEstruturaManual,
   ordenarComoSidebar,
+  moduloGuiaGeral,
   type ModuloManual,
   type TelaManual,
 } from "@/lib/manual/estrutura";
@@ -98,7 +99,9 @@ export function ManualPage() {
     }).filter((m) => m.moduleKey !== "manual");
     // Ordem do menu = a mesma da sidebar (Operação → Cadastro → Sistema), p/ a pessoa achar a tela
     // no Manual onde ela está no menu lateral.
-    return ordenarComoSidebar(arvore);
+    const guia = moduloGuiaGeral(conteudoDaTela("manual").length > 0);
+    // "Guia geral" (conteúdo transversal, pageKey `manual`) vai no TOPO e vale p/ todos os logados.
+    return [...(guia ? [guia] : []), ...ordenarComoSidebar(arvore)];
   }, [pronto, modules, isStockOnly, isModuleEnabled, canView]);
 
   // Lista achatada de telas (na ordem da árvore) p/ a seleção à direita.
