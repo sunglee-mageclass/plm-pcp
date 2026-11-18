@@ -4,11 +4,53 @@ import { p, type ConteudoTelas, type SecaoConteudoManual } from "./tipos";
 const OTB: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "O orçamento antes de planejar",
     intro: [
-      p("O OTB (Open To Buy) é o orçamento da coleção, feito ANTES do Planejamento: você decide quanto quer comprar ou produzir numa coleção — por subcoleção, por semana e por categoria — e, mais tarde, cria os produtos no Planejamento mirando esse alvo."),
-      p("O plano é um ALVO FIXO: depois de confirmado, você cria, edita e exclui produtos no Planejamento livremente, e o OTB não se ajusta sozinho. Ele apenas compara o que foi planejado com o que já virou card (o Realizado) e avisa quando você passou do combinado."),
-      p("São dois jeitos de montar uma coleção, escolhidos ao criar: por Orçamento (quantidade por semana e categoria) ou por Poder de Venda (metas de venda por linha, de cima para baixo). É um módulo opcional — depende de a loja ter o OTB ligado."),
+      p("O OTB (Open To Buy) é o orçamento da coleção, montado ANTES do Planejamento: aqui você decide quanto pretende comprar ou produzir numa coleção — por subcoleção, por lançamento e por categoria — e só depois, no Planejamento, cria os produtos mirando esse alvo. Pense no OTB como a META e no Planejamento como a execução dela."),
+      p("O plano é um ALVO FIXO: depois de confirmado, você cria, edita e exclui produtos no Planejamento livremente, e o OTB não se mexe sozinho. Ele só conta quantos cards já viraram realidade (o Realizado) e avisa quando você passa do combinado."),
+      p("Há dois jeitos de montar uma coleção, escolhidos na hora de criar: por Orçamento (quantidade por lançamento e categoria) ou por Poder de Venda (metas de venda por linha, de cima para baixo). É um módulo opcional — depende de a loja ter o OTB ligado. Só quem tem permissão de editar o OTB consegue gravar."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como montar o orçamento de uma coleção",
+    intro: [
+      p("O caminho é: criar a coleção escolhendo o tipo, lançar as quantidades (ou as metas), e Confirmar para fechar o plano. Depois é só acompanhar o Planejado × Realizado."),
+    ],
+    campos: [
+      { campo: "criar", rotulo: "Criar a coleção e escolher o tipo", ajuda: [
+        { tipo: "passos", itens: [
+          "Na lista de coleções, clique em “Nova coleção”.",
+          "No diálogo “Como você quer montar esta coleção?”, escolha “Por Orçamento” (subcoleções, lançamentos e categorias) ou “Por Poder de Venda” (herda um Padrão do mix e mira a meta de venda).",
+          "O editor da coleção se abre no tipo escolhido.",
+        ] },
+      ] },
+      { campo: "orcamento", rotulo: "Montar por Orçamento", ajuda: [
+        { tipo: "passos", itens: [
+          "Preencha a identidade: “Nome de Coleção”, “Ano”, “Mês” e o “Orçamento” (valor de custo-alvo).",
+          "Clique em “Subcoleção” para dividir a coleção (ex.: “Praia”, “Festa”) — ou deixe sem subcoleção e informe os modelos pelos lançamentos da coleção.",
+          "Em cada subcoleção, informe a quantidade de peças por lançamento (1 a 5). A soma dos lançamentos é o total planejado.",
+          "Se quiser detalhar, clique no botão ao lado da quantidade do lançamento para abrir “Categorias da semana”, reparta a quantidade entre as categorias (a soma tem de fechar com a do lançamento) e clique em “Aplicar”. A distribuição pode ser parcial — o resto vira produtos sem categoria.",
+          "Use o bloco “Não classificados” para selecionar cards sem subcoleção/lançamento e dar um destino de uma vez em “Atribuir”.",
+          "Clique em “Salvar”.",
+        ] },
+      ] },
+      { campo: "poder-venda", rotulo: "Montar por Poder de Venda", ajuda: [
+        { tipo: "passos", itens: [
+          "Antes, monte um “Padrão do mix” (botão na lista): por linha, defina o número de modelos, se é “à parte”, a profundidade de cor e a faixa de preço.",
+          "Ao criar a coleção por Poder de Venda, ela herda esse padrão e distribui o número de modelos pelas subcoleções.",
+          "Na árvore “Subcoleção ▸ Linha × Semana”, ajuste as quantidades e os atributos (profundidade, cores, preço) nos lançamentos 1 a 5 — tudo editável em cima do padrão.",
+          "Defina a data de lançamento por semana (ou escolha a data e o sistema devolve a semana).",
+          "Acompanhe o poder de venda e o “mix % real vs meta” enquanto edita, e Salve.",
+        ] },
+      ] },
+      { campo: "confirmar", rotulo: "Confirmar e acompanhar", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Confirmar” para fechar o plano — a coleção passa de Rascunho a Confirmada.",
+          "Confirmar NÃO cria, edita nem apaga nenhum produto: o plano vira só o alvo e o Planejamento segue livre.",
+          "A partir daí, acompanhe o Realizado (contagem viva de cards) e os avisos de divergência quando passar do planejado.",
+        ] },
+      ] },
     ],
   },
   {
@@ -77,25 +119,51 @@ const INTEGRACAO: SecaoConteudoManual[] = [
     ],
   },
   {
+    id: "como-usar",
+    titulo: "Como marcar um produto como integrável",
+    intro: [
+      p("A ação do dia a dia mora na aba Produtos: você confere a lista, acha o que está pronto e o marca para a API. As demais abas (Campos da API, API, Log) são do super admin e preparam/acompanham a integração."),
+    ],
+    campos: [
+      { campo: "marcar", rotulo: "Deixar um produto integrável", ajuda: [
+        { tipo: "passos", itens: [
+          "Abra a aba “Produtos”. A lista carrega os produtos da loja com a Situação, o Estado e a Versão de cada um (ela abre em “Não integrados”).",
+          "Use o filtro por Estado para achar os prontos: “Faltam dados” (vermelho — falta algum campo marcado, o produto ainda não pode ser marcado), “Pronto para integrar” (âmbar — completo), “Integrável” e “Integrado”.",
+          "Se faltar algum dado, edite as células da linha (é rascunho) e clique em “Salvar” — só depois de salvo e completo o produto fica “Pronto para integrar”.",
+          "Ligue o interruptor da coluna “Integrável” na linha (ou marque vários e use “Integrar selecionados”). Confirme no diálogo “Integrar produtos”, em “Tenho certeza — integrar”.",
+          "Uma vez integrável, os campos marcados ficam TRAVADOS nas outras telas (Planejamento, cards, Plan. Tecido), para não divergir do que foi liberado. Ele fica à espera de a API o ler.",
+          "Para desfazer enquanto ainda está Integrável, desligue o interruptor “Integrável” e confirme em “Voltar para não integrável”. De Integrado só o super admin volta, pelo “⋯” da linha → “Desfazer integração” (com um motivo obrigatório).",
+        ] },
+      ] },
+      { campo: "entregar", rotulo: "Entregar à mão com Gerar JSON", ajuda: [
+        { tipo: "passos", itens: [
+          "Quando a entrega é manual (em vez de a API buscar), selecione os produtos e clique em “Gerar JSON” na barra de seleção.",
+          "Confirme em “Tenho certeza — gerar JSON”: abre a janela “JSON gerado” com o conteúdo.",
+          "Use “Copiar” ou “Baixar arquivo (.json)”. Gerar o JSON conta como a integração — os Integráveis passam a Integrado.",
+          "A aba “Log” registra quem integrou, voltou ou desfez (e os reprocessos do sistema) para acompanhar.",
+        ] },
+      ] },
+    ],
+  },
+  {
     id: "estados",
     titulo: "As três situações do produto",
     intro: [p("O ciclo que todo produto percorre antes de aparecer no programa externo. Mudar entre eles é a ação principal da aba Produtos.")],
     campos: [
-      { campo: "nao_integravel", rotulo: "Não integrável", ajuda: [p("O produto ainda não foi liberado. Pode estar “Faltam dados” (vermelho — falta algum campo marcado) ou “Pronto para integrar” (âmbar — completo, só falta você marcar).")] },
-      { campo: "integravel", rotulo: "Integrável", ajuda: [p("Você marcou o produto: ele está liberado e à espera de que a API o leia. Nesse estado, os campos marcados ficam TRAVADOS nas telas (Planejamento, cards, Plan. Tecido) para não divergir do que foi liberado.")] },
+      { campo: "nao_integravel", rotulo: "Não integrável", ajuda: [p("O produto ainda não foi liberado. Pode estar “Faltam dados” (vermelho — falta algum campo marcado) ou “Pronto para integrar” (âmbar — completo, só falta ligar o interruptor “Integrável”).")] },
+      { campo: "integravel", rotulo: "Integrável", ajuda: [p("Você ligou o interruptor “Integrável”: o produto está liberado e à espera de que a API o leia. Nesse estado, os campos marcados ficam TRAVADOS nas telas (Planejamento, cards, Plan. Tecido) para não divergir do que foi liberado.")] },
       { campo: "integrado", rotulo: "Integrado", ajuda: [p("A API já confirmou a entrega do produto. Para voltar atrás a partir de Integrado, só o super admin desfaz (com um motivo); de Integrável, você consegue “Voltar”.")] },
     ],
   },
   {
     id: "produtos",
     titulo: "Aba Produtos",
-    intro: [p("A lista de produtos da loja com o estado de cada um e as ações para marcar, voltar e conferir. É a mão dupla da Integração: editar aqui também reflete no card do produto.")],
+    intro: [p("A lista de produtos da loja com o estado de cada um e as ações para editar, integrar e voltar. É a mão dupla da Integração: editar aqui também reflete no card do produto. Edições são rascunho até o “Salvar” do rodapé.")],
     campos: [
-      { campo: "tabela", rotulo: "Tabela · Situação · Estado · Versão", ajuda: [p("A lista é ordenável por coluna e filtrável por Situação (integrados/não integrados), por Estado (faltam dados / pronto / integrável / integrado) e por Versão. Carrega até 500 produtos de uma vez.")] },
-      { campo: "marcar", rotulo: "Marcar (Integrar)", ajuda: [p("Leva um produto “Pronto para integrar” para Integrável. É o que libera o produto para a API.")] },
-      { campo: "voltar", rotulo: "Voltar", ajuda: [p("Devolve um produto Integrável para não integrável (destrava os campos). De Integrado só volta pelo super admin.")] },
-      { campo: "exemplo", rotulo: "Ver resposta de exemplo", quando: "super admin", ajuda: [p("Mostra como a API responderia, com dados de exemplo, para conferir o formato antes de entregar de verdade.")] },
-      { campo: "gerar_json", rotulo: "Gerar JSON (entrega manual)", ajuda: [p("Para quem entrega o arquivo à mão em vez de a API buscar: gera um arquivo .json com os produtos integráveis da lista atual, para baixar ou copiar. Gerar o arquivo conta como a integração.")] },
+      { campo: "tabela", rotulo: "Tabela · Situação · Estado · Versão", ajuda: [p("A lista é ordenável por coluna e filtrável por Situação (não integrados / integrados / todos), por Estado (faltam dados / pronto / integrável / integrado) e por Versão. Há busca por Nome ou REF.")] },
+      { campo: "marcar", rotulo: "Interruptor “Integrável”", ajuda: [p("Na coluna “Integrável” de cada linha, o interruptor leva um produto “Pronto para integrar” para Integrável (ou marque vários e use “Integrar selecionados”); confirma-se no diálogo “Integrar produtos”. É o que libera o produto para a API. Enquanto faltam dados, o interruptor fica desabilitado.")] },
+      { campo: "voltar", rotulo: "Voltar · Desfazer integração", ajuda: [p("Desligar o interruptor “Integrável” devolve um produto Integrável para não integrável (destrava os campos). De Integrado só o super admin volta, pelo “⋯” da linha → “Desfazer integração”, com um motivo.")] },
+      { campo: "gerar_json", rotulo: "Gerar JSON (entrega manual)", ajuda: [p("Para quem entrega o arquivo à mão em vez de a API buscar: na barra de seleção, gera um arquivo .json com os produtos selecionados, para baixar ou copiar. Gerar o arquivo conta como a integração (os Integráveis passam a Integrado).")] },
     ],
   },
   {
@@ -126,10 +194,28 @@ const INTEGRACAO: SecaoConteudoManual[] = [
 const EXPORTAR_DADOS: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Levar os produtos para fora",
     intro: [
-      p("Exportar dados gera uma planilha (CSV ou Excel) com os produtos da loja: você escolhe o recorte, as colunas e o nível de detalhe, confere numa prévia e baixa o arquivo."),
-      p("É útil para levar os produtos para fora do sistema — conferir em outra ferramenta, enviar a alguém ou alimentar outro programa."),
+      p("Exportar dados tira os produtos da loja numa planilha (CSV ou Excel): você escolhe o recorte, marca as colunas, decide o nível de detalhe, confere numa prévia e baixa o arquivo. É o jeito de levar o catálogo para fora do sistema — conferir em outra ferramenta, enviar a alguém ou alimentar outro programa."),
+      p("É um item com permissão própria (“exportar dados”): só o super admin concede, e ela começa vazia. Quem não tem a permissão não vê o item."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como escolher colunas e níveis e baixar",
+    intro: [
+      p("Três decisões em sequência — o recorte, as colunas e o nível —, uma prévia para conferir e o Baixar. Enquanto você não escolhe uma coleção, nada é consultado e o Baixar fica desabilitado."),
+    ],
+    campos: [
+      { campo: "montar", rotulo: "Montar e baixar o arquivo", ajuda: [
+        { tipo: "passos", itens: [
+          "Em “1. Recorte”, escolha a Coleção — uma específica ou “Todas as coleções” (a loja inteira). Com uma coleção escolhida, dá para afinar pela Subcoleção (com “Todas as coleções”, a subcoleção fica desabilitada).",
+          "Em “2. Colunas”, marque os campos que viram colunas do arquivo. Campos de variante (cor, tamanho) só têm valor nas linhas de cor/tamanho — ficam vazios na linha do SKU pai.",
+          "Em “3. Níveis”, escolha o detalhe: “SKU pai” (1 linha por produto), “Até cor” (pai + 1 linha por cor) ou “Até tamanho” (pai + 1 linha por cor × tamanho).",
+          "Confira a prévia (as primeiras linhas do menor nível marcado).",
+          "Clique em “Baixar”. Um nível só gera um CSV; dois ou três níveis geram um Excel com uma aba por nível. O arquivo baixado é completo, sem limite.",
+        ] },
+      ] },
     ],
   },
   {
@@ -170,10 +256,30 @@ const EXPORTAR_DADOS: SecaoConteudoManual[] = [
 const IMPORTAR: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Trazer dados em massa por planilha",
     intro: [
-      p("Importar Dados cadastra muitos itens de uma vez a partir de uma planilha: tecidos, aviamentos, insumos e produtos (e imagens em massa). Em vez de digitar item a item, você preenche o modelo de planilha e envia tudo junto."),
-      p("O fluxo é sempre o mesmo: baixar o modelo → preencher → importar o arquivo → conferir a análise → confirmar. Nada é gravado até você Confirmar. A loja só oferece os tipos dos módulos que ela tem."),
+      p("Importar Dados cadastra muitos itens de uma vez a partir de uma planilha: tecidos, aviamentos, insumos e produtos (e imagens em massa). Em vez de digitar item a item, você preenche o modelo de planilha da loja e envia tudo junto."),
+      p("O fio do processo é sempre o mesmo: baixar o modelo → preencher → importar o arquivo → conferir a análise → Confirmar. NADA é gravado até você Confirmar — até lá é tudo prévia. A loja só oferece os tipos dos módulos que ela tem ligados."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como baixar o modelo, preencher e importar",
+    intro: [
+      p("Quatro passos: pegar a planilha certa, preencher, subir para análise e Confirmar. A análise é a hora de resolver pendências antes de gravar."),
+    ],
+    campos: [
+      { campo: "fluxo", rotulo: "Do modelo à gravação", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Baixar Modelo” para pegar a planilha vazia no formato esperado (uma aba por tipo: tecido, aviamento, insumo, produto).",
+          "Preencha só as abas dos tipos que você vai importar e salve a planilha.",
+          "Se for importar imagens em massa, clique em “Selecionar imagens” e escolha os arquivos (nomeados pelo produto/cor).",
+          "Clique em “Importar planilha” e envie o arquivo. O sistema lê todas as abas presentes e separa o que é de cada tipo; abas vazias são ignoradas e tipos de módulo desligado ficam de fora com aviso.",
+          "Confira a Área de análise, em abas por tipo: resolva as pendências (fornecedor, cor, categoria ou apelido que não existem) escolhendo o valor certo nos campos em vermelho ou mandando cadastrar antes; marque “Ignorar” nas linhas que não quer gravar.",
+          "Havendo imagens, confira o match visual (as fotos são casadas pelo nome do arquivo e dá para trocar a correspondência à mão).",
+          "Clique em “Confirmar importação” para gravar TODOS os tipos de uma vez, na ordem das dependências (tecido, depois aviamento, depois insumo). Só aqui o sistema grava, e mostra um relatório do que entrou.",
+        ] },
+      ] },
     ],
   },
   {
@@ -204,7 +310,7 @@ const IMPORTAR: SecaoConteudoManual[] = [
   {
     id: "confirmar",
     titulo: "4. Confirmar",
-    intro: [p("A gravação. Confirmar grava TODOS os tipos de uma vez, na ordem das dependências (tecido, depois aviamento, depois insumo), e mostra um relatório do que entrou. Até aqui, nada foi gravado.")],
+    intro: [p("A gravação. “Confirmar importação” grava TODOS os tipos de uma vez, na ordem das dependências (tecido, depois aviamento, depois insumo), e mostra um relatório do que entrou (criados, complementados, pulados, com erro). Até aqui, nada foi gravado. O botão fica desabilitado enquanto houver pendências ou nada a importar.")],
   },
 ];
 
