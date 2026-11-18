@@ -8,11 +8,13 @@
 --   producao_oficina, tipos_colaborador, empresa_categorias_fornecedor, empresa_categorias_servico, enderecamento_tecido.
 --
 -- ADITIVO e idempotente: so faz ADD TABLE se a tabela ainda nao esta na publicacao.
--- REPLICA IDENTITY FULL (mesma razao da 20260819120000): o RLS de SELECT destas tabelas e `tenant_id = get_user_tenant_id()`
--- e o evento de DELETE so carrega a PK; sem a linha antiga completa o Realtime NAO consegue avaliar o tenant e DESCARTA o
--- DELETE (remover um endereco / tipo de colaborador numa aba nao propagaria). FULL so onde a PK NAO traz o tenant/empresa:
--- producao_oficina, tipos_colaborador, enderecamento_tecido (PK = id). empresa_categorias_* tem PK (empresa_id, categoria_id)
--- e a policy olha `empresas` por empresa_id (esta na PK) -> o DELETE ja chega com o default; nao se altera.
+-- REPLICA IDENTITY FULL nas 3 tabelas cuja PK e `id` (producao_oficina, tipos_colaborador, enderecamento_tecido):
+--   * producao_oficina: NECESSARIO. O colab da Oficina (useColabRegistro, `tabelasExtra`) filtra o canal por `cad_id`; filtro de
+--     postgres_changes em evento de DELETE exige a linha antiga completa (a PK so tem `id`), senao o DELETE nao e entregue.
+--   * tipos_colaborador e enderecamento_tecido: por PARIDADE com a 20260819120000 (tabelas com `tenant_id` fora da PK, RLS de
+--     SELECT `tenant_id = get_user_tenant_id()`). O hook global (useRealtimeInvalidation) NAO filtra por coluna, entao nao
+--     depende disto; e so manter o mesmo padrao das demais tabelas do mapa.
+--   * empresa_categorias_* tem PK (empresa_id, categoria_id) e a policy olha `empresas` por empresa_id (esta na PK): nao se altera.
 -- Trava: ALTER PUBLICATION ADD TABLE = ShareUpdateExclusive; REPLICA IDENTITY = AccessExclusive por milissegundos em 3 tabelas
 -- pequenas (0-8 linhas). lock_timeout 1500ms: 55P03 = nada mudou (DO atomico), rodar de novo.
 -- NAO e DDL de policy (nao toca auth/storage).
