@@ -16,6 +16,7 @@ import { PECA_TESTE_INERTE, type CapturaPT, type PecaTesteSave, type ResultadoSa
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
+import { payloadRevendaParaSalvar, type MarkupEnviado, type RevendaBase, type RevendaRascunho } from "@/lib/revenda-salvar";
 import { argsConferirCategoria, conferirCategoriaAcessorioPedido, RecusaEsperadaError, textoBloqueioCategoriaCard, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
@@ -200,6 +201,15 @@ export type UsePlanejamentoSaveArgs = {
   pecaTeste?: PecaTesteSave;
   /** R9 (Ruling 11) — quem só edita a seção (`sheetSomenteLeitura && podeEditarPT`): o `mutationFn` NÃO toca header/BOM/CAD/M.O./PA/PI, só a Peça Teste. */
   somentePecaTeste?: boolean;
+  /** C7 — rascunho de preço/markup da revenda lido NO INSTANTE do Salvar (via ref, não closure de render velho).
+   *  Ausente/null = card não é revenda, sem produto espelho ou sem permissão de preço ⇒ o bloco revenda não roda. */
+  revendaSaveRef?: RefObject<{
+    produtoId: string;
+    base: RevendaBase;
+    rascunho: RevendaRascunho;
+    enviadoAtacado: MarkupEnviado;
+    enviadoVarejo: MarkupEnviado;
+  } | null>;
 };
 
 /** R9 — as queries que mudam quando a Peça Teste grava (a trava do fornecedor sobe o `rev` do card, reabre a M.O. e pode mover o card no kanban
@@ -224,7 +234,7 @@ export function usePlanejamentoSave({
   setEnviada, setLancado,
   moLinhasRef, moBaseRef, setMoLinhasBase,
   gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda, gradeCompradoPeloBom,
-  qc, onSaved, onCreated, ficha, resetDraftBaseline, insumosIniciaisRef, pecaTeste, somentePecaTeste,
+  qc, onSaved, onCreated, ficha, resetDraftBaseline, insumosIniciaisRef, pecaTeste, somentePecaTeste, revendaSaveRef,
 }: UsePlanejamentoSaveArgs) {
   // R9 — espelhos SÍNCRONOS (o mutationFn/onSuccess não fecham sobre um render velho; mesma razão do `fichaRef`).
   const pecaTesteRef = useRef<PecaTesteSave>(pecaTeste ?? PECA_TESTE_INERTE);
@@ -389,6 +399,10 @@ export function usePlanejamentoSave({
       // é lido AQUI, antes de qualquer `await` neste ciclo (1ª tentativa OU retry, que reentra no mutationFn do
       // zero e recongela um novo).
       const precoBaseCongelado = { venda: baseRef.current?.draft.preco_venda, atacado: baseRef.current?.draft.preco_atacado };
+      // C7 (Camada, revenda no Salvar) — o rascunho de markup/preço da REVENDA e a base dele são congelados AQUI, no MESMO ponto
+      // síncrono (antes de qualquer `await`), pela mesma razão do `precoBaseCongelado`: o bloco "revenda" mais abaixo roda DEPOIS dos
+      // awaits do header/BOM e não pode comparar contra uma base que o refetch/Realtime avançou nesse meio-tempo (fix M-2).
+      const revendaCongelada = revendaSaveRef?.current ?? null;
       // Fix round 1 (I1) — os 3 campos do Item C (fix round 3/4) são SÍNCRONOS (não dependem de `bom`/
       // `gradeServidor`) e passam a ser capturados AQUI, ANTES do `await lerGradeServidorComprado` abaixo —
       // não mais só depois dele. `enviadoRef.current` já fica com uma captura VÁLIDA (mesmo com `bom`/
@@ -896,6 +910,39 @@ export function usePlanejamentoSave({
           }
         }
       }
+      // C7 (Camada) — REVENDA: markups/preços fixos gravam AQUI (no Salvar), não mais no onBlur. Gêmeo do n1 do importado, DEPOIS do
+      // UPDATE do header. `revendaCongelada` foi lido no ponto síncrono inicial (base congelada — fix M-2). O helper puro decide o que
+      // mudou vs a base e devolve `null` no grupo intocado ⇒ a RPC dele NÃO é chamada. O varejo travado pela Integração nunca recebe
+      // valor novo (`travaVarejo`, o MESMO `travaIntegracao` do n1). SEM `podeEditarPreco` aqui de propósito: a permissão do comprado é o
+      // OU `podeEditarPrecoComprado` (PA OU seção de preço, S3d) — já aplicada na montagem do ref (null sem ela). Erro lança: o resto do card já comitou, o onError mostra o toast.
+      if (savedId && d.origem === "revenda" && revendaCongelada) {
+        const travaVarejoRev = !!travaIntegracao?.has("preco_venda");
+        const pay = payloadRevendaParaSalvar(
+          revendaCongelada.base, revendaCongelada.rascunho, travaVarejoRev,
+          revendaCongelada.enviadoAtacado, revendaCongelada.enviadoVarejo,
+        );
+        try {
+          if (pay.markups) {
+            const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
+              _produto_id: revendaCongelada.produtoId,
+              _markup_atacado: pay.markups.markup_atacado, _markup_varejo: pay.markups.markup_varejo,
+            });
+            if (error) throw error;
+          }
+          if (pay.fixos) {
+            const { error } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
+              _produto_id: revendaCongelada.produtoId,
+              _tocar_atacado: pay.fixos.tocarAtacado, _preco_atacado_fixo: pay.fixos.precoAtacado,
+              _tocar_varejo: pay.fixos.tocarVarejo, _preco_varejo_fixo: pay.fixos.precoVarejo,
+            });
+            if (error) throw error;
+          }
+        } catch (eRev) {
+          // Etapa própria (mesmo padrão do "preco" do importado): o card já salvou, só o PREÇO/markup da revenda ficou de fora.
+          (eRev as any).etapaFalha = "preco";
+          throw eRev;
+        }
+      }
       // `savedDraft` (bug-fix): devolve o MESMO `d` que foi de fato enviado ao servidor —
       // o `onSuccess` abaixo usa este (não o `draft` do closure do render que chamou
       // `save.mutate`) pra fixar `baseRef`/decidir invalidations, mesma razão do `d` acima.
@@ -958,6 +1005,9 @@ export function usePlanejamentoSave({
       if (savedDraft.origem === "revenda") {
         qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("produtos-acabados") });
         qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
+        // C7 — o preço/markup da revenda agora grava no Salvar (antes: onBlur, que invalidava a lista do planejador). `["modelo"]` (todos
+        // os saves, mais abaixo) e `produtos-acabados*` (acima) já cobrem os outros 2; falta a lista do Planejamento.
+        qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       }
       // F3.4 — o comprado lê o produto (vínculo, variantes) e a troca de Origem olha os tecidos e os DOIS espelhos (R3) do
       // servidor (`plan-origem-espelhos` tem `piOn` na key — prefixo).

@@ -94,6 +94,7 @@ import { useGradeComprado } from "@/components/planejamento/planejamento-detail/
 import { FotoPorCorSecao } from "@/components/planejamento/planejamento-detail/FotoPorCorSecao";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
+import type { MarkupEnviado, RevendaBase, RevendaRascunho } from "@/lib/revenda-salvar";
 import { PERM_PECA_TESTE, salvarComConfirmacaoEstorno, usePecaTeste } from "@/components/planejamento/planejamento-detail/usePecaTeste";
 import { PecaTesteSecao } from "@/components/planejamento/planejamento-detail/PecaTesteSecao";
 import { useMiniExplosao } from "@/components/planejamento/planejamento-detail/useMiniExplosao";
@@ -670,6 +671,37 @@ function PlanejamentoDetailConteudo({
     qc, navigate, contexto, onClose: () => requestCloseRef.current(),
   });
   const { produtoRevenda } = revenda;
+  // C7 (Camada, revenda no Salvar) — espelho SÍNCRONO a cada render (mesmo padrão do `fichaRef`): o `mutationFn` do Salvar lê
+  // `revendaSaveRef.current` no ponto síncrono inicial (base congelada) e grava markup/preço fixo da revenda pelas 2 RPCs, só do
+  // canal que mudou (`payloadRevendaParaSalvar`). Null = não é revenda / sem produto espelho / sem permissão de preço do comprado.
+  // O markup do rascunho só vale como "editado" se DIFERE do efetivo exibido (`markupXBaseRef` = markup do servidor OU o derivado
+  // do preço fixo): senão vai o markup do servidor (null com preço fixo) e o helper vê "não mudou" — mandar o derivado como markup
+  // limparia o preço fixo do canal (última edição manda).
+  const revendaSaveRef = useRef<{
+    produtoId: string; base: RevendaBase; rascunho: RevendaRascunho; enviadoAtacado: MarkupEnviado | null; enviadoVarejo: MarkupEnviado | null;
+  } | null>(null);
+  revendaSaveRef.current =
+    isRevenda && revenda.produtoRevenda && podeEditarPrecoComprado
+      ? {
+          produtoId: revenda.produtoRevenda.id,
+          base: {
+            markup_atacado: revenda.produtoRevenda.markup_atacado ?? null,
+            markup_varejo: revenda.produtoRevenda.markup_varejo ?? null,
+            preco_atacado: draft.preco_atacado ?? null,
+            preco_venda: draft.preco_venda ?? null,
+          },
+          rascunho: {
+            markupAtacado: revenda.markupAtacadoInput === revenda.markupAtacadoBaseRef.current
+              ? (revenda.produtoRevenda.markup_atacado ?? null) : revenda.markupAtacadoInput,
+            markupVarejo: revenda.markupVarejoInput === revenda.markupVarejoBaseRef.current
+              ? (revenda.produtoRevenda.markup_varejo ?? null) : revenda.markupVarejoInput,
+            precoAtacadoFixo: revenda.precoAtacadoDraft ? Number(revenda.precoAtacadoDraft) || null : null,
+            precoVarejoFixo: revenda.precoVarejoDraft ? Number(revenda.precoVarejoDraft) || null : null,
+          },
+          enviadoAtacado: revenda.enviadoAtacadoRef.current,
+          enviadoVarejo: revenda.enviadoVarejoRef.current,
+        }
+      : null;
   // F3.4 — grade cor × tamanho do COMPRADO (revenda E importado), fonte ÚNICA da grade do comprado (decisão F3 #4). Lê o
   // produto da origem SALVA (a do servidor — a troca no Select só vale depois do Salvar). MESMA posição de antes (a grade
   // saiu do `useRevendaPlanejamento`): antes dos effects de seed de MO e do merge do colab (o seed copia `revRef.current`).
@@ -1041,7 +1073,7 @@ function PlanejamentoDetailConteudo({
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave, salvarAntes } = usePlanejamentoSave({
     modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, categorias,
-    refEditavel, travaIntegracao,
+    refEditavel, travaIntegracao, revendaSaveRef,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
     setEnviada, setLancado,
