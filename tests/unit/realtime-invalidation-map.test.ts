@@ -88,6 +88,13 @@ describe("realtime-invalidation-map: tabelas", () => {
         "materiais_aviamento",
         "intervalos_largura",
         "tipos_insumo",
+        // Realtime Onda 1 (Task 2) — filhas das telas "parciais"
+        "tipos_colaborador",
+        "empresa_categorias_fornecedor",
+        "empresa_categorias_servico",
+        "enderecamento_tecido",
+        "variantes_etiqueta",
+        "variantes_aviamento",
       ].sort(),
     );
   });
@@ -266,5 +273,50 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
     // ocs_importado/ocs_p_acabado com tab-string = LISTA (não ambíguos) → casa
     expect(matchesTable("ocs_importado", ["ocs_importado", "encomendado"])).toBe(true);
     expect(matchesTable("ocs_p_acabado", ["ocs_p_acabado", "recebido"])).toBe(true);
+  });
+});
+
+describe("realtime-invalidation-map: Onda 1 Task 2 (tabelas-filha das telas parciais)", () => {
+  const FILHAS = [
+    "tipos_colaborador",
+    "empresa_categorias_fornecedor",
+    "empresa_categorias_servico",
+    "enderecamento_tecido",
+    "variantes_etiqueta",
+    "variantes_aviamento",
+  ] as const;
+
+  it("cada filha está no mapa com >=1 key de LISTA", () => {
+    for (const t of FILHAS) {
+      expect(REALTIME_INVALIDATION_TABLES as readonly string[], `${t} fora do mapa`).toContain(t);
+      expect(BUSINESS_KEY_TOKENS[t].length, `${t} sem key de lista`).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("producao_oficina NÃO entra no mapa (nenhuma LISTA depende dela; a Oficina é detalhe, via tabelasExtra do colab)", () => {
+    expect(REALTIME_INVALIDATION_TABLES as readonly string[]).not.toContain("producao_oficina");
+  });
+
+  it("cada filha invalida as keys reais de lista das telas", () => {
+    expect(matchesTable("tipos_colaborador", ["tipos-colaborador"])).toBe(true);
+    expect(matchesTable("tipos_colaborador", ["tipos-colaborador", "categoria-map"])).toBe(true);
+    expect(matchesTable("tipos_colaborador", ["tipos-colaborador-nomes"])).toBe(true);
+    expect(matchesTable("empresa_categorias_fornecedor", ["empresa-categorias-links"])).toBe(true);
+    expect(matchesTable("empresa_categorias_servico", ["empresa-categorias-servico-links"])).toBe(true);
+    expect(matchesTable("empresa_categorias_servico", ["empresas-servico-sel"])).toBe(true);
+    expect(matchesTable("enderecamento_tecido", ["end-tecido-rollup"])).toBe(true);
+    expect(matchesTable("enderecamento_tecido", ["estoque-tecidos", "x"])).toBe(true);
+    expect(matchesTable("enderecamento_tecido", ["end-tecido", "var-1", "manual"])).toBe(true);
+    expect(matchesTable("variantes_etiqueta", ["etiquetas-cadastro"])).toBe(true);
+    expect(matchesTable("variantes_aviamento", ["aviamentos-variantes"])).toBe(true);
+    expect(matchesTable("variantes_aviamento", ["os-avi-variantes"])).toBe(true);
+  });
+
+  it("filhas NÃO cruzam com keys de outras telas", () => {
+    expect(matchesTable("tipos_colaborador", ["empresa-categorias-links"])).toBe(false);
+    expect(matchesTable("empresa_categorias_fornecedor", ["empresa-categorias-servico-links"])).toBe(false);
+    expect(matchesTable("enderecamento_tecido", ["aviamentos-variantes"])).toBe(false);
+    expect(matchesTable("variantes_etiqueta", ["aviamentos-variantes"])).toBe(false);
+    expect(matchesTable("variantes_aviamento", ["etiquetas-cadastro"])).toBe(false);
   });
 });

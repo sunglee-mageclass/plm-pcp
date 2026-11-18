@@ -70,6 +70,13 @@ export const REALTIME_INVALIDATION_TABLES = [
   "materiais_aviamento",
   "intervalos_largura",
   "tipos_insumo",
+  // Realtime Onda 1 (Task 2) — tabelas-FILHA de telas "parciais" (a raiz já atualizava; a filha exigia F5)
+  "tipos_colaborador",
+  "empresa_categorias_fornecedor",
+  "empresa_categorias_servico",
+  "enderecamento_tecido",
+  "variantes_etiqueta",
+  "variantes_aviamento",
 ] as const;
 
 export type RealtimeTable = (typeof REALTIME_INVALIDATION_TABLES)[number];
@@ -96,6 +103,13 @@ export const BUSINESS_TABLES = [
   "representantes",
   "destinos_saida",
   "etiquetas",
+  // Realtime Onda 1 (Task 2) — filhas (match por token exato de LISTA, como as demais de negócio)
+  "tipos_colaborador",
+  "empresa_categorias_fornecedor",
+  "empresa_categorias_servico",
+  "enderecamento_tecido",
+  "variantes_etiqueta",
+  "variantes_aviamento",
 ] as const;
 export type BusinessTable = (typeof BUSINESS_TABLES)[number];
 type TaxonomyTable = Exclude<RealtimeTable, "tenant_config" | BusinessTable>;
@@ -239,6 +253,19 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
   representantes: ["representantes"],
   destinos_saida: ["destinos-saida"],
   etiquetas: ["etiquetas-cadastro", "planejamento-insumos-padrao"],
+  // Realtime Onda 1 (Task 2) — filhas. SÓ keys de LISTA/opções (detalhe `["x", id]` fica com o colab/estado local).
+  // Cadastro › Colaboradores: lista de tipos (abas) + nomes dos tipos (ResponsavelSelect/filtro) + mapa tipo→categoria (PCP Serviços).
+  tipos_colaborador: ["tipos-colaborador", "tipos-colaborador-nomes"],
+  // Cadastro › Serviço: vínculos empresa↔categoria (lista de fornecedores/serviço). O de serviço também alimenta o Select de
+  // fornecedor do bloco do PCP Serviços (`empresas-servico-sel`, embed `empresa_categorias_servico`).
+  empresa_categorias_fornecedor: ["empresa-categorias-links"],
+  empresa_categorias_servico: ["empresa-categorias-servico-links", "empresas-servico-sel"],
+  // Endereçamento de tecido: rollup por variante (RPC `enderecos_tecido`, coluna Endereço do Estoque) + a lista do editor.
+  enderecamento_tecido: ["end-tecido-rollup", "estoque-tecidos", "end-tecido"],
+  // Insumos: a lista do cadastro embeda `variantes_etiqueta(id, tamanho)` (nº de variantes/tamanhos) + o mapa de tamanho vinculado.
+  variantes_etiqueta: ["etiquetas-cadastro", "insumos-tamanho-vinculado"],
+  // Aviamentos: cor exibida no card/agrupamento do cadastro + 2º select (cor) da OS de aviamento.
+  variantes_aviamento: ["aviamentos-variantes", "os-avi-variantes"],
 };
 
 // Tokens AMBÍGUOS: o mesmo `k[0]` nomeia a LISTA (`["token", [ids]]`, k[1] = array de ids) E o
