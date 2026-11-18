@@ -78,4 +78,26 @@ describe("plan-tecido/colab-merge-arvore — removidasIds", () => {
     expect(ids(r)).toEqual(["s1", "S"]);
     expect(ids(atual)).toEqual(["s1"]); // nao muta a entrada
   });
+
+  it("restaurarSlotNaArvore: slot do MEIO da lane volta no indice original, nao no fim", () => {
+    const fresh = arv([slot("a"), slot("S", { nome: "B" }), slot("c")]);
+    const atual = arv([slot("a"), slot("c")]);
+    const r = restaurarSlotNaArvore(atual, fresh, "S", slot("S", { nome: "B" }));
+    expect(ids(r)).toEqual(["a", "S", "c"]);
+  });
+
+  it("restaurarSlotNaArvore: indice maior que a lane atual cai no fim (sem estourar)", () => {
+    const fresh = arv([slot("a"), slot("b"), slot("S")]);
+    const atual = arv([slot("a")]);
+    const r = restaurarSlotNaArvore(atual, fresh, "S", slot("S"));
+    expect(ids(r)).toEqual(["a", "S"]);
+  });
+
+  it("restaurarSlotNaArvore: bucket ausente na arvore atual e recriado e o slot entra nele", () => {
+    const fresh = arv([slot("S", { nome: "B" })]);
+    const atual: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "sub1", ordem: 0, categorias_tecido: [], linhas: [] }] };
+    const r = restaurarSlotNaArvore(atual, fresh, "S", slot("S", { nome: "B" }));
+    expect(ids(r)).toEqual(["S"]);
+    expect(r.subcolecoes[0].linhas[0].categoria_id).toBe("catA");
+  });
 });

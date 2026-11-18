@@ -129,6 +129,13 @@ export function restaurarSlotNaArvore(arv: PtArvore, ref: PtArvore, slotId: stri
   if (achatarSlots(next).some((f) => f.slot.id === slotId)) return next; // já está lá: nada a restaurar
   const origem = achatarSlots(ref).find((f) => f.slot.id === slotId)?.bucket
     ?? chaveBucket(null, { linha_id: null, categoria_id: null });
+  // Índice ORIGINAL do slot na lane de `ref` (o Salvar regrava `slot_index` pela posição — `comOrdemDasVagas`): o slot volta
+  // onde estava, não no fim. -1 (slot não existe em `ref`) → fallback: fim da lane.
+  let idxOriginal = -1;
+  for (const sub of ref.subcolecoes) for (const l of sub.linhas) {
+    const i = l.slots.findIndex((x) => x.id === slotId);
+    if (i >= 0) idxOriginal = i;
+  }
   const [subKey, lnKey] = origem.split("::");
   let sub = next.subcolecoes.find((s) => bucketDoSub(s) === subKey);
   if (!sub) {
@@ -141,6 +148,7 @@ export function restaurarSlotNaArvore(arv: PtArvore, ref: PtArvore, slotId: stri
     ln = { linha_id: linha_id || null, categoria_id: categoria_id || null, ordem: sub.linhas.length, slots: [] } as PtLinha;
     sub.linhas.push(ln);
   }
-  ln.slots.push(slot);
+  if (idxOriginal >= 0) ln.slots.splice(Math.min(idxOriginal, ln.slots.length), 0, slot);
+  else ln.slots.push(slot);
   return next;
 }
