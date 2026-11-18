@@ -14,6 +14,7 @@ import { LojaErroAviso } from "@/components/shared/LojaErroAviso";
 import { cn } from "@/lib/utils";
 import {
   montarEstruturaManual,
+  ordenarComoSidebar,
   type ModuloManual,
   type TelaManual,
 } from "@/lib/manual/estrutura";
@@ -79,12 +80,15 @@ export function ManualPage() {
   // `manual` nunca se auto-documenta (filtrado: a tela do próprio Manual fora da lista).
   const estrutura: ModuloManual[] = useMemo(() => {
     if (!pronto) return [];
-    return montarEstruturaManual({
+    const arvore = montarEstruturaManual({
       modules,
       isStockOnly,
       criacaoLigada: isModuleEnabled("criacao"),
       podeVer: (pageKey) => canView(pageKey),
     }).filter((m) => m.moduleKey !== "manual");
+    // Ordem do menu = a mesma da sidebar (Operação → Cadastro → Sistema), p/ a pessoa achar a tela
+    // no Manual onde ela está no menu lateral.
+    return ordenarComoSidebar(arvore);
   }, [pronto, modules, isStockOnly, isModuleEnabled, canView]);
 
   // Lista achatada de telas (na ordem da árvore) p/ a seleção à direita.

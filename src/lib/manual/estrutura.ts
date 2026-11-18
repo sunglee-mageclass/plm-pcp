@@ -114,3 +114,29 @@ export function montarEstruturaManual(args: MontarEstruturaArgs): ModuloManual[]
 
   return resultado;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ordem do menu do Manual = a MESMA da sidebar (app-sidebar.tsx:180-193), para a pessoa achar
+// a tela no Manual onde ela está no menu lateral. Espelho DIRETO (se a sidebar mudar a ordem,
+// atualizar aqui também). Dois blocos:
+//   • "Operação": os módulos do dia a dia (ordem do catálogo) → Cadastro → (Manual não se auto-documenta).
+//   • "Sistema": Importar Dados → Exportar Dados → Integração.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Módulos que saem do fluxo de "Operação" e vão para o fim / grupo Sistema (espelha
+ *  `URLS_FORA_DO_FLUXO` da sidebar, por moduleKey). `manual` nunca entra (filtrado antes). */
+const CADASTRO_KEY = "cadastro";
+const SISTEMA_KEYS = ["importar", "exportar_dados", "integracao"]; // nesta ordem (= sidebar)
+
+/** Reordena os módulos do Manual na ordem da sidebar. PURO. */
+export function ordenarComoSidebar(modulos: ModuloManual[]): ModuloManual[] {
+  const por = (k: string) => modulos.find((m) => m.moduleKey === k);
+  const foraDoFluxo = new Set([CADASTRO_KEY, ...SISTEMA_KEYS]);
+
+  // Operação: módulos do dia a dia (ordem do catálogo), menos os de fora do fluxo.
+  const operacao = modulos.filter((m) => !foraDoFluxo.has(m.moduleKey));
+  const cadastro = por(CADASTRO_KEY);
+  const sistema = SISTEMA_KEYS.map(por).filter((m): m is ModuloManual => !!m);
+
+  return [...operacao, ...(cadastro ? [cadastro] : []), ...sistema];
+}
