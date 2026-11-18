@@ -131,9 +131,17 @@ const ETAPAS: SecaoConteudoManual[] = [
     ],
   },
   {
-    id: "edicao-rapida",
-    titulo: "Edição rápida do card",
-    intro: [p("Alguns dados do serviço podem ser preenchidos direto no card, sem abrir os Serviços: datas de saída, entrada e envio e a aprovação. A edição rápida salva junto todos os serviços do produto, para não apagar os demais.")],
+    id: "requisitos-fase",
+    titulo: "Requisitos da fase (o que falta para avançar)",
+    intro: [
+      p("Cada coluna pode exigir que algumas coisas estejam prontas antes de o produto entrar nela — por exemplo: mão de obra aprovada, grade preenchida, peça teste aprovada, enviado aos Serviços, materiais separados, grade cortada retornada, oficina entregue ou CQ liberado. Quem escolhe os requisitos de cada coluna é a loja, em Config da Loja › Etapas PL."),
+      p("O quadro mostra o que cada coluna exige e, quando você tenta mover um produto para uma coluna que ele ainda não pode entrar, avisa “Faltam: …” e deixa essa coluna indisponível. Com o avanço automático ligado, o card anda sozinho assim que os requisitos são cumpridos; no modo manual, você move à mão e os requisitos valem como aviso."),
+    ],
+  },
+  {
+    id: "editar-servico",
+    titulo: "Editar os dados do serviço",
+    intro: [p("O card em si não tem campos editáveis — ele serve para acompanhar e mover o produto. Para preencher datas, notas, aprovação, peça de foto e os demais dados, clique no card: abre o Sheet de Serviços (o mesmo de PCP › Serviços).")],
   },
 ];
 
