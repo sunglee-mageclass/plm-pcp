@@ -792,7 +792,7 @@ describe("markupCanalIntocado — preço A2 (nunca reenvia markup derivado do ra
     limparEnviadoSeServidorMudou(ref, 2);          // outro usuário voltou p/ 2
     expect(markupCanalIntocado(2, 9, ref.current)).toBe(2);
   });
-  it("o site do Planejamento guarda o último enviado (onMutate/onSuccess) e trava a edição enquanto a mutação está pendente; o Produto Acabado NÃO tem mais o blur (P-393: rascunho, grava no Salvar em lote)", () => {
+  it("o site do Planejamento guarda o último enviado (onMutate/onSuccess); o Produto Acabado NÃO tem mais o blur (P-393: rascunho, grava no Salvar em lote sem mutação por campo)", () => {
     const rs = readFileSync("src/components/planejamento/planejamento-detail/useRevendaPlanejamento.ts", "utf8");
     const rsx = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
     const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");

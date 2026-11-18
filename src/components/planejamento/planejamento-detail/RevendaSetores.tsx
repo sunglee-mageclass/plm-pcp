@@ -39,8 +39,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
    *  `criacao_planejamento:preco_venda`; grava no Salvar da página (não pela RPC de preço fixo). */
   podeEditarPreco: boolean; precoAnterior: number | null; onPrecoAnterior: (v: number | null) => void;
   /** P-53 A (fix 1, I-1b/c) — markup atacado/varejo (`salvar_markups_produto_acabado`) e preço fixo
-   *  atacado/varejo (`salvar_precos_fixo_produto_acabado`) gravam NA HORA (fora do Salvar da página) — mas
-   *  são campos SÓ do Planejamento (nenhum Sheet do Dev antigo os tinha). Sem `podeEditarPlanejamento`, os
+   *  atacado/varejo (`salvar_precos_fixo_produto_acabado`) entram no Salvar único do Sheet (não mais onBlur).
+   *  São campos SÓ do Planejamento (nenhum Sheet do Dev antigo os tinha). Sem `podeEditarPlanejamento`, os
    *  4 inputs travam (o slot de M.O., abaixo, fica de fora — é compartilhado, trava própria no orquestrador). */
   planBloqueado: boolean;
   /** Reforço de segurança S3d (C-14/C-15): markup e preço fixo do comprado (RPCs salvar_markups/salvar_precos_fixo_produto_acabado)
