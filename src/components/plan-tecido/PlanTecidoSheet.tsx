@@ -25,7 +25,7 @@ import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
-import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
+import { mergeArvorePorSlot, restaurarSlotNaArvore } from "@/lib/plan-tecido/colab-merge-arvore";
 import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes, BrushCleaning, CopyPlus, LayoutGrid } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -273,6 +273,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // retry do onError (a janela do `await` pode ter mudanças que a closure do clique não vê).
   const planBaseRef = useRef<PtArvore | null>(null);
   const touchedSlotIdsRef = useRef<Set<string>>(new Set());
+  // Realtime Onda 1 (Task 3): ids de slot que EU REMOVI desde a última carga/save — vai ao `mergeArvorePorSlot`
+  // (`removidasIds` → `mergeLinhas`) pra remoção não ser ressuscitada pelo `fresh`. Alimentado em `patch` (funil único de
+  // escrita local; mesmo papel do `setItemsTracked` das OCs) e zerado onde o `touched` zera (carga/save/descartar).
+  const removidasSlotIdsRef = useRef<Set<string>>(new Set());
   const salvoConsumidoRef = useRef<PtArvore | null | undefined>(undefined);
   const revRef = useRef<number | null>(null);
   const retryRef = useRef(false);
@@ -964,7 +968,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // era descartado em silêncio).
       if (!planBaseRef.current || !arvore) return; // segurança: não deveria ficar dirty sem base
       const fresh = computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], distOpts);
-      const result = mergeArvorePorSlot({ base: planBaseRef.current, draft: arvore, fresh, touchedIds: touchedSlotIdsRef.current });
+      const result = mergeArvorePorSlot({ base: planBaseRef.current, draft: arvore, fresh, touchedIds: touchedSlotIdsRef.current, removidasIds: removidasSlotIdsRef.current });
       planBaseRef.current = fresh;
       if (result.atualizados > 0 || result.conflitos.length > 0) setArvore(result.arvore);
       conflitosSlotRef.current = result.conflitos;
@@ -992,6 +996,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     const merged = carga.arvore;
     planBaseRef.current = carga.base;
     touchedSlotIdsRef.current = new Set(carga.tocados);
+    removidasSlotIdsRef.current = new Set();
     setRecalculadas(carga.recalculadasForaT1);
     setRecalculadasT1(carga.recalculadasT1);
     conflitosSlotRef.current = [];
@@ -1033,7 +1038,14 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // mim de novo); "manter meu" só descarta o aviso — o valor local prevalece e SEGUE touched.
   const resolverConflitoSlot = (c: Conflito, useDele: boolean) => {
     const id = c.path.slice("linha:".length);
-    if (useDele) {
+    if (useDele && c.meu == null && c.dele) {
+      // Slot que EU removi e o servidor mudou (`meu: null`): "usar o novo" o RESTAURA na posição que ele tem no fresco
+      // (`planBaseRef` = fresco do último merge) e ele deixa de contar como removido por mim.
+      const ref = planBaseRef.current;
+      setArvore((prev) => (prev && ref ? restaurarSlotNaArvore(prev, ref, id, c.dele as PtSlot) : prev));
+      removidasSlotIdsRef.current.delete(id);
+      touchedSlotIdsRef.current.delete(id);
+    } else if (useDele) {
       setArvore((prev) => {
         if (!prev) return prev;
         const next = structuredClone(prev) as PtArvore;
@@ -1271,6 +1283,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // "Tamanho em": a árvore efetivamente salva (com o de card travado revertido) — cai na `arvore` se não houver.
       planBaseRef.current = arvoreSalvaRef.current ?? arvore;
       touchedSlotIdsRef.current = new Set();
+      removidasSlotIdsRef.current = new Set();
       conflitosSlotRef.current = [];
       setConflitosSlot([]);
       setUltimoMergeSlot(null);
@@ -1338,7 +1351,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         if (freshSalvo !== undefined && draft) {
           const fresh = computeFreshArvore(seed, modelosReais, freshSalvo ?? null, modelosDb as any[], distOpts);
           const base = planBaseRef.current ?? fresh;
-          const result = mergeArvorePorSlot({ base, draft, fresh, touchedIds: touchedSlotIdsRef.current });
+          const result = mergeArvorePorSlot({ base, draft, fresh, touchedIds: touchedSlotIdsRef.current, removidasIds: removidasSlotIdsRef.current });
           planBaseRef.current = fresh;
           salvoConsumidoRef.current = freshSalvo; // o effect não reprocessa o mesmo salvo em dobro
           revRef.current = (freshColecao as any)?.plan_rev ?? revRef.current;
@@ -1387,6 +1400,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     sujoSoDaCargaRef.current = false; // C1(b): "Descartar" some com qualquer sujeira (da carga ou do usuário)
     srcRef.current = null; // PR12: re-deriva na próxima passada (a base é a árvore crua)
     touchedSlotIdsRef.current = new Set();
+    removidasSlotIdsRef.current = new Set();
     conflitosSlotRef.current = [];
     setConflitosSlot([]);
     setUltimoMergeSlot(null);
@@ -1406,6 +1420,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         const p = prevById.get(s.id);
         if (!p || JSON.stringify(p) !== JSON.stringify(s)) touchedSlotIdsRef.current.add(s.id);
       }
+      // Realtime Onda 1 (Task 3): slot que estava e SUMIU nesta edição = removido por mim (id que volta deixa de contar).
+      const idsNext = new Set<string>();
+      for (const sub of next.subcolecoes) for (const ln of sub.linhas) for (const s of ln.slots) if (s.id) idsNext.add(s.id);
+      for (const id of idsNext) removidasSlotIdsRef.current.delete(id);
+      for (const id of prevById.keys()) if (!idsNext.has(id)) removidasSlotIdsRef.current.add(id);
     }
     setArvore(next);
     setDirty(true);

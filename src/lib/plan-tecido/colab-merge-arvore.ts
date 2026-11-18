@@ -33,11 +33,17 @@ function bucketDoSub(sub: { subcolecao_id: string | null }) {
  */
 export function mergeArvorePorSlot(o: {
   base: PtArvore; draft: PtArvore; fresh: PtArvore; touchedIds: ReadonlySet<string>;
+  /**
+   * OPT-IN (Realtime Onda 1, Task 3). Ids de slot que EU removi do rascunho nesta sessão — repassado ao
+   * `mergeLinhas` (a regra mora lá, não é reimplementada aqui): removido + servidor não mexeu = segue removido;
+   * servidor mexeu depois da base = conflito (`meu: null`, `dele: slot`), nem restaurado nem apagado calado.
+   */
+  removidasIds?: ReadonlySet<string>;
 }): { arvore: PtArvore; atualizados: number; conflitos: Conflito[] } {
   const baseFlat = achatarSlots(o.base).map((f) => f.slot);
   const draftFlatFull = achatarSlots(o.draft);
   const freshFlat = achatarSlots(o.fresh).map((f) => f.slot);
-  const ml = mergeLinhas({ base: baseFlat, draft: draftFlatFull.map((f) => f.slot), fresh: freshFlat, touchedIds: o.touchedIds });
+  const ml = mergeLinhas({ base: baseFlat, draft: draftFlatFull.map((f) => f.slot), fresh: freshFlat, touchedIds: o.touchedIds, removidasIds: o.removidasIds });
   const porId = new Map(ml.linhas.filter((s) => s.id).map((s) => [s.id as string, s]));
   const posicionados = new Set<string>();
 
@@ -54,12 +60,17 @@ export function mergeArvorePorSlot(o: {
       categorias_tecido: [...new Set([...(sub.categorias_tecido ?? []), ...(catsLocalPorSub.get(bucketDoSub(sub)) ?? [])])],
       linhas: sub.linhas.map((ln) => ({
         ...ln,
-        slots: ln.slots.map((slot) => {
-          if (!slot.id) return slot; // não deveria ocorrer no fresh (todo slot semeado tem id)
+        slots: ln.slots.flatMap((slot) => {
+          if (!slot.id) return [slot]; // não deveria ocorrer no fresh (todo slot semeado tem id)
           const merged = porId.get(slot.id);
-          if (!merged) return slot; // não deveria — todo slot do fresh está em ml.linhas (ver abaixo)
+          if (!merged) {
+            // Slot que EU removi e o `mergeLinhas` deixou de fora (removido sem mudança alheia, ou removido
+            // com mudança alheia → vira conflito em `ml.conflitos`): NÃO volta do fresh (ressuscitaria).
+            if (o.removidasIds?.has(slot.id)) return [];
+            return [slot]; // não deveria — todo slot do fresh está em ml.linhas (ver abaixo)
+          }
           posicionados.add(slot.id);
-          return merged;
+          return [merged];
         }),
       })),
     })),
@@ -106,4 +117,30 @@ export function mergeArvorePorSlot(o: {
   }
 
   return { arvore, atualizados: ml.atualizadas.length, conflitos: ml.conflitos };
+}
+
+/**
+ * "Usar o novo" num conflito de slot REMOVIDO por mim (`meu: null`, `dele: slot`): devolve o slot à árvore na posição
+ * (sub/linha) que ele tem em `ref` (a árvore fresca já resolvida; a posição NÃO viaja no `Conflito`). Se o bucket não
+ * existir mais na árvore atual, é recriado minimamente (mesma ideia do `reinserir` do merge). Não muta a entrada.
+ */
+export function restaurarSlotNaArvore(arv: PtArvore, ref: PtArvore, slotId: string, slot: PtSlot): PtArvore {
+  const next = structuredClone(arv) as PtArvore;
+  if (achatarSlots(next).some((f) => f.slot.id === slotId)) return next; // já está lá: nada a restaurar
+  const origem = achatarSlots(ref).find((f) => f.slot.id === slotId)?.bucket
+    ?? chaveBucket(null, { linha_id: null, categoria_id: null });
+  const [subKey, lnKey] = origem.split("::");
+  let sub = next.subcolecoes.find((s) => bucketDoSub(s) === subKey);
+  if (!sub) {
+    sub = { subcolecao_id: subKey === "__none__" ? null : subKey, ordem: next.subcolecoes.length, categorias_tecido: [], linhas: [] } as PtSub;
+    next.subcolecoes.push(sub);
+  }
+  let ln = sub.linhas.find((l) => `${l.linha_id ?? ""}|${l.categoria_id ?? ""}` === lnKey);
+  if (!ln) {
+    const [linha_id, categoria_id] = lnKey.split("|");
+    ln = { linha_id: linha_id || null, categoria_id: categoria_id || null, ordem: sub.linhas.length, slots: [] } as PtLinha;
+    sub.linhas.push(ln);
+  }
+  ln.slots.push(slot);
+  return next;
 }
