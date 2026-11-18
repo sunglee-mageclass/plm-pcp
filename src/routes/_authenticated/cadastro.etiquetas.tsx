@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Tag, Plus, Trash2, Search, Loader2, X, ArrowLeft, Save } from "lucide-react";
 import { toast } from "sonner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -85,6 +88,14 @@ function EtiquetasPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Etiqueta | null>(null);
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + etiqueta aberta no
+  // Sheet de edição (o "novo" é Dialog e fica de fora). Escopo = wrapper dentro do Sheet.
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId && open && editing ? `colab-canvas:cad-etiquetas-${editing.id}:${tenantId}` : null,
+    campoFocado,
+  });
   const [deleteRow, setDeleteRow] = useState<Etiqueta | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -676,7 +687,20 @@ function EtiquetasPage() {
               size="editor"
               className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
             >
-              {modalConteudo}
+              <div
+                ref={scopeRef}
+                className="flex min-h-0 flex-1 flex-col"
+                onFocusCapture={(e) => {
+                  const scope = scopeRef.current;
+                  const alvo = e.target as HTMLElement;
+                  const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+                  if (p) setCampoFocado(p);
+                }}
+                onBlurCapture={() => setCampoFocado(null)}
+              >
+                <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
+                {modalConteudo}
+              </div>
             </SheetContent>
           </Sheet>
         ) : (

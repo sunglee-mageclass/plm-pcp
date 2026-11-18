@@ -3,6 +3,10 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft, Save, ChevronRight, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
   useSensor, useSensors, type DragEndEvent,
@@ -58,6 +62,15 @@ function LojasPage() {
   // próprio (o banner genérico da RequirePermission só cobre o caso sem canEdit).
   const isAdminLoja = isTenantAdmin || isSuperAdmin;
   const readOnly = pageReadOnly || !isAdminLoja;
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA. Nome da loja
+  // (`nome:<id>`) e a matriz Base por linha (rótulo/aria-label) são editados inline.
+  const tenantId = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId ? `colab-canvas:cad-lojas:${tenantId}` : null,
+    campoFocado,
+  });
   const [search, setSearch] = useState("");
   const [deleteRow, setDeleteRow] = useState<Loja | null>(null);
   const [novoNome, setNovoNome] = useState("");
@@ -201,7 +214,18 @@ function LojasPage() {
   });
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div
+      ref={scopeRef}
+      className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24"
+      onFocusCapture={(e) => {
+        const scope = scopeRef.current;
+        const alvo = e.target as HTMLElement;
+        const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+        if (p) setCampoFocado(p);
+      }}
+      onBlurCapture={() => setCampoFocado(null)}
+    >
+      <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
       <header className="space-y-1">
         <Breadcrumb items={[{ label: "Cadastro" }, { label: "Lojas" }]} />
         <div className="flex items-start justify-between gap-3">
@@ -445,6 +469,7 @@ function LojaRow({
           ) : (
             <Input
               ref={inputRef}
+              data-colab-path={`nome:${loja.id}`}
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               onBlur={commitNome}

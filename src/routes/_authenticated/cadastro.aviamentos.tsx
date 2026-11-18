@@ -17,6 +17,10 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabel } from "@/lib/variante";
 import { brl } from "@/lib/format";
@@ -951,7 +955,7 @@ function AviamentoModal({
 
   const isSheet = !!initial;
   return (
-    <ModalShell isSheet={isSheet} open={open} onOpenChange={handleOpenChange}>
+    <ModalShell isSheet={isSheet} registroId={initial?.id ?? null} open={open} onOpenChange={handleOpenChange}>
         {isSheet ? (
           // Sheet (editar): cabeçalho sem botões de ação (ficam no rodapé sticky).
           <div className="shrink-0 border-b p-3 space-y-1">
@@ -1200,17 +1204,41 @@ function AviamentoModal({
 // Editar (abrir card) = Sheet lateral (igual Planejamento); Novo (cadastrar) = Dialog
 // centralizado. Sheet e Dialog do shadcn são o mesmo primitivo do Radix, então o
 // DialogHeader/DialogTitle/DialogFooter internos funcionam nos dois.
-function ModalShell({ isSheet, open, onOpenChange, children }: {
+function ModalShell({ isSheet, open, onOpenChange, registroId, children }: {
   isSheet: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  /** Id do aviamento existente aberto no Sheet de edição (ancora o canal de presença). */
+  registroId?: string | null;
   children: React.ReactNode;
 }) {
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + aviamento aberto.
+  // Só o Sheet de EDIÇÃO (o "novo" é Dialog e fica de fora). Escopo = wrapper dentro do Sheet.
+  const tenantId = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId && open && isSheet && registroId ? `colab-canvas:cad-aviamentos-${registroId}:${tenantId}` : null,
+    campoFocado,
+  });
   if (isSheet) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="right" size="editor" className="flex flex-col p-0 [&>button]:hidden">
-          {children}
+          <div
+            ref={scopeRef}
+            className="flex min-h-0 flex-1 flex-col"
+            onFocusCapture={(e) => {
+              const scope = scopeRef.current;
+              const alvo = e.target as HTMLElement;
+              const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+              if (p) setCampoFocado(p);
+            }}
+            onBlurCapture={() => setCampoFocado(null)}
+          >
+            <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
+            {children}
+          </div>
         </SheetContent>
       </Sheet>
     );

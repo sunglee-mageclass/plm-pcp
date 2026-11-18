@@ -756,6 +756,7 @@ export function AttributeTab({
                     ) : isEditingRow ? (
                       <Input
                         autoFocus
+                        data-colab-path={`nome:${row.id}`}
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         onKeyDown={(e) => {
@@ -779,6 +780,7 @@ export function AttributeTab({
                       {isEditingRow ? (
                         <Input
                           type="number"
+                          data-colab-path={`extraNumber:${row.id}`}
                           inputMode="decimal"
                           min={0}
                           step={config.extraNumber.step ?? "0.5"}
@@ -801,6 +803,7 @@ export function AttributeTab({
                     <TableCell className="w-32">
                       {isEditingRow ? (
                         <Input
+                          data-colab-path={`extraText:${row.id}`}
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
                           placeholder={config.extraText.placeholder ?? "—"}

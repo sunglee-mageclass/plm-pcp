@@ -29,6 +29,10 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronsUpDown } from "lucide-react";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import {
   Dialog,
   DialogContent,
@@ -444,18 +448,47 @@ function EditorShell({
   isEdit,
   open,
   onOpenChange,
+  registro,
   children,
 }: {
   isEdit: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  /** Registro EXISTENTE aberto no editor (tipo+id) — ancora o canal de presença. null = "novo" (sem anel). */
+  registro?: { tipo: "empresa" | "representante"; id: string } | null;
   children: ReactNode;
 }) {
+  // Realce "quem edita o quê" (Realtime Onda 2): canal por LOJA + registro (presença de página). O escopo
+  // é um wrapper DENTRO do Sheet/Dialog (os campos vivem no portal, fora do DOM da página) — os handlers
+  // vão no wrapper, não no SheetContent (o SheetContent já usa onFocusCapture p/ o scroll do teclado mobile).
+  const tenantId = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId && open && registro ? `colab-canvas:cad-servico-${registro.tipo}-${registro.id}:${tenantId}` : null,
+    campoFocado,
+  });
+  const corpo = (
+    <div
+      ref={scopeRef}
+      className="flex min-h-0 flex-1 flex-col"
+      onFocusCapture={(e) => {
+        const scope = scopeRef.current;
+        const alvo = e.target as HTMLElement;
+        const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+        if (p) setCampoFocado(p);
+      }}
+      onBlurCapture={() => setCampoFocado(null)}
+    >
+      <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
+      {children}
+    </div>
+  );
   if (isEdit) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="right" size="editor" className="flex flex-col p-0 gap-0 [&>button]:hidden">
-          {children}
+          {corpo}
         </SheetContent>
       </Sheet>
     );
@@ -463,7 +496,7 @@ function EditorShell({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
-        {children}
+        {corpo}
       </DialogContent>
     </Dialog>
   );
@@ -813,7 +846,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
       </div>
 
 
-      <EditorShell isEdit={!!form.id} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+      <EditorShell isEdit={!!form.id} registro={form.id ? { tipo: "representante", id: form.id } : null} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <div className={cn("shrink-0 px-6 pt-6 pb-4 space-y-1", form.id && "border-b")}>
           <Breadcrumb
             items={[
@@ -1567,7 +1600,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       </div>
 
 
-      <EditorShell isEdit={!!editingId} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+      <EditorShell isEdit={!!editingId} registro={editingId ? { tipo: "empresa", id: editingId } : null} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <div className={cn("shrink-0 px-6 pt-6 pb-4 space-y-1", editingId && "border-b")}>
           <Breadcrumb
             items={[

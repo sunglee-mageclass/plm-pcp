@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, Trash2, Pencil, MoreVertical, ArrowLeft } from "lucide-react";
@@ -6,6 +6,10 @@ import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { Badge } from "@/components/ui/badge";
@@ -103,6 +107,15 @@ function ColaboradoresPage() {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [selectedKey, setSelectedKey] = useState<string>(BUILTINS[0].key);
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA. A edição inline da
+  // linha (AttributeTab) marca os campos com `data-colab-path` (`<campo>:<row.id>`).
+  const tenantId = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId ? `colab-canvas:cad-colaboradores:${tenantId}` : null,
+    campoFocado,
+  });
   const [addOpen, setAddOpen] = useState(false);
   const [editTab, setEditTab] = useState<Tab | null>(null); // null = criando
   const [novoTipo, setNovoTipo] = useState("");
@@ -416,12 +429,24 @@ function ColaboradoresPage() {
             </Badge>
           </div>
 
-          <AttributeTab
-            key={selected.key}
-            config={selected.config}
-            onFilteredCount={setFilteredN}
-            onChanged={() => qc.invalidateQueries({ queryKey: ["colab-count", selected.tipo] })}
-          />
+          <div
+            ref={scopeRef}
+            onFocusCapture={(e) => {
+              const scope = scopeRef.current;
+              const alvo = e.target as HTMLElement;
+              const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+              if (p) setCampoFocado(p);
+            }}
+            onBlurCapture={() => setCampoFocado(null)}
+          >
+            <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
+            <AttributeTab
+              key={selected.key}
+              config={selected.config}
+              onFilteredCount={setFilteredN}
+              onChanged={() => qc.invalidateQueries({ queryKey: ["colab-count", selected.tipo] })}
+            />
+          </div>
         </div>
       </div>
 

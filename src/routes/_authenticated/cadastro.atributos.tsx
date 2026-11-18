@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Tags, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -541,6 +544,15 @@ function AtributosPage() {
     () => ATTRIBUTES.filter((a) => isTenantAdmin || isSuperAdmin || a.value !== "cat_terceirizado"),
     [isTenantAdmin, isSuperAdmin],
   );
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA. A edição inline da
+  // linha (AttributeTab) marca os campos com `data-colab-path` (`<campo>:<row.id>`).
+  const tenantId = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId ? `colab-canvas:cad-atributos:${tenantId}` : null,
+    campoFocado,
+  });
   const [selectedValue, setSelectedValue] = useState<string>(ATTRIBUTES[0].value);
   const selected = useMemo(
     () => visibleAttributes.find((a) => a.value === selectedValue) ?? visibleAttributes[0],
@@ -684,15 +696,27 @@ function AtributosPage() {
             />
           ) : (
             activeConfig && (
-              <AttributeTab
-                key={selected.value}
-                config={activeConfig}
-                readOnly={readOnlyAttr}
-                onFilteredCount={setFilteredN}
-                onChanged={() =>
-                  qc.invalidateQueries({ queryKey: ["attribute-count", selected.config?.table] })
-                }
-              />
+              <div
+            ref={scopeRef}
+            onFocusCapture={(e) => {
+              const scope = scopeRef.current;
+              const alvo = e.target as HTMLElement;
+              const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+              if (p) setCampoFocado(p);
+            }}
+            onBlurCapture={() => setCampoFocado(null)}
+          >
+            <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
+                <AttributeTab
+                  key={selected.value}
+                  config={activeConfig}
+                  readOnly={readOnlyAttr}
+                  onFilteredCount={setFilteredN}
+                  onChanged={() =>
+                    qc.invalidateQueries({ queryKey: ["attribute-count", selected.config?.table] })
+                  }
+                />
+          </div>
             )
           )}
 
