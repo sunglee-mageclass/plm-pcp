@@ -94,7 +94,7 @@ import { useGradeComprado } from "@/components/planejamento/planejamento-detail/
 import { FotoPorCorSecao } from "@/components/planejamento/planejamento-detail/FotoPorCorSecao";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
-import type { MarkupEnviado, RevendaBase, RevendaRascunho } from "@/lib/revenda-salvar";
+import { payloadRevendaParaSalvar, type MarkupEnviado, type RevendaBase, type RevendaRascunho } from "@/lib/revenda-salvar";
 import { PERM_PECA_TESTE, salvarComConfirmacaoEstorno, usePecaTeste } from "@/components/planejamento/planejamento-detail/usePecaTeste";
 import { PecaTesteSecao } from "@/components/planejamento/planejamento-detail/PecaTesteSecao";
 import { useMiniExplosao } from "@/components/planejamento/planejamento-detail/useMiniExplosao";
@@ -704,6 +704,24 @@ function PlanejamentoDetailConteudo({
           enviadoVarejo: revenda.enviadoVarejoRef.current,
         }
       : null;
+  // Integração (F4, spec §6/§8): produto integrável/integrado = campos marcados travados. O BANCO recusa (gatilhos
+  // trg_zz_integracao_trava); a tela só espelha — selo no cabeçalho, campos desabilitados, Excluir travado.
+  // Fix round 3 (R-6 da re-revisão) — `sempreAoAbrir: true`: SÓ o Sheet do Planejamento (que de fato trava
+  // campos e bloqueia Salvar) força o refetch a cada abertura de card EXISTENTE (`isEdit`; o Dialog "Novo card" usa
+  // este mesmo componente e não precisa — NF-2 da re-revisão 3) — os outros consumidores futuros
+  // (card do Plan. Produto, Produto Acabado/Importado, slot do Plan.Tecido, Dialog "Novo card") usam o
+  // default (staleTime 30s) e não pagam um RPC cheio por montagem.
+  const estadoIntegracao = useIntegracaoEstado(isEdit ? modeloId : null, { sempreAoAbrir: isEdit });
+  const travaIntegracao = colunasTravadas(estadoIntegracao);
+  // Task 3 (Salvar por card da revenda): os 4 campos de preço/markup viraram RASCUNHO (sem onBlur→grava); o que difere da base conta como
+  // "não salvo" (selo + guarda). Derivado do MESMO ref/helper que o Salvar usa (`payloadRevendaParaSalvar`): sujo = algum grupo (markup/fixo) a gravar.
+  // `revendaSaveRef.current` é null fora de revenda/sem produto espelho/sem permissão de preço do comprado → não sujo.
+  const revendaDirty = (() => {
+    const s = revendaSaveRef.current;
+    if (!s) return false;
+    const p = payloadRevendaParaSalvar(s.base, s.rascunho, travaIntegracao.has("preco_venda"), s.enviadoAtacado, s.enviadoVarejo);
+    return !!(p.markups || p.fixos);
+  })();
   // F3.4 — grade cor × tamanho do COMPRADO (revenda E importado), fonte ÚNICA da grade do comprado (decisão F3 #4). Lê o
   // produto da origem SALVA (a do servidor — a troca no Select só vale depois do Salvar). MESMA posição de antes (a grade
   // saiu do `useRevendaPlanejamento`): antes dos effects de seed de MO e do merge do colab (o seed copia `revRef.current`).
@@ -813,7 +831,7 @@ function PlanejamentoDetailConteudo({
   }
   const ptTrilhasN = pt.estado?.trilhas.length ?? 0;
   useEffect(() => { setPtTemTrilha(ptTrilhasN > 0); }, [ptTrilhasN]);
-  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty || pt.dirty;
+  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar) || insumosNovosDirty || revendaDirty || pt.dirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: !hostGuardaNavegacao, navPermitida });
   requestCloseRef.current = requestClose;
   const setSim = (patch: Partial<CustoSimInput>) =>
@@ -909,15 +927,6 @@ function PlanejamentoDetailConteudo({
   // Etapa do kanban (estado SALVO) + config da loja: coluna efetiva, gate do campo REF (refCampoVisivel, com
   // a posição DERIVADA quando a chave está ligada — decisão 10) e Reprovado (Motivo do Cancelamento).
   const kanbanCard = useFichaKanban({ modeloId, modeloData, enviada, lancado });
-  // Integração (F4, spec §6/§8): produto integrável/integrado = campos marcados travados. O BANCO recusa (gatilhos
-  // trg_zz_integracao_trava); a tela só espelha — selo no cabeçalho, campos desabilitados, Excluir travado.
-  // Fix round 3 (R-6 da re-revisão) — `sempreAoAbrir: true`: SÓ o Sheet do Planejamento (que de fato trava
-  // campos e bloqueia Salvar) força o refetch a cada abertura de card EXISTENTE (`isEdit`; o Dialog "Novo card" usa
-  // este mesmo componente e não precisa — NF-2 da re-revisão 3) — os outros consumidores futuros
-  // (card do Plan. Produto, Produto Acabado/Importado, slot do Plan.Tecido, Dialog "Novo card") usam o
-  // default (staleTime 30s) e não pagam um RPC cheio por montagem.
-  const estadoIntegracao = useIntegracaoEstado(isEdit ? modeloId : null, { sempreAoAbrir: isEdit });
-  const travaIntegracao = colunasTravadas(estadoIntegracao);
   // REF editável = a seção "Códigos" (F3.6) mostra o campo (etapa configurada) e os campos do Dev estão livres.
   const refEditavel = isEdit && !devBloqueado && kanbanCard.refNaEtapa && !travaIntegracao.has("ref");
   // Comprado (revenda/importado) segue a config "Fluxo de Revenda" da loja (decisão F3 #8; paridade com

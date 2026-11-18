@@ -12,7 +12,6 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
-import { markupCanalIntocado } from "@/components/produto-acabado/shared";
 import { varianteLabel } from "@/lib/variante";
 import { type PrecoInfo } from "@/lib/preco";
 import { type Draft } from "@/components/planejamento/modelo-shared";
@@ -64,8 +63,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
   const {
     produtoRevenda, produtoRevendaLoading,
     markupAtacadoInput, setMarkupAtacadoInput, markupVarejoInput, setMarkupVarejoInput,
-    markupAtacadoBaseRef, markupVarejoBaseRef, enviadoAtacadoRef, enviadoVarejoRef, salvarMarkupsRevenda,
-    precoAtacadoDraft, setPrecoAtacadoDraft, precoVarejoDraft, setPrecoVarejoDraft, salvarPrecosFixoRevenda,
+    precoAtacadoDraft, setPrecoAtacadoDraft, precoVarejoDraft, setPrecoVarejoDraft,
   } = rv;
   return (
               <div className="grid sm:grid-cols-2 gap-3">
@@ -80,20 +78,17 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                     <div className="grid gap-1">
                       <Label>Markup atacado</Label>
                       <div className="relative">
-                        {/* value = markup EFETIVO (gravado OU derivado do preço — re-semeado no topo).
-                            onBlur SÓ salva se o valor MUDOU vs o efetivo anterior (`markupAtacadoBaseRef`)
-                            — senão está só exibindo o derivado e salvar destravaria o preço à toa.
-                            Editar markup grava markup (o banco limpa o preço fixo → preço deriva). */}
+                        {/* value = markup EFETIVO (gravado OU derivado do preço — re-semeado no topo). Só RASCUNHO: o Salvar do Sheet grava
+                            (`payloadRevendaParaSalvar`; editar markup limpa o preço fixo do canal no servidor → preço deriva). */}
                         <NumberInput
                           blankZero
                           placeholder="2,50"
                           className="pr-6"
                           value={markupAtacadoInput ?? 0}
-                          // P-53 A (fix 1, I-1b): grava na hora via salvar_markups_produto_acabado — SÓ do Planejamento.
-                          disabled={planBloqueado || !podeEditarPrecoComprado || salvarMarkupsRevenda.isPending}
+                          // Task 3 (Salvar por card): só rascunho — o Salvar do Sheet grava (payloadRevendaParaSalvar). Trava SÓ do Planejamento.
+                          disabled={planBloqueado || !podeEditarPrecoComprado}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupCanalIntocado(produtoRevenda?.markup_varejo, markupVarejoInput, enviadoVarejoRef.current) }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -107,10 +102,9 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           className="pr-6"
                           value={markupVarejoInput ?? 0}
                           // P-53 A (fix 1, I-1b): mesma trava do markup atacado acima + Integração (D34/R8).
-                          disabled={planBloqueado || !podeEditarPrecoComprado || travaVarejo || salvarMarkupsRevenda.isPending}
+                          disabled={planBloqueado || !podeEditarPrecoComprado || travaVarejo}
                           onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupCanalIntocado(produtoRevenda?.markup_atacado, markupAtacadoInput, enviadoAtacadoRef.current), markup_varejo: markupVarejoInput }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -170,26 +164,18 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         em repouso é o preço REAL do modelo (`draft.preco_atacado`/`preco_venda`, já
                         fixo-ou-derivado pelo servidor) — NÃO mais o derivado do markup, que mostraria
                         valor errado quando há preço fixo. onChange só guarda o texto num rascunho local;
-                        o save (onBlur/Enter) manda o número EXATO à RPC `salvar_precos_fixo_...`, tocando
-                        SÓ o canal do campo. Vazio/≤0 = null = DESTRAVA (volta a derivar do markup).
-                        Só dispara se o valor mudou vs o preço real atual (evita salvar à toa). */}
+                        o Salvar do Sheet manda o número EXATO à RPC `salvar_precos_fixo_...`, tocando
+                        SÓ o canal que mudou. Vazio/≤0 = null = DESTRAVA (volta a derivar do markup). */}
                     <div className="grid gap-1">
                       <Label>Preço atacado</Label>
                       <MoneyInput
                         fixedDecimals
                         value={precoAtacadoDraft}
                         placeholder="0,00"
-                        // P-53 A (fix 1, I-1c): grava na hora via salvar_precos_fixo_produto_acabado — SÓ do Planejamento.
+                        // Task 3 (Salvar por card): só rascunho — o Salvar do Sheet grava (preço fixo).
                         disabled={planBloqueado || !podeEditarPrecoComprado}
                         onChange={(e) => setPrecoAtacadoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                        onBlur={() => {
-                          const n = Number(precoAtacadoDraft) || 0;
-                          const novo = n > 0 ? n : null;
-                          const atual = draft.preco_atacado ?? null;
-                          if (novo === atual) return;
-                          salvarPrecosFixoRevenda.mutate({ tocarAtacado: true, precoAtacado: novo, tocarVarejo: false, precoVarejo: null });
-                        }}
                       />
                     </div>
                     <div className="grid gap-1">
@@ -202,13 +188,6 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         disabled={planBloqueado || !podeEditarPrecoComprado || travaVarejo}
                         onChange={(e) => setPrecoVarejoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                        onBlur={() => {
-                          const n = Number(precoVarejoDraft) || 0;
-                          const novo = n > 0 ? n : null;
-                          const atual = draft.preco_venda ?? null;
-                          if (novo === atual) return;
-                          salvarPrecosFixoRevenda.mutate({ tocarVarejo: true, precoVarejo: novo, tocarAtacado: false, precoAtacado: null });
-                        }}
                       />
                     </div>
                   </>

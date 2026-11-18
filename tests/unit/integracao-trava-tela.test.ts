@@ -95,10 +95,11 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
     expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
     const r = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
     // (Reforço de segurança S3d: os 4 travam também sem `podeEditarPrecoComprado` — o OU do servidor; a trava da Integração segue só no varejo)
-    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado \|\| travaVarejo( \|\| salvarMarkupsRevenda\.isPending)?\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
-    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado( \|\| salvarMarkupsRevenda\.isPending)?\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
+    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado \|\| travaVarejo\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
+    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
     expect(r).toMatch(/\{podeEditarPreco && !travaPrecoAnterior \? \(/);
-    expect(r).toMatch(/markup_varejo: markupCanalIntocado\(produtoRevenda\?\.markup_varejo, markupVarejoInput, enviadoVarejoRef\.current\)/);
+    // Task 3 (Salvar por card): o markup do varejo travado NUNCA vai ao servidor — decisão no helper do Salvar (`travaVarejo ? base.markup_varejo : …`).
+    expect(ler("src/lib/revenda-salvar.ts")).toMatch(/markup_varejo: travaVarejo\s*\n?\s*\? base\.markup_varejo/);
   });
   it("Info Gerais trava Nome, NCM, Título, Descrição e medidas por coluna", () => {
     const i = ler("src/components/planejamento/planejamento-detail/InfoGeraisSecao.tsx");
@@ -1071,13 +1072,10 @@ describe("Task 22 — a revenda continua salvando o preço pelo gravador própri
     expect(ehOrigemComprada("importado")).toBe(true);
     expect(ehOrigemComprada("interno")).toBe(false);
   });
-  it("RevendaSetores.tsx grava o preço da revenda NA HORA (fora do save.mutate do Sheet), pela RPC própria — nunca dependeu do UPDATE de modelos.preco_venda/atacado", () => {
+  it("Task 3 (Salvar por card): RevendaSetores.tsx NÃO grava mais no blur — o preço fixo da revenda vai no Salvar único (usePlanejamentoSave → salvar_precos_fixo_produto_acabado)", () => {
     const s = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
-    // O onBlur do input de preço chama a mutation que grava salvar_precos_fixo_produto_acabado diretamente
-    // (não passa pelo usePlanejamentoSave/save.mutate) — a remoção de preco_venda/preco_atacado do payload do
-    // UPDATE (n1, ehOrigemComprada) não pode afetar esta gravação porque ela nunca dependeu do UPDATE.
-    expect(s).toMatch(/salvarPrecosFixoRevenda\.mutate\(\{ tocarAtacado: true,/);
-    expect(s).toMatch(/salvar_precos_fixo_produto_acabado/);
+    expect(s).not.toMatch(/salvarPrecosFixoRevenda\.mutate/);
+    expect(ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts")).toMatch(/salvar_precos_fixo_produto_acabado/);
   });
   it("criacao.planejamento.tsx: o card de revenda continua roteado para salvarPrecoVarejoRevenda (salvar_precos_fixo_produto_acabado), não para o gravador do importado", () => {
     const s = ler("src/routes/_authenticated/criacao.planejamento.tsx");

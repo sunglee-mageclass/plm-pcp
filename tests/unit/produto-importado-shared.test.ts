@@ -797,13 +797,14 @@ describe("markupCanalIntocado — preço A2 (nunca reenvia markup derivado do ra
     const rsx = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
     const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");
     expect(rs).toMatch(/enviadoAtacadoRef/);
-    expect(rsx).toMatch(/salvarMarkupsRevenda\.isPending/);
+    // Task 3 (Salvar por card): sem mutation por campo — a trava `isPending` saiu junto com o blur.
+    expect(rsx).not.toMatch(/salvarMarkupsRevenda/);
     expect(rs).toMatch(/limparEnviadoSeServidorMudou\(enviadoAtacadoRef/);
     // o blur do card do Produto Acabado saiu: sem ref de "último enviado", sem mutation solta
     expect(pc).not.toMatch(/enviadoAtacadoRef|salvarMarkupMut|salvarPrecoFixoMut/);
   });
-  it("blur do atacado e do varejo (Planejamento) usam o helper; o Produto Acabado manda o markup do rascunho pelo lote (montarDadosProduto)", () => {
-    const rs = readFileSync("src/components/planejamento/planejamento-detail/RevendaSetores.tsx", "utf8");
+  it("o Salvar do Planejamento (payloadRevendaParaSalvar) usa o helper nos 2 canais; o Produto Acabado manda o markup do rascunho pelo lote (montarDadosProduto)", () => {
+    const rs = readFileSync("src/lib/revenda-salvar.ts", "utf8");
     const pc = readFileSync("src/components/produto-acabado/ProdutoCard.tsx", "utf8");
     expect((rs.match(/markupCanalIntocado\(/g) ?? []).length).toBe(2);
     expect((pc.match(/markupCanalIntocado\(/g) ?? []).length).toBe(0);
