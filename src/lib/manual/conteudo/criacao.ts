@@ -1,14 +1,56 @@
 // Conteúdo do Manual — módulo CRIAÇÃO (Estilo & Engenharia).
-// Fiel aos InfoHover do Sheet, ao mapeamento (§17) e às regras do CLAUDE.md.
+// Formato GUIA DE USO (como fazer, passo a passo, com o fio do processo): cada tela abre situando-se no FLUXO,
+// traz um "Como usar esta tela" com passos numerados ({tipo:"passos"}) e, por fim, os campos como referência.
+// Fiel aos componentes reais (src/routes/_authenticated/criacao.*.tsx, src/components/{planejamento,plan-tecido,
+// produto-acabado,produto-importado,armario,desenvolvimento}), aos InfoHover do Sheet e às regras do CLAUDE.md.
 import { p, type ConteudoTelas, type SecaoConteudoManual } from "./tipos";
 
 const PLANEJAMENTO: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Onde o produto nasce",
     intro: [
-      p("O Planejamento de Produto é onde cada produto nasce e é preparado: identidade, preço, ficha de materiais (BOM), grade, corte e mão de obra. O produto é um card que avança pelas fases do quadro à medida que fica completo, até ser lançado."),
-      p("Esta mesma tela (o “Sheet”) edita tudo o que antes ficava no Desenvolvimento. As seções que aparecem dependem da origem do produto (interno, revenda ou importado) e dos módulos que a sua loja usa."),
+      p("O Planejamento de Produto é o coração da Criação: é aqui que cada produto nasce e é desenvolvido de ponta a ponta — identidade, classificação, preço, ficha de materiais (BOM), grade, corte (CAD) e mão de obra — até ser enviado ao corte e lançado. Cada produto é um card que avança pelas fases do quadro à medida que fica completo."),
+      p("No fio do processo: quando a loja usa o OTB, o Planejamento vem DEPOIS de o OTB orçar a coleção (o produto se encaixa numa coleção/subcoleção já planejada). Daqui o produto segue para o Desenvolvimento (o mesmo card, acompanhado no quadro), para a Explosão/Produção (ao Enviar à Explosão) e, por fim, para o Lançamento. Esta tela (o “Sheet”) edita TUDO — é o único editor do card; o Desenvolvimento só o acompanha e o abre."),
+      p("As seções que aparecem no card dependem da ORIGEM do produto (Interno, que você fabrica; Revenda; ou Importado) e dos módulos que a sua loja usa."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [p("O quadro mostra os produtos da coleção; cada um é um card. Criar é um diálogo rápido; desenvolver é no Sheet do card.")],
+    campos: [
+      { campo: "criar", rotulo: "Como criar produtos", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Novo Modelo”. O diálogo cria vários cards de uma vez.",
+          "Defina os campos compartilhados (Coleção, Subcoleção, Mês/Ano, Linha, Lançamento) e, em “Categorias”, uma ou mais linhas de Categoria + Qtd — cada linha cria aquela quantidade de cards.",
+          "Confirme em “Criar N card(s)”. Os cards nascem no início do quadro (o Nome de cada um você preenche depois, ao abrir o card).",
+        ] },
+      ] },
+      { campo: "desenvolver", rotulo: "Como desenvolver (preencher o card)", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique no card para abrir o Sheet (a ficha completa).",
+          "Preencha as seções de cima para baixo: Informações Gerais, Coleção, equipe/datas, Preço, Ficha de materiais (tecidos, aviamentos, insumos e grade) e Mão de obra.",
+          "Clique em “Salvar”. A REF e os SKUs aparecem conforme o produto avança; o custo é recalculado pelo sistema a partir do que você preencheu.",
+        ] },
+      ] },
+      { campo: "explosao", rotulo: "Como enviar à Explosão (ao corte)", ajuda: [
+        { tipo: "passos", itens: [
+          "Primeiro, com o produto em desenvolvimento, use “Enviar Ordem de Criação” (a barra de baixo lista “Para enviar, falta:” se houver pendência).",
+          "Com a ficha completa, clique em “Enviar à Explosão”. Se faltar requisito, a barra mostra “Para enviar, falta:” com os itens clicáveis — complete e confirme.",
+          "Enviado, os campos vindos do Desenvolvimento ficam travados (o botão “Editar” os destrava) e o produto segue para o PCP/corte.",
+        ] },
+      ] },
+      { campo: "lancar", rotulo: "Como lançar o produto", ajuda: [
+        { tipo: "passos", itens: [
+          "Na seção Lançamento, preencha a Data de Lançamento.",
+          "Garanta os requisitos: mão de obra aprovada e — nas lojas com Produção — o CQ liberado. O botão mostra “Para lançar, falta:” quando algo pendência.",
+          "Clique no botão-foguete “Lançar”. O produto vai para a coluna final e passa a aparecer em Lançamentos.",
+        ] },
+      ] },
+      { campo: "menu", rotulo: "Outras ações (menu ⋯)", ajuda: [
+        p("No menu “⋯” do card: Duplicar (cria uma cópia ou nova versão), Importar dados (copia a ficha de outro produto como rascunho), Ficha Técnica (abre a impressão) e Cancelar Ordem (devolve o produto ao planejamento). Excluir fica no rodapé."),
+      ] },
     ],
   },
   {
@@ -22,7 +64,7 @@ const PLANEJAMENTO: SecaoConteudoManual[] = [
         p("Define como o produto entra na loja: Interno (você fabrica), Revenda (compra pronto para revender) ou Importado. Começa em Interno."),
         p("Algumas origens podem aparecer travadas — por exemplo, Importado só existe se a loja tem o módulo, e trocar de origem depois que o produto já tem dados pode ser bloqueado. O “i” ao lado do campo explica o motivo quando isso acontece."),
       ] },
-      { campo: "nome", rotulo: "Nome do Modelo", quando: "obrigatório", ajuda: [p("O nome do produto. É a base de vários automáticos: a REF, o Título para a página e os SKUs partem dele. O mesmo produto também pode ser editado no Desenvolvimento.")] },
+      { campo: "nome", rotulo: "Nome do Modelo", quando: "obrigatório", ajuda: [p("O nome do produto. É a base de vários automáticos: a REF, o Título para a página e os SKUs partem dele. O mesmo produto também pode ser aberto a partir do Desenvolvimento.")] },
       { campo: "versao", rotulo: "Versão", quando: "obrigatório", ajuda: [p("O número da versão do produto (começa em 1). Da versão 2 em diante, o card ganha um selo “↻ v2” — é uma releitura do mesmo produto, que herda alguns automáticos da versão anterior (como o Título e o Preço anterior).")] },
       { campo: "ncm", rotulo: "NCM do Produto", quando: "opcional", ajuda: [p("O código fiscal (NCM) do produto, se você usa. É um campo livre: digite só números e pontos. Não há tabela nem sugestão — fica anotado como você escrever. Em branco, fica sem NCM.")] },
       { campo: "taxonomia", rotulo: "Grupo · Categoria · Subcategoria 1 · Subcategoria 2", ajuda: [
@@ -160,10 +202,47 @@ const PLANEJAMENTO: SecaoConteudoManual[] = [
 const PLAN_TECIDO: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Planejar o tecido antes de comprar",
     intro: [
-      p("O Planejamento de Tecido é onde você planeja a compra de tecido de uma coleção inteira, ANTES de comprar: compara o que os produtos precisam (a necessidade) com o que você já tem (estoque e OCs a chegar) e mostra quanto falta comprar por cor."),
-      p("Você começa escolhendo uma coleção na lista; cada card de coleção já adianta quantos modelos tem e um resumo (“a comprar X m”, “tecido coberto” ou “sem plano de tecido”). Ao abrir, o planejamento da coleção aparece organizado por tecido, com os produtos que o usam."),
+      p("O Planejamento de Tecido é onde você decide a compra de tecido de uma coleção inteira ANTES de comprar: ele compara o que os produtos precisam (a necessidade) com o que você já tem (estoque e OCs a chegar) e mostra, por cor, quanto falta comprar."),
+      p("No fio do processo: ele fica ACIMA do Planejamento de Produto e depende do OTB (a lista de coleções é a do OTB). Depois de ver o que falta, você gera as ordens de compra de tecido daqui mesmo, e pode distribuir as peças por loja — que vira a base do Direcionamento."),
+      p("Você começa escolhendo uma coleção na lista; cada card já adianta quantos modelos tem e um resumo (“a comprar X m”, “tecido coberto” ou “sem plano de tecido”). Ao abrir, o planejamento aparece organizado por tecido, com os produtos que o usam."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [p("Primeiro escolha a coleção; dentro dela você lê a conta de tecido (necessidade × estoque × OC), decide o que comprar e, se usar, distribui as peças por loja.")],
+    campos: [
+      { campo: "abrir", rotulo: "Como abrir uma coleção", ajuda: [
+        { tipo: "passos", itens: [
+          "Na lista, use a busca (pelo nome da coleção ou de uma subcoleção) e os filtros (Mês, Ano, Status, Tipo) para achar a coleção.",
+          "Confira o resumo do card (“a comprar X m”, “tecido coberto” ou “sem plano de tecido”).",
+          "Clique para abrir — o planejamento da coleção aparece organizado por tecido.",
+        ] },
+      ] },
+      { campo: "comprar", rotulo: "Como ver o que falta e fazer o pedido", ajuda: [
+        { tipo: "passos", itens: [
+          "Para cada tecido, leia a conta: necessidade (PLAN) menos estoque (EST) e OCs a chegar = o que falta comprar (COMPR).",
+          "Use o Modo Plano para ver, por cor, EST · PLAN · SOB · COMPR lado a lado; o resumo recalcula ao vivo enquanto você edita.",
+          "No canvas, selecione os cards que vai pedir (o pedido é sempre por seleção) e clique em “Fazer pedido” na barra de seleção.",
+          "O assistente agrupa o que falta por fornecedor e cria uma OC por fornecedor (uma página “OC X de Y”, com datas, prazo e parcelas; “aplicar este cabeçalho a todas” copia os campos). Confirme em “Gerar N OC(s)”.",
+        ] },
+      ] },
+      { campo: "distribuir-passos", rotulo: "Como distribuir as peças por loja", ajuda: [
+        { tipo: "passos", itens: [
+          "No card de um produto, abra “Distribuir por loja”.",
+          "A grade reparte a quantidade por cor × loja × tamanho pela proporção; corrija à mão onde precisar (a célula vira “manual” até você clicar em “↺ voltar ao calculado”).",
+          "O total por cor preenche a quantidade de peças do card; o resumo também aparece no Direcionamento. Um produto já Enviado à Explosão abre o dialog só para leitura.",
+        ] },
+      ] },
+      { campo: "replicar-passos", rotulo: "Como replicar cards para outra coleção", ajuda: [
+        { tipo: "passos", itens: [
+          "No canvas, selecione um ou mais cards internos (já materializados) e clique em “Replicar” na barra de seleção.",
+          "Escolha a Coleção e a Subcoleção de destino.",
+          "Confirme em “Replicar (N)”. A cópia leva tecido, forro, grade, variantes, foto, consumo, medidas, NCM e “Tamanho em”, MANTÉM a mesma REF e nasce como nova versão do original; Título e Preço anterior nascem no automático.",
+        ] },
+      ] },
     ],
   },
   {
@@ -200,7 +279,7 @@ const PLAN_TECIDO: SecaoConteudoManual[] = [
   {
     id: "pedido",
     titulo: "Fazer pedido",
-    intro: [p("O assistente que transforma o que falta (COMPR) em ordens de compra de tecido, agrupadas por fornecedor. A prévia é salva no servidor e é a mesma conta do resumo da coleção.")],
+    intro: [p("O pedido é sempre por SELEÇÃO: marque os cards no canvas e clique em “Fazer pedido” na barra de seleção. O assistente transforma o que falta (COMPR) em ordens de compra de tecido, uma por fornecedor. Você percorre as OCs (“OC X de Y”), preenche datas/prazo/parcelas de cada uma e pode copiar o cabeçalho para todas. A prévia é a mesma conta do resumo da coleção.")],
   },
   {
     id: "distribuir",
@@ -213,17 +292,45 @@ const PLAN_TECIDO: SecaoConteudoManual[] = [
   {
     id: "replicar",
     titulo: "Replicar card(s)",
-    intro: [p("Replica um ou mais produtos para outra coleção/subcoleção, copiando o essencial (tecido, medidas, NCM, “Tamanho em”). Título e Preço anterior NÃO são copiados — a cópia nasce com os dois no automático.")],
+    intro: [p("A partir da seleção de cards no canvas, replica um ou mais produtos internos para outra coleção/subcoleção: copia tecido, forro, grade, variantes, foto, consumo, medidas, NCM e “Tamanho em”, MANTÉM a mesma REF e cria uma nova versão do original. Título e Preço anterior NÃO são copiados — a cópia nasce com os dois no automático.")],
   },
 ];
 
 const PRODUTO_ACABADO: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Planejar o que você compra pronto",
     intro: [
-      p("O Produto Acabado (Revenda) é onde você planeja produtos que compra prontos de um fornecedor para revender — você não fabrica. O planejamento é por coleção e subcoleção, num canvas de cards, igual ao Plan. Tecido."),
-      p("Cada produto de revenda tem um card espelho no Planejamento, então ele também aparece no quadro de produtos e segue o fluxo de cores, grade e lançamento. É um módulo opcional (depende de a loja ter Produto Acabado e OTB ligados)."),
+      p("O Produto Acabado (Revenda) é onde você planeja produtos que compra PRONTOS de um fornecedor para revender — você não fabrica. O planejamento é por coleção e subcoleção, num canvas de cards, igual ao Plan. Tecido."),
+      p("No fio do processo: cada produto de revenda ganha um card espelho no Planejamento, então ele também aparece no quadro de produtos e segue o fluxo de cores, grade e lançamento. A compra vira uma Ordem de Compra de Produto Acabado; ao receber, o produto entra no CQ/Direcionamento como qualquer outro. É um módulo opcional (depende de a loja ter Produto Acabado e OTB ligados)."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [p("Você abre a coleção, escolhe a subcoleção e, no canvas, cria os produtos; depois faz o pedido e, quando quiser, transforma o produto num card do quadro.")],
+    campos: [
+      { campo: "criar", rotulo: "Como criar um produto de revenda", ajuda: [
+        { tipo: "passos", itens: [
+          "Abra a coleção e escolha a subcoleção; no canvas dela, clique em “Novo produto”.",
+          "Preencha a identidade: Nome, classificação, composição e “Tamanho em”. A REF é gerada automaticamente.",
+          "Adicione as variantes (cores) e a proporção da grade, e defina os preços (markup ou valor fixo, atacado e varejo). Salve.",
+        ] },
+      ] },
+      { campo: "pedido", rotulo: "Como fazer o pedido (OC)", ajuda: [
+        { tipo: "passos", itens: [
+          "Garanta que cada produto tem fornecedor e valor unitário.",
+          "Use “Fazer pedido” (no rodapé, para todos os produtos sem OC da subcoleção, ou “Fazer pedido dos N selecionados” na barra de seleção).",
+          "O assistente agrupa os produtos por fornecedor e cria as OCs de uma vez. Um produto que já está numa OC mostra em qual (e com quantos outros a divide).",
+        ] },
+      ] },
+      { campo: "criar-card", rotulo: "Como virar um card no Planejamento", ajuda: [
+        { tipo: "passos", itens: [
+          "Enquanto o produto não tem card, marque a situação dele no seletor Pendente/Reprovado.",
+          "Clique em “Criar card” (ou “Criar card em Planejamento”, no card do produto) para materializar o produto no quadro.",
+          "Produto reprovado é recusado: o sistema avisa e pula os reprovados do lote.",
+        ] },
+      ] },
     ],
   },
   {
@@ -279,10 +386,31 @@ const PRODUTO_ACABADO: SecaoConteudoManual[] = [
 const PRODUTO_IMPORTADO: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Planejar o que você importa",
     intro: [
       p("O Produto Importado é onde você planeja produtos que compra do exterior — como a revenda, mas com cotação de moeda e etapas de pagamento (mercadoria, frete, impostos). O planejamento é por coleção e subcoleção, num canvas de cards."),
-      p("Como na revenda, cada produto importado tem um card espelho no Planejamento. É um módulo opcional (depende de a loja ter Produto Importado ligado)."),
+      p("No fio do processo: como na revenda, cada produto importado tem um card espelho no Planejamento e segue o mesmo fluxo; a diferença é o cálculo do custo em reais, que passa pela cotação e pelas etapas de pagamento (daí saem as parcelas a pagar). É um módulo opcional (depende de a loja ter Produto Importado ligado)."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [p("É igual ao Produto Acabado, com dois passos a mais: registrar a moeda/cotação e as etapas de pagamento que compõem o custo em reais.")],
+    campos: [
+      { campo: "criar", rotulo: "Como criar um produto importado", ajuda: [
+        { tipo: "passos", itens: [
+          "Abra a coleção, escolha a subcoleção e, no canvas, clique em “Novo produto”.",
+          "Preencha a identidade (Nome, classificação, composição, “Tamanho em”), as variantes (cores) e a proporção da grade. A REF é gerada automaticamente.",
+          "Defina os preços (markup ou valor fixo, atacado e varejo). Salve.",
+        ] },
+      ] },
+      { campo: "moeda", rotulo: "Como registrar moeda, cotação e etapas", ajuda: [
+        { tipo: "passos", itens: [
+          "Escolha a Moeda de compra (e a intermediária, se houver) e informe o valor unitário, o transporte e o desconto.",
+          "Registre a Cotação de referência (para prever o custo) e a Cotação final (a efetiva).",
+          "Confira as Etapas de pagamento (mercadoria, frete, impostos…): cada uma com base, percentual, vencimento e cotação. Delas saem as parcelas a pagar.",
+        ] },
+      ] },
     ],
   },
   {
@@ -338,10 +466,30 @@ const PRODUTO_IMPORTADO: SecaoConteudoManual[] = [
 const DESENVOLVIMENTO: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Acompanhar os produtos pelo quadro",
     intro: [
-      p("O Desenvolvimento é o quadro (kanban) dos produtos em desenvolvimento: um card por produto, em colunas que representam a etapa de cada um. É onde você acompanha o andamento e move os produtos pelas fases."),
-      p("Clicar num card abre o MESMO editor do Planejamento (a ficha completa do produto: identidade, BOM, CAD, mão de obra, etc.). Ou seja: o quadro mostra onde cada produto está; a edição é a mesma do Planejamento, só aberta a partir do Desenvolvimento."),
+      p("O Desenvolvimento é o quadro (kanban) dos produtos: um card por produto, em colunas que representam a etapa de cada um. É onde você ACOMPANHA o andamento e move os produtos pelas fases."),
+      p("No fio do processo: o card nasce no Planejamento; o Desenvolvimento é a visão de quadro do mesmo produto. Clicar num card abre o MESMO editor do Planejamento (a ficha completa). Ou seja: o quadro mostra ONDE cada produto está; a edição é a mesma do Planejamento, só aberta a partir daqui."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [p("Você lê o quadro, move os cards pelas etapas e abre a ficha quando precisa editar.")],
+    campos: [
+      { campo: "mover", rotulo: "Como mover um produto de etapa", ajuda: [
+        { tipo: "passos", itens: [
+          "Arraste o card para a coluna desejada, ou use o menu “Mover para…”.",
+          "A coluna que ainda não pode receber o card fica esmaecida — passe o mouse para ver o que falta (os requisitos de entrada daquela etapa).",
+          "Nas lojas com Kanban automático, o card avança sozinho à medida que cumpre os requisitos.",
+        ] },
+      ] },
+      { campo: "editar", rotulo: "Como editar a ficha do produto", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique no card para abrir a ficha completa — o mesmo editor do Planejamento.",
+          "Edite as seções e Salve; as ações do quadro (arrastar, “Mover para…”) continuam valendo por fora da ficha.",
+        ] },
+      ] },
     ],
   },
   {
@@ -360,28 +508,57 @@ const DESENVOLVIMENTO: SecaoConteudoManual[] = [
 const ARMARIO: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Montar a vitrine do e-commerce",
     intro: [
-      p("O Armário é onde você monta a vitrine do e-commerce de uma subcoleção: escolhe quais variantes (produto × cor) aparecem e em que ordem, arrastando-as para uma grade. É assim que a loja decide como os produtos se apresentam na loja virtual."),
-      p("Você planeja por subcoleção e pode ter vários armários nela, em uma ordem que é a ordem em que a vitrine os mostra. É um módulo opcional (depende de a loja ter o Armário ligado)."),
+      p("O Armário é onde você monta a vitrine do e-commerce: escolhe quais variantes (produto × cor) aparecem e em que ordem, arrastando-as para uma grade. É assim que a loja decide como os produtos se apresentam na loja virtual."),
+      p("No fio do processo: cada armário é organizado por Ano e Mês (não por coleção) e você pode ter vários no mesmo período, numa ordem que é a ordem em que a vitrine os mostra. O armário passa por três situações — rascunho → pronto → publicado —; ao publicar, ele vai para a vitrine e fica somente leitura. É um módulo opcional (depende de a loja ter o Armário ligado)."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [p("Você cria o armário (Ano/Mês), monta a grade arrastando variantes e, quando estiver pronto, publica.")],
+    campos: [
+      { campo: "criar", rotulo: "Como criar um armário", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Novo armário”.",
+          "Dê um Nome e escolha o Ano e o Mês (os três são obrigatórios; o Ano e o Mês organizam o armário).",
+          "Confirme em “Criar”. O armário nasce vazio e como rascunho.",
+        ] },
+      ] },
+      { campo: "montar", rotulo: "Como montar a vitrine", ajuda: [
+        { tipo: "passos", itens: [
+          "Abra o armário clicando nele.",
+          "Clique em “Adicionar variantes” para abrir o painel “Variantes disponíveis” (de qualquer coleção da loja; use busca e filtros).",
+          "Arraste uma variante para a grade (ou use o “+” do card, que a põe no fim). Arraste os itens da grade para reordenar — a ordem (esquerda→direita, cima→baixo) é a ordem da vitrine.",
+          "Ajuste o campo “Colunas” para mudar só a disposição da grade (não reordena) e clique em “Salvar”.",
+        ] },
+      ] },
+      { campo: "publicar", rotulo: "Como publicar o armário", ajuda: [
+        { tipo: "passos", itens: [
+          "Na lista, no menu “⋯” do armário, clique em “Marcar como pronto”.",
+          "Depois, em “Publicar” (pede confirmação, porque liga o armário na loja virtual).",
+          "Para tirar do ar, use “Despublicar” (também confirma) e depois “Voltar para rascunho”. Armário publicado é somente leitura — despublique antes de editar ou excluir.",
+        ] },
+      ] },
     ],
   },
   {
     id: "lista",
     titulo: "Lista de armários",
-    intro: [p("Escolha a coleção e a subcoleção para ver os armários dela. A lista é reordenável — a ordem aqui é a ordem na vitrine.")],
+    intro: [p("Os armários da loja, organizados por Ano e Mês. A lista é reordenável por período — a ordem aqui é a ordem na vitrine.")],
     campos: [
-      { campo: "filtros", rotulo: "Ano · Mês · Coleção · Subcoleção", ajuda: [p("Os seletores que levam você até a subcoleção. Os armários aparecem na ordem em que a vitrine os mostra.")] },
-      { campo: "novo", rotulo: "Novo armário · Duplicar", ajuda: [p("“Novo armário” cria um armário vazio para montar. Duplicar copia um armário existente — a cópia nasce como rascunho.")] },
+      { campo: "filtros", rotulo: "Ano · Mês", ajuda: [p("Os dois filtros da lista. Para reordenar arrastando, filtre por um único Ano e Mês (o sistema reordena dentro de um período por vez).")] },
+      { campo: "novo", rotulo: "Novo armário · Duplicar", ajuda: [p("“Novo armário” cria um armário vazio (Nome + Ano + Mês) para montar. Duplicar copia um armário existente (leva as variantes e as colunas, herda o Ano/Mês) — a cópia nasce como rascunho.")] },
     ],
   },
   {
     id: "montagem",
     titulo: "Montar a vitrine",
-    intro: [p("Dentro de um armário, você arrasta variantes (produto × cor) para a grade e as organiza na ordem que quiser. O número de colunas controla o formato da grade.")],
+    intro: [p("Dentro de um armário, você arrasta variantes (produto × cor) para a grade e as organiza na ordem que quiser. O número de colunas controla só a disposição da grade.")],
     campos: [
-      { campo: "variantes", rotulo: "Variantes disponíveis", ajuda: [p("A lista de variantes (produto × cor) da subcoleção que você pode arrastar para a grade. Uma variante cuja cor foi removida do cadastro aparece marcada em âmbar.")] },
-      { campo: "grade", rotulo: "Grade · Colunas", ajuda: [p("A grade ordenada da vitrine. Arraste um item para outra posição para reordenar; o campo “Colunas” muda em quantas colunas a grade se dispõe. Salvar grava a ordem e o formato.")] },
+      { campo: "variantes", rotulo: "Variantes disponíveis", ajuda: [p("O painel “Adicionar variantes” lista as variantes (produto × cor) de qualquer coleção da loja, com busca e filtros, para você arrastar para a grade. Uma variante cuja cor foi removida do cadastro aparece marcada em âmbar; um produto sem cor cadastrada aparece como “Em desenvolvimento” e não pode ser adicionado.")] },
+      { campo: "grade", rotulo: "Grade · Colunas", ajuda: [p("A grade ordenada da vitrine. Arraste um item para outra posição para reordenar; o campo “Colunas” muda em quantas colunas a grade se dispõe (só a disposição, não a ordem). Salvar grava a ordem e o formato.")] },
     ],
   },
   {
@@ -390,8 +567,8 @@ const ARMARIO: SecaoConteudoManual[] = [
     intro: [p("O armário passa por três situações. Enquanto está em rascunho ou pronto, você edita; ao publicar, ele vai para a vitrine e fica somente leitura.")],
     campos: [
       { campo: "status", rotulo: "Rascunho · Pronto · Publicado", ajuda: [
-        p("Rascunho é o armário em montagem; “Pronto” sinaliza que está fechado; Publicado é o que está no ar na vitrine. As transições são Marcar como pronto, Voltar para rascunho, Publicar e Despublicar."),
-        p("Publicar e Despublicar pedem confirmação (ligam/desligam o armário na loja virtual). Armário publicado não é editável nem excluível — despublique antes."),
+        p("Rascunho é o armário em montagem; “Pronto” sinaliza que está fechado; Publicado é o que está no ar na vitrine. As transições (no menu “⋯” da lista) são “Marcar como pronto”, “Voltar para rascunho”, “Publicar” e “Despublicar”."),
+        p("Publicar e Despublicar pedem confirmação (ligam/desligam o armário na loja virtual); as outras são diretas. Armário publicado não é editável nem excluível — despublique antes."),
       ] },
     ],
   },
