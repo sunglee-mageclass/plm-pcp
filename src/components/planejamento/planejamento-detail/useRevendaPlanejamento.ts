@@ -114,54 +114,6 @@ export function useRevendaPlanejamento({
   const enviadoVarejoRef = useRef<MarkupEnviado | null>(null);
   limparEnviadoSeServidorMudou(enviadoAtacadoRef, produtoRevenda?.markup_atacado);
   limparEnviadoSeServidorMudou(enviadoVarejoRef, produtoRevenda?.markup_varejo);
-  const salvarMarkupsRevenda = useMutation({
-    onMutate: () => ({ atacadoAntes: produtoRevenda?.markup_atacado, varejoAntes: produtoRevenda?.markup_varejo }),
-    mutationFn: async (payload: { markup_atacado: number | null; markup_varejo: number | null }) => {
-      if (!produtoRevenda) return;
-      const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
-        _produto_id: produtoRevenda.id,
-        _markup_atacado: payload.markup_atacado,
-        _markup_varejo: payload.markup_varejo,
-      });
-      if (error) throw error;
-    },
-    onSuccess: (_d, vars, ctx) => {
-      enviadoAtacadoRef.current = { valor: vars.markup_atacado, servidorAntes: ctx?.atacadoAntes };
-      enviadoVarejoRef.current = { valor: vars.markup_varejo, servidorAntes: ctx?.varejoAntes };
-      // `modelos.preco_atacado`/`preco_venda` mudaram no servidor (recompute) — refetch
-      // ["modelo", modeloId] pra o rev otimista do colab não ficar defasado (mesmo cuidado
-      // de `invalidarAposAprovarMO`: sem isto, o próximo "Salvar" do card comparava um rev
-      // velho e dava P0409 falso). Também atualiza o planejador Produto Acabado e a lista.
-      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
-      qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
-      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
-      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o markup.")),
-  });
-  // Preço FIXO de revenda (set/2026): grava o preço EXATO digitado (sem derivar do markup, sem
-  // arredondar de volta). `_tocar_X=true` mexe SÓ no canal X; preço não-null FIXA + limpa o markup
-  // daquele canal; null DESTRAVA (limpa o fixo, mantém markup → volta a derivar). O servidor recomputa
-  // `modelos.preco_atacado`/`preco_venda` = coalesce(fixo, round(base×markup,2)). Mesmas invalidações
-  // de `salvarMarkupsRevenda` (o preço real do modelo mudou no servidor).
-  const salvarPrecosFixoRevenda = useMutation({
-    mutationFn: async (p: { tocarAtacado: boolean; precoAtacado: number | null; tocarVarejo: boolean; precoVarejo: number | null }) => {
-      if (!produtoRevenda) return;
-      const { error } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
-        _produto_id: produtoRevenda.id,
-        _tocar_atacado: p.tocarAtacado, _preco_atacado_fixo: p.precoAtacado,
-        _tocar_varejo: p.tocarVarejo, _preco_varejo_fixo: p.precoVarejo,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
-      qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
-      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
-      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o preço.")),
-  });
   // "criar produto acabado" (revenda sem produto vinculado, Task 7): INSERT em
   // produtos_acabados herdando identidade do modelo (grupo derivado de
   // categorias_produto.grupo_id — `modelos` não tem grupo_id próprio) + vincula
@@ -218,7 +170,6 @@ export function useRevendaPlanejamento({
     markupAtacadoInput, setMarkupAtacadoInput, markupVarejoInput, setMarkupVarejoInput,
     markupAtacadoBaseRef, markupVarejoBaseRef, enviadoAtacadoRef, enviadoVarejoRef,
     precoAtacadoDraft, setPrecoAtacadoDraft, precoVarejoDraft, setPrecoVarejoDraft,
-    salvarMarkupsRevenda, salvarPrecosFixoRevenda,
     criarProdutoAcabado,
   };
 }
