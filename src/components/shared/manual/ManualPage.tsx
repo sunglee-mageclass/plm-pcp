@@ -109,7 +109,11 @@ export function ManualPage() {
 
   const [telaSel, setTelaSel] = useState<string | null>(null);
   const telaAtual =
-    telas.find((t) => t.pageKey === telaSel) ?? telas[0] ?? null;
+    telas.find((t) => t.pageKey === telaSel) ??
+    // Padrão: a 1ª tela REAL do usuário, não o "Guia geral" (que só abre por clique/hash).
+    telas.find((t) => t.moduloKey !== "manual") ??
+    telas[0] ??
+    null;
 
   // AJUDA CONTEXTUAL (A5): o botão "?" navega para `/manual` com hash `#manual-<pageKey>` (tela) ou
   // `#secao-<sectionKey>` (seção). A ManualPage lê o hash no mount para abrir a tela certa e rolar

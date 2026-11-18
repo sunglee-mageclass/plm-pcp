@@ -20,14 +20,17 @@ describe("Manual: seção de colaboração em tempo real", () => {
     expect(texto).toMatch(/F5/);
   });
   it("explica o anel/cor/quem está editando", () => {
-    expect(texto).toMatch(/anel/i);
+    expect(texto).toMatch(/também está nesta tela/);
+    expect(texto).toMatch(/anel colorido ao redor do campo/);
     expect(texto).toMatch(/cor própria/);
     expect(texto).toMatch(/em qual campo/);
   });
   it("explica o aviso de conflito (manter o meu / usar o novo / nada apagado em silêncio)", () => {
-    expect(texto).toMatch(/outra pessoa salvou/);
-    expect(texto).toMatch(/Manter o meu/);
-    expect(texto).toMatch(/Usar o novo/);
+    expect(texto).toMatch(/Alguém salvou agora/);
+    expect(texto).toMatch(/em conflito/);
+    expect(texto).toMatch(/manter meu/);
+    expect(texto).toMatch(/usar o novo/);
+    expect(texto).toMatch(/Salvar fica travado/);
     expect(texto).toMatch(/Nada é apagado em silêncio/);
   });
   it("não promete co-edição ao vivo (Onda 3 futura)", () => {
