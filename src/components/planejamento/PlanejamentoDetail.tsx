@@ -687,8 +687,10 @@ function PlanejamentoDetailConteudo({
           base: {
             markup_atacado: revenda.produtoRevenda.markup_atacado ?? null,
             markup_varejo: revenda.produtoRevenda.markup_varejo ?? null,
-            preco_atacado: draft.preco_atacado ?? null,
-            preco_venda: draft.preco_venda ?? null,
+            // 0 = "sem preço" (o servidor grava round(custo×markup,2) = 0 com custo 0): normaliza 0→null como o n1 do importado, senão
+            // `0 !== null` (rascunho vazio) vira falso "preço fixo mudou" e a RPC de preço fixo roda em TODO Salvar (sobe o `rev` do produto).
+            preco_atacado: (draft.preco_atacado ?? 0) > 0 ? draft.preco_atacado : null,
+            preco_venda: (draft.preco_venda ?? 0) > 0 ? draft.preco_venda : null,
           },
           rascunho: {
             markupAtacado: revenda.markupAtacadoInput === revenda.markupAtacadoBaseRef.current

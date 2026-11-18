@@ -37,6 +37,9 @@ describe("Salvar por card da revenda — fiação", () => {
   it("o PlanejamentoDetail monta o ref (espelho síncrono) e o passa ao hook", () => {
     expect(detail).toMatch(/const revendaSaveRef = useRef</);
     expect(detail).toMatch(/revendaSaveRef\.current =/);
+    // base com preço 0 normalizado para null (como o n1): senão 0 !== null dispara a RPC de preço fixo em todo Salvar.
+    expect(detail).toMatch(/preco_atacado: \(draft\.preco_atacado \?\? 0\) > 0 \? draft\.preco_atacado : null/);
+    expect(detail).toMatch(/preco_venda: \(draft\.preco_venda \?\? 0\) > 0 \? draft\.preco_venda : null/);
     expect(detail).toMatch(/usePlanejamentoSave\(\{[\s\S]*revendaSaveRef,/);
   });
 });

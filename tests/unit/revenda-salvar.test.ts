@@ -32,6 +32,23 @@ describe("payloadRevendaParaSalvar", () => {
 
   it("preço varejo fixo com varejo travado → tocarVarejo=false (não grava no canal travado)", () => {
     const r = payloadRevendaParaSalvar(base, rasc({ precoVarejoFixo: 80 }), true, null, null);
-    expect(r.fixos?.tocarVarejo).toBe(false);
+    // Fix round 1: nenhum canal tocado => fixos null (antes devolvia objeto com os 2 tocar=false e a RPC rodava à toa).
+    expect(r.fixos).toBeNull();
+  });
+
+  it("travaVarejo=true com SÓ o varejo mexido → fixos null (RPC de preço fixo não roda)", () => {
+    const r = payloadRevendaParaSalvar(base, rasc({ precoVarejoFixo: 80 }), true, null, null);
+    expect(r).toEqual({ markups: null, fixos: null });
+  });
+
+  it("travaVarejo=true, atacado mexido e varejo mexido → só o atacado é tocado", () => {
+    const r = payloadRevendaParaSalvar(base, rasc({ precoAtacadoFixo: 40, precoVarejoFixo: 80 }), true, null, null);
+    expect(r.fixos).toEqual({ tocarAtacado: true, precoAtacado: 40, tocarVarejo: false, precoVarejo: null });
+  });
+
+  it("base com preço 0 normalizado (null) e rascunho vazio (null) → {markups:null, fixos:null}", () => {
+    // PlanejamentoDetail normaliza o preço 0 do servidor para null na base; o rascunho vazio vira null (`Number('')||null`).
+    const r = payloadRevendaParaSalvar({ ...base, preco_atacado: null, preco_venda: null }, rasc({ precoAtacadoFixo: null, precoVarejoFixo: null }), false, null, null);
+    expect(r).toEqual({ markups: null, fixos: null });
   });
 });

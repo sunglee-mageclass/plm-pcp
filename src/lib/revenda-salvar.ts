@@ -37,12 +37,14 @@ export function payloadRevendaParaSalvar(
   const atacadoFixoMudou = rasc.precoAtacadoFixo !== base.preco_atacado;
   const varejoFixoMudouDraft = rasc.precoVarejoFixo !== base.preco_venda;
   let fixos: PayloadRevenda["fixos"] = null;
-  if (atacadoFixoMudou || varejoFixoMudouDraft) {
+  const tocarVarejo = !travaVarejo && varejoFixoMudouDraft;
+  // Nenhum canal tocado (ex.: só o varejo "sujo" com ele travado) => null: a RPC NÃO roda (rodar à toa sobe o `rev` do produto => P0409 falso).
+  if (atacadoFixoMudou || tocarVarejo) {
     fixos = {
       tocarAtacado: atacadoFixoMudou,
       precoAtacado: atacadoFixoMudou ? rasc.precoAtacadoFixo : null,
-      tocarVarejo: !travaVarejo && varejoFixoMudouDraft,
-      precoVarejo: !travaVarejo && varejoFixoMudouDraft ? rasc.precoVarejoFixo : null,
+      tocarVarejo,
+      precoVarejo: tocarVarejo ? rasc.precoVarejoFixo : null,
     };
   }
 

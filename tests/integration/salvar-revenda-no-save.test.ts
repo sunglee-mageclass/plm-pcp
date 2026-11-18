@@ -111,7 +111,7 @@ describe.skipIf(!RODA)("revenda grava pelo Salvar (via as 2 RPCs, payload do hel
         true, null, null,
       );
       expect(p.markups).toEqual({ markup_atacado: 2.5, markup_varejo: base.markup_varejo });
-      expect(p.fixos).toMatchObject({ tocarVarejo: false, precoVarejo: null });
+      expect(p.fixos).toBeNull(); // varejo travado e nenhum canal tocado => a RPC de preço fixo não roda
       await aplicarPayload(c, produtoId, p);
       const depois = await lerBaseRevenda(c, produtoId, modeloId);
       expect(depois.markup_atacado).toBe(2.5);
