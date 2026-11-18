@@ -16,4 +16,8 @@ describe("Oficina: anel de presença de campo", () => {
   it("passa campoFocado ao useColabRegistro", () => {
     expect(src).toMatch(/campoFocado/);
   });
+
+  it("limpa o foco ao sair do campo (onBlurCapture) para o anel nao grudar", () => {
+    expect(src).toMatch(/onBlurCapture/);
+  });
 });

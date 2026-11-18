@@ -442,7 +442,7 @@ function OficinaDetailPage() {
         <Card className="p-5 space-y-4" ref={colabScopeRef} onFocusCapture={(e) => {
           const scope = colabScopeRef.current;
           setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
-        }}>
+        }} onBlurCapture={() => setCampoFocado(null)}>
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">Oficina</h3>
@@ -515,9 +515,7 @@ function OficinaDetailPage() {
             <Label className="text-xs">Observação de Partes do Molde</Label>
             <Textarea rows={3} value={form.observacoes_molde}
               onChange={(e) => setForm((f) => ({ ...f, observacoes_molde: e.target.value }))}
-              data-colab-path={`oficina-molde:${cad?.id}`}
-              onFocus={() => setCampoFocado(`oficina-molde:${cad?.id}`)}
-              onBlur={() => setCampoFocado(null)} />
+              data-colab-path={`oficina-molde:${cad?.id}`} />
           </div>
           </fieldset>
         </Card>
