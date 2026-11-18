@@ -24,6 +24,9 @@ const maps: LookupMaps = {
   fornecedores: new Map([["silva", ["emp-silva"]]]),
   representantes: new Map(),
   tamanhos: gradeMap,
+  linhas: new Map([["basica", "lin-basica"]]),
+  categorias_tecido: new Map([["malha", "catec-malha"]]),
+  materiais_aviamento: new Map([["metal", "mat-metal"]]),
 };
 
 function row(n: number, over: Partial<Record<string, string>> = {}): RawRow {
@@ -193,5 +196,59 @@ describe("R12 — tipo inválido/sem módulo continua erro depois das edições 
     const sb = { rpc: async () => { chamou = true; return { data: { acao: "criado" }, error: null }; } };
     await expect(produtoDescriptor.rpc!(sb as never, ent)).rejects.toThrow(/inválido/);
     expect(chamou).toBe(false);
+  });
+});
+
+describe("produtoDescriptor.resolve — 5 campos informativos (Linha, NCM, Tamanho em, Cat.Tecido, Material)", () => {
+  it("NÃO-acessório: resolve Linha/NCM/Tamanho em/Cat.Tecido; Material fica null", () => {
+    const r = produtoDescriptor.resolve(row(2, {
+      tipo: "revenda", nome: "Camisa", grupo: "Roupas", categoria: "Camisa",
+      linha: "Básica", ncm: "6109.10.00", tamanho_em: "Número",
+      categoria_tecido: "Malha", material_aviamento: "Metal",
+    }), maps);
+    expect(r.problemas.some((p) => p.nivel === "erro")).toBe(false);
+    expect(r.cabecalho.linha_id).toBe("lin-basica");
+    expect(r.cabecalho.ncm).toBe("6109.10.00");
+    expect(r.cabecalho.tamanho_tipo).toBe("numero");
+    expect(r.cabecalho.categoria_tecido_id).toBe("catec-malha");
+    expect(r.cabecalho.material_aviamento_id).toBeNull(); // não-acessório usa Cat.Tecido, não Material
+  });
+
+  it("ACESSÓRIO: usa Material do Aviamento; Cat.Tecido null; tamanho_tipo omitido (null)", () => {
+    const r = produtoDescriptor.resolve(row(2, {
+      tipo: "revenda", nome: "Cinto", grupo: "Acessório", categoria: "Camisa",
+      material_aviamento: "Metal", categoria_tecido: "Malha", tamanho_em: "Número",
+    }), maps);
+    expect(r.cabecalho.material_aviamento_id).toBe("mat-metal");
+    expect(r.cabecalho.categoria_tecido_id).toBeNull();
+    expect(r.cabecalho.tamanho_tipo).toBeNull(); // acessório = grade UN, omite
+  });
+
+  it("Tamanho em default = 'letra' quando vazio (não-acessório)", () => {
+    const r = produtoDescriptor.resolve(row(2, { tipo: "revenda", nome: "X", grupo: "Roupas", categoria: "Camisa" }), maps);
+    expect(r.cabecalho.tamanho_tipo).toBe("letra");
+    expect(r.cabecalho.linha_id).toBeNull();
+    expect(r.cabecalho.ncm).toBeNull();
+    expect(r.cabecalho.categoria_tecido_id).toBeNull();
+    expect(r.cabecalho.material_aviamento_id).toBeNull();
+  });
+
+  it("Tamanho em inválido = AVISO (não erro); campo fica null", () => {
+    const r = produtoDescriptor.resolve(row(2, { tipo: "revenda", nome: "X", grupo: "Roupas", categoria: "Camisa", tamanho_em: "grande" }), maps);
+    expect(r.problemas.some((p) => p.nivel === "erro")).toBe(false);
+    expect(r.problemas.some((p) => p.nivel === "aviso" && p.campo === "tamanho_em")).toBe(true);
+    expect(r.cabecalho.tamanho_tipo).toBeNull();
+  });
+
+  it("Linha / Cat.Tecido / Material não encontrados = AVISO (opcional), campo fica null, não bloqueia", () => {
+    const r = produtoDescriptor.resolve(row(2, {
+      tipo: "revenda", nome: "X", grupo: "Roupas", categoria: "Camisa",
+      linha: "Inexistente", categoria_tecido: "SemTal",
+    }), maps);
+    expect(r.problemas.some((p) => p.nivel === "erro")).toBe(false);
+    expect(r.problemas.some((p) => p.nivel === "aviso" && p.campo === "linha")).toBe(true);
+    expect(r.problemas.some((p) => p.nivel === "aviso" && p.campo === "categoria_tecido")).toBe(true);
+    expect(r.cabecalho.linha_id).toBeNull();
+    expect(r.cabecalho.categoria_tecido_id).toBeNull();
   });
 });

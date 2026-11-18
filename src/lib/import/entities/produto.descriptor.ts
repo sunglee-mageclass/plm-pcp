@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { MOEDAS } from "@/lib/moeda";
 import { parseNumeroBR, parseGrade } from "../parse";
 import type {
@@ -45,6 +46,15 @@ function lookForn(maps: LookupMaps, nome: string | undefined): { id: string | nu
   return { id: arr[0], ambiguo: arr.length > 1 };
 }
 
+/** "Tamanho em" digitado → 'letra' | 'numero' (default 'letra'); valor inválido → null (vira aviso). */
+function resolverTamanhoTipo(txt: string | undefined): "letra" | "numero" | null {
+  const t = normalizeCat(txt);
+  if (!t) return "letra"; // vazio = padrão
+  if (t === "letra" || t === "letras") return "letra";
+  if (t === "numero" || t === "numeros" || t === "num" || t === "n") return "numero";
+  return null; // inválido
+}
+
 /** Moeda digitada → code canônico (BRL/USD/RMB/PYG…). Aceita o code OU o nome ("dólar"→USD). */
 function resolverMoeda(txt: string | undefined): string | null {
   const t = (txt ?? "").trim();
@@ -73,6 +83,12 @@ export const produtoDescriptor: EntityImportDescriptor = {
     { key: "categoria", header: "Categoria", required: true, hint: "categoria do produto (deve existir)", exemplo: "Camisa" },
     { key: "subcategoria1", header: "Subcategoria 1", hint: "opcional (escondida p/ Acessórios)", exemplo: "Manga Longa" },
     { key: "subcategoria2", header: "Subcategoria 2", hint: "opcional" },
+    // campos informativos (todos OPCIONAIS — vazio não trava, não encontrado = aviso e fica null)
+    { key: "linha", header: "Linha", hint: "opcional (deve existir no cadastro)", exemplo: "Básica" },
+    { key: "ncm", header: "NCM", hint: "opcional — código fiscal (texto livre)", exemplo: "6109.10.00" },
+    { key: "tamanho_em", header: "Tamanho em", opcoes: ["Letra", "Número"], hint: "opcional — Letra ou Número (default Letra); ignorado p/ Acessórios", exemplo: "Letra" },
+    { key: "categoria_tecido", header: "Categoria do Tecido", hint: "opcional (não-acessório; deve existir)", exemplo: "Malha" },
+    { key: "material_aviamento", header: "Material do Aviamento", hint: "opcional (acessório; deve existir)", exemplo: "Metal" },
     { key: "colecao", header: "Coleção", hint: "opcional (deve existir)" },
     { key: "subcolecao", header: "Subcoleção", hint: "texto livre" },
     { key: "fornecedor", header: "Fornecedor", hint: "empresa ou representante" },
@@ -109,6 +125,9 @@ export const produtoDescriptor: EntityImportDescriptor = {
     { id: "sub1", table: "subcategorias1_produto" },
     { id: "sub2", table: "subcategorias2_produto" },
     { id: "colecoes", table: "colecoes" },
+    { id: "linhas", table: "linhas" },
+    { id: "categorias_tecido", table: "categorias_tecido" },
+    { id: "materiais_aviamento", table: "materiais_aviamento" },
     { id: "cores", table: "cores" },
     { id: "apelidos", table: "cores_apelido", extraCols: ["cor_base_id"], apelidoDeCorBase: true },
     { id: "fornecedores", table: "empresas", nameCol: "nome_fantasia", semUnique: true },
@@ -122,6 +141,11 @@ export const produtoDescriptor: EntityImportDescriptor = {
     { rotulo: "Categoria", escopo: "cabecalho", tipo: "lookup", campoId: "categoria_id", digitadoKey: "categoria", lookupId: "categorias", obrigatorio: true },
     { rotulo: "Subcat. 1", escopo: "cabecalho", tipo: "lookup", campoId: "subcategoria1_id", digitadoKey: "subcategoria1", lookupId: "sub1" },
     { rotulo: "Subcat. 2", escopo: "cabecalho", tipo: "lookup", campoId: "subcategoria2_id", digitadoKey: "subcategoria2", lookupId: "sub2" },
+    { rotulo: "Linha", escopo: "cabecalho", tipo: "lookup", campoId: "linha_id", digitadoKey: "linha", lookupId: "linhas" },
+    { rotulo: "NCM", escopo: "cabecalho", tipo: "texto", campoId: "ncm", narrow: true },
+    { rotulo: "Tamanho em", escopo: "cabecalho", tipo: "texto", campoId: "tamanho_tipo", narrow: true },
+    { rotulo: "Cat. Tecido", escopo: "cabecalho", tipo: "lookup", campoId: "categoria_tecido_id", digitadoKey: "categoria_tecido", lookupId: "categorias_tecido" },
+    { rotulo: "Material Avi.", escopo: "cabecalho", tipo: "lookup", campoId: "material_aviamento_id", digitadoKey: "material_aviamento", lookupId: "materiais_aviamento" },
     { rotulo: "Coleção", escopo: "cabecalho", tipo: "lookup", campoId: "colecao_id", digitadoKey: "colecao", lookupId: "colecoes" },
     { rotulo: "Subcoleção", escopo: "cabecalho", tipo: "texto", campoId: "subcolecao" },
     { rotulo: "Fornecedor", escopo: "cabecalho", tipo: "lookup", campoId: "empresa_id", digitadoKey: "fornecedor", lookupId: "fornecedores", cadastroTipo: "fornecedor" },
@@ -163,6 +187,29 @@ export const produtoDescriptor: EntityImportDescriptor = {
     const colecao_id = look(maps, "colecoes", row.colecao);
     if (row.colecao?.trim() && !colecao_id) problemas.push({ nivel: "aviso", campo: "colecao", mensagem: `Coleção "${row.colecao}" não encontrada.` });
 
+    // ------- campos informativos (todos OPCIONAIS → não encontrado = aviso, campo fica null) -------
+    const ehAcessorio = ehGrupoAcessorio(row.grupo);
+
+    // Linha (opcional)
+    const linha_id = look(maps, "linhas", row.linha);
+    if (row.linha?.trim() && !linha_id) problemas.push({ nivel: "aviso", campo: "linha", mensagem: `Linha "${row.linha}" não encontrada — ficará em branco.` });
+
+    // NCM (texto livre, sem lookup)
+    const ncm = (row.ncm ?? "").trim() || null;
+
+    // Categoria do Tecido (não-acessório) × Material do Aviamento (acessório) — espelha a tela
+    const categoria_tecido_id = look(maps, "categorias_tecido", row.categoria_tecido);
+    if (!ehAcessorio && row.categoria_tecido?.trim() && !categoria_tecido_id) problemas.push({ nivel: "aviso", campo: "categoria_tecido", mensagem: `Categoria do Tecido "${row.categoria_tecido}" não encontrada — ficará em branco.` });
+    const material_aviamento_id = look(maps, "materiais_aviamento", row.material_aviamento);
+    if (ehAcessorio && row.material_aviamento?.trim() && !material_aviamento_id) problemas.push({ nivel: "aviso", campo: "material_aviamento", mensagem: `Material do Aviamento "${row.material_aviamento}" não encontrado — ficará em branco.` });
+
+    // Tamanho em: Letra/Número → letra/numero; default letra; acessório = grade UN (omite)
+    let tamanho_tipo: "letra" | "numero" | null = null;
+    if (!ehAcessorio) {
+      tamanho_tipo = resolverTamanhoTipo(row.tamanho_em);
+      if (tamanho_tipo === null) problemas.push({ nivel: "aviso", campo: "tamanho_em", mensagem: `Tamanho em "${row.tamanho_em}" inválido — use "Letra" ou "Número".` });
+    }
+
     const forn = lookForn(maps, row.fornecedor);
     if (row.fornecedor?.trim() && !forn.id) problemas.push({ nivel: "aviso", campo: "fornecedor", mensagem: `Fornecedor "${row.fornecedor}" não encontrado — ficará em branco.` });
     if (forn.ambiguo) problemas.push({ nivel: "aviso", campo: "fornecedor", mensagem: `Mais de um fornecedor "${row.fornecedor}" — usando o primeiro.` });
@@ -194,6 +241,14 @@ export const produtoDescriptor: EntityImportDescriptor = {
       composicao: (row.composicao ?? "").trim() || null,
       grade_proporcao,
       qtd_total: parseNum(row.qtd_total),
+      // campos informativos (todos opcionais)
+      linha_id,
+      ncm,
+      // regra do grupo (espelha a tela): acessório usa Material do Aviamento, demais usam Categoria do Tecido
+      categoria_tecido_id: ehAcessorio ? null : categoria_tecido_id,
+      material_aviamento_id: ehAcessorio ? material_aviamento_id : null,
+      // "Tamanho em": acessório = grade UN (sem tamanho), então omite (null); demais = letra/numero (default letra)
+      tamanho_tipo,
     };
     if (tipo === "revenda") {
       cabecalho.valor_unitario = parseNum(row.valor_unitario);
