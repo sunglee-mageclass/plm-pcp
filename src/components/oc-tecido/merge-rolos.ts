@@ -21,7 +21,7 @@ export function planoDeRolos(arr: readonly RoloEntry[] | undefined | null): Plan
 const iguais = (a: readonly RoloEntry[] | undefined, b: readonly RoloEntry[] | undefined) =>
   JSON.stringify(planoDeRolos(a)) === JSON.stringify(planoDeRolos(b));
 
-/** Rolo JÁ criado (OC recebida) não é "plano": CQ/cancelar/ajustar do rolo existente seguem pelos caminhos próprios, fora deste merge. */
+/** Rolo JÁ criado (OC recebida) não é "plano": CQ/cancelar/ajustar do rolo existente seguem pelos caminhos próprios, fora deste merge (só a TRANSIÇÃO plano<->real entra). */
 const temRoloReal = (...arrs: (readonly RoloEntry[] | undefined)[]) => arrs.some((a) => (a ?? []).some((e) => !!e.roloId || !!e.roloItemId));
 
 export const caminhoConflitoRolos = (itemKey: string) => `rolos:${itemKey}`;
@@ -36,7 +36,16 @@ export function mesclarRolosPlanejados(o: { base: RolosPorItem; live: RolosPorIt
   for (const k of keys) {
     const b = o.base[k]; const l = o.live[k]; const f = o.fresh[k];
     const manterMeu = () => { if (l !== undefined) valor[k] = l; };
-    if (temRoloReal(b, l, f)) { manterMeu(); continue; }
+    const realMeu = temRoloReal(l);
+    const realDele = temRoloReal(f);
+    if (realMeu !== realDele) {
+      // TRANSIÇÃO plano <-> rolo real feita por OUTRA pessoa (recebeu / desmarcou o recebimento): o servidor manda. Manter o meu plano velho
+      // depois de a OC ser recebida faria o Salvar (gerar_rolos_recebimento, não idempotente) criar rolo DUPLICADO no estoque.
+      if (f !== undefined) valor[k] = f;
+      atualizados.push(k);
+      continue;
+    }
+    if (realMeu) { manterMeu(); continue; } // os dois com rolo real: CQ/cancelar/ajustar seguem pelos caminhos próprios, fora deste merge
     const euMexi = !iguais(l, b);
     const eleMexeu = !iguais(f, b);
     if (!eleMexeu) { manterMeu(); continue; }

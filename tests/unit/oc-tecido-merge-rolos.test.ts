@@ -69,7 +69,27 @@ describe("mesclarRolosPlanejados (puro, 3 vias por item)", () => {
     expect(m.valor.X).toEqual([r("30"), r("5")]); // eu nao mexi de verdade -> adota o do servidor
   });
 
-  it("rolo ja criado (roloId, OC recebida) fica FORA deste merge: o estado local nao e tocado", () => {
+  it("TRANSICAO plano -> rolo real por OUTRA pessoa (recebeu a OC): adota o servidor, nao mantem o plano velho (evita rolo duplicado)", () => {
+    const real: RoloEntry = r("40", { roloId: "r1", roloItemId: "ri1" });
+    const plano = [r("40")];
+    const m = mesclarRolosPlanejados({ base: { X: plano }, live: { X: plano }, fresh: { X: [real] } });
+    expect(m.valor.X).toEqual([real]);
+    expect(m.atualizados).toEqual(["X"]);
+    // mesmo se eu tinha editado o plano: o recebimento consumiu o plano, nada do plano velho segue para o Salvar
+    const m2 = mesclarRolosPlanejados({ base: { X: plano }, live: { X: [r("45")] }, fresh: { X: [real] } });
+    expect(m2.valor.X).toEqual([real]);
+    expect((m2.valor.X ?? []).every((e) => !!e.roloId)).toBe(true);
+  });
+
+  it("TRANSICAO inversa (outra pessoa desmarcou o recebimento): eu tinha rolo real, o servidor volta ao plano -> adota o servidor", () => {
+    const real: RoloEntry = r("40", { roloId: "r1", roloItemId: "ri1" });
+    const m = mesclarRolosPlanejados({ base: { X: [real] }, live: { X: [real] }, fresh: { X: [r("40")] } });
+    expect(m.valor.X).toEqual([r("40")]);
+    const semPlano = mesclarRolosPlanejados({ base: { X: [real] }, live: { X: [real] }, fresh: {} });
+    expect(semPlano.valor.X).toBeUndefined();
+  });
+
+  it("rolo ja criado dos DOIS lados (OC recebida): fica FORA deste merge, o estado local nao e tocado", () => {
     const real: RoloEntry = r("40", { roloId: "r1", roloItemId: "ri1" });
     const m = mesclarRolosPlanejados({ base: { X: [real] }, live: { X: [real] }, fresh: { X: [{ ...real, qtd: "45" }] } });
     expect(m.valor.X).toEqual([real]);
