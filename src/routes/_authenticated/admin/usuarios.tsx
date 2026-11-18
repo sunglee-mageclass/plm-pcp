@@ -8,6 +8,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { Users, Plus, KeyRound, ShieldCheck, ShieldHalf, ArrowLeft, Pencil, Trash2, LogOut, Save } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -496,6 +499,14 @@ function EditUsuarioModal({
 }: { tenants: Tenant[]; user: AppUser; isSelf: boolean; onClose: () => void; requestCloseRef: MutableRefObject<(() => void) | null> }) {
   const qc = useQueryClient();
   const call = useServerFn(updateUser);
+  // Realce "quem edita o quê" (Realtime Onda 2 / Task 4): registro-a-registro: canal = o USUÁRIO EDITADO (user.id); a tela é do super admin e cross-tenant,
+  // então nada de tenant ativo. Presença = só {nome, campoFocado}.
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: `colab-canvas:admin-usuarios:${user.id}`,
+    campoFocado,
+  });
   const [nome, setNome] = useState(user.nome);
   const [email, setEmail] = useState(user.email);
   const [tenantId, setTenantId] = useState<string>(user.tenant_id ?? "");
@@ -542,7 +553,20 @@ function EditUsuarioModal({
             </div>
           </div>
         </div>
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {/* Anel no corpo ROLÁVEL (header/footer sticky ficam fora do scope). O overlay mora DENTRO do Sheet:
+            os campos resolvidos têm role=dialog por perto, então ficam acima do backdrop do próprio Sheet. */}
+        <div
+          ref={scopeRef}
+          onFocusCapture={(e) => {
+            const scope = scopeRef.current;
+            const alvo = e.target as HTMLElement;
+            const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+            if (p) setCampoFocado(p);
+          }}
+          onBlurCapture={() => setCampoFocado(null)}
+          className="flex-1 space-y-4 overflow-y-auto p-4"
+        >
+          <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} abaixoDeModal />
           <div>
             <Label htmlFor="edit-nome">Nome *</Label>
             <Input id="edit-nome" autoComplete="off" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />

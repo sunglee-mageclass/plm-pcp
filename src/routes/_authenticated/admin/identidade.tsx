@@ -19,6 +19,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 
 export const Route = createFileRoute("/_authenticated/admin/identidade")({
   component: IdentidadePage,
@@ -28,6 +31,14 @@ function IdentidadePage() {
   const { isSuperAdmin, loading } = useAuth();
   const identity = useSystemIdentity();
   const qc = useQueryClient();
+  // Realce "quem edita o quê" (Realtime Onda 2 / Task 4): identidade é GLOBAL (system_settings singleton, vale p/ todas as lojas; só super admin).
+  // Canal único sem tenant (presença = só nome+foco, não vaza dado de loja). Só liga p/ super admin.
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: isSuperAdmin ? "colab-canvas:admin-identidade:global" : null,
+    campoFocado,
+  });
 
   const [nome, setNome] = useState("");
   const [subtitulo, setSubtitulo] = useState("");
@@ -172,7 +183,19 @@ function IdentidadePage() {
       </header>
 
       {/* Blocos em grade responsiva de 2 colunas no desktop, 1 no mobile. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 items-start">
+      <div
+        ref={scopeRef}
+        onFocusCapture={(e) => {
+          const scope = scopeRef.current;
+          const alvo = e.target as HTMLElement;
+          const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+          if (p) setCampoFocado(p);
+        }}
+        onBlurCapture={() => setCampoFocado(null)}
+        className="grid grid-cols-1 gap-4 lg:grid-cols-2 items-start"
+      >
+        {/* Overlay da PÁGINA: o AlertDialog de confirmar Salvar abre por cima (abaixoDeModal). */}
+        <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} abaixoDeModal />
       <Card>
         <CardHeader>
           <CardTitle>Textos</CardTitle>

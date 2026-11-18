@@ -6,6 +6,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft, Save } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { formatCNPJ } from "@/lib/format";
 import { sanitizeStorageName } from "@/lib/storage-tenant";
 import { supabase } from "@/integrations/supabase/client";
@@ -558,6 +561,14 @@ function EditarLojaModal({ tenant, onClose, requestCloseRef }: { tenant: Tenant;
   const [submitting, setSubmitting] = useState(false);
   const [modules, setModules] = useState<Record<string, boolean>>(MODULE_DEFAULTS);
   const [confirmModules, setConfirmModules] = useState(false);
+  // Realce "quem edita o quê" (Realtime Onda 2 / Task 4): registro-a-registro: o canal é a LOJA EDITADA (tenant.id), não a loja ativa do usuário —
+  // super admin edita qualquer loja (cross-tenant); presença = só {nome, campoFocado}, nada de dado da loja.
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: `colab-canvas:admin-lojas:${tenant.id}`,
+    campoFocado,
+  });
 
   // Módulos habilitados desta loja (tenant_config da loja editada; super_admin
   // lê/escreve via policy super_admin_all_tenant_config).
@@ -655,7 +666,20 @@ function EditarLojaModal({ tenant, onClose, requestCloseRef }: { tenant: Tenant;
             </div>
           </div>
         </div>
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {/* Anel no corpo ROLÁVEL (header/footer sticky ficam fora do scope). O overlay mora DENTRO do Sheet:
+            os campos resolvidos têm role=dialog por perto, então ficam acima do backdrop do próprio Sheet. */}
+        <div
+          ref={scopeRef}
+          onFocusCapture={(e) => {
+            const scope = scopeRef.current;
+            const alvo = e.target as HTMLElement;
+            const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+            if (p) setCampoFocado(p);
+          }}
+          onBlurCapture={() => setCampoFocado(null)}
+          className="flex-1 space-y-4 overflow-y-auto p-4"
+        >
+          <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} abaixoDeModal />
           <div>
             <Label htmlFor="edit-nome">Nome *</Label>
             <Input id="edit-nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
