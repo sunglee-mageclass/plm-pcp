@@ -537,3 +537,8 @@
   }
   table.card-table-keep > tbody > tr > td::before { content: none; }
 }
+
+/* Co-edição ao vivo (Onda 3): campo travado por OUTRA pessoa. O `disabled` é posto por aplicarCoedicao;
+   o pointer-events:none barra o pointerdown que abre o popover dos campos compostos
+   (Select/DateField/MoneyInput) sem depender do disabled interno de cada componente. */
+[data-coedicao-travado] { pointer-events: none; opacity: 0.7; }

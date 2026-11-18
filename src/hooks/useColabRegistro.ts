@@ -32,7 +32,7 @@ export function useColabRegistro(o: {
   // NOVO: listeners extra no MESMO canal (ex.: CQ escuta controle_qualidade E o bloco-fonte
   // em producao_terceirizados). Sem presença própria — só reagem com onMudancaServidor.
   tabelasExtra?: ColabListener[];
-}): { presentes: PresencaColab[] } {
+}): { presentes: PresencaColab[]; presenceKey: string } {
   const { user } = useAuth();
   const [presentes, setPresentes] = useState<PresencaColab[]>([]);
   const onMudancaRef = useRef(o.onMudancaServidor);
@@ -177,5 +177,5 @@ export function useColabRegistro(o: {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [chave, meuNome, presenceKey]);
 
-  return { presentes };
+  return { presentes, presenceKey };
 }

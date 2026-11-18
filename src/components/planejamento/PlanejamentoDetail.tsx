@@ -35,6 +35,8 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { useCoedicaoAoVivo } from "@/hooks/useCoedicaoAoVivo";
+import { aplicarCoedicao } from "@/lib/colab/coedicao";
 import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
 import { ReadOnlyScope } from "@/components/RequirePermission";
@@ -1158,7 +1160,7 @@ function PlanejamentoDetailConteudo({
   // Fix final (F3.1): também invalida `["plan-kanban-cond", modeloId]` (key do
   // `useFichaKanban.ts:65`) — sem isso, as condições do "Mover para…" e o gate da REF ficavam
   // com o cache velho até um refetch manual quando OUTRA pessoa salvava o modelo.
-  const { presentes } = useColabRegistro({
+  const { presentes, presenceKey } = useColabRegistro({
     canal: modeloId ? `colab:modelo:${modeloId}` : null,
     tabela: "modelos",
     registroId: modeloId,
@@ -1172,6 +1174,17 @@ function PlanejamentoDetailConteudo({
     },
     campoFocado,
   });
+  // Co-edição ao vivo (Onda 3): lock por campo + espelho do valor digitado, no MESMO canal do useColabRegistro
+  // (nenhum canal novo). O overlay é só DOM/visual — nunca entra no rascunho nem no que o Salvar grava
+  // (teste-guarda tests/unit/planejamento-coedicao-salvar.test.ts).
+  const { locks, valorAoVivoPorPath, anunciarLock, emitirValor } = useCoedicaoAoVivo({
+    chave: modeloId ? `colab:modelo:${modeloId}` : null,
+    meuKey: presenceKey,
+  });
+  useEffect(() => {
+    const scope = colabScopeRef.current;
+    if (scope) aplicarCoedicao(scope, locks, valorAoVivoPorPath, presenceKey, Date.now());
+  }, [locks, valorAoVivoPorPath, presenceKey]);
   // Presença por campo com NOME + COR (estilo Sheets, set/2026): o anel/rótulo sai do
   // <ColabPresenceOverlay> montado no fim do sheet — auto-instrumentado, cobre TODOS os campos
   // (o foco vira `campoFocado` via `pathDoElemento` no onFocusCapture do container).
@@ -1792,9 +1805,20 @@ function PlanejamentoDetailConteudo({
           aria-busy={salvandoNovo}
           onFocusCapture={(e) => {
             const scope = colabScopeRef.current;
-            setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+            const path = scope ? pathDoElemento(e.target as HTMLElement, scope) : null;
+            setCampoFocado(path);
+            anunciarLock(path);
           }}
-          onBlurCapture={() => setCampoFocado(null)}
+          onBlurCapture={() => {
+            setCampoFocado(null);
+            anunciarLock(null);
+          }}
+          onInputCapture={(e) => {
+            const scope = colabScopeRef.current;
+            const alvo = e.target as HTMLElement;
+            const path = scope ? pathDoElemento(alvo, scope) : null;
+            if (path && "value" in alvo) emitirValor(path, (alvo as HTMLInputElement).value);
+          }}
         >
         {/* Fix final (F3.1, item 3): card NOVO + 1º Salvar em voo — trava TODO o formulário.
             B1 (guardião): o `space-y-6` mora AQUI (no próprio fieldset, não mais no container
