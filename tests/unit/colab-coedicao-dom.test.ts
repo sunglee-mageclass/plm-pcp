@@ -65,6 +65,18 @@ describe("aplicarCoedicao", () => {
     expect(nome.disabled).toBe(true); // a permissão segue valendo
     expect(nome.hasAttribute(ATTR_COEDICAO)).toBe(false);
   });
+  it("campo marcado que foi reabilitado (re-render) é re-travado na próxima chamada", () => {
+    const scope = montarScope();
+    const nome = scope.querySelector<HTMLInputElement>("[data-t=nome]")!;
+    const locks = [lk("z::9", "lbl:nome", 1000)];
+    aplicarCoedicao(scope, locks, {}, "a::1", 1500);
+    expect(nome.disabled).toBe(true);
+    nome.disabled = false; // re-render do React reabilitou, a marca ficou
+    expect(nome.getAttribute(ATTR_COEDICAO)).toBe("1");
+    aplicarCoedicao(scope, locks, {}, "a::1", 1600);
+    expect(nome.disabled).toBe(true); // re-enforcement
+    expect(nome.getAttribute(ATTR_COEDICAO)).toBe("1");
+  });
   it("lock expirado de outro não trava (campo livre)", () => {
     const scope = montarScope();
     const nome = scope.querySelector<HTMLInputElement>("[data-t=nome]")!;

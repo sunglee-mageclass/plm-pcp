@@ -74,9 +74,10 @@ export function aplicarCoedicao(
     const travado = path ? estadoDoCampo(path, locks, meuKey, agora).estado === "outro" : false;
     const jaMarcado = el.getAttribute(ATTR_COEDICAO) === "1";
     if (travado && path) {
-      // Só marca/desabilita o que ESTAVA habilitado: campo já disabled por outra razão (permissão,
-      // ReadOnlyScope, trava da Integração) fica sem a marca, p/ a reversão nunca reabilitá-lo.
-      if (!jaMarcado && !(el as HTMLInputElement).disabled) {
+      // Marca/desabilita o que ESTAVA habilitado OU que já é nosso (marcado — re-trava se um re-render o
+      // reabilitou). Campo já disabled por outra razão (permissão, ReadOnlyScope, trava da Integração) e
+      // sem marca fica sem a marca, p/ a reversão nunca reabilitá-lo.
+      if (jaMarcado || !(el as HTMLInputElement).disabled) {
         el.setAttribute(ATTR_COEDICAO, "1");
         if ("disabled" in el) (el as HTMLInputElement).disabled = true;
       }
