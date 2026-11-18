@@ -53,6 +53,18 @@ describe("aplicarCoedicao", () => {
     aplicarCoedicao(scope, [], {}, "a::1", 1500);
     expect(nome.disabled).toBe(true); // intocado
   });
+  it("campo disabled por outra razão + lock de outro: não ganha a marca e CONTINUA disabled quando o lock some", () => {
+    const scope = montarScope();
+    const nome = scope.querySelector<HTMLInputElement>("[data-t=nome]")!;
+    nome.disabled = true; // permissão/ReadOnlyScope, sem a marca de co-edição
+    aplicarCoedicao(scope, [lk("z::9", "lbl:nome", 1000)], { "lbl:nome": "Vestido" }, "a::1", 1500);
+    expect(nome.disabled).toBe(true);
+    expect(nome.hasAttribute(ATTR_COEDICAO)).toBe(false); // não fomos nós que desabilitamos
+    expect(nome.value).toBe("Vestido"); // valor ao vivo segue sendo injetado
+    aplicarCoedicao(scope, [], {}, "a::1", 1600); // lock sumiu
+    expect(nome.disabled).toBe(true); // a permissão segue valendo
+    expect(nome.hasAttribute(ATTR_COEDICAO)).toBe(false);
+  });
   it("lock expirado de outro não trava (campo livre)", () => {
     const scope = montarScope();
     const nome = scope.querySelector<HTMLInputElement>("[data-t=nome]")!;
