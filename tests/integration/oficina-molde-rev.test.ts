@@ -48,4 +48,22 @@ describe.skipIf(!hasDb || !ehBancoLocal())("Oficina: molde protegido por rev (Re
       expect(de_novo.rowCount).toBe(0);
     });
   });
+
+  // [fix1 F1] O rev do cad sobe por QUALQUER escritor do CAD (aqui: outra coluna do cad), sem tocar o molde. O front, vendo o molde do
+  // servidor igual a base, so avanca o rev (decidirAdocaoMolde) — o Salvar com o rev avancado NAO da falso conflito e o texto digitado grava.
+  it("rev sobe por OUTRO campo do CAD (molde intacto): Salvar com o rev avancado grava (sem falso conflito)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const { cadId, rev: revBase } = await seedCadComMolde(c, "molde A");
+      await c.query("update cad set sem_acabamento = true where id=$1", [cadId]);
+      const srv = await um<{ rev: number; observacoes_molde: string }>(c, "select rev, observacoes_molde from cad where id=$1", [cadId]);
+      expect(Number(srv.rev)).toBeGreaterThan(revBase);
+      expect(srv.observacoes_molde).toBe("molde A"); // molde do servidor == base -> o front so avanca o rev
+      // com o rev ANTIGO daria 0 linhas (era o falso conflito); com o rev avancado grava o texto digitado
+      const velho = await c.query("update cad set observacoes_molde='meu texto' where id=$1 and rev=$2 returning id", [cadId, revBase]);
+      expect(velho.rowCount).toBe(0);
+      const novo = await c.query("update cad set observacoes_molde='meu texto' where id=$1 and rev=$2 returning id", [cadId, Number(srv.rev)]);
+      expect(novo.rowCount).toBe(1);
+    });
+  });
 });

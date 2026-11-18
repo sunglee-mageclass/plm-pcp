@@ -29,6 +29,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot, snapshotsEqual } from "@/hooks/useDirtySnapshot";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { decidirAdocaoMolde } from "@/lib/oficina-molde-rev";
 
 export const Route = createFileRoute("/_authenticated/pcp/oficina/$modeloId")({
   component: OficinaDetailPage,
@@ -245,17 +246,18 @@ function OficinaDetailPage() {
   useEffect(() => {
     if (!hydrated || !cadOk || cadFetching || !cad) return;
     const srvRev = (cad as any).rev != null ? Number((cad as any).rev) : null;
-    if (srvRev == null || (revBaseRef.current != null && srvRev <= revBaseRef.current)) return;
-    if (formRef.current.observacoes_molde !== moldeBaseRef.current) return; // molde com edicao pendente: nao sobrescreve
     const srvMolde = (cad as any).observacoes_molde ?? "";
+    // [fix1 F1] o rev tambem sobe por outros campos do CAD: so e conflito quando o TEXTO do molde no servidor difere da base.
+    const acao = decidirAdocaoMolde({ srvRev, srvMolde, revBase: revBaseRef.current, moldeBase: moldeBaseRef.current, moldeForm: formRef.current.observacoes_molde });
+    if (acao === "nada" || srvRev == null) return;
     revBaseRef.current = srvRev;
-    moldeBaseRef.current = srvMolde;
-    if (formRef.current.observacoes_molde !== srvMolde) {
+    if (acao === "adotar") {
+      moldeBaseRef.current = srvMolde;
       setForm((f) => ({ ...f, observacoes_molde: srvMolde }));
       resetBaseline({ ...baseFormRef.current, observacoes_molde: srvMolde }); // baseline acompanha: nao acende o selo "nao salvo" por adotar o servidor
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cad, cadOk, cadFetching, hydrated]);
+  }, [cad, cadOk, cadFetching, hydrated, form.observacoes_molde]);
 
   const status = computeStatus({
     data_enviado: form.data_enviado || null,
@@ -302,6 +304,10 @@ function OficinaDetailPage() {
           throw Object.assign(new Error("Outra pessoa alterou o molde deste CAD. Recarregue e tente de novo."), { code: "P0001" });
         }
         novoRev = Number((upd[0] as any).rev);
+        // [fix1 F2] O molde JA gravou (o rev subiu no banco): atualiza a base AQUI, antes da escrita da oficina — se ela falhar, o retry
+        // nao reenvia o molde com o rev antigo (falso conflito preso).
+        revBaseRef.current = novoRev;
+        moldeBaseRef.current = f.observacoes_molde;
       }
       if (existing?.id) {
         const { error } = await supabase.from("producao_oficina").update(payload).eq("id", existing.id);
