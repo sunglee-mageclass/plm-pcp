@@ -195,6 +195,7 @@ const ETAPAS: SecaoConteudoManual[] = [
       p("Cada coluna pode exigir que algumas coisas estejam prontas antes de o produto entrar nela — por exemplo: mão de obra aprovada, grade preenchida, peça teste aprovada, enviado aos Serviços, materiais separados, grade cortada retornada, oficina entregue ou CQ liberado. Quem escolhe os requisitos de cada coluna é a loja, em Config da Loja › Etapas PL."),
       p("O quadro mostra o que cada coluna exige e, quando você tenta mover um produto para uma coluna que ele ainda não pode entrar, avisa “Faltam: …” e deixa essa coluna indisponível. Com o avanço automático ligado, o card anda sozinho assim que os requisitos são cumpridos; no modo manual, você move à mão e os requisitos valem como aviso."),
     ],
+    componente: "requisitos-fases-pl",
   },
   {
     id: "editar-servico",

@@ -22,6 +22,7 @@ import { conteudoDaTela, type CampoManual, type SecaoConteudoManual } from "@/li
 import { Blocos } from "./ManualRenderer";
 import type { Bloco } from "./tipos";
 import { RequisitosFasesPanel } from "@/components/manual/RequisitosFasesPanel";
+import { RequisitosFasesPlPanel } from "@/components/manual/RequisitosFasesPlPanel";
 
 /** Uma seção renderizável do Manual: intro (Bloco[]) + campos-verbete (+ componente vivo opcional).
  *  `id` → âncora `#secao-<id>`. */
@@ -228,6 +229,7 @@ export function ManualPage() {
                     <h3 className="font-display text-lg font-semibold">{s.titulo}</h3>
                     {s.intro.length > 0 && <Blocos blocos={s.intro} />}
                     {s.componente === "requisitos-fases" && <RequisitosFasesPanel />}
+                    {s.componente === "requisitos-fases-pl" && <RequisitosFasesPlPanel />}
                     {s.campos.length > 0 && (
                       <dl className="space-y-4">
                         {s.campos.map((c) => (

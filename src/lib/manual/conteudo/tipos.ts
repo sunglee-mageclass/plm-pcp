@@ -21,9 +21,10 @@ export type SecaoConteudoManual = {
   intro?: Bloco[];
   campos?: CampoManual[];
   /** Componente VIVO embutido, renderizado pela `ManualPage` abaixo da intro (além/no lugar dos
-   *  `campos`). `"requisitos-fases"` = `<RequisitosFasesPanel/>` (requisitos de entrada por fase,
-   *  lidos da config real da loja). Mantenha a união pequena e tipada. */
-  componente?: "requisitos-fases";
+   *  `campos`). `"requisitos-fases"` = `<RequisitosFasesPanel/>` (requisitos de entrada por fase do
+   *  kanban do Desenvolvimento); `"requisitos-fases-pl"` = `<RequisitosFasesPlPanel/>` (o mesmo, mas
+   *  lendo a config das Etapas PL). Ambos lidos da config real da loja. Mantenha a união pequena e tipada. */
+  componente?: "requisitos-fases" | "requisitos-fases-pl";
 };
 
 /** Mapa pageKey → seções de conteúdo à mão daquela tela. */
