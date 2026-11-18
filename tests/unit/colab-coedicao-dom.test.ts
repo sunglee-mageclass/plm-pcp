@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
-import { aplicarCoedicao, ATTR_COEDICAO, type LockInfo } from "@/lib/colab/coedicao";
+import { aplicarCoedicao, ATTR_COEDICAO, ATTR_COEDICAO_ORIG, type LockInfo } from "@/lib/colab/coedicao";
 
 // happy-dom por arquivo (docblock acima; o config global é "node"). Montamos um scope com 2 campos
 // rotulados (o path é derivado do <label>, como no projeto real). Sem `id`/`name` nos inputs: eles têm
@@ -45,6 +45,32 @@ describe("aplicarCoedicao", () => {
     aplicarCoedicao(scope, [], {}, "a::1", 1600); // lock sumiu
     expect(nome.disabled).toBe(false);
     expect(nome.hasAttribute(ATTR_COEDICAO)).toBe(false);
+  });
+  it("ao destravar, o valor ORIGINAL volta (o texto do outro NÃO permanece) e sem marca nem data-coedicao-orig", () => {
+    const scope = montarScope();
+    const nome = scope.querySelector<HTMLInputElement>("[data-t=nome]")!;
+    nome.value = "X";
+    const locks = [lk("z::9", "lbl:nome", 1000)];
+    aplicarCoedicao(scope, locks, { "lbl:nome": "Y" }, "a::1", 1500);
+    expect(nome.value).toBe("Y");
+    aplicarCoedicao(scope, locks, { "lbl:nome": "YZ" }, "a::1", 1600); // 2ª chamada não sobrescreve o original
+    expect(nome.value).toBe("YZ");
+    aplicarCoedicao(scope, [], {}, "a::1", 1700); // lock sumiu
+    expect(nome.value).toBe("X");
+    expect(nome.disabled).toBe(false);
+    expect(nome.hasAttribute(ATTR_COEDICAO)).toBe(false);
+    expect(nome.hasAttribute(ATTR_COEDICAO_ORIG)).toBe(false);
+  });
+  it("campo disabled por permissão: valor do outro também não permanece ao destravar", () => {
+    const scope = montarScope();
+    const nome = scope.querySelector<HTMLInputElement>("[data-t=nome]")!;
+    nome.value = "X";
+    nome.disabled = true;
+    aplicarCoedicao(scope, [lk("z::9", "lbl:nome", 1000)], { "lbl:nome": "Y" }, "a::1", 1500);
+    aplicarCoedicao(scope, [], {}, "a::1", 1600);
+    expect(nome.value).toBe("X");
+    expect(nome.disabled).toBe(true);
+    expect(nome.hasAttribute(ATTR_COEDICAO_ORIG)).toBe(false);
   });
   it("não reverte disabled de campo que JÁ estava disabled por outra razão", () => {
     const scope = montarScope();

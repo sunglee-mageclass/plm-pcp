@@ -63,6 +63,8 @@ export function criarThrottle<T>(fn: (v: T) => void, ms: number): { enviar: (v: 
 }
 
 export const ATTR_COEDICAO = "data-coedicao-travado";
+/** Valor ORIGINAL do campo, guardado na 1ª vez que o espelho do outro é injetado (restaurado ao destravar). */
+export const ATTR_COEDICAO_ORIG = "data-coedicao-orig";
 
 /** Instrumenta o DOM do scope: campos travados por OUTRO ficam disabled + marca + valor ao vivo;
  *  os demais são revertidos (só os que ESTE helper travou, via a marca — idempotente). */
@@ -87,11 +89,23 @@ export function aplicarCoedicao(
         if ("disabled" in el) (el as HTMLInputElement).disabled = true;
       }
       const v = valorAoVivoPorPath[path];
-      if (v !== undefined && "value" in el) (el as HTMLInputElement).value = v;
-    } else if (jaMarcado) {
-      // Reverte SÓ o que nós travamos.
-      el.removeAttribute(ATTR_COEDICAO);
-      if ("disabled" in el) (el as HTMLInputElement).disabled = false;
+      if (v !== undefined && "value" in el) {
+        // Guarda o valor ORIGINAL só na 1ª injeção (nunca sobrescreve o original com o texto do outro).
+        if (!el.hasAttribute(ATTR_COEDICAO_ORIG)) el.setAttribute(ATTR_COEDICAO_ORIG, (el as HTMLInputElement).value);
+        (el as HTMLInputElement).value = v;
+      }
+    } else {
+      // Destravado: o texto do outro nunca fica no DOM (não está no draft nem no servidor; um onChange de B
+      // leria esse texto). Restaura o original mesmo se o campo era disabled por outra razão (sem a marca).
+      if (el.hasAttribute(ATTR_COEDICAO_ORIG)) {
+        if ("value" in el) (el as HTMLInputElement).value = el.getAttribute(ATTR_COEDICAO_ORIG) ?? (el as HTMLInputElement).value;
+        el.removeAttribute(ATTR_COEDICAO_ORIG);
+      }
+      if (jaMarcado) {
+        // Reverte SÓ o que nós travamos.
+        el.removeAttribute(ATTR_COEDICAO);
+        if ("disabled" in el) (el as HTMLInputElement).disabled = false;
+      }
     }
   }
 }
