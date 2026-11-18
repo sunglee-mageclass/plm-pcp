@@ -29,6 +29,8 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot, snapshotsEqual } from "@/hooks/useDirtySnapshot";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { decidirAdocaoMolde } from "@/lib/oficina-molde-rev";
 
 export const Route = createFileRoute("/_authenticated/pcp/oficina/$modeloId")({
@@ -201,6 +203,8 @@ function OficinaDetailPage() {
     observacoes_molde: "",
   });
   const [hydrated, setHydrated] = useState(false);
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement | null>(null);
   // [realtime Onda 1 · T1] Protecao do molde por rev (P0409 no cliente): `revBaseRef` = o `cad.rev` que a tela leu ao semear (o trigger de
   // colab sobe o rev a cada UPDATE do cad); o Salvar grava o molde com `.eq("rev", revBaseRef.current)` e 0 linhas = outra pessoa mexeu.
   // `moldeBaseRef` = o texto do molde que o servidor tinha quando semeei/salvei (molde "tocado" = o rascunho difere dele).
@@ -338,8 +342,8 @@ function OficinaDetailPage() {
   });
 
   // [realtime Onda 1 · T1] Colab: a Oficina reflete o que outra pessoa salvou (CAD/molde e linha de oficina) sem F5. Espelha o CQ
-  // (`colab:cq:`); sem `campoFocado` (presenca por campo = Onda 2). O eco do MEU save e inofensivo (rev <= base; nao ha o que semear).
-  useColabRegistro({
+  // (`colab:cq:`); com `campoFocado` (presenca por campo = Onda 2). O eco do MEU save e inofensivo (rev <= base; nao ha o que semear).
+  const { presentes } = useColabRegistro({
     canal: cad?.id ? `colab:oficina:${cad.id}` : null,
     tabela: "cad",
     filtroColuna: "id",
@@ -368,6 +372,7 @@ function OficinaDetailPage() {
       setForm(next);
       resetBaseline(next);
     },
+    campoFocado,
   });
 
   const handlePrint = () => printWithImages();
@@ -434,7 +439,10 @@ function OficinaDetailPage() {
         )}
 
         {(cad === null || hydrated) && (
-        <Card className="p-5 space-y-4">
+        <Card className="p-5 space-y-4" ref={colabScopeRef} onFocusCapture={(e) => {
+          const scope = colabScopeRef.current;
+          setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+        }}>
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">Oficina</h3>
@@ -506,7 +514,10 @@ function OficinaDetailPage() {
           <div>
             <Label className="text-xs">Observação de Partes do Molde</Label>
             <Textarea rows={3} value={form.observacoes_molde}
-              onChange={(e) => setForm((f) => ({ ...f, observacoes_molde: e.target.value }))} />
+              onChange={(e) => setForm((f) => ({ ...f, observacoes_molde: e.target.value }))}
+              data-colab-path={`oficina-molde:${cad?.id}`}
+              onFocus={() => setCampoFocado(`oficina-molde:${cad?.id}`)}
+              onBlur={() => setCampoFocado(null)} />
           </div>
           </fieldset>
         </Card>
@@ -601,6 +612,9 @@ function OficinaDetailPage() {
       </PrintArea>
 
       <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas na Oficina." />
+
+      {/* Ring de presença por campo AUTO-instrumentado: cobre todos os campos do form acima. */}
+      <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
 
       <PageActionBar>
         <Button asChild variant="outline" aria-label="Voltar">
