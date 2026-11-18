@@ -5,6 +5,7 @@
 // usuário mudou com o valor antigo (perda de dado calada). Receita do fix 2419d0f: o merge sai daqui (puro) e o resultado
 // vai para os refs ao vivo (`draftLiveRef`/`itemsLiveRef`/`statusLiveRef`), que o `mutationFn` lê no começo de cada ciclo.
 import { mergeDraft, mergeLinhas, type Conflito, type LinhaId } from "@/lib/colab/merge";
+import { mesclarRolosPlanejados, type RolosPorItem } from "./merge-rolos";
 
 export type EstadoOcSalvar<D, I, S> = { draft: D; items: I[]; status: S };
 
@@ -17,21 +18,28 @@ export function mesclarParaRetryP0409<D extends Record<string, any>, I extends L
   touchedIds: ReadonlySet<string>;
   /** Projeção só para comparar linhas (tira campos efêmeros de UI, ex.: `semEfemeros`); ver `mergeLinhas.comparavel`. */
   comparavel?: (linha: I) => unknown;
+  /** Plano de rolos por item (Realtime Onda 1, T4): opcional/aditivo — sem ele o merge é o de antes e `rolos` volta null. */
+  rolos?: { base: RolosPorItem; live: RolosPorItem; fresh: RolosPorItem };
 }): {
   estado: EstadoOcSalvar<D, I, S>;
   conflitos: Conflito[];
   atualizados: number;
   mudouDraft: boolean;
   mudouItens: boolean;
+  rolos: { valor: RolosPorItem; atualizados: string[] } | null;
+  mudouRolos: boolean;
 } {
   const md = mergeDraft({ base: o.base.draft, draft: o.live.draft, fresh: o.fresh.draft, touched: o.touched });
   const ml = mergeLinhas({ base: o.base.items, draft: o.live.items, fresh: o.fresh.items, touchedIds: o.touchedIds, removidasIds: o.touchedIds, comparavel: o.comparavel });
+  const mr = o.rolos ? mesclarRolosPlanejados(o.rolos) : null;
   return {
     // status NÃO é campo do rascunho (P-236 = D7 A): sempre o do servidor
     estado: { draft: md.valor, items: ml.linhas, status: o.fresh.status },
-    conflitos: [...md.conflitos, ...ml.conflitos],
-    atualizados: md.atualizados.length + ml.atualizadas.length,
+    conflitos: [...md.conflitos, ...ml.conflitos, ...(mr?.conflitos ?? [])],
+    atualizados: md.atualizados.length + ml.atualizadas.length + (mr?.atualizados.length ?? 0),
     mudouDraft: md.atualizados.length > 0 || md.conflitos.length > 0,
     mudouItens: ml.atualizadas.length > 0 || ml.conflitos.length > 0,
+    rolos: mr ? { valor: mr.valor, atualizados: mr.atualizados } : null,
+    mudouRolos: !!mr && (mr.atualizados.length > 0 || mr.conflitos.length > 0),
   };
 }

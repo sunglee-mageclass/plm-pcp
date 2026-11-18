@@ -34,6 +34,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
 import { ehCorridaRemontaSemTocar, juntarConflitos, baseSemAvancarEmConflito, baseComLinhaResolvida, semConflitosDeLinha, substituirLinhaNova } from "@/lib/colab/conflitos-pendentes";
+import { mesclarRolosPlanejados, baseRolosSemAvancar, baseRolosComItemResolvido, planoDeRolos, type RolosPorItem } from "@/components/oc-tecido/merge-rolos";
 import { mesclarParaRetryP0409 } from "@/components/oc-tecido/retry-p0409";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
@@ -488,6 +489,7 @@ const ROTULO_CONFLITO: Record<string, string> = {
 };
 function rotuloConflito(path: string): string {
   if (path.startsWith("linha:")) return "Item (variante)";
+  if (path.startsWith("rolos:")) return "Rolos planejados do item";
   return ROTULO_CONFLITO[path] ?? path;
 }
 
@@ -749,6 +751,10 @@ export function OcDialog({
   rolosLiveRef.current = rolosPorItem;
   const rolosCqBaseRef = useRef<Record<string, CqRoloBase>>({});
   const enviadoCqRolosRef = useRef<ReturnType<typeof cqRolosDoPayload>>([]);
+  // [realtime onda 1 · T4] Plano de rolos por item no merge colaborativo: a BASE (o plano como o servidor o tinha na última carga/merge) e
+  // o que o ÚLTIMO ciclo do save mandou — o merge 3-vias (base/ao vivo/servidor) é por item, como os demais campos por item.
+  const baseRolosRef = useRef<RolosPorItem>({});
+  const enviadoRolosRef = useRef<RolosPorItem | null>(null);
 
   // Wrappers que DIFEREM prev→next e marcam o que mudou — os filhos continuam recebendo
   // a mesma assinatura (`typeof setDraft`/`typeof setItems`), zero mudança neles.
@@ -778,7 +784,22 @@ export function OcDialog({
   // Usa os setters CRUS (não os Tracked): a resolução já sabe exatamente o que aconteceu,
   // não precisa do heurístico de diff (que rodaria numa ordem não-determinística aqui).
   const resolverConflito = (c: Conflito, useDele: boolean) => {
-    if (c.path.startsWith("linha:")) {
+    if (c.path.startsWith("rolos:")) {
+      const key = c.path.slice("rolos:".length);
+      const dele = (c.dele ?? []) as RoloEntry[];
+      // A base do item passa a ser o que o servidor tem (a base dos itens em conflito não avançou no merge): não reaparece como conflito.
+      baseRolosRef.current = baseRolosComItemResolvido(baseRolosRef.current, key, dele);
+      if (useDele) {
+        const novo = { ...rolosLiveRef.current };
+        if (dele.length > 0) novo[key] = dele; else delete novo[key];
+        rolosLiveRef.current = novo;
+        setRolosPorItem(novo);
+        // O plano do item também move a quantidade recebida dele (a soma dos rolos): se esse item ficou em conflito de LINHA por isso, a
+        // mesma escolha vale — senão "usar o novo" trazia os rolos do outro e a quantidade ficava a minha.
+        const irma = conflitosRef.current.find((x) => x.path === `linha:${key}`);
+        if (irma) resolverConflito(irma, true);
+      }
+    } else if (c.path.startsWith("linha:")) {
       const id = c.path.slice("linha:".length);
       // A base dessa linha passa a ser o que o servidor tem (a base das linhas em conflito não avançou no merge): não reaparece como conflito.
       if (baseRef.current) baseRef.current = { ...baseRef.current, items: baseComLinhaResolvida(baseRef.current.items, id, (c.dele ?? null) as ItemDraft | null) };
@@ -951,6 +972,7 @@ export function OcDialog({
       setOriginalItemIds(freshItems.map((m) => m.id).filter((x): x is string => !!x));
       if (ocQueryData.tecido2Aberto) setTecido2Aberto(true);
       if (Object.keys(ocQueryData.rolosPorItem).length > 0) setRolosPorItem(ocQueryData.rolosPorItem);
+      baseRolosRef.current = ocQueryData.rolosPorItem; // plano de rolos como o servidor o tem (base do merge 3-vias dos rolos)
       rolosCqBaseRef.current = baseCqRolos(ocQueryData.rolosPorItem); // CQ por rolo como veio do servidor (cq_tocado nunca vem da carga)
       touchedRef.current = new Set();
       touchedItemIdsRef.current = new Set();
@@ -976,6 +998,10 @@ export function OcDialog({
       baseRef.current = { draft: freshDraft, items: freshItems };
       setDraft(freshDraft);
       setItems(freshItems);
+      // Mesma corrida para os rolos: o estado/ref ao vivo ainda pode estar VAZIO (anterior ao commit do seed) — mesclar assim contaria o plano
+      // do servidor como "removido por mim". Nada tocado: re-semeia (como draft/items) em vez de mesclar.
+      baseRolosRef.current = ocQueryData.rolosPorItem;
+      if (Object.keys(ocQueryData.rolosPorItem).length > 0) setRolosPorItem(ocQueryData.rolosPorItem);
       resetBaseline({ draft: freshDraft, items: freshItems, rolosCq: [] });
       return;
     }
@@ -984,9 +1010,13 @@ export function OcDialog({
     // à toa quando o merge não alterou nada visível.
     const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
     const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current, removidasIds: touchedItemIdsRef.current, comparavel: semEfemeros });
+    // [realtime onda 1 · T4] plano de rolos por item: 3 vias (base própria / ao vivo / servidor). O rolo que EU planejei e o servidor não
+    // mexeu fica; o que o outro planejou e eu não toquei chega; os dois no mesmo item = conflito `rolos:<item>`.
+    const mr = mesclarRolosPlanejados({ base: baseRolosRef.current, live: rolosLiveRef.current, fresh: ocQueryData.rolosPorItem });
     const semResultado =
       md.atualizados.length === 0 && md.conflitos.length === 0 &&
-      ml.atualizadas.length === 0 && ml.conflitos.length === 0;
+      ml.atualizadas.length === 0 && ml.conflitos.length === 0 &&
+      mr.atualizados.length === 0 && mr.conflitos.length === 0;
     if (semResultado) {
       // Merge NO-OP (inclui o refetch que o onError do save P0409 já processou na mão,
       // logo abaixo — `baseRef` já bate com `fresh`): NÃO tocar em NENHUM state
@@ -1004,17 +1034,20 @@ export function OcDialog({
         setUltimoMerge((prev) => (prev ? { ...prev, conflitos: prev.conflitos.filter((c) => !c.path.startsWith("linha:")) } : prev));
       }
       baseRef.current = { draft: freshDraft, items: freshItems };
+      baseRolosRef.current = { ...ocQueryData.rolosPorItem };
       return;
     }
     if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
     if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setItems(ml.linhas);
+    if (mr.atualizados.length > 0 || mr.conflitos.length > 0) { rolosLiveRef.current = mr.valor; setRolosPorItem(mr.valor); }
     // Conflitos ainda NÃO resolvidos continuam na lista (um eco de OUTRA linha não pode destravar o Salvar), e a base das linhas em
     // conflito NÃO avança — senão o próximo merge daria o conflito por resolvido e o Salvar apagaria a edição alheia.
-    const todosConflitos = juntarConflitos(conflitosRef.current, [...md.conflitos, ...ml.conflitos]);
+    const todosConflitos = juntarConflitos(conflitosRef.current, [...md.conflitos, ...ml.conflitos, ...mr.conflitos]);
     conflitosRef.current = todosConflitos;
     setConflitos(todosConflitos);
-    setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todosConflitos });
+    setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length + mr.atualizados.length, conflitos: todosConflitos });
     baseRef.current = { draft: freshDraft, items: baseSemAvancarEmConflito(baseRef.current.items, freshItems, todosConflitos) };
+    baseRolosRef.current = baseRolosSemAvancar(baseRolosRef.current, ocQueryData.rolosPorItem, todosConflitos);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ocQueryData]);
 
@@ -1276,7 +1309,11 @@ export function OcDialog({
       const draft = draftLiveRef.current;
       const items = itemsLiveRef.current;
       const status = statusLiveRef.current;
+      // [realtime onda 1 · T4] idem para o plano de rolos: no retry do P0409 o merge acabou de gravar o plano MESCLADO no ref (a closure
+      // do clique ainda tem o de antes — mandaria `rolos_planejados` velho/null e apagaria o plano que o outro salvou).
+      const rolosPorItem = rolosLiveRef.current;
       enviadoRef.current = { draft, items };
+      enviadoRolosRef.current = rolosPorItem;
       const totalPrevisto = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
       const totalReal = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorReal(i), 0);
       // Colab (spec 2026-08-03, achado QA Task 7): com conflitos pendentes na tela, o save
@@ -1332,10 +1369,7 @@ export function OcDialog({
       const roloPlan = (tempId: string) => {
         const arr = rolosPorItem[tempId];
         if (!arr) return null;
-        const out = arr
-          .map((e) => ({ q: Number(String(e.qtd).replace(",", ".")), e }))
-          .filter((x) => x.q > 0)
-          .map((x) => ({ qtd: x.q, obs: x.e.obs || null, cq_ok: !!x.e.cq_ok, cq_alerta: !!x.e.cq_alerta }));
+        const out = planoDeRolos(arr); // mesma projeção que o merge dos rolos compara
         return out.length ? out : null;
       };
       // Soma dos rolos digitados (na unidade do artigo).
@@ -1450,6 +1484,7 @@ export function OcDialog({
       baseRef.current = enviadoRef.current ?? { draft, items }; // [seg s6, fix B1] o que foi ENVIADO, não a closure
       // CQ no Salvar: o CQ enviado vira a base (sem o `cq_tocado` do rascunho).
       baseRef.current = { ...baseRef.current, items: baseRef.current.items.map(({ cq_tocado: _t, ...resto }) => resto) };
+      if (enviadoRolosRef.current) baseRolosRef.current = enviadoRolosRef.current; // o plano de rolos ENVIADO é a base nova
       touchedRef.current = new Set();
       touchedItemIdsRef.current = new Set();
       conflitosRef.current = [];
@@ -1538,12 +1573,16 @@ export function OcDialog({
             touched: touchedRef.current,
             touchedIds: touchedItemIdsRef.current,
             comparavel: semEfemeros, // cq_tocado/tempId só existem no rascunho: nunca entram na comparação
+            rolos: { base: baseRolosRef.current, live: rolosLiveRef.current, fresh: fresh.rolosPorItem },
           });
           // [seg s6, fix B1] o retry abaixo roda ANTES do re-render: grava o estado MESCLADO nos refs que o mutationFn lê
           draftLiveRef.current = r.estado.draft;
           itemsLiveRef.current = r.estado.items;
           statusLiveRef.current = r.estado.status;
           setStatus(r.estado.status); // [seg s6] status sempre o do servidor
+          // [realtime onda 1 · T4] o plano de rolos MESCLADO também vai ao ref antes do retry (o mutationFn lê `rolosLiveRef`)
+          if (r.rolos) rolosLiveRef.current = r.rolos.valor;
+          if (r.mudouRolos && r.rolos) setRolosPorItem(r.rolos.valor);
           if (r.mudouDraft) setDraft(r.estado.draft);
           if (r.mudouItens) setItems(r.estado.items);
           const todosConflitos = juntarConflitos(conflitosRef.current, r.conflitos);
@@ -1554,6 +1593,7 @@ export function OcDialog({
           // também atualiza `ocQueryData`), ele vai ver base===fresh (mesmo dado) e o
           // merge dele vira no-op: nada é reaplicado em dobro.
           baseRef.current = { draft: freshDraft, items: baseSemAvancarEmConflito(base.items, freshItems, todosConflitos) };
+          baseRolosRef.current = baseRolosSemAvancar(baseRolosRef.current, fresh.rolosPorItem, todosConflitos);
           revRef.current = (fresh.oc as any).rev ?? null;
           if (todosConflitos.length === 0) {
             saveMutation.mutate(markReceived, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
