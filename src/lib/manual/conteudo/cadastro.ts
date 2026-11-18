@@ -5,10 +5,37 @@ import { p, lista, type ConteudoTelas, type SecaoConteudoManual } from "./tipos"
 const ATRIBUTOS: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Por onde tudo começa",
     intro: [
-      p("Atributos é onde você cadastra as listas de apoio que o resto do sistema usa: cores, meses, anos, categorias de todo tipo, linhas, grupos de produto e muito mais. Sempre que uma tela oferece um menu suspenso (a categoria de um tecido, a cor de uma variante, a linha de um produto), as opções saem daqui."),
-      p("As listas ficam organizadas por grupo (Geral, Fornecedor, Tecido, Aviamento, Insumo, Produto e Serviço). Cada lista tem busca, um botão para adicionar e edição direto na linha. Antes de excluir, o sistema confere se o item está em uso — se estiver, pede para você remover os vínculos primeiro."),
+      p("Atributos é o primeiro passo do sistema. Aqui você monta as listas que todo o resto vai usar: as cores, as categorias, as linhas, os grupos de produto, os tamanhos. Sempre que uma tela, mais adiante, oferecer um menu suspenso — a cor de uma variante, a categoria de um tecido, a linha de um produto — as opções vêm daqui."),
+      p("Por isso vale preencher os Atributos antes de cadastrar tecidos, aviamentos e produtos: sem as listas prontas, você trava na frente por falta de opção para escolher. Pense neste cadastro como o alfabeto da sua loja — depois de tê-lo, você consegue “escrever” o resto."),
+      p("As listas ficam separadas em abas por assunto: Geral, Fornecedor, Tecido, Aviamento, Insumo, Produto e Serviço. Algumas abas (Produto, Serviço e os Tamanhos) são do administrador da loja."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("A tela funciona igual em todas as abas: uma lista com busca no topo e, em cada linha, o item cadastrado."),
+    ],
+    campos: [
+      { campo: "adicionar", rotulo: "Adicionar um item", ajuda: [
+        { tipo: "passos", itens: [
+          "Escolha a aba do que você quer cadastrar (ex.: Geral › Cor base).",
+          "Clique em “Novo” (ou “Adicionar”).",
+          "Preencha o Nome e os campos que a lista pedir (por exemplo, a Sigla SKU de uma cor, ou a Cor base de um apelido).",
+          "Confirme. O item já aparece na lista e passa a ser oferecido nas telas que usam aquela opção.",
+        ] },
+      ] },
+      { campo: "editar", rotulo: "Editar ou renomear", ajuda: [
+        p("Clique no lápis da linha para editar ali mesmo (nome e os campos extras). Salve na própria linha. Renomear um item muda o rótulo em todos os lugares que já o usam — o vínculo é mantido."),
+      ] },
+      { campo: "excluir", rotulo: "Excluir", ajuda: [
+        p("Use o ícone de excluir da linha. Antes de apagar, o sistema confere se o item está em uso; se estiver, ele avisa e não deixa excluir — remova os vínculos primeiro. Itens fixos do sistema (como os 12 meses, ou os serviços Corte/Oficina/PL) não podem ser excluídos, só renomeados."),
+      ] },
+      { campo: "ordem", rotulo: "A ordem de cadastrar", ajuda: [
+        p("Algumas listas dependem de outras — cadastre de cima para baixo: primeiro o Grupo, depois a Categoria (que pertence a um grupo), depois a Subcategoria (que pertence a uma categoria). O mesmo vale para a Cor base antes da Cor apelido. A lista mostra o “pai” antes do item (ex.: Grupo › Categoria) para você se situar."),
+      ] },
     ],
   },
   {
@@ -112,35 +139,100 @@ const ATRIBUTOS: SecaoConteudoManual[] = [
 const COLABORADORES: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Quem faz o quê",
     intro: [
-      p("Colaboradores é onde você cadastra as pessoas envolvidas no processo, organizadas por tipo (ex.: Modelista, Piloteiro, Cortador). Esses nomes aparecem depois como opções nas telas que registram quem fez o quê — no Desenvolvimento, na Produção e nos serviços."),
-      p("Há tipos fixos do sistema e tipos que você mesmo cria. Em cada tipo, você adiciona as pessoas daquele papel."),
+      p("Colaboradores é a agenda das pessoas que trabalham na sua produção — a estilista, a modelista, o piloteiro, o cortador. Você cadastra cada pessoa dentro de um tipo (o papel dela), e esse nome passa a aparecer, mais adiante, nas telas que registram quem fez cada etapa: no card do produto (equipe e cronograma), na Produção e nos serviços internos."),
+      p("Pense nela como o passo que vem logo depois dos Atributos: com as pessoas cadastradas aqui, quando você for montar um produto, já encontra a sua equipe pronta nos menus — não precisa digitar nome à mão nem correr o risco de grafar diferente a cada vez."),
+      p("A tela tem a lista de tipos à esquerda (Estilista, Modelista e Piloteiro já vêm prontos; você cria os outros, como Cortador) e, à direita, as pessoas do tipo selecionado."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("Primeiro escolha (ou crie) o tipo na coluna da esquerda; depois adicione as pessoas daquele papel na lista da direita."),
+    ],
+    campos: [
+      { campo: "criar_tipo", rotulo: "Criar um tipo de colaborador", ajuda: [
+        { tipo: "passos", itens: [
+          "Na coluna da esquerda, clique no “+” ao lado de “Tipos de Colaborador” (no celular, use “Novo tipo” na barra de baixo).",
+          "Dê o Nome do tipo (ex.: “Cortador”).",
+          "Se fizer sentido, escolha uma Categoria de serviço — ela faz esse tipo ser oferecido como responsável nos serviços internos daquela categoria (ex.: Corte). Pode deixar sem categoria.",
+          "Clique em “Criar”. O tipo novo aparece na lista e já fica selecionado.",
+        ] },
+      ] },
+      { campo: "adicionar_pessoa", rotulo: "Adicionar uma pessoa ao tipo", ajuda: [
+        { tipo: "passos", itens: [
+          "Selecione o tipo na coluna da esquerda (ex.: Modelista).",
+          "Na lista da direita, clique em “Novo”.",
+          "Digite o nome da pessoa e salve.",
+          "A pessoa passa a aparecer nos menus das telas que pedem esse papel (equipe do produto, serviços…).",
+        ] },
+      ] },
+      { campo: "editar_excluir", rotulo: "Editar ou excluir", ajuda: [
+        { tipo: "passos", itens: [
+          "Para renomear uma pessoa: clique no lápis da linha, ajuste o nome e confirme ali mesmo.",
+          "Para excluir uma pessoa: use o ícone de lixeira da linha. Se a pessoa estiver em uso em algum registro, o sistema avisa e não exclui.",
+          "Para renomear ou excluir um tipo que você criou: passe o mouse sobre o tipo na coluna da esquerda e use os ícones de lápis/lixeira (no celular, o menu “⋯”). Um tipo só é excluído se não houver nenhuma pessoa dentro dele — remova as pessoas antes.",
+          "Os tipos fixos (Estilista, Modelista, Piloteiro) não podem ser renomeados nem excluídos.",
+        ] },
+      ] },
     ],
   },
   {
     id: "tipos",
-    titulo: "Tipos de colaborador",
-    intro: [p("A coluna da esquerda lista os tipos. Você pode criar um tipo novo, renomear ou excluir os que criou (os fixos não).")],
+    titulo: "Tipos de colaborador (referência)",
+    intro: [p("A coluna da esquerda lista os tipos. Estilista, Modelista e Piloteiro são fixos; os demais você cria, renomeia e exclui.")],
     campos: [
       { campo: "nome_tipo", rotulo: "Nome do tipo", quando: "obrigatório", ajuda: [p("O nome do tipo de colaborador (ex.: Cortador). É como o grupo aparece na lista.")] },
-      { campo: "categoria_servico", rotulo: "Categoria de serviço", quando: "opcional", ajuda: [p("Liga o tipo de colaborador a uma categoria de serviço, quando faz sentido. Pode ficar sem categoria.")] },
+      { campo: "categoria_servico", rotulo: "Categoria de serviço", quando: "opcional", ajuda: [p("Liga o tipo a uma categoria de serviço (reaproveita as Categorias de Serviço). Com isso, essas pessoas aparecem como responsável nos serviços internos daquela categoria. Pode ficar sem categoria.")] },
     ],
-  },
-  {
-    id: "pessoas",
-    titulo: "Pessoas do tipo",
-    intro: [p("Dentro de cada tipo, você adiciona e edita as pessoas daquele papel. Cada pessoa tem o seu nome e aparece nas telas que pedem esse colaborador.")],
   },
 ];
 
 const FORNECEDORES: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "De quem você compra",
     intro: [
-      p("Fornecedores é o cadastro das empresas de material e de serviço e dos seus representantes. É daqui que saem as opções de fornecedor nas ordens de compra (tecido, aviamento, insumo) e na mão de obra dos produtos."),
-      p("Há dois tipos de registro: a Empresa (o fornecedor em si) e o Representante (alguém que representa uma empresa). Ao escolher um fornecedor numa compra, você pode comprar direto da empresa ou por um dos representantes dela."),
+      p("Fornecedores é a lista de quem te vende material (tecido, aviamento, insumo) e de quem presta serviço de confecção. Todo lugar onde você escolhe “de quem comprar” — a Ordem de Compra de tecido, de aviamento, de insumo, e a mão de obra do produto — oferece as empresas cadastradas aqui."),
+      p("Vale cadastrar o fornecedor antes de usá-lo numa compra: a empresa só aparece como opção na tela certa quando está com o tipo e a categoria combinando (uma empresa de Material com categoria de tecido só surge no fornecedor de tecido, e assim por diante)."),
+      p("A tela tem duas abas. A Empresa é o fornecedor em si. O Representante é a pessoa que representa uma empresa — ao comprar, você pode escolher a empresa direto ou um dos representantes dela, e a compra fica registrada no par empresa + representante."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("Comece pela aba Empresa (o representante precisa de uma empresa já cadastrada para se vincular)."),
+    ],
+    campos: [
+      { campo: "cadastrar_empresa", rotulo: "Cadastrar uma empresa fornecedora", ajuda: [
+        { tipo: "passos", itens: [
+          "Na aba Empresa, clique em “Nova empresa”.",
+          "Escolha o Tipo: Material (vende tecido/aviamento/insumo) ou Serviço (presta confecção). Isso decide quais categorias ela usa.",
+          "Preencha o Nome fantasia (obrigatório).",
+          "Marque as Categorias (uma ou mais): em empresa de Material são as Categorias do Fornecedor; em empresa de Serviço, as Categorias de Serviço. É o que faz a empresa aparecer no lugar certo das compras.",
+          "Se quiser, informe o Prazo de Pagamento (ex.: 30/60/90) — ele alimenta as parcelas a pagar das compras dessa empresa.",
+          "Opcional: digite o CNPJ e clique em “Buscar” para preencher razão social, endereço e contato pela Receita. Salve.",
+        ] },
+      ] },
+      { campo: "cadastrar_representante", rotulo: "Cadastrar um representante", ajuda: [
+        { tipo: "passos", itens: [
+          "Vá para a aba Representante e clique em “Novo representante”.",
+          "Escolha a Empresa vinculada — uma empresa já cadastrada (ou crie uma na hora pelo próprio campo).",
+          "Digite o nome do representante.",
+          "Opcional: CNPJ (com o botão “Buscar”), endereço, telefone, e-mail e contato. Salve.",
+        ] },
+      ] },
+      { campo: "editar_excluir", rotulo: "Editar ou excluir", ajuda: [
+        { tipo: "passos", itens: [
+          "Para editar: clique no registro na lista para abrir o editor, ajuste e salve.",
+          "Para excluir um: use o ícone de excluir da linha; para excluir vários, marque as caixas e use “Excluir (N)”.",
+          "Empresa ou representante EM USO em pedidos/serviços/representantes NÃO é excluído — o sistema avisa e pula esses.",
+          "Ao editar uma empresa, o Tipo (Material/Serviço) fica travado se ela já tem categorias — remova as categorias antes de trocar o tipo.",
+        ] },
+      ] },
     ],
   },
   {
@@ -173,15 +265,48 @@ const FORNECEDORES: SecaoConteudoManual[] = [
 const TECIDOS: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "O catálogo dos seus tecidos",
     intro: [
-      p("Tecidos é o catálogo dos tecidos (artigos) da loja, cada um com as suas variantes de cor. É daqui que você escolhe os tecidos na ficha de materiais dos produtos, e é aqui que ficam o preço, o fornecedor e as fotos de cada tecido."),
-      p("Você cria um tecido com os dados básicos e, na tela de edição, preenche o resto: categorias, preço, variantes de cor, endereços e foto."),
+      p("Tecidos é o guarda-roupa de matéria-prima da sua loja: cada tecido com as suas cores (as variantes), o fornecedor, o preço e as fotos. Quando você monta a ficha de materiais de um produto, os tecidos que aparecem para escolher saem daqui — por isso vale cadastrá-los antes de começar a desenvolver as peças."),
+      p("O fluxo tem duas partes. Primeiro você cria o tecido com o essencial (nome, unidade de medida, NCM). Em seguida, no editor que abre, completa o resto: categorias, fornecedor, preço e, principalmente, as cores. Cada cor é uma variante — e são essas variantes que viram as opções de cor do produto na ficha de materiais."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("Criar um tecido são dois momentos: o cadastro rápido e, logo depois, o editor onde você preenche os detalhes e as cores."),
+    ],
+    campos: [
+      { campo: "criar_tecido", rotulo: "Cadastrar um tecido", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Novo tecido”.",
+          "Dê o Nome do tecido (obrigatório; ex.: “Linho 100% premium”).",
+          "Escolha a Unidade de medida — Metro ou Kg. Quando for Kg, o editor vai pedir o rendimento (m/kg) para calcular o preço por metro.",
+          "Se quiser, digite o NCM. Clique em “Criar e abrir”: o tecido é criado e o editor se abre para você continuar.",
+        ] },
+      ] },
+      { campo: "completar_tecido", rotulo: "Completar os dados e cadastrar as cores", ajuda: [
+        { tipo: "passos", itens: [
+          "No editor, na área Informações, escolha o Fornecedor (empresa direto ou um representante), as Categorias do Tecido, e preencha largura, composição, mês/ano e o Preço.",
+          "Dica: o botão “Aplicar a todas” copia o preço do tecido para todas as cores de uma vez.",
+          "Na área “Cores e Variantes”, escolha a Cor base e a Cor apelido e clique em “Adicionar”. Repita para cada cor do tecido. (Se não houver cores para escolher, cadastre-as antes em Atributos.)",
+          "Em cada cor você pode informar Nome comercial, Código, um Preço próprio, Endereços de estoque e uma Foto.",
+          "Clique em “Salvar” — um único Salvar grava o tecido e todas as cores juntas.",
+        ] },
+      ] },
+      { campo: "excluir_tecido", rotulo: "Excluir um tecido ou uma cor", ajuda: [
+        { tipo: "passos", itens: [
+          "Para excluir uma cor: use o ícone de excluir na linha da variante dentro do editor.",
+          "Para excluir o tecido inteiro: abra o editor e use o botão “Excluir”.",
+          "Antes de apagar, o sistema confere o uso (em OC, estoque, produto, CAD, ordem) e bloqueia se o tecido/cor estiver em uso — remova os vínculos primeiro.",
+        ] },
+      ] },
     ],
   },
   {
     id: "novo",
-    titulo: "Novo tecido",
+    titulo: "Novo tecido (referência)",
     intro: [p("Ao criar um tecido, você informa só o essencial — os demais campos ficam para a tela de edição.")],
     campos: [
       { campo: "nome", rotulo: "Nome do tecido", quando: "obrigatório", ajuda: [p("O nome do tecido (ex.: “Linho 100% premium”).")] },
@@ -223,14 +348,47 @@ const TECIDOS: SecaoConteudoManual[] = [
 const AVIAMENTOS: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Zíperes, botões e companhia",
     intro: [
-      p("Aviamentos é o catálogo dos aviamentos da loja (zíperes, botões, linhas, elásticos…), cada um com as suas variantes de cor. É daqui que você escolhe os aviamentos na ficha de materiais dos produtos."),
-      p("Cada aviamento tem a sua identidade, o preço, o fornecedor e a classificação; e pode ter variantes por cor (base + apelido).")],
+      p("Aviamentos é o catálogo dos itens que acompanham o tecido na peça: zíperes, botões, linhas, elásticos. Assim como os tecidos, eles aparecem na ficha de materiais dos produtos — então cadastre-os antes de montar as peças que os usam."),
+      p("Cada aviamento tem a sua identidade (código, nome), o fornecedor, o preço e a classificação (categoria, subcategoria, material); e, quando faz sentido, pode ter variantes por cor (cor base + apelido), no mesmo esquema do tecido."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("Cadastrar um aviamento é preencher a ficha dele e, se precisar, as cores."),
+    ],
+    campos: [
+      { campo: "criar_aviamento", rotulo: "Cadastrar um aviamento", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Novo aviamento”.",
+          "Dê o Nome (ex.: “Botão metal 12mm”). O Código pode ficar em branco — aí o sistema gera um automático; se preencher e o código já existir, a tela avisa.",
+          "Escolha o Fornecedor (empresa ou representante) e informe o Preço.",
+          "Classifique: Categoria (abre a Subcategoria), Material e Composição. Preencha as larguras e observações se precisar.",
+          "Clique em “Salvar”.",
+        ] },
+      ] },
+      { campo: "adicionar_cores", rotulo: "Adicionar cores (variantes)", ajuda: [
+        { tipo: "passos", itens: [
+          "Na área “Cores e Variantes” do aviamento, escolha a Cor base e, se houver, a Cor apelido.",
+          "Clique em “Adicionar”. Repita para cada cor.",
+          "As cores vêm de Atributos — se faltar alguma opção, cadastre-a lá antes.",
+          "No cadastro de um aviamento novo, as cores ficam em rascunho e são gravadas quando você Salva; ao editar um já existente, cada cor é salva na hora.",
+        ] },
+      ] },
+      { campo: "editar_excluir", rotulo: "Editar ou excluir", ajuda: [
+        { tipo: "passos", itens: [
+          "Para editar: clique no aviamento na lista, ajuste os campos ou as cores e salve.",
+          "Para excluir: abra o aviamento e confirme a exclusão. Um aviamento em uso (em OC, produto, estoque) não é excluído.",
+        ] },
+      ] },
+    ],
   },
   {
     id: "dados",
-    titulo: "Dados do aviamento",
+    titulo: "Dados do aviamento (referência)",
     intro: [p("A identidade e a classificação do aviamento.")],
     campos: [
       { campo: "codigo", rotulo: "Código", quando: "automático se vazio", ajuda: [p("O código do aviamento. Deixando em branco, o sistema gera um automático.")] },
@@ -256,14 +414,55 @@ const AVIAMENTOS: SecaoConteudoManual[] = [
 const INSUMOS: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Etiquetas, embalagens e afins",
     intro: [
-      p("Insumos é o catálogo de etiquetas, embalagens e afins — itens que entram no produto além de tecido e aviamento. É daqui que você escolhe os insumos na ficha de materiais, com o consumo de cada um."),
-      p("Cada insumo tem a sua identidade, unidade, fornecedor e preço, e pode ter variantes por cor e por tamanho.")],
+      p("Insumos é o catálogo dos itens que entram no produto além do tecido e do aviamento: etiquetas, embalagens, cartões, croquis. Eles também aparecem na ficha de materiais — você escolhe o insumo e informa o consumo de cada um — então cadastre-os antes de montar as peças."),
+      p("Cada insumo tem identidade (nome, tipo), unidade, fornecedor e preço. Pode ter variantes por cor e por tamanho e, num caso especial, ser vinculado a UM tamanho só (ex.: uma etiqueta que vai apenas nas peças M)."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("Cadastrar um insumo é preencher a ficha dele; os tamanhos e as cores só entram quando a peça precisa deles."),
+    ],
+    campos: [
+      { campo: "criar_insumo", rotulo: "Cadastrar um insumo", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Nova etiqueta”.",
+          "Dê o Nome (obrigatório; ex.: “Etiqueta de composição”).",
+          "Escolha o Tipo de produto (ex.: Etiqueta, Cartão) — você pode criar um tipo novo ali mesmo pelo campo.",
+          "Defina a Unidade (unidade, metro, rolo ou milheiro), o Fornecedor (opcional) e o Preço base.",
+          "Salve.",
+        ] },
+      ] },
+      { campo: "cores", rotulo: "Adicionar variantes por cor", ajuda: [
+        { tipo: "passos", itens: [
+          "Na área “Variantes por cor”, clique em “Cor” para adicionar um bloco.",
+          "Escolha a cor (ou “Sem cor”). Cada cor pode ter um preço próprio; o botão “Aplicar a todas” copia o preço base para todas.",
+          "Se o formato de tamanho não for “Nenhum”, marque os tamanhos que existem naquela cor. Sem tamanho marcado, a variante vale só para a cor.",
+          "Sem nenhuma variante, o insumo usa só o preço base.",
+        ] },
+      ] },
+      { campo: "vincular_tamanho", rotulo: "Vincular a um único tamanho", ajuda: [
+        { tipo: "passos", itens: [
+          "Use quando o insumo entra só nas peças de UM tamanho (ex.: etiqueta de tamanho M).",
+          "Isso só está disponível para insumo SEM tamanho nas variantes (formato “Nenhum” ou nenhum tamanho marcado).",
+          "Ligue o interruptor “Vincular a um tamanho” e escolha o tamanho. Se ligar sem escolher o tamanho, o Salvar fica bloqueado.",
+          "Com o vínculo ativo, na Explosão a quantidade passa a ser consumo × peças desse tamanho, e o custo por peça é rateado.",
+        ] },
+      ] },
+      { campo: "editar_excluir", rotulo: "Editar ou excluir", ajuda: [
+        { tipo: "passos", itens: [
+          "Para editar: clique no insumo na lista, ajuste e salve.",
+          "Para excluir um: use o ícone de excluir da linha; para vários, marque as caixas e use “Excluir (N)”. Insumo em uso não é excluído.",
+        ] },
+      ] },
+    ],
   },
   {
     id: "dados",
-    titulo: "Dados do insumo",
+    titulo: "Dados do insumo (referência)",
     intro: [p("A identidade e a classificação do insumo.")],
     campos: [
       { campo: "nome", rotulo: "Nome", quando: "obrigatório", ajuda: [p("O nome do insumo (ex.: “Etiqueta de composição”).")] },
@@ -301,11 +500,27 @@ const INSUMOS: SecaoConteudoManual[] = [
 const DESTINOS: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Para onde a saída vai",
     intro: [
-      p("Destinos é a lista de para onde a Ordem de Saída foi enviada (ex.: Novidade, Repetição, Devolução). É usada no modo só-estoque, para marcar o destino de uma saída."),
-      p("Cada destino tem só um nome; você adiciona, renomeia e exclui pela lista.")],
+      p("Destinos é a lista de para onde uma Ordem de Saída foi enviada (ex.: Novidade, Repetição, Devolução). Ela é usada no modo só-estoque: ao registrar uma saída, você marca o destino escolhendo um desses nomes."),
+      p("É um cadastro simples — cada destino tem só um nome. Vale deixar os destinos prontos aqui para que, na hora de lançar a saída, eles já estejam disponíveis para escolher."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("A tela é uma lista com busca no topo e um botão “Novo”."),
+    ],
     campos: [
+      { campo: "adicionar", rotulo: "Adicionar, editar ou excluir um destino", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Novo”, digite o Nome do destino (ex.: “Novidade”) e salve.",
+          "Para renomear: clique no nome na lista (ou no lápis da linha), ajuste e salve.",
+          "Para excluir: use o ícone de excluir da linha e confirme.",
+          "Um destino em uso em alguma Ordem de Saída não é excluído — remova-o de lá antes.",
+        ] },
+      ] },
       { campo: "nome", rotulo: "Nome", quando: "obrigatório", ajuda: [p("O nome do destino (ex.: “Novidade”).")] },
     ],
   },
@@ -314,18 +529,44 @@ const DESTINOS: SecaoConteudoManual[] = [
 const LOJAS: SecaoConteudoManual[] = [
   {
     id: "para-que-serve",
-    titulo: "Para que serve",
+    titulo: "Para onde a produção é distribuída",
     intro: [
-      p("Lojas é a lista de destinos do Direcionamento (ex.: E-commerce, Loja Física, franquias). Quando a Grade Real de um produto é distribuída, ela é repartida entre estas lojas — uma linha por loja."),
-      p("Você adiciona lojas, renomeia e ativa/desativa direto na lista, e arrasta para reordenar. Só o administrador da loja edita.")],
+      p("Lojas é a lista de destinos do Direcionamento — os lugares por onde a sua produção é repartida (ex.: E-commerce, Loja Física, franquias). Quando a Grade Real de um produto é distribuída, ela é dividida entre estas lojas, uma linha por loja."),
+      p("Deixe essas lojas cadastradas antes de usar o Direcionamento: é delas que saem as colunas digitáveis na hora de repartir a grade. Só o administrador da loja edita esta tela."),
+      p("A tela tem duas partes: a lista das lojas (nome, status, ordem) no topo e, abaixo, a “Base por linha e quantidade”, que pré-preenche a distribuição automática usada pelo Plan. Tecido."),
+    ],
+  },
+  {
+    id: "como-usar",
+    titulo: "Como usar esta tela",
+    intro: [
+      p("Você gerencia as lojas direto na lista — adicionar, renomear, ligar/desligar e reordenar."),
+    ],
     campos: [
+      { campo: "adicionar_loja", rotulo: "Adicionar e gerenciar lojas", ajuda: [
+        { tipo: "passos", itens: [
+          "Clique em “Adicionar loja”, digite o Nome (ex.: “Loja Física”) e confirme.",
+          "Para renomear: edite o nome direto na linha.",
+          "Use o interruptor da linha para deixar a loja Ativa ou Desativada — só lojas ativas recebem novas linhas no Direcionamento.",
+          "Arraste a linha pela alça para reordenar (limpe a busca antes: com busca ativa, o arrastar fica desabilitado).",
+          "Para excluir: use o ícone de excluir da linha. A loja marcada como Padrão não pode ser excluída.",
+        ] },
+      ] },
+      { campo: "base_por_linha", rotulo: "Definir a base por linha e quantidade", ajuda: [
+        { tipo: "passos", itens: [
+          "Na seção “Base por linha e quantidade”, escolha uma linha de produto.",
+          "Em “Adicionar quantidade”, informe uma quantidade de peças — o sistema cria uma coluna de Base por loja ativa para essa quantidade.",
+          "Preencha a Base de cada loja para aquela quantidade.",
+          "No “Distribuir por loja” do Plan. Tecido, quando a quantidade de uma cor coincidir com uma cadastrada aqui, a Base de cada loja é preenchida com estes valores (sem coincidência, a Base fica 0).",
+        ] },
+      ] },
       { campo: "nome", rotulo: "Nome da loja", quando: "obrigatório", ajuda: [p("O nome da loja de direcionamento (ex.: “Loja Física”). Edite direto na linha.")] },
       { campo: "status", rotulo: "Status (Ativa / Desativada)", ajuda: [p("Liga ou desliga a loja. Só lojas ativas recebem novas linhas no Direcionamento. Uma loja é marcada como Padrão e não pode ser excluída.")] },
     ],
   },
   {
     id: "base_linha",
-    titulo: "Base por linha e quantidade",
+    titulo: "Base por linha e quantidade (referência)",
     intro: [p("A configuração da distribuição automática por loja, usada pelo “Distribuir por loja” do Plan. Tecido.")],
     campos: [
       { campo: "base_linha", rotulo: "Base por linha e quantidade", ajuda: [p("Para cada linha de produto, você define uma base por loja em função da quantidade de peças. Na Distribuição por loja do Plan. Tecido, quando a quantidade de uma cor coincide com uma quantidade cadastrada aqui, a Base de cada loja é preenchida com estes valores. Sem quantidade igual, a Base fica 0.")] },
