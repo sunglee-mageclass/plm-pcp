@@ -448,47 +448,18 @@ function EditorShell({
   isEdit,
   open,
   onOpenChange,
-  registro,
   children,
 }: {
   isEdit: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  /** Registro EXISTENTE aberto no editor (tipo+id) — ancora o canal de presença. null = "novo" (sem anel). */
-  registro?: { tipo: "empresa" | "representante"; id: string } | null;
   children: ReactNode;
 }) {
-  // Realce "quem edita o quê" (Realtime Onda 2): canal por LOJA + registro (presença de página). O escopo
-  // é um wrapper DENTRO do Sheet/Dialog (os campos vivem no portal, fora do DOM da página) — os handlers
-  // vão no wrapper, não no SheetContent (o SheetContent já usa onFocusCapture p/ o scroll do teclado mobile).
-  const tenantId = useActiveTenantId();
-  const [campoFocado, setCampoFocado] = useState<string | null>(null);
-  const scopeRef = useRef<HTMLDivElement | null>(null);
-  const { presentes } = useColabPresencaPagina({
-    canal: tenantId && open && registro ? `colab-canvas:cad-servico-${registro.tipo}-${registro.id}:${tenantId}` : null,
-    campoFocado,
-  });
-  const corpo = (
-    <div
-      ref={scopeRef}
-      className="flex min-h-0 flex-1 flex-col"
-      onFocusCapture={(e) => {
-        const scope = scopeRef.current;
-        const alvo = e.target as HTMLElement;
-        const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
-        if (p) setCampoFocado(p);
-      }}
-      onBlurCapture={() => setCampoFocado(null)}
-    >
-      <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
-      {children}
-    </div>
-  );
   if (isEdit) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="right" size="editor" className="flex flex-col p-0 gap-0 [&>button]:hidden">
-          {corpo}
+          {children}
         </SheetContent>
       </Sheet>
     );
@@ -496,10 +467,35 @@ function EditorShell({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
-        {corpo}
+        {children}
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + registro aberto no
+ *  Sheet de edição. O escopo é o CORPO ROLÁVEL (header/footer sticky ficam fora, senão o anel é pintado
+ *  sobre a barra Voltar/Salvar): espalhe `scopeProps` no corpo e renderize `overlay` dentro dele. */
+function useEditorPresenca(registro: { tipo: "empresa" | "representante"; id: string } | null, open: boolean) {
+  const tenantId = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLDivElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId && open && registro ? `colab-canvas:cad-servico-${registro.tipo}-${registro.id}:${tenantId}` : null,
+    campoFocado,
+  });
+  const scopeProps = {
+    ref: scopeRef,
+    onFocusCapture: (e: React.FocusEvent<HTMLDivElement>) => {
+      const scope = scopeRef.current;
+      const alvo = e.target as HTMLElement;
+      const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+      if (p) setCampoFocado(p);
+    },
+    onBlurCapture: () => setCampoFocado(null),
+  };
+  const overlay = <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />;
+  return { scopeProps, overlay };
 }
 
 function EditorSecao({ titulo, children }: { titulo: string; children: ReactNode }) {
@@ -518,6 +514,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [open, setOpen] = useState(false);
+  const presenca = useEditorPresenca(form.id ? { tipo: "representante", id: form.id } : null, open);
   const [deleteRow, setDeleteRow] = useState<Representante | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
@@ -846,7 +843,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
       </div>
 
 
-      <EditorShell isEdit={!!form.id} registro={form.id ? { tipo: "representante", id: form.id } : null} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+      <EditorShell isEdit={!!form.id} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <div className={cn("shrink-0 px-6 pt-6 pb-4 space-y-1", form.id && "border-b")}>
           <Breadcrumb
             items={[
@@ -861,7 +858,8 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
+        <div {...presenca.scopeProps} className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
+          {presenca.overlay}
           <EditorSecao titulo="Empresa vinculada">
             <div className="flex gap-2">
               {!form.modoNovaEmpresa ? (
@@ -1159,6 +1157,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<typeof emptyEmpresaForm>(emptyEmpresaForm);
+  const presenca = useEditorPresenca(editingId ? { tipo: "empresa", id: editingId } : null, open);
   const [deleteRow, setDeleteRow] = useState<EmpresaRow | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
@@ -1600,7 +1599,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       </div>
 
 
-      <EditorShell isEdit={!!editingId} registro={editingId ? { tipo: "empresa", id: editingId } : null} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+      <EditorShell isEdit={!!editingId} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <div className={cn("shrink-0 px-6 pt-6 pb-4 space-y-1", editingId && "border-b")}>
           <Breadcrumb
             items={[
@@ -1614,7 +1613,8 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
+        <div {...presenca.scopeProps} className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
+          {presenca.overlay}
           <EditorSecao titulo="Identificação">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">

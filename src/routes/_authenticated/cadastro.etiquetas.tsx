@@ -513,7 +513,18 @@ function EtiquetasPage() {
               <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
             </div>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
+          <div
+            ref={scopeRef}
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4"
+            onFocusCapture={(e) => {
+              const scope = scopeRef.current;
+              const alvo = e.target as HTMLElement;
+              const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+              if (p) setCampoFocado(p);
+            }}
+            onBlurCapture={() => setCampoFocado(null)}
+          >
+            <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
             <div className="grid sm:grid-cols-2 gap-3">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Nome</Label>
@@ -687,20 +698,7 @@ function EtiquetasPage() {
               size="editor"
               className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
             >
-              <div
-                ref={scopeRef}
-                className="flex min-h-0 flex-1 flex-col"
-                onFocusCapture={(e) => {
-                  const scope = scopeRef.current;
-                  const alvo = e.target as HTMLElement;
-                  const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
-                  if (p) setCampoFocado(p);
-                }}
-                onBlurCapture={() => setCampoFocado(null)}
-              >
-                <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
-                {modalConteudo}
-              </div>
+              {modalConteudo}
             </SheetContent>
           </Sheet>
         ) : (

@@ -22,8 +22,8 @@ describe("Cadastros: presença de campo", () => {
       expect(src).toMatch(/<ColabPresenceOverlay /);
     });
     it(`${t} limpa o foco no blur (senão o anel gruda)`, () => {
-      expect(src).toMatch(/onFocusCapture=/);
-      expect(src).toMatch(/onBlurCapture=\{\(\) => setCampoFocado\(null\)\}/);
+      expect(src).toMatch(/onFocusCapture(=|:)/);
+      expect(src).toMatch(/onBlurCapture(=\{|: )\(\) => setCampoFocado\(null\)/);
     });
   }
 

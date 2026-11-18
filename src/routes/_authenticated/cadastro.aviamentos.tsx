@@ -954,8 +954,18 @@ function AviamentoModal({
   };
 
   const isSheet = !!initial;
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + aviamento aberto.
+  // Só o Sheet de EDIÇÃO (o "novo" é Dialog). Escopo = CORPO ROLÁVEL (header/footer sticky ficam fora,
+  // senão o anel é pintado sobre a barra Voltar/Salvar).
+  const tenantId = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const scopeRef = useRef<HTMLFieldSetElement | null>(null);
+  const { presentes } = useColabPresencaPagina({
+    canal: tenantId && open && isSheet && initial ? `colab-canvas:cad-aviamentos-${initial.id}:${tenantId}` : null,
+    campoFocado,
+  });
   return (
-    <ModalShell isSheet={isSheet} registroId={initial?.id ?? null} open={open} onOpenChange={handleOpenChange}>
+    <ModalShell isSheet={isSheet} open={open} onOpenChange={handleOpenChange}>
         {isSheet ? (
           // Sheet (editar): cabeçalho sem botões de ação (ficam no rodapé sticky).
           <div className="shrink-0 border-b p-3 space-y-1">
@@ -974,7 +984,19 @@ function AviamentoModal({
           </DialogHeader>
         )}
 
-        <fieldset disabled={readOnly} className={isSheet ? "flex-1 overflow-y-auto" : "contents"}>
+        <fieldset
+          ref={isSheet ? scopeRef : undefined}
+          disabled={readOnly}
+          className={isSheet ? "flex-1 overflow-y-auto" : "contents"}
+          onFocusCapture={(e) => {
+            const scope = scopeRef.current;
+            const alvo = e.target as HTMLElement;
+            const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+            if (p) setCampoFocado(p);
+          }}
+          onBlurCapture={() => setCampoFocado(null)}
+        >
+        {isSheet && <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />}
         <div className={`grid gap-4 md:grid-cols-3 py-2 max-sm:min-h-0 max-sm:min-w-0 ${isSheet ? "p-4" : "max-sm:overflow-y-auto"}`}>
           {/* mobile: miniatura compacta (~96px) + "Enviar foto" AO LADO (economiza vertical).
               desktop (md): a foto ocupa a coluna lateral como antes (aspect-square + botão embaixo). */}
@@ -1204,41 +1226,17 @@ function AviamentoModal({
 // Editar (abrir card) = Sheet lateral (igual Planejamento); Novo (cadastrar) = Dialog
 // centralizado. Sheet e Dialog do shadcn são o mesmo primitivo do Radix, então o
 // DialogHeader/DialogTitle/DialogFooter internos funcionam nos dois.
-function ModalShell({ isSheet, open, onOpenChange, registroId, children }: {
+function ModalShell({ isSheet, open, onOpenChange, children }: {
   isSheet: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  /** Id do aviamento existente aberto no Sheet de edição (ancora o canal de presença). */
-  registroId?: string | null;
   children: React.ReactNode;
 }) {
-  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + aviamento aberto.
-  // Só o Sheet de EDIÇÃO (o "novo" é Dialog e fica de fora). Escopo = wrapper dentro do Sheet.
-  const tenantId = useActiveTenantId();
-  const [campoFocado, setCampoFocado] = useState<string | null>(null);
-  const scopeRef = useRef<HTMLDivElement | null>(null);
-  const { presentes } = useColabPresencaPagina({
-    canal: tenantId && open && isSheet && registroId ? `colab-canvas:cad-aviamentos-${registroId}:${tenantId}` : null,
-    campoFocado,
-  });
   if (isSheet) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="right" size="editor" className="flex flex-col p-0 [&>button]:hidden">
-          <div
-            ref={scopeRef}
-            className="flex min-h-0 flex-1 flex-col"
-            onFocusCapture={(e) => {
-              const scope = scopeRef.current;
-              const alvo = e.target as HTMLElement;
-              const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
-              if (p) setCampoFocado(p);
-            }}
-            onBlurCapture={() => setCampoFocado(null)}
-          >
-            <ColabPresenceOverlay presentes={presentes} scopeRef={scopeRef} />
-            {children}
-          </div>
+          {children}
         </SheetContent>
       </Sheet>
     );
