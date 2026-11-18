@@ -53,6 +53,10 @@ import { ModuleGuard } from "@/components/ModuleGuard";
 import { FilterButton, filtroAtivoClass } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { VencimentoCell as VencimentoCellBase } from "@/components/financeiro/VencimentoCell";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { buscarTodas } from "@/lib/buscar-todas";
 import { aplicarOcCancelada, ocTecidoCancelada, podeDesmarcarPagamento, MOTIVO_NAO_DESMARCAR_OC_CANCELADA } from "@/lib/financeiro-oc-cancelada";
 import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
@@ -1264,7 +1268,7 @@ function DiaParcelasList({
 /* ============================== LISTA ============================== */
 
 // Célula de vencimento (lógica em `VencimentoCell`): só liga a permissão do Financeiro.
-function VencimentoCell(props: { value: string; onSave: (v: string, h?: { onError: () => void }) => void; disabled?: boolean }) {
+function VencimentoCell(props: { value: string; onSave: (v: string, h?: { onError: () => void }) => void; disabled?: boolean; colabPath?: string }) {
   const podeEditar = usePodeEditarFinanceiro();
   return <VencimentoCellBase podeEditar={podeEditar} {...props} />;
 }
@@ -1277,6 +1281,15 @@ function OffsetTag({ dias }: { dias: number | null | undefined }) {
 }
 
 function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; loading: boolean; initialStatus?: string }) {
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + tela. Escopo = só a TABELA
+  // (filtros/ações ficam fora). Cada vencimento leva `data-colab-path` único por linha (parcela).
+  const tenantIdColab = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: tenantIdColab ? `colab-canvas:financeiro-lista:${tenantIdColab}` : null,
+    campoFocado,
+  });
   const qc = useQueryClient();
   const hoje = todayISOInStoreTZ(useStoreTimezone());
   const podeEditar = usePodeEditarFinanceiro();
@@ -1458,7 +1471,18 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
       </div>
 
       <Card className="p-4">
-        <div className="overflow-x-auto">
+        <div
+          ref={colabScopeRef}
+          className="overflow-x-auto"
+          onFocusCapture={(e) => {
+            const scope = colabScopeRef.current;
+            const alvo = e.target as HTMLElement;
+            const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+            if (p) setCampoFocado(p);
+          }}
+          onBlurCapture={() => setCampoFocado(null)}
+        >
+          <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} abaixoDeModal />
           <table className="w-full text-sm card-table fin-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
@@ -1510,6 +1534,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                     <td className="py-2 pr-3 text-right tabular-nums" data-label="Valor">{brl(Number(p.valor))}</td>
                     <td className="py-2 pr-3 max-lg:flex-wrap" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell
+                        colabPath={`venc-parcela:${p.id}`}
                         value={p.data_vencimento}
                         onSave={(v, h) => updateVencimentoMut.mutate({ id: p.id, data: v }, h)}
                         disabled={st === "pago"}
@@ -1598,6 +1623,15 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
 /* ===== Aba Serviços: parcelas de serviço (Terceirizados) a pagar ===== */
 
 function ServicosView() {
+  // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + tela. Escopo = só a TABELA
+  // (filtros/ações ficam fora). Cada vencimento leva `data-colab-path` único por linha (parcela).
+  const tenantIdColab = useActiveTenantId();
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: tenantIdColab ? `colab-canvas:financeiro-servicos:${tenantIdColab}` : null,
+    campoFocado,
+  });
   const qc = useQueryClient();
   const hoje = todayISOInStoreTZ(useStoreTimezone());
   const podeEditar = usePodeEditarFinanceiro();
@@ -1759,7 +1793,18 @@ function ServicosView() {
         </MobileFilterSheet>
       </div>
       <Card className="p-4">
-        <div className="overflow-x-auto">
+        <div
+          ref={colabScopeRef}
+          className="overflow-x-auto"
+          onFocusCapture={(e) => {
+            const scope = colabScopeRef.current;
+            const alvo = e.target as HTMLElement;
+            const p = scope && scope.contains(alvo) ? pathDoElemento(alvo, scope) : null;
+            if (p) setCampoFocado(p);
+          }}
+          onBlurCapture={() => setCampoFocado(null)}
+        >
+          <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} abaixoDeModal />
           <table className="w-full text-sm card-table fin-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
@@ -1794,7 +1839,7 @@ function ServicosView() {
                     <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
                     <td className="py-2 pr-3 text-right font-medium tabular-nums" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3 max-lg:flex-wrap" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
-                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data, h) => updVenc.mutate({ id: r.parcela_id, data }, h)} disabled={st === "pago"} />
+                      <VencimentoCell colabPath={`venc-servico:${r.parcela_id}`} value={r.data_vencimento ?? ""} onSave={(data, h) => updVenc.mutate({ id: r.parcela_id, data }, h)} disabled={st === "pago"} />
                       <OffsetTag dias={(r as any).dias_offset} />
                       {mostraAjustadoMaoServico(manualIds.has(r.parcela_id), st) && (
                         <span data-testid="srv-venc-ajustado-mao" className="ml-1 inline-flex items-center gap-1 text-xs text-muted-foreground max-lg:ml-0 max-lg:basis-full max-lg:justify-end">

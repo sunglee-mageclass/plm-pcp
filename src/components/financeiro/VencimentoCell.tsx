@@ -23,11 +23,14 @@ export function VencimentoCell({
   onSave,
   disabled,
   podeEditar,
+  colabPath,
 }: {
   value: string;
   onSave: (v: string, h?: { onError: () => void }) => void;
   disabled?: boolean;
   podeEditar: boolean;
+  /** Realtime Onda 2: id estável do campo p/ o anel de presença (único por linha). */
+  colabPath?: string;
 }) {
   const [v, setV] = useState(value);
   const [obrigatorio, setObrigatorio] = useState(false);
@@ -97,6 +100,7 @@ export function VencimentoCell({
           className="w-36 shrink-0 max-lg:w-40"
           inputClassName={sujo ? "border-warning ring-1 ring-warning" : undefined}
           disabled={!editavel}
+          data-colab-path={colabPath}
         />
         {sujo && (
           <span className="inline-flex shrink-0 items-center gap-0.5" data-testid="venc-rascunho">
