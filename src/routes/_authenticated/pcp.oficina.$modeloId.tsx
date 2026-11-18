@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,7 +27,8 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useDirtySnapshot, snapshotsEqual } from "@/hooks/useDirtySnapshot";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
 
 export const Route = createFileRoute("/_authenticated/pcp/oficina/$modeloId")({
   component: OficinaDetailPage,
@@ -49,6 +50,37 @@ function computeStatus(b: { data_enviado: string | null; data_entregue: string |
   if (b.data_entregue) return "finalizado";
   if (b.data_enviado) return "em_andamento";
   return "pendente";
+}
+
+type OficinaForm = {
+  terceirizado_id: string;
+  preco_por_peca: number;
+  quantidade_enviada: number;
+  quantidade_recebida: number;
+  quantidade_defeito: number;
+  data_enviado: string;
+  data_prevista: string;
+  data_entregue: string;
+  observacao: string;
+  observacoes_molde: string;
+};
+
+/** Monta o rascunho a partir do servidor (linha de oficina + molde do CAD). Sem linha de oficina, mantém `atual` e só troca o molde. */
+function formDoServidor(existing: any, cad: any, atual: OficinaForm): OficinaForm {
+  const molde = cad?.observacoes_molde ?? "";
+  if (!existing) return { ...atual, observacoes_molde: molde };
+  return {
+    terceirizado_id: existing.terceirizado_id ?? "",
+    preco_por_peca: Number(existing.preco_por_peca ?? 0),
+    quantidade_enviada: Number(existing.quantidade_enviada ?? 0),
+    quantidade_recebida: Number(existing.quantidade_recebida ?? 0),
+    quantidade_defeito: Number(existing.quantidade_defeito ?? 0),
+    data_enviado: existing.data_enviado ?? "",
+    data_prevista: existing.data_prevista ?? "",
+    data_entregue: existing.data_entregue ?? "",
+    observacao: existing.observacao ?? "",
+    observacoes_molde: molde,
+  };
 }
 
 function OficinaDetailPage() {
@@ -155,24 +187,34 @@ function OficinaDetailPage() {
     },
   });
 
-  const [form, setForm] = useState({
-    terceirizado_id: "" as string,
+  const [form, setForm] = useState<OficinaForm>({
+    terceirizado_id: "",
     preco_por_peca: 0,
     quantidade_enviada: 0,
     quantidade_recebida: 0,
     quantidade_defeito: 0,
-    data_enviado: "" as string,
-    data_prevista: "" as string,
-    data_entregue: "" as string,
+    data_enviado: "",
+    data_prevista: "",
+    data_entregue: "",
     observacao: "",
     observacoes_molde: "",
   });
   const [hydrated, setHydrated] = useState(false);
+  // [realtime Onda 1 · T1] Protecao do molde por rev (P0409 no cliente): `revBaseRef` = o `cad.rev` que a tela leu ao semear (o trigger de
+  // colab sobe o rev a cada UPDATE do cad); o Salvar grava o molde com `.eq("rev", revBaseRef.current)` e 0 linhas = outra pessoa mexeu.
+  // `moldeBaseRef` = o texto do molde que o servidor tinha quando semeei/salvei (molde "tocado" = o rascunho difere dele).
+  // `baseFormRef` espelha o baseline do `useDirtySnapshot` (p/ mover so o molde dele ao adotar o servidor sem apagar o "sujo" dos outros campos).
+  const revBaseRef = useRef<number | null>(null);
+  const moldeBaseRef = useRef<string>("");
+  const baseFormRef = useRef<OficinaForm>(form);
+  const formRef = useRef<OficinaForm>(form);
+  formRef.current = form;
   // [camada C3 fix1 · I1] `!hydrated`, não `cad === undefined`: depois de um Salvar o `onSuccess` zera `hydrated`; se o refetch do
   // CAD falhar, o RQ MANTÉM o `cad` de antes do save (molde velho) — re-hidratar dele reverteria "Partes do Molde". Erro + não
   // hidratado = aviso com "Tentar de novo" e Salvar travado até uma carga NOVA com sucesso (ver o guard do efeito de hidratação).
   const cadErro = cadErrored && !hydrated;
-  const { dirty, reset: resetBaseline } = useDirtySnapshot(form);
+  const { dirty, reset: resetBaselineRaw } = useDirtySnapshot(form);
+  const resetBaseline = (b: OficinaForm) => { baseFormRef.current = b; resetBaselineRaw(b); };
 
   useEffect(() => {
     if (hydrated) return;
@@ -189,29 +231,31 @@ function OficinaDetailPage() {
     // [camada C3 fix1 · I1] + `!cadOk || cadFetching`: só semeia de um CAD lido COM SUCESSO e sem refetch em voo (mesma guarda do
     // PCP Serviços/C2) — um refetch pós-Salvar que falha deixa o `cad` VELHO no cache e semearia o molde antigo.
     if (existing === undefined || cad === undefined || !cadOk || cadFetching || !existingOk || existingFetching) return;
-    const molde = (cad as any)?.observacoes_molde ?? "";
-    let next = form;
-    if (existing) {
-      next = {
-        terceirizado_id: existing.terceirizado_id ?? "",
-        preco_por_peca: Number(existing.preco_por_peca ?? 0),
-        quantidade_enviada: Number(existing.quantidade_enviada ?? 0),
-        quantidade_recebida: Number(existing.quantidade_recebida ?? 0),
-        quantidade_defeito: Number(existing.quantidade_defeito ?? 0),
-        data_enviado: existing.data_enviado ?? "",
-        data_prevista: existing.data_prevista ?? "",
-        data_entregue: existing.data_entregue ?? "",
-        observacao: existing.observacao ?? "",
-        observacoes_molde: molde,
-      };
-      setForm(next);
-    } else {
-      next = { ...form, observacoes_molde: molde };
-      setForm(next);
-    }
+    const next = formDoServidor(existing, cad, form);
+    setForm(next);
+    revBaseRef.current = (cad as any)?.rev != null ? Number((cad as any).rev) : null;
+    moldeBaseRef.current = next.observacoes_molde;
     resetBaseline(next);
     setHydrated(true);
   }, [existing, cad, hydrated, existingOk, existingFetching, cadOk, cadFetching]);
+
+  // [realtime Onda 1 · T1] Outra pessoa salvou o molde (o cad voltou com rev MAIOR que o da base): se EU nao mexi no molde, adoto o do
+  // servidor (tela reflete sem F5) e re-semeio o rev; se mexi, o rev antigo FICA — o Salvar recusa com aviso em vez de apagar o texto dela.
+  // `>` e nao `!==`: depois do meu proprio Salvar o rev da base ja e o novo e o cache do cad ainda e o velho (menor) — nao readotar o velho.
+  useEffect(() => {
+    if (!hydrated || !cadOk || cadFetching || !cad) return;
+    const srvRev = (cad as any).rev != null ? Number((cad as any).rev) : null;
+    if (srvRev == null || (revBaseRef.current != null && srvRev <= revBaseRef.current)) return;
+    if (formRef.current.observacoes_molde !== moldeBaseRef.current) return; // molde com edicao pendente: nao sobrescreve
+    const srvMolde = (cad as any).observacoes_molde ?? "";
+    revBaseRef.current = srvRev;
+    moldeBaseRef.current = srvMolde;
+    if (formRef.current.observacoes_molde !== srvMolde) {
+      setForm((f) => ({ ...f, observacoes_molde: srvMolde }));
+      resetBaseline({ ...baseFormRef.current, observacoes_molde: srvMolde }); // baseline acompanha: nao acende o selo "nao salvo" por adotar o servidor
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cad, cadOk, cadFetching, hydrated]);
 
   const status = computeStatus({
     data_enviado: form.data_enviado || null,
@@ -243,6 +287,22 @@ function OficinaDetailPage() {
         status: computeStatus({ data_enviado: f.data_enviado || null, data_entregue: f.data_entregue || null }),
         observacao: f.observacao,
       };
+      // "Partes do Molde" tem fonte unica no CAD (Ficha de Corte). [realtime Onda 1 · T1] Grava ANTES da linha de oficina e SO se eu
+      // mexi no molde: um conflito (outra pessoa salvou o molde) nao deixa o save pela metade, e editar so a oficina nao brigava com o molde alheio.
+      let novoRev: number | null = null;
+      const moldeTocado = f.observacoes_molde !== moldeBaseRef.current;
+      if (moldeTocado) {
+        // `rev` nao esta no types.ts gerado de `cad` (coluna do trigger de colab) -> cast.
+        const base: any = supabase.from("cad").update({ observacoes_molde: f.observacoes_molde || null } as any).eq("id", cad.id);
+        const q = revBaseRef.current != null ? base.eq("rev", revBaseRef.current) : base;
+        const { data: upd, error: cadErr } = await q.select("id, rev");
+        if (cadErr) throw cadErr;
+        if (!upd || upd.length === 0) {
+          // Erro de tela comum (P0001 = mensagem ja em PT, ver erro-mensagem.ts); o mesmo contrato do `erroValidacao` do projeto.
+          throw Object.assign(new Error("Outra pessoa alterou o molde deste CAD. Recarregue e tente de novo."), { code: "P0001" });
+        }
+        novoRev = Number((upd[0] as any).rev);
+      }
       if (existing?.id) {
         const { error } = await supabase.from("producao_oficina").update(payload).eq("id", existing.id);
         if (error) throw error;
@@ -250,15 +310,13 @@ function OficinaDetailPage() {
         const { error } = await supabase.from("producao_oficina").insert(payload);
         if (error) throw error;
       }
-      // "Partes do Molde" tem fonte única no CAD (Ficha de Corte).
-      const { error: cadErr } = await supabase
-        .from("cad")
-        .update({ observacoes_molde: f.observacoes_molde || null } as any)
-        .eq("id", cad.id);
-      if (cadErr) throw cadErr;
+      return { novoRev };
     },
-    onSuccess: async (_d, f) => {
+    onSuccess: async (d, f) => {
       toast.success("Salvo");
+      // [realtime Onda 1 · T1] o molde salvo passa a ser a base (rev novo devolvido pelo UPDATE); a releitura abaixo confirma.
+      moldeBaseRef.current = f.observacoes_molde;
+      if (d?.novoRev != null) revBaseRef.current = d.novoRev;
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo).
       await qc.invalidateQueries({ queryKey: ["producao-oficina", cad?.id] });
@@ -271,6 +329,39 @@ function OficinaDetailPage() {
       setHydrated(false);
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
+  });
+
+  // [realtime Onda 1 · T1] Colab: a Oficina reflete o que outra pessoa salvou (CAD/molde e linha de oficina) sem F5. Espelha o CQ
+  // (`colab:cq:`); sem `campoFocado` (presenca por campo = Onda 2). O eco do MEU save e inofensivo (rev <= base; nao ha o que semear).
+  useColabRegistro({
+    canal: cad?.id ? `colab:oficina:${cad.id}` : null,
+    tabela: "cad",
+    filtroColuna: "id",
+    registroId: cad?.id ?? null,
+    tabelasExtra: cad?.id ? [{ tabela: "producao_oficina", filtroColuna: "cad_id", valor: cad.id }] : [],
+    onMudancaServidor: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["oficina-cad", modeloId] }),
+        qc.invalidateQueries({ queryKey: ["producao-oficina", cad?.id] }),
+        qc.invalidateQueries({ queryKey: ["cad-grades", cad?.id, "full"] }),
+        qc.invalidateQueries({ queryKey: ["oficina-modelo", modeloId] }),
+      ]);
+      // Re-semeio os campos da linha de oficina SO se nao ha edicao pendente (nunca sobrescreve o que a pessoa digitou e nao salvou) e
+      // nao ha Salvar em voo (o onSuccess dele ja re-hidrata). O molde com edicao pendente tem o proprio resguardo (rev antigo -> recusa).
+      if (!hydrated || saveMut.isPending || !cad?.id) return;
+      if (!snapshotsEqual(formRef.current, baseFormRef.current)) return;
+      const exSt = qc.getQueryState(["producao-oficina", cad.id]);
+      const cadSt = qc.getQueryState(["oficina-cad", modeloId]);
+      if (exSt?.status !== "success" || cadSt?.status !== "success") return; // refetch falhou: mantem a tela (sem semear do cache velho)
+      const freshCad = qc.getQueryData<any>(["oficina-cad", modeloId]);
+      const freshEx = qc.getQueryData<any>(["producao-oficina", cad.id]);
+      if (freshCad == null || freshEx === undefined) return;
+      const next = formDoServidor(freshEx, freshCad, formRef.current);
+      revBaseRef.current = freshCad.rev != null ? Number(freshCad.rev) : revBaseRef.current;
+      moldeBaseRef.current = next.observacoes_molde;
+      setForm(next);
+      resetBaseline(next);
+    },
   });
 
   const handlePrint = () => printWithImages();
