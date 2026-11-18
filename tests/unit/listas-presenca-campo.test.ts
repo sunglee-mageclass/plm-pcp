@@ -14,6 +14,15 @@ for (const t of telas) {
       expect(src).toMatch(/ColabPresenceOverlay/);
       expect(src).toMatch(/colab-canvas:[a-z-]+:\$\{/);
     });
+    it("cobre as DUAS abas (Parcelas/OCs e Servicos): canais e paths de linha nomeados", () => {
+      expect(src).toMatch(/colab-canvas:financeiro-lista:\$\{/);
+      expect(src).toMatch(/colab-canvas:financeiro-servicos:\$\{/);
+      expect(src).toMatch(/venc-parcela:/);
+      expect(src).toMatch(/venc-servico:/);
+      // O par focus/blur (setCampoFocado(null)) existe em cada aba.
+      expect((src.match(/onBlurCapture=\{\(\) => setCampoFocado\(null\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
+      expect((src.match(/onFocusCapture=/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    });
     it("tem o PAR onFocusCapture + onBlurCapture com guarda contains", () => {
       expect(src).toMatch(/onFocusCapture/);
       expect(src).toMatch(/onBlurCapture=\{\(\) => setCampoFocado\(null\)\}/);
