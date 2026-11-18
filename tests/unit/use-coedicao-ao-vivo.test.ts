@@ -41,6 +41,7 @@ function montar(chave: string | null = "colab:modelo:M1", meuKey = "a::1") {
 function receber(event: string, payload: any) {
   act(() => { handlers[event]?.({ payload }); });
 }
+const receberVelho = (h: (msg: any) => void, payload: any) => { act(() => { h({ payload }); }); };
 const avancar = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 
 beforeEach(() => { sends.length = 0; handlers = {}; mock.canais = [fakeChannel]; vi.useFakeTimers(); });
@@ -171,14 +172,26 @@ describe("useCoedicaoAoVivo", () => {
     expect(api.locks.length).toBe(0); // e expira (nao fica eterno)
   });
 
-  it("handlers viram no-op depois do unmount (sem setState zumbi)", () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    montar();
-    const h = handlers["campoLock"];
-    limpezas.splice(0).forEach((f) => f());
-    expect(() => h({ payload: { key: "z::9", path: "lbl:nome", ts: Date.now() } })).not.toThrow();
-    expect(err).not.toHaveBeenCalled();
-    err.mockRestore();
+  it("handlers de uma execucao ANTERIOR do efeito viram no-op (troca de meuKey/chave): nao mexem no estado exposto", () => {
+    // O fake de canal guarda so o ultimo handler por evento; capturo os da 1a execucao ANTES de re-renderizar.
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    limpezas.push(() => { act(() => { root.unmount(); }); container.remove(); });
+    act(() => { root.render(createElement(Probe, { chave: "colab:modelo:M1", meuKey: "a::1" })); });
+    const lockVelho = handlers["campoLock"];
+    const valorVelho = handlers["valorAoVivo"];
+    // troca de meuKey: o cleanup da 1a execucao liga ativo=false; a 2a anexa handlers novos no MESMO canal.
+    act(() => { root.render(createElement(Probe, { chave: "colab:modelo:M1", meuKey: "b::2" })); });
+    expect(handlers["campoLock"]).not.toBe(lockVelho); // sanity: de fato ha handlers novos
+    // handler VELHO recebe evento de um par: com o guard e no-op (sem ele chamaria setLocks/setValor e o estado mudaria)
+    receberVelho(lockVelho, { key: "z::9", path: "lbl:nome", ts: Date.now() });
+    receberVelho(valorVelho, { key: "z::9", path: "lbl:nome", valor: "zumbi" });
+    expect(api.locks).toEqual([]);
+    expect(api.valorAoVivoPorPath).toEqual({});
+    // controle: o handler NOVO (execucao corrente) continua funcionando
+    receber("campoLock", { key: "z::9", path: "lbl:nome", ts: Date.now() });
+    expect(api.locks.map((l) => l.key)).toEqual(["z::9"]);
   });
 
   it("desmontar com path ativo avisa os pares (campoLock path:null)", () => {

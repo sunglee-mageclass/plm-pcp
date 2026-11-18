@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  resolverLock, estadoDoCampo, criarThrottle,
+  resolverLock, estadoDoCampo, criarThrottle, lockVivo,
   EXPIRACAO_LOCK_MS, THROTTLE_MS, type LockInfo,
 } from "@/lib/colab/coedicao";
 
@@ -25,6 +25,23 @@ describe("resolverLock", () => {
   });
   it("ignora locks de outros paths", () => {
     expect(resolverLock([lk("a::1", "lbl:cor", 1000)], "lbl:nome", 1500)).toBeNull();
+  });
+});
+
+describe("limite exato de expiração (semântica <=: 10000 ms ainda é VIVO, 10001 ms morto)", () => {
+  const ts = 1000;
+  it("lockVivo: exatamente EXPIRACAO_LOCK_MS = vivo; +1 ms = morto", () => {
+    expect(lockVivo(lk("a::1", "lbl:nome", ts), ts + EXPIRACAO_LOCK_MS)).toBe(true);
+    expect(lockVivo(lk("a::1", "lbl:nome", ts), ts + EXPIRACAO_LOCK_MS + 1)).toBe(false);
+  });
+  it("resolverLock: no limite exato o lock ainda é o dono", () => {
+    expect(resolverLock([lk("a::1", "lbl:nome", ts)], "lbl:nome", ts + EXPIRACAO_LOCK_MS)?.key).toBe("a::1");
+  });
+  it("estadoDoCampo: no limite exato é 'meu'/'outro' (nunca 'livre')", () => {
+    const agora = ts + EXPIRACAO_LOCK_MS;
+    expect(estadoDoCampo("lbl:nome", [lk("a::1", "lbl:nome", ts)], "a::1", agora).estado).toBe("meu");
+    expect(estadoDoCampo("lbl:nome", [lk("z::9", "lbl:nome", ts)], "a::1", agora).estado).toBe("outro");
+    expect(estadoDoCampo("lbl:nome", [lk("z::9", "lbl:nome", ts)], "a::1", agora + 1).estado).toBe("livre");
   });
 });
 
