@@ -75,6 +75,7 @@ import { usePreviaServidor } from "@/hooks/usePreviaServidor";
 import { cn } from "@/lib/utils";
 import { mergeDraft, igual } from "@/lib/colab/merge";
 import { maskLive } from "@/lib/money-mask";
+import { paresParaSalvar, definirSub, podarSubs, subPorCatDasLinhas, type SubPorCat } from "@/lib/tecido-subcategoria";
 
 // Datas antigas do histórico foram gravadas com offset '+00' (não-ISO) → new Date() dava
 // Invalid Date. Normaliza '+00' → '+00:00' antes de parsear (o trigger novo já grava certo).
@@ -215,9 +216,11 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
 
   const [form, setForm] = useState<Artigo | null>(null);
   const [catIds, setCatIds] = useState<string[]>([]);
+  // Subcategoria escolhida POR categoria marcada ({catId: subId}); só guarda quem tem sub (chave ausente = sem sub).
+  const [subPorCat, setSubPorCat] = useState<SubPorCat>({});
   // Guarda de alterações não salvas (Case C: full-page — não há open gate).
-  // Snapshot cobre o form inteiro + catIds (categorias também são editáveis).
-  const formSnapshot = useMemo(() => ({ form, catIds }), [form, catIds]);
+  // Snapshot cobre o form inteiro + catIds + subPorCat (categorias e suas subs também são editáveis).
+  const formSnapshot = useMemo(() => ({ form, catIds, subPorCat }), [form, catIds, subPorCat]);
   const { dirty: formDirty, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
   // Cor com rascunho entra na MESMA guarda de "alterações não salvas" do tecido (um só diálogo ao sair).
   const dirty = formDirty || nCoresSujas > 0;
@@ -258,26 +261,33 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
   // SEM default `= []`: um `[]` novo a cada render viraria dep instável do useEffect
   // abaixo → setCatIds em loop → "Maximum update depth exceeded" (React #185), crash
   // intermitente do detalhe enquanto a query carrega. `undefined` é estável (igual `artigo`).
+  // Devolve as LINHAS (categoria + sub); catIds/subPorCat são derivados DENTRO dos effects (nunca
+  // objeto/array novo no render como dep).
   const { data: catLinks } = useQuery({
     queryKey: ["artigo-cats", artigoId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("artigo_categorias_tecido")
-        .select("categoria_tecido_id")
+      const { data, error } = await (supabase.from("artigo_categorias_tecido") as any)
+        .select("categoria_tecido_id, subcategoria_tecido_id")
         .eq("artigo_id", artigoId);
       if (error) throw error;
-      return (data ?? []).map((r: any) => r.categoria_tecido_id as string);
+      return ((data ?? []) as any[]).map((r) => ({
+        categoria_tecido_id: r.categoria_tecido_id as string,
+        subcategoria_tecido_id: (r.subcategoria_tecido_id ?? null) as string | null,
+      }));
     },
   });
   useEffect(() => {
-    if (catLinks) setCatIds(catLinks);
+    if (catLinks) {
+      setCatIds(catLinks.map((r) => r.categoria_tecido_id));
+      setSubPorCat(subPorCatDasLinhas(catLinks));
+    }
   }, [catLinks]);
 
   // Rebaixa o baseline quando ambos (form E categorias) são carregados do servidor.
   // Depende de artigo/catLinks (valores carregados), não do estado local que pode ter edições.
   useEffect(() => {
     if (artigo && catLinks) {
-      resetBaseline({ form: artigo, catIds: catLinks });
+      resetBaseline({ form: artigo, catIds: catLinks.map((r) => r.categoria_tecido_id), subPorCat: subPorCatDasLinhas(catLinks) });
     }
   }, [artigo, catLinks]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -343,6 +353,17 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
       return (data ?? []) as { id: string; nome: string }[];
     },
   });
+  // Subcategorias de tecido (todas da loja; RLS filtra). Cada categoria marcada filtra as suas.
+  const { data: subcategorias = [] } = useQuery({
+    queryKey: ["subcategorias-tecido-options"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("subcategorias_tecido" as any) as any)
+        .select("id, nome, categoria_tecido_id")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; categoria_tecido_id: string }[];
+    },
+  });
   const { data: meses = [] } = useQuery({
     queryKey: ["meses-options"],
     queryFn: async () => {
@@ -372,7 +393,7 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
     tecidoSalvo: boolean;
     cores: { ok: number; erro: number };
     /** O que foi ENVIADO no clique (form + categorias): vira o novo baseline. Edição feita em voo (enquanto as cores gravam) continua suja. */
-    enviado: { form: Artigo; catIds: string[] };
+    enviado: { form: Artigo; catIds: string[]; subPorCat: SubPorCat };
   };
   const saveMut = useMutation({
     mutationFn: async (): Promise<ResultadoSalvar | void> => {
@@ -382,7 +403,7 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
       const soCores = !formDirtyRef.current && nCoresSujasRef.current > 0;
       // Foto do que está sendo enviado AGORA (o `salvarTecido` usa esta mesma closure): o Salvar leva segundos (grava as
       // cores) e a pessoa pode seguir digitando no tecido; o baseline vira ESTA foto, não o form do momento do sucesso.
-      const enviado = { form, catIds };
+      const enviado = { form, catIds, subPorCat };
       if (!soCores) await salvarTecido();
       // UM prazo comum para esperar as prévias de preço (não N × 5 s se a RPC da prévia travar).
       const ctx: SalvarCtx = { limite: Date.now() + 5000 };
@@ -400,7 +421,7 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
     onSuccess: (r) => {
       if (!r) return;
       const res = r;
-      if (res.tecidoSalvo) resetBaseline({ form: res.enviado.form, catIds: res.enviado.catIds });
+      if (res.tecidoSalvo) resetBaseline({ form: res.enviado.form, catIds: res.enviado.catIds, subPorCat: res.enviado.subPorCat });
       const { ok, erro } = res.cores;
       const cor = (n: number, sing: string, plur: string) => `${n} ${n === 1 ? sing : plur}`;
       const partes: string[] = [];
@@ -474,7 +495,7 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
     // Só roda se o UPDATE acima passou (0 linhas já lançou P0409_LOCAL e abortou antes daqui).
     const { error: catErr } = await supabase.rpc("set_artigo_categorias" as any, {
       _artigo_id: artigoId,
-      _cat_ids: catIds,
+      _pares: paresParaSalvar(catIds, subPorCat),
     });
     if (catErr) throw catErr;
   }
@@ -493,8 +514,11 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
   // Descartar alterações: volta o tecido E todas as cores ao que está no banco (nada foi ao servidor antes do Salvar).
   const descartarTudo = () => {
     if (artigo) setForm(artigo);
-    if (catLinks) setCatIds(catLinks);
-    if (artigo && catLinks) resetBaseline({ form: artigo, catIds: catLinks });
+    if (catLinks) {
+      setCatIds(catLinks.map((r) => r.categoria_tecido_id));
+      setSubPorCat(subPorCatDasLinhas(catLinks));
+    }
+    if (artigo && catLinks) resetBaseline({ form: artigo, catIds: catLinks.map((r) => r.categoria_tecido_id), subPorCat: subPorCatDasLinhas(catLinks) });
     descartarTodos();
   };
 
@@ -668,19 +692,48 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
             <CategoriasTecidoMultiSelect
               options={categorias}
               value={catIds}
-              onChange={setCatIds}
+              onChange={(ids) => {
+                setCatIds(ids);
+                // desmarcar a categoria limpa a sub dela
+                setSubPorCat((prev) => podarSubs(prev, ids));
+              }}
             />
             {catIds.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1.5">
+              <ul className="mt-1.5 space-y-1.5">
                 {catIds.map((cid) => {
                   const nome = categorias.find((c) => c.id === cid)?.nome ?? "—";
+                  const subs = subcategorias.filter((s) => s.categoria_tecido_id === cid);
                   return (
-                    <Badge key={cid} variant="secondary">
-                      {nome}
-                    </Badge>
+                    <li key={cid} className="flex items-center gap-2" data-testid={`sub-cat-${cid}`}>
+                      <Badge variant="secondary" className="shrink-0">
+                        {nome}
+                      </Badge>
+                      {subs.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">sem subcategorias</span>
+                      ) : (
+                        <Select
+                          value={subPorCat[cid] ?? SUB_NENHUMA}
+                          onValueChange={(v) =>
+                            setSubPorCat((prev) => definirSub(prev, cid, v === SUB_NENHUMA ? null : v))
+                          }
+                        >
+                          <SelectTrigger className="h-8 min-w-0 flex-1" aria-label={`Subcategoria de ${nome}`}>
+                            <SelectValue placeholder="Subcategoria" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SUB_NENHUMA}>— nenhuma —</SelectItem>
+                            {subs.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.nome}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             )}
           </Field>
 
@@ -1638,6 +1691,9 @@ function VariantRow({
     </li>
   );
 }
+
+// Radix Select não aceita value="" num item: sentinela para "sem subcategoria".
+const SUB_NENHUMA = "__nenhuma__";
 
 function CategoriasTecidoMultiSelect({
   options,
