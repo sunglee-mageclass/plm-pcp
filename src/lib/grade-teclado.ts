@@ -28,13 +28,15 @@ export function useGradeTeclado(o: { nLinhas: number; nColunas: number }): {
   nRef.current = o;
 
   const achar = useCallback((linha: number, coluna: number): HTMLInputElement | null => {
-    const raiz: ParentNode = gridRef.current ?? document;
+    const raiz = gridRef.current;
+    if (!raiz) return null; // fail-closed: sem gridRef nao ha onde buscar (nunca cai no document)
     return raiz.querySelector<HTMLInputElement>(`[data-grade-cel="${linha}:${coluna}"]`);
   }, []);
 
   const propsDaCelula = useCallback((linha: number, coluna: number) => ({
     "data-grade-cel": `${linha}:${coluna}`,
     onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      if (!gridRef.current) return; // sem gridRef o hook fica inerte (fluxo nativo do navegador)
       if ((e.key !== "Enter" && e.key !== "Tab") || e.ctrlKey || e.metaKey || e.altKey) return;
       const { nLinhas, nColunas } = nRef.current;
       const alvo = proximaCelulaDisponivel({

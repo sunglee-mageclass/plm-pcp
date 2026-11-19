@@ -8,14 +8,14 @@ import { useGradeTeclado } from "@/lib/grade-teclado";
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Monta uma grade 2x2 de <input data-grade-cel>, liga o hook e expoe o controlador.
-function montar(bloqueados: string[] = []) {
+function montar(bloqueados: string[] = [], ligarGridRef = true) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   let api: ReturnType<typeof useGradeTeclado> | null = null;
   function Grade() {
     const h = useGradeTeclado({ nLinhas: 2, nColunas: 2 });
     api = h;
-    return createElement("table", { ref: (el: HTMLTableElement | null) => { (h.gridRef as any).current = el; } },
+    return createElement("table", ligarGridRef ? { ref: (el: HTMLTableElement | null) => { (h.gridRef as any).current = el; } } : {},
       createElement("tbody", null,
         [0, 1].map((l) => createElement("tr", { key: l },
           [0, 1].map((c) => {
@@ -91,6 +91,25 @@ describe("useGradeTeclado", () => {
     const ev = new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true });
     act(() => { el.dispatchEvent(ev); });
     expect(ev.defaultPrevented).toBe(false);
+    cleanup();
+  });
+  it("sem gridRef ligado o hook fica inerte: Enter sem preventDefault e foco intacto", () => {
+    const { host, cleanup } = montar([], false);
+    const ev = tecla(host, "0:1", "Enter");
+    act(() => { vi.runAllTimers(); });
+    expect(ev.defaultPrevented).toBe(false);
+    expect(document.activeElement?.getAttribute("data-grade-cel")).toBe("0:1");
+    cleanup();
+  });
+  it("sem gridRef ligado, a celula homonima de OUTRA grade nao recebe foco", () => {
+    const outra = document.createElement("input");
+    outra.setAttribute("data-grade-cel", "1:1");
+    document.body.appendChild(outra);
+    const { host, cleanup } = montar([], false);
+    tecla(host, "0:1", "Enter");
+    act(() => { vi.runAllTimers(); });
+    expect(document.activeElement).not.toBe(outra);
+    outra.remove();
     cleanup();
   });
 });
