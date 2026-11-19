@@ -8,8 +8,11 @@
  */
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { hasDb, withTx, comoUsuario, um, ehBancoLocal, TENANT_TESTE } from "./db";
 
+const MIG = fileURLToPath(new URL("../../supabase/migrations/20261210100000_subcategoria_tecido.sql", import.meta.url));
 const roda = hasDb && ehBancoLocal();
 
 async function semear(c: Client) {
@@ -179,6 +182,41 @@ describe.skipIf(!roda)("subcategorias_tecido — tabela, coluna e gatilho mesma-
       expect(por.tenant_update.q).toContain(key);
       expect(por.tenant_update.w).toContain(key);
       expect(por.tenant_delete.q).toContain(key);
+    });
+  });
+
+  it("backfill: quem edita cadastro_atributos ganha cadastro_atributos:subcat_tecido (user e papel); idempotente", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      // Executa SÓ as 2 instruções de backfill extraídas do arquivo da migration (nunca o arquivo inteiro: tem BEGIN/COMMIT).
+      const sql = readFileSync(MIG, "utf8");
+      const stmts = sql.match(/INSERT INTO public\.(?:user_permissions|papel_permissoes)[\s\S]*?ON CONFLICT[^;]*;/g) ?? [];
+      expect(stmts).toHaveLength(2);
+      const uid = "0d0d0d0d-0000-4000-8000-0000000000dd";
+      await c.query(`insert into auth.users (id, email) values ($1,'subtec-bf@teste') on conflict (id) do nothing`, [uid]);
+      await c.query(
+        `insert into public.users (id, tenant_id, email, nome) values ($1,$2,'subtec-bf@teste','Sub Tec BF')
+         on conflict (id) do update set tenant_id=excluded.tenant_id`,
+        [uid, TENANT_TESTE],
+      );
+      await c.query(
+        `insert into public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) values ($1,$2,'cadastro_atributos',true,true)`,
+        [uid, TENANT_TESTE],
+      );
+      const papel = await um<{ id: string }>(c, `insert into public.papeis (tenant_id, nome) values ($1,'Papel BF subtec') returning id`, [TENANT_TESTE]);
+      await c.query(
+        `insert into public.papel_permissoes (papel_id, tenant_id, pagina, pode_ver, pode_editar) values ($1,$2,'cadastro_atributos',true,true)`,
+        [papel.id, TENANT_TESTE],
+      );
+      const contar = async () => ({
+        u: (await um<{ n: string }>(c, `select count(*)::text n from user_permissions where user_id=$1 and pagina='cadastro_atributos:subcat_tecido' and pode_editar`, [uid])).n,
+        p: (await um<{ n: string }>(c, `select count(*)::text n from papel_permissoes where papel_id=$1 and pagina='cadastro_atributos:subcat_tecido' and pode_editar`, [papel.id])).n,
+      });
+      expect(await contar()).toEqual({ u: "0", p: "0" });
+      for (const st of stmts) await c.query(st);
+      expect(await contar()).toEqual({ u: "1", p: "1" });
+      for (const st of stmts) await c.query(st); // reaplicar não duplica
+      expect(await contar()).toEqual({ u: "1", p: "1" });
     });
   });
 });

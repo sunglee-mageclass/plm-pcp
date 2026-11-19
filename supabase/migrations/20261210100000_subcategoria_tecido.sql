@@ -66,4 +66,19 @@ DROP TRIGGER IF EXISTS trg_act_sub_mesma_categoria ON public.artigo_categorias_t
 CREATE TRIGGER trg_act_sub_mesma_categoria BEFORE INSERT OR UPDATE OF subcategoria_tecido_id, categoria_tecido_id
   ON public.artigo_categorias_tecido FOR EACH ROW EXECUTE FUNCTION public.fn_act_sub_mesma_categoria();
 
+-- Backfill da permissao da section nova (espelha 20260908280000_atributos_permissao_por_atributo.sql): quem ja podia
+-- EDITAR a pagina-mae cadastro_atributos ganha cadastro_atributos:subcat_tecido (senao perderia acesso ao atributo novo
+-- quando a RLS passa a exigir user_can_edit). Idempotente: ON CONFLICT DO NOTHING (nao sobrescreve excecao ja existente).
+INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
+SELECT up.user_id, up.tenant_id, 'cadastro_atributos:subcat_tecido', true, true
+FROM public.user_permissions up
+WHERE up.pagina = 'cadastro_atributos' AND up.pode_editar = true
+ON CONFLICT (user_id, pagina) DO NOTHING;
+
+INSERT INTO public.papel_permissoes (papel_id, tenant_id, pagina, pode_ver, pode_editar)
+SELECT pp.papel_id, pp.tenant_id, 'cadastro_atributos:subcat_tecido', true, true
+FROM public.papel_permissoes pp
+WHERE pp.pagina = 'cadastro_atributos' AND pp.pode_editar = true
+ON CONFLICT (papel_id, pagina) DO NOTHING;
+
 COMMIT;
