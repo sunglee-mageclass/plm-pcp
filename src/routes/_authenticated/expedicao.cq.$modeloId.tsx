@@ -18,6 +18,7 @@ import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
+import { useGradeTeclado } from "@/lib/grade-teclado";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
@@ -1815,15 +1816,21 @@ function GradeMatrix(props: {
   onCampoFoco?: (label: string | null) => void;
 }) {
   const { etapa, tamanhos, variantList, labelByNumero, grades, setQtd, extraCols = [], renderExtra, overFn, onCampoFoco } = props;
+  // Navegação por teclado (Enter desce / Tab ao lado) — UM hook por matriz de entrada. O gridRef TEM de
+  // estar ligado na raiz (wrapper abaixo): sem ele o hook fica inerte (fail-closed).
+  const nav = useGradeTeclado({ nLinhas: variantList.length, nColunas: tamanhos.length });
+  const variantesMatriz = variantList.map((v) => ({ num: v.num, label: labelByNumero[v.num] ?? `Variante ${v.num}` }));
 
   return (
+    <div ref={nav.gridRef as RefObject<HTMLDivElement>}>
     <MatrizGradeResponsiva
       tamanhos={tamanhos}
-      variantes={variantList.map((v) => ({ num: v.num, label: labelByNumero[v.num] ?? `Variante ${v.num}` }))}
+      variantes={variantesMatriz}
       emptyLabel="Sem variantes no Tecido Principal."
       total={(num) => grades[etapa][num]?.grade_total ?? 0}
       cellClass={(num, t) => (overFn?.(num, t, Number(grades[etapa][num]?.grades?.[t] ?? 0)) ? "bg-destructive/15" : "")}
-      renderCell={(num, t) => {
+      posDaCelula={(num, t) => ({ linha: variantesMatriz.findIndex((v) => v.num === num), coluna: tamanhos.indexOf(t) })}
+      renderCell={(num, t, pos) => {
         const row = grades[etapa][num];
         const over = overFn?.(num, t, Number(row?.grades?.[t] ?? 0)) ?? false;
         return (
@@ -1833,12 +1840,14 @@ function GradeMatrix(props: {
             value={row?.grades?.[t] ?? ""}
             data-colab-path={`cq-grade:${etapa}:${num}:${t}`}
             onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
+            {...nav.propsDaCelula(pos!.linha, pos!.coluna)}
           />
         );
       }}
       extraHeader={extraCols.length > 0 ? "Ação" : undefined}
       renderExtra={renderExtra}
     />
+    </div>
   );
 }
 
