@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useFilterState } from "@/hooks/useFilterState";
 import { RequirePermission } from "@/components/RequirePermission";
@@ -13,6 +13,7 @@ import { useSort } from "@/components/shared/sort";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { PlanTecidoSheet } from "@/components/plan-tecido/PlanTecidoSheet";
 import { fmtMetros } from "@/lib/plan-tecido/calc";
+import { cn } from "@/lib/utils";
 
 // Coleção e subcoleção ABERTAS vivem na URL (?colecao=&sub=) — F5 e Voltar do navegador
 // preservam onde o usuário estava, e a tela vira endereçável ("olha a R2"). Laudo das
@@ -81,6 +82,73 @@ function AComprarChip({ colecaoId }: { colecaoId: string }) {
   );
 }
 
+/** Altura (px) do header sticky do layout (`_authenticated.tsx`, `h-14`): a barra fixa gruda logo abaixo dele. */
+const ALTURA_HEADER_LAYOUT_PX = 56;
+
+/**
+ * Barra de título + FILTROS que fica FIXA (logo abaixo do header sticky do layout) quando a página rola —
+ * dono, nov/2026: "poder filtrar a qualquer momento".
+ *
+ * Por que NÃO é `position: sticky`: o `<main>` do layout tem `overflow-x-hidden overflow-y-auto`, o que o torna o
+ * "scrollport" do sticky — mas ele não rola sozinho (cresce com o conteúdo; quem rola é a janela), então um
+ * sticky dentro dele nunca gruda (medido no navegador: o bloco rola junto). Aqui o bloco vira `position: fixed`
+ * (que ignora o overflow dos ancestrais) quando seu "slot" no fluxo encosta no header; o slot guarda a altura
+ * original para o conteúdo abaixo não pular. Ao grudar, só os controles ficam (título/subtítulo somem p/ não
+ * gastar altura). Lógica dos filtros intocada — só apresentação.
+ */
+function BarraTopoFixa({ titulo, children }: { titulo: ReactNode; children: ReactNode }) {
+  const slotRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const [fixa, setFixa] = useState<{ left: number; width: number; altura: number } | null>(null);
+
+  useEffect(() => {
+    const slot = slotRef.current;
+    const bar = barRef.current;
+    if (!slot || !bar) return;
+    const main = slot.closest("main") ?? document.body;
+    const medir = () => {
+      const grudar = slot.getBoundingClientRect().top <= ALTURA_HEADER_LAYOUT_PX;
+      const m = main.getBoundingClientRect();
+      setFixa((prev) => {
+        if (!grudar) return prev === null ? prev : null;
+        // altura "solta" capturada no instante em que gruda (a barra ainda tem o título); depois fica a mesma.
+        const altura = prev?.altura ?? bar.offsetHeight;
+        if (prev && prev.left === m.left && prev.width === m.width && prev.altura === altura) return prev;
+        return { left: m.left, width: m.width, altura };
+      });
+    };
+    medir();
+    // capture: pega rolagem de qualquer ancestral (hoje é a janela). Sidebar abrindo/fechando muda o `main` → RO.
+    window.addEventListener("scroll", medir, { passive: true, capture: true });
+    window.addEventListener("resize", medir);
+    const ro = new ResizeObserver(medir);
+    ro.observe(main);
+    return () => {
+      window.removeEventListener("scroll", medir, { capture: true });
+      window.removeEventListener("resize", medir);
+      ro.disconnect();
+    };
+  }, []);
+
+  return (
+    <div ref={slotRef} className="mb-5" style={fixa ? { height: fixa.altura } : undefined}>
+      <div
+        ref={barRef}
+        className={cn(
+          "flex flex-wrap items-end justify-between gap-3",
+          // z-20: acima da lista, abaixo do header do layout (z-30), da barra mobile (z-40) e de modais/Sheets (z-50).
+          // bg-background: sem ele a lista que rola apareceria POR TRÁS dos filtros.
+          fixa && "fixed top-14 z-20 items-center justify-end border-b bg-background px-4 py-2 shadow-sm sm:px-6",
+        )}
+        style={fixa ? { left: fixa.left, width: fixa.width } : undefined}
+      >
+        <div className={cn("min-w-0", fixa && "hidden")}>{titulo}</div>
+        <div className="flex items-center gap-2">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function PlanTecidoListPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { colecao: openColecaoId, sub: subAberta, modo, focoModelo } = Route.useSearch();
@@ -120,7 +188,9 @@ function PlanTecidoListPage() {
 
   return (
     <div className="p-4 sm:p-6">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <BarraTopoFixa
+        titulo={
+          <>
         {/* Ícone ao lado do título (Layers = mesmo ícone da nav do Plan. Tecido), como nas demais
             telas (dono, jul/2026). Sem o eyebrow "Estilo & Engenharia": era a ÚNICA tela que
             repetia a seção no título — a seção já aparece no header sticky e no hub. */}
@@ -131,7 +201,9 @@ function PlanTecidoListPage() {
             <p className="mt-0.5 text-sm text-muted-foreground">Escolha uma coleção para planejar os tecidos.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+          </>
+        }
+      >
           <SearchToggle value={search} onChange={setSearch} placeholder="Buscar coleção ou subcoleção…" />
           <Button
             variant="outline"
@@ -168,8 +240,7 @@ function PlanTecidoListPage() {
               },
             ]}
           />
-        </div>
-      </div>
+      </BarraTopoFixa>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sort.sorted.map((c) => {
           const bucket = orc.colecao(c.id);
