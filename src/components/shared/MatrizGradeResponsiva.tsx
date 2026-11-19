@@ -20,10 +20,11 @@ export function MatrizGradeResponsiva({
   renderExtra,
   emptyLabel = "Sem variantes.",
   rotuloTamanho,
+  posDaCelula,
 }: {
   tamanhos: string[];
   variantes: { num: number; label: string }[];
-  renderCell: (num: number, tam: string) => ReactNode;
+  renderCell: (num: number, tam: string, pos?: { linha: number; coluna: number }) => ReactNode;
   total: (num: number) => ReactNode;
   cellClass?: (num: number, tam: string) => string;
   extraHeader?: string;
@@ -31,6 +32,8 @@ export function MatrizGradeResponsiva({
   emptyLabel?: string;
   /** Opcional (F5-2): texto do cabeçalho do tamanho (ex.: lado Letra/Número da grade). Sem ele = a chave cheia, como sempre. */
   rotuloTamanho?: (t: string) => string;
+  /** Opcional (navegação por teclado): posição (linha,coluna) da célula, repassada ao `renderCell`. Sem ele, `pos` chega `undefined` e nada muda. */
+  posDaCelula?: (num: number, tam: string) => { linha: number; coluna: number };
 }) {
   const rot = (t: string) => (rotuloTamanho ? rotuloTamanho(t) : t);
   const colSpan = tamanhos.length + 2 + (extraHeader ? 1 : 0);
@@ -54,7 +57,7 @@ export function MatrizGradeResponsiva({
               <tr key={num}>
                 <td className="border px-2 py-1">{label}</td>
                 {tamanhos.map((t) => (
-                  <td key={t} className={`border p-0 ${cellClass?.(num, t) ?? ""}`}>{renderCell(num, t)}</td>
+                  <td key={t} className={`border p-0 ${cellClass?.(num, t) ?? ""}`}>{renderCell(num, t, posDaCelula?.(num, t))}</td>
                 ))}
                 <td className="border px-2 py-1 text-center font-semibold">{total(num)}</td>
                 {extraHeader && <td className="border px-2 py-1">{renderExtra?.(num)}</td>}
@@ -78,7 +81,7 @@ export function MatrizGradeResponsiva({
               {tamanhos.map((t) => (
                 <div key={t} className={`overflow-hidden rounded border ${cellClass?.(num, t) ?? ""}`}>
                   <div className="bg-muted/40 py-0.5 text-center text-[10px] font-medium text-muted-foreground">{rot(t)}</div>
-                  {renderCell(num, t)}
+                  {renderCell(num, t, posDaCelula?.(num, t))}
                 </div>
               ))}
             </div>
