@@ -31,7 +31,7 @@ import { varKey } from "@/lib/plan-tecido/calc";
 import { ehTecido1, igual } from "@/lib/plan-tecido/atendimento";
 import type { PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import {
-  TEXTO_AJUDA_DIST, aplicarConfigPorCor, aplicarTotalCor, baseAutoSeCasa, type BaseConfigLinha, chaveSlot, definirBase, definirCelula, definirProporcao,
+  TEXTO_AJUDA_DIST, aplicarConfigPorCor, semearBasePorPc, type BaseConfigLinha, chaveSlot, definirBase, definirCelula, definirProporcao,
   normalizarDistribuicao, pathDistAberto, pathEhDoProduto, proporcaoDoTamanho, tamanhosDoTipo, temDistribuicao,
   tipoDoProduto, totaisDaDistribuicao, voltarAoCalculado, type Distribuicao,
 } from "@/lib/distribuicao-produto";
@@ -78,8 +78,6 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   }));
   const [prop, setProp] = useState(inicial.prop);
   const [dists, setDists] = useState(inicial.dists);
-  // Total digitado por cor (só para o aviso "base aplicada"/"manual"; NÃO entra no `dirty` — o que grava é `dists`).
-  const [totais, setTotais] = useState<Record<string, number>>({});
   // T6 fix1 · m5: comparação CANÔNICA (chaves ordenadas) — reusa `igual`/`canon` de atendimento.ts, não
   // JSON.stringify cru (o jsonb do Postgres reordena chaves; comparar bruto acusaria "sujo" sem edição real).
   const dirty = !igual({ prop, dists }, inicial);
@@ -165,15 +163,18 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   // F2 B — ids das lojas ATIVAS do cadastro (a config pré-preenche/recalcula só nelas).
   const idsLojasAtivas = useMemo(() => (lojasDb ?? []).filter((l) => l.ativo).map((l) => l.id), [lojasDb]);
 
-  // Demanda 3 (19/nov) — a Base NASCE 0 na abertura: a config de Cadastro › Lojas NÃO é mais semeada sozinha (antes:
-  // um efeito de abertura aplicava a config nas cores sem distribuição). Cor com distribuição salva abre como foi salva
-  // (nada é zerado nem recalculado). A config só entra (1) quando o TOTAL digitado da cor BATE com o cadastro — gatilho
-  // `setTotalCor` → `aplicarTotalCor`/`baseAutoSeCasa`; total que não bate = manual, a pessoa distribui à mão — ou
-  // (2) pelo botão "↺ recalcular pela config" (ação explícita).
-  const setTotalCor = (k: string, total: number) => {
-    setTotais((t) => ({ ...t, [k]: total }));
-    setDists((atual) => aplicarTotalCor(atual, k, baseConfig, total, idsLojasAtivas, prop, tamanhos, tamanhosGrade));
-  };
+  // Demanda 3 (19/nov) — na ABERTURA, para cada cor SEM distribuição salva, o "total" é o pç do card (`pcCard`): se ele
+  // BATE com um total cadastrado em Cadastro › Lojas (`baseAutoSeCasa`), a cor abre já repartida pelas lojas; se não bate
+  // (ou não há cadastro), a cor nasce 0 e a pessoa distribui à mão. CONGELAMENTO: cor com distribuição salva abre como
+  // foi salva (nunca sobrescrita). UMA vez por abertura, depois que a config E as lojas chegaram; a comparação de `dirty`
+  // segue contra o SALVO (a base semeada é uma sugestão a salvar que some ao descartar).
+  const preencheuRef = useRef(false);
+  useEffect(() => {
+    if (preencheuRef.current || readOnly || !baseConfig || !lojasProntas || lojasErro) return;
+    preencheuRef.current = true;
+    setDists((atual) => semearBasePorPc(atual, baseConfig, cores, idsLojasAtivas, prop, tamanhos, tamanhosGrade));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseConfig, lojasProntas, lojasErro, idsLojasAtivas]);
 
   // F2 B — "↺ recalcular pela config": aplica a config por cima de TODAS as cores (mesmo as já salvas — é a ação
   // explícita que fura o congelamento; só com clique).
@@ -241,10 +242,7 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   const tabelas = (modo: "edicao" | "impressao") => (
     <DistribuicaoTabelas modo={modo} slotKey={slotKey} tamanhos={tamanhos} tipo={tipo} prop={prop} cores={cores} dists={dists}
       lojas={lojas} readOnly={readOnly} onProp={setPropT} onBase={setBase} onCel={setCel} onVoltar={voltar}
-      onRecalcularConfig={modo === "edicao" && !readOnly && !!slot.linha_id ? recalcularPelaConfig : undefined}
-      onTotalCor={modo === "edicao" && !readOnly && !!slot.linha_id ? setTotalCor : undefined}
-      totaisDigitados={totais}
-      totalBate={(t) => baseAutoSeCasa(baseConfig, t) !== null} />
+      onRecalcularConfig={modo === "edicao" && !readOnly && !!slot.linha_id ? recalcularPelaConfig : undefined} />
   );
 
   return (

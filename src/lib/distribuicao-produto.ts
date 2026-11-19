@@ -223,6 +223,21 @@ export function aplicarTotalCor(
   return { ...dists, [corKey]: aplicarBaseConfig(dists[corKey] ?? {}, auto, lojas, prop, tamanhos, grade) };
 }
 
+/** Demanda 3 — semeio da ABERTURA: para cada cor SEM distribuição (`devePrePreencher`), usa o pç do card (`pcCard`) como
+ *  o "total" e aplica a base SÓ se bater com o cadastro (`aplicarTotalCor`/`baseAutoSeCasa`); senão a cor nasce 0 (manual).
+ *  Cor com distribuição salva fica INTOCADA (congelamento). Devolve o MESMO objeto se nada mudou. PURA. */
+export function semearBasePorPc(
+  dists: Record<string, Distribuicao>, config: BaseConfigLinha | null | undefined,
+  cores: { key: string; pcCard: number }[], lojas: string[], prop: Proporcoes, tamanhos: string[], grade?: string[],
+): Record<string, Distribuicao> {
+  let out = dists;
+  for (const c of cores) {
+    if (!(c.key in out) || !devePrePreencher(out[c.key])) continue;
+    out = aplicarTotalCor(out, c.key, config, c.pcCard, lojas, prop, tamanhos, grade);
+  }
+  return out;
+}
+
 /** F2 B' — aplica a config POR COR: cada cor de `cores` (`key` = chave em `dists`) recebe a base da SUA quantidade.
  *  `apenas` (opcional) decide por cor se entra — o pré-preenchimento passa `devePrePreencher` (CONGELAMENTO: cor com
  *  distribuição salva fica intocada); o "↺ recalcular pela config" não passa (fura o congelamento). Chaves de `dists`
