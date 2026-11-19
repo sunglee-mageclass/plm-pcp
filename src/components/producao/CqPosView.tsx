@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
+import { useGradeTeclado } from "@/lib/grade-teclado";
 
 const fmtData = (d?: string | null) => (d ? d.split("-").reverse().join("/") : "—");
 
@@ -380,7 +381,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
                     ))}
                   </div>
                 )}
-                <MatrizGradeResponsiva
+                <MatrizEntradaPos
                   tamanhos={tamanhos}
                   variantes={variantes}
                   emptyLabel="Sem variantes no Tecido Principal."
@@ -391,7 +392,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
                     const real = realByNum[num]?.grades?.[t] ?? 0;
                     return val > 0 && val !== real ? "bg-destructive/15" : "";
                   }}
-                  renderCell={(num, t) => {
+                  renderCell={(num, t, celula) => {
                     // Recebimento: campo em vermelho quando o valor preenchido ≠ grade real do Pré.
                     const val = rowOf(sv.id, et, num).grades?.[t];
                     const real = realByNum[num]?.grades?.[t] ?? 0;
@@ -402,6 +403,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
                         className={`h-8 max-md:h-11 w-full border-0 text-center ${diverge ? "text-destructive font-semibold" : ""}`}
                         value={val ?? ""}
                         onChange={(e) => setQtd(sv.id, et, num, t, Number(e.target.value) || 0)}
+                        {...celula}
                       />
                     );
                   }}
@@ -432,3 +434,31 @@ export const CqPosView = forwardRef<CqPosHandle, {
     </div>
   );
 });
+
+// Matriz de ENTRADA do CQ Pós (recebimento/conserto por serviço×etapa). Cada matriz tem o SEU
+// useGradeTeclado + gridRef (navegação por teclado Enter/Tab escopada à matriz). O gridRef TEM de
+// estar ligado na raiz — sem ele o hook fica inerte (fail-closed). Hooks não cabem no .map() acima,
+// por isso o componente. `renderCell` recebe as props da célula (data-grade-cel + onKeyDown) para
+// espalhar DIRETO no NumberInput.
+function MatrizEntradaPos(props: {
+  tamanhos: string[];
+  variantes: { num: number; label: string }[];
+  emptyLabel: string;
+  total: (num: number) => ReactNode;
+  cellClass: (num: number, tam: string) => string;
+  renderCell: (num: number, tam: string, celula: ReturnType<ReturnType<typeof useGradeTeclado>["propsDaCelula"]>) => ReactNode;
+}) {
+  const { tamanhos, variantes, renderCell, ...resto } = props;
+  const nav = useGradeTeclado({ nLinhas: variantes.length, nColunas: tamanhos.length });
+  return (
+    <div ref={nav.gridRef as RefObject<HTMLDivElement>}>
+      <MatrizGradeResponsiva
+        {...resto}
+        tamanhos={tamanhos}
+        variantes={variantes}
+        posDaCelula={(num, t) => ({ linha: variantes.findIndex((v) => v.num === num), coluna: tamanhos.indexOf(t) })}
+        renderCell={(num, t, pos) => renderCell(num, t, nav.propsDaCelula(pos!.linha, pos!.coluna))}
+      />
+    </div>
+  );
+}
