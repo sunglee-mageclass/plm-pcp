@@ -168,7 +168,10 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "criacao_planejamento", label: "Planejamento de Produto", shortLabel: "Plan. Produto", description: "Cards em planejamento; lança quando CQ e custo estão aprovados.",
         sections: [
           { key: "criacao_planejamento:custos", label: "Custos / Preço" },
-          { key: "criacao_planejamento:preco_venda", label: "Editar preço de venda" },
+          { key: "criacao_planejamento:ver_preco_venda", label: "Ver preço de venda (varejo)" },
+          { key: "criacao_planejamento:preco_venda", label: "Editar preço de venda (varejo)" },
+          { key: "criacao_planejamento:ver_preco_atacado", label: "Ver preço de atacado" },
+          { key: "criacao_planejamento:preco_atacado", label: "Editar preço de atacado" },
           // R9: seção "Peça Teste" do Sheet do Planejamento (conferida no servidor, `salvar_peca_teste`; backfill 195000).
           { key: "criacao_planejamento:peca_teste", label: "Peça Teste", hint: "Leitor vê a seção no card; Editor lança tentativas, datas e aprovação. Sem Leitor, a seção some do card." },
         ] },
