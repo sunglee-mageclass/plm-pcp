@@ -4,6 +4,7 @@ import { useEstoqueCorNova } from "@/lib/plan-tecido/useEstoqueCorNova";
 import { ChevronDown, ChevronRight, ChevronRight as GoIcon } from "lucide-react";
 import { agruparPorOc, type SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import { OcVinculadaDialog } from "./OcVinculadaDialog";
+import { OcAplicadaPicker } from "./OcAplicadaPicker";
 import { OcHoverResumo } from "./OcHoverResumo";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
@@ -233,6 +234,7 @@ function FaixaModoPlano({
   setOcDialog,
   onToggleRecolhido,
   outrasColecoes,
+  colecaoId,
 }: {
   nome: string;
   itens: FlatSlot[];
@@ -252,6 +254,8 @@ function FaixaModoPlano({
   onToggleRecolhido: (nomeTecido: string) => void;
   /** F3: `outras_colecoes` da prévia — alimenta o "i" "Também usado em" (por ARTIGO). */
   outrasColecoes?: PreviaRpc["outras_colecoes"];
+  /** Coleção — o "vincular OC / rolo" (OcAplicadaPicker) grava no POOL da coleção; os cards (SlotOcHint) escolhem dele. */
+  colecaoId: string;
 }) {
   // Artigo(s) do TEC1 do grupo. Em geral o agrupamento por nome junta cards do MESMO artigo,
   // mas o nome de artigo NÃO é único no cadastro — dois artigos homônimos (fornecedores
@@ -440,10 +444,13 @@ function FaixaModoPlano({
               );
             })}
 
-            {/* OCs VINCULADAS — nº + fornecedor + status; clicar abre o dialog (Pedido·Reserva·Sobra + modelos). */}
-            {ocsDoGrupo.length > 0 && (
-              <div className="px-2 py-2">
-                <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">OCs vinculadas</div>
+            {/* OCs VINCULADAS — nº + fornecedor + status; clicar abre o dialog (Pedido·Reserva·Sobra + modelos).
+                Sempre renderizado (mesmo sem OC vinculada): traz o "vincular OC / rolo" — o MESMO do Resumo do modo
+                comum — que alimenta o pool do "OC +" de cada card (SlotOcHint → `plan_tecido_set_slot_oc`). Sem ele,
+                no Modo Plano só apareciam as OCs automáticas (pedido gerado / vínculo do Dev). */}
+            <div className="px-2 py-2">
+              <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">OCs vinculadas</div>
+              {ocsDoGrupo.length > 0 ? (
                 <div className="space-y-1">
                   {ocsDoGrupo.map((oc) => (
                     // Hover (desktop) → popover Cor·Pedido·Reserva·Sobra (sem modelos); clique → dialog completo.
@@ -460,8 +467,11 @@ function FaixaModoPlano({
                     </OcHoverResumo>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="text-[10px] text-muted-foreground">Nenhuma OC vinculada a estes cards.</div>
+              )}
+              <OcAplicadaPicker colecaoId={colecaoId} />
+            </div>
           </div>
 
           {/* TRILHA DE CARDS — direita, rolável horizontal. O wrapper EXTERNO recebe o espaçador do
@@ -619,6 +629,7 @@ export function ModoPlanoView({
           setOcDialog={setOcDialog}
           onToggleRecolhido={onToggleRecolhido}
           outrasColecoes={previa?.outras_colecoes}
+          colecaoId={colecaoId}
         />
       ))}
       {nomes.length === 0 && (
