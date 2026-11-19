@@ -72,6 +72,7 @@ const ATRIBUTOS: SecaoConteudoManual[] = [
     intro: [p("As categorias que classificam os tecidos do catálogo (ex.: Malha, Plano). Aparecem no cadastro do tecido como classificação.")],
     campos: [
       { campo: "cat_tecido", rotulo: "Categoria de Tecido", ajuda: [p("Cada categoria tem só um Nome. É usada para classificar os tecidos e, em produtos comprados, para o campo “Categoria do tecido”.")] },
+      { campo: "subcat_tecido", rotulo: "Subcategoria de Tecido", ajuda: [p("Um nível abaixo da categoria de tecido. Você escolhe a Categoria de Tecido a que a subcategoria pertence e dá o Nome.")] },
     ],
   },
   {
