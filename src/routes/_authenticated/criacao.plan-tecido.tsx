@@ -85,67 +85,117 @@ function AComprarChip({ colecaoId }: { colecaoId: string }) {
 /** Altura (px) do header sticky do layout (`_authenticated.tsx`, `h-14`): a barra fixa gruda logo abaixo dele. */
 const ALTURA_HEADER_LAYOUT_PX = 56;
 
+/** Ancestral que de fato ROLA (overflow auto/scroll E conteúdo maior que a caixa), senão `null` (= a janela).
+ *  Atenção: o `<main>` do layout tem `overflow-y-auto` mas cresce com o conteúdo e não rola — por isso o
+ *  `scrollHeight > clientHeight` (só `overflow-y` não basta). */
+function acharScrollContainer(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if ((oy === "auto" || oy === "scroll") && p.scrollHeight > p.clientHeight + 1) return p;
+  }
+  return null;
+}
+
 /**
  * Barra de título + FILTROS que fica FIXA (logo abaixo do header sticky do layout) quando a página rola —
  * dono, nov/2026: "poder filtrar a qualquer momento".
  *
  * Por que NÃO é `position: sticky`: o `<main>` do layout tem `overflow-x-hidden overflow-y-auto`, o que o torna o
- * "scrollport" do sticky — mas ele não rola sozinho (cresce com o conteúdo; quem rola é a janela), então um
- * sticky dentro dele nunca gruda (medido no navegador: o bloco rola junto). Aqui o bloco vira `position: fixed`
- * (que ignora o overflow dos ancestrais) quando seu "slot" no fluxo encosta no header; o slot guarda a altura
- * original para o conteúdo abaixo não pular. Ao grudar, só os controles ficam (título/subtítulo somem p/ não
- * gastar altura). Lógica dos filtros intocada — só apresentação.
+ * "scrollport" do sticky; como ele não rola sozinho (cresce com o conteúdo), um sticky dentro dele nunca gruda.
+ * Aqui o bloco vira `position: fixed` (ignora o overflow dos ancestrais) quando uma SENTINELA (div de altura 0
+ * logo antes do slot) sai da área visível por cima do header. O slot mantém a altura original (sem pulo).
+ *
+ * Por que IntersectionObserver e não scroll-listener + getBoundingClientRect: a 1ª versão (scroll listener na
+ * janela) não comutou na tela real. O IO dispara independente de QUEM rola (janela ou um ancestral com overflow):
+ * a interseção é calculada com o recorte de cada ancestral. `root` = o scroll container REAL (acharScrollContainer)
+ * ou `null` (viewport); `rootMargin` negativo desconta o que o header cobre (56px menos o topo do root). Decisão:
+ * sentinela NÃO intersecta E está acima do topo do root (`boundingClientRect.top < rootBounds.top`) -> gruda;
+ * se estiver abaixo (ainda não chegou / página no topo) -> solta. `left/width` vêm do `<main>` (+ ResizeObserver
+ * p/ a sidebar abrir/fechar). Ao grudar, só os controles ficam (título some, p/ não gastar altura).
+ * Lógica dos filtros intocada — só apresentação.
  */
 function BarraTopoFixa({ titulo, children }: { titulo: ReactNode; children: ReactNode }) {
+  const sentinelaRef = useRef<HTMLDivElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [fixa, setFixa] = useState<{ left: number; width: number; altura: number } | null>(null);
 
   useEffect(() => {
+    const sentinela = sentinelaRef.current;
     const slot = slotRef.current;
     const bar = barRef.current;
-    if (!slot || !bar) return;
+    if (!sentinela || !slot || !bar) return;
     const main = slot.closest("main") ?? document.body;
-    const medir = () => {
-      const grudar = slot.getBoundingClientRect().top <= ALTURA_HEADER_LAYOUT_PX;
+
+    const geometria = () => {
       const m = main.getBoundingClientRect();
-      setFixa((prev) => {
-        if (!grudar) return prev === null ? prev : null;
-        // altura "solta" capturada no instante em que gruda (a barra ainda tem o título); depois fica a mesma.
-        const altura = prev?.altura ?? bar.offsetHeight;
-        if (prev && prev.left === m.left && prev.width === m.width && prev.altura === altura) return prev;
-        return { left: m.left, width: m.width, altura };
-      });
+      return { left: m.left, width: m.width };
     };
-    medir();
-    // capture: pega rolagem de qualquer ancestral (hoje é a janela). Sidebar abrindo/fechando muda o `main` → RO.
-    window.addEventListener("scroll", medir, { passive: true, capture: true });
-    window.addEventListener("resize", medir);
-    const ro = new ResizeObserver(medir);
+    let io: IntersectionObserver | null = null;
+    let rootAtual: HTMLElement | null | undefined;
+
+    const armar = () => {
+      const root = acharScrollContainer(sentinela);
+      if (io && root === rootAtual) return; // mesmo scroll container: não recria
+      io?.disconnect();
+      rootAtual = root;
+      const topoRoot = root ? root.getBoundingClientRect().top : 0;
+      const descontar = Math.max(0, ALTURA_HEADER_LAYOUT_PX - topoRoot);
+      io = new IntersectionObserver(
+        ([entry]) => {
+          const acima = entry.boundingClientRect.top < (entry.rootBounds?.top ?? ALTURA_HEADER_LAYOUT_PX);
+          const grudar = !entry.isIntersecting && acima;
+          setFixa((prev) => {
+            if (!grudar) return prev === null ? prev : null;
+            // altura "solta" capturada no instante em que gruda (a barra ainda tem o título); depois fica a mesma.
+            return { ...geometria(), altura: prev?.altura ?? bar.offsetHeight };
+          });
+        },
+        { root, rootMargin: `-${descontar}px 0px 0px 0px`, threshold: 0 },
+      );
+      io.observe(sentinela);
+    };
+    armar();
+
+    // `main` mudou de tamanho (sidebar abrindo/fechando, conteúdo carregando): reajusta left/width e reavalia o root.
+    const reajustar = () => {
+      setFixa((prev) => {
+        if (!prev) return prev;
+        const g = geometria();
+        return g.left === prev.left && g.width === prev.width ? prev : { ...prev, ...g };
+      });
+      armar();
+    };
+    const ro = new ResizeObserver(reajustar);
     ro.observe(main);
+    window.addEventListener("resize", reajustar);
     return () => {
-      window.removeEventListener("scroll", medir, { capture: true });
-      window.removeEventListener("resize", medir);
+      io?.disconnect();
       ro.disconnect();
+      window.removeEventListener("resize", reajustar);
     };
   }, []);
 
   return (
-    <div ref={slotRef} className="mb-5" style={fixa ? { height: fixa.altura } : undefined}>
-      <div
-        ref={barRef}
-        className={cn(
-          "flex flex-wrap items-end justify-between gap-3",
-          // z-20: acima da lista, abaixo do header do layout (z-30), da barra mobile (z-40) e de modais/Sheets (z-50).
-          // bg-background: sem ele a lista que rola apareceria POR TRÁS dos filtros.
-          fixa && "fixed top-14 z-20 items-center justify-end border-b bg-background px-4 py-2 shadow-sm sm:px-6",
-        )}
-        style={fixa ? { left: fixa.left, width: fixa.width } : undefined}
-      >
-        <div className={cn("min-w-0", fixa && "hidden")}>{titulo}</div>
-        <div className="flex items-center gap-2">{children}</div>
+    <>
+      {/* Sentinela: altura 0, invisível, no fluxo logo antes da barra. */}
+      <div ref={sentinelaRef} aria-hidden className="pointer-events-none h-0" />
+      <div ref={slotRef} className="mb-5" style={fixa ? { height: fixa.altura } : undefined}>
+        <div
+          ref={barRef}
+          className={cn(
+            "flex flex-wrap items-end justify-between gap-3",
+            // z-20: acima da lista, abaixo do header do layout (z-30), da barra mobile (z-40) e de modais/Sheets (z-50).
+            // bg-background: sem ele a lista que rola apareceria POR TRÁS dos filtros.
+            fixa && "fixed top-14 z-20 items-center justify-end border-b bg-background px-4 py-2 shadow-sm sm:px-6",
+          )}
+          style={fixa ? { left: fixa.left, width: fixa.width } : undefined}
+        >
+          <div className={cn("min-w-0", fixa && "hidden")}>{titulo}</div>
+          <div className="flex items-center gap-2">{children}</div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
