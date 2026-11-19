@@ -200,6 +200,29 @@ export function baseDaCor(config: BaseConfigLinha | null | undefined, qtd: numbe
   return m && typeof m === "object" && !Array.isArray(m) ? m : {};
 }
 
+/** Demanda 3 (19/nov): a base por loja só é aplicada automaticamente quando o total digitado da cor
+ *  COINCIDE com um total cadastrado em Cadastro>Lojas (`config` tem a chave daquele total). Senão,
+ *  devolve null e a distribuição fica manual (o usuário reparte à mão, começando de 0). PURA. */
+export function baseAutoSeCasa(config: BaseConfigLinha | null | undefined, total: number): Record<string, number> | null {
+  const t = Math.round(Number(total) || 0);
+  if (t <= 0) return null;
+  const base = baseDaCor(config, t);           // {} quando não há entrada para `t`
+  return Object.keys(base).length > 0 ? base : null;
+}
+
+/** Demanda 3 — gatilho do TOTAL digitado de uma cor: se o total bate com o cadastro (`baseAutoSeCasa`), aplica a base
+ *  por loja só nessa cor (`aplicarBaseConfig`); senão devolve o MESMO objeto `dists` (manual — nada muda, nada zera).
+ *  Chave sem cor em `dists` = mesmo objeto. PURA. */
+export function aplicarTotalCor(
+  dists: Record<string, Distribuicao>, corKey: string, config: BaseConfigLinha | null | undefined, total: number,
+  lojas: string[], prop: Proporcoes, tamanhos: string[], grade?: string[],
+): Record<string, Distribuicao> {
+  if (!(corKey in dists)) return dists;
+  const auto = baseAutoSeCasa(config, total);
+  if (!auto) return dists;
+  return { ...dists, [corKey]: aplicarBaseConfig(dists[corKey] ?? {}, auto, lojas, prop, tamanhos, grade) };
+}
+
 /** F2 B' — aplica a config POR COR: cada cor de `cores` (`key` = chave em `dists`) recebe a base da SUA quantidade.
  *  `apenas` (opcional) decide por cor se entra — o pré-preenchimento passa `devePrePreencher` (CONGELAMENTO: cor com
  *  distribuição salva fica intocada); o "↺ recalcular pela config" não passa (fura o congelamento). Chaves de `dists`

@@ -139,6 +139,11 @@ export function DistribuicaoTabelas(p: {
   // F2 B — "↺ recalcular pela config": aplica a Base por loja × linha (Cadastro › Lojas) por cima de TODAS as cores,
   // só com clique (a ação explícita que fura o congelamento). Ausente = sem config/sem linha/só-leitura/impressão.
   onRecalcularConfig?: () => void;
+  // Demanda 3 (19/nov) — "Total da cor": digitar o total de uma cor; se bater com o cadastro de Lojas (`totalBate`) o dialog
+  // reparte a base sozinho, senão fica manual (base 0, a pessoa distribui à mão). Ausente = sem linha/só-leitura/impressão.
+  onTotalCor?: (corKey: string, total: number) => void;
+  totaisDigitados?: Record<string, number>;
+  totalBate?: (total: number) => boolean;
 }) {
   const imp = p.modo === "impressao";
   const bloqueado = imp || !!p.readOnly;
@@ -287,6 +292,31 @@ export function DistribuicaoTabelas(p: {
               <Button type="button" variant="outline" size="sm" className="gap-1" onClick={p.onRecalcularConfig}>
                 <RotateCcw className="h-3.5 w-3.5" />Recalcular pela config
               </Button>
+            </div>
+          )}
+          {!bloqueado && p.onTotalCor && (
+            <div className="space-y-1 rounded border p-2">
+              <p className="text-xs font-medium">Total por cor</p>
+              <p className="text-xs text-muted-foreground">
+                Digite o total da cor: se for igual ao total cadastrado em Cadastro › Lojas, a base é repartida pelas lojas sozinha; se for diferente, a base fica manual (começa em 0 e você distribui à mão).
+              </p>
+              <ul className="space-y-1">
+                {p.cores.map((c) => {
+                  const digitado = p.totaisDigitados?.[c.key];
+                  const bate = digitado !== undefined && digitado > 0 && !!p.totalBate?.(digitado);
+                  return (
+                    <li key={c.key} className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1"><NomeCor c={c} impressao={false} /></div>
+                      <NumberInput integer blankZero placeholder="0" value={digitado ?? 0} aria-label={`Total da cor ${c.cor}${c.apelido ? ` ${c.apelido}` : ""}`}
+                        className="h-8 w-20 shrink-0 text-center max-md:h-10"
+                        onChange={(e) => p.onTotalCor?.(c.key, Number(e.target.value) || 0)} />
+                      <span className="hidden w-48 shrink-0 text-xs text-muted-foreground sm:block">
+                        {digitado === undefined || digitado <= 0 ? "" : bate ? "Base do cadastro aplicada" : "Total fora do cadastro — manual"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
           <div className="overflow-x-auto rounded border">

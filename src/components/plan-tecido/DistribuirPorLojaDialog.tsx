@@ -31,7 +31,7 @@ import { varKey } from "@/lib/plan-tecido/calc";
 import { ehTecido1, igual } from "@/lib/plan-tecido/atendimento";
 import type { PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import {
-  TEXTO_AJUDA_DIST, aplicarConfigPorCor, type BaseConfigLinha, chaveSlot, definirBase, definirCelula, definirProporcao, devePrePreencher,
+  TEXTO_AJUDA_DIST, aplicarConfigPorCor, aplicarTotalCor, baseAutoSeCasa, type BaseConfigLinha, chaveSlot, definirBase, definirCelula, definirProporcao,
   normalizarDistribuicao, pathDistAberto, pathEhDoProduto, proporcaoDoTamanho, tamanhosDoTipo, temDistribuicao,
   tipoDoProduto, totaisDaDistribuicao, voltarAoCalculado, type Distribuicao,
 } from "@/lib/distribuicao-produto";
@@ -78,6 +78,8 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   }));
   const [prop, setProp] = useState(inicial.prop);
   const [dists, setDists] = useState(inicial.dists);
+  // Total digitado por cor (só para o aviso "base aplicada"/"manual"; NÃO entra no `dirty` — o que grava é `dists`).
+  const [totais, setTotais] = useState<Record<string, number>>({});
   // T6 fix1 · m5: comparação CANÔNICA (chaves ordenadas) — reusa `igual`/`canon` de atendimento.ts, não
   // JSON.stringify cru (o jsonb do Postgres reordena chaves; comparar bruto acusaria "sujo" sem edição real).
   const dirty = !igual({ prop, dists }, inicial);
@@ -163,22 +165,15 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   // F2 B — ids das lojas ATIVAS do cadastro (a config pré-preenche/recalcula só nelas).
   const idsLojasAtivas = useMemo(() => (lojasDb ?? []).filter((l) => l.ativo).map((l) => l.id), [lojasDb]);
 
-  // F2 B · CONGELAMENTO — pré-preenche a coluna Base pela config UMA vez por abertura, DEPOIS que a config E as lojas
-  // chegaram, e SÓ nas variantes SEM distribuição salva (`devePrePreencher`). Variante já salva fica CONGELADA: a
-  // config não é relida para ela ao reabrir (a única forma de puxar a config nova é o botão "↺ recalcular pela
-  // config"). Não mexe em `inicial` — a comparação de `dirty` segue contra o SALVO, então o pré-preenchimento vira
-  // uma sugestão a salvar (Salvar habilitado) que some ao descartar.
-  const preencheuRef = useRef(false);
-  useEffect(() => {
-    if (preencheuRef.current || readOnly || !baseConfig || !lojasProntas || lojasErro) return;
-    preencheuRef.current = true;
-    // CONGELAMENTO: `devePrePreencher` pula a variante com distribuição salva; cada cor usa a base da SUA quantidade.
-    setDists((atual) => {
-      const next = aplicarConfigPorCor(atual, baseConfig, cores, idsLojasAtivas, prop, tamanhos, tamanhosGrade, devePrePreencher);
-      return Object.keys(atual).some((k) => next[k] !== atual[k]) ? next : atual;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseConfig, lojasProntas, lojasErro, idsLojasAtivas]);
+  // Demanda 3 (19/nov) — a Base NASCE 0 na abertura: a config de Cadastro › Lojas NÃO é mais semeada sozinha (antes:
+  // um efeito de abertura aplicava a config nas cores sem distribuição). Cor com distribuição salva abre como foi salva
+  // (nada é zerado nem recalculado). A config só entra (1) quando o TOTAL digitado da cor BATE com o cadastro — gatilho
+  // `setTotalCor` → `aplicarTotalCor`/`baseAutoSeCasa`; total que não bate = manual, a pessoa distribui à mão — ou
+  // (2) pelo botão "↺ recalcular pela config" (ação explícita).
+  const setTotalCor = (k: string, total: number) => {
+    setTotais((t) => ({ ...t, [k]: total }));
+    setDists((atual) => aplicarTotalCor(atual, k, baseConfig, total, idsLojasAtivas, prop, tamanhos, tamanhosGrade));
+  };
 
   // F2 B — "↺ recalcular pela config": aplica a config por cima de TODAS as cores (mesmo as já salvas — é a ação
   // explícita que fura o congelamento; só com clique).
@@ -246,7 +241,10 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   const tabelas = (modo: "edicao" | "impressao") => (
     <DistribuicaoTabelas modo={modo} slotKey={slotKey} tamanhos={tamanhos} tipo={tipo} prop={prop} cores={cores} dists={dists}
       lojas={lojas} readOnly={readOnly} onProp={setPropT} onBase={setBase} onCel={setCel} onVoltar={voltar}
-      onRecalcularConfig={modo === "edicao" && !readOnly && !!slot.linha_id ? recalcularPelaConfig : undefined} />
+      onRecalcularConfig={modo === "edicao" && !readOnly && !!slot.linha_id ? recalcularPelaConfig : undefined}
+      onTotalCor={modo === "edicao" && !readOnly && !!slot.linha_id ? setTotalCor : undefined}
+      totaisDigitados={totais}
+      totalBate={(t) => baseAutoSeCasa(baseConfig, t) !== null} />
   );
 
   return (
