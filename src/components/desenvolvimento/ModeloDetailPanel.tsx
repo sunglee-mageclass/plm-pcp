@@ -10,7 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro, TEXTO_REPROVADO_EXPLOSAO } from "@/lib/erro-mensagem";
-import { labelVarianteRow } from "@/lib/variante";
+import { labelVarianteRow, labelVarianteRowComSigla } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
 import { brl } from "@/lib/format";
 import { distribuiTotal, distribuiAncora, redistribuiPorEscala, somaGrade } from "@/lib/grade-proporcao";
@@ -1524,12 +1524,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
-        .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        // Demanda 4: a Grade mostra a SIGLA da cor base e do apelido ("COR (AM) - APELIDO (019)").
+        // `sigla_sku` está fora do types.ts → select como string solta + cast.
+        .select("id, nome_variante, codigo_variante, cor:cor_id(nome, sigla_sku), apelido:cor_apelido_id(nome, sigla_sku)")
         .in("id", tecido1VarianteIds);
       if (error) throw error;
       const map: Record<string, string> = {};
-      (data ?? []).forEach((v: any) => {
-        const l = labelVarianteRow(v);
+      ((data ?? []) as any[]).forEach((v: any) => {
+        const l = labelVarianteRowComSigla(v);
         map[v.id] = l !== "—" ? l : "";
       });
       return map;

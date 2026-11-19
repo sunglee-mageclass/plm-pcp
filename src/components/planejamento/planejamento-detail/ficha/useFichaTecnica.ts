@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, ty
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { labelVarianteRow } from "@/lib/variante";
+import { labelVarianteRow, labelVarianteRowComSigla } from "@/lib/variante";
 import { useEtapasAfetadas } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import type { Draft } from "@/components/planejamento/modelo-shared";
 import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/ModeloCustosSection";
@@ -381,11 +381,12 @@ export function useFichaTecnica(a: {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
-        .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        // Demanda 4: a Grade mostra a SIGLA da cor base e do apelido. `sigla_sku` está fora do types.ts → cast.
+        .select("id, nome_variante, codigo_variante, cor:cor_id(nome, sigla_sku), apelido:cor_apelido_id(nome, sigla_sku)")
         .in("id", t1Ids);
       if (error) throw error;
       const map: Record<string, string> = {};
-      (data ?? []).forEach((v: any) => { const l = labelVarianteRow(v); map[v.id] = l !== "—" ? l : ""; });
+      ((data ?? []) as any[]).forEach((v: any) => { const l = labelVarianteRowComSigla(v); map[v.id] = l !== "—" ? l : ""; });
       return map;
     },
   });
