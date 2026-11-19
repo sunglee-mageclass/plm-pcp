@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um, ehBancoLocal } from "./db";
+import { hasDb, withTx, comoUsuario, um, ehBancoLocal, TENANT_TESTE } from "./db";
 
 const roda = hasDb && ehBancoLocal();
 
@@ -124,6 +124,61 @@ describe.skipIf(!roda)("subcategorias_tecido — tabela, coluna e gatilho mesma-
       expect(f.n).toBe(false);
       const rls = await um<any>(c, `select relrowsecurity from pg_class where oid = 'public.subcategorias_tecido'::regclass`);
       expect(rls.relrowsecurity).toBe(true);
+    });
+  });
+
+  it("RLS por atributo: INSERT sem cadastro_atributos:subcat_tecido é recusado (42501); com a permissão passa", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const s = await semear(c); // categoria criada como super_admin
+      const uid = "0c0c0c0c-0000-4000-8000-0000000000cc";
+      await c.query(`insert into auth.users (id, email) values ($1,'subtec-rls@teste') on conflict (id) do nothing`, [uid]);
+      await c.query(
+        `insert into public.users (id, tenant_id, email, nome) values ($1,$2,'subtec-rls@teste','Sub Tec RLS')
+         on conflict (id) do update set tenant_id=excluded.tenant_id`,
+        [uid, TENANT_TESTE],
+      );
+      // usuário comum do tenant: sem papel e sem permissão de atributo
+      await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
+      await c.query("SAVEPOINT sp_rls");
+      await c.query("SET LOCAL ROLE authenticated");
+      const err: any = await c
+        .query(`insert into subcategorias_tecido (nome, categoria_tecido_id) values ('Sem perm', $1)`, [s.catA])
+        .then(() => null, (e) => e);
+      await c.query("ROLLBACK TO SAVEPOINT sp_rls");
+      await c.query("RESET ROLE");
+      expect(err).not.toBeNull();
+      expect(err.code).toBe("42501");
+
+      // concede a permissão do atributo (como postgres) e repete
+      await c.query(
+        `insert into public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
+         values ($1,$2,'cadastro_atributos:subcat_tecido',true,true)`,
+        [uid, TENANT_TESTE],
+      );
+      await c.query("SET LOCAL ROLE authenticated");
+      const ok = await um<any>(c, `insert into subcategorias_tecido (nome, categoria_tecido_id) values ('Com perm', $1) returning id, tenant_id`, [s.catA]);
+      await c.query("RESET ROLE");
+      expect(ok.id).toBeTruthy();
+      expect(ok.tenant_id).toBe(TENANT_TESTE);
+    });
+  });
+
+  it("as 4 policies espelham o molde: tenant + user_can_edit('cadastro_atributos:subcat_tecido') na escrita", async () => {
+    await withTx(async (c) => {
+      const { rows } = await c.query(
+        `select polname, polcmd, coalesce(pg_get_expr(polqual,polrelid),'') q, coalesce(pg_get_expr(polwithcheck,polrelid),'') w
+           from pg_policy where polrelid='public.subcategorias_tecido'::regclass order by polname`,
+      );
+      expect(rows.map((r: any) => r.polname)).toEqual(["tenant_delete", "tenant_insert", "tenant_select", "tenant_update"]);
+      const por = Object.fromEntries(rows.map((r: any) => [r.polname, r]));
+      const key = "user_can_edit('cadastro_atributos:subcat_tecido'";
+      expect(por.tenant_select.q).not.toContain("user_can_edit");
+      expect(por.tenant_insert.w).toContain(key);
+      expect(por.tenant_insert.w).toContain("tenant_id IS NULL");
+      expect(por.tenant_update.q).toContain(key);
+      expect(por.tenant_update.w).toContain(key);
+      expect(por.tenant_delete.q).toContain(key);
     });
   });
 });

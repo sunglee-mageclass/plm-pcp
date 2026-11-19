@@ -21,15 +21,25 @@ ALTER TABLE public.subcategorias_tecido ENABLE ROW LEVEL SECURITY;
 CREATE OR REPLACE TRIGGER set_tenant_id_trg BEFORE INSERT ON public.subcategorias_tecido
   FOR EACH ROW EXECUTE FUNCTION public.set_tenant_id();
 
--- RLS tenant (select/insert/update/delete), padrao das tabelas de atributo.
+-- RLS: espelha EXATAMENTE o molde subcategorias_aviamento (tenant + permissao por atributo cadastro_atributos:<attr>).
+-- SELECT so tenant; INSERT aceita tenant_id NULL (o gatilho set_tenant_id preenche); escrita exige user_can_edit.
 DROP POLICY IF EXISTS "tenant select subtec" ON public.subcategorias_tecido;
 DROP POLICY IF EXISTS "tenant insert subtec" ON public.subcategorias_tecido;
 DROP POLICY IF EXISTS "tenant update subtec" ON public.subcategorias_tecido;
 DROP POLICY IF EXISTS "tenant delete subtec" ON public.subcategorias_tecido;
-CREATE POLICY "tenant select subtec" ON public.subcategorias_tecido FOR SELECT USING (tenant_id = public.get_user_tenant_id());
-CREATE POLICY "tenant insert subtec" ON public.subcategorias_tecido FOR INSERT WITH CHECK (tenant_id = public.get_user_tenant_id());
-CREATE POLICY "tenant update subtec" ON public.subcategorias_tecido FOR UPDATE USING (tenant_id = public.get_user_tenant_id());
-CREATE POLICY "tenant delete subtec" ON public.subcategorias_tecido FOR DELETE USING (tenant_id = public.get_user_tenant_id());
+DROP POLICY IF EXISTS "tenant_select" ON public.subcategorias_tecido;
+DROP POLICY IF EXISTS "tenant_insert" ON public.subcategorias_tecido;
+DROP POLICY IF EXISTS "tenant_update" ON public.subcategorias_tecido;
+DROP POLICY IF EXISTS "tenant_delete" ON public.subcategorias_tecido;
+CREATE POLICY "tenant_select" ON public.subcategorias_tecido FOR SELECT TO authenticated
+  USING (tenant_id = public.get_user_tenant_id());
+CREATE POLICY "tenant_insert" ON public.subcategorias_tecido FOR INSERT TO authenticated
+  WITH CHECK (((tenant_id = public.get_user_tenant_id()) OR (tenant_id IS NULL)) AND public.user_can_edit('cadastro_atributos:subcat_tecido'));
+CREATE POLICY "tenant_update" ON public.subcategorias_tecido FOR UPDATE TO authenticated
+  USING (tenant_id = public.get_user_tenant_id() AND public.user_can_edit('cadastro_atributos:subcat_tecido'))
+  WITH CHECK (tenant_id = public.get_user_tenant_id() AND public.user_can_edit('cadastro_atributos:subcat_tecido'));
+CREATE POLICY "tenant_delete" ON public.subcategorias_tecido FOR DELETE TO authenticated
+  USING (tenant_id = public.get_user_tenant_id() AND public.user_can_edit('cadastro_atributos:subcat_tecido'));
 
 CREATE INDEX IF NOT EXISTS idx_subtec_tenant ON public.subcategorias_tecido(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_subtec_categoria ON public.subcategorias_tecido(categoria_tecido_id);

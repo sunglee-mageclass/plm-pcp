@@ -97,6 +97,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
           { key: "cadastro_atributos:cat_tecido", label: "Categoria do Tecido" },
           { key: "cadastro_atributos:cat_aviamento", label: "Categoria de Aviamento" },
           { key: "cadastro_atributos:subcat_aviamento", label: "Subcategoria de Aviamento" },
+          { key: "cadastro_atributos:subcat_tecido", label: "Subcategoria de Tecido" },
           { key: "cadastro_atributos:mat_aviamento", label: "Material de Aviamento" },
           { key: "cadastro_atributos:intervalo_largura", label: "Intervalo de Largura" },
           { key: "cadastro_atributos:tipo_insumo", label: "Tipo de Produto (Insumo)" },
