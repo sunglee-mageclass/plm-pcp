@@ -56,6 +56,7 @@ export function TecidosBomSecao({
   camposCopiados = new Set(),
   onCampoEditado,
   estoque = SEM_ESTOQUE,
+  categoriasPorArtigo,
   disabled = false,
 }: {
   modeloId: string;
@@ -71,6 +72,8 @@ export function TecidosBomSecao({
   onCampoEditado?: (k: string) => void;
   /** F3.2 — estoque por artigo (`estoque_tecido_por_artigo`) p/ o seletor (decisão F3 #10). */
   estoque?: Record<string, EstoqueArtigo>;
+  /** artigo_id → "Categoria › Subcategoria, …" (SÓ leitura; vem de `useFichaDados`, helper `tecido-categoria-label`). */
+  categoriasPorArtigo?: Map<string, string>;
   /**
    * T9 I1(b) — o Radix Select ignora `<fieldset disabled>` (F3.1, `DevEquipeSection.tsx:15-20`): o
    * `<fieldset>` do `BomSecoes` trava inputs nativos, mas não os Selects/botão desta cópia. Camada (b):
@@ -208,6 +211,7 @@ export function TecidosBomSecao({
                     artigos={artigosOpts}
                     allArtigos={artigos}
                     artigoNomeById={artigoNomeById}
+                    categoriasPorArtigo={categoriasPorArtigo}
                     gradeTotalByPos={gradeTotalByPos}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
                     onChangeVariante={(vi, val) => onChangeVariante(idx, vi, val)}
@@ -251,6 +255,7 @@ function TecidoBlockEditor({
   artigos,
   allArtigos,
   artigoNomeById,
+  categoriasPorArtigo,
   gradeTotalByPos,
   onChangeBlock,
   onChangeVariante,
@@ -270,6 +275,7 @@ function TecidoBlockEditor({
   artigos: ArtigoOpt[];
   allArtigos: ArtigoOpt[];
   artigoNomeById: Map<string, string>;
+  categoriasPorArtigo?: Map<string, string>;
   gradeTotalByPos: (numero: number) => number;
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
   onChangeVariante: (vIdx: number, val: string | null) => void;
@@ -391,6 +397,10 @@ function TecidoBlockEditor({
             estoque={estoque}
             disabled={disabled}
           />
+          {/* Só leitura: "Categoria › Subcategoria" do tecido escolhido (sem categoria → nada). */}
+          {block.artigo_id && categoriasPorArtigo?.get(block.artigo_id) && (
+            <p className="mt-1 text-xs text-muted-foreground" data-testid="tecido-categorias">{categoriasPorArtigo.get(block.artigo_id)}</p>
+          )}
         </div>
         <Field label="Consumo">
           <NumberInput type="number" step="0.001" placeholder="0,000" className={classeCopiado(camposCopiados, keyConsumo)} value={block.consumo || ""} onChange={(e) => { onChangeBlock({ consumo: Number(e.target.value) || 0 }); onCampoEditado?.(keyConsumo); }} />
@@ -412,6 +422,7 @@ function TecidoBlockEditor({
             {(block.artigoIdsExtra ?? []).map((id) => (
               <Badge key={id} variant="secondary" className="gap-1">
                 {artigoNomeById.get(id) ?? id}
+                {categoriasPorArtigo?.get(id) && <span className="font-normal text-muted-foreground">· {categoriasPorArtigo.get(id)}</span>}
                 <button
                   type="button"
                   aria-label="Remover"

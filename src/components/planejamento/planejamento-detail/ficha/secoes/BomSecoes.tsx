@@ -101,6 +101,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
             artigos={dados.artigos}
             artigosForro={dados.artigosForro}
             artigosEntretela={dados.artigosEntretela}
+            categoriasPorArtigo={dados.categoriasPorArtigo}
             grades={estado.grades}
             onChangeBlock={handlers.updateBlock}
             onChangeVariante={handlers.updateBlockVariante}

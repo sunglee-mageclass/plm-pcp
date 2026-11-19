@@ -72,7 +72,7 @@ function casadaComLabel(v: TecidoRow["variantes"][number], tecido1LabelById?: Ma
 }
 
 /** Tabela de variantes (mesmo esquema p/ tecido e p/ forro/entretela). */
-export function MaterialTable({ blocks, colMaterial, ocLinksByKey, tecido1LabelById }: { blocks: TecidoRow[]; colMaterial: string; ocLinksByKey?: Record<string, string[]>; tecido1LabelById?: Map<string, string> }) {
+export function MaterialTable({ blocks, colMaterial, ocLinksByKey, tecido1LabelById, mostrarCategorias = false }: { blocks: TecidoRow[]; colMaterial: string; ocLinksByKey?: Record<string, string[]>; tecido1LabelById?: Map<string, string>; /** Ficha TÉCNICA: mostra "Categoria › Sub" sob o nome do tecido (a Ficha de Corte não). */ mostrarCategorias?: boolean }) {
   const rows = blocks.flatMap((t) =>
     (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
   );
@@ -107,7 +107,10 @@ export function MaterialTable({ blocks, colMaterial, ocLinksByKey, tecido1LabelB
                 {varLabel(v)}
                 {casada && <div style={{ fontSize: 9, color: "#999" }}>{casada}</div>}
               </td>
-              <td style={cW}>{t.artigo_nome ?? ""}</td>
+              <td style={cW}>
+                {t.artigo_nome ?? ""}
+                {mostrarCategorias && t.categorias_label && <div style={{ fontSize: 9, color: "#666" }}>{t.categorias_label}</div>}
+              </td>
               <td style={cW}>{ocs.length ? ocs.map((n) => `OC ${n}`).join(", ") : ""}</td>
               <td style={cW}>{fmt2(t.consumo_cad)}</td>
               <td style={cW}>{fmt2(v.metragem_planejada)}</td>

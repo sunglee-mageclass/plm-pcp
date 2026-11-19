@@ -31,6 +31,8 @@ export type TecidoRow = {
   preco: number;
   largura?: number | null;
   artigo_nome?: string | null;
+  /** "Categoria › Subcategoria, …" do artigo (SÓ leitura, Ficha Técnica impressa; "" = sem categoria). */
+  categorias_label?: string;
   etiqueta_lavagem_urls?: string[];
   variantes: VarianteRow[];
 };

@@ -11,6 +11,7 @@ import type { EtiquetaInfo, Opt } from "@/components/desenvolvimento/modelo-deta
 import type { AviamentoVarOpt } from "@/components/desenvolvimento/modelo-detail/ModeloAviamentosSection";
 import type { AviamentoRowDb, EtiquetaRowDb, GradeRowDb, OcLinkRowDb, TecidoRowDb, VarianteRowDb } from "./ficha-calc";
 import type { CadRowDb } from "./ficha-cad";
+import { montarParesPorArtigo, rotulosPorArtigo } from "@/lib/tecido-categoria-label";
 
 export type ArtigoFicha = {
   id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null;
@@ -22,7 +23,8 @@ export type AviamentoFicha = { id: string; codigo_nome: string; preco: number | 
 // Defaults ESTÁVEIS (mesma identidade entre renders) — evita efeitos rodando à toa (Dev :751-758).
 const SEM_ARTIGOS: ArtigoFicha[] = [];
 const SEM_CATEGORIAS: Opt[] = [];
-const SEM_LINKS_CAT: { artigo_id: string; categoria_tecido_id: string }[] = [];
+const SEM_LINKS_CAT: { artigo_id: string; categoria_tecido_id: string; subcategoria_tecido_id: string | null }[] = [];
+const SEM_SUBS: Opt[] = [];
 const SEM_AVIAMENTOS: AviamentoFicha[] = [];
 const SEM_ETIQUETAS: EtiquetaInfo[] = [];
 const SEM_PRECOS: Record<string, number> = {};
@@ -88,9 +90,19 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
     queryKey: ["plan-ficha-artigo-cats"],
     enabled: on,
     queryFn: async () => {
-      const { data, error } = await supabase.from("artigo_categorias_tecido").select("artigo_id, categoria_tecido_id");
+      // `subcategoria_tecido_id` ainda não está no types.ts gerado → cast (só leitura: rótulo "Categoria › Sub" na Ficha).
+      const { data, error } = await (supabase.from("artigo_categorias_tecido") as any).select("artigo_id, categoria_tecido_id, subcategoria_tecido_id");
       if (error) throw error;
-      return (data ?? []) as { artigo_id: string; categoria_tecido_id: string }[];
+      return (data ?? []) as { artigo_id: string; categoria_tecido_id: string; subcategoria_tecido_id: string | null }[];
+    },
+  });
+  const qSubTecido = useQuery({
+    queryKey: ["plan-ficha-sub-tecido"],
+    enabled: on,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("subcategorias_tecido" as any) as any).select("id, nome").order("nome");
+      if (error) throw error;
+      return (data ?? []) as Opt[];
     },
   });
   const qAviamentos = useQuery({
@@ -271,6 +283,14 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
     });
     return m;
   }, [artigoCatLinks]);
+  // Rótulo só-leitura "Categoria › Subcategoria" por artigo (mesmo helper da Ficha impressa).
+  const subsTecido = qSubTecido.data ?? SEM_SUBS;
+  const categoriasPorArtigo = useMemo(() => {
+    const catNome = new Map(categoriasTecido.map((c) => [c.id, c.nome] as const));
+    const subNome = new Map(subsTecido.map((x) => [x.id, x.nome] as const));
+    const principal = new Map(artigos.map((a) => [a.id, a.categoria_tecido_id] as const));
+    return rotulosPorArtigo(montarParesPorArtigo(artigoCatLinks, catNome, subNome, principal));
+  }, [artigoCatLinks, categoriasTecido, subsTecido, artigos]);
   const artigosPorCategoriaNome = (nome: string) => {
     const cat = categoriasTecido.find((c) => c.nome.trim().toLowerCase() === nome.toLowerCase());
     if (!cat) return SEM_ARTIGOS;
@@ -297,7 +317,7 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
   etiquetasDataRef.current = qEtiquetasModelo.data;
 
   return {
-    artigos, artigoMap, artigosForro, artigosEntretela,
+    artigos, artigoMap, artigosForro, artigosEntretela, categoriasPorArtigo,
     aviamentos, aviamentoMap, etiquetaOpts, etiquetaMap,
     tamanhos, tenantCfg, revendaCfg,
     tecidosData: qTecidos.data,

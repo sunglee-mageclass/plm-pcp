@@ -6,6 +6,7 @@ import { varianteLabel, corApelidoLabel } from "@/lib/variante";
 import { roundTo } from "@/lib/num";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTamanhoVinculadoInsumos } from "@/hooks/useTamanhoVinculadoInsumos";
+import { montarParesPorArtigo, rotuloCategoriasTecido } from "@/lib/tecido-categoria-label";
 import type { TecidoRow, GradeRow, AviamentoRow, EtiquetaRow } from "./types";
 
 const num = (v: any) => Number(v ?? 0) || 0;
@@ -74,9 +75,35 @@ export function useFichaData(modeloId: string): FichaData {
     queryFn: async () => {
       const { data } = await supabase
         .from("cad_tecidos")
-        .select("*, artigos:artigo_id(nome, composicao, etiqueta_lavagem_urls, largura_estimada), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .select("*, artigos:artigo_id(nome, composicao, etiqueta_lavagem_urls, largura_estimada, categoria_tecido_id), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
         .eq("cad_id", cadId);
       return data ?? [];
+    },
+  });
+
+  // Categoria › Subcategoria de cada tecido (SÓ leitura, p/ a Ficha Técnica impressa). Caminho separado do da tela viva
+  // (`useFichaDados`), mas o rótulo sai do MESMO helper (`@/lib/tecido-categoria-label`). `subcategoria_tecido_id` ainda não
+  // está no types.ts gerado → cast.
+  const artigoIdsTecidos = useMemo(
+    () => Array.from(new Set((cadTecidos as any[]).map((t) => t.artigo_id as string | null).filter((x): x is string => !!x))).sort(),
+    [cadTecidos],
+  );
+  const { data: catsTecidoPorArtigo, isFetched: catsTecidoFetched } = useQuery({
+    queryKey: ["ft-tecido-categorias", tenantId, artigoIdsTecidos.join(",")],
+    enabled: artigoIdsTecidos.length > 0,
+    queryFn: async () => {
+      const [links, cats, subs] = await Promise.all([
+        (supabase.from("artigo_categorias_tecido") as any).select("artigo_id, categoria_tecido_id, subcategoria_tecido_id").in("artigo_id", artigoIdsTecidos),
+        supabase.from("categorias_tecido").select("id, nome"),
+        (supabase.from("subcategorias_tecido" as any) as any).select("id, nome"),
+      ]);
+      if (links.error) throw links.error;
+      if (cats.error) throw cats.error;
+      if (subs.error) throw subs.error;
+      const catNome = new Map(((cats.data ?? []) as { id: string; nome: string }[]).map((c) => [c.id, c.nome] as const));
+      const subNome = new Map(((subs.data ?? []) as { id: string; nome: string }[]).map((x) => [x.id, x.nome] as const));
+      const principal = new Map((cadTecidos as any[]).map((t) => [t.artigo_id as string, (t.artigos?.categoria_tecido_id ?? null) as string | null] as const));
+      return montarParesPorArtigo((links.data ?? []) as any[], catNome, subNome, principal);
     },
   });
 
@@ -166,6 +193,7 @@ export function useFichaData(modeloId: string): FichaData {
         preco: 0,
         largura: t.artigos?.largura_estimada ?? null,
         artigo_nome: t.artigos?.nome ?? null,
+        categorias_label: t.artigo_id ? rotuloCategoriasTecido(catsTecidoPorArtigo?.get(t.artigo_id)) : "",
         etiqueta_lavagem_urls: t.artigos?.etiqueta_lavagem_urls ?? [],
         variantes: (t.cad_tecido_variantes ?? []).map((v: any) => ({
           variante_tecido_id: v.variante_tecido_id,
@@ -184,7 +212,7 @@ export function useFichaData(modeloId: string): FichaData {
         const ord: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
         return (ord[a.tipo] ?? 9) - (ord[b.tipo] ?? 9) || ((a.numero ?? 0) - (b.numero ?? 0));
       }),
-    [cadTecidos],
+    [cadTecidos, catsTecidoPorArtigo],
   );
 
   const grades: GradeRow[] = useMemo(
@@ -290,7 +318,7 @@ export function useFichaData(modeloId: string): FichaData {
     // Só está "pronto" quando o modelo, o CAD e a grade carregaram (e, havendo
     // CAD, os tecidos). Evita imprimir a ficha em branco no 1º clique (cache frio).
     // urg R1: o vínculo de tamanho dos insumos também tem de ter chegado (senão o insumo vinculado sairia como "Geral").
-    isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched) && tamVinc !== undefined,
+    isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched) && (artigoIdsTecidos.length === 0 || catsTecidoFetched) && tamVinc !== undefined,
     tamanhoVinculadoErro: tamVincIsErr && tamVinc === undefined,
     refazerTamanhoVinculado,
   };
