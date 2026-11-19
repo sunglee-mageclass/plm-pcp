@@ -383,7 +383,7 @@ describe("Plan. Tecido — dialog Distribuir por loja (impressão em paisagem + 
   it("poucas variantes (≤10) continuam em 1 coluna/1 tabela só, como antes", () => {
     // o ramo 'else' (1 tabela única com todas as lojas dentro) continua existindo para esse caso
     expect(tab).toContain('<div className="overflow-x-auto rounded border">');
-    expect(tab).toContain('<table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">');
+    expect(tab).toContain('<table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor" ref={nav.gridRef as RefObject<HTMLTableElement>}>');
   });
 });
 

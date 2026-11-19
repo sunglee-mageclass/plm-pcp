@@ -2,14 +2,14 @@
 // Total, com a linha "Proporção por tamanho" do card e o subtotal por loja; (2) "Total por cor × tamanho" (= pç no card).
 // UM componente para a TELA (inputs, `data-colab-path` por campo — R19) e a IMPRESSÃO (texto, sem botões). Celular:
 // rolagem horizontal só dentro da tabela, 1ª coluna fixa com nome ABREVIADO (toque abre o nome completo).
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useRef, useState, type RefObject } from "react";
 import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { TamanhoTipo } from "@/lib/tamanho";
-import { proximaCelulaTeclado } from "@/lib/plan-tecido/calc";
+import { useGradeTeclado } from "@/lib/grade-teclado";
 import {
   abreviarNome, linhaVista, pathDistBase, pathDistCel, pathDistProp, rotuloTamanho, somaVistas, temDistribuicao,
   type Distribuicao,
@@ -154,38 +154,20 @@ export function DistribuicaoTabelas(p: {
   // do <td> não centraliza a CAIXA, só o texto dentro dela; `mx-auto` centraliza a caixa na célula.
   // F2 D — teclado na grade (só células Base + tamanhos dos blocos loja×cor; a linha de proporção fica de fora).
   // "Linha" = bloco loja×cor na ordem da tela (loja externa, cor interna); "coluna" 0 = Base, 1.. = tamanhos.
-  // Enter desce / Tab à direita (estoura p/ a próxima linha) / Shift+Tab inverso — decisão em `proximaCelulaTeclado`
-  // (pura, testada). O destino é achado por `data-colab-path` DENTRO da própria tabela e focado num rAF (convive com
-  // o rAF de cursor do NumberInput.onFocus). Sem destino (borda): Tab segue o fluxo nativo do navegador.
+  // Navegação vem do hook compartilhado `useGradeTeclado` (Enter desce / Tab à direita, estoura p/ a próxima linha /
+  // Shift+Tab inverso; pula célula travada). O destino é achado por `data-grade-cel="linha:coluna"` DENTRO da tabela de
+  // edição (`nav.gridRef`) e focado num rAF. `data-colab-path` segue no input só para a co-edição (anel de presença).
   const nCores = p.cores.length;
   const nLinhasGrade = p.lojas.length * nCores;
   const nColunasGrade = 1 + p.tamanhos.length;
-  const caminhoCelula = (linha: number, coluna: number): string | null => {
-    const loja = p.lojas[Math.floor(linha / nCores)];
-    const cor = p.cores[linha % nCores];
-    if (!loja || !cor) return null;
-    return coluna === 0
-      ? pathDistBase(p.slotKey, loja.id, cor.key)
-      : pathDistCel(p.slotKey, loja.id, cor.key, p.tamanhos[coluna - 1]);
-  };
-  const aoTeclar = (linha: number, coluna: number) => (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if ((e.key !== "Enter" && e.key !== "Tab") || e.ctrlKey || e.metaKey || e.altKey) return;
-    const tecla = e.key;
-    const alvo = proximaCelulaTeclado({ tecla, comShift: e.shiftKey, linha, coluna, nLinhas: nLinhasGrade, nColunas: nColunasGrade });
-    const path = alvo ? caminhoCelula(alvo.linha, alvo.coluna) : null;
-    const raiz = e.currentTarget.closest("table") ?? document;
-    const el = path ? raiz.querySelector<HTMLInputElement>(`[data-colab-path="${CSS.escape(path)}"]`) : null;
-    if (!el) { if (tecla === "Enter") e.preventDefault(); return; }
-    e.preventDefault();
-    requestAnimationFrame(() => el.focus());
-  };
-  const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "", nav?: { linha: number; coluna: number }) =>
+  const nav = useGradeTeclado({ nLinhas: nLinhasGrade, nColunas: nColunasGrade });
+  const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "", pos?: { linha: number; coluna: number }) =>
     bloqueado ? (
       <span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
     ) : (
       <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path}
         className={`mx-auto h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
-        onKeyDown={nav ? aoTeclar(nav.linha, nav.coluna) : undefined}
+        {...(pos ? nav.propsDaCelula(pos.linha, pos.coluna) : {})}
         onChange={(e) => onChange(Number(e.target.value) || 0)} />
     );
   const comDist = p.cores.filter((c) => temDistribuicao(p.dists[c.key]));
@@ -308,7 +290,7 @@ export function DistribuicaoTabelas(p: {
             </div>
           )}
           <div className="overflow-x-auto rounded border">
-            <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">
+            <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor" ref={nav.gridRef as RefObject<HTMLTableElement>}>
               {cabecalhoTabela}
               <tbody>
                 {linhaProporcao}
