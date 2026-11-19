@@ -157,7 +157,30 @@ const ATTRIBUTES: AttributeItem[] = [
         { table: "artigos", column: "categoria_tecido_id" },
         { table: "produtos_acabados", column: "categoria_tecido_id" },
         { table: "produtos_importados", column: "categoria_tecido_id" },
+        { table: "subcategorias_tecido", column: "categoria_tecido_id" },
       ],
+    },
+  },
+  {
+    // `value` = chave de permissao `cadastro_atributos:subcat_tecido` (permissions-catalog + RLS), igual ao subcat_aviamento.
+    value: "subcat_tecido",
+    label: "Subcategoria",
+    group: "TECIDO",
+    config: {
+      table: "subcategorias_tecido",
+      nameField: "nome",
+      singular: "Subcategoria de Tecido",
+      plural: "Subcategorias de Tecido",
+      // A sub de tecido mora na N:N artigo x categoria (nao em `artigos`).
+      usage: [{ table: "artigo_categorias_tecido", column: "subcategoria_tecido_id" }],
+      extraFirst: true,
+      extra: {
+        field: "categoria_tecido_id",
+        label: "Categoria de Tecido",
+        from: "categorias_tecido",
+        optionLabel: "nome",
+        required: true,
+      },
     },
   },
   {
