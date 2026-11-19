@@ -2461,7 +2461,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
                 onBlurCapture={() => setCampoFocadoColab(null)}
               >
                 <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
-                <div className="mb-3 flex flex-wrap items-center gap-2">
+                {/* Toolbar de filtros FIXO (sticky) ao rolar o canvas — dono, nov/2026. É filho DIRETO deste
+                    <main overflow-y-auto> (o scroll container), então `sticky top-0` puro basta. `-mx-3 -mt-3 px-3 pt-3`
+                    cancelam o p-3 do main (o fundo cobre a largura toda e gruda rente ao topo); `bg-background` impede a
+                    lista de aparecer por trás; z-20 acima dos cards, abaixo dos popovers/modais (portais z-50). */}
+                <div className="sticky top-0 z-20 -mx-3 -mt-3 mb-3 flex flex-wrap items-center gap-2 border-b bg-background px-3 pb-2 pt-3">
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {/* dupla régua explicada: a etapa 2 conta MODELOS reais; o canvas conta ITENS
                         (modelos + vagas do OTB) — sem o rótulo, "58" virava "93" sem explicação (laudo). */}
