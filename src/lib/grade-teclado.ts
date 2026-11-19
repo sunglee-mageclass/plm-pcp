@@ -1,5 +1,6 @@
 // Navegação por teclado em grades (Enter desce / Tab ao lado), pulando células travadas.
 // Spec: docs/superpowers/specs/2026-11-19-navegacao-teclado-grades-design.md
+import { useCallback, useRef, type KeyboardEvent, type RefObject } from "react";
 import { proximaCelulaTeclado } from "@/lib/plan-tecido/calc";
 
 export function proximaCelulaDisponivel(a: {
@@ -14,4 +15,38 @@ export function proximaCelulaDisponivel(a: {
     if (a.disponivel(pos.linha, pos.coluna)) return pos;
   }
   return null;
+}
+
+// Hook: endereca as celulas por data-grade-cel="<linha>:<coluna>" e, no Enter/Tab, foca a proxima celula habilitada.
+// Na borda (sem destino): Enter faz preventDefault; Tab segue o fluxo nativo do navegador.
+export function useGradeTeclado(o: { nLinhas: number; nColunas: number }): {
+  gridRef: RefObject<HTMLElement | null>;
+  propsDaCelula: (linha: number, coluna: number) => { "data-grade-cel": string; onKeyDown: (e: KeyboardEvent<HTMLElement>) => void };
+} {
+  const gridRef = useRef<HTMLElement | null>(null);
+  const nRef = useRef(o);
+  nRef.current = o;
+
+  const achar = useCallback((linha: number, coluna: number): HTMLInputElement | null => {
+    const raiz: ParentNode = gridRef.current ?? document;
+    return raiz.querySelector<HTMLInputElement>(`[data-grade-cel="${linha}:${coluna}"]`);
+  }, []);
+
+  const propsDaCelula = useCallback((linha: number, coluna: number) => ({
+    "data-grade-cel": `${linha}:${coluna}`,
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      if ((e.key !== "Enter" && e.key !== "Tab") || e.ctrlKey || e.metaKey || e.altKey) return;
+      const { nLinhas, nColunas } = nRef.current;
+      const alvo = proximaCelulaDisponivel({
+        tecla: e.key, comShift: e.shiftKey, linha, coluna, nLinhas, nColunas,
+        disponivel: (l, c) => { const el = achar(l, c); return !!el && !el.disabled; },
+      });
+      if (!alvo) { if (e.key === "Enter") e.preventDefault(); return; }
+      e.preventDefault();
+      const el = achar(alvo.linha, alvo.coluna);
+      if (el) requestAnimationFrame(() => el.focus());
+    },
+  }), [achar]);
+
+  return { gridRef, propsDaCelula };
 }
