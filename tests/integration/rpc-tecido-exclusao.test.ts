@@ -72,13 +72,15 @@ describe.skipIf(!hasDb)("Tecidos — índice único e categorias atômicas", () 
       const cats = await c.query(`select id from categorias_tecido limit 2`);
       if (cats.rows.length < 2) return;
       const c1 = cats.rows[0].id, c2 = cats.rows[1].id;
-      await um(c, `select public.set_artigo_categorias($1, $2::uuid[])`, [a.id, [c1, c2]]);
+      // [subcategoria de tecido T2] a RPC passou a (uuid, jsonb): _pares = [{categoria_tecido_id, subcategoria_tecido_id}]
+      const pares = (...ids: string[]) => JSON.stringify(ids.map((id) => ({ categoria_tecido_id: id, subcategoria_tecido_id: null })));
+      await um(c, `select public.set_artigo_categorias($1, $2::jsonb)`, [a.id, pares(c1, c2)]);
       let n = await um<{ n: string }>(c, `select count(*)::text n from artigo_categorias_tecido where artigo_id=$1`, [a.id]);
       expect(n.n).toBe("2");
-      await um(c, `select public.set_artigo_categorias($1, $2::uuid[])`, [a.id, [c1]]);
+      await um(c, `select public.set_artigo_categorias($1, $2::jsonb)`, [a.id, pares(c1)]);
       n = await um<{ n: string }>(c, `select count(*)::text n from artigo_categorias_tecido where artigo_id=$1`, [a.id]);
       expect(n.n).toBe("1");
-      await um(c, `select public.set_artigo_categorias($1, $2::uuid[])`, [a.id, []]);
+      await um(c, `select public.set_artigo_categorias($1, $2::jsonb)`, [a.id, pares()]);
       n = await um<{ n: string }>(c, `select count(*)::text n from artigo_categorias_tecido where artigo_id=$1`, [a.id]);
       expect(n.n).toBe("0");
     });
