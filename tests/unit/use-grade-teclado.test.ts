@@ -112,4 +112,53 @@ describe("useGradeTeclado", () => {
     outra.remove();
     cleanup();
   });
+  // happy-dom devolve getClientRects().length === 1 para tudo (nao calcula layout): simulamos "display:none" por override.
+  const esconder = (el: Element) => Object.defineProperty(el, "getClientRects", { value: () => [] });
+  function montarDuplicada(escondidoPrimeiro: boolean, ambosEscondidos = false) {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    let gh: ReturnType<typeof useGradeTeclado> | null = null;
+    function Grade() {
+      const h = useGradeTeclado({ nLinhas: 2, nColunas: 2 });
+      gh = h;
+      // dois layouts (desktop + mobile) no mesmo gridRef: cada coordenada 2x
+      return createElement("div", { ref: (el: HTMLDivElement | null) => { (h.gridRef as any).current = el; } },
+        ["desk", "mob"].map((lay) => createElement("section", { key: lay, "data-lay": lay },
+          [0, 1].flatMap((l) => [0, 1].map((c) => createElement("input", { key: `${l}:${c}`, ...h.propsDaCelula(l, c) }))))));
+    }
+    const root = createRoot(host);
+    act(() => root.render(createElement(Grade)));
+    const por = (lay: string, cel: string) => host.querySelector<HTMLInputElement>(`[data-lay="${lay}"] [data-grade-cel="${cel}"]`)!;
+    const [escondido, visivel] = escondidoPrimeiro ? ["desk", "mob"] : ["mob", "desk"];
+    for (const c of ["0:0", "0:1", "1:0", "1:1"]) { esconder(por(escondido, c)); if (ambosEscondidos) esconder(por(visivel, c)); }
+    void gh;
+    return { por, escondido, visivel, cleanup: () => { act(() => root.unmount()); host.remove(); } };
+  }
+  function enter(el: HTMLElement) {
+    el.focus();
+    const ev = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    act(() => { el.dispatchEvent(ev); });
+    act(() => { vi.runAllTimers(); });
+    return ev;
+  }
+  it("mobile: pula o input escondido (1o no DOM) e foca o visivel", () => {
+    const { por, visivel, cleanup } = montarDuplicada(true);
+    enter(por(visivel, "0:1"));
+    expect(document.activeElement).toBe(por(visivel, "1:1"));
+    cleanup();
+  });
+  it("desktop: com o mobile escondido (2o no DOM) foca o do desktop", () => {
+    const { por, visivel, cleanup } = montarDuplicada(false);
+    enter(por(visivel, "0:1"));
+    expect(document.activeElement).toBe(por(visivel, "1:1"));
+    cleanup();
+  });
+  it("nenhuma ocorrencia visivel do alvo: nao foca nada (fail-closed)", () => {
+    const { por, escondido, cleanup } = montarDuplicada(true, true);
+    const origem = por(escondido, "0:1");
+    const ev = enter(origem);
+    expect(ev.defaultPrevented).toBe(true); // borda/sem destino: Enter engolido, mas sem foco em lugar nenhum
+    expect(document.activeElement).toBe(origem);
+    cleanup();
+  });
 });

@@ -30,7 +30,11 @@ export function useGradeTeclado(o: { nLinhas: number; nColunas: number }): {
   const achar = useCallback((linha: number, coluna: number): HTMLInputElement | null => {
     const raiz = gridRef.current;
     if (!raiz) return null; // fail-closed: sem gridRef nao ha onde buscar (nunca cai no document)
-    return raiz.querySelector<HTMLInputElement>(`[data-grade-cel="${linha}:${coluna}"]`);
+    // MatrizGradeResponsiva monta desktop E mobile no DOM: a mesma coordenada aparece 2x. Pega a 1a VISIVEL
+    // (display:none => getClientRects().length === 0); nenhuma visivel => null.
+    const todos = raiz.querySelectorAll<HTMLInputElement>(`[data-grade-cel="${linha}:${coluna}"]`);
+    for (const el of Array.from(todos)) if (el.getClientRects().length > 0) return el;
+    return null;
   }, []);
 
   const propsDaCelula = useCallback((linha: number, coluna: number) => ({
