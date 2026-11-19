@@ -201,4 +201,32 @@ describe.skipIf(!roda)("set_artigo_categorias(uuid, jsonb) — pares categoria+s
       expect(e?.code).toBe("42501");
     });
   });
+
+  it("11) importar_tecido_linha COM _categoria_ids (uuid[]) grava as categorias pela nova jsonb (sub nasce NULL) — criar e complementar; SEM categoria segue ok", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const s = await semear(c);
+      const nome = `IMP-SETCAT-${s.sfx}`;
+      const imp = (cats: string[] | null, alvo: string | null = null) =>
+        um<any>(c, `select public.importar_tecido_linha($1::jsonb, '[]'::jsonb, $2::uuid[], $3::uuid) r`, [JSON.stringify({ nome }), cats, alvo]).then((x) => x.r);
+      // criar COM categorias (cenário que quebrava com "function set_artigo_categorias(uuid, uuid[]) does not exist")
+      const r1 = await imp([s.catA, s.catB]);
+      expect(r1.acao).toBe("criado");
+      expect(await ler(c, r1.artigo_id)).toEqual(ordenado([{ cat: s.catA, sub: null }, { cat: s.catB, sub: null }]));
+      // complementar COM categorias: delete-all + reinsert (como antes); a sub existente nasce NULL de novo (planilha não traz sub)
+      await chamar(c, r1.artigo_id, [par(s.catA, s.subA)]);
+      const r2 = await imp([s.catB], r1.artigo_id);
+      expect(r2.artigo_id).toBe(r1.artigo_id);
+      expect(await ler(c, r1.artigo_id)).toEqual([{ cat: s.catB, sub: null }]);
+      // SEM categoria (null ou vazio): não toca nas categorias existentes e não quebra
+      const r3 = await imp(null, r1.artigo_id);
+      expect(r3.artigo_id).toBe(r1.artigo_id);
+      await imp([], r1.artigo_id);
+      expect(await ler(c, r1.artigo_id)).toEqual([{ cat: s.catB, sub: null }]);
+      // criar SEM categoria
+      const r4 = await um<any>(c, `select public.importar_tecido_linha($1::jsonb, '[]'::jsonb, null::uuid[]) r`, [JSON.stringify({ nome: nome + "-B" })]).then((x) => x.r);
+      expect(r4.acao).toBe("criado");
+      expect(await ler(c, r4.artigo_id)).toEqual([]);
+    });
+  });
 });
