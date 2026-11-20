@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cadeiaValores } from "@/lib/produto-acabado";
+import { useAuth } from "@/hooks/useAuth";
+import { podeVerPrecoVarejo } from "@/lib/preco-permissao";
 import type { Bucket } from "@/components/otb/orcamento";
 import { fmtMoney, somaPecas, type ProdutoDraft } from "./shared";
 
@@ -52,6 +54,10 @@ export function ResumoRevendaPanel({
    *  "comprometido" tem que mostrar EXATAMENTE esse mesmo `realizado`/`total`. */
   otbBucket: Bucket | null;
 }) {
+  // Permissão de preço (19/nov): VER o preço de venda (varejo) é chave PRÓPRIA, independente de custos. Sem ela, "Poder de venda" mostra "—"
+  // (o bloco NÃO some; o cálculo e o "Custo previsto" — que segue em custos — não mudam). Derivado AQUI (negado por padrão, sem prop que vaze).
+  const { canView } = useAuth();
+  const veVarejo = podeVerPrecoVarejo(canView);
   const totalPecas = produtos.reduce((a, p) => a + somaPecas(p), 0);
   // Poder de venda = Σ preco_venda do espelho × peças do produto (§ regra preco.ts — aqui o
   // preço é digitado no Plan. Produto, não derivado por markup; produto sem espelho não conta).
@@ -82,7 +88,11 @@ export function ResumoRevendaPanel({
   return (
     <div className="space-y-2">
       <Secao title="Poder de venda (previsto)">
-        {comFornec > 0 ? (
+        {!veVarejo ? (
+          <div className="p-2">
+            <div className="flex justify-between text-xs"><span>Σ preço × peças</span><b>—</b></div>
+          </div>
+        ) : comFornec > 0 ? (
           <div className="p-2">
             <div className="flex justify-between text-xs"><span>Σ preço × peças</span><b>{fmtMoney(poderVenda)}</b></div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">{comFornec} de {produtos.length} produtos com card/preço</div>

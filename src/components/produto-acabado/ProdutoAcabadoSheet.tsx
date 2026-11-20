@@ -12,6 +12,7 @@ import { TEXTO_CONFLITO_PEDIDO, type OcCriadaLote, type PedidoOc, type ProdutoPe
 import { EMBED_OC_ITEM_PA, nomeDoFornecedor, ocInfoDeItens } from "@/lib/oc-produto-vinculo";
 import { useAuth } from "@/hooks/useAuth";
 import { podeVerCustosServidor } from "@/lib/mao-obra";
+import { podeVerPrecoVarejo, podeVerPrecoAtacado } from "@/lib/preco-permissao";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { AgrupamentoButton, FilterButton } from "@/components/shared/filters";
 import { produtoPassaFiltroStatus } from "@/lib/kanban-card-selo";
@@ -257,6 +258,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados" | "card"; produtos: ProdutoPedido[]; jaTemOc: number } | null>(null);
   const { canView } = useAuth();
   const podeVerValores = podeVerCustosServidor(canView);
+  // Permissão de preço (19/nov): varejo e atacado SEPARADOS e independentes de custos — o resumo de vendas (Poder de venda + markup) mostra "—"
+  // SÓ no canal sem permissão; o cálculo (resumoVenda) e o embed `modelo:modelo_id(preco_venda, preco_atacado…)` NÃO mudam (leitura não trancada).
+  const veVarejo = podeVerPrecoVarejo(canView);
+  const veAtacado = podeVerPrecoAtacado(canView);
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
   // Sheet) em vez de navegar — ele monta seu PRÓPRIO Sheet/guarda de unsaved (não duplicar aqui).
   const [planModeloId, setPlanModeloId] = useState<string | null>(null);
@@ -1251,6 +1256,8 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
               markupVarejo={resumoVenda.markupVarejo}
               markupAtacado={resumoVenda.markupAtacado}
               qtd={resumoVenda.qtd}
+              veVarejo={veVarejo}
+              veAtacado={veAtacado}
             />
           )}
           {/* Colab (Fase 3): presença + resultado do último merge + resolução dos conflitos

@@ -31,7 +31,7 @@ import type { ReactNode } from "react";
 import { mostraVerNoProdutoAcabado, type ContextoDetalhe } from "./contexto";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, podeEditarPrecoComprado, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, podeEditarPrecoComprado, podeEditarAtacado, veVarejo = true, veAtacado = true, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
   /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
@@ -46,6 +46,12 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
   /** Reforço de segurança S3d (C-14/C-15): markup e preço fixo do comprado (RPCs salvar_markups/salvar_precos_fixo_produto_acabado)
    *  exigem no servidor EDITAR o Produto Acabado OU a seção "Editar preço de venda" do Planejamento — sem isso os 4 inputs travam. */
   podeEditarPrecoComprado: boolean;
+  /** Permissão de preço (19/nov): EDITAR o ATACADO é chave PRÓPRIA (`criacao_planejamento:preco_atacado`, `podeEditarPrecoAtacado`), separada do
+   *  varejo/`podeEditarPrecoComprado` — gata Markup atacado + Preço atacado. A trava da Integração NÃO muda (atacado livre, inv. 14). */
+  podeEditarAtacado: boolean;
+  /** Permissão de preço (19/nov): VER varejo e VER atacado são chaves PRÓPRIAS e independentes — sem uma delas, SÓ aquela parte mostra "—"
+   *  (nunca o bloco inteiro some). Default true = retrocompatível. */
+  veVarejo?: boolean; veAtacado?: boolean;
   /** Integração (F4, D34/R8) — "Preço de venda" marcado trava o VAREJO (Preço varejo + Markup varejo); "Preço anterior"
    *  marcado trava o anterior. Preço atacado e Markup atacado ficam LIVRES (não vão na API). O banco recusa; aqui só desabilita. */
   travaVarejo?: boolean; travaPrecoAnterior?: boolean;
@@ -75,6 +81,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                 <CampoRO label="Preço sugerido" value={piRevenda.sugerido > 0 ? brl(piRevenda.sugerido) : "—"} />
                 {produtoRevenda ? (
                   <>
+                    {!veAtacado ? <CampoRO label="Markup atacado" value="—" /> : (
                     <div className="grid gap-1">
                       <Label>Markup atacado</Label>
                       <div className="relative">
@@ -86,13 +93,16 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           className="pr-6"
                           value={markupAtacadoInput ?? 0}
                           // Task 3 (Salvar por card): só rascunho — o Salvar do Sheet grava (payloadRevendaParaSalvar). Trava SÓ do Planejamento.
-                          disabled={planBloqueado || !podeEditarPrecoComprado}
+                          // Permissão de preço (19/nov): EDITAR atacado = chave PRÓPRIA (`podeEditarAtacado`), não mais o OU do comprado.
+                          disabled={planBloqueado || !podeEditarAtacado}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
                     </div>
+                    )}
+                    {!veVarejo ? <CampoRO label="Markup varejo" value="—" /> : (
                     <div className="grid gap-1">
                       <Label>Markup varejo</Label>
                       <div className="relative">
@@ -109,9 +119,13 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
                     </div>
+                    )}
                     {/* F3.6 (ruling 11, R17; M2 — revisão Opus fix1): Preço anterior em linha própria, na posição do
                         brief (Step 4.3) — logo ANTES do par atacado/varejo, DEPOIS dos Markups; acompanha o VAREJO. */}
-                    {podeEditarPreco && !travaPrecoAnterior ? (
+                    {!veVarejo ? (
+                      // Permissão de preço (19/nov): o Preço anterior é do VAREJO — sem VER varejo mostra "—" (sem input, sem selo/dica que revelam o valor).
+                      <div className="sm:col-span-2 sm:max-w-xs"><CampoRO label="Preço anterior" value="—" /></div>
+                    ) : podeEditarPreco && !travaPrecoAnterior ? (
                       <div className="grid gap-1 sm:col-span-2">
                         <div className="flex items-center gap-1.5">
                           <Label htmlFor="preco-anterior-revenda">Preço anterior</Label>
@@ -166,6 +180,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         valor errado quando há preço fixo. onChange só guarda o texto num rascunho local;
                         o Salvar do Sheet manda o número EXATO à RPC `salvar_precos_fixo_...`, tocando
                         SÓ o canal que mudou. Vazio/≤0 = null = DESTRAVA (volta a derivar do markup). */}
+                    {!veAtacado ? <CampoRO label="Preço atacado" value="—" /> : (
                     <div className="grid gap-1">
                       <Label>Preço atacado</Label>
                       <MoneyInput
@@ -173,11 +188,14 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         value={precoAtacadoDraft}
                         placeholder="0,00"
                         // Task 3 (Salvar por card): só rascunho — o Salvar do Sheet grava (preço fixo).
-                        disabled={planBloqueado || !podeEditarPrecoComprado}
+                        // Permissão de preço (19/nov): EDITAR atacado = chave PRÓPRIA (`podeEditarAtacado`), não mais o OU do comprado.
+                        disabled={planBloqueado || !podeEditarAtacado}
                         onChange={(e) => setPrecoAtacadoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                       />
                     </div>
+                    )}
+                    {!veVarejo ? <CampoRO label="Preço varejo" value="—" /> : (
                     <div className="grid gap-1">
                       <Label>Preço varejo</Label>
                       <MoneyInput
@@ -190,6 +208,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                       />
                     </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground sm:col-span-2">

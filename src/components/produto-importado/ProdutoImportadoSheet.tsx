@@ -31,6 +31,7 @@ import { TEXTO_CONFLITO_PEDIDO, type OcCriadaLote, type PedidoOc, type ProdutoPe
 import { EMBED_OC_ITEM_PI, nomeDoFornecedor, ocInfoDeItens, type OcItemEmbedRow } from "@/lib/oc-produto-vinculo";
 import { useAuth } from "@/hooks/useAuth";
 import { podeVerCustosServidor } from "@/lib/mao-obra";
+import { podeVerPrecoVarejo, podeVerPrecoAtacado } from "@/lib/preco-permissao";
 import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
@@ -310,6 +311,10 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const [pedidoLote, setPedidoLote] = useState<{ origem: "rodape" | "selecionados" | "card"; produtos: ProdutoPedido[]; jaTemOc: number } | null>(null);
   const { canView } = useAuth();
   const podeVerValores = podeVerCustosServidor(canView);
+  // Permissão de preço (19/nov): varejo (`modeloPrecoVenda`) e atacado SEPARADOS e independentes de custos — o resumo de vendas mostra "—" SÓ no
+  // canal sem permissão; o cálculo e o embed `modelo:modelo_id(preco_venda…)` NÃO mudam (leitura não trancada).
+  const veVarejo = podeVerPrecoVarejo(canView);
+  const veAtacado = podeVerPrecoAtacado(canView);
   const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; modeloIds: string[]; nIgnorados: number } | null>(null);
   const [replicando, setReplicando] = useState(false);
   // Baseline de dirty POR PRODUTO (id → snapshot serializado dos campos de `chaveDirty`) —
@@ -1269,6 +1274,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
               markupVarejo={resumoVenda.markupVarejo}
               markupAtacado={resumoVenda.markupAtacado}
               qtd={resumoVenda.qtd}
+              veVarejo={veVarejo}
+              veAtacado={veAtacado}
             />
           )}
           {/* Colab (Fase 3): presença + resultado do último merge + resolução dos conflitos

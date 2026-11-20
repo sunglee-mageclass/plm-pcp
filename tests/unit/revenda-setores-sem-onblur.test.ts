@@ -21,7 +21,7 @@ describe("RevendaSetores — campos de preço/markup só rascunho", () => {
     }
     expect(setores).not.toContain("salvarMarkupsRevenda");
     expect(setores).toContain("disabled={planBloqueado || !podeEditarPrecoComprado || travaVarejo}");
-    expect(setores).toContain("disabled={planBloqueado || !podeEditarPrecoComprado}");
+    expect(setores).toContain("disabled={planBloqueado || !podeEditarAtacado}"); // atacado: chave própria (permissão de preço, 19/nov)
   });
 
   it("o rascunho da revenda entra no dirty do Sheet (revendaDirty derivado do mesmo ref/helper do Salvar)", () => {

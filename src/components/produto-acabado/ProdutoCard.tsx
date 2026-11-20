@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaoObraModelo } from "@/hooks/useMaoObraModelo";
 import { MaoObraCardMini } from "@/components/planejamento/MaoObraCardMini";
 import { podeEditarValorMO, podeVerCustosServidor } from "@/lib/mao-obra";
+import { podeVerPrecoVarejo, podeVerPrecoAtacado, podeEditarPrecoVarejo, podeEditarPrecoAtacado } from "@/lib/preco-permissao";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -164,6 +165,13 @@ export function ProdutoCard({
   const podeVerCustosMO = podeVerCustosServidor(canView);
   const podeEditarMO = podeEditarValorMO(canEdit, canView);
   const podeAprovarMO = canEdit("producao_servico_aprovacao");
+  // Permissão de preço (19/nov): varejo e atacado são chaves PRÓPRIAS, independentes entre si E de custos. Sem VER uma delas, SÓ aquela parte
+  // mostra "—" (título "Varejo … · Atacado …" e inputs); o bloco "2 · Preço" e o custo/pç NUNCA somem inteiros por isso.
+  // EDITAR: atacado = `criacao_planejamento:preco_atacado`; varejo-comprado = `criacao_planejamento:preco_venda` (a trava da Integração segue SÓ no varejo).
+  const veVarejo = podeVerPrecoVarejo(canView);
+  const veAtacado = podeVerPrecoAtacado(canView);
+  const editaVarejo = podeEditarPrecoVarejo(canEdit);
+  const editaAtacado = podeEditarPrecoAtacado(canEdit);
   const mo = useMaoObraModelo(produto.modelo_id, podeVerCustosMO);
   // Integração (F4): produto integrável/integrado — Nome, Foto e o VAREJO (preço + markup) travam quando o campo está marcado,
   // e o Excluir some (o banco recusa: trg_zz_integracao_trava em produtos_acabados; a tela só espelha). Atacado fica livre
@@ -882,7 +890,7 @@ export function ProdutoCard({
                   <span>2 · Preço</span>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">
                     {produto.modelo_id
-                      ? `Varejo ${fmtMoney(pillVarejo)} · Atacado ${fmtMoney(pillAtacado)} · custo/pç ${fmtMoney(base)}`
+                      ? `Varejo ${veVarejo ? fmtMoney(pillVarejo) : "—"} · Atacado ${veAtacado ? fmtMoney(pillAtacado) : "—"} · custo/pç ${fmtMoney(base)}`
                       : "sem espelho — crie o card"}
                   </span>
                 </span>
@@ -899,6 +907,7 @@ export function ProdutoCard({
                     <div className="grid grid-cols-2 gap-3 rounded-md border p-3">
                       <div className="space-y-1">
                         <Label className="text-sm">Markup atacado</Label>
+                        {!veAtacado ? <p className="flex h-9 items-center text-sm text-muted-foreground">—</p> : (<>
                         <div className="relative">
                           {/* value = markup EFETIVO (gravado OU derivado do preço fixo). RASCUNHO: grava no SALVAR da tela
                               (camada intermediária, P-393) — nada de RPC no blur. Markup digitado LIMPA o preço fixo do canal
@@ -909,6 +918,7 @@ export function ProdutoCard({
                             placeholder="2,50"
                             className="pr-6"
                             value={markupAtacadoExib ?? 0}
+                            disabled={!editaAtacado}
                             onChange={(e) => onChange({
                               ...produto,
                               ...(Number(e.target.value) > 0 ? { markup_atacado: Number(e.target.value), preco_atacado_fixo: null } : { markup_atacado: null }),
@@ -917,13 +927,15 @@ export function ProdutoCard({
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
                         {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {fmtNum(markupLinha)}×</p>}
+                        </>)}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-sm">Markup varejo</Label>
+                        {!veVarejo ? <p className="flex h-9 items-center text-sm text-muted-foreground">—</p> : (<>
                         <div className="relative">
                           <NumberInput
                             data-colab-path={`card:${produto.id}:markup-var`}
-                            disabled={travaIntegracao.has("preco_venda")}
+                            disabled={travaIntegracao.has("preco_venda") || !editaVarejo}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
@@ -936,6 +948,7 @@ export function ProdutoCard({
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
                         {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {fmtNum(markupLinha)}×</p>}
+                        </>)}
                       </div>
                       {/* Preços EDITÁVEIS = preço FIXO EXATO (set/2026, espelha o Planejamento; sem derivar do markup
                           arredondado — fim do "298"→"297,84"). RASCUNHO: digitar grava o fixo no draft e LIMPA o markup do
@@ -944,28 +957,33 @@ export function ProdutoCard({
                       <div className="col-span-2 grid grid-cols-2 gap-3 border-t pt-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Preço atacado</Label>
+                          {!veAtacado ? <p className="flex h-9 items-center text-sm text-muted-foreground">—</p> : (
                           <MoneyInput
                             fixedDecimals
                             value={precoAtacadoLive ?? ""}
                             placeholder="0,00"
+                            disabled={!editaAtacado}
                             onChange={(e) => onChange({
                               ...produto,
                               ...(Number(e.target.value) > 0 ? { preco_atacado_fixo: Number(e.target.value), markup_atacado: null } : { preco_atacado_fixo: null }),
                             })}
                           />
+                          )}
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Preço varejo</Label>
+                          {!veVarejo ? <p className="flex h-9 items-center text-sm text-muted-foreground">—</p> : (
                           <MoneyInput
                             fixedDecimals
                             value={precoVarejoLive ?? ""}
                             placeholder="0,00"
-                            disabled={travaIntegracao.has("preco_venda")}
+                            disabled={travaIntegracao.has("preco_venda") || !editaVarejo}
                             onChange={(e) => onChange({
                               ...produto,
                               ...(Number(e.target.value) > 0 ? { preco_varejo_fixo: Number(e.target.value), markup_varejo: null } : { preco_varejo_fixo: null }),
                             })}
                           />
+                          )}
                         </div>
                       </div>
                     </div>

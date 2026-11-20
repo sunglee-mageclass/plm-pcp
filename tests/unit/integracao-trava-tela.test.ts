@@ -96,7 +96,8 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
     const r = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
     // (Reforço de segurança S3d: os 4 travam também sem `podeEditarPrecoComprado` — o OU do servidor; a trava da Integração segue só no varejo)
     expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado \|\| travaVarejo\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
-    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
+    // Markup atacado + Preço atacado: LIVRES da Integração; desde a permissão de preço (19/nov) travam por `podeEditarAtacado` (chave própria), nunca por `travaVarejo`
+    expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarAtacado\}\n/g)?.length).toBe(2);
     expect(r).toMatch(/(?:\{|\) : )podeEditarPreco && !travaPrecoAnterior \? \(/);
     // Task 3 (Salvar por card): o markup do varejo travado NUNCA vai ao servidor — decisão no helper do Salvar (`travaVarejo ? base.markup_varejo : …`).
     expect(ler("src/lib/revenda-salvar.ts")).toMatch(/markup_varejo: travaVarejo\s*\n?\s*\? base\.markup_varejo/);
@@ -1537,7 +1538,7 @@ describe("F4 — Produto Acabado e Importado", () => {
     expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(produto\.modelo_id\);/);
     expect(s).toMatch(/disabled=\{identidadeTravada \|\| travaIntegracao\.has\("nome"\)\}/);
     expect(s).toMatch(/disabled=\{enviandoFoto \|\| travaIntegracao\.has\("fotos_modelo"\)\}/);
-    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)( \|\| salvarMarkupMut\.isPending)?\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
+    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)( \|\| salvarMarkupMut\.isPending)?( \|\| !editaVarejo)?\}/g)?.length).toBe(2); // Markup varejo + Preço varejo (+ editar varejo, 19/nov)
     expect(s).toMatch(/data-colab-path=\{`card:\$\{produto\.id\}:markup-var`\}\n\s+disabled=\{travaIntegracao\.has\("preco_venda"\)/);
     expect(s).toMatch(/<SeloIntegracao estado=\{estadoIntegracao\}/);
   });
@@ -1850,7 +1851,7 @@ describe("P-393 — ProdutoCard.tsx (Produto Acabado): markup/preço fixo são r
 
   it("varejo travado pela Integração: Markup varejo e Preço varejo seguem disabled; atacado livre", () => {
     const secao = s.slice(s.indexOf("{/* ── 2 · Preço"), s.indexOf("{/* ── Mão de obra"));
-    expect(secao.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)\}/g)?.length).toBe(2);
+    expect(secao.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)( \|\| !editaVarejo)?\}/g)?.length).toBe(2); // + chave de editar varejo (19/nov)
   });
 });
 

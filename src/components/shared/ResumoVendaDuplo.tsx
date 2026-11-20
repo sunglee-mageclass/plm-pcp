@@ -16,6 +16,8 @@ export function ResumoVendaDuplo({
   markupAtacado,
   qtd,
   className,
+  veVarejo = true,
+  veAtacado = true,
 }: {
   poderVarejo: number;
   poderAtacado: number;
@@ -23,6 +25,10 @@ export function ResumoVendaDuplo({
   markupAtacado: number;
   qtd: number;
   className?: string;
+  /** Permissão de preço (19/nov): VER varejo e VER atacado são chaves PRÓPRIAS e independentes. Sem uma delas, SÓ aquele canal (poder de
+   *  venda + markup) mostra "—"; o outro canal e a contagem de produtos seguem. Default true = retrocompatível. */
+  veVarejo?: boolean;
+  veAtacado?: boolean;
 }) {
   const fmtMk = (m: number) =>
     m > 0 ? m.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—";
@@ -31,17 +37,17 @@ export function ResumoVendaDuplo({
       <span>
         <span className="sm:hidden">PV varejo:</span>
         <span className="hidden sm:inline">Poder de venda (varejo):</span>{" "}
-        <strong className="text-foreground tabular-nums">{brl(poderVarejo)}</strong>
+        <strong className="text-foreground tabular-nums">{veVarejo ? brl(poderVarejo) : "—"}</strong>
         {" "}<span className="text-muted-foreground">· markup</span>{" "}
-        <strong className="text-foreground tabular-nums">{fmtMk(markupVarejo)}</strong>
+        <strong className="text-foreground tabular-nums">{veVarejo ? fmtMk(markupVarejo) : "—"}</strong>
       </span>
       <span aria-hidden>·</span>
       <span>
         <span className="sm:hidden">PV atacado:</span>
         <span className="hidden sm:inline">Poder de venda (atacado):</span>{" "}
-        <strong className="text-foreground tabular-nums">{brl(poderAtacado)}</strong>
+        <strong className="text-foreground tabular-nums">{veAtacado ? brl(poderAtacado) : "—"}</strong>
         {" "}<span className="text-muted-foreground">· markup</span>{" "}
-        <strong className="text-foreground tabular-nums">{fmtMk(markupAtacado)}</strong>
+        <strong className="text-foreground tabular-nums">{veAtacado ? fmtMk(markupAtacado) : "—"}</strong>
       </span>
       <span aria-hidden>·</span>
       <span>

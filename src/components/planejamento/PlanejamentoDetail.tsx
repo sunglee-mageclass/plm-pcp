@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, ArrowLeft, Save, Pencil, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { podeVerPrecoVarejo, podeEditarPrecoVarejo } from "@/lib/preco-permissao";
+import { podeVerPrecoVarejo, podeVerPrecoAtacado, podeEditarPrecoVarejo, podeEditarPrecoAtacado } from "@/lib/preco-permissao";
 import { VersoesExistentesAviso, useVersoesFamilia } from "@/components/planejamento/VersoesExistentesAviso";
 import { buscarVersoesFamilia } from "@/lib/versoes-familia-query";
 import { agruparPorFamilia, precisaConfirmar } from "@/lib/versoes-familia";
@@ -207,6 +207,10 @@ function PlanejamentoDetailConteudo({
   // exige a section `editaVarejo`. Custo/estimativa da PrecoTabela FICA em `veCustos`/`podeVerCustos` (o custo NÃO migra).
   const veVarejo = podeVerPrecoVarejo(canView);
   const editaVarejo = podeEditarPrecoVarejo(canEdit); // = criacao_planejamento:preco_venda (o mesmo de antes)
+  // ATACADO (produto comprado) = chaves PRÓPRIAS, separadas do varejo (decisão do dono 19/nov): VER atacado e EDITAR atacado. O bloco do comprado
+  // (`PrecoRevendaBloco`) mostra "—" SÓ na parte sem permissão (varejo × atacado independentes — o bloco NUNCA some inteiro).
+  const veAtacado = podeVerPrecoAtacado(canView);
+  const editaAtacado = podeEditarPrecoAtacado(canEdit); // = criacao_planejamento:preco_atacado (tranca no banco, T1)
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   // F3.1 — campos vindos do Desenvolvimento (decisão F3 #8): EDITAR exige canEdit da página do Dev; sem ela o
   // Salvar OMITE esses campos (`aplicarRegrasCamposDev`). VER (canView) entra com as seções (Task 5).
@@ -2144,6 +2148,8 @@ function PlanejamentoDetailConteudo({
                 blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
                 podeEditarPreco={podeEditarPreco}
                 podeEditarPrecoComprado={podeEditarPrecoComprado}
+                podeEditarAtacado={editaAtacado}
+                veVarejo={veVarejo} veAtacado={veAtacado}
                 planBloqueado={perm.planBloqueado}
                 travaVarejo={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 precoAnterior={draft.preco_anterior}
