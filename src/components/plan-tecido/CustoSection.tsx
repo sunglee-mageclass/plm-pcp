@@ -11,6 +11,9 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import type { CustoCardDetalhe } from "@/lib/plan-tecido/preco-vaga";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
+// Permissão PRÓPRIA do preço de venda (varejo), independente de custos (decisão do dono, 19/nov): o "Preço p/ venda"
+// (valor de venda em si) segue `podeVerPrecoVarejo`; o "Preço sugerido" é DERIVADO do custo e NÃO migra (fica como estava).
+import { podeVerPrecoVarejo } from "@/lib/preco-permissao";
 
 type CustoSectionProps = { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null; precoTravado?: boolean; motivoPrecoTravado?: string; precoCard?: PrecoInfo | null; custoCardDetalhe?: CustoCardDetalhe | null };
 
@@ -47,6 +50,7 @@ function RO({ label, value }: { label: string; value: string }) {
 function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard, custoCardDetalhe }: CustoSectionProps) {
   const navigate = useNavigate();
   const { canView } = useAuth();
+  const veVarejo = podeVerPrecoVarejo(canView); // gate NOVO (19/nov): sem ver-preço-varejo o "Preço p/ venda" mostra "—"
   const maoObra = Number(maoObraServico) || 0;
   // Custo mascarado (`custo_unitario_modelos` → {}) ou ainda carregando → custo 0 → "—".
   const pc = precoCard ?? null;
@@ -68,7 +72,7 @@ function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard, custoCard
         <RO label="Custo (do card)" value={txt(pc?.custo, brl)} />
         <RO label="Markup (do card)" value={txt(pc?.markupExibir, (n) => `${fmtNum(n)}×`)} />
         <RO label="Preço sugerido (do card)" value={txt(pc?.sugerido, brl)} />
-        <RO label="Preço p/ venda (do card)" value={pc && pc.efetivo > 0 ? brl(pc.efetivo) : "—"} />
+        <RO label="Preço p/ venda (do card)" value={veVarejo ? (pc && pc.efetivo > 0 ? brl(pc.efetivo) : "—") : "—"} />
       </div>
       {canView("criacao_planejamento") && slot.modelo_id && (
         <Button type="button" variant="outline" size="sm" className="mt-2 w-full"
@@ -81,6 +85,8 @@ function CustoDoCard({ slot, maoObraEstado, maoObraServico, precoCard, custoCard
 }
 
 function CustoDaVagaSemCard({ slot, onChange, maoObraEstado, maoObraServico, precoTravado = false, motivoPrecoTravado }: CustoSectionProps) {
+  const { canView } = useAuth();
+  const veVarejo = podeVerPrecoVarejo(canView); // gate NOVO (19/nov): sem ver-preço-varejo o "Preço p/ venda" vira "—" (sem input)
   // markup vem da LINHA do modelo (linhas.markup) — necessário p/ o preço sugerido
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -140,10 +146,12 @@ function CustoDaVagaSemCard({ slot, onChange, maoObraEstado, maoObraServico, pre
         <RO label="Custo total" value={brl(custoTotal)} />
         <RO label={Number(slot.markup_editado) > 0 ? "Markup (do modelo)" : "Markup (linha)"} value={pi.markupAplicado > 0 ? `${fmtNum(pi.markupAplicado)}×` : "—"} />
         <RO label="Preço sugerido" value={pi.sugerido > 0 ? brl(pi.sugerido) : "—"} />
+        {!veVarejo ? <div className="col-span-2"><RO label="Preço p/ venda" value="—" /></div> : (
         <div className="col-span-2"><div className="text-[10px] text-muted-foreground">Preço p/ venda</div>
           <NumberInput blankZero placeholder={pi.sugerido > 0 ? brl(pi.sugerido) : "0,00"} className="h-7 w-full text-right" disabled={precoTravado} title={precoTravado ? motivoPrecoTravado : undefined} value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>
+        )}
       </div>
-      {pi.markupAplicado <= 0 && (
+      {pi.markupAplicado <= 0 && veVarejo && (
         <div className="mt-1 text-[9px] text-muted-foreground">Sem markup na linha do modelo → preço sugerido indisponível; use o preço p/ venda.</div>
       )}
     </div>

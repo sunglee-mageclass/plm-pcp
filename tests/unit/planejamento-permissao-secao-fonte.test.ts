@@ -98,7 +98,9 @@ describe("Sheet do Planejamento trava POR SEÇÃO pelas 2 permissões (P-53 A) �
 
   // Fix 1 (m-3) — preço editável só com AS DUAS permissões (seção de preço E editar o Planejamento).
   it("podeEditarPreco é a MESMA variável derivada (canEdit preço_venda && podeEditarPlanejamento), usada na UI e no hook", () => {
-    expect(DETALHE).toMatch(/const podeEditarPreco = canEdit\("criacao_planejamento:preco_venda"\) && podeEditarPlanejamento;/);
+    // Task 3 (19/nov): `editaVarejo` = podeEditarPrecoVarejo(canEdit) = a MESMA chave `criacao_planejamento:preco_venda` de antes.
+    expect(DETALHE).toMatch(/const editaVarejo = podeEditarPrecoVarejo\(canEdit\);/);
+    expect(DETALHE).toMatch(/const podeEditarPreco = editaVarejo && podeEditarPlanejamento;/);
   });
 
   // Fix 1 (m-5) — Duplicar sem permissão ESCONDE o item (onDuplicar opcional), não trava em "carregando…" pra sempre.

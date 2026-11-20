@@ -40,6 +40,7 @@ import {
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
 import { useAuth } from "@/hooks/useAuth";
+import { podeVerPrecoVarejo } from "@/lib/preco-permissao";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { abasVisiveis, blocosCustoFinanceiro } from "@/lib/dashboard-abas";
 import { rotuloColecaoDoModelo } from "@/lib/colecao-rotulo";
@@ -528,6 +529,11 @@ const fmtMkp = (v: number) => (v > 0 ? `${v.toLocaleString("pt-BR", { maximumFra
 // texto `modelos.colecao`; espelho de `_modelo_colecao_rotulo` do servidor): card só com `colecao_id` entra no filtro e no agrupamento.
 function ComercialColecaoTab() {
   const isMobile = useIsMobile();
+  // Decisão do dono (19/nov): TODA métrica desta aba é derivada de `preco_venda` (poder de venda, lucro, margem, markup, ticket), então
+  // a EXIBIÇÃO segue a permissão PRÓPRIA do preço de venda (varejo) — separada da permissão da aba (`dashboard_comercial_colecao`, que
+  // só controla ver a ABA) e da de custos. ⚠️ Só a RENDERIZAÇÃO é gated: as queries e o `agregarComercial` rodam IGUAIS (nada é zerado).
+  const { canView } = useAuth();
+  const veVarejo = podeVerPrecoVarejo(canView);
   const [fColecao, setFColecao] = useState("all");
   const [fSubcolecao, setFSubcolecao] = useState("all");
 
@@ -670,10 +676,17 @@ function ComercialColecaoTab() {
     </Card>
   );
 
+  const avisoSemPreco = (
+    <Card className="p-4 text-sm text-muted-foreground">
+      As métricas desta aba (poder de venda, lucro, margem, markup e ticket) são calculadas a partir do preço de venda e ficam ocultas para o seu perfil.
+    </Card>
+  );
+
   if (isMobile) {
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2"><MobileFilterBar filters={filtros} /></div>
+        {!veVarejo ? avisoSemPreco : (<>
         <div className="grid grid-cols-2 gap-2.5">
           <KpiCardMobile compact label="Poder de venda" value={brlAbrev(tot.pvPlan)} valueTitle={brl(tot.pvPlan)} sub={`${pctMeta}% da meta${tot.reprovados > 0 ? ` · ${tot.reprovados} reprov.` : ""}`} />
           <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemReal || tot.margemPlan)} sub={`${tot.margemReal > 0 ? `markup ${fmtMkp(tot.markupReal)}` : "planejado"}${tot.semCusto > 0 ? ` · ${tot.semCusto} sem custo` : ""}`} />
@@ -682,6 +695,7 @@ function ComercialColecaoTab() {
         </div>
         {cardPvLinha}
         {cardMargem}
+        </>)}
         {isLoad && <p className="text-sm text-muted-foreground">Carregando…</p>}
         <DashError show={isError || gradeRealErro || gradePlanErro || custoErro} />
       </div>
@@ -694,6 +708,7 @@ function ComercialColecaoTab() {
         <DashTabsList />
         <FilterButton screen="dashboard-comercial-colecao" filters={filtros} />
       </div>
+      {!veVarejo ? avisoSemPreco : (<>
       <SecHeader icon={Tag}>Resultado da coleção</SecHeader>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{kpis}</div>
       <div className="grid gap-4 lg:grid-cols-2">{cardPvLinha}{cardMargem}</div>
@@ -737,6 +752,7 @@ function ComercialColecaoTab() {
           </table>
         </div>
       </DetalheExpansivel>
+      </>)}
       {isLoad && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError || gradeRealErro || gradePlanErro || custoErro} />
     </div>

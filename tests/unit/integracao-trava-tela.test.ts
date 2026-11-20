@@ -89,15 +89,15 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
     expect(s).toMatch(/markupFaixaOn=\{markupFaixaOn\}\n\s+travaPrecoVenda=\{travaIntegracao\.has\("preco_venda"\)\} travaPrecoAnterior=\{travaIntegracao\.has\("preco_anterior"\)\}/);
     expect(s).toMatch(/travaVarejo=\{travaIntegracao\.has\("preco_venda"\)\} travaPrecoAnterior=\{travaIntegracao\.has\("preco_anterior"\)\}/);
     const t = ler("src/components/planejamento/planejamento-detail/PrecoTabela.tsx");
-    expect(t).toMatch(/\{podeEditarPreco && !travaPrecoAnterior \? \(/);
+    expect(t).toMatch(/(?:\{|\) : )podeEditarPreco && !travaPrecoAnterior \? \(/);
     // Fix round 1 (I-2, review Task 22) — o guard ganhou um 3º motivo (`precoImportadoOff`, módulo Produto
     // Importado desligado) ao lado da trava da Integração — ver describe "Fix round 1 — I-2" mais abaixo.
-    expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
+    expect(t).toMatch(/(?:\{|\) : )podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
     const r = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
     // (Reforço de segurança S3d: os 4 travam também sem `podeEditarPrecoComprado` — o OU do servidor; a trava da Integração segue só no varejo)
     expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado \|\| travaVarejo\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
     expect(r.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
-    expect(r).toMatch(/\{podeEditarPreco && !travaPrecoAnterior \? \(/);
+    expect(r).toMatch(/(?:\{|\) : )podeEditarPreco && !travaPrecoAnterior \? \(/);
     // Task 3 (Salvar por card): o markup do varejo travado NUNCA vai ao servidor — decisão no helper do Salvar (`travaVarejo ? base.markup_varejo : …`).
     expect(ler("src/lib/revenda-salvar.ts")).toMatch(/markup_varejo: travaVarejo\s*\n?\s*\? base\.markup_varejo/);
   });
@@ -1269,7 +1269,7 @@ describe("Fix round 1 — I-2: preço do importado vira só-leitura sem o módul
   });
   it("PrecoTabela.tsx: precoImportadoOff soma ao guard de edição e mostra o InfoHover com o texto exato", () => {
     const t = ler("src/components/planejamento/planejamento-detail/PrecoTabela.tsx");
-    expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
+    expect(t).toMatch(/(?:\{|\) : )podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
     expect(t).toMatch(/Módulo Produto Importado desligado nesta loja — o preço do importado fica só leitura\./);
   });
   it("PlanejamentoDetail.tsx: precoImportadoOff é draft.origem===\"importado\" && !piOn", () => {

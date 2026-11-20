@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, ArrowLeft, Save, Pencil, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { podeVerPrecoVarejo, podeEditarPrecoVarejo } from "@/lib/preco-permissao";
 import { VersoesExistentesAviso, useVersoesFamilia } from "@/components/planejamento/VersoesExistentesAviso";
 import { buscarVersoesFamilia } from "@/lib/versoes-familia-query";
 import { agruparPorFamilia, precisaConfirmar } from "@/lib/versoes-familia";
@@ -202,7 +203,10 @@ function PlanejamentoDetailConteudo({
   const podeVerCustos = canView("criacao_planejamento:custos");
   const podeEditarCustos = canEdit("criacao_planejamento:custos");
   // Permissão à parte SÓ p/ editar o preço de venda (banco enforça via trigger fn_modelo_preco_venda_gate).
-  // VER o preço segue sob podeVerCustos; editar o preço passa a exigir esta section.
+  // VER o VALOR do preço de venda (varejo) = permissão PRÓPRIA (`veVarejo`, decisão do dono 19/nov), INDEPENDENTE de custos; editar o preço
+  // exige a section `editaVarejo`. Custo/estimativa da PrecoTabela FICA em `veCustos`/`podeVerCustos` (o custo NÃO migra).
+  const veVarejo = podeVerPrecoVarejo(canView);
+  const editaVarejo = podeEditarPrecoVarejo(canEdit); // = criacao_planejamento:preco_venda (o mesmo de antes)
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   // F3.1 — campos vindos do Desenvolvimento (decisão F3 #8): EDITAR exige canEdit da página do Dev; sem ela o
   // Salvar OMITE esses campos (`aplicarRegrasCamposDev`). VER (canView) entra com as seções (Task 5).
@@ -220,7 +224,7 @@ function PlanejamentoDetailConteudo({
   // valor em silêncio (`aplicarRegrasCamposPlanejamento` apaga `preco_venda`/`preco_atacado`/`preco_anterior`
   // do payload) — campo editável que nunca salva. Variável ÚNICA usada na UI (PrecoTabela/PrecoRevendaBloco)
   // E no hook de save (mesmo nome que antes, para não espalhar o `&&` em vários pontos).
-  const podeEditarPreco = canEdit("criacao_planejamento:preco_venda") && podeEditarPlanejamento;
+  const podeEditarPreco = editaVarejo && podeEditarPlanejamento;
   // Reforço de segurança S3d (C-14/C-15): markup/preço fixo do comprado = EDITAR o Produto Acabado OU a seção de preço (o mesmo
   // OU do servidor em salvar_markups/salvar_precos_fixo_produto_acabado); a trava do Planejamento (planBloqueado) segue por fora.
   const podeEditarPrecoComprado = canEdit("criacao_planejamento:preco_venda") || canEdit("criacao_produto_acabado");
@@ -2103,7 +2107,7 @@ function PlanejamentoDetailConteudo({
                 moMin={moMin} moIdeal={moIdeal} moMax={moMax} moStatusFaixa={moStatusFaixa}
                 // Fix round 4 (item 2) — `veCustos` (união das 2 permissões, decisão F3 #2) no lugar de
                 // `podeVerCustos` sozinho: a Parte 3 (M.O. por faixa) da tabela é gated por esta prop.
-                podeVerCustos={veCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
+                podeVerCustos={veCustos} podeVerPreco={veVarejo} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
                 travaPrecoVenda={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 // Fix round 1 (I-2, review Task 22) — sem `piOn`, o gravador de preço fixo do importado
                 // (usePlanejamentoSave.ts, n1) nunca roda: editar aqui seria descartado em silêncio. `!isComprado`

@@ -27,6 +27,8 @@ import {
   type VersaoAnteriorInfo,
 } from "@/lib/versao-anterior";
 import { FalhaVersaoAnterior } from "@/components/shared/FalhaVersaoAnterior";
+// Permissão PRÓPRIA do preço de venda (varejo) — `podeVerPrecoVarejo` (@/lib/preco-permissao) é aplicado no PAI (PlanejamentoDetail,
+// `veVarejo`) e chega aqui como `podeVerPreco`. VER o VALOR do preço = `podeVerPreco`; ver custo/estimativa = `podeVerCustos` (o custo NÃO migra).
 
 /**
  * F3.2 (decisão F3 #2 + mockup Anotado, seção 10 — R9c do G-plano conjunto): os custos do BOM (previsto) são LINHAS
@@ -89,6 +91,9 @@ export function PrecoTabela(props: {
   // `podeVerCustos` do Planejamento OU `ficha.podeVerCustos` do Desenvolvimento, decisão F3 #2):
   // gate da Parte 3 (M.O. por faixa, abaixo). O nome da prop ficou o mesmo p/ não quebrar a interface.
   podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
+  /** Decisão do dono (19/nov): mostrar o VALOR do preço de venda (varejo) / preço anterior / markup = permissão PRÓPRIA
+   *  (`podeVerPrecoVarejo`, derivada no pai), INDEPENDENTE de `podeVerCustos` (que fica só para custo/estimativa). Sem ela: "—" e sem input. */
+  podeVerPreco: boolean;
   /** Integração (F4, D34) — SÓ o preço cujo campo está marcado trava (o banco recusa; aqui só desabilita). */
   travaPrecoVenda?: boolean; travaPrecoAnterior?: boolean;
   /** Fix round 1 (I-2, review Task 22) — card IMPORTADO com o módulo Produto Importado DESLIGADO nesta loja:
@@ -112,7 +117,7 @@ export function PrecoTabela(props: {
     precoAnterior, onPrecoAnterior, versaoAnterior = null, versaoAnteriorCarregando = false, versaoAnteriorErro = false, onTentarVersaoAnterior,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
-    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn,
+    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeVerPreco, podeEditarCustos, markupFaixaOn,
     blocoMaoObra, obsMaoObra, planBloqueado } = props;
 
   // Fix mobile (F3.3) — fade de rolagem do wrapper `overflow-x-auto` (achado 2). Mesma receita do
@@ -233,7 +238,9 @@ export function PrecoTabela(props: {
             </td>
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
             <td className="py-2 px-2 text-right">
-              {podeEditarPreco && !travaPrecoAnterior ? (
+              {!podeVerPreco ? (
+                <span className="tabular-nums">—</span>
+              ) : podeEditarPreco && !travaPrecoAnterior ? (
                 <span className="ml-auto inline-flex items-center justify-end gap-1">
                   {/* M3 (fix1) — 44px no celular, como a lixeira "Remover custo" logo abaixo (mesmo arquivo). */}
                   <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground max-sm:h-11 max-sm:w-11" disabled={precoAnterior === null}
@@ -255,7 +262,7 @@ export function PrecoTabela(props: {
                 <span className="tabular-nums">{carregandoAnterior ? "…" : falhaAnterior ? "—" : exibidoAnterior != null ? brl(exibidoAnterior) : "—"}</span>
               )}
             </td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">{precoAnterior !== null ? DICA_PRECO_ANTERIOR_EDITADO : carregandoAnterior ? "…" : falhaAnterior && onTentarVersaoAnterior ? <FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} /> : dicaPrecoAnterior(autoAnterior)}</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">{!podeVerPreco ? "sem permissão para ver o preço" : precoAnterior !== null ? DICA_PRECO_ANTERIOR_EDITADO : carregandoAnterior ? "…" : falhaAnterior && onTentarVersaoAnterior ? <FalhaVersaoAnterior onTentar={onTentarVersaoAnterior} /> : dicaPrecoAnterior(autoAnterior)}</td>
           </tr>
           <tr className="border-t">
             <td className="py-2 pr-3">
@@ -272,9 +279,11 @@ export function PrecoTabela(props: {
                 )}
               </span>
             </td>
-            <td className="py-2 px-2 text-right tabular-nums">{mkFmt(markupReal)}</td>
+            <td className="py-2 px-2 text-right tabular-nums">{podeVerPreco ? mkFmt(markupReal) : "—"}</td>
             <td className="py-2 px-2 text-right">
-              {podeEditarPreco && !travaPrecoVenda && !precoImportadoOff ? (
+              {!podeVerPreco ? (
+                <span className="tabular-nums">—</span>
+              ) : podeEditarPreco && !travaPrecoVenda && !precoImportadoOff ? (
                 <MoneyInput
                   fixedDecimals
                   aria-label="Preço de venda"
@@ -288,7 +297,7 @@ export function PrecoTabela(props: {
                 <span className="tabular-nums">{draftPrecoVenda && draftPrecoVenda > 0 ? brl(draftPrecoVenda) : precoSug > 0 ? brl(precoSug) : "—"}</span>
               )}
             </td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">markup calculado: preço ÷ custo{precoSug > 0 ? ` · vazio usa o sugerido (${brl(precoSug)})` : ""}{!podeEditarPreco ? " · sem permissão para editar" : precoImportadoOff ? " · módulo Produto Importado desligado" : travaPrecoVenda ? " · travado pela Integração" : ""}</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">{!podeVerPreco ? "sem permissão para ver o preço de venda" : <>markup calculado: preço ÷ custo{precoSug > 0 ? ` · vazio usa o sugerido (${brl(precoSug)})` : ""}{!podeEditarPreco ? " · sem permissão para editar" : precoImportadoOff ? " · módulo Produto Importado desligado" : travaPrecoVenda ? " · travado pela Integração" : ""}</>}</td>
           </tr>
           <tr className="border-t">
             <td className="py-2 pr-3">Consumo de tecido</td>

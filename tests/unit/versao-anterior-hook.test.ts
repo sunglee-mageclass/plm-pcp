@@ -124,7 +124,7 @@ function precoTabela(o: Record<string, unknown>) {
     precoAnterior: null, onPrecoAnterior: () => {}, seloCusto: "estimado", custoBase: 0, consumo: null, consumoRealBOM: 0,
     precoTecidoM: 0, tecidoEstimado: 0, aviamento: null, maoObraDev: 0, onConsumo: () => {}, onAviamento: () => {},
     materiaisBase: 0, custoPrevisto: 0, linhaFaixas: null, moMin: MO, moIdeal: MO, moMax: MO, moStatusFaixa: "indef",
-    podeVerCustos: false, podeEditarCustos: false, podeEditarPreco: true, markupFaixaOn: false, planBloqueado: false,
+    podeVerCustos: false, podeVerPreco: true, podeEditarCustos: false, podeEditarPreco: true, markupFaixaOn: false, planBloqueado: false,
     ...o,
   } as never);
 }
