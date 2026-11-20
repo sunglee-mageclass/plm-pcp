@@ -11,6 +11,24 @@ export type PayloadRevenda = {
   fixos: { tocarAtacado: boolean; precoAtacado: number | null; tocarVarejo: boolean; precoVarejo: number | null } | null;
 };
 
+/**
+ * Permissão de preço (19/nov, Task 5, RULING T4-D): o bloco de preço do comprado no Sheet salva quando a pessoa tem editar-varejo OU editar-atacado,
+ * e CADA canal é filtrado pela SUA chave: sem a chave de um canal, o rascunho dele volta à base (= "não mudou" → o helper não manda nada dele).
+ * Sem isso "editar atacado" seria permissão morta (o gate único `editaVarejo` descartava o atacado de quem não edita o varejo).
+ */
+export function filtrarRevendaPorPermissao(
+  base: RevendaBase,
+  rasc: RevendaRascunho,
+  o: { editaVarejo: boolean; editaAtacado: boolean },
+): RevendaRascunho {
+  return {
+    markupVarejo: o.editaVarejo ? rasc.markupVarejo : base.markup_varejo,
+    precoVarejoFixo: o.editaVarejo ? rasc.precoVarejoFixo : base.preco_venda,
+    markupAtacado: o.editaAtacado ? rasc.markupAtacado : base.markup_atacado,
+    precoAtacadoFixo: o.editaAtacado ? rasc.precoAtacadoFixo : base.preco_atacado,
+  };
+}
+
 export function payloadRevendaParaSalvar(
   base: RevendaBase,
   rasc: RevendaRascunho,

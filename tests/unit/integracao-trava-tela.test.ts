@@ -706,7 +706,7 @@ describe("Fix round 3 (R-5) — RENDER real de usePlanejamentoSave: o restore da
     function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
       const api = usePlanejamentoSave({
         modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: false,
-        podeEditarPreco: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        podeEditarPreco: true, podeEditarPrecoAtacado: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
         refEditavel: false, travaIntegracao: trava, categorias: [],
         draft: draftRef.current, setDraft: (fnOrValue: any) => {
           draftRef.current = typeof fnOrValue === "function" ? fnOrValue(draftRef.current) : fnOrValue;
@@ -756,7 +756,7 @@ describe("Fix round 3 (R-5) — RENDER real de usePlanejamentoSave: o restore da
 describe("n1/n2 — preço do importado = preço FIXO (D14)", () => {
   it("n1: o UPDATE do Sheet não leva preço de comprado; o importado grava pelo gravador fixo", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
-    expect(s).toMatch(/if \(ehOrigemComprada\(d\.origem\)\) \{\s*delete payload\.preco_venda;\s*delete payload\.preco_atacado;/);
+    expect(s).toMatch(/aplicarRegrasPrecoNoPayload\(payload, d, \{\s*origemComprada: ehOrigemComprada\(d\.origem\),/);
     expect(s).toMatch(/rpc\("salvar_precos_fixo_produto_importado" as any/);
   });
   it("n2: o card do Plan. Produto grava importado pelo gravador do importado e trava o preço integrado", () => {
@@ -876,7 +876,7 @@ async function montarHarnessImportado(opts: {
     function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
       const api = usePlanejamentoSave({
         modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: opts.piOn,
-        podeEditarPreco: opts.podeEditarPreco, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        podeEditarPreco: opts.podeEditarPreco, podeEditarPrecoAtacado: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
         refEditavel: false, travaIntegracao: opts.travaIntegracao, categorias: [],
         draft: draftRef.current, setDraft: (fnOrValue: any) => {
           draftRef.current = typeof fnOrValue === "function" ? fnOrValue(draftRef.current) : fnOrValue;
@@ -987,7 +987,7 @@ async function salvarSequencial(st: EstadoSequencial, opts: {
   function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
     const api = usePlanejamentoSave({
       modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: opts.piOn,
-      podeEditarPreco: opts.podeEditarPreco, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+      podeEditarPreco: opts.podeEditarPreco, podeEditarPrecoAtacado: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
       refEditavel: false, travaIntegracao: opts.travaIntegracao, categorias: [],
       draft: st.draft.current,
       setDraft: (fnOrValue: any) => { st.draft.current = typeof fnOrValue === "function" ? fnOrValue(st.draft.current) : fnOrValue; },
@@ -1140,7 +1140,7 @@ describe("Task 22 — a revenda continua salvando o preço pelo gravador própri
     function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
       const api = usePlanejamentoSave({
         modeloId: "m1", isEdit: true, isRevenda: true, paOn: true, piOn: true,
-        podeEditarPreco: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        podeEditarPreco: true, podeEditarPrecoAtacado: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
         refEditavel: false, travaIntegracao: undefined, categorias: [],
         draft: draftRef.current, setDraft: (fnOrValue: any) => {
           draftRef.current = typeof fnOrValue === "function" ? fnOrValue(draftRef.current) : fnOrValue;
@@ -1250,10 +1250,11 @@ describe("Fix round 1 — I-1: preço travado a meio da edição não quebra o s
   });
   it("usePlanejamentoSave.ts: payloadKeysAntes ganha preco_venda/preco_atacado do importado (fonte do fix)", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
-    expect(s).toMatch(/if \(d\.origem === "importado" && podeEditarPreco\) \{ payloadKeysAntes\.add\("preco_venda"\); payloadKeysAntes\.add\("preco_atacado"\); \}/);
+    expect(s).toMatch(/if \(d\.origem === "importado" && podeEditarPreco\) payloadKeysAntes\.add\("preco_venda"\);/);
+    expect(s).toMatch(/if \(d\.origem === "importado" && podeEditarAtacadoImportado\) payloadKeysAntes\.add\("preco_atacado"\);/);
     // n1 usa o MESMO travaIntegracao pra pular a RPC no canal travado.
     expect(s).toMatch(/const travaVarejo = !!travaIntegracao\?\.has\("preco_venda"\);/);
-    expect(s).toMatch(/const tocarVarejo = !travaVarejo && varejo !== precoOuNull\(precoBaseCongelado\.venda\);/);
+    expect(s).toMatch(/const tocarVarejo = podeEditarPreco && !travaVarejo && varejo !== precoOuNull\(precoBaseCongelado\.venda\);/);
   });
 });
 
@@ -1342,8 +1343,8 @@ describe("Fix round 1 — M-2: o preço-base congela junto com `d`/revCongelado 
   it("usePlanejamentoSave.ts: precoBaseCongelado é lido no MESMO ponto síncrono que revCongelado (antes de qualquer await)", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
     expect(s).toMatch(/const revCongelado = revRef\.current;[\s\S]{0,1400}const precoBaseCongelado = \{ venda: baseRef\.current\?\.draft\.preco_venda, atacado: baseRef\.current\?\.draft\.preco_atacado \};/);
-    expect(s).toMatch(/tocarVarejo = !travaVarejo && varejo !== precoOuNull\(precoBaseCongelado\.venda\)/);
-    expect(s).toMatch(/tocarAtacado = atacado !== precoOuNull\(precoBaseCongelado\.atacado\)/);
+    expect(s).toMatch(/tocarVarejo = podeEditarPreco && !travaVarejo && varejo !== precoOuNull\(precoBaseCongelado\.venda\)/);
+    expect(s).toMatch(/tocarAtacado = podeEditarAtacadoImportado && atacado !== precoOuNull\(precoBaseCongelado\.atacado\)/);
   });
 });
 
@@ -1499,7 +1500,7 @@ describe("Fix round 2 — N-2: falha na releitura pós-RPC não diz que o preço
     function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
       const api = usePlanejamentoSave({
         modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: true,
-        podeEditarPreco: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        podeEditarPreco: true, podeEditarPrecoAtacado: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
         refEditavel: false, travaIntegracao: undefined, categorias: [],
         draft: draftRef.current, setDraft: (f: any) => { draftRef.current = typeof f === "function" ? f(draftRef.current) : f; },
         draftLiveRef: draftRef as any, touchedRef: touchedRef as any, baseRef: baseRef as any,

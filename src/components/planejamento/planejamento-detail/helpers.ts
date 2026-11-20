@@ -3,7 +3,7 @@
 // `export`). A F3.1 acrescenta em ROTULO_CONFLITO_PLAN os rótulos dos campos novos.
 import { useQueryClient } from "@tanstack/react-query";
 import { type CustoSimInput } from "@/lib/preco";
-import type { Draft } from "@/components/planejamento/modelo-shared";
+import { numOr0, type Draft } from "@/components/planejamento/modelo-shared";
 
 // Colab round 4 (padrão do piloto/Desenvolvimento) — rótulos PT dos paths do Draft p/ o
 // banner de resolução genérica de conflito. O merge compara TODAS as chaves do Draft; path
@@ -201,6 +201,28 @@ export function precoAnteriorExibido(fixado: number | null | undefined, efetivo:
 export function aplicarPrecoAnterior(payload: Record<string, unknown>, d: Draft, podeEditarPreco: boolean): void {
   if (podeEditarPreco) payload.preco_anterior = precoAnteriorOuNull(d.preco_anterior);
   else delete payload.preco_anterior;
+}
+/**
+ * Permissão de preço (19/nov, Task 5): regra do preço no payload do Salvar. Varejo (`preco_venda`) e atacado (`preco_atacado`) são omitidos por
+ * chaves INDEPENDENTES — `editaVarejo` (`criacao_planejamento:preco_venda`) e `editaAtacado` (`criacao_planejamento:preco_atacado`). Sem a chave de um
+ * canal, a chave NEM ENTRA no payload (um Salvar disparado por outro campo não reenvia o valor herdado do spread de `d`; o gatilho do banco recusaria
+ * com 42501 e quebraria o save inteiro). Comprado (revenda/importado): ambos derivados no servidor (markup × custo / preço fixo) → sempre omitidos.
+ * `preco_anterior` NÃO é daqui: fica colado ao varejo (`aplicarPrecoAnterior`, mesma chave, invariante S5).
+ */
+export function aplicarRegrasPrecoNoPayload(
+  payload: Record<string, unknown>,
+  draft: { origem?: string | null; preco_venda?: number | null; preco_atacado?: number | null },
+  o: { origemComprada: boolean; editaVarejo: boolean; editaAtacado: boolean },
+): void {
+  if (o.origemComprada) {
+    delete payload.preco_venda;
+    delete payload.preco_atacado;
+    return;
+  }
+  if (o.editaVarejo) payload.preco_venda = numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null;
+  else delete payload.preco_venda;
+  if (o.editaAtacado) payload.preco_atacado = numOr0(draft.preco_atacado) > 0 ? numOr0(draft.preco_atacado) : null;
+  else delete payload.preco_atacado;
 }
 /** Os 6 campos novos que vão em TODO payload (o Preço anterior tem regra de permissão própria — no save). Título aparado. */
 export function camposNovosParaPayload(

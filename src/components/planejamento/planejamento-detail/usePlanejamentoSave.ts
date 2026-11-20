@@ -19,7 +19,7 @@ import { ehOrigemComprada } from "@/lib/origem";
 import { payloadRevendaParaSalvar, type MarkupEnviado, type RevendaBase, type RevendaRascunho } from "@/lib/revenda-salvar";
 import { argsConferirCategoria, conferirCategoriaAcessorioPedido, RecusaEsperadaError, textoBloqueioCategoriaCard, type ClienteLeitura } from "@/lib/categoria-card-produto";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
-import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
+import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior, aplicarRegrasPrecoNoPayload } from "@/components/planejamento/planejamento-detail/helpers";
 import { rotuloDaColuna } from "@/lib/integracao/campos";
 import { invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
@@ -143,7 +143,10 @@ export type UsePlanejamentoSaveArgs = {
   paOn: boolean;
   /** F3.4 — módulo `produto_importado` ligado (auto-criação do Produto Importado ao salvar — D1). */
   piOn: boolean;
+  /** = EDITAR preço de venda (VAREJO: `criacao_planejamento:preco_venda` E editar o Planejamento). `preco_anterior` fica colado a ele (S5). */
   podeEditarPreco: boolean;
+  /** Permissão de preço (19/nov, Task 5): EDITAR preço de ATACADO (`criacao_planejamento:preco_atacado`) — chave INDEPENDENTE do varejo. */
+  podeEditarPrecoAtacado: boolean;
   podeVerCustos: boolean;
   /** Reforço de segurança S3c (P-244 = B): pode mudar o VALOR de M.O. (EDITA o Planejamento E vê custos — `podeEditarValorMO`). */
   podeEditarMO: boolean;
@@ -228,7 +231,7 @@ export function invalidarAposPecaTeste(qc: QueryClient, modeloId: string | null)
 type EtapaPT = { captura: CapturaPT; resultado: ResultadoSalvarPT } | null;
 
 export function usePlanejamentoSave({
-  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, refEditavel, travaIntegracao, categorias,
+  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeEditarPrecoAtacado, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, refEditavel, travaIntegracao, categorias,
   draft, setDraft, draftLiveRef,
   touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
   setEnviada, setLancado,
@@ -236,6 +239,8 @@ export function usePlanejamentoSave({
   gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda, gradeCompradoPeloBom,
   qc, onSaved, onCreated, ficha, resetDraftBaseline, insumosIniciaisRef, pecaTeste, somentePecaTeste, revendaSaveRef,
 }: UsePlanejamentoSaveArgs) {
+  // Permissão de preço (Task 5): atacado do IMPORTADO (grava como preço FIXO pela RPC) = chave de atacado E editar o Planejamento (espelho do `podeEditarPreco`).
+  const podeEditarAtacadoImportado = !!podeEditarPrecoAtacado && podeEditarPlanejamento;
   // R9 — espelhos SÍNCRONOS (o mutationFn/onSuccess não fecham sobre um render velho; mesma razão do `fichaRef`).
   const pecaTesteRef = useRef<PecaTesteSave>(pecaTeste ?? PECA_TESTE_INERTE);
   pecaTesteRef.current = pecaTeste ?? PECA_TESTE_INERTE;
@@ -496,21 +501,14 @@ export function usePlanejamentoSave({
       // por outro campo (ex.: nome) sobrescreveria silenciosamente o preço fresco com o valor
       // velho. MANUFATURADOS seguem mandando o valor digitado, como sempre.
       // n1 (Integração, D14): o IMPORTADO também — o preço dele grava como preço FIXO, mais abaixo (depois do UPDATE).
-      if (ehOrigemComprada(d.origem)) {
-        delete payload.preco_venda;
-        delete payload.preco_atacado;
-      } else {
-        // Preço de venda só entra no payload de quem PODE editá-lo (permissão à parte
-        // `criacao_planejamento:preco_venda`). Sem ela, o input é read-only e um Salvar disparado
-        // por OUTRO campo não deve reenviar o valor herdado do `...draft` (o trigger
-        // fn_modelo_preco_venda_gate barraria com 42501, quebrando o save inteiro).
-        if (podeEditarPreco) {
-          payload.preco_venda = numOr0(d.preco_venda) > 0 ? numOr0(d.preco_venda) : null;
-        } else {
-          delete payload.preco_venda;
-        }
-        payload.preco_atacado = numOr0(d.preco_atacado) > 0 ? numOr0(d.preco_atacado) : null;
-      }
+      // Permissão de preço (19/nov, Task 5): varejo e atacado omitidos por chaves INDEPENDENTES (`aplicarRegrasPrecoNoPayload`, pura em
+      // helpers.ts). Comprado: ambos omitidos (derivados no servidor). Sem a chave de um canal o gatilho do banco recusaria (42501) e o spread
+      // de `d` reenviaria o valor herdado — por isso a chave NEM ENTRA no payload.
+      aplicarRegrasPrecoNoPayload(payload, d, {
+        origemComprada: ehOrigemComprada(d.origem),
+        editaVarejo: podeEditarPreco, // = podeEditarPrecoVarejo (criacao_planejamento:preco_venda)
+        editaAtacado: podeEditarPrecoAtacado, // chave nova, independente
+      });
       // F3.6 (Parte B, ruling 11 / R9) — Preço anterior: a MESMA permissão do preço de venda
       // (`criacao_planejamento:preco_venda`), nos DOIS ramos (manufaturado/importado E revenda — na revenda ele acompanha o
       // VAREJO); sem ela, não reenvia o valor herdado do `...d`. Trava só no cliente (D1 do dono: o servidor fica p/ a frente
@@ -591,7 +589,9 @@ export function usePlanejamentoSave({
         // importa aqui — o n1 abaixo passa a SABER que o varejo está travado e pula a chamada da RPC pra esse
         // canal (não é o `omitirColunasTravadas` que impede a RPC — ele só afeta o UPDATE de `modelos` — quem
         // barra a RPC é a checagem explícita em n1, usando o MESMO `travaIntegracao` lido aqui).
-        if (d.origem === "importado" && podeEditarPreco) { payloadKeysAntes.add("preco_venda"); payloadKeysAntes.add("preco_atacado"); }
+        // Permissão de preço (Task 5): cada canal conta SÓ com a SUA chave (varejo × atacado independentes).
+        if (d.origem === "importado" && podeEditarPreco) payloadKeysAntes.add("preco_venda");
+        if (d.origem === "importado" && podeEditarAtacadoImportado) payloadKeysAntes.add("preco_atacado");
         resolucaoTrava = resolverColunasTravadas({
           enviado: d, servidor: baseRef.current?.draft, travaNoMomentoDoSave: travaIntegracao,
           payloadKeys: payloadKeysAntes, touched: touchedRef.current, rotuloDe: rotuloDaColuna as (c: string) => string,
@@ -853,13 +853,15 @@ export function usePlanejamentoSave({
       // `precoImportadoOff`), então `d.preco_venda`/`preco_atacado` NUNCA divergem da base aqui (o usuário não
       // conseguiu editar) — o `if (savedId && ...)` abaixo continua exigindo `piOn` só por clareza/defesa (o preço
       // não pode ter mudado sem `piOn`, mas não custa manter o gate explícito).
-      if (savedId && d.origem === "importado" && piOn && podeEditarPreco) {
+      // Permissão de preço (Task 5, mesmo espírito do T4-D): o gate passa com varejo OU atacado, e cada canal só é "tocado" pela SUA chave —
+      // senão "editar atacado" sozinho seria permissão morta também no importado.
+      if (savedId && d.origem === "importado" && piOn && (podeEditarPreco || podeEditarAtacadoImportado)) {
         const precoOuNull = (v: unknown) => (numOr0(v) > 0 ? numOr0(v) : null);
         const varejo = precoOuNull(d.preco_venda);
         const atacado = precoOuNull(d.preco_atacado);
         const travaVarejo = !!travaIntegracao?.has("preco_venda");
-        const tocarVarejo = !travaVarejo && varejo !== precoOuNull(precoBaseCongelado.venda);
-        const tocarAtacado = atacado !== precoOuNull(precoBaseCongelado.atacado);
+        const tocarVarejo = podeEditarPreco && !travaVarejo && varejo !== precoOuNull(precoBaseCongelado.venda);
+        const tocarAtacado = podeEditarAtacadoImportado && atacado !== precoOuNull(precoBaseCongelado.atacado);
         if (tocarVarejo || tocarAtacado) {
           try {
             const { data: piFixo, error: piFixoErr } = await supabase

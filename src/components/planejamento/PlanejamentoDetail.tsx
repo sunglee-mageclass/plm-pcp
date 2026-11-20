@@ -97,7 +97,7 @@ import { useGradeComprado } from "@/components/planejamento/planejamento-detail/
 import { FotoPorCorSecao } from "@/components/planejamento/planejamento-detail/FotoPorCorSecao";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
-import { payloadRevendaParaSalvar, type MarkupEnviado, type RevendaBase, type RevendaRascunho } from "@/lib/revenda-salvar";
+import { payloadRevendaParaSalvar, filtrarRevendaPorPermissao, type MarkupEnviado, type RevendaBase, type RevendaRascunho } from "@/lib/revenda-salvar";
 import { PERM_PECA_TESTE, salvarComConfirmacaoEstorno, usePecaTeste } from "@/components/planejamento/planejamento-detail/usePecaTeste";
 import { PecaTesteSecao } from "@/components/planejamento/planejamento-detail/PecaTesteSecao";
 import { useMiniExplosao } from "@/components/planejamento/planejamento-detail/useMiniExplosao";
@@ -234,6 +234,9 @@ function PlanejamentoDetailConteudo({
   // quem só tem a página do produto deixa de editar o varejo. O ATACADO tem chave própria (`editaAtacado`). Nome da variável mantido (props/testes);
   // a trava do Planejamento (planBloqueado) segue por fora. O gate de salvar do atacado (payload) é o Task 5.
   const podeEditarPrecoComprado = editaVarejo;
+  // RULING T4-D (Task 5): o bloco de preço do comprado SALVA quando a pessoa edita o varejo OU o atacado (não só o varejo) — dentro do save cada canal é
+  // filtrado pela sua própria chave (`filtrarRevendaPorPermissao`). Sem o OU, "editar atacado" sozinho seria permissão morta no Sheet do Planejamento.
+  const podeSalvarPrecoComprado = editaVarejo || editaAtacado;
 
   // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
   // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect mais abaixo.
@@ -693,7 +696,7 @@ function PlanejamentoDetailConteudo({
     produtoId: string; base: RevendaBase; rascunho: RevendaRascunho; enviadoAtacado: MarkupEnviado | null; enviadoVarejo: MarkupEnviado | null;
   } | null>(null);
   revendaSaveRef.current =
-    isRevenda && revenda.produtoRevenda && podeEditarPrecoComprado
+    isRevenda && revenda.produtoRevenda && podeSalvarPrecoComprado
       ? {
           produtoId: revenda.produtoRevenda.id,
           base: {
@@ -704,14 +707,24 @@ function PlanejamentoDetailConteudo({
             preco_atacado: (draft.preco_atacado ?? 0) > 0 ? draft.preco_atacado : null,
             preco_venda: (draft.preco_venda ?? 0) > 0 ? draft.preco_venda : null,
           },
-          rascunho: {
-            markupAtacado: revenda.markupAtacadoInput === revenda.markupAtacadoBaseRef.current
-              ? (revenda.produtoRevenda.markup_atacado ?? null) : revenda.markupAtacadoInput,
-            markupVarejo: revenda.markupVarejoInput === revenda.markupVarejoBaseRef.current
-              ? (revenda.produtoRevenda.markup_varejo ?? null) : revenda.markupVarejoInput,
-            precoAtacadoFixo: revenda.precoAtacadoDraft ? Number(revenda.precoAtacadoDraft) || null : null,
-            precoVarejoFixo: revenda.precoVarejoDraft ? Number(revenda.precoVarejoDraft) || null : null,
-          },
+          // RULING T4-D: cada canal é filtrado pela SUA chave (varejo × atacado) — o rascunho do canal sem permissão volta à base ("não mudou").
+          rascunho: filtrarRevendaPorPermissao(
+            {
+              markup_atacado: revenda.produtoRevenda.markup_atacado ?? null,
+              markup_varejo: revenda.produtoRevenda.markup_varejo ?? null,
+              preco_atacado: (draft.preco_atacado ?? 0) > 0 ? draft.preco_atacado : null,
+              preco_venda: (draft.preco_venda ?? 0) > 0 ? draft.preco_venda : null,
+            },
+            {
+              markupAtacado: revenda.markupAtacadoInput === revenda.markupAtacadoBaseRef.current
+                ? (revenda.produtoRevenda.markup_atacado ?? null) : revenda.markupAtacadoInput,
+              markupVarejo: revenda.markupVarejoInput === revenda.markupVarejoBaseRef.current
+                ? (revenda.produtoRevenda.markup_varejo ?? null) : revenda.markupVarejoInput,
+              precoAtacadoFixo: revenda.precoAtacadoDraft ? Number(revenda.precoAtacadoDraft) || null : null,
+              precoVarejoFixo: revenda.precoVarejoDraft ? Number(revenda.precoVarejoDraft) || null : null,
+            },
+            { editaVarejo: podeEditarPrecoComprado, editaAtacado },
+          ),
           enviadoAtacado: revenda.enviadoAtacadoRef.current,
           enviadoVarejo: revenda.enviadoVarejoRef.current,
         }
@@ -1095,7 +1108,7 @@ function PlanejamentoDetailConteudo({
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave, salvarAntes } = usePlanejamentoSave({
-    modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, categorias,
+    modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeEditarPrecoAtacado: editaAtacado, podeVerCustos, podeEditarMO, podeEditarDev, podeEditarPlanejamento, categorias,
     refEditavel, travaIntegracao, revendaSaveRef,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
