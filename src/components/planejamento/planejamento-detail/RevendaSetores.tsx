@@ -43,8 +43,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
    *  São campos SÓ do Planejamento (nenhum Sheet do Dev antigo os tinha). Sem `podeEditarPlanejamento`, os
    *  4 inputs travam (o slot de M.O., abaixo, fica de fora — é compartilhado, trava própria no orquestrador). */
   planBloqueado: boolean;
-  /** Reforço de segurança S3d (C-14/C-15): markup e preço fixo do comprado (RPCs salvar_markups/salvar_precos_fixo_produto_acabado)
-   *  exigem no servidor EDITAR o Produto Acabado OU a seção "Editar preço de venda" do Planejamento — sem isso os 4 inputs travam. */
+  /** EDITAR o VAREJO do comprado (Markup varejo + Preço varejo) = SÓ `criacao_planejamento:preco_venda` (19/nov, uniformizado com o ProdutoCard; o OU antigo
+   *  com a página do produto saiu). Soma-se à trava da Integração (`travaVarejo`). */
   podeEditarPrecoComprado: boolean;
   /** Permissão de preço (19/nov): EDITAR o ATACADO é chave PRÓPRIA (`criacao_planejamento:preco_atacado`, `podeEditarPrecoAtacado`), separada do
    *  varejo/`podeEditarPrecoComprado` — gata Markup atacado + Preço atacado. A trava da Integração NÃO muda (atacado livre, inv. 14). */

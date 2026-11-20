@@ -3,6 +3,8 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { Bucket } from "@/components/otb/orcamento";
 import type { Opt, CatOpt } from "@/components/produto-acabado/shared";
 import { fmtMoeda } from "@/lib/moeda";
+import { useAuth } from "@/hooks/useAuth";
+import { podeVerPrecoVarejo } from "@/lib/preco-permissao";
 import { custoDoDraft, precosDoDraft, type ProdutoImportadoDraft } from "./shared";
 
 /** Bloco colapsável do Resumo — mesmo padrão de ResumoRevendaPanel.tsx / ResumoPanel.tsx
@@ -50,6 +52,10 @@ export function ResumoImportadoPanel({
   categorias: CatOpt[];
   grupos: Opt[];
 }) {
+  // Permissão de preço (19/nov): VER o varejo é chave PRÓPRIA, independente de custos. Sem ela "Poder de venda" mostra "—" (a seção NÃO some; o
+  // cálculo e o "Custo de compra" — que segue em custos — não mudam). Derivado AQUI (negado por padrão, sem prop que vaze). O painel não exibe atacado.
+  const { canView } = useAuth();
+  const veVarejo = podeVerPrecoVarejo(canView);
   const categoriaNome = (id: string | null) => categorias.find((c) => c.id === id)?.nome ?? "";
   const grupoNome = (id: string | null) => grupos.find((g) => g.id === id)?.nome ?? "";
 
@@ -94,7 +100,11 @@ export function ResumoImportadoPanel({
   return (
     <div className="space-y-2">
       <Secao title="Poder de venda (varejo)">
-        {comPreco > 0 ? (
+        {!veVarejo ? (
+          <div className="p-2">
+            <div className="flex justify-between text-xs"><span>Σ varejo × peças</span><b>—</b></div>
+          </div>
+        ) : comPreco > 0 ? (
           <div className="p-2">
             <div className="flex justify-between text-xs"><span>Σ varejo × peças</span><b>{fmtMoeda(poderVenda, "BRL")}</b></div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">{comPreco} de {produtos.length} produtos com preço</div>

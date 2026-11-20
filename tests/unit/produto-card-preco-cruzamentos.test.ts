@@ -294,6 +294,113 @@ describe("PrecoRevendaBloco — varejo × atacado separados (VER e EDITAR)", () 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 3b. Produto IMPORTADO (card + painel) — o importado TEM atacado (markup + valor), o brief original errou
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("ProdutoImportadoCard — varejo × atacado separados (VER e EDITAR)", () => {
+  async function cardPI(perm: Perm, estadoIntegracao: unknown = null) {
+    vi.resetModules();
+    vi.doMock("@/integrations/supabase/client", stubSupabase);
+    vi.doMock("@tanstack/react-router", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+      return { ...actual, useNavigate: () => () => {} };
+    });
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ ...permissoes(perm), user: { id: "u1" }, session: null, loading: false }) }));
+    vi.doMock("@/hooks/useSignedUrl", () => ({ useSignedUrl: () => null }));
+    vi.doMock("@/hooks/useMaoObraModelo", () => ({
+      useMaoObraModelo: () => ({ linhas: [], catsServico: [], setLinhas: () => {}, aprovar: { mutate: () => {}, isPending: false }, linhasPersistidas: [], dirty: false, total: 0, salvar: { mutate: () => {}, isPending: false } }),
+    }));
+    vi.doMock("@/hooks/useIntegracaoEstado", () => ({ useIntegracaoEstado: () => estadoIntegracao }));
+    const { ProdutoImportadoCard } = await import("@/components/produto-importado/ProdutoImportadoCard");
+    const { emptyDraft } = await import("@/components/produto-importado/shared");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const draft = {
+      ...emptyDraft("c1", "s1"), id: "p1", rev: 1, nome: "Blusa", modelo_id: "m1", ref: "REF1",
+      valor_unitario_m1: 10, moeda_compra: "RMB", moeda_intermediaria: "USD", cotacao_ref: 5, cotacao_final: 5,
+      preco_atacado_fixo: 60, preco_varejo_fixo: 100,
+      variantes: [{ ordem: 1, cor_id: "c-azul", cor_apelido_id: null, peso: 1, qtd: 10, _touched: false }],
+    };
+    const m = montar(createElement(QueryClientProvider, { client: qc },
+      createElement(ProdutoImportadoCard as any, {
+        draft, onChange: () => {}, open: true, onToggleOpen: () => {}, grupos: [], categorias: [], subcats1: [], subcats2: [],
+        categoriasTecido: [], materiaisAviamento: [], cores: [{ id: "c-azul", nome: "Azul" }], coresApelido: [], empresas: [],
+        tamanhos: ["P", "M", "G"], onExcluir: () => {},
+      })));
+    const gatilho = [...m.container.querySelectorAll("button[aria-expanded]")].find((b) => b.textContent?.includes("7 · Valores")) as HTMLElement;
+    expect(gatilho, "gatilho '7 · Valores'").toBeTruthy();
+    await act(async () => { gatilho.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); });
+    return m;
+  }
+  const campo = (c: HTMLElement, path: string) => c.querySelector(`[data-colab-path="card:p1:${path}"]`) as HTMLInputElement | null;
+  const CAMPOS = { mkA: "markup-atacado", mkV: "markup-varejo", pA: "preco-atacado-fixo", pV: "preco-varejo-fixo" };
+
+  it("vê os dois: os 4 campos; sem ver atacado => só os de atacado '—' (bloco e Valor final ficam)", async () => {
+    const todosVem = await cardPI(todas);
+    for (const p of Object.values(CAMPOS)) expect(campo(todosVem.container, p), p).not.toBeNull();
+    todosVem.unmount();
+    const m = await cardPI({ ...todas, verAtacado: false });
+    expect(campo(m.container, CAMPOS.mkA)).toBeNull(); expect(campo(m.container, CAMPOS.pA)).toBeNull();
+    expect(campo(m.container, CAMPOS.mkV)).not.toBeNull(); expect(campo(m.container, CAMPOS.pV)).not.toBeNull();
+    expect(m.container.textContent).toContain("Valor final (BRL)");
+    expect(blocoDe(m.container, "Valor atacado")?.textContent).toContain("—");
+    m.unmount();
+  });
+  it("sem ver varejo => só os de varejo '—' e a pílula 'varejo —'; atacado segue; sem ver nenhum o bloco ainda existe", async () => {
+    const m = await cardPI({ ...todas, verVarejo: false });
+    expect(campo(m.container, CAMPOS.mkV)).toBeNull(); expect(campo(m.container, CAMPOS.pV)).toBeNull();
+    expect(campo(m.container, CAMPOS.mkA)).not.toBeNull(); expect(campo(m.container, CAMPOS.pA)).not.toBeNull();
+    expect(blocoDe(m.container, "Valor varejo")?.textContent).toContain("—");
+    expect(m.container.textContent).toContain("varejo —");
+    expect(m.container.textContent).not.toMatch(/varejo R\$/);
+    m.unmount();
+    const nenhum = await cardPI({ ...todas, verVarejo: false, verAtacado: false });
+    for (const p of Object.values(CAMPOS)) expect(campo(nenhum.container, p), p).toBeNull();
+    expect(nenhum.container.textContent).toContain("Valor final (BRL)");
+    nenhum.unmount();
+  });
+  it("EDITAR por chave própria: atacado só com editaAtacado, varejo só com editaVarejo (independentes)", async () => {
+    const a = await cardPI({ ...todas, editaAtacado: false });
+    expect(campo(a.container, CAMPOS.mkA)!.disabled).toBe(true); expect(campo(a.container, CAMPOS.pA)!.disabled).toBe(true);
+    expect(campo(a.container, CAMPOS.mkV)!.disabled).toBe(false); expect(campo(a.container, CAMPOS.pV)!.disabled).toBe(false);
+    a.unmount();
+    const v = await cardPI({ ...todas, editaVarejo: false });
+    expect(campo(v.container, CAMPOS.mkV)!.disabled).toBe(true); expect(campo(v.container, CAMPOS.pV)!.disabled).toBe(true);
+    expect(campo(v.container, CAMPOS.mkA)!.disabled).toBe(false); expect(campo(v.container, CAMPOS.pA)!.disabled).toBe(false);
+    v.unmount();
+  });
+  it("Integração (D34/R8): trava SÓ o varejo; o atacado fica livre", async () => {
+    const m = await cardPI(todas, { estado: "integravel", campos: ["preco_venda"], marcadoEm: null, integradoEm: null });
+    expect(campo(m.container, CAMPOS.mkV)!.disabled).toBe(true); expect(campo(m.container, CAMPOS.pV)!.disabled).toBe(true);
+    expect(campo(m.container, CAMPOS.mkA)!.disabled).toBe(false); expect(campo(m.container, CAMPOS.pA)!.disabled).toBe(false);
+    m.unmount();
+  });
+});
+
+describe("ResumoImportadoPanel — Poder de venda (varejo) por ver-varejo", () => {
+  async function painelPI(perm: Perm) {
+    vi.resetModules();
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ ...permissoes(perm), user: { id: "u1" } }) }));
+    const { ResumoImportadoPanel } = await import("@/components/produto-importado/ResumoImportadoPanel");
+    const { emptyDraft } = await import("@/components/produto-importado/shared");
+    const p = { ...emptyDraft("c1", "s1"), id: "p1", valor_unitario_m1: 10, moeda_compra: "BRL", moeda_intermediaria: null, qtd_total: 10, preco_varejo_fixo: 100 };
+    return montar(createElement(ResumoImportadoPanel as any, { produtos: [p], bucket: null, nivelMacro: "categoria", categorias: [], grupos: [] }));
+  }
+  it("com ver-varejo mostra o Σ; sem, '—' e a seção + 'Custo de compra' continuam; ver só atacado não libera", async () => {
+    const com = await painelPI(todas);
+    expect(com.container.textContent).toMatch(/Σ varejo × peças\s*R\$\s?1\.000,00/);
+    com.unmount();
+    for (const perm of [{ ...todas, verVarejo: false }, { ...todas, verVarejo: false, verAtacado: true }]) {
+      const sem = await painelPI(perm);
+      expect(sem.container.textContent).toContain("Poder de venda (varejo)");
+      expect(sem.container.textContent).toMatch(/Σ varejo × peças\s*—/);
+      expect(sem.container.textContent).not.toMatch(/1\.000,00/);
+      expect(sem.container.textContent).toContain("Custo de compra");
+      sem.unmount();
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // 4. Fiação (fonte): chaves certas, nada de custos, trava só no varejo
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("fiação — chaves de preço, ortogonais a custos; trava da Integração só no varejo", () => {
@@ -304,8 +411,9 @@ describe("fiação — chaves de preço, ortogonais a custos; trava da Integraç
     expect(s).toMatch(/const editaAtacado = podeEditarPrecoAtacado\(canEdit\)/);
     expect(s).toMatch(/<PrecoRevendaBloco[\s\S]*?podeEditarAtacado=\{editaAtacado\}[\s\S]*?veVarejo=\{veVarejo\} veAtacado=\{veAtacado\}/);
     expect(s).not.toMatch(/const (veAtacado|editaAtacado) =[^\n]*(veCustos|podeVerCustos)/);
-    // o OU do comprado FICA (varejo/outros): não foi trocado
-    expect(s).toContain('const podeEditarPrecoComprado = canEdit("criacao_planejamento:preco_venda") || canEdit("criacao_produto_acabado");');
+    // varejo do comprado UNIFORMIZADO: SÓ preco_venda (= editaVarejo), igual ao ProdutoCard — o OU com a página do produto saiu
+    expect(s).toContain("const podeEditarPrecoComprado = editaVarejo;");
+    expect(s).not.toMatch(/const podeEditarPrecoComprado =[^\n]*criacao_produto_acabado/);
   });
   it("RevendaSetores: os 2 controles de ATACADO usam podeEditarAtacado (nunca podeEditarPrecoComprado nem travaVarejo)", () => {
     const s = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
@@ -334,6 +442,18 @@ describe("fiação — chaves de preço, ortogonais a custos; trava da Integraç
     expect(r).not.toMatch(/const veVarejo =[^\n]*(podeVerCustos|veCustos)/);
     // o cálculo NÃO foi zerado pelo gate: só a exibição
     expect(r).toMatch(/const poderVenda = produtos\.reduce/);
+  });
+  it("ProdutoImportadoCard/Painel: 4 chaves de preço (sem custos); trava da Integração só nos inputs de varejo", () => {
+    const c = ler("src/components/produto-importado/ProdutoImportadoCard.tsx");
+    expect(c).toMatch(/const veVarejo = podeVerPrecoVarejo\(canView\)/); expect(c).toMatch(/const veAtacado = podeVerPrecoAtacado\(canView\)/);
+    expect(c).toMatch(/const editaVarejo = podeEditarPrecoVarejo\(canEdit\)/); expect(c).toMatch(/const editaAtacado = podeEditarPrecoAtacado\(canEdit\)/);
+    expect(c).not.toMatch(/const (veVarejo|veAtacado|editaVarejo|editaAtacado) =[^\n]*(podeVerCustos|veCustos)/);
+    expect(c.match(/disabled=\{travaIntegracao\.has\("preco_venda"\) \|\| !editaVarejo\}/g)?.length).toBe(2);
+    expect(c.match(/disabled=\{!editaAtacado\}/g)?.length).toBe(2);
+    expect(c).not.toMatch(/disabled=\{[^}]*editaAtacado[^}]*travaIntegracao/);
+    const p = ler("src/components/produto-importado/ResumoImportadoPanel.tsx");
+    expect(p).toMatch(/const veVarejo = podeVerPrecoVarejo\(canView\)/);
+    expect(p).toMatch(/for \(const p of produtos\)/); // o cálculo NÃO foi zerado pelo gate
   });
   it("o helper de preço segue sem citar custos (ortogonalidade)", () => {
     expect(ler("src/lib/preco-permissao.ts").replace(/^\s*\/\/.*$/gm, "")).not.toMatch(CITA_CUSTOS);

@@ -229,9 +229,11 @@ function PlanejamentoDetailConteudo({
   // do payload) — campo editável que nunca salva. Variável ÚNICA usada na UI (PrecoTabela/PrecoRevendaBloco)
   // E no hook de save (mesmo nome que antes, para não espalhar o `&&` em vários pontos).
   const podeEditarPreco = editaVarejo && podeEditarPlanejamento;
-  // Reforço de segurança S3d (C-14/C-15): markup/preço fixo do comprado = EDITAR o Produto Acabado OU a seção de preço (o mesmo
-  // OU do servidor em salvar_markups/salvar_precos_fixo_produto_acabado); a trava do Planejamento (planBloqueado) segue por fora.
-  const podeEditarPrecoComprado = canEdit("criacao_planejamento:preco_venda") || canEdit("criacao_produto_acabado");
+  // Permissão de preço (19/nov, decisão do dono — UNIFORMIZADA nas duas telas): EDITAR o VAREJO do comprado (markup/preço fixo varejo) é SÓ
+  // `criacao_planejamento:preco_venda` (= `editaVarejo`, igual ao ProdutoCard). O OU antigo com `criacao_produto_acabado` (S3d C-14/C-15) saiu:
+  // quem só tem a página do produto deixa de editar o varejo. O ATACADO tem chave própria (`editaAtacado`). Nome da variável mantido (props/testes);
+  // a trava do Planejamento (planBloqueado) segue por fora. O gate de salvar do atacado (payload) é o Task 5.
+  const podeEditarPrecoComprado = editaVarejo;
 
   // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
   // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect mais abaixo.

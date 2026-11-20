@@ -1548,7 +1548,7 @@ describe("F4 — Produto Acabado e Importado", () => {
     expect(s).toMatch(/data-colab-path=\{cp\("preco-varejo-fixo"\)\}/);
     expect(s).toMatch(/onChange\(n > 0 \? \{ preco_varejo_fixo: n, markup_varejo: null \} : \{ preco_varejo_fixo: null \}\)/);
     expect(s).toMatch(/\{ markup_varejo: Number\(e\.target\.value\), preco_varejo_fixo: null \}/);
-    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)\}/g)?.length).toBe(2); // Markup varejo + Valor varejo
+    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)( \|\| !editaVarejo)?\}/g)?.length).toBe(2); // Markup varejo + Valor varejo (+ editar varejo, 19/nov)
     expect(s).toMatch(/disabled=\{travaIntegracao\.has\("ref"\)\}/);
     const sh = ler("src/components/produto-importado/shared.ts");
     expect(sh).toMatch(/preco_varejo_fixo: number \| null;/);

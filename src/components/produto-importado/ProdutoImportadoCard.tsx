@@ -25,6 +25,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaoObraModelo } from "@/hooks/useMaoObraModelo";
 import { MaoObraCardMini } from "@/components/planejamento/MaoObraCardMini";
 import { podeEditarValorMO, podeVerCustosServidor } from "@/lib/mao-obra";
+import { podeVerPrecoVarejo, podeVerPrecoAtacado, podeEditarPrecoVarejo, podeEditarPrecoAtacado } from "@/lib/preco-permissao";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -184,6 +185,13 @@ export function ProdutoImportadoCard({
   const podeVerCustosMO = podeVerCustosServidor(canView);
   const podeEditarMO = podeEditarValorMO(canEdit, canView);
   const podeAprovarMO = canEdit("producao_servico_aprovacao");
+  // Permissão de preço (19/nov): varejo e atacado são chaves PRÓPRIAS, independentes entre si E de custos. Sem VER uma delas, SÓ aquela parte
+  // mostra "—"; o bloco de preço e o Valor final (custo) NUNCA somem por isso. EDITAR: atacado = `criacao_planejamento:preco_atacado`; varejo =
+  // `criacao_planejamento:preco_venda`. A trava da Integração segue SÓ no varejo (atacado livre, D34/R8).
+  const veVarejo = podeVerPrecoVarejo(canView);
+  const veAtacado = podeVerPrecoAtacado(canView);
+  const editaVarejo = podeEditarPrecoVarejo(canEdit);
+  const editaAtacado = podeEditarPrecoAtacado(canEdit);
   const mo = useMaoObraModelo(draft.modelo_id, podeVerCustosMO);
   // F4a T4 — selo da etapa do kanban + "Mover para…" (só-leitura do espelho; mover vai por RPC, FORA do Salvar).
   // `modeloKanbanDoEmbed` memoizado nos 4 primitivos: referência estável entre renders → os memos do `useSeloMoverLote`
@@ -288,7 +296,7 @@ export function ProdutoImportadoCard({
   const pillQuantidade = draft.valor_unitario_m1 > 0 && draft.cotacao_ref > 0 ? `${simboloMoeda(draft.moeda_compra)} ${draft.valor_unitario_m1} ÷ ${draft.cotacao_ref} = ${fmtMoeda(valorProdutoM2, moedaExibicaoM2)}` : null;
   const pillFrete = valorTranspM2 > 0 ? `${fmtMoeda(valorTranspM2, moedaExibicaoM2)}/pç` : null;
   const pillPagamentos = draft.etapas.length > 0 ? draft.etapas.map((e) => `${e.percentual}%`).join(" · ") : null;
-  const pillValores = precos.varejo > 0 ? `varejo ${fmtMoeda(precos.varejo, "BRL")}` : null;
+  const pillValores = !veVarejo ? "varejo —" : precos.varejo > 0 ? `varejo ${fmtMoeda(precos.varejo, "BRL")}` : null;
 
   // ── 2 · Grade & proporção ──
   const setPeso = (tam: string, peso: number) => {
@@ -905,6 +913,7 @@ export function ProdutoImportadoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Markup atacado</Label>
+                      {!veAtacado ? <p className="flex-1 text-sm text-muted-foreground">—</p> : (
                       <div className="relative flex-1">
                         <NumberInput
                           blankZero
@@ -914,14 +923,17 @@ export function ProdutoImportadoCard({
                           // M-4 (Fix round 1): mostra o markup GRAVADO ou, com preço fixo, o DERIVADO (preço÷base) —
                           // espelha `markupVarejoExib` do Produto Acabado ("digitar preço preenche o markup").
                           value={markupAtacadoExibido(draft, baseImp) ?? 0}
+                          disabled={!editaAtacado}
                           // D14/R1: markup digitado LIMPA o preço fixo do canal ("última edição manda") — grava no Salvar.
                           onChange={(e) => onChange(Number(e.target.value) > 0 ? { markup_atacado: Number(e.target.value), preco_atacado_fixo: null } : { markup_atacado: null })}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Markup varejo</Label>
+                      {!veVarejo ? <p className="flex-1 text-sm text-muted-foreground">—</p> : (
                       <div className="relative flex-1">
                         <NumberInput
                           blankZero
@@ -929,11 +941,12 @@ export function ProdutoImportadoCard({
                           data-colab-path={cp("markup-varejo")}
                           className="pr-6"
                           value={markupVarejoExibido(draft, baseImp) ?? 0}
-                          disabled={travaIntegracao.has("preco_venda")}
+                          disabled={travaIntegracao.has("preco_venda") || !editaVarejo}
                           onChange={(e) => onChange(Number(e.target.value) > 0 ? { markup_varejo: Number(e.target.value), preco_varejo_fixo: null } : { markup_varejo: null })}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
+                      )}
                     </div>
                   </div>
                   <InfoStrip itens={[
@@ -946,32 +959,37 @@ export function ProdutoImportadoCard({
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     <div className="grid min-w-0 gap-1">
                       <Label className="text-sm">Valor atacado</Label>
+                      {!veAtacado ? <p className="flex h-9 items-center text-sm text-muted-foreground">—</p> : (
                       <MoneyInput
                         className="w-full min-w-0"
                         fixedDecimals
                         data-colab-path={cp("preco-atacado-fixo")}
                         value={precos.atacado > 0 ? precos.atacado : ""}
                         placeholder="0,00"
+                        disabled={!editaAtacado}
                         onChange={(e) => {
                           const n = Number(e.target.value) || 0;
                           onChange(n > 0 ? { preco_atacado_fixo: n, markup_atacado: null } : { preco_atacado_fixo: null });
                         }}
                       />
+                      )}
                     </div>
                     <div className="grid min-w-0 gap-1">
                       <Label className="text-sm">Valor varejo</Label>
+                      {!veVarejo ? <p className="flex h-9 items-center text-sm text-muted-foreground">—</p> : (
                       <MoneyInput
                         className="w-full min-w-0"
                         fixedDecimals
                         data-colab-path={cp("preco-varejo-fixo")}
                         value={precos.varejo > 0 ? precos.varejo : ""}
                         placeholder="0,00"
-                        disabled={travaIntegracao.has("preco_venda")}
+                        disabled={travaIntegracao.has("preco_venda") || !editaVarejo}
                         onChange={(e) => {
                           const n = Number(e.target.value) || 0;
                           onChange(n > 0 ? { preco_varejo_fixo: n, markup_varejo: null } : { preco_varejo_fixo: null });
                         }}
                       />
+                      )}
                     </div>
                   </div>
                 </div>

@@ -22,9 +22,9 @@ describe("S3d — preço/markup do comprado no Sheet = o OU do servidor", () => 
       expect([...S3D_PAGINAS[sig]].sort(), sig).toEqual(["criacao_planejamento:preco_venda", "criacao_produto_acabado"]);
     }
     expect(src("src/components/planejamento/PlanejamentoDetail.tsx"))
-      .toContain('const podeEditarPrecoComprado = canEdit("criacao_planejamento:preco_venda") || canEdit("criacao_produto_acabado");');
+      .toContain("const podeEditarPrecoComprado = editaVarejo;"); // 19/nov: uniformizado — varejo do comprado = SÓ preco_venda (o OU com a página do produto saiu)
     const bloco = src("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
-    // Permissão de preço (19/nov): o VAREJO segue no OU do servidor (2 inputs); o ATACADO passa a chave própria `podeEditarAtacado` (2 inputs).
+    // Permissão de preço (19/nov): o VAREJO é SÓ `preco_venda` (`podeEditarPrecoComprado = editaVarejo`, 2 inputs); o ATACADO tem a chave própria `podeEditarAtacado` (2 inputs).
     expect(bloco.match(/disabled=\{planBloqueado \|\| !podeEditarPrecoComprado/g)?.length).toBe(2);
     expect(bloco.match(/disabled=\{planBloqueado \|\| !podeEditarAtacado\}/g)?.length).toBe(2);
   });
