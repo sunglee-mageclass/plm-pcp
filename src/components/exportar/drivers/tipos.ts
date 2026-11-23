@@ -16,6 +16,21 @@ export const SENTINELA_TODOS = "__todos__" as const;
 /** Resposta da RPC de export: o formato de `baixarExport` + o total de itens do recorte. */
 export type RespostaExport = DadosExport & { total: number };
 
+/** Filtro de recorte → o que a RPC recebe: vazio/sentinela = `null` (SQL: "todos"); um id passa como veio. */
+export function idParaRpc(v: string | null | undefined): string | null {
+  return v && v !== SENTINELA_TODOS ? v : null;
+}
+
+/** Lê a resposta de `exportar_tecidos/_aviamentos/_insumos` (jsonb) para o formato de `baixarExport`; campo ausente = vazio. */
+export function lerRespostaExport(data: unknown): RespostaExport {
+  const d = (data ?? {}) as Partial<RespostaExport>;
+  return {
+    colunas: Array.isArray(d.colunas) ? d.colunas : [],
+    total: typeof d.total === "number" ? d.total : 0,
+    niveis: d.niveis && typeof d.niveis === "object" ? d.niveis : {},
+  };
+}
+
 /** Os 4 tipos do seletor, na ordem em que aparecem. */
 export const TIPOS_EXPORT: { valor: TipoExport; rotulo: string }[] = [
   { valor: "produto", rotulo: "Produto" },
@@ -90,6 +105,8 @@ export type DriverRecorte = {
   nomeAba: Record<string, string>;
   /** Tela das prefs de colunas/níveis (`useUserPref("export", prefScreen, …)`). Produto = "integracao" (histórico, não mudar). */
   prefScreen: string;
+  /** Texto do aviso do bloco "Campos de variante" (o que o tipo chama de pai/variante). Sem ele, a tela usa o do produto (SKU pai). */
+  avisoVariante?: string;
   /** Como a tela chama o item do tipo (prévia, toast, "nenhum … neste recorte"). */
   item: { um: string; varios: string };
   /** Hook do recorte (usa as prefs/queries próprias do tipo). Chamado SEMPRE dentro de um componente com `key={tipo}`. */

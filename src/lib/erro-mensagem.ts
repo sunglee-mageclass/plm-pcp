@@ -94,6 +94,14 @@ function mensagemGerarJson(code: string, msg: string): string | null {
   return null;
 }
 
+// Exportar dados por tipo (20261212100000): o filtro (categoria/material/tipo de insumo) chegou à RPC como id que não é uuid ou não é da loja
+// (P0001, ASCII `exportar_filtro_invalido`) → texto PT. Roda antes do ramo genérico "P0001 = mensagem já em PT" (senão o ASCII cru apareceria).
+export const TEXTO_EXPORTAR_FILTRO_INVALIDO = "O filtro selecionado não é válido (recarregue a página).";
+function mensagemExportar(code: string, msg: string): string | null {
+  if (code === "P0001" && msg.startsWith("exportar_filtro_invalido")) return TEXTO_EXPORTAR_FILTRO_INVALIDO;
+  return null;
+}
+
 // Integração + API: as recusas do banco chegam em ASCII com prefixo (lição P-58/P-59 — 5xx só ASCII); a tela traduz aqui.
 function mensagemIntegracao(code: string, msg: string): string | null {
   if (code === "42501" && msg.startsWith("integracao_travado:")) {
@@ -733,6 +741,10 @@ export function mensagemErro(e: unknown, fallback?: string): string {
   // Botões Regerar REF / Regerar SKUs: prefixos ASCII (P0001/42501/P0409 `previa_desatualizada: ref`) → texto PT (antes do P0409 genérico e do ramo "P0001 = já em PT").
   const regerar = mensagemRegerar(code, msg);
   if (regerar) return regerar;
+
+  // Exportar dados por tipo: `exportar_filtro_invalido` (P0001, ASCII) → texto PT.
+  const exportar = mensagemExportar(code, msg);
+  if (exportar) return exportar;
 
   // Reforço de segurança S1: prefixos ASCII (42501/P0001) das guardas novas → texto PT.
   const segS1 = mensagemSegS1(code, msg);

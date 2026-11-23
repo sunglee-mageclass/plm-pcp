@@ -23,15 +23,24 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { baixarExport } from "@/lib/integracao/export";
 import { rotulosDoTipo, keysValidasDoTipo } from "@/lib/exportar/campos-por-tipo";
 import { driverProduto } from "./drivers/produto";
+import { driverTecido } from "./drivers/tecido";
+import { driverAviamento } from "./drivers/aviamento";
+import { driverInsumo } from "./drivers/insumo";
 import { TIPOS_EXPORT, tipoValido, type DriverRecorte, type TipoExport } from "./drivers/tipos";
 
 /** Quantos ITENS a prévia traz (o limite da RPC conta itens do tipo, não linhas). */
 const LIMITE_PREVIA = 20;
 
-/** Drivers prontos. Tecido/aviamento/insumo entram na Task 5 (até lá, o tipo aparece no seletor com aviso). */
+/** Um driver por tipo do seletor (o `Partial` fica: tipo sem driver mostra o aviso "ainda não está disponível"). */
 const DRIVERS: Partial<Record<TipoExport, DriverRecorte>> = {
   produto: driverProduto,
+  tecido: driverTecido,
+  aviamento: driverAviamento,
+  insumo: driverInsumo,
 };
+
+/** Aviso do bloco "Campos de variante" quando o driver não define o próprio (o do produto de sempre). */
+const AVISO_VARIANTE_PADRAO = "Campos de variante: só têm valor nas linhas de cor e de tamanho (ficam vazios no SKU pai).";
 
 function texto(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -161,7 +170,7 @@ function ExportarCorpo({ driver }: { driver: DriverRecorte }) {
         {camposVariante.length > 0 && (
         <div className="grid gap-2 rounded-md border p-3">
           <p className="text-xs text-muted-foreground">
-            Campos de variante: só têm valor nas linhas de cor e de tamanho (ficam vazios no SKU pai).
+            {driver.avisoVariante ?? AVISO_VARIANTE_PADRAO}
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {camposVariante.map((c) => (
