@@ -27,6 +27,7 @@ import {
   type TecidoNovo,
   type VarianteNova,
 } from "@/lib/tecido-grade/linha-nova";
+import { chaveSlotNovo } from "@/lib/tecido-grade/colar-slots";
 import type { SubPorCat } from "@/lib/tecido-subcategoria";
 import type { GradeOpcoes } from "./useTecidosGrade";
 import { CelulaTecido } from "./CelulaTecido";
@@ -44,7 +45,12 @@ type GrupoProps = {
   erro?: string;
   onChange: AtualizarNovo;
   onRemover: (tmp: string) => void;
+  /** Avisos da última colagem (`<linha>|<coluna>`) e como apagar um ao editar a célula. */
+  avisos?: Record<string, string>;
+  onLimparAviso?: (chaveCelula: string) => void;
 };
+
+const SEM_AVISOS: Record<string, string> = {};
 
 function EstadoNovo({ erro, pendencia, podeRemover, onRemover, rotuloRemover }: {
   erro?: string; pendencia?: string; podeRemover: boolean; onRemover: () => void; rotuloRemover: string;
@@ -75,14 +81,15 @@ function EstadoNovo({ erro, pendencia, podeRemover, onRemover, rotuloRemover }: 
 }
 
 /** Linhas (<tr>) do grupo novo. O chamador envolve em <tbody> (tecido novo) ou as encaixa no <tbody> do tecido existente. */
-export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, onChange, onRemover }: GrupoProps) {
+export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, onChange, onRemover, avisos = SEM_AVISOS, onLimparAviso }: GrupoProps) {
   const { problemas } = validarTecidoNovo(g);
   const alvo = g.artigoAlvoId != null;
   const primeiraRef = useRef<HTMLTableRowElement | null>(null);
   useEffect(() => {
-    // o grupo acabou de nascer: leva a vista até ele (a grade rola dentro do próprio container)
-    primeiraRef.current?.scrollIntoView?.({ block: "nearest" });
-  }, []);
+    // o grupo acabou de nascer: leva a vista até ele (a grade rola dentro do próprio container). Grupo de colagem em lote
+    // não rola (só o 1º): 500 rolagens seguidas travam a tela.
+    if (!g.semRolagem) primeiraRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchCab = (k: keyof CabecalhoNovo, v: unknown) =>
     onChange(g.tmp, (x) => ({ ...x, cab: { ...x.cab, [k]: v } as CabecalhoNovo }));
@@ -96,7 +103,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
   const vermelho = (lista: ProblemaNovo[], campo: string): string | undefined =>
     mostrarPendencias ? lista.find((p) => p.campo === campo)?.msg : undefined;
 
-  const celulaArtigo = (col: ColunaGrade, primeira: boolean) => {
+  const celulaArtigo = (col: ColunaGrade, primeira: boolean, chaveSlot: string) => {
     if (alvo || !primeira) {
       return col.key === "nome" ? (
         <span className="whitespace-nowrap px-2 text-xs text-muted-foreground" data-herdado>↳ mesmo tecido</span>
@@ -135,13 +142,18 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
     const campo = CAMPO_ARTIGO[col.key];
     if (!campo) return null;
     const k = campo as keyof CabecalhoNovo;
+    const chaveAv = `${chaveSlot}|${col.key}`;
     return (
       <CelulaTecido
         coluna={col}
         ariaLabel={ariaLabel}
         valor={g.cab[k]}
-        onChange={(v) => patchCab(k, v)}
+        onChange={(v) => {
+          patchCab(k, v);
+          onLimparAviso?.(chaveAv);
+        }}
         erro={erroCab}
+        aviso={avisos[chaveAv]}
         desabilitado={!col.editavel || celulaDesabilitadaPorRegra(col.key, { unidade_medida: g.cab.unidade_medida ?? "metro" })}
         opcoes={opcoesDaColuna(col.key, opcoes)}
       />
@@ -149,12 +161,14 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
   };
 
   const celulaVariante = (col: ColunaGrade, v: VarianteNova, idx: number) => {
+    const chaveAv = `${chaveSlotNovo(v.tmp)}|${col.key}`;
     const probs = problemasDaVariante(problemas, v.tmp);
     const ariaLabel = alvo ? `${col.rotulo} da cor nova ${idx + 1} de ${nomeTecido}` : `${col.rotulo} da cor ${idx + 1} do tecido novo`;
     if (col.key === "foto") return <CelulaTecido coluna={col} ariaLabel={ariaLabel} temFoto={false} />;
     const campo = CAMPO_VARIANTE[col.key];
     if (!campo) return null;
     const aoMudar = (valor: unknown) => {
+      onLimparAviso?.(chaveAv);
       if (col.key === "cor_base") patchVar(v.tmp, (x) => trocarCorBase(x, String(valor ?? ""), opcoes.coresApelido));
       else if (col.key === "cor_apelido") patchVar(v.tmp, (x) => trocarApelido(x, String(valor ?? ""), opcoes.coresApelido));
       else patchVar(v.tmp, (x) => ({ ...x, [campo]: valor }) as VarianteNova);
@@ -166,6 +180,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
         valor={v[campo]}
         onChange={aoMudar}
         erro={vermelho(probs, col.key)}
+        aviso={avisos[chaveAv]}
         desabilitado={!col.editavel}
         opcoes={opcoesDaColuna(col.key, opcoes, v.cor_id)}
       />
@@ -185,6 +200,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
             className={primeira && !alvo ? "border-t-2 border-border align-middle bg-amber-50/40 dark:bg-amber-500/5" : "border-t border-dashed align-middle bg-amber-50/40 dark:bg-amber-500/5"}
             data-linha-nova={g.tmp}
             data-variante-nova={v.tmp}
+            data-slot={chaveSlotNovo(v.tmp)}
           >
             <td className="w-8 px-1 py-1.5 text-center">
               <EstadoNovo
@@ -196,8 +212,8 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
               />
             </td>
             {COLUNAS_TECIDO.map((col) => (
-              <td key={col.key} className="px-1.5 py-1.5">
-                {col.escopo === "artigo" ? celulaArtigo(col, primeira) : celulaVariante(col, v, i)}
+              <td key={col.key} className="px-1.5 py-1.5" data-col={col.key}>
+                {col.escopo === "artigo" ? celulaArtigo(col, primeira, chaveSlotNovo(v.tmp)) : celulaVariante(col, v, i)}
               </td>
             ))}
           </tr>

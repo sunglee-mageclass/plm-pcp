@@ -5,7 +5,7 @@
 // (id = variante.id), ambos no `CardDraftsProvider` da aba. Editar uma célula só faz `patch` no rascunho (selo âmbar quando
 // valor ≠ base). O Salvar (na `TecidosGradeAba`) chama o `salvar` de cada rascunho sujo — tecidos primeiro, depois cores.
 // Cada rascunho se registra aqui por `registrar` (a ordem é do wrapper, não da ordem de montagem do registry).
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { AlertTriangle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
@@ -15,7 +15,7 @@ import {
   type VarianteDraft,
 } from "@/routes/_authenticated/cadastro.tecidos.$artigoId";
 import { COLUNAS_TECIDO, type ColunaGrade } from "@/lib/tecido-grade/colunas";
-import type { ArtigoEntrada, LinhaGrade, VarianteEntrada } from "@/lib/tecido-grade/linhas";
+import { chaveLinha, type ArtigoEntrada, type LinhaGrade, type VarianteEntrada } from "@/lib/tecido-grade/linhas";
 import {
   CAMPO_ARTIGO,
   CAMPO_VARIANTE,
@@ -47,6 +47,10 @@ export type SaverApi = {
   kind: "artigo" | "variante";
   dirty: () => boolean;
   salvar: (ctx: { limite?: number }) => Promise<void>;
+  /** Colar do Excel: aplica campos NO RASCUNHO (um `patch` por campo; nada grava). */
+  aplicar: (campos: Record<string, unknown>) => void;
+  /** Valor atual do rascunho (cor base / unidade que a colagem precisa conhecer). */
+  ler: () => Record<string, unknown>;
 };
 /** Registra um rascunho no wrapper do Salvar; devolve o "desregistrar". Precisa ser ESTÁVEL (useCallback) na tela. */
 export type RegistrarSaver = (id: string, api: SaverApi) => () => void;
@@ -115,6 +119,8 @@ function useRascunhoArtigo(artigo: ArtigoEntrada, registrar: RegistrarSaver): Ar
         kind: "artigo",
         dirty: () => draftRef.current.dirty,
         salvar: (ctx) => draftRef.current.salvar(ctx),
+        aplicar: (campos) => { for (const [k, v] of Object.entries(campos)) draftRef.current.patch(k as keyof ArtigoDraft, v as never); },
+        ler: () => ({ ...draftRef.current.valor }),
       }),
     [registrar, artigo.id],
   );
@@ -178,6 +184,8 @@ function useRascunhoVariante(variante: VarianteEntrada, registrar: RegistrarSave
         kind: "variante",
         dirty: () => draftRef.current.dirty,
         salvar: (ctx) => draftRef.current.salvar(ctx),
+        aplicar: (campos) => { for (const [k, v] of Object.entries(campos)) draftRef.current.patch(k as keyof VarianteDraft, v as never); },
+        ler: () => ({ ...draftRef.current.valor }),
       }),
     [registrar, variante.id],
   );
@@ -203,7 +211,13 @@ type LinhaProps = {
   ctxV: VarianteCtx | null;
   /** Última linha do tecido: botão "+ cor" (cor nova neste tecido). */
   acaoCor?: ReactNode;
+  /** Avisos da última colagem (chave `<linha>|<coluna>`) e como apagar um (ao editar a célula). */
+  avisos: Record<string, string>;
+  onLimparAviso: (chaveCelula: string) => void;
 };
+
+/** Chave da célula nos avisos de colagem: `<chave da linha>|<chave da coluna>`. */
+const chaveCelula = (chaveDaLinha: string, colKey: string): string => `${chaveDaLinha}|${colKey}`;
 
 function EstadoLinha({ sujo, erro }: { sujo: boolean; erro: string | null }): ReactNode {
   if (erro) {
@@ -223,6 +237,7 @@ function celulaArtigo(col: ColunaGrade, c: LinhaProps) {
   const { ctxA, opcoes, readOnly, artigo } = c;
   // rótulo estável (nome do servidor): digitar o nome não muda o aria-label do próprio campo
   const ariaLabel = `${col.rotulo} de ${artigo.nome}`;
+  const chaveAv = chaveCelula(chaveLinha(artigo.id, c.variante?.id ?? null), col.key);
   if (col.key === "preco_por_metro") {
     return <CelulaTecido coluna={col} ariaLabel={ariaLabel} texto={precoPorMetroTexto(ctxA.valor)} />;
   }
@@ -250,8 +265,12 @@ function celulaArtigo(col: ColunaGrade, c: LinhaProps) {
       coluna={col}
       ariaLabel={ariaLabel}
       valor={ctxA.valor[campo]}
-      onChange={(v) => ctxA.patch(campo, v)}
+      onChange={(v) => {
+        ctxA.patch(campo, v);
+        c.onLimparAviso(chaveAv);
+      }}
       sujo={ctxA.sujo(campo)}
+      aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel || celulaDesabilitadaPorRegra(col.key, ctxA.valor)}
       opcoes={opcoesDaColuna(col.key, opcoes)}
     />
@@ -264,10 +283,12 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
     return <span className="px-2 text-muted-foreground" title="Tecido sem cores">—</span>;
   }
   const ariaLabel = `${col.rotulo} da cor de ${artigo.nome}`;
+  const chaveAv = chaveCelula(chaveLinha(artigo.id, variante.id), col.key);
   if (col.key === "foto") return <CelulaTecido coluna={col} ariaLabel={ariaLabel} temFoto={!!variante.foto_url} />;
   const campo = CAMPO_VARIANTE[col.key];
   if (!campo) return null;
   const aoMudar = (v: unknown) => {
+    c.onLimparAviso(chaveAv);
     if (col.key === "cor_base") {
       // Mesma regra do Sheet: o apelido que não é da nova cor base sai junto (a RPC recebe os dois no MESMO Salvar).
       const b = String(v ?? "");
@@ -291,6 +312,7 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
       valor={ctxV.valor[campo]}
       onChange={aoMudar}
       sujo={ctxV.sujo(campo)}
+      aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel}
       opcoes={opcoesDaColuna(col.key, opcoes, ctxV.valor.cor_id)}
     />
@@ -304,6 +326,7 @@ function LinhaTr(props: LinhaProps) {
       className={cn("align-middle", primeira ? "border-t-2 border-border" : "border-t border-dashed")}
       data-artigo-id={artigo.id}
       data-variante-id={variante?.id}
+      data-slot={chaveLinha(artigo.id, variante?.id ?? null)}
     >
       <td className="w-8 px-1 py-1.5 text-center">
         <span className="flex items-center justify-center gap-1">
@@ -312,7 +335,7 @@ function LinhaTr(props: LinhaProps) {
         </span>
       </td>
       {COLUNAS_TECIDO.map((col) => (
-        <td key={col.key} className="px-1.5 py-1.5">
+        <td key={col.key} className="px-1.5 py-1.5" data-col={col.key}>
           {col.escopo === "artigo" ? celulaArtigo(col, props) : celulaVariante(col, props)}
         </td>
       ))}
@@ -342,6 +365,18 @@ export type NovosProps = NovosAcoes & {
   onNovoTecido: () => void;
 };
 
+/** Colar do Excel: avisos da última colagem + o que fazer ao editar a célula / ao colar um bloco. */
+export type ColarProps = {
+  /** Texto que NÃO foi aplicado (chave `<linha>|<coluna>`): a célula fica em laranja tracejado, com o motivo no `title`. */
+  avisos: Record<string, string>;
+  onLimparAviso: (chaveCelula: string) => void;
+  /** Recebe o bloco (texto da área de transferência) e a célula-âncora. `true` = tratou como bloco (o colar normal é cancelado). */
+  onColar: (a: { chaveLinha: string; colKey: string; texto: string }) => boolean;
+};
+
+const SEM_AVISOS: Record<string, string> = {};
+const NADA = () => {};
+
 const SEM_NOVOS: TecidoNovo[] = [];
 const SEM_ERROS: Record<string, string> = {};
 const SEM_ACOES: NovosAcoes = {
@@ -352,8 +387,9 @@ const SEM_ACOES: NovosAcoes = {
   onNovaCor: () => {},
 };
 
-const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv }: {
+const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv, avisos, onLimparAviso }: {
   grupo: Grupo; opcoes: GradeOpcoes; readOnly: boolean; registrar: RegistrarSaver;
+  avisos: Record<string, string>; onLimparAviso: (chaveCelula: string) => void;
   /** Cores novas deste tecido (rascunho); entram no fim do mesmo <tbody>. */
   novosAlvo: TecidoNovo[];
   nv: NovosAcoes;
@@ -388,6 +424,8 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             variante={l.variante}
             registrar={registrar}
             acaoCor={ultima ? botaoCor : undefined}
+            avisos={avisos}
+            onLimparAviso={onLimparAviso}
           />
         ) : (
           <LinhaTr
@@ -400,6 +438,8 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             variante={null}
             ctxV={null}
             acaoCor={ultima ? botaoCor : undefined}
+            avisos={avisos}
+            onLimparAviso={onLimparAviso}
           />
         );
       })}
@@ -412,20 +452,38 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
           erro={nv.errosNovos[g.tmp]}
           onChange={nv.onAtualizarNovo}
           onRemover={nv.onRemoverNovo}
+          avisos={avisos}
+          onLimparAviso={onLimparAviso}
         />
       ))}
     </tbody>
   );
 });
 
-export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos: nv }: {
+export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos: nv, colar }: {
   linhas: LinhaGrade[];
   opcoes: GradeOpcoes;
   readOnly: boolean;
   registrar: RegistrarSaver;
   /** Linhas novas (rascunho) + ações. Ausente = a grade só edita os existentes. */
   novos?: NovosProps;
+  /** Colar do Excel. Ausente = colar normal, célula a célula. */
+  colar?: ColarProps;
 }) {
+  const avisos = colar?.avisos ?? SEM_AVISOS;
+  const onLimparAviso = colar?.onLimparAviso ?? NADA;
+  // Ctrl+V de um BLOCO (TAB/várias linhas) com o foco numa célula: a célula é a âncora. O evento sobe do campo até aqui; valor
+  // simples segue o colar normal do próprio campo.
+  const aoColar = (e: ClipboardEvent<HTMLDivElement>) => {
+    if (!colar || readOnly) return;
+    const alvo = e.target as HTMLElement | null;
+    const td = alvo?.closest?.("td[data-col]") as HTMLElement | null;
+    const tr = td?.closest("tr[data-slot]") as HTMLElement | null;
+    if (!td || !tr) return;
+    const texto = e.clipboardData?.getData("text/plain") ?? "";
+    if (!/[\t\r\n"]/.test(texto)) return;
+    if (colar.onColar({ chaveLinha: tr.dataset.slot ?? "", colKey: td.dataset.col ?? "", texto })) e.preventDefault();
+  };
   const grupos = useMemo(() => agruparLinhasPorArtigo(linhas), [linhas]);
   // cores novas de tecido existente entram no <tbody> do tecido; tecido novo ganha <tbody> próprio, no fim
   const { porArtigo, tecidosNovos } = useMemo(() => {
@@ -447,7 +505,11 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
   );
   return (
     <div className="space-y-2">
-      <div className="max-h-[calc(100vh-16rem)] max-w-full overflow-auto rounded-md border" data-testid="tecidos-grade-tabela">
+      <div
+        className="max-h-[calc(100vh-16rem)] max-w-full overflow-auto rounded-md border"
+        data-testid="tecidos-grade-tabela"
+        onPaste={aoColar}
+      >
         <table className="w-full min-w-max border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left text-xs text-muted-foreground">
             <tr>
@@ -466,6 +528,8 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
               registrar={registrar}
               novosAlvo={porArtigo.get(g.artigoId) ?? SEM_NOVOS}
               nv={acoes}
+              avisos={avisos}
+              onLimparAviso={onLimparAviso}
             />
           ))}
           {tecidosNovos.map((g) => (
@@ -477,6 +541,8 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
                 erro={acoes.errosNovos[g.tmp]}
                 onChange={acoes.onAtualizarNovo}
                 onRemover={acoes.onRemoverNovo}
+                avisos={avisos}
+                onLimparAviso={onLimparAviso}
               />
             </tbody>
           ))}

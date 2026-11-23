@@ -47,6 +47,8 @@ export type TecidoNovo = {
   categoriaIds: string[];
   subPorCat: SubPorCat;
   vars: VarianteNova[];
+  /** Só da tela: nasceu de uma colagem em lote — não rola a vista até ele (500 grupos rolando de uma vez travam). */
+  semRolagem?: boolean;
 };
 
 export type ProblemaNovo = {

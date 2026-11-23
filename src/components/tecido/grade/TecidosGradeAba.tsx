@@ -12,6 +12,19 @@ import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { CardDraftsProvider, useCardDrafts } from "@/components/shared/card-drafts/CardDraftsProvider";
 import { useReadOnly } from "@/components/RequirePermission";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { COLUNAS_TECIDO, byKey } from "@/lib/tecido-grade/colunas";
+import { CAMPO_ARTIGO } from "@/lib/tecido-grade/celulas";
+import {
+  agruparNovosTecidos,
+  camposDaCor,
+  ehBlocoColavel,
+  mapearColagem,
+  montarLookupsColagem,
+  parseBlocoTsv,
+  resumoColagem,
+  type PatchColagem,
+} from "@/lib/tecido-grade/colar-tsv";
+import { chaveSlotNovo, montarSlots, recusaDoSlot } from "@/lib/tecido-grade/colar-slots";
 import { montarLinhas, type ArtigoEntrada } from "@/lib/tecido-grade/linhas";
 import { corNovaEmExistente, separarNovos, tecidoNovoVazio, type TecidoNovo } from "@/lib/tecido-grade/linha-nova";
 import {
@@ -21,7 +34,7 @@ import {
   textoErroSalvar,
   type ItemSalvar,
 } from "@/lib/tecido-grade/salvar";
-import { TecidosGradeTabela, type RegistrarSaver, type SaverApi } from "./TecidosGradeTabela";
+import { TecidosGradeTabela, type ColarProps, type RegistrarSaver, type SaverApi } from "./TecidosGradeTabela";
 import type { AtualizarNovo } from "./TecidoNovoGrupo";
 import { useTecidosGrade } from "./useTecidosGrade";
 
@@ -57,7 +70,9 @@ export interface TecidosGradeAbaProps {
  * Editar só mexe em RASCUNHO (selo âmbar); NADA grava antes do Salvar. UM Salvar grava os tecidos (CAS por rev) e depois
  * as cores (CAS por campo), com resultado parcial. Também CRIA: "+ Novo tecido" / "+ adicionar variante (cor)" montam linhas NOVAS em
  * rascunho (estado desta aba, não do servidor) que o MESMO Salvar manda por `importar_tecido_linha`, depois dos editados; linha nova
- * incompleta fica PENDENTE (em vermelho) e não trava as válidas. (Colar/foto são tasks seguintes.)
+ * incompleta fica PENDENTE (em vermelho) e não trava as válidas. COLAR do Excel (Ctrl+V de um bloco TSV numa célula): vira
+ * rascunho a partir da célula-âncora (cor/fornecedor/mês/ano pelo NOME; texto sem correspondência NÃO grava e avisa na célula);
+ * linhas além do fim criam tecidos novos. (Foto é a task seguinte.)
  */
 export function TecidosGradeAba(props: TecidosGradeAbaProps) {
   return (
@@ -81,6 +96,16 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
   const [mostrarPendencias, setMostrarPendencias] = useState(false);
   const novosRef = useRef(novos);
   novosRef.current = novos;
+  // Avisos da última colagem (texto que não foi aplicado), por célula `<linha>|<coluna>`. Somem ao editar a célula.
+  const [avisosColar, setAvisosColar] = useState<Record<string, string>>({});
+  const limparAvisoColar = useCallback((chave: string) => {
+    setAvisosColar((a) => {
+      if (!(chave in a)) return a;
+      const { [chave]: _fora, ...resto } = a;
+      void _fora;
+      return resto;
+    });
+  }, []);
   const limparErroNovo = useCallback((tmp: string) => {
     setErrosNovos((e) => {
       if (!(tmp in e)) return e;
@@ -139,6 +164,124 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
     return montarLinhas(entradas, dados.variantesPorArtigo);
   }, [artigos, dados.artigos, dados.catsPorArtigo, dados.variantesPorArtigo]);
 
+  const linhasRef = useRef(linhas);
+  linhasRef.current = linhas;
+  const opcoesRef = useRef(dados.opcoes);
+  opcoesRef.current = dados.opcoes;
+
+  // Ctrl+V de um bloco do Excel numa célula (a âncora). TUDO vira rascunho: aplica nos rascunhos existentes, atualiza as linhas
+  // novas e cria tecidos novos para as linhas que passam do fim. Nada grava antes do Salvar. `false` = não é bloco (colar normal).
+  const aoColar = useCallback<ColarProps["onColar"]>(({ chaveLinha: chaveDaLinha, colKey, texto }) => {
+    const bloco = parseBlocoTsv(texto);
+    if (!ehBlocoColavel(texto, bloco)) return false;
+    const slots = montarSlots(linhasRef.current, novosRef.current);
+    const linhaIdx = slots.findIndex((sl) => sl.chave === chaveDaLinha);
+    const colIdx = COLUNAS_TECIDO.findIndex((c) => c.key === colKey);
+    if (linhaIdx < 0 || colIdx < 0) return false;
+    const opcoes = opcoesRef.current;
+    const lookups = montarLookupsColagem(opcoes);
+    const apelidos = opcoes.coresApelido;
+    const savers = saversRef.current;
+    const novosAtuais = novosRef.current;
+
+    // o que a linha JÁ tem (apelido depende da cor base; rendimento só vale em Kg)
+    const corDoSlot = (i: number): { cor_id: string; cor_apelido_id: string } => {
+      const sl = slots[i];
+      if (sl.tipo === "existente") {
+        const v = sl.varianteId ? savers.get(sl.varianteId)?.ler() : undefined;
+        return { cor_id: String(v?.cor_id ?? ""), cor_apelido_id: String(v?.cor_apelido_id ?? "") };
+      }
+      const cor = novosAtuais.find((g) => g.tmp === sl.grupoTmp)?.vars.find((x) => x.tmp === sl.varTmp);
+      return { cor_id: cor?.cor_id ?? "", cor_apelido_id: cor?.cor_apelido_id ?? "" };
+    };
+    const unidadeDoSlot = (i: number): string => {
+      const sl = slots[i];
+      if (sl.tipo === "existente") return String(savers.get(sl.artigoId)?.ler().unidade_medida ?? "metro");
+      return novosAtuais.find((g) => g.tmp === sl.grupoTmp)?.cab.unidade_medida ?? "metro";
+    };
+
+    const res = mapearColagem({ linhaIdx, colIdx }, bloco, COLUNAS_TECIDO, slots.length, {
+      lookups,
+      contextoLinha: (i) => ({ corId: corDoSlot(i).cor_id, unidade: unidadeDoSlot(i) }),
+      aceitaCelula: (i, key) => recusaDoSlot(slots[i], byKey(key) ?? { escopo: "artigo" }),
+    });
+
+    // 1) linhas que já existem: um lote de campos por tecido e por cor (cor base antes do apelido, na ordem da grade)
+    const porLinha = new Map<number, PatchColagem[]>();
+    for (const p of res.patches) porLinha.set(p.linhaIdx, [...(porLinha.get(p.linhaIdx) ?? []), p]);
+    for (const [i, ps] of porLinha) {
+      const sl = slots[i];
+      const campoTecido: Record<string, unknown> = {};
+      const campoCor: Record<string, unknown> = {};
+      let cor = corDoSlot(i);
+      for (const p of ps) {
+        const col = byKey(p.colKey);
+        if (!col) continue;
+        if (col.escopo === "artigo") {
+          const campo = CAMPO_ARTIGO[col.key];
+          if (campo) campoTecido[campo] = p.valor;
+        } else {
+          const c = camposDaCor(col.key, p.valor, cor, apelidos);
+          Object.assign(campoCor, c);
+          cor = { ...cor, ...(c as Partial<typeof cor>) };
+        }
+      }
+      if (sl.tipo === "existente") {
+        if (Object.keys(campoTecido).length) savers.get(sl.artigoId)?.aplicar(campoTecido);
+        if (sl.varianteId && Object.keys(campoCor).length) savers.get(sl.varianteId)?.aplicar(campoCor);
+      } else {
+        setNovos((l) =>
+          l.map((g) =>
+            g.tmp !== sl.grupoTmp
+              ? g
+              : {
+                  ...g,
+                  cab: { ...g.cab, ...campoTecido },
+                  vars: g.vars.map((v) => (v.tmp === sl.varTmp ? { ...v, ...campoCor } : v)),
+                },
+          ),
+        );
+        limparErroNovo(sl.grupoTmp);
+      }
+    }
+
+    // 2) linhas além do fim = tecidos novos (linhas seguidas com o mesmo nome são cores do mesmo tecido)
+    const { grupos, varTmpPorLinha, avisos: avisosNovos } = agruparNovosTecidos(res.novasLinhas, apelidos);
+    if (grupos.length > 0) setNovos((l) => [...l, ...grupos]);
+
+    // 3) avisos nas células cujo texto NÃO foi aplicado (ou foi com ressalva)
+    const chaveDaLinhaColada = (i: number): string | null =>
+      i < slots.length ? slots[i].chave : varTmpPorLinha[i - slots.length] ? chaveSlotNovo(varTmpPorLinha[i - slots.length]) : null;
+    setAvisosColar((antes) => {
+      const prox = { ...antes };
+      for (const p of res.patches) {
+        const k = `${slots[p.linhaIdx].chave}|${p.colKey}`;
+        if (p.aviso) prox[k] = p.aviso;
+        else delete prox[k];
+      }
+      for (const av of avisosNovos) {
+        const ch = varTmpPorLinha[av.linhaNovaIdx];
+        if (ch) prox[`${chaveSlotNovo(ch)}|${av.colKey}`] = av.msg;
+      }
+      for (const ig of res.ignoradas) {
+        if (!ig.colKey || !["sem-correspondencia", "numero-invalido", "regra"].includes(ig.motivo)) continue;
+        const ch = chaveDaLinhaColada(ig.linhaIdx);
+        if (ch) prox[`${ch}|${ig.colKey}`] = ig.detalhe;
+      }
+      return prox;
+    });
+
+    const resumo = resumoColagem(res);
+    const opcoesToast = resumo.detalhe ? { description: resumo.detalhe } : undefined;
+    if (resumo.tom === "sucesso") toast.success(resumo.texto, opcoesToast);
+    else toast.warning(resumo.texto, opcoesToast);
+    return true;
+  }, [limparErroNovo]);
+  const colar = useMemo<ColarProps>(
+    () => ({ avisos: avisosColar, onLimparAviso: limparAvisoColar, onColar: aoColar }),
+    [avisosColar, limparAvisoColar, aoColar],
+  );
+
   const salvarMut = useMutation({
     mutationFn: async () => {
       const ctx = { limite: Date.now() + 5000 }; // UM prazo comum (prévias de preço), não N × 5 s
@@ -176,6 +319,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
       // grupos gravados saem do rascunho (um 2º Salvar não os reenvia); falhos e pendentes ficam, com o aviso na linha
       setNovos((l) => l.filter((g) => !criados.includes(g.tmp)));
       setErrosNovos(erros);
+      setAvisosColar({}); // o que foi colado já foi para o servidor (ou ficou em linha com erro própria)
       const { tom, texto } = resultadoComNovos(r, { criados: criados.length, erros: Object.keys(erros).length, pendentes });
       if (tom === "sucesso") toast.success(texto);
       else if (tom === "aviso") toast.warning(texto);
@@ -199,6 +343,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
         descartarTodos();
         setNovos([]);
         setErrosNovos({});
+        setAvisosColar({});
         setMostrarPendencias(false);
       },
     });
@@ -245,6 +390,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
           opcoes={dados.opcoes}
           readOnly={readOnly}
           registrar={registrar}
+          colar={colar}
           novos={{
             novos,
             mostrarPendencias,

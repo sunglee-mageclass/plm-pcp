@@ -20,6 +20,8 @@ import { OPCAO_VAZIA, casasDaColuna, controleDaCelula, permiteVazio, type OpcaoS
 const REALCE_SUJO = "border-amber-500 bg-amber-50 dark:bg-amber-500/10";
 /** Realce vermelho da célula de linha NOVA pendente (falta dado obrigatório): a linha não vai ao servidor. */
 const REALCE_ERRO = "border-destructive bg-destructive/10";
+/** Realce laranja tracejado do aviso de COLAGEM: o texto colado não casou com o cadastro (ou com a regra) e NÃO foi aplicado. */
+const REALCE_AVISO = "border-dashed border-orange-500 bg-orange-50 dark:bg-orange-500/10";
 
 export type CategoriasCelula = {
   options: OpcaoSelect[];
@@ -48,15 +50,21 @@ export type CelulaTecidoProps = {
   temFoto?: boolean;
   /** Linha NOVA pendente: motivo (PT-BR) — a célula fica em vermelho com o motivo no `title`. */
   erro?: string;
+  /** Aviso da última colagem nesta célula (texto não aplicado): laranja tracejado, com o motivo no `title`. Some ao editar. */
+  aviso?: string;
 };
 
 export function CelulaTecido({
-  coluna, valor, onChange, sujo = false, desabilitado = false, ariaLabel, opcoes = [], texto, categorias, temFoto, erro,
+  coluna, valor, onChange, sujo = false, desabilitado = false, ariaLabel, opcoes = [], texto, categorias, temFoto, erro, aviso,
 }: CelulaTecidoProps) {
   const controle = controleDaCelula(coluna);
-  // erro (vermelho) vence o selo âmbar; `title` explica o motivo
-  const realce = erro ? REALCE_ERRO : sujo ? REALCE_SUJO : undefined;
-  const invalido = erro ? { "aria-invalid": true as const, title: erro } : {};
+  // erro (vermelho) vence o aviso de colagem (laranja), que vence o selo âmbar; `title` explica o motivo
+  const realce = erro ? REALCE_ERRO : aviso ? REALCE_AVISO : sujo ? REALCE_SUJO : undefined;
+  const invalido = erro
+    ? { "aria-invalid": true as const, title: erro }
+    : aviso
+      ? { title: aviso, "data-aviso-colar": "" }
+      : {};
 
   if (controle === "somente-leitura") {
     return <span className="block min-w-[5rem] px-2 text-muted-foreground tabular-nums" data-controle={controle}>{texto ?? "—"}</span>;
