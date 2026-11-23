@@ -174,10 +174,11 @@ describe("permissão da seção criacao_planejamento:peca_teste", () => {
     const plan = PAGES_CATALOG.flatMap((m) => m.pages).find((p) => p.key === "criacao_planejamento")!;
     const sec = plan.sections!.find((s) => s.key === CHAVE);
     expect(sec).toEqual({ key: CHAVE, label: "Peça Teste", hint: HINT });
-    // as 2 seções antigas seguem iguais (sem hint) e a nova entra por último
+    // as seções antigas (custos + 1 chave por preço: varejo e atacado) seguem iguais (sem hint) e a nova entra por último
     expect(plan.sections!.map((s) => s.key)).toEqual([
       "criacao_planejamento:custos",
       "criacao_planejamento:preco_venda",
+      "criacao_planejamento:preco_atacado",
       CHAVE,
     ]);
     expect(new Set(ALL_PAGE_KEYS).size).toBe(ALL_PAGE_KEYS.length);

@@ -1,6 +1,6 @@
 -- Inverso de 20261211100000_preco_permissao_atacado_gate_backfill: devolve fn_modelo_preco_venda_gate SEM o ramo de atacado
 -- (= corpo da S1, 20261031120000, md5 e89be53c25f421724994e78b756a027d, copiado do vivo ANTES da ida - byte a byte).
--- O backfill NAO reverte (conceder acesso nao quebra); as linhas das 3 chaves novas ficam (inocuas sem o ramo). Dado nao volta sozinho.
+-- O backfill NAO reverte (conceder acesso nao quebra); as linhas da chave nova preco_atacado e o ver das chaves de preco ficam (inocuos sem o ramo). Dado nao volta sozinho.
 -- Guarda: aceita a funcao no texto desta frente (2da90981f4d754de3e0a2c5e2c85a994) ou ja no da S1 (idempotente); qualquer outro = outra frente mexeu.
 SET client_encoding = 'UTF8';
 BEGIN;

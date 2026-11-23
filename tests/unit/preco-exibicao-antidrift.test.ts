@@ -19,7 +19,9 @@ const CITA_CUSTOS = /veCustos|podeVerCustos|podeVerCustosServidor|criacao_planej
 describe("exibição do preço de venda (varejo) usa a chave própria (não custos)", () => {
   it("o helper é importável e puro", () => {
     expect(typeof podeVerPrecoVarejo).toBe("function");
-    expect(podeVerPrecoVarejo((k) => k === "criacao_planejamento:ver_preco_venda")).toBe(true);
+    expect(podeVerPrecoVarejo((k) => k === "criacao_planejamento:preco_venda")).toBe(true);
+    // chave única (Leitor=ver): a antiga ver_preco_venda não existe mais e não dá ver-preço
+    expect(podeVerPrecoVarejo((k) => k === "criacao_planejamento:ver_preco_venda")).toBe(false);
     // ortogonal a custos: ter custos NÃO dá ver-preço
     expect(podeVerPrecoVarejo((k) => k === "criacao_planejamento:custos")).toBe(false);
   });

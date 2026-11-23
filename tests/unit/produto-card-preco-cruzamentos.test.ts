@@ -9,7 +9,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  CHAVE_VER_PRECO_VAREJO, CHAVE_VER_PRECO_ATACADO, CHAVE_EDITAR_PRECO_VAREJO, CHAVE_EDITAR_PRECO_ATACADO,
+  CHAVE_EDITAR_PRECO_VAREJO, CHAVE_EDITAR_PRECO_ATACADO,
 } from "@/lib/preco-permissao";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -26,10 +26,11 @@ function stubSupabase() {
 const ler = (p: string) => readFileSync(p, "utf8");
 
 type Perm = { verVarejo: boolean; verAtacado: boolean; editaVarejo: boolean; editaAtacado: boolean };
+// UMA chave por preço (Leitor=ver, Editor=editar): `ver`/`edita` são os conjuntos canView/canEdit da MESMA chave.
 const permissoes = (p: Perm) => {
   const ver = new Set<string>(); const edita = new Set<string>();
-  if (p.verVarejo) ver.add(CHAVE_VER_PRECO_VAREJO);
-  if (p.verAtacado) ver.add(CHAVE_VER_PRECO_ATACADO);
+  if (p.verVarejo) ver.add(CHAVE_EDITAR_PRECO_VAREJO);
+  if (p.verAtacado) ver.add(CHAVE_EDITAR_PRECO_ATACADO);
   if (p.editaVarejo) edita.add(CHAVE_EDITAR_PRECO_VAREJO);
   if (p.editaAtacado) edita.add(CHAVE_EDITAR_PRECO_ATACADO);
   // Só as chaves de PREÇO: o resto (custos, mão de obra, página) fica sem permissão de propósito — prova a ortogonalidade (preço ≠ custos).
