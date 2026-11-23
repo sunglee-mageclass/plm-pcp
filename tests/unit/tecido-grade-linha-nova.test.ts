@@ -2,6 +2,7 @@
 // `importar_tecido_linha`. Sem React e sem banco.
 import { describe, it, expect } from "vitest";
 import {
+  adicionarCoresAoGrupo,
   corNovaEmExistente,
   payloadComplemento,
   payloadImportar,
@@ -212,5 +213,54 @@ describe("cor base x apelido (mesma regra do Sheet)", () => {
   });
   it("escolher o apelido preenche a cor base dele", () => {
     expect(trocarApelido(varianteVazia("v"), "ap2", apelidos)).toMatchObject({ cor_id: "cor-verde", cor_apelido_id: "ap2" });
+  });
+});
+
+describe("adicionarCoresAoGrupo (multi-cor da linha-pai: só ADICIONA)", () => {
+  it("3 cores novas em tecido novo → 3 variantes com a cor base e o PREÇO HERDADO (a linha em branco de fábrica é preenchida, não sobra)", () => {
+    const g = tecidoNovoVazio("g");
+    const r = adicionarCoresAoGrupo(g, ["c1", "c2", "c3"], 28);
+    expect(r.vars.map((v) => [v.cor_id, v.preco])).toEqual([["c1", 28], ["c2", 28], ["c3", 28]]);
+    expect(r.vars[0].tmp).toBe(g.vars[0].tmp); // reaproveitou a linha vazia
+    expect(new Set(r.vars.map((v) => v.tmp)).size).toBe(3); // tmps únicos
+    expect(r.vars.every((v) => v.cor_apelido_id === "" && v.nome_variante == null && v.codigo_variante == null)).toBe(true);
+    expect(r.cab).toBe(g.cab); // cabeçalho intacto
+  });
+
+  it("cor que o grupo já tem NÃO duplica (e a que o pai já escolheu não muda de preço); nada novo = mesma referência", () => {
+    const g = valido();
+    g.vars[0] = { ...g.vars[0], cor_id: "c1", preco: 5 };
+    const r = adicionarCoresAoGrupo(g, ["c1", "c2"], 28);
+    expect(r.vars.map((v) => [v.cor_id, v.preco])).toEqual([["c1", 5], ["c2", 28]]);
+    expect(adicionarCoresAoGrupo(g, ["c1"], 28)).toBe(g);
+    expect(adicionarCoresAoGrupo(g, [], 28)).toBe(g);
+  });
+
+  it("id repetido na própria lista conta 1x; id vazio é ignorado", () => {
+    const r = adicionarCoresAoGrupo(tecidoNovoVazio("g"), ["c1", "c1", ""], 10);
+    expect(r.vars.map((v) => v.cor_id)).toEqual(["c1"]);
+  });
+
+  it("DESMARCAR não remove: passar menos cores (ou nenhuma) nunca tira variante já existente", () => {
+    const g1 = adicionarCoresAoGrupo(tecidoNovoVazio("g"), ["c1", "c2", "c3"], 10);
+    const g2 = adicionarCoresAoGrupo(g1, ["c1"], 10);
+    expect(g2.vars.map((v) => v.cor_id)).toEqual(["c1", "c2", "c3"]);
+  });
+
+  it("linha que a pessoa já mexeu (ex.: código) não é reaproveitada: a cor vai numa linha nova; sem preço no pai → preço vazio", () => {
+    const g = tecidoNovoVazio("g");
+    g.vars[0] = { ...g.vars[0], codigo_variante: "X1" };
+    const r = adicionarCoresAoGrupo(g, ["c1"], null);
+    expect(r.vars).toHaveLength(2);
+    expect(r.vars[0]).toMatchObject({ cor_id: "", codigo_variante: "X1" });
+    expect(r.vars[1]).toMatchObject({ cor_id: "c1", preco: null });
+  });
+
+  it("cor nova em tecido EXISTENTE (alvo): cada cor vira variante vinculada ao mesmo artigo, e o payload leva só as cores (preço herdado)", () => {
+    const r = adicionarCoresAoGrupo(corNovaEmExistente("a1", "Malha"), ["c3", "c4"], 10);
+    expect(r.artigoAlvoId).toBe("a1");
+    const p = payloadImportar(r);
+    expect(p._artigo_alvo_id).toBe("a1");
+    expect(p._variantes.map((v) => [v.cor_id, v.preco])).toEqual([["c3", 10], ["c4", 10]]);
   });
 });

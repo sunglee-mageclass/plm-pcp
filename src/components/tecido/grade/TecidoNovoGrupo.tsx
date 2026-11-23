@@ -15,6 +15,7 @@ import {
   precoPorMetroTexto,
 } from "@/lib/tecido-grade/celulas";
 import {
+  adicionarCoresAoGrupo,
   problemasDaVariante,
   problemasDoCabecalho,
   trocarApelido,
@@ -31,6 +32,10 @@ import { chaveSlotNovo } from "@/lib/tecido-grade/colar-slots";
 import type { SubPorCat } from "@/lib/tecido-subcategoria";
 import type { GradeOpcoes } from "./useTecidosGrade";
 import { CelulaTecido } from "./CelulaTecido";
+import { CelulaCorBaseMulti } from "./CelulaCorBaseMulti";
+
+/** Última coluna da grade (ações de excluir): FIXA na direita, para o botão ficar à mão sem rolar a tabela até o fim. */
+export const CLASSE_COL_ACOES = "sticky right-0 z-10 bg-background px-1.5 py-1.5 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.15)]";
 
 export type AtualizarNovo = (tmp: string, fn: (g: TecidoNovo) => TecidoNovo) => void;
 
@@ -173,7 +178,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
       else if (col.key === "cor_apelido") patchVar(v.tmp, (x) => trocarApelido(x, String(valor ?? ""), opcoes.coresApelido));
       else patchVar(v.tmp, (x) => ({ ...x, [campo]: valor }) as VarianteNova);
     };
-    return (
+    const celula = (
       <CelulaTecido
         coluna={col}
         ariaLabel={ariaLabel}
@@ -185,6 +190,22 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
         opcoes={opcoesDaColuna(col.key, opcoes, v.cor_id)}
       />
     );
+    // Linha-PAI de um tecido NOVO: além do Select de 1 cor, a seleção MÚLTIPLA (cada cor marcada vira uma linha-filha com o
+    // preço do tecido). Nas cores 2+ (e nas "cores novas" de tecido existente) a célula segue sendo o Select simples.
+    if (col.key === "cor_base" && idx === 0 && !alvo) {
+      return (
+        <CelulaCorBaseMulti
+          cores={opcoes.cores}
+          presentes={g.vars.map((x) => x.cor_id).filter(Boolean)}
+          onAdicionar={(ids) => onChange(g.tmp, (x) => adicionarCoresAoGrupo(x, ids, x.cab.preco))}
+          ariaLabel="Adicionar várias cores do tecido novo"
+          desabilitado={!col.editavel}
+        >
+          {celula}
+        </CelulaCorBaseMulti>
+      );
+    }
+    return celula;
   };
 
   return (
@@ -216,12 +237,13 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
                 {col.escopo === "artigo" ? celulaArtigo(col, primeira, chaveSlotNovo(v.tmp)) : celulaVariante(col, v, i)}
               </td>
             ))}
+            <td className={CLASSE_COL_ACOES} />
           </tr>
         );
       })}
       <tr data-acoes-novo={g.tmp} className="bg-amber-50/40 dark:bg-amber-500/5">
         <td />
-        <td colSpan={COLUNAS_TECIDO.length} className="px-1.5 pb-2 pt-0.5">
+        <td colSpan={COLUNAS_TECIDO.length + 1} className="px-1.5 pb-2 pt-0.5">
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"

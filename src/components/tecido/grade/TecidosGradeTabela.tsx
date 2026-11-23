@@ -6,7 +6,7 @@
 // valor ≠ base). O Salvar (na `TecidosGradeAba`) chama o `salvar` de cada rascunho sujo — tecidos primeiro, depois cores.
 // Cada rascunho se registra aqui por `registrar` (a ordem é do wrapper, não da ordem de montagem do registry).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
-import { AlertTriangle, Plus } from "lucide-react";
+import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
 import {
@@ -40,7 +40,8 @@ import type { TecidoNovo } from "@/lib/tecido-grade/linha-nova";
 import { cn } from "@/lib/utils";
 import type { GradeOpcoes } from "./useTecidosGrade";
 import { CelulaTecido } from "./CelulaTecido";
-import { LinhasTecidoNovo, type AtualizarNovo } from "./TecidoNovoGrupo";
+import { CLASSE_COL_ACOES, LinhasTecidoNovo, type AtualizarNovo } from "./TecidoNovoGrupo";
+import { CelulaCorBaseMulti } from "./CelulaCorBaseMulti";
 
 /** O que cada rascunho entrega ao Salvar: lê o estado MAIS NOVO por ref, no momento de salvar. */
 export type SaverApi = {
@@ -214,6 +215,12 @@ type LinhaProps = {
   /** Avisos da última colagem (chave `<linha>|<coluna>`) e como apagar um (ao editar a célula). */
   avisos: Record<string, string>;
   onLimparAviso: (chaveCelula: string) => void;
+  /** Cores que o tecido JÁ tem (cadastradas + novas no rascunho): o popover multi-cor as mostra marcadas e travadas. */
+  presentes: readonly string[];
+  /** Cria cores novas no tecido (multi-cor da linha-pai). */
+  onAdicionarCores: NovosAcoes["onAdicionarCores"];
+  /** Excluir cor / tecido já cadastrados (grava na hora, com confirmação). */
+  ex: ExcluirAcoes;
 };
 
 /** Chave da célula nos avisos de colagem: `<chave da linha>|<chave da coluna>`. */
@@ -277,10 +284,26 @@ function celulaArtigo(col: ColunaGrade, c: LinhaProps) {
   );
 }
 
+/** Linha-PAI (1ª do tecido) de cor base: ao lado do Select de 1 cor, a seleção MÚLTIPLA (cada cor marcada vira uma cor nova). */
+function comMultiCor(c: LinhaProps, celula: ReactNode): ReactNode {
+  if (c.readOnly || !c.primeira) return celula;
+  return (
+    <CelulaCorBaseMulti
+      cores={c.opcoes.cores}
+      presentes={c.presentes}
+      onAdicionar={(ids) => c.onAdicionarCores(c.artigo.id, c.artigo.nome, ids, c.ctxA.valor.preco ?? null)}
+      ariaLabel={`Adicionar várias cores em ${c.artigo.nome}`}
+    >
+      {celula}
+    </CelulaCorBaseMulti>
+  );
+}
+
 function celulaVariante(col: ColunaGrade, c: LinhaProps) {
   const { ctxV, variante, opcoes, readOnly, artigo } = c;
   if (!ctxV || !variante) {
-    return <span className="px-2 text-muted-foreground" title="Tecido sem cores">—</span>;
+    const vazio = <span className="px-2 text-muted-foreground" title="Tecido sem cores">—</span>;
+    return col.key === "cor_base" ? comMultiCor(c, vazio) : vazio;
   }
   const ariaLabel = `${col.rotulo} da cor de ${artigo.nome}`;
   const chaveAv = chaveCelula(chaveLinha(artigo.id, variante.id), col.key);
@@ -305,7 +328,7 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
       ctxV.patch(campo, v);
     }
   };
-  return (
+  const celula = (
     <CelulaTecido
       coluna={col}
       ariaLabel={ariaLabel}
@@ -316,6 +339,51 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
       desabilitado={readOnly || !col.editavel}
       opcoes={opcoesDaColuna(col.key, opcoes, ctxV.valor.cor_id)}
     />
+  );
+  return col.key === "cor_base" ? comMultiCor(c, celula) : celula;
+}
+
+/** "Azul (Marinho)" / "Azul" / "sem cor": como a cor é chamada nas confirmações de excluir. */
+function rotuloDaCor(v: VarianteEntrada, opcoes: GradeOpcoes): string {
+  const base = opcoes.cores.find((x) => x.id === v.cor_id)?.nome;
+  const apelido = opcoes.coresApelido.find((x) => x.id === v.cor_apelido_id)?.nome;
+  if (!base && !apelido) return "sem cor";
+  return apelido ? `${base ?? "—"} (${apelido})` : (base ?? "—");
+}
+
+/** Última coluna: excluir a COR da linha e (na linha-pai) o TECIDO inteiro. Já cadastrado → confirmação + grava na hora. */
+function CelulaAcoes({ c }: { c: LinhaProps }) {
+  const { artigo, variante, primeira, readOnly, ex } = c;
+  if (readOnly || ex === SEM_EXCLUIR) return null;
+  return (
+    <span className="flex items-center justify-end gap-1">
+      {variante && (
+        <button
+          type="button"
+          disabled={ex.ocupado}
+          onClick={() => ex.onExcluirCor({ artigoId: artigo.id, artigoNome: artigo.nome, varianteId: variante.id, corRotulo: rotuloDaCor(variante, c.opcoes) })}
+          aria-label={`Excluir a cor ${rotuloDaCor(variante, c.opcoes)} de ${artigo.nome}`}
+          title="Excluir esta cor (pede confirmação e grava na hora)"
+          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+          data-acao="excluir-cor"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {primeira && (
+        <button
+          type="button"
+          disabled={ex.ocupado}
+          onClick={() => ex.onExcluirTecido({ artigoId: artigo.id, artigoNome: artigo.nome })}
+          aria-label={`Excluir o tecido ${artigo.nome}`}
+          title="Excluir o tecido inteiro e todas as cores (pede confirmação e grava na hora)"
+          className="whitespace-nowrap rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+          data-acao="excluir-tecido"
+        >
+          Excluir tecido
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -347,6 +415,9 @@ function LinhaTr(props: LinhaProps) {
           {col.escopo === "artigo" ? celulaArtigo(col, props) : celulaVariante(col, props)}
         </td>
       ))}
+      <td className={CLASSE_COL_ACOES} data-col-acoes>
+        <CelulaAcoes c={props} />
+      </td>
     </tr>
   );
 }
@@ -367,7 +438,18 @@ export type NovosAcoes = {
   onRemoverNovo: (tmp: string) => void;
   /** "+ cor" num tecido que já existe. */
   onNovaCor: (artigoId: string, nome: string) => void;
+  /** Multi-cor da linha-pai de um tecido que já existe: cria uma cor nova (com o preço herdado) por cor marcada. */
+  onAdicionarCores: (artigoId: string, nome: string, corIds: string[], preco: number | null) => void;
 };
+
+/** Excluir o que JÁ está cadastrado: confirma e grava NA HORA (fora do rascunho/Salvar). Recebe a ordem da tela; quem confirma é a Aba. */
+export type ExcluirProps = {
+  onExcluirCor: (a: { artigoId: string; artigoNome: string; varianteId: string; corRotulo: string }) => void;
+  onExcluirTecido: (a: { artigoId: string; artigoNome: string }) => void;
+  /** Uma exclusão (ou o Salvar) em andamento: os botões ficam travados. */
+  ocupado: boolean;
+};
+type ExcluirAcoes = ExcluirProps;
 export type NovosProps = NovosAcoes & {
   novos: TecidoNovo[];
   onNovoTecido: () => void;
@@ -393,17 +475,28 @@ const SEM_ACOES: NovosAcoes = {
   onAtualizarNovo: () => {},
   onRemoverNovo: () => {},
   onNovaCor: () => {},
+  onAdicionarCores: () => {},
 };
+const SEM_EXCLUIR: ExcluirAcoes = { onExcluirCor: () => {}, onExcluirTecido: () => {}, ocupado: false };
 
-const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv, avisos, onLimparAviso }: {
+const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv, ex, avisos, onLimparAviso }: {
   grupo: Grupo; opcoes: GradeOpcoes; readOnly: boolean; registrar: RegistrarSaver;
   avisos: Record<string, string>; onLimparAviso: (chaveCelula: string) => void;
   /** Cores novas deste tecido (rascunho); entram no fim do mesmo <tbody>. */
   novosAlvo: TecidoNovo[];
   nv: NovosAcoes;
+  ex: ExcluirAcoes;
 }) {
   const { artigo, linhas } = grupo;
   const ctxA = useRascunhoArtigo(artigo, registrar);
+  // cores que o tecido já tem (cadastradas + novas no rascunho): o multi-cor da linha-pai as mostra marcadas e travadas
+  const presentes = useMemo(
+    () => [
+      ...linhas.flatMap((l) => (l.variante?.cor_id ? [l.variante.cor_id] : [])),
+      ...novosAlvo.flatMap((g) => g.vars.flatMap((v) => (v.cor_id ? [v.cor_id] : []))),
+    ],
+    [linhas, novosAlvo],
+  );
   // "+ cor" só some quando já há cor nova pendente neste tecido (aí o botão "adicionar variante" do grupo faz o papel)
   const botaoCor =
     !readOnly && novosAlvo.length === 0 ? (
@@ -434,6 +527,9 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             acaoCor={ultima ? botaoCor : undefined}
             avisos={avisos}
             onLimparAviso={onLimparAviso}
+            presentes={presentes}
+            onAdicionarCores={nv.onAdicionarCores}
+            ex={ex}
           />
         ) : (
           <LinhaTr
@@ -448,6 +544,9 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             acaoCor={ultima ? botaoCor : undefined}
             avisos={avisos}
             onLimparAviso={onLimparAviso}
+            presentes={presentes}
+            onAdicionarCores={nv.onAdicionarCores}
+            ex={ex}
           />
         );
       })}
@@ -468,7 +567,7 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
   );
 });
 
-export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos: nv, colar }: {
+export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos: nv, colar, excluir }: {
   linhas: LinhaGrade[];
   opcoes: GradeOpcoes;
   readOnly: boolean;
@@ -477,6 +576,8 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
   novos?: NovosProps;
   /** Colar do Excel. Ausente = colar normal, célula a célula. */
   colar?: ColarProps;
+  /** Excluir cor/tecido cadastrados. Ausente = a grade não oferece os botões de excluir. */
+  excluir?: ExcluirProps;
 }) {
   const avisos = colar?.avisos ?? SEM_AVISOS;
   const onLimparAviso = colar?.onLimparAviso ?? NADA;
@@ -507,9 +608,13 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
   const acoes = useMemo<NovosAcoes>(
     () =>
       nv
-        ? { mostrarPendencias: nv.mostrarPendencias, errosNovos: nv.errosNovos, onAtualizarNovo: nv.onAtualizarNovo, onRemoverNovo: nv.onRemoverNovo, onNovaCor: nv.onNovaCor }
+        ? { mostrarPendencias: nv.mostrarPendencias, errosNovos: nv.errosNovos, onAtualizarNovo: nv.onAtualizarNovo, onRemoverNovo: nv.onRemoverNovo, onNovaCor: nv.onNovaCor, onAdicionarCores: nv.onAdicionarCores }
         : SEM_ACOES,
-    [nv?.mostrarPendencias, nv?.errosNovos, nv?.onAtualizarNovo, nv?.onRemoverNovo, nv?.onNovaCor], // eslint-disable-line react-hooks/exhaustive-deps
+    [nv?.mostrarPendencias, nv?.errosNovos, nv?.onAtualizarNovo, nv?.onRemoverNovo, nv?.onNovaCor, nv?.onAdicionarCores], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const ex = useMemo<ExcluirAcoes>(
+    () => (excluir ? { onExcluirCor: excluir.onExcluirCor, onExcluirTecido: excluir.onExcluirTecido, ocupado: excluir.ocupado } : SEM_EXCLUIR),
+    [excluir?.onExcluirCor, excluir?.onExcluirTecido, excluir?.ocupado], // eslint-disable-line react-hooks/exhaustive-deps
   );
   return (
     <div className="space-y-2">
@@ -534,6 +639,7 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
                   {c.rotulo}
                 </th>
               ))}
+              <th className="sticky right-0 z-20 bg-muted px-2 py-2 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.15)]"><span className="sr-only">Ações</span></th>
             </tr>
           </thead>
           {grupos.map((g) => (
@@ -545,6 +651,7 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
               registrar={registrar}
               novosAlvo={porArtigo.get(g.artigoId) ?? SEM_NOVOS}
               nv={acoes}
+              ex={ex}
               avisos={avisos}
               onLimparAviso={onLimparAviso}
             />

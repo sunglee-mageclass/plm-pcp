@@ -26,7 +26,8 @@ import {
 } from "@/lib/tecido-grade/colar-tsv";
 import { chaveSlotNovo, montarSlots, recusaDoSlot } from "@/lib/tecido-grade/colar-slots";
 import { montarLinhas, type ArtigoEntrada } from "@/lib/tecido-grade/linhas";
-import { corNovaEmExistente, separarNovos, tecidoNovoVazio, type TecidoNovo } from "@/lib/tecido-grade/linha-nova";
+import { adicionarCoresAoGrupo, corNovaEmExistente, separarNovos, tecidoNovoVazio, type TecidoNovo } from "@/lib/tecido-grade/linha-nova";
+import { QUERY_KEYS_GRADE, excluirTecidoGrade, excluirVarianteGrade } from "@/lib/tecido-grade/excluir";
 import {
   resultadoComNovos,
   salvarEmOrdem,
@@ -34,7 +35,7 @@ import {
   textoErroSalvar,
   type ItemSalvar,
 } from "@/lib/tecido-grade/salvar";
-import { TecidosGradeTabela, type ColarProps, type RegistrarSaver, type SaverApi } from "./TecidosGradeTabela";
+import { TecidosGradeTabela, type ColarProps, type ExcluirProps, type RegistrarSaver, type SaverApi } from "./TecidosGradeTabela";
 import type { AtualizarNovo } from "./TecidoNovoGrupo";
 import { useTecidosGrade } from "./useTecidosGrade";
 
@@ -135,6 +136,17 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
       setNovos((l) => (l.some((g) => g.artigoAlvoId === artigoId) ? l : [...l, corNovaEmExistente(artigoId, nome)])),
     [],
   );
+  // Multi-cor da linha-pai de um tecido EXISTENTE: cada cor marcada vira uma cor nova (preço herdado do tecido), no grupo de cores
+  // novas do tecido (que nasce aqui se ainda não existe). Só ADICIONA; cor que o grupo já tem não duplica. Rascunho: nada grava.
+  const adicionarCores = useCallback((artigoId: string, nome: string, corIds: string[], preco: number | null) => {
+    setNovos((l) => {
+      const i = l.findIndex((g) => g.artigoAlvoId === artigoId);
+      const base = i >= 0 ? l[i] : corNovaEmExistente(artigoId, nome);
+      const prox = adicionarCoresAoGrupo(base, corIds, preco);
+      if (i >= 0) return prox === base ? l : l.map((g, j) => (j === i ? prox : g));
+      return prox.vars.some((v) => !!v.cor_id) ? [...l, prox] : l;
+    });
+  }, []);
   useEffect(() => {
     if (novos.length === 0) setMostrarPendencias(false);
   }, [novos.length]);
@@ -348,6 +360,86 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
       },
     });
 
+  // EXCLUIR o que já está cadastrado (cor ou tecido): confirmação (AlertDialog) e grava NA HORA pela RPC com guarda do Sheet — fora do
+  // rascunho e do Salvar. Em uso = a RPC recusa e a mensagem em PT-BR aparece; nada é apagado. Linha NOVA (rascunho) não passa por
+  // aqui: é só descartada na própria linha, sem servidor.
+  const [excluindo, setExcluindo] = useState(false);
+  const ocupadoRef = useRef(false);
+  const executarExclusao = useCallback(
+    async (acao: () => Promise<void>, sucesso: string, relerLista: boolean, aposOk?: () => void) => {
+      if (ocupadoRef.current) return;
+      ocupadoRef.current = true;
+      setExcluindo(true);
+      try {
+        await acao();
+        // relê a grade ANTES de seguir (a linha excluída não pode "piscar" de volta); falha na releitura é inofensiva
+        try {
+          await Promise.all([
+            ...QUERY_KEYS_GRADE.map((k) => qc.refetchQueries({ queryKey: ["tecidos-grade", k] })),
+            ...(relerLista ? [qc.refetchQueries({ queryKey: ["artigos"] })] : []),
+          ]);
+        } catch { /* a próxima leitura atualiza */ }
+        aposOk?.();
+        toast.success(sucesso);
+        for (const k of ["artigos", "artigo", "artigo-cats", "artigo-cats-all", "variantes", "variantes-thumb"]) {
+          qc.invalidateQueries({ queryKey: [k] });
+        }
+      } catch (e) {
+        toast.error(mensagemErro(e, "Erro ao excluir."));
+      } finally {
+        ocupadoRef.current = false;
+        setExcluindo(false);
+      }
+    },
+    [qc],
+  );
+  const excluirCor = useCallback<ExcluirProps["onExcluirCor"]>(
+    ({ artigoNome, varianteId, corRotulo }) => {
+      const sujo = !!saversRef.current.get(varianteId)?.dirty();
+      pedirConfirmacao({
+        titulo: `Excluir a cor ${corRotulo}?`,
+        descricao: (
+          <>
+            A cor <strong>{corRotulo}</strong> do tecido <strong>{artigoNome}</strong> será excluída <strong>agora</strong> (não espera o Salvar).
+            Se ela estiver em uso (OC, estoque, modelo, CAD…), o sistema recusa e nada é apagado.
+            {sujo ? " As alterações não salvas desta linha também serão perdidas." : ""}
+          </>
+        ),
+        confirmar: "Excluir cor",
+        cancelar: "Cancelar",
+        destrutivo: true,
+        onConfirmar: () => void executarExclusao(() => excluirVarianteGrade(varianteId), "Cor excluída.", false),
+      });
+    },
+    [pedirConfirmacao, executarExclusao],
+  );
+  const excluirTecido = useCallback<ExcluirProps["onExcluirTecido"]>(
+    ({ artigoId, artigoNome }) => {
+      pedirConfirmacao({
+        titulo: `Excluir o tecido ${artigoNome} e todas as cores?`,
+        descricao: (
+          <>
+            O tecido <strong>{artigoNome}</strong> e <strong>todas as suas cores</strong> serão excluídos <strong>agora</strong> (não espera o Salvar).
+            Se ele estiver em uso (OC, estoque, modelo, CAD…), o sistema recusa e nada é apagado.
+          </>
+        ),
+        confirmar: "Excluir tecido",
+        cancelar: "Cancelar",
+        destrutivo: true,
+        onConfirmar: () =>
+          void executarExclusao(() => excluirTecidoGrade(artigoId), "Tecido excluído.", true, () =>
+            // cores novas ainda em rascunho para este tecido ficariam apontando para um tecido que não existe mais
+            setNovos((l) => l.filter((g) => g.artigoAlvoId !== artigoId)),
+          ),
+      });
+    },
+    [pedirConfirmacao, executarExclusao],
+  );
+  const excluir = useMemo<ExcluirProps>(
+    () => ({ onExcluirCor: excluirCor, onExcluirTecido: excluirTecido, ocupado: excluindo || salvarMut.isPending }),
+    [excluirCor, excluirTecido, excluindo, salvarMut.isPending],
+  );
+
   const { nTecidos, nCores } = useMemo(
     () => ({ nTecidos: new Set(linhas.map((l) => l.artigoId)).size, nCores: linhas.filter((l) => l.variante).length }),
     [linhas],
@@ -391,6 +483,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
           readOnly={readOnly}
           registrar={registrar}
           colar={colar}
+          excluir={excluir}
           novos={{
             novos,
             mostrarPendencias,
@@ -399,6 +492,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
             onRemoverNovo: removerNovo,
             onNovoTecido: adicionarTecido,
             onNovaCor: adicionarCor,
+            onAdicionarCores: adicionarCores,
           }}
         />
       )}
@@ -411,7 +505,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
           <Button
             type="button"
             className="ml-auto"
-            disabled={salvarMut.isPending || nTotal === 0}
+            disabled={salvarMut.isPending || excluindo || nTotal === 0}
             onClick={() => {
               setMostrarPendencias(true);
               salvarMut.mutate();

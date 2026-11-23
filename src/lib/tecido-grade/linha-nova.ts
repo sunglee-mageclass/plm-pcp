@@ -158,6 +158,30 @@ export function trocarApelido(v: VarianteNova, apelidoId: string, apelidos: Apel
   return { ...v, cor_apelido_id: apelidoId, cor_id: base ?? "" };
 }
 
+/**
+ * Multi-cor na linha-PAI ("só ADICIONA"): cada cor base marcada que o grupo ainda NÃO tem vira uma cor (linha-filha) nova, com a
+ * cor base e o PREÇO HERDADO do pai (editável depois); apelido/nome/código em branco. Cor que já está no grupo não duplica; cor
+ * desmarcada nunca remove nada (remover é pelo botão de excluir). Uma cor em branco que ainda ninguém tocou (a linha vazia que o
+ * grupo traz de fábrica) é PREENCHIDA em vez de sobrar uma linha sem cor. Puro: devolve o grupo novo (a mesma referência se nada mudou).
+ */
+export function adicionarCoresAoGrupo(g: TecidoNovo, corIds: readonly string[], precoHerdado: NumeroEntrada = null): TecidoNovo {
+  const presentes = new Set(g.vars.filter((v) => !!v.cor_id).map((v) => v.cor_id));
+  const novas: string[] = [];
+  for (const id of corIds) {
+    if (!id || presentes.has(id)) continue;
+    presentes.add(id);
+    novas.push(id);
+  }
+  if (novas.length === 0) return g;
+  const vars = [...g.vars];
+  for (const corId of novas) {
+    const livre = vars.findIndex((v) => !varianteTocada(v));
+    if (livre >= 0) vars[livre] = { ...vars[livre], cor_id: corId, preco: precoHerdado };
+    else vars.push({ ...varianteVazia(), cor_id: corId, preco: precoHerdado });
+  }
+  return { ...g, vars };
+}
+
 /** Problemas de UMA linha de cor (as de cabeçalho ficam na 1ª linha). */
 export function problemasDaVariante(problemas: ProblemaNovo[], varTmp: string): ProblemaNovo[] {
   return problemas.filter((p) => p.varTmp === varTmp);
