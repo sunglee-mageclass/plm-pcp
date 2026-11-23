@@ -2,6 +2,7 @@
 // Grade "Lista tipo Excel" de Cadastro > Tecidos (Task 6): TECLADO (Enter/Tab), ORDENAÇÃO por coluna e GUARDA do rascunho na troca
 // de visão/filtro. Render de verdade da `TecidosGradeAba` com `supabase` mockado (mesmo molde de `tecido-grade-aba.test.ts`).
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { expandirTudo } from "./tecido-grade-expandir";
 import { act, createContext, createElement, useContext } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -123,6 +124,7 @@ async function montar(artigosProp: Linha[], extra: Record<string, unknown> = {})
 async function esperarLinhas(container: HTMLElement) {
   for (let i = 0; i < 40 && container.querySelectorAll("tbody tr").length === 0 && !container.querySelector("[role=alert]"); i++) await flush(30);
   await flush(30);
+  await expandirTudo(container); // a lista nasce com os tecidos recolhidos: o teclado só alcança as cores à vista
 }
 
 /** Tela-mãe mínima: a MESMA guarda do index (`useGuardaTrocaLista`) ligada a um toggle Cards|Lista e a um filtro. */
@@ -173,10 +175,11 @@ async function tecla(el: HTMLElement, key: string, shiftKey = false) {
   await flush(40); // resolve o requestAnimationFrame do foco
   return ev;
 }
-/** Tecidos (data-artigo-id) na ordem em que aparecem na tela, uma entrada por LINHA. */
+/** Linhas (data-artigo-id) na ordem da tela: o tecido (linha-pai) e, logo abaixo, cada cor dele (`<artigo>/<variante>`). */
 const ordemTela = (c: HTMLElement) => linhas(c).filter((tr) => tr.dataset.artigoId).map((tr) => `${tr.dataset.artigoId}${tr.dataset.varianteId ? `/${tr.dataset.varianteId}` : ""}`);
 const cabecalho = (c: HTMLElement, rotulo: string) => Array.from(c.querySelectorAll("thead th button")).find((b) => b.textContent?.trim() === rotulo) as HTMLButtonElement | undefined;
-const nomesNaTela = (c: HTMLElement) => linhas(c).filter((tr) => tr.dataset.artigoId).map((tr) => (tr.querySelector('[data-col="nome"] input') as HTMLInputElement).value);
+/** Nome de cada TECIDO na tela (o cabeçalho só existe na linha-pai; as cores não têm o campo Nome). */
+const nomesNaTela = (c: HTMLElement) => linhas(c).filter((tr) => tr.dataset.pai !== undefined).map((tr) => (tr.querySelector('[data-col="nome"] input') as HTMLInputElement).value);
 
 beforeEach(() => {
   estado.artigos = [artigo("a1", { nome: "Zeta" }), artigo("a2", { nome: "Alfa", preco: 30 }), artigo("a3", { nome: "Meio", preco: 20 })];
@@ -195,33 +198,43 @@ describe("TecidosGradeAba: teclado (Enter/Tab)", () => {
   it("toda célula de digitação ganha data-grade-cel com a linha GLOBAL da tela; Select/categorias/foto ficam de fora", async () => {
     const t = await montar(PROPS());
     const trs = linhas(t.container);
-    expect(trs).toHaveLength(4); // a1 (2 cores) + a2 (1) + a3 (sem cor)
+    expect(trs).toHaveLength(6); // a1: pai + 2 cores; a2: pai + 1 cor; a3 (sem cor): só o pai
     trs.forEach((tr, i) => {
       const cs = celulas(tr);
       expect(cs.length).toBeGreaterThan(0);
-      // a linha do endereço = posição da <tr> na tela (contínua entre os tecidos)
+      // a linha do endereço = posição da <tr> na tela (contínua entre os tecidos; a linha-pai conta como uma linha)
       cs.forEach((c) => expect(c.getAttribute("data-grade-cel")!.startsWith(`${i}:`)).toBe(true));
     });
     // colunas = posição em COLUNAS_TECIDO: Nome 0, Preço 2, Composição 5, NCM 6, Nome da variante 13
     expect(cel(trs[0], "0:0")?.getAttribute("aria-label")).toBe("Nome de Zeta");
-    expect(cel(trs[1], "1:2")?.getAttribute("aria-label")).toBe("Preço de Zeta");
-    expect(cel(trs[2], "2:13")?.getAttribute("aria-label")).toBe("Nome da variante da cor de Alfa");
+    expect(cel(trs[0], "0:2")?.getAttribute("aria-label")).toBe("Preço de Zeta");
+    expect(cel(trs[4], "4:13")?.getAttribute("aria-label")).toBe("Nome da variante da cor de Alfa");
     // controles que não são campo de digitação: sem endereço (o foco pula por cima)
-    for (const rotulo of ["Fornecedor de Zeta", "Unidade de Zeta", "Categoria(s) de Zeta", "Cor base da cor de Zeta"]) {
+    for (const rotulo of ["Fornecedor de Zeta", "Unidade de Zeta", "Categoria(s) de Zeta"]) {
       const el = porLabel(trs[0], rotulo)[0];
       expect(el, rotulo).toBeTruthy();
       expect(el.hasAttribute("data-grade-cel"), rotulo).toBe(false);
     }
-    // a linha "sem cor" tem só as células do tecido (as de cor são "—")
-    expect(celulas(trs[3]).every((c) => !["13", "14", "15"].includes(c.getAttribute("data-grade-cel")!.split(":")[1]))).toBe(true);
+    const selCorBase = porLabel(trs[1], "Cor base da cor de Zeta")[0];
+    expect(selCorBase).toBeTruthy();
+    expect(selCorBase.hasAttribute("data-grade-cel")).toBe(false);
+    // o cabeçalho só tem célula na linha-pai (colunas 0..10) e a cor só nas colunas da cor (13..15): nunca misturam
+    const colunasDe = (tr: HTMLElement) => celulas(tr).map((c) => Number(c.getAttribute("data-grade-cel")!.split(":")[1]));
+    for (const i of [0, 3, 5]) expect(colunasDe(trs[i]).every((n) => n <= 10), `pai ${i}`).toBe(true);
+    for (const i of [1, 2, 4]) expect(colunasDe(trs[i]).every((n) => [13, 14, 15].includes(n)), `cor ${i}`).toBe(true);
     await t.desmontar();
   });
 
   it("Enter desce na mesma coluna, atravessando de um tecido para o outro", async () => {
     const t = await montar(PROPS());
-    const a = cel(t.container, "1:0")!; // Nome, 2ª cor de Zeta
-    await tecla(a, "Enter");
-    expect(document.activeElement).toBe(cel(t.container, "2:0")); // Nome, cor de Alfa (outro tecido)
+    // Nome só existe na linha-pai: desce por cima das cores de Zeta direto para o Nome do tecido de baixo
+    await tecla(cel(t.container, "0:0")!, "Enter");
+    expect(document.activeElement).toBe(cel(t.container, "3:0")); // Nome de Alfa (outro tecido)
+    // Nome da variante: desce de cor em cor e, ao acabar as cores de um tecido, atravessa para as do próximo (pulando a linha-pai)
+    await tecla(cel(t.container, "1:13")!, "Enter");
+    expect(document.activeElement).toBe(cel(t.container, "2:13")); // 2ª cor de Zeta
+    await tecla(cel(t.container, "2:13")!, "Enter");
+    expect(document.activeElement).toBe(cel(t.container, "4:13")); // cor de Alfa (outro tecido)
     await t.desmontar();
   });
 
@@ -230,12 +243,13 @@ describe("TecidosGradeAba: teclado (Enter/Tab)", () => {
     // Nome(0) -> Fornecedor(1) é Select: cai direto no Preço(2)
     await tecla(cel(t.container, "0:0")!, "Tab");
     expect(document.activeElement).toBe(cel(t.container, "0:2"));
-    // NCM(6) -> Rendimento(7) está desabilitado (metro) e as colunas 8..12 são Select/categorias: vai para Nome da variante(13)
+    // NCM(6) -> Rendimento(7) está desabilitado (metro), 8..12 são Select/categorias e a linha-pai não tem as colunas da cor:
+    // o Tab segue para a 1ª cor (linha de baixo), no Nome da variante(13)
     expect(cel(t.container, "0:7")!.disabled).toBe(true);
     await tecla(cel(t.container, "0:6")!, "Tab");
-    expect(document.activeElement).toBe(cel(t.container, "0:13"));
+    expect(document.activeElement).toBe(cel(t.container, "1:13"));
     // Shift+Tab volta
-    await tecla(cel(t.container, "0:13")!, "Tab", true);
+    await tecla(cel(t.container, "1:13")!, "Tab", true);
     expect(document.activeElement).toBe(cel(t.container, "0:6"));
     await t.desmontar();
   });
@@ -256,10 +270,10 @@ describe("TecidosGradeAba: teclado (Enter/Tab)", () => {
     const t = await montar(PROPS());
     await clicar(botaoTexto("Novo tecido", t.container));
     await flush(20);
-    const nova = cel(t.container, "4:0"); // 4 linhas cadastradas (0..3) -> a nova é a 4
+    const nova = cel(t.container, "6:0"); // 6 linhas cadastradas (0..5: pais e cores) -> a nova é a 6
     expect(nova).toBeTruthy();
     expect(nova!.getAttribute("aria-label")).toBe("Nome do tecido novo");
-    await tecla(cel(t.container, "3:0")!, "Enter"); // última linha cadastrada -> desce para a nova
+    await tecla(cel(t.container, "5:0")!, "Enter"); // última linha cadastrada (o pai de Meio, sem cor) -> desce para a nova
     expect(document.activeElement).toBe(nova);
     await t.desmontar();
   });
@@ -268,28 +282,28 @@ describe("TecidosGradeAba: teclado (Enter/Tab)", () => {
 describe("TecidosGradeAba: ordenação por coluna", () => {
   it("sem clique = a ordem do servidor; as cores de um tecido não se espalham", async () => {
     const t = await montar(PROPS());
-    expect(ordemTela(t.container)).toEqual(["a1/v1", "a1/v2", "a2/v3", "a3"]);
+    expect(ordemTela(t.container)).toEqual(["a1", "a1/v1", "a1/v2", "a2", "a2/v3", "a3"]);
     await t.desmontar();
   });
 
   it("clicar em Nome ordena os TECIDOS (asc, depois desc) e mantém as cores do tecido juntas, na ordem de antes", async () => {
     const t = await montar(PROPS());
     await clicar(cabecalho(t.container, "Nome"));
-    expect(nomesNaTela(t.container)).toEqual(["Alfa", "Meio", "Zeta", "Zeta"]);
-    expect(ordemTela(t.container)).toEqual(["a2/v3", "a3", "a1/v1", "a1/v2"]); // cores de Zeta: mesma ordem do servidor
+    expect(nomesNaTela(t.container)).toEqual(["Alfa", "Meio", "Zeta"]);
+    expect(ordemTela(t.container)).toEqual(["a2", "a2/v3", "a3", "a1", "a1/v1", "a1/v2"]); // cores de Zeta: mesma ordem do servidor
     expect(t.container.querySelector('thead th[aria-sort="ascending"]')?.textContent).toContain("Nome");
     await clicar(cabecalho(t.container, "Nome"));
-    expect(nomesNaTela(t.container)).toEqual(["Zeta", "Zeta", "Meio", "Alfa"]);
-    expect(ordemTela(t.container)).toEqual(["a1/v1", "a1/v2", "a3", "a2/v3"]);
+    expect(nomesNaTela(t.container)).toEqual(["Zeta", "Meio", "Alfa"]);
+    expect(ordemTela(t.container)).toEqual(["a1", "a1/v1", "a1/v2", "a3", "a2", "a2/v3"]);
     await t.desmontar();
   });
 
   it("número ordena como número; vazio vai sempre para o fim", async () => {
     const t = await montar(PROPS()); // preços: Zeta 10, Alfa 30, Meio 20
     await clicar(cabecalho(t.container, "Preço"));
-    expect(nomesNaTela(t.container)).toEqual(["Zeta", "Zeta", "Meio", "Alfa"]);
+    expect(nomesNaTela(t.container)).toEqual(["Zeta", "Meio", "Alfa"]);
     await clicar(cabecalho(t.container, "Preço"));
-    expect(nomesNaTela(t.container)).toEqual(["Alfa", "Meio", "Zeta", "Zeta"]);
+    expect(nomesNaTela(t.container)).toEqual(["Alfa", "Meio", "Zeta"]);
     await t.desmontar();
   });
 
@@ -297,9 +311,9 @@ describe("TecidosGradeAba: ordenação por coluna", () => {
     const t = await montar(PROPS());
     await clicar(cabecalho(t.container, "Cor base")); // Azul (cor1) < Verde (cor2)
     // Zeta: Verde(v1) e Azul(v2) -> Azul antes; ambos os tecidos têm Azul primeiro (empate: ordem do servidor); a3 sem cor por último
-    expect(ordemTela(t.container)).toEqual(["a1/v2", "a1/v1", "a2/v3", "a3"]);
+    expect(ordemTela(t.container)).toEqual(["a1", "a1/v2", "a1/v1", "a2", "a2/v3", "a3"]);
     await clicar(cabecalho(t.container, "Cor base")); // desc: Verde primeiro dentro de Zeta; tecido pela maior cor
-    expect(ordemTela(t.container)).toEqual(["a1/v1", "a1/v2", "a2/v3", "a3"]);
+    expect(ordemTela(t.container)).toEqual(["a1", "a1/v1", "a1/v2", "a2", "a2/v3", "a3"]);
     await t.desmontar();
   });
 
@@ -316,8 +330,9 @@ describe("TecidosGradeAba: ordenação por coluna", () => {
   it("o teclado segue a ordem da TELA depois de ordenar (Enter desce para o tecido que está embaixo)", async () => {
     const t = await montar(PROPS());
     await clicar(cabecalho(t.container, "Nome")); // Alfa, Meio, Zeta, Zeta
+    // tela: [Alfa, cor v3, Meio, Zeta, v1, v2]: o Enter no Nome de Alfa pula a cor (sem Nome) e cai no Nome de Meio
     await tecla(cel(t.container, "0:0")!, "Enter");
-    expect(document.activeElement).toBe(cel(t.container, "1:0"));
+    expect(document.activeElement).toBe(cel(t.container, "2:0"));
     expect((document.activeElement as HTMLInputElement).value).toBe("Meio");
     await t.desmontar();
   });
@@ -327,7 +342,7 @@ describe("TecidosGradeAba: ordenação por coluna", () => {
     expect(cabecalho(t.container, "Foto")).toBeUndefined();
     const nome = Array.from(t.container.querySelectorAll("thead th")).find((th) => th.textContent?.trim() === "Nome") as HTMLElement;
     expect(nome.className).toContain("sticky");
-    expect(nome.className).toContain("left-8");
+    expect(nome.className).toContain("left-10");
     await t.desmontar();
   });
 });
@@ -403,7 +418,7 @@ describe("Guarda do rascunho na troca de visão/filtro", () => {
     // as DUAS rodaram, na ordem (sem a fila, o 2º pedido trocava o 1º e só a última valeria)
     expect(t.trocas).toEqual(["filtro", "limpa-1", "limpa-2"]);
     await esperarLinhas(t.container);
-    expect(nomesNaTela(t.container)).toHaveLength(4); // o filtro saiu: voltaram os 3 tecidos
+    expect(nomesNaTela(t.container)).toHaveLength(3); // o filtro saiu: voltaram os 3 tecidos
     await t.desmontar();
   });
 

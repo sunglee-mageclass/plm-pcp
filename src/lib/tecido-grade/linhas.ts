@@ -1,6 +1,6 @@
 // Montagem PURA das linhas da grade de Tecidos (sem React, sem Supabase).
-// "Lista corrida": 1 linha por variante (cabeçalho do artigo repetido por cor);
-// artigo sem nenhuma variante = 1 linha "sem cor".
+// 1 linha de DADOS por variante (cada uma carrega o artigo, p/ ordenar e salvar); a TELA mostra o cabeçalho só na linha-pai do tecido
+// e as cores como filhas. Artigo sem nenhuma variante = 1 linha "sem cor" (na tela, a própria linha-pai).
 
 import type { ColunaGrade } from "./colunas";
 

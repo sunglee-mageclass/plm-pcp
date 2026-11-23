@@ -1,5 +1,5 @@
 // Ordenação por coluna da grade de Tecidos (PURA, sem React/Supabase).
-// O cabeçalho do tecido se repete em cada cor, então ordenar linha a linha ESPALHARIA as cores de um mesmo tecido. Por isso a
+// Cada tecido é um bloco (linha-pai + cores), então ordenar linha a linha ESPALHARIA as cores de um mesmo tecido. Por isso a
 // ordenação é por GRUPO (tecido): as cores de um tecido ficam SEMPRE juntas.
 //  - coluna do TECIDO: os grupos ordenam pelo valor do tecido; a ordem das cores dentro do grupo não muda.
 //  - coluna da COR: as cores ordenam DENTRO de cada grupo, e os grupos ordenam pelo valor da sua 1ª cor já ordenada

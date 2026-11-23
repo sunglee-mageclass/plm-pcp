@@ -8,7 +8,7 @@ export type EscopoCelula = "artigo" | "variante";
 export type ColunaGrade = {
   key: string;
   rotulo: string;
-  /** "artigo" = valor do cabeçalho (repetido por cor); "variante" = valor da linha da cor. */
+  /** "artigo" = valor do cabeçalho (só a linha-pai do tecido mostra e edita); "variante" = valor da linha da cor. */
   escopo: EscopoCelula;
   tipo: TipoCelula;
   editavel: boolean;

@@ -5,6 +5,7 @@
 // bucket, grava `variantes_tecido.foto_url` NA HORA (sem passar pelo Salvar do rascunho, sem selo âmbar) e apaga a foto antiga;
 // linha NOVA fica sem botão (a foto precisa do id da cor) com a dica no `title`. O upload real no Storage é QA no navegador.
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { expandirTudo } from "./tecido-grade-expandir";
 import { act, createContext, createElement, useContext } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -116,6 +117,7 @@ async function montar(artigosProp: Linha[]) {
   });
   for (let i = 0; i < 40 && container.querySelectorAll("tbody tr").length === 0 && !container.querySelector("[role=alert]"); i++) await flush(30);
   await flush(30);
+  await expandirTudo(container); // a lista nasce com os tecidos recolhidos
   return { container, qc, desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); document.body.innerHTML = ""; } };
 }
 

@@ -5,6 +5,7 @@
 // correspondência NÃO é aplicado e deixa a célula com aviso, linhas além do fim criam tecidos novos (cores do mesmo nome juntas) que
 // o Salvar manda por `importar_tecido_linha`, e valor simples continua no colar normal.
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { expandirTudo } from "./tecido-grade-expandir";
 import { act, createContext, createElement, useContext } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -117,6 +118,7 @@ async function montar(artigosProp: Linha[]) {
   });
   for (let i = 0; i < 40 && container.querySelectorAll("tbody tr").length === 0 && !container.querySelector("[role=alert]"); i++) await flush(30);
   await flush(30);
+  await expandirTudo(container); // a lista nasce com os tecidos recolhidos
   return { container, qc, desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); document.body.innerHTML = ""; } };
 }
 
@@ -180,30 +182,46 @@ beforeEach(() => {
 const PROPS = () => estado.artigos.map((a) => ({ id: a.id }));
 
 describe("TecidosGradeAba: colar do Excel", () => {
-  it("bloco vira RASCUNHO a partir da âncora: nome/fornecedor pelo NOME, sem gravar; texto sem correspondência avisa na célula", async () => {
+  it("bloco vira RASCUNHO a partir da âncora (linha-pai): nome/fornecedor pelo NOME, sem gravar; texto sem correspondência avisa na célula", async () => {
     const t = await montar(PROPS());
-    const nome1 = porLabel(linhas(t.container)[0], "Nome de Tecido a1")[0];
-    const ev = await colar(nome1, ["Malha X\tFornecedor 1\t11,00", "Malha Y\tNao existe\tabc", "Malha Z"].join("\r\n") + "\r\n");
+    const nome1 = porLabel(linhas(t.container)[0], "Nome de Tecido a1")[0]; // linha-pai do a1
+    const ev = await colar(nome1, "Malha Y\tNao existe\tabc\r\n");
     await flush(30);
 
     expect(ev.defaultPrevented).toBe(true); // bloco: o colar normal é cancelado
-    // a1 tem 2 cores (linhas 0 e 1; o cabeçalho é o mesmo rascunho: a última linha colada vence); a2 não tem cores (linha 2)
     expect(porLabel(t.container, "Nome de Tecido a1")[0].value).toBe("Malha Y");
-    expect(valorSelect(t.container, "Fornecedor de Tecido a1")).toBe("emp1");
-    expect(porLabel(t.container, "Nome de Tecido a2")[0].value).toBe("Malha Z");
+    expect(valorSelect(t.container, "Fornecedor de Tecido a1") || "").toBe(""); // "Nao existe" não casa com nenhum fornecedor
     // nada foi ao servidor
     expect(artigoUpdates).toHaveLength(0);
     expect(rpc.mock.calls.filter((c) => c[0] === "importar_tecido_linha" || c[0] === "salvar_variante_tecido")).toHaveLength(0);
     expect(selos(t.container)).toBeGreaterThan(0);
-    expect(botaoSalvar()?.textContent).toContain("Salvar (2)"); // a1 e a2 sujos
+    expect(botaoSalvar()?.textContent).toContain("Salvar (1)"); // só o a1 ficou sujo
     // resumo
     expect(toast.warning).toHaveBeenCalledTimes(1);
-    expect(toast.warning.mock.calls[0][0]).toBe("Coladas 5 células em 3 linhas · 0 novas · 2 ignoradas");
+    expect(toast.warning.mock.calls[0][0]).toBe("Coladas 1 célula em 1 linha · 0 novas · 2 ignoradas");
     expect(String(toast.warning.mock.calls[0][1]?.description)).toContain("sem correspondência");
     // a célula do texto que não casou fica com aviso (e NÃO foi aplicada)
     const avisos = t.container.querySelectorAll("[data-aviso-colar]");
     expect(avisos).toHaveLength(1);
     expect(avisos[0].getAttribute("title")).toContain('"abc" não é um número válido');
+    await t.desmontar();
+  });
+
+  it("bloco que desce pelas CORES: o cabeçalho só vale na linha-pai (nas cores é recusado, com motivo); a linha-pai de baixo recebe", async () => {
+    const t = await montar(PROPS());
+    // telas: [pai a1] [cor v1] [cor v2] [pai a2 (sem cores)] — o bloco tem 1 linha para cada uma
+    const nome1 = porLabel(linhas(t.container)[0], "Nome de Tecido a1")[0];
+    await colar(nome1, ["Malha X\tFornecedor 1\t11,00", "Malha Y\tFornecedor 1\t12,00", "Malha Z", "Malha W"].join("\r\n") + "\r\n");
+    await flush(30);
+
+    expect(porLabel(t.container, "Nome de Tecido a1")[0].value).toBe("Malha X"); // o "Y" e o "Z" caíram em cores: NÃO sobrescrevem o pai
+    expect(valorSelect(t.container, "Fornecedor de Tecido a1")).toBe("emp1");
+    expect(porLabel(t.container, "Nome de Tecido a2")[0].value).toBe("Malha W");
+    expect(artigoUpdates).toHaveLength(0); // continua rascunho
+    expect(botaoSalvar()?.textContent).toContain("Salvar (2)"); // a1 e a2 sujos
+    expect(toast.warning).toHaveBeenCalledTimes(1);
+    expect(toast.warning.mock.calls[0][0]).toBe("Coladas 4 células em 2 linhas · 0 novas · 4 ignoradas");
+    expect(String(toast.warning.mock.calls[0][1]?.description)).toContain("4 linha sem essa célula"); // Y e Z (Nome/Fornecedor/Preço) nas cores
     await t.desmontar();
   });
 
@@ -221,11 +239,11 @@ describe("TecidosGradeAba: colar do Excel", () => {
 
   it("cor base e apelido pelo nome numa cor existente (apelido só da cor base colada)", async () => {
     const t = await montar(PROPS());
-    // âncora: Cor base da 1ª linha (a1:v1); bloco de 2 linhas x 2 colunas (cor base, apelido)
-    const ancora = porLabel(linhas(t.container)[0], "Cor base da cor de Tecido a1")[0];
+    // âncora: Cor base da 1ª cor (a1:v1 = 2ª linha da tela, depois da linha-pai); bloco de 2 linhas x 2 colunas (cor base, apelido)
+    const ancora = porLabel(linhas(t.container)[1], "Cor base da cor de Tecido a1")[0];
     await colar(ancora, "Azul\tMarinho\nVerde\tMarinho");
     await flush(30);
-    const [l0, l1] = linhas(t.container);
+    const [, l0, l1] = linhas(t.container); // [linha-pai, cor v1, cor v2, ...]
     expect(valorSelect(l0, "Cor base da cor de Tecido a1")).toBe("cor1");
     expect(valorSelect(l0, "Cor apelido da cor de Tecido a1")).toBe("ap1");
     expect(valorSelect(l1, "Cor base da cor de Tecido a1")).toBe("cor2");

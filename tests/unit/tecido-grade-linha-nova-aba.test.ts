@@ -5,6 +5,7 @@
 // UM Salvar manda cada grupo VÁLIDO por `importar_tecido_linha` (depois dos editados), pendente fica em vermelho sem travar os
 // válidos, grupo gravado some do rascunho, e "+ cor" em tecido existente usa `_artigo_alvo_id`.
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { expandirTudo } from "./tecido-grade-expandir";
 import { act, createContext, createElement, useContext } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -117,6 +118,7 @@ async function montar(artigosProp: Linha[]) {
   });
   for (let i = 0; i < 40 && container.querySelectorAll("tbody tr").length === 0 && !container.querySelector("[role=alert]"); i++) await flush(30);
   await flush(30);
+  await expandirTudo(container); // a lista nasce com os tecidos recolhidos
   return { container, qc, desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); document.body.innerHTML = ""; } };
 }
 

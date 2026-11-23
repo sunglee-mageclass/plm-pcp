@@ -5,6 +5,7 @@
 // PARTE B: excluir cor / tecido JÁ CADASTRADOS pede confirmação e grava NA HORA pelas RPCs com guarda; em uso (RPC recusa) mostra a
 // mensagem; Cancelar não chama nada; linha NOVA só some do rascunho (sem RPC).
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { expandirTudo } from "./tecido-grade-expandir";
 import { act, createContext, createElement, useContext } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -119,6 +120,7 @@ async function montar(artigosProp: Linha[]) {
   });
   for (let i = 0; i < 40 && container.querySelectorAll("tbody tr").length === 0 && !container.querySelector("[role=alert]"); i++) await flush(30);
   await flush(30);
+  await expandirTudo(container); // a lista nasce com os tecidos recolhidos
   return { container, qc, desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); document.body.innerHTML = ""; } };
 }
 
@@ -306,7 +308,7 @@ describe("Excluir (Parte B)", () => {
 
   it("excluir TECIDO inteiro: confirma ('e todas as cores'), chama excluir_tecido, limpa as fotos e o tecido some", async () => {
     const t = await montar(PROPS());
-    await clicar(t.container.querySelector('[aria-label="Excluir o tecido Tecido a1"]'));
+    await clicar(t.container.querySelector('[aria-label="Excluir o tecido Tecido a1 e todas as cores"]'));
     await flush(20);
     expect(dialogo()!.textContent).toContain("Excluir o tecido Tecido a1 e todas as cores?");
     expect(excluirTecidoRpcs()).toHaveLength(0);
@@ -324,7 +326,7 @@ describe("Excluir (Parte B)", () => {
     const t = await montar(PROPS());
     await clicar(t.container.querySelector('[aria-label="Adicionar cor em Tecido a1"]'));
     expect(novoGrupos(t.container)).toHaveLength(1);
-    await clicar(t.container.querySelector('[aria-label="Excluir o tecido Tecido a1"]'));
+    await clicar(t.container.querySelector('[aria-label="Excluir o tecido Tecido a1 e todas as cores"]'));
     await flush(20);
     await clicar(botaoDialogo("Excluir tecido"));
     await flush(80);

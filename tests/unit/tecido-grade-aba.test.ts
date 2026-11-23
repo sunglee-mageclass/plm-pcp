@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 // Grade "Lista tipo Excel" de Cadastro > Tecidos (Task 4): render de verdade da `TecidosGradeAba` com `supabase` mockado.
-// Prova: 1 linha por cor (+ "sem cor"), editar só mexe no RASCUNHO (nada grava antes do Salvar), selo âmbar, o cabeçalho do
-// tecido reflete em todas as cores, UM Salvar grava o tecido (CAS por rev) ANTES das cores, e o conflito de rev de um tecido
-// não derruba as cores ("X salvos, Y com conflito"). O Select do Radix vira botões (a lógica testada é a da tela).
+// Prova: cada tecido = 1 linha-pai (cabeçalho) + 1 linha por cor (tecido sem cor = só o pai), editar só mexe no RASCUNHO (nada grava
+// antes do Salvar), selo âmbar, o cabeçalho só existe/edita na linha-pai, UM Salvar grava o tecido (CAS por rev) ANTES das cores, e o
+// conflito de rev de um tecido não derruba as cores ("X salvos, Y com conflito"). O Select do Radix vira botões (a lógica testada é a da tela).
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { expandirTudo } from "./tecido-grade-expandir";
 import { act, createContext, createElement, useContext } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -116,6 +117,7 @@ async function montar(artigosProp: Linha[]) {
   });
   for (let i = 0; i < 40 && container.querySelectorAll("tbody tr").length === 0 && !container.querySelector("[role=alert]"); i++) await flush(30);
   await flush(30);
+  await expandirTudo(container); // a lista nasce com os tecidos recolhidos
   return { container, qc, desmontar: async () => { await act(async () => { root.unmount(); }); container.remove(); document.body.innerHTML = ""; } };
 }
 
@@ -148,19 +150,22 @@ beforeEach(() => {
 const PROPS = () => estado.artigos.map((a) => ({ id: a.id }));
 
 describe("TecidosGradeAba: grade editável com rascunho", () => {
-  it("1 linha por cor + 1 linha 'sem cor' para o tecido sem variantes; cabeçalho do tecido repete por cor", async () => {
+  it("cada tecido = 1 linha-PAI (cabeçalho) + 1 linha por cor; o cabeçalho só aparece no pai; tecido sem cor = só a linha-pai", async () => {
     const t = await montar(PROPS());
     const trs = linhas(t.container);
-    expect(trs).toHaveLength(3); // a1 (2 cores) + a2 (sem cor)
-    // o nome do tecido a1 aparece nas 2 linhas das cores
+    expect(trs).toHaveLength(4); // a1: pai + 2 cores; a2 (sem cor): só o pai
+    expect(trs.map((r) => (r.dataset.pai !== undefined ? "pai" : "cor"))).toEqual(["pai", "cor", "cor", "pai"]);
+    // o nome do tecido a1 aparece SÓ na linha-pai (as 2 cores não repetem o cabeçalho)
     expect(porLabel(trs[0], "Nome de Tecido a1")).toHaveLength(1);
-    expect(porLabel(trs[1], "Nome de Tecido a1")).toHaveLength(1);
-    expect(trs[2].textContent).toContain("—"); // sem cor
+    expect(porLabel(trs[1], "Nome de Tecido a1")).toHaveLength(0);
+    expect(porLabel(trs[2], "Nome de Tecido a1")).toHaveLength(0);
+    expect(porLabel(trs[1], "Nome da variante da cor de Tecido a1")).toHaveLength(1); // a cor edita só os campos da cor
+    expect(trs[3].textContent).toContain("sem cores"); // tecido sem cor: a própria linha-pai
     expect(t.container.querySelectorAll("thead th").length).toBeGreaterThan(10); // thead pelo catálogo
     await t.desmontar();
   });
 
-  it("editar NÃO grava nada; mostra o selo âmbar e reflete o nome do tecido em todas as cores", async () => {
+  it("editar NÃO grava nada; mostra o selo âmbar (na linha-pai) e as cores não repetem o cabeçalho", async () => {
     const t = await montar(PROPS());
     const trs = linhas(t.container);
     expect(selos(t.container)).toBe(0);
@@ -170,8 +175,10 @@ describe("TecidosGradeAba: grade editável com rascunho", () => {
     expect(artigoUpdates).toHaveLength(0);
     expect(rpc.mock.calls.filter((c) => c[0] !== "variante_tecido_preco_previa")).toHaveLength(0);
     expect(selos(t.container)).toBeGreaterThan(0);
-    // a 2ª cor do mesmo tecido mostra o novo nome (cabeçalho repetido)
-    expect((porLabel(linhas(t.container)[1], "Nome de Tecido a1")[0]).value).toBe("Malha Nova");
+    // o selo fica na linha-pai (a do cabeçalho); as cores não têm o campo Nome
+    expect(linhas(t.container)[0].querySelectorAll("[data-selo-nao-salvo]")).toHaveLength(1);
+    expect(porLabel(linhas(t.container)[1], "Nome de Tecido a1")).toHaveLength(0);
+    expect((porLabel(linhas(t.container)[0], "Nome de Tecido a1")[0]).value).toBe("Malha Nova");
     expect(t.container.textContent).toContain("alterações não salvas");
     expect(botaoSalvar()?.textContent).toContain("Salvar (1)");
     await t.desmontar();
@@ -183,7 +190,7 @@ describe("TecidosGradeAba: grade editável com rascunho", () => {
     await digitar(porLabel(trs[0], "Nome de Tecido a1")[0], "Malha Nova");
     await digitar(porLabel(trs[0], "Preço de Tecido a1")[0], "12,50"); // texto mascarado pt-BR -> 12.5, nunca NaN
     trs = linhas(t.container);
-    await digitar(porLabel(trs[1], "Nome da variante da cor de Tecido a1")[0], "Verde bandeira");
+    await digitar(porLabel(trs[2], "Nome da variante da cor de Tecido a1")[0], "Verde bandeira"); // trs[1] = 1ª cor (v1), trs[2] = 2ª (v2)
     expect(botaoSalvar()?.textContent).toContain("Salvar (2)");
 
     await clicar(botaoSalvar());
@@ -205,7 +212,7 @@ describe("TecidosGradeAba: grade editável com rascunho", () => {
     let trs = linhas(t.container);
     await digitar(porLabel(trs[0], "Nome de Tecido a1")[0], "Malha Nova");
     trs = linhas(t.container);
-    await digitar(porLabel(trs[1], "Nome da variante da cor de Tecido a1")[0], "Verde bandeira");
+    await digitar(porLabel(trs[2], "Nome da variante da cor de Tecido a1")[0], "Verde bandeira"); // trs[1] = 1ª cor (v1), trs[2] = 2ª (v2)
     await clicar(botaoSalvar());
     await flush(60);
 
@@ -224,7 +231,8 @@ describe("TecidosGradeAba: grade editável com rascunho", () => {
     // Unidade -> Kg: o Select do tecido está no <div data-select> logo depois do rótulo da coluna
     const selUnidade = (tr: HTMLElement) => Array.from(tr.querySelectorAll("[data-select]")).find((d) => d.querySelector('[aria-label="Unidade de Tecido a1"]')) as HTMLElement;
     await clicar(selUnidade(trs[0]).querySelector('[data-item="kg"]'));
-    expect(selUnidade(linhas(t.container)[1]).getAttribute("data-value")).toBe("kg"); // reflete na outra cor do mesmo tecido
+    expect(selUnidade(linhas(t.container)[0]).getAttribute("data-value")).toBe("kg");
+    expect(linhas(t.container)[1].querySelector('[aria-label="Unidade de Tecido a1"]')).toBeNull(); // a cor não tem o cabeçalho
     expect(artigoUpdates).toHaveLength(0);
 
     // Categorias: abre o popover, marca "Plano" e escolhe a subcategoria de "Malha"
@@ -271,7 +279,7 @@ describe("TecidosGradeAba: grade editável com rascunho", () => {
   it("preço da cor: pede a assinatura da prévia (leitura) e manda no Salvar", async () => {
     const t = await montar(PROPS());
     const trs = linhas(t.container);
-    await digitar(porLabel(trs[0], "Preço da variante da cor de Tecido a1")[0], "15");
+    await digitar(porLabel(trs[1], "Preço da variante da cor de Tecido a1")[0], "15"); // trs[0] = linha-pai; trs[1] = cor v1
     expect(salvaRpcs()).toHaveLength(0);
     await clicar(botaoSalvar());
     await flush(60);

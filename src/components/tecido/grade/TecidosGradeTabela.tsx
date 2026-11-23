@@ -1,12 +1,13 @@
-// Tabela da grade "Lista tipo Excel" de Cadastro > Tecidos (1 linha por cor; o cabeçalho do tecido se repete em cada cor).
+// Tabela da grade "Lista tipo Excel" de Cadastro > Tecidos: cada tecido é um bloco — 1 linha-PAI (cabeçalho, só ela edita) + 1 linha-FILHO por cor
+// (as cores nascem RECOLHIDAS: clicar na linha-pai abre/fecha).
 // Molde: `integracao/ProdutosTabela` (thead pelo catálogo, scroll-x DENTRO do container, memo por grupo), escrito enxuto.
 //
 // STAGING (nada grava antes do Salvar): cada TECIDO tem um rascunho (`useCardDraft`, id = artigo.id) e cada COR outro
 // (id = variante.id), ambos no `CardDraftsProvider` da aba. Editar uma célula só faz `patch` no rascunho (selo âmbar quando
 // valor ≠ base). O Salvar (na `TecidosGradeAba`) chama o `salvar` de cada rascunho sujo — tecidos primeiro, depois cores.
 // Cada rascunho se registra aqui por `registrar` (a ordem é do wrapper, não da ordem de montagem do registry).
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode, type RefObject } from "react";
-import { AlertTriangle, Plus, Trash2 } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { AlertTriangle, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
 import { SortTh, type SortDir } from "@/components/shared/sort";
@@ -203,31 +204,48 @@ function useRascunhoVariante(variante: VarianteEntrada, registrar: RegistrarSave
 }
 
 // ---------------------------------------------------------------- linhas
+// Cada TECIDO é um bloco (<tbody>): 1 linha-PAI (cabeçalho: nome, fornecedor, preço… — SÓ ela mostra e edita) + N linhas-FILHO (uma por
+// cor: só os campos da cor). Clicar no pai recolhe/expande as cores (nascem recolhidas). Tecido sem cor = só a linha-pai.
 
-type LinhaProps = {
+type BaseLinhaProps = {
   artigo: ArtigoEntrada;
-  ctxA: ArtigoCtx;
-  /** 1ª linha do tecido: leva o estado (selo/aviso) do cabeçalho. */
-  primeira: boolean;
   opcoes: GradeOpcoes;
   readOnly: boolean;
-  /** Cor da linha (null = tecido sem cores). */
-  variante: VarianteEntrada | null;
-  ctxV: VarianteCtx | null;
-  /** Última linha do tecido: botão "+ cor" (cor nova neste tecido). */
-  acaoCor?: ReactNode;
   /** Avisos da última colagem (chave `<linha>|<coluna>`) e como apagar um (ao editar a célula). */
   avisos: Record<string, string>;
   onLimparAviso: (chaveCelula: string) => void;
-  /** Cores que o tecido JÁ tem (cadastradas + novas no rascunho): o popover multi-cor as mostra marcadas e travadas. */
-  presentes: readonly string[];
-  /** Cria cores novas no tecido (multi-cor da linha-pai). */
-  onAdicionarCores: NovosAcoes["onAdicionarCores"];
   /** Excluir cor / tecido já cadastrados (grava na hora, com confirmação). */
   ex: ExcluirAcoes;
   /** Posição GLOBAL desta linha na grade (contínua entre os tecidos, na ordem da tela): é a "linha" do endereço de teclado. */
   linhaIdx: number;
   propsCel: PropsCelula;
+};
+
+/** O que as cores RECOLHIDAS (escondidas) de um tecido guardam: edição não salva / erro de salvar não podem ficar invisíveis. */
+type EstadoFilho = "sujo" | "erro";
+type ReportarFilho = (varianteId: string, estado: EstadoFilho | null) => void;
+
+type PaiProps = BaseLinhaProps & {
+  ctxA: ArtigoCtx;
+  /** Quantas cores cadastradas o tecido tem (0 = "sem cores": a linha-pai é a única do tecido). */
+  nCores: number;
+  /** Cores que o tecido JÁ tem (cadastradas + novas no rascunho): o popover multi-cor as mostra marcadas e travadas. */
+  presentes: readonly string[];
+  /** Cria cores novas no tecido (multi-cor da linha-pai). */
+  onAdicionarCores: NovosAcoes["onAdicionarCores"];
+  /** Botão "+ cor" (cor nova neste tecido); some quando já há cor nova pendente. */
+  botaoCor?: ReactNode;
+  recolhido: boolean;
+  onAlternar: () => void;
+  /** Cores recolhidas com edição não salva / erro (só conta quando `recolhido`). */
+  filhosOcultos: { sujo: boolean; erro: boolean };
+};
+
+type FilhoProps = BaseLinhaProps & {
+  variante: VarianteEntrada;
+  ctxV: VarianteCtx;
+  /** Cores recolhidas: a linha continua montada (o rascunho segue registrado no Salvar), só fica escondida. */
+  oculta: boolean;
 };
 
 /** `useGradeTeclado().propsDaCelula`: endereça a célula (`data-grade-cel`) e liga Enter/Tab. */
@@ -250,11 +268,12 @@ function EstadoLinha({ sujo, erro }: { sujo: boolean; erro: string | null }): Re
   return null;
 }
 
-function celulaArtigo(col: ColunaGrade, c: LinhaProps) {
+/** Célula do CABEÇALHO (só a linha-pai chama). */
+function celulaArtigo(col: ColunaGrade, c: PaiProps) {
   const { ctxA, opcoes, readOnly, artigo } = c;
   // rótulo estável (nome do servidor): digitar o nome não muda o aria-label do próprio campo
   const ariaLabel = `${col.rotulo} de ${artigo.nome}`;
-  const chaveAv = chaveCelula(chaveLinha(artigo.id, c.variante?.id ?? null), col.key);
+  const chaveAv = chaveCelula(chaveLinha(artigo.id, null), col.key);
   if (col.key === "preco_por_metro") {
     return <CelulaTecido coluna={col} ariaLabel={ariaLabel} texto={precoPorMetroTexto(ctxA.valor)} />;
   }
@@ -295,9 +314,17 @@ function celulaArtigo(col: ColunaGrade, c: LinhaProps) {
   );
 }
 
-/** Linha-PAI (1ª do tecido) de cor base: ao lado do Select de 1 cor, a seleção MÚLTIPLA (cada cor marcada vira uma cor nova). */
-function comMultiCor(c: LinhaProps, celula: ReactNode): ReactNode {
-  if (c.readOnly || !c.primeira) return celula;
+/** Célula "Cor base" da linha-PAI: quantas cores o tecido tem + "+ cor" + a seleção MÚLTIPLA (cada cor marcada vira uma cor nova). */
+function celulaCoresDoPai(c: PaiProps): ReactNode {
+  const resumo = (
+    <>
+      <span className="whitespace-nowrap px-2 text-xs text-muted-foreground" data-resumo-cores title={c.nCores === 0 ? "Tecido sem cores" : undefined}>
+        {c.nCores === 0 ? "sem cores" : `${c.nCores} ${c.nCores === 1 ? "cor" : "cores"}`}
+      </span>
+      {c.botaoCor}
+    </>
+  );
+  if (c.readOnly) return resumo;
   return (
     <CelulaCorBaseMulti
       cores={c.opcoes.cores}
@@ -305,17 +332,14 @@ function comMultiCor(c: LinhaProps, celula: ReactNode): ReactNode {
       onAdicionar={(ids) => c.onAdicionarCores(c.artigo.id, c.artigo.nome, ids, c.ctxA.valor.preco ?? null)}
       ariaLabel={`Adicionar várias cores em ${c.artigo.nome}`}
     >
-      {celula}
+      {resumo}
     </CelulaCorBaseMulti>
   );
 }
 
-function celulaVariante(col: ColunaGrade, c: LinhaProps) {
+/** Célula da COR (só a linha-filho chama). */
+function celulaVariante(col: ColunaGrade, c: FilhoProps) {
   const { ctxV, variante, opcoes, readOnly, artigo } = c;
-  if (!ctxV || !variante) {
-    const vazio = <span className="px-2 text-muted-foreground" title="Tecido sem cores">—</span>;
-    return col.key === "cor_base" ? comMultiCor(c, vazio) : vazio;
-  }
   const ariaLabel = `${col.rotulo} da cor de ${artigo.nome}`;
   const chaveAv = chaveCelula(chaveLinha(artigo.id, variante.id), col.key);
   if (col.key === "foto") return <CelulaFotoVariante coluna={col} ariaLabel={ariaLabel} variante={variante} readOnly={readOnly} />;
@@ -339,7 +363,7 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
       ctxV.patch(campo, v);
     }
   };
-  const celula = (
+  return (
     <CelulaTecido
       coluna={col}
       ariaLabel={ariaLabel}
@@ -352,7 +376,6 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
       gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
     />
   );
-  return col.key === "cor_base" ? comMultiCor(c, celula) : celula;
 }
 
 /** "Azul (Marinho)" / "Azul" / "sem cor": como a cor é chamada nas confirmações de excluir. */
@@ -363,81 +386,142 @@ function rotuloDaCor(v: VarianteEntrada, opcoes: GradeOpcoes): string {
   return apelido ? `${base ?? "—"} (${apelido})` : (base ?? "—");
 }
 
-/** Última coluna: excluir a COR da linha e (na linha-pai) o TECIDO inteiro. Já cadastrado → confirmação + grava na hora. */
-function CelulaAcoes({ c }: { c: LinhaProps }) {
-  const { artigo, variante, primeira, readOnly, ex } = c;
+/** Última coluna: UMA lixeira por linha. Na linha-PAI exclui o TECIDO + todas as cores; na linha da cor, só aquela cor.
+ *  Já cadastrado → confirmação + grava na hora. */
+function CelulaAcoes({ artigo, variante, readOnly, ex, opcoes }: {
+  artigo: ArtigoEntrada; variante: VarianteEntrada | null; readOnly: boolean; ex: ExcluirAcoes; opcoes: GradeOpcoes;
+}) {
   if (readOnly || ex === SEM_EXCLUIR) return null;
+  // sem `variante` = linha-pai = excluir o tecido inteiro; com `variante` = excluir só aquela cor.
+  const corRotulo = variante ? rotuloDaCor(variante, opcoes) : "";
+  const onClick = () =>
+    variante
+      ? ex.onExcluirCor({ artigoId: artigo.id, artigoNome: artigo.nome, varianteId: variante.id, corRotulo })
+      : ex.onExcluirTecido({ artigoId: artigo.id, artigoNome: artigo.nome });
   return (
-    <span className="flex items-center justify-end gap-1">
-      {variante && (
-        <button
-          type="button"
-          disabled={ex.ocupado}
-          onClick={() => ex.onExcluirCor({ artigoId: artigo.id, artigoNome: artigo.nome, varianteId: variante.id, corRotulo: rotuloDaCor(variante, c.opcoes) })}
-          aria-label={`Excluir a cor ${rotuloDaCor(variante, c.opcoes)} de ${artigo.nome}`}
-          title="Excluir esta cor (pede confirmação e grava na hora)"
-          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-          data-acao="excluir-cor"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      )}
-      {primeira && (
-        <button
-          type="button"
-          disabled={ex.ocupado}
-          onClick={() => ex.onExcluirTecido({ artigoId: artigo.id, artigoNome: artigo.nome })}
-          aria-label={`Excluir o tecido ${artigo.nome}`}
-          title="Excluir o tecido inteiro e todas as cores (pede confirmação e grava na hora)"
-          className="whitespace-nowrap rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-          data-acao="excluir-tecido"
-        >
-          Excluir tecido
-        </button>
-      )}
+    <span className="flex items-center justify-end">
+      <button
+        type="button"
+        disabled={ex.ocupado}
+        onClick={onClick}
+        aria-label={variante ? `Excluir a cor ${corRotulo} de ${artigo.nome}` : `Excluir o tecido ${artigo.nome} e todas as cores`}
+        title={variante ? "Excluir esta cor (pede confirmação)" : "Excluir o tecido inteiro e todas as cores (pede confirmação)"}
+        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+        data-acao={variante ? "excluir-cor" : "excluir-tecido"}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
     </span>
   );
 }
 
-function LinhaTr(props: LinhaProps) {
-  const { primeira, ctxA, ctxV, artigo, variante, acaoCor } = props;
+/** Estado + Nome ficam FIXOS na horizontal (sticky left): a largura da coluna de estado (chevron + selo) é a mesma do deslocamento do Nome. */
+const CLASSE_COL_ESTADO = "sticky left-0 z-10 w-10 min-w-10 px-1 py-1.5 text-center";
+const CLASSE_COL_NOME = "sticky left-10 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]";
+
+/** Cliques que NÃO recolhem o tecido: quem edita/aciona alguma coisa na linha-pai (e o que o popover/select abre por portal). */
+const INTERATIVO = "input,button,select,textarea,a,label,[role=combobox],[role=checkbox],[role=button],[role=switch],[role=option],[contenteditable=true]";
+
+/** Linha-PAI do tecido: cabeçalho (editável só aqui) + chevron que recolhe/expande as cores + lixeira do tecido. */
+function LinhaPai(props: PaiProps) {
+  const { artigo, ctxA, nCores, recolhido, onAlternar, filhosOcultos } = props;
+  const temCores = nCores > 0;
+  const aoClicarLinha = (e: MouseEvent<HTMLTableRowElement>) => {
+    if (!temCores) return;
+    const alvo = e.target as HTMLElement | null;
+    // evento de portal (popover/select) sobe pela árvore do React mas NÃO está dentro da linha no DOM
+    if (!alvo || !e.currentTarget.contains(alvo) || alvo.closest(INTERATIVO)) return;
+    onAlternar();
+  };
   return (
     <tr
-      className={cn("align-middle", primeira ? "border-t-2 border-border" : "border-t border-dashed")}
+      className={cn("border-t-[3px] border-border bg-muted align-middle", temCores && "cursor-pointer")}
       data-artigo-id={artigo.id}
-      data-variante-id={variante?.id}
-      data-slot={chaveLinha(artigo.id, variante?.id ?? null)}
+      data-pai
+      data-recolhido={temCores && recolhido ? "" : undefined}
+      data-slot={chaveLinha(artigo.id, null)}
+      onClick={aoClicarLinha}
     >
-      <td className="sticky left-0 z-10 w-8 bg-background px-1 py-1.5 text-center">
+      <td className={cn(CLASSE_COL_ESTADO, "bg-muted")}>
         <span className="flex items-center justify-center gap-1">
-          <EstadoLinha sujo={(primeira && ctxA.dirty) || !!ctxV?.dirty} erro={ctxV?.erro ?? (primeira ? ctxA.erro : null)} />
-          {acaoCor}
+          {temCores ? (
+            <button
+              type="button"
+              onClick={onAlternar}
+              aria-expanded={!recolhido}
+              aria-label={`${recolhido ? "Expandir" : "Recolher"} as cores de ${artigo.nome}`}
+              title={recolhido ? "Mostrar as cores deste tecido" : "Esconder as cores deste tecido"}
+              data-acao="alternar-cores"
+              className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+            >
+              {recolhido ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          ) : null}
+          <EstadoLinha sujo={ctxA.dirty} erro={ctxA.erro} />
+          {recolhido && filhosOcultos.erro ? (
+            <span role="alert" title="Uma cor escondida não salvou" data-erro-filho-oculto><AlertTriangle className="h-4 w-4 text-destructive" aria-label="Uma cor escondida não salvou" /></span>
+          ) : recolhido && filhosOcultos.sujo ? (
+            <span role="status" title="Há cores escondidas com alterações não salvas" data-selo-filho-oculto className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+          ) : null}
         </span>
       </td>
       {COLUNAS_TECIDO.map((col, i) => (
         <td
           key={col.key}
-          className={cn(
-            "px-1.5 py-1.5",
-            // 1ª coluna (Nome) FIXA na horizontal, fundo sólido p/ não deixar o conteúdo rolar por baixo.
-            i === 0 && "sticky left-8 z-10 bg-background shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]",
-          )}
+          className={cn("bg-muted px-1.5 py-1.5", i === 0 && CLASSE_COL_NOME)}
           data-col={col.key}
         >
-          {col.escopo === "artigo" ? celulaArtigo(col, props) : celulaVariante(col, props)}
+          {col.escopo === "artigo" ? celulaArtigo(col, props) : col.key === "cor_base" ? celulaCoresDoPai(props) : null}
         </td>
       ))}
-      <td className={CLASSE_COL_ACOES} data-col-acoes>
-        <CelulaAcoes c={props} />
+      <td className={cn(CLASSE_COL_ACOES, "bg-muted")} data-col-acoes>
+        <CelulaAcoes artigo={artigo} variante={null} readOnly={props.readOnly} ex={props.ex} opcoes={props.opcoes} />
       </td>
     </tr>
   );
 }
 
-function LinhaComCor({ variante, ...resto }: Omit<LinhaProps, "ctxV"> & { variante: VarianteEntrada; registrar: RegistrarSaver }) {
-  const { registrar, ...props } = resto;
+/** Linha-FILHO: uma cor do tecido, recuada sob o pai. As colunas do cabeçalho ficam VAZIAS (o cabeçalho é do pai). */
+function LinhaFilho(props: FilhoProps) {
+  const { artigo, variante, ctxV, oculta } = props;
+  return (
+    <tr
+      className={cn("border-t border-dashed align-middle", oculta && "hidden")}
+      hidden={oculta}
+      data-artigo-id={artigo.id}
+      data-variante-id={variante.id}
+      data-slot={chaveLinha(artigo.id, variante.id)}
+    >
+      <td className={cn(CLASSE_COL_ESTADO, "border-l-4 border-l-primary/30 bg-background")}>
+        <EstadoLinha sujo={ctxV.dirty} erro={ctxV.erro} />
+      </td>
+      {COLUNAS_TECIDO.map((col, i) => (
+        <td
+          key={col.key}
+          className={cn("px-1.5 py-1.5", i === 0 && cn(CLASSE_COL_NOME, "bg-background"))}
+          data-col={col.key}
+        >
+          {col.escopo === "variante" ? (
+            celulaVariante(col, props)
+          ) : i === 0 ? (
+            <span className="flex items-center gap-1 pl-5 text-xs text-muted-foreground" data-recuo title={`Cor de ${artigo.nome}`}>↳ cor</span>
+          ) : null}
+        </td>
+      ))}
+      <td className={CLASSE_COL_ACOES} data-col-acoes>
+        <CelulaAcoes artigo={artigo} variante={variante} readOnly={props.readOnly} ex={props.ex} opcoes={props.opcoes} />
+      </td>
+    </tr>
+  );
+}
+
+function LinhaComCor({ variante, registrar, onEstado, ...resto }: Omit<FilhoProps, "ctxV"> & { registrar: RegistrarSaver; onEstado: ReportarFilho }) {
   const ctxV = useRascunhoVariante(variante, registrar);
-  return <LinhaTr {...props} variante={variante} ctxV={ctxV} />;
+  // O tecido recolhido esconde esta linha mas ela continua montada (o Salvar a enxerga); o pai mostra se há algo pendente nela.
+  const estado: EstadoFilho | null = ctxV.erro ? "erro" : ctxV.dirty ? "sujo" : null;
+  useEffect(() => { onEstado(variante.id, estado); }, [onEstado, variante.id, estado]);
+  useEffect(() => () => onEstado(variante.id, null), [onEstado, variante.id]);
+  return <LinhaFilho {...resto} variante={variante} ctxV={ctxV} />;
 }
 
 /** Props do que a tela guarda das linhas NOVAS (rascunho da aba) e das ações sobre elas. */
@@ -491,28 +575,56 @@ const SEM_ACOES: NovosAcoes = {
 };
 const SEM_EXCLUIR: ExcluirAcoes = { onExcluirCor: () => {}, onExcluirTecido: () => {}, ocupado: false };
 
+/** Linhas (posições do teclado) que um tecido cadastrado ocupa: a linha-pai + uma por cor (tecido sem cor = só a linha-pai). */
+const nLinhasDoGrupo = (g: Grupo): number => (g.linhas[0]?.variante ? 1 + g.linhas.length : 1);
+
 const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv, ex, avisos, onLimparAviso, inicio, propsCel }: {
   grupo: Grupo; opcoes: GradeOpcoes; readOnly: boolean; registrar: RegistrarSaver;
-  /** Posição global da 1ª linha deste tecido (as cores novas dele vêm logo depois das cadastradas). */
+  /** Posição global da linha-pai deste tecido (as cores vêm logo depois; as cores novas dele, depois das cadastradas). */
   inicio: number;
   propsCel: PropsCelula;
   avisos: Record<string, string>; onLimparAviso: (chaveCelula: string) => void;
-  /** Cores novas deste tecido (rascunho); entram no fim do mesmo <tbody>. */
+  /** Cores novas deste tecido (rascunho); entram no fim do mesmo <tbody> e nunca são escondidas pelo recolher. */
   novosAlvo: TecidoNovo[];
   nv: NovosAcoes;
   ex: ExcluirAcoes;
 }) {
   const { artigo, linhas } = grupo;
   const ctxA = useRascunhoArtigo(artigo, registrar);
+  const cores = useMemo(() => linhas.filter((l): l is LinhaGrade & { variante: VarianteEntrada } => l.variante != null), [linhas]);
+  // Recolher/expandir as cores deste tecido: estado só local (não persiste); começa RECOLHIDO (a lista abre só com os cabeçalhos —
+  // com muitos tecidos, abre-se só o que vai mexer). Tecido sem cor não recolhe.
+  const [recolhidoLivre, setRecolhido] = useState(true);
+  const recolhido = recolhidoLivre && cores.length > 0;
+  const alternar = useCallback(() => setRecolhido((r) => !r), []);
+  // O que as cores escondidas guardam (edição não salva / erro): o pai mostra, para não salvar às cegas nem esconder uma falha.
+  const [estadoFilhos, setEstadoFilhos] = useState<Record<string, EstadoFilho>>({});
+  const reportarFilho = useCallback<ReportarFilho>((id, e) => {
+    setEstadoFilhos((m) => {
+      if ((m[id] ?? null) === e) return m;
+      const prox = { ...m };
+      if (e) prox[id] = e;
+      else delete prox[id];
+      return prox;
+    });
+  }, []);
+  const filhosOcultos = useMemo(() => {
+    const v = Object.values(estadoFilhos);
+    return { sujo: v.length > 0, erro: v.includes("erro") };
+  }, [estadoFilhos]);
+  // Uma cor escondida que NÃO salvou abre o tecido: o erro precisa estar à vista (a pessoa pode recolher de novo depois).
+  useEffect(() => {
+    if (filhosOcultos.erro) setRecolhido(false);
+  }, [filhosOcultos.erro]);
   // cores que o tecido já tem (cadastradas + novas no rascunho): o multi-cor da linha-pai as mostra marcadas e travadas
   const presentes = useMemo(
     () => [
-      ...linhas.flatMap((l) => (l.variante?.cor_id ? [l.variante.cor_id] : [])),
+      ...cores.map((l) => l.variante.cor_id).filter((id): id is string => !!id),
       ...novosAlvo.flatMap((g) => g.vars.flatMap((v) => (v.cor_id ? [v.cor_id] : []))),
     ],
-    [linhas, novosAlvo],
+    [cores, novosAlvo],
   );
-  // "+ cor" só some quando já há cor nova pendente neste tecido (aí o botão "adicionar variante" do grupo faz o papel)
+  // "+ cor" (na linha-pai) só some quando já há cor nova pendente neste tecido (aí o botão "adicionar variante" do grupo faz o papel)
   const botaoCor =
     !readOnly && novosAlvo.length === 0 ? (
       <button
@@ -520,60 +632,53 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
         onClick={() => nv.onNovaCor(artigo.id, artigo.nome)}
         aria-label={`Adicionar cor em ${artigo.nome}`}
         title="Adicionar cor neste tecido"
-        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
       >
         <Plus className="h-3.5 w-3.5" />
       </button>
     ) : undefined;
   return (
     <tbody data-grupo-artigo={artigo.id}>
-      {linhas.map((l, i) => {
-        const ultima = i === linhas.length - 1;
-        return l.variante ? (
-          <LinhaComCor
-            key={l.chave}
-            artigo={artigo}
-            ctxA={ctxA}
-            primeira={i === 0}
-            opcoes={opcoes}
-            readOnly={readOnly}
-            variante={l.variante}
-            registrar={registrar}
-            acaoCor={ultima ? botaoCor : undefined}
-            avisos={avisos}
-            onLimparAviso={onLimparAviso}
-            presentes={presentes}
-            onAdicionarCores={nv.onAdicionarCores}
-            ex={ex}
-            linhaIdx={inicio + i}
-            propsCel={propsCel}
-          />
-        ) : (
-          <LinhaTr
-            key={l.chave}
-            artigo={artigo}
-            ctxA={ctxA}
-            primeira={i === 0}
-            opcoes={opcoes}
-            readOnly={readOnly}
-            variante={null}
-            ctxV={null}
-            acaoCor={ultima ? botaoCor : undefined}
-            avisos={avisos}
-            onLimparAviso={onLimparAviso}
-            presentes={presentes}
-            onAdicionarCores={nv.onAdicionarCores}
-            ex={ex}
-            linhaIdx={inicio + i}
-            propsCel={propsCel}
-          />
-        );
-      })}
+      <LinhaPai
+        artigo={artigo}
+        ctxA={ctxA}
+        opcoes={opcoes}
+        readOnly={readOnly}
+        nCores={cores.length}
+        presentes={presentes}
+        onAdicionarCores={nv.onAdicionarCores}
+        botaoCor={botaoCor}
+        recolhido={recolhido}
+        onAlternar={alternar}
+        filhosOcultos={filhosOcultos}
+        avisos={avisos}
+        onLimparAviso={onLimparAviso}
+        ex={ex}
+        linhaIdx={inicio}
+        propsCel={propsCel}
+      />
+      {cores.map((l, i) => (
+        <LinhaComCor
+          key={l.chave}
+          artigo={artigo}
+          opcoes={opcoes}
+          readOnly={readOnly}
+          variante={l.variante}
+          registrar={registrar}
+          onEstado={reportarFilho}
+          oculta={recolhido}
+          avisos={avisos}
+          onLimparAviso={onLimparAviso}
+          ex={ex}
+          linhaIdx={inicio + 1 + i}
+          propsCel={propsCel}
+        />
+      ))}
       {novosAlvo.map((g, gi) => (
         <LinhasTecidoNovo
           key={g.tmp}
           grupo={g}
-          inicio={inicio + linhas.length + novosAlvo.slice(0, gi).reduce((n, x) => n + x.vars.length, 0)}
+          inicio={inicio + nLinhasDoGrupo(grupo) + novosAlvo.slice(0, gi).reduce((n, x) => n + x.vars.length, 0)}
           propsCel={propsCel}
           opcoes={opcoes}
           mostrarPendencias={nv.mostrarPendencias}
@@ -630,14 +735,14 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
     }
     return { porArtigo: mapa, tecidosNovos: soNovos };
   }, [nv?.novos]);
-  // Teclado (Enter desce / Tab ao lado): a "linha" é a posição GLOBAL na ordem da tela (cada tecido, suas cores cadastradas, as cores
-  // novas dele; por fim os tecidos novos) = a mesma ordem de `montarSlots`; a "coluna" é a posição em COLUNAS_TECIDO.
+  // Teclado (Enter desce / Tab ao lado): a "linha" é a posição GLOBAL na ordem da tela (cada tecido: a linha-pai, suas cores
+  // cadastradas, as cores novas dele; por fim os tecidos novos) = a mesma ordem de `montarSlots`; a "coluna" é a posição em COLUNAS_TECIDO.
   const { inicios, inicioDosNovos, nLinhas } = useMemo(() => {
     let n = 0;
     const ini: number[] = [];
     for (const g of grupos) {
       ini.push(n);
-      n += g.linhas.length + (porArtigo.get(g.artigoId) ?? SEM_NOVOS).reduce((t, x) => t + x.vars.length, 0);
+      n += nLinhasDoGrupo(g) + (porArtigo.get(g.artigoId) ?? SEM_NOVOS).reduce((t, x) => t + x.vars.length, 0);
     }
     const iniNovos: number[] = [];
     for (const g of tecidosNovos) {
@@ -671,11 +776,11 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
           <thead className="sticky top-0 z-20 bg-muted text-left text-xs text-muted-foreground">
             <tr>
               {/* Estado + Nome ficam FIXOS na horizontal (sticky left): ao rolar p/ o lado, sabe-se de qual variante é a linha. */}
-              <th className="sticky left-0 z-10 w-8 bg-muted px-1 py-2"><span className="sr-only">Estado</span></th>
+              <th className={cn(CLASSE_COL_ESTADO, "bg-muted py-2")}><span className="sr-only">Estado</span></th>
               {COLUNAS_TECIDO.map((c, i) => {
                 const classe = cn(
                   "whitespace-nowrap px-2 py-2 font-medium",
-                  i === 0 && "sticky left-8 z-10 bg-muted shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]",
+                  i === 0 && cn(CLASSE_COL_NOME, "bg-muted"),
                 );
                 return ordenacao && colunaOrdenavel(c) ? (
                   <SortTh key={c.key} label={c.rotulo} sortKey={c.key} sortState={ordenacao} className={classe} />
@@ -683,7 +788,7 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
                   <th key={c.key} className={classe}>{c.rotulo}</th>
                 );
               })}
-              <th className="sticky right-0 z-20 bg-muted px-2 py-2 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.15)]"><span className="sr-only">Ações</span></th>
+              <th className="bg-muted px-2 py-2"><span className="sr-only">Ações</span></th>
             </tr>
           </thead>
           {grupos.map((g, gi) => (

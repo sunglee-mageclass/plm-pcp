@@ -34,8 +34,8 @@ import type { GradeOpcoes } from "./useTecidosGrade";
 import { CelulaTecido, type GradeCelProps } from "./CelulaTecido";
 import { CelulaCorBaseMulti } from "./CelulaCorBaseMulti";
 
-/** Última coluna da grade (ações de excluir): FIXA na direita, para o botão ficar à mão sem rolar a tabela até o fim. */
-export const CLASSE_COL_ACOES = "sticky right-0 z-10 bg-background px-1.5 py-1.5 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.15)]";
+/** Última coluna da grade (a lixeira de cada linha). */
+export const CLASSE_COL_ACOES = "px-1.5 py-1.5";
 
 /** A foto grava na hora e precisa do id da cor: linha nova só ganha foto depois de salvar o tecido. */
 const DICA_FOTO_NOVA = "A foto fica disponível depois de salvar o tecido";
@@ -233,7 +233,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
             data-variante-nova={v.tmp}
             data-slot={chaveSlotNovo(v.tmp)}
           >
-            <td className="w-8 px-1 py-1.5 text-center">
+            <td className="w-10 px-1 py-1.5 text-center">
               <EstadoNovo
                 erro={primeira ? erro : undefined}
                 pendencia={pendencia}

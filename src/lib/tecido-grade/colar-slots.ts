@@ -1,12 +1,15 @@
 // "Linhas" da grade, na ORDEM EM QUE APARECEM na tela, para o colar do Excel saber que linha vem depois de qual (PURO).
-// Ordem: para cada tecido, as cores que já existem; em seguida as cores NOVAS dele ("+ cor"); no fim, os tecidos NOVOS.
+// Ordem: para cada tecido, a linha-PAI (cabeçalho) e as cores que já existem; em seguida as cores NOVAS dele ("+ cor"); no fim,
+// os tecidos NOVOS. O cabeçalho só existe/edita na linha-pai; as cores só têm os campos da cor.
 // Só entram tecidos que a tela mostra (cor nova de tecido filtrado para fora da lista fica invisível e fora da conta).
 import type { ColunaGrade } from "./colunas";
-import type { LinhaGrade } from "./linhas";
+import { chaveLinha, type LinhaGrade } from "./linhas";
 import type { TecidoNovo } from "./linha-nova";
 
 export type SlotColagem =
-  | { tipo: "existente"; chave: string; artigoId: string; varianteId: string | null }
+  // `pai` = a linha do cabeçalho do tecido (varianteId null; no tecido com cores é uma linha PRÓPRIA, antes das cores);
+  // `temCores` só é lido na linha-pai (muda o motivo da recusa de um campo de cor).
+  | { tipo: "existente"; chave: string; artigoId: string; varianteId: string | null; pai: boolean; temCores: boolean }
   | { tipo: "novo"; chave: string; grupoTmp: string; varTmp: string; editaCabecalho: boolean };
 
 /** Chave do slot de uma cor NOVA (a mesma que a linha leva em `data-slot`). */
@@ -40,8 +43,13 @@ export function montarSlots(linhas: Pick<LinhaGrade, "chave" | "artigoId" | "var
     if (l.artigoId !== artigoAtual) {
       fecha();
       artigoAtual = l.artigoId;
+      // tecido COM cores: a linha-pai (cabeçalho) vem antes da 1ª cor, com a chave do "tecido sem cor" (a mesma que a tela usa)
+      if (l.variantId != null) {
+        slots.push({ tipo: "existente", chave: chaveLinha(l.artigoId, null), artigoId: l.artigoId, varianteId: null, pai: true, temCores: true });
+      }
     }
-    slots.push({ tipo: "existente", chave: l.chave, artigoId: l.artigoId, varianteId: l.variantId });
+    // tecido SEM cores: a única linha dele já é a linha-pai
+    slots.push({ tipo: "existente", chave: l.chave, artigoId: l.artigoId, varianteId: l.variantId, pai: l.variantId == null, temCores: false });
   }
   fecha();
   for (const g of tecidosNovos) slots.push(...novosDoGrupo(g));
@@ -52,7 +60,14 @@ export function montarSlots(linhas: Pick<LinhaGrade, "chave" | "artigoId" | "var
 export function recusaDoSlot(slot: SlotColagem | undefined, col: Pick<ColunaGrade, "escopo">): string | null {
   if (!slot) return null;
   if (slot.tipo === "existente") {
-    return slot.varianteId == null && col.escopo === "variante" ? "Este tecido ainda não tem cores — use o + para criar a cor antes de colar" : null;
+    if (slot.pai) {
+      if (col.escopo !== "variante") return null;
+      return slot.temCores
+        ? "As cores ficam nas linhas abaixo do tecido — cole na linha da cor"
+        : "Este tecido ainda não tem cores — use o + para criar a cor antes de colar";
+    }
+    // linha de COR: só os campos da cor (o cabeçalho é da linha do tecido, e uma célula do cabeçalho colada aqui sobrescreveria o do pai)
+    return col.escopo === "artigo" ? "Cabeçalho do tecido — cole na linha do tecido (a de cima)" : null;
   }
   return col.escopo === "artigo" && !slot.editaCabecalho ? "Cabeçalho herdado do tecido — cole na 1ª linha do tecido novo" : null;
 }
