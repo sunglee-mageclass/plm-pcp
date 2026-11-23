@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { mensagemPrecoSemDelegacao } from "@/lib/preco-permissao";
 import { emailSchema } from "@/lib/email";
 
 async function assertTenantAdmin(supabase: any, userId: string) {
@@ -117,6 +118,6 @@ export const savePermissions = createServerFn({ method: "POST" })
       _tenant_id: tenantId,
       _perms: data.perms,
     } as any);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(mensagemPrecoSemDelegacao(error.message) ?? error.message);
     return { ok: true };
   });

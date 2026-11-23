@@ -132,6 +132,8 @@ describe("PermissoesModal — linha 'Exportar dados' só para super admin", () =
   async function montarModal(mode: "tenant" | "super") {
     vi.resetModules();
     vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
+    // O editor lê canView/canEdit (delegação condicional do preço): aqui o super tem tudo; o admin da loja não tem nada.
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => mode === "super", canEdit: () => mode === "super" }) }));
     vi.doMock("@/integrations/supabase/client", () => ({
       supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: [], error: null }) }) }) },
     }));

@@ -76,3 +76,21 @@ WHERE pp.pagina = 'criacao_planejamento:preco_venda' AND pp.pode_ver = true
   AND NOT EXISTS (SELECT 1 FROM public.papel_permissoes o WHERE o.papel_id = pp.papel_id AND o.pode_ver = true
                   AND o.pagina IN ('criacao_planejamento:custos','criacao_desenvolvimento:custos','producao_terceirizados:precos','dashboard_custos','dashboard_comercial'))
 GROUP BY pp.tenant_id;
+
+-- ===================== ADMINS (Peca A, ajuste 3) =====================
+-- O backfill da migration 1 concede ver+editar de preco_venda E preco_atacado a TODO tenant_admin (e ao papel legado admin) com loja.
+-- ANTES da ida: ja_tem_ambas = admins que ja tem (true,true) nas 2 chaves; vao_ganhar = o restante (esperado = quase todos, pois eles furavam e nao tinham linha).
+-- DEPOIS da ida: vao_ganhar deve ser 0 (todos ja_tem_ambas). super_admin NAO entra (fura).
+SELECT u.tenant_id,
+       count(*) AS admins,
+       count(*) FILTER (WHERE (SELECT count(*) FROM public.user_permissions up
+                                WHERE up.user_id = u.id AND up.pode_ver AND up.pode_editar
+                                  AND up.pagina IN ('criacao_planejamento:preco_venda','criacao_planejamento:preco_atacado')) = 2) AS ja_tem_ambas,
+       count(*) FILTER (WHERE (SELECT count(*) FROM public.user_permissions up
+                                WHERE up.user_id = u.id AND up.pode_ver AND up.pode_editar
+                                  AND up.pagina IN ('criacao_planejamento:preco_venda','criacao_planejamento:preco_atacado')) < 2) AS vao_ganhar
+FROM public.users u
+WHERE u.tenant_id IS NOT NULL
+  AND EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = u.id AND ur.role IN ('tenant_admin','admin'))
+GROUP BY u.tenant_id
+ORDER BY u.tenant_id;

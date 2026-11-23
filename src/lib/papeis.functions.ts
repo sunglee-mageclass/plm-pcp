@@ -5,6 +5,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { mensagemPrecoSemDelegacao } from "@/lib/preco-permissao";
 
 const permSchema = z.object({
   pagina: z.string().min(1).max(64),
@@ -34,7 +35,7 @@ export const salvarPapel = createServerFn({ method: "POST" })
       _descricao: data.descricao as string,
       _perms: data.perms,
     });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(mensagemPrecoSemDelegacao(error.message) ?? error.message);
     return { id: pid as string };
   });
 

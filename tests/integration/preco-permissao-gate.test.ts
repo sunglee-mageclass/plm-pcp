@@ -9,6 +9,7 @@ import { aplicarArquivo } from "./mig-txn";
 const RODA = hasDb && ehBancoLocal();
 const MIG = "supabase/migrations/20261211100000_preco_permissao_atacado_gate_backfill.sql";
 const DOWN = "supabase/rollback/20261211100000_preco_permissao_atacado_gate_backfill_down.sql";
+const DOWN_RPCS = "supabase/rollback/20261211110000_preco_atacado_portao_rpcs_comprado_down.sql"; // o _down da migration 1 recusa se as RPCs ainda usam o helper: este vem antes
 const T = TENANT_TESTE;
 // md5 da função: "depois" da S1 (20261031120000) e "depois" desta frente. Quem reaplicar a S1 por cima desta frente precisa do _down antes.
 const MD5_S1_DEPOIS = "e89be53c25f421724994e78b756a027d";
@@ -168,6 +169,152 @@ describe.skipIf(!RODA)("preço de venda/atacado — admin NÃO fura (só super a
   });
 });
 
+// ───────────── Peça A/B (ajuste 3): backfill dos admins + delegação condicional do preço ─────────────
+const U_ALVO = "0b0b0b0b-0000-4000-8000-00000000a7a3";
+async function alvo(c: Client, paginas: string[] = []): Promise<void> {
+  await semJwt(c, async () => {
+    await c.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [U_ALVO, `${U_ALVO}@teste`]);
+    await c.query(
+      `INSERT INTO public.users (id, tenant_id, email, nome, role) VALUES ($1, $2, $3, 'PP alvo', 'user')
+       ON CONFLICT (id) DO UPDATE SET tenant_id = excluded.tenant_id, papel_id = null`,
+      [U_ALVO, T, `${U_ALVO}@teste`],
+    );
+    await c.query(`DELETE FROM public.user_permissions WHERE user_id = $1`, [U_ALVO]);
+    if (paginas.length) await c.query(
+      `INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) SELECT $1, $2, p, true, true FROM unnest($3::text[]) p`,
+      [U_ALVO, T, paginas]);
+  });
+}
+const PV = "criacao_planejamento:preco_venda";
+const PA = "criacao_planejamento:preco_atacado";
+const linhas = (...pg: string[]) => JSON.stringify(pg.map((pagina) => ({ pagina, pode_ver: true, pode_editar: true })));
+const SET_PERMS = `SELECT public.set_user_permissions($1::uuid, $2::uuid, $3::jsonb)`;
+const linhaDe = async (c: Client, u: string, pag: string) =>
+  (await c.query<{ pode_ver: boolean; pode_editar: boolean }>(`SELECT pode_ver, pode_editar FROM public.user_permissions WHERE user_id=$1 AND pagina=$2`, [u, pag])).rows;
+
+describe.skipIf(!RODA)("backfill dos admins (Peça A)", () => {
+  it("tenant_admin sem linha ganha (ver,editar)=(true,true) nas 2 chaves; linha parcial vira (true,true); super admin puro NÃO ganha; _down não apaga", async () => {
+    await withTx(async (c) => {
+      await usuarioComum(c, [], "tenant_admin"); // sem nenhuma linha de permissão
+      const SUPER = "0b0b0b0b-0000-4000-8000-00000000a7a4";
+      await semJwt(c, async () => {
+        await c.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [SUPER, `${SUPER}@teste`]);
+        await c.query(`INSERT INTO public.users (id, tenant_id, email, nome, role) VALUES ($1, $2, $3, 'PP super', 'user') ON CONFLICT (id) DO UPDATE SET tenant_id = excluded.tenant_id`, [SUPER, T, `${SUPER}@teste`]);
+        await c.query(`INSERT INTO public.user_roles (user_id, role) VALUES ($1, 'super_admin') ON CONFLICT DO NOTHING`, [SUPER]);
+        await c.query(`DELETE FROM public.user_permissions WHERE user_id = $1`, [SUPER]);
+        // admin B com linha parcial (só ver de preco_venda)
+        await c.query(`INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) VALUES ($1,$2,$3,true,false) ON CONFLICT (user_id,pagina) DO UPDATE SET pode_ver=true, pode_editar=false`, [U_COMUM, T, PV]);
+      });
+      await aplicarArquivo(c, MIG);
+      expect(await linhaDe(c, U_COMUM, PV)).toEqual([{ pode_ver: true, pode_editar: true }]);
+      expect(await linhaDe(c, U_COMUM, PA)).toEqual([{ pode_ver: true, pode_editar: true }]);
+      expect(await linhaDe(c, SUPER, PV)).toEqual([]);
+      expect(await linhaDe(c, SUPER, PA)).toEqual([]);
+      // e ele passa a ser Editor pelo helper (sem furo): pode editar o preco
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: U_COMUM, role: "authenticated" })]);
+      expect((await um<{ p: boolean }>(c, `SELECT public._pode_editar_preco('${PV}') p`)).p).toBe(true);
+      await aplicarArquivo(c, DOWN_RPCS);
+      await aplicarArquivo(c, DOWN);
+      expect(await linhaDe(c, U_COMUM, PV)).toEqual([{ pode_ver: true, pode_editar: true }]); // o down nao reverte o backfill
+    });
+  });
+});
+
+describe.skipIf(!RODA)("delegação condicional do preço (Peça B): não dá o que não tem", () => {
+  it("tenant_admin COM preço (backfill) concede venda+atacado a usuário comum", async () => {
+    await withTx(async (c) => {
+      await usuarioComum(c, [], "tenant_admin");
+      await aplicarArquivo(c, MIG); // backfill dá o preço ao admin
+      await alvo(c);
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: U_COMUM, role: "authenticated" })]);
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, linhas("criacao_planejamento", PV, PA)])).toBe("PASSOU");
+    });
+  });
+
+  it("tenant_admin SEM preço é recusado (42501 preco_sem_delegacao) ao conceder ver OU editar de preço; conceder outra tela passa", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      await usuarioComum(c, ["criacao_planejamento"], "tenant_admin"); // criado DEPOIS do backfill: sem linha de preço
+      await alvo(c);
+      for (const j of [linhas(PV), linhas(PA), linhas("criacao_planejamento", PV)]) {
+        const r = await tenta(c, SET_PERMS, [U_ALVO, T, j]);
+        expect(r.startsWith("42501")).toBe(true);
+        expect(r).toMatch(/preco_sem_delegacao: criacao_planejamento:preco_/);
+      }
+      // só Leitor (ver sem editar) tambem e recusado: nao tem nem o ver
+      expect((await tenta(c, SET_PERMS, [U_ALVO, T, JSON.stringify([{ pagina: PV, pode_ver: true, pode_editar: false }])])).startsWith("42501")).toBe(true);
+      // outra tela, sem mexer em preço: passa
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, linhas("criacao_planejamento")])).toBe("PASSOU");
+    });
+  });
+
+  it("alvo que JÁ tem preço (dado pelo super): admin sem preço edita OUTRA tela mantendo a linha inalterada (passa), mas não consegue retirá-la nem somar a outra", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      await usuarioComum(c, ["criacao_planejamento"], "tenant_admin");
+      await alvo(c, [PA]);
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, linhas("criacao_planejamento", PA)])).toBe("PASSOU"); // reenvia PA como esta
+      expect((await tenta(c, SET_PERMS, [U_ALVO, T, linhas("criacao_planejamento")])).startsWith("42501")).toBe(true); // retirar PA
+      expect((await tenta(c, SET_PERMS, [U_ALVO, T, linhas(PA, PV)])).startsWith("42501")).toBe(true); // somar PV
+    });
+  });
+
+  it("admin só com Leitor (ver) de venda: concede ver, mas não editar", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      await usuarioComum(c, [PV], "tenant_admin");
+      await semJwt(c, () => c.query(`UPDATE public.user_permissions SET pode_editar = false WHERE user_id = $1 AND pagina = $2`, [U_COMUM, PV]));
+      await alvo(c);
+      const soVer = JSON.stringify([{ pagina: PV, pode_ver: true, pode_editar: false }]);
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, soVer])).toBe("PASSOU");
+      expect((await tenta(c, SET_PERMS, [U_ALVO, T, linhas(PV)])).startsWith("42501")).toBe(true);
+    });
+  });
+
+  it("super admin concede a qualquer um, sempre (sem linha de preço)", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      await usuarioComum(c, [], "super_admin");
+      await semJwt(c, () => c.query(`DELETE FROM public.user_permissions WHERE user_id = $1`, [U_COMUM]));
+      await alvo(c);
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, linhas(PV, PA)])).toBe("PASSOU");
+    });
+  });
+
+  it("salvar_papel: admin com preço concede; sem preço é recusado; super passa", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      const SALVAR = `SELECT public.salvar_papel(NULL::uuid, $1::uuid, 'PP papel deleg', NULL, $2::jsonb)`;
+      await usuarioComum(c, [PV], "tenant_admin"); // tem so preco_venda (Editor)
+      expect(await tenta(c, SALVAR, [T, linhas(PV)])).toBe("PASSOU");
+      const r = await tenta(c, SALVAR, [T, linhas(PV, PA)]);
+      expect(r.startsWith("42501")).toBe(true);
+      expect(r).toMatch(/preco_sem_delegacao: criacao_planejamento:preco_atacado/);
+      await usuarioComum(c, [], "super_admin");
+      expect(await tenta(c, SALVAR, [T, linhas(PV, PA)])).toBe("PASSOU");
+    });
+  });
+
+  it("md5 de set_user_permissions/salvar_papel: ida = depois, down = antes; o corpo só ganha a chamada de _exige_delegacao_preco; helpers com EXECUTE revogado", async () => {
+    await withTx(async (c) => {
+      const md5De = async (f: string) => (await um<{ m: string }>(c, `SELECT md5(pg_get_functiondef('${f}'::regprocedure)) m`)).m;
+      const SU = "public.set_user_permissions(uuid,uuid,jsonb)", SP = "public.salvar_papel(uuid,uuid,text,text,jsonb)";
+      await aplicarArquivo(c, MIG);
+      expect(await md5De(SU)).toBe("bbe576b4b2d91858095ba12ed49a4913");
+      expect(await md5De(SP)).toBe("ede0d4ad42c0f8f772207aae18e4b670");
+      for (const h of ["_pode_ver_preco(text)", "_pode_editar_preco(text)", "_exige_delegacao_preco(jsonb,jsonb)"]) {
+        const r = await um<{ a: boolean; b: boolean }>(c, `SELECT has_function_privilege('anon','public.${h}','EXECUTE') a, has_function_privilege('authenticated','public.${h}','EXECUTE') b`);
+        expect(r).toEqual({ a: false, b: false });
+      }
+      await aplicarArquivo(c, DOWN_RPCS);
+      await aplicarArquivo(c, DOWN);
+      expect(await md5De(SU)).toBe("efd749935e402b939ad6304d15035933");
+      expect(await md5De(SP)).toBe("73310c9e097cf92eae827d19bf7b63a0");
+      expect((await um<{ n: number }>(c, `SELECT count(*)::int n FROM pg_proc WHERE proname IN ('_pode_ver_preco','_pode_editar_preco','_exige_delegacao_preco')`)).n).toBe(0);
+    });
+  });
+});
+
 describe.skipIf(!RODA)("preço de atacado — gate de escrita", () => {
   it("PATCH direto de preco_atacado sem a chave → 42501; o recompute derivado (GUC) passa", async () => {
     await withTx(async (c) => {
@@ -279,6 +426,7 @@ describe.skipIf(!RODA)("preço de atacado — gate de escrita", () => {
   it("down: devolve o corpo anterior do gatilho (sem o ramo de atacado)", async () => {
     await withTx(async (c) => {
       await aplicarArquivo(c, MIG);
+      await aplicarArquivo(c, DOWN_RPCS);
       await aplicarArquivo(c, DOWN);
       const src = (await um<{ s: string }>(c,
         `SELECT pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure) s`)).s;

@@ -6,6 +6,8 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { PAGES_CATALOG, ALL_PAGE_KEYS, DASHBOARD_DADOS_ABAS, DASHBOARD_DADOS_INFO, DASHBOARD_LEADTIME_HINT, paginaComModuloDesligado, type ModuleDef, type PageDef } from "@/lib/permissions-catalog";
 import { useModulosDaLoja } from "@/hooks/useModulosDaLoja";
+import { useAuth } from "@/hooks/useAuth";
+import { precoTravadoNoEditor } from "@/lib/preco-permissao";
 import { marcarTodosNoModulo, montarPermsPayload, voltarAoPapelEstado } from "@/lib/permissoes-estado";
 import { savePermissions } from "@/lib/tenant-admin.functions";
 import { savePermissionsAsSuperAdmin } from "@/lib/admin.functions";
@@ -79,6 +81,10 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const desligada = (key: string) => paginaComModuloDesligado(key, modulosAlvo);
   // Linha travada = módulo desligado OU módulos da loja ainda carregando (não deixa editar o que pode virar esmaecido já alterado).
   const travada = (key: string) => carregandoModulos || desligada(key);
+  // Preço (venda/atacado): delegação condicional — a célula só habilita p/ quem edita se ELE tem aquela permissão de preço (super sempre).
+  const { canView, canEdit } = useAuth();
+  const precoTrava = (key: string, campo: "pode_ver" | "pode_editar") => precoTravadoNoEditor(key, campo, canView, canEdit);
+  const precoTravaAlguma = (key: string) => precoTrava(key, "pode_ver") || precoTrava(key, "pode_editar");
   // Admins (admin/tenant_admin/super_admin) furam user_can_view → têm acesso total a TODAS as
   // páginas, EXCETO a Integração (P-107 A) — essa é a ÚNICA página onde um admin não é bypass:
   // a permissão real vem de `existing`, como um usuário comum, e só o super admin concede.
@@ -180,7 +186,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const voltarAoPapel = () => {
     if (!papelBase || carregandoModulos) return;
     // Página de módulo desligado na loja NÃO volta ao papel: a exceção dela fica (a tela promete "o que estava marcado é mantido").
-    setState((s) => voltarAoPapelEstado(s, papelBase, pageKeys, desligada));
+    setState((s) => voltarAoPapelEstado(s, papelBase, pageKeys, (k) => desligada(k) || precoTravaAlguma(k)));
   };
 
   // #4d — uma célula é "herdada do papel" quando IGUALA o papel (não vira exceção no save).
@@ -339,11 +345,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">
                       ↳ {s.label}
                       {s.hint && <span className="block text-xs font-normal text-muted-foreground/80">{s.hint}</span>}
+                      {(precoTrava(s.key, "pode_ver") || precoTrava(s.key, "pode_editar")) && <span className="block text-xs font-normal text-amber-600 dark:text-amber-400">Você não tem esta permissão de preço — só quem a tem (ou o super admin) pode concedê-la.</span>}
                     </Label>
                     <div className="flex justify-center">
                       <Checkbox
                         id={`${s.key}-ver`}
-                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key)}
+                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key) || precoTrava(s.key, "pode_ver")}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_ver") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_ver ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
@@ -351,7 +358,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center">
                       <Checkbox
-                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key)}
+                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key) || precoTrava(s.key, "pode_editar")}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_editar") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_editar ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}
@@ -472,6 +479,8 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
   const { modules: modulosAlvo, carregando: carregandoModulos } = useModulosDaLoja(papel.tenant_id);
   const desligada = (key: string) => paginaComModuloDesligado(key, modulosAlvo);
   const travada = (key: string) => carregandoModulos || desligada(key);
+  const { canView, canEdit } = useAuth();
+  const precoTrava = (key: string, campo: "pode_ver" | "pode_editar") => precoTravadoNoEditor(key, campo, canView, canEdit);
   const callSalvar = useServerFn(salvarPapel);
 
   const { data: existing, isLoading } = useQuery({
@@ -631,12 +640,13 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                       <Label htmlFor={`papel-${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">
                         ↳ {s.label}
                         {s.hint && <span className="block text-xs font-normal text-muted-foreground/80">{s.hint}</span>}
+                      {(precoTrava(s.key, "pode_ver") || precoTrava(s.key, "pode_editar")) && <span className="block text-xs font-normal text-amber-600 dark:text-amber-400">Você não tem esta permissão de preço — só quem a tem (ou o super admin) pode concedê-la.</span>}
                       </Label>
                       <div className="flex justify-center">
-                        <Checkbox id={`papel-${s.key}-ver`} disabled={travada(p.key)} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
+                        <Checkbox id={`papel-${s.key}-ver`} disabled={travada(p.key) || precoTrava(s.key, "pode_ver")} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
                       </div>
                       <div className="flex justify-center">
-                        <Checkbox disabled={travada(p.key)} checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
+                        <Checkbox disabled={travada(p.key) || precoTrava(s.key, "pode_editar")} checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
                       </div>
                     </div>
                   ))}

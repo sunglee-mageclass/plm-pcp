@@ -48,6 +48,7 @@ describe("PermissoesModal (usuário) — Dashboard organizado (F5c)", () => {
   }) {
     vi.resetModules();
     vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => true, canEdit: () => true }) })); // editor: delegação do preço (quem edita tem tudo)
     vi.doMock("@/integrations/supabase/client", () => ({
       supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: opts.existing ?? [], error: null }) }) }) },
     }));
@@ -189,6 +190,7 @@ describe("PapelEditor — Dashboard organizado (F5c)", () => {
     const salvarSpy = vi.fn(async () => ({ id: "p1" }));
     vi.doMock("@tanstack/react-start", () => ({ ...tanstackReactStartStub(), useServerFn: () => salvarSpy }));
     vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => true, canEdit: () => true }) })); // editor: delegação do preço (quem edita tem tudo)
     vi.doMock("@/integrations/supabase/client", () => ({
       supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: opts.existing ?? [], error: null }) }) }) },
     }));
