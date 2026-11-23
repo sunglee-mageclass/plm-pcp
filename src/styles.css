@@ -547,13 +547,21 @@
    quem usa mouse (sem touchpad) não percebe que dá para rolar para o lado quando o macOS
    esconde a barra. Fina e discreta, mas presente. Aplicar em containers de tabela com overflow-x.
    Frente futura: alastrar para as ~26 telas com scroll lateral + o <Table> padrão. */
-.scroll-x-visivel { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-.scroll-x-visivel::-webkit-scrollbar { height: 10px; -webkit-appearance: none; }
-.scroll-x-visivel::-webkit-scrollbar-track { background: transparent; }
-.scroll-x-visivel::-webkit-scrollbar-thumb {
-  background: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: content-box;
+.scroll-x-visivel {
+  /* overflow-x: scroll (não auto) FORÇA a barra a existir sempre que há conteúdo, mesmo no macOS
+     com "mostrar barras: automaticamente" (que esconde as de overflow:auto). */
+  overflow-x: scroll;
+  scrollbar-width: thin;                 /* Firefox */
+  scrollbar-color: var(--muted-foreground) var(--muted);
 }
-.scroll-x-visivel::-webkit-scrollbar-thumb:hover { background: color-mix(in oklch, var(--muted-foreground) 70%, transparent); background-clip: content-box; }
+/* WebKit/Chromium/Safari: barra sempre pintada (não some ociosa) */
+.scroll-x-visivel::-webkit-scrollbar { height: 12px; -webkit-appearance: none; }
+.scroll-x-visivel::-webkit-scrollbar-track { background: var(--muted); border-radius: 8px; }
+.scroll-x-visivel::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 8px;
+  border: 3px solid var(--muted);        /* "respiro" dentro do trilho */
+  background-clip: content-box;
+  min-width: 40px;
+}
+.scroll-x-visivel::-webkit-scrollbar-thumb:hover { background: var(--foreground); background-clip: content-box; }

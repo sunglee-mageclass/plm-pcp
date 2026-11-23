@@ -768,7 +768,7 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
     <div className="space-y-2">
       <div
         ref={gridRef as RefObject<HTMLDivElement>}
-        className="scroll-x-visivel max-h-[calc(100vh-16rem)] max-w-full overflow-auto rounded-md border"
+        className="scroll-x-visivel max-h-[calc(100vh-16rem)] max-w-full overflow-y-auto rounded-md border"
         data-testid="tecidos-grade-tabela"
         onPaste={aoColar}
       >
