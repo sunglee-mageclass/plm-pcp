@@ -7,6 +7,7 @@ import {
   Plus,
   Search,
   LayoutGrid,
+  List,
   ImageOff,
   Loader2,
   Upload,
@@ -25,9 +26,11 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabel } from "@/lib/variante";
 import { brl } from "@/lib/format";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useUserPref } from "@/hooks/useUiPrefs";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
+import { AviamentosGradeAba } from "@/components/aviamento/grade/AviamentosGradeAba";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -143,6 +146,12 @@ function AviamentosGallery() {
   // No mobile, sempre mostra as informações do card (não compacta).
   const isMobile = useIsMobile();
   const compact = useCompactCards(gridRef, cols) && !isMobile;
+  // Visão da tela: "cards" (padrão) | "lista" (grade tipo Excel). Persistida por usuário.
+  const [visaoPref, setVisaoPref] = useUserPref("filtro", "cad-aviamentos", "visao", ["cards"]);
+  const visaoSalva: "cards" | "lista" = visaoPref[0] === "lista" ? "lista" : "cards";
+  // No celular a grade não abre: força Cards (e avisa se a preferência salva era Lista).
+  const visao: "cards" | "lista" = isMobile ? "cards" : visaoSalva;
+  const avisoListaMobile = isMobile && visaoSalva === "lista";
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("nome");
   const agrup = useAgrupamentoState("cad-aviamentos");
@@ -448,6 +457,34 @@ function AviamentosGallery() {
               ))}
             </SelectContent>
           </Select>
+          {!isMobile && (
+            <div
+              role="group"
+              aria-label="Visão da tela"
+              className="inline-flex items-center rounded-md border p-0.5"
+            >
+              <Button
+                type="button"
+                size="sm"
+                variant={visao === "cards" ? "secondary" : "ghost"}
+                aria-pressed={visao === "cards"}
+                className="h-7 px-2"
+                onClick={() => setVisaoPref(["cards"])}
+              >
+                <LayoutGrid className="h-3.5 w-3.5 mr-1" /> Cards
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={visao === "lista" ? "secondary" : "ghost"}
+                aria-pressed={visao === "lista"}
+                className="h-7 px-2"
+                onClick={() => setVisaoPref(["lista"])}
+              >
+                <List className="h-3.5 w-3.5 mr-1" /> Lista
+              </Button>
+            </div>
+          )}
           <AgrupamentoButton
             groups={[
               { label: "Categoria", active: groupByCat, onToggle: () => agrup.toggle("categoria", !groupByCat) },
@@ -478,7 +515,9 @@ function AviamentosGallery() {
         <span className="text-xs text-muted-foreground">
           <Badge variant="secondary">{filtered.length}</Badge> {filtered.length === 1 ? "aviamento" : "aviamentos"}
         </span>
-        <div className="hidden lg:flex items-center gap-1.5 ml-auto">
+        <div
+          className={`${visao === "cards" ? "hidden lg:flex" : "hidden"} items-center gap-1.5 ml-auto`}
+        >
           <LayoutGrid className="h-4 w-4 text-muted-foreground" />
           <Label className="text-xs text-muted-foreground">Colunas</Label>
           <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
@@ -489,6 +528,16 @@ function AviamentosGallery() {
           </Select>
         </div>
       </div>
+
+      {avisoListaMobile && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+          <span>A lista tipo Excel é usada no computador. No celular, abra pelos cartões.</span>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="py-12 text-center text-muted-foreground">
@@ -514,6 +563,8 @@ function AviamentosGallery() {
             }}
           />
         )
+      ) : visao === "lista" ? (
+        <AviamentosGradeAba aviamentos={filtered} isMobile={isMobile} />
       ) : groups ? (
         <div ref={gridRef} className="space-y-6">
           {groups.map((g) => renderGroup(g, 0, g.key))}
