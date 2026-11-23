@@ -12,8 +12,10 @@ import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { CardDraftsProvider, useCardDrafts } from "@/components/shared/card-drafts/CardDraftsProvider";
 import { useReadOnly } from "@/components/RequirePermission";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import type { SortDir } from "@/components/shared/sort";
 import { COLUNAS_TECIDO, byKey } from "@/lib/tecido-grade/colunas";
-import { CAMPO_ARTIGO } from "@/lib/tecido-grade/celulas";
+import { CAMPO_ARTIGO, opcoesDaColuna } from "@/lib/tecido-grade/celulas";
+import { ordenarLinhasPorColuna } from "@/lib/tecido-grade/ordenar";
 import {
   agruparNovosTecidos,
   camposDaCor,
@@ -25,7 +27,7 @@ import {
   type PatchColagem,
 } from "@/lib/tecido-grade/colar-tsv";
 import { chaveSlotNovo, montarSlots, recusaDoSlot } from "@/lib/tecido-grade/colar-slots";
-import { montarLinhas, type ArtigoEntrada } from "@/lib/tecido-grade/linhas";
+import { montarLinhas, type ArtigoEntrada, type ResolverRotulo } from "@/lib/tecido-grade/linhas";
 import { adicionarCoresAoGrupo, corNovaEmExistente, separarNovos, tecidoNovoVazio, type TecidoNovo } from "@/lib/tecido-grade/linha-nova";
 import { QUERY_KEYS_GRADE, excluirTecidoGrade, excluirVarianteGrade } from "@/lib/tecido-grade/excluir";
 import {
@@ -35,7 +37,7 @@ import {
   textoErroSalvar,
   type ItemSalvar,
 } from "@/lib/tecido-grade/salvar";
-import { TecidosGradeTabela, type ColarProps, type ExcluirProps, type RegistrarSaver, type SaverApi } from "./TecidosGradeTabela";
+import { TecidosGradeTabela, type ColarProps, type ExcluirProps, type OrdenacaoProps, type RegistrarSaver, type SaverApi } from "./TecidosGradeTabela";
 import type { AtualizarNovo } from "./TecidoNovoGrupo";
 import { useTecidosGrade } from "./useTecidosGrade";
 
@@ -64,6 +66,11 @@ export interface TecidosGradeAbaProps {
   /** Categorias de tecido que a tela já carrega. */
   categorias?: GradeOpcao[];
   isMobile?: boolean;
+  /**
+   * Avisa a tela-mãe quando há rascunho não salvo (editado ou linha nova). A tela usa isto para pedir confirmação ANTES de
+   * trocar de visão (Cards) ou de filtro/busca — senão a grade desmonta e o rascunho se perde calado. Ao desmontar avisa `false`.
+   */
+  onDirtyChange?: (sujo: boolean) => void;
 }
 
 /**
@@ -78,12 +85,12 @@ export interface TecidosGradeAbaProps {
 export function TecidosGradeAba(props: TecidosGradeAbaProps) {
   return (
     <CardDraftsProvider>
-      <TecidosGradeConteudo artigos={props.artigos} />
+      <TecidosGradeConteudo artigos={props.artigos} onDirtyChange={props.onDirtyChange} />
     </CardDraftsProvider>
   );
 }
 
-function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
+function TecidosGradeConteudo({ artigos, onDirtyChange }: { artigos: GradeArtigo[]; onDirtyChange?: (sujo: boolean) => void }) {
   const qc = useQueryClient();
   const dados = useTecidosGrade();
   const readOnly = useReadOnly();
@@ -152,6 +159,12 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
   }, [novos.length]);
   const nTotal = nSujos + novos.length;
 
+  // Avisa a tela-mãe do rascunho (para ela guardar a troca de visão/filtro). Ao desmontar (fechou a Lista) volta a "limpo".
+  const onDirtyRef = useRef(onDirtyChange);
+  onDirtyRef.current = onDirtyChange;
+  useEffect(() => { onDirtyRef.current?.(nTotal > 0); }, [nTotal]);
+  useEffect(() => () => onDirtyRef.current?.(false), []);
+
   // Guarda de "alterações não salvas": navegar de rota com rascunho pede confirmação (o selo está no cabeçalho).
   const { confirm } = useUnsavedGuard({ dirty: nTotal > 0, blockNav: true });
 
@@ -166,7 +179,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
   }, []);
 
   // A tela passa os tecidos JÁ filtrados/ordenados; os dados completos (rev, variantes, categorias) vêm da query da grade.
-  const linhas = useMemo(() => {
+  const linhasServidor = useMemo(() => {
     const porId = new Map(dados.artigos.map((a) => [a.id, a]));
     const entradas: ArtigoEntrada[] = [];
     for (const a of artigos) {
@@ -175,6 +188,35 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
     }
     return montarLinhas(entradas, dados.variantesPorArtigo);
   }, [artigos, dados.artigos, dados.catsPorArtigo, dados.variantesPorArtigo]);
+
+  // ORDENAÇÃO por coluna (clicar no cabeçalho: asc → desc). Sem clique = a ordem que a tela entregou (a do servidor). Ordena os
+  // GRUPOS (tecidos) pelo valor SALVO, nunca pelo rascunho, e deixa as cores de um tecido juntas (ver `tecido-grade/ordenar.ts`).
+  // Fica AQUI (e não na tabela) porque o colar do Excel e o teclado seguem a ordem da TELA: tudo lê as mesmas `linhas` ordenadas.
+  const [ord, setOrd] = useState<{ key: string; dir: SortDir } | null>(null);
+  const alternarOrdem = useCallback(
+    (key: string) => setOrd((o) => (o?.key === key ? { key, dir: o.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" })),
+    [],
+  );
+  // coluna de seleção guarda ID; ordena pelo NOME mostrado (fornecedor, unidade, mês, ano, cor base/apelido, categorias)
+  const rotulos = useMemo(() => {
+    const mapa = new Map<string, Map<string, string>>();
+    const o = dados.opcoes;
+    for (const k of ["fornecedor", "unidade", "mes", "ano", "cor_base", "cor_apelido"]) {
+      mapa.set(k, new Map(opcoesDaColuna(k, o).map((x) => [x.id, x.nome])));
+    }
+    mapa.set("categorias", new Map(o.categorias.map((x) => [x.id, x.nome])));
+    return mapa;
+  }, [dados.opcoes]);
+  const linhas = useMemo(() => {
+    const col = ord ? byKey(ord.key) : undefined;
+    if (!ord || !col) return linhasServidor;
+    const resolver: ResolverRotulo = (colKey, id) => rotulos.get(colKey)?.get(id);
+    return ordenarLinhasPorColuna(linhasServidor, col, ord.dir, resolver);
+  }, [linhasServidor, ord, rotulos]);
+  const ordenacao = useMemo<OrdenacaoProps>(
+    () => ({ sortKey: ord?.key ?? null, sortDir: ord?.dir ?? "asc", toggle: alternarOrdem }),
+    [ord, alternarOrdem],
+  );
 
   const linhasRef = useRef(linhas);
   linhasRef.current = linhas;
@@ -484,6 +526,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
           registrar={registrar}
           colar={colar}
           excluir={excluir}
+          ordenacao={ordenacao}
           novos={{
             novos,
             mostrarPendencias,

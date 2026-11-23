@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TableHead } from "@/components/ui/table";
+import { compararValores, type SortDir } from "@/lib/comparar-valores";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** Ícone ⓘ com tooltip explicativo — irmão do botão de ordenação (não aninhado). */
@@ -27,7 +28,7 @@ function HeaderInfo({ tip }: { tip: ReactNode }) {
   );
 }
 
-export type SortDir = "asc" | "desc";
+export type { SortDir };
 
 /**
  * Ordenação reutilizável de listas/tabelas. Compara número-vs-número numericamente,
@@ -53,20 +54,7 @@ export function useSort<T>(
     const get = (row: T) =>
       opts?.accessors?.[sortKey] ? opts.accessors[sortKey](row) : (row as any)?.[sortKey];
     const arr = [...rows];
-    arr.sort((a, b) => {
-      const av = get(a), bv = get(b);
-      const aEmpty = av == null || av === "";
-      const bEmpty = bv == null || bv === "";
-      if (aEmpty && bEmpty) return 0;
-      if (aEmpty) return 1; // vazios por último
-      if (bEmpty) return -1;
-      const an = Number(av), bn = Number(bv);
-      const numeric = !Number.isNaN(an) && !Number.isNaN(bn) && typeof av !== "boolean" && typeof bv !== "boolean";
-      const cmp = numeric
-        ? an - bn
-        : String(av).localeCompare(String(bv), "pt-BR", { numeric: true, sensitivity: "base" });
-      return sortDir === "asc" ? cmp : -cmp;
-    });
+    arr.sort((a, b) => compararValores(get(a), get(b), sortDir));
     return arr;
   }, [rows, sortKey, sortDir, opts]);
 

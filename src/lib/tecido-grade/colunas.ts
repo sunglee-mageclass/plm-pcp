@@ -48,6 +48,11 @@ export const COLUNAS_TECIDO: readonly ColunaGrade[] = [
 
 const POR_KEY: ReadonlyMap<string, ColunaGrade> = new Map(COLUNAS_TECIDO.map((c) => [c.key, c]));
 
+/** Posição da coluna na grade (0 = Nome): é a "coluna" do endereço de teclado (`data-grade-cel="<linha>:<coluna>"`). -1 se não existe. */
+export function indiceDaColuna(key: string): number {
+  return COLUNAS_TECIDO.findIndex((c) => c.key === key);
+}
+
 /** Colunas que a pessoa pode editar na célula (exclui as só-leitura), na ordem do catálogo. */
 export function colunasEditaveis(): ColunaGrade[] {
   return COLUNAS_TECIDO.filter((c) => c.editavel);

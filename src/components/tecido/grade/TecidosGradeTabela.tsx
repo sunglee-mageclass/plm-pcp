@@ -5,16 +5,19 @@
 // (id = variante.id), ambos no `CardDraftsProvider` da aba. Editar uma célula só faz `patch` no rascunho (selo âmbar quando
 // valor ≠ base). O Salvar (na `TecidosGradeAba`) chama o `salvar` de cada rascunho sujo — tecidos primeiro, depois cores.
 // Cada rascunho se registra aqui por `registrar` (a ordem é do wrapper, não da ordem de montagem do registry).
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
+import { SortTh, type SortDir } from "@/components/shared/sort";
+import { useGradeTeclado } from "@/lib/grade-teclado";
+import { colunaOrdenavel } from "@/lib/tecido-grade/ordenar";
 import {
   draftParaServidor,
   varianteParaDraft,
   type VarianteDraft,
 } from "@/routes/_authenticated/cadastro.tecidos.$artigoId";
-import { COLUNAS_TECIDO, type ColunaGrade } from "@/lib/tecido-grade/colunas";
+import { COLUNAS_TECIDO, indiceDaColuna, type ColunaGrade } from "@/lib/tecido-grade/colunas";
 import { chaveLinha, type ArtigoEntrada, type LinhaGrade, type VarianteEntrada } from "@/lib/tecido-grade/linhas";
 import {
   CAMPO_ARTIGO,
@@ -39,7 +42,7 @@ import type { SubPorCat } from "@/lib/tecido-subcategoria";
 import type { TecidoNovo } from "@/lib/tecido-grade/linha-nova";
 import { cn } from "@/lib/utils";
 import type { GradeOpcoes } from "./useTecidosGrade";
-import { CelulaTecido } from "./CelulaTecido";
+import { CelulaTecido, type GradeCelProps } from "./CelulaTecido";
 import { CelulaFotoVariante } from "./CelulaFotoVariante";
 import { CLASSE_COL_ACOES, LinhasTecidoNovo, type AtualizarNovo } from "./TecidoNovoGrupo";
 import { CelulaCorBaseMulti } from "./CelulaCorBaseMulti";
@@ -222,7 +225,13 @@ type LinhaProps = {
   onAdicionarCores: NovosAcoes["onAdicionarCores"];
   /** Excluir cor / tecido já cadastrados (grava na hora, com confirmação). */
   ex: ExcluirAcoes;
+  /** Posição GLOBAL desta linha na grade (contínua entre os tecidos, na ordem da tela): é a "linha" do endereço de teclado. */
+  linhaIdx: number;
+  propsCel: PropsCelula;
 };
+
+/** `useGradeTeclado().propsDaCelula`: endereça a célula (`data-grade-cel`) e liga Enter/Tab. */
+type PropsCelula = (linha: number, coluna: number) => GradeCelProps;
 
 /** Chave da célula nos avisos de colagem: `<chave da linha>|<chave da coluna>`. */
 const chaveCelula = (chaveDaLinha: string, colKey: string): string => `${chaveDaLinha}|${colKey}`;
@@ -281,6 +290,7 @@ function celulaArtigo(col: ColunaGrade, c: LinhaProps) {
       aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel || celulaDesabilitadaPorRegra(col.key, ctxA.valor)}
       opcoes={opcoesDaColuna(col.key, opcoes)}
+      gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
     />
   );
 }
@@ -339,6 +349,7 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
       aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel}
       opcoes={opcoesDaColuna(col.key, opcoes, ctxV.valor.cor_id)}
+      gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
     />
   );
   return col.key === "cor_base" ? comMultiCor(c, celula) : celula;
@@ -480,8 +491,11 @@ const SEM_ACOES: NovosAcoes = {
 };
 const SEM_EXCLUIR: ExcluirAcoes = { onExcluirCor: () => {}, onExcluirTecido: () => {}, ocupado: false };
 
-const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv, ex, avisos, onLimparAviso }: {
+const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv, ex, avisos, onLimparAviso, inicio, propsCel }: {
   grupo: Grupo; opcoes: GradeOpcoes; readOnly: boolean; registrar: RegistrarSaver;
+  /** Posição global da 1ª linha deste tecido (as cores novas dele vêm logo depois das cadastradas). */
+  inicio: number;
+  propsCel: PropsCelula;
   avisos: Record<string, string>; onLimparAviso: (chaveCelula: string) => void;
   /** Cores novas deste tecido (rascunho); entram no fim do mesmo <tbody>. */
   novosAlvo: TecidoNovo[];
@@ -531,6 +545,8 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             presentes={presentes}
             onAdicionarCores={nv.onAdicionarCores}
             ex={ex}
+            linhaIdx={inicio + i}
+            propsCel={propsCel}
           />
         ) : (
           <LinhaTr
@@ -548,13 +564,17 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             presentes={presentes}
             onAdicionarCores={nv.onAdicionarCores}
             ex={ex}
+            linhaIdx={inicio + i}
+            propsCel={propsCel}
           />
         );
       })}
-      {novosAlvo.map((g) => (
+      {novosAlvo.map((g, gi) => (
         <LinhasTecidoNovo
           key={g.tmp}
           grupo={g}
+          inicio={inicio + linhas.length + novosAlvo.slice(0, gi).reduce((n, x) => n + x.vars.length, 0)}
+          propsCel={propsCel}
           opcoes={opcoes}
           mostrarPendencias={nv.mostrarPendencias}
           erro={nv.errosNovos[g.tmp]}
@@ -568,7 +588,10 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
   );
 });
 
-export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos: nv, colar, excluir }: {
+/** Ordenação por coluna (estado na Aba, que ordena as `linhas` ANTES de entregá-las): só desenha os cabeçalhos clicáveis. */
+export type OrdenacaoProps = { sortKey: string | null; sortDir: SortDir; toggle: (key: string) => void };
+
+export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos: nv, colar, excluir, ordenacao }: {
   linhas: LinhaGrade[];
   opcoes: GradeOpcoes;
   readOnly: boolean;
@@ -579,6 +602,8 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
   colar?: ColarProps;
   /** Excluir cor/tecido cadastrados. Ausente = a grade não oferece os botões de excluir. */
   excluir?: ExcluirProps;
+  /** Cabeçalhos clicáveis (ordenar). Ausente = cabeçalhos de texto. */
+  ordenacao?: OrdenacaoProps;
 }) {
   const avisos = colar?.avisos ?? SEM_AVISOS;
   const onLimparAviso = colar?.onLimparAviso ?? NADA;
@@ -605,6 +630,23 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
     }
     return { porArtigo: mapa, tecidosNovos: soNovos };
   }, [nv?.novos]);
+  // Teclado (Enter desce / Tab ao lado): a "linha" é a posição GLOBAL na ordem da tela (cada tecido, suas cores cadastradas, as cores
+  // novas dele; por fim os tecidos novos) = a mesma ordem de `montarSlots`; a "coluna" é a posição em COLUNAS_TECIDO.
+  const { inicios, inicioDosNovos, nLinhas } = useMemo(() => {
+    let n = 0;
+    const ini: number[] = [];
+    for (const g of grupos) {
+      ini.push(n);
+      n += g.linhas.length + (porArtigo.get(g.artigoId) ?? SEM_NOVOS).reduce((t, x) => t + x.vars.length, 0);
+    }
+    const iniNovos: number[] = [];
+    for (const g of tecidosNovos) {
+      iniNovos.push(n);
+      n += g.vars.length;
+    }
+    return { inicios: ini, inicioDosNovos: iniNovos, nLinhas: n };
+  }, [grupos, porArtigo, tecidosNovos]);
+  const { gridRef, propsDaCelula } = useGradeTeclado({ nLinhas, nColunas: COLUNAS_TECIDO.length });
   // ações ESTÁVEIS por referência (o `memo` do GrupoTecido não re-renderiza todos os tecidos a cada tecla numa linha nova)
   const acoes = useMemo<NovosAcoes>(
     () =>
@@ -620,6 +662,7 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
   return (
     <div className="space-y-2">
       <div
+        ref={gridRef as RefObject<HTMLDivElement>}
         className="max-h-[calc(100vh-16rem)] max-w-full overflow-auto rounded-md border"
         data-testid="tecidos-grade-tabela"
         onPaste={aoColar}
@@ -629,24 +672,26 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
             <tr>
               {/* Estado + Nome ficam FIXOS na horizontal (sticky left): ao rolar p/ o lado, sabe-se de qual variante é a linha. */}
               <th className="sticky left-0 z-10 w-8 bg-muted px-1 py-2"><span className="sr-only">Estado</span></th>
-              {COLUNAS_TECIDO.map((c, i) => (
-                <th
-                  key={c.key}
-                  className={cn(
-                    "whitespace-nowrap px-2 py-2 font-medium",
-                    i === 0 && "sticky left-8 z-10 bg-muted shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]",
-                  )}
-                >
-                  {c.rotulo}
-                </th>
-              ))}
+              {COLUNAS_TECIDO.map((c, i) => {
+                const classe = cn(
+                  "whitespace-nowrap px-2 py-2 font-medium",
+                  i === 0 && "sticky left-8 z-10 bg-muted shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]",
+                );
+                return ordenacao && colunaOrdenavel(c) ? (
+                  <SortTh key={c.key} label={c.rotulo} sortKey={c.key} sortState={ordenacao} className={classe} />
+                ) : (
+                  <th key={c.key} className={classe}>{c.rotulo}</th>
+                );
+              })}
               <th className="sticky right-0 z-20 bg-muted px-2 py-2 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.15)]"><span className="sr-only">Ações</span></th>
             </tr>
           </thead>
-          {grupos.map((g) => (
+          {grupos.map((g, gi) => (
             <GrupoTecido
               key={g.artigoId}
               grupo={g}
+              inicio={inicios[gi]}
+              propsCel={propsDaCelula}
               opcoes={opcoes}
               readOnly={readOnly}
               registrar={registrar}
@@ -657,10 +702,12 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
               onLimparAviso={onLimparAviso}
             />
           ))}
-          {tecidosNovos.map((g) => (
+          {tecidosNovos.map((g, gi) => (
             <tbody key={g.tmp} data-grupo-novo={g.tmp}>
               <LinhasTecidoNovo
                 grupo={g}
+                inicio={inicioDosNovos[gi]}
+                propsCel={propsDaCelula}
                 opcoes={opcoes}
                 mostrarPendencias={acoes.mostrarPendencias}
                 erro={acoes.errosNovos[g.tmp]}

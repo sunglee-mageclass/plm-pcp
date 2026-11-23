@@ -5,7 +5,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { COLUNAS_TECIDO, type ColunaGrade } from "@/lib/tecido-grade/colunas";
+import { COLUNAS_TECIDO, indiceDaColuna, type ColunaGrade } from "@/lib/tecido-grade/colunas";
 import {
   CAMPO_ARTIGO,
   CAMPO_VARIANTE,
@@ -31,7 +31,7 @@ import {
 import { chaveSlotNovo } from "@/lib/tecido-grade/colar-slots";
 import type { SubPorCat } from "@/lib/tecido-subcategoria";
 import type { GradeOpcoes } from "./useTecidosGrade";
-import { CelulaTecido } from "./CelulaTecido";
+import { CelulaTecido, type GradeCelProps } from "./CelulaTecido";
 import { CelulaCorBaseMulti } from "./CelulaCorBaseMulti";
 
 /** Última coluna da grade (ações de excluir): FIXA na direita, para o botão ficar à mão sem rolar a tabela até o fim. */
@@ -56,6 +56,9 @@ type GrupoProps = {
   /** Avisos da última colagem (`<linha>|<coluna>`) e como apagar um ao editar a célula. */
   avisos?: Record<string, string>;
   onLimparAviso?: (chaveCelula: string) => void;
+  /** Teclado: posição GLOBAL da 1ª linha deste grupo na grade e o endereçador de células. Ausentes = sem navegação. */
+  inicio?: number;
+  propsCel?: (linha: number, coluna: number) => GradeCelProps;
 };
 
 const SEM_AVISOS: Record<string, string> = {};
@@ -89,7 +92,7 @@ function EstadoNovo({ erro, pendencia, podeRemover, onRemover, rotuloRemover }: 
 }
 
 /** Linhas (<tr>) do grupo novo. O chamador envolve em <tbody> (tecido novo) ou as encaixa no <tbody> do tecido existente. */
-export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, onChange, onRemover, avisos = SEM_AVISOS, onLimparAviso }: GrupoProps) {
+export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, onChange, onRemover, avisos = SEM_AVISOS, onLimparAviso, inicio = 0, propsCel }: GrupoProps) {
   const { problemas } = validarTecidoNovo(g);
   const alvo = g.artigoAlvoId != null;
   const primeiraRef = useRef<HTMLTableRowElement | null>(null);
@@ -111,7 +114,9 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
   const vermelho = (lista: ProblemaNovo[], campo: string): string | undefined =>
     mostrarPendencias ? lista.find((p) => p.campo === campo)?.msg : undefined;
 
-  const celulaArtigo = (col: ColunaGrade, primeira: boolean, chaveSlot: string) => {
+  const gradeDe = (linhaIdx: number, col: ColunaGrade) => propsCel?.(linhaIdx, indiceDaColuna(col.key));
+
+  const celulaArtigo = (col: ColunaGrade, primeira: boolean, chaveSlot: string, linhaIdx: number) => {
     if (alvo || !primeira) {
       return col.key === "nome" ? (
         <span className="whitespace-nowrap px-2 text-xs text-muted-foreground" data-herdado>↳ mesmo tecido</span>
@@ -164,6 +169,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel || celulaDesabilitadaPorRegra(col.key, { unidade_medida: g.cab.unidade_medida ?? "metro" })}
         opcoes={opcoesDaColuna(col.key, opcoes)}
+        gradeProps={gradeDe(linhaIdx, col)}
       />
     );
   };
@@ -191,6 +197,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel}
         opcoes={opcoesDaColuna(col.key, opcoes, v.cor_id)}
+        gradeProps={gradeDe(inicio + idx, col)}
       />
     );
     // Linha-PAI de um tecido NOVO: além do Select de 1 cor, a seleção MÚLTIPLA (cada cor marcada vira uma linha-filha com o
@@ -237,7 +244,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
             </td>
             {COLUNAS_TECIDO.map((col) => (
               <td key={col.key} className="px-1.5 py-1.5" data-col={col.key}>
-                {col.escopo === "artigo" ? celulaArtigo(col, primeira, chaveSlotNovo(v.tmp)) : celulaVariante(col, v, i)}
+                {col.escopo === "artigo" ? celulaArtigo(col, primeira, chaveSlotNovo(v.tmp), inicio + i) : celulaVariante(col, v, i)}
               </td>
             ))}
             <td className={CLASSE_COL_ACOES} />

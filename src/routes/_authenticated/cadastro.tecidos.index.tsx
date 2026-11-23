@@ -49,6 +49,7 @@ import {
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { TecidoDetailSheet } from "./cadastro.tecidos.$artigoId";
 import { TecidosGradeAba } from "@/components/tecido/grade/TecidosGradeAba";
+import { useGuardaTrocaLista } from "@/components/tecido/grade/useGuardaTrocaLista";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -102,6 +103,8 @@ function TecidosGallery() {
   // No celular a grade não abre: força Cards (e avisa se a preferência salva era Lista).
   const visao: "cards" | "lista" = isMobile ? "cards" : visaoSalva;
   const avisoListaMobile = isMobile && visaoSalva === "lista";
+  // Rascunho da grade + confirmação ANTES de trocar de visão/filtro/busca (que desmontam a grade e descartariam o rascunho calados).
+  const guarda = useGuardaTrocaLista();
   const [search, setSearch] = useState("");
   const [empresaFilter, setEmpresaFilter] = useFilterState("cad-tecidos", "Fornecedor", []);
   const [catFilter, setCatFilter] = useFilterState("cad-tecidos", "Categoria", []);
@@ -373,7 +376,7 @@ function TecidosGallery() {
         {/* Padrão de toolbar: LUPA à esquerda · ações de lista (Ordenar) no meio ·
             Agrupar/Filtrar/Novo colados à direita (ml-auto), Novo por último. */}
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por nome…" />
+          <SearchToggle value={search} onChange={guarda.proteger(setSearch)} placeholder="Buscar por nome…" />
           <Select value={sort} onValueChange={setSort}>
             <SelectTrigger className="h-8 w-40 text-sm">
               <SelectValue />
@@ -393,7 +396,7 @@ function TecidosGallery() {
                   variant={visao === "cards" ? "secondary" : "ghost"}
                   aria-pressed={visao === "cards"}
                   className="h-7 px-2"
-                  onClick={() => setVisaoPref(["cards"])}
+                  onClick={guarda.proteger(() => setVisaoPref(["cards"]))}
                 >
                   <LayoutGrid className="h-3.5 w-3.5 mr-1" /> Cards
                 </Button>
@@ -417,8 +420,8 @@ function TecidosGallery() {
             />
             <FilterButton
               filters={[
-                { label: "Fornecedor", value: empresaFilter, onChange: setEmpresaFilter, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
-                { label: "Categoria", value: catFilter, onChange: setCatFilter, options: categorias },
+                { label: "Fornecedor", value: empresaFilter, onChange: guarda.proteger(setEmpresaFilter), options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
+                { label: "Categoria", value: catFilter, onChange: guarda.proteger(setCatFilter), options: categorias },
               ]}
             />
             <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="max-sm:hidden">
@@ -482,6 +485,7 @@ function TecidosGallery() {
           fornecedores={empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))}
           categorias={categorias}
           isMobile={isMobile}
+          onDirtyChange={guarda.aoMudarSujo}
         />
       ) : groups ? (
         <div ref={gridRef} className="space-y-6">
@@ -492,6 +496,8 @@ function TecidosGallery() {
           {filtered.map(renderCard)}
         </div>
       )}
+
+      {guarda.dialog}
 
       <CreateTecidoModal
         open={createOpen}

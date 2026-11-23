@@ -2,7 +2,7 @@
 // (`controleDaCelula`), o valor e o `onChange` vêm do rascunho da linha. Nada grava aqui — editar só mexe no rascunho;
 // o selo âmbar (`sujo`) vem de `valor ≠ base`. EXCEÇÃO: a Foto grava NA HORA (binário, fora do rascunho) — a célula só
 // pede o upload (`foto.onEnviar`); quem grava é `useFotoVariante`.
-import { useRef } from "react";
+import { useRef, type KeyboardEvent } from "react";
 import { ChevronsUpDown, ImagePlus, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,6 +48,9 @@ export type FotoCelula = {
   dica?: string;
 };
 
+/** Endereço da célula para o teclado (Enter desce / Tab ao lado): `data-grade-cel` + `onKeyDown` do `useGradeTeclado`. */
+export type GradeCelProps = { "data-grade-cel": string; onKeyDown: (e: KeyboardEvent<HTMLElement>) => void };
+
 export type CelulaTecidoProps = {
   coluna: ColunaGrade;
   /** Valor atual do rascunho (texto/número/id). Ignorado em `categorias`/`foto`/`somente-leitura`. */
@@ -68,10 +71,12 @@ export type CelulaTecidoProps = {
   erro?: string;
   /** Aviso da última colagem nesta célula (texto não aplicado): laranja tracejado, com o motivo no `title`. Some ao editar. */
   aviso?: string;
+  /** Navegação por teclado. Só vale nos campos de digitação (texto/número/composição); Select, categorias e foto ficam de fora. */
+  gradeProps?: GradeCelProps;
 };
 
 export function CelulaTecido({
-  coluna, valor, onChange, sujo = false, desabilitado = false, ariaLabel, opcoes = [], texto, categorias, foto, erro, aviso,
+  coluna, valor, onChange, sujo = false, desabilitado = false, ariaLabel, opcoes = [], texto, categorias, foto, erro, aviso, gradeProps,
 }: CelulaTecidoProps) {
   const controle = controleDaCelula(coluna);
   // erro (vermelho) vence o aviso de colagem (laranja), que vence o selo âmbar; `title` explica o motivo
@@ -103,6 +108,7 @@ export function CelulaTecido({
         data-controle={controle}
         disabled={desabilitado}
         placeholder="0,00"
+        {...gradeProps}
         {...invalido}
         className={cn("h-8 w-28 text-right tabular-nums", realce)}
         value={(valor as number | null | undefined) ?? ""}
@@ -145,6 +151,9 @@ export function CelulaTecido({
         data-controle="textarea"
         disabled={desabilitado}
         rows={2}
+        {...gradeProps}
+        // Composição tem várias linhas: Enter aqui QUEBRA a linha (não desce). Tab (e Shift+Tab) seguem a navegação da grade.
+        onKeyDown={gradeProps ? (e) => { if (e.key !== "Enter") gradeProps.onKeyDown(e); } : undefined}
         {...invalido}
         className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", realce)}
         value={(valor as string | null | undefined) ?? ""}
@@ -159,6 +168,7 @@ export function CelulaTecido({
       aria-label={ariaLabel}
       data-controle="input"
       disabled={desabilitado}
+      {...gradeProps}
       {...invalido}
       className={cn("h-8 min-w-[10rem]", realce)}
       value={(valor as string | null | undefined) ?? ""}
