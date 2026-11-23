@@ -328,14 +328,22 @@ function LinhaTr(props: LinhaProps) {
       data-variante-id={variante?.id}
       data-slot={chaveLinha(artigo.id, variante?.id ?? null)}
     >
-      <td className="w-8 px-1 py-1.5 text-center">
+      <td className="sticky left-0 z-10 w-8 bg-background px-1 py-1.5 text-center">
         <span className="flex items-center justify-center gap-1">
           <EstadoLinha sujo={(primeira && ctxA.dirty) || !!ctxV?.dirty} erro={ctxV?.erro ?? (primeira ? ctxA.erro : null)} />
           {acaoCor}
         </span>
       </td>
-      {COLUNAS_TECIDO.map((col) => (
-        <td key={col.key} className="px-1.5 py-1.5" data-col={col.key}>
+      {COLUNAS_TECIDO.map((col, i) => (
+        <td
+          key={col.key}
+          className={cn(
+            "px-1.5 py-1.5",
+            // 1ª coluna (Nome) FIXA na horizontal, fundo sólido p/ não deixar o conteúdo rolar por baixo.
+            i === 0 && "sticky left-8 z-10 bg-background shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]",
+          )}
+          data-col={col.key}
+        >
           {col.escopo === "artigo" ? celulaArtigo(col, props) : celulaVariante(col, props)}
         </td>
       ))}
@@ -511,11 +519,20 @@ export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos:
         onPaste={aoColar}
       >
         <table className="w-full min-w-max border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left text-xs text-muted-foreground">
+          <thead className="sticky top-0 z-20 bg-muted text-left text-xs text-muted-foreground">
             <tr>
-              <th className="w-8 px-1 py-2"><span className="sr-only">Estado</span></th>
-              {COLUNAS_TECIDO.map((c) => (
-                <th key={c.key} className="whitespace-nowrap px-2 py-2 font-medium">{c.rotulo}</th>
+              {/* Estado + Nome ficam FIXOS na horizontal (sticky left): ao rolar p/ o lado, sabe-se de qual variante é a linha. */}
+              <th className="sticky left-0 z-10 w-8 bg-muted px-1 py-2"><span className="sr-only">Estado</span></th>
+              {COLUNAS_TECIDO.map((c, i) => (
+                <th
+                  key={c.key}
+                  className={cn(
+                    "whitespace-nowrap px-2 py-2 font-medium",
+                    i === 0 && "sticky left-8 z-10 bg-muted shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]",
+                  )}
+                >
+                  {c.rotulo}
+                </th>
               ))}
             </tr>
           </thead>
