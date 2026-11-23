@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Tag, Plus, Trash2, Search, Loader2, X, ArrowLeft, Save } from "lucide-react";
+import { Tag, Plus, Trash2, Search, Loader2, X, ArrowLeft, Save, LayoutGrid, List, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
@@ -42,6 +42,10 @@ import { fmtNum } from "@/lib/format";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useUserPref } from "@/hooks/useUiPrefs";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useGuardaTrocaLista } from "@/components/shared/useGuardaTrocaLista";
+import { InsumosGradeAba } from "@/components/insumo/grade/InsumosGradeAba";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   component: () => (
@@ -86,6 +90,15 @@ function EtiquetasPage() {
   const tenantId = useActiveTenantId();
   const { isAdmin } = useAuth();
   const [search, setSearch] = useState("");
+  const isMobile = useIsMobile();
+  // Visão da tela: "cards" (padrão, a tabela de hoje) | "lista" (grade tipo Excel). Persistida por usuário.
+  const [visaoPref, setVisaoPref] = useUserPref("filtro", "cad-insumos", "visao", ["cards"]);
+  const visaoSalva: "cards" | "lista" = visaoPref[0] === "lista" ? "lista" : "cards";
+  // No celular a grade não abre: força Cards (e avisa se a preferência salva era Lista).
+  const visao: "cards" | "lista" = isMobile ? "cards" : visaoSalva;
+  const avisoListaMobile = isMobile && visaoSalva === "lista";
+  // Rascunho da Lista: trocar de visão (Cards) ou de busca desmonta/esvazia a grade e DESCARTARIA o que não foi salvo → pede confirmação.
+  const guarda = useGuardaTrocaLista("insumos");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Etiqueta | null>(null);
   // Realce "quem edita o quê" (Realtime Onda 2): presença de página, canal por LOJA + etiqueta aberta no
@@ -392,18 +405,69 @@ function EtiquetasPage() {
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar etiquetas…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Buscar etiquetas…" value={search} onChange={(e) => guarda.proteger(setSearch)(e.target.value)} className="pl-9" />
         </div>
-        {isAdmin && selected.size > 0 && !readOnly && (
+        {visao === "cards" && isAdmin && selected.size > 0 && !readOnly && (
           <Button variant="destructive" onClick={() => setBulkOpen(true)}>
             <Trash2 className="h-4 w-4 mr-1" /> Excluir ({selected.size})
           </Button>
+        )}
+        {!isMobile && (
+          <div role="group" aria-label="Visão da tela" className="inline-flex items-center rounded-md border p-0.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={visao === "cards" ? "secondary" : "ghost"}
+              aria-pressed={visao === "cards"}
+              className="h-7 px-2"
+              onClick={guarda.proteger(() => setVisaoPref(["cards"]))}
+            >
+              <LayoutGrid className="h-3.5 w-3.5 mr-1" /> Cards
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={visao === "lista" ? "secondary" : "ghost"}
+              aria-pressed={visao === "lista"}
+              className="h-7 px-2"
+              onClick={() => setVisaoPref(["lista"])}
+            >
+              <List className="h-3.5 w-3.5 mr-1" /> Lista
+            </Button>
+          </div>
         )}
         <Button onClick={openCreate} className="max-sm:hidden" disabled={readOnly}>
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
 
+      {avisoListaMobile && (
+        <div role="status" className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+          <span>A lista tipo Excel é usada no computador. No celular, abra pelos cartões.</span>
+        </div>
+      )}
+
+      {visao === "lista" ? (
+        isLoading ? (
+          <div className="py-12 text-center text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin inline mr-2" /> Carregando…
+          </div>
+        ) : search.trim() && filtered.length === 0 && etiquetas.length > 0 ? (
+          <EmptyState icon={Search} title="Nenhuma etiqueta encontrada"
+            description="Nenhuma etiqueta corresponde à busca atual."
+            action={{ label: "Limpar busca", onClick: guarda.proteger(() => setSearch("")) }} />
+        ) : (
+          // Sem busca a grade mostra TODOS os insumos da loja (leitura própria, honesta): não depende da query dos cards, que aqui
+          // engole erro. Com busca, só os que casam (mesma ordem da grade).
+          <InsumosGradeAba
+            etiquetas={search.trim() ? filtered : undefined}
+            isMobile={isMobile}
+            onDirtyChange={guarda.aoMudarSujo}
+          />
+        )
+      ) : (
+      <>
       <div className="rounded-lg border">
         <Table className="card-table">
           <TableHeader>
@@ -498,6 +562,8 @@ function EtiquetasPage() {
       <div className="text-xs text-muted-foreground">
         <Badge variant="secondary">{filtered.length}</Badge> {filtered.length === 1 ? "etiqueta" : "etiquetas"}
       </div>
+      </>
+      )}
 
       {/* Criar / editar. Regra 3: EDITAR = Sheet lateral (side=right, ~70vw); NOVO = Dialog
           central. Mesmo conteúdo interno (`modalConteudo`); a guarda de "não salvo" fica
