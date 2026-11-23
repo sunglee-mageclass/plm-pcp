@@ -25,6 +25,7 @@ import { useUserPref } from "@/hooks/useUiPrefs";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { CAMPO_EXPORT_BY_KEY, CAMPOS_EXPORT, KEYS_VALIDAS } from "@/lib/integracao/campos-export";
 import { baixarExport, type DadosExport } from "@/lib/integracao/export";
+import { rotulosDoTipo, keysValidasDoTipo } from "@/lib/exportar/campos-por-tipo";
 import { buscarOpcoesColecao } from "@/lib/opcoes-colecao";
 
 /** Quantos PRODUTOS a prévia traz (o limite da RPC conta produtos, não linhas). */
@@ -39,6 +40,9 @@ const NIVEIS: { valor: string; rotulo: string; ajuda: string }[] = [
   { valor: "2", rotulo: "Até cor", ajuda: "o pai e 1 linha por cor" },
   { valor: "3", rotulo: "Até tamanho", ajuda: "o pai e 1 linha por cor × tamanho" },
 ];
+
+/** Nome da aba do Excel por nível (produto). Passado ao `baixarExport`, que não tem mais nomes fixos. */
+const NOME_ABA_PRODUTO: Record<string, string> = { "1": "SKU pai", "2": "Até cor", "3": "Até tamanho" };
 
 type RespostaExport = DadosExport & { total: number };
 
@@ -141,7 +145,11 @@ export function ExportarDados() {
   const baixar = useMutation({
     mutationFn: async () => {
       const dados = await chamarExportar(colecaoRpc, subcolecao, colunasSel, niveisSel, null);
-      baixarExport(dados, niveisSel, `export-${colecaoRpc ?? "todas-as-colecoes"}-${subcolecao ?? "todas"}`);
+      baixarExport(dados, niveisSel, `export-${colecaoRpc ?? "todas-as-colecoes"}-${subcolecao ?? "todas"}`, {
+        rotulos: rotulosDoTipo("produto"),
+        nomeAba: NOME_ABA_PRODUTO,
+        keysValidas: keysValidasDoTipo("produto"),
+      });
       return dados.total;
     },
     onSuccess: (total) => {
