@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PAGES_CATALOG, ALL_PAGE_KEYS, DASHBOARD_DADOS_ABAS, DASHBOARD_DADOS_INFO, DASHBOARD_LEADTIME_HINT, paginaComModuloDesligado, type ModuleDef, type PageDef } from "@/lib/permissions-catalog";
 import { useModulosDaLoja } from "@/hooks/useModulosDaLoja";
 import { useAuth } from "@/hooks/useAuth";
-import { precoTravadoNoEditor } from "@/lib/preco-permissao";
+import { precoTravadoNoEditor, ehChavePreco } from "@/lib/preco-permissao";
 import { marcarTodosNoModulo, montarPermsPayload, voltarAoPapelEstado } from "@/lib/permissoes-estado";
 import { savePermissions } from "@/lib/tenant-admin.functions";
 import { savePermissionsAsSuperAdmin } from "@/lib/admin.functions";
@@ -43,6 +43,10 @@ const emptyPerm = { pode_ver: false, pode_editar: false };
 const KEYS_SO_SUPER = ["integracao", "exportar_dados"] as const;
 const ehChaveSoSuper = (key: string) => key === "integracao" || key.startsWith("integracao:") || key === "exportar_dados";
 const catalogoSemSoSuper = PAGES_CATALOG.filter((m) => !(KEYS_SO_SUPER as readonly string[]).includes(m.module));
+// Alvo ADMIN (admin/tenant_admin): o bypass de admin vale p/ TODAS as páginas, EXCETO as que ele NÃO fura — a Integração/Exportar dados (só-super) E o PREÇO
+// de venda/atacado (admin não fura; a permissão vem de `existing`, o super admin concede/retira). Só os pontos do BYPASS DO ALVO usam este predicado;
+// "só-super de verdade" (filtro de módulo, KEYS_SO_SUPER, viewerESuperAdmin) segue em `ehChaveSoSuper` — preço NÃO é só-super (admin com preço concede).
+const ehChaveSemBypassAlvo = (key: string) => ehChaveSoSuper(key) || ehChavePreco(key);
 const paginasSemSoSuper = (keys: readonly string[]) => keys.filter((k) => !ehChaveSoSuper(k));
 // Pré-computado UMA vez (não a cada render) — `ALL_PAGE_KEYS_SEM_SO_SUPER` é usado como
 // dependência de useMemo/useEffect; uma nova array a cada render (ex.: chamar
@@ -138,7 +142,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       // Integração (P-107 A), cuja permissão real vem de `existing` como qualquer usuário
       // comum. Sem isso a linha nascia marcada/travada, afirmando um acesso que o admin não
       // tem e que o super admin não conseguia conceder pela tela.
-      const defaultAdmin = isAdminRole && !ehChaveSoSuper(key);
+      const defaultAdmin = isAdminRole && !ehChaveSemBypassAlvo(key);
       // #4d: parte do PAPEL (se houver), senão do default do perfil. As exceções do usuário
       // (user_permissions) sobrepõem — inclusive exceção NEGATIVA (linha com ver=false que o
       // papel concedia). Uma página SEM linha de exceção herda o papel.
@@ -148,11 +152,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
     }
     for (const p of existing ?? []) {
       const soSuperDoAlvo = ehChaveSoSuper(p.pagina);
+      const semBypassDoAlvo = ehChaveSemBypassAlvo(p.pagina);
       // Admin comum: só a Integração lê de `existing` (as outras páginas ficam no bypass
       // `isAdminRole` acima — não tem exceção de admin fora da Integração hoje, mas a leitura
       // segue igual à de um usuário comum se algum dia existir). Sem viewerESuperAdmin, a
       // linha de Integração nunca aparece de qualquer forma (pageKeys já a exclui).
-      if (isAdminRole && !soSuperDoAlvo) continue;
+      if (isAdminRole && !semBypassDoAlvo) continue;
       if (!viewerESuperAdmin && soSuperDoAlvo) continue;
       base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
     }
@@ -217,12 +222,13 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       //     exibição (as caixas dessas páginas ficam desabilitadas, nunca passam por `toggle`).
       // Nunca há duplicata de `pagina`: os dois lados são particionados por `ehChaveSoSuper`.
       if (isAdminRole) {
+        // Preço (venda/atacado) entra na DECISÃO da tela (state), não nas preservadas: admin não fura o preço, o super concede/retira por aqui.
         const decisaoSoSuper = pageKeys
-          .filter(ehChaveSoSuper)
+          .filter(ehChaveSemBypassAlvo)
           .map((k) => ({ pagina: k, ...(state[k] ?? emptyPerm) }))
           .filter((p) => p.pode_ver || p.pode_editar);
         const preservadas = (existing ?? [])
-          .filter((p) => !ehChaveSoSuper(p.pagina))
+          .filter((p) => !ehChaveSemBypassAlvo(p.pagina))
           .map((p) => ({ pagina: p.pagina, pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar }));
         perms = [...preservadas, ...decisaoSoSuper];
       }
@@ -274,8 +280,8 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       {isAdminRole && (
         <p className="text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2 mt-2">
           {viewerESuperAdmin
-            ? "Admin da loja tem acesso a todas as páginas, EXCETO a Integração — só o super admin libera, marcando abaixo."
-            : "Admin da loja tem acesso a todas as páginas, exceto a Integração (só o super admin concede)."}
+            ? "Admin da loja tem acesso a todas as páginas, EXCETO a Integração e o Preço de venda/atacado — só o super admin libera, marcando abaixo."
+            : "Admin da loja tem acesso a todas as páginas, exceto a Integração e o Preço de venda/atacado (só o super admin concede)."}
         </p>
       )}
       {temPapel && !isAdminRole && (
@@ -350,7 +356,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     <div className="flex justify-center">
                       <Checkbox
                         id={`${s.key}-ver`}
-                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key) || precoTrava(s.key, "pode_ver")}
+                        disabled={(isAdminRole && !ehChaveSemBypassAlvo(s.key)) || travada(p.key) || precoTrava(s.key, "pode_ver")}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_ver") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_ver ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
@@ -358,7 +364,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center">
                       <Checkbox
-                        disabled={(isAdminRole && !ehChaveSoSuper(s.key)) || travada(p.key) || precoTrava(s.key, "pode_editar")}
+                        disabled={(isAdminRole && !ehChaveSemBypassAlvo(s.key)) || travada(p.key) || precoTrava(s.key, "pode_editar")}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_editar") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_editar ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}

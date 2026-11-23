@@ -100,13 +100,16 @@ describe("editor de permissões — delegação condicional do preço", () => {
     expect(s.match(/precoTrava\(s\.key, "pode_editar"\)/g)?.length).toBeGreaterThanOrEqual(2);
     expect(s).toMatch(/voltarAoPapelEstado\(s, papelBase, pageKeys, \(k\) => desligada\(k\) \|\| precoTravaAlguma\(k\)\)/);
   });
-  async function montarEditor(canTudo: boolean | string[]) {
+  async function montarEditor(
+    canTudo: boolean | string[],
+    alvo: { role?: string; mode?: "tenant" | "super"; existing?: { pagina: string; pode_ver: boolean; pode_editar: boolean }[] } = {},
+  ) {
     vi.resetModules();
     const tem = (k: string) => (Array.isArray(canTudo) ? canTudo.includes(k) : canTudo);
     vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
     vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: tem, canEdit: tem }) }));
     vi.doMock("@/integrations/supabase/client", () => ({
-      supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: [], error: null }) }) }) },
+      supabase: { from: (t: string) => ({ select: () => ({ eq: async () => ({ data: t === "user_permissions" ? (alvo.existing ?? []) : [], error: null }) }) }) },
     }));
     const chain: any = { middleware: () => chain, validator: () => chain, handler: (fn: unknown) => ({ __handler: fn }) };
     vi.doMock("@tanstack/react-start", () => ({ createServerFn: () => chain, createMiddleware: () => ({ server: (fn: unknown) => ({ __middleware: fn }) }), useServerFn: () => vi.fn(async () => undefined) }));
@@ -114,7 +117,7 @@ describe("editor de permissões — delegação condicional do preço", () => {
     const { PermissoesModal } = await import("@/components/admin/PermissoesModal");
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = await montar(createElement(QueryClientProvider, { client: qc },
-      createElement(PermissoesModal, { user: { id: "u1", nome: "Fulano", tenant_id: "t1", role: "user", papel_id: null }, mode: "tenant", onClose: () => {} })));
+      createElement(PermissoesModal, { user: { id: "u1", nome: "Fulano", tenant_id: "t1", role: alvo.role ?? "user", papel_id: null }, mode: alvo.mode ?? "tenant", onClose: () => {} })));
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
     return view;
   }
@@ -132,6 +135,47 @@ describe("editor de permissões — delegação condicional do preço", () => {
     expect(cel(`${PA}-ver`)!.disabled).toBe(false);
     expect(document.body.textContent).not.toContain("Você não tem esta permissão de preço");
     com.unmount();
+  });
+
+  const marcada = (id: string) => cel(id)!.getAttribute("data-state") === "checked";
+  const CUSTOS = "criacao_planejamento:custos";
+
+  it("alvo ADMIN + viewer super: a linha de preço é HABILITADA e reflete `existing` (não nasce marcada/travada); as demais seguem marcadas+travadas pelo bypass", async () => {
+    const v = await montarEditor(true, {
+      role: "tenant_admin", mode: "super",
+      existing: [{ pagina: PV, pode_ver: true, pode_editar: true }], // PA sem linha
+    });
+    expect(cel(`${PV}-ver`)!.disabled).toBe(false);
+    expect(marcada(`${PV}-ver`)).toBe(true);   // veio de existing
+    expect(cel(`${PA}-ver`)!.disabled).toBe(false);
+    expect(marcada(`${PA}-ver`)).toBe(false);  // sem linha = desmarcada (NÃO default-marcada do bypass)
+    expect(cel(`${CUSTOS}-ver`)!.disabled).toBe(true);  // o resto do admin: bypass (marcada + travada)
+    expect(marcada(`${CUSTOS}-ver`)).toBe(true);
+    v.unmount();
+  });
+
+  it("alvo ADMIN + viewer admin SEM preço: a linha de preço fica desabilitada pelo precoTrava (não pelo bypass); COM preço fica habilitada", async () => {
+    const existing = [{ pagina: PV, pode_ver: true, pode_editar: true }, { pagina: PA, pode_ver: true, pode_editar: true }];
+    const sem = await montarEditor(false, { role: "tenant_admin", mode: "tenant", existing });
+    expect(cel(`${PV}-ver`)!.disabled).toBe(true);
+    expect(marcada(`${PV}-ver`)).toBe(true); // lida de existing
+    expect(document.body.textContent).toContain("Você não tem esta permissão de preço"); // o aviso é do precoTrava
+    sem.unmount();
+    const com = await montarEditor([PV, PA], { role: "tenant_admin", mode: "tenant", existing });
+    expect(cel(`${PV}-ver`)!.disabled).toBe(false);
+    expect(cel(`${PA}-ver`)!.disabled).toBe(false);
+    expect(cel(`${CUSTOS}-ver`)!.disabled).toBe(true); // bypass segue nas demais
+    com.unmount();
+  });
+
+  it("payload do alvo admin: o preço sai da DECISÃO da tela (state), não de `existing` preservado", () => {
+    const f = ler("src/components/admin/PermissoesModal.tsx");
+    expect(f).toMatch(/const ehChaveSemBypassAlvo = \(key: string\) => ehChaveSoSuper\(key\) \|\| ehChavePreco\(key\)/);
+    expect(f).toMatch(/pageKeys\s*\.filter\(ehChaveSemBypassAlvo\)/);
+    expect(f).toMatch(/\.filter\(\(p\) => !ehChaveSemBypassAlvo\(p\.pagina\)\)/);
+    expect(f).toMatch(/const defaultAdmin = isAdminRole && !ehChaveSemBypassAlvo\(key\)/);
+    // "só-super de verdade" NÃO mudou: o filtro de módulo continua só integracao/exportar_dados
+    expect(f).toMatch(/KEYS_SO_SUPER = \["integracao", "exportar_dados"\] as const/);
   });
 
   it("a recusa preco_sem_delegacao do banco vira texto PT nas 2 server functions", () => {
