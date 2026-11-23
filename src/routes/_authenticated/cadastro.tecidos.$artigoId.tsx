@@ -11,7 +11,6 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
-  ChevronsUpDown,
   Plus,
   Undo2,
 } from "lucide-react";
@@ -58,7 +57,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -75,7 +73,9 @@ import { usePreviaServidor } from "@/hooks/usePreviaServidor";
 import { cn } from "@/lib/utils";
 import { mergeDraft, igual } from "@/lib/colab/merge";
 import { maskLive } from "@/lib/money-mask";
-import { paresParaSalvar, definirSub, podarSubs, subPorCatDasLinhas, type SubPorCat } from "@/lib/tecido-subcategoria";
+import { definirSub, podarSubs, subPorCatDasLinhas, type SubPorCat } from "@/lib/tecido-subcategoria";
+import { atualizarArtigoComRev, gravarCategoriasArtigo, chamarSalvarVarianteTecido, mensagemSalvarCor } from "@/lib/tecido-grade/salvar";
+import { CategoriasTecidoMultiSelect } from "@/components/tecido/CategoriasTecidoMultiSelect";
 
 // Datas antigas do histórico foram gravadas com offset '+00' (não-ISO) → new Date() dava
 // Invalid Date. Normaliza '+00' → '+00:00' antes de parsear (o trigger novo já grava certo).
@@ -474,30 +474,16 @@ function TecidoDetailCorpo({ artigoId, onClose, embedded = false, registerClose 
     // pro onError tratar (recarrega + avisa, sem markClean, sem chamar set_artigo_categorias).
     // `.eq("rev", ...)`: types.ts ainda não tem a coluna `rev` (regen pendente, débito conhecido
     // — ver CLAUDE.md) — `as any` no builder inteiro, mesmo padrão já usado em ModeloDetailPanel.
-    const { data: updRows, error } = await (supabase.from("artigos") as any)
-      .update(payload)
-      .eq("id", artigoId)
-      .eq("rev", revRef.current)
-      .select("id, rev");
-    if (error) throw error;
-    if (revRef.current != null && (!updRows || updRows.length === 0)) {
-      const conflito: any = new Error("conflito_versao: o tecido foi salvo por outra pessoa");
-      conflito.code = "P0409_LOCAL";
-      throw conflito;
-    }
+    // (a trava otimista + o P0409_LOCAL moram em `@/lib/tecido-grade/salvar`, a MESMA regra que a grade da lista usa)
+    const novoRev = await atualizarArtigoComRev(artigoId, revRef.current, payload);
     // Re-baseliza o revRef com o rev NOVO (já bumpado por este UPDATE) IMEDIATAMENTE — sem esperar
     // o refetch assíncrono do onSuccess. Sem isto, um 2º Salvar rápido mandaria o rev velho no
     // WHERE → 0 linhas → P0409 FALSO contra o próprio save anterior (lição da Explosão).
-    if (updRows && updRows[0]?.rev != null) revRef.current = updRows[0].rev as number;
+    if (novoRev != null) revRef.current = novoRev;
 
-    // Junção de categorias, ATÔMICA (RPC): evita o tecido ficar sem nenhuma categoria caso o
-    // insert falhasse após o delete (antes era delete-all + insert em 2 passos no cliente).
-    // Só roda se o UPDATE acima passou (0 linhas já lançou P0409_LOCAL e abortou antes daqui).
-    const { error: catErr } = await supabase.rpc("set_artigo_categorias" as any, {
-      _artigo_id: artigoId,
-      _pares: paresParaSalvar(catIds, subPorCat),
-    });
-    if (catErr) throw catErr;
+    // Junção de categorias, ATÔMICA (RPC `set_artigo_categorias`). Só roda se o UPDATE acima passou (0 linhas já lançou
+    // P0409_LOCAL e abortou antes daqui).
+    await gravarCategoriasArtigo(artigoId, catIds, subPorCat);
   }
 
   // O botão pede confirmação (no celular Excluir/Descartar/Salvar ficam lado a lado): Cancelar não descarta nada.
@@ -1223,13 +1209,6 @@ class SalvarCorJaTratado extends Error {
   constructor(m = "salvar_cor_tratado") { super(m); this.name = "SalvarCorJaTratado"; }
 }
 
-const TEXTO_COR_DUPLICADA = "Já existe uma variante com essa cor e apelido.";
-function mensagemSalvarCor(e: unknown): string {
-  // 23505 aqui só pode ser o índice único parcial (artigo, cor, apelido): o texto genérico de "valor duplicado" não diz o quê.
-  if ((e as { code?: string } | null)?.code === "23505") return TEXTO_COR_DUPLICADA;
-  return mensagemErro(e, "Erro ao salvar a cor.");
-}
-
 /** Texto da prévia de preço. `afetados` é o TETO (a conta de custo é do servidor): por isso o "até". */
 export function textoPreviaPreco(afetados: number | null | undefined): string | null {
   if (!afetados || afetados <= 0) return null;
@@ -1318,12 +1297,12 @@ function VariantRow({
         falha("Não consegui calcular o efeito do preço. Edite o valor para tentar de novo.");
       }
     }
-    const { error } = await supabase.rpc("salvar_variante_tecido" as any, {
-      _id: variante.id,
-      _mudancas: draftParaServidor(mudancas),
-      _base: draftParaServidor(baseEnviada),
-      _assinatura: tocouPreco ? previaRef.current.assinatura : null, // só vai com o preço (sem preço não há o que conferir)
-    } as any);
+    const { error } = await chamarSalvarVarianteTecido({
+      id: variante.id,
+      mudancas: draftParaServidor(mudancas),
+      base: draftParaServidor(baseEnviada),
+      assinatura: tocouPreco ? previaRef.current.assinatura : null, // só vai com o preço (sem preço não há o que conferir)
+    });
     if (!error) { ultimoEnviadoRef.current = { ...ultimoEnviadoRef.current, ...mudancas }; return; }
 
     const code = (error as { code?: string }).code;
@@ -1694,59 +1673,3 @@ function VariantRow({
 
 // Radix Select não aceita value="" num item: sentinela para "sem subcategoria".
 const SUB_NENHUMA = "__nenhuma__";
-
-function CategoriasTecidoMultiSelect({
-  options,
-  value,
-  onChange,
-  placeholder = "Selecione categorias…",
-}: {
-  options: { id: string; nome: string }[];
-  value: string[];
-  onChange: (v: string[]) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const selectedLabels = options.filter((o) => value.includes(o.id)).map((o) => o.nome);
-  const toggle = (id: string) => {
-    if (value.includes(id)) onChange(value.filter((v) => v !== id));
-    else onChange([...value, id]);
-  };
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="outline" className="w-full justify-between font-normal">
-          <span className="truncate text-left">
-            {selectedLabels.length === 0
-              ? placeholder
-              : selectedLabels.length <= 2
-                ? selectedLabels.join(", ")
-                : `${selectedLabels.length} categorias`}
-          </span>
-          <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72 p-2" align="start">
-        <div className="max-h-64 overflow-y-auto space-y-1">
-          {options.length === 0 ? (
-            <div className="text-sm text-muted-foreground p-2">Nenhuma categoria cadastrada.</div>
-          ) : (
-            options.map((o) => (
-              <label
-                key={o.id}
-                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
-              >
-                <Checkbox
-                  checked={value.includes(o.id)}
-                  onCheckedChange={() => toggle(o.id)}
-                />
-                <span className="text-sm">{o.nome}</span>
-              </label>
-            ))
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-

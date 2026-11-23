@@ -40,6 +40,10 @@ export type GradeArtigoCompleto = {
   preco: number | null;
   unidade_medida: string;
   rendimento: number | null;
+  mes_id: string | null;
+  ano_id: string | null;
+  /** Derivada no banco (preço ÷ rendimento em kg); só leitura. */
+  preco_por_metro: number | null;
   rev: number;
   created_at: string;
 };
@@ -50,12 +54,17 @@ export type GradeOpcaoEmpresa = { id: string; nome_fantasia: string };
 /** `cores_apelido.cor_base_id` = a cor base a que o apelido pertence. */
 export type GradeOpcaoApelido = { id: string; nome: string; cor_base_id: string | null };
 
+export type GradeOpcaoMes = { id: string; mes: string };
+export type GradeOpcaoAno = { id: string; ano: string };
+
 export type GradeOpcoes = {
   categorias: GradeOpcaoNome[];
   subcategorias: GradeOpcaoSubcategoria[];
   empresas: GradeOpcaoEmpresa[];
   cores: GradeOpcaoNome[];
   coresApelido: GradeOpcaoApelido[];
+  meses: GradeOpcaoMes[];
+  anos: GradeOpcaoAno[];
 };
 
 const VAZIO_ARTIGOS: GradeArtigoCompleto[] = [];
@@ -65,6 +74,8 @@ const VAZIO_CATEGORIAS: GradeOpcaoNome[] = [];
 const VAZIO_SUBS: GradeOpcaoSubcategoria[] = [];
 const VAZIO_EMPRESAS: GradeOpcaoEmpresa[] = [];
 const VAZIO_APELIDOS: GradeOpcaoApelido[] = [];
+const VAZIO_MESES: GradeOpcaoMes[] = [];
+const VAZIO_ANOS: GradeOpcaoAno[] = [];
 
 export function useTecidosGrade() {
   // `rev` não está no types.ts gerado (regen pendente) → `as any` no builder, como o $artigoId.
@@ -74,7 +85,7 @@ export function useTecidosGrade() {
       buscarTodas<GradeArtigoCompleto>((de, ate) =>
         (supabase.from("artigos") as any)
           .select(
-            "id,nome,empresa_id,representante_id,categoria_tecido_id,composicao,ncm,largura_estimada,preco,unidade_medida,rendimento,rev,created_at",
+            "id,nome,empresa_id,representante_id,categoria_tecido_id,composicao,ncm,largura_estimada,preco,unidade_medida,rendimento,mes_id,ano_id,preco_por_metro,rev,created_at",
           )
           .order("nome")
           .order("id")
@@ -166,6 +177,24 @@ export function useTecidosGrade() {
     },
   });
 
+  const mesesQ = useQuery({
+    queryKey: ["tecidos-grade", "opcoes", "meses"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("meses").select("id,mes").order("ordem");
+      if (error) throw error;
+      return (data ?? []) as GradeOpcaoMes[];
+    },
+  });
+
+  const anosQ = useQuery({
+    queryKey: ["tecidos-grade", "opcoes", "anos"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("anos").select("id,ano").order("ano");
+      if (error) throw error;
+      return (data ?? []) as GradeOpcaoAno[];
+    },
+  });
+
   const queries = [
     artigosQ,
     variantesQ,
@@ -175,6 +204,8 @@ export function useTecidosGrade() {
     empresasQ,
     coresQ,
     coresApelidoQ,
+    mesesQ,
+    anosQ,
   ];
 
   // Referências estáveis enquanto `data` não muda (os Maps só se refazem quando a query muda).
@@ -196,15 +227,21 @@ export function useTecidosGrade() {
       empresas: empresasQ.data ?? VAZIO_EMPRESAS,
       cores: cores ?? VAZIO_CATEGORIAS,
       coresApelido: coresApelidoQ.data ?? VAZIO_APELIDOS,
+      meses: mesesQ.data ?? VAZIO_MESES,
+      anos: anosQ.data ?? VAZIO_ANOS,
     }),
-    [categoriasQ.data, subcategoriasQ.data, empresasQ.data, cores, coresApelidoQ.data],
+    [categoriasQ.data, subcategoriasQ.data, empresasQ.data, cores, coresApelidoQ.data, mesesQ.data, anosQ.data],
   );
 
   const isLoading = queries.some((q) => q.isLoading);
   const isError = queries.some((q) => q.isError);
   const erro = (queries.find((q) => q.isError)?.error ?? null) as Error | null;
 
-  return { artigos, variantesPorArtigo, catsPorArtigo, opcoes, isLoading, isError, erro };
+  // "Tentar de novo" do aviso de erro: refaz SÓ as que falharam. `recarregando` liga o "Tentando…" do botão.
+  const recarregar = () => Promise.all(queries.filter((q) => q.isError).map((q) => q.refetch()));
+  const recarregando = queries.some((q) => q.isError && q.isFetching);
+
+  return { artigos, variantesPorArtigo, catsPorArtigo, opcoes, isLoading, isError, erro, recarregar, recarregando };
 }
 
 export type TecidosGradeDados = ReturnType<typeof useTecidosGrade>;
