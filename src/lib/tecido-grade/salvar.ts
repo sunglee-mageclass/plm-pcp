@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { paresParaSalvar, type SubPorCat } from "@/lib/tecido-subcategoria";
 import type { CategoriaEntrada } from "./linhas";
+import { payloadComplemento, payloadImportar, type TecidoNovo } from "./linha-nova";
 
 /** Sinal do compare-and-set do tecido (ninguém é lançado pelo servidor: é 0 linhas no UPDATE com `rev`). */
 export const CODIGO_CONFLITO_LOCAL = "P0409_LOCAL";
@@ -302,4 +303,59 @@ export function textoResultadoSalvar(r: ResultadoSalvarTudo): { tom: "sucesso" |
   const texto = `${partes.join(", ")}.`;
   if (r.conflito === 0 && r.erro === 0) return { tom: "sucesso", texto };
   return { tom: r.ok > 0 ? "aviso" : "erro", texto: `${texto} Veja o aviso na linha.` };
+}
+
+// ============================== Linhas NOVAS (tecido novo / cor nova) ==============================
+
+/** Resposta de `importar_tecido_linha` (a ação diz o que a RPC fez). */
+export type RespostaImportarTecido = { artigo_id?: string; acao?: "criado" | "complementado" | "so_foto" | "inalterado" };
+
+/**
+ * Grava UM grupo novo e VÁLIDO (`validarTecidoNovo`) pela RPC atômica `importar_tecido_linha`. Tecido NOVO recém-criado ganha depois
+ * o que a RPC não grava (largura, 1ª categoria, subcategorias — `payloadComplemento`); falha NESSE complemento não desfaz o tecido
+ * (já existe): vira `ErroGrade` PT-BR dizendo o que faltou. Devolve a ação. Lança `ErroGrade` com texto PT.
+ */
+export async function salvarTecidoNovo(g: TecidoNovo): Promise<RespostaImportarTecido["acao"]> {
+  const p = payloadImportar(g);
+  const { data, error } = await supabase.rpc("importar_tecido_linha" as any, p as any);
+  if (error) throw new ErroGrade(mensagemErro(error, "Erro ao criar o tecido."));
+  const r = (data ?? {}) as RespostaImportarTecido;
+  if (r.acao === "inalterado") {
+    throw new ErroGrade(g.artigoAlvoId ? "Essa cor já existe neste tecido." : "Esse tecido e essas cores já existem (mesmo nome e fornecedor).");
+  }
+  if (r.acao === "criado" && r.artigo_id) {
+    const c = payloadComplemento(g);
+    try {
+      if (c.artigo) {
+        const { error: e1 } = await (supabase.from("artigos") as any).update(c.artigo).eq("id", r.artigo_id);
+        if (e1) throw e1;
+      }
+      if (c.pares) {
+        const { error: e2 } = await supabase.rpc("set_artigo_categorias" as any, { _artigo_id: r.artigo_id, _pares: c.pares } as any);
+        if (e2) throw e2;
+      }
+    } catch (e) {
+      throw new ErroGrade(`O tecido foi criado, mas a largura/subcategoria não gravou: ${mensagemErro(e, "erro ao complementar")}. Ajuste na lista depois de salvar.`);
+    }
+  }
+  return r.acao;
+}
+
+/**
+ * Texto/tom do toast do Salvar somando os NOVOS aos editados (`criados` entram nos "salvos"; `erros` nos "com erro") e avisando
+ * dos pendentes que não foram enviados. Sem pendentes = exatamente o texto de `textoResultadoSalvar`.
+ */
+export function resultadoComNovos(
+  r: ResultadoSalvarTudo,
+  n: { criados: number; erros: number; pendentes: number },
+): { tom: "sucesso" | "aviso" | "erro"; texto: string } {
+  const total: ResultadoSalvarTudo = { ok: r.ok + n.criados, conflito: r.conflito, erro: r.erro + n.erros };
+  const base = textoResultadoSalvar(total);
+  if (n.pendentes <= 0) return base;
+  const aviso =
+    n.pendentes === 1
+      ? "1 linha nova pendente (faltam dados) não foi enviada."
+      : `${n.pendentes} linhas novas pendentes (faltam dados) não foram enviadas.`;
+  if (total.ok + total.conflito + total.erro === 0) return { tom: "aviso", texto: aviso };
+  return { tom: base.tom === "sucesso" ? "aviso" : base.tom, texto: `${base.texto} ${aviso}` };
 }

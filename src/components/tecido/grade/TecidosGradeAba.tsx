@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, Save, Undo2 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,8 +13,16 @@ import { CardDraftsProvider, useCardDrafts } from "@/components/shared/card-draf
 import { useReadOnly } from "@/components/RequirePermission";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { montarLinhas, type ArtigoEntrada } from "@/lib/tecido-grade/linhas";
-import { salvarEmOrdem, textoResultadoSalvar, type ItemSalvar } from "@/lib/tecido-grade/salvar";
+import { corNovaEmExistente, separarNovos, tecidoNovoVazio, type TecidoNovo } from "@/lib/tecido-grade/linha-nova";
+import {
+  resultadoComNovos,
+  salvarEmOrdem,
+  salvarTecidoNovo,
+  textoErroSalvar,
+  type ItemSalvar,
+} from "@/lib/tecido-grade/salvar";
 import { TecidosGradeTabela, type RegistrarSaver, type SaverApi } from "./TecidosGradeTabela";
+import type { AtualizarNovo } from "./TecidoNovoGrupo";
 import { useTecidosGrade } from "./useTecidosGrade";
 
 // Tipos mínimos (espelham o que a tela de Tecidos já carrega). Ficam aqui para não
@@ -47,7 +55,9 @@ export interface TecidosGradeAbaProps {
 /**
  * Aba "Lista tipo Excel" do Cadastro > Tecidos: a GRADE EDITÁVEL (1 linha por cor, cabeçalho do tecido repetido).
  * Editar só mexe em RASCUNHO (selo âmbar); NADA grava antes do Salvar. UM Salvar grava os tecidos (CAS por rev) e depois
- * as cores (CAS por campo), com resultado parcial. Só edição dos existentes (criar/colar/foto são tasks seguintes).
+ * as cores (CAS por campo), com resultado parcial. Também CRIA: "+ Novo tecido" / "+ adicionar variante (cor)" montam linhas NOVAS em
+ * rascunho (estado desta aba, não do servidor) que o MESMO Salvar manda por `importar_tecido_linha`, depois dos editados; linha nova
+ * incompleta fica PENDENTE (em vermelho) e não trava as válidas. (Colar/foto são tasks seguintes.)
  */
 export function TecidosGradeAba(props: TecidosGradeAbaProps) {
   return (
@@ -64,8 +74,49 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
   const { nSujos, descartarTodos } = useCardDrafts();
   const { pedir: pedirConfirmacao, dialog: dialogConfirmacao } = useConfirmacao();
 
+  // Linhas NOVAS (tecido novo / cor nova): rascunho só desta aba. Nada grava antes do Salvar.
+  const [novos, setNovos] = useState<TecidoNovo[]>([]);
+  const [errosNovos, setErrosNovos] = useState<Record<string, string>>({});
+  // Depois de tentar salvar, os pendentes (faltam dados) ficam em vermelho; antes disso uma linha recém-criada não "grita".
+  const [mostrarPendencias, setMostrarPendencias] = useState(false);
+  const novosRef = useRef(novos);
+  novosRef.current = novos;
+  const limparErroNovo = useCallback((tmp: string) => {
+    setErrosNovos((e) => {
+      if (!(tmp in e)) return e;
+      const { [tmp]: _fora, ...resto } = e;
+      void _fora;
+      return resto;
+    });
+  }, []);
+  const atualizarNovo = useCallback<AtualizarNovo>(
+    (tmp, fn) => {
+      setNovos((l) => l.map((g) => (g.tmp === tmp ? fn(g) : g)));
+      limparErroNovo(tmp);
+    },
+    [limparErroNovo],
+  );
+  const removerNovo = useCallback(
+    (tmp: string) => {
+      setNovos((l) => l.filter((g) => g.tmp !== tmp));
+      limparErroNovo(tmp);
+    },
+    [limparErroNovo],
+  );
+  const adicionarTecido = useCallback(() => setNovos((l) => [...l, tecidoNovoVazio()]), []);
+  // 1 grupo de cor nova por tecido existente (as próximas cores entram nele por "+ adicionar variante")
+  const adicionarCor = useCallback(
+    (artigoId: string, nome: string) =>
+      setNovos((l) => (l.some((g) => g.artigoAlvoId === artigoId) ? l : [...l, corNovaEmExistente(artigoId, nome)])),
+    [],
+  );
+  useEffect(() => {
+    if (novos.length === 0) setMostrarPendencias(false);
+  }, [novos.length]);
+  const nTotal = nSujos + novos.length;
+
   // Guarda de "alterações não salvas": navegar de rota com rascunho pede confirmação (o selo está no cabeçalho).
-  const { confirm } = useUnsavedGuard({ dirty: nSujos > 0, blockNav: true });
+  const { confirm } = useUnsavedGuard({ dirty: nTotal > 0, blockNav: true });
 
   // Cada rascunho (tecido ou cor) se registra aqui: o Salvar grava os tecidos ANTES das cores, na ordem que ESTE wrapper
   // define (a ordem de montagem do registry não serve: os filhos registram antes do pai).
@@ -97,17 +148,35 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
         itens.filter((i) => i.kind === "variante").map((i) => i.item),
         ctx,
       );
+      // NOVOS depois dos editados: acrescentar cor a um tecido que existe sobe o `artigos.rev` (trigger) e faria o UPDATE do tecido
+      // editado dar conflito falso se fosse antes. Só os VÁLIDOS vão; os pendentes ficam na tela (resultado parcial).
+      const { validos, pendentes } = separarNovos(novosRef.current);
+      const criados: string[] = [];
+      const erros: Record<string, string> = {};
+      for (const g of validos) {
+        try {
+          await salvarTecidoNovo(g);
+          criados.push(g.tmp);
+        } catch (e) {
+          erros[g.tmp] = textoErroSalvar(e);
+        }
+      }
       // Cada cor salva sobe o `artigos.rev` por trigger: relê tudo ANTES de liberar o próximo Salvar (senão ele mandaria um
       // rev velho = conflito falso contra o próprio save). Falha na releitura é inofensiva: o refetch normal cobre.
+      // A lista da tela (`["artigos"]`) também é relida ANTES de limpar o rascunho: o tecido novo não pode "piscar" e sumir.
       try {
-        await Promise.all(
-          ["artigos", "variantes", "artigo-categorias"].map((k) => qc.refetchQueries({ queryKey: ["tecidos-grade", k] })),
-        );
+        await Promise.all([
+          ...["artigos", "variantes", "artigo-categorias"].map((k) => qc.refetchQueries({ queryKey: ["tecidos-grade", k] })),
+          ...(criados.length > 0 ? [qc.refetchQueries({ queryKey: ["artigos"] })] : []),
+        ]);
       } catch { /* a próxima leitura atualiza */ }
-      return resultado;
+      return { resultado, criados, erros, pendentes: pendentes.length };
     },
-    onSuccess: (r) => {
-      const { tom, texto } = textoResultadoSalvar(r);
+    onSuccess: ({ resultado: r, criados, erros, pendentes }) => {
+      // grupos gravados saem do rascunho (um 2º Salvar não os reenvia); falhos e pendentes ficam, com o aviso na linha
+      setNovos((l) => l.filter((g) => !criados.includes(g.tmp)));
+      setErrosNovos(erros);
+      const { tom, texto } = resultadoComNovos(r, { criados: criados.length, erros: Object.keys(erros).length, pendentes });
       if (tom === "sucesso") toast.success(texto);
       else if (tom === "aviso") toast.warning(texto);
       else toast.error(texto);
@@ -126,17 +195,22 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
       confirmar: "Descartar",
       cancelar: "Continuar editando",
       destrutivo: true,
-      onConfirmar: descartarTodos,
+      onConfirmar: () => {
+        descartarTodos();
+        setNovos([]);
+        setErrosNovos({});
+        setMostrarPendencias(false);
+      },
     });
 
   const { nTecidos, nCores } = useMemo(
     () => ({ nTecidos: new Set(linhas.map((l) => l.artigoId)).size, nCores: linhas.filter((l) => l.variante).length }),
     [linhas],
   );
-  const barraVisivel = !readOnly && (nSujos > 0 || salvarMut.isPending);
+  const barraVisivel = !readOnly && (nTotal > 0 || salvarMut.isPending);
   // Erro honesto: nunca mostrar "vazio" quando a leitura falhou. Com rascunho em edição a tabela fica (não perder o que
   // foi digitado); sem rascunho, só o aviso.
-  const mostrarTabela = !dados.isLoading && (!dados.isError || nSujos > 0);
+  const mostrarTabela = !dados.isLoading && (!dados.isError || nTotal > 0);
 
   return (
     <div className={barraVisivel ? "space-y-3 pb-24" : "space-y-3"} data-testid="tecidos-grade-aba">
@@ -145,7 +219,7 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
         {nTecidos === 1 ? "tecido" : "tecidos"} ·
         <Badge variant="secondary">{nCores}</Badge>
         {nCores === 1 ? "cor" : "cores"}
-        <UnsavedIndicator show={nSujos > 0} className="ml-auto shrink-0" />
+        <UnsavedIndicator show={nTotal > 0} className="ml-auto shrink-0" />
       </Card>
 
       {dados.isError && (
@@ -166,7 +240,21 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
       )}
 
       {mostrarTabela && (
-        <TecidosGradeTabela linhas={linhas} opcoes={dados.opcoes} readOnly={readOnly} registrar={registrar} />
+        <TecidosGradeTabela
+          linhas={linhas}
+          opcoes={dados.opcoes}
+          readOnly={readOnly}
+          registrar={registrar}
+          novos={{
+            novos,
+            mostrarPendencias,
+            errosNovos,
+            onAtualizarNovo: atualizarNovo,
+            onRemoverNovo: removerNovo,
+            onNovoTecido: adicionarTecido,
+            onNovaCor: adicionarCor,
+          }}
+        />
       )}
 
       {barraVisivel && (
@@ -174,9 +262,17 @@ function TecidosGradeConteudo({ artigos }: { artigos: GradeArtigo[] }) {
           <Button type="button" variant="outline" disabled={salvarMut.isPending} onClick={pedirDescartar}>
             <Undo2 className="mr-1 h-4 w-4" /> Descartar alterações
           </Button>
-          <Button type="button" className="ml-auto" disabled={salvarMut.isPending || nSujos === 0} onClick={() => salvarMut.mutate()}>
+          <Button
+            type="button"
+            className="ml-auto"
+            disabled={salvarMut.isPending || nTotal === 0}
+            onClick={() => {
+              setMostrarPendencias(true);
+              salvarMut.mutate();
+            }}
+          >
             {salvarMut.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-            Salvar{nSujos > 0 ? ` (${nSujos})` : ""}
+            Salvar{nTotal > 0 ? ` (${nTotal})` : ""}
           </Button>
         </PageActionBar>
       )}

@@ -6,7 +6,8 @@
 // valor ≠ base). O Salvar (na `TecidosGradeAba`) chama o `salvar` de cada rascunho sujo — tecidos primeiro, depois cores.
 // Cada rascunho se registra aqui por `registrar` (a ordem é do wrapper, não da ordem de montagem do registry).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
 import {
   draftParaServidor,
@@ -35,9 +36,11 @@ import {
   type ArtigoDraft,
 } from "@/lib/tecido-grade/salvar";
 import type { SubPorCat } from "@/lib/tecido-subcategoria";
+import type { TecidoNovo } from "@/lib/tecido-grade/linha-nova";
 import { cn } from "@/lib/utils";
 import type { GradeOpcoes } from "./useTecidosGrade";
 import { CelulaTecido } from "./CelulaTecido";
+import { LinhasTecidoNovo, type AtualizarNovo } from "./TecidoNovoGrupo";
 
 /** O que cada rascunho entrega ao Salvar: lê o estado MAIS NOVO por ref, no momento de salvar. */
 export type SaverApi = {
@@ -198,6 +201,8 @@ type LinhaProps = {
   /** Cor da linha (null = tecido sem cores). */
   variante: VarianteEntrada | null;
   ctxV: VarianteCtx | null;
+  /** Última linha do tecido: botão "+ cor" (cor nova neste tecido). */
+  acaoCor?: ReactNode;
 };
 
 function EstadoLinha({ sujo, erro }: { sujo: boolean; erro: string | null }): ReactNode {
@@ -293,7 +298,7 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
 }
 
 function LinhaTr(props: LinhaProps) {
-  const { primeira, ctxA, ctxV, artigo, variante } = props;
+  const { primeira, ctxA, ctxV, artigo, variante, acaoCor } = props;
   return (
     <tr
       className={cn("align-middle", primeira ? "border-t-2 border-border" : "border-t border-dashed")}
@@ -301,7 +306,10 @@ function LinhaTr(props: LinhaProps) {
       data-variante-id={variante?.id}
     >
       <td className="w-8 px-1 py-1.5 text-center">
-        <EstadoLinha sujo={(primeira && ctxA.dirty) || !!ctxV?.dirty} erro={ctxV?.erro ?? (primeira ? ctxA.erro : null)} />
+        <span className="flex items-center justify-center gap-1">
+          <EstadoLinha sujo={(primeira && ctxA.dirty) || !!ctxV?.dirty} erro={ctxV?.erro ?? (primeira ? ctxA.erro : null)} />
+          {acaoCor}
+        </span>
       </td>
       {COLUNAS_TECIDO.map((col) => (
         <td key={col.key} className="px-1.5 py-1.5">
@@ -318,15 +326,58 @@ function LinhaComCor({ variante, ...resto }: Omit<LinhaProps, "ctxV"> & { varian
   return <LinhaTr {...props} variante={variante} ctxV={ctxV} />;
 }
 
-const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar }: {
+/** Props do que a tela guarda das linhas NOVAS (rascunho da aba) e das ações sobre elas. */
+export type NovosAcoes = {
+  /** Depois de tentar salvar: os pendentes ficam em vermelho. */
+  mostrarPendencias: boolean;
+  /** Erro do servidor por grupo novo (tmp → mensagem PT-BR). */
+  errosNovos: Record<string, string>;
+  onAtualizarNovo: AtualizarNovo;
+  onRemoverNovo: (tmp: string) => void;
+  /** "+ cor" num tecido que já existe. */
+  onNovaCor: (artigoId: string, nome: string) => void;
+};
+export type NovosProps = NovosAcoes & {
+  novos: TecidoNovo[];
+  onNovoTecido: () => void;
+};
+
+const SEM_NOVOS: TecidoNovo[] = [];
+const SEM_ERROS: Record<string, string> = {};
+const SEM_ACOES: NovosAcoes = {
+  mostrarPendencias: false,
+  errosNovos: SEM_ERROS,
+  onAtualizarNovo: () => {},
+  onRemoverNovo: () => {},
+  onNovaCor: () => {},
+};
+
+const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registrar, novosAlvo, nv }: {
   grupo: Grupo; opcoes: GradeOpcoes; readOnly: boolean; registrar: RegistrarSaver;
+  /** Cores novas deste tecido (rascunho); entram no fim do mesmo <tbody>. */
+  novosAlvo: TecidoNovo[];
+  nv: NovosAcoes;
 }) {
   const { artigo, linhas } = grupo;
   const ctxA = useRascunhoArtigo(artigo, registrar);
+  // "+ cor" só some quando já há cor nova pendente neste tecido (aí o botão "adicionar variante" do grupo faz o papel)
+  const botaoCor =
+    !readOnly && novosAlvo.length === 0 ? (
+      <button
+        type="button"
+        onClick={() => nv.onNovaCor(artigo.id, artigo.nome)}
+        aria-label={`Adicionar cor em ${artigo.nome}`}
+        title="Adicionar cor neste tecido"
+        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    ) : undefined;
   return (
     <tbody data-grupo-artigo={artigo.id}>
-      {linhas.map((l, i) =>
-        l.variante ? (
+      {linhas.map((l, i) => {
+        const ultima = i === linhas.length - 1;
+        return l.variante ? (
           <LinhaComCor
             key={l.chave}
             artigo={artigo}
@@ -336,6 +387,7 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             readOnly={readOnly}
             variante={l.variante}
             registrar={registrar}
+            acaoCor={ultima ? botaoCor : undefined}
           />
         ) : (
           <LinhaTr
@@ -347,35 +399,94 @@ const GrupoTecido = memo(function GrupoTecido({ grupo, opcoes, readOnly, registr
             readOnly={readOnly}
             variante={null}
             ctxV={null}
+            acaoCor={ultima ? botaoCor : undefined}
           />
-        ),
-      )}
+        );
+      })}
+      {novosAlvo.map((g) => (
+        <LinhasTecidoNovo
+          key={g.tmp}
+          grupo={g}
+          opcoes={opcoes}
+          mostrarPendencias={nv.mostrarPendencias}
+          erro={nv.errosNovos[g.tmp]}
+          onChange={nv.onAtualizarNovo}
+          onRemover={nv.onRemoverNovo}
+        />
+      ))}
     </tbody>
   );
 });
 
-export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar }: {
+export function TecidosGradeTabela({ linhas, opcoes, readOnly, registrar, novos: nv }: {
   linhas: LinhaGrade[];
   opcoes: GradeOpcoes;
   readOnly: boolean;
   registrar: RegistrarSaver;
+  /** Linhas novas (rascunho) + ações. Ausente = a grade só edita os existentes. */
+  novos?: NovosProps;
 }) {
   const grupos = useMemo(() => agruparLinhasPorArtigo(linhas), [linhas]);
+  // cores novas de tecido existente entram no <tbody> do tecido; tecido novo ganha <tbody> próprio, no fim
+  const { porArtigo, tecidosNovos } = useMemo(() => {
+    const mapa = new Map<string, TecidoNovo[]>();
+    const soNovos: TecidoNovo[] = [];
+    for (const g of nv?.novos ?? SEM_NOVOS) {
+      if (g.artigoAlvoId) (mapa.get(g.artigoAlvoId) ?? mapa.set(g.artigoAlvoId, []).get(g.artigoAlvoId)!).push(g);
+      else soNovos.push(g);
+    }
+    return { porArtigo: mapa, tecidosNovos: soNovos };
+  }, [nv?.novos]);
+  // ações ESTÁVEIS por referência (o `memo` do GrupoTecido não re-renderiza todos os tecidos a cada tecla numa linha nova)
+  const acoes = useMemo<NovosAcoes>(
+    () =>
+      nv
+        ? { mostrarPendencias: nv.mostrarPendencias, errosNovos: nv.errosNovos, onAtualizarNovo: nv.onAtualizarNovo, onRemoverNovo: nv.onRemoverNovo, onNovaCor: nv.onNovaCor }
+        : SEM_ACOES,
+    [nv?.mostrarPendencias, nv?.errosNovos, nv?.onAtualizarNovo, nv?.onRemoverNovo, nv?.onNovaCor], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   return (
-    <div className="max-h-[calc(100vh-16rem)] max-w-full overflow-auto rounded-md border" data-testid="tecidos-grade-tabela">
-      <table className="w-full min-w-max border-collapse text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left text-xs text-muted-foreground">
-          <tr>
-            <th className="w-8 px-1 py-2"><span className="sr-only">Estado</span></th>
-            {COLUNAS_TECIDO.map((c) => (
-              <th key={c.key} className="whitespace-nowrap px-2 py-2 font-medium">{c.rotulo}</th>
-            ))}
-          </tr>
-        </thead>
-        {grupos.map((g) => (
-          <GrupoTecido key={g.artigoId} grupo={g} opcoes={opcoes} readOnly={readOnly} registrar={registrar} />
-        ))}
-      </table>
+    <div className="space-y-2">
+      <div className="max-h-[calc(100vh-16rem)] max-w-full overflow-auto rounded-md border" data-testid="tecidos-grade-tabela">
+        <table className="w-full min-w-max border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-muted text-left text-xs text-muted-foreground">
+            <tr>
+              <th className="w-8 px-1 py-2"><span className="sr-only">Estado</span></th>
+              {COLUNAS_TECIDO.map((c) => (
+                <th key={c.key} className="whitespace-nowrap px-2 py-2 font-medium">{c.rotulo}</th>
+              ))}
+            </tr>
+          </thead>
+          {grupos.map((g) => (
+            <GrupoTecido
+              key={g.artigoId}
+              grupo={g}
+              opcoes={opcoes}
+              readOnly={readOnly}
+              registrar={registrar}
+              novosAlvo={porArtigo.get(g.artigoId) ?? SEM_NOVOS}
+              nv={acoes}
+            />
+          ))}
+          {tecidosNovos.map((g) => (
+            <tbody key={g.tmp} data-grupo-novo={g.tmp}>
+              <LinhasTecidoNovo
+                grupo={g}
+                opcoes={opcoes}
+                mostrarPendencias={acoes.mostrarPendencias}
+                erro={acoes.errosNovos[g.tmp]}
+                onChange={acoes.onAtualizarNovo}
+                onRemover={acoes.onRemoverNovo}
+              />
+            </tbody>
+          ))}
+        </table>
+      </div>
+      {nv && !readOnly && (
+        <Button type="button" variant="outline" size="sm" onClick={nv.onNovoTecido}>
+          <Plus className="mr-1 h-4 w-4" /> Novo tecido
+        </Button>
+      )}
     </div>
   );
 }

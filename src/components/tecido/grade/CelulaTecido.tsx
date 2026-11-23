@@ -18,6 +18,8 @@ import { OPCAO_VAZIA, casasDaColuna, controleDaCelula, permiteVazio, type OpcaoS
 
 /** Realce âmbar da célula com alteração ainda não salva (o mesmo "selo âmbar" do resto do sistema). */
 const REALCE_SUJO = "border-amber-500 bg-amber-50 dark:bg-amber-500/10";
+/** Realce vermelho da célula de linha NOVA pendente (falta dado obrigatório): a linha não vai ao servidor. */
+const REALCE_ERRO = "border-destructive bg-destructive/10";
 
 export type CategoriasCelula = {
   options: OpcaoSelect[];
@@ -44,12 +46,17 @@ export type CelulaTecidoProps = {
   categorias?: CategoriasCelula;
   /** `foto`: a cor tem foto? */
   temFoto?: boolean;
+  /** Linha NOVA pendente: motivo (PT-BR) — a célula fica em vermelho com o motivo no `title`. */
+  erro?: string;
 };
 
 export function CelulaTecido({
-  coluna, valor, onChange, sujo = false, desabilitado = false, ariaLabel, opcoes = [], texto, categorias, temFoto,
+  coluna, valor, onChange, sujo = false, desabilitado = false, ariaLabel, opcoes = [], texto, categorias, temFoto, erro,
 }: CelulaTecidoProps) {
   const controle = controleDaCelula(coluna);
+  // erro (vermelho) vence o selo âmbar; `title` explica o motivo
+  const realce = erro ? REALCE_ERRO : sujo ? REALCE_SUJO : undefined;
+  const invalido = erro ? { "aria-invalid": true as const, title: erro } : {};
 
   if (controle === "somente-leitura") {
     return <span className="block min-w-[5rem] px-2 text-muted-foreground tabular-nums" data-controle={controle}>{texto ?? "—"}</span>;
@@ -80,7 +87,8 @@ export function CelulaTecido({
         data-controle={controle}
         disabled={desabilitado}
         placeholder="0,00"
-        className={cn("h-8 w-28 text-right tabular-nums", sujo && REALCE_SUJO)}
+        {...invalido}
+        className={cn("h-8 w-28 text-right tabular-nums", realce)}
         value={(valor as number | null | undefined) ?? ""}
         onChange={(e) => onChange?.(canonicoParaNumero(e.target.value))}
       />
@@ -99,7 +107,8 @@ export function CelulaTecido({
         <SelectTrigger
           aria-label={ariaLabel}
           data-controle={controle}
-          className={cn("h-8 min-w-[9rem]", sujo && REALCE_SUJO)}
+          {...invalido}
+          className={cn("h-8 min-w-[9rem]", realce)}
         >
           <SelectValue placeholder="—" />
         </SelectTrigger>
@@ -120,7 +129,8 @@ export function CelulaTecido({
         data-controle="textarea"
         disabled={desabilitado}
         rows={2}
-        className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", sujo && REALCE_SUJO)}
+        {...invalido}
+        className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", realce)}
         value={(valor as string | null | undefined) ?? ""}
         onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
       />
@@ -133,7 +143,8 @@ export function CelulaTecido({
       aria-label={ariaLabel}
       data-controle="input"
       disabled={desabilitado}
-      className={cn("h-8 min-w-[10rem]", sujo && REALCE_SUJO)}
+      {...invalido}
+      className={cn("h-8 min-w-[10rem]", realce)}
       value={(valor as string | null | undefined) ?? ""}
       onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
     />
