@@ -31,6 +31,7 @@ import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { AviamentosGradeAba } from "@/components/aviamento/grade/AviamentosGradeAba";
+import { useGuardaTrocaLista } from "@/components/shared/useGuardaTrocaLista";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -152,6 +153,8 @@ function AviamentosGallery() {
   // No celular a grade não abre: força Cards (e avisa se a preferência salva era Lista).
   const visao: "cards" | "lista" = isMobile ? "cards" : visaoSalva;
   const avisoListaMobile = isMobile && visaoSalva === "lista";
+  // Rascunho da Lista: trocar de visão (Cards), busca ou filtro desmonta/esvazia a grade e DESCARTARIA o que não foi salvo → pede confirmação.
+  const guarda = useGuardaTrocaLista("aviamentos");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("nome");
   const agrup = useAgrupamentoState("cad-aviamentos");
@@ -354,6 +357,7 @@ function AviamentosGallery() {
       setEditing(null); // fecha o diálogo de edição (de onde a exclusão é disparada)
       qc.invalidateQueries({ queryKey: ["aviamentos"] });
       qc.invalidateQueries({ queryKey: ["aviamentos-variantes"] });
+      qc.invalidateQueries({ queryKey: ["aviamentos-grade"] }); // a visão Lista lê as próprias queries
     },
     onError: (e: any) =>
       toast.error(e?.code === "23503" ? "Aviamento em uso (OC, modelo, CAD ou ordem de saída). Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
@@ -446,7 +450,11 @@ function AviamentosGallery() {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
 
-          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por código/nome…" />
+          <SearchToggle
+            value={search}
+            onChange={guarda.proteger(setSearch)}
+            placeholder="Buscar por código/nome…"
+          />
           <Select value={sort} onValueChange={setSort}>
             <SelectTrigger className="h-8 w-40 text-sm">
               <SelectValue />
@@ -469,7 +477,7 @@ function AviamentosGallery() {
                 variant={visao === "cards" ? "secondary" : "ghost"}
                 aria-pressed={visao === "cards"}
                 className="h-7 px-2"
-                onClick={() => setVisaoPref(["cards"])}
+                onClick={guarda.proteger(() => setVisaoPref(["cards"]))}
               >
                 <LayoutGrid className="h-3.5 w-3.5 mr-1" /> Cards
               </Button>
@@ -497,12 +505,42 @@ function AviamentosGallery() {
           <FilterButton
             screen="cad-aviamentos"
             filters={[
-              { label: "Categoria", value: fCat, onChange: setFCat, options: categorias },
-              { label: "Subcategoria", value: fSub, onChange: setFSub, options: subOptionsFiltro },
-              { label: "Material", value: fMat, onChange: setFMat, options: materiais },
-              { label: "Intervalo Largura", value: fLarg, onChange: setFLarg, options: intervalos },
-              { label: "Intervalo Vazado", value: fVaz, onChange: setFVaz, options: intervalos },
-              { label: "Fornecedor", value: fEmp, onChange: setFEmp, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
+              {
+                label: "Categoria",
+                value: fCat,
+                onChange: guarda.proteger(setFCat),
+                options: categorias,
+              },
+              {
+                label: "Subcategoria",
+                value: fSub,
+                onChange: guarda.proteger(setFSub),
+                options: subOptionsFiltro,
+              },
+              {
+                label: "Material",
+                value: fMat,
+                onChange: guarda.proteger(setFMat),
+                options: materiais,
+              },
+              {
+                label: "Intervalo Largura",
+                value: fLarg,
+                onChange: guarda.proteger(setFLarg),
+                options: intervalos,
+              },
+              {
+                label: "Intervalo Vazado",
+                value: fVaz,
+                onChange: guarda.proteger(setFVaz),
+                options: intervalos,
+              },
+              {
+                label: "Fornecedor",
+                value: fEmp,
+                onChange: guarda.proteger(setFEmp),
+                options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })),
+              },
             ]}
           />
           <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="max-sm:hidden">
@@ -564,7 +602,11 @@ function AviamentosGallery() {
           />
         )
       ) : visao === "lista" ? (
-        <AviamentosGradeAba aviamentos={filtered} isMobile={isMobile} />
+        <AviamentosGradeAba
+          aviamentos={filtered}
+          isMobile={isMobile}
+          onDirtyChange={guarda.aoMudarSujo}
+        />
       ) : groups ? (
         <div ref={gridRef} className="space-y-6">
           {groups.map((g) => renderGroup(g, 0, g.key))}
@@ -574,6 +616,8 @@ function AviamentosGallery() {
           {filtered.map(renderCard)}
         </div>
       )}
+
+      {guarda.dialog}
 
       {(createOpen || editing) && (
         <AviamentoModal
@@ -593,6 +637,7 @@ function AviamentosGallery() {
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["aviamentos"] });
             qc.invalidateQueries({ queryKey: ["aviamentos-variantes"] });
+            qc.invalidateQueries({ queryKey: ["aviamentos-grade"] }); // a visão Lista lê as próprias queries
             setCreateOpen(false);
             setEditing(null);
           }}

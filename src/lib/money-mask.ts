@@ -119,3 +119,21 @@ export function caretAfterFormat(masked: string, sigBefore: number): number {
   }
   return masked.length;
 }
+
+/**
+ * Texto do MoneyInput -> número. O `MoneyInput` já emite o canônico (ponto decimal: "20.5"), mas aceitamos também o texto
+ * mascarado pt-BR ("1.234,56") pelo parser (`maskLive`) — NUNCA `Number()` cru sobre texto com vírgula (dá NaN com centavos:
+ * bug real do projeto no blur do preço fixo do Produto Acabado). Vazio/inválido = null.
+ * (Mora aqui, e não numa rota, para as grades "Lista" de Tecidos e de Aviamentos usarem a MESMA conversão.)
+ */
+export function canonicoParaNumero(s: string | number | null | undefined): number | null {
+  if (s == null) return null;
+  if (typeof s === "number") return Number.isFinite(s) ? s : null;
+  const t = s.trim();
+  if (t === "") return null;
+  if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
+  const { canonical } = maskLive(t, 2);
+  if (canonical === "") return null;
+  const n = Number(canonical);
+  return Number.isFinite(n) ? n : null;
+}

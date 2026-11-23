@@ -23,6 +23,8 @@ export function FornecedorSelect({
   onChange,
   placeholder = "Selecione…",
   disabled,
+  ariaLabel,
+  triggerClassName,
 }: {
   empresas: EmpresaFornecedor[];
   empresaId: string | null;
@@ -30,6 +32,10 @@ export function FornecedorSelect({
   onChange: (empresaId: string | null, representanteId: string | null) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Rótulo de acessibilidade do botão (a grade "Lista" de Aviamentos, onde há 1 seletor por linha). */
+  ariaLabel?: string;
+  /** Classes extras do botão (a grade pinta o realce âmbar do rascunho). */
+  triggerClassName?: string;
 }) {
   // Representante -> empresa dona (p/ resolver a empresa ao escolher um representante).
   const repToEmpresa = useMemo(() => {
@@ -53,7 +59,7 @@ export function FornecedorSelect({
 
   return (
     <Select value={value} onValueChange={handle} disabled={disabled}>
-      <SelectTrigger><SelectValue placeholder={placeholder} /></SelectTrigger>
+      <SelectTrigger aria-label={ariaLabel} className={triggerClassName}><SelectValue placeholder={placeholder} /></SelectTrigger>
       <SelectContent>
         {empresas.map((e) => (
           // Empresa (direto) + seus representantes formam um grupo visual.

@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { buscarTodas } from "@/lib/buscar-todas";
+import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { agruparVariantes, type GradeVarianteCompleta } from "./agruparAviamentoGrade";
 
 export type { GradeVarianteCompleta } from "./agruparAviamentoGrade";
@@ -47,7 +48,17 @@ export type GradeAviamentoCompleto = {
 export type GradeOpcaoNome = { id: string; nome: string };
 /** Subcategoria cascateia pela categoria (`categoria_aviamento_id`). */
 export type GradeOpcaoSubcategoria = { id: string; nome: string; categoria_aviamento_id: string };
-export type GradeOpcaoEmpresa = { id: string; nome_fantasia: string };
+/**
+ * Fornecedor de material com seus representantes (o `FornecedorSelect` grava `(empresa_id, representante_id)`).
+ * `ehAviamento` = a empresa tem categoria de fornecedor de aviamento (TOKEN flexível, como o card da tela): a célula oferece só
+ * essas, mais o fornecedor já salvo no aviamento (mesmo que a categoria dele tenha mudado depois).
+ */
+export type GradeOpcaoEmpresa = {
+  id: string;
+  nome_fantasia: string;
+  representantes: { id: string; nome: string | null }[];
+  ehAviamento: boolean;
+};
 /** `cores_apelido.cor_base_id` = a cor base a que o apelido pertence. */
 export type GradeOpcaoApelido = { id: string; nome: string; cor_base_id: string | null };
 
@@ -157,16 +168,24 @@ export function useAviamentosGrade() {
   });
 
   const empresasQ = useQuery({
-    // Só fornecedor de material (como a tela de Aviamentos e a grade de Tecidos).
+    // Fornecedores de material + representantes + categorias (a categoria casa por TOKEN no cliente: o nome varia por loja —
+    // ver `@/lib/fornecedor-categoria`). A célula de fornecedor filtra por `ehAviamento`, como o card da tela de Aviamentos.
     queryKey: ["aviamentos-grade", "opcoes", "empresas-material"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id,nome_fantasia")
+        .select(
+          "id,nome_fantasia,representantes(id, nome),empresa_categorias_fornecedor(categorias_fornecedor(nome))",
+        )
         .eq("tipo", "material")
         .order("nome_fantasia");
       if (error) throw error;
-      return (data ?? []) as GradeOpcaoEmpresa[];
+      return ((data ?? []) as any[]).map((e) => ({
+        id: e.id as string,
+        nome_fantasia: e.nome_fantasia as string,
+        representantes: (e.representantes ?? []) as { id: string; nome: string | null }[],
+        ehAviamento: empresaTemCategoria(e, AVIAMENTO_TOKENS),
+      })) as GradeOpcaoEmpresa[];
     },
   });
 

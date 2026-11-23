@@ -72,7 +72,7 @@ import { useConfirmacao } from "@/components/shared/ConfirmarAcaoDialog";
 import { usePreviaServidor } from "@/hooks/usePreviaServidor";
 import { cn } from "@/lib/utils";
 import { mergeDraft, igual } from "@/lib/colab/merge";
-import { maskLive } from "@/lib/money-mask";
+import { canonicoParaNumero } from "@/lib/money-mask";
 import { definirSub, podarSubs, subPorCatDasLinhas, type SubPorCat } from "@/lib/tecido-subcategoria";
 import { atualizarArtigoComRev, gravarCategoriasArtigo, chamarSalvarVarianteTecido, mensagemSalvarCor } from "@/lib/tecido-grade/salvar";
 import { CategoriasTecidoMultiSelect } from "@/components/tecido/CategoriasTecidoMultiSelect";
@@ -1173,21 +1173,10 @@ export function varianteParaDraft(v: Pick<Variante, "cor_id" | "cor_apelido_id" 
 }
 
 /**
- * Texto do MoneyInput -> número. O `MoneyInput` já emite o canônico (ponto decimal: "20.5"), mas aceitamos também o texto
- * mascarado pt-BR ("1.234,56") pelo parser do money-mask (`maskLive`) — NUNCA `Number()` cru sobre texto com vírgula (dá NaN
- * com centavos: bug real do projeto no blur do preço fixo do Produto Acabado). Vazio/inválido = null.
+ * Texto do MoneyInput -> número. A implementação mora em `@/lib/money-mask` (a grade "Lista" de Aviamentos usa a MESMA conversão);
+ * segue exportada daqui para quem já importa da rota (grade de Tecidos, testes).
  */
-export function canonicoParaNumero(s: string | number | null | undefined): number | null {
-  if (s == null) return null;
-  if (typeof s === "number") return Number.isFinite(s) ? s : null;
-  const t = s.trim();
-  if (t === "") return null;
-  if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
-  const { canonical } = maskLive(t, 2);
-  if (canonical === "") return null;
-  const n = Number(canonical);
-  return Number.isFinite(n) ? n : null;
-}
+export { canonicoParaNumero };
 
 /**
  * Rascunho -> payload da RPC `salvar_variante_tecido`: uuid em MINÚSCULO (null quando vazio), texto vazio = null, `preco`
