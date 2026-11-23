@@ -1,7 +1,9 @@
 -- Inverso de 20261211100000_preco_permissao_atacado_gate_backfill: devolve fn_modelo_preco_venda_gate SEM o ramo de atacado
 -- (= corpo da S1, 20261031120000, md5 e89be53c25f421724994e78b756a027d, copiado do vivo ANTES da ida - byte a byte).
 -- O backfill NAO reverte (conceder acesso nao quebra); as linhas da chave nova preco_atacado e o ver das chaves de preco ficam (inocuos sem o ramo). Dado nao volta sozinho.
--- Guarda: aceita a funcao no texto desta frente (2da90981f4d754de3e0a2c5e2c85a994) ou ja no da S1 (idempotente); qualquer outro = outra frente mexeu.
+-- Tambem DROPA o helper _pode_editar_preco(text) (so o gatilho e as 3 RPCs do comprado o usam): rode ANTES o _down de 20261211110000 (a guarda recusa se
+-- alguma RPC ainda o referencia).
+-- Guarda: aceita a funcao no texto desta frente (6fc5d4955a3f3d378072e82bfcf9051d), na versao intermediaria (2da90981f4d754de3e0a2c5e2c85a994) ou ja no da S1 (idempotente); qualquer outro = outra frente mexeu.
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
@@ -10,9 +12,14 @@ DO $guarda$
 DECLARE v text;
 BEGIN
   v := md5(pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure));
-  IF v NOT IN ('2da90981f4d754de3e0a2c5e2c85a994', 'e89be53c25f421724994e78b756a027d') THEN
+  IF v NOT IN ('6fc5d4955a3f3d378072e82bfcf9051d', '2da90981f4d754de3e0a2c5e2c85a994', 'e89be53c25f421724994e78b756a027d') THEN
     RAISE EXCEPTION 'preco_atacado_gate_down: fn_modelo_preco_venda_gate com texto inesperado (md5 %) - outra frente mexeu', coalesce(v,'ausente')
       USING ERRCODE = 'P0001';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.prosrc LIKE '%_pode_editar_preco%'
+                AND p.proname NOT IN ('fn_modelo_preco_venda_gate', '_pode_editar_preco')) THEN
+    RAISE EXCEPTION 'preco_atacado_gate_down: ainda ha RPC usando _pode_editar_preco - rode antes o _down de 20261211110000' USING ERRCODE = 'P0001';
   END IF;
 END $guarda$;
 
@@ -73,10 +80,16 @@ BEGIN
   RETURN NEW;
 END $function$;
 
+-- O gatilho (S1) ja nao usa o helper: pode dropar.
+DROP FUNCTION IF EXISTS public._pode_editar_preco(text);
+
 DO $pos$
 DECLARE v text;
 BEGIN
   v := md5(pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure));
+  IF to_regprocedure('public._pode_editar_preco(text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'preco_atacado_gate_down: pos-condicao falhou (helper _pode_editar_preco ainda existe)' USING ERRCODE = 'P0001';
+  END IF;
   IF v IS DISTINCT FROM 'e89be53c25f421724994e78b756a027d' THEN
     RAISE EXCEPTION 'preco_atacado_gate_down: pos-condicao falhou (md5 %, esperado e89be53c25f421724994e78b756a027d)', coalesce(v,'ausente') USING ERRCODE = 'P0001';
   END IF;

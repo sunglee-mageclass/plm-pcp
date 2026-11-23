@@ -3,7 +3,8 @@
 // ⚠️ ORTOGONALIDADE TOTAL: estes helpers leem SÓ as chaves de preço (via canView/canEdit). Não consultam nenhuma regra
 // de custo: exibir preço depende SÓ das chaves de preço; exibir custo continua dependendo SÓ das chaves de custo.
 // Nenhum ponto condiciona preço a custo nem custo a preço. (O teste anti-drift lê este arquivo e recusa menções a custos.)
-// Admins furam via canView/canEdit (user_can_view/_edit já os libera), como as demais seções.
+// ADMIN/TENANT_ADMIN NÃO FURAM estas 2 chaves (ehPaginaSemBypassAdmin em useAuth; no banco _pode_editar_preco): só o super admin passa direto,
+// os demais precisam da permissão concedida pelo super admin (mesma regra da Integração e do Exportar dados).
 
 // UMA chave por preço: Leitor (pode_ver) = VER, Editor (pode_edit) = EDITAR (o Editor inclui ver). Não há chave `ver_*` separada.
 /** Preço de venda (varejo): canView = VER (só tela); canEdit = EDITAR (tranca no banco). */

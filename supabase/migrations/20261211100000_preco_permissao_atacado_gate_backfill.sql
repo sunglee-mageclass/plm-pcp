@@ -13,11 +13,15 @@
 -- ============================== ACCEPTED-MD5 (guarda) ==============================
 --   public.fn_modelo_preco_venda_gate()
 --     ANTES  e89be53c25f421724994e78b756a027d   (= DEPOIS da S1, 20261031120000)
---     DEPOIS 2da90981f4d754de3e0a2c5e2c85a994
+--     DEPOIS 6fc5d4955a3f3d378072e82bfcf9051d
+--     (2da90981... = versao INTERMEDIA desta frente, antes do ajuste "admin nao fura o preco": so existiu na copia local/previa; a guarda a aceita p/ reaplicar)
 -- ====================================================================================
 -- Trava: so catalogo (CREATE OR REPLACE FUNCTION) + INSERTs em user_permissions/papel_permissoes (RowExclusive). Sem DDL de tabela,
 -- sem DROP, sem CREATE TRIGGER/POLICY (nada em auth/storage). Idempotente (guarda aceita antes OU depois; EDITAR atacado ON CONFLICT DO NOTHING; VER ON CONFLICT DO UPDATE SET pode_ver=true).
--- Volta: supabase/rollback/20261211100000_preco_permissao_atacado_gate_backfill_down.sql (devolve o corpo da S1; o backfill FICA).
+-- Volta: supabase/rollback/20261211100000_preco_permissao_atacado_gate_backfill_down.sql (devolve o corpo da S1 e DROPA o helper _pode_editar_preco; o backfill FICA).
+-- REGRA DO PRECO (decisao do dono 23/nov): tenant_admin/admin NAO furam o preco de venda/atacado (editar no banco = _pode_editar_preco; ver na tela =
+--   ehPaginaSemBypassAdmin); so super_admin fura. Precisa da permissao concedida pelo super admin. user_can_edit/user_can_view genericos NAO mudam.
+-- ATENCAO (efeito): o backfill so cobre quem JA tem linha de permissao; admin de loja sem linha perde ver/editar preco ate o super admin conceder.
 -- Reaplicar a S1 (20261031120000) depois desta: a guarda da S1 so aceita antes 4eeb8baa... ou e89be53c... - rode o _down desta antes.
 -- Aplicar fora de transacao de teste: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
 SET client_encoding = 'UTF8';
@@ -25,18 +29,38 @@ BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '30s';
 
--- Pre-condicao: a funcao e o "depois" da S1 (ou ja o desta frente, idempotencia)
+-- Pre-condicao: a funcao e o "depois" da S1 (ou ja o desta frente, idempotencia); _perm_efetiva existe (fonte do helper novo)
 DO $guarda$
 DECLARE v text;
 BEGIN
+  IF to_regprocedure('public._perm_efetiva(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'preco_atacado_gate: _perm_efetiva(uuid) ausente - aplique 20260908230000 (papeis customizados) antes' USING ERRCODE = 'P0001';
+  END IF;
   v := md5(pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure));
-  IF v NOT IN ('e89be53c25f421724994e78b756a027d', '2da90981f4d754de3e0a2c5e2c85a994') THEN
+  IF v NOT IN ('e89be53c25f421724994e78b756a027d', '2da90981f4d754de3e0a2c5e2c85a994', '6fc5d4955a3f3d378072e82bfcf9051d') THEN
     RAISE EXCEPTION 'preco_atacado_gate: fn_modelo_preco_venda_gate com texto inesperado (md5 %) - outra frente mexeu; gere de novo', coalesce(v,'ausente')
       USING ERRCODE = 'P0001';
   END IF;
 END $guarda$;
 
--- (1) Gatilho: ramo NOVO de preco_atacado, simetrico ao varejo
+-- (0) Helper NOVO _pode_editar_preco(chave): EDITAR preco SEM o furo de admin. super_admin passa; admin/tenant_admin NAO furam (so a
+-- permissao explicita concedida pelo super admin, via _perm_efetiva = excecao do usuario senao papel). Mesmo padrao de _exportar_pode /
+-- _integracao_pode. Interno: recebe a chave por parametro; EXECUTE revogado (so gatilho/RPCs DEFINER o chamam).
+CREATE OR REPLACE FUNCTION public._pode_editar_preco(_chave text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT public.is_super_admin()
+      OR EXISTS (
+        SELECT 1 FROM public._perm_efetiva(auth.uid()) e
+         WHERE e.pagina = _chave AND e.pode_editar = true
+      );
+$function$;
+REVOKE EXECUTE ON FUNCTION public._pode_editar_preco(text) FROM PUBLIC, anon, authenticated;
+
+-- (1) Gatilho: ramo NOVO de preco_atacado, simetrico ao varejo; varejo/atacado/preco_anterior por _pode_editar_preco (admin NAO fura)
 CREATE OR REPLACE FUNCTION public.fn_modelo_preco_venda_gate()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -52,7 +76,7 @@ BEGIN
   -- esta section). Origem comprada nunca é editável por cliente no card/Sheet (front já bloqueia).
   IF NEW.preco_venda IS DISTINCT FROM OLD.preco_venda
      AND COALESCE(NEW.origem, 'interno') NOT IN ('revenda', 'importado')
-     AND NOT public.user_can_edit('criacao_planejamento:preco_venda') THEN
+     AND NOT public._pode_editar_preco('criacao_planejamento:preco_venda') THEN
     RAISE EXCEPTION 'Sem permissão para editar o preço de venda'
       USING ERRCODE = '42501';
   END IF;
@@ -71,7 +95,7 @@ BEGIN
   IF NEW.preco_atacado IS DISTINCT FROM OLD.preco_atacado
      AND coalesce(current_setting('app.preco_comprado_sistema', true), '') <> 'on'
      AND NOT v_sistema
-     AND NOT public.user_can_edit('criacao_planejamento:preco_atacado') THEN
+     AND NOT public._pode_editar_preco('criacao_planejamento:preco_atacado') THEN
     RAISE EXCEPTION 'Sem permissao para editar o preco de atacado'
       USING ERRCODE = '42501';
   END IF;
@@ -81,7 +105,7 @@ BEGIN
   IF NEW.preco_anterior IS DISTINCT FROM OLD.preco_anterior
      AND pg_trigger_depth() <= 1
      AND NOT v_sistema
-     AND NOT public.user_can_edit('criacao_planejamento:preco_venda') THEN
+     AND NOT public._pode_editar_preco('criacao_planejamento:preco_venda') THEN
     RAISE EXCEPTION 'preco_anterior_sem_permissao: sem permissao para editar o preco anterior' USING ERRCODE = '42501';
   END IF;
   -- [seg s1 M2] Enviado a Explosao (enviado_cad) so muda pelas RPCs do sistema (Enviar a Explosao, Voltar ao
@@ -146,8 +170,8 @@ DO $pos$
 DECLARE v text;
 BEGIN
   v := md5(pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure));
-  IF v IS DISTINCT FROM '2da90981f4d754de3e0a2c5e2c85a994' THEN
-    RAISE EXCEPTION 'preco_atacado_gate: pos-condicao falhou (md5 %, esperado 2da90981f4d754de3e0a2c5e2c85a994)', coalesce(v,'ausente') USING ERRCODE = 'P0001';
+  IF v IS DISTINCT FROM '6fc5d4955a3f3d378072e82bfcf9051d' THEN
+    RAISE EXCEPTION 'preco_atacado_gate: pos-condicao falhou (md5 %, esperado 6fc5d4955a3f3d378072e82bfcf9051d)', coalesce(v,'ausente') USING ERRCODE = 'P0001';
   END IF;
 END $pos$;
 COMMIT;

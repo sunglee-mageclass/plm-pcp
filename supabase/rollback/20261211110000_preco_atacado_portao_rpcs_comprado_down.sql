@@ -1,5 +1,6 @@
--- Inverso de 20261211110000_preco_atacado_portao_rpcs_comprado: devolve o portao das 3 RPCs de preco do comprado SEM a chave de atacado
--- (o trio vira o par: pagina do produto OU criacao_planejamento:preco_venda). Muda SO a linha do PERFORM; o resto do corpo e o vivo, byte a byte.
+-- Inverso de 20261211110000_preco_atacado_portao_rpcs_comprado: devolve o portao ORIGINAL (S3d) das 3 RPCs de preco do comprado
+-- (PERFORM _seg_exige_pagina(pagina do produto, criacao_planejamento:preco_venda) - furavel por admin). Muda SO a linha do portao; o resto do corpo e o vivo, byte a byte.
+-- Rode ESTE _down ANTES do de 20261211100000 (que dropa o helper _pode_editar_preco). Aceita tambem a versao intermediaria (trio) por idempotencia.
 -- Guarda: aceita o texto desta frente (DEPOIS) ou ja o de antes (idempotente); qualquer outro = outra frente mexeu. Dado nao e tocado.
 -- Pos-condicao: md5 de ANTES + ACL intacta.
 SET client_encoding = 'UTF8';
@@ -10,9 +11,9 @@ DO $guarda$
 DECLARE r record; v text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('salvar_precos_fixo_produto_acabado', 'b842360d472acf66eb5b1dfe48427226,815583deca5487c3c7b450d5e6db1bfc'),
-      ('salvar_markups_produto_acabado', 'caa171cde24a682ebcabe2288426b95f,1f266f1908cf4918b4a0a9d868565f92'),
-      ('salvar_precos_fixo_produto_importado', '442fb620618d50408253d6af4e880941,a277b0dcc67cacf0658ba771cc8d87a7')
+      ('salvar_precos_fixo_produto_acabado', 'f7cd5f6ed02bc7566d45e16b267a5788,b842360d472acf66eb5b1dfe48427226,815583deca5487c3c7b450d5e6db1bfc'),
+      ('salvar_markups_produto_acabado', '644373572c1abb60f420793cfce70dd4,caa171cde24a682ebcabe2288426b95f,1f266f1908cf4918b4a0a9d868565f92'),
+      ('salvar_precos_fixo_produto_importado', 'dac8b020f7dd2afb8a667a2245d95562,442fb620618d50408253d6af4e880941,a277b0dcc67cacf0658ba771cc8d87a7')
     ) AS t(fn, ok) LOOP
     v := md5(pg_get_functiondef(('public.' || r.fn)::regproc));
     IF v <> ALL (string_to_array(r.ok, ',')) THEN

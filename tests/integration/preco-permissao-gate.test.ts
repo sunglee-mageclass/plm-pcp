@@ -12,7 +12,7 @@ const DOWN = "supabase/rollback/20261211100000_preco_permissao_atacado_gate_back
 const T = TENANT_TESTE;
 // md5 da função: "depois" da S1 (20261031120000) e "depois" desta frente. Quem reaplicar a S1 por cima desta frente precisa do _down antes.
 const MD5_S1_DEPOIS = "e89be53c25f421724994e78b756a027d";
-const MD5_ESTA_FRENTE = "2da90981f4d754de3e0a2c5e2c85a994";
+const MD5_ESTA_FRENTE = "6fc5d4955a3f3d378072e82bfcf9051d";
 
 /** Roda `sql` como o PAPEL authenticated (PostgREST) numa savepoint; devolve "PASSOU" ou "<code> <message>". */
 async function tenta(c: Client, sql: string, params: unknown[] = []): Promise<string> {
@@ -34,7 +34,7 @@ async function tenta(c: Client, sql: string, params: unknown[] = []): Promise<st
 // USER_TESTE é SUPER ADMIN (fura user_can_edit): o gate só morde usuário COMUM. Cria um (role user, Loja Teste) com as páginas dadas
 // (ver+editar) e o põe como identidade ativa. A preparação roda SEM JWT (como postgres). Txn revertida.
 const U_COMUM = "0b0b0b0b-0000-4000-8000-00000000a7a1";
-async function usuarioComum(c: Client, paginas: string[]): Promise<void> {
+async function usuarioComum(c: Client, paginas: string[], papel?: "tenant_admin" | "super_admin"): Promise<void> {
   await semJwt(c, async () => {
     await c.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [U_COMUM, `${U_COMUM}@teste`]);
     await c.query(
@@ -43,6 +43,8 @@ async function usuarioComum(c: Client, paginas: string[]): Promise<void> {
       [U_COMUM, T, `${U_COMUM}@teste`],
     );
     await c.query(`DELETE FROM public.user_permissions WHERE user_id = $1`, [U_COMUM]);
+    await c.query(`DELETE FROM public.user_roles WHERE user_id = $1 AND role IN ('tenant_admin','super_admin')`, [U_COMUM]);
+    if (papel) await c.query(`INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2::app_role) ON CONFLICT DO NOTHING`, [U_COMUM, papel]);
     await c.query(
       `INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
        SELECT $1, $2, p, true, true FROM unnest($3::text[]) p`,
@@ -62,6 +64,109 @@ async function cardRevenda(c: Client): Promise<string> {
   );
   return r.id;
 }
+
+// Card INTERNO (varejo editável pelo cliente) para o ramo de preco_venda / preco_anterior.
+async function cardInterno(c: Client): Promise<string> {
+  const r = await um<{ id: string }>(
+    c,
+    `INSERT INTO public.modelos (tenant_id, nome, origem, preco_venda, preco_anterior)
+       VALUES ($1, 'PP Varejo', 'interno', 10, 12) RETURNING id`,
+    [T],
+  );
+  return r.id;
+}
+
+describe.skipIf(!RODA)("preço de venda/atacado — admin NÃO fura (só super admin) no EDITAR do banco", () => {
+  const ATQ = `UPDATE public.modelos SET preco_atacado = 99 WHERE id = $1`;
+  const VAR = `UPDATE public.modelos SET preco_venda = 99 WHERE id = $1`;
+  const ANT = `UPDATE public.modelos SET preco_anterior = 99 WHERE id = $1`;
+
+  it("tenant_admin SEM a permissão de preço: user_can_edit genérico segue furando, mas o gate recusa varejo, atacado e preco_anterior (42501)", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      const rev = await cardRevenda(c);
+      const itn = await cardInterno(c);
+      await usuarioComum(c, [], "tenant_admin");
+      // o furo genérico de admin NÃO mudou (user_can_edit): só o preço deixou de furar
+      expect((await um<{ v: boolean; p: boolean }>(c,
+        `SELECT public.user_can_edit('criacao_planejamento') v, public._pode_editar_preco('criacao_planejamento:preco_venda') p`)).v).toBe(true);
+      expect((await um<{ p: boolean; q: boolean }>(c,
+        `SELECT public._pode_editar_preco('criacao_planejamento:preco_venda') p, public._pode_editar_preco('criacao_planejamento:preco_atacado') q`))).toEqual({ p: false, q: false });
+      const a = await tenta(c, ATQ, [rev]);
+      expect(a.startsWith("42501")).toBe(true);
+      expect(a).toMatch(/preco de atacado/);
+      const v = await tenta(c, VAR, [itn]);
+      expect(v.startsWith("42501")).toBe(true);
+      expect(v).toMatch(/preço de venda/);
+      expect((await tenta(c, ANT, [itn])).startsWith("42501")).toBe(true);
+    });
+  });
+
+  it("tenant_admin SEM a permissão: o recompute derivado (GUC) do comprado continua passando", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      const rev = await cardRevenda(c);
+      await usuarioComum(c, [], "tenant_admin");
+      await c.query("SELECT set_config('app.preco_comprado_sistema','on',true)");
+      expect(await tenta(c, ATQ, [rev])).toBe("PASSOU");
+    });
+  });
+
+  it("tenant_admin COM a permissão de preço (Editor): passa; só Leitor (pode_editar=false) continua recusado", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      const rev = await cardRevenda(c);
+      const itn = await cardInterno(c);
+      await usuarioComum(c, ["criacao_planejamento:preco_venda", "criacao_planejamento:preco_atacado"], "tenant_admin");
+      expect(await tenta(c, ATQ, [rev])).toBe("PASSOU");
+      expect(await tenta(c, VAR, [itn])).toBe("PASSOU");
+      expect(await tenta(c, ANT, [itn])).toBe("PASSOU");
+      // Leitor: ve, nao edita
+      await semJwt(c, () => c.query(`UPDATE public.user_permissions SET pode_editar = false WHERE user_id = $1`, [U_COMUM]));
+      expect((await tenta(c, ATQ, [rev])).startsWith("42501")).toBe(true);
+      expect((await tenta(c, VAR, [itn])).startsWith("42501")).toBe(true);
+    });
+  });
+
+  it("super_admin passa SEMPRE (fura), sem nenhuma linha de permissão", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      const rev = await cardRevenda(c);
+      const itn = await cardInterno(c);
+      await usuarioComum(c, [], "super_admin");
+      expect(await tenta(c, ATQ, [rev])).toBe("PASSOU");
+      expect(await tenta(c, VAR, [itn])).toBe("PASSOU");
+      expect(await tenta(c, ANT, [itn])).toBe("PASSOU");
+    });
+  });
+
+  it("usuário comum: com a permissão passa; sem recusa; a chave de um preço não libera o outro", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      const rev = await cardRevenda(c);
+      const itn = await cardInterno(c);
+      await usuarioComum(c, ["criacao_planejamento", "criacao_planejamento:preco_venda"]);
+      expect(await tenta(c, VAR, [itn])).toBe("PASSOU");
+      expect(await tenta(c, ANT, [itn])).toBe("PASSOU"); // preco_anterior colado ao varejo
+      expect((await tenta(c, ATQ, [rev])).startsWith("42501")).toBe(true);
+      await usuarioComum(c, ["criacao_planejamento"]);
+      expect((await tenta(c, VAR, [itn])).startsWith("42501")).toBe(true);
+    });
+  });
+
+  it("helper _pode_editar_preco: EXECUTE revogado de PUBLIC/anon/authenticated; SECURITY DEFINER STABLE", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      const r = await um<{ a: boolean; b: boolean; d: boolean; s: string; sec: boolean }>(c,
+        `SELECT has_function_privilege('anon','public._pode_editar_preco(text)','EXECUTE') a,
+                has_function_privilege('authenticated','public._pode_editar_preco(text)','EXECUTE') b,
+                has_function_privilege('public','public._pode_editar_preco(text)','EXECUTE') d,
+                provolatile::text s, prosecdef sec
+           FROM pg_proc WHERE oid = 'public._pode_editar_preco(text)'::regprocedure`);
+      expect(r).toEqual({ a: false, b: false, d: false, s: "s", sec: true });
+    });
+  });
+});
 
 describe.skipIf(!RODA)("preço de atacado — gate de escrita", () => {
   it("PATCH direto de preco_atacado sem a chave → 42501; o recompute derivado (GUC) passa", async () => {
@@ -178,6 +283,8 @@ describe.skipIf(!RODA)("preço de atacado — gate de escrita", () => {
       const src = (await um<{ s: string }>(c,
         `SELECT pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure) s`)).s;
       expect(src).not.toMatch(/criacao_planejamento:preco_atacado/);
+      expect(src).not.toMatch(/_pode_editar_preco/);
+      expect((await um<{ h: string | null }>(c, `SELECT to_regprocedure('public._pode_editar_preco(text)')::text h`)).h).toBeNull();
       // volta ao texto EXATO da S1 (md5 pinado: quem reaplicar a S1 depois do _down desta frente a encontra como esperava)
       const m = (await um<{ m: string }>(c, `SELECT md5(pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure)) m`)).m;
       expect(m).toBe(MD5_S1_DEPOIS);

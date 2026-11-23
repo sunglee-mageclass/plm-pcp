@@ -20,7 +20,8 @@ interface AuthContextValue {
 
 // Páginas que NUNCA usam o bypass de admin (só super admin direto; os demais precisam da permissão explícita).
 const ehPaginaSemBypassAdmin = (pagina: string) =>
-  pagina === "integracao" || pagina.startsWith("integracao:") || pagina === "exportar_dados";
+  pagina === "integracao" || pagina.startsWith("integracao:") || pagina === "exportar_dados"
+  || pagina === "criacao_planejamento:preco_venda" || pagina === "criacao_planejamento:preco_atacado";
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -115,6 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // never carry it. So `integracao`/`integracao:*` skip the admin bypass entirely and always
   // fall through to the explicit `permissions` check — only isSuperAdmin passes directly.
   // `exportar_dados` segue a mesma regra (o banco também a recusa sem permissão explícita).
+  // O PREÇO de venda (varejo) e o de atacado (`criacao_planejamento:preco_venda` / `:preco_atacado`) também (decisão do dono, nov/2026):
+  // admin/tenant_admin NÃO furam — só o super admin concede (Leitor = ver, Editor = editar); super_admin continua passando direto.
+  // O banco espelha em `_pode_editar_preco` (sem furo de admin; super_admin fura).
   // Memoizados p/ não recriar o value do contexto a cada render (evita re-render de
   // toda a árvore autenticada que consome useAuth).
   const canView = useCallback((pagina: string) => {
