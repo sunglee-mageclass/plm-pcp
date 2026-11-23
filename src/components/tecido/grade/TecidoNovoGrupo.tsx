@@ -37,6 +37,9 @@ import { CelulaCorBaseMulti } from "./CelulaCorBaseMulti";
 /** Última coluna da grade (ações de excluir): FIXA na direita, para o botão ficar à mão sem rolar a tabela até o fim. */
 export const CLASSE_COL_ACOES = "sticky right-0 z-10 bg-background px-1.5 py-1.5 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.15)]";
 
+/** A foto grava na hora e precisa do id da cor: linha nova só ganha foto depois de salvar o tecido. */
+const DICA_FOTO_NOVA = "A foto fica disponível depois de salvar o tecido";
+
 export type AtualizarNovo = (tmp: string, fn: (g: TecidoNovo) => TecidoNovo) => void;
 
 const numeroOuNulo = (v: NumeroEntrada): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -169,7 +172,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
     const chaveAv = `${chaveSlotNovo(v.tmp)}|${col.key}`;
     const probs = problemasDaVariante(problemas, v.tmp);
     const ariaLabel = alvo ? `${col.rotulo} da cor nova ${idx + 1} de ${nomeTecido}` : `${col.rotulo} da cor ${idx + 1} do tecido novo`;
-    if (col.key === "foto") return <CelulaTecido coluna={col} ariaLabel={ariaLabel} temFoto={false} />;
+    if (col.key === "foto") return <CelulaTecido coluna={col} ariaLabel={ariaLabel} foto={{ path: null, dica: DICA_FOTO_NOVA }} />;
     const campo = CAMPO_VARIANTE[col.key];
     if (!campo) return null;
     const aoMudar = (valor: unknown) => {

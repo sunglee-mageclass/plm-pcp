@@ -40,6 +40,7 @@ import type { TecidoNovo } from "@/lib/tecido-grade/linha-nova";
 import { cn } from "@/lib/utils";
 import type { GradeOpcoes } from "./useTecidosGrade";
 import { CelulaTecido } from "./CelulaTecido";
+import { CelulaFotoVariante } from "./CelulaFotoVariante";
 import { CLASSE_COL_ACOES, LinhasTecidoNovo, type AtualizarNovo } from "./TecidoNovoGrupo";
 import { CelulaCorBaseMulti } from "./CelulaCorBaseMulti";
 
@@ -307,7 +308,7 @@ function celulaVariante(col: ColunaGrade, c: LinhaProps) {
   }
   const ariaLabel = `${col.rotulo} da cor de ${artigo.nome}`;
   const chaveAv = chaveCelula(chaveLinha(artigo.id, variante.id), col.key);
-  if (col.key === "foto") return <CelulaTecido coluna={col} ariaLabel={ariaLabel} temFoto={!!variante.foto_url} />;
+  if (col.key === "foto") return <CelulaFotoVariante coluna={col} ariaLabel={ariaLabel} variante={variante} readOnly={readOnly} />;
   const campo = CAMPO_VARIANTE[col.key];
   if (!campo) return null;
   const aoMudar = (v: unknown) => {
