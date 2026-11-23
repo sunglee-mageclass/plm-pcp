@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Preço de venda/atacado: admin NÃO fura (useAuth) e DELEGAÇÃO CONDICIONAL no editor de permissões ("não dá o que não tem").
 //  - useAuth REAL: tenant_admin sem a chave NÃO vê/edita preço; com a chave (Editor) vê/edita; só Leitor vê; super admin sempre; o resto segue furando.
-//  - precoTravadoNoEditor: célula de preço travada p/ quem não tem a permissão (ver→canView, editar→canEdit); outras chaves nunca travam.
+//  - precoTravadoNoEditor: célula de preço travada p/ quem não tem a permissão = só quem tem EDITAR da chave habilita (as 2 colunas, Leitor e Editor); outras chaves nunca travam.
 //  - PermissoesModal/PapelEditor: a célula de preço usa o helper (UX); a trava real é do banco (testes de integração).
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -83,31 +83,27 @@ describe("useAuth — preço de venda/atacado sem bypass de admin", () => {
 
 describe("editor de permissões — delegação condicional do preço", () => {
   const tem = (...ks: string[]) => (k: string) => ks.includes(k);
-  it("precoTravadoNoEditor: trava a célula que quem edita NÃO tem; super (tudo true) nunca trava; chave que não é de preço nunca trava", () => {
-    expect(precoTravadoNoEditor(PV, "pode_ver", tem(), tem())).toBe(true);
-    expect(precoTravadoNoEditor(PV, "pode_editar", tem(), tem())).toBe(true);
-    expect(precoTravadoNoEditor(PV, "pode_ver", tem(PV), tem())).toBe(false);   // Leitor: concede ver
-    expect(precoTravadoNoEditor(PV, "pode_editar", tem(PV), tem())).toBe(true); // ...mas não editar
-    expect(precoTravadoNoEditor(PV, "pode_editar", tem(PV), tem(PV))).toBe(false);
-    expect(precoTravadoNoEditor(PA, "pode_ver", tem(PV), tem(PV))).toBe(true);  // a chave de um não libera o outro
-    expect(precoTravadoNoEditor(PA, "pode_editar", () => true, () => true)).toBe(false); // super
-    expect(precoTravadoNoEditor("criacao_planejamento", "pode_editar", tem(), tem())).toBe(false);
+  it("precoTravadoNoEditor: TER EDITAR da chave habilita conceder; só Leitor (ou nada) trava; super (tudo true) nunca trava; chave que não é de preço nunca trava", () => {
+    expect(precoTravadoNoEditor(PV, tem())).toBe(true);          // nada
+    expect(precoTravadoNoEditor(PV, tem(PA))).toBe(true);        // editar de OUTRO preço não libera este
+    expect(precoTravadoNoEditor(PV, tem(PV))).toBe(false);       // editar = habilita
+    expect(precoTravadoNoEditor(PA, () => true)).toBe(false);    // super
+    expect(precoTravadoNoEditor("criacao_planejamento", tem())).toBe(false);
     expect(ehChavePreco(PV) && ehChavePreco(PA) && !ehChavePreco("criacao_planejamento:custos")).toBe(true);
   });
   it("PermissoesModal e PapelEditor usam o helper nas células de seção; 'voltar ao papel' preserva a chave travada", () => {
     const s = ler("src/components/admin/PermissoesModal.tsx");
-    expect(s.match(/precoTrava\(s\.key, "pode_ver"\)/g)?.length).toBeGreaterThanOrEqual(2 * 1); // usuário + papel (ver)
-    expect(s.match(/precoTrava\(s\.key, "pode_editar"\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(s.match(/precoTrava\(s\.key\)/g)?.length).toBeGreaterThanOrEqual(4); // usuário + papel, nas 2 colunas (Leitor e Editor)
     expect(s).toMatch(/voltarAoPapelEstado\(s, papelBase, pageKeys, \(k\) => desligada\(k\) \|\| precoTravaAlguma\(k\)\)/);
   });
   async function montarEditor(
     canTudo: boolean | string[],
-    alvo: { role?: string; mode?: "tenant" | "super"; existing?: { pagina: string; pode_ver: boolean; pode_editar: boolean }[] } = {},
+    alvo: { role?: string; mode?: "tenant" | "super"; soVer?: string[]; existing?: { pagina: string; pode_ver: boolean; pode_editar: boolean }[] } = {},
   ) {
     vi.resetModules();
     const tem = (k: string) => (Array.isArray(canTudo) ? canTudo.includes(k) : canTudo);
     vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
-    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: tem, canEdit: tem }) }));
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: (k: string) => tem(k) || !!alvo.soVer?.includes(k), canEdit: tem }) })); // soVer = viewer só com Leitor da chave
     vi.doMock("@/integrations/supabase/client", () => ({
       supabase: { from: (t: string) => ({ select: () => ({ eq: async () => ({ data: t === "user_permissions" ? (alvo.existing ?? []) : [], error: null }) }) }) },
     }));
@@ -122,19 +118,39 @@ describe("editor de permissões — delegação condicional do preço", () => {
     return view;
   }
   const cel = (id: string) => document.getElementById(id) as HTMLButtonElement | null;
+  /** As 2 colunas da linha (Leitor, Editor) da seção `key`. */
+  const colunas = (key: string) => Array.from(cel(`${key}-ver`)!.closest("div.grid")!.querySelectorAll<HTMLButtonElement>("button[role=checkbox]"));
 
   it("render: admin da loja SEM preço vê as células de preço DESABILITADAS (e a outra seção habilitada); COM preço habilitadas", async () => {
     const sem = await montarEditor(false);
     expect(cel(`${PV}-ver`)).not.toBeNull();
     expect(cel(`${PV}-ver`)!.disabled).toBe(true);
     expect(cel(`${PA}-ver`)!.disabled).toBe(true);
-    expect(document.body.textContent).toContain("Você não tem esta permissão de preço");
+    expect(document.body.textContent).toContain("Só quem tem EDITAR deste preço");
     sem.unmount();
     const com = await montarEditor([PV, PA]);
     expect(cel(`${PV}-ver`)!.disabled).toBe(false);
     expect(cel(`${PA}-ver`)!.disabled).toBe(false);
-    expect(document.body.textContent).not.toContain("Você não tem esta permissão de preço");
+    expect(document.body.textContent).not.toContain("Só quem tem EDITAR deste preço");
     com.unmount();
+  });
+
+  it("render: viewer com EDITAR do preço → as 2 colunas habilitadas; só Leitor → as 2 DESABILITADAS; sem nada → as 2 desabilitadas; super → habilitadas", async () => {
+    const editor = await montarEditor([PV]);
+    expect(colunas(PV).map((b) => b.disabled)).toEqual([false, false]);
+    expect(colunas(PA).map((b) => b.disabled)).toEqual([true, true]); // editar de venda não libera o atacado
+    editor.unmount();
+    const leitor = await montarEditor(false, { soVer: [PV, PA] });
+    expect(colunas(PV).map((b) => b.disabled)).toEqual([true, true]);   // Leitor NÃO concede (nem a coluna Leitor)
+    expect(colunas(PA).map((b) => b.disabled)).toEqual([true, true]);
+    leitor.unmount();
+    const nada = await montarEditor(false);
+    expect(colunas(PV).map((b) => b.disabled)).toEqual([true, true]);
+    nada.unmount();
+    const sup = await montarEditor(true, { mode: "super" });
+    expect(colunas(PV).map((b) => b.disabled)).toEqual([false, false]);
+    expect(colunas(PA).map((b) => b.disabled)).toEqual([false, false]);
+    sup.unmount();
   });
 
   const marcada = (id: string) => cel(id)!.getAttribute("data-state") === "checked";
@@ -159,7 +175,7 @@ describe("editor de permissões — delegação condicional do preço", () => {
     const sem = await montarEditor(false, { role: "tenant_admin", mode: "tenant", existing });
     expect(cel(`${PV}-ver`)!.disabled).toBe(true);
     expect(marcada(`${PV}-ver`)).toBe(true); // lida de existing
-    expect(document.body.textContent).toContain("Você não tem esta permissão de preço"); // o aviso é do precoTrava
+    expect(document.body.textContent).toContain("Só quem tem EDITAR deste preço"); // o aviso é do precoTrava
     sem.unmount();
     const com = await montarEditor([PV, PA], { role: "tenant_admin", mode: "tenant", existing });
     expect(cel(`${PV}-ver`)!.disabled).toBe(false);

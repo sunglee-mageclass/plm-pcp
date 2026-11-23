@@ -2,7 +2,7 @@
 -- (= corpo da S1, 20261031120000, md5 e89be53c25f421724994e78b756a027d, copiado do vivo ANTES da ida - byte a byte).
 -- O backfill NAO reverte (conceder acesso nao quebra); as linhas da chave nova preco_atacado e o ver das chaves de preco ficam (inocuos sem o ramo). Dado nao volta sozinho.
 -- Tambem devolve set_user_permissions e salvar_papel SEM a trava de delegacao (texto de antes, efd74993.../73310c9e...) e DROPA os helpers
--- _pode_editar_preco/_pode_ver_preco/_exige_delegacao_preco. O backfill de admins NAO reverte (conceder nao quebra).
+-- _pode_editar_preco/_exige_delegacao_preco. O backfill de admins NAO reverte (conceder nao quebra).
 -- (antes dizia:) DROPA o helper _pode_editar_preco(text) (so o gatilho e as 3 RPCs do comprado o usam): rode ANTES o _down de 20261211110000 (a guarda recusa se
 -- alguma RPC ainda o referencia).
 -- Guarda: aceita a funcao no texto desta frente (6fc5d4955a3f3d378072e82bfcf9051d), na versao intermediaria (2da90981f4d754de3e0a2c5e2c85a994) ou ja no da S1 (idempotente); qualquer outro = outra frente mexeu.
@@ -19,7 +19,7 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
   FOR r IN SELECT * FROM (VALUES
-      ('public.set_user_permissions(uuid,uuid,jsonb)', 'efd749935e402b939ad6304d15035933,bbe576b4b2d91858095ba12ed49a4913'),
+      ('public.set_user_permissions(uuid,uuid,jsonb)', 'efd749935e402b939ad6304d15035933,bbe576b4b2d91858095ba12ed49a4913,9a0cc89cec2f843ab2a5bf408cafecdf'),
       ('public.salvar_papel(uuid,uuid,text,text,jsonb)', '73310c9e097cf92eae827d19bf7b63a0,ede0d4ad42c0f8f772207aae18e4b670')
     ) AS t(fn, ok) LOOP
     IF md5(pg_get_functiondef(r.fn::regprocedure)) <> ALL (string_to_array(r.ok, ',')) THEN
@@ -28,8 +28,8 @@ BEGIN
   END LOOP;
   IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'public'
-                AND (p.prosrc LIKE '%_pode_editar_preco%' OR p.prosrc LIKE '%_pode_ver_preco%' OR p.prosrc LIKE '%_exige_delegacao_preco%')
-                AND p.proname NOT IN ('fn_modelo_preco_venda_gate', '_pode_editar_preco', '_pode_ver_preco', '_exige_delegacao_preco',
+                AND (p.prosrc LIKE '%_pode_editar_preco%' OR p.prosrc LIKE '%_exige_delegacao_preco%')
+                AND p.proname NOT IN ('fn_modelo_preco_venda_gate', '_pode_editar_preco', '_exige_delegacao_preco',
                                       'set_user_permissions', 'salvar_papel')) THEN
     RAISE EXCEPTION 'preco_atacado_gate_down: ainda ha RPC usando _pode_editar_preco - rode antes o _down de 20261211110000' USING ERRCODE = 'P0001';
   END IF;
@@ -214,14 +214,13 @@ $function$;
 
 -- O gatilho (S1) e as 2 funcoes acima ja nao usam os helpers: pode dropar (ordem: o que chama primeiro).
 DROP FUNCTION IF EXISTS public._exige_delegacao_preco(jsonb, jsonb);
-DROP FUNCTION IF EXISTS public._pode_ver_preco(text);
 DROP FUNCTION IF EXISTS public._pode_editar_preco(text);
 
 DO $pos$
 DECLARE v text;
 BEGIN
   v := md5(pg_get_functiondef('public.fn_modelo_preco_venda_gate()'::regprocedure));
-  IF to_regprocedure('public._pode_editar_preco(text)') IS NOT NULL OR to_regprocedure('public._pode_ver_preco(text)') IS NOT NULL
+  IF to_regprocedure('public._pode_editar_preco(text)') IS NOT NULL
      OR to_regprocedure('public._exige_delegacao_preco(jsonb,jsonb)') IS NOT NULL THEN
     RAISE EXCEPTION 'preco_atacado_gate_down: pos-condicao falhou (helper de preco ainda existe)' USING ERRCODE = 'P0001';
   END IF;

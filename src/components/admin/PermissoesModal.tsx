@@ -86,9 +86,9 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   // Linha travada = módulo desligado OU módulos da loja ainda carregando (não deixa editar o que pode virar esmaecido já alterado).
   const travada = (key: string) => carregandoModulos || desligada(key);
   // Preço (venda/atacado): delegação condicional — a célula só habilita p/ quem edita se ELE tem aquela permissão de preço (super sempre).
-  const { canView, canEdit } = useAuth();
-  const precoTrava = (key: string, campo: "pode_ver" | "pode_editar") => precoTravadoNoEditor(key, campo, canView, canEdit);
-  const precoTravaAlguma = (key: string) => precoTrava(key, "pode_ver") || precoTrava(key, "pode_editar");
+  const { canEdit } = useAuth();
+  const precoTrava = (key: string) => precoTravadoNoEditor(key, canEdit); // ter EDITAR da chave habilita conceder Leitor e Editor
+  const precoTravaAlguma = precoTrava;
   // Admins (admin/tenant_admin/super_admin) furam user_can_view → têm acesso total a TODAS as
   // páginas, EXCETO a Integração (P-107 A) — essa é a ÚNICA página onde um admin não é bypass:
   // a permissão real vem de `existing`, como um usuário comum, e só o super admin concede.
@@ -351,12 +351,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">
                       ↳ {s.label}
                       {s.hint && <span className="block text-xs font-normal text-muted-foreground/80">{s.hint}</span>}
-                      {(precoTrava(s.key, "pode_ver") || precoTrava(s.key, "pode_editar")) && <span className="block text-xs font-normal text-amber-600 dark:text-amber-400">Você não tem esta permissão de preço — só quem a tem (ou o super admin) pode concedê-la.</span>}
+                      {precoTrava(s.key) && <span className="block text-xs font-normal text-amber-600 dark:text-amber-400">Só quem tem EDITAR deste preço (ou o super admin) pode concedê-lo, Leitor ou Editor.</span>}
                     </Label>
                     <div className="flex justify-center">
                       <Checkbox
                         id={`${s.key}-ver`}
-                        disabled={(isAdminRole && !ehChaveSemBypassAlvo(s.key)) || travada(p.key) || precoTrava(s.key, "pode_ver")}
+                        disabled={(isAdminRole && !ehChaveSemBypassAlvo(s.key)) || travada(p.key) || precoTrava(s.key)}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_ver") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_ver ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
@@ -364,7 +364,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center">
                       <Checkbox
-                        disabled={(isAdminRole && !ehChaveSemBypassAlvo(s.key)) || travada(p.key) || precoTrava(s.key, "pode_editar")}
+                        disabled={(isAdminRole && !ehChaveSemBypassAlvo(s.key)) || travada(p.key) || precoTrava(s.key)}
                         className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_editar") ? "opacity-40" : undefined}
                         checked={state[s.key]?.pode_editar ?? false}
                         onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}
@@ -485,8 +485,8 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
   const { modules: modulosAlvo, carregando: carregandoModulos } = useModulosDaLoja(papel.tenant_id);
   const desligada = (key: string) => paginaComModuloDesligado(key, modulosAlvo);
   const travada = (key: string) => carregandoModulos || desligada(key);
-  const { canView, canEdit } = useAuth();
-  const precoTrava = (key: string, campo: "pode_ver" | "pode_editar") => precoTravadoNoEditor(key, campo, canView, canEdit);
+  const { canEdit } = useAuth();
+  const precoTrava = (key: string) => precoTravadoNoEditor(key, canEdit);
   const callSalvar = useServerFn(salvarPapel);
 
   const { data: existing, isLoading } = useQuery({
@@ -646,13 +646,13 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                       <Label htmlFor={`papel-${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">
                         ↳ {s.label}
                         {s.hint && <span className="block text-xs font-normal text-muted-foreground/80">{s.hint}</span>}
-                      {(precoTrava(s.key, "pode_ver") || precoTrava(s.key, "pode_editar")) && <span className="block text-xs font-normal text-amber-600 dark:text-amber-400">Você não tem esta permissão de preço — só quem a tem (ou o super admin) pode concedê-la.</span>}
+                      {precoTrava(s.key) && <span className="block text-xs font-normal text-amber-600 dark:text-amber-400">Só quem tem EDITAR deste preço (ou o super admin) pode concedê-lo, Leitor ou Editor.</span>}
                       </Label>
                       <div className="flex justify-center">
-                        <Checkbox id={`papel-${s.key}-ver`} disabled={travada(p.key) || precoTrava(s.key, "pode_ver")} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
+                        <Checkbox id={`papel-${s.key}-ver`} disabled={travada(p.key) || precoTrava(s.key)} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
                       </div>
                       <div className="flex justify-center">
-                        <Checkbox disabled={travada(p.key) || precoTrava(s.key, "pode_editar")} checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
+                        <Checkbox disabled={travada(p.key) || precoTrava(s.key)} checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
                       </div>
                     </div>
                   ))}

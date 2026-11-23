@@ -17,7 +17,8 @@
 --     (2da90981... = versao INTERMEDIA desta frente, antes do ajuste "admin nao fura o preco": so existiu na copia local/previa; a guarda a aceita p/ reaplicar)
 --   public.set_user_permissions(uuid,uuid,jsonb)   (trava de delegacao do preco)
 --     ANTES  efd749935e402b939ad6304d15035933
---     DEPOIS bbe576b4b2d91858095ba12ed49a4913
+--     DEPOIS 9a0cc89cec2f843ab2a5bf408cafecdf
+--     (bbe576b4... = versao INTERMEDIA so da copia local/previa, antes do refinamento "ter EDITAR habilita conceder"; a guarda a aceita)
 --   public.salvar_papel(uuid,uuid,text,text,jsonb)  (trava de delegacao do preco)
 --     ANTES  73310c9e097cf92eae827d19bf7b63a0
 --     DEPOIS ede0d4ad42c0f8f772207aae18e4b670
@@ -30,7 +31,7 @@
 -- BACKFILL DE ADMINS (decisao do dono): TODO tenant_admin (e o papel legado admin) existente com loja ganha ver+editar de preco_venda E preco_atacado em
 --   user_permissions (ON CONFLICT DO UPDATE SET pode_ver=true, pode_editar=true) - no deploy ninguem perde o preco. super_admin nao precisa (fura).
 -- DELEGACAO CONDICIONAL (decisao do dono): super admin concede preco a qualquer um; tenant_admin SO concede/retira preco (ver/editar) de outro usuario
---   ou papel se ELE proprio tem essa permissao (_pode_ver_preco/_pode_editar_preco). Trava no BANCO: set_user_permissions e salvar_papel chamam
+--   ou papel se ELE proprio tem essa permissao (ter EDITAR da chave = _pode_editar_preco habilita conceder Leitor e Editor dela). Trava no BANCO: set_user_permissions e salvar_papel chamam
 --   _exige_delegacao_preco -> 42501 'preco_sem_delegacao: <chave>'. NAO e o modelo da Integracao (la so o super concede; trg_integracao_perm_user intocado).
 -- Reaplicar a S1 (20261031120000) depois desta: a guarda da S1 so aceita antes 4eeb8baa... ou e89be53c... - rode o _down desta antes.
 -- Aplicar fora de transacao de teste: psql -v ON_ERROR_STOP=1 -f <arquivo>. NUNCA \i dentro de BEGIN...ROLLBACK (o COMMIT vaza).
@@ -44,7 +45,7 @@ DO $guarda$
 DECLARE v text; r record;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.set_user_permissions(uuid,uuid,jsonb)', 'efd749935e402b939ad6304d15035933,bbe576b4b2d91858095ba12ed49a4913'),
+      ('public.set_user_permissions(uuid,uuid,jsonb)', 'efd749935e402b939ad6304d15035933,bbe576b4b2d91858095ba12ed49a4913,9a0cc89cec2f843ab2a5bf408cafecdf'),
       ('public.salvar_papel(uuid,uuid,text,text,jsonb)', '73310c9e097cf92eae827d19bf7b63a0,ede0d4ad42c0f8f772207aae18e4b670')
     ) AS t(fn, ok) LOOP
     v := md5(pg_get_functiondef(r.fn::regprocedure));
@@ -79,23 +80,9 @@ AS $function$
 $function$;
 REVOKE EXECUTE ON FUNCTION public._pode_editar_preco(text) FROM PUBLIC, anon, authenticated;
 
--- Simetrico de VER: super_admin OU a permissao explicita (pode_ver) via _perm_efetiva. Admin/tenant_admin NAO furam.
-CREATE OR REPLACE FUNCTION public._pode_ver_preco(_chave text)
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-  SELECT public.is_super_admin()
-      OR EXISTS (
-        SELECT 1 FROM public._perm_efetiva(auth.uid()) e
-         WHERE e.pagina = _chave AND e.pode_ver = true
-      );
-$function$;
-REVOKE EXECUTE ON FUNCTION public._pode_ver_preco(text) FROM PUBLIC, anon, authenticated;
-
--- Trava de DELEGACAO: compara o que o alvo tem HOJE (_atual: [{pagina,pode_ver,pode_editar}]) com o desejado (_novo, mesmo formato). Para cada chave de
--- preco, se o ver (ou o editar) MUDA e o chamador (auth.uid()) nao o tem (_pode_ver_preco/_pode_editar_preco), recusa. super admin sempre passa.
+-- Trava de DELEGACAO: compara o que o alvo tem HOJE (_atual: [{pagina,pode_ver,pode_editar}]) com o desejado (_novo, mesmo formato). REGRA DO DONO:
+-- TER EDITAR a chave de preco (_pode_editar_preco) e o que HABILITA conceder - quem tem editar concede Leitor E Editor daquela chave; quem tem SO Leitor (ou nada)
+-- nao concede nem ver nem editar dela. Para cada chave, se o ver OU o editar MUDA vs o alvo e o chamador (auth.uid()) nao tem editar, recusa. super admin sempre passa.
 -- Linha inalterada passa (o editor reenvia a linha desabilitada como estava). Interno: EXECUTE revogado (so set_user_permissions/salvar_papel).
 CREATE OR REPLACE FUNCTION public._exige_delegacao_preco(_atual jsonb, _novo jsonb)
  RETURNS void
@@ -117,8 +104,8 @@ BEGIN
            coalesce(bool_or(coalesce((a->>'pode_editar')::boolean, false)), false)
       INTO v_ver_novo, v_edt_novo
       FROM jsonb_array_elements(coalesce(_novo, '[]'::jsonb)) a WHERE a->>'pagina' = k;
-    IF (v_ver_novo IS DISTINCT FROM v_ver_atual AND NOT public._pode_ver_preco(k))
-       OR (v_edt_novo IS DISTINCT FROM v_edt_atual AND NOT public._pode_editar_preco(k)) THEN
+    IF (v_ver_novo IS DISTINCT FROM v_ver_atual OR v_edt_novo IS DISTINCT FROM v_edt_atual)
+       AND NOT public._pode_editar_preco(k) THEN
       RAISE EXCEPTION 'preco_sem_delegacao: %', k USING ERRCODE = '42501';
     END IF;
   END LOOP;
@@ -222,8 +209,8 @@ BEGIN
 
   SELECT papel_id INTO v_papel FROM public.users WHERE id = _user_id;
 
-  -- [preco delegacao] "nao da o que nao tem": tenant_admin so concede/retira preco (ver/editar) se ELE proprio tem essa permissao de preco
-  -- (_pode_ver_preco/_pode_editar_preco; super admin sempre). Compara o desejado com o que o ALVO tem hoje (efetivo): linha de preco
+  -- [preco delegacao] "nao da o que nao tem": tenant_admin so concede/retira preco (ver/editar) se ELE proprio tem EDITAR daquela chave de preco
+  -- (_pode_editar_preco habilita conceder Leitor e Editor; super admin sempre). Compara o desejado com o que o ALVO tem hoje (efetivo): linha de preco
   -- inalterada passa (editar OUTRA tela de quem ja tem preco nao e bloqueado). 42501 'preco_sem_delegacao: <chave>' (ASCII).
   PERFORM public._exige_delegacao_preco(
     (SELECT coalesce(jsonb_agg(jsonb_build_object('pagina', e.pagina, 'pode_ver', e.pode_ver, 'pode_editar', e.pode_editar)), '[]'::jsonb)
@@ -383,7 +370,7 @@ BEGIN
   IF v IS DISTINCT FROM '6fc5d4955a3f3d378072e82bfcf9051d' THEN
     RAISE EXCEPTION 'preco_atacado_gate: pos-condicao falhou (md5 %, esperado 6fc5d4955a3f3d378072e82bfcf9051d)', coalesce(v,'ausente') USING ERRCODE = 'P0001';
   END IF;
-  IF md5(pg_get_functiondef('public.set_user_permissions(uuid,uuid,jsonb)'::regprocedure)) IS DISTINCT FROM 'bbe576b4b2d91858095ba12ed49a4913'
+  IF md5(pg_get_functiondef('public.set_user_permissions(uuid,uuid,jsonb)'::regprocedure)) IS DISTINCT FROM '9a0cc89cec2f843ab2a5bf408cafecdf'
      OR md5(pg_get_functiondef('public.salvar_papel(uuid,uuid,text,text,jsonb)'::regprocedure)) IS DISTINCT FROM 'ede0d4ad42c0f8f772207aae18e4b670' THEN
     RAISE EXCEPTION 'preco_atacado_gate: pos-condicao falhou (set_user_permissions/salvar_papel fora do texto esperado)' USING ERRCODE = 'P0001';
   END IF;

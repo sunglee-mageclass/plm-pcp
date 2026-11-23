@@ -259,15 +259,37 @@ describe.skipIf(!RODA)("delegação condicional do preço (Peça B): não dá o 
     });
   });
 
-  it("admin só com Leitor (ver) de venda: concede ver, mas não editar", async () => {
+  it("TER EDITAR da chave habilita conceder: admin Editor de venda concede Leitor E Editor de venda (não o atacado)", async () => {
+    await withTx(async (c) => {
+      await aplicarArquivo(c, MIG);
+      await usuarioComum(c, [PV], "tenant_admin"); // Editor de venda (ver+editar)
+      await alvo(c);
+      const soVer = JSON.stringify([{ pagina: PV, pode_ver: true, pode_editar: false }]);
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, soVer])).toBe("PASSOU");      // Leitor
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, linhas(PV)])).toBe("PASSOU"); // Editor
+      const r = await tenta(c, SET_PERMS, [U_ALVO, T, linhas(PV, PA)]);          // atacado: ele nao tem editar dele
+      expect(r.startsWith("42501")).toBe(true);
+      expect(r).toMatch(/preco_sem_delegacao: criacao_planejamento:preco_atacado/);
+    });
+  });
+
+  it("admin com SÓ Leitor (ver) de venda NÃO concede nada dela (nem ver, nem editar); linha inalterada passa", async () => {
     await withTx(async (c) => {
       await aplicarArquivo(c, MIG);
       await usuarioComum(c, [PV], "tenant_admin");
       await semJwt(c, () => c.query(`UPDATE public.user_permissions SET pode_editar = false WHERE user_id = $1 AND pagina = $2`, [U_COMUM, PV]));
       await alvo(c);
       const soVer = JSON.stringify([{ pagina: PV, pode_ver: true, pode_editar: false }]);
-      expect(await tenta(c, SET_PERMS, [U_ALVO, T, soVer])).toBe("PASSOU");
-      expect((await tenta(c, SET_PERMS, [U_ALVO, T, linhas(PV)])).startsWith("42501")).toBe(true);
+      for (const j of [soVer, linhas(PV)]) {
+        const r = await tenta(c, SET_PERMS, [U_ALVO, T, j]);
+        expect(r.startsWith("42501")).toBe(true);
+        expect(r).toMatch(/preco_sem_delegacao: criacao_planejamento:preco_venda/);
+      }
+      // alvo ja com o Leitor: reenviar inalterado passa (e retirar recusa)
+      await alvo(c);
+      await semJwt(c, () => c.query(`INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) VALUES ($1,$2,$3,true,false)`, [U_ALVO, T, PV]));
+      expect(await tenta(c, SET_PERMS, [U_ALVO, T, JSON.stringify([{ pagina: PV, pode_ver: true, pode_editar: false }])])).toBe("PASSOU");
+      expect((await tenta(c, SET_PERMS, [U_ALVO, T, "[]"])).startsWith("42501")).toBe(true);
     });
   });
 
@@ -300,9 +322,9 @@ describe.skipIf(!RODA)("delegação condicional do preço (Peça B): não dá o 
       const md5De = async (f: string) => (await um<{ m: string }>(c, `SELECT md5(pg_get_functiondef('${f}'::regprocedure)) m`)).m;
       const SU = "public.set_user_permissions(uuid,uuid,jsonb)", SP = "public.salvar_papel(uuid,uuid,text,text,jsonb)";
       await aplicarArquivo(c, MIG);
-      expect(await md5De(SU)).toBe("bbe576b4b2d91858095ba12ed49a4913");
+      expect(await md5De(SU)).toBe("9a0cc89cec2f843ab2a5bf408cafecdf");
       expect(await md5De(SP)).toBe("ede0d4ad42c0f8f772207aae18e4b670");
-      for (const h of ["_pode_ver_preco(text)", "_pode_editar_preco(text)", "_exige_delegacao_preco(jsonb,jsonb)"]) {
+      for (const h of ["_pode_editar_preco(text)", "_exige_delegacao_preco(jsonb,jsonb)"]) {
         const r = await um<{ a: boolean; b: boolean }>(c, `SELECT has_function_privilege('anon','public.${h}','EXECUTE') a, has_function_privilege('authenticated','public.${h}','EXECUTE') b`);
         expect(r).toEqual({ a: false, b: false });
       }
@@ -310,7 +332,7 @@ describe.skipIf(!RODA)("delegação condicional do preço (Peça B): não dá o 
       await aplicarArquivo(c, DOWN);
       expect(await md5De(SU)).toBe("efd749935e402b939ad6304d15035933");
       expect(await md5De(SP)).toBe("73310c9e097cf92eae827d19bf7b63a0");
-      expect((await um<{ n: number }>(c, `SELECT count(*)::int n FROM pg_proc WHERE proname IN ('_pode_ver_preco','_pode_editar_preco','_exige_delegacao_preco')`)).n).toBe(0);
+      expect((await um<{ n: number }>(c, `SELECT count(*)::int n FROM pg_proc WHERE proname IN ('_pode_editar_preco','_exige_delegacao_preco')`)).n).toBe(0);
     });
   });
 });

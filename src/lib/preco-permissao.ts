@@ -30,19 +30,14 @@ export const CHAVES_PRECO: readonly string[] = [CHAVE_EDITAR_PRECO_VAREJO, CHAVE
 export const ehChavePreco = (chave: string): boolean => CHAVES_PRECO.includes(chave);
 
 /**
- * Editor de permissões (PermissoesModal/PapelEditor) — DELEGAÇÃO CONDICIONAL ("não dá o que não tem"): a célula de preço fica DESABILITADA
- * p/ quem edita se ELE não tem aquela permissão (ver → canView, editar → canEdit). Super admin passa sempre (canView/canEdit já devolvem
- * true); admin da loja só se tiver a permissão (pós "admin não fura"). UX apenas: a trava real é do banco (_exige_delegacao_preco → 42501
+ * Editor de permissões (PermissoesModal/PapelEditor) — DELEGAÇÃO CONDICIONAL ("não dá o que não tem"): TER EDITAR da chave de preço é o que habilita
+ * conceder. Quem edita o preço (canEdit da chave) concede Leitor E Editor dela; quem tem SÓ Leitor (ou nada) fica com AS DUAS colunas da linha de preço
+ * DESABILITADAS. Super admin passa sempre (canEdit já devolve true). UX apenas: a trava real é do banco (_exige_delegacao_preco → 42501
  * `preco_sem_delegacao`). Chave que não é de preço nunca trava aqui.
  */
-export function precoTravadoNoEditor(
-  chave: string,
-  campo: "pode_ver" | "pode_editar",
-  canView: (k: string) => boolean,
-  canEdit: (k: string) => boolean,
-): boolean {
+export function precoTravadoNoEditor(chave: string, canEdit: (k: string) => boolean): boolean {
   if (!ehChavePreco(chave)) return false;
-  return !(campo === "pode_ver" ? canView(chave) : canEdit(chave));
+  return !canEdit(chave);
 }
 
 /** Texto PT da recusa 42501 `preco_sem_delegacao: <chave>` (set_user_permissions/salvar_papel): o admin tentou conceder/retirar preço que ele não tem. */
