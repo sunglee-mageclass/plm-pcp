@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Layers,
+  List,
   Plus,
   Search,
   LayoutGrid,
@@ -19,6 +20,7 @@ import { brl } from "@/lib/format";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useUserPref } from "@/hooks/useUiPrefs";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
@@ -46,6 +48,7 @@ import {
 } from "@/components/ui/dialog";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { TecidoDetailSheet } from "./cadastro.tecidos.$artigoId";
+import { TecidosGradeAba } from "@/components/tecido/grade/TecidosGradeAba";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -93,6 +96,12 @@ function TecidosGallery() {
   // No mobile, sempre mostra as informações do card (não compacta).
   const isMobile = useIsMobile();
   const compact = useCompactCards(gridRef, cols) && !isMobile;
+  // Visão da tela: "cards" (padrão) | "lista" (grade tipo Excel). Persistida por usuário.
+  const [visaoPref, setVisaoPref] = useUserPref("filtro", "cad-tecidos", "visao", ["cards"]);
+  const visaoSalva: "cards" | "lista" = visaoPref[0] === "lista" ? "lista" : "cards";
+  // No celular a grade não abre: força Cards (e avisa se a preferência salva era Lista).
+  const visao: "cards" | "lista" = isMobile ? "cards" : visaoSalva;
+  const avisoListaMobile = isMobile && visaoSalva === "lista";
   const [search, setSearch] = useState("");
   const [empresaFilter, setEmpresaFilter] = useFilterState("cad-tecidos", "Fornecedor", []);
   const [catFilter, setCatFilter] = useFilterState("cad-tecidos", "Categoria", []);
@@ -268,6 +277,12 @@ function TecidosGallery() {
 
   // (A exclusão de tecido vive na tela de detalhe — cadastro.tecidos.$artigoId.)
 
+  // Variantes só dos tecidos que sobraram nos filtros (entrada da aba Lista).
+  const variantesFiltradas = useMemo(() => {
+    const ids = new Set(filtered.map((a) => a.id));
+    return variantes.filter((v) => ids.has(v.artigo_id));
+  }, [filtered, variantes]);
+
   // Card (reusado no grid liso e nos grupos).
   const renderCard = (a: Artigo) => (
     <TecidoCard
@@ -370,6 +385,30 @@ function TecidosGallery() {
             </SelectContent>
           </Select>
           <div className="ml-auto flex items-center gap-2">
+            {!isMobile && (
+              <div role="group" aria-label="Visão da tela" className="inline-flex items-center rounded-md border p-0.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={visao === "cards" ? "secondary" : "ghost"}
+                  aria-pressed={visao === "cards"}
+                  className="h-7 px-2"
+                  onClick={() => setVisaoPref(["cards"])}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5 mr-1" /> Cards
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={visao === "lista" ? "secondary" : "ghost"}
+                  aria-pressed={visao === "lista"}
+                  className="h-7 px-2"
+                  onClick={() => setVisaoPref(["lista"])}
+                >
+                  <List className="h-3.5 w-3.5 mr-1" /> Lista
+                </Button>
+              </div>
+            )}
             <AgrupamentoButton
               groups={[
                 { label: "Categoria", active: groupByCat, onToggle: () => agrup.toggle("categoria", !groupByCat) },
@@ -393,7 +432,7 @@ function TecidosGallery() {
         <span className="text-xs text-muted-foreground">
           <Badge variant="secondary">{filtered.length}</Badge> {filtered.length === 1 ? "tecido" : "tecidos"}
         </span>
-        <div className="hidden lg:flex items-center gap-1.5 ml-auto">
+        <div className={`${visao === "cards" ? "hidden lg:flex" : "hidden"} items-center gap-1.5 ml-auto`}>
           <LayoutGrid className="h-4 w-4 text-muted-foreground" />
           <Label className="text-xs text-muted-foreground">Colunas</Label>
           <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
@@ -404,6 +443,13 @@ function TecidosGallery() {
           </Select>
         </div>
       </div>
+
+      {avisoListaMobile && (
+        <div role="status" className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+          <span>A lista tipo Excel é usada no computador. No celular, abra pelos cartões.</span>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="py-12 text-center text-muted-foreground">
@@ -429,6 +475,14 @@ function TecidosGallery() {
             }}
           />
         )
+      ) : visao === "lista" ? (
+        <TecidosGradeAba
+          artigos={filtered}
+          variantes={variantesFiltradas}
+          fornecedores={empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))}
+          categorias={categorias}
+          isMobile={isMobile}
+        />
       ) : groups ? (
         <div ref={gridRef} className="space-y-6">
           {groups.map((g) => renderGroup(g, 0, g.key))}
