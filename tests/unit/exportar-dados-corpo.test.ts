@@ -157,4 +157,22 @@ describe("ExportarDados (corpo)", () => {
     expect(botaoBaixar(c)?.disabled).toBe(true);
     expect(rpc.mock.calls.some((a) => a[0] === "exportar_produtos")).toBe(false);
   });
+  // ---- Seletor de TIPO (Task 4): produto é o padrão e o corpo do produto é o de sempre ----
+  it("seletor de tipo: sem pref = Produto (corpo do produto montado, mesmas prefs)", async () => {
+    const c = await montar();
+    const tipo = c.querySelector("#exportar-tipo") as HTMLButtonElement;
+    expect(tipo).toBeTruthy();
+    expect(tipo.textContent).toContain("Produto");
+    expect(c.querySelector("#exportar-colecao")).toBeTruthy();
+  });
+
+  it("tipo salvo ainda sem driver (tecido): aviso no lugar do corpo e NENHUMA RPC de export", async () => {
+    localStorage.setItem("wish360:uipref:export:anon:tipo:tipo", JSON.stringify(["tecido"]));
+    respostas({ colunas: ["nome"], total: 1, niveis: { "1": [{ nome: "x" }] } });
+    const c = await montar();
+    expect(c.textContent).toContain("ainda não está disponível");
+    expect(c.querySelector("#exportar-colecao")).toBeNull();
+    expect(botaoBaixar(c)).toBeUndefined();
+    expect(rpc.mock.calls.some((a) => String(a[0]).startsWith("exportar_"))).toBe(false);
+  });
 });
