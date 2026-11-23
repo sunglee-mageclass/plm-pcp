@@ -125,7 +125,7 @@ Seguindo o molde, UM `_core` DEFINER por tipo (recebe `_tenant`, filtro, `_campo
 | Tipo | wrapper (cliente chama) | `_core` (REVOKE dos 3) |
 |---|---|---|
 | Tecido | `exportar_tecidos(_categoria text, _campos text[], _niveis text[], _limite int DEFAULT NULL)` | `_exportar_tecidos_core(_tenant uuid, _categoria text, _campos text[], _niveis text[], _limite int)` |
-| Aviamento | `exportar_aviamentos(_filtro_tipo text, _filtro_id text, _campos text[], _niveis text[], _limite int DEFAULT NULL)` | `_exportar_aviamentos_core(_tenant uuid, _filtro_tipo text, _filtro_id text, _campos text[], _niveis text[], _limite int)` |
+| Aviamento | `exportar_aviamentos(_categoria text, _material text, _campos text[], _niveis text[], _limite int DEFAULT NULL)` | `_exportar_aviamentos_core(_tenant uuid, _categoria text, _material text, _campos text[], _niveis text[], _limite int)` |
 | Insumo | `exportar_insumos(_tipo_insumo text, _campos text[], _niveis text[], _limite int DEFAULT NULL)` | `_exportar_insumos_core(_tenant uuid, _tipo_insumo text, _campos text[], _niveis text[], _limite int)` |
 
 Decisões de assinatura (arquiteto):
@@ -133,16 +133,19 @@ Decisões de assinatura (arquiteto):
   todas). N:N → o recorte é `EXISTS (artigo_categorias_tecido act WHERE act.artigo_id = a.id AND
   act.categoria_tecido_id = _categoria::uuid)`. **`_categoria` vale um id, não um nome** (o seletor
   da tela carrega as categorias da loja e manda o id; texto não-uuid = `exportar_filtro_invalido`).
-- **Aviamento:** DOIS parâmetros — `_filtro_tipo text` ∈ `{'categoria','material'}` (NULL/vazio = sem
-  filtro) e `_filtro_id text` (id). A tela mostra um sub-seletor "Filtrar por: Categoria | Material" +
-  o dropdown dos valores. (Alternativa descartada: 2 parâmetros separados `_categoria`/`_material` —
-  mais colunas na assinatura e abre a porta para passar os dois; o par tipo+id é inequívoco.)
+- **Aviamento (decisão do dono 23/nov):** DOIS filtros INDEPENDENTES — `_categoria text` e
+  `_material text` (cada um id de categoria/material ou NULL/vazio = "todos" naquele eixo). A tela
+  mostra DOIS dropdowns (Categoria e Material), cada um opcional. **Combinação = E (AND):** o recorte
+  é `(_categoria vazio OR aviamentos.categoria_aviamento_id = _categoria::uuid) AND (_material vazio OR
+  aviamentos.material_aviamento_id = _material::uuid)`. Cada id não-uuid/não-da-loja (quando não vazio)
+  = `exportar_filtro_invalido`. (O `_filtro_tipo` único foi DESCARTADO pelo dono — ele quer os dois
+  eixos ao mesmo tempo.)
 - **Insumo:** UM parâmetro `_tipo_insumo text` (id de `tipos_insumo`, NULL/vazio = todos).
 - **Resposta IDÊNTICA ao produto:** `{colunas, total, niveis}`, mesma montagem `v_l1/v_l2` por
   `unnest(v_ids) WITH ORDINALITY`, mesma prévia `_limite` (limita ITENS, filhos completos), mesmo
   conjunto de erros `P0001` ASCII — **com acréscimo de um erro novo** `exportar_filtro_invalido`
-  (quando o id de filtro não é uuid válido/não é da loja) e, no aviamento, `exportar_filtro_tipo_invalido`
-  (`_filtro_tipo` fora de `{categoria,material}`). Os erros `exportar_sem_loja`/`_campos_vazio`/
+  (quando o id de filtro não é uuid válido/não é da loja)
+  Os erros `exportar_sem_loja`/`_campos_vazio`/
   `_campo_invalido`/`_niveis_vazio`/`_nivel_invalido`/`_limite_invalido` são reaproveitados tal qual.
 - **Níveis dos 3 tipos = SÓ `'1'` e `'2'`** (cabeçalho / até variante). `'3'` não existe para
   tecido/aviamento/insumo (não há a hierarquia cor→tamanho com SKU do produto). O `_core` valida
@@ -250,7 +253,7 @@ Observações de montagem (espelham o molde):
 - `useUserPref("export", "tipo", "tipo", [])` — o TIPO ativo (array de 1: `["produto"]` default).
 - Por tipo, chaves próprias para não colidir com o produto:
   - tecido: `("export","tecido","categoria",[])`, `("export","tecido","colunas",[])`, `("export","tecido","niveis",[])`.
-  - aviamento: `("export","aviamento","filtro_tipo",[])`, `("export","aviamento","filtro_id",[])`, `…"colunas"`, `…"niveis"`.
+  - aviamento: `("export","aviamento","categoria",[])`, `("export","aviamento","material",[])`, `…"colunas"`, `…"niveis"`.
   - insumo: `("export","insumo","tipo_insumo",[])`, `…"colunas"`, `…"niveis"`.
   Tudo `string[]` (como o produto: coleção = array de 1, colunas/níveis = arrays). "Todos" = sentinela
   explícita (espelho do `TODAS_COLECOES`): `"__todos__"` guardado no pref do filtro; vazio = nada escolhido
@@ -271,7 +274,7 @@ Observações de montagem (espelham o molde):
 **Mesma tela `ExportarDados.tsx`**, com um **seletor de TIPO no topo** (antes do recorte): um
 `Select`/segmented de 4 valores (produto / tecido / aviamento / insumo). Trocar o tipo:
 - troca o bloco de **filtro** (produto = coleção+subcoleção; tecido = Categoria; aviamento =
-  "Filtrar por" Categoria|Material + dropdown; insumo = Tipo de insumo), cada um com a opção "Todos";
+  dois dropdowns Categoria e Material (ambos opcionais, combinam com E); insumo = Tipo de insumo), cada um com a opção "Todos";
 - troca o **catálogo de colunas** (checkboxes por tipo, com o sub-bloco "Campos de variante" igual ao
   produto — os `soVariante` ficam vazios no cabeçalho);
 - troca os **níveis** (produto = 3; demais = 2) e os rótulos;
@@ -284,7 +287,7 @@ niveis, limite)`, o catálogo, os níveis e o nome-base do arquivo. O produto fi
 `exportar_opcoes_tecido` não é necessária — as categorias/materiais/tipos de insumo já têm listas lidas
 pelo Cadastro; reusar essas queries (ou uma RPC de opções enxuta por tipo, mesma ideia de
 `buscarOpcoesColecao`). Persistência por tipo (D-4). Erros traduzidos por `mensagemErro`
-(acrescentar os 2 prefixos novos: `exportar_filtro_invalido`/`exportar_filtro_tipo_invalido`).
+(acrescentar os 2 prefixos novos: `exportar_filtro_invalido`).
 
 Nome-base do arquivo: `export-tecido-<categoria|todas>`, `export-aviamento-<categoria|material|todos>`,
 `export-insumo-<tipo|todos>` (espelho do `export-<colecao>-<sub>` do produto).
@@ -357,7 +360,7 @@ Nome-base do arquivo: `export-tecido-<categoria|todas>`, `export-aviamento-<cate
 - **UI:** `src/components/exportar/ExportarDados.tsx` (seletor de tipo + 4 drivers de recorte);
   `src/lib/exportar/campos-export-tecido.ts`, `…-aviamento.ts`, `…-insumo.ts` (ou `campos-por-tipo.ts`);
   `src/lib/integracao/export.ts` (receber mapa de rótulos/abas por parâmetro); `src/lib/erro-mensagem.ts`
-  (traduzir `exportar_filtro_invalido`/`exportar_filtro_tipo_invalido`). Queries de opções de filtro
+  (traduzir `exportar_filtro_invalido`). Queries de opções de filtro
   (reuso das listas do Cadastro).
 - **Testes:** integração txn revertida dos 3 `_core` (recorte, níveis 1/2, dedup N:N do tecido,
   insumo cor×tamanho, `codigo_nome` do aviamento, ACL/REVOKE) + unit dos catálogos (anti-drift TS⇄SQL) e
@@ -371,8 +374,8 @@ Nome-base do arquivo: `export-tecido-<categoria|todas>`, `export-aviamento-<cate
   `_integracao_exige` (o brainstorm cita o nome antigo; a migration `20261201130000` já trocou o produto
   para o portão próprio `exportar_dados`). Intento do dono preservado.
 - **D-2 Uma RPC por tipo** (`exportar_tecidos`/`_aviamentos`/`_insumos` + `_core`), não uma RPC única com
-  `_tipo` — isola filtros/colunas/validação e segue o molde 1:1. Aviamento com `_filtro_tipo`+`_filtro_id`
-  (Categoria OU Material).
+  `_tipo` — isola filtros/colunas/validação e segue o molde 1:1. Aviamento com DOIS filtros independentes `_categoria`+`_material` (E)
+  (Categoria E Material, dois dropdowns independentes).
 - **D-3 Catálogo por tipo** (3 arquivos/arrays novos em `src/lib/exportar/`), não um discriminador no
   `campos-export.ts` do produto — conjuntos disjuntos e `soVariante` com semântica diferente por tipo.
 - **D-4 Persistência** `useUserPref("export", <tipo>, <chave>, [])` com namespaces por tipo e sentinela
