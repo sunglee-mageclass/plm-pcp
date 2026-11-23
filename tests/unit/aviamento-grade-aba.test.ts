@@ -48,7 +48,7 @@ describe("AviamentosGradeAba: estrutura pai/filhos recolhível", () => {
     expect(porLabel(trs[2], "Nome de Botão")).toHaveLength(0);
     expect(porLabel(trs[1], "Nome da variante da cor de Botão")).toHaveLength(1); // a cor edita só os campos da cor
     expect(trs[3].textContent).toContain("sem cores");
-    expect(t.container.querySelectorAll("thead th").length).toBe(1 + 18); // estado + o catálogo (18 colunas)
+    expect(t.container.querySelectorAll("thead th").length).toBe(1 + 18 + 1); // estado + o catálogo (18 colunas) + Ações
     await t.desmontar();
   });
 

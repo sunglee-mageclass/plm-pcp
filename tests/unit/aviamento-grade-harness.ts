@@ -57,6 +57,14 @@ export const estado = {
   /** erro do lote de cores (RPC `salvar_variantes_aviamento`) */
   erroLote: null as null | { code?: string; message: string },
   falhaUpload: false,
+  /** erro devolvido por `importar_aviamento_linha` */
+  erroImportar: null as null | { code?: string; message: string },
+  /** erro devolvido por `excluir_variante_aviamento` (cor em uso) */
+  erroExcluirVariante: null as null | { code?: string; message: string },
+  /** aviamentos cujo DELETE falha com 23503 (em uso) */
+  emUso: new Set<string>(),
+  /** aviamentos cujo DELETE não apaga nada (já excluído por outra pessoa) */
+  jaExcluido: new Set<string>(),
 };
 export const ordem: string[] = [];
 export const aviamentoUpdates: Array<{
@@ -65,6 +73,8 @@ export const aviamentoUpdates: Array<{
   eqs: Record<string, unknown>;
 }> = [];
 export const variantesUpdates: Array<{ payload: Linha; id: unknown }> = [];
+/** DELETEs diretos em `aviamentos` (excluir o aviamento inteiro). */
+export const aviamentoDeletes: Array<{ id: unknown }> = [];
 export const rpc = vi.fn();
 export const upload = vi.fn();
 export const remove = vi.fn();
@@ -85,6 +95,10 @@ function chain(t: string) {
     update: (p: Linha) => {
       op = "update";
       payload = p;
+      return c;
+    },
+    delete: () => {
+      op = "delete";
       return c;
     },
     then: (res: (v: unknown) => unknown) => {
@@ -118,6 +132,20 @@ function chain(t: string) {
         aviamentoUpdates.push({ payload, id, eqs });
         const a = estado.aviamentos.find((x) => x.id === id)!;
         Object.assign(a, payload);
+        return res({ data: [{ id }], error: null });
+      }
+      if (t === "aviamentos" && op === "delete") {
+        const id = eqs.id as string;
+        if (estado.emUso.has(id))
+          return res({
+            data: null,
+            error: { code: "23503", message: "violates foreign key constraint", details: "" },
+          });
+        aviamentoDeletes.push({ id });
+        if (estado.jaExcluido.has(id)) return res({ data: [], error: null });
+        ordem.push(`aviamentos.delete:${id}`);
+        estado.aviamentos = estado.aviamentos.filter((x) => x.id !== id);
+        estado.variantes = estado.variantes.filter((v) => v.aviamento_id !== id);
         return res({ data: [{ id }], error: null });
       }
       if (t === "variantes_aviamento" && op === "update") {
@@ -275,7 +303,12 @@ export function resetar() {
   estado.sumiu = new Set();
   estado.erroLote = null;
   estado.falhaUpload = false;
+  estado.erroImportar = null;
+  estado.erroExcluirVariante = null;
+  estado.emUso = new Set();
+  estado.jaExcluido = new Set();
   ordem.length = 0;
+  aviamentoDeletes.length = 0;
   aviamentoUpdates.length = 0;
   variantesUpdates.length = 0;
   rpc.mockReset();
@@ -288,6 +321,60 @@ export function resetar() {
       for (const v of args._variantes as Linha[])
         Object.assign(estado.variantes.find((x) => x.id === v.id)!, v);
       return { data: { aviamento_id: args._aviamento_id }, error: null };
+    }
+    if (nome === "importar_aviamento_linha") {
+      const alvo = args._aviamento_alvo_id as string | null;
+      const cab = args._cabecalho as Linha;
+      if (estado.erroImportar) return { data: null, error: estado.erroImportar };
+      ordem.push(`rpc:importar:${alvo ?? "novo"}`);
+      let id = alvo;
+      let acao = "complementado";
+      if (!alvo) {
+        id = `novo-${estado.aviamentos.length + 1}`;
+        acao = "criado";
+        estado.aviamentos.push(
+          aviamento(id, {
+            codigo: cab.categoria_aviamento_id ? "NOV-0001" : null,
+            codigo_nome: cab.codigo_nome,
+            empresa_id: cab.empresa_id ?? null,
+            categoria_aviamento_id: cab.categoria_aviamento_id ?? null,
+            subcategoria_aviamento_id: cab.subcategoria_aviamento_id ?? null,
+            material_aviamento_id: cab.material_aviamento_id ?? null,
+            preco: cab.preco ?? null,
+          }),
+        );
+      }
+      let novas = 0;
+      for (const v of args._variantes as Linha[]) {
+        if (
+          estado.variantes.some(
+            (x) =>
+              x.aviamento_id === id &&
+              x.cor_id === v.cor_id &&
+              (x.cor_apelido_id ?? null) === (v.cor_apelido_id ?? null),
+          )
+        )
+          continue;
+        estado.variantes.push(
+          variante(`nv${estado.variantes.length + 1}`, id as string, {
+            cor_id: v.cor_id,
+            cor_apelido_id: v.cor_apelido_id ?? null,
+            nome_variante: v.nome_variante ?? null,
+            codigo_variante: v.codigo_variante ?? null,
+            preco: v.preco ?? null,
+          }),
+        );
+        novas++;
+      }
+      if (alvo && novas === 0) acao = "inalterado";
+      return { data: { aviamento_id: id, acao, variantes_novas: novas }, error: null };
+    }
+    if (nome === "excluir_variante_aviamento") {
+      if (estado.erroExcluirVariante) return { data: null, error: estado.erroExcluirVariante };
+      ordem.push(`rpc:excluir-variante:${args._variante_id}`);
+      const v = estado.variantes.find((x) => x.id === args._variante_id);
+      estado.variantes = estado.variantes.filter((x) => x.id !== args._variante_id);
+      return { data: { foto_url: v?.foto_url ?? null }, error: null };
     }
     return { error: null };
   });

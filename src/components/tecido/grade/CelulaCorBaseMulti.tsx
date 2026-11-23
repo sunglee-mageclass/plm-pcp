@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { OpcaoSelect } from "@/lib/tecido-grade/celulas";
 
-export function CelulaCorBaseMulti({ cores, presentes, onAdicionar, ariaLabel, desabilitado = false, children }: {
+export function CelulaCorBaseMulti({ cores, presentes, onAdicionar, ariaLabel, desabilitado = false, entidade = "tecido", children }: {
   /** Cores base cadastradas (`opcoes.cores`). */
   cores: OpcaoSelect[];
   /** Cores que o tecido JÁ tem (existentes + novas no rascunho): marcadas e travadas. */
@@ -19,6 +19,8 @@ export function CelulaCorBaseMulti({ cores, presentes, onAdicionar, ariaLabel, d
   onAdicionar: (corIds: string[]) => void;
   ariaLabel: string;
   desabilitado?: boolean;
+  /** Como o item é chamado nos textos do popover ("tecido" por padrão; a grade de Aviamentos passa "aviamento"). */
+  entidade?: string;
   /** O Select de 1 cor do pai. */
   children: ReactNode;
 }) {
@@ -62,7 +64,7 @@ export function CelulaCorBaseMulti({ cores, presentes, onAdicionar, ariaLabel, d
         </PopoverTrigger>
         <PopoverContent className="w-72 p-2" align="start">
           <p className="px-2 pb-1 text-xs text-muted-foreground">
-            Marque as cores a adicionar: cada uma vira uma linha nova (com o preço do tecido). Desmarcar não remove.
+            Marque as cores a adicionar: cada uma vira uma linha nova (com o preço do {entidade}). Desmarcar não remove.
           </p>
           <Input
             aria-label="Buscar cor"
@@ -84,7 +86,7 @@ export function CelulaCorBaseMulti({ cores, presentes, onAdicionar, ariaLabel, d
                     key={c.id}
                     className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-muted aria-disabled:cursor-default aria-disabled:opacity-60"
                     aria-disabled={existente || undefined}
-                    title={existente ? "Este tecido já tem esta cor" : undefined}
+                    title={existente ? `Este ${entidade} já tem esta cor` : undefined}
                   >
                     <Checkbox
                       checked={existente || marcadas.includes(c.id)}

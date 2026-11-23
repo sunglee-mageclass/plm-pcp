@@ -34,6 +34,10 @@ import { AVIAMENTO_BUCKET } from "./useFotoVariante";
 
 /** Realce âmbar da célula com alteração ainda não salva (o mesmo "selo âmbar" do resto do sistema). */
 const REALCE_SUJO = "border-amber-500 bg-amber-50 dark:bg-amber-500/10";
+/** Realce vermelho da célula de linha NOVA pendente (falta dado). */
+const REALCE_ERRO = "border-destructive bg-destructive/10";
+/** Realce laranja tracejado do aviso de COLAGEM: o texto colado não casou com o cadastro (ou com a regra) e NÃO foi aplicado. */
+const REALCE_AVISO = "border-dashed border-orange-500 bg-orange-50 dark:bg-orange-500/10";
 
 /** Foto da cor: miniatura (se há) + "inserir foto". Sem `onEnviar` não há botão (somente leitura). */
 export type FotoCelula = {
@@ -79,6 +83,10 @@ export type CelulaAviamentoProps = {
   fornecedor?: FornecedorCelula;
   /** `foto`: miniatura + botão de envio. */
   foto?: FotoCelula;
+  /** Linha NOVA pendente: motivo (PT-BR) — a célula fica em vermelho com o motivo no `title`. */
+  erro?: string;
+  /** Aviso da última colagem nesta célula (texto não aplicado): laranja tracejado, com o motivo no `title`. Some ao editar. */
+  aviso?: string;
   /** Navegação por teclado. Só vale nos campos de digitação (texto/número); Select e foto ficam de fora. */
   gradeProps?: GradeCelProps;
 };
@@ -95,16 +103,28 @@ export function CelulaAviamento({
   placeholder,
   fornecedor,
   foto,
+  erro,
+  aviso,
   gradeProps,
 }: CelulaAviamentoProps) {
   const controle = controleDaCelula(coluna);
-  const realce = sujo ? REALCE_SUJO : undefined;
+  // erro (vermelho) vence o aviso de colagem (laranja), que vence o selo âmbar; `title` explica o motivo
+  const realce = erro ? REALCE_ERRO : aviso ? REALCE_AVISO : sujo ? REALCE_SUJO : undefined;
+  const invalido = erro
+    ? { "aria-invalid": true as const, title: erro }
+    : aviso
+      ? { title: aviso, "data-aviso-colar": "" }
+      : {};
 
   if (controle === "somente-leitura") {
     return (
       <span
-        className="block min-w-[5rem] px-2 text-muted-foreground tabular-nums"
+        className={cn(
+          "block min-w-[5rem] px-2 text-muted-foreground tabular-nums",
+          aviso && "rounded border border-dashed border-orange-500",
+        )}
         data-controle={controle}
+        {...invalido}
       >
         {texto ?? "—"}
       </span>
@@ -117,7 +137,7 @@ export function CelulaAviamento({
 
   if (coluna.key === "fornecedor" && fornecedor) {
     return (
-      <span data-controle="fornecedor" className="block min-w-[11rem]">
+      <span data-controle="fornecedor" className="block min-w-[11rem]" {...invalido}>
         <FornecedorSelect
           empresas={fornecedor.empresas}
           empresaId={fornecedor.empresaId}
@@ -142,6 +162,7 @@ export function CelulaAviamento({
         disabled={desabilitado}
         placeholder="0,00"
         {...gradeProps}
+        {...invalido}
         className={cn("h-8 w-28 text-right tabular-nums", realce)}
         value={(valor as number | null | undefined) ?? ""}
         onChange={(e) => onChange?.(canonicoParaNumero(e.target.value))}
@@ -161,6 +182,7 @@ export function CelulaAviamento({
         <SelectTrigger
           aria-label={ariaLabel}
           data-controle={controle}
+          {...invalido}
           className={cn("h-8 min-w-[9rem]", realce)}
         >
           <SelectValue placeholder="—" />
@@ -194,6 +216,7 @@ export function CelulaAviamento({
               }
             : undefined
         }
+        {...invalido}
         className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", realce)}
         value={(valor as string | null | undefined) ?? ""}
         onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
@@ -209,6 +232,7 @@ export function CelulaAviamento({
       disabled={desabilitado}
       placeholder={placeholder}
       {...gradeProps}
+      {...invalido}
       className={cn("h-8 min-w-[10rem]", realce)}
       value={(valor as string | null | undefined) ?? ""}
       onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}

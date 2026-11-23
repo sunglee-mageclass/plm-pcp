@@ -9,6 +9,7 @@
 // Este arquivo é PURO em React: só `supabase`, texto PT-BR e a ordem do UM Salvar (cabeçalhos primeiro, depois as cores).
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { payloadImportar, type AviamentoNovo } from "./linha-nova";
 
 /** Falha de validação/servidor com texto PT-BR pronto para a linha que não gravou. */
 export class ErroGrade extends Error {
@@ -357,4 +358,54 @@ export function textoResultadoSalvar(r: ResultadoSalvarTudo): {
   const texto = `${partes.join(", ")}.`;
   if (r.erro === 0) return { tom: "sucesso", texto };
   return { tom: r.ok > 0 ? "aviso" : "erro", texto: `${texto} Veja o aviso na linha.` };
+}
+
+// ============================== Aviamento NOVO (criar na grade) ==============================
+
+/** Resposta de `importar_aviamento_linha`. */
+export type RespostaImportarAviamento = {
+  aviamento_id?: string;
+  acao?: "criado" | "complementado" | "so_foto" | "inalterado";
+  variantes_novas?: number;
+};
+
+/**
+ * Grava UM grupo novo pela RPC `importar_aviamento_linha` (atômica: aviamento + cores). Nunca manda `codigo` (o gatilho o gera no
+ * INSERT). Devolve a ação: "criado" (novo), "complementado" (cor nova em aviamento existente — o caso do "+ cor"). "inalterado" =
+ * nada a fazer (a cor/o aviamento já existia): vira erro PT para a linha não parecer salva. Lança `ErroGrade` com texto PT.
+ */
+export async function salvarAviamentoNovo(
+  g: AviamentoNovo,
+): Promise<NonNullable<RespostaImportarAviamento["acao"]>> {
+  const p = payloadImportar(g);
+  const { data, error } = await supabase.rpc("importar_aviamento_linha" as any, p as any);
+  if (error) throw new ErroGrade(mensagemErro(error, "Erro ao criar o aviamento."));
+  const r = (data ?? {}) as RespostaImportarAviamento;
+  if (r.acao === "inalterado") {
+    throw new ErroGrade(
+      g.aviamentoAlvoId
+        ? "Essa cor já existe neste aviamento."
+        : "Esse aviamento e essas cores já existem (mesmo nome e fornecedor).",
+    );
+  }
+  return r.acao ?? "criado";
+}
+
+/**
+ * Texto/tom do toast do Salvar somando os NOVOS aos editados (`criados` entram nos "salvos"; `erros` nos "com erro") e avisando
+ * dos pendentes que não foram enviados. Sem pendentes = exatamente o texto de `textoResultadoSalvar`.
+ */
+export function resultadoComNovos(
+  r: ResultadoSalvarTudo,
+  n: { criados: number; erros: number; pendentes: number },
+): { tom: "sucesso" | "aviso" | "erro"; texto: string } {
+  const total: ResultadoSalvarTudo = { ok: r.ok + n.criados, erro: r.erro + n.erros };
+  const base = textoResultadoSalvar(total);
+  if (n.pendentes <= 0) return base;
+  const aviso =
+    n.pendentes === 1
+      ? "1 linha nova pendente (faltam dados) não foi enviada."
+      : `${n.pendentes} linhas novas pendentes (faltam dados) não foram enviadas.`;
+  if (total.ok + total.erro === 0) return { tom: "aviso", texto: aviso };
+  return { tom: base.tom === "sucesso" ? "aviso" : base.tom, texto: `${base.texto} ${aviso}` };
 }

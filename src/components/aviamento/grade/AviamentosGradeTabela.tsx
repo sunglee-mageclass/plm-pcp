@@ -5,7 +5,8 @@
 // (id = variante.id), ambos no `CardDraftsProvider` da aba. Editar uma célula só faz `patch` no rascunho (selo âmbar quando
 // valor ≠ base). O Salvar (na `AviamentosGradeAba`) chama o `salvar` de cada rascunho sujo — aviamentos primeiro, depois as cores
 // (as cores de um aviamento vão numa só chamada de lote). Cada rascunho se registra aqui por `registrar`.
-// Criar linha nova, colar do Excel e excluir ficam para a AV-3.
+// Também CRIA (linhas NOVAS em rascunho, `AviamentoNovoGrupo`), COLA do Excel (bloco TSV na célula-âncora) e EXCLUI (lixeira única por
+// linha; grava na hora, atrás de confirmação).
 import {
   memo,
   useCallback,
@@ -13,11 +14,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type MouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
 import type { SalvarCtx } from "@/components/shared/card-drafts/CardDraftsProvider";
 import { SortTh, type SortDir } from "@/components/shared/sort";
@@ -50,9 +53,12 @@ import {
   type VarianteDraft,
 } from "@/lib/aviamento-grade/salvar";
 import { cn } from "@/lib/utils";
+import type { AviamentoNovo } from "@/lib/aviamento-grade/linha-nova";
 import type { GradeOpcoes } from "./useAviamentosGrade";
 import { CelulaAviamento, type GradeCelProps } from "./CelulaAviamento";
 import { CelulaFotoVariante } from "./CelulaFotoVariante";
+import { CLASSE_COL_ACOES, LinhasAviamentoNovo, type AtualizarNovo } from "./AviamentoNovoGrupo";
+import { CelulaCorBaseMulti } from "@/components/tecido/grade/CelulaCorBaseMulti";
 
 /** O que cada rascunho entrega ao Salvar: lê o estado MAIS NOVO por ref, no momento de salvar. */
 export type SaverApi =
@@ -60,6 +66,10 @@ export type SaverApi =
       kind: "aviamento";
       dirty: () => boolean;
       salvar: (ctx: CtxSalvar) => Promise<void>;
+      /** Colar do Excel: aplica campos NO RASCUNHO (um `patch` por campo; nada grava). */
+      aplicar: (campos: Record<string, unknown>) => void;
+      /** Valor atual do rascunho (fornecedor/categoria que a colagem precisa conhecer). */
+      ler: () => Record<string, unknown>;
     }
   | {
       kind: "variante";
@@ -68,6 +78,8 @@ export type SaverApi =
       /** Só os campos que a pessoa mexeu (rascunho ≠ base): vão por cima da leitura fresca do servidor no lote. */
       mudancas: () => Partial<VarianteDraft>;
       salvar: (ctx: CtxSalvar) => Promise<void>;
+      aplicar: (campos: Record<string, unknown>) => void;
+      ler: () => Record<string, unknown>;
     };
 /** Registra um rascunho no wrapper do Salvar; devolve o "desregistrar". Precisa ser ESTÁVEL (useCallback) na tela. */
 export type RegistrarSaver = (id: string, api: SaverApi) => () => void;
@@ -140,6 +152,11 @@ function useRascunhoAviamento(
         kind: "aviamento",
         dirty: () => draftRef.current.dirty,
         salvar: (ctx) => draftRef.current.salvar(ctx),
+        aplicar: (campos) => {
+          for (const [k, v] of Object.entries(campos))
+            draftRef.current.patch(k as keyof AviamentoDraft, v as never);
+        },
+        ler: () => ({ ...draftRef.current.valor }),
       }),
     [registrar, aviamento.id],
   );
@@ -220,6 +237,11 @@ function useRascunhoVariante(variante: VarianteEntrada, registrar: RegistrarSave
           return m;
         },
         salvar: (ctx) => draftRef.current.salvar(ctx),
+        aplicar: (campos) => {
+          for (const [k, v] of Object.entries(campos))
+            draftRef.current.patch(k as keyof VarianteDraft, v as never);
+        },
+        ler: () => ({ ...draftRef.current.valor }),
       }),
     [registrar, varianteId, aviamentoId],
   );
@@ -247,6 +269,11 @@ type BaseLinhaProps = {
   aviamento: AviamentoEntrada;
   opcoes: GradeOpcoes;
   readOnly: boolean;
+  /** Avisos da última colagem (chave `<linha>|<coluna>`) e como apagar um (ao editar a célula). */
+  avisos: Record<string, string>;
+  onLimparAviso: (chaveCelula: string) => void;
+  /** Excluir cor / aviamento já cadastrados (grava na hora, com confirmação). */
+  ex: ExcluirAcoes;
   /** Posição GLOBAL desta linha na grade (contínua entre os aviamentos, na ordem da tela): é a "linha" do endereço de teclado. */
   linhaIdx: number;
   propsCel: PropsCelula;
@@ -260,6 +287,12 @@ type PaiProps = BaseLinhaProps & {
   ctxA: AviamentoCtx;
   /** Quantas cores cadastradas o aviamento tem (0 = "sem cores": a linha-pai é a única do aviamento). */
   nCores: number;
+  /** Cores que o aviamento JÁ tem (cadastradas + novas no rascunho): o popover multi-cor as mostra marcadas e travadas. */
+  presentes: readonly string[];
+  /** Cria cores novas no aviamento (multi-cor da linha-pai). */
+  onAdicionarCores: NovosAcoes["onAdicionarCores"];
+  /** Botão "+ cor" (cor nova neste aviamento); some quando já há cor nova pendente. */
+  botaoCor?: ReactNode;
   recolhido: boolean;
   onAlternar: () => void;
   /** Cores recolhidas com edição não salva / erro (só conta quando `recolhido`). */
@@ -275,6 +308,9 @@ type FilhoProps = BaseLinhaProps & {
 
 /** `useGradeTeclado().propsDaCelula`: endereça a célula (`data-grade-cel`) e liga Enter/Tab. */
 type PropsCelula = (linha: number, coluna: number) => GradeCelProps;
+
+/** Chave da célula nos avisos de colagem: `<chave da linha>|<chave da coluna>`. */
+const chaveCelula = (chaveDaLinha: string, colKey: string): string => `${chaveDaLinha}|${colKey}`;
 
 function EstadoLinha({ sujo, erro }: { sujo: boolean; erro: string | null }): ReactNode {
   if (erro) {
@@ -303,6 +339,7 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
   // rótulo estável (nome do servidor): digitar o nome não muda o aria-label do próprio campo
   const nome = nomeDoAviamento(aviamento);
   const ariaLabel = `${col.rotulo} de ${nome}`;
+  const chaveAv = chaveCelula(chaveLinha(aviamento.id, null), col.key);
   const campo = CAMPO_AVIAMENTO[col.key];
   if (!campo) return null;
   const desabilitado = readOnly || !col.editavel;
@@ -313,12 +350,14 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
         coluna={col}
         ariaLabel={ariaLabel}
         sujo={ctxA.sujo("empresa_id") || ctxA.sujo("representante_id")}
+        aviso={c.avisos[chaveAv]}
         desabilitado={desabilitado}
         fornecedor={{
           empresas: empresasParaLinha(opcoes.empresas, ctxA.valor.empresa_id),
           empresaId: ctxA.valor.empresa_id,
           representanteId: ctxA.valor.representante_id,
           onChange: (empresaId, representanteId) => {
+            c.onLimparAviso(chaveAv);
             ctxA.patch("empresa_id", empresaId);
             ctxA.patch("representante_id", representanteId);
           },
@@ -328,6 +367,7 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
   }
 
   const aoMudar = (v: unknown) => {
+    c.onLimparAviso(chaveAv);
     ctxA.patch(campo, v);
     if (col.key === "categoria") {
       // A subcategoria cascateia pela categoria: a que não pertence à nova sai junto.
@@ -347,6 +387,7 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
       valor={ctxA.valor[campo]}
       onChange={aoMudar}
       sujo={ctxA.sujo(campo)}
+      aviso={c.avisos[chaveAv]}
       desabilitado={desabilitado}
       opcoes={opcoesDaColuna(col.key, opcoes, { categoriaId: ctxA.valor.categoria_aviamento_id })}
       placeholder={col.key === "codigo_nome" ? (aviamento.codigo ?? undefined) : undefined}
@@ -355,16 +396,38 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
   );
 }
 
-/** Célula "Cor base" da linha-PAI: quantas cores o aviamento tem (criar cores é da AV-3). */
+/** Célula "Cor base" da linha-PAI: quantas cores o aviamento tem + "+ cor" + a seleção MÚLTIPLA (cada cor marcada vira uma cor nova). */
 function celulaCoresDoPai(c: PaiProps): ReactNode {
+  const resumo = (
+    <>
+      <span
+        className="whitespace-nowrap px-2 text-xs text-muted-foreground"
+        data-resumo-cores
+        title={c.nCores === 0 ? "Aviamento sem cores" : undefined}
+      >
+        {c.nCores === 0 ? "sem cores" : `${c.nCores} ${c.nCores === 1 ? "cor" : "cores"}`}
+      </span>
+      {c.botaoCor}
+    </>
+  );
+  if (c.readOnly) return resumo;
   return (
-    <span
-      className="whitespace-nowrap px-2 text-xs text-muted-foreground"
-      data-resumo-cores
-      title={c.nCores === 0 ? "Aviamento sem cores" : undefined}
+    <CelulaCorBaseMulti
+      cores={c.opcoes.cores}
+      presentes={c.presentes}
+      onAdicionar={(ids) =>
+        c.onAdicionarCores(
+          c.aviamento.id,
+          nomeDoAviamento(c.aviamento),
+          ids,
+          c.ctxA.valor.preco ?? null,
+        )
+      }
+      ariaLabel={`Adicionar várias cores em ${nomeDoAviamento(c.aviamento)}`}
+      entidade="aviamento"
     >
-      {c.nCores === 0 ? "sem cores" : `${c.nCores} ${c.nCores === 1 ? "cor" : "cores"}`}
-    </span>
+      {resumo}
+    </CelulaCorBaseMulti>
   );
 }
 
@@ -372,6 +435,7 @@ function celulaCoresDoPai(c: PaiProps): ReactNode {
 function celulaVariante(col: ColunaGrade, c: FilhoProps) {
   const { ctxV, variante, opcoes, readOnly, aviamento } = c;
   const ariaLabel = `${col.rotulo} da cor de ${nomeDoAviamento(aviamento)}`;
+  const chaveAv = chaveCelula(chaveLinha(aviamento.id, variante.id), col.key);
   if (col.key === "foto")
     return (
       <CelulaFotoVariante
@@ -384,6 +448,7 @@ function celulaVariante(col: ColunaGrade, c: FilhoProps) {
   const campo = CAMPO_VARIANTE[col.key];
   if (!campo) return null;
   const aoMudar = (v: unknown) => {
+    c.onLimparAviso(chaveAv);
     if (col.key === "cor_base") {
       // Mesma regra do Sheet: o apelido que não é da nova cor base sai junto (a RPC recebe os dois no MESMO lote).
       const b = String(v ?? "");
@@ -410,10 +475,72 @@ function celulaVariante(col: ColunaGrade, c: FilhoProps) {
       valor={ctxV.valor[campo]}
       onChange={aoMudar}
       sujo={ctxV.sujo(campo)}
+      aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel}
       opcoes={opcoesDaColuna(col.key, opcoes, { corId: ctxV.valor.cor_id })}
       gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
     />
+  );
+}
+
+/** "Azul (Marinho)" / "Azul" / "sem cor": como a cor é chamada nas confirmações de excluir. */
+function rotuloDaCor(v: VarianteEntrada, opcoes: GradeOpcoes): string {
+  const base = opcoes.cores.find((x) => x.id === v.cor_id)?.nome;
+  const apelido = opcoes.coresApelido.find((x) => x.id === v.cor_apelido_id)?.nome;
+  if (!base && !apelido) return "sem cor";
+  return apelido ? `${base ?? "—"} (${apelido})` : (base ?? "—");
+}
+
+/** Última coluna: UMA lixeira por linha. Na linha-PAI exclui o AVIAMENTO + todas as cores; na linha da cor, só aquela cor.
+ *  Já cadastrado → confirmação + grava na hora. */
+function CelulaAcoes({
+  aviamento,
+  variante,
+  readOnly,
+  ex,
+  opcoes,
+}: {
+  aviamento: AviamentoEntrada;
+  variante: VarianteEntrada | null;
+  readOnly: boolean;
+  ex: ExcluirAcoes;
+  opcoes: GradeOpcoes;
+}) {
+  if (readOnly || ex === SEM_EXCLUIR) return null;
+  // sem `variante` = linha-pai = excluir o aviamento inteiro; com `variante` = excluir só aquela cor.
+  const corRotulo = variante ? rotuloDaCor(variante, opcoes) : "";
+  const nome = nomeDoAviamento(aviamento);
+  const onClick = () =>
+    variante
+      ? ex.onExcluirCor({
+          aviamentoId: aviamento.id,
+          aviamentoNome: nome,
+          varianteId: variante.id,
+          corRotulo,
+        })
+      : ex.onExcluirAviamento({ aviamentoId: aviamento.id, aviamentoNome: nome });
+  return (
+    <span className="flex items-center justify-end">
+      <button
+        type="button"
+        disabled={ex.ocupado}
+        onClick={onClick}
+        aria-label={
+          variante
+            ? `Excluir a cor ${corRotulo} de ${nome}`
+            : `Excluir o aviamento ${nome} e todas as cores`
+        }
+        title={
+          variante
+            ? "Excluir esta cor (pede confirmação)"
+            : "Excluir o aviamento inteiro e todas as cores (pede confirmação)"
+        }
+        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+        data-acao={variante ? "excluir-cor" : "excluir-aviamento"}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </span>
   );
 }
 
@@ -503,6 +630,15 @@ function LinhaPai(props: PaiProps) {
               : null}
         </td>
       ))}
+      <td className={cn(CLASSE_COL_ACOES, "bg-muted")} data-col-acoes>
+        <CelulaAcoes
+          aviamento={aviamento}
+          variante={null}
+          readOnly={props.readOnly}
+          ex={props.ex}
+          opcoes={props.opcoes}
+        />
+      </td>
     </tr>
   );
 }
@@ -543,6 +679,15 @@ function LinhaFilho(props: FilhoProps) {
           ) : null}
         </td>
       ))}
+      <td className={CLASSE_COL_ACOES} data-col-acoes>
+        <CelulaAcoes
+          aviamento={aviamento}
+          variante={variante}
+          readOnly={props.readOnly}
+          ex={props.ex}
+          opcoes={props.opcoes}
+        />
+      </td>
     </tr>
   );
 }
@@ -563,7 +708,72 @@ function LinhaComCor({
   return <LinhaFilho {...resto} variante={variante} ctxV={ctxV} />;
 }
 
-/** Linhas (posições do teclado) que um aviamento ocupa: a linha-pai + uma por cor (aviamento sem cor = só a linha-pai). */
+/** Props do que a tela guarda das linhas NOVAS (rascunho da aba) e das ações sobre elas. */
+export type NovosAcoes = {
+  /** Depois de tentar salvar: os pendentes ficam em vermelho. */
+  mostrarPendencias: boolean;
+  /** Erro do servidor por grupo novo (tmp → mensagem PT-BR). */
+  errosNovos: Record<string, string>;
+  onAtualizarNovo: AtualizarNovo;
+  onRemoverNovo: (tmp: string) => void;
+  /** "+ cor" num aviamento que já existe. */
+  onNovaCor: (aviamentoId: string, nome: string) => void;
+  /** Multi-cor da linha-pai de um aviamento que já existe: cria uma cor nova (com o preço herdado) por cor marcada. */
+  onAdicionarCores: (
+    aviamentoId: string,
+    nome: string,
+    corIds: string[],
+    preco: number | null,
+  ) => void;
+};
+
+/** Excluir o que JÁ está cadastrado: confirma e grava NA HORA (fora do rascunho/Salvar). Recebe a ordem da tela; quem confirma é a Aba. */
+export type ExcluirProps = {
+  onExcluirCor: (a: {
+    aviamentoId: string;
+    aviamentoNome: string;
+    varianteId: string;
+    corRotulo: string;
+  }) => void;
+  onExcluirAviamento: (a: { aviamentoId: string; aviamentoNome: string }) => void;
+  /** Uma exclusão (ou o Salvar) em andamento: os botões ficam travados. */
+  ocupado: boolean;
+};
+type ExcluirAcoes = ExcluirProps;
+export type NovosProps = NovosAcoes & {
+  novos: AviamentoNovo[];
+  onNovoAviamento: () => void;
+};
+
+/** Colar do Excel: avisos da última colagem + o que fazer ao editar a célula / ao colar um bloco. */
+export type ColarProps = {
+  /** Texto que NÃO foi aplicado (chave `<linha>|<coluna>`): a célula fica em laranja tracejado, com o motivo no `title`. */
+  avisos: Record<string, string>;
+  onLimparAviso: (chaveCelula: string) => void;
+  /** Recebe o bloco (texto da área de transferência) e a célula-âncora. `true` = tratou como bloco (o colar normal é cancelado). */
+  onColar: (a: { chaveLinha: string; colKey: string; texto: string }) => boolean;
+};
+
+const SEM_AVISOS: Record<string, string> = {};
+const NADA = () => {};
+
+const SEM_NOVOS: AviamentoNovo[] = [];
+const SEM_ERROS: Record<string, string> = {};
+const SEM_ACOES: NovosAcoes = {
+  mostrarPendencias: false,
+  errosNovos: SEM_ERROS,
+  onAtualizarNovo: () => {},
+  onRemoverNovo: () => {},
+  onNovaCor: () => {},
+  onAdicionarCores: () => {},
+};
+const SEM_EXCLUIR: ExcluirAcoes = {
+  onExcluirCor: () => {},
+  onExcluirAviamento: () => {},
+  ocupado: false,
+};
+
+/** Linhas (posições do teclado) que um aviamento cadastrado ocupa: a linha-pai + uma por cor (aviamento sem cor = só a linha-pai). */
 const nLinhasDoGrupo = (g: Grupo): number => (g.linhas[0]?.variante ? 1 + g.linhas.length : 1);
 
 const GrupoAviamento = memo(function GrupoAviamento({
@@ -571,6 +781,11 @@ const GrupoAviamento = memo(function GrupoAviamento({
   opcoes,
   readOnly,
   registrar,
+  novosAlvo,
+  nv,
+  ex,
+  avisos,
+  onLimparAviso,
   inicio,
   propsCel,
 }: {
@@ -578,9 +793,15 @@ const GrupoAviamento = memo(function GrupoAviamento({
   opcoes: GradeOpcoes;
   readOnly: boolean;
   registrar: RegistrarSaver;
-  /** Posição global da linha-pai deste aviamento (as cores vêm logo depois). */
+  /** Posição global da linha-pai deste aviamento (as cores vêm logo depois; as cores novas dele, depois das cadastradas). */
   inicio: number;
   propsCel: PropsCelula;
+  avisos: Record<string, string>;
+  onLimparAviso: (chaveCelula: string) => void;
+  /** Cores novas deste aviamento (rascunho); entram no fim do mesmo <tbody> e nunca são escondidas pelo recolher. */
+  novosAlvo: AviamentoNovo[];
+  nv: NovosAcoes;
+  ex: ExcluirAcoes;
 }) {
   const { aviamento, linhas } = grupo;
   const ctxA = useRascunhoAviamento(aviamento, registrar);
@@ -612,6 +833,27 @@ const GrupoAviamento = memo(function GrupoAviamento({
   useEffect(() => {
     if (filhosOcultos.erro) setRecolhido(false);
   }, [filhosOcultos.erro]);
+  // cores que o aviamento já tem (cadastradas + novas no rascunho): o multi-cor da linha-pai as mostra marcadas e travadas
+  const presentes = useMemo(
+    () => [
+      ...cores.map((l) => l.variante.cor_id).filter((id): id is string => !!id),
+      ...novosAlvo.flatMap((g) => g.vars.flatMap((v) => (v.cor_id ? [v.cor_id] : []))),
+    ],
+    [cores, novosAlvo],
+  );
+  // "+ cor" (na linha-pai) só some quando já há cor nova pendente neste aviamento (aí o botão "adicionar variante" do grupo faz o papel)
+  const botaoCor =
+    !readOnly && novosAlvo.length === 0 ? (
+      <button
+        type="button"
+        onClick={() => nv.onNovaCor(aviamento.id, nomeDoAviamento(aviamento))}
+        aria-label={`Adicionar cor em ${nomeDoAviamento(aviamento)}`}
+        title="Adicionar cor neste aviamento"
+        className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    ) : undefined;
   return (
     <tbody data-grupo-aviamento={aviamento.id}>
       <LinhaPai
@@ -620,9 +862,15 @@ const GrupoAviamento = memo(function GrupoAviamento({
         opcoes={opcoes}
         readOnly={readOnly}
         nCores={cores.length}
+        presentes={presentes}
+        onAdicionarCores={nv.onAdicionarCores}
+        botaoCor={botaoCor}
         recolhido={recolhido}
         onAlternar={alternar}
         filhosOcultos={filhosOcultos}
+        avisos={avisos}
+        onLimparAviso={onLimparAviso}
+        ex={ex}
         linhaIdx={inicio}
         propsCel={propsCel}
       />
@@ -636,8 +884,30 @@ const GrupoAviamento = memo(function GrupoAviamento({
           registrar={registrar}
           onEstado={reportarFilho}
           oculta={recolhido}
+          avisos={avisos}
+          onLimparAviso={onLimparAviso}
+          ex={ex}
           linhaIdx={inicio + 1 + i}
           propsCel={propsCel}
+        />
+      ))}
+      {novosAlvo.map((g, gi) => (
+        <LinhasAviamentoNovo
+          key={g.tmp}
+          grupo={g}
+          inicio={
+            inicio +
+            nLinhasDoGrupo(grupo) +
+            novosAlvo.slice(0, gi).reduce((n, x) => n + x.vars.length, 0)
+          }
+          propsCel={propsCel}
+          opcoes={opcoes}
+          mostrarPendencias={nv.mostrarPendencias}
+          erro={nv.errosNovos[g.tmp]}
+          onChange={nv.onAtualizarNovo}
+          onRemover={nv.onRemoverNovo}
+          avisos={avisos}
+          onLimparAviso={onLimparAviso}
         />
       ))}
     </tbody>
@@ -656,37 +926,118 @@ export function AviamentosGradeTabela({
   opcoes,
   readOnly,
   registrar,
+  novos: nv,
+  colar,
+  excluir,
   ordenacao,
 }: {
   linhas: LinhaGrade[];
   opcoes: GradeOpcoes;
   readOnly: boolean;
   registrar: RegistrarSaver;
+  /** Linhas novas (rascunho) + ações. Ausente = a grade só edita os existentes. */
+  novos?: NovosProps;
+  /** Colar do Excel. Ausente = colar normal, célula a célula. */
+  colar?: ColarProps;
+  /** Excluir cor/aviamento cadastrados. Ausente = a grade não oferece os botões de excluir. */
+  excluir?: ExcluirProps;
   /** Cabeçalhos clicáveis (ordenar). Ausente = cabeçalhos de texto. */
   ordenacao?: OrdenacaoProps;
 }) {
+  const avisos = colar?.avisos ?? SEM_AVISOS;
+  const onLimparAviso = colar?.onLimparAviso ?? NADA;
+  // Ctrl+V de um BLOCO (TAB/várias linhas) com o foco numa célula: a célula é a âncora. O evento sobe do campo até aqui; valor
+  // simples segue o colar normal do próprio campo.
+  const aoColar = (e: ClipboardEvent<HTMLDivElement>) => {
+    if (!colar || readOnly) return;
+    const alvo = e.target as HTMLElement | null;
+    const td = alvo?.closest?.("td[data-col]") as HTMLElement | null;
+    const tr = td?.closest("tr[data-slot]") as HTMLElement | null;
+    if (!td || !tr) return;
+    const texto = e.clipboardData?.getData("text/plain") ?? "";
+    if (!/[\t\r\n"]/.test(texto)) return;
+    if (colar.onColar({ chaveLinha: tr.dataset.slot ?? "", colKey: td.dataset.col ?? "", texto }))
+      e.preventDefault();
+  };
   const grupos = useMemo(() => agruparLinhasPorAviamento(linhas), [linhas]);
-  // Teclado (Enter desce / Tab ao lado): a "linha" é a posição GLOBAL na ordem da tela (cada aviamento: a linha-pai e suas cores);
-  // a "coluna" é a posição em COLUNAS_AVIAMENTO.
-  const { inicios, nLinhas } = useMemo(() => {
+  // cores novas de aviamento existente entram no <tbody> do aviamento; aviamento novo ganha <tbody> próprio, no fim
+  const { porAviamento, aviamentosNovos } = useMemo(() => {
+    const mapa = new Map<string, AviamentoNovo[]>();
+    const soNovos: AviamentoNovo[] = [];
+    for (const g of nv?.novos ?? SEM_NOVOS) {
+      if (g.aviamentoAlvoId)
+        (
+          mapa.get(g.aviamentoAlvoId) ?? mapa.set(g.aviamentoAlvoId, []).get(g.aviamentoAlvoId)!
+        ).push(g);
+      else soNovos.push(g);
+    }
+    return { porAviamento: mapa, aviamentosNovos: soNovos };
+  }, [nv?.novos]);
+  // Teclado (Enter desce / Tab ao lado): a "linha" é a posição GLOBAL na ordem da tela (cada aviamento: a linha-pai, suas cores
+  // cadastradas, as cores novas dele; por fim os aviamentos novos) = a mesma ordem de `montarSlots`; a "coluna" é a posição em
+  // COLUNAS_AVIAMENTO.
+  const { inicios, inicioDosNovos, nLinhas } = useMemo(() => {
     let n = 0;
     const ini: number[] = [];
     for (const g of grupos) {
       ini.push(n);
-      n += nLinhasDoGrupo(g);
+      n +=
+        nLinhasDoGrupo(g) +
+        (porAviamento.get(g.aviamentoId) ?? SEM_NOVOS).reduce((t, x) => t + x.vars.length, 0);
     }
-    return { inicios: ini, nLinhas: n };
-  }, [grupos]);
+    const iniNovos: number[] = [];
+    for (const g of aviamentosNovos) {
+      iniNovos.push(n);
+      n += g.vars.length;
+    }
+    return { inicios: ini, inicioDosNovos: iniNovos, nLinhas: n };
+  }, [grupos, porAviamento, aviamentosNovos]);
   const { gridRef, propsDaCelula } = useGradeTeclado({
     nLinhas,
     nColunas: COLUNAS_AVIAMENTO.length,
   });
+  // ações ESTÁVEIS por referência (o `memo` do GrupoAviamento não re-renderiza todos os aviamentos a cada tecla numa linha nova)
+  const acoes = useMemo<NovosAcoes>(
+    () =>
+      nv
+        ? {
+            mostrarPendencias: nv.mostrarPendencias,
+            errosNovos: nv.errosNovos,
+            onAtualizarNovo: nv.onAtualizarNovo,
+            onRemoverNovo: nv.onRemoverNovo,
+            onNovaCor: nv.onNovaCor,
+            onAdicionarCores: nv.onAdicionarCores,
+          }
+        : SEM_ACOES,
+    // deps por campo (e não `nv`): o objeto `nv` é novo a cada render da Aba e desfaria o `memo` dos grupos
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      nv?.mostrarPendencias,
+      nv?.errosNovos,
+      nv?.onAtualizarNovo,
+      nv?.onRemoverNovo,
+      nv?.onNovaCor,
+      nv?.onAdicionarCores,
+    ],
+  );
+  const ex = useMemo<ExcluirAcoes>(
+    () =>
+      excluir
+        ? {
+            onExcluirCor: excluir.onExcluirCor,
+            onExcluirAviamento: excluir.onExcluirAviamento,
+            ocupado: excluir.ocupado,
+          }
+        : SEM_EXCLUIR,
+    [excluir?.onExcluirCor, excluir?.onExcluirAviamento, excluir?.ocupado], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   return (
     <div className="space-y-2">
       <div
         ref={gridRef as RefObject<HTMLDivElement>}
         className="scroll-x-visivel max-h-[calc(100vh-16rem)] max-w-full overflow-y-auto rounded-md border"
         data-testid="aviamentos-grade-tabela"
+        onPaste={aoColar}
       >
         <table className="w-full min-w-max border-collapse text-sm">
           <thead className="sticky top-0 z-20 bg-muted text-left text-xs text-muted-foreground">
@@ -714,6 +1065,9 @@ export function AviamentosGradeTabela({
                   </th>
                 );
               })}
+              <th className="bg-muted px-2 py-2">
+                <span className="sr-only">Ações</span>
+              </th>
             </tr>
           </thead>
           {grupos.map((g, gi) => (
@@ -725,10 +1079,36 @@ export function AviamentosGradeTabela({
               opcoes={opcoes}
               readOnly={readOnly}
               registrar={registrar}
+              novosAlvo={porAviamento.get(g.aviamentoId) ?? SEM_NOVOS}
+              nv={acoes}
+              ex={ex}
+              avisos={avisos}
+              onLimparAviso={onLimparAviso}
             />
+          ))}
+          {aviamentosNovos.map((g, gi) => (
+            <tbody key={g.tmp} data-grupo-novo={g.tmp}>
+              <LinhasAviamentoNovo
+                grupo={g}
+                inicio={inicioDosNovos[gi]}
+                propsCel={propsDaCelula}
+                opcoes={opcoes}
+                mostrarPendencias={acoes.mostrarPendencias}
+                erro={acoes.errosNovos[g.tmp]}
+                onChange={acoes.onAtualizarNovo}
+                onRemover={acoes.onRemoverNovo}
+                avisos={avisos}
+                onLimparAviso={onLimparAviso}
+              />
+            </tbody>
           ))}
         </table>
       </div>
+      {nv && !readOnly && (
+        <Button type="button" variant="outline" size="sm" onClick={nv.onNovoAviamento}>
+          <Plus className="mr-1 h-4 w-4" /> Novo aviamento
+        </Button>
+      )}
     </div>
   );
 }
