@@ -3,6 +3,7 @@
 // o selo âmbar (`sujo`) vem de `valor ≠ base`. Foto é só leitura por ora (a Task 9 liga a edição).
 import { ChevronsUpDown, Image as ImageIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -110,7 +111,23 @@ export function CelulaTecido({
     );
   }
 
-  // texto
+  // texto longo (Composição pode ter várias linhas: "95% Viscose\n5% Elastano") → textarea que
+  // preserva as quebras; sem ele o <input> de 1 linha cola tudo sem espaçamento.
+  if (coluna.key === "composicao") {
+    return (
+      <Textarea
+        aria-label={ariaLabel}
+        data-controle="textarea"
+        disabled={desabilitado}
+        rows={2}
+        className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", sujo && REALCE_SUJO)}
+        value={(valor as string | null | undefined) ?? ""}
+        onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
+      />
+    );
+  }
+
+  // texto (linha única)
   return (
     <Input
       aria-label={ariaLabel}
