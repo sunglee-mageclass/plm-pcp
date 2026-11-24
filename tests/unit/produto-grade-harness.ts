@@ -31,6 +31,8 @@ export const estado = {
   relidoPorId: new Map<string, Linha | null>(),
   /** produto excluído por outra pessoa (a releitura devolve null) */
   falhaReleitura: false,
+  /** PR-GRADE-1: linhas de tabelas EXTRAS (modelo_grades, modelo_tecidos…) — filtradas pelos `.eq` e devolvidas no `maybeSingle` como 1ª linha ou null. */
+  extra: {} as Record<string, Linha[]>,
 };
 export const chamadas: { tabela: string; select?: string; eqs: Record<string, unknown> }[] = [];
 /** UPDATEs recebidos em `modelos` (na ordem). */
@@ -96,6 +98,12 @@ function chain(t: string) {
           : estado.modelos.find((x) => x.id === id);
         return res({ data: fresco ? { ...fresco } : null, error: null });
       }
+      if (estado.extra[t]) {
+        const filtradas = estado.extra[t]
+          .filter((r) => Object.entries(reg.eqs).every(([k, v]) => r[k] === v))
+          .map((r) => ({ ...r }));
+        return res({ data: unico ? (filtradas[0] ?? null) : filtradas, error: null });
+      }
       const dados: Record<string, any[]> = {
         modelos: estado.modelos.map((m) => ({ ...m })),
         colaboradores: [{ id: "est1", nome: "Ana" }],
@@ -158,6 +166,7 @@ export function resetar() {
   estado.erroUpdate = new Map();
   estado.relidoPorId = new Map();
   estado.falhaReleitura = false;
+  estado.extra = {};
   chamadas.length = 0;
   updates.length = 0;
   rpc.mockReset();

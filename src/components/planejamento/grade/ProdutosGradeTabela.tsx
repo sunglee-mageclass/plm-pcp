@@ -1,4 +1,5 @@
-// Tabela da grade "Lista tipo Excel" do Planejamento de Produto: 1 linha por MODELO (tabela PLANA — sem pai/filhos, sem recolher).
+// Tabela da grade "Lista tipo Excel" do Planejamento de Produto: 1 linha por MODELO. PR-GRADE-1: cada modelo é EXPANSÍVEL (chevron, nasce
+// RECOLHIDO) e, aberto, mostra as cores + a matriz cor × tamanho em SÓ-LEITURA (`ProdutoLinhaExpandida`; a grade só é carregada ao expandir).
 // ⚠️ `modelos` é a tabela mais crítica do sistema. Por isso:
 //  - STAGING: cada modelo tem um rascunho (`useCardDraft`, id = modelo.id) no `CardDraftsProvider` da Aba; editar só faz `patch`
 //    (selo âmbar quando valor ≠ base). NADA grava antes do Salvar (na `ProdutosGradeAba`);
@@ -18,7 +19,7 @@ import {
   type MutableRefObject,
   type RefObject,
 } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
 import { SortTh, type SortDir } from "@/components/shared/sort";
@@ -58,6 +59,7 @@ import {
   type EstadoModeloIntegracao,
 } from "@/lib/integracao/trava";
 import { CelulaProduto, type GradeCelProps, type ModoCelula } from "./CelulaProduto";
+import { ProdutoLinhaExpandida } from "./ProdutoLinhaExpandida";
 import type { GradeOpcoesProduto } from "./useProdutosGrade";
 
 /** O que cada linha precisa do Salvar da Aba (tudo por REF: lido no instante de salvar, nunca a closure do render). */
@@ -321,6 +323,10 @@ const CorpoLinhaProduto = memo(function CorpoLinhaProduto({
   const produto = { origem: modelo.origem, enviado_cad: modelo.enviado_cad };
   const acessorio = categoriaEhAcessorio(g.opcoes, valor.categoria_principal_id);
   const nomeAria = modelo.nome?.trim() || "(sem nome)";
+  // PR-GRADE-1 — expandir/recolher (nasce recolhido; estado local da linha: ordenar/filtrar não o perde porque a `key` é o modelo).
+  const [aberto, setAberto] = useState(false);
+  // A grade lida é a SALVA: o grupo vem da categoria SALVA do modelo (não do rascunho).
+  const acessorioSalvo = categoriaEhAcessorio(g.opcoes, modelo.categoria_principal_id);
   const ariaDe = (col: ColunaProduto) => `${col.rotulo} de ${nomeAria}`;
 
   const celula = (col: ColunaProduto, colIdx: number) => {
@@ -503,20 +509,44 @@ const CorpoLinhaProduto = memo(function CorpoLinhaProduto({
   };
 
   return (
-    <tr className="border-t align-middle" data-modelo-id={modelo.id} data-slot={linha.chave}>
-      <td className={cn(CLASSE_COL_ESTADO, "bg-background")}>
-        <EstadoLinha sujo={dirty} erro={erro} />
-      </td>
-      {g.colunas.map((col, i) => (
-        <td
-          key={col.key}
-          className={cn("px-1.5 py-1.5", i === 0 && cn(CLASSE_COL_NOME, "bg-background"))}
-          data-col={col.key}
-        >
-          {celula(col, i)}
+    <>
+      <tr className="border-t align-middle" data-modelo-id={modelo.id} data-slot={linha.chave}>
+        <td className={cn(CLASSE_COL_ESTADO, "bg-background")}>
+          <div className="flex items-center justify-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => setAberto((v) => !v)}
+              aria-expanded={aberto}
+              aria-label={`${aberto ? "Recolher" : "Expandir"} a grade de tamanhos de ${nomeAria}`}
+              data-expandir-grade
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {aberto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            <EstadoLinha sujo={dirty} erro={erro} />
+          </div>
         </td>
-      ))}
-    </tr>
+        {g.colunas.map((col, i) => (
+          <td
+            key={col.key}
+            className={cn("px-1.5 py-1.5", i === 0 && cn(CLASSE_COL_NOME, "bg-background"))}
+            data-col={col.key}
+          >
+            {celula(col, i)}
+          </td>
+        ))}
+      </tr>
+      {aberto && (
+        <tr data-grade-expandida-de={modelo.id} className="bg-muted/20">
+          <td colSpan={g.colunas.length + 1} className="p-0">
+            {/* sticky: a matriz fica à vista mesmo com a tabela rolada para o lado */}
+            <div className="sticky left-0 max-w-[min(72rem,calc(100vw-6rem))]">
+              <ProdutoLinhaExpandida modelo={modelo} acessorio={acessorioSalvo} />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 });
 
