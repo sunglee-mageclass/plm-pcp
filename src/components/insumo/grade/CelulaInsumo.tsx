@@ -40,8 +40,10 @@ import {
 /** Realce âmbar da célula com alteração ainda não salva (o mesmo "selo âmbar" do resto do sistema). */
 const REALCE_SUJO = "border-amber-500 bg-amber-50 dark:bg-amber-500/10";
 
-/** Realce vermelho da célula com problema (cor repetida). */
+/** Realce vermelho da célula com problema (cor repetida, nome que falta). */
 const REALCE_ERRO = "border-destructive bg-destructive/10";
+/** Realce laranja tracejado do aviso de COLAGEM: o texto colado não casou com o cadastro (ou com a regra) e NÃO foi aplicado. */
+const REALCE_AVISO = "border-dashed border-orange-500 bg-orange-50 dark:bg-orange-500/10";
 
 /** Fornecedor = o PAR (empresa, representante): o `FornecedorSelect` grava os dois. */
 export type FornecedorCelula = {
@@ -78,6 +80,8 @@ export type CelulaInsumoProps = {
   dica?: string;
   /** Problema desta célula (ex.: cor repetida no insumo): fica em vermelho, com o motivo no `title`. */
   erro?: string;
+  /** Aviso da última COLAGEM (o texto colado não foi aplicado): laranja tracejado, com o motivo no `title`. */
+  aviso?: string;
   /** Coluna Fornecedor. */
   fornecedor?: FornecedorCelula;
   /** Navegação por teclado. Só vale nos campos de digitação (texto/número); Select e popover ficam de fora. */
@@ -96,13 +100,18 @@ export function CelulaInsumo({
   texto,
   dica,
   erro,
+  aviso,
   fornecedor,
   gradeProps,
 }: CelulaInsumoProps) {
   const controle = controleDaCelula(coluna);
-  // erro (vermelho) vence o selo âmbar; o `title` explica o motivo
-  const realce = erro ? REALCE_ERRO : sujo ? REALCE_SUJO : undefined;
-  const invalido = erro ? { "aria-invalid": true as const, title: erro } : {};
+  // erro (vermelho) vence o aviso de colagem (laranja), que vence o selo âmbar; o `title` explica o motivo
+  const realce = erro ? REALCE_ERRO : aviso ? REALCE_AVISO : sujo ? REALCE_SUJO : undefined;
+  const invalido = erro
+    ? { "aria-invalid": true as const, title: erro }
+    : aviso
+      ? { title: aviso, "data-aviso-colar": "" }
+      : {};
 
   if (controle === "somente-leitura") {
     return (
@@ -125,7 +134,8 @@ export function CelulaInsumo({
         sujo={sujo}
         desabilitado={desabilitado}
         ariaLabel={ariaLabel}
-        dica={dica}
+        dica={erro ?? aviso ?? dica}
+        realce={realce}
       />
     );
   }
@@ -145,6 +155,7 @@ export function CelulaInsumo({
           <SelectTrigger
             aria-label={ariaLabel}
             data-controle={controle}
+            {...invalido}
             className={cn("h-8 min-w-[9rem]", realce)}
           >
             <SelectValue placeholder="—" />
@@ -164,7 +175,7 @@ export function CelulaInsumo({
 
   if (coluna.key === "fornecedor" && fornecedor) {
     return (
-      <span data-controle="fornecedor" className="block min-w-[11rem]">
+      <span data-controle="fornecedor" className="block min-w-[11rem]" {...invalido}>
         <FornecedorSelect
           empresas={fornecedor.empresas}
           empresaId={fornecedor.empresaId}
@@ -189,6 +200,7 @@ export function CelulaInsumo({
         disabled={desabilitado}
         placeholder="0,00"
         {...gradeProps}
+        {...invalido}
         className={cn("h-8 w-28 text-right tabular-nums", realce)}
         value={(valor as number | null | undefined) ?? ""}
         onChange={(e) => onChange?.(canonicoParaNumero(e.target.value))}
@@ -234,6 +246,7 @@ export function CelulaInsumo({
         disabled={desabilitado}
         rows={2}
         {...gradeProps}
+        {...invalido}
         // Enter aqui QUEBRA a linha (não desce). Tab (e Shift+Tab) seguem a navegação da grade.
         onKeyDown={
           gradeProps
@@ -256,6 +269,7 @@ export function CelulaInsumo({
       data-controle="input"
       disabled={desabilitado}
       {...gradeProps}
+      {...invalido}
       className={cn("h-8 min-w-[10rem]", realce)}
       value={(valor as string | null | undefined) ?? ""}
       onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
@@ -275,6 +289,7 @@ function CelulaTamanhos({
   desabilitado,
   ariaLabel,
   dica,
+  realce,
 }: {
   marcados: readonly string[];
   tamanhosGrade: readonly string[];
@@ -283,6 +298,8 @@ function CelulaTamanhos({
   desabilitado: boolean;
   ariaLabel: string;
   dica?: string;
+  /** Realce de erro/aviso (vence o selo âmbar). */
+  realce?: string;
 }) {
   const opcoes = opcoesDeTamanho(tamanhosGrade, marcados);
   const resumo = resumoTamanhos(marcados, rotuloTamanho);
@@ -296,7 +313,10 @@ function CelulaTamanhos({
           aria-label={ariaLabel}
           data-controle="tamanhos"
           title={dica ?? (resumo || undefined)}
-          className={cn("h-8 w-52 justify-between px-2 font-normal", sujo && REALCE_SUJO)}
+          className={cn(
+            "h-8 w-52 justify-between px-2 font-normal",
+            realce ?? (sujo ? REALCE_SUJO : undefined),
+          )}
         >
           <span className="truncate text-left">
             {desabilitado ? (

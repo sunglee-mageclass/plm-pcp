@@ -52,12 +52,21 @@ export const estado = {
   varianteEmUso: new Set<string>(),
   /** erro do PRÓXIMO INSERT de variantes (consumido uma vez) */
   falhaInsertVariantes: null as null | { code?: string; message: string },
+  /** erro devolvido por `importar_insumo_linha` */
+  erroImportar: null as null | { code?: string; message: string },
+  /** insumos cujo DELETE falha com 23503 (em uso) */
+  emUso: new Set<string>(),
+  /** insumos cujo DELETE não apaga nada (já excluído por outra pessoa) */
+  jaExcluido: new Set<string>(),
 };
 /** Ordem das escritas no banco simulado. */
 export const ops: string[] = [];
 export const updates: Array<{ id: unknown; payload: Linha }> = [];
 export const deletesVariantes: unknown[] = [];
 export const insertsVariantes: Array<{ etiquetaId: unknown; linhas: Linha[] }> = [];
+/** DELETEs diretos em `etiquetas` (excluir o insumo inteiro). */
+export const etiquetaDeletes: Array<{ id: unknown }> = [];
+export const rpc = vi.fn();
 export const toast = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
 
 function chain(t: string) {
@@ -105,6 +114,20 @@ function chain(t: string) {
         ops.push(`etiquetas.update:${id}`);
         updates.push({ id, payload });
         Object.assign(estado.etiquetas.find((x) => x.id === id)!, payload);
+        return res({ data: [{ id }], error: null });
+      }
+      if (t === "etiquetas" && op === "delete") {
+        const id = eqs.id as string;
+        if (estado.emUso.has(id))
+          return res({
+            data: null,
+            error: { code: "23503", message: "violates foreign key constraint", details: "" },
+          });
+        etiquetaDeletes.push({ id });
+        if (estado.jaExcluido.has(id)) return res({ data: [], error: null });
+        ops.push(`etiquetas.delete:${id}`);
+        estado.etiquetas = estado.etiquetas.filter((x) => x.id !== id);
+        estado.variantes = estado.variantes.filter((v) => v.etiqueta_id !== id);
         return res({ data: [{ id }], error: null });
       }
       if (t === "variantes_etiqueta" && op === "delete") {
@@ -182,7 +205,7 @@ export function mocks() {
   vi.doMock("@/integrations/supabase/client", () => ({
     supabase: {
       from: (t: string) => chain(t),
-      rpc: vi.fn(async () => ({ data: null, error: null })),
+      rpc: (...a: unknown[]) => rpc(...a),
       channel: () => ({
         on: () => ({ subscribe: () => ({}) }),
         subscribe: () => ({}),
@@ -255,6 +278,49 @@ export function resetar() {
   estado.sumiu = new Set();
   estado.varianteEmUso = new Set();
   estado.falhaInsertVariantes = null;
+  estado.erroImportar = null;
+  estado.emUso = new Set();
+  estado.jaExcluido = new Set();
+  etiquetaDeletes.length = 0;
+  rpc.mockReset();
+  // `importar_insumo_linha` em memória: cria o insumo (ou acrescenta as variantes que faltam ao alvo) como a RPC de verdade
+  rpc.mockImplementation(async (nome: string, args: any) => {
+    if (nome !== "importar_insumo_linha") return { data: null, error: null };
+    if (estado.erroImportar) return { data: null, error: estado.erroImportar };
+    const alvo = args._etiqueta_alvo_id as string | null;
+    const cab = args._cabecalho as Linha;
+    let id = alvo;
+    let acao = "complementado";
+    if (!id) {
+      const nomeNorm = String(cab.nome).trim().toLowerCase();
+      const ja = estado.etiquetas.find((e) => String(e.nome).trim().toLowerCase() === nomeNorm);
+      if (ja) id = ja.id;
+      else {
+        id = `N${estado.etiquetas.length + 1}`;
+        estado.etiquetas.push(insumo(id, { ...cab }));
+        acao = "criado";
+      }
+    }
+    let novas = 0;
+    for (const v of args._variantes as Linha[]) {
+      const existe = estado.variantes.some(
+        (x) =>
+          x.etiqueta_id === id &&
+          (x.cor_id ?? null) === (v.cor_id ?? null) &&
+          (x.tamanho ?? null) === (v.tamanho ?? null),
+      );
+      if (existe) continue;
+      estado.variantes.push(
+        variante(`nv${estado.variantes.length + 1}`, id!, v.cor_id ?? null, v.tamanho ?? null, {
+          preco: v.preco ?? null,
+        }),
+      );
+      novas++;
+    }
+    if (acao !== "criado") acao = novas > 0 ? "complementado" : "inalterado";
+    ops.push(`rpc:importar:${alvo ?? "novo"}`);
+    return { data: { etiqueta_id: id, acao, variantes_novas: novas }, error: null };
+  });
   ops.length = 0;
   updates.length = 0;
   deletesVariantes.length = 0;

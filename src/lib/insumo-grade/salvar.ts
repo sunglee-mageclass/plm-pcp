@@ -29,8 +29,17 @@ export class ErroGrade extends Error {
 
 // ============================== Rascunho do INSUMO ==============================
 
-/** Linha de COR no rascunho. `cor_id === ""` = "sem cor" (o Salvar grava `cor_id || null`). `tamanhos` = chaves "num|sigla". */
-export type BlocoDraft = { cor_id: string; preco: number | null; tamanhos: string[] };
+/**
+ * Linha de COR no rascunho. `cor_id === ""` = "sem cor" (o Salvar grava `cor_id || null`). `tamanhos` = chaves "num|sigla".
+ * `removido` = a lixeira da cor: ela some da tela e o Salvar regrava as cores SEM ela (a posição no rascunho não muda, para as
+ * demais linhas continuarem apontando para o bloco certo).
+ */
+export type BlocoDraft = {
+  cor_id: string;
+  preco: number | null;
+  tamanhos: string[];
+  removido?: boolean;
+};
 
 /**
  * Rascunho do INSUMO na grade: o cabeçalho (nomes = colunas de `etiquetas`) + as cores. `vincular` é o "switch" do tamanho vinculado
@@ -102,12 +111,17 @@ export function insumoParaDraft(
   };
 }
 
-/** Formato "nenhum" = insumo sem tamanho: as cores valem SEM tamanho (o Salvar grava tamanho null), sem perder a marcação do rascunho. */
+/**
+ * O que o Salvar grava das cores: as que NÃO foram removidas (lixeira). Formato "nenhum" = insumo sem tamanho: as cores valem SEM
+ * tamanho (o Salvar grava tamanho null), sem perder a marcação do rascunho.
+ */
 export function blocosEfetivos(
   formato: string | null | undefined,
   blocos: readonly BlocoDraft[],
 ): BlocoDraft[] {
-  return blocos.map((b) => (formato === "nenhum" ? { ...b, tamanhos: [] } : b));
+  return blocos
+    .filter((b) => !b.removido)
+    .map((b) => (formato === "nenhum" ? { ...b, tamanhos: [] } : b));
 }
 
 /** Cada cor vira N variantes (1 por tamanho marcado; sem tamanho = 1 variante só da cor; cor "" = `cor_id` null). */
@@ -123,10 +137,11 @@ export function expandirBlocos(
   );
 }
 
-/** Há cor repetida em 2 linhas? (a cor "sem cor" também não pode repetir: o índice único da variante não deixaria). */
+/** Há cor repetida em 2 linhas? (a cor "sem cor" também não pode repetir: o índice único da variante não deixaria). Cor removida não conta. */
 export function temCorRepetida(blocos: readonly BlocoDraft[]): boolean {
   const vistas = new Set<string>();
   for (const b of blocos) {
+    if (b.removido) continue;
     if (vistas.has(b.cor_id)) return true;
     vistas.add(b.cor_id);
   }
@@ -331,4 +346,80 @@ export function textoResultadoSalvar(r: ResultadoSalvarTudo): {
   const texto = `${partes.join(", ")}.`;
   if (r.erro === 0) return { tom: "sucesso", texto };
   return { tom: r.ok > 0 ? "aviso" : "erro", texto: `${texto} Veja o aviso na linha.` };
+}
+
+// ============================== Insumo NOVO (criar na grade) ==============================
+
+/** Payload EXATO de `importar_insumo_linha` (a mesma RPC da importação por planilha; ver `linha-nova.ts`). */
+export type PayloadImportarInsumo = {
+  _cabecalho: Record<string, unknown>;
+  _variantes: { tamanho: string | null; cor_id: string | null; preco: number | null }[];
+  _etiqueta_alvo_id: string | null;
+};
+
+/** Resposta de `importar_insumo_linha`. */
+export type RespostaImportarInsumo = {
+  etiqueta_id?: string;
+  acao?: "criado" | "complementado" | "inalterado";
+  variantes_novas?: number;
+};
+
+export type ResultadoInsumoNovo = {
+  acao: "criado" | "complementado";
+  etiquetaId: string | null;
+  /** O insumo foi criado, mas o tamanho vinculado não gravou (a RPC não leva esse campo): texto PT para avisar. */
+  avisoVinculo?: string;
+};
+
+/**
+ * Grava UM grupo novo pela RPC `importar_insumo_linha` (atômica: insumo + cores expandidas por cor × tamanho). A RPC não conhece
+ * `tamanho_vinculado`: com `vinculo` num insumo CRIADO, grava-o logo depois por UPDATE direto (como o Salvar do insumo existente); se
+ * esse passo falha o insumo continua criado e o aviso sobe para o toast. "inalterado" = nada a fazer (a cor já existia): vira erro PT
+ * para a linha não parecer salva. Lança `ErroGrade` com texto PT.
+ */
+export async function salvarInsumoNovo(
+  p: PayloadImportarInsumo,
+  vinculo: string | null = null,
+): Promise<ResultadoInsumoNovo> {
+  const { data, error } = await supabase.rpc("importar_insumo_linha" as any, p as any);
+  if (error) throw new ErroGrade(mensagemSalvarInsumo(error));
+  const r = (data ?? {}) as RespostaImportarInsumo;
+  if (r.acao === "inalterado") {
+    throw new ErroGrade(
+      p._etiqueta_alvo_id
+        ? "Essa cor (com esses tamanhos) já existe neste insumo."
+        : "Esse insumo e essas cores já existem (mesmo nome).",
+    );
+  }
+  const acao = r.acao === "complementado" ? "complementado" : "criado";
+  const etiquetaId = r.etiqueta_id ?? null;
+  const resultado: ResultadoInsumoNovo = { acao, etiquetaId };
+  if (vinculo && acao === "criado" && etiquetaId) {
+    try {
+      await atualizarInsumo(etiquetaId, { tamanho_vinculado: vinculo });
+    } catch {
+      resultado.avisoVinculo =
+        "o tamanho vinculado não gravou: ajuste na linha do insumo e salve de novo";
+    }
+  }
+  return resultado;
+}
+
+/**
+ * Texto/tom do toast do Salvar somando os NOVOS aos editados (`criados` entram nos "salvos"; `erros` nos "com erro") e avisando
+ * dos pendentes que não foram enviados. Sem pendentes = exatamente o texto de `textoResultadoSalvar`.
+ */
+export function resultadoComNovos(
+  r: ResultadoSalvarTudo,
+  n: { criados: number; erros: number; pendentes: number },
+): { tom: "sucesso" | "aviso" | "erro"; texto: string } {
+  const total: ResultadoSalvarTudo = { ok: r.ok + n.criados, erro: r.erro + n.erros };
+  const base = textoResultadoSalvar(total);
+  if (n.pendentes <= 0) return base;
+  const aviso =
+    n.pendentes === 1
+      ? "1 linha nova pendente (faltam dados) não foi enviada."
+      : `${n.pendentes} linhas novas pendentes (faltam dados) não foram enviadas.`;
+  if (total.ok + total.erro === 0) return { tom: "aviso", texto: aviso };
+  return { tom: base.tom === "sucesso" ? "aviso" : base.tom, texto: `${base.texto} ${aviso}` };
 }

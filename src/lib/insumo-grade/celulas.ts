@@ -160,11 +160,12 @@ function mesmosTamanhos(a: readonly string[], b: readonly string[]): boolean {
   return b.every((t) => s.has(t));
 }
 
-/** Dois blocos de cor iguais (cor, preço e CONJUNTO de tamanhos). */
+/** Dois blocos de cor iguais (cor, preço, CONJUNTO de tamanhos e "removida"). */
 export function blocoIgual(a: BlocoDraft | undefined, b: BlocoDraft | undefined): boolean {
   if (!a || !b) return a === b;
   return (
     a.cor_id === b.cor_id &&
+    !!a.removido === !!b.removido &&
     Object.is(a.preco ?? null, b.preco ?? null) &&
     mesmosTamanhos(a.tamanhos, b.tamanhos)
   );

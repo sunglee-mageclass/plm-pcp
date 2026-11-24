@@ -54,8 +54,8 @@ describe("InsumosGradeAba: estrutura pai/filhos recolhível", () => {
     expect(porLabel(trs[1], "Tamanhos da cor de Insumo E1")).toHaveLength(1);
     expect(porLabel(trs[1], "Preço da cor da cor de Insumo E1")).toHaveLength(1);
     expect(trs[3].textContent).toContain("sem cores");
-    // estado + as 11 colunas do catálogo
-    expect(t.container.querySelectorAll("thead th").length).toBe(1 + 11);
+    // estado + as 11 colunas do catálogo + Ações
+    expect(t.container.querySelectorAll("thead th").length).toBe(1 + 11 + 1);
     await t.desmontar();
   });
 
