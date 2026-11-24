@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
+import { useIntegracaoEstadosCarregados } from "@/hooks/useIntegracaoEstado";
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { buscarTodas } from "@/lib/buscar-todas";
@@ -31,7 +31,7 @@ import type { ModeloGradeEntrada } from "@/lib/produto-grade/linhas";
  * são as MESMAS queries do card e do Sheet (cache compartilhado, sem refetch duplo; lançam, mas o hook delas devolve só `data`).
  */
 
-const SELECT_MODELOS =
+export const SELECT_MODELOS =
   "id, rev, nome, ref, estilista_id, linha_id, colecao, colecao_id, colecoes(nome), subcolecao, semana, mes_id, ano_id, " +
   "categoria_principal_id, subcategoria1_id, subcategoria2_id, status_planejamento, status_desenvolvimento, ordem_criacao_enviada, " +
   "enviado_cad, versao, origem, descricao_produto, ncm, titulo_pagina, peso_kg, comprimento_cm, largura_cm, altura_cm, " +
@@ -44,7 +44,13 @@ export const OPCOES_TAMANHO_TIPO: Opt[] = [
   { id: "numero", nome: "Número" },
 ];
 
-export type OpcaoColecao = { id: string; nome: string };
+/** Coleção do OTB; mês/ano são os da coleção (o Sheet preenche Mês/Ano do card com eles quando vazios). */
+export type OpcaoColecao = {
+  id: string;
+  nome: string;
+  mes_id?: string | null;
+  ano_id?: string | null;
+};
 /** Subcoleções por coleção (id da coleção do OTB → nomes, na ordem do OTB). Só com o módulo OTB ligado. */
 export type SubcolecoesPorColecao = Map<string, string[]>;
 
@@ -66,6 +72,26 @@ export type GradeOpcoesProduto = {
   tamanhoTipos: Opt[];
 };
 
+/** Linha crua do PostgREST → `ModeloGradeEntrada`: `colecao_rotulo` = nome da coleção do OTB, senão o texto livre (regra única,
+ *  `colecao-rotulo.ts`); `colecao` fica CRU p/ gravar e o embed não segue adiante. */
+export function paraModeloGrade({ colecoes, ...m }: any): ModeloGradeEntrada {
+  return {
+    ...m,
+    colecao_rotulo: rotuloColecaoDoModelo({ colecao: m.colecao, colecoes }),
+  } as ModeloGradeEntrada;
+}
+
+/** Relê UM modelo (mesmo SELECT da grade) — o P0409 recarrega só aquela linha, sem derrubar o rascunho das outras. `null` = não existe
+ *  mais (excluído por outra pessoa). Erro de leitura LANÇA (nunca "sumiu" por falha de rede). */
+export async function lerModeloGrade(id: string): Promise<ModeloGradeEntrada | null> {
+  const { data, error } = await (supabase.from("modelos") as any)
+    .select(SELECT_MODELOS)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? paraModeloGrade(data) : null;
+}
+
 const VAZIO_MODELOS: ModeloGradeEntrada[] = [];
 const VAZIO_SUBS: SubOpt[] = [];
 const VAZIO_COLECOES: OpcaoColecao[] = [];
@@ -75,7 +101,8 @@ export function useProdutosGrade() {
   const { canView, canEdit } = useAuth();
   const modulos = useTenantModules();
   const otbOn = modulos.isModuleEnabled("otb");
-  const estadosIntegracao = useIntegracaoEstados();
+  // `sempreAoAbrir`: a grade TRAVA campos por produto (como o Sheet) — a trava não pode ficar até 30 s velha ao abrir a Lista.
+  const integracao = useIntegracaoEstadosCarregados({ sempreAoAbrir: true });
   const { estilistas, linhas, meses, anos, grupos, categorias } = usePlanejamentoOpts();
 
   const modelosQ = useQuery({
@@ -88,11 +115,7 @@ export function useProdutosGrade() {
           .order("id")
           .range(de, ate),
       );
-      // `colecao_rotulo` = nome da coleção do OTB, senão o texto livre (regra única, `colecao-rotulo.ts`); `colecao` fica CRU p/ gravar.
-      return rows.map(({ colecoes, ...m }: any) => ({
-        ...m,
-        colecao_rotulo: rotuloColecaoDoModelo({ colecao: m.colecao, colecoes }),
-      })) as ModeloGradeEntrada[];
+      return rows.map(paraModeloGrade);
     },
   });
 
@@ -125,7 +148,10 @@ export function useProdutosGrade() {
     queryKey: ["produtos-grade", "opcoes", "colecoes"],
     enabled: otbOn,
     queryFn: async () => {
-      const { data, error } = await supabase.from("colecoes").select("id, nome").order("nome");
+      const { data, error } = await supabase
+        .from("colecoes")
+        .select("id, nome, mes_id, ano_id")
+        .order("nome");
       if (error) throw error;
       return (data ?? []) as OpcaoColecao[];
     },
@@ -203,8 +229,14 @@ export function useProdutosGrade() {
     modelos,
     opcoes,
     otbOn,
-    /** Estado da Integração por produto (id → integrável/integrado + campos marcados). {} = nenhum produto travado (ou ainda não chegou). */
-    estadosIntegracao,
+    /** Estado da Integração por produto (id → integrável/integrado + campos marcados). ⚠️ `{}` vale como "nenhum travado" SÓ com
+     *  `integracaoPronta`: enquanto carrega (ou se a 1ª carga falhou) as colunas traváveis ficam BLOQUEADAS, nunca livres. */
+    estadosIntegracao: integracao.estados,
+    /** O estado da Integração já chegou (`false` = carregando OU falhou — `integracaoErro` distingue). */
+    integracaoPronta: integracao.pronto,
+    integracaoErro: integracao.erro,
+    integracaoRecarregando: integracao.recarregando,
+    recarregarIntegracao: integracao.recarregar,
     /** Permissões cruas: `colunasVisiveis(canView, canEdit)` e `colunaEditavelNoProduto(…, canEdit, estado)` decidem o resto. */
     canView,
     canEdit,

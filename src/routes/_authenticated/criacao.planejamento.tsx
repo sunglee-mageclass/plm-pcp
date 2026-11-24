@@ -206,8 +206,8 @@ function PlanejamentoPage() {
   const visaoSalva: "cards" | "lista" = visaoPref[0] === "lista" ? "lista" : "cards";
   const visao: "cards" | "lista" = isMobile ? "cards" : visaoSalva;
   const avisoListaMobile = isMobile && visaoSalva === "lista";
-  // Rascunho da Lista (PR-2): trocar de visão (Cards) ou a busca desmonta/esvazia a grade e DESCARTARIA o que não foi salvo → pede
-  // confirmação. Nesta fundação a grade avisa sempre "limpo". Os filtros ganham o mesmo `proteger` na PR-2 (quando houver rascunho).
+  // Rascunho da Lista: trocar de visão (Cards), a busca, QUALQUER filtro ou o escopo do "Editar Fam." muda/esvazia a lista e a grade
+  // DESCARTARIA o que não foi salvo → pede confirmação (`proteger`); com a Lista limpa, roda direto. A grade avisa `aoMudarSujo`.
   const guarda = useGuardaTrocaLista("produtos");
   const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAllFiltered = () => setSelected(new Set(sorted.map((m) => m.id)));
@@ -608,8 +608,12 @@ function PlanejamentoPage() {
   const escopoSub = fSubcolecao.length === 1 ? fSubcolecao[0] : "";
   const escopoMixDefinido = !!escopoCol && !!escopoSub;
   const escopoColId = escopoCol ? (colecaoIdPorNome[escopoCol] ?? null) : null;
-  const setEscopoCol = (nome: string) => { setFColecao(nome ? [nome] : []); setFSubcolecao([]); };
-  const setEscopoSub = (nome: string) => setFSubcolecao(nome ? [nome] : []);
+  // "Editar Fam." também FILTRA a tela por coleção/subcoleção (muda a lista da Lista): passa pela mesma guarda do rascunho.
+  const setEscopoCol = guarda.proteger((nome: string) => {
+    setFColecao(nome ? [nome] : []);
+    setFSubcolecao([]);
+  });
+  const setEscopoSub = guarda.proteger((nome: string) => setFSubcolecao(nome ? [nome] : []));
   const abrirEditarMix = () => { if (escopoMixDefinido && escopoColId) { setEscopoOpen(false); setMixDialogOpen(true); } };
 
   // Coleção comum dos cards selecionados (p/ o BulkEditDialog oferecer as subcoleções
@@ -1166,20 +1170,35 @@ function PlanejamentoPage() {
           <FilterButton
             screen="planejamento"
             filters={[
-              { label: "Status", value: fStatus, onChange: setFStatus, options: STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label })) },
-              { label: "Lançamento", value: fLancamento, onChange: setFLancamento, options: [{ id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
-              { label: "Etapa do kanban", value: fEtapaKanban, onChange: setFEtapaKanban, options: etapaKanbanOpts },
-              { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: estilistas },
-              { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })) },
-              { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: meses },
-              { label: "Ano", value: fAno, onChange: setFAno, options: anos },
-              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: grupos },
-              { label: "Categoria", value: fCat, onChange: setFCat, options: categoriasParaFiltro },
-              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: sub1Opts.map((s) => ({ id: s.id, nome: s.nome })) },
-              { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
-              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: subcolecoes.map((c) => ({ id: c, nome: c })) },
-              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }, { id: "importado", nome: "Importado" }] },
-              { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
+              { label: "Status", value: fStatus, onChange: guarda.proteger(setFStatus), options: STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label })) },
+              { label: "Lançamento", value: fLancamento, onChange: guarda.proteger(setFLancamento), options: [{ id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
+              { label: "Etapa do kanban", value: fEtapaKanban, onChange: guarda.proteger(setFEtapaKanban), options: etapaKanbanOpts },
+              { label: fl("estilista"), value: fEstilista, onChange: guarda.proteger(setFEstilista), options: estilistas },
+              { label: "Lançamento nº", value: fSemana, onChange: guarda.proteger(setFSemana), options: ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })) },
+              {
+                label: "Mês de Planejamento",
+                value: fMes,
+                onChange: guarda.proteger(setFMes),
+                options: meses,
+              },
+              { label: "Ano", value: fAno, onChange: guarda.proteger(setFAno), options: anos },
+              {
+                label: "Grupo",
+                value: fGrupo,
+                onChange: guarda.proteger(setFGrupo),
+                options: grupos,
+              },
+              {
+                label: "Categoria",
+                value: fCat,
+                onChange: guarda.proteger(setFCat),
+                options: categoriasParaFiltro,
+              },
+              { label: "Subcategoria", value: fSub1, onChange: guarda.proteger(setFSub1), options: sub1Opts.map((s) => ({ id: s.id, nome: s.nome })) },
+              { label: fl("colecao"), value: fColecao, onChange: guarda.proteger(setFColecao), options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Subcoleção", value: fSubcolecao, onChange: guarda.proteger(setFSubcolecao), options: subcolecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Origem", value: fOrigem, onChange: guarda.proteger(setFOrigem), options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }, { id: "importado", nome: "Importado" }] },
+              { label: "Repetição", value: fRep, onChange: guarda.proteger(setFRep), options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
           {/* Editar Fam. — abre popover de escopo (coleção+subcoleção, ligado ao filtro). */}

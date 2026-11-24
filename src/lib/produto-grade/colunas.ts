@@ -197,6 +197,26 @@ export function chaveDePermissao(p: PermissaoColuna): string {
 
 type Checa = (chave: string) => boolean;
 
+/**
+ * Tudo o que `colunasVisiveis`/`colunaEditavelNoProduto` consultam em `canView`/`canEdit`: as 2 páginas + as seções de preço/custo.
+ * (`canView`/`canEdit` do `useAuth` mudam de identidade a cada render; a tela memoiza pela `assinaturaPermissoes`, que só muda quando
+ * o RESULTADO muda.)
+ */
+export const CHAVES_PERMISSAO_GRADE: readonly string[] = [
+  "criacao_planejamento",
+  "criacao_desenvolvimento",
+  chaveDePermissao("preco_venda"),
+  chaveDePermissao("preco_atacado"),
+  chaveDePermissao("custos"),
+];
+
+/** Texto curto com o resultado de VER/EDITAR de cada chave da grade (igual = mesmas colunas visíveis/editáveis). */
+export function assinaturaPermissoes(canView: Checa, canEdit: Checa): string {
+  return CHAVES_PERMISSAO_GRADE.map(
+    (k) => `${canView(k) ? "v" : "-"}${canEdit(k) ? "e" : "-"}`,
+  ).join("");
+}
+
 /** A coluna aparece? Sem `permissao` = sempre; com ela, exige VER (ou EDITAR — o Editor inclui ver) da seção. */
 export function colunaVisivel(
   c: ColunaProduto,
@@ -236,8 +256,12 @@ export function colunaEditavelNoProduto(
   produto: ProdutoEdicao,
   canEdit: Checa,
   estado: EstadoModeloIntegracao | null | undefined,
+  opcoes: { integracaoPronta?: boolean } = {},
 ): boolean {
   if (c.soLeitura || c.tipo === "readonly") return false;
+  // O estado da Integração AINDA não chegou (`useIntegracaoEstados` devolve {} enquanto carrega): coluna que a Integração pode travar
+  // fica BLOQUEADA, nunca livre — senão há uma janela de célula editável em produto travado (concern #1 da PR-1). Default = pronta.
+  if (opcoes.integracaoPronta === false && colunaTravavel(c)) return false;
 
   const podeEditarPlanejamento = canEdit("criacao_planejamento");
   const podeEditarDev = canEdit("criacao_desenvolvimento");
@@ -260,6 +284,20 @@ export function colunaEditavelNoProduto(
     if (c.travavelIntegracao && colunasTravadas(estado).has(c.key)) return false;
   }
   return true;
+}
+
+/** A Integração pode travar esta coluna em algum produto (marcada na config, ou `SEMPRE_TRAVADO`)? */
+export function colunaTravavel(c: ColunaProduto): boolean {
+  return !!c.travavelIntegracao || !!c.sempreTravadaIntegracao;
+}
+
+/**
+ * Colunas na ORDEM DA TELA: o Nome vai PRIMEIRO (é a coluna fixa — sticky — da grade; REF/Versão/Origem/Status são só-leitura e
+ * ficam logo depois). A chave de teclado (`data-grade-cel="<linha>:<coluna>"`) é a posição nesta lista.
+ */
+export function colunasNaOrdemDaTela(cols: readonly ColunaProduto[]): ColunaProduto[] {
+  const nome = cols.find((c) => c.key === "nome");
+  return nome ? [nome, ...cols.filter((c) => c !== nome)] : [...cols];
 }
 
 /** A coluna está travada pela Integração NESTE produto? (mesma regra do passo 4 de `colunaEditavelNoProduto`; serve ao selo/dica da célula.) */

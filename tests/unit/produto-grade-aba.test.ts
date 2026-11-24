@@ -1,171 +1,25 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- mocks de supabase/happy-dom */
 // @vitest-environment happy-dom
-// Grade "Lista" do Planejamento de Produto (PR-1, fundação): render de verdade da `ProdutosGradeAba` (shell) + `useProdutosGrade` com
-// `supabase` mockado. Prova: 1 linha por MODELO (contagem), query com `rev` e SEM `ref_auto`/custo, paginação (>1.000), erro HONESTO (C3),
-// queryKey única que reaproveita as invalidações de ["modelos-planejamento"], colunas visíveis por permissão e a ordem da tela.
+// Grade "Lista" do Planejamento de Produto: render de verdade da `ProdutosGradeAba` + `useProdutosGrade` com `supabase` mockado (harness).
+// Prova (PR-1, mantido na PR-2): 1 linha por MODELO (contagem), query com `rev` e SEM `ref_auto`/custo, paginação (>1.000), erro HONESTO
+// (C3), queryKey única que reaproveita as invalidações de ["modelos-planejamento"], colunas visíveis por permissão e a ordem da tela.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { chamadas, estado, flush, mod, montar, preparar, resetar } from "./produto-grade-harness";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+beforeEach(() => resetar());
 
-const estado = {
-  modelos: [] as any[],
-  falhaTabela: null as string | null,
-  otb: false,
-  permissoes: new Set<string>(),
-  todasPermissoes: false,
-  estadosIntegracao: {} as Record<string, unknown>,
-};
-const chamadas: { tabela: string; select?: string; eqs: Record<string, unknown> }[] = [];
+/** Colunas desenhadas no cabeçalho (sem a 1ª, que é o "Estado" da linha). */
+const colunasNaTabela = (c: HTMLElement) => c.querySelectorAll("thead th").length - 1;
 
-function chain(t: string) {
-  const reg: { tabela: string; select?: string; eqs: Record<string, unknown> } = {
-    tabela: t,
-    eqs: {},
-  };
-  let faixa: [number, number] | null = null;
-  const c: any = {
-    select: (s?: string) => {
-      reg.select = s;
-      return c;
-    },
-    order: () => c,
-    limit: () => c,
-    eq: (col: string, v: unknown) => {
-      reg.eqs[col] = v;
-      return c;
-    },
-    in: () => c,
-    range: (de: number, ate: number) => {
-      faixa = [de, ate];
-      return c;
-    },
-    then: (res: (v: unknown) => unknown) => {
-      chamadas.push(reg);
-      if (estado.falhaTabela === t) return res({ data: null, error: { message: "falhou" } });
-      const dados: Record<string, any[]> = {
-        modelos: estado.modelos,
-        colaboradores: [{ id: "est1", nome: "Ana" }],
-        meses: [{ id: "mes1", mes: "Janeiro" }],
-        anos: [{ id: "ano1", ano: "2027" }],
-        grupos_produto: [{ id: "g1", nome: "Vestuário" }],
-        categorias_produto: [{ id: "cat1", nome: "Vestido", grupo_id: "g1" }],
-        linhas: [{ id: "lin1", nome: "Casual", markup: 2, markup_min: 1, markup_max: 3 }],
-        artigos: [],
-        subcategorias1_produto: [{ id: "s1", nome: "Longo", categoria_id: "cat1" }],
-        subcategorias2_produto: [{ id: "s2", nome: "Manga", categoria_id: "cat1" }],
-        colecoes: [{ id: "col1", nome: "Verão 27" }],
-        colecao_subcolecoes: [{ id: "sc1", colecao_id: "col1", nome: "Sub A" }],
-      };
-      const todos = dados[t] ?? [];
-      const fatia = faixa ? todos.slice(faixa[0], faixa[1] + 1) : todos;
-      return res({ data: fatia, error: null });
-    },
-  };
-  return c;
-}
-
-const mod = (id: string, extra: Record<string, unknown> = {}) => ({
-  id,
-  rev: 1,
-  nome: `Modelo ${id}`,
-  ref: null,
-  colecao: null,
-  colecao_id: null,
-  colecoes: null,
-  ...extra,
-});
-
-beforeEach(() => {
-  estado.modelos = [mod("M1"), mod("M2"), mod("M3")];
-  estado.falhaTabela = null;
-  estado.otb = false;
-  estado.permissoes = new Set();
-  estado.todasPermissoes = false;
-  estado.estadosIntegracao = {};
-  chamadas.length = 0;
-});
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const flush = (ms = 60) =>
-  act(async () => {
-    await sleep(ms);
-  });
-
-function preparar() {
-  vi.resetModules();
-  vi.doMock("@/integrations/supabase/client", () => ({
-    supabase: {
-      from: (t: string) => chain(t),
-      rpc: async () => ({ data: estado.estadosIntegracao, error: null }),
-    },
-  }));
-  vi.doMock("@/hooks/useActiveTenantId", () => ({
-    useActiveTenantId: () => "tenant1",
-    useActiveTenant: () => ({
-      tenantId: "tenant1",
-      resolvido: true,
-      erro: false,
-      tentando: false,
-      tentarDeNovo: vi.fn(),
-    }),
-  }));
-  vi.doMock("@/hooks/useAuth", () => ({
-    useAuth: () => ({
-      canView: (k: string) => estado.todasPermissoes || estado.permissoes.has(k),
-      canEdit: (k: string) => estado.todasPermissoes || estado.permissoes.has(k),
-    }),
-  }));
-  vi.doMock("@/hooks/useTenantModules", () => ({
-    useTenantModules: () => ({
-      isModuleEnabled: (k: string) => (k === "otb" ? estado.otb : true),
-      pronto: true,
-      erro: false,
-      tentando: false,
-      tentarDeNovo: vi.fn(),
-    }),
-  }));
-}
-
-async function montar(props: Record<string, unknown> = {}) {
-  preparar();
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { ProdutosGradeAba } = await import("@/components/planejamento/grade/ProdutosGradeAba");
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(
-      createElement(
-        QueryClientProvider,
-        { client: qc },
-        createElement(ProdutosGradeAba, props as any),
-      ),
-    );
-  });
-  await flush();
-  return {
-    container,
-    qc,
-    desmontar: async () => {
-      await act(async () => root.unmount());
-      container.remove();
-    },
-  };
-}
-
-const colunasNoPlaceholder = (c: HTMLElement) =>
-  Number(c.querySelector("[data-testid=produtos-grade-placeholder]")?.getAttribute("data-colunas"));
-
-describe("ProdutosGradeAba (shell da fundação)", () => {
-  it("mostra a contagem de PRODUTOS (1 por modelo) e o placeholder", async () => {
+describe("ProdutosGradeAba (leitura: contagem, colunas, ordem)", () => {
+  it("mostra a contagem de PRODUTOS (1 por modelo) e a TABELA (1 linha por modelo)", async () => {
     const t = await montar();
     const txt = t.container.textContent ?? "";
     expect(t.container.querySelector("[data-testid=produtos-grade-aba]")).not.toBeNull();
     expect(txt).toMatch(/3\s*produtos/);
-    expect(t.container.querySelector("[data-testid=produtos-grade-placeholder]")).not.toBeNull();
+    expect(t.container.querySelector("[data-testid=produtos-grade-tabela]")).not.toBeNull();
+    expect(t.container.querySelectorAll("tbody tr")).toHaveLength(3);
     await t.desmontar();
   });
 
@@ -188,24 +42,24 @@ describe("ProdutosGradeAba (shell da fundação)", () => {
     await t.desmontar();
   });
 
-  it("avisa a tela-mãe que não há rascunho (onDirtyChange(false)) e não mostra o placeholder no celular", async () => {
+  it("avisa a tela-mãe que não há rascunho (onDirtyChange(false)) e não monta a tabela no celular", async () => {
     const onDirtyChange = vi.fn();
     const t = await montar({ onDirtyChange, isMobile: true });
     expect(onDirtyChange).toHaveBeenCalledWith(false);
     expect(onDirtyChange).not.toHaveBeenCalledWith(true);
-    expect(t.container.querySelector("[data-testid=produtos-grade-placeholder]")).toBeNull();
+    expect(t.container.querySelector("[data-testid=produtos-grade-tabela]")).toBeNull();
     await t.desmontar();
   });
 
   it("colunas visíveis seguem a PERMISSÃO (sem seção: 4 colunas de preço/custo somem; com tudo: todas)", async () => {
     const { COLUNAS_PRODUTO } = await import("@/lib/produto-grade/colunas");
     const t1 = await montar();
-    const semPermissao = colunasNoPlaceholder(t1.container);
+    const semPermissao = colunasNaTabela(t1.container);
     await t1.desmontar();
 
     estado.todasPermissoes = true;
     const t2 = await montar();
-    const comTudo = colunasNoPlaceholder(t2.container);
+    const comTudo = colunasNaTabela(t2.container);
     await t2.desmontar();
 
     expect(comTudo).toBe(COLUNAS_PRODUTO.length);
@@ -222,7 +76,7 @@ describe("C3 — erro honesto", () => {
     expect(txt).toContain("Não foi possível carregar a lista de produtos.");
     expect(txt).toContain("Tentar de novo");
     expect(txt).not.toMatch(/0\s*produtos/);
-    expect(t.container.querySelector("[data-testid=produtos-grade-placeholder]")).toBeNull();
+    expect(t.container.querySelector("[data-testid=produtos-grade-tabela]")).toBeNull();
     await t.desmontar();
   });
 
@@ -312,6 +166,7 @@ describe("useProdutosGrade — consulta de `modelos`", () => {
       "colab-estilistas",
       "artigos-planejamento",
       "integracao-estado",
+      "tenant_config", // fuso da loja (selo "Integrável em dd/mm — travado")
     ]);
     for (const k of keys)
       expect(proprios.has(String(k[0])), `queryKey inesperada: ${JSON.stringify(k)}`).toBe(true);
@@ -379,10 +234,13 @@ describe("useProdutosGrade — dados e opções", () => {
     expect(d.isLoading).toBe(false);
     expect(d.isError).toBe(false);
     expect(d.modelos.map((m) => m.id)).toEqual(["M1", "M2", "M3"]);
-    expect(d.opcoes.categorias).toEqual([{ id: "cat1", nome: "Vestido", grupo_id: "g1" }]);
-    expect(d.opcoes.subcategorias1.map((s) => s.id)).toEqual(["s1"]);
+    expect(d.opcoes.categorias.map((c) => c.id)).toEqual(["cat1", "cat2", "cat3"]);
+    expect(d.opcoes.categorias[0]).toEqual({ id: "cat1", nome: "Vestido", grupo_id: "g1" });
+    expect(d.opcoes.subcategorias1.map((s) => s.id)).toEqual(["s1", "s1b"]);
     expect(d.opcoes.subcategorias2.map((s) => s.id)).toEqual(["s2"]);
-    expect(d.opcoes.colecoes).toEqual([{ id: "col1", nome: "Verão 27" }]);
+    expect(d.opcoes.colecoes).toEqual([
+      { id: "col1", nome: "Verão 27", mes_id: "mes1", ano_id: "ano1" },
+    ]);
     expect(d.opcoes.subcolecoesPorColecao.get("col1")).toEqual(["Sub A"]);
     expect(d.opcoes.semanas.map((s) => s.id)).toEqual(["1", "2", "3", "4", "5"]);
     expect(d.opcoes.tamanhoTipos.map((s) => s.id)).toEqual(["letra", "numero"]);

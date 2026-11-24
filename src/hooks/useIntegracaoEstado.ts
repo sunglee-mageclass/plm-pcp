@@ -7,7 +7,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { lerEstados, type EstadoModeloIntegracao } from "@/lib/integracao/trava";
 
-export function useIntegracaoEstados(
+const SEM_ESTADOS: Record<string, EstadoModeloIntegracao> = {};
+
+function useIntegracaoEstadosQuery(
   o?: {
     /** Fix round 1 (m2/M-1), OPT-IN a partir do round 3 (R-6 da re-revisão) — a trava pode ficar até 30s velha
      *  quando o Sheet abre (outro usuário marcou o produto há pouco): `true` refaz a busca a CADA montagem do
@@ -20,9 +22,9 @@ export function useIntegracaoEstados(
      *  reflete um lock recente. */
     sempreAoAbrir?: boolean;
   } | null,
-): Record<string, EstadoModeloIntegracao> {
+) {
   const tenantId = useActiveTenantId();
-  const { data } = useQuery({
+  return useQuery({
     queryKey: ["integracao-estado", tenantId],
     enabled: !!tenantId,
     staleTime: 30_000,
@@ -37,8 +39,39 @@ export function useIntegracaoEstados(
       return lerEstados(d);
     },
   });
-  return data ?? {};
 }
+
+export function useIntegracaoEstados(
+  o?: Parameters<typeof useIntegracaoEstadosQuery>[0],
+): Record<string, EstadoModeloIntegracao> {
+  return useIntegracaoEstadosQuery(o).data ?? {};
+}
+
+/**
+ * Mesma consulta (mesma queryKey/cache), MAS com o sinal que `useIntegracaoEstados` não dá: `pronto` = o estado da loja JÁ chegou
+ * (`data !== undefined` — um refetch com erro mantém o último dado bom, então NÃO volta a "não pronto"). Quem TRAVA campos por produto
+ * (a grade "Lista" do Planejamento) espera `pronto` antes de habilitar uma célula travável: `{}` de "ainda carregando" não pode
+ * parecer "nenhum produto travado". `erro` = a 1ª carga falhou (sem dado nenhum): as travas seguem bloqueadas + "Tentar de novo".
+ */
+export function useIntegracaoEstadosCarregados(
+  o?: Parameters<typeof useIntegracaoEstadosQuery>[0],
+): {
+  estados: Record<string, EstadoModeloIntegracao>;
+  pronto: boolean;
+  erro: boolean;
+  recarregando: boolean;
+  recarregar: () => Promise<unknown>;
+} {
+  const q = useIntegracaoEstadosQuery(o);
+  return {
+    estados: q.data ?? SEM_ESTADOS,
+    pronto: q.data !== undefined,
+    erro: q.isError && q.data === undefined,
+    recarregando: q.isError && q.isFetching,
+    recarregar: () => q.refetch(),
+  };
+}
+
 export function useIntegracaoEstado(
   modeloId: string | null | undefined,
   o?: { sempreAoAbrir?: boolean } | null,
