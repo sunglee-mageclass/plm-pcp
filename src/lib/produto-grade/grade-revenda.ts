@@ -11,7 +11,9 @@
 //  - CAS por `rev` (`_rev_base` = o `rev` de quando a grade foi lida) + conferência de CONTEÚDO (`gradeCompradoMudouNoServidor`): a RPC
 //    não sobe o `rev`, então duas pessoas salvando só a grade só se enxergam pelo conteúdo. Qualquer diferença = P0409 (a tela recarrega
 //    SÓ aquela grade e avisa; o rascunho fica para a pessoa conferir);
-//  - trava: sem permissão, tela só-leitura ou card enviado à Explosão (mais estrito que o Sheet, que ainda deixa o Planejamento editar).
+//  - trava: sem permissão ou tela só-leitura. PR-3: a REVENDA edita MESMO depois do envio à Explosão, igual ao Sheet (onde o Planejamento
+//    ainda edita a grade pós-corte); o envio só tira a vez de quem edita SÓ o Desenvolvimento (`devBloqueado`, como o Sheet).
+//    ⚠️ Vale SÓ para a revenda: interno/importado seguem só-leitura + botão do Sheet (gravam pelo BOM).
 import {
   gradeCompradoDoServidor,
   gradeCompradoMudouNoServidor,
@@ -44,23 +46,27 @@ export function gradeEditavelNaLista(origem: string | null | undefined): boolean
 }
 
 /**
- * Por que a grade da REVENDA não edita (ou `null` = edita). Precedência: tela inteira só-leitura > enviado à Explosão > sem permissão.
- * Permissão = a do Sheet (`compartilhadoBloqueado`: Planejamento OU Desenvolvimento ainda destravado); o banco recusa o resto (42501).
+ * Por que a grade da REVENDA não edita (ou `null` = edita). Precedência: tela inteira só-leitura > sem permissão.
+ * Permissão = a do Sheet (`compartilhadoBloqueado`): Planejamento edita SEMPRE (inclusive depois da Explosão); o Desenvolvimento só com o
+ * card ainda NÃO enviado (`devBloqueado = !podeEditarDev || enviadoCad`, a mesma conta do Sheet). O banco recusa o resto (42501).
  */
 export function motivoGradeRevendaSomenteLeitura(i: {
   readOnly: boolean;
-  enviadoCad: boolean | null | undefined;
+  /** Só tira a vez de quem edita apenas o Desenvolvimento — NÃO trava mais a revenda do Planejamento (PR-3). */
+  enviadoCad?: boolean | null | undefined;
   canEdit: (chave: string) => boolean;
 }): string | null {
   if (i.readOnly) return MOTIVO_SEM_PERMISSAO;
-  if (i.enviadoCad) return MOTIVO_ENVIADO_EXPLOSAO;
+  const podeEditarPlanejamento = i.canEdit("criacao_planejamento");
   const podeEditarDev = i.canEdit("criacao_desenvolvimento");
   const perm = resolverPermissoesSheet({
-    podeEditarPlanejamento: i.canEdit("criacao_planejamento"),
+    podeEditarPlanejamento,
     podeEditarDev,
-    devBloqueado: !podeEditarDev,
+    devBloqueado: !podeEditarDev || !!i.enviadoCad,
   });
-  return perm.compartilhadoBloqueado ? MOTIVO_SEM_PERMISSAO_GRADE : null;
+  if (!perm.compartilhadoBloqueado) return null;
+  // Igual ao Sheet: quem ainda edita o Dev (mas o card já foi à Explosão) é mandado ao botão Editar do card.
+  return podeEditarDev && i.enviadoCad ? MOTIVO_ENVIADO_EXPLOSAO : MOTIVO_SEM_PERMISSAO_GRADE;
 }
 
 export type GradePorCor = Record<number, Record<string, number>>;

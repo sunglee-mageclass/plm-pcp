@@ -3,12 +3,15 @@
 //  - PR-GRADE-2: a REVENDA EDITA aqui (rascunho + Salvar da Lista → RPC dedicada `salvar_grade_revenda`, a do Sheet). INTERNO e IMPORTADO
 //    ficam SÓ-LEITURA + botão "abrir no Sheet na seção da grade": gravam pelo `salvar_modelo_bom`, que APAGA e reinsere o BOM inteiro —
 //    editar só a grade pela lista reconstruiria a ficha (frágil, pode apagar o BOM). As CORES do produto também se mexem só no Sheet.
-import { useMemo } from "react";
+//  - PR-3: a REVENDA edita MESMO enviada à Explosão (igual ao Sheet); a matriz editável tem teclado PRÓPRIO (Enter desce / Tab ao lado entre as
+//    células de tamanho, atributo `data-matriz-cel` — não colide com o teclado das linhas de produto da tabela-mãe).
+import { useMemo, type RefObject } from "react";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
+import { useMatrizTeclado } from "@/lib/grade-teclado";
 import { ehOrigemComprada, normalizarOrigem } from "@/lib/origem";
 import type { ModeloGradeEntrada } from "@/lib/produto-grade/linhas";
 import {
@@ -62,7 +65,7 @@ export function ProdutoLinhaExpandida({
   });
   const tela = comprado ? TELA_POR_ORIGEM[origem as "revenda" | "importado"] : null;
   const editavelNaLista = gradeEditavelNaLista(origem);
-  // Revenda: por que NÃO edita (permissão/tela só-leitura/enviado à Explosão). `null` = edita.
+  // Revenda: por que NÃO edita (permissão/tela só-leitura; o envio à Explosão só tira a vez de quem edita SÓ o Dev). `null` = edita.
   const motivoRevenda = editavelNaLista
     ? motivoGradeRevendaSomenteLeitura({ readOnly, enviadoCad: modelo.enviado_cad, canEdit })
     : null;
@@ -232,8 +235,22 @@ function MatrizGradeRevenda({
   });
   const rotuloDe = new Map(g.colunas.map((c) => [c.chave, c.rotulo]));
   const corDe = new Map(g.cores.map((c) => [c.num, c.label]));
+  // Teclado PRÓPRIO da matriz (Enter desce / Tab ao lado): linha = posição da cor, coluna = posição do tamanho. Escopo isolado
+  // (`data-matriz-cel` + gridRef desta matriz): nunca colide com o `data-grade-cel` da tabela-mãe, que contém esta matriz.
+  const { gridRef, propsDaCelula } = useMatrizTeclado({
+    nLinhas: nums.length,
+    nColunas: g.tamanhos.length,
+  });
+  const posDaCelula = (num: number, t: string) => ({
+    linha: nums.indexOf(num),
+    coluna: g.tamanhos.indexOf(t),
+  });
   return (
-    <div className="space-y-2">
+    <div
+      className="space-y-2"
+      ref={gridRef as RefObject<HTMLDivElement>}
+      data-testid="matriz-revenda"
+    >
       {r.dirty && (
         <p
           role="status"
@@ -257,7 +274,8 @@ function MatrizGradeRevenda({
       <MatrizGradeResponsiva
         tamanhos={g.tamanhos}
         {...propsColunas(g)}
-        renderCell={(num, t) => {
+        posDaCelula={posDaCelula}
+        renderCell={(num, t, pos) => {
           const qtd = r.valorDe(num, t);
           if (motivo) {
             return (
@@ -278,6 +296,7 @@ function MatrizGradeRevenda({
               placeholder="0"
               aria-label={`Quantidade de ${corDe.get(num) ?? `variante ${num}`} no tamanho ${rotuloDe.get(t) ?? t} de ${nome}`}
               data-qtd-celula={`${num}:${t}`}
+              {...(pos ? propsDaCelula(pos.linha, pos.coluna) : {})}
               data-editada={editada ? "" : undefined}
               className={`h-8 w-full min-w-14 border-0 text-center ${editada ? "bg-amber-100 ring-1 ring-amber-400 dark:bg-amber-950/40" : ""}`}
               value={qtd}

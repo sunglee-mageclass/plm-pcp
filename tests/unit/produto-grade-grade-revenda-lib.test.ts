@@ -52,14 +52,34 @@ describe("motivoGradeRevendaSomenteLeitura", () => {
       MOTIVO_SEM_PERMISSAO_GRADE,
     );
   });
-  it("enviada à Explosão trava mesmo com permissão (mais estrito que o Sheet)", () => {
+  it("PR-3: enviada à Explosão a REVENDA segue editável para o Planejamento (igual ao Sheet), com ou sem a permissão do Dev", () => {
+    expect(
+      motivoGradeRevendaSomenteLeitura({
+        readOnly: false,
+        enviadoCad: true,
+        canEdit: pode("criacao_planejamento"),
+      }),
+    ).toBeNull();
     expect(
       motivoGradeRevendaSomenteLeitura({
         readOnly: false,
         enviadoCad: true,
         canEdit: pode("criacao_planejamento", "criacao_desenvolvimento"),
       }),
+    ).toBeNull();
+  });
+  it("PR-3: enviada à Explosão, quem edita SÓ o Desenvolvimento perde a vez (devBloqueado do Sheet) e é mandado ao botão Editar", () => {
+    expect(
+      motivoGradeRevendaSomenteLeitura({
+        readOnly: false,
+        enviadoCad: true,
+        canEdit: pode("criacao_desenvolvimento"),
+      }),
     ).toBe(MOTIVO_ENVIADO_EXPLOSAO);
+    // sem nenhuma permissão: o motivo é a falta de permissão, não a Explosão
+    expect(
+      motivoGradeRevendaSomenteLeitura({ readOnly: false, enviadoCad: true, canEdit: pode() }),
+    ).toBe(MOTIVO_SEM_PERMISSAO_GRADE);
   });
   it("tela só-leitura vence tudo", () => {
     expect(

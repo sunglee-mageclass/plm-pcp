@@ -263,8 +263,31 @@ describe("grade da REVENDA editável na lista (PR-GRADE-2)", () => {
 });
 
 describe("trava da grade da REVENDA na lista", () => {
-  it("enviada à Explosão: só-leitura com o motivo (célula com title) e sem campo", async () => {
+  it("PR-3: enviada à Explosão a REVENDA continua EDITÁVEL (igual ao Sheet): campos na matriz, nota de edição, e o Salvar grava a grade", async () => {
     revenda({ enviado_cad: true });
+    const t = await montar();
+    await abrir(t.container);
+    expect(expandida(t.container).querySelector("[data-testid=grade-editavel]")).not.toBeNull();
+    expect(expandida(t.container).querySelector("[data-testid=grade-somente-leitura]")).toBeNull();
+    expect(cel(t.container, 1, "36|PP")).not.toBeNull();
+    await digitar(cel(t.container, 2, "38|P"), "5");
+    expect(chamadasGrade()).toHaveLength(0); // staging: nada grava antes do Salvar
+    await salvar();
+    const chs = chamadasGrade();
+    expect(chs).toHaveLength(1);
+    const args = chs[0][1] as { _modelo_id: string; _grades: any[]; _rev_base: number };
+    expect(args._modelo_id).toBe("M1");
+    expect(args._grades.find((g) => g.variante_numero === 2).grades).toEqual({
+      "36|PP": 2,
+      "38|P": 5,
+    });
+    await t.desmontar();
+  });
+
+  it("PR-3: enviada à Explosão, quem edita SÓ o Desenvolvimento fica em só-leitura com o motivo da Explosão", async () => {
+    revenda({ enviado_cad: true });
+    estado.todasPermissoes = false;
+    estado.permissoes = new Set(["criacao_desenvolvimento"]);
     const t = await montar();
     await abrir(t.container);
     expect(expandida(t.container).querySelectorAll("input")).toHaveLength(0);

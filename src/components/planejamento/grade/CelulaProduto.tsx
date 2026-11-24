@@ -27,6 +27,8 @@ import { OPCAO_VAZIA, casasDaColuna, type ControleCelula } from "@/lib/produto-g
 
 /** Realce âmbar da célula com alteração ainda não salva (o mesmo "selo âmbar" do resto do sistema). */
 const REALCE_SUJO = "border-amber-500 bg-amber-50 dark:bg-amber-500/10";
+/** Colar do Excel: o texto NÃO foi aplicado (sem correspondência/número inválido…) — laranja tracejado, com o motivo no `title`. */
+const REALCE_AVISO = "border-dashed border-orange-500";
 
 /** Endereço da célula para o teclado (Enter desce / Tab ao lado): `data-grade-cel` + `onKeyDown` do `useGradeTeclado`. */
 export type GradeCelProps = {
@@ -55,6 +57,8 @@ export type CelulaProdutoProps = {
   placeholder?: string;
   /** Navegação por teclado: só nos campos de digitação (texto/número); Select fica de fora. */
   gradeProps?: GradeCelProps;
+  /** Colar do Excel: texto que NÃO foi aplicado nesta célula (some ao editá-la). */
+  aviso?: string;
 };
 
 const TEXTO_VERIFICANDO = "Verificando a Integração…";
@@ -72,6 +76,7 @@ export function CelulaProduto({
   motivoTrava,
   placeholder,
   gradeProps,
+  aviso,
 }: CelulaProdutoProps) {
   if (controle === "somente-leitura" || modo === "texto") {
     return (
@@ -90,15 +95,23 @@ export function CelulaProduto({
   }
 
   const desabilitado = modo !== "editar";
-  const realce = sujo && !desabilitado ? REALCE_SUJO : undefined;
-  const title =
-    modo === "travada" ? motivoTrava : modo === "verificando" ? TEXTO_VERIFICANDO : undefined;
+  const comAviso = !!aviso && !desabilitado;
+  const realce = comAviso ? REALCE_AVISO : sujo && !desabilitado ? REALCE_SUJO : undefined;
+  const title = comAviso
+    ? aviso
+    : modo === "travada"
+      ? motivoTrava
+      : modo === "verificando"
+        ? TEXTO_VERIFICANDO
+        : undefined;
   const marcas =
     modo === "travada"
       ? { "data-travada": "" }
       : modo === "verificando"
         ? { "data-verificando": "" }
-        : {};
+        : comAviso
+          ? { "data-aviso-colar": "" }
+          : {};
 
   let controleEl: React.ReactNode;
   if (controle === "money") {

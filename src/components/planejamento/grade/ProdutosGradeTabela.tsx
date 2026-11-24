@@ -10,6 +10,8 @@
 //    DESABILITADAS (nunca livres);
 //  - SALVAR por linha: CAS por `rev` (o `rev` de quando a pessoa começou a editar; 0 linhas = P0409 → recarrega SÓ aquela linha, avisa e
 //    re-baseliza o `rev`, sem derrubar o rascunho das outras) — `salvarProduto` (lib/produto-grade/salvar.ts).
+// PR-3: COLAR do Excel (TSV) nos campos escalares dos modelos EXISTENTES (`useColarProduto`; Produto não cria linhas) — vai ao rascunho,
+// com a mesma decisão de permissão/trava da célula (`modoDaCelulaProduto`); a matriz de tamanhos tem teclado próprio.
 // Molde: `tecido/grade/TecidosGradeTabela` (thead pelo catálogo, scroll-x DENTRO do container, memo por linha, teclado) — mas plana.
 import {
   memo,
@@ -45,6 +47,7 @@ import {
 } from "@/lib/produto-grade/celulas";
 import {
   CHAVES_DRAFT_PRODUTO,
+  colunaDaChave,
   ehConflitoRev,
   produtoParaDraft,
   salvarProduto,
@@ -60,8 +63,10 @@ import {
   textoSelo,
   type EstadoModeloIntegracao,
 } from "@/lib/integracao/trava";
+import { modoDaCelulaProduto } from "@/lib/produto-grade/modo-celula";
 import { CelulaProduto, type GradeCelProps, type ModoCelula } from "./CelulaProduto";
 import { ProdutoLinhaExpandida } from "./ProdutoLinhaExpandida";
+import { useColarProduto, type SaverProduto } from "./useColarProduto";
 import type { GradeOpcoesProduto } from "./useProdutosGrade";
 
 /** O que cada linha precisa do Salvar da Aba (tudo por REF: lido no instante de salvar, nunca a closure do render). */
@@ -253,7 +258,14 @@ type GradeCtx = {
   salvar: SalvarCtx;
   /** PR-GRADE-2 — abre o Sheet do produto já na seção pedida (`undefined` = sem o atalho). */
   abrirNoSheet?: (modeloId: string, secao: string) => void;
+  /** PR-3 (colar) — a linha registra o seu rascunho para a colagem aplicar campos nele. */
+  registrarSaver: (modeloId: string, api: SaverProduto | null) => void;
+  /** PR-3 (colar) — apaga o aviso de colagem de UMA célula (ao editá-la) / de todas as da linha (ao salvar/descartar). */
+  limparAviso: (modeloId: string, colKey: string) => void;
+  limparAvisosDaLinha: (modeloId: string) => void;
 };
+
+const SEM_AVISOS: Record<string, string> = {};
 
 function EstadoLinha({ sujo, erro }: { sujo: boolean; erro: string | null }) {
   if (erro) {
@@ -286,6 +298,8 @@ type LinhaProps = {
   estado: EstadoModeloIntegracao | null;
   g: GradeCtx;
   linhaIdx: number;
+  /** Avisos da última colagem NESTA linha (`colKey → motivo`): texto que não foi aplicado. Mesma referência enquanto nada muda. */
+  avisos: Record<string, string>;
 };
 
 /**
@@ -298,14 +312,31 @@ const LinhaProdutoGrade = memo(function LinhaProdutoGrade({
   estado,
   g,
   linhaIdx,
+  avisos,
 }: LinhaProps) {
   const ctx = useRascunhoProduto(linha.modelo, g.salvar);
+  // Colar do Excel: expõe o rascunho vivo da linha (por ref — lê sempre o render mais novo) e aplica campos por `patch` (nada grava).
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+  const { registrarSaver } = g;
+  const modeloId = linha.modeloId;
+  useEffect(() => {
+    registrarSaver(modeloId, {
+      ler: () => ctxRef.current.valor,
+      aplicar: (campos) => {
+        for (const k of Object.keys(campos) as (keyof ProdutoDraft)[])
+          ctxRef.current.patch(k, campos[k] as never);
+      },
+    });
+    return () => registrarSaver(modeloId, null);
+  }, [registrarSaver, modeloId]);
   return (
     <CorpoLinhaProduto
       linha={linha}
       estado={estado}
       g={g}
       linhaIdx={linhaIdx}
+      avisos={avisos}
       valor={ctx.valor}
       editados={ctx.editados}
       patch={ctx.patch}
@@ -320,6 +351,7 @@ const CorpoLinhaProduto = memo(function CorpoLinhaProduto({
   estado,
   g,
   linhaIdx,
+  avisos,
   valor,
   editados,
   patch,
@@ -328,7 +360,17 @@ const CorpoLinhaProduto = memo(function CorpoLinhaProduto({
 }: LinhaProps & ProdutoCtx) {
   const modelo = linha.modelo;
   const sujo = (k: keyof ProdutoDraft) => dirty && editados.split("|").includes(k);
-  const ctx = { sujo, patch };
+  // Editar a célula apaga o aviso que a colagem deixou nela (a cascata também: cada chave tocada limpa a sua coluna).
+  const { limparAviso, limparAvisosDaLinha } = g;
+  const patchLimpando = <K extends keyof ProdutoDraft>(k: K, v: ProdutoDraft[K]) => {
+    limparAviso(modelo.id, colunaDaChave(k));
+    patch(k, v);
+  };
+  const ctx = { sujo, patch: patchLimpando };
+  // Salvou/descartou (a linha voltou a ficar limpa): os avisos da colagem velha saem.
+  useEffect(() => {
+    if (!dirty) limparAvisosDaLinha(modelo.id);
+  }, [dirty, limparAvisosDaLinha, modelo.id]);
   const produto = { origem: modelo.origem, enviado_cad: modelo.enviado_cad };
   const acessorio = categoriaEhAcessorio(g.opcoes, valor.categoria_principal_id);
   const nomeAria = modelo.nome?.trim() || "(sem nome)";
@@ -344,22 +386,16 @@ const CorpoLinhaProduto = memo(function CorpoLinhaProduto({
     const controle = controleDaColuna(col, g.otbOn);
     const leitura = textoDaCelula(linha, col, g.resolver);
     const gradeProps = g.propsCel(linhaIdx, colIdx);
-    // Só as colunas do rascunho editam; as demais (REF, Status, Origem…) são só-leitura de qualquer jeito.
-    const editaSemTrava =
-      !g.readOnly &&
-      controle !== "somente-leitura" &&
-      colunaEditavelNoProduto(col, produto, g.canEdit, null, { integracaoPronta: true });
-    let modo: ModoCelula = "texto";
-    if (editaSemTrava) {
-      if (
-        colunaEditavelNoProduto(col, produto, g.canEdit, estado, {
-          integracaoPronta: g.integracaoPronta,
-        })
-      )
-        modo = "editar";
-      else if (colunaTravadaPelaIntegracao(col, estado)) modo = "travada";
-      else if (!g.integracaoPronta && colunaTravavel(col)) modo = "verificando";
-    }
+    // A decisão é de `modoDaCelulaProduto` (a MESMA que o colar do Excel usa); a célula só desenha.
+    const modo: ModoCelula = modoDaCelulaProduto({
+      col,
+      controle,
+      produto,
+      readOnly: g.readOnly,
+      canEdit: g.canEdit,
+      estado,
+      integracaoPronta: g.integracaoPronta,
+    });
     const motivoTrava =
       modo === "travada" && estado
         ? col.key === "preco_venda"
@@ -373,6 +409,7 @@ const CorpoLinhaProduto = memo(function CorpoLinhaProduto({
       ariaLabel: ariaDe(col),
       motivoTrava,
       texto: leitura,
+      aviso: avisos[col.key],
     };
 
     switch (col.key) {
@@ -622,6 +659,40 @@ export function ProdutosGradeTabela({
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
   const canEditEstavel = useCallback((chave: string) => canEditRef.current(chave), []);
+  // PR-3 — colar do Excel (TSV): só edita os modelos que já estão na lista; vai ao rascunho de cada linha.
+  const colar = useColarProduto({
+    linhas,
+    colunas,
+    opcoes,
+    otbOn,
+    readOnly,
+    integracaoPronta,
+    estadosIntegracao,
+    canEdit,
+  });
+  const { registrar, limparAviso, limparAvisosDaLinha } = colar;
+  // Avisos da colagem fatiados por linha: a MESMA referência enquanto a linha não muda (o `memo` das linhas não refaz à toa).
+  const avisosPorLinha = useMemo(() => {
+    const porLinha = new Map<string, Record<string, string>>();
+    for (const [k, msg] of Object.entries(colar.avisos)) {
+      const i = k.indexOf("|");
+      const id = k.slice(0, i);
+      porLinha.set(id, { ...(porLinha.get(id) ?? {}), [k.slice(i + 1)]: msg });
+    }
+    return porLinha;
+  }, [colar.avisos]);
+  const avisosEstaveisRef = useRef(new Map<string, Record<string, string>>());
+  const avisosDaLinha = (id: string): Record<string, string> => {
+    const novo = avisosPorLinha.get(id);
+    if (!novo) {
+      avisosEstaveisRef.current.delete(id);
+      return SEM_AVISOS;
+    }
+    const velho = avisosEstaveisRef.current.get(id);
+    if (velho && JSON.stringify(velho) === JSON.stringify(novo)) return velho;
+    avisosEstaveisRef.current.set(id, novo);
+    return novo;
+  };
   const g = useMemo<GradeCtx>(
     () => ({
       colunas,
@@ -635,6 +706,9 @@ export function ProdutosGradeTabela({
       propsCel: propsDaCelula,
       salvar,
       abrirNoSheet,
+      registrarSaver: registrar,
+      limparAviso,
+      limparAvisosDaLinha,
     }),
     // `permissoesKey` entra de propósito: permissão que muda recalcula as células (canEditEstavel lê por ref e não muda de identidade).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -650,6 +724,9 @@ export function ProdutosGradeTabela({
       propsDaCelula,
       salvar,
       abrirNoSheet,
+      registrar,
+      limparAviso,
+      limparAvisosDaLinha,
       permissoesKey,
     ],
   );
@@ -659,6 +736,7 @@ export function ProdutosGradeTabela({
         ref={gridRef as RefObject<HTMLDivElement>}
         className="scroll-x-visivel max-h-[calc(100vh-16rem)] max-w-full overflow-y-auto rounded-md border"
         data-testid="produtos-grade-tabela"
+        onPaste={colar.onPaste}
       >
         <table className="w-full min-w-max border-collapse text-sm">
           <thead className="sticky top-0 z-20 bg-muted text-left text-xs text-muted-foreground">
@@ -695,6 +773,7 @@ export function ProdutosGradeTabela({
                 estado={estadosIntegracao[l.modeloId] ?? null}
                 g={g}
                 linhaIdx={i}
+                avisos={avisosDaLinha(l.modeloId)}
               />
             ))}
           </tbody>

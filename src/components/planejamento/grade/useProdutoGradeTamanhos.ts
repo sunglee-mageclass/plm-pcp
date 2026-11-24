@@ -240,11 +240,16 @@ export function useProdutoGradeTamanhos({
 
   const tamanhos = useMemo(() => colunas.map((c) => c.chave), [colunas]);
 
-  const motivoSomenteLeitura = enviadoCad
-    ? MOTIVO_ENVIADO_EXPLOSAO
-    : origemN === "importado"
-      ? MOTIVO_IMPORTADO
-      : null;
+  // Trava ESTRUTURAL (visualização): só interno/importado. A REVENDA edita mesmo enviada à Explosão (PR-3, igual ao Sheet) — a decisão
+  // da célula dela é `motivoGradeRevendaSomenteLeitura` (permissão), nunca `enviadoCad`.
+  const travaEstrutural = origemN !== "revenda";
+  const motivoSomenteLeitura = !travaEstrutural
+    ? null
+    : enviadoCad
+      ? MOTIVO_ENVIADO_EXPLOSAO
+      : origemN === "importado"
+        ? MOTIVO_IMPORTADO
+        : null;
 
   return {
     origem: origemN,
@@ -265,8 +270,8 @@ export function useProdutoGradeTamanhos({
         : null) as Error | null,
     recarregar: () =>
       Promise.all([q.isError ? q.refetch() : null, qTam.isError ? qTam.refetch() : null]),
-    /** Trava de leitura por motivo ESTRUTURAL (enviado à Explosão; importado grava pela ficha). A permissão/tela só-leitura vêm de `motivoGradeRevendaSomenteLeitura`. */
-    somenteLeitura: !!enviadoCad || origemN === "importado",
+    /** Trava de leitura por motivo ESTRUTURAL de interno/importado (gravam pelo BOM/ficha; enviado à Explosão reforça o texto). Revenda: nunca. A permissão/tela só-leitura da revenda vêm de `motivoGradeRevendaSomenteLeitura`. */
+    somenteLeitura: travaEstrutural && (!!enviadoCad || origemN === "importado"),
     motivoSomenteLeitura,
   };
 }
