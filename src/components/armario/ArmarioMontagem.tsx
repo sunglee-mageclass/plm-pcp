@@ -11,7 +11,7 @@
 // Mobile/sem drag: o "+" do dialog chama `onAdicionar` (insere no fim).
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, LockKeyhole, Plus, Save, X } from "lucide-react";
+import { ArrowLeft, Download, Loader2, LockKeyhole, Plus, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors,
@@ -30,6 +30,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { useReadOnly } from "@/components/RequirePermission";
 import { ModeloThumb } from "@/components/plan-tecido/ModeloThumb";
 import { VariantesDialog, VARIANTE_DRAG_PREFIXO, type VarianteItem } from "@/components/armario/VariantesDialog";
+import { ExportarArmarioDialog } from "@/components/armario/ExportarArmarioDialog";
 import { GRID_COLS_OPTIONS, useCompactCards } from "@/hooks/useGridCols";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -218,6 +219,7 @@ export function MontagemEditor({
   const [itens, setItens] = useState<readonly GradeItem[]>(inicial);
   const [colunas, setColunas] = useState<number>(armario.colunas);
   const [dialogAberto, setDialogAberto] = useState(false);
+  const [exportAberto, setExportAberto] = useState(false);
   const [ativo, setAtivo] = useState<Active | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const compacto = useCompactCards(gridRef, colunas);
@@ -320,6 +322,10 @@ export function MontagemEditor({
         <Button size="sm" variant="outline" disabled={travado} title={dicaTrava} onClick={() => setDialogAberto(true)}>
           <Plus className="mr-1 h-4 w-4" /> Adicionar variantes
         </Button>
+        {/* Export é LEITURA: sempre habilitado (inclusive publicado/sem permissão de edição). */}
+        <Button size="sm" variant="outline" data-testid="armario-baixar-csv" onClick={() => setExportAberto(true)}>
+          <Download className="mr-1 h-4 w-4" /> Baixar CSV
+        </Button>
         <div className="flex items-center gap-2">
           <span id="armario-colunas-rotulo" className="text-sm text-muted-foreground">Colunas</span>
           <Select value={String(colunas)} disabled={travado} onValueChange={(v) => setColunas(Number(v))}>
@@ -393,6 +399,10 @@ export function MontagemEditor({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {exportAberto && (
+        <ExportarArmarioDialog open onOpenChange={setExportAberto} armarioId={armario.id} alteracoesNaoSalvas={dirty} />
+      )}
 
       <UnsavedChangesGuard confirm={guard.confirm} message="Há alterações não salvas neste armário. Se sair agora, a ordem e as colunas editadas serão perdidas." />
     </div>
