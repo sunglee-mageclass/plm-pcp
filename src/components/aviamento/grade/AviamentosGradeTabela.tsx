@@ -7,6 +7,7 @@
 // (as cores de um aviamento vão numa só chamada de lote). Cada rascunho se registra aqui por `registrar`.
 // Também CRIA (linhas NOVAS em rascunho, `AviamentoNovoGrupo`), COLA do Excel (bloco TSV na célula-âncora) e EXCLUI (lixeira única por
 // linha; grava na hora, atrás de confirmação).
+import { motivoBloqueio } from "@/lib/grade-bloqueio";
 import {
   memo,
   useCallback,
@@ -343,6 +344,7 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
   const campo = CAMPO_AVIAMENTO[col.key];
   if (!campo) return null;
   const desabilitado = readOnly || !col.editavel;
+  const motivo = motivoBloqueio(readOnly, col.editavel);
 
   if (col.key === "fornecedor") {
     return (
@@ -352,6 +354,7 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
         sujo={ctxA.sujo("empresa_id") || ctxA.sujo("representante_id")}
         aviso={c.avisos[chaveAv]}
         desabilitado={desabilitado}
+        motivoBloqueio={motivo}
         fornecedor={{
           empresas: empresasParaLinha(opcoes.empresas, ctxA.valor.empresa_id),
           empresaId: ctxA.valor.empresa_id,
@@ -389,6 +392,7 @@ function celulaAviamento(col: ColunaGrade, c: PaiProps) {
       sujo={ctxA.sujo(campo)}
       aviso={c.avisos[chaveAv]}
       desabilitado={desabilitado}
+      motivoBloqueio={motivo}
       opcoes={opcoesDaColuna(col.key, opcoes, { categoriaId: ctxA.valor.categoria_aviamento_id })}
       placeholder={col.key === "codigo_nome" ? (aviamento.codigo ?? undefined) : undefined}
       gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
@@ -477,6 +481,7 @@ function celulaVariante(col: ColunaGrade, c: FilhoProps) {
       sujo={ctxV.sujo(campo)}
       aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel}
+      motivoBloqueio={motivoBloqueio(readOnly, col.editavel)}
       opcoes={opcoesDaColuna(col.key, opcoes, { corId: ctxV.valor.cor_id })}
       gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
     />

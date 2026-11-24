@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useCardDraft } from "@/components/shared/card-drafts/useCardDraft";
 import { SortTh, type SortDir } from "@/components/shared/sort";
 import { useGradeTeclado } from "@/lib/grade-teclado";
+import { motivoBloqueio } from "@/lib/grade-bloqueio";
 import { colunaOrdenavel } from "@/lib/tecido-grade/ordenar";
 import {
   draftParaServidor,
@@ -27,6 +28,7 @@ import {
   controleDaCelula,
   mesmaLista,
   mesmoMapa,
+  motivoDaRegra,
   opcoesDaColuna,
   precoPorMetroTexto,
 } from "@/lib/tecido-grade/celulas";
@@ -275,7 +277,14 @@ function celulaArtigo(col: ColunaGrade, c: PaiProps) {
   const ariaLabel = `${col.rotulo} de ${artigo.nome}`;
   const chaveAv = chaveCelula(chaveLinha(artigo.id, null), col.key);
   if (col.key === "preco_por_metro") {
-    return <CelulaTecido coluna={col} ariaLabel={ariaLabel} texto={precoPorMetroTexto(ctxA.valor)} />;
+    return (
+      <CelulaTecido
+        coluna={col}
+        ariaLabel={ariaLabel}
+        texto={precoPorMetroTexto(ctxA.valor)}
+        motivoBloqueio="Somente leitura: em Kg = preço ÷ rendimento, calculado automaticamente."
+      />
+    );
   }
   if (controleDaCelula(col) === "categorias") {
     return (
@@ -284,6 +293,7 @@ function celulaArtigo(col: ColunaGrade, c: PaiProps) {
         ariaLabel={ariaLabel}
         sujo={ctxA.sujo("catIds") || ctxA.sujo("subPorCat")}
         desabilitado={readOnly}
+        motivoBloqueio={motivoBloqueio(readOnly, true)}
         categorias={{
           options: opcoes.categorias,
           subcategorias: opcoes.subcategorias,
@@ -308,6 +318,7 @@ function celulaArtigo(col: ColunaGrade, c: PaiProps) {
       sujo={ctxA.sujo(campo)}
       aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel || celulaDesabilitadaPorRegra(col.key, ctxA.valor)}
+      motivoBloqueio={motivoBloqueio(readOnly, col.editavel, motivoDaRegra(col.key, ctxA.valor))}
       opcoes={opcoesDaColuna(col.key, opcoes)}
       gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
     />
@@ -372,6 +383,7 @@ function celulaVariante(col: ColunaGrade, c: FilhoProps) {
       sujo={ctxV.sujo(campo)}
       aviso={c.avisos[chaveAv]}
       desabilitado={readOnly || !col.editavel}
+      motivoBloqueio={motivoBloqueio(readOnly, col.editavel)}
       opcoes={opcoesDaColuna(col.key, opcoes, ctxV.valor.cor_id)}
       gradeProps={c.propsCel(c.linhaIdx, indiceDaColuna(col.key))}
     />

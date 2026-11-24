@@ -148,7 +148,7 @@ describe("AviamentosGradeAba: edição com rascunho e célula por tipo", () => {
     const ctrl = (rot: string) =>
       porLabel(pai, rot)[0]?.getAttribute("data-controle") ?? porLabel(pai, rot)[0]?.tagName;
     expect(ctrl("Código de Botão")).toBe("input");
-    expect(ctrl("Nome de Botão")).toBe("input");
+    expect(ctrl("Nome de Botão")).toBe("textarea"); // Nome é texto GRANDE: textarea que cresce
     expect(ctrl("NCM de Botão")).toBe("input");
     expect(ctrl("Composição de Botão")).toBe("textarea");
     expect(ctrl("Observações de Botão")).toBe("textarea");

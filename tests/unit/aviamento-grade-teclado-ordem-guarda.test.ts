@@ -68,7 +68,7 @@ const cabecalho = (c: HTMLElement, rotulo: string) =>
 const nomesNaTela = (c: HTMLElement) =>
   linhas(c)
     .filter((tr) => tr.dataset.pai !== undefined)
-    .map((tr) => (tr.querySelector('[data-col="codigo_nome"] input') as HTMLInputElement).value);
+    .map((tr) => (tr.querySelector('[data-col="codigo_nome"] input, [data-col="codigo_nome"] textarea') as HTMLInputElement).value);
 
 // colunas = posição em COLUNAS_AVIAMENTO: Código 0, Nome 1, Fornecedor 2, Preço 3, NCM 4, Categoria 5, Subcategoria 6, Material 7,
 // Composição 8, Intervalo 9, Largura exata 10, Observações 11, Cor base 12, Cor apelido 13, Nome da variante 14, Código da variante 15,

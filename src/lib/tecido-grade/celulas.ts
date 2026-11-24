@@ -101,6 +101,21 @@ export function opcoesDaColuna(key: string, o: OpcoesGradeSelect, corIdDaLinha =
   }
 }
 
+/** Colunas multilinha (a Composição tem várias linhas: Enter aqui QUEBRA a linha, não desce). */
+export function ehTextoLongo(key: string): boolean {
+  return key === "composicao";
+}
+
+/** Colunas de texto GRANDE: o campo vira textarea que CRESCE em altura (mostra tudo sem rolar). Nome não aceita quebra de linha. */
+export function ehTextoGrande(key: string): boolean {
+  return key === "nome" || ehTextoLongo(key);
+}
+
+/** Por que a célula travou pela regra do cadastro (vira o `title`); `undefined` = a regra não travou. */
+export function motivoDaRegra(key: string, valor: Pick<ArtigoDraft, "unidade_medida">): string | undefined {
+  return celulaDesabilitadaPorRegra(key, valor) ? "Rendimento só vale quando a unidade é Kg." : undefined;
+}
+
 /** Rendimento só vale em Kg (mesma regra do Sheet e do `montarPayloadArtigo`): em Metro a célula fica travada. */
 export function celulaDesabilitadaPorRegra(key: string, valor: Pick<ArtigoDraft, "unidade_medida">): boolean {
   return key === "rendimento" && valor.unidade_medida !== "kg";

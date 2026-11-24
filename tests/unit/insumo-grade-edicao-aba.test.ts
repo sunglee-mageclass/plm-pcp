@@ -434,7 +434,7 @@ describe("InsumosGradeAba: UM Salvar (cabeçalho + cores)", () => {
 
 describe("InsumosGradeAba: ordenação por coluna", () => {
   const nomes = (c: HTMLElement) =>
-    pais(c).map((r) => (r.querySelector('td[data-col="nome"] input') as HTMLInputElement).value);
+    pais(c).map((r) => (r.querySelector('td[data-col="nome"] input, td[data-col="nome"] textarea') as HTMLInputElement).value);
   it("clicar no cabeçalho ordena os insumos (asc → desc) e as cores ficam juntas do seu insumo", async () => {
     const t = await montar(PROPS());
     expect(nomes(t.container)).toEqual(["Insumo E1", "Etiqueta Zeta"]);

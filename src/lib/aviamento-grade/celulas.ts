@@ -76,6 +76,11 @@ export function ehTextoLongo(key: string): boolean {
   return key === "composicao" || key === "observacoes";
 }
 
+/** Colunas de texto GRANDE: o campo vira textarea que CRESCE em altura (mostra tudo sem rolar). O nome não aceita quebra de linha. */
+export function ehTextoGrande(key: string): boolean {
+  return key === "codigo_nome" || ehTextoLongo(key);
+}
+
 /** Opções de cada coluna `select` (o mesmo formato das opções que `useAviamentosGrade` devolve). */
 export type OpcoesGradeSelect = {
   categorias: OpcaoSelect[];

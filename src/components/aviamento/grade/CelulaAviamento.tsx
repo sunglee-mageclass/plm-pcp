@@ -6,7 +6,7 @@
 import { useRef, type KeyboardEvent } from "react";
 import { ImagePlus, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { CelulaTextoGrande } from "@/components/shared/CelulaTextoGrande";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -26,10 +26,12 @@ import {
   OPCAO_VAZIA,
   casasDaColuna,
   controleDaCelula,
+  ehTextoGrande,
   ehTextoLongo,
   permiteVazio,
   type OpcaoSelect,
 } from "@/lib/aviamento-grade/celulas";
+import { MOTIVO_GENERICO, MOTIVO_SOMENTE_LEITURA } from "@/lib/grade-bloqueio";
 import { AVIAMENTO_BUCKET } from "./useFotoVariante";
 
 /** Realce âmbar da célula com alteração ainda não salva (o mesmo "selo âmbar" do resto do sistema). */
@@ -72,6 +74,8 @@ export type CelulaAviamentoProps = {
   onChange?: (v: unknown) => void;
   sujo?: boolean;
   desabilitado?: boolean;
+  /** Por que a célula está bloqueada (PT-BR): vira o `title` quando `desabilitado` (ou na célula `somente-leitura`). */
+  motivoBloqueio?: string;
   ariaLabel: string;
   /** Opções do `select`. */
   opcoes?: OpcaoSelect[];
@@ -97,6 +101,7 @@ export function CelulaAviamento({
   onChange,
   sujo = false,
   desabilitado = false,
+  motivoBloqueio,
   ariaLabel,
   opcoes = [],
   texto,
@@ -110,11 +115,13 @@ export function CelulaAviamento({
   const controle = controleDaCelula(coluna);
   // erro (vermelho) vence o aviso de colagem (laranja), que vence o selo âmbar; `title` explica o motivo
   const realce = erro ? REALCE_ERRO : aviso ? REALCE_AVISO : sujo ? REALCE_SUJO : undefined;
+  // célula bloqueada diz o PORQUÊ (tooltip); erro/aviso, que são mais urgentes, vencem o motivo
+  const bloqueio = desabilitado ? { title: motivoBloqueio ?? MOTIVO_GENERICO } : {};
   const invalido = erro
     ? { "aria-invalid": true as const, title: erro }
     : aviso
       ? { title: aviso, "data-aviso-colar": "" }
-      : {};
+      : bloqueio;
 
   if (controle === "somente-leitura") {
     return (
@@ -124,7 +131,8 @@ export function CelulaAviamento({
           aviso && "rounded border border-dashed border-orange-500",
         )}
         data-controle={controle}
-        {...invalido}
+        title={motivoBloqueio ?? MOTIVO_SOMENTE_LEITURA}
+        {...(erro || aviso ? invalido : {})}
       >
         {texto ?? "—"}
       </span>
@@ -199,27 +207,20 @@ export function CelulaAviamento({
     );
   }
 
-  // texto longo (Composição e Observações podem ter várias linhas) → textarea que preserva as quebras
-  if (ehTextoLongo(coluna.key)) {
+  // texto GRANDE (Nome, Composição, Observações) → textarea que cresce em altura e mostra tudo sem rolar. Composição e
+  // Observações têm várias linhas: Enter QUEBRA a linha (não desce); no Nome o Enter desce como nas outras células.
+  if (ehTextoGrande(coluna.key)) {
     return (
-      <Textarea
-        aria-label={ariaLabel}
-        data-controle="textarea"
-        disabled={desabilitado}
-        rows={2}
-        {...gradeProps}
-        // Enter aqui QUEBRA a linha (não desce). Tab (e Shift+Tab) seguem a navegação da grade.
-        onKeyDown={
-          gradeProps
-            ? (e) => {
-                if (e.key !== "Enter") gradeProps.onKeyDown(e);
-              }
-            : undefined
-        }
-        {...invalido}
-        className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", realce)}
-        value={(valor as string | null | undefined) ?? ""}
-        onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
+      <CelulaTextoGrande
+        ariaLabel={ariaLabel}
+        valor={valor as string | null | undefined}
+        onChange={onChange}
+        desabilitado={desabilitado}
+        quebraLinha={ehTextoLongo(coluna.key)}
+        gradeProps={gradeProps}
+        atributos={invalido}
+        realce={realce}
+        placeholder={placeholder}
       />
     );
   }

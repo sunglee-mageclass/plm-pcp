@@ -161,7 +161,7 @@ async function montarTela(artigosProp: Linha[]) {
 const linhas = (c: HTMLElement) => Array.from(c.querySelectorAll("tbody tr")) as HTMLElement[];
 const porLabel = (root: ParentNode, label: string) => Array.from(root.querySelectorAll(`[aria-label="${label}"]`)) as HTMLInputElement[];
 function digitar(el: HTMLInputElement, valor: string) {
-  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  const set = Object.getOwnPropertyDescriptor(el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")!.set!; // Nome/Composição são textarea
   return act(async () => { set.call(el, valor); el.dispatchEvent(new Event("input", { bubbles: true })); });
 }
 const clicar = (el: Element | null | undefined) => act(async () => { (el as HTMLElement).click(); });
@@ -179,7 +179,7 @@ async function tecla(el: HTMLElement, key: string, shiftKey = false) {
 const ordemTela = (c: HTMLElement) => linhas(c).filter((tr) => tr.dataset.artigoId).map((tr) => `${tr.dataset.artigoId}${tr.dataset.varianteId ? `/${tr.dataset.varianteId}` : ""}`);
 const cabecalho = (c: HTMLElement, rotulo: string) => Array.from(c.querySelectorAll("thead th button")).find((b) => b.textContent?.trim() === rotulo) as HTMLButtonElement | undefined;
 /** Nome de cada TECIDO na tela (o cabeçalho só existe na linha-pai; as cores não têm o campo Nome). */
-const nomesNaTela = (c: HTMLElement) => linhas(c).filter((tr) => tr.dataset.pai !== undefined).map((tr) => (tr.querySelector('[data-col="nome"] input') as HTMLInputElement).value);
+const nomesNaTela = (c: HTMLElement) => linhas(c).filter((tr) => tr.dataset.pai !== undefined).map((tr) => (tr.querySelector('[data-col="nome"] input, [data-col="nome"] textarea') as HTMLInputElement).value);
 
 beforeEach(() => {
   estado.artigos = [artigo("a1", { nome: "Zeta" }), artigo("a2", { nome: "Alfa", preco: 30 }), artigo("a3", { nome: "Meio", preco: 20 })];

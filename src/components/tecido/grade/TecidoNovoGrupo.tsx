@@ -2,6 +2,7 @@
 // de um tecido que já existe. É RASCUNHO puro (estado da `TecidosGradeAba`): NADA grava aqui — o UM Salvar manda cada grupo
 // VÁLIDO pela RPC `importar_tecido_linha`. Grupo incompleto = PENDENTE: fica na tela, com a célula em vermelho (depois que a
 // pessoa tenta salvar), e não trava os demais. Cabeçalho herdado: as cores 2+ mostram "↳ mesmo tecido" (só a parte da cor edita).
+import { motivoBloqueio } from "@/lib/grade-bloqueio";
 import { useEffect, useRef, type ReactNode } from "react";
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import {
   CAMPO_ARTIGO,
   CAMPO_VARIANTE,
   celulaDesabilitadaPorRegra,
+  motivoDaRegra,
   controleDaCelula,
   opcoesDaColuna,
   precoPorMetroTexto,
@@ -168,6 +170,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
         erro={erroCab}
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel || celulaDesabilitadaPorRegra(col.key, { unidade_medida: g.cab.unidade_medida ?? "metro" })}
+        motivoBloqueio={motivoBloqueio(false, col.editavel, motivoDaRegra(col.key, { unidade_medida: g.cab.unidade_medida ?? "metro" }))}
         opcoes={opcoesDaColuna(col.key, opcoes)}
         gradeProps={gradeDe(linhaIdx, col)}
       />
@@ -196,6 +199,7 @@ export function LinhasTecidoNovo({ grupo: g, opcoes, mostrarPendencias, erro, on
         erro={vermelho(probs, col.key)}
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel}
+        motivoBloqueio={motivoBloqueio(false, col.editavel)}
         opcoes={opcoesDaColuna(col.key, opcoes, v.cor_id)}
         gradeProps={gradeDe(inicio + idx, col)}
       />

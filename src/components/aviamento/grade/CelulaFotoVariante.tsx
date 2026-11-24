@@ -1,4 +1,5 @@
 // Célula Foto de uma cor JÁ cadastrada na grade de Aviamentos: liga o upload (grava na hora) à célula de desenho `CelulaAviamento`.
+import { MOTIVO_SEM_PERMISSAO } from "@/lib/grade-bloqueio";
 import { CelulaAviamento } from "./CelulaAviamento";
 import { useFotoVariante } from "./useFotoVariante";
 import type { ColunaGrade } from "@/lib/aviamento-grade/colunas";
@@ -19,7 +20,12 @@ export function CelulaFotoVariante({
     <CelulaAviamento
       coluna={coluna}
       ariaLabel={ariaLabel}
-      foto={{ path: variante.foto_url, enviando, onEnviar: readOnly ? undefined : enviar }}
+      foto={{
+        path: variante.foto_url,
+        enviando,
+        onEnviar: readOnly ? undefined : enviar,
+        dica: readOnly ? MOTIVO_SEM_PERMISSAO : undefined,
+      }}
     />
   );
 }

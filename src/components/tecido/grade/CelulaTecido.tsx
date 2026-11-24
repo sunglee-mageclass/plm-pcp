@@ -5,7 +5,7 @@
 import { useRef, type KeyboardEvent } from "react";
 import { ChevronsUpDown, ImagePlus, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { CelulaTextoGrande } from "@/components/shared/CelulaTextoGrande";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -18,7 +18,8 @@ import { ImagePreview } from "@/components/shared/ImagePreview";
 import { useSignedUrl, VARIANT_BUCKET } from "@/hooks/useSignedUrl";
 import { cn } from "@/lib/utils";
 import type { ColunaGrade } from "@/lib/tecido-grade/colunas";
-import { OPCAO_VAZIA, casasDaColuna, controleDaCelula, permiteVazio, type OpcaoSelect } from "@/lib/tecido-grade/celulas";
+import { OPCAO_VAZIA, casasDaColuna, controleDaCelula, ehTextoGrande, ehTextoLongo, permiteVazio, type OpcaoSelect } from "@/lib/tecido-grade/celulas";
+import { MOTIVO_GENERICO, MOTIVO_SOMENTE_LEITURA } from "@/lib/grade-bloqueio";
 
 /** Realce âmbar da célula com alteração ainda não salva (o mesmo "selo âmbar" do resto do sistema). */
 const REALCE_SUJO = "border-amber-500 bg-amber-50 dark:bg-amber-500/10";
@@ -58,6 +59,8 @@ export type CelulaTecidoProps = {
   onChange?: (v: unknown) => void;
   sujo?: boolean;
   desabilitado?: boolean;
+  /** Por que a célula está bloqueada (PT-BR): vira o `title` quando `desabilitado` (ou na célula `somente-leitura`). */
+  motivoBloqueio?: string;
   ariaLabel: string;
   /** Opções do `select`. */
   opcoes?: OpcaoSelect[];
@@ -76,19 +79,22 @@ export type CelulaTecidoProps = {
 };
 
 export function CelulaTecido({
-  coluna, valor, onChange, sujo = false, desabilitado = false, ariaLabel, opcoes = [], texto, categorias, foto, erro, aviso, gradeProps,
+  coluna, valor, onChange, sujo = false, desabilitado = false, motivoBloqueio, ariaLabel, opcoes = [], texto, categorias, foto, erro, aviso, gradeProps,
 }: CelulaTecidoProps) {
   const controle = controleDaCelula(coluna);
   // erro (vermelho) vence o aviso de colagem (laranja), que vence o selo âmbar; `title` explica o motivo
   const realce = erro ? REALCE_ERRO : aviso ? REALCE_AVISO : sujo ? REALCE_SUJO : undefined;
+  // célula bloqueada diz o PORQUÊ (tooltip); erro/aviso, que são mais urgentes, vencem o motivo
+  const motivo = motivoBloqueio ?? MOTIVO_GENERICO;
+  const bloqueio = desabilitado ? { title: motivo } : {};
   const invalido = erro
     ? { "aria-invalid": true as const, title: erro }
     : aviso
       ? { title: aviso, "data-aviso-colar": "" }
-      : {};
+      : bloqueio;
 
   if (controle === "somente-leitura") {
-    return <span className="block min-w-[5rem] px-2 text-muted-foreground tabular-nums" data-controle={controle}>{texto ?? "—"}</span>;
+    return <span className="block min-w-[5rem] px-2 text-muted-foreground tabular-nums" data-controle={controle} title={motivoBloqueio ?? MOTIVO_SOMENTE_LEITURA}>{texto ?? "—"}</span>;
   }
 
   if (controle === "foto") {
@@ -96,7 +102,7 @@ export function CelulaTecido({
   }
 
   if (controle === "categorias" && categorias) {
-    return <CelulaCategorias dados={categorias} sujo={sujo} desabilitado={desabilitado} ariaLabel={ariaLabel} />;
+    return <CelulaCategorias dados={categorias} sujo={sujo} desabilitado={desabilitado} motivoBloqueio={motivo} ariaLabel={ariaLabel} />;
   }
 
   if (controle === "money") {
@@ -142,22 +148,19 @@ export function CelulaTecido({
     );
   }
 
-  // texto longo (Composição pode ter várias linhas: "95% Viscose\n5% Elastano") → textarea que
-  // preserva as quebras; sem ele o <input> de 1 linha cola tudo sem espaçamento.
-  if (coluna.key === "composicao") {
+  // texto GRANDE (Nome, Composição) → textarea que cresce em altura e mostra tudo sem rolar. A Composição tem várias linhas
+  // ("95% Viscose\n5% Elastano"): Enter QUEBRA a linha (não desce); no Nome o Enter desce como nas outras células.
+  if (ehTextoGrande(coluna.key)) {
     return (
-      <Textarea
-        aria-label={ariaLabel}
-        data-controle="textarea"
-        disabled={desabilitado}
-        rows={2}
-        {...gradeProps}
-        // Composição tem várias linhas: Enter aqui QUEBRA a linha (não desce). Tab (e Shift+Tab) seguem a navegação da grade.
-        onKeyDown={gradeProps ? (e) => { if (e.key !== "Enter") gradeProps.onKeyDown(e); } : undefined}
-        {...invalido}
-        className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", realce)}
-        value={(valor as string | null | undefined) ?? ""}
-        onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
+      <CelulaTextoGrande
+        ariaLabel={ariaLabel}
+        valor={valor as string | null | undefined}
+        onChange={onChange}
+        desabilitado={desabilitado}
+        quebraLinha={ehTextoLongo(coluna.key)}
+        gradeProps={gradeProps}
+        atributos={invalido}
+        realce={realce}
       />
     );
   }
@@ -235,8 +238,8 @@ const SUB_NENHUMA = "__nenhuma__";
  * CATEGORIAS (N:N) = UM único popover: a lista de categorias do Sheet (`CategoriasTecidoLista`) e, para cada categoria
  * marcada, o Select da subcategoria. O gatilho mostra os chips "Categoria › Sub".
  */
-export function CelulaCategorias({ dados, sujo, desabilitado, ariaLabel }: {
-  dados: CategoriasCelula; sujo: boolean; desabilitado: boolean; ariaLabel: string;
+export function CelulaCategorias({ dados, sujo, desabilitado, ariaLabel, motivoBloqueio }: {
+  dados: CategoriasCelula; sujo: boolean; desabilitado: boolean; ariaLabel: string; motivoBloqueio?: string;
 }) {
   const { options, subcategorias, catIds, subPorCat, onChange } = dados;
   const nomeCat = (id: string) => options.find((o) => o.id === id)?.nome ?? "—";
@@ -246,22 +249,25 @@ export function CelulaCategorias({ dados, sujo, desabilitado, ariaLabel }: {
       return sub ? `${nomeCat(cid)} › ${sub}` : nomeCat(cid);
     })
     .join(", ");
+  // Button desabilitado não recebe o mouse (pointer-events-none): o motivo do bloqueio vai no <span> que o envolve.
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={desabilitado}
-          aria-label={ariaLabel}
-          data-controle="categorias"
-          title={rotulo || undefined}
-          className={cn("h-8 w-56 justify-between px-2 font-normal", sujo && REALCE_SUJO)}
-        >
-          <span className="truncate text-left">{rotulo || <span className="text-muted-foreground">—</span>}</span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
+      <span className="inline-block" title={desabilitado ? (motivoBloqueio ?? MOTIVO_GENERICO) : undefined} data-bloqueio-categorias={desabilitado ? "" : undefined}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={desabilitado}
+            aria-label={ariaLabel}
+            data-controle="categorias"
+            title={rotulo || undefined}
+            className={cn("h-8 w-56 justify-between px-2 font-normal", sujo && REALCE_SUJO)}
+          >
+            <span className="truncate text-left">{rotulo || <span className="text-muted-foreground">—</span>}</span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+      </span>
       <PopoverContent className="w-80 p-2" align="start">
         <CategoriasTecidoLista
           options={options}

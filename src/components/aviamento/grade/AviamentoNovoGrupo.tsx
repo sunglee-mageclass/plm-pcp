@@ -3,6 +3,7 @@
 // VÁLIDO pela RPC `importar_aviamento_linha`. Grupo incompleto = PENDENTE: fica na tela, com a célula em vermelho (depois que a
 // pessoa tenta salvar), e não trava os demais. Cabeçalho herdado: as cores 2+ mostram "↳ mesmo aviamento" (só a parte da cor edita).
 // O `codigo` NÃO se digita aqui: o gatilho do banco o gera no INSERT (a partir da categoria).
+import { motivoBloqueio } from "@/lib/grade-bloqueio";
 import { useEffect, useRef, type ReactNode } from "react";
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -216,6 +217,7 @@ export function LinhasAviamentoNovo({
         erro={erroCab}
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel}
+        motivoBloqueio={motivoBloqueio(false, col.editavel)}
         opcoes={opcoesDaColuna(col.key, opcoes, { categoriaId: g.cab.categoria_aviamento_id })}
         gradeProps={gradeDe(linhaIdx, col)}
       />
@@ -255,6 +257,7 @@ export function LinhasAviamentoNovo({
         erro={vermelho(probs, col.key)}
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel}
+        motivoBloqueio={motivoBloqueio(false, col.editavel)}
         opcoes={opcoesDaColuna(col.key, opcoes, { corId: v.cor_id })}
         gradeProps={gradeDe(inicio + idx, col)}
       />

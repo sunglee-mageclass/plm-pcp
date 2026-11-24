@@ -1,4 +1,5 @@
 // Célula Foto de uma cor JÁ cadastrada na grade: liga o upload (grava na hora) à célula de desenho `CelulaTecido`.
+import { MOTIVO_SEM_PERMISSAO } from "@/lib/grade-bloqueio";
 import { CelulaTecido } from "./CelulaTecido";
 import { useFotoVariante } from "./useFotoVariante";
 import type { ColunaGrade } from "@/lib/tecido-grade/colunas";
@@ -19,7 +20,7 @@ export function CelulaFotoVariante({
     <CelulaTecido
       coluna={coluna}
       ariaLabel={ariaLabel}
-      foto={{ path: variante.foto_url, enviando, onEnviar: readOnly ? undefined : enviar }}
+      foto={{ path: variante.foto_url, enviando, onEnviar: readOnly ? undefined : enviar, dica: readOnly ? MOTIVO_SEM_PERMISSAO : undefined }}
     />
   );
 }

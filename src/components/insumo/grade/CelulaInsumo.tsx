@@ -7,7 +7,7 @@
 import type { KeyboardEvent } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { CelulaTextoGrande } from "@/components/shared/CelulaTextoGrande";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -23,12 +23,14 @@ import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/Fo
 import { canonicoParaNumero } from "@/lib/money-mask";
 import { rotuloTamanho } from "@/lib/insumo-tamanho";
 import { cn } from "@/lib/utils";
+import { MOTIVO_GENERICO, MOTIVO_SOMENTE_LEITURA } from "@/lib/grade-bloqueio";
 import type { ColunaGrade } from "@/lib/insumo-grade/colunas";
 import {
   OPCAO_VAZIA,
   alternarTamanho,
   casasDaColuna,
   controleDaCelula,
+  ehTextoGrande,
   ehTextoLongo,
   opcoesDeTamanho,
   permiteVazio,
@@ -76,7 +78,9 @@ export type CelulaInsumoProps = {
   tamanhosGrade?: readonly string[];
   /** Texto da célula `somente-leitura`. */
   texto?: string;
-  /** Por que a célula está travada (vira o `title`). */
+  /** Por que a célula está bloqueada (PT-BR): vira o `title` quando `desabilitado` (ou na célula `somente-leitura`). */
+  motivoBloqueio?: string;
+  /** Sinônimo antigo de `motivoBloqueio` (se os dois vierem, vale `motivoBloqueio`). */
   dica?: string;
   /** Problema desta célula (ex.: cor repetida no insumo): fica em vermelho, com o motivo no `title`. */
   erro?: string;
@@ -98,6 +102,7 @@ export function CelulaInsumo({
   opcoes = [],
   tamanhosGrade = [],
   texto,
+  motivoBloqueio,
   dica,
   erro,
   aviso,
@@ -107,18 +112,21 @@ export function CelulaInsumo({
   const controle = controleDaCelula(coluna);
   // erro (vermelho) vence o aviso de colagem (laranja), que vence o selo âmbar; o `title` explica o motivo
   const realce = erro ? REALCE_ERRO : aviso ? REALCE_AVISO : sujo ? REALCE_SUJO : undefined;
+  // célula bloqueada diz o PORQUÊ (tooltip); erro/aviso, que são mais urgentes, vencem o motivo
+  const motivo = motivoBloqueio ?? dica;
+  const bloqueio = desabilitado ? { title: motivo ?? MOTIVO_GENERICO } : {};
   const invalido = erro
     ? { "aria-invalid": true as const, title: erro }
     : aviso
       ? { title: aviso, "data-aviso-colar": "" }
-      : {};
+      : bloqueio;
 
   if (controle === "somente-leitura") {
     return (
       <span
         className="block min-w-[5rem] px-2 text-muted-foreground tabular-nums"
         data-controle={controle}
-        title={dica}
+        title={motivo ?? MOTIVO_SOMENTE_LEITURA}
       >
         {texto ?? "—"}
       </span>
@@ -134,7 +142,7 @@ export function CelulaInsumo({
         sujo={sujo}
         desabilitado={desabilitado}
         ariaLabel={ariaLabel}
-        dica={erro ?? aviso ?? dica}
+        dica={erro ?? aviso ?? (desabilitado ? (motivo ?? MOTIVO_GENERICO) : undefined)}
         realce={realce}
       />
     );
@@ -146,7 +154,7 @@ export function CelulaInsumo({
     const itens =
       atual && !tamanhosGrade.includes(atual) ? [...tamanhosGrade, atual] : [...tamanhosGrade];
     return (
-      <span title={dica} className="block">
+      <span title={desabilitado ? (motivo ?? MOTIVO_GENERICO) : undefined} className="block">
         <Select
           value={atual}
           disabled={desabilitado}
@@ -237,27 +245,19 @@ export function CelulaInsumo({
     );
   }
 
-  // texto longo (Observações pode ter várias linhas) → textarea que preserva as quebras
-  if (ehTextoLongo(coluna.key)) {
+  // texto GRANDE (Nome, Observações) → textarea que cresce em altura e mostra tudo sem rolar. Observações tem várias linhas:
+  // Enter QUEBRA a linha (não desce); no Nome o Enter desce como nas outras células.
+  if (ehTextoGrande(coluna.key)) {
     return (
-      <Textarea
-        aria-label={ariaLabel}
-        data-controle="textarea"
-        disabled={desabilitado}
-        rows={2}
-        {...gradeProps}
-        {...invalido}
-        // Enter aqui QUEBRA a linha (não desce). Tab (e Shift+Tab) seguem a navegação da grade.
-        onKeyDown={
-          gradeProps
-            ? (e) => {
-                if (e.key !== "Enter") gradeProps.onKeyDown(e);
-              }
-            : undefined
-        }
-        className={cn("min-h-8 min-w-[12rem] resize-y whitespace-pre-wrap py-1", realce)}
-        value={(valor as string | null | undefined) ?? ""}
-        onChange={(e) => onChange?.(e.target.value === "" ? null : e.target.value)}
+      <CelulaTextoGrande
+        ariaLabel={ariaLabel}
+        valor={valor as string | null | undefined}
+        onChange={onChange}
+        desabilitado={desabilitado}
+        quebraLinha={ehTextoLongo(coluna.key)}
+        gradeProps={gradeProps}
+        atributos={invalido}
+        realce={realce}
       />
     );
   }
@@ -305,29 +305,32 @@ function CelulaTamanhos({
   const resumo = resumoTamanhos(marcados, rotuloTamanho);
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={desabilitado}
-          aria-label={ariaLabel}
-          data-controle="tamanhos"
-          title={dica ?? (resumo || undefined)}
-          className={cn(
-            "h-8 w-52 justify-between px-2 font-normal",
-            realce ?? (sujo ? REALCE_SUJO : undefined),
-          )}
-        >
-          <span className="truncate text-left">
-            {desabilitado ? (
-              <span className="text-muted-foreground">—</span>
-            ) : (
-              resumo || <span className="text-muted-foreground">—</span>
+      {/* Button desabilitado não recebe o mouse (pointer-events-none): o motivo do bloqueio vai no <span> que o envolve. */}
+      <span className="inline-block" title={desabilitado ? dica : undefined}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={desabilitado}
+            aria-label={ariaLabel}
+            data-controle="tamanhos"
+            title={dica ?? (resumo || undefined)}
+            className={cn(
+              "h-8 w-52 justify-between px-2 font-normal",
+              realce ?? (sujo ? REALCE_SUJO : undefined),
             )}
-          </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
+          >
+            <span className="truncate text-left">
+              {desabilitado ? (
+                <span className="text-muted-foreground">—</span>
+              ) : (
+                resumo || <span className="text-muted-foreground">—</span>
+              )}
+            </span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+      </span>
       <PopoverContent className="w-60 p-2" align="start">
         <p className="px-2 pb-1 text-xs text-muted-foreground">
           Marque os tamanhos desta cor. Sem nenhum marcado, a cor vale sem tamanho.

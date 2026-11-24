@@ -9,6 +9,11 @@
 // `InsumoNovoGrupo`), COLA do Excel (bloco TSV na célula-âncora) e EXCLUI (lixeira única por linha: o INSUMO grava na hora, atrás de
 // confirmação; a COR só sai do rascunho — o próximo Salvar regrava as cores sem ela).
 import {
+  MOTIVO_SEM_TAMANHO,
+  MOTIVO_VINCULO_INDISPONIVEL,
+  motivoBloqueio,
+} from "@/lib/grade-bloqueio";
+import {
   memo,
   useCallback,
   useEffect,
@@ -337,6 +342,7 @@ function celulaInsumo(col: ColunaGrade, c: PaiProps) {
   const campo = CAMPO_INSUMO[col.key];
   if (!campo) return null;
   const desabilitado = readOnly || !col.editavel;
+  const motivo = motivoBloqueio(readOnly, col.editavel);
   const chaveAv = `${chaveSlotPai(insumo.id)}|${col.key}`;
   const aviso = c.avisos[chaveAv];
 
@@ -348,6 +354,7 @@ function celulaInsumo(col: ColunaGrade, c: PaiProps) {
         sujo={ctx.sujo("empresa_id") || ctx.sujo("representante_id")}
         aviso={aviso}
         desabilitado={desabilitado}
+        motivoBloqueio={motivo}
         fornecedor={{
           empresas: empresasParaLinha(opcoes.empresas, ctx.valor.empresa_id),
           empresaId: ctx.valor.empresa_id,
@@ -380,11 +387,11 @@ function celulaInsumo(col: ColunaGrade, c: PaiProps) {
         }}
         sujo={ctx.sujo("vincular") || ctx.sujo("tamanho_vinculado")}
         desabilitado={desabilitado || !disponivel}
-        dica={
-          disponivel
-            ? undefined
-            : 'Só vale em insumo sem tamanho próprio: formato "Nenhum" ou nenhuma cor com tamanho marcado.'
-        }
+        motivoBloqueio={motivoBloqueio(
+          readOnly,
+          col.editavel,
+          disponivel ? undefined : MOTIVO_VINCULO_INDISPONIVEL,
+        )}
         tamanhosGrade={opcoes.tamanhosGrade}
       />
     );
@@ -402,6 +409,7 @@ function celulaInsumo(col: ColunaGrade, c: PaiProps) {
       sujo={ctx.sujo(campo as CampoCabecalho)}
       aviso={aviso}
       desabilitado={desabilitado}
+      motivoBloqueio={motivo}
       opcoes={opcoesDaColuna(col.key, opcoes)}
       gradeProps={props_(c, col)}
     />
@@ -457,7 +465,11 @@ function celulaCor(col: ColunaGrade, c: FilhoProps) {
         sujo={sujo}
         aviso={aviso}
         desabilitado={readOnly || !col.editavel || !habilitada}
-        dica={habilitada ? undefined : 'Formato "Nenhum": o insumo não tem tamanho.'}
+        motivoBloqueio={motivoBloqueio(
+          readOnly,
+          col.editavel,
+          habilitada ? undefined : MOTIVO_SEM_TAMANHO,
+        )}
         tamanhosGrade={opcoes.tamanhosGrade}
       />
     );
@@ -471,6 +483,7 @@ function celulaCor(col: ColunaGrade, c: FilhoProps) {
       sujo={sujo}
       aviso={aviso}
       desabilitado={readOnly || !col.editavel}
+      motivoBloqueio={motivoBloqueio(readOnly, col.editavel)}
       opcoes={opcoesDaColuna(col.key, opcoes)}
       erro={
         col.key === "cor" && temCorRepetida(ctx.valor.blocos) && corRepete(ctx.valor.blocos, idx)

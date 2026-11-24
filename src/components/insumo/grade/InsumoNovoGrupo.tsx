@@ -3,6 +3,11 @@
 // `importar_insumo_linha` (variantes expandidas por cor × tamanho). Grupo incompleto = PENDENTE: fica na tela, com a célula em
 // vermelho (depois que a pessoa tenta salvar), e não trava os demais. Cabeçalho herdado: as cores 2+ mostram "↳ mesmo insumo" (só a
 // parte da cor edita). Espelha `AviamentoNovoGrupo`, sem apelido/foto/multi-cor; a cor leva a célula de TAMANHOS.
+import {
+  MOTIVO_SEM_TAMANHO,
+  MOTIVO_VINCULO_INDISPONIVEL,
+  motivoBloqueio,
+} from "@/lib/grade-bloqueio";
 import { useEffect, useRef, type ReactNode } from "react";
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -190,11 +195,11 @@ export function LinhasInsumoNovo({
           }}
           erro={erroCab}
           desabilitado={!col.editavel || !disponivel}
-          dica={
-            disponivel
-              ? undefined
-              : 'Só vale em insumo sem tamanho próprio: formato "Nenhum" ou nenhuma cor com tamanho marcado.'
-          }
+          motivoBloqueio={motivoBloqueio(
+            false,
+            col.editavel,
+            disponivel ? undefined : MOTIVO_VINCULO_INDISPONIVEL,
+          )}
           tamanhosGrade={opcoes.tamanhosGrade}
         />
       );
@@ -214,6 +219,7 @@ export function LinhasInsumoNovo({
         erro={erroCab}
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel}
+        motivoBloqueio={motivoBloqueio(false, col.editavel)}
         opcoes={opcoesDaColuna(col.key, opcoes)}
         gradeProps={gradeDe(linhaIdx, col)}
       />
@@ -242,7 +248,11 @@ export function LinhasInsumoNovo({
           onChange={aoMudar}
           aviso={avisos[chaveAv]}
           desabilitado={!col.editavel || !habilitada}
-          dica={habilitada ? undefined : 'Formato "Nenhum": o insumo não tem tamanho.'}
+          motivoBloqueio={motivoBloqueio(
+            false,
+            col.editavel,
+            habilitada ? undefined : MOTIVO_SEM_TAMANHO,
+          )}
           tamanhosGrade={opcoes.tamanhosGrade}
         />
       );
@@ -256,6 +266,7 @@ export function LinhasInsumoNovo({
         erro={vermelho(probs, col.key)}
         aviso={avisos[chaveAv]}
         desabilitado={!col.editavel}
+        motivoBloqueio={motivoBloqueio(false, col.editavel)}
         opcoes={opcoesDaColuna(col.key, opcoes)}
         gradeProps={gradeDe(inicio + idx, col)}
       />

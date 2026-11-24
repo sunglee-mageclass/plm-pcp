@@ -124,7 +124,7 @@ async function montar(artigosProp: Linha[]) {
 const linhas = (c: HTMLElement) => Array.from(c.querySelectorAll("tbody tr")) as HTMLElement[];
 const porLabel = (root: ParentNode, label: string) => Array.from(root.querySelectorAll(`[aria-label="${label}"]`)) as HTMLInputElement[];
 function digitar(el: HTMLInputElement, valor: string) {
-  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  const set = Object.getOwnPropertyDescriptor(el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")!.set!; // Nome/Composição são textarea
   return act(async () => { set.call(el, valor); el.dispatchEvent(new Event("input", { bubbles: true })); });
 }
 const clicar = (el: Element | null | undefined) => act(async () => { (el as HTMLElement).click(); });
