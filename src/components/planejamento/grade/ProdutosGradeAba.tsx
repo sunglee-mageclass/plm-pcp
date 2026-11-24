@@ -46,6 +46,11 @@ export interface ProdutosGradeAbaProps {
    * busca ou de filtro — senão a grade desmonta/esvazia e o rascunho se perde calado. Ao desmontar avisa `false`.
    */
   onDirtyChange?: (sujo: boolean) => void;
+  /**
+   * PR-GRADE-2 — abre o Sheet do produto JÁ na seção pedida (`grade` no interno, `grade_revenda` no comprado). A tela-mãe decide como
+   * (hoje: `setOpenId` + seção inicial — Sheet lateral, sem trocar de página). Ausente = a linha expandida não mostra o botão.
+   */
+  onAbrirNoSheet?: (modeloId: string, secao: string) => void;
 }
 
 /**
@@ -65,7 +70,12 @@ export function ProdutosGradeAba(props: ProdutosGradeAbaProps) {
 
 const QUERY_GRADE = ["modelos-planejamento", "grade"] as const;
 
-function ProdutosGradeConteudo({ modelos, isMobile, onDirtyChange }: ProdutosGradeAbaProps) {
+function ProdutosGradeConteudo({
+  modelos,
+  isMobile,
+  onDirtyChange,
+  onAbrirNoSheet,
+}: ProdutosGradeAbaProps) {
   const qc = useQueryClient();
   const dados = useProdutosGrade();
   const readOnly = useReadOnly();
@@ -133,6 +143,7 @@ function ProdutosGradeConteudo({ modelos, isMobile, onDirtyChange }: ProdutosGra
   const opcoesRef = useRef(dados.opcoes);
   opcoesRef.current = dados.opcoes;
   const resultadosRef = useRef<ResultadoLinha[]>([]);
+  const revSalvoRef = useRef(new Map<string, number>());
 
   const reportar = useCallback((r: ResultadoLinha) => {
     resultadosRef.current.push(r);
@@ -161,6 +172,7 @@ function ProdutosGradeConteudo({ modelos, isMobile, onDirtyChange }: ProdutosGra
       reportar,
       recarregarLinha,
       aoErro,
+      revSalvoRef,
     }),
     [reportar, recarregarLinha, aoErro],
   );
@@ -168,6 +180,7 @@ function ProdutosGradeConteudo({ modelos, isMobile, onDirtyChange }: ProdutosGra
   const salvarMut = useMutation({
     mutationFn: async () => {
       resultadosRef.current = [];
+      revSalvoRef.current = new Map();
       salvandoRef.current = true;
       try {
         // A trava vale pelo estado de AGORA (não pelo do render): outra pessoa pode ter marcado o produto depois de a Lista abrir.
@@ -312,6 +325,7 @@ function ProdutosGradeConteudo({ modelos, isMobile, onDirtyChange }: ProdutosGra
           resolver={resolver}
           salvar={salvarCtx}
           ordenacao={ordenacao}
+          abrirNoSheet={onAbrirNoSheet}
         />
       )}
 

@@ -18,7 +18,7 @@ describe("criacao.planejamento — toggle Cards|Lista", () => {
 
   it("a Lista recebe os produtos JÁ filtrados e ORDENADOS pela tela (`sorted`) e avisa o rascunho à guarda", () => {
     expect(fonte).toMatch(
-      /<ProdutosGradeAba modelos=\{sorted\} isMobile=\{isMobile\} onDirtyChange=\{guarda\.aoMudarSujo\} \/>/,
+      /<ProdutosGradeAba\s+modelos=\{sorted\}\s+isMobile=\{isMobile\}\s+onDirtyChange=\{guarda\.aoMudarSujo\}\s+onAbrirNoSheet=/,
     );
     expect(fonte).toContain("{guarda.dialog}");
   });

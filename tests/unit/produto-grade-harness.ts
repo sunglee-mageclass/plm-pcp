@@ -70,6 +70,10 @@ function chain(t: string) {
       unico = true;
       return c;
     },
+    single: () => {
+      unico = true;
+      return c;
+    },
     range: (de: number, ate: number) => {
       faixa = [de, ate];
       return c;
@@ -96,7 +100,15 @@ function chain(t: string) {
         const fresco = estado.relidoPorId.has(id)
           ? estado.relidoPorId.get(id)
           : estado.modelos.find((x) => x.id === id);
-        return res({ data: fresco ? { ...fresco } : null, error: null });
+        if (!fresco) return res({ data: null, error: null });
+        // PR-GRADE-2: `lerGradeServidorComprado` lê `rev` + o embed `grades:modelo_grades(...)` num SELECT só.
+        if (reg.select?.includes("modelo_grades")) {
+          const grades = (estado.extra.modelo_grades ?? [])
+            .filter((r) => r.modelo_id === id)
+            .map((r) => ({ ...r }));
+          return res({ data: { ...fresco, grades }, error: null });
+        }
+        return res({ data: { ...fresco }, error: null });
       }
       if (estado.extra[t]) {
         const filtradas = estado.extra[t]

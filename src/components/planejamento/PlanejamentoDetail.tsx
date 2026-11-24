@@ -111,7 +111,7 @@ import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { gateEnvioExplosao, pendenciasEnvioExplosao } from "@/components/planejamento/planejamento-detail/ficha/envio-explosao";
-import { PedidoSecaoContext, proximoPedido, type PedidoSecao } from "@/components/planejamento/planejamento-detail/secoes-abertas";
+import { PedidoSecaoContext, pedidoInicial, proximoPedido, type PedidoSecao } from "@/components/planejamento/planejamento-detail/secoes-abertas";
 import { MenuMaisAcoes } from "@/components/planejamento/planejamento-detail/MenuMaisAcoes";
 import { HistoricoProdutoSheet } from "@/components/planejamento/HistoricoProdutoSheet";
 import { useEnviarExplosao } from "@/components/planejamento/planejamento-detail/useEnviarExplosao";
@@ -162,6 +162,8 @@ export function PlanejamentoDetail(props: {
   /** R14 L3: o host já tem guarda de navegação suja própria (ex.: Integração com campos sujos)? Então o Sheet NÃO
    *  bloqueia a navegação de rota (evita prompt em dobro). Default false: o Sheet bloqueia (`blockNav: dirty`). */
   hostGuardaNavegacao?: boolean;
+  /** PR-GRADE-2 — seção que o Sheet abre (e rola até) ao nascer: `grade` (interno) / `grade_revenda` (comprado). Ausente = abertura normal. */
+  secaoInicial?: string | null;
 }) {
   const [idCriado, setIdCriado] = useState<string | null>(null);
   const id = props.modeloId ?? idCriado;
@@ -169,13 +171,14 @@ export function PlanejamentoDetail(props: {
 }
 
 function PlanejamentoDetailConteudo({
-  modeloId, onClose: onCloseProp, onSaved, contexto = CONTEXTO_PADRAO, onCreated, hostGuardaNavegacao = false,
+  modeloId, onClose: onCloseProp, onSaved, contexto = CONTEXTO_PADRAO, onCreated, hostGuardaNavegacao = false, secaoInicial = null,
 }: {
   modeloId: string | null;
   onClose: () => void;
   onSaved: () => void;
   contexto?: ContextoDetalhe;
   hostGuardaNavegacao?: boolean;
+  secaoInicial?: string | null;
   /** Card NOVO: chamado com o id depois do INSERT (o wrapper remonta como Sheet desse id). */
   onCreated?: (id: string) => void;
 }) {
@@ -341,7 +344,7 @@ function PlanejamentoDetailConteudo({
   const [confirmDel, setConfirmDel] = useState(false);
   // F3.3 — o "Ver no Desenvolvimento" SAIU (abria um 2º editor do mesmo BOM por cima do card; o Sheet já tem as seções do
   // Dev). Estado dos links "Para enviar, falta…", da impressão da Ficha Técnica e da confirmação do envio.
-  const [pedidoSecao, setPedidoSecao] = useState<PedidoSecao>(null);
+  const [pedidoSecao, setPedidoSecao] = useState<PedidoSecao>(() => pedidoInicial(secaoInicial));
   const abrirSecao = (chave: string) => setPedidoSecao((p) => proximoPedido(p, chave));
   const [printTecnicaToken, setPrintTecnicaToken] = useState(0);
   // F5-3 — Histórico do produto (Sheet só leitura aberto pelo ⋯). Montado só aberto → nasce limpo a cada abertura.

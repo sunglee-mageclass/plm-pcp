@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // PR-GRADE-1 — Lista tipo Excel: cada produto é EXPANSÍVEL (nasce recolhido) e, aberto, mostra as cores + a matriz cor × tamanho em
-// SÓ-LEITURA. Prova: nasce recolhido e SEM consultar a grade (sob demanda); interno lê as variantes do Tecido 1 + `modelo_grades`;
+// SÓ-LEITURA (PR-GRADE-2: a REVENDA com permissão edita — ver `produto-grade-edicao-revenda.test.ts`; aqui a revenda SEM permissão). Prova: nasce recolhido e SEM consultar a grade (sob demanda); interno lê as variantes do Tecido 1 + `modelo_grades`;
 // comprado lê as variantes do produto (`ordem`) e as colunas vêm de `grade_proporcao`; "Tamanho em" filtra as colunas; Acessórios =
 // UN; enviado à Explosão (e importado) mostram o motivo; erro de leitura é honesto; nada grava.
 import { describe, it, expect, beforeEach } from "vitest";
@@ -220,10 +220,11 @@ describe("ProdutosGradeTabela — expandir (PR-GRADE-1)", () => {
     const [l1, l2] = linhasMatriz(t.container);
     expect(l1).toEqual(["Branco", "6", "4", "10"]);
     expect(l2).toEqual(["Azul - Mar", "2", "0", "2"]);
-    // revenda não enviada: sem trava específica, só o aviso neutro de leitura
-    expect(t.container.querySelector("[data-testid=grade-somente-leitura]")!.textContent).toMatch(
-      /Somente leitura/,
+    // PR-GRADE-2: revenda SEM permissão de editar (o harness nasce sem permissões) = leitura + o motivo (nunca um campo editável que o banco recusaria)
+    expect(t.container.querySelector("[data-testid=grade-somente-leitura]")!.textContent).toBe(
+      "Sem permissão para editar esta grade.",
     );
+    expect(expandida(t.container)!.querySelectorAll("input")).toHaveLength(0);
     await t.desmontar();
   });
 

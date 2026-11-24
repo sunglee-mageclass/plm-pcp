@@ -172,6 +172,9 @@ function PlanejamentoPage() {
   const [fLancamento, setFLancamento] = useFilterState("planejamento", "Lançamento", []); // multi: [] = todos
   const [fEtapaKanban, setFEtapaKanban] = useFilterState("planejamento", "Etapa do kanban", []); // multi: [] = todas
   const [openId, setOpenId] = useState<string | null>(null);
+  // PR-GRADE-2 — seção que o Sheet abre ao nascer (botão "Editar a grade no Sheet" da Lista tipo Excel; Sheet lateral, NÃO troca de página).
+  // Só vale para a abertura feita por esse botão: limpa ao fechar (as aberturas normais — cards, deep-link — nunca a trazem).
+  const [secaoInicial, setSecaoInicial] = useState<string | null>(null);
   // Presença por campo NO CANVAS (ring nos campos inline dos cards — preço/data de lançamento).
   // Canal único por página (barato); o campoFocado codifica `<campo>:<modeloId>` do card focado.
   // Reforço de segurança S1 (achado S1): o canal leva a LOJA ATIVA no nome — presença/broadcast não passam por RLS, e o
@@ -1296,7 +1299,15 @@ function PlanejamentoPage() {
         <EmptyState icon={ClipboardList} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
       ) : visao === "lista" ? (
         // `sorted` = filtrado E ordenado pela tela (a Lista segue a mesma ordem); agrupamento não se aplica à grade.
-        <ProdutosGradeAba modelos={sorted} isMobile={isMobile} onDirtyChange={guarda.aoMudarSujo} />
+        <ProdutosGradeAba
+          modelos={sorted}
+          isMobile={isMobile}
+          onDirtyChange={guarda.aoMudarSujo}
+          onAbrirNoSheet={(id, secao) => {
+            setSecaoInicial(secao);
+            setOpenId(id);
+          }}
+        />
       ) : groups ? (
         <div className="space-y-8">
           {groups.map((g) => renderGroup(g, 0, g.key))}
@@ -1312,9 +1323,11 @@ function PlanejamentoPage() {
       {(openNew || openId) && (
         <PlanejamentoDetail
           modeloId={openId}
+          secaoInicial={secaoInicial}
           onClose={() => {
             setOpenNew(false);
             setOpenId(null);
+            setSecaoInicial(null);
             // Deep-link `?modelo=<id>` consumido (FF4): limpa da URL ao fechar — senão um
             // F5/"voltar" do browser reabre o mesmo card sozinho (mantém o resto do search).
             if (modeloParam) navigate({ search: (prev) => ({ ...prev, modelo: undefined }), replace: true, resetScroll: false });

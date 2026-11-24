@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- `sigla_sku` (cor/apelido) e colunas novas fora do types.ts: `as any` no builder, como as queries da ficha */
-// PR-GRADE-1 — dados da GRADE DE TAMANHOS de UM produto (modelo), para a linha EXPANDIDA da Lista tipo Excel. SÓ LEITURA.
+// PR-GRADE-1 — dados da GRADE DE TAMANHOS de UM produto (modelo), para a linha EXPANDIDA da Lista tipo Excel. LEITURA (a EDIÇÃO da
+// revenda, PR-GRADE-2, mora em `useRascunhoGradeRevenda`; este hook só entrega os dados + o `rev` lido junto, base do CAS).
 //
 // ⚠️ SOB DEMANDA: este hook só é montado quando a linha é EXPANDIDA (`ProdutoLinhaExpandida` só existe expandida) e
 // `ativo` liga as queries — NUNCA carrega a grade de todos os modelos de uma vez.
@@ -21,16 +22,15 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { normalizarOrigem, type Origem } from "@/lib/origem";
 import { labelVarianteRowComSigla, varianteLabel } from "@/lib/variante";
 import { tamanhosVisiveis, tipoEfetivo, type TamanhoVisivel } from "@/lib/tamanho-exibicao";
+import { MOTIVO_ENVIADO_EXPLOSAO, MOTIVO_IMPORTADO } from "@/lib/produto-grade/grade-revenda";
 
 export type CorGrade = { num: number; label: string };
 
 /** Mesmo fallback de `useFichaDados` quando a loja ainda não configurou `tamanhos_grade`. */
 const TAMANHOS_PADRAO = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 
-export const MOTIVO_ENVIADO_EXPLOSAO =
-  "Produto enviado à Explosão: a grade só muda pelo botão Editar do card.";
-export const MOTIVO_IMPORTADO =
-  "A grade do importado grava junto com a ficha do Desenvolvimento — só quem edita o Desenvolvimento a altera.";
+// (os motivos de trava moraram aqui na PR-GRADE-1; agora vêm de `lib/produto-grade/grade-revenda` — mesma fonte da edição)
+export { MOTIVO_ENVIADO_EXPLOSAO, MOTIVO_IMPORTADO };
 
 type LinhaGradeDb = {
   variante_numero: number;
@@ -38,7 +38,13 @@ type LinhaGradeDb = {
   grade_total: number | null;
 };
 
-type DadosBrutos = {
+/** Chave do cache da grade de UM produto (a edição da revenda a relê por aqui no P0409/depois de salvar). */
+export const chaveGradeTamanhos = (modeloId: string | null, origem: Origem) =>
+  ["modelos-planejamento", "grade-tamanhos", modeloId, origem] as const;
+
+export type DadosBrutos = {
+  /** `modelos.rev` lido ANTES da grade (revenda): base do CAS da edição. Rev velho só falha por P0409 (seguro). `null` = interno/importado. */
+  rev: number | null;
   cores: CorGrade[];
   grades: Record<number, Record<string, number>>;
   totais: Record<number, number>;
@@ -101,21 +107,38 @@ async function lerInterno(modeloId: string): Promise<{ cores: CorGrade[]; rows: 
 async function lerComprado(
   modeloId: string,
   origem: "revenda" | "importado",
-): Promise<{ cores: CorGrade[]; proporcao: string[]; semProduto: boolean; rows: LinhaGradeDb[] }> {
+): Promise<{
+  cores: CorGrade[];
+  proporcao: string[];
+  semProduto: boolean;
+  rows: LinhaGradeDb[];
+  rev: number | null;
+}> {
   const cfg = PRODUTO_POR_ORIGEM[origem];
   const { data, error } = await (supabase.from(cfg.tabela as any) as any)
     .select(cfg.select)
     .eq("modelo_id", modeloId)
     .maybeSingle();
   if (error) throw error;
-  if (!data) return { cores: [], proporcao: [], semProduto: true, rows: [] };
+  if (!data) return { cores: [], proporcao: [], semProduto: true, rows: [], rev: null };
   const variantes = [...((data.variantes ?? []) as any[])].sort((a, b) => a.ordem - b.ordem);
   const cores = variantes.map((v) => ({
     num: Number(v.ordem),
     label: varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome }),
   }));
   const proporcao = Object.keys((data.grade_proporcao ?? {}) as Record<string, number>);
-  return { cores, proporcao, semProduto: false, rows: await lerGrades(modeloId) };
+  // Revenda (a única que edita na lista): o `rev` é lido ANTES da grade — se alguém salvar no meio, o rev fica mais VELHO que a grade e o
+  // Salvar dá P0409 (relê); nunca o contrário (rev novo com grade velha deixaria regravar por cima).
+  let rev: number | null = null;
+  if (origem === "revenda") {
+    const { data: m, error: eRev } = await (supabase.from("modelos") as any)
+      .select("rev")
+      .eq("id", modeloId)
+      .maybeSingle();
+    if (eRev) throw eRev;
+    rev = typeof m?.rev === "number" ? m.rev : null;
+  }
+  return { cores, proporcao, semProduto: false, rows: await lerGrades(modeloId), rev };
 }
 
 function lerTamanhosTenant(raw: unknown): string[] {
@@ -149,7 +172,7 @@ export function useProdutoGradeTamanhos({
   // queryKey com o MESMO prefixo da grade (["modelos-planejamento", ...]): a invalidação do salvar/Realtime de `modelos` refresca
   // as linhas ABERTAS (as fechadas não têm query ativa — não custam nada).
   const q = useQuery({
-    queryKey: ["modelos-planejamento", "grade-tamanhos", modeloId, origemN],
+    queryKey: chaveGradeTamanhos(modeloId, origemN),
     enabled: on,
     queryFn: async (): Promise<DadosBrutos> => {
       const id = modeloId as string;
@@ -157,10 +180,11 @@ export function useProdutoGradeTamanhos({
       let rows: LinhaGradeDb[];
       let proporcao: string[] | null = null;
       let semProduto = false;
+      let rev: number | null = null;
       if (origemN === "interno") {
         ({ cores, rows } = await lerInterno(id));
       } else {
-        ({ cores, rows, proporcao, semProduto } = await lerComprado(id, origemN));
+        ({ cores, rows, proporcao, semProduto, rev } = await lerComprado(id, origemN));
       }
       const grades: Record<number, Record<string, number>> = {};
       const totais: Record<number, number> = {};
@@ -170,7 +194,7 @@ export function useProdutoGradeTamanhos({
         grades[r.variante_numero] = g;
         totais[r.variante_numero] = r.grade_total ?? Object.values(g).reduce((s, v) => s + v, 0);
       }
-      return { cores, grades, totais, proporcao, semProduto };
+      return { rev, cores, grades, totais, proporcao, semProduto };
     },
   });
 
@@ -224,6 +248,8 @@ export function useProdutoGradeTamanhos({
 
   return {
     origem: origemN,
+    /** `modelos.rev` de quando a grade foi lida (revenda; base do CAS da edição). */
+    rev: dados?.rev ?? null,
     cores: dados?.cores ?? ([] as CorGrade[]),
     tamanhos,
     colunas,
@@ -231,10 +257,15 @@ export function useProdutoGradeTamanhos({
     gradeTotal: dados?.totais ?? ({} as Record<number, number>),
     semProduto: dados?.semProduto ?? false,
     carregando: on && (q.isLoading || (!acessorio && qTam.isLoading)),
-    erro: (q.isError ? q.error : qTam.isError ? qTam.error : null) as Error | null,
+    // Erro só SEM dado: uma releitura que falha com a grade já na tela (rascunho em edição!) não pode trocá-la por um aviso e perder o que foi digitado.
+    erro: (q.isError && !q.data
+      ? q.error
+      : qTam.isError && !qTam.data
+        ? qTam.error
+        : null) as Error | null,
     recarregar: () =>
       Promise.all([q.isError ? q.refetch() : null, qTam.isError ? qTam.refetch() : null]),
-    /** Trava que a PR-GRADE-2 respeita (enviado à Explosão; importado grava pela ficha). Nesta PR TUDO é só-leitura de qualquer jeito. */
+    /** Trava de leitura por motivo ESTRUTURAL (enviado à Explosão; importado grava pela ficha). A permissão/tela só-leitura vêm de `motivoGradeRevendaSomenteLeitura`. */
     somenteLeitura: !!enviadoCad || origemN === "importado",
     motivoSomenteLeitura,
   };
