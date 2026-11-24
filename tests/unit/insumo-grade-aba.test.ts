@@ -2,7 +2,7 @@
 // @vitest-environment happy-dom
 // Grade "Lista" de Cadastro > Insumos (IN-1, fundação): render de verdade da `InsumosGradeAba` (shell) + `useInsumosGrade` com
 // `supabase` mockado. Prova: 1 linha por COR (a contagem de cores), tamanhos da grade da loja (config ou padrão), erro HONESTO (C3 —
-// nenhuma consulta que falha vira "vazio"/padrão), queryKeys únicas `insumos-grade`, e o placeholder do shell.
+// nenhuma consulta que falha vira "vazio"/padrão) e queryKeys únicas `insumos-grade`. (A edição fica em insumo-grade-edicao-aba.)
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -120,6 +120,14 @@ async function montar(props: Record<string, unknown> = {}) {
       tentarDeNovo: vi.fn(),
     }),
   }));
+  // a grade editável usa a guarda de navegação (useBlocker precisa de roteador)
+  vi.doMock("@tanstack/react-router", () => ({
+    createFileRoute: () => () => ({ useParams: () => ({}) }),
+    Link: (p: any) => createElement("a", null, p.children),
+    useNavigate: () => vi.fn(),
+    useBlocker: () => ({ status: "idle" as const, proceed: vi.fn(), reset: vi.fn() }),
+  }));
+  vi.doMock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { InsumosGradeAba } = await import("@/components/insumo/grade/InsumosGradeAba");
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -142,15 +150,15 @@ async function montar(props: Record<string, unknown> = {}) {
   };
 }
 
-describe("InsumosGradeAba (shell da fundação)", () => {
-  it("mostra a contagem de insumos e de COR (não de cor×tamanho) e o placeholder", async () => {
+describe("InsumosGradeAba (dados da fundação IN-1)", () => {
+  it("mostra a contagem de insumos e de COR (não de cor×tamanho) e a tabela", async () => {
     const t = await montar();
     const txt = t.container.textContent ?? "";
     expect(t.container.querySelector("[data-testid=insumos-grade-aba]")).not.toBeNull();
     expect(txt).toContain("2");
     expect(txt).toMatch(/2\s*insumos/);
     expect(txt).toMatch(/2\s*cores/); // azul + verde; os 2 tamanhos do azul NÃO viram cores
-    expect(t.container.querySelector("[data-testid=insumos-grade-placeholder]")).not.toBeNull();
+    expect(t.container.querySelector("[data-testid=insumos-grade-tabela]")).not.toBeNull();
     await t.desmontar();
   });
 
@@ -173,12 +181,12 @@ describe("InsumosGradeAba (shell da fundação)", () => {
     await t.desmontar();
   });
 
-  it("avisa a tela-mãe que não há rascunho (onDirtyChange(false)) e não mostra o placeholder no celular", async () => {
+  it("avisa a tela-mãe que não há rascunho (onDirtyChange(false)) e não desenha a tabela no celular", async () => {
     const onDirtyChange = vi.fn();
     const t = await montar({ onDirtyChange, isMobile: true });
     expect(onDirtyChange).toHaveBeenCalledWith(false);
     expect(onDirtyChange).not.toHaveBeenCalledWith(true);
-    expect(t.container.querySelector("[data-testid=insumos-grade-placeholder]")).toBeNull();
+    expect(t.container.querySelector("[data-testid=insumos-grade-tabela]")).toBeNull();
     await t.desmontar();
   });
 
@@ -190,7 +198,7 @@ describe("InsumosGradeAba (shell da fundação)", () => {
     expect(txt).toContain("Não foi possível carregar a lista de insumos.");
     expect(txt).toContain("Tentar de novo");
     expect(txt).not.toMatch(/0\s*insumos/);
-    expect(t.container.querySelector("[data-testid=insumos-grade-placeholder]")).toBeNull();
+    expect(t.container.querySelector("[data-testid=insumos-grade-tabela]")).toBeNull();
     await t.desmontar();
   });
 
