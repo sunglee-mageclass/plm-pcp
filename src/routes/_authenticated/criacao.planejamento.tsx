@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, MoreHorizontal, ExternalLink, Boxes } from "lucide-react";
+import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, MoreHorizontal, ExternalLink, Boxes, List } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -49,6 +49,9 @@ import {
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CARROSSEL_CLASS, GRID_CARROSSEL_ITEM_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useUserPref } from "@/hooks/useUiPrefs";
+import { useGuardaTrocaLista } from "@/components/shared/useGuardaTrocaLista";
+import { ProdutosGradeAba } from "@/components/planejamento/grade/ProdutosGradeAba";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { brl } from "@/lib/format";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
@@ -197,6 +200,15 @@ function PlanejamentoPage() {
   // de ações em massa aparece quando há ≥1 selecionado.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const isMobile = useIsMobile();
+  // Visão da tela: "cards" (padrão) | "lista" (grade tipo Excel). Persistida por usuário (`user_ui_prefs`). No celular a grade não abre:
+  // força Cards (e avisa se a preferência salva era Lista).
+  const [visaoPref, setVisaoPref] = useUserPref("filtro", "planejamento", "visao", ["cards"]);
+  const visaoSalva: "cards" | "lista" = visaoPref[0] === "lista" ? "lista" : "cards";
+  const visao: "cards" | "lista" = isMobile ? "cards" : visaoSalva;
+  const avisoListaMobile = isMobile && visaoSalva === "lista";
+  // Rascunho da Lista (PR-2): trocar de visão (Cards) ou a busca desmonta/esvazia a grade e DESCARTARIA o que não foi salvo → pede
+  // confirmação. Nesta fundação a grade avisa sempre "limpo". Os filtros ganham o mesmo `proteger` na PR-2 (quando houver rascunho).
+  const guarda = useGuardaTrocaLista("produtos");
   const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAllFiltered = () => setSelected(new Set(sorted.map((m) => m.id)));
   const clearSel = () => setSelected(new Set());
@@ -1082,8 +1094,8 @@ function PlanejamentoPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto max-sm:justify-end">
-          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome ou REF…" />
-          {groups && allGroupPaths.length > 0 && (
+          <SearchToggle value={search} onChange={guarda.proteger(setSearch)} placeholder="Pesquisar por nome ou REF…" />
+          {visao === "cards" && groups && allGroupPaths.length > 0 && (
             <Button
               variant="outline"
               size="sm"
@@ -1107,6 +1119,38 @@ function PlanejamentoPage() {
           >
             <CheckSquare className="h-4 w-4" />
           </Button>
+          {!isMobile && (
+            <div
+              role="group"
+              aria-label="Visão da tela"
+              className="inline-flex items-center rounded-md border p-0.5"
+            >
+              <Button
+                type="button"
+                size="sm"
+                variant={visao === "cards" ? "secondary" : "ghost"}
+                aria-pressed={visao === "cards"}
+                className="h-7 px-2"
+                onClick={guarda.proteger(() => setVisaoPref(["cards"]))}
+              >
+                <LayoutGrid className="h-3.5 w-3.5 mr-1" /> Cards
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={visao === "lista" ? "secondary" : "ghost"}
+                aria-pressed={visao === "lista"}
+                className="h-7 px-2"
+                onClick={() => {
+                  // A seleção em massa só existe nos cards: sair dela evita ações em massa sobre uma seleção que a Lista não mostra.
+                  clearSel();
+                  setVisaoPref(["lista"]);
+                }}
+              >
+                <List className="h-3.5 w-3.5 mr-1" /> Lista
+              </Button>
+            </div>
+          )}
           <AgrupamentoButton
             groups={[
               { label: "Fam. de Produtos", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
@@ -1206,7 +1250,7 @@ function PlanejamentoPage() {
             </Button>
           )}
         </div>
-        <div className="hidden lg:flex items-center gap-1.5">
+        <div className={`${visao === "cards" ? "hidden lg:flex" : "hidden"} items-center gap-1.5`}>
           <LayoutGrid className="h-4 w-4 text-muted-foreground" />
           <Label className="text-xs text-muted-foreground">Colunas</Label>
           <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
@@ -1218,9 +1262,22 @@ function PlanejamentoPage() {
         </div>
       </div>
 
+      {avisoListaMobile && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+          <span>A lista tipo Excel é usada no computador. No celular, abra pelos cartões.</span>
+        </div>
+      )}
+
       <div ref={gridRef}>
       {filtered.length === 0 ? (
         <EmptyState icon={ClipboardList} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
+      ) : visao === "lista" ? (
+        // `sorted` = filtrado E ordenado pela tela (a Lista segue a mesma ordem); agrupamento não se aplica à grade.
+        <ProdutosGradeAba modelos={sorted} isMobile={isMobile} onDirtyChange={guarda.aoMudarSujo} />
       ) : groups ? (
         <div className="space-y-8">
           {groups.map((g) => renderGroup(g, 0, g.key))}
@@ -1229,7 +1286,9 @@ function PlanejamentoPage() {
         <div className={GRID_COLS_CARROSSEL_CLASS[cols]}>{sorted.map(renderCard)}</div>
       )}
       </div>
-      {filtered.length > 0 && <EtapaKanbanLegenda ligado={kanbanLigado} />}
+      {visao === "cards" && filtered.length > 0 && <EtapaKanbanLegenda ligado={kanbanLigado} />}
+
+      {guarda.dialog}
 
       {(openNew || openId) && (
         <PlanejamentoDetail
